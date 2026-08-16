@@ -1,0 +1,5 @@
+# ponytail: expo-libghostty's postinstall unzips an iOS xcframework the relay
+# never uses; unzip is the only tool missing from the Nixpacks base image.
+# aptPkgs is additive — setting nixPkgs would replace the detected node/yarn.
+[phases.setup]
+aptPkgs = ["unzip"]

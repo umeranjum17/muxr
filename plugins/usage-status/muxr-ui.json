@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "pluginId": "muxr.usage-status",
+  "contributions": [
+    {
+      "slot": "host.rpc",
+      "id": "usage",
+      "type": "rpc",
+      "method": "usage",
+      "entry": "rpc.mjs"
+    },
+    {
+      "slot": "home.cards",
+      "id": "card",
+      "type": "data-card",
+      "title": "Usage",
+      "presentation": "sheet",
+      "source": {
+        "type": "plugin.call",
+        "contributionId": "usage"
+      },
+      "emptyText": "Usage unavailable"
+    },
+    {
+      "slot": "session.header.trailing",
+      "id": "chip",
+      "type": "data-card",
+      "title": "Usage",
+      "source": {
+        "type": "plugin.call",
+        "contributionId": "usage"
+      },
+      "emptyText": "\u2014",
+      "presentation": "sheet",
+      "icon": "speedometer-outline"
+    }
+  ]
+}

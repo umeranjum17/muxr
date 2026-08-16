@@ -1,0 +1,71 @@
+{
+  "schemaVersion": 1,
+  "pluginId": "example.muxr-ui",
+  "minMuxrVersion": 6,
+  "capabilities": {
+    "example.list": "list-rpc",
+    "example.save": "save-rpc"
+  },
+  "contributions": [
+    {
+      "slot": "host.rpc",
+      "id": "list-rpc",
+      "type": "rpc",
+      "method": "list",
+      "entry": "rpc.mjs",
+      "mode": "read"
+    },
+    {
+      "slot": "host.rpc",
+      "id": "save-rpc",
+      "type": "rpc",
+      "method": "save",
+      "entry": "rpc.mjs",
+      "mode": "write"
+    },
+    {
+      "slot": "navigation.content",
+      "id": "example-screen",
+      "type": "screen",
+      "title": "{{data.title}}",
+      "data": { "type": "plugin.call", "contributionId": "list-rpc" },
+      "children": [
+        {
+          "type": "text",
+          "text": "This screen is declared in muxr-ui.json. Every node is a native muxr component; nothing is downloaded.",
+          "tone": "secondary"
+        },
+        {
+          "type": "section",
+          "title": "Status",
+          "children": [
+            { "type": "metric", "label": "Status", "value": "{{data.status}}" },
+            { "type": "progress", "value": 60, "max": 100 },
+            { "type": "badge", "label": "beta", "tone": "warning" }
+          ]
+        },
+        { "type": "divider" },
+        {
+          "type": "list",
+          "title": "Recent sessions",
+          "emptyText": "No sessions yet",
+          "rows": [],
+          "repeat": {
+            "path": "data.sessions",
+            "template": { "type": "row", "title": "{{item.title}}", "subtitle": "{{item.cwd}}", "value": "{{item.status}}" }
+          }
+        },
+        {
+          "type": "section",
+          "title": "Preferences (form)",
+          "children": [
+            { "type": "field", "kind": "text", "id": "name", "label": "Display name", "placeholder": "Ada", "value": "Ada" },
+            { "type": "field", "kind": "switch", "id": "enabled", "label": "Enable updates", "value": "true" },
+            { "type": "field", "kind": "select", "id": "tier", "label": "Tier", "options": ["free", "pro"], "value": "free" },
+            { "type": "button", "label": "Save preferences", "action": { "type": "plugin.call", "contributionId": "save-rpc" }, "fields": ["name", "enabled", "tier"], "variant": "primary" }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,4 @@
+{ "schemaVersion": 1, "pluginId": "muxr.dictation", "minMuxrVersion": 2, "contributions": [
+  { "slot": "home.composer.trailing", "id": "dictate-home", "type": "native", "primitive": "dictate" },
+  { "slot": "session.composer.trailing", "id": "dictate-session", "type": "native", "primitive": "dictate" }
+] }

@@ -1,0 +1,21 @@
+name: Bug
+description: Something muxr does that it should not
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you tapped, what you expected, what you got.
+    validations:
+      required: true
+  - type: textarea
+    id: host
+    attributes:
+      label: Host vs herdr
+      description: Paste `herdr agent list` if this is live behavior, and say whether it agrees with the app. Host log slice from `journalctl --user -u muxr.service` if you have it.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: git sha, APK build, or `node scripts/cli.mjs version`

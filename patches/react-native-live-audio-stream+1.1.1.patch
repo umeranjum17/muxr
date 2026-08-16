@@ -1,0 +1,193 @@
+diff --git a/node_modules/react-native-live-audio-stream/android/src/main/java/com/imxiqi/rnliveaudiostream/RNLiveAudioStreamModule.java b/node_modules/react-native-live-audio-stream/android/src/main/java/com/imxiqi/rnliveaudiostream/RNLiveAudioStreamModule.java
+index 20f454f..d0884a0 100644
+--- a/node_modules/react-native-live-audio-stream/android/src/main/java/com/imxiqi/rnliveaudiostream/RNLiveAudioStreamModule.java
++++ b/node_modules/react-native-live-audio-stream/android/src/main/java/com/imxiqi/rnliveaudiostream/RNLiveAudioStreamModule.java
+@@ -27,7 +27,8 @@ public class RNLiveAudioStreamModule extends ReactContextBaseJavaModule {
+
+     private AudioRecord recorder;
+     private int bufferSize;
+-    private boolean isRecording;
++    private volatile boolean isRecording;
++    private volatile Thread recordingThread;
+
+     public RNLiveAudioStreamModule(ReactApplicationContext reactContext) {
+         super(reactContext);
+@@ -39,8 +40,50 @@ public class RNLiveAudioStreamModule extends ReactContextBaseJavaModule {
+         return "RNLiveAudioStream";
+     }
+
++    private synchronized void stopAndReleaseRecorder() {
++        isRecording = false;
++        final AudioRecord current = recorder;
++        final Thread thread = recordingThread;
++        if (current != null) {
++            // stop() unblocks a read immediately on devices where the loop does
++            // not observe isRecording until AudioRecord.read returns.
++            try {
++                current.stop();
++            } catch (Exception ignored) {
++            }
++        }
++        if (thread != null && thread != Thread.currentThread()) {
++            // AudioRecord.stop() unblocks read(). Never release the native
++            // recorder while that read thread can still be using it: a handoff,
++            // AppState and explicit voice handoffs may all request stop at the
++            // same time. Even interruption cannot make release race the read.
++            boolean interrupted = false;
++            while (thread.isAlive()) {
++                try {
++                    thread.join();
++                } catch (InterruptedException error) {
++                    interrupted = true;
++                }
++            }
++            if (interrupted) {
++                Thread.currentThread().interrupt();
++            }
++        }
++        recorder = null;
++        recordingThread = null;
++        if (current == null) return;
++        try {
++            current.release();
++        } catch (Exception ignored) {
++        }
++    }
++
+     @ReactMethod
+-    public void init(ReadableMap options) {
++    public void init(ReadableMap options, Promise promise) {
++        // A second init without release left the previous AudioRecord alive, so
++        // WebRTC could not open the mic and some OEMs killed the process.
++        stopAndReleaseRecorder();
++
+         sampleRateInHz = 44100;
+         if (options.hasKey("sampleRate")) {
+             sampleRateInHz = options.getInt("sampleRate");
+@@ -65,7 +108,6 @@ public class RNLiveAudioStreamModule extends ReactContextBaseJavaModule {
+             audioSource = options.getInt("audioSource");
+         }
+
+-        isRecording = false;
+         eventEmitter = reactContext.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class);
+
+         bufferSize = AudioRecord.getMinBufferSize(sampleRateInHz, channelConfig, audioFormat);
+@@ -75,15 +117,51 @@ public class RNLiveAudioStreamModule extends ReactContextBaseJavaModule {
+         }
+
+         int recordingBufferSize = bufferSize * 3;
+-        recorder = new AudioRecord(audioSource, sampleRateInHz, channelConfig, audioFormat, recordingBufferSize);
++        AudioRecord next;
++        try {
++            next = new AudioRecord(audioSource, sampleRateInHz, channelConfig, audioFormat, recordingBufferSize);
++        } catch (Exception error) {
++            // Invalid params for this device (e.g. unsupported source) threw
++            // before it could be reported; JS must know the mic is not running.
++            Log.e("RNLiveAudioStream", "AudioRecord constructor failed", error);
++            recorder = null;
++            promise.reject("E_INIT", "AudioRecord failed to initialize");
++            return;
++        }
++        if (next.getState() != AudioRecord.STATE_INITIALIZED) {
++            try {
++                next.release();
++            } catch (Exception ignored) {
++            }
++            Log.e("RNLiveAudioStream", "AudioRecord failed to initialize");
++            recorder = null;
++            promise.reject("E_INIT", "AudioRecord failed to initialize");
++            return;
++        }
++        recorder = next;
++        promise.resolve(true);
+     }
+
+     @ReactMethod
+-    public void start() {
++    public void start(Promise promise) {
++        final AudioRecord current = recorder;
++        if (current == null || current.getState() != AudioRecord.STATE_INITIALIZED) {
++            Log.e("RNLiveAudioStream", "start() called without a usable AudioRecord");
++            promise.reject("E_START", "start() called without a usable AudioRecord");
++            return;
++        }
+         isRecording = true;
+-        recorder.startRecording();
++        try {
++            current.startRecording();
++        } catch (Exception error) {
++            // Uncaught IllegalStateException here used to take the whole app down.
++            Log.e("RNLiveAudioStream", "startRecording failed", error);
++            isRecording = false;
++            promise.reject("E_START", "startRecording failed: " + error.getMessage());
++            return;
++        }
+
+-        Thread recordingThread = new Thread(new Runnable() {
++        Thread nextThread = new Thread(new Runnable() {
+             public void run() {
+                 try {
+                     int bytesRead;
+@@ -92,26 +170,43 @@ public class RNLiveAudioStreamModule extends ReactContextBaseJavaModule {
+                     byte[] buffer = new byte[bufferSize];
+
+                     while (isRecording) {
+-                        bytesRead = recorder.read(buffer, 0, buffer.length);
++                        bytesRead = current.read(buffer, 0, buffer.length);
+
+                         // skip first 2 buffers to eliminate "click sound"
+                         if (bytesRead > 0 && ++count > 2) {
+-                            base64Data = Base64.encodeToString(buffer, Base64.NO_WRAP);
++                            base64Data = Base64.encodeToString(buffer, 0, bytesRead, Base64.NO_WRAP);
+                             eventEmitter.emit("data", base64Data);
+                         }
+                     }
+-                    recorder.stop();
+                 } catch (Exception e) {
+                     e.printStackTrace();
++                } finally {
++                    try {
++                        current.stop();
++                    } catch (Exception ignored) {
++                    }
+                 }
+             }
+         });
+
+-        recordingThread.start();
++        recordingThread = nextThread;
++        nextThread.start();
++        promise.resolve(true);
+     }
+
+     @ReactMethod
+     public void stop(Promise promise) {
+         isRecording = false;
++        // Wait off the native module queue: stop() unblocks read, the join
++        // lets its finally block finish, and only then is release verified
++        // to have happened before the Promise resolves to WebRTC.
++        new Thread(new Runnable() {
++            public void run() {
++                stopAndReleaseRecorder();
++                if (promise != null) {
++                    promise.resolve(true);
++                }
++            }
++        }).start();
+     }
+ }
+diff --git a/node_modules/react-native-live-audio-stream/index.d.ts b/node_modules/react-native-live-audio-stream/index.d.ts
+index b846438..35490e3 100644
+--- a/node_modules/react-native-live-audio-stream/index.d.ts
++++ b/node_modules/react-native-live-audio-stream/index.d.ts
+@@ -1,7 +1,7 @@
+ declare module "react-native-live-audio-stream" {
+   export interface IAudioRecord {
+-    init: (options: Options) => void
+-    start: () => void
+-    stop: () => Promise<string>
++    init: (options: Options) => Promise<boolean>
++    start: () => Promise<boolean>
++    stop: () => Promise<boolean>
+     on: (event: "data", callback: (data: string) => void) => void
+   }

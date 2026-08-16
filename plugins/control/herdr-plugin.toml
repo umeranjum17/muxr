@@ -1,0 +1,42 @@
+id = "muxr.control"
+name = "muxr"
+version = "0.1.0"
+min_herdr_version = "0.8.0"
+description = "Set up, pair, and operate muxr from Herdr"
+platforms = ["linux", "macos"]
+
+[[panes]]
+id = "setup"
+title = "muxr setup"
+placement = "overlay"
+command = ["node", "./run.mjs", "setup"]
+
+[[panes]]
+id = "pair"
+title = "Pair muxr"
+placement = "overlay"
+command = ["node", "./run.mjs", "pair"]
+
+[[panes]]
+id = "devices"
+title = "muxr devices"
+placement = "overlay"
+command = ["node", "./run.mjs", "devices"]
+
+[[panes]]
+id = "doctor"
+title = "muxr doctor"
+placement = "overlay"
+command = ["node", "./run.mjs", "doctor"]
+
+[[panes]]
+id = "service"
+title = "muxr service"
+placement = "overlay"
+command = ["node", "./run.mjs", "service"]
+
+[[panes]]
+id = "selfhost"
+title = "muxr self-host relay"
+placement = "overlay"
+command = ["node", "./run.mjs", "selfhost"]

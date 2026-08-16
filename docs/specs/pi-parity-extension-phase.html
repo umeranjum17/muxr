@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Pi-Parity Extension Phase</title>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@600;700&family=Hanken+Grotesk:wght@400;600&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
+  <style>
+    :root{--paper:#f4efe4;--card:#faf7ef;--ink:#211c15;--muted:#6b6253;--accent:#d14523;--line:#ddd3bf}
+    *{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:17px/1.65 'Hanken Grotesk',sans-serif}
+    main{max-width:820px;margin:auto;padding:64px 24px 96px}h1,h2{font-family:Fraunces,serif;line-height:1.1}h1{font-size:clamp(42px,7vw,70px);margin:.25em 0}h2{font-size:29px;margin:0 0 12px}
+    .eyebrow,.meta,.badge{font:500 12px 'IBM Plex Mono',monospace;text-transform:uppercase;letter-spacing:.08em}
+    .badge{display:inline-block;color:white;background:#b8791f;padding:7px 11px;border-radius:999px}
+    .meta{color:var(--muted);margin:18px 0 40px}.lead{font-size:22px}
+    .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:26px;margin:20px 0;box-shadow:0 8px 24px #6b625312}
+    code,pre{font-family:'IBM Plex Mono',monospace}code{background:#eadfcb;padding:2px 5px;border-radius:4px}
+    pre{background:var(--ink);color:#f7f0e1;padding:18px;border-radius:10px;overflow-x:auto}
+    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:16px}
+    .check{list-style:none;padding:0}.check li{padding:7px 0;border-bottom:1px solid var(--line)}
+    .check li:before{content:'◑';color:#b8791f;margin-right:10px}
+    a{color:#9c2f17}@media(max-width:560px){main{padding-top:36px}.card{padding:20px}}
+  </style>
+</head>
+<body>
+<main>
+  <div class="eyebrow">muxr tracked specification</div>
+  <h1>Pi-Parity Extension Phase</h1>
+  <span class="badge">Implemented</span>
+  <div class="meta">pi-parity-extension-phase.md · created 2026-08-14 · updated 2026-08-15 · umer</div>
+  <p class="lead">A thin kernel plus plugins, like Pi: Herdr runs backend code, the phone only composes approved native surfaces. No downloaded mobile code.</p>
+  <section class="card">
+    <h2>Context</h2>
+    <p>muxr discovers Herdr packages, validates hash-bound manifests, asks each device for approval, and composes approved contributions through generic slots. The original four milestones shipped. The 2026-08-15 leftover is the conversion from <code>extension.*</code> names: the shell still mounted every destination at <code>/inbox</code> and titled it Inbox, so a third-party tab could not look like its own surface.</p>
+  </section>
+  <div class="grid">
+    <section class="card">
+      <h2>1. Declarative screens</h2>
+      <p>List, detail, metric, badge, progress, divider, empty, button, text, switch, and select nodes. Data and submission reuse <code>plugin.call</code>; session actions reuse <code>plugin.invoke</code>.</p>
+    </section>
+    <section class="card">
+      <h2>2. Package management</h2>
+      <p><code>muxr plugin</code> installs, lists, updates, and removes local, git, and npm packages. Every runtime mutation still ends in Herdr.</p>
+    </section>
+    <section class="card">
+      <h2>3. Reload + invalidation</h2>
+      <p>A bounded Herdr catalog poll detects re-links and emits <code>plugins.invalidated</code> without a reconnect, filesystem watcher, or second runtime.</p>
+    </section>
+    <section class="card">
+      <h2>4. Attachment guardrails</h2>
+      <p>Bounded healing, file, patch, inbox, and renderer caps keep large sessions interactive.</p>
+    </section>
+  </div>
+  <section class="card">
+    <h2>2026-08-15 leftover</h2>
+    <p>The generic content mount is <code>/plugin</code>. Inbox remains a plugin that uses it. <code>/inbox</code> redirects. Leftover <code>extension*</code> identifiers in the mobile runtime are renamed. Decision 0005 notes that the wire shipped as <code>plugin.*</code>.</p>
+  </section>
+  <section class="card">
+    <h2>Authority model</h2>
+    <pre>package source
+  → Herdr registry/runtime
+  → host validation + manifest hash
+  → per-device approval
+  → /plugin mount or compiled native slot
+
+source/authority change
+  → new hash
+  → stale approval rejected
+  → surfaces removed until re-approved</pre>
+  </section>
+  <section class="card">
+    <h2>Hard boundaries</h2>
+    <ul>
+      <li>No downloaded React, JavaScript UI, HTML, WebViews, SVG renderers, or native modules.</li>
+      <li>No new <code>plugin.data</code> request and no schema major bump.</li>
+      <li>No password or secret form fields; screen actions use bounded host RPC only.</li>
+      <li>No npm lifecycle scripts or dependency installation in package v1.</li>
+      <li>Write RPCs require idempotency; complete responses are capped before parsing and transport.</li>
+      <li>No second plugin registry or process runtime.</li>
+      <li>The shell names no product feature in the content mount.</li>
+    </ul>
+  </section>
+  <section class="card">
+    <h2>Verification</h2>
+    <ul class="check">
+      <li>Mobile typecheck and focused plugin/invalidation flows pass</li>
+      <li>A navigation destination opens <code>/plugin</code> with that plugin's own title</li>
+      <li>Inbox still appears as a plugin destination, not a shell tab named Inbox</li>
+      <li>Prior milestone checks remain the historical tested record</li>
+    </ul>
+  </section>
+  <p><a href="index.html">Back to specification board</a></p>
+</main>
+</body>
+</html>

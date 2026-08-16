@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "pluginId": "muxr.workspace-hierarchy",
+  "minMuxrVersion": 4,
+  "contributions": [
+    {
+      "slot": "session.overlay",
+      "id": "hierarchy",
+      "type": "native",
+      "primitive": "tree-sheet",
+      "params": {
+        "source": { "type": "plugin.call", "contributionId": "tree" },
+        "title": "Workspace"
+      }
+    },
+    {
+      "slot": "host.rpc",
+      "id": "tree",
+      "type": "rpc",
+      "method": "tree",
+      "entry": "rpc.mjs",
+      "mode": "read",
+      "context": ["workspace-tree"]
+    }
+  ]
+}

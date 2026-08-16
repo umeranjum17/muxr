@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <capability android:name="actions.intent.OPEN_APP_FEATURE">
+        <intent>
+            <url-template android:value="muxr://shortcut{/featureParam}" />
+            <parameter android:name="feature" android:key="featureParam" />
+        </intent>
+    </capability>
+    <shortcut
+        android:shortcutId="muxr.voice.jarvis"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/muxr_shortcut_muxr_voice_jarvis_short"
+        android:shortcutLongLabel="@string/muxr_shortcut_muxr_voice_jarvis_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="app.muxr.local.preview"
+            android:targetClass="app.muxr.local.preview.MainActivity"
+            android:data="muxr://shortcut/muxr.voice.jarvis" />
+        <capability-binding android:key="actions.intent.OPEN_APP_FEATURE">
+            <parameter-binding
+                android:key="feature"
+                android:value="@array/muxr_shortcut_muxr_voice_jarvis_synonyms" />
+        </capability-binding>
+    </shortcut>
+</shortcuts>

@@ -1,0 +1,185 @@
+/** Assemble and license-audit the self-hostable npm artifact in dist-npm/ (host + relay + CLI). */
+import { build } from 'esbuild';
+import {
+    chmodSync,
+    copyFileSync,
+    cpSync,
+    existsSync,
+    mkdirSync,
+    readFileSync,
+    readdirSync,
+    rmSync,
+    statSync,
+    writeFileSync,
+} from 'node:fs';
+import { join } from 'node:path';
+import { createRequire } from 'node:module';
+import { packageInfoFromPath, packagePathFromInput } from './packageAudit.mjs';
+
+const require = createRequire(import.meta.url);
+const root = process.cwd();
+const out = join(root, 'dist-npm');
+const rootPackage = require(join(root, 'package.json'));
+const version = rootPackage.version ?? '0.1.0';
+const runtimeDependencies = { ws: '^8.18.0', tweetnacl: '^1.0.3', qrcode: '^1.5.4', 'web-push': '^3.6.7' };
+const external = Object.keys(runtimeDependencies);
+rmSync(out, { recursive: true, force: true });
+mkdirSync(out, { recursive: true });
+
+const result = await build({
+    entryPoints: ['apps/host/dist/main.js'],
+    outfile: join(out, 'host.js'),
+    bundle: true,
+    platform: 'node',
+    format: 'esm',
+    target: 'node22',
+    external,
+    metafile: true,
+    minifyWhitespace: true,
+    legalComments: 'none',
+    logLevel: 'warning',
+});
+await build({
+    entryPoints: ['packages/crypto/dist/index.js'],
+    outfile: join(out, 'crypto.js'),
+    bundle: true,
+    platform: 'node',
+    format: 'esm',
+    target: 'node22',
+    external,
+    minifyWhitespace: true,
+    legalComments: 'none',
+    logLevel: 'warning',
+});
+
+await build({
+    entryPoints: ['apps/relay/dist/main.js'],
+    outfile: join(out, 'relay.js'),
+    bundle: true,
+    platform: 'node',
+    format: 'esm',
+    target: 'node22',
+    external,
+    minifyWhitespace: true,
+    legalComments: 'none',
+    logLevel: 'warning',
+});
+
+const bundledPackagePaths = new Set(
+    Object.keys(result.metafile.inputs)
+        .map((input) => packagePathFromInput(root, input))
+        .filter((path) => path !== undefined),
+);
+const bundledDependencies = [...bundledPackagePaths]
+    .sort()
+    .map((path) => ({ ...packageInfoFromPath(path, true), declaredRange: null }));
+const bundledNames = new Set(bundledDependencies.map(({ name }) => name));
+const dependencies = [
+    ...bundledDependencies,
+    ...external
+        .filter((name) => !bundledNames.has(name))
+        .sort()
+        .map((name) => ({
+            ...packageInfoFromPath(join(root, 'node_modules', ...name.split('/'), 'package.json'), false),
+            declaredRange: runtimeDependencies[name],
+        })),
+];
+
+mkdirSync(join(out, 'LICENSES', 'npm'), { recursive: true });
+for (const dependency of dependencies) {
+    const licenseFile = `${dependency.name.replaceAll('/', '__')}@${dependency.auditedVersion}.txt`;
+    copyFileSync(dependency.licensePath, join(out, 'LICENSES', 'npm', licenseFile));
+}
+writeFileSync(
+    join(out, 'THIRD_PARTY_LICENSES.json'),
+    `${JSON.stringify({
+        artifact: `muxr@${version}`,
+        policy: 'Packaging fails on copyleft or unknown/non-approved dependency licenses.',
+        dependencies: dependencies.map(({ licensePath: _licensePath, ...dependency }) => dependency),
+    }, null, 2)}\n`,
+);
+await build({
+    entryPoints: ['packages/contract/dist/index.js'],
+    outfile: join(out, 'contract.mjs'),
+    bundle: true,
+    platform: 'node',
+    format: 'esm',
+    target: 'node22',
+    minifyWhitespace: true,
+    legalComments: 'none',
+    logLevel: 'warning',
+});
+for (const file of ['cli.mjs', 'doctor.mjs', 'local-setup.mjs', 'setup-ui.mjs', 'setup-wizard.mjs', 'host-up.mjs', 'package.mjs']) {
+    copyFileSync(join(root, 'scripts', file), join(out, file));
+}
+const extensionSource = readFileSync(join(root, 'scripts', 'plugin.mjs'), 'utf8');
+if (!extensionSource.includes("from '@muxr/contract'")) throw new Error('plugin validator import changed; update the package rewrite');
+writeFileSync(join(out, 'plugin.mjs'), extensionSource.replace("from '@muxr/contract'", "from './contract.mjs'"));
+cpSync(join(root, 'plugins'), join(out, 'plugins'), { recursive: true });
+const webDist = join(root, 'apps', 'mobile', 'dist');
+if (!existsSync(join(webDist, 'index.html'))) {
+    throw new Error('web export missing; run `yarn web:export` before `node scripts/pack.mjs`');
+}
+const newestMtime = (path) => {
+    const info = statSync(path);
+    if (!info.isDirectory()) return info.mtimeMs;
+    return Math.max(info.mtimeMs, ...readdirSync(path).map((name) => newestMtime(join(path, name))));
+};
+const webInputs = ['apps/mobile/sources', 'apps/mobile/app.config.js', 'apps/mobile/package.json']
+    .map((path) => join(root, path));
+const sourceMtime = Math.max(...webInputs.map(newestMtime));
+if (statSync(join(webDist, 'index.html')).mtimeMs < sourceMtime) {
+    throw new Error('web export is stale; run `yarn web:export` before `node scripts/pack.mjs`');
+}
+cpSync(webDist, join(out, 'web'), { recursive: true });
+const packagedControlUrl = process.env.MUXR_PACKAGE_CONTROL_URL?.trim()
+    || process.env.MUXR_PUBLIC_BASE_URL?.trim();
+if (!packagedControlUrl) {
+    process.stderr.write('note: MUXR_PACKAGE_CONTROL_URL unset; packing a self-host-only artifact (hosted setup disabled)\n');
+} else if (!/^https:\/\/[^/]+$/.test(packagedControlUrl)) {
+    throw new Error('MUXR_PACKAGE_CONTROL_URL must be the published HTTPS control-plane origin');
+}
+const setupPath = join(out, 'local-setup.mjs');
+writeFileSync(
+    setupPath,
+    readFileSync(setupPath, 'utf8').replace('__MUXR_PACKAGED_CONTROL_URL__', packagedControlUrl ?? ''),
+);
+chmodSync(join(out, 'cli.mjs'), 0o755);
+
+copyFileSync(join(root, 'docs', 'npm-readme.md'), join(out, 'README.md'));
+// The tarball is the only documentation a plugin author reaches offline, so the
+// authoring guide ships with it rather than living behind a URL.
+const pluginGuide = readFileSync(join(root, 'docs', 'PLUGINS.md'), 'utf8')
+    .replaceAll('](../plugins/', '](plugins/')
+    .replaceAll('](decisions/', '](https://github.com/umeranjum17/muxr/blob/main/docs/decisions/');
+writeFileSync(join(out, 'PLUGINS.md'), pluginGuide);
+for (const file of ['LICENSE', 'NOTICE']) copyFileSync(join(root, file), join(out, file));
+cpSync(join(root, 'LICENSES'), join(out, 'LICENSES'), { recursive: true });
+
+const pkg = {
+    name: 'muxr',
+    version,
+    description: 'Connect muxr to coding agents running under herdr on your machine.',
+    license: 'Apache-2.0',
+    type: 'module',
+    bin: { muxr: './cli.mjs' },
+    engines: { node: '>=22' },
+    files: [
+        '*.mjs',
+        'host.js',
+        'relay.js',
+        'crypto.js',
+        'README.md',
+        'PLUGINS.md',
+        'LICENSE',
+        'NOTICE',
+        'LICENSES/',
+        'THIRD_PARTY_LICENSES.json',
+        'plugins/',
+        'web/',
+    ],
+    dependencies: runtimeDependencies,
+    repository: { type: 'git', url: 'git+https://github.com/umeranjum17/muxr.git' },
+};
+writeFileSync(join(out, 'package.json'), `${JSON.stringify(pkg, null, 2)}\n`);
+process.stdout.write(`packed self-hostable muxr@${version} -> dist-npm/ (${dependencies.length} audited dependencies)\n`);

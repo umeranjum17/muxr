@@ -1,0 +1,15 @@
+[
+  {
+    "id": "muxr.voice.jarvis",
+    "action": {
+      "type": "capability",
+      "name": "voice.start"
+    },
+    "aliases": [
+      "Jarvis",
+      "voice agent",
+      "talk",
+      "live voice"
+    ]
+  }
+]

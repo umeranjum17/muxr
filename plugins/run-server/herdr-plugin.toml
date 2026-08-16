@@ -1,0 +1,12 @@
+id = "muxr.run-server"
+name = "muxr Run Server"
+version = "0.1.0"
+min_herdr_version = "0.8.0"
+description = "Start a project dev script and discover its HTTP listeners for muxr"
+platforms = ["linux", "macos"]
+
+[[actions]]
+id = "start"
+title = "Run project server"
+contexts = ["pane"]
+command = ["node", "./start.mjs"]

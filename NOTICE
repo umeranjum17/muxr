@@ -1,0 +1,114 @@
+muxr
+Copyright (c) 2026 muxr Contributors
+
+muxr product code is licensed under Apache License 2.0. Third-party and
+inherited components remain under their original licenses. See LICENSES/ in this repository and
+THIRD_PARTY_LICENSES.json plus LICENSES/npm/ in the generated npm artifact.
+
+--------------------------------------------------------------------------------
+Happy — https://github.com/slopus/happy
+
+  MIT License
+  Copyright (c) 2026 Happy Coder Contributors
+
+The mobile and relay foundations began as a fork of Happy.
+
+--------------------------------------------------------------------------------
+PI WEB — https://pi-web.dev  (@jmfederico/pi-web)
+
+  MIT License
+  Copyright (c) 2026 Federico Jaramillo Martinez
+
+Parts of the original session lifecycle and notification model were derived from
+PI WEB. muxr's current herdr-backed lifecycle has since replaced much of
+that inherited surface.
+
+--------------------------------------------------------------------------------
+ws — https://github.com/websockets/ws
+
+  MIT License
+  Copyright (c) 2011 Einar Otto Stangvik
+  Copyright (c) 2013 Arnout Kazemier and contributors
+  Copyright (c) 2016 Luigi Pinca and contributors
+
+The published host uses ws as an external runtime dependency.
+
+--------------------------------------------------------------------------------
+tweetnacl — https://github.com/dchest/tweetnacl-js
+
+  Public domain / Unlicense
+
+Provides X25519 key agreement and XSalsa20-Poly1305 authenticated encryption.
+
+--------------------------------------------------------------------------------
+OpenAI Whisper, whisper.cpp, and whisper.rn
+
+  https://github.com/openai/whisper
+  https://github.com/ggml-org/whisper.cpp
+  https://github.com/mybigday/whisper.rn
+
+  MIT License
+  Copyright (c) 2022 OpenAI
+  Copyright (c) 2023-2026 the ggml authors
+  Copyright (c) 2023 Jhen-Jie Hong
+
+The mobile app bundles the official quantized English Whisper Base model for
+fully on-device dictation. It is not part of the host-only npm artifact.
+
+--------------------------------------------------------------------------------
+xterm.js — https://github.com/xtermjs/xterm.js
+
+  MIT License
+  Copyright (c) 2017-2026 The xterm.js authors. All rights reserved.
+  Copyright (c) 2014-2016, SourceLair Private Company (https://www.sourcelair.com)
+  Copyright (c) 2012-2013, Christopher Jeffrey (https://github.com/chjj/)
+
+The mobile app vendors xterm.js (and its webgl addon) into the native WebView
+terminal. See `apps/mobile/sources/terminal/terminalAssets.ts`.
+
+--------------------------------------------------------------------------------
+IBM Plex Sans and IBM Plex Mono — https://github.com/IBM/plex
+
+  SIL Open Font License 1.1
+  Copyright © 2017 IBM Corp., with Reserved Font Name "Plex"
+
+Loaded by the app from `apps/mobile/sources/assets/fonts/IBMPlex*.ttf`.
+License text: `LICENSES/OFL-1.1.txt`.
+
+--------------------------------------------------------------------------------
+Space Mono — https://github.com/googlefonts/spacemono
+
+  SIL Open Font License 1.1
+  Copyright 2016 Google Inc., with Reserved Font Name "Colophon Foundry"
+
+Loaded from `apps/mobile/sources/assets/fonts/SpaceMono-Regular.ttf`.
+License text: `LICENSES/OFL-1.1.txt`.
+
+--------------------------------------------------------------------------------
+Inter — https://github.com/rsms/inter
+
+  SIL Open Font License 1.1
+  Copyright (c) 2016-2020 The Inter Project Authors (https://github.com/rsms/inter)
+  with Reserved Font Name "Inter".
+
+Tracked at `apps/mobile/assets/fonts/Inter-*.ttf`. License text: `LICENSES/OFL-1.1.txt`.
+
+--------------------------------------------------------------------------------
+JetBrains Mono — https://github.com/JetBrains/JetBrainsMono
+
+  SIL Open Font License 1.1
+  Copyright 2020 The JetBrains Mono Project Authors
+  (https://github.com/JetBrains/JetBrainsMono)
+
+Tracked at `apps/mobile/assets/fonts/JetBrainsMono-*.ttf`. License text: `LICENSES/OFL-1.1.txt`.
+
+--------------------------------------------------------------------------------
+Bricolage Grotesque — https://github.com/atelier-anchor/bricolage-grotesque
+
+  SIL Open Font License 1.1
+  Copyright (c) 2022 The Bricolage Grotesque Project Authors
+  (https://github.com/atelier-anchor/bricolage-grotesque)
+
+Shipped as `BricolageGrotesque-Bold.ttf` for logo use.
+License text: `LICENSES/OFL-1.1.txt`.
+

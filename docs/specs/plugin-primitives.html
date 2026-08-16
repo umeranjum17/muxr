@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Plugins on primitives</title>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;700&family=Hanken+Grotesk:wght@400;600&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
+  <style>
+    :root{--paper:#f4efe4;--card:#faf7ef;--ink:#211c15;--muted:#6b6253;--accent:#d14523;--sage:#5f7a5a;--amber:#b8791f;--line:#ddd3bf}
+    *{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:17px/1.55 'Hanken Grotesk',sans-serif}main{max-width:820px;margin:auto;padding:56px 24px 80px}h1,h2{font-family:Fraunces,serif}h1{font-size:clamp(36px,6vw,56px);margin:.2em 0}.kicker,.meta,.badge{font:500 12px 'IBM Plex Mono',monospace;text-transform:uppercase;letter-spacing:.07em}.badge{display:inline-block;padding:6px 10px;border-radius:999px;background:var(--sage);color:#fff}.meta{color:var(--muted);margin:12px 0 28px}.lead{font-size:20px}.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:22px 24px;margin:16px 0;box-shadow:0 7px 20px #6b625310}code{font-family:'IBM Plex Mono',monospace;font-size:.86em;background:#eee6d6;padding:.1em .35em;border-radius:4px}ol,ul{padding-left:1.2em}li{margin:.45em 0}.check li{list-style:'□  '}
+  </style>
+</head>
+<body><main>
+  <div class="kicker">muxr spec</div>
+  <h1>Plugins on primitives</h1>
+  <span class="badge">tested</span>
+  <p class="meta">plugin-primitives.md · created 2026-08-15 · updated 2026-08-16 · umer</p>
+  <p class="lead">Primitives, slots, actions, capabilities, and runtime contracts are the public platform. Inbox, Voice, Preview, Changes, Attachments, and future product features are plugins composed entirely from it.</p>
+  <div class="card"><h2>Decision</h2><p>Enabled Herdr plugins remain trusted and default-on. Enabling or linking is the user's trust decision. Explicit disable and revoke remain authoritative. This rework strengthens the platform without adding per-device hash reapproval.</p></div>
+  <div class="card"><h2>Five platform layers</h2><ol>
+    <li><strong>Kernel:</strong> pairing, E2EE, relay, terminal, secure storage, OS bridges, file handoff, realtime transports, and unconditional Android foreground-service ownership.</li>
+    <li><strong>Targets and slots:</strong> typed context, cardinality, ordering, allowed primitives, and failure behavior.</li>
+    <li><strong>Primitives:</strong> reusable native components with validated parameters and result schemas, never renamed product features.</li>
+    <li><strong>Actions, events, and capabilities:</strong> host-mediated navigation, refresh, copy, URL/file handoff, composer input, notifications, RPC, and OS effects.</li>
+    <li><strong>Plugins:</strong> one public package contract for bundled and third-party features, with no private route, renderer, or capability.</li>
+  </ol></div>
+  <div class="card"><h2>Execution</h2><ol>
+    <li>Validate primitive slots, required context, and bounded per-primitive parameters.</li>
+    <li>Dispatch only closed, bounded actions from generic rows, buttons, settings, and RPC item lists.</li>
+    <li>Keep foreground keepalive and preview transport in the kernel. Voice, Inbox, Workspace, Dictation, and Run Server own generic controls/content and closed actions.</li>
+    <li>Hard-kill stuck RPCs, isolate concurrency, and stop repeated full catalog reparsing.</li>
+    <li>Publish schemas and prove bundled plus adversarial third-party plugins on Android.</li>
+  </ol></div>
+  <div class="card"><h2>Latest revision</h2><p>UI version 10 adds a generic declarative tree with bounded flat/lazy data, folder expansion, closed leaf actions, and folder-to-field selection. File Viewer now browses hierarchically; Runbook executes in a selected folder. Realtime provider policy also lives entirely behind provider-neutral backend streams.</p></div>
+  <div class="card"><h2>Verification</h2><ul class="check">
+    <li>Automation passes 27/27; all 17 bundled plugins and adversarial combinations validate correctly.</li>
+    <li>Workspace/mobile typechecks and 62 focused Android acceptance tests pass.</li>
+    <li>Hung, oversized, incompatible, and rapidly changing plugins fail locally.</li>
+    <li>An API 36 release APK passes cold E2EE pairing, generic plugin navigation/forms, collection/list/tree primitives, mutation refresh, disable/remount, localization, shortcuts, concurrent calls, secure prompts, TalkBack activation, rotation, dictation, and microphone foreground-service lifecycle.</li>
+    <li>Live Updates pass off→prompt→system setting→on, then repost an ongoing promoted working notification with compact status text.</li>
+    <li>Item-list device flows pass distinct trigger/row icons, green additions, red deletions, file/attachment actions, and an independent sheet action.</li>
+    <li>File Viewer passes collapsed, lazy deep expansion, collapse/expand-all, and file preview. Runbook passes non-default folder selection, cwd execution, and selection retention.</li>
+    <li>Hosted E2EE downloads pass a 177MB APK with exact SHA and Android handoff; backend xAI returns live audio/transcript and executes a real Herdr tool.</li>
+    <li>Independent architecture, performance, security, correctness, UX/accessibility, dead-code, public-core, Live Update, item-list, realtime-stream, and tree reviews have no blockers.</li>
+    <li>Final ARM64 APK SHA-256: <code>717e6365adb7ed55f55cab41b755fc5393e58a15e805d17c570987e211cbdce7</code>.</li>
+  </ul></div>
+</main></body>
+</html>

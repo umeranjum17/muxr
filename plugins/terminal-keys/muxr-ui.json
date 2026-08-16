@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "pluginId": "muxr.terminal-keys",
+  "contributions": [{
+    "slot": "terminal.key-row",
+    "id": "keys",
+    "type": "key-row",
+    "keys": [
+      { "label": "esc", "accessibilityLabel": "Escape", "send": "\u001b" },
+      { "label": "tab", "accessibilityLabel": "Tab", "send": "\t", "shift": "\u001b[Z" },
+      { "label": "^C", "accessibilityLabel": "Control C", "send": "\u0003" },
+      { "label": "^D", "accessibilityLabel": "Control D", "send": "\u0004" },
+      { "label": "⏎", "accessibilityLabel": "Enter", "send": "\r" },
+      { "label": "←", "accessibilityLabel": "Left arrow", "send": "\u001b[D", "ctrl": "\u001b[1;5D", "shift": "\u001b[1;2D", "ctrlShift": "\u001b[1;6D" },
+      { "label": "↑", "accessibilityLabel": "Up arrow", "send": "\u001b[A", "ctrl": "\u001b[1;5A", "shift": "\u001b[1;2A", "ctrlShift": "\u001b[1;6A" },
+      { "label": "↓", "accessibilityLabel": "Down arrow", "send": "\u001b[B", "ctrl": "\u001b[1;5B", "shift": "\u001b[1;2B", "ctrlShift": "\u001b[1;6B" },
+      { "label": "→", "accessibilityLabel": "Right arrow", "send": "\u001b[C", "ctrl": "\u001b[1;5C", "shift": "\u001b[1;2C", "ctrlShift": "\u001b[1;6C" }
+    ]
+  }]
+}

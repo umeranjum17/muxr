@@ -1,0 +1,10 @@
+id = "muxr.pane-titler"
+name = "Pane titler"
+version = "0.1.0"
+min_herdr_version = "0.8.0"
+platforms = ["linux", "macos"]
+description = "Names each pane after the work happening inside it, using whichever cheap model has capacity"
+
+[[events]]
+on = "pane.agent_status_changed"
+command = ["node", "./title.mjs"]

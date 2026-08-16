@@ -1,0 +1,35 @@
+node_modules
+dist/
+*.tsbuildinfo
+.expo/
+.pi-subagents/
+
+# secrets / signing — never commit
+.env
+.env.*
+*.keystore
+*.jks
+*.p8
+*.p12
+*.pem
+google-services.json
+GoogleService-Info.plist
+
+.DS_Store
+.scout/
+
+# copied from canvaskit-wasm at start/build time (see apps/mobile/package.json)
+apps/mobile/public/canvaskit.wasm
+dist-npm/
+/*.apk
+
+# native module intermediates (paths from the machine that last built)
+**/android/build/
+
+# accidental cwd dumps
+/demo-change.ts
+/commands.json
+/herdr-api.schema.json
+
+# git worktrees for parallel sessions
+.dev/

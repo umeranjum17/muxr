@@ -1,0 +1,122 @@
+diff --git a/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/ExpoLibghosttyModule.kt b/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/ExpoLibghosttyModule.kt
+index 1516400..15db098 100644
+--- a/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/ExpoLibghosttyModule.kt
++++ b/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/ExpoLibghosttyModule.kt
+@@ -12,7 +12,7 @@ class ExpoLibghosttyModule : Module() {
+     Name("ExpoLibghostty")
+ 
+     View(ExpoLibghosttyView::class) {
+-      Events("onInput", "onResize")
++      Events("onInput", "onResize", "onScroll")
+ 
+       // Base font size in dp (default 14); applied live, the grid reflows.
+       Prop("fontSize") { view: ExpoLibghosttyView, size: Float ->
+diff --git a/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/ExpoLibghosttyView.kt b/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/ExpoLibghosttyView.kt
+index 2d3ed62..ea45165 100644
+--- a/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/ExpoLibghosttyView.kt
++++ b/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/ExpoLibghosttyView.kt
+@@ -19,6 +19,7 @@ class ExpoLibghosttyView(context: Context, appContext: AppContext) :
+ 
+   private val onInput by EventDispatcher<Map<String, Any>>()
+   private val onResize by EventDispatcher<Map<String, Any>>()
++  private val onScroll by EventDispatcher<Map<String, Any>>()
+ 
+   private val terminal = GhosttyTerminalView(context).also { view ->
+     view.onInputBytes = { bytes ->
+@@ -32,6 +33,9 @@ class ExpoLibghosttyView(context: Context, appContext: AppContext) :
+     view.onGridResize = { cols, rows ->
+       onResize(mapOf("cols" to cols, "rows" to rows))
+     }
++    view.onScrollRows = { rows ->
++      onScroll(mapOf("rows" to rows))
++    }
+   }
+ 
+   private val accessoryBar = TerminalAccessoryBar(context).also { bar ->
+@@ -56,19 +60,10 @@ class ExpoLibghosttyView(context: Context, appContext: AppContext) :
+   }
+ 
+   private fun syncAccessoryBar(insets: WindowInsetsCompat) {
+-    val imeVisible = insets.isVisible(WindowInsetsCompat.Type.ime())
+-    accessoryBar.visibility = if (imeVisible) VISIBLE else GONE
+-    // Edge-to-edge windows don't resize for the keyboard — it just covers us.
+-    // Pad our bottom by the covered amount so the bar sits above the IME and
+-    // the terminal shrinks (regaining the hidden rows). Hosts that already
+-    // handle the keyboard leave no overlap, so the padding stays zero.
+-    val imeBottom = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
+-    val location = IntArray(2)
+-    getLocationInWindow(location)
+-    val gapBelow = rootView.height - (location[1] + height)
+-    val overlap = if (imeVisible) (imeBottom - gapBelow).coerceAtLeast(0) else 0
+-    if (paddingBottom != overlap) {
+-      setPadding(0, 0, 0, overlap)
+-      requestLayout()
+-    }
++    // muxr ships its own key toolbar; two stacked bars is the bug.
++    // JS (TerminalScreen) is the sole keyboard-avoidance owner: native
++    // IME-overlap padding computed against pre-JS geometry on the first
++    // insets event double-shrinks the terminal, then a later event recomputes
++    // overlap to zero and it snaps back up.
++    accessoryBar.visibility = GONE
+   }
+diff --git a/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/GhosttyTerminalView.kt b/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/GhosttyTerminalView.kt
+index 9d6ad16..cb74be3 100644
+--- a/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/GhosttyTerminalView.kt
++++ b/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/GhosttyTerminalView.kt
+@@ -48,6 +48,9 @@ import kotlin.math.roundToInt
+ internal class GhosttyTerminalView(context: Context) : View(context) {
+   var onInputBytes: ((ByteArray) -> Unit)? = null
+   var onGridResize: ((cols: Int, rows: Int) -> Unit)? = null
++  /** Set when scrollback lives on a server; suppresses the local buffer,
++   *  which holds only repaint diffs and shows garbage when scrolled. */
++  var onScrollRows: ((rows: Int) -> Unit)? = null
+ 
+   /** Sticky-modifier source for accessory-bar keys and IME text (optional). */
+   var accessoryBar: TerminalAccessoryBar? = null
+@@ -166,7 +169,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+       val deltaRows = (scrollAccum / cellHeight).toInt()
+       if (deltaRows != 0) {
+         scrollAccum -= deltaRows * cellHeight
+-        GhosttyVt.nativeScroll(handle, deltaRows)
++        onScrollRows?.let { it(deltaRows) } ?: GhosttyVt.nativeScroll(handle, deltaRows)
+         markScrollActivity()
+         scheduleFrame()
+       }
+@@ -229,7 +232,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+         val deltaRows = (scrollAccum / cellHeight).toInt()
+         if (deltaRows != 0) {
+           scrollAccum -= deltaRows * cellHeight
+-          GhosttyVt.nativeScroll(handle, deltaRows)
++          onScrollRows?.let { it(deltaRows) } ?: GhosttyVt.nativeScroll(handle, deltaRows)
+           markScrollActivity()
+           scheduleFrame()
+         }
+diff --git a/node_modules/expo-libghostty/build/ExpoLibghostty.types.d.ts b/node_modules/expo-libghostty/build/ExpoLibghostty.types.d.ts
+index 0969f13..53d7bc8 100644
+--- a/node_modules/expo-libghostty/build/ExpoLibghostty.types.d.ts
++++ b/node_modules/expo-libghostty/build/ExpoLibghostty.types.d.ts
+@@ -60,6 +60,11 @@ export type TerminalViewProps = {
+     onResize?: (event: {
+         nativeEvent: TerminalResizeEvent;
+     }) => void;
++    onScroll?: (event: {
++        nativeEvent: {
++            rows: number;
++        };
++    }) => void;
+     ref?: Ref<TerminalViewRef>;
+     style?: StyleProp<ViewStyle>;
+ };
+diff --git a/node_modules/expo-libghostty/src/ExpoLibghostty.types.ts b/node_modules/expo-libghostty/src/ExpoLibghostty.types.ts
+index cbd0ab4..58e41a0 100644
+--- a/node_modules/expo-libghostty/src/ExpoLibghostty.types.ts
++++ b/node_modules/expo-libghostty/src/ExpoLibghostty.types.ts
+@@ -61,6 +61,8 @@ export type TerminalViewProps = {
+   onInput?: (event: { nativeEvent: TerminalInputEvent }) => void;
+   /** Grid resized (layout, rotation, font change); forward to the PTY. */
+   onResize?: (event: { nativeEvent: TerminalResizeEvent }) => void;
++  /** Scroll gesture in rows, when the host owns scrollback. Android only. */
++  onScroll?: (event: { nativeEvent: { rows: number } }) => void;
+   ref?: Ref<TerminalViewRef>;
+   style?: StyleProp<ViewStyle>;
+ };

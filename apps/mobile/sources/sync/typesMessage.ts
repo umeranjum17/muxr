@@ -1,0 +1,82 @@
+import { AgentEvent } from "./typesRaw";
+import { MessageMeta } from "./typesMessageMeta";
+
+export type ToolCall = {
+    name: string;
+    /** Inline base64 images returned by the tool (screenshots). */
+    images?: { mimeType: string; data: string }[];
+    state: 'running' | 'completed' | 'error';
+    input: any;
+    createdAt: number;
+    startedAt: number | null;
+    completedAt: number | null;
+    description: string | null;
+    result?: any;
+    /** Streaming output while the tool is still running. */
+    progress?: string;
+    /** Tool-specific structured result from the agent (diffs, patches, subagent progress). */
+    details?: any;
+    permission?: {
+        id: string;
+        status: 'pending' | 'approved' | 'denied' | 'canceled';
+        reason?: string;
+        mode?: string;
+        allowedTools?: string[];
+        decision?: 'approved' | 'approved_for_session' | 'denied' | 'abort';
+        date?: number;
+    };
+}
+
+// Flattened message types - each message represents a single block
+export type UserTextMessage = {
+    kind: 'user-text';
+    id: string;
+    localId: string | null;
+    createdAt: number;
+    text: string;
+    /** Inline base64 attachments the user sent with this prompt. */
+    images?: { mimeType: string; data: string }[];
+    displayText?: string; // Optional text to display in UI instead of actual text
+    meta?: MessageMeta;
+    /**
+     * Claude conversation-file `uuid` corresponding to this message. Used as
+     * the rewind point when forking / duplicating a session. Optional —
+     * older messages and non-Claude agents may not have one.
+     */
+    claudeUuid?: string;
+    /**
+     * Codex app-server item id corresponding to this user message. Used as
+     * the rewind point when duplicating/forking Codex threads.
+     */
+    codexItemId?: string;
+}
+
+export type ModeSwitchMessage = {
+    kind: 'agent-event';
+    id: string;
+    createdAt: number;
+    event: AgentEvent;
+    meta?: MessageMeta;
+}
+
+export type AgentTextMessage = {
+    kind: 'agent-text';
+    id: string;
+    localId: string | null;
+    createdAt: number;
+    text: string;
+    isThinking?: boolean;
+    meta?: MessageMeta;
+}
+
+export type ToolCallMessage = {
+    kind: 'tool-call';
+    id: string;
+    localId: string | null;
+    createdAt: number;
+    tool: ToolCall;
+    children: Message[];
+    meta?: MessageMeta;
+}
+
+export type Message = UserTextMessage | AgentTextMessage | ToolCallMessage | ModeSwitchMessage;

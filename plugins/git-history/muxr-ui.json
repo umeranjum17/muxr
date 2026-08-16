@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "pluginId": "muxr.git-history",
+  "minMuxrVersion": 1,
+  "contributions": [
+    { "slot": "host.rpc", "id": "log", "type": "rpc", "method": "log", "entry": "rpc.mjs", "mode": "read" },
+    { "slot": "host.rpc", "id": "show", "type": "rpc", "method": "show", "entry": "rpc.mjs", "mode": "read" },
+    { "slot": "session.header.trailing", "id": "open", "type": "screen-button", "title": "Git history", "icon": "git-branch-outline", "contentContributionId": "history" },
+    { "slot": "navigation.content", "id": "history", "type": "screen", "title": "{{data.title}}",
+      "data": { "type": "plugin.call", "contributionId": "log" },
+      "children": [
+        { "type": "text", "text": "{{data.count}}", "tone": "secondary" },
+        { "type": "list", "emptyText": "No commits", "rows": [],
+          "repeat": { "path": "data.commits", "template": {
+            "type": "row", "title": "{{item.subject}}", "subtitle": "{{item.meta}}",
+            "action": { "type": "screen", "contributionId": "commit", "params": { "sha": "{{item.sha}}", "cwd": "{{item.cwd}}" } } } } }
+      ]
+    },
+    { "slot": "navigation.content", "id": "commit", "type": "screen", "title": "{{data.subject}}",
+      "data": { "type": "plugin.call", "contributionId": "show" },
+      "children": [
+        { "type": "text", "text": "{{data.meta}}", "tone": "secondary" },
+        { "type": "diff", "path": "data.patch" }
+      ]
+    }
+  ]
+}

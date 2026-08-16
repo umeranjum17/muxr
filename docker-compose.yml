@@ -1,0 +1,16 @@
+# One-command self-host relay. Pair with `muxr self-host` on the same machine,
+# or run standalone and mint tickets via the mint secret in the data volume.
+services:
+  relay:
+    build: .
+    ports:
+      - "8792:8792"
+    volumes:
+      - relay-data:/data
+    environment:
+      # Set to 1 when behind cloudflared/nginx so rate limits see real client IPs.
+      # MUXR_TRUST_PROXY: "1"
+    restart: unless-stopped
+
+volumes:
+  relay-data:

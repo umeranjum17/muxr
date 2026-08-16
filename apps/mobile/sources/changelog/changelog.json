@@ -1,0 +1,10 @@
+{
+  "entries": [
+    {
+      "title": "muxr",
+      "summary": "A focused mobile control surface for Pi sessions running through herdr.",
+      "markdown": "- Watch Pi sessions, terminals, changes, and attention state from your phone.\n- Send keys, inspect attachments, and start Pi in a selected workspace.\n- Use provider-neutral realtime voice or fully local Whisper dictation."
+    }
+  ],
+  "latestTitle": "muxr"
+}

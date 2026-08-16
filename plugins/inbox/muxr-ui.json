@@ -1,0 +1,109 @@
+{
+  "schemaVersion": 1,
+  "pluginId": "muxr.inbox",
+  "minMuxrVersion": 7,
+  "contributions": [
+    {
+      "slot": "navigation.primary",
+      "id": "inbox",
+      "type": "navigation-item",
+      "label": {
+        "default": "Inbox",
+        "translations": {
+          "ru": "Входящие",
+          "pl": "Skrzynka",
+          "es": "Bandeja",
+          "it": "Posta",
+          "pt": "Caixa de entrada",
+          "ca": "Safata",
+          "zh-Hans": "收件箱",
+          "zh-Hant": "收件匣",
+          "ja": "受信トレイ"
+        }
+      },
+      "icon": "file-tray-full-outline",
+      "contentContributionId": "content",
+      "badge": {
+        "type": "plugin.call",
+        "contributionId": "count"
+      }
+    },
+    {
+      "slot": "navigation.content",
+      "id": "content",
+      "type": "native",
+      "primitive": "collection",
+      "params": {
+        "source": {
+          "type": "plugin.call",
+          "contributionId": "list"
+        },
+        "title": {
+          "default": "Inbox",
+          "translations": {
+            "ru": "Входящие",
+            "pl": "Skrzynka",
+            "es": "Bandeja",
+            "it": "Posta",
+            "pt": "Caixa de entrada",
+            "ca": "Safata",
+            "zh-Hans": "收件箱",
+            "zh-Hant": "收件匣",
+            "ja": "受信トレイ"
+          }
+        },
+        "emptyTitle": {
+          "default": "Nothing needs you",
+          "translations": {
+            "ru": "Ничего не требует внимания",
+            "pl": "Nic nie wymaga uwagi",
+            "es": "Nada te necesita",
+            "it": "Nulla ha bisogno di te",
+            "pt": "Nada precisa de você",
+            "ca": "Res no et necessita",
+            "zh-Hans": "暂无需要处理的事项",
+            "zh-Hant": "沒有需要處理的事項",
+            "ja": "対応が必要なものはありません"
+          }
+        },
+        "emptyMessage": {
+          "default": "Agents show up here when they ask you something, get stuck, or finish",
+          "translations": {
+            "ru": "Сессии появляются здесь, когда агент задаёт вопрос, застревает или завершает работу",
+            "pl": "Sesje pojawiają się tutaj, gdy agent o coś pyta, utknie lub skończy",
+            "es": "Las sesiones aparecen aquí cuando un agente te pregunta algo, se atasca o termina",
+            "it": "Le sessioni compaiono qui quando un agente ti chiede qualcosa, si blocca o finisce",
+            "pt": "As sessões aparecem aqui quando um agente pergunta algo, trava ou termina",
+            "ca": "Les sessions apareixen aquí quan un agent et pregunta alguna cosa, es queda encallat o acaba",
+            "zh-Hans": "当智能体向你提问、遇到阻碍或完成工作时，会话会出现在这里",
+            "zh-Hant": "當代理向你提問、遇到阻礙或完成工作時，工作階段會出現在這裡",
+            "ja": "エージェントが質問したとき、行き詰まったとき、完了したときにセッションがここに表示されます"
+          }
+        },
+        "icon": "file-tray-full-outline"
+      }
+    },
+    {
+      "slot": "host.rpc",
+      "id": "list",
+      "type": "rpc",
+      "method": "list",
+      "entry": "rpc.mjs",
+      "mode": "read",
+      "context": [
+        "sessions"
+      ]
+    },
+    {
+      "slot": "host.rpc",
+      "id": "count",
+      "type": "rpc",
+      "method": "count",
+      "entry": "rpc.mjs",
+      "mode": "read",
+      "context": [
+        "sessions"
+      ]
+    }
+  ]
+}

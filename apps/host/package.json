@@ -1,0 +1,13 @@
+{
+    "name": "@muxr/host",
+    "version": "0.0.0",
+    "private": true,
+    "license": "Apache-2.0",
+    "type": "module",
+    "main": "./dist/main.js",
+    "dependencies": {
+        "@muxr/contract": "0.0.0",
+        "@muxr/crypto": "0.0.0",
+        "ws": "^8.18.0"
+    }
+}

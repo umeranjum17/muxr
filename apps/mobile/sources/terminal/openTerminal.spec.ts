@@ -1,0 +1,127 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+const mocks = vi.hoisted(() => ({
+    request: vi.fn(),
+}));
+
+vi.mock('@/state/connectionSettings', () => ({
+    getCachedConnectionSettings: () => ({
+        relayUrl: 'ws://relay.test',
+        machineId: 'machine',
+        token: '',
+    }),
+}));
+
+vi.mock('@/sync/sync', () => ({
+    sync: { request: mocks.request },
+}));
+
+vi.mock('@/state/hostedE2ee', () => ({
+    getCachedHostedGrant: () => undefined,
+    DeviceV2Crypto: class {},
+}));
+
+class FakeWebSocket {
+    static readonly CONNECTING = 0;
+    static readonly OPEN = 1;
+    static readonly CLOSED = 3;
+    static readonly instances: FakeWebSocket[] = [];
+
+    readyState = FakeWebSocket.CONNECTING;
+    onopen: (() => void) | null = null;
+    onclose: (() => void) | null = null;
+    onerror: (() => void) | null = null;
+    onmessage: ((event: { data: string }) => void) | null = null;
+    readonly send = vi.fn();
+
+    constructor(readonly url: string) {
+        FakeWebSocket.instances.push(this);
+    }
+
+    open(): void {
+        this.readyState = FakeWebSocket.OPEN;
+        this.onopen?.();
+    }
+
+    drop(): void {
+        this.readyState = FakeWebSocket.CLOSED;
+        this.onclose?.();
+    }
+
+    close(): void {
+        if (this.readyState === FakeWebSocket.CLOSED) return;
+        this.drop();
+    }
+}
+
+vi.stubGlobal('WebSocket', FakeWebSocket);
+
+import { openTerminal } from './openTerminal';
+
+describe('openTerminal reconnect ownership', () => {
+    beforeEach(() => {
+        vi.useFakeTimers();
+        mocks.request.mockReset();
+        FakeWebSocket.instances.length = 0;
+    });
+
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
+    it('replays the first paint when it arrives before the native view subscribes', async () => {
+        mocks.request.mockResolvedValue({});
+        const channel = await openTerminal('session', { cols: 100, rows: 30 });
+        const socket = FakeWebSocket.instances[0];
+        expect(socket).toBeDefined();
+        socket!.open();
+        socket!.onmessage?.({ data: JSON.stringify({ type: 'terminal.frame', bytes: 'full-paint' }) });
+
+        const frames: string[] = [];
+        channel.onData((bytes) => frames.push(bytes));
+        expect(frames).toEqual(['full-paint']);
+
+        channel.close();
+    });
+
+    it('coalesces focus retries under a delayed attach and ignores a stale close', async () => {
+        let attachCalls = 0;
+        let releaseDelayedAttach: (() => void) | undefined;
+        const delayedAttach = new Promise<void>((resolve) => {
+            releaseDelayedAttach = resolve;
+        });
+        mocks.request.mockImplementation((type: string) => {
+            if (type !== 'terminal.attach') return Promise.resolve({});
+            attachCalls += 1;
+            return attachCalls === 2 ? delayedAttach : Promise.resolve({});
+        });
+
+        const channel = await openTerminal('session', { cols: 100, rows: 30 });
+        const first = FakeWebSocket.instances[0];
+        expect(first).toBeDefined();
+        first!.open();
+        first!.drop();
+
+        await vi.advanceTimersByTimeAsync(1_500);
+        expect(attachCalls).toBe(2);
+
+        channel.reconnect();
+        channel.reconnect();
+        expect(attachCalls).toBe(2);
+
+        releaseDelayedAttach?.();
+        await vi.runAllTicks();
+        const replacement = FakeWebSocket.instances[1];
+        expect(replacement).toBeDefined();
+        replacement!.open();
+
+        // A late duplicate close from the old transport cannot schedule over
+        // the live replacement.
+        first!.onclose?.();
+        await vi.advanceTimersByTimeAsync(20_000);
+        expect(attachCalls).toBe(2);
+        expect(replacement!.readyState).toBe(FakeWebSocket.OPEN);
+
+        channel.close();
+    });
+});

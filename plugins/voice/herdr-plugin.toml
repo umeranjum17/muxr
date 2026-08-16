@@ -1,0 +1,12 @@
+id = "muxr.voice"
+name = "muxr Voice"
+version = "0.1.0"
+min_herdr_version = "0.8.0"
+description = "xAI Grok speech-to-speech behind muxr's provider-neutral stream"
+platforms = ["linux", "macos"]
+
+[[panes]]
+id = "setup"
+title = "muxr Voice setup"
+placement = "overlay"
+command = ["node", "./setup.mjs"]

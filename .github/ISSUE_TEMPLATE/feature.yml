@@ -1,0 +1,18 @@
+name: Feature
+description: A new screen, request type, or event
+labels: [enhancement]
+body:
+  - type: textarea
+    id: surface
+    attributes:
+      label: What should exist
+      description: The user-visible behavior, not the implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why it belongs in muxr
+      description: Features work through git, the herdr socket, or directory conventions — never through one agent's internals.
+    validations:
+      required: true
