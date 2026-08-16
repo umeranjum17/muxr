@@ -41,7 +41,7 @@ for (const path of [
     join(mobile, 'sources', 'components', 'SettingsView.tsx'),
     join(mobile, 'sources', 'components', 'CommandPalette', 'CommandPaletteProvider.tsx'),
 ]) {
-    assert.doesNotMatch(readFileSync(path, 'utf8'), /settings\/account|Email, hosted status|Manage your account/, `${path} still exposes hosted-account UX`);
+    assert.doesNotMatch(readFileSync(path, 'utf8'), /settings\/account|Account and preferences|Email, hosted status|Manage your account/, `${path} still exposes hosted-account UX`);
 }
 
 for (const path of [join(root, 'package.json'), join(mobile, 'package.json')]) {

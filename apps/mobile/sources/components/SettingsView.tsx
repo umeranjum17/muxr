@@ -278,7 +278,7 @@ export const SettingsView = React.memo(function SettingsView({
             {/* Paired self-host machines that have not connected yet don't appear in the live list */}
             <PairedSelfhostMachines onSwitch={(id) => void openMachine(id)} existing={allMachinesWithOffline.map((m) => m.id)} />
 
-            <ItemGroup title="Account and preferences">
+            <ItemGroup title="App and plugins">
                 {getCachedConnectionSettings().mode === 'local' && (
                     <Item
                         title="Local development connection"
