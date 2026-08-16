@@ -58,7 +58,7 @@ The release should request only what users can reach:
 | Network/Wi-Fi state | Reach and discover the user's relay | Explain self-hosted LAN/Tailscale behavior |
 | Internet | Encrypted relay and optional provider stream | Data-safety inventory |
 
-Location, calendar, media-library, activity-recognition, and background-media-playback declarations have been removed. The only app-owned foreground-service type should be microphone. In Play Console → App content → Foreground service permissions, describe the explicit user-started voice session, why interruption breaks the conversation, how the user stops it, and attach a public video showing start, persistent notification, background operation, and stop. Google reviews each declared FGS type: [foreground-service requirements](https://support.google.com/googleplay/android-developer/answer/13392821).
+Location, calendar, media-library, activity-recognition, and background-media-playback declarations have been removed. The app-owned foreground-service types are `microphone` for an explicit user-started voice session and `dataSync` while an active Herd keeps encrypted agent state current; the service stops when the Herd settles and handles Android's API 35 timeout. In Play Console → App content → Foreground service permissions, describe both flows, why interruption breaks the live experience, how the user stops them, and attach a public video showing start, persistent notification, background operation, and stop. Google reviews each declared FGS type: [foreground-service requirements](https://support.google.com/googleplay/android-developer/answer/13392821).
 
 Re-check the final merged AAB rather than trusting `app.config.js`; native Android files are tracked and are the submission source of truth.
 

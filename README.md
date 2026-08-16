@@ -207,6 +207,10 @@ docs               architecture and setup guides
 Dockerfile         self-host relay image (`docker compose up`)
 ```
 
+## Support
+
+Bug reports and focused feature requests are welcome in [GitHub Issues](https://github.com/umeranjum17/muxr/issues). Community support is best-effort; no response-time or resolution SLA is offered.
+
 ## License
 
 muxr product code is licensed under [Apache License 2.0](LICENSE).

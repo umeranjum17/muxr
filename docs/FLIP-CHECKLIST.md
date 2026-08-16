@@ -11,14 +11,13 @@ tree; they do not make the repo public or publish npm.
 - [x] `**/android/build/` gitignored; Gradle intermediates untracked
 - [x] Stray root artifacts removed (`demo-change.ts`, `commands.json`, `herdr-api.schema.json`)
 - [x] GitHub repository renamed to `muxr` (clone `umeranjum17/muxr`). npm package name stays `muxr`.
-- [x] Setup path is clone + `node scripts/cli.mjs`; npm mentioned as "when published"
+- [x] Public quickstart is npm-first: `npm install -g muxr`, then `muxr setup`; source-clone setup is for contributors
 - [x] OFL-1.1 text + NOTICE for Inter / JetBrains Mono / Bricolage Grotesque; Whisper + xterm in NOTICE
 - [x] Issue/PR templates, Dependabot, docs index, plugin READMEs, capabilities docs
 - [x] Contract plugin-bridge types match `plugin.*`; CI checks RequestMap + bundled `plugin check`
 - [x] SECURITY.md states paired-device ⇒ shell; Runbook named as bundled remote shell
 
-Still not done here on purpose: repo public, `npm publish`, history rewrite
-(Option A), first GitHub Release.
+The repository and fresh public history are now live. npm publication and publishing the prepared GitHub release remain gated below.
 
 ## Pre-flight (code state)
 
@@ -28,16 +27,12 @@ Still not done here on purpose: repo public, `npm publish`, history rewrite
 - [x] LICENSE replaced with Apache-2.0 text; all `package.json` license fields → `Apache-2.0`
 - [x] NOTICE intact: Happy + PI WEB attribution present; no Apache headers stamped on inherited third-party files
 - [x] CONTRIBUTING.md, DCO.md, TRADEMARK.md, docs/SELF-HOSTING.md current
-- [ ] CI workflow green on the final public candidate commit
+- [x] CI workflow green on final public candidate `6c52aeb` (run `31951345655`, 2026-08-16)
 
 ## History decision (choose one)
 
-- [ ] **Option A (default): fresh public repo.** Create `muxr` as a NEW repo,
-      copy the clean tree, `git init`, single initial commit. Zero history
-      exposure. The previous GitHub name (pockit) stays private as the archive if you keep it.
-- [ ] **Option B: same repo flipped.** Only after `gitleaks detect --source . --log-opts="--all"`
-      is clean AND the owner accepts that pre-extraction cloud code
-      (controlPlane/commerce, pricing docs) is visible in old commits.
+- [x] **Option A selected:** `umeranjum17/muxr` was created from a clean tree with fresh public history. The full prior history remains private in `muxr-private-archive`.
+- [ ] **Option B not selected:** the private archive was not flipped public.
 
 ## Secrets sweep (either option)
 
@@ -49,10 +44,10 @@ Still not done here on purpose: repo public, `npm publish`, history rewrite
 
 ## Publish
 
-- [ ] Repo public (or fresh repo created), description + topics set
-- [ ] First GitHub Release: APK + SHA256 checksum
-- [ ] Complete the npm release checklist and publish the CLI package
-- [ ] Support policy posted: issues accepted, no SLA
+- [x] Repo public; description, homepage, and topics set
+- [ ] Publish the prepared `v0.1.0` GitHub Release (signed APK, AAB, CLI tarball, source archive, demo, and `SHA256SUMS` are attached to the draft)
+- [ ] Publish and anonymously verify `muxr@0.1.0` on npm
+- [x] Support policy posted in `README.md`: issues accepted, best-effort, no SLA
 
 ## After
 
