@@ -20,7 +20,8 @@
             "channel": "production",
             "env": {
                 "APP_ENV": "production",
-                "MUXR_EAS_PROJECT_ID": "94c02367-50fe-44e0-a6d5-8461a0d06058"
+                "MUXR_EAS_PROJECT_ID": "94c02367-50fe-44e0-a6d5-8461a0d06058",
+                "ORG_GRADLE_PROJECT_reactNativeArchitectures": "arm64-v8a"
             }
         },
         "direct": {
