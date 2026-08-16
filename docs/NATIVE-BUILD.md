@@ -12,10 +12,11 @@ APK or `expo run:android` after a prebuild.
 Kotlin. An iOS build will lack the voice overlay microphone foreground service
 and in-app SSH forwarding.
 
-`apps/mobile/android/` is a committed prebuild pinned to
-`app.muxr.local.preview`. Changing `MUXR_APP_ID_BASE` requires
-`npx expo prebuild --platform android --clean` from `apps/mobile` or the
-committed directory silently wins.
+`apps/mobile/android/` is the committed production prebuild for
+`com.trymuxr.app`. Do not change that permanent store identity. Regenerate the
+prebuild only with `APP_ENV=production`, `MUXR_APP_ID_BASE=com.trymuxr.app`, and
+`MUXR_PUBLIC_BASE_URL=https://trymuxr.com`; otherwise local app-config defaults
+can silently replace the committed identity.
 
 The first `eas build --local` creates a keystore through your Expo account
 (`eas credentials` in `apps/mobile`). `credentials.json` is gitignored; do not
@@ -91,18 +92,11 @@ has no default and must be the HTTPS origin that will host activation plus iOS
 Universal Link and Android App Link association files.
 
 Set `MUXR_EAS_PROJECT_ID` only after creating or transferring the owner’s muxr
-project. The former product’s EAS project id is deliberately not inherited.
-Without that env var, `eas build --local` refuses to start. The committed
-prebuild can still produce a preview APK signed with `android/app/debug.keystore`:
-
-```bash
-export EXPO_PUBLIC_MUXR_MODE=hosted
-export EXPO_PUBLIC_MUXR_RELAY_URL='ws://<relay-host>:<port>'
-cd apps/mobile/android
-./gradlew assembleRelease
-```
-Changing the production app identifier creates a separate store identity unless
-the owner arranges a transfer/update under the final identifier.
+project. Without that env var, `eas build --local` refuses to start. Signed
+release APKs and AABs must use the local EAS profiles below; do not distribute a
+direct Gradle build, which has no owner release credential. Changing the
+production app identifier creates a separate store identity unless the owner
+arranges a transfer/update under the final identifier.
 
 ## Fast bundle check
 

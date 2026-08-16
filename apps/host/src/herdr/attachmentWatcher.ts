@@ -7,7 +7,7 @@
 import { createHash } from 'node:crypto';
 import { createReadStream, mkdirSync, readdirSync, watch, type FSWatcher } from 'node:fs';
 import { open as openAsync, readdir, readFile, stat } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, resolve, sep } from 'node:path';
 import type { SessionAttachment } from '@muxr/contract';
 
 export const MAX_ATTACHMENTS = 50;
@@ -125,7 +125,9 @@ export interface AttachmentScan {
 }
 
 export async function scanPaneWithAttribution(rootDir: string, paneId: string, cache?: Map<string, CachedAttachment>): Promise<AttachmentScan> {
-    const dir = join(rootDir, paneId);
+    const root = resolve(rootDir);
+    const dir = resolve(root, paneId);
+    if (!dir.startsWith(`${root}${sep}`)) return { attachments: [], total: 0, truncated: false };
     let entries: import('node:fs').Dirent[];
     try {
         entries = await readdir(dir, { withFileTypes: true });
