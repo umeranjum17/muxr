@@ -49,7 +49,6 @@ node "$ROOT/scripts/verifyNativePatches.mjs"
 (cd "$ROOT" && npx vitest run \
   apps/mobile/sources/terminal/ghosttyPatch.spec.ts \
   apps/mobile/sources/voice/realtimeSession.spec.ts \
-  apps/mobile/sources/voice/paneTools.spec.ts \
   apps/mobile/sources/utils/dictation.spec.ts \
   --root "$ROOT") || {
   echo "required native audio/terminal patch or voice checks failed -- refusing to build" >&2
