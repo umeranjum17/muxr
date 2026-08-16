@@ -8,7 +8,7 @@ host, and the pairing between them and the app.
 On the machine that runs your agents (Linux, macOS, WSL):
 
 ```bash
-npm install -g muxr
+npm install -g @trymuxr/cli
 muxr setup
 ```
 

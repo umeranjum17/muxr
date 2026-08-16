@@ -93,7 +93,7 @@ for (const dependency of dependencies) {
 writeFileSync(
     join(out, 'THIRD_PARTY_LICENSES.json'),
     `${JSON.stringify({
-        artifact: `muxr@${version}`,
+        artifact: `@trymuxr/cli@${version}`,
         policy: 'Packaging fails on copyleft or unknown/non-approved dependency licenses.',
         dependencies: dependencies.map(({ licensePath: _licensePath, ...dependency }) => dependency),
     }, null, 2)}\n`,
@@ -157,7 +157,7 @@ for (const file of ['LICENSE', 'NOTICE']) copyFileSync(join(root, file), join(ou
 cpSync(join(root, 'LICENSES'), join(out, 'LICENSES'), { recursive: true });
 
 const pkg = {
-    name: 'muxr',
+    name: '@trymuxr/cli',
     version,
     description: 'Control every Herdr coding agent from your phone with a self-hosted encrypted relay.',
     license: 'Apache-2.0',
@@ -182,4 +182,4 @@ const pkg = {
     repository: { type: 'git', url: 'git+https://github.com/umeranjum17/muxr.git' },
 };
 writeFileSync(join(out, 'package.json'), `${JSON.stringify(pkg, null, 2)}\n`);
-process.stdout.write(`packed self-hostable muxr@${version} -> dist-npm/ (${dependencies.length} audited dependencies)\n`);
+process.stdout.write(`packed self-hostable @trymuxr/cli@${version} -> dist-npm/ (${dependencies.length} audited dependencies)\n`);

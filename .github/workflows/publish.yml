@@ -34,7 +34,7 @@ jobs:
       - name: Check whether this immutable version already exists
         id: registry
         run: |
-          if npm view "muxr@${{ steps.package.outputs.version }}" version >/dev/null 2>&1; then
+          if npm view "@trymuxr/cli@${{ steps.package.outputs.version }}" version >/dev/null 2>&1; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"

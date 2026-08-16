@@ -59,7 +59,7 @@ can combine Herdr backend hooks with declarative native mobile contributions. Se
 Requires Linux, macOS, or WSL and Node.js 22 or newer.
 
 ```bash
-npm install -g muxr
+npm install -g @trymuxr/cli
 muxr setup
 ```
 

@@ -242,7 +242,7 @@ try {
         assert.match(dependency.auditedVersion, /^\d+\.\d+\.\d+/);
         assert.equal(dependency.version, undefined, 'ambiguous dependency version field returned');
     }
-    assert.equal(packageJson.name, 'muxr');
+    assert.equal(packageJson.name, '@trymuxr/cli');
     assert.deepEqual(packageJson.bin, { muxr: './cli.mjs' });
 
     writeFileSync(join(installDir, 'package.json'), '{"private":true}\n');

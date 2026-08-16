@@ -7,7 +7,7 @@ Control every coding agent on your machine from your phone. The `muxr` package i
 Requires Node 22+ and [Herdr](https://herdr.dev). If Herdr is missing, setup asks before installing it.
 
 ```bash
-npm install -g muxr
+npm install -g @trymuxr/cli
 muxr setup
 ```
 

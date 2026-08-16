@@ -10,8 +10,8 @@ tree; they do not make the repo public or publish npm.
 
 - [x] `**/android/build/` gitignored; Gradle intermediates untracked
 - [x] Stray root artifacts removed (`demo-change.ts`, `commands.json`, `herdr-api.schema.json`)
-- [x] GitHub repository renamed to `muxr` (clone `umeranjum17/muxr`). npm package name stays `muxr`.
-- [x] Public quickstart is npm-first: `npm install -g muxr`, then `muxr setup`; source-clone setup is for contributors
+- [x] GitHub repository renamed to `muxr` (clone `umeranjum17/muxr`). npm publishes under `@trymuxr/cli`; the installed command remains `muxr`.
+- [x] Public quickstart is npm-first: `npm install -g @trymuxr/cli`, then `muxr setup`; source-clone setup is for contributors
 - [x] OFL-1.1 text + NOTICE for Inter / JetBrains Mono / Bricolage Grotesque; Whisper + xterm in NOTICE
 - [x] Issue/PR templates, Dependabot, docs index, plugin READMEs, capabilities docs
 - [x] Contract plugin-bridge types match `plugin.*`; CI checks RequestMap + bundled `plugin check`
@@ -27,7 +27,7 @@ The repository and fresh public history are now live. npm publication and publis
 - [x] LICENSE replaced with Apache-2.0 text; all `package.json` license fields → `Apache-2.0`
 - [x] NOTICE intact: Happy + PI WEB attribution present; no Apache headers stamped on inherited third-party files
 - [x] CONTRIBUTING.md, DCO.md, TRADEMARK.md, docs/SELF-HOSTING.md current
-- [x] CI workflow green on final public candidate `6c52aeb` (run `31951345655`, 2026-08-16)
+- [x] CI workflow green on final public candidate `2eba25f` (run `31954193119`, 2026-08-16)
 
 ## History decision (choose one)
 
@@ -36,7 +36,7 @@ The repository and fresh public history are now live. npm publication and publis
 
 ## Secrets sweep (either option)
 
-- [ ] `gitleaks detect` clean on current tree
+- [x] `gitleaks` 8.30.1 clean on current history (341 commits, 20.28 MB scanned, 2026-08-16)
 - [x] No env values, tokens, fingerprints, or customer data anywhere in tracked files (`checkNoSecrets.mjs`, enforced by `runSuite.mjs` in CI)
 - [x] Optional provider credentials stay machine-local and are excluded from source/package artifacts
 
@@ -46,7 +46,7 @@ The repository and fresh public history are now live. npm publication and publis
 
 - [x] Repo public; description, homepage, and topics set
 - [ ] Publish the prepared `v0.1.0` GitHub Release (signed APK, AAB, CLI tarball, source archive, demo, and `SHA256SUMS` are attached to the draft)
-- [ ] Publish and anonymously verify `muxr@0.1.0` on npm
+- [x] Published and anonymously verified `@trymuxr/cli@0.1.0` on npm (`muxr version`, help, and setup help all passed)
 - [x] Support policy posted in `README.md`: issues accepted, best-effort, no SLA
 
 ## After

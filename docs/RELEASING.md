@@ -21,8 +21,8 @@ The workflow uses GitHub OIDC (`id-token: write`) and npm provenance. Do not add
 5. Verify anonymously:
 
    ```bash
-   npm view muxr@X.Y.Z version dist.integrity repository.url
-   npm install -g muxr@X.Y.Z
+   npm view @trymuxr/cli@X.Y.Z version dist.integrity repository.url
+   npm install -g @trymuxr/cli@X.Y.Z
    muxr version
    muxr setup --help
    ```
