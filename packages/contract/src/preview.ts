@@ -1,3 +1,5 @@
+import { stripTrailingSlashes } from './controlPlaneUrl.js';
+
 /**
  * Browser preview: the wire format for tunnelling a dev server to the device.
  *
@@ -65,7 +67,7 @@ export function previewSocketUrl(
 ): string {
     // Hand-built rather than URLSearchParams: this runs on React Native too,
     // where that polyfill is partial.
-    const base = relayUrl.replace(/\/+$/, '');
+    const base = stripTrailingSlashes(relayUrl);
     const parts = [
         `role=${options.role}`,
         `machineId=${encodeURIComponent(options.machineId)}`,

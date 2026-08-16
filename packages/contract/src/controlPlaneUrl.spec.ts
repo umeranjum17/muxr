@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { previewSocketUrl } from './preview.js';
 import { terminalSocketUrl } from './terminal.js';
+import { realtimeSocketUrl } from './realtimeStream.js';
 import { relayControlUrl } from './controlPlaneUrl.js';
 import { issueWsTicket, ticketSocketUrl } from './wsTickets.js';
 
@@ -64,5 +65,11 @@ describe('relay-derived control-plane flow', () => {
             .toBe('ws://10.0.2.2:18787/relay/terminal?role=client&machineId=machine&channel=terminal');
         expect(previewSocketUrl(websocketRelay, { machineId: 'machine', channel: 'preview', role: 'client' }))
             .toBe('ws://10.0.2.2:18787/relay/preview?role=client&machineId=machine&channel=preview');
+        expect(realtimeSocketUrl(websocketRelay, { machineId: 'machine', channel: 'voice', role: 'client' }))
+            .toBe('ws://10.0.2.2:18787/relay/stream?role=client&machineId=machine&channel=voice');
+
+        const slashHeavyRelay = `${websocketRelay}${'/'.repeat(100_000)}`;
+        expect(ticketSocketUrl(slashHeavyRelay, 'ticket', 'relay'))
+            .toBe(`${websocketRelay}?ticket=ticket`);
     });
 });

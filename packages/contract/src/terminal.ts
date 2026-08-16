@@ -1,3 +1,5 @@
+import { stripTrailingSlashes } from './controlPlaneUrl.js';
+
 /**
  * Live terminal channel: the wire format for driving a herdr pane from a client.
  *
@@ -73,7 +75,7 @@ export function terminalSocketUrl(
 ): string {
     // Hand-built rather than URLSearchParams: this runs on React Native too,
     // where that polyfill is partial.
-    const base = relayUrl.replace(/\/+$/, '');
+    const base = stripTrailingSlashes(relayUrl);
     const parts = [
         `role=${options.role}`,
         `machineId=${encodeURIComponent(options.machineId)}`,

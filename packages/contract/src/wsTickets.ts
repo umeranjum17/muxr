@@ -1,4 +1,4 @@
-import { relayControlUrl } from './controlPlaneUrl.js';
+import { relayControlUrl, stripTrailingSlashes } from './controlPlaneUrl.js';
 
 export type WsTransport = 'relay' | 'terminal' | 'preview' | 'stream';
 
@@ -43,5 +43,5 @@ export async function issueWsTicket(input: {
 
 export function ticketSocketUrl(relayUrl: string, ticket: string, transport: WsTransport): string {
     const path = transport === 'relay' ? '' : `/${transport}`;
-    return `${relayUrl.replace(/\/+$/, '')}${path}?ticket=${encodeURIComponent(ticket)}`;
+    return `${stripTrailingSlashes(relayUrl)}${path}?ticket=${encodeURIComponent(ticket)}`;
 }

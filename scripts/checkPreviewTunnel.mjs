@@ -78,8 +78,8 @@ const done = (code, msg) => {
 // Stands in for `vite`/`next dev`. Bound to loopback on purpose: reaching it at
 // all is the thing a LAN address or a public tunnel could not do.
 const devServer = createServer((req, res) => {
-    res.writeHead(200, { 'content-type': 'text/html' });
-    res.end(`<html><body>${MARKER}${req.url}</body></html>`);
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ marker: MARKER, path: req.url }));
 });
 await new Promise((resolve) => devServer.listen(0, '127.0.0.1', resolve));
 const devPort = devServer.address().port;
