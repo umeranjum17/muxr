@@ -2,7 +2,6 @@ import Constants from 'expo-constants';
 import { requireOptionalNativeModule } from 'expo-modules-core';
 
 export interface AppConfig {
-    elevenLabsAgentId?: string;
     publicBaseUrl?: string;
     directDistribution?: boolean;
     consoleLoggingDefault?: boolean;

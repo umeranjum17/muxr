@@ -15,7 +15,7 @@ import { createServer, type Server } from 'node:http';
 import { createReadStream } from 'node:fs';
 import { statSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
-import { join, normalize } from 'node:path';
+import { join, normalize, sep } from 'node:path';
 import { scanPane, type AttachmentWatcher } from './attachmentWatcher.js';
 
 const TICKET_TTL_MS = 5 * 60_000;
@@ -93,7 +93,9 @@ export class AttachmentDownloadServer {
             }
             this.tickets.delete(token); // one-time
             const normalized = normalize(ticket.path);
-            if (!normalized.startsWith(normalize(this.rootDir))) {
+            const root = normalize(this.rootDir);
+            const rootPrefix = root.endsWith(sep) ? root : `${root}${sep}`;
+            if (!normalized.startsWith(rootPrefix)) {
                 res.writeHead(403).end('bad path');
                 return;
             }

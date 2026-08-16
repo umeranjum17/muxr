@@ -20,7 +20,7 @@ import {
 } from '@muxr/contract';
 import { authenticateWebSocket, extractBearerToken, secureEqual, type PeerIdentity, type Ticket } from './auth.js';
 import { OfflineBuffer } from './buffer.js';
-import { type RelayConfig, clientIp, loadRelayConfig } from './config.js';
+import { type RelayConfig, clientIp, isLoopbackAddress, loadRelayConfig } from './config.js';
 import { handleHttpRequest, readJsonBody, writeJson, type PushActionOutcome } from './httpHandlers.js';
 import { PairingRequests } from './pairing.js';
 import { parseLastSeq, PeerTable, peerMayRoute, sendEnvelope, type ConnectedPeer } from './peers.js';
@@ -342,7 +342,9 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
                     e2eeMode: config.e2eeMode,
                     connectedPeers: peers.counts().total,
                     onlineMachines: online.size,
-                    ...(config.localAuthority ? { registeredMachines: registry.registeredMachineCount(), webEnabled: webRoot !== undefined, bindHost: config.host } : {}),
+                    ...(config.localAuthority && isLoopbackAddress(req.socket.remoteAddress)
+                        ? { registeredMachines: registry.registeredMachineCount(), webEnabled: webRoot !== undefined, bindHost: config.host }
+                        : {}),
                 });
                 return;
             }

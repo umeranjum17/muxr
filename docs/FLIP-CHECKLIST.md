@@ -17,7 +17,7 @@ tree; they do not make the repo public or publish npm.
 - [x] Contract plugin-bridge types match `plugin.*`; CI checks RequestMap + bundled `plugin check`
 - [x] SECURITY.md states paired-device ⇒ shell; Runbook named as bundled remote shell
 
-The repository and fresh public history are now live. npm publication and publishing the prepared GitHub release remain gated below.
+The repository and fresh public history are live. This checklist now tracks the current `v0.1.2` release candidate.
 
 ## Pre-flight (code state)
 
@@ -27,7 +27,7 @@ The repository and fresh public history are now live. npm publication and publis
 - [x] LICENSE replaced with Apache-2.0 text; all `package.json` license fields → `Apache-2.0`
 - [x] NOTICE intact: Happy + PI WEB attribution present; no Apache headers stamped on inherited third-party files
 - [x] CONTRIBUTING.md, DCO.md, TRADEMARK.md, docs/SELF-HOSTING.md current
-- [x] CI workflow green on final public candidate `2eba25f` (run `31954193119`, 2026-08-16)
+- [x] CI and CodeQL green on public `v0.1.1`; final `v0.1.2` candidate passes the full local 27/27 suite and clean x86_64 emulator install/pair (2026-08-16)
 
 ## History decision (choose one)
 
@@ -45,12 +45,14 @@ The repository and fresh public history are now live. npm publication and publis
 ## Publish
 
 - [x] Repo public; description, homepage, and topics set
-- [x] Published `v0.1.0` with the signed APK, AAB, `@trymuxr/cli` tarball, frozen source archive, demo, and verified `SHA256SUMS`
-- [x] Published and anonymously verified `@trymuxr/cli@0.1.0` on npm (`muxr version`, help, and setup help all passed)
+- [x] Published `v0.1.1` with signed APK/AAB, `@trymuxr/cli` tarball, frozen source archive, complete demo, and verified `SHA256SUMS`
+- [ ] Publish the final `v0.1.2` artifacts after protected CI and scanner gates pass
+- [ ] Publish and anonymously verify `@trymuxr/cli@0.1.1` and `@trymuxr/cli@0.1.2` through the protected OIDC workflow
 - [x] Support policy posted in `README.md`: issues accepted, best-effort, no SLA
 
 ## After
 
 - [ ] Watch first-week issues; free-tier support load starts now
-- [x] Completed [the clean-room new-user smoke](NEW-USER-SMOKE.md) from public tag `v0.1.0` (fresh clone/build and 27/27 suite passed)
+- [x] Completed [the clean-room new-user smoke](NEW-USER-SMOKE.md) from public tag `v0.1.1` (fresh clone/build and 27/27 suite passed)
+- [x] Installed and paired the `v0.1.2` release-candidate x86_64 APK on a clean emulator without the foreground-service crash
 - [ ] Announce only after that full self-host flow passes
