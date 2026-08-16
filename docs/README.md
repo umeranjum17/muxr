@@ -20,13 +20,14 @@ Start here, then follow one path.
 - [Architecture](ARCHITECTURE.md)
 - [ADRs](decisions/README.md)
 - [Spec board](specs/index.html) ([source](specs/))
-- [npm CLI readme](npm-readme.md) — the packaged CLI, once published
+- [npm CLI readme](npm-readme.md) — the packaged CLI
 
 ## Legal / launch
 
 - [License inventory](license-inventory.md)
 - [Historical open-source review](OPEN-SOURCE-REVIEW.md) (2026-08-15; superseded by the checklist and suite)
 - [Public flip checklist](FLIP-CHECKLIST.md)
+- [Release automation](RELEASING.md) — tag gate, npm trusted publishing, and provenance
 - [Clean-room new-user smoke](NEW-USER-SMOKE.md)
 - [Google Play launch plan](PLAY-STORE-PLAN.md)
 

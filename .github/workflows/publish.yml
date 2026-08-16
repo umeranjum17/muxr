@@ -1,0 +1,44 @@
+name: publish npm
+
+on:
+  release:
+    types: [published]
+
+concurrency:
+  group: npm-${{ github.event.release.tag_name }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    if: github.repository == 'umeranjum17/muxr'
+    runs-on: ubuntu-latest
+    environment: npm
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      - run: yarn install --frozen-lockfile --non-interactive
+      - name: Match package version to the release tag
+        id: package
+        run: |
+          version=$(node -p "require('./package.json').version")
+          test "v$version" = "${{ github.event.release.tag_name }}"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - run: yarn run pack
+      - name: Check whether this immutable version already exists
+        id: registry
+        run: |
+          if npm view "muxr@${{ steps.package.outputs.version }}" version >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Publish with npm trusted publishing
+        if: steps.registry.outputs.exists != 'true'
+        run: npm publish ./dist-npm --access public --provenance
