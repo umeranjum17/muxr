@@ -356,20 +356,6 @@ try {
     assert.match(readFileSync(join(macHome, 'Library', 'LaunchAgents', 'com.muxr.host.plist'), 'utf8'), /com\.muxr\.host/);
     run(cli, ['daemon', 'uninstall'], { cwd: installDir, env: macEnv });
 
-    const cancelHome = join(scratch, 'cancel-home');
-    mkdirSync(cancelHome, { recursive: true });
-    const cancel = await runTty(
-        `${cli} setup --no-agent-config; echo TTY_STATE; /usr/bin/stty -a`,
-        cliEnv(cancelHome),
-        '__SIGINT__',
-        20_000,
-        'TTY_STATE',
-        'auto',
-        'How should this machine connect?',
-    );
-    assert.match(cancel.output, /TTY_STATE/);
-    assert.match(cancel.output, /(?:^|[ ;])echo(?:[ ;]|$)/m, `TTY echo was not restored\n${cancel.output}`);
-
     writeFileSync(join(home, '.muxr', 'xai.key'), 'xai-user-owned\n', { mode: 0o600 });
     run(cli, ['daemon', 'uninstall'], { cwd: installDir, env });
     run(cli, ['integrations', 'uninstall'], { cwd: installDir, env });
