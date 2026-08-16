@@ -1,5 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
 const root = new URL('../', import.meta.url);
 const read = (path) => readFileSync(new URL(path, root), 'utf8');
@@ -10,6 +12,27 @@ const ghosttyTerminal = read('node_modules/expo-libghostty/android/src/main/java
 const liveAudioPatch = read('patches/react-native-live-audio-stream+1.1.1.patch');
 const liveAudioModule = read(
     'node_modules/react-native-live-audio-stream/android/src/main/java/com/imxiqi/rnliveaudiostream/RNLiveAudioStreamModule.java',
+);
+const imageSizePatch = read('patches/image-size+1.2.1.patch');
+const imageSizeIcns = read('node_modules/image-size/dist/types/icns.js');
+const imageSizeProbe = spawnSync(
+    process.execPath,
+    [
+        '-e',
+        `const { imageSize } = require(process.argv[1]);
+const input = Buffer.alloc(16);
+input.write('icns');
+input.writeUInt32BE(16, 4);
+input.write('ic07', 8);
+try {
+    imageSize(input);
+    process.exit(2);
+} catch (error) {
+    process.exit(String(error).includes('Invalid ICNS image entry length') ? 0 : 3);
+}`,
+        fileURLToPath(new URL('node_modules/image-size', root)),
+    ],
+    { timeout: 1_000 },
 );
 const androidBuild = read('scripts/buildAndroidLocal.sh');
 const voiceOverlayService = read('apps/mobile/modules/voice-overlay/android/src/main/java/expo/modules/voiceoverlay/VoiceOverlayService.kt');
@@ -45,6 +68,13 @@ const checks = [
             liveAudioModule.includes('promise.resolve(true)'),
     ],
     [
+        'image-size patch rejects zero-length ICNS entries without hanging',
+        (imageSizePatch.match(/Invalid ICNS image entry length/g) ?? []).length === 2 &&
+            (imageSizeIcns.match(/Invalid ICNS image entry length/g) ?? []).length === 2 &&
+            imageSizeProbe.status === 0 &&
+            !imageSizeProbe.error,
+    ],
+    [
         'on-device dictation bundles the verified quantized Whisper Base English model',
         whisperModel.length === 59_721_011 &&
             createHash('sha256').update(whisperModel).digest('hex') === '4baf70dd0d7c4247ba2b81fafd9c01005ac77c2f9ef064e00dcf195d0e2fdd2f',
@@ -72,7 +102,7 @@ const checks = [
 const failed = checks.filter(([, ok]) => !ok);
 if (failed.length > 0) {
     for (const [name] of failed) console.error(`✗ ${name}`);
-    console.error('Native patches or Android build prerequisites are missing/stale; refusing to continue.');
+    console.error('Required patches or Android build prerequisites are missing/stale; refusing to continue.');
     process.exit(1);
 }
 for (const [name] of checks) console.log(`✓ ${name}`);

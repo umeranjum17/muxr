@@ -15,6 +15,10 @@ Report vulnerabilities privately. Do not open a public issue.
 
 Acknowledgement within 7 days. Include enough detail to reproduce the issue, which boundary it crosses, and what you expect the impact to be.
 
+## Dependency policy
+
+Release work updates every dependency with an available security fix and runs the full suite after lockfile changes. Expo's build-only Metro toolchain currently depends on `image-size@1.2.1`, for which GHSA-5p2g-fcmc-qvqq and GHSA-w3rx-r6r6-pgpr have no patched upstream release. `patch-package` applies `patches/image-size+1.2.1.patch`; the postinstall verifier runs a malformed-ICNS probe in a bounded child process so the zero-length loop guard cannot silently disappear. This build dependency is not shipped in the `@trymuxr/cli` artifact.
+
 ## What is not a vulnerability
 
 muxr has a deliberate trust model. Read [docs/PLUGINS.md](docs/PLUGINS.md), section "Trust", before reporting.
