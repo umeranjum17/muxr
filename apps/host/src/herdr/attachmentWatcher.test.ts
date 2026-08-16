@@ -82,9 +82,14 @@ describe('scanPane', () => {
         await expect(watcher.fetch('p1', oversize.id)).resolves.toBeNull();
     });
 
-    it('returns [] for a missing pane dir without throwing', async () => {
+    it('returns [] for missing or out-of-root pane dirs without throwing', async () => {
         const root = paneRoot();
+        const outside = `${root}-outside`;
+        mkdirSync(outside, { recursive: true });
+        roots.push(outside);
+        writeFileSync(join(outside, 'private.txt'), 'nope');
         expect(await scanPane(root, 'nope')).toEqual([]);
+        expect(await scanPane(root, `../${outside.split('/').pop()}`)).toEqual([]);
     });
 });
 

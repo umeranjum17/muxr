@@ -31,7 +31,7 @@ APP_ENV=production \
 MUXR_DISTRIBUTION=store \
 MUXR_PUBLIC_BASE_URL=https://trymuxr.com \
 eas build --platform android --profile production --local --non-interactive \
-  --output ./muxr-0.1.1.aab
+  --output ./muxr-0.1.2.aab
 ```
 
 Before submission:
