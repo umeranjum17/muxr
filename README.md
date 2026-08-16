@@ -12,9 +12,9 @@ Drive every coding agent on your machine — Pi, Claude Code, Codex, Cursor, and
 > fixture may run cleartext; normal relays do not.
 
 <p align="center">
-  <img src="docs/screenshots/voice.png" alt="muxr Realtime voice conversation" width="31%" />
-  <img src="docs/screenshots/live-update.png" alt="muxr Android Live Update controls" width="31%" />
-  <img src="docs/screenshots/voice-settings.png" alt="muxr plugin-owned realtime provider settings" width="31%" />
+  <img src="docs/play/store-assets/01-herd.png" alt="muxr Herd overview on Android" width="31%" />
+  <img src="docs/play/store-assets/02-terminal.png" alt="muxr real terminal controls on Android" width="31%" />
+  <img src="docs/play/store-assets/03-plugins.png" alt="muxr public plugin catalog on Android" width="31%" />
 </p>
 
 ## What it does

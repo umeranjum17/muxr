@@ -45,12 +45,12 @@ The repository and fresh public history are now live. npm publication and publis
 ## Publish
 
 - [x] Repo public; description, homepage, and topics set
-- [ ] Publish the prepared `v0.1.0` GitHub Release (signed APK, AAB, CLI tarball, source archive, demo, and `SHA256SUMS` are attached to the draft)
+- [x] Published `v0.1.0` with the signed APK, AAB, `@trymuxr/cli` tarball, frozen source archive, demo, and verified `SHA256SUMS`
 - [x] Published and anonymously verified `@trymuxr/cli@0.1.0` on npm (`muxr version`, help, and setup help all passed)
 - [x] Support policy posted in `README.md`: issues accepted, best-effort, no SLA
 
 ## After
 
 - [ ] Watch first-week issues; free-tier support load starts now
-- [ ] Complete [the clean-room new-user smoke](NEW-USER-SMOKE.md) from the public tag and release artifacts
+- [x] Completed [the clean-room new-user smoke](NEW-USER-SMOKE.md) from public tag `v0.1.0` (fresh clone/build and 27/27 suite passed)
 - [ ] Announce only after that full self-host flow passes
