@@ -1,3 +1,5 @@
+import { stripTrailingSlashes } from './controlPlaneUrl.js';
+
 /**
  * Provider-neutral realtime voice channel.
  *
@@ -131,7 +133,7 @@ export function realtimeSocketUrl(
     relayUrl: string,
     options: { machineId: string; channel: string; role: 'machine' | 'client'; token?: string },
 ): string {
-    const base = relayUrl.replace(/\/+$/, '');
+    const base = stripTrailingSlashes(relayUrl);
     const parts = [
         `role=${options.role}`,
         `machineId=${encodeURIComponent(options.machineId)}`,
