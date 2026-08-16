@@ -7,9 +7,7 @@ services:
       - "8792:8792"
     volumes:
       - relay-data:/data
-    environment:
-      # Set to 1 when behind cloudflared/nginx so rate limits see real client IPs.
-      # MUXR_TRUST_PROXY: "1"
+    # Set MUXR_TRUST_PROXY=1 when a trusted reverse proxy sits in front.
     restart: unless-stopped
 
 volumes:

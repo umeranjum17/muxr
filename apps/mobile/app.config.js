@@ -38,7 +38,6 @@ if (!['store', 'direct'].includes(distribution)) {
 if (distribution === 'direct' && variant === 'production' && publicBaseUrl === undefined) {
     throw new Error('Direct distribution requires MUXR_PUBLIC_BASE_URL');
 }
-const elevenLabsAgentId = process.env.EXPO_PUBLIC_ELEVENLABS_AGENT_ID;
 const consoleLoggingDefault = {
     development: true,
     preview: true,
@@ -107,7 +106,7 @@ export default {
     expo: {
         name,
         slug: "muxr",
-        version: "0.1.1",
+        version: "0.1.2",
         runtimeVersion: "1",
         orientation: "default",
         icon: "./sources/assets/images/icon.png",
@@ -246,7 +245,6 @@ export default {
                 root: "./sources/app"
             },
             app: {
-                elevenLabsAgentId,
                 publicBaseUrl,
                 directDistribution: distribution === 'direct',
                 consoleLoggingDefault,

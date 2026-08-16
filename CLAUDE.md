@@ -17,7 +17,8 @@ Exception: security and crypto paths keep their coverage.
 
 ## Voice
 
-- The OpenAI Realtime agent stays. Never replace it with an STT+LLM+TTS pipeline.
+- Realtime voice stays a native streaming speech-to-speech path. Never replace it with an STT+LLM+TTS pipeline.
+- Provider policy stays in backend plugins; the bundled adapter currently uses xAI.
 - Never display or speak internal ids (`pp_*`, pane ids, session ids).
 - The microphone foreground service must be running before the realtime mic opens, or Android silently returns a deaf session.
 
@@ -28,4 +29,4 @@ Exception: security and crypto paths keep their coverage.
 
 ## Attachments
 
-- Artifacts meant to appear in muxr must also be written to `~/.muxr/attachments/pane/$HERDR_PANE_ID`. Host-level PocketHerdr delivery rules still apply, so user-facing files may need both destinations; never leave a muxr artifact only under `~/.pocketherdr`.
+- Artifacts meant to appear in muxr must be written to `~/.muxr/attachments/pane/$HERDR_PANE_ID`.

@@ -3,9 +3,15 @@ name: publish npm
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing immutable release tag to publish
+        required: true
+        type: string
 
 concurrency:
-  group: npm-${{ github.event.release.tag_name }}
+  group: npm-${{ github.event.release.tag_name || inputs.tag }}
   cancel-in-progress: false
 
 permissions:
@@ -19,16 +25,19 @@ jobs:
     environment: npm
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
-          registry-url: https://registry.npmjs.org
       - run: yarn install --frozen-lockfile --non-interactive
       - name: Match package version to the release tag
         id: package
         run: |
           version=$(node -p "require('./package.json').version")
-          test "v$version" = "${{ github.event.release.tag_name }}"
+          release_tag="${{ github.event.release.tag_name || inputs.tag }}"
+          [[ "$release_tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          test "v$version" = "$release_tag"
           echo "version=$version" >> "$GITHUB_OUTPUT"
       - run: yarn run pack
       - name: Check whether this immutable version already exists
@@ -39,6 +48,9 @@ jobs:
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
+      - name: Install npm with trusted publishing support
+        if: steps.registry.outputs.exists != 'true'
+        run: npm install --global npm@11.6.2
       - name: Publish with npm trusted publishing
         if: steps.registry.outputs.exists != 'true'
         run: npm publish ./dist-npm --access public --provenance

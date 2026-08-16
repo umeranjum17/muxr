@@ -69,6 +69,8 @@ short-lived pairing QR. Voice and Run Server are optional bundled plugins using
 the same public API as every
 third-party plugin.
 
+Install the signed phone app from the [latest GitHub release](https://github.com/umeranjum17/muxr/releases/latest). Prefer a browser? `muxr self-host --web` serves the read-only web client from your machine.
+
 ## Development
 
 Clone the repository, run `yarn install --frozen-lockfile`, then start the development relay and host:

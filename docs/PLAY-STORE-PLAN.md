@@ -1,13 +1,13 @@
 # Google Play launch plan
 
-Status: **v0.1.1 release candidate; the local signed rebuild and Play Console submission remain.** Production package ID is permanently `com.trymuxr.app`.
+Status: **v0.1.2 release candidate; the local signed rebuild and Play Console submission remain.** Production package ID is permanently `com.trymuxr.app`.
 
 ## 1. Freeze the release identity
 
 - Package/application ID: `com.trymuxr.app` (immutable after first upload).
 - Store title: **muxr**.
 - Category: **Productivity**.
-- Version name: `0.1.1`; version code: `2`. Every subsequent upload must increment it.
+- Version name: `0.1.2`; version code: `3`. Every subsequent upload must increment it.
 - Production App-Link origin: `https://trymuxr.com`.
 - Keep preview/dev identifiers separate. Never sign preview and production with the same upload workflow by accident.
 

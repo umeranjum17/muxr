@@ -95,6 +95,6 @@ relay, its own keys, its own device list.
 
 ## Updating
 
-Pull the checkout, `yarn install --frozen-lockfile && yarn build`, then restart
-the relay and host. When the CLI is published, `npm update -g muxr` will be the
-packaged equivalent.
+Update the packaged CLI with `npm update -g @trymuxr/cli`; then run `muxr setup`
+to reconcile the local services. Source checkouts can instead pull, run
+`yarn install --frozen-lockfile && yarn build`, and restart the relay and host.
