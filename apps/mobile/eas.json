@@ -31,6 +31,12 @@
             "android": {
                 "buildType": "apk"
             }
+        },
+        "emulator": {
+            "extends": "direct",
+            "env": {
+                "ORG_GRADLE_PROJECT_reactNativeArchitectures": "x86_64"
+            }
         }
     },
     "submit": {
