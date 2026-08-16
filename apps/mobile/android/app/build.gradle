@@ -87,9 +87,10 @@ android {
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
-    namespace 'app.muxr.local.preview'
+    namespace 'com.trymuxr.app'
     defaultConfig {
-        applicationId 'app.muxr.local.preview'
+        applicationId System.getenv('MUXR_ANDROID_APPLICATION_ID') ?: 'app.muxr.local.preview'
+        resValue 'string', 'muxr_application_id', applicationId
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1

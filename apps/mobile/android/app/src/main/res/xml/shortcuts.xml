@@ -14,8 +14,8 @@
         android:shortcutLongLabel="@string/muxr_shortcut_muxr_voice_jarvis_long">
         <intent
             android:action="android.intent.action.VIEW"
-            android:targetPackage="app.muxr.local.preview"
-            android:targetClass="app.muxr.local.preview.MainActivity"
+            android:targetPackage="@string/muxr_application_id"
+            android:targetClass="com.trymuxr.app.MainActivity"
             android:data="muxr://shortcut/muxr.voice.jarvis" />
         <capability-binding android:key="actions.intent.OPEN_APP_FEATURE">
             <parameter-binding

@@ -1,4 +1,4 @@
-package app.muxr.local.preview
+package com.trymuxr.app
 import expo.modules.splashscreen.SplashScreenManager
 
 import android.os.Build

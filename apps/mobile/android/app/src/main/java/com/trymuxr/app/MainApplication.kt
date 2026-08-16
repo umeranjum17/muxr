@@ -1,4 +1,4 @@
-package app.muxr.local.preview
+package com.trymuxr.app
 
 import android.app.Application
 import android.content.res.Configuration
