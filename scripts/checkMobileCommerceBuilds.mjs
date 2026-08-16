@@ -30,9 +30,8 @@ assert.equal(store.android.package, 'com.trymuxr.app', 'production config lost t
 assert.doesNotMatch(JSON.stringify(store), /revenuecat|posthog|stripeKey|checkout|upgrade|purchase|displayPrice/i, 'store production config contains commerce or analytics material');
 
 const eas = JSON.parse(readFileSync(join(mobile, 'eas.json'), 'utf8'));
-assert.equal(eas.build.production.env.MUXR_ANDROID_APPLICATION_ID, 'com.trymuxr.app');
 assert.equal(eas.build.production.env.ORG_GRADLE_PROJECT_reactNativeArchitectures, 'arm64-v8a');
-assert.match(readFileSync(join(mobile, 'android', 'app', 'build.gradle'), 'utf8'), /MUXR_ANDROID_APPLICATION_ID/);
+assert.match(readFileSync(join(mobile, 'android', 'app', 'build.gradle'), 'utf8'), /applicationId 'com\.trymuxr\.app'/);
 
 for (const path of [join(root, 'package.json'), join(mobile, 'package.json')]) {
     assert.doesNotMatch(readFileSync(path, 'utf8'), /revenuecat|react-native-purchases/i, `${path} still declares native/store commerce`);

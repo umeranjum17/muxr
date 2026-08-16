@@ -89,7 +89,7 @@ android {
 
     namespace 'com.trymuxr.app'
     defaultConfig {
-        applicationId System.getenv('MUXR_ANDROID_APPLICATION_ID') ?: 'app.muxr.local.preview'
+        applicationId 'com.trymuxr.app'
         resValue 'string', 'muxr_application_id', applicationId
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
