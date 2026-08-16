@@ -92,9 +92,9 @@ Prepared assets live in `docs/play/store-assets/`:
 
 - `store-icon.png`: 512×512 RGBA PNG.
 - `feature-graphic.png`: 1024×500 opaque PNG, no device imagery.
-- `01-herd.png` through `06-runbook.png`: opaque sRGB 1080×1920 screenshots showing current product UI and truthful benefit copy.
+- `01-herd.png` through `08-live-update.png`: opaque sRGB 1080×1920 marketing screenshots showing current product UI, realtime voice, and Android Live Update.
 
-Upload at least four screenshots. Keep the strongest sequence: Herd, Terminal, Plugins, Files, Changes, Runbook. Google accepts up to eight and requires each dimension to be 320–3840 px with the long side no more than twice the short side: [preview asset requirements](https://support.google.com/googleplay/android-developer/answer/9866151).
+Upload all eight in this sequence: Herd, Terminal, Plugins, Files, Changes, Runbook, Voice, Live Update. Google accepts up to eight and requires each dimension to be 320–3840 px with the long side no more than twice the short side: [preview asset requirements](https://support.google.com/googleplay/android-developer/answer/9866151).
 
 ## 7. Track sequence
 
