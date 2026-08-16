@@ -4,7 +4,7 @@ Drive every coding agent on your machine — Pi, Claude Code, Codex, Cursor, and
 
 > **Fully open source:** this repository is the complete product—CLI, relay,
 > mobile app, pairing, encryption, and plugin platform. Run it yourself, modify
-> it, and extend it under Apache-2.0. There is currently no paid tier.
+> it, and extend it under Apache-2.0.
 
 > **Security:** terminal and session traffic is end-to-end encrypted (v2 machine
 > keys) whenever E2EE is on — the secure default outside the explicit loopback development fixture.
@@ -56,31 +56,22 @@ can combine Herdr backend hooks with declarative native mobile contributions. Se
 
 ## Quick start
 
-The `muxr` npm package is not on the public registry yet. Clone this repository
-and run setup from the checkout.
-
-### Requirements
-
-- Linux, macOS, or WSL
-- Node.js 22 or newer
-- Yarn 1.x
-- Git
-- [herdr](https://herdr.dev) installed and running for real agents
+Requires Linux, macOS, or WSL and Node.js 22 or newer.
 
 ```bash
-git clone https://github.com/umeranjum17/muxr.git
-cd muxr
-yarn install --frozen-lockfile
-yarn build
-node scripts/cli.mjs setup
+npm install -g muxr
+muxr setup
 ```
 
-`node scripts/cli.mjs setup` installs or adopts Herdr, installs the official muxr
-control plugin, then hands setup and pairing to its Herdr pane. Voice and Run
-Server are optional bundled plugins using the same public API as other plugins. When the CLI is published, `npx muxr setup`
-will be the packaged equivalent.
+`muxr setup` installs or adopts Herdr with consent, syncs detected coding-agent
+integrations, starts the complete self-hosted relay and host, then displays a
+short-lived pairing QR. Voice and Run Server are optional bundled plugins using
+the same public API as every
+third-party plugin.
 
-Start the development relay and host:
+## Development
+
+Clone the repository, run `yarn install --frozen-lockfile`, then start the development relay and host:
 
 ```bash
 yarn up

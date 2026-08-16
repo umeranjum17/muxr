@@ -13,10 +13,10 @@ Primary gate: clean Linux VM plus a fresh API 36 Android emulator. Follow-up doc
    - Verify the tag, source archive checksum, Apache-2.0 license, NOTICE, and Android artifact checksum.
 2. **Install from zero**
    - Install only the documented Node 22+, Yarn 1.x, Git, Herdr, JDK/Android prerequisites.
-   - Run `yarn install --frozen-lockfile`, `yarn build`, and `node scripts/runSuite.mjs`.
+   - Install the published CLI with `npm install -g muxr`, verify `muxr version`, then clone the matching public tag and run `yarn install --frozen-lockfile`, `yarn build`, and `node scripts/runSuite.mjs`.
    - Fail if undocumented secrets, private packages, maintainer paths, or unpublished npm commands are required.
 3. **Start the self-hosted product**
-   - Run `node scripts/cli.mjs setup`, then `node scripts/cli.mjs self-host` in the isolated HOME.
+   - Run `muxr setup` in the isolated HOME; do not run a second undocumented startup command.
    - Confirm the relay health endpoint, host connection, owner-only state permissions, and a visible QR plus pasteable pairing string.
 4. **Pair a fresh phone**
    - Install the exact release build on a factory-reset emulator.

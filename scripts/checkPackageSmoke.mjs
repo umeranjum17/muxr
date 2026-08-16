@@ -303,6 +303,9 @@ try {
     const setupPort = 20_000 + (process.pid % 10_000);
     const setupArgs = ['--relay-only', '--port', String(setupPort), '--advertise', `ws://127.0.0.1:${setupPort}`];
     assert.equal(run(cli, ['version'], { cwd: installDir, env }).stdout.trim(), '0.1.0');
+    const beforeHelp = filesSnapshot(home);
+    assert.match(run(cli, ['setup', '--help'], { cwd: installDir, env }).stdout, /Guided setup adopts or installs Herdr/);
+    assert.equal(filesSnapshot(home), beforeHelp, 'subcommand help changed the home directory');
 
     const beforeDryRun = filesSnapshot(home);
     run(cli, ['setup', '--dry-run'], { cwd: installDir, env });

@@ -159,7 +159,7 @@ cpSync(join(root, 'LICENSES'), join(out, 'LICENSES'), { recursive: true });
 const pkg = {
     name: 'muxr',
     version,
-    description: 'Connect muxr to coding agents running under herdr on your machine.',
+    description: 'Control every Herdr coding agent from your phone with a self-hosted encrypted relay.',
     license: 'Apache-2.0',
     type: 'module',
     bin: { muxr: './cli.mjs' },

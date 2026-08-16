@@ -1255,13 +1255,11 @@ async function runSelfhostPair(state, requestedKind = 'native') {
     print(pending.pairUrl);
     const pairFile = join(stateDir(), 'pairing-link.txt');
     writeFileSync(pairFile, `${pending.pairUrl}\n`, { mode: 0o600 });
+    // wl-copy/xclip stay alive as clipboard owners and can freeze setup in a
+    // terminal or headless session. macOS pbcopy writes once and exits.
     const clipboard = hostPlatform() === 'darwin'
-        ? spawnSync('pbcopy', [], { input: pending.pairUrl })
-        : process.env.WAYLAND_DISPLAY
-            ? spawnSync('wl-copy', [], { input: pending.pairUrl })
-            : process.env.DISPLAY
-                ? spawnSync('xclip', ['-selection', 'clipboard'], { input: pending.pairUrl })
-                : undefined;
+        ? spawnSync('pbcopy', [], { input: pending.pairUrl, timeout: 2_000 })
+        : undefined;
     print(clipboard?.status === 0 ? '  ✓ copied pairing string to clipboard' : `  saved exact pairing string to ${pairFile}`);
     print('Waiting for the device to claim this single-use pairing session…');
     while (true) {
@@ -1320,6 +1318,21 @@ async function runSelfhostPair(state, requestedKind = 'native') {
         state.machine.crypto.pendingPair = pending;
         writeSelfhostState(state);
         return runSelfhostPair(state, pending.deviceKind ?? 'native');
+    }
+}
+
+export async function runPair(args = []) {
+    try {
+        const state = readSelfhostState();
+        if (state?.machine?.crypto === undefined || typeof state.mintSecret !== 'string') {
+            throw new Error('muxr is not set up yet; run `muxr setup` first');
+        }
+        const healthy = await fetch(`http://127.0.0.1:${state.relayPort}/health`).then((response) => response.ok).catch(() => false);
+        if (!healthy) throw new Error('self-host relay is not running; run `muxr self-host --relay-only` first');
+        return await withSelfhostRotationLock(() => runSelfhostPair(state, args.includes('--browser') ? 'browser' : 'native'));
+    } catch (cause) {
+        error(cause instanceof Error ? cause.message : String(cause));
+        return 1;
     }
 }
 
@@ -1539,23 +1552,13 @@ export async function runDoctor() {
     const states = Object.entries(manifest.entries).map(([path, entry]) => `${path.startsWith(`${home()}/`) ? `~/${path.slice(home().length + 1)}` : basename(path)}:${entryStatus(path, entry)}`);
     const drifted = states.filter((state) => state.endsWith(':drifted') || state.endsWith(':missing'));
     add(drifted.length ? 'fail' : states.length ? 'ok' : 'warn', 'managed setup', states.length ? (drifted.join(', ') || `${states.length} entries current`) : 'not installed');
-    try {
-        const auth = loadAuthState();
-        if (!auth?.credential || !auth?.machine?.id) add('warn', 'hosted auth', 'not signed in — run muxr login');
-        else if (Date.parse(auth.credentialExpiresAt) <= Date.now()) add('fail', 'hosted auth', 'machine credential expired — run muxr login');
-        else add('ok', 'hosted auth', `${auth.account?.email ?? 'account verified'} — ${auth.machine.id}`);
-        if (auth?.credential) {
-            const crypto = auth.machine?.crypto;
-            const valid = crypto && typeof crypto.signingPublicKey === 'string' && typeof crypto.signingSecretKey === 'string'
-                && typeof crypto.boxPublicKey === 'string' && typeof crypto.boxSecretKey === 'string'
-                && typeof crypto.dataKey === 'string' && Number.isInteger(crypto.keyVersion) && crypto.keyVersion > 0;
-            add(valid ? 'ok' : 'fail', 'hosted E2EE', valid
-                ? `strict v2 — key version ${crypto.keyVersion}, ${crypto.devices?.length ?? 0} device grant(s); Preview disabled`
-                : 'machine identity/data keys missing — re-register and re-pair; no plaintext fallback');
-        }
-    } catch (cause) {
-        add('fail', 'hosted auth', cause instanceof Error ? cause.message : String(cause));
-    }
+    const selfhost = readSelfhostState();
+    const relayReady = selfhost?.relayPort === undefined
+        ? false
+        : await fetch(`http://127.0.0.1:${selfhost.relayPort}/health`).then((response) => response.ok).catch(() => false);
+    add(selfhost === undefined ? 'warn' : relayReady ? 'ok' : 'warn', 'self-host relay', selfhost === undefined
+        ? 'not configured — run muxr setup'
+        : relayReady ? `running on :${selfhost.relayPort}` : `configured on :${selfhost.relayPort}, not running`);
     const width = Math.max(...checks.map((check) => check.name.length));
     print();
     for (const check of checks) print(`  ${{ ok: 'ok  ', warn: 'warn', fail: 'FAIL' }[check.level]}  ${check.name.padEnd(width)}  ${check.detail}`);

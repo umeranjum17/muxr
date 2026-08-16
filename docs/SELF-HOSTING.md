@@ -1,37 +1,30 @@
 # Self-hosting muxr
 
-Everything muxr does can run on your own infrastructure: the relay, the agent
-host, and the pairing between them and the app. No muxr account, no hosted
-service, no email provider required.
+Everything muxr does runs on your own infrastructure: the relay, the agent
+host, and the pairing between them and the app.
 
 ## Quick start
 
-On the machine that runs your agents (Linux, macOS, WSL), from a muxr checkout:
+On the machine that runs your agents (Linux, macOS, WSL):
 
 ```bash
-yarn install --frozen-lockfile
-yarn build
-node scripts/cli.mjs self-host
+npm install -g muxr
+muxr setup
 ```
 
-When the CLI is published, `npm install -g muxr && muxr self-host` will be the
-packaged equivalent.
+Setup adopts or installs Herdr with consent, syncs detected agent integrations,
+starts your relay and host, then:
 
-That one command:
-
-1. Starts your own relay (`~/.muxr/relay`, strict auth, E2EE always on).
+1. Stores strict E2EE relay state under `~/.muxr/relay`.
 2. Prints a **pairing QR code and a raw pairing string**.
 3. Waits for your phone, then completes the end-to-end key exchange.
 
 In the app: **Scan QR code** (or paste the pairing string). Done — your machine
 shows up and every agent on it is in your pocket.
 
-Start the agent host on the same machine:
-
-```bash
-MUXR_MODE=selfhost node scripts/cli.mjs up        # foreground
-node scripts/cli.mjs daemon install               # or as a background service
-```
+For manual service control use `muxr daemon status|logs|start|stop`. Advanced
+split deployments can use `muxr self-host --relay-only` and
+`muxr self-host --host-only`.
 
 ## Reaching the relay from your phone
 
@@ -87,7 +80,7 @@ docker compose up
 ```
 
 That binds port 8792 and stores relay state in the `relay-data` volume. Pair
-from the same machine with `node scripts/cli.mjs self-host --host-only` (or
+from the same machine with `muxr self-host --host-only` (or
 point `--advertise` at the container's published URL). Set `MUXR_TRUST_PROXY=1`
 in `docker-compose.yml` when a reverse proxy sits in front.
 

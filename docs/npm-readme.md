@@ -1,62 +1,50 @@
-# muxr CLI/host
+# muxr
 
-The `muxr` package is not on the public npm registry yet. From a source
-checkout use `node scripts/cli.mjs <command>` with the same flags. This file
-is the packaged README once `npm publish` happens.
+Control every coding agent on your machine from your phone. The `muxr` package installs the complete self-hosted CLI, relay, host bridge, plugin runtime, and web client.
 
-This host-only package connects coding agents running under
-[herdr](https://herdr.dev) to muxr. It does not contain the hosted relay
-or control-plane source.
+## Quickstart
+
+Requires Node 22+ and [Herdr](https://herdr.dev). If Herdr is missing, setup asks before installing it.
 
 ```bash
-npx muxr setup
+npm install -g muxr
+muxr setup
 ```
 
-Interactive setup adopts or installs Herdr, installs the official muxr control
-plugin, then hands off to its setup pane. That pane handles connection mode,
-pairing, daemon registration, and agent integration sync. If Herdr is missing,
-interactive setup asks first and defaults to No; non-interactive setup requires
-`--install-herdr`. Use
-`MUXR_HERDR_INSTALLER=/path/to/reviewed-installer` with that flag for a local,
-reviewed installer. Use `muxr setup --dry-run` to preview all changes and
-`muxr doctor` for redacted diagnostics.
+`muxr setup` inspects the machine, adopts the existing Herdr configuration, installs muxr's bundled plugins, syncs detected coding-agent integrations, starts the relay and host, and displays a short-lived pairing QR plus pasteable pairing string.
 
-`muxr login`, `whoami`, `logout`, and `muxr pair` call the hosted control
-plane without callback ports or long-lived secrets in activation URLs. Pairing
-prints a five-minute QR/App Link with separate single-use control and E2EE
-secrets, pins the machine identity, and completes an authenticated device grant.
-Hosted session/RPC, terminal, voice-tool and attachment-chunk traffic is strict
-v2 ciphertext; cleartext, unknown versions and legacy downgrade fail closed.
+```bash
+muxr doctor                    # redacted setup diagnostics
+muxr pair                      # pair another phone
+muxr pair --browser            # pair an 8-hour read-only browser
+muxr devices list
+muxr devices revoke <number>
+```
 
-muxr state lives under `~/.muxr` unless `MUXR_HOME` is set; environment variables use the `MUXR_*` prefix.
+muxr state lives under `~/.muxr` unless `MUXR_HOME` is set. Use `muxr setup --dry-run` to preview managed-file changes. `muxr daemon uninstall` removes only the host registration; `muxr integrations uninstall` removes only muxr-managed integrations. Neither command deletes Herdr work or user repositories.
+
+## Self-host options
 
 ```text
-muxr setup [--mode managed|selfhost] [--inspect] [--dry-run] [--no-agent-config]
-           [--install-herdr|--no-install-herdr]
-muxr self-host [--advertise <url>] [--tunnel] [--port <n>] [--relay-only|--host-only]
-muxr devices list | revoke <number|name>
-muxr daemon install|uninstall|start|stop|status|logs
-muxr integrations sync [--all] [--dry-run]
-muxr integrations uninstall [--dry-run]
-muxr doctor
-muxr login|pair|whoami|logout
-muxr up [--fake]
+muxr self-host [--advertise <ws-url>] [--tunnel] [--tailscale-direct]
+               [--port <n>] [--relay-only|--host-only] [--web] [--yes]
 ```
 
-## Write a plugin
+The default uses Tailscale when available or the trusted local network otherwise. Session, terminal, attachment, and plugin-stream payloads use the strict v2 E2EE data plane; the relay routes ciphertext it cannot read.
 
-`PLUGINS.md` in this package is the authoring guide: manifest shape, every UI
-slot, declarative screens, and RPC rules. Working examples ship in `plugins/`.
+## Build a plugin
 
+Bundled and third-party plugins use the same public contract. Working examples and the full authoring guide ship in `plugins/` and `PLUGINS.md`.
+
+```bash
+muxr plugin create <name>
+muxr plugin check <path>
+muxr plugin dev <path> [--web]
+muxr plugin call <path> <contribution-id> [--input '<json>']
+muxr plugin list
+muxr plugin install <local-path|owner/repo[/subdir][@ref]|npm:<name>@<version>>
+muxr plugin update <same-spec>
+muxr plugin remove <plugin-id>
 ```
-muxr plugin create <name>      scaffold a plugin
-muxr plugin check <path>       validate its manifest before installing
-muxr plugin dev <path> [--web] validate, link, and optionally open the web app
-muxr plugin call <path> <id>   run one of its RPCs from the terminal
-muxr plugin list|install|update|remove
-```
 
-Product terms are in `LICENSE`; dependency notices and the publish-safe resolved
-license/version inventory are in `NOTICE`, `LICENSES/`, and
-`THIRD_PARTY_LICENSES.json`. Bundle source paths and esbuild metadata are not
-published.
+Apache-2.0. Dependency notices and resolved license inventory are included in `NOTICE`, `LICENSES/`, and `THIRD_PARTY_LICENSES.json`.
