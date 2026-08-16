@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const root = process.cwd();
@@ -32,6 +32,17 @@ assert.doesNotMatch(JSON.stringify(store), /revenuecat|posthog|stripeKey|checkou
 const eas = JSON.parse(readFileSync(join(mobile, 'eas.json'), 'utf8'));
 assert.equal(eas.build.production.env.ORG_GRADLE_PROJECT_reactNativeArchitectures, 'arm64-v8a');
 assert.match(readFileSync(join(mobile, 'android', 'app', 'build.gradle'), 'utf8'), /applicationId 'com\.trymuxr\.app'/);
+const voiceManifest = readFileSync(join(mobile, 'modules', 'voice-overlay', 'android', 'src', 'main', 'AndroidManifest.xml'), 'utf8');
+assert.match(voiceManifest, /FOREGROUND_SERVICE_DATA_SYNC/);
+assert.match(voiceManifest, /foregroundServiceType="microphone\|dataSync"/);
+assert.equal(existsSync(join(mobile, 'sources', 'app', '(app)', 'settings', 'account.tsx')), false, 'stale hosted-account screen is still shipped');
+for (const path of [
+    join(mobile, 'sources', 'app', '(app)', '_layout.tsx'),
+    join(mobile, 'sources', 'components', 'SettingsView.tsx'),
+    join(mobile, 'sources', 'components', 'CommandPalette', 'CommandPaletteProvider.tsx'),
+]) {
+    assert.doesNotMatch(readFileSync(path, 'utf8'), /settings\/account|Email, hosted status|Manage your account/, `${path} still exposes hosted-account UX`);
+}
 
 for (const path of [join(root, 'package.json'), join(mobile, 'package.json')]) {
     assert.doesNotMatch(readFileSync(path, 'utf8'), /revenuecat|react-native-purchases/i, `${path} still declares native/store commerce`);

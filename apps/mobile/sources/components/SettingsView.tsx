@@ -296,12 +296,6 @@ export const SettingsView = React.memo(function SettingsView({
                     />
                 )}
                 <Item
-                    title="Account"
-                    subtitle="Email, hosted status, devices and deletion"
-                    icon={<Ionicons name="person-circle-outline" size={29} color="#007AFF" />}
-                    onPress={() => router.push('/settings/account')}
-                />
-                <Item
                     title="Plugins"
                     subtitle="Native UI and capabilities installed through Herdr"
                     icon={<Ionicons name="extension-puzzle-outline" size={29} color="#5856D6" />}

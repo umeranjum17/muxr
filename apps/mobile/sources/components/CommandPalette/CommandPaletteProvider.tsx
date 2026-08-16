@@ -76,16 +76,6 @@ export function CommandPaletteProvider({ children }: { children: React.ReactNode
                 }
             },
             {
-                id: 'account',
-                title: 'Account',
-                subtitle: 'Manage your account',
-                icon: 'person-circle-outline',
-                category: 'Navigation',
-                action: () => {
-                    router.push('/settings/account');
-                }
-            },
-            {
                 id: 'connect',
                 title: 'Connect Device',
                 subtitle: 'Pair a new device with this machine',

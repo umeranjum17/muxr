@@ -104,12 +104,6 @@ export default function RootLayout() {
                 }}
             />
             <Stack.Screen
-                name="settings/account"
-                options={{
-                    headerTitle: t('settings.account'),
-                }}
-            />
-            <Stack.Screen
                 name="settings/appearance"
                 options={{
                     headerTitle: t('settings.appearance'),
