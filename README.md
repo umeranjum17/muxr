@@ -60,15 +60,18 @@ Requires Linux, macOS, or WSL and Node.js 22 or newer.
 
 ```bash
 npm install -g @trymuxr/cli
-muxr setup
+muxr
 ```
 
-`muxr setup` installs or adopts Herdr with consent, syncs detected coding-agent
-integrations, starts the complete self-hosted relay and host, then displays a
-short-lived pairing QR. Voice and Run Server are optional bundled plugins using
-the same public API as every third-party plugin.
+The interactive `muxr` onboarding changes nothing until you review and apply
+its plan. You choose networking, Herdr and agent integrations, optional plugins,
+managed services, and phone/browser pairing. It then verifies the supervised
+relay and host and reports their URLs and health without printing secrets.
+Native setup displays a QR; browser setup displays a clickable HTTPS pairing
+link for an eight-hour read-only grant. Voice and Run Server are optional bundled plugins using the same public
+API as every third-party plugin.
 
-**Android:** [download the signed muxr v0.1.2 APK](https://github.com/umeranjum17/muxr/releases/download/v0.1.2/muxr-0.1.2.apk) ([SHA256SUMS](https://github.com/umeranjum17/muxr/releases/download/v0.1.2/SHA256SUMS)). A Google Play release is coming soon. **iOS is coming soon.** Prefer a browser today? `muxr self-host --web` serves the read-only web client from your machine.
+**Android:** [download the signed muxr v0.1.2 APK](https://github.com/umeranjum17/muxr/releases/download/v0.1.2/muxr-0.1.2.apk) ([SHA256SUMS](https://github.com/umeranjum17/muxr/releases/download/v0.1.2/SHA256SUMS)). A Google Play release is coming soon. **iOS is coming soon.** Prefer a browser today? Choose the read-only web client during interactive `muxr` setup.
 
 ### Let your coding agent set it up
 
@@ -76,15 +79,22 @@ Paste this prompt into Pi, Claude Code, Codex, or another local coding agent:
 
 > Set up muxr on this machine from the public release at
 > <https://github.com/umeranjum17/muxr>. Use Node.js 22+ and install the CLI with
-> `npm install -g @trymuxr/cli`, then run `muxr setup`. If Herdr is missing, ask
-> me before installing it. Run `muxr doctor` and fix any local setup problem it
-> reports. Do not use cloud EAS builds, paid APIs, or hosted services. Leave the
-> short-lived pairing QR in the terminal for me; never repeat its payload in
-> chat or logs. Finally, point me to the signed Android APK and `SHA256SUMS` on
-> the latest GitHub release.
+> `npm install -g @trymuxr/cli`, then launch `muxr` in an interactive terminal
+> for me. Do not choose connection, Herdr, integration, plugin, or service
+> options on my behalf; let me review and apply the onboarding plan. Run
+> `muxr doctor` afterward and fix any local setup problem it reports. Do not use
+> cloud EAS builds, paid APIs, or hosted services. Leave the short-lived pairing
+> QR in the terminal for me; never repeat its payload in chat or logs. Finally,
+> point me to the signed Android APK and `SHA256SUMS` on the latest GitHub
+> release.
 
-A successful setup ends with Herdr integrations current, the local relay and
-host running, and a one-use encrypted pairing QR ready for the phone.
+A successful setup ends with the selected integrations applied, the local relay
+and host running, and a one-use encrypted pairing QR ready for the phone.
+
+Run `muxr` with no arguments for the interactive setup and maintenance menu.
+Choose **Update muxr** there, or run `muxr update --yes` in automation; it updates
+the npm package, refreshes bundled plugins, and restarts the running relay and
+host.
 
 ## Development
 

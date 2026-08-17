@@ -1,6 +1,6 @@
 import * as React from 'react';
 import * as Linking from 'expo-linking';
-import { ActivityIndicator, Text, View } from 'react-native';
+import { ActivityIndicator, Platform, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StyleSheet } from 'react-native-unistyles';
@@ -10,16 +10,23 @@ import { claimHostedPairing, hostedPairingDisplayName } from '@/state/hostedE2ee
 import { getCachedConnectionSettings, saveConnectionSettings } from '@/state/connectionSettings';
 import { ActionButton } from '@/components/ActionButton';
 import { Typography } from '@/constants/Typography';
+import { Modal } from '@/modal';
 
 /**
  * What pairing actually authorises. The previous copy described only the
  * cryptography, which understated it: this is full interactive control of the
  * machine's agent sessions under the account that started muxr.
  */
-const PAIRING_GRANTS = [
+const PHONE_PAIRING_GRANTS = [
     'Read every agent terminal on that computer, including whatever is already on screen.',
     'Type into those terminals and answer approval prompts.',
     'Start, stop and restart agents — running as the user who launched muxr.',
+] as const;
+
+const BROWSER_PAIRING_GRANTS = [
+    'Read agent status and terminal output from this browser.',
+    'Keep the machine keys end-to-end encrypted in this browser.',
+    'Use this read-only grant for eight hours, then pair again.',
 ] as const;
 
 const PAIRING_STEPS = [
@@ -41,8 +48,11 @@ export default function PairScreen() {
     // Deep links arrive as route params (expo-router drops unknown query keys
     // from getInitialURL, so the raw URL is only a fallback).
     const routeParams = useLocalSearchParams();
-    const paired = React.useRef(auth.isAuthenticated);
-    React.useEffect(() => { paired.current = auth.isAuthenticated; }, [auth.isAuthenticated]);
+    const browser = Platform.OS === 'web';
+    const grants = browser ? BROWSER_PAIRING_GRANTS : PHONE_PAIRING_GRANTS;
+    const pairingSteps = browser
+        ? ['This browser claims the one-time code from the link.', ...PAIRING_STEPS.slice(1)]
+        : PAIRING_STEPS;
     const routePairUrl = React.useMemo(() => {
         const v = routeParams.v;
         if (typeof v !== 'string' || v === '') return undefined;
@@ -62,11 +72,11 @@ export default function PairScreen() {
     React.useEffect(() => {
         let cancelled = false;
         const receive = (url: string | null) => {
-            if (cancelled || !url || paired.current) return;
-            if (!url.includes('/pair?') && !url.includes('/pair#')) return;
+            if (cancelled || !url || (!url.includes('/pair?') && !url.includes('/pair#'))) return false;
             setState((current) => current?.url === url
                 ? current
                 : { phase: 'confirm', url, machineName: hostedPairingDisplayName(url) });
+            return true;
         };
         if (routePairUrl !== undefined) {
             receive(routePairUrl);
@@ -74,18 +84,18 @@ export default function PairScreen() {
         }
         void Linking.getInitialURL().then((url) => {
             if (cancelled) return;
-            if (!url) {
-                setState({ phase: 'error', message: 'Open a fresh pairing QR or App Link from `muxr pair` on the computer you want to connect.' });
-                return;
-            }
-            receive(url);
+            if (!receive(url)) {
+                setState({ phase: 'error', message: browser
+                    ? 'Paste a fresh browser pairing string from `muxr pair --browser`.'
+                    : 'Open a fresh pairing QR or link from `muxr pair` on the computer you want to connect.' });
+            };
         }).catch((cause) => {
             if (!cancelled) setState({ phase: 'error', message: cause instanceof Error ? cause.message : String(cause) });
         });
         // Warm start: the app was already open when the link arrived.
         const subscription = Linking.addEventListener('url', (event) => receive(event.url));
         return () => { cancelled = true; subscription.remove(); };
-    }, [routePairUrl]);
+    }, [routePairUrl, browser]);
 
     const pair = React.useCallback(async (url: string) => {
         const grant = await claimHostedPairing(url);
@@ -116,6 +126,21 @@ export default function PairScreen() {
         });
     }, [state, pair]);
 
+    const paste = React.useCallback(async () => {
+        const pasted = await Modal.prompt(
+            browser ? 'Paste browser pairing string' : 'Paste pairing string',
+            `Paste the one-use string shown by ${browser ? '`muxr pair --browser`' : '`muxr pair`'} on the computer.`,
+            { placeholder: 'muxr://pair?payload=…' },
+        );
+        if (!pasted?.trim()) return;
+        const url = pasted.trim();
+        if (!url.includes('/pair?') && !url.includes('/pair#')) {
+            setState({ phase: 'error', message: 'That is not a muxr pairing string.' });
+            return;
+        }
+        setState({ phase: 'confirm', url, machineName: hostedPairingDisplayName(url) });
+    }, [browser]);
+
     const cancel = React.useCallback(() => router.replace('/'), [router]);
 
     return (
@@ -130,7 +155,7 @@ export default function PairScreen() {
                         : state.machineName ?? 'Securely pair this device'}
                 </Text>
                 {state?.phase === 'confirm' && (
-                    <Text style={styles.subtitle}>wants to pair with this phone</Text>
+                    <Text style={styles.subtitle}>wants to pair with this {browser ? 'browser' : 'phone'}</Text>
                 )}
             </View>
 
@@ -141,7 +166,7 @@ export default function PairScreen() {
                             <ActivityIndicator color={styles.progressText.color} />
                             <Text style={styles.progressText}>Pairing…</Text>
                         </View>
-                        {PAIRING_STEPS.map((step, index) => (
+                        {pairingSteps.map((step, index) => (
                             <View key={step} style={styles.stepRow}>
                                 <Text style={styles.stepIndex}>{index + 1}</Text>
                                 <Text style={styles.stepText}>{step}</Text>
@@ -151,8 +176,8 @@ export default function PairScreen() {
                 ) : state.phase === 'confirm' ? (
                     <>
                         <View style={styles.stepGroup}>
-                            <Text style={styles.stepHeading}>This phone will be able to</Text>
-                            {PAIRING_GRANTS.map((grant) => (
+                            <Text style={styles.stepHeading}>{browser ? 'This browser will be able to' : 'This phone will be able to'}</Text>
+                            {grants.map((grant) => (
                                 <View key={grant} style={styles.stepRow}>
                                     <Ionicons name="ellipse" size={6} color={styles.grantDot.color} style={styles.grantBullet} />
                                     <Text style={styles.grantText}>{grant}</Text>
@@ -167,7 +192,7 @@ export default function PairScreen() {
                         </View>
                         <View style={styles.stepGroup}>
                             <Text style={styles.stepHeading}>How it is secured</Text>
-                            {PAIRING_STEPS.map((step, index) => (
+                            {pairingSteps.map((step, index) => (
                                 <View key={step} style={styles.stepRow}>
                                     <Text style={styles.stepIndex}>{index + 1}</Text>
                                     <Text style={styles.stepText}>{step}</Text>
@@ -183,6 +208,7 @@ export default function PairScreen() {
                         {state.url !== undefined && (
                             <ActionButton title="Try again" icon="refresh-outline" onPress={confirm} />
                         )}
+                        <ActionButton title="Paste pairing string" icon="clipboard-outline" onPress={() => void paste()} />
                         <ActionButton title="Back" variant="secondary" onPress={cancel} />
                     </>
                 )}

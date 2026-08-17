@@ -208,6 +208,7 @@ class MuxrSync {
             ...(hostedGrant === undefined ? {} : { hostedGrant }),
             ...(settings.mode === 'hosted' ? {
                 onTicketRejected: () => { void this.refreshAccountSession().catch(() => undefined); },
+                onPermanentError: (message: string) => storage.getState().setSocketError(message),
             } : {}),
         });
         client.onPluginsInvalidated?.((frame) => reconcilePluginCaches(frame));
@@ -217,6 +218,7 @@ class MuxrSync {
             // Re-open from the host snapshot instead of leaving a stale transcript
             // that only a manual app reload could fix.
             if (state === 'open') {
+                storage.getState().setSocketError(null);
                 // Machine frames are edge-triggered; reconnect/mount paths also
                 // reconcile caches so a lost wakeup cannot leave stale UI.
                 reconcilePluginCaches({ type: 'plugins.invalidated', reason: 'changed', pluginIds: [] });

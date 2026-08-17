@@ -9,34 +9,45 @@ On the machine that runs your agents (Linux, macOS, WSL):
 
 ```bash
 npm install -g @trymuxr/cli
-muxr setup
+muxr
 ```
 
-Setup adopts or installs Herdr with consent, syncs detected agent integrations,
-starts your relay and host, then:
+The interactive onboarding inspects the machine without changing it. You choose
+the connection method, local port or external URL, whether to host the read-only
+web client, agent integrations, optional plugins, and managed services. After a
+final **Apply setup** confirmation, muxr starts the selected relay and host, then:
 
 1. Stores strict E2EE relay state under `~/.muxr/relay`.
-2. Prints a **pairing QR code and a raw pairing string**.
-3. Waits for your phone, then completes the end-to-end key exchange.
+2. Runs the selected phone, browser, or sequential pairing flow.
+3. Reports the connection mode, relay URL, web URL when enabled, service health,
+   pairing result, integrations, and plugins. Credentials and internal IDs are
+   never included in this final summary.
 
-In the app: **Scan QR code** (or paste the pairing string). Done — your machine
-shows up and every agent on it is in your pocket.
+The registered user service supervises the relay and host together, so both
+return after login or reboot and `muxr update` restarts them as one managed unit.
+Unchanged setup choices keep existing devices paired; changing the endpoint
+requires and displays a fresh pairing step.
 
-For manual service control use `muxr daemon status|logs|start|stop`. Advanced
+In the native app: **Scan QR code** (or paste the pairing string). For the
+read-only browser, setup prints a clickable HTTPS pairing link; the browser
+grant expires after eight hours and the UI then asks you to pair again.
+
+For automation use `muxr daemon status|logs|start|stop|restart`. Advanced
 split deployments can use `muxr self-host --relay-only` and
 `muxr self-host --host-only`.
 
 ## Reaching the relay from your phone
 
-`muxr self-host` picks an advertise address in this order:
+Interactive onboarding presents these choices. The equivalent automation flags
+are:
 
 | Flag | What happens |
 |---|---|
 | `--advertise <url>` | Explicit relay URL wins. Use your own domain/reverse proxy. |
 | `--tunnel` | Spawns `cloudflared` for a public `trycloudflare.com` URL. The URL is ephemeral; use a named tunnel for permanence. |
-| *(Tailscale detected)* | Uses private HTTPS through `tailscale serve`; the relay stays on loopback. |
+| *(choose Tailscale Serve)* | Uses private HTTPS through `tailscale serve`; the relay stays on loopback. |
 | `--tailscale-direct` | Rollback path using the tailnet IP directly. |
-| *(fallback)* | LAN address. Phone must be on the same network. |
+| *(choose Local network)* | LAN address. Phone must be on the same network. |
 
 muxr never enables Funnel. Restrict the Serve endpoint with a tailnet grant/ACL to intended devices even though muxr pairing and E2EE remain authoritative. `--web` requires a secure `wss://` route; insecure LAN HTTP is refused.
 
@@ -95,6 +106,7 @@ relay, its own keys, its own device list.
 
 ## Updating
 
-Update the packaged CLI with `npm update -g @trymuxr/cli`; then run `muxr setup`
-to reconcile the local services. Source checkouts can instead pull, run
+Run `muxr` and choose **Update muxr**, or use `muxr update --yes` in automation.
+The updater installs the latest npm release, refreshes bundled plugins, and
+restarts a running local relay and host. Source checkouts can instead pull, run
 `yarn install --frozen-lockfile && yarn build`, and restart the relay and host.

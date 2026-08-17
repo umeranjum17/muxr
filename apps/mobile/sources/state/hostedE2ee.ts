@@ -187,13 +187,33 @@ export async function refreshHostedGrant(machineId: string, credential = ''): Pr
 }
 
 async function json(base: string, path: string, options: RequestInit = {}): Promise<Record<string, any>> {
-    const response = await fetch(`${base}${path}`, {
-        ...options,
-        headers: { 'content-type': 'application/json', ...options.headers },
-    });
-    const body = await response.json() as Record<string, any>;
-    if (!response.ok) throw new Error(String(body.error ?? `request failed (${response.status})`));
-    return body;
+    const controller = options.signal === undefined ? new AbortController() : undefined;
+    const timeout = controller === undefined ? undefined : setTimeout(() => controller.abort(), 10_000);
+    try {
+        const response = await fetch(`${base}${path}`, {
+            ...options,
+            signal: options.signal ?? controller?.signal,
+            headers: { 'content-type': 'application/json', ...options.headers },
+        });
+        const body = await response.json() as Record<string, any>;
+        if (!response.ok) {
+            const message = String(body.error ?? `request failed (${response.status})`);
+            const friendlyErrors: Record<string, string> = {
+                invalid_claim: 'This pairing string is invalid. Create a fresh one on the machine.',
+                already_claimed: 'This pairing string was already used. Create a fresh one on the machine.',
+                expired: 'This pairing string expired. Create a fresh one on the machine.',
+                wrong_device_kind: 'This pairing link is for a different client type. Generate a fresh link from the muxr menu.',
+            };
+            const friendly = friendlyErrors[message];
+            throw new Error(friendly ?? message);
+        }
+        return body;
+    } catch (cause) {
+        if (cause instanceof Error && cause.name === 'AbortError') throw new Error('The relay did not respond. Check the network, then run `muxr doctor` on the machine.');
+        throw cause;
+    } finally {
+        if (timeout !== undefined) clearTimeout(timeout);
+    }
 }
 
 export function hostedPairingDisplayName(url: string): string {

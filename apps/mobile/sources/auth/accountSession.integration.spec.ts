@@ -14,6 +14,7 @@ const harness = vi.hoisted(() => ({
     clientOptions: [] as Array<{ onTicketRejected?: () => void }>,
     clientConnects: 0,
     socketStatus: 'disconnected',
+    socketError: null as string | null,
     ready: false,
 }));
 
@@ -74,6 +75,7 @@ vi.mock('../sync/storage', () => ({
             sessions: {},
             sessionsLoaded: false,
             setSocketStatus: (status: string) => { harness.socketStatus = status; },
+            setSocketError: (message: string | null) => { harness.socketError = message; },
             applyMachines: vi.fn(),
             applySessions: vi.fn(),
             applyHerdrTree: vi.fn(),

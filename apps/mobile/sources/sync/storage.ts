@@ -178,6 +178,7 @@ interface StorageState {
     // that simply has not loaded yet.
     sessionsLoaded: boolean;
     socketStatus: 'disconnected' | 'connecting' | 'connected' | 'error';
+    socketError: string | null;
     socketLastConnectedAt: number | null;
     socketLastDisconnectedAt: number | null;
     nativeUpdateStatus: { available: boolean; updateUrl?: string } | null;
@@ -193,6 +194,7 @@ interface StorageState {
     setSessionMessages: (sessionId: string, messages: Message[], loaded?: boolean, hasMoreOlder?: boolean) => void;
     updateSession: (sessionId: string, patch: Partial<Session>) => void;
     setSocketStatus: (status: StorageState['socketStatus']) => void;
+    setSocketError: (message: string | null) => void;
     applyLocalSettings: (patch: Partial<LocalSettings>) => void;
     applySettingsLocal: (patch: Partial<Settings>) => void;
     updateSessionDraft: (sessionId: string, draft: string | null) => void;
@@ -257,6 +259,7 @@ export const storage = create<StorageState>()((set, get) => ({
     isDataReady: false,
     sessionsLoaded: false,
     socketStatus: 'disconnected',
+    socketError: null,
     socketLastConnectedAt: null,
     socketLastDisconnectedAt: null,
     nativeUpdateStatus: null,
@@ -348,6 +351,7 @@ export const storage = create<StorageState>()((set, get) => ({
         return { sessions, sessionListViewData: buildSessionListViewData(sessions) };
     }),
     setSocketStatus: (socketStatus) => set({ socketStatus }),
+    setSocketError: (socketError) => set({ socketError }),
     // Settings are device-local in muxr -- there is no settings sync request --
     // so writing the store was the whole change and every toggle reset on reload.
     applyLocalSettings: (patch) => set((state) => {
@@ -579,7 +583,7 @@ export function useSocketStatus() {
     // so useShallow never matched and the component re-rendered forever. The
     // timestamps were read by nobody, and a clock sampled during selection would
     // not record the transition anyway.
-    return storage(useShallow((state) => ({ status: state.socketStatus })));
+    return storage(useShallow((state) => ({ status: state.socketStatus, error: state.socketError })));
 }
 
 export function useSideChatSessions(_parentSessionId: string | null): Session[] {

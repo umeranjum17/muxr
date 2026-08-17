@@ -581,7 +581,7 @@ export const HerdView = React.memo(({
                     </View>
                     <View style={styles.emptyAction}>
                         {Platform.OS === 'web' ? (
-                            <ActionButton title="Pair this browser" icon="link-outline" onPress={() => router.push('/pair')} />
+                            <ActionButton title="Paste browser pairing string" icon="clipboard-outline" onPress={() => router.push('/pair')} />
                         ) : setup.setupUrl ? (
                             <ActionButton title="Open setup guide" variant="quiet" icon="open-outline" onPress={() => void openExternalUrl(setup.setupUrl!)} />
                         ) : null}

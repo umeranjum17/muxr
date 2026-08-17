@@ -43,6 +43,8 @@ export interface MuxrClientOptions {
     hostedGrant?: StoredHostedGrant;
     /** A ticket refusal triggers separate account-session validation; it is not itself a logout signal. */
     onTicketRejected?: () => void;
+    /** Permanent self-host credential failures must stop retrying and offer pairing again. */
+    onPermanentError?: (message: string) => void;
 }
 
 interface Pending {
@@ -128,9 +130,16 @@ export class MuxrClient {
                     transport: 'relay',
                 }), 'relay');
         } catch (error) {
-            this.setState('closed');
-            if (error instanceof WsTicketError && (error.status === 401 || error.status === 403)) {
-                this.options.onTicketRejected?.();
+            const rejected = error instanceof WsTicketError && (error.status === 401 || error.status === 403);
+            const expired = error instanceof Error && /grant expired/i.test(error.message);
+            const permanent = expired || rejected && this.hosted?.grant.source === 'selfhost';
+            this.setState(permanent ? 'stale' : 'closed');
+            if (rejected) this.options.onTicketRejected?.();
+            if (permanent) {
+                this.options.onPermanentError?.(expired
+                    ? 'This browser grant expired. Pair again from `muxr pair --browser`.'
+                    : 'This device was revoked. Pair it again from the muxr menu.');
+                return;
             }
             if (!this.closed) {
                 const base = this.options.reconnectDelayMs ?? 1500;

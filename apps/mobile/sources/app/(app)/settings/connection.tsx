@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Text, TextInput, View } from 'react-native';
+import { Platform, Text, TextInput, View } from 'react-native';
 import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
 import { ItemList } from '@/components/ItemList';
@@ -15,6 +15,8 @@ import {
 } from '@/state/connectionSettings';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { t } from '@/text';
+import { useRouter } from 'expo-router';
+import { getCachedHostedGrant } from '@/state/hostedE2ee';
 
 const stylesheet = StyleSheet.create((theme) => ({
     label: {
@@ -58,11 +60,6 @@ const stylesheet = StyleSheet.create((theme) => ({
     dotBad: { backgroundColor: theme.colors.textDestructive },
 }));
 
-/** Host and port only: the relay URL can carry a path, and the full string is noise here. */
-function relayHost(url: string): string {
-    return /^wss?:\/\/([^/]+)/i.exec(url.trim())?.[1] ?? url.trim();
-}
-
 function Field(props: {
     label: string;
     value: string;
@@ -92,8 +89,9 @@ function Field(props: {
 
 export default function ConnectionSettingsScreen() {
     const styles = stylesheet;
+    const router = useRouter();
     const [initial, setInitial] = React.useState(() => getCachedConnectionSettings());
-    const { status } = useSocketStatus();
+    const { status, error: socketError } = useSocketStatus();
     const [showAdvanced, setShowAdvanced] = React.useState(false);
     const statusText = {
         connected: t('status.connected'),
@@ -130,21 +128,29 @@ export default function ConnectionSettingsScreen() {
 
     if (initial.mode === 'hosted') {
         const overSsh = getActiveSshForward() !== undefined;
-        const transport = overSsh ? 'Over your SSH tunnel' : 'Your own relay';
+        const transport = overSsh
+            ? 'SSH tunnel'
+            : initial.relayUrl.startsWith('wss://')
+                ? 'HTTPS/WSS transport + end-to-end encryption'
+                : 'Trusted-network WS transport + end-to-end encryption';
         const where = overSsh
             ? 'Forwarded through the SSH connection you opened in Advanced setup'
-            : relayHost(initial.relayUrl);
+            : initial.relayUrl;
+        const browserExpiresAt = Platform.OS === 'web' ? getCachedHostedGrant(initial.machineId)?.expiresAt : undefined;
         return (
             <ItemList>
                 <ItemGroup title="Status">
                     <Item
                         title={statusText}
-                        subtitle={status === 'connected' ? 'Your machine is reachable from this phone' : 'The app reconnects on its own when the machine is back'}
+                        subtitle={status === 'connected' ? 'Your machine is reachable from this device' : socketError ?? 'The app reconnects on its own when the machine is back'}
                         leftElement={<View style={[styles.dot, statusDot]} />}
                         loading={status === 'connecting'}
                     />
                     <Item title="Transport" subtitle={transport} detail={overSsh ? 'SSH' : 'Self-host'} />
                     <Item title="Relay" subtitle={where} subtitleLines={0} />
+                    {Platform.OS === 'web' && <Item title="Browser access" subtitle={browserExpiresAt === undefined
+                        ? 'Read-only · pair again every eight hours'
+                        : `Read-only · expires ${new Date(browserExpiresAt).toLocaleString()}`} />}
                 </ItemGroup>
 
                 <ItemGroup
@@ -167,8 +173,9 @@ export default function ConnectionSettingsScreen() {
                     {showAdvanced ? (
                         <>
                             <Item title="Reconnect now" subtitle="Drops the socket and dials again" onPress={() => void syncReconnect()} />
+                            <Item title="Pair another machine" subtitle="Paste a fresh string from `muxr pair`, or open its pairing link" onPress={() => router.push('/pair')} />
                             <Text style={styles.hint}>
-                                To connect a different machine, scan a fresh QR from `muxr pair` on that computer. To stop this phone reaching a machine, revoke it with the muxr CLI.
+                                To stop this device reaching a machine, revoke it from the interactive muxr menu.
                             </Text>
                         </>
                     ) : (

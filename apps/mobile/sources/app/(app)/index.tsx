@@ -72,7 +72,9 @@ function NotAuthenticated() {
         try {
             const approved = await Modal.confirm(
                 `Pair with ${hostedPairingDisplayName(url)}?`,
-                'This phone will be able to read and type into every agent terminal on that computer, answer approvals, and start or stop agents as the user who launched muxr.\n\nOnly continue if you just ran `muxr setup` or `muxr pair` there.',
+                Platform.OS === 'web'
+                    ? 'This browser receives read-only access for eight hours. Machine keys stay end-to-end encrypted with WebCrypto in this browser.\n\nOnly continue if you just ran `muxr pair --browser` there.'
+                    : 'This phone will be able to read and type into every agent terminal on that computer, answer approvals, and start or stop agents as the user who launched muxr.\n\nOnly continue if you just ran `muxr setup` or `muxr pair` there.',
                 { confirmText: 'Pair' },
             );
             if (!approved) return;
@@ -138,8 +140,10 @@ function NotAuthenticated() {
     const promptForPairingString = async (title: string) => {
         const pasted = await Modal.prompt(
             title,
-            'Paste the pairing string shown by `muxr self-host` on that machine. It pairs this phone end-to-end encrypted.',
-            { placeholder: 'muxr://pair#…' },
+            Platform.OS === 'web'
+                ? 'Paste the string shown by `muxr pair --browser`. It grants this browser read-only access for eight hours.'
+                : 'Paste the pairing string shown by `muxr pair` on that machine. It pairs this phone end-to-end encrypted.',
+            { placeholder: 'muxr://pair?payload=…' },
         );
         if (!pasted?.trim()) return;
         await processPairLink(pasted.trim());
@@ -168,10 +172,14 @@ function NotAuthenticated() {
                                     <Text style={styles.foundMeta} numberOfLines={1}>On this network · not connected yet</Text>
                                 </View>
                             </View>
-                            <ActionButton title="Connect" icon="link-outline" action={() => pairWithDiscovered(relay)} />
+                            <ActionButton title="Pair" icon="link-outline" action={() => pairWithDiscovered(relay)} />
                         </View>
                     ))}
-                    <ActionButton title={MOBILE_ONBOARDING_CHOICES[0]} icon="qr-code-outline" action={scanHostedQr} />
+                    {Platform.OS === 'web' ? (
+                        <ActionButton title="Paste browser pairing string" icon="clipboard-outline" action={() => promptForPairingString('Pair this browser')} />
+                    ) : (
+                        <ActionButton title={MOBILE_ONBOARDING_CHOICES[0]} icon="qr-code-outline" action={scanHostedQr} />
+                    )}
                     {showOtherWays ? (
                         <View style={styles.otherWays}>
                             <ActionButton variant="secondary" title="Paste a pairing string" icon="clipboard-outline" action={() => promptForPairingString('Paste pairing string')} />

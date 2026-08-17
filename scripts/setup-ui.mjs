@@ -1,4 +1,4 @@
-import { emitKeypressEvents } from 'node:readline';
+import { createInterface, emitKeypressEvents } from 'node:readline';
 
 const interactive = () => Boolean(process.stdin.isTTY && process.stdout.isTTY);
 const ansi = (code, text) => interactive() && process.env.NO_COLOR === undefined ? `\x1b[${code}m${text}\x1b[0m` : text;
@@ -81,6 +81,24 @@ export async function select(message, choices, initial = 0) {
         };
         process.stdin.on('keypress', onKey);
     });
+}
+
+export async function prompt(message, initial = '') {
+    if (!interactive()) return initial;
+    const suffix = initial ? ` ${dim(`(${initial})`)}` : '';
+    const reader = createInterface({ input: process.stdin, output: process.stdout });
+    const answer = await new Promise((resolve) => {
+        let settled = false;
+        const finish = (value) => {
+            if (settled) return;
+            settled = true;
+            resolve(value);
+        };
+        reader.once('SIGINT', () => finish(undefined));
+        reader.question(`${bold(`◆ ${message}`)}${suffix}\n  › `, finish);
+    });
+    reader.close();
+    return typeof answer === 'string' ? answer.trim() || initial : undefined;
 }
 
 export async function withSpinner(label, task) {

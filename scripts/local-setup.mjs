@@ -408,6 +408,10 @@ export async function runLocalPrerequisites(args = []) {
     try {
         const binary = await bootstrapHerdr(args);
         if (!binary) return args.includes('--dry-run') ? 0 : 1;
+        if (args.includes('--no-integrations')) {
+            print('  coding-agent integrations left unchanged');
+            return 0;
+        }
         const integrationArgs = ['sync', ...(args.includes('--dry-run') ? ['--dry-run'] : []), ...(args.includes('--force') ? ['--force'] : [])];
         if (args.includes('--all')) integrationArgs.push('--all');
         if (args.includes('--no-agent-config')) integrationArgs.push('--no-agent-config');
@@ -566,10 +570,15 @@ function serviceCommand(action) {
         if (action === 'reload') return { ok: true, stdout: '', stderr: '' };
         if (action === 'start' || action === 'restart') {
             const loaded = run('launchctl', ['print', service]);
-            return loaded.ok ? run('launchctl', ['kickstart', '-k', service]) : run('launchctl', ['bootstrap', domain, plist]);
+            if (loaded.ok) return run('launchctl', ['kickstart', '-k', service]);
+            const bootstrapped = run('launchctl', ['bootstrap', domain, plist]);
+            return bootstrapped.ok ? run('launchctl', ['kickstart', '-k', service]) : bootstrapped;
         }
         if (action === 'stop' || action === 'unload') return run('launchctl', ['bootout', service]);
-        if (action === 'status') return run('launchctl', ['print', service]);
+        if (action === 'status') {
+            const printed = run('launchctl', ['print', service]);
+            return { ...printed, ok: printed.ok && /\bstate = running\b/.test(printed.stdout) };
+        }
     }
     if (action === 'reload') return run('systemctl', ['--user', 'daemon-reload']);
     if (action === 'start') return run('systemctl', ['--user', 'enable', '--now', 'muxr.service']);
@@ -578,6 +587,41 @@ function serviceCommand(action) {
     if (action === 'status') return run('systemctl', ['--user', 'status', 'muxr.service', '--no-pager']);
     if (action === 'unload') return run('systemctl', ['--user', 'disable', '--now', 'muxr.service']);
     return { ok: false, stdout: '', stderr: `unknown service action ${action}` };
+}
+
+export function daemonIsRunning() {
+    return serviceCommand('status').ok;
+}
+
+export function daemonMode() {
+    try {
+        const content = readFileSync(daemonDefinition().path, 'utf8');
+        return /MUXR_MODE[\s\S]{0,80}selfhost/.test(content) ? 'selfhost' : /MUXR_MODE[\s\S]{0,80}hosted/.test(content) ? 'hosted' : undefined;
+    } catch { return undefined; }
+}
+
+function publicRelayUrl(value) {
+    if (typeof value !== 'string') return undefined;
+    try {
+        const parsed = new URL(value);
+        return ['ws:', 'wss:'].includes(parsed.protocol) ? parsed.origin : undefined;
+    } catch { return undefined; }
+}
+
+export async function selfhostPublicSummary() {
+    const state = readSelfhostState();
+    if (state === undefined) return undefined;
+    const relayHealthy = await fetch(`http://127.0.0.1:${state.relayPort}/health`).then((response) => response.ok).catch(() => false);
+    return {
+        connectionMode: typeof state.connectionMode === 'string' ? state.connectionMode : undefined,
+        relayPort: Number.isInteger(state.relayPort) ? state.relayPort : undefined,
+        relayUrl: publicRelayUrl(state.relayUrl),
+        webEnabled: state.webEnabled === true,
+        ingressHealthy: state.connectionMode !== 'cloudflare' || cloudflaredAlive(state.ingress),
+        webUrl: state.webEnabled === true ? publicRelayUrl(state.relayUrl)?.replace(/^ws/, 'http') : undefined,
+        relayHealthy,
+        hostRunning: daemonIsRunning(),
+    };
 }
 
 export async function runDaemon(args = []) {
@@ -606,9 +650,11 @@ export async function runDaemon(args = []) {
             saveManifest(manifest, dryRun);
             if (!dryRun) {
                 serviceCommand('unload');
+                await stopOwnedSelfhostRelay();
+                cleanupManagedIngress(readSelfhostState());
                 serviceCommand('reload');
             }
-            print('Daemon registration removed; muxr data and unrelated services were left intact.');
+            print('Daemon registration and muxr-owned ingress removed; muxr data and unrelated services were left intact.');
             return 0;
         }
         if (action === 'logs') {
@@ -621,7 +667,7 @@ export async function runDaemon(args = []) {
             print(result.stdout || result.stderr || 'No daemon log yet.');
             return result.ok ? 0 : 1;
         }
-        if (!['start', 'stop', 'status'].includes(action)) throw new Error('usage: muxr daemon install|uninstall|start|stop|status|logs');
+        if (!['start', 'stop', 'restart', 'status'].includes(action)) throw new Error('usage: muxr daemon install|uninstall|start|stop|restart|status|logs');
         const result = serviceCommand(action);
         print(result.stdout || result.stderr || `daemon ${action}: ok`);
         return result.ok || action === 'status' ? 0 : 1;
@@ -834,22 +880,57 @@ export function tailscaleIngress(args) {
     }
 }
 
-function tailscaleRootProxy(value) {
-    if (value === null || typeof value !== 'object') return undefined;
-    if (typeof value.Proxy === 'string') return value.Proxy;
-    if (value.Handlers?.['/'] !== undefined) return tailscaleRootProxy(value.Handlers['/']);
-    for (const child of Object.values(value)) {
-        const found = tailscaleRootProxy(child);
-        if (found !== undefined) return found;
+function tailscaleRootProxy(value, dnsName) {
+    const web = value?.Web;
+    if (web === null || typeof web !== 'object') return undefined;
+    const exact = dnsName ? web[`${dnsName}:443`]?.Handlers?.['/']?.Proxy : undefined;
+    if (typeof exact === 'string') return exact;
+    if (dnsName) return undefined;
+    const roots = Object.entries(web)
+        .filter(([address]) => address.endsWith(':443'))
+        .map(([, config]) => config?.Handlers?.['/']?.Proxy)
+        .filter((proxy) => typeof proxy === 'string');
+    return roots.length === 1 ? roots[0] : undefined;
+}
+
+function cloudflaredAlive(ingress) {
+    if (ingress?.kind !== 'cloudflare-quick') return false;
+    const pid = Number(ingress.pid);
+    const command = Number.isSafeInteger(pid) && pid > 1 ? run(env('MUXR_PS_BIN') || 'ps', ['-ww', '-p', String(pid), '-o', 'command=']) : { ok: false };
+    return command.ok && command.stdout.includes(`cloudflared tunnel --url http://127.0.0.1:${ingress.port}`);
+}
+
+function cleanupManagedIngress(state) {
+    const ingress = state?.ingress;
+    if (ingress?.kind === 'cloudflare-quick') {
+        if (cloudflaredAlive(ingress)) process.kill(Number(ingress.pid), 'SIGTERM');
+        return;
     }
-    return undefined;
+    if (ingress?.kind !== 'tailscale-serve') return;
+    const current = spawnSync('tailscale', ['serve', 'status', '--json'], { encoding: 'utf8' });
+    if (current.error?.code === 'ENOENT') return;
+    if (current.status !== 0) throw new Error('cannot inspect the previous muxr Tailscale Serve route; leaving it unchanged');
+    let parsed;
+    try { parsed = JSON.parse(current.stdout || '{}'); }
+    catch { throw new Error('Tailscale Serve returned invalid status JSON; leaving it unchanged'); }
+    const expected = `http://127.0.0.1:${ingress.port}`;
+    const rootProxy = tailscaleRootProxy(parsed, ingress.dnsName);
+    if (rootProxy === undefined) return;
+    if (rootProxy !== expected) throw new Error('the previous Tailscale Serve route changed outside muxr; leaving it unchanged');
+    const disabled = spawnSync('tailscale', ['serve', '--https=443', 'off'], { encoding: 'utf8' });
+    if (disabled.status !== 0) throw new Error(`could not remove the previous muxr Tailscale Serve route: ${disabled.stderr.trim() || disabled.stdout.trim()}`);
 }
 
 export async function resolveAdvertise(args, port, tailscale) {
     const explicit = flagValue(args, '--advertise')?.trim();
     if (explicit) {
-        if (!/^wss?:\/\/[^/]+/.test(explicit)) throw new Error('--advertise must be a ws:// or wss:// URL');
-        return { url: explicit.replace(/\/$/,''), note: 'explicit --advertise' };
+        let parsed;
+        try { parsed = new URL(explicit); }
+        catch { throw new Error('--advertise must be a valid ws:// or wss:// URL'); }
+        if (!['ws:', 'wss:'].includes(parsed.protocol) || !parsed.hostname || parsed.username || parsed.password || parsed.pathname !== '/' || parsed.search || parsed.hash) {
+            throw new Error('--advertise must be a root ws:// or wss:// URL without credentials, paths, query, or fragment');
+        }
+        return { url: parsed.toString().replace(/\/$/, ''), note: 'explicit --advertise' };
     }
     if (args.includes('--tunnel')) {
         const check = spawnSync('cloudflared', ['--version'], { encoding: 'utf8' });
@@ -866,22 +947,33 @@ export async function resolveAdvertise(args, port, tailscale) {
             const match = readFileSync(logPath, 'utf8').match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/);
             if (match) tunnelUrl = match[0];
         }
-        if (tunnelUrl === undefined) throw new Error(`cloudflared did not print a tunnel URL; see ${logPath}`);
-        return { url: tunnelUrl.replace(/^https/, 'wss'), note: 'cloudflare quick tunnel (ephemeral URL; use a named tunnel for permanence)' };
+        if (tunnelUrl === undefined) {
+            proc.kill('SIGTERM');
+            throw new Error(`cloudflared did not print a tunnel URL; see ${logPath}`);
+        }
+        return {
+            url: tunnelUrl.replace(/^https/, 'wss'),
+            note: 'cloudflare quick tunnel (ephemeral URL; use a named tunnel for permanence)',
+            ingress: { kind: 'cloudflare-quick', pid: proc.pid, port },
+        };
     }
     if (tailscale) {
         const current = spawnSync('tailscale', ['serve', 'status', '--json'], { encoding: 'utf8' });
         if (current.status !== 0) throw new Error(`cannot inspect Tailscale Serve ownership: ${current.stderr.trim() || 'status failed'}`);
         let rootProxy;
-        try { rootProxy = tailscaleRootProxy(JSON.parse(current.stdout || '{}')); }
+        try { rootProxy = tailscaleRootProxy(JSON.parse(current.stdout || '{}'), tailscale.dnsName); }
         catch { throw new Error('Tailscale Serve returned invalid status JSON'); }
         const expected = `http://127.0.0.1:${port}`;
         if (rootProxy !== undefined && rootProxy !== expected) throw new Error('Tailscale Serve root is already owned by another service; use --tailscale-direct or remove it yourself');
         const serve = rootProxy === expected
             ? { status: 0, stdout: '', stderr: '' }
-            : spawnSync('tailscale', ['serve', '--bg', '--https=443', expected], { encoding: 'utf8' });
+            : spawnSync('tailscale', ['serve', '--yes', '--bg', '--https=443', expected], { encoding: 'utf8' });
         if (serve.status !== 0) throw new Error(`tailscale serve failed: ${serve.stderr.trim() || serve.stdout.trim() || 'check operator permissions'}; use --tailscale-direct for direct tailnet mode`);
-        return { url: `wss://${tailscale.dnsName}`, note: 'Tailscale Serve (private tailnet HTTPS)' };
+        return {
+            url: `wss://${tailscale.dnsName}`,
+            note: 'Tailscale Serve (private tailnet HTTPS)',
+            ingress: { kind: 'tailscale-serve', port, dnsName: tailscale.dnsName },
+        };
     }
     const status = spawnSync('tailscale', ['status', '--json'], { encoding: 'utf8' });
     if (status.status === 0) {
@@ -937,6 +1029,54 @@ async function ensureSelfhostRelay(port, webRoot, host = '0.0.0.0', webOrigin) {
     throw new Error(`self-host relay did not come up on :${port}; see ${logPath}`);
 }
 
+async function stopOwnedSelfhostRelay() {
+    const state = readSelfhostState();
+    if (state === undefined) return undefined;
+    const port = Number(state.relayPort);
+    const health = await fetch(`http://127.0.0.1:${port}/health`).then((response) => response.ok ? response.json() : undefined).catch(() => undefined);
+    if (health?.ok !== true) return undefined;
+    const pidPath = join(stateDir(), 'relay', 'relay.pid');
+    const pid = Number(existsSync(pidPath) ? readFileSync(pidPath, 'utf8').trim() : '');
+    if (!Number.isSafeInteger(pid) || pid <= 1) throw new Error('running relay has no valid pid file; leaving it untouched');
+    const command = run(env('MUXR_PS_BIN') || 'ps', ['-ww', '-p', String(pid), '-o', 'command=']);
+    const relayCommand = command.ok ? command.stdout.trim() : '';
+    if (!/(?:^|\s)\S*\/relay\.js(?:\s|$)/.test(relayCommand) && !relayCommand.includes(relayEntry())) {
+        throw new Error('relay pid does not belong to a muxr relay process; leaving it untouched');
+    }
+    try { process.kill(pid, 'SIGTERM'); }
+    catch (cause) { if (cause?.code === 'ESRCH') return { state, health, port }; else throw cause; }
+    for (let attempt = 0; attempt < 30; attempt += 1) {
+        const stopped = await fetch(`http://127.0.0.1:${port}/health`).then(() => false).catch(() => true);
+        if (stopped) return { state, health, port };
+        await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    throw new Error('relay did not stop; leaving the existing process in place');
+}
+
+function persistRelayRuntimeState({ state, health }) {
+    state.bindHost = health.bindHost === '127.0.0.1' ? '127.0.0.1' : '0.0.0.0';
+    state.webEnabled = health.webEnabled === true;
+    state.webRoot = state.webEnabled ? join(dirname(realpathSync(process.argv[1])), 'web') : undefined;
+    state.webOrigin = state.webEnabled && typeof state.relayUrl === 'string' ? state.relayUrl.replace(/^wss/, 'https') : undefined;
+    writeSelfhostState(state);
+}
+
+export async function stopSelfhostRelayIfRunning() {
+    const previous = await stopOwnedSelfhostRelay();
+    if (previous === undefined) return false;
+    persistRelayRuntimeState(previous);
+    return true;
+}
+
+export async function restartSelfhostRelayIfRunning() {
+    const previous = await stopOwnedSelfhostRelay();
+    if (previous === undefined) return false;
+    persistRelayRuntimeState(previous);
+    const { state, port } = previous;
+    await ensureSelfhostRelay(port, state.webRoot, state.bindHost, state.webOrigin);
+    return true;
+}
+
 function flagValue(args, name) {
     const inline = args.find((a) => a.startsWith(`${name}=`));
     if (inline !== undefined) return inline.slice(name.length + 1);
@@ -944,19 +1084,30 @@ function flagValue(args, name) {
     return index >= 0 ? args[index + 1] : undefined;
 }
 
-async function startMuxrDaemon(mode, args = []) {
+async function startMuxrDaemon(mode, args = [], restartRunning = true) {
     const dryRun = args.includes('--dry-run');
     const common = [...(dryRun ? ['--dry-run'] : []), ...(args.includes('--force') ? ['--force'] : [])];
     if ((await runDaemon(['install', '--mode', mode, ...common])) !== 0) throw new Error('daemon registration failed');
     if (dryRun) {
-        print(`  would start the muxr host in ${mode} mode`);
+        print(`  would start muxr services in ${mode} mode`);
         return;
     }
-    if ((await runDaemon(['start'])) !== 0) throw new Error('muxr host did not start');
-    for (let attempt = 0; attempt < 20; attempt += 1) {
+    const running = daemonIsRunning();
+    if (!running || restartRunning) {
+        const action = running ? 'restart' : 'start';
+        if ((await runDaemon([action])) !== 0) throw new Error(`muxr host did not ${action}`);
+    }
+    for (let attempt = 0; attempt < 40; attempt += 1) {
         if (serviceCommand('status').ok) {
-            print(`  ✓ muxr host running in ${mode} mode`);
-            return;
+            const relayReady = mode !== 'selfhost' || await (async () => {
+                const state = readSelfhostState();
+                return state?.relayPort !== undefined
+                    && fetch(`http://127.0.0.1:${state.relayPort}/health`).then((response) => response.ok).catch(() => false);
+            })();
+            if (relayReady) {
+                print(`  ✓ muxr services running in ${mode} mode`);
+                return;
+            }
         }
         await new Promise((resolve) => setTimeout(resolve, 250));
     }
@@ -964,11 +1115,16 @@ async function startMuxrDaemon(mode, args = []) {
 }
 
 export async function runSelfHost(args = []) {
+    let pendingIngress;
     const port = Number(flagValue(args, '--port') ?? 8792);
     const relayOnly = args.includes('--relay-only');
     const hostOnly = args.includes('--host-only');
     const dryRun = args.includes('--dry-run');
     const web = args.includes('--web');
+    const pairKind = args.includes('--pair-browser') ? 'browser' : 'native';
+    const noPair = args.includes('--no-pair');
+    const connectionMode = flagValue(args, '--connection-mode');
+    const reconfigure = args.includes('--reconfigure');
     if (web && !process.stdout.isTTY && !args.includes('--yes')) {
         error('--web requires an interactive trust confirmation or explicit --yes');
         return 1;
@@ -996,12 +1152,27 @@ export async function runSelfHost(args = []) {
         if (state === undefined) {
             state = { version: 1, machine: machineIdentity(undefined), relayPort: port };
         }
+        const hostWasRunning = daemonIsRunning();
+        const explicitAdvertise = flagValue(args, '--advertise')?.replace(/\/$/, '');
+        const sameConfiguration = state.relayPort === port
+            && state.connectionMode === connectionMode
+            && state.webEnabled === web
+            && (connectionMode !== 'external' && connectionMode !== 'lan' || state.relayUrl === explicitAdvertise);
+        if (!sameConfiguration && reconfigure) {
+            cleanupManagedIngress(state);
+            if (hostWasRunning && (await runDaemon(['stop'])) !== 0) throw new Error('could not stop the managed muxr service before reconfiguration');
+            await stopOwnedSelfhostRelay();
+            delete state.ingress;
+        }
         state.relayPort = port;
         if (web && !existsSync(join(webRoot, 'index.html'))) throw new Error(`web client missing at ${webRoot}; install a package with the web client or pass --web-root`);
         const tailscale = tailscaleIngress(args);
-        const advertise = await resolveAdvertise(args, port, tailscale);
+        const advertise = sameConfiguration && connectionMode === 'cloudflare' && typeof state.relayUrl === 'string' && cloudflaredAlive(state.ingress)
+            ? { url: state.relayUrl, note: 'existing Cloudflare quick tunnel', ingress: state.ingress }
+            : await resolveAdvertise(args, port, tailscale);
+        pendingIngress = advertise.ingress?.kind === 'cloudflare-quick' ? advertise.ingress : undefined;
         if (web && !advertise.url.startsWith('wss://')) throw new Error('--web requires HTTPS (Tailscale Serve, a named HTTPS tunnel, or --advertise wss://...)');
-        const bindHost = tailscale || web ? '127.0.0.1' : '0.0.0.0';
+        const bindHost = tailscale || args.includes('--tunnel') || web || explicitAdvertise?.startsWith('wss://') ? '127.0.0.1' : '0.0.0.0';
         const webOrigin = web ? advertise.url.replace(/^wss/, 'https') : undefined;
         await ensureSelfhostRelay(port, web ? webRoot : undefined, bindHost, webOrigin);
         const mintPath = join(stateDir(), 'relay', 'mint-secret');
@@ -1012,7 +1183,14 @@ export async function runSelfHost(args = []) {
         const secretRaw = JSON.parse(readFileSync(mintPath, 'utf8'));
         state.mintSecret = secretRaw;
         state.relayUrl = advertise.url;
+        state.connectionMode = connectionMode;
+        state.webEnabled = web;
+        state.webRoot = web ? webRoot : undefined;
+        state.webOrigin = webOrigin;
+        state.bindHost = bindHost;
+        state.ingress = advertise.ingress;
         writeSelfhostState(state);
+        pendingIngress = undefined;
         print(`  ✓ self-host relay on :${port} (${advertise.note})`);
         print(`  ✓ advertise ${advertise.url}`);
         if (web) print(`  ✓ web client ${advertise.url.replace(/^ws/, 'http')}`);
@@ -1020,9 +1198,15 @@ export async function runSelfHost(args = []) {
             print('Relay ready. Run `muxr self-host --host-only` on the machine holding this state.');
             return 0;
         }
-        await startMuxrDaemon('selfhost', args);
-        return await withSelfhostRotationLock(() => runSelfhostPair(state, web ? 'browser' : 'native'));
+        if (env('MUXR_NO_SERVICE_COMMANDS') !== '1' && (!sameConfiguration || !hostWasRunning)) await stopOwnedSelfhostRelay();
+        await startMuxrDaemon('selfhost', args, !sameConfiguration || !hostWasRunning);
+        if (noPair) {
+            print('Ready — existing paired devices will reconnect automatically.');
+            return 0;
+        }
+        return await withSelfhostRotationLock(() => runSelfhostPair(state, pairKind));
     } catch (cause) {
+        if (pendingIngress && cloudflaredAlive(pendingIngress)) process.kill(Number(pendingIngress.pid), 'SIGTERM');
         error(cause instanceof Error ? cause.message : String(cause));
         return 1;
     }
@@ -1211,7 +1395,7 @@ async function runSelfhostPair(state, requestedKind = 'native') {
         const created = await api(base, '/v1/selfhost/pair-sessions', {
             method: 'POST',
             headers: authHeaders,
-            body: JSON.stringify({ claim, machineSlug: state.machine.id }),
+            body: JSON.stringify({ claim, machineSlug: state.machine.id, deviceKind: requestedKind }),
         });
         if (!created.response.ok) throw new Error(created.body.error || `pair session failed (${created.response.status})`);
         const payload = Buffer.from(JSON.stringify({
@@ -1250,8 +1434,17 @@ async function runSelfhostPair(state, requestedKind = 'native') {
     }
 
     print('');
-    if (process.stdout.isTTY) print(await QRCode.toString(pending.pairUrl, { type: 'terminal', small: true }));
-    print('Pairing string (paste in the app if the QR is awkward):');
+    const browser = pending.deviceKind === 'browser';
+    const payload = new URL(pending.pairUrl).searchParams.get('payload');
+    const browserOrigin = publicRelayUrl(state.relayUrl)?.replace(/^wss/, 'https');
+    if (browser && browserOrigin && payload) {
+        print('Open this secure browser pairing link within five minutes:');
+        print(`${browserOrigin}/pair#payload=${payload}`);
+        print('The resulting browser access is read-only and expires after eight hours.');
+    } else if (process.stdout.isTTY) {
+        print(await QRCode.toString(pending.pairUrl, { type: 'terminal', small: true }));
+    }
+    print(browser ? 'Browser pairing string (paste into the hosted web client):' : 'Pairing string (paste in the app if the QR is awkward):');
     print(pending.pairUrl);
     const pairFile = join(stateDir(), 'pairing-link.txt');
     writeFileSync(pairFile, `${pending.pairUrl}\n`, { mode: 0o600 });
@@ -1327,9 +1520,17 @@ export async function runPair(args = []) {
         if (state?.machine?.crypto === undefined || typeof state.mintSecret !== 'string') {
             throw new Error('muxr is not set up yet; run `muxr setup` first');
         }
-        const healthy = await fetch(`http://127.0.0.1:${state.relayPort}/health`).then((response) => response.ok).catch(() => false);
-        if (!healthy) throw new Error('self-host relay is not running; run `muxr self-host --relay-only` first');
-        return await withSelfhostRotationLock(() => runSelfhostPair(state, args.includes('--browser') ? 'browser' : 'native'));
+        const browser = args.includes('--browser');
+        if (browser && (!state.webEnabled || !publicRelayUrl(state.relayUrl)?.startsWith('wss://'))) throw new Error('the browser client is off; run `muxr` and enable secure browser hosting first');
+        let healthy = await fetch(`http://127.0.0.1:${state.relayPort}/health`).then((response) => response.ok).catch(() => false);
+        if (!healthy) {
+            const definition = daemonDefinition('selfhost');
+            if (existsSync(definition.path)) await runDaemon(['restart']);
+            else await ensureSelfhostRelay(state.relayPort, state.webRoot, state.bindHost, state.webOrigin);
+            healthy = await fetch(`http://127.0.0.1:${state.relayPort}/health`).then((response) => response.ok).catch(() => false);
+        }
+        if (!healthy) throw new Error('the relay could not restart; run `muxr doctor` for the exact failing check');
+        return await withSelfhostRotationLock(() => runSelfhostPair(state, browser ? 'browser' : 'native'));
     } catch (cause) {
         error(cause instanceof Error ? cause.message : String(cause));
         return 1;
@@ -1559,6 +1760,17 @@ export async function runDoctor() {
     add(selfhost === undefined ? 'warn' : relayReady ? 'ok' : 'warn', 'self-host relay', selfhost === undefined
         ? 'not configured — run muxr setup'
         : relayReady ? `running on :${selfhost.relayPort}` : `configured on :${selfhost.relayPort}, not running`);
+    if (selfhost !== undefined) {
+        const ingressReady = selfhost.connectionMode !== 'cloudflare' || cloudflaredAlive(selfhost.ingress);
+        add(ingressReady ? 'ok' : 'warn', 'connection', ingressReady
+            ? `${selfhost.connectionMode ?? 'self-host'} · ${publicRelayUrl(selfhost.relayUrl) ?? `local port ${selfhost.relayPort}`}`
+            : 'Cloudflare tunnel is not running; run `muxr` to restore it and pair the new endpoint');
+        const hostRunning = daemonIsRunning();
+        add(hostRunning ? 'ok' : 'warn', 'host service', hostRunning ? 'running' : 'not running');
+        if (selfhost.webEnabled === true) add(ingressReady ? 'ok' : 'warn', 'web client', ingressReady
+            ? `${publicRelayUrl(selfhost.relayUrl)?.replace(/^ws/, 'http') ?? 'configured'} · read-only browser grants expire after eight hours`
+            : 'configured but unreachable until the tunnel is restored');
+    }
     const width = Math.max(...checks.map((check) => check.name.length));
     print();
     for (const check of checks) print(`  ${{ ok: 'ok  ', warn: 'warn', fail: 'FAIL' }[check.level]}  ${check.name.padEnd(width)}  ${check.detail}`);

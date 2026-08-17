@@ -33,3 +33,4 @@ dist-npm/
 
 # git worktrees for parallel sessions
 .dev/
+.firecrawl/
