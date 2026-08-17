@@ -7,8 +7,8 @@ import { isAbsolute, join, relative, resolve } from 'node:path';
 import type { PluginsInvalidatedFrame, PluginContextRequest, PluginManifestV1, PluginRpcMode, PluginSource, PluginSummary } from '@muxr/contract';
 import {
     MAX_RPC_ARRAY_ENTRIES,
-    MAX_RPC_DISPLAY_BYTES,
     MAX_RPC_DISPLAY_DEPTH,
+    MAX_RPC_RESULT_STRING_BYTES,
     MAX_RPC_STDERR_BYTES,
     MAX_RPC_STDOUT_BYTES,
     PLUGIN_CALL_DEADLINE_MS,
@@ -405,8 +405,8 @@ function safeText(value: string, max: number): string[] {
 
 /**
  * Cap every string in an RPC result before it reaches mobile. The 64 KiB stdout
- * limit bounds total transport; this bounds each displayed value. Strings are
- * trimmed to 4 KiB of UTF-8 (never splitting a code point) and stripped of
+ * limit bounds total transport; this bounds each transported string to the same
+ * 64 KiB ceiling (never splitting a code point) and strips
  * controls/bidi/zero-width. JSON null is preserved (a null result stays a
  * successful null, and nulls survive inside arrays/objects). Subtrees past the
  * depth cap are dropped, never returned raw. Output objects are null-prototype
@@ -414,7 +414,7 @@ function safeText(value: string, max: number): string[] {
  * assignments.
  */
 export function boundRpcDisplay(value: unknown, depth = 0): unknown {
-    if (typeof value === 'string') return capUtf8Bytes(sanitizeDisplayText(value), MAX_RPC_DISPLAY_BYTES);
+    if (typeof value === 'string') return capUtf8Bytes(sanitizeDisplayText(value), MAX_RPC_RESULT_STRING_BYTES);
     if (value === null) return null;
     if (depth >= MAX_RPC_DISPLAY_DEPTH) return undefined;
     if (Array.isArray(value)) return value.slice(0, MAX_RPC_ARRAY_ENTRIES).map((entry) => boundRpcDisplay(entry, depth + 1));

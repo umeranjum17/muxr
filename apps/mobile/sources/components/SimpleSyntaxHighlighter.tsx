@@ -1,411 +1,87 @@
-import React from 'react';
+import * as React from 'react';
 import { Text, View } from 'react-native';
 import { useUnistyles } from 'react-native-unistyles';
+import type { Theme } from '@/theme';
 import { Typography } from '@/constants/Typography';
 import { boundText } from '@/utils/boundedText';
+import { highlightCodeLines, syntaxLanguage, type SyntaxSpan } from '@/components/code/syntaxHighlighting';
 
 export const MAX_RENDER_LINES = 2000;
 
 interface SimpleSyntaxHighlighterProps {
-  code: string;
-  language: string | null;
-  selectable: boolean;
-  /** One Text per physical line, no soft-wrap (for horizontal scrollers). */
-  nowrap?: boolean;
-  /** One Text per physical line with a number gutter; long lines wrap under it. */
-  lineNumbers?: boolean;
-  fontSize?: number;
+    code: string;
+    language: string | null;
+    selectable: boolean;
+    /** One Text per physical line, no soft-wrap (for horizontal scrollers). */
+    nowrap?: boolean;
+    /** One Text per physical line with a number gutter; long lines wrap under it. */
+    lineNumbers?: boolean;
+    fontSize?: number;
 }
 
-// Get theme-aware colors
-const getColors = (theme: any) => ({
-  // Use theme colors directly for syntax highlighting
-  keyword: theme.colors.syntaxKeyword,
-  controlFlow: theme.colors.syntaxKeyword,
-  type: theme.colors.syntaxKeyword,
-  modifier: theme.colors.syntaxKeyword,
-  
-  string: theme.colors.syntaxString,
-  number: theme.colors.syntaxNumber,
-  boolean: theme.colors.syntaxNumber,
-  regex: theme.colors.syntaxString,
-  
-  function: theme.colors.syntaxFunction,
-  method: theme.colors.syntaxFunction,
-  property: theme.colors.syntaxDefault,
-  
-  comment: theme.colors.syntaxComment,
-  docstring: theme.colors.syntaxComment,
-  
-  operator: theme.colors.syntaxDefault,
-  assignment: theme.colors.syntaxKeyword,
-  comparison: theme.colors.syntaxKeyword,
-  logical: theme.colors.syntaxKeyword,
-  
-  bracket1: theme.colors.syntaxBracket1,
-  bracket2: theme.colors.syntaxBracket2,
-  bracket3: theme.colors.syntaxBracket3,
-  bracket4: theme.colors.syntaxBracket4,
-  bracket5: theme.colors.syntaxBracket5,
-  
-  decorator: theme.colors.syntaxKeyword,
-  import: theme.colors.syntaxKeyword,
-  variable: theme.colors.syntaxDefault,
-  parameter: theme.colors.syntaxDefault,
-  
-  default: theme.colors.syntaxDefault,
-  punctuation: theme.colors.syntaxDefault,
-});
-
-// Bracket pairs for nesting detection
-const bracketPairs = {
-  '(': ')',
-  '[': ']',
-  '{': '}',
-  '<': '>',
-};
-
-const openBrackets = Object.keys(bracketPairs);
-const closeBrackets = Object.values(bracketPairs);
-
-// Enhanced tokenizer with comprehensive token types
-const tokenizeCode = (code: string, language: string | null) => {
-  const tokens: Array<{ text: string; type: string; nestLevel?: number }> = [];
-  
-  if (!language) {
-    return [{ text: code, type: 'default' }];
-  }
-
-  const lang = language.toLowerCase();
-  
-  // Language-specific keyword sets
-  const keywordSets = {
-    controlFlow: ['if', 'else', 'elif', 'for', 'while', 'do', 'switch', 'case', 'break', 'continue', 'return', 'yield', 'try', 'catch', 'finally', 'throw', 'with'],
-    keywords: ['function', 'const', 'let', 'var', 'def', 'class', 'interface', 'enum', 'struct', 'union', 'namespace', 'module'],
-    types: ['int', 'string', 'bool', 'float', 'double', 'char', 'void', 'any', 'unknown', 'never', 'object', 'array', 'number', 'boolean'],
-    modifiers: ['public', 'private', 'protected', 'static', 'final', 'abstract', 'virtual', 'override', 'async', 'await', 'export', 'default'],
-    boolean: ['true', 'false', 'null', 'undefined', 'None', 'True', 'False', 'nil'],
-    imports: ['import', 'from', 'export', 'require', 'include', 'using', 'package'],
-  };
-
-  // Language-specific additions
-  if (lang === 'python' || lang === 'py') {
-    keywordSets.keywords.push('def', 'lambda', 'pass', 'global', 'nonlocal', 'as', 'in', 'is', 'not', 'and', 'or');
-    keywordSets.types.push('str', 'list', 'dict', 'tuple', 'set');
-  } else if (lang === 'typescript' || lang === 'ts') {
-    keywordSets.types.push('Record', 'Partial', 'Required', 'Readonly', 'Pick', 'Omit');
-    keywordSets.keywords.push('type', 'interface', 'extends', 'implements', 'keyof', 'typeof');
-  } else if (lang === 'java') {
-    keywordSets.keywords.push('package', 'extends', 'implements', 'super', 'this');
-    keywordSets.modifiers.push('synchronized', 'transient', 'volatile', 'native', 'strictfp');
-  }
-
-  // Enhanced regex patterns for comprehensive tokenization
-  const patterns = [
-    // Comments (highest priority)
-    { regex: /(\/\*[\s\S]*?\*\/)/g, type: 'comment' },
-    { regex: /(\/\/.*$)/gm, type: 'comment' },
-    { regex: /(#.*$)/gm, type: 'comment' },
-    { regex: /("""[\s\S]*?"""|'''[\s\S]*?''')/g, type: 'docstring' },
-    
-    // Strings and regex
-    { regex: /(r?["'`])((?:(?!\1)[^\\]|\\.)*)(\1)/g, type: 'string' },
-    { regex: /(\/(?:[^\/\\\n]|\\.)+\/[gimuy]*)/g, type: 'regex' },
-    
-    // Numbers (including hex, binary, floats)
-    { regex: /\b(0x[0-9a-fA-F]+|0b[01]+|0o[0-7]+|\d+\.?\d*(?:[eE][+-]?\d+)?)\b/g, type: 'number' },
-    
-    // Decorators
-    { regex: /@\w+/g, type: 'decorator' },
-    
-    // Function definitions and calls
-    { regex: /\b(function|def|async function)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)/g, type: 'function', captureGroup: 2 },
-    { regex: /\b([a-zA-Z_$][a-zA-Z0-9_$]*)\s*(?=\()/g, type: 'function' },
-    
-    // Method calls (object.method)
-    { regex: /\.([a-zA-Z_$][a-zA-Z0-9_$]*)\s*(?=\()/g, type: 'method', captureGroup: 1 },
-    { regex: /\.([a-zA-Z_$][a-zA-Z0-9_$]*)/g, type: 'property', captureGroup: 1 },
-    
-    // Keywords by category
-    { regex: new RegExp(`\\b(${keywordSets.imports.join('|')})\\b`, 'g'), type: 'import' },
-    { regex: new RegExp(`\\b(${keywordSets.controlFlow.join('|')})\\b`, 'g'), type: 'controlFlow' },
-    { regex: new RegExp(`\\b(${keywordSets.keywords.join('|')})\\b`, 'g'), type: 'keyword' },
-    { regex: new RegExp(`\\b(${keywordSets.types.join('|')})\\b`, 'g'), type: 'type' },
-    { regex: new RegExp(`\\b(${keywordSets.modifiers.join('|')})\\b`, 'g'), type: 'modifier' },
-    { regex: new RegExp(`\\b(${keywordSets.boolean.join('|')})\\b`, 'g'), type: 'boolean' },
-    
-    // Operators by category
-    { regex: /(===|!==|==|!=|<=|>=|<|>)/g, type: 'comparison' },
-    { regex: /(&&|\|\||!)/g, type: 'logical' },
-    { regex: /(=|\+=|\-=|\*=|\/=|%=|\|=|&=|\^=)/g, type: 'assignment' },
-    { regex: /(\+|\-|\*|\/|%|\*\*)/g, type: 'operator' },
-    { regex: /(\?|:)/g, type: 'operator' },
-    
-    // Brackets and punctuation
-    { regex: /([()[\]{}])/g, type: 'bracket' },
-    { regex: /([.,;])/g, type: 'punctuation' },
-  ];
-
-  // Calculate bracket nesting levels
-  const calculateBracketNesting = (code: string) => {
-    const nestingMap = new Map<number, number>();
-    const stack: Array<{ char: string; pos: number }> = [];
-    
-    for (let i = 0; i < code.length; i++) {
-      const char = code[i];
-      
-      if (openBrackets.includes(char)) {
-        stack.push({ char, pos: i });
-        nestingMap.set(i, stack.length);
-      } else if (closeBrackets.includes(char)) {
-        if (stack.length > 0) {
-          const lastOpen = stack.pop();
-          if (lastOpen && bracketPairs[lastOpen.char as keyof typeof bracketPairs] === char) {
-            nestingMap.set(i, stack.length + 1);
-          }
-        }
-      }
-    }
-    
-    return nestingMap;
-  };
-
-  const nestingMap = calculateBracketNesting(code);
-
-  // Split code into lines to preserve line breaks
-  const lines = code.split('\n');
-  let globalOffset = 0;
-  
-  lines.forEach((line, lineIndex) => {
-    if (lineIndex > 0) {
-      tokens.push({ text: '\n', type: 'default' });
-      globalOffset += 1; // for the \n character
-    }
-    
-    const lineTokens: Array<{ start: number; end: number; type: string; text: string; captureGroup?: number }> = [];
-
-    // Find all matches for all patterns
-    patterns.forEach(pattern => {
-      let match;
-      pattern.regex.lastIndex = 0;
-      while ((match = pattern.regex.exec(line)) !== null) {
-        const tokenText = pattern.captureGroup ? match[pattern.captureGroup] : match[0];
-        const tokenStart = pattern.captureGroup ? match.index + match[0].indexOf(tokenText) : match.index;
-        
-        lineTokens.push({
-          start: tokenStart,
-          end: tokenStart + tokenText.length,
-          type: pattern.type,
-          text: tokenText,
-          captureGroup: pattern.captureGroup
-        });
-      }
-    });
-
-    // Sort tokens by position and remove overlaps
-    lineTokens.sort((a, b) => a.start - b.start);
-    
-    const filteredTokens: typeof lineTokens = [];
-    let lastEnd = 0;
-    lineTokens.forEach(token => {
-      if (token.start >= lastEnd) {
-        filteredTokens.push(token);
-        lastEnd = token.end;
-      }
-    });
-
-    // Add tokens with proper nesting levels for brackets
-    let currentIndex = 0;
-    filteredTokens.forEach(token => {
-      // Add text before this token
-      if (token.start > currentIndex) {
-        const beforeText = line.slice(currentIndex, token.start);
-        if (beforeText) {
-          tokens.push({ text: beforeText, type: 'default' });
-        }
-      }
-      
-      // Add the token with nesting level if it's a bracket
-      if (token.type === 'bracket') {
-        const globalPos = globalOffset + token.start;
-        const nestLevel = nestingMap.get(globalPos) || 1;
-        tokens.push({ 
-          text: token.text, 
-          type: token.type,
-          nestLevel: nestLevel
-        });
-      } else {
-        tokens.push({ text: token.text, type: token.type });
-      }
-      
-      currentIndex = token.end;
-    });
-
-    // Add remaining text
-    if (currentIndex < line.length) {
-      const remainingText = line.slice(currentIndex);
-      if (remainingText) {
-        tokens.push({ text: remainingText, type: 'default' });
-      }
-    }
-    
-    globalOffset += line.length;
-  });
-
-  return tokens;
-};
-
-export const SimpleSyntaxHighlighter: React.FC<SimpleSyntaxHighlighterProps> = ({
-  code,
-  language,
-  selectable,
-  nowrap = false,
-  lineNumbers = false,
-  fontSize = 14,
-}) => {
-  const { theme } = useUnistyles();
-  const colors = getColors(theme);
-  // Slice before tokenization/bracket scanning so pathological files cannot
-  // consume the JS thread before the render bound takes effect.
-  const bounded = React.useMemo(() => boundText(code, MAX_RENDER_LINES), [code]);
-  const tokens = tokenizeCode(bounded.text, language);
-  const truncation = bounded.omittedChars > 0 ? <Text selectable={false} style={{ color: theme.colors.textSecondary, fontSize, padding: 8 }}>showing {bounded.totalLines - bounded.omittedLines} of {bounded.totalLines} lines ({bounded.omittedLines} omitted, {bounded.omittedChars} chars)</Text> : null;
-
-  const getColorForType = (type: string, nestLevel?: number): string => {
+function tokenColor(theme: Theme, type: string | undefined, fallback: string): string {
     switch (type) {
-      case 'keyword': return colors.keyword;
-      case 'controlFlow': return colors.controlFlow;
-      case 'type': return colors.type;
-      case 'modifier': return colors.modifier;
-      case 'string': return colors.string;
-      case 'number': return colors.number;
-      case 'boolean': return colors.boolean;
-      case 'regex': return colors.regex;
-      case 'function': return colors.function;
-      case 'method': return colors.method;
-      case 'property': return colors.property;
-      case 'comment': return colors.comment;
-      case 'docstring': return colors.docstring;
-      case 'operator': return colors.operator;
-      case 'assignment': return colors.assignment;
-      case 'comparison': return colors.comparison;
-      case 'logical': return colors.logical;
-      case 'decorator': return colors.decorator;
-      case 'import': return colors.import;
-      case 'variable': return colors.variable;
-      case 'parameter': return colors.parameter;
-      case 'punctuation': return colors.punctuation;
-      case 'bracket': 
-        switch ((nestLevel || 1) % 5) {
-          case 1: return colors.bracket1;
-          case 2: return colors.bracket2;
-          case 3: return colors.bracket3;
-          case 4: return colors.bracket4;
-          case 0: return colors.bracket5; // Level 5, 10, 15, etc.
-          default: return colors.bracket1;
-        }
-      default: return colors.default;
+        case 'comment': case 'prolog': case 'doctype': case 'cdata': return theme.colors.syntaxComment;
+        case 'string': case 'char': case 'regex': case 'attr-value': case 'inserted': return theme.colors.syntaxString;
+        case 'number': case 'boolean': case 'constant': case 'symbol': return theme.colors.syntaxNumber;
+        case 'function': return theme.colors.syntaxFunction;
+        case 'keyword': case 'class-name': case 'atrule': case 'operator': case 'important': return theme.colors.syntaxKeyword;
+        default: return fallback;
     }
-  };
+}
 
-  const fontStyle = {
-    fontFamily: Typography.mono().fontFamily,
-    fontSize,
-    lineHeight: Math.round(fontSize * 10 / 7),
-    // 'pre' on web keeps leading indentation; default whitespace collapsing
-    // eats it.
-    ...(nowrap ? { whiteSpace: 'pre' as const } : {}),
-    // Wrapped lines still need their leading indentation kept on web.
-    ...(lineNumbers ? { whiteSpace: 'pre-wrap' as const } : {}),
-  };
+export function SyntaxSpans(props: { spans: SyntaxSpan[]; theme: Theme; fallbackColor: string; selectable?: boolean }) {
+    return <>{props.spans.map((span, index) => <Text key={index} selectable={props.selectable}
+        style={{ color: tokenColor(props.theme, span.type, props.fallbackColor), fontStyle: span.type === 'comment' ? 'italic' : 'normal' }}>{span.text}</Text>)}</>;
+}
 
-  // One Text per physical line, wrap disabled: long lines scroll horizontally
-  // instead of breaking mid-token and losing indentation on narrow screens.
-  if (nowrap || lineNumbers) {
-    const lines: Array<Array<{ text: string; type: string; nestLevel?: number }>> = [[]];
-    for (const token of tokens) {
-      const parts = token.text.split('\n');
-      parts.forEach((part, i) => {
-        if (i > 0) lines.push([]);
-        if (part.length > 0) lines[lines.length - 1].push({ ...token, text: part });
-      });
-    }
-    const gutterWidth = String(lines.length).length * (fontSize * 0.62) + 10;
-    const renderLine = (lineTokens: typeof lines[number]) =>
-      lineTokens.length === 0 ? ' ' : lineTokens.map((token, index) => (
-        <Text
-          key={index}
-          selectable={selectable}
-          style={{
-            color: getColorForType(token.type, token.nestLevel),
-            fontFamily: Typography.mono().fontFamily,
-            fontWeight: ['keyword', 'controlFlow', 'type', 'function'].includes(token.type) ? '600' : '400',
-          }}
-        >
-          {token.text}
-        </Text>
-      ));
+export const SimpleSyntaxHighlighter = React.memo(function SimpleSyntaxHighlighter({
+    code,
+    language,
+    selectable,
+    nowrap = false,
+    lineNumbers = false,
+    fontSize = 14,
+}: SimpleSyntaxHighlighterProps) {
+    const { theme } = useUnistyles();
+    const bounded = React.useMemo(() => boundText(code, MAX_RENDER_LINES, 64 * 1024), [code]);
+    const resolved = syntaxLanguage(language ?? undefined);
+    const lines = React.useMemo(() => highlightCodeLines(bounded.text, resolved), [bounded.text, resolved]);
+    const lineHeight = Math.round(fontSize * 10 / 7);
+    const fontStyle = {
+        ...Typography.mono(),
+        fontSize,
+        lineHeight,
+        ...(nowrap ? { whiteSpace: 'pre' as const } : {}),
+        ...(lineNumbers ? { whiteSpace: 'pre-wrap' as const } : {}),
+    };
+    const truncation = bounded.omittedChars > 0 ? <Text selectable={false} style={{ color: theme.colors.textSecondary, fontSize, padding: 8 }}>
+        showing {bounded.totalLines - bounded.omittedLines} of {bounded.totalLines} lines ({bounded.omittedLines} omitted, {bounded.omittedChars} chars)
+    </Text> : null;
+    const renderLine = (line: SyntaxSpan[]) => line.length === 0 ? ' ' : <SyntaxSpans spans={line} theme={theme} fallbackColor={theme.colors.syntaxDefault} selectable={selectable} />;
 
     if (lineNumbers) {
-      return (
-        <View>
-          {lines.map((lineTokens, lineIndex) => (
-            <View key={lineIndex} style={{ flexDirection: 'row' }}>
-              <Text
-                selectable={false}
-                style={{
-                  ...fontStyle,
-                  width: gutterWidth,
-                  textAlign: 'right',
-                  paddingRight: 8,
-                  color: theme.colors.diff.lineNumberText,
-                }}
-              >
-                {lineIndex + 1}
-              </Text>
-              <Text selectable={selectable} style={{ ...fontStyle, flex: 1 }}>
-                {renderLine(lineTokens)}
-              </Text>
-            </View>
-          ))}
-          {truncation}
-        </View>
-      );
+        const gutterWidth = String(lines.length).length * (fontSize * 0.62) + 10;
+        return <View>
+            {lines.map((line, index) => <View key={index} style={{ flexDirection: 'row' }}>
+                <Text selectable={false} style={{ ...fontStyle, width: gutterWidth, textAlign: 'right', paddingRight: 8, color: theme.colors.diff.lineNumberText }}>{index + 1}</Text>
+                <Text selectable={selectable} style={{ ...fontStyle, flex: 1 }}>{renderLine(line)}</Text>
+            </View>)}
+            {truncation}
+        </View>;
     }
 
-    return (
-      <View style={{ flexShrink: 0, alignSelf: 'flex-start' }}>
-        {lines.map((lineTokens, lineIndex) => (
-          <Text key={lineIndex} numberOfLines={1} selectable={selectable} style={fontStyle}>
-            {renderLine(lineTokens)}
-          </Text>
-        ))}
-        {truncation}
-      </View>
-    );
-  }
+    if (nowrap) {
+        return <View style={{ flexShrink: 0, alignSelf: 'flex-start' }}>
+            {lines.map((line, index) => <Text key={index} numberOfLines={1} selectable={selectable} style={fontStyle}>{renderLine(line)}</Text>)}
+            {truncation}
+        </View>;
+    }
 
-  return (
-    <View>
-      <Text
-        selectable={selectable}
-        style={fontStyle}
-      >
-        {tokens.map((token, index) => (
-          <Text
-            key={index}
-            selectable={selectable}
-            style={{
-              color: getColorForType(token.type, token.nestLevel),
-              fontFamily: Typography.mono().fontFamily,
-              fontWeight: ['keyword', 'controlFlow', 'type', 'function'].includes(token.type) ? '600' : '400',
-            }}
-          >
-            {token.text}
-          </Text>
-        ))}
-      </Text>
-      {truncation}
-    </View>
-  );
-}; 
+    return <View>
+        <Text selectable={selectable} style={fontStyle}>
+            {lines.map((line, index) => <React.Fragment key={index}>{renderLine(line)}{index < lines.length - 1 ? '\n' : null}</React.Fragment>)}
+        </Text>
+        {truncation}
+    </View>;
+});

@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { pluginInvalidationFrame, PluginCatalog, PluginRefreshGate, WriteReplayFence, Semaphore, boundRpcDisplay, rpcReplayKey, runPluginProcess, type HerdrPlugin } from './pluginCatalog.js';
 import { buildPluginPublicContext } from './pluginPublicContext.js';
-import { parseManifest, parsePluginAction, pluginCompatibilityError } from '@muxr/contract';
+import { MAX_RPC_RESULT_STRING_BYTES, parseManifest, parsePluginAction, pluginCompatibilityError } from '@muxr/contract';
 
 function plugin(root: string, actions: HerdrPlugin['actions'] = []): HerdrPlugin {
     return {
@@ -325,15 +325,16 @@ describe('plugin catalog flow', () => {
         await catalog.refresh([plugin(root)]);
         expect(catalog.list(() => false)[0]!.warnings[0]).toContain('screen action RPC is not declared: missing');
 
-        // RPC response display values: capped at 4 KiB of UTF-8 (not code
-        // points), sanitized, depth-capped (no raw subtrees), prototype-safe,
-        // and arrays bounded.
-        const long = 'x'.repeat(9000);
-        const emoji = '😀'.repeat(9000); // 4 bytes per code point
+        // RPC transport strings share the 64 KiB stdout ceiling, are sanitized,
+        // depth-capped (no raw subtrees), prototype-safe, and arrays bounded.
+        // Ordinary text renderers apply the smaller 4 KiB display cap; the
+        // public code node can consume this larger bounded value.
+        const long = 'x'.repeat(MAX_RPC_RESULT_STRING_BYTES + 1000);
+        const emoji = '😀'.repeat(MAX_RPC_RESULT_STRING_BYTES / 4 + 100); // 4 bytes per code point
         const bounded = boundRpcDisplay({ text: long, emoji, list: [long, { nested: long }], keep: 42, 'constructor': { ok: true }, deep: { deep: { deep: { deep: { deep: { deep: { deep: { deep: { deep: long } } } } } } } } }) as any;
-        expect(bounded.text).toHaveLength(4096);
-        expect(Buffer.byteLength(bounded.emoji, 'utf8')).toBe(4096); // byte cap, not char cap
-        expect(bounded.list[1].nested).toHaveLength(4096);
+        expect(bounded.text).toHaveLength(MAX_RPC_RESULT_STRING_BYTES);
+        expect(Buffer.byteLength(bounded.emoji, 'utf8')).toBe(MAX_RPC_RESULT_STRING_BYTES); // byte cap, not char cap
+        expect(bounded.list[1].nested).toHaveLength(MAX_RPC_RESULT_STRING_BYTES);
         expect(bounded.keep).toBe(42);
         expect(bounded['constructor'].ok).toBe(true); // plugin-chosen key stays plain data
         expect(Object.getPrototypeOf(bounded)).toBe(null);

@@ -4,6 +4,8 @@ import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { DiffView } from '@/components/diff/DiffView';
 import { Typography } from '@/constants/Typography';
 import { boundText } from '@/utils/boundedText';
+import { SyntaxSpans } from '@/components/SimpleSyntaxHighlighter';
+import { highlightCodeLines, syntaxLanguage } from '@/components/code/syntaxHighlighting';
 
 export interface PierreDiffViewProps {
     oldFile?: { name: string; contents: string };
@@ -251,6 +253,17 @@ function DiffTruncation({ omittedLines, totalLines, omittedChars }: { omittedLin
     return <Text style={{ color: '#888', padding: 8 }}>showing {Math.max(0, (totalLines ?? 0) - (omittedLines ?? 0))} of {totalLines ?? 0} lines ({omittedLines ?? 0} omitted, {omittedChars ?? 0} chars)</Text>;
 }
 
+function patchFileName(patch: string): string | undefined {
+    const match = /^\+\+\+\s+(?:b\/)?([^\t\n]+)/m.exec(patch);
+    return match?.[1] === '/dev/null' ? undefined : match?.[1];
+}
+
+function isPatchCodeLine(line: string): boolean {
+    return (line.startsWith('+') && !line.startsWith('+++'))
+        || (line.startsWith('-') && !line.startsWith('---'))
+        || line.startsWith(' ');
+}
+
 function PlainPatchView({
     patch,
     wrapLines,
@@ -272,6 +285,9 @@ function PlainPatchView({
     const colors = theme.colors.diff;
     const codeFontSize = fontSize ?? 13;
     const lines = React.useMemo(() => patch.split('\n'), [patch]);
+    const language = React.useMemo(() => syntaxLanguage(undefined, patchFileName(patch)), [patch]);
+    const highlightSource = React.useMemo(() => boundText(lines.map((line) => isPatchCodeLine(line) ? line.slice(1) : '').join('\n'), 600, 64 * 1024).text, [lines]);
+    const highlighted = React.useMemo(() => highlightCodeLines(highlightSource, language), [highlightSource, language]);
     const truncation = <DiffTruncation omittedLines={omittedLines} totalLines={totalLines ?? lines.length} omittedChars={omittedChars} />;
 
     // Hunk tops, measured as they lay out, so the screen above can offer
@@ -355,7 +371,9 @@ function PlainPatchView({
                             fontWeight: isFileHeader ? '600' : 'normal',
                         }}
                     >
-                        {line.length === 0 ? ' ' : line}
+                        {isPatchCodeLine(line)
+                            ? <><Text style={{ color: fg }}>{first}</Text><SyntaxSpans spans={i < highlighted.length - 1 ? highlighted[i]! : [{ text: line.slice(1) }]} theme={theme} fallbackColor={fg} /></>
+                            : (line.length === 0 ? ' ' : line)}
                     </Text>
                 );
             })}

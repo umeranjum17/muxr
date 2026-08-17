@@ -6,6 +6,7 @@ import { asPluginCollection } from './collectionModel';
 import { asPluginTree } from './treeModel';
 import { bindText, buttonInput, initialFieldValues, loadScreenData, runScreenButton, shouldReloadAfterAction, WriteKeyStore } from './screenModel';
 import { asScreenTree } from './screenTreeModel';
+import { highlightCodeLines, syntaxLanguage } from '@/components/code/syntaxHighlighting';
 
 const manifest: PluginManifestV1 = {
     schemaVersion: 1,
@@ -142,17 +143,23 @@ describe('declarative screen flow', () => {
         const parsed = parseManifest({
             schemaVersion: 1,
             pluginId: 'example.tree',
-            minMuxrVersion: 10,
+            minMuxrVersion: 11,
             contributions: [{
                 slot: 'navigation.content', id: 'browse', type: 'screen', children: [
                     { type: 'field', kind: 'text', id: 'cwd', label: 'Folder', value: '{{data.cwd}}' },
                     { type: 'tree', path: 'data.folders', selectionField: 'cwd' },
+                    { type: 'code', path: 'data.body', fileNamePath: 'data.name' },
                 ],
             }],
         });
         const treeScreen = parsed.contributions[0];
         if (!('type' in treeScreen) || treeScreen.type !== 'screen') throw new Error('screen missing');
         expect(treeScreen.children[1]).toMatchObject({ type: 'tree', path: 'data.folders', selectionField: 'cwd' });
+        expect(treeScreen.children[2]).toEqual({ type: 'code', path: 'data.body', fileNamePath: 'data.name' });
+        expect(syntaxLanguage(undefined, 'src/index.tsx')).toBe('tsx');
+        expect(syntaxLanguage('unknown', 'src/index.tsx')).toBe('tsx');
+        expect(highlightCodeLines('const answer = 42;', 'typescript').flat()).toEqual(expect.arrayContaining([expect.objectContaining({ text: 'const', type: 'keyword' }), expect.objectContaining({ text: '42', type: 'number' })]));
+        expect(highlightCodeLines(`const value = "${'x'.repeat(4000)}";`, 'typescript').flat()).toEqual([{ text: `const value = "${'x'.repeat(4000)}";` }]);
         expect(initialFieldValues(treeScreen, { cwd: '/repo/apps/mobile' })).toEqual({ cwd: '/repo/apps/mobile' });
         expect(asScreenTree([
             null,

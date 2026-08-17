@@ -14,7 +14,7 @@ These packages install into Herdr during muxr setup. Each can have an optional H
 | `terminal-keys` | none | declarative terminal key row |
 | `dictation` | none | home composer using `dictate` |
 | `workspace-hierarchy` | public workspace-tree context RPC | session overlay using source-driven `tree-sheet` |
-| `file-viewer` | read files in a herdr-known repo | Files destination |
+| `file-viewer` | read files in a herdr-known repo | Files destination using the bounded syntax-highlighted `code` node |
 | `git-history` | `git log` / `git show` | session header button + screens |
 | `ports` | list/stop listening processes | Ports destination |
 | `runbook` | saved commands, then `execSync` | Runbook destination (remote shell) |

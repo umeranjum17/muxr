@@ -6,33 +6,7 @@
 import * as React from 'react';
 import Editor from 'react-simple-code-editor';
 import Prism from 'prismjs';
-
-// Load Prism languages (order matters — dependencies first)
-import 'prismjs/components/prism-markup';
-import 'prismjs/components/prism-css';
-import 'prismjs/components/prism-javascript';
-import 'prismjs/components/prism-typescript';
-import 'prismjs/components/prism-jsx';
-import 'prismjs/components/prism-tsx';
-import 'prismjs/components/prism-json';
-import 'prismjs/components/prism-markdown';
-import 'prismjs/components/prism-yaml';
-import 'prismjs/components/prism-toml';
-import 'prismjs/components/prism-ini';
-import 'prismjs/components/prism-bash';
-import 'prismjs/components/prism-docker';
-import 'prismjs/components/prism-graphql';
-import 'prismjs/components/prism-python';
-import 'prismjs/components/prism-go';
-import 'prismjs/components/prism-rust';
-import 'prismjs/components/prism-java';
-import 'prismjs/components/prism-c';
-import 'prismjs/components/prism-cpp';
-import 'prismjs/components/prism-sql';
-import 'prismjs/components/prism-ruby';
-import 'prismjs/components/prism-swift';
-import 'prismjs/components/prism-kotlin';
-import 'prismjs/components/prism-hcl';
+import { syntaxLanguage } from '@/components/code/syntaxHighlighting';
 
 interface CodeEditorProps {
     value: string;
@@ -42,36 +16,6 @@ interface CodeEditorProps {
     readOnly?: boolean;
 }
 
-const LANG_MAP: Record<string, string> = {
-    javascript: 'javascript',
-    typescript: 'typescript',
-    jsx: 'jsx',
-    tsx: 'tsx',
-    python: 'python',
-    html: 'markup',
-    css: 'css',
-    json: 'json',
-    markdown: 'markdown',
-    xml: 'markup',
-    yaml: 'yaml',
-    toml: 'toml',
-    ini: 'ini',
-    bash: 'bash',
-    shell: 'bash',
-    docker: 'docker',
-    graphql: 'graphql',
-    sql: 'sql',
-    go: 'go',
-    rust: 'rust',
-    java: 'java',
-    c: 'c',
-    cpp: 'cpp',
-    ruby: 'ruby',
-    swift: 'swift',
-    kotlin: 'kotlin',
-    hcl: 'hcl',
-};
-
 export const CodeEditor = React.memo(function CodeEditor({
     value,
     onChange,
@@ -80,8 +24,8 @@ export const CodeEditor = React.memo(function CodeEditor({
     readOnly = false,
 }: CodeEditorProps) {
     const highlight = React.useCallback((code: string) => {
-        const prismLang = language ? (LANG_MAP[language] ?? null) : null;
-        const grammar = prismLang ? Prism.languages[prismLang] : null;
+        const prismLang = syntaxLanguage(language ?? undefined);
+        const grammar = prismLang ? Prism.languages[prismLang] : undefined;
         if (!grammar || !prismLang) return escapeHtml(code);
         try {
             return Prism.highlight(code, grammar, prismLang);

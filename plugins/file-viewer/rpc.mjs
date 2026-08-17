@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /** Bounded repository tree and text preview for the generic declarative explorer. */
 import { execFileSync } from 'node:child_process';
-import { readFileSync, realpathSync, statSync } from 'node:fs';
+import { closeSync, openSync, readFileSync, readSync, realpathSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, join, resolve } from 'node:path';
 
@@ -74,11 +74,20 @@ if (method === 'repos') {
     const realRoot = realpathSync(root);
     let realTarget;
     try { realTarget = realpathSync(target); } catch { throw new Error('file unavailable'); }
-    if (!realTarget.startsWith(`${realRoot}/`) || !statSync(realTarget).isFile()) throw new Error('outside repository');
-    const bytes = readFileSync(realTarget);
+    if (!realTarget.startsWith(`${realRoot}/`)) throw new Error('outside repository');
+    const stat = statSync(realTarget);
+    if (!stat.isFile()) throw new Error('outside repository');
+    const limit = 24 * 1024;
+    const bytes = Buffer.alloc(Math.min(stat.size, limit));
+    const fd = openSync(realTarget, 'r');
+    try { readSync(fd, bytes, 0, bytes.length, 0); } finally { closeSync(fd); }
     const binary = bytes.subarray(0, 4096).includes(0);
+    const allLines = binary ? [] : bytes.toString('utf8').replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '').split('\n');
+    const lines = allLines.slice(0, 240);
+    const truncated = stat.size > limit || allLines.length > lines.length;
     process.stdout.write(JSON.stringify({
         name: relative,
-        body: binary ? 'Binary file — preview unavailable.' : bytes.toString('utf8').split('\n').slice(0, 240).join('\n'),
+        body: binary ? 'Binary file — preview unavailable.' : lines.join('\n'),
+        note: truncated ? `Preview capped at ${lines.length} lines / 24 KiB.` : '',
     }));
 }

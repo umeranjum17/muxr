@@ -9,6 +9,7 @@ import { MAX_SCREEN_LIST_ROWS, PLUGIN_CALL_CLIENT_TIMEOUT_MS, capUtf8Bytes, defa
 import type { Theme } from '@/theme';
 import { Switch } from '@/components/Switch';
 import { PierreDiffView } from '@/components/diff/PierreDiffView';
+import { SyntaxHighlightedCode } from '@/components/code/SyntaxHighlightedCode';
 import { sync } from '@/sync/sync';
 import { pluginSnapshot } from './pluginStore';
 import { dispatchPluginAction } from './pluginActions';
@@ -17,6 +18,7 @@ import { bindText, initialFieldValues, loadScreenData, resolvePath, runScreenBut
 import { resolvePluginText } from './pluginText';
 import { asScreenTree, type RuntimeTreeItem } from './screenTreeModel';
 import { t } from '@/text';
+import { boundText } from '@/utils/boundedText';
 
 function toneColor(theme: Theme, tone: string | undefined): string {
     switch (tone) {
@@ -172,7 +174,14 @@ function ScreenNode(props: {
         case 'diff': {
             const patch = resolvePath(data, node.path);
             if (typeof patch !== 'string' || patch === '') return null;
-            return <View style={{ marginBottom: 8 }}><PierreDiffView patch={patch} diffStyle="unified" overflow="scroll" /></View>;
+            return <View style={{ marginBottom: 8 }}><PierreDiffView patch={boundText(patch, 600, 64 * 1024).text} diffStyle="unified" overflow="scroll" /></View>;
+        }
+        case 'code': {
+            const source = resolvePath(data, node.path);
+            if (typeof source !== 'string' || source === '') return null;
+            const fileName = node.fileNamePath === undefined ? undefined : resolvePath(data, node.fileNamePath);
+            return <SyntaxHighlightedCode code={sanitizeDisplayText(source).replace(/\r\n/g, '\n')} language={node.language}
+                {...(typeof fileName === 'string' ? { fileName: capUtf8Bytes(sanitizeDisplayText(fileName), 160) } : {})} />;
         }
         case 'metric':
             return (
