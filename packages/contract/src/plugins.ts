@@ -401,8 +401,13 @@ export interface PluginScreenBadgeNode {
 }
 export interface PluginScreenProgressNode {
     type: 'progress';
-    value: number;
+    /** Exactly one of a literal value or a bounded runtime data path. */
+    value?: number;
+    path?: string;
     max?: number;
+    label?: PluginText;
+    valueLabel?: PluginText;
+    tone?: PluginScreenTone;
 }
 export interface PluginScreenDividerNode {
     type: 'divider';
@@ -440,7 +445,17 @@ export interface PluginScreenButtonNode {
 export interface PluginScreenSectionNode {
     type: 'section';
     title?: PluginText;
+    /** Summary-only responsive columns; full-width controls are rejected. */
+    columns?: 2 | 3;
     children: PluginScreenNode[];
+}
+export interface PluginScreenChartNode {
+    type: 'chart';
+    variant: 'bar' | 'ring';
+    /** Runtime path to bounded `{ label, value, valueLabel?, tone? }` entries. */
+    path: string;
+    title?: PluginText;
+    emptyText?: PluginText;
 }
 export interface PluginScreenTreeNode {
     type: 'tree';
@@ -477,6 +492,7 @@ export type PluginScreenNode =
     | PluginScreenMetricNode
     | PluginScreenBadgeNode
     | PluginScreenProgressNode
+    | PluginScreenChartNode
     | PluginScreenDividerNode
     | PluginScreenEmptyNode
     | PluginScreenFieldNode
@@ -586,7 +602,10 @@ export const MAX_SCREEN_PARAMS = 8;
  * says so instead of silently dropping contributions the app cannot render.
  * Bumped whenever a manifest can contain values an older phone cannot parse.
  */
-export const MUXR_UI_VERSION = 12;
+export const MUXR_UI_VERSION = 13;
+export const DYNAMIC_SCREEN_MIN_UI_VERSION = 13;
+export const MAX_CHART_SERIES = 8;
+export const MAX_CHART_LABEL_BYTES = 24;
 /** Static list rows, and the render cap for a repeat expansion. */
 export const MAX_SCREEN_LIST_ROWS = 32;
 export const MAX_RPC_INPUT_BYTES = 8 * 1024;

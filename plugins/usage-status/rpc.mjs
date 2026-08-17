@@ -95,14 +95,19 @@ function ccusageItems(result) {
       totals.set(row.agent, (totals.get(row.agent) ?? 0) + row.totalTokens);
     }
   }
-  const items = [...totals].sort((a, b) => b[1] - a[1]).slice(0, 16).flatMap(([agent, total]) => {
+  const sorted = [...totals].sort((a, b) => b[1] - a[1]).slice(0, 16);
+  const items = sorted.flatMap(([agent, total]) => {
     const value = tokens(total);
     return value === undefined ? [] : [{
       id: `activity-${agent}`, title: AGENTS[agent], subtitle: 'Local activity today · ccusage', icon: 'analytics-outline',
       metadata: [{ value: `${value} tokens`, tone: 'primary' }],
     }];
   });
-  return { items, agents: new Set(totals.keys()) };
+  const series = sorted.slice(0, 8).flatMap(([agent, total]) => {
+    const valueLabel = tokens(total);
+    return valueLabel === undefined ? [] : [{ label: AGENTS[agent], value: total, valueLabel }];
+  });
+  return { items, series, agents: new Set(totals.keys()) };
 }
 
 function cachedOutput() {
@@ -179,12 +184,14 @@ function relativeReset(seconds) {
 function codexItems(result) {
   const limits = Object.values(result?.rateLimitsByLimitId ?? {});
   if (!limits.length && result?.rateLimits) limits.push(result.rateLimits);
-  return limits.slice(0, 16).map((limit, index) => {
+  const details = [];
+  const items = limits.slice(0, 16).map((limit, index) => {
     const window = limit.primary;
     const rawName = String(limit.limitName ?? limit.limitId ?? 'Codex').replace(/[^\x20-\x7e]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80) || 'Codex';
     const name = rawName.toLowerCase() === 'codex' ? AGENTS.codex : rawName;
     const remaining = Number.isFinite(window?.usedPercent) ? Math.round(Math.max(0, Math.min(100, 100 - window.usedPercent))) : undefined;
     const reset = relativeReset(window?.resetsAt);
+    if (remaining !== undefined && details.length < 8) details.push({ name, remaining, reset });
     return {
       id: `limit-codex-${index}`, title: name, subtitle: 'OpenAI Codex current limit', icon: 'speedometer-outline',
       metadata: [
@@ -193,6 +200,17 @@ function codexItems(result) {
       ],
     };
   });
+  const first = details.length === 0 ? undefined : details.reduce((lowest, limit) => (limit.remaining < lowest.remaining ? limit : lowest));
+  return {
+    items,
+    series: details.map((limit) => ({ label: limit.name, value: limit.remaining, valueLabel: `${limit.remaining}%` })),
+    ring: first === undefined ? [] : [
+      { label: 'Remaining', value: first.remaining, valueLabel: `${first.remaining}%`, tone: first.remaining <= 10 ? 'danger' : first.remaining <= 25 ? 'warning' : 'positive' },
+      { label: 'Used', value: 100 - first.remaining, valueLabel: `${100 - first.remaining}%`, tone: 'secondary' },
+    ],
+    remaining: first?.remaining ?? 0,
+    remainingLabel: first === undefined ? 'Unavailable' : `${first.remaining}% left${first.reset ? ` · resets in ${first.reset}` : ''}`,
+  };
 }
 
 const cached = cachedOutput();
@@ -203,20 +221,29 @@ if (cached !== undefined) {
     ccusageDaily().then(ccusageItems),
     codexUsage().then(codexItems),
   ]);
-  const items = [...activity.items, ...codex];
+  const items = [...activity.items, ...codex.items];
   if (ccusageFailure && activity.items.length === 0) items.push({
     id: 'ccusage-unavailable', title: 'Local activity unavailable', subtitle: ccusageFailure, icon: 'warning-outline', metadata: [],
   });
   const reported = new Set(activity.agents);
-  if (codex.length) reported.add('codex');
-  for (const [agent, command] of Object.entries(AGENT_COMMANDS)) {
-    if (!available(command) || reported.has(agent)) continue;
+  if (codex.items.length) reported.add('codex');
+  const installedAgents = Object.entries(AGENT_COMMANDS).filter(([, command]) => available(command));
+  for (const [agent] of installedAgents) {
+    if (reported.has(agent)) continue;
     items.push({
       id: `available-${agent}`, title: AGENTS[agent], icon: 'terminal-outline', metadata: [{ value: 'Installed' }],
       subtitle: CCUSAGE_AGENTS.has(agent) ? 'No activity reported by ccusage today' : 'Local totals unsupported by ccusage',
     });
   }
-  const output = { items: items.slice(0, 50), actions: [] };
+  const output = {
+    items: items.slice(0, 50), actions: [],
+    summary: { measured: String(activity.series.length), installed: String(installedAgents.length) },
+    activitySeries: activity.series,
+    codexSeries: codex.series,
+    codexRing: codex.ring,
+    codexRemaining: codex.remaining,
+    codexRemainingLabel: codex.remainingLabel,
+  };
   if (output.items.length === 0) output.items.push({ id: 'usage-unavailable', title: 'Usage unavailable', icon: 'warning-outline', metadata: [] });
   saveOutput(output);
   process.stdout.write(JSON.stringify(output));

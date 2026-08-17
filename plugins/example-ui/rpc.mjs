@@ -16,6 +16,12 @@ if (method === 'list') {
     reply({
         title: 'Example plugin',
         status: 'Approved',
+        progress: 60,
+        agents: [
+            { label: 'Working', value: 3, tone: 'positive' },
+            { label: 'Waiting', value: 1, tone: 'warning' },
+            { label: 'Idle', value: 2, tone: 'secondary' },
+        ],
         sessions: [
             { title: 'landing page', cwd: '/work/site', status: 'idle' },
             { title: 'api server', cwd: '/work/api', status: 'working' },

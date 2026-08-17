@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "pluginId": "example.muxr-ui",
-  "minMuxrVersion": 6,
+  "minMuxrVersion": 13,
   "capabilities": {
     "example.list": "list-rpc",
     "example.save": "save-rpc"
@@ -40,10 +40,21 @@
           "title": "Status",
           "children": [
             { "type": "metric", "label": "Status", "value": "{{data.status}}" },
-            { "type": "progress", "value": 60, "max": 100 },
+            { "type": "progress", "path": "data.progress", "max": 100, "label": "Rollout", "valueLabel": "60%", "tone": "positive" },
             { "type": "badge", "label": "beta", "tone": "warning" }
           ]
         },
+        {
+          "type": "section",
+          "title": "At a glance",
+          "columns": 2,
+          "children": [
+            { "type": "metric", "label": "Working", "value": "3" },
+            { "type": "metric", "label": "Waiting", "value": "1" }
+          ]
+        },
+        { "type": "chart", "variant": "bar", "path": "data.agents", "title": "Agents", "emptyText": "No agents" },
+        { "type": "chart", "variant": "ring", "path": "data.agents", "title": "Agent share", "emptyText": "No agents" },
         { "type": "divider" },
         {
           "type": "list",
