@@ -21,7 +21,7 @@ const root = process.cwd();
 const out = join(root, 'dist-npm');
 const rootPackage = require(join(root, 'package.json'));
 const version = rootPackage.version ?? '0.1.0';
-const runtimeDependencies = { ws: '^8.18.0', tweetnacl: '^1.0.3', qrcode: '^1.5.4', 'web-push': '^3.6.7' };
+const runtimeDependencies = { ccusage: rootPackage.dependencies.ccusage, ws: '^8.18.0', tweetnacl: '^1.0.3', qrcode: '^1.5.4', 'web-push': '^3.6.7' };
 const external = Object.keys(runtimeDependencies);
 rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
@@ -74,8 +74,34 @@ const bundledDependencies = [...bundledPackagePaths]
     .sort()
     .map((path) => ({ ...packageInfoFromPath(path, true), declaredRange: null }));
 const bundledNames = new Set(bundledDependencies.map(({ name }) => name));
+const ccusagePlatformRoot = join(root, 'node_modules', '@ccusage');
+const ccusageManifestPath = join(root, 'node_modules', 'ccusage', 'package.json');
+const ccusageManifest = JSON.parse(readFileSync(ccusageManifestPath, 'utf8'));
+const ccusagePackage = packageInfoFromPath(ccusageManifestPath, false);
+const ccusagePlatformDependencies = ['darwin-arm64', 'darwin-x64', 'linux-arm64', 'linux-x64'].map((target) => {
+    const name = `@ccusage/ccusage-${target}`;
+    const version = ccusageManifest.optionalDependencies?.[name];
+    if (version !== rootPackage.dependencies.ccusage) throw new Error(`license audit: ccusage does not pin ${name} to ${rootPackage.dependencies.ccusage}`);
+    const installedManifest = join(ccusagePlatformRoot, `ccusage-${target}`, 'package.json');
+    if (existsSync(installedManifest)) {
+        const pkg = JSON.parse(readFileSync(installedManifest, 'utf8'));
+        if (pkg.name !== name || pkg.license !== ccusagePackage.license || pkg.version !== version) {
+            throw new Error(`license audit: ccusage platform metadata mismatch for ${pkg.name}@${pkg.version}`);
+        }
+    }
+    return {
+        name,
+        auditedVersion: version,
+        license: ccusagePackage.license,
+        bundled: false,
+        licensePath: ccusagePackage.licensePath,
+        declaredRange: null,
+        transitiveOf: 'ccusage',
+    };
+});
 const dependencies = [
     ...bundledDependencies,
+    ...ccusagePlatformDependencies,
     ...external
         .filter((name) => !bundledNames.has(name))
         .sort()

@@ -46,6 +46,8 @@ RPC contributions may explicitly request `sessions` and/or `workspace-tree`. Imm
 
 Run Server now owns Linux/macOS listener discovery, project-cwd filtering, HTTP probes, labels, refresh cadence, and whether its generic `item-list` control exists. UI version 5 removes `url-chip`; active-only bounded item-list polling stops when unfocused and force-refreshes on open. The plugin returns only a validated `{ target: "preview", port }` kernel action. The compiled preview route/transport owns `preview.list` fallback and `preview.attach`; no primitive calls either request or accepts an arbitrary HTTP/file URL.
 
+The Usage plugin now uses the exact pinned ccusage native package as its backend aggregator. It runs one bounded `daily --last 1 --by-agent --json --no-cost --offline` read over local agent logs, allowlists names and total-token counts, caches only the final bounded card text for one minute, and never exposes costs, prompts, models, or session details. Codex current limits still come from its local app-server; other CLIs are detected but never executed.
+
 UI version 11 adds a bounded declarative `code` node with app-owned Prism tokenization, line numbers, selection, shared theme tokens, and plain-text fallback. The same tokenizer now powers native/web file views, Markdown code fences, and native diff lines, replacing the duplicate hand-rolled regex highlighter. File previews read at most 24 KiB / 240 lines and report truncation; ordinary text remains capped at 4 KiB while a sanitized RPC result string may use the existing 64 KiB total transport budget. UI version 7 adds plugin-owned navigation badge read sources and singleton tree-sheet cardinality. UI version 6 makes user-visible manifest strings bounded localized values with exact-locale, base-locale, then default fallback on the phone. The same public `shortcuts` contribution drives build-time localized Assistant resources and the live Android launcher projection. Runtime-installed plugins cannot add Assistant capability bindings because Android only accepts those from packaged XML; a third-party plugin included in a custom build receives the identical build-time behavior.
 
 ## Files
@@ -82,6 +84,7 @@ UI version 11 adds a bounded declarative `code` node with app-owned Prism tokeni
 
 ## Revisions
 
+- 2026-08-17 — Usage now delegates local multi-agent activity to an exact pinned ccusage backend in offline/no-cost mode while retaining the bounded local Codex limit API and never invoking other coding CLIs.
 - 2026-08-17 — Unified file, Markdown, plugin code, and native diff highlighting on the existing Prism dependency so third-party plugins receive the same bounded renderer without HTML or native modules.
 - 2026-08-15 — Replace feature-named native renderers with primitives; attachments/changes become pull RPCs.
 - 2026-08-15 — Primitives are slot-agnostic and may repeat in one slot. Initial Voice token transport contract added (superseded by the provider-neutral backend stream on 2026-08-16). Herd tree no longer refreshes on every status tick.

@@ -240,12 +240,22 @@ try {
     assert.equal(licenseInventory.bundledInputs, undefined);
     assert.ok(!JSON.stringify(licenseInventory).includes(`${root}/`), 'license inventory leaked a repository path');
     for (const dependency of licenseInventory.dependencies) {
-        assert.equal(dependency.declaredRange, dependency.bundled ? null : packageJson.dependencies[dependency.name]);
+        if (dependency.transitiveOf !== undefined) {
+            assert.equal(dependency.declaredRange, null);
+            assert.equal(dependency.transitiveOf, 'ccusage');
+            assert.equal(dependency.auditedVersion, packageJson.dependencies.ccusage);
+        } else {
+            assert.equal(dependency.declaredRange, dependency.bundled ? null : packageJson.dependencies[dependency.name]);
+        }
         assert.match(dependency.auditedVersion, /^\d+\.\d+\.\d+/);
         assert.equal(dependency.version, undefined, 'ambiguous dependency version field returned');
     }
     assert.equal(packageJson.name, '@trymuxr/cli');
     assert.deepEqual(packageJson.bin, { muxr: './cli.mjs' });
+    assert.equal(packageJson.dependencies.ccusage, '20.0.20', 'packed CLI did not pin the reviewed ccusage backend');
+    for (const target of ['darwin-arm64', 'darwin-x64', 'linux-arm64', 'linux-x64']) {
+        assert.ok(licenseInventory.dependencies.some((dependency) => dependency.name === `@ccusage/ccusage-${target}` && dependency.transitiveOf === 'ccusage'), `${target} ccusage binary missing from license audit`);
+    }
 
     writeFileSync(join(installDir, 'package.json'), '{"private":true}\n');
     run('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', tarball], {
@@ -253,6 +263,42 @@ try {
         env: { ...process.env, npm_config_cache: join(scratch, 'npm-cache') },
     });
     const cli = join(installDir, 'node_modules', '.bin', 'muxr');
+    assert.ok(existsSync(join(installDir, 'node_modules', 'ccusage', 'src', 'cli.js')), 'ccusage wrapper missing from installed package');
+    const ccusageTarget = ['linux', 'darwin'].includes(process.platform) && ['x64', 'arm64'].includes(process.arch)
+        ? join(installDir, 'node_modules', '@ccusage', `ccusage-${process.platform}-${process.arch}`, 'bin', 'ccusage')
+        : undefined;
+    if (ccusageTarget !== undefined) {
+        assert.ok(existsSync(ccusageTarget), `ccusage native backend missing for ${process.platform}-${process.arch}`);
+        const usageHome = join(scratch, 'usage-home');
+        const claudeLogs = join(usageHome, '.claude', 'projects', 'smoke', 'session');
+        mkdirSync(claudeLogs, { recursive: true });
+        writeFileSync(join(claudeLogs, 'chat.jsonl'), `${JSON.stringify({
+            costUSD: 0,
+            message: { id: 'smoke', model: 'claude-sonnet-4-20250514', role: 'assistant', usage: { cache_creation_input_tokens: 0, cache_read_input_tokens: 0, input_tokens: 1, output_tokens: 1 } },
+            requestId: 'smoke-request', sessionId: 'smoke-session', timestamp: new Date().toISOString(), version: '2.0.0',
+        })}\n`);
+        const usagePlugin = join(installDir, 'node_modules', '@trymuxr', 'cli', 'plugins', 'usage-status', 'rpc.mjs');
+        run(process.execPath, [usagePlugin], { cwd: installDir, env: { ...process.env, HOME: usageHome, PATH: binDir } });
+        assert.notEqual(statSync(ccusageTarget).mode & 0o111, 0, 'packaged ccusage backend stayed non-executable');
+        const resolveScript = `const {createRequire}=require('node:module');process.stdout.write(createRequire(${JSON.stringify(usagePlugin)}).resolve('@ccusage/ccusage-${process.platform}-${process.arch}/bin/ccusage'))`;
+        const resolvedCcusage = run(process.execPath, ['-e', resolveScript], { cwd: installDir }).stdout;
+        assert.equal(resolvedCcusage, ccusageTarget, 'Usage plugin did not resolve its installed native ccusage package');
+        const probe = run(resolvedCcusage, ['daily', '--last', '1', '--by-agent', '--json', '--no-cost', '--offline'], {
+            cwd: installDir,
+            env: { ...process.env, HOME: usageHome, HTTPS_PROXY: 'http://127.0.0.1:1', HTTP_PROXY: 'http://127.0.0.1:1' },
+        });
+        const parsedProbe = JSON.parse(probe.stdout);
+        assert.ok(Array.isArray(parsedProbe.daily), 'pinned ccusage changed its --by-agent JSON shape');
+        assert.ok(parsedProbe.daily.length > 0, 'ccusage fixture produced no daily row; shape assertions would be vacuous');
+        for (const day of parsedProbe.daily) {
+            assert.ok(Array.isArray(day.agents), 'pinned ccusage omitted daily[].agents');
+            for (const agent of day.agents) {
+                assert.equal(typeof agent.agent, 'string');
+                assert.equal(typeof agent.totalTokens, 'number');
+            }
+        }
+        assert.ok(parsedProbe.daily.some((day) => day.agents.some((agent) => agent.agent === 'claude')), 'ccusage agent ids no longer match the Usage allowlist');
+    }
     const installedUpdate = await import(new URL(`file://${join(installDir, 'node_modules', '@trymuxr', 'cli', 'update.mjs')}`).href);
     assert.ok(installedUpdate.compareVersions('1.0.0-beta.10', '1.0.0-beta.9') > 0);
     assert.ok(installedUpdate.compareVersions('1.0.0-beta.9', '1.0.0-beta.10') < 0);
