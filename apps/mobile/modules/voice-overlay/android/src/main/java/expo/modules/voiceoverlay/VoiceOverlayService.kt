@@ -9,10 +9,12 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.media.AudioManager
+import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.PowerManager
 import android.os.SystemClock
 import android.util.Log
 import androidx.core.app.NotificationCompat
@@ -54,6 +56,13 @@ class VoiceOverlayService : Service() {
     private var voiceName = ""
     private var voiceMuted = false
     private var voiceStartedAt = 0L
+    /**
+     * Held only while a voice session is live: keeps the CPU and the Wi-Fi
+     * radio responsive with the screen off so the realtime socket and PCM
+     * playback do not stall. Both are released on stop/destroy/timeout.
+     */
+    private var voiceWakeLock: PowerManager.WakeLock? = null
+    private var voiceWifiLock: WifiManager.WifiLock? = null
     /**
      * Notification posts are coalesced: the JS side re-sends the whole herd
      * state on every store update (several per second with a busy herd), and
@@ -387,6 +396,7 @@ class VoiceOverlayService : Service() {
    */
   override fun onTimeout(startId: Int, fgsType: Int) {
     herdKeepalive = false
+    releaseVoiceLocks()
     stopForeground(STOP_FOREGROUND_REMOVE)
     stopSelf()
   }
@@ -437,6 +447,7 @@ class VoiceOverlayService : Service() {
     if (intent?.action == ACTION_STOP) {
       if (notificationAction) VoiceOverlayModule.emitNotificationAction("stop")
       resetCommunicationAudio()
+      releaseVoiceLocks()
       if (herdKeepalive) {
         // A queued coalesced refresh still sees the old voice state until JS
         // reports disconnected; cancel it before it can repost a stale voice
@@ -470,10 +481,12 @@ class VoiceOverlayService : Service() {
       } else {
         startForeground(VOICE_NOTIFICATION_ID, buildNotification(this, true))
       }
+      acquireVoiceLocks()
       foregroundStarted = true
     } catch (error: Throwable) {
       Log.w("VoiceOverlay", "microphone foreground service refused", error)
       resetCommunicationAudio()
+      releaseVoiceLocks()
       // The mic was refused, but that must not take the herd link down with
       // it: fall back to the dataSync keepalive (which reposts the herd
       // notification cancelled above) instead of stopping the service.
@@ -489,6 +502,7 @@ class VoiceOverlayService : Service() {
     voiceName = ""
     voiceStartedAt = 0L
     resetCommunicationAudio()
+    releaseVoiceLocks()
     // Only an authenticated herd keeps a notification after teardown; logout
     // already cleared everything and must not see a stale one reposted.
     if (herdKeepalive) postHerdNotification(this)
@@ -505,6 +519,26 @@ class VoiceOverlayService : Service() {
         .firstOrNull { it.type == android.media.AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }
         ?.let(audio::setCommunicationDevice)
     }
+  }
+
+  private fun acquireVoiceLocks() {
+    if (voiceWakeLock == null) {
+      voiceWakeLock = (getSystemService(Context.POWER_SERVICE) as? PowerManager)
+        ?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "muxr:voice")
+        ?.apply { setReferenceCounted(false) }
+    }
+    runCatching { if (voiceWakeLock?.isHeld == false) voiceWakeLock?.acquire() }
+    if (voiceWifiLock == null) {
+      val wifi = applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+      voiceWifiLock = wifi?.createWifiLock(WifiManager.WIFI_MODE_FULL_LOW_LATENCY, "muxr:voice")
+        ?.apply { setReferenceCounted(false) }
+    }
+    runCatching { if (voiceWifiLock?.isHeld == false) voiceWifiLock?.acquire() }
+  }
+
+  private fun releaseVoiceLocks() {
+    runCatching { if (voiceWakeLock?.isHeld == true) voiceWakeLock?.release() }
+    runCatching { if (voiceWifiLock?.isHeld == true) voiceWifiLock?.release() }
   }
 
   private fun resetCommunicationAudio() {
