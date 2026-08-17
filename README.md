@@ -66,10 +66,25 @@ muxr setup
 `muxr setup` installs or adopts Herdr with consent, syncs detected coding-agent
 integrations, starts the complete self-hosted relay and host, then displays a
 short-lived pairing QR. Voice and Run Server are optional bundled plugins using
-the same public API as every
-third-party plugin.
+the same public API as every third-party plugin.
 
-Install the signed phone app from the [latest GitHub release](https://github.com/umeranjum17/muxr/releases/latest). Prefer a browser? `muxr self-host --web` serves the read-only web client from your machine.
+**Android:** [download the signed muxr v0.1.2 APK](https://github.com/umeranjum17/muxr/releases/download/v0.1.2/muxr-0.1.2.apk) ([SHA256SUMS](https://github.com/umeranjum17/muxr/releases/download/v0.1.2/SHA256SUMS)). A Google Play release is coming soon. **iOS is coming soon.** Prefer a browser today? `muxr self-host --web` serves the read-only web client from your machine.
+
+### Let your coding agent set it up
+
+Paste this prompt into Pi, Claude Code, Codex, or another local coding agent:
+
+> Set up muxr on this machine from the public release at
+> <https://github.com/umeranjum17/muxr>. Use Node.js 22+ and install the CLI with
+> `npm install -g @trymuxr/cli`, then run `muxr setup`. If Herdr is missing, ask
+> me before installing it. Run `muxr doctor` and fix any local setup problem it
+> reports. Do not use cloud EAS builds, paid APIs, or hosted services. Leave the
+> short-lived pairing QR in the terminal for me; never repeat its payload in
+> chat or logs. Finally, point me to the signed Android APK and `SHA256SUMS` on
+> the latest GitHub release.
+
+A successful setup ends with Herdr integrations current, the local relay and
+host running, and a one-use encrypted pairing QR ready for the phone.
 
 ## Development
 
