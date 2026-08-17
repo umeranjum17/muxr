@@ -106,7 +106,7 @@ export default {
     expo: {
         name,
         slug: "muxr",
-        version: "0.1.3",
+        version: "0.1.4",
         runtimeVersion: "1",
         orientation: "default",
         icon: "./sources/assets/images/icon.png",

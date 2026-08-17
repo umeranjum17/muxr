@@ -1,13 +1,13 @@
 # Google Play launch plan
 
-Status: **v0.1.3 release candidate; local signed artifacts remain required and Play Console submission stays deferred.** Production package ID is permanently `com.trymuxr.app`.
+Status: **v0.1.4 release candidate; local signed artifacts remain required and Play Console submission stays deferred.** Production package ID is permanently `com.trymuxr.app`.
 
 ## 1. Freeze the release identity
 
 - Package/application ID: `com.trymuxr.app` (immutable after first upload).
 - Store title: **muxr**.
 - Category: **Productivity**.
-- Version name: `0.1.3`; version code: `4`. Every subsequent upload must increment it.
+- Version name: `0.1.4`; version code: `5`. Every subsequent upload must increment it.
 - Production App-Link origin: `https://trymuxr.com`.
 - Keep preview/dev identifiers separate. Never sign preview and production with the same upload workflow by accident.
 
@@ -31,7 +31,7 @@ APP_ENV=production \
 MUXR_DISTRIBUTION=store \
 MUXR_PUBLIC_BASE_URL=https://trymuxr.com \
 eas build --platform android --profile production --local --non-interactive \
-  --output ./muxr-0.1.3.aab
+  --output ./muxr-0.1.4.aab
 ```
 
 Before submission:
