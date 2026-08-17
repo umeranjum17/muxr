@@ -1,6 +1,11 @@
 {
   "entries": [
     {
+      "title": "Readable code and honest usage",
+      "summary": "Syntax-highlighted source and offline multi-agent activity.",
+      "markdown": "- Read source with line numbers and consistent syntax highlighting across Files, Markdown, plugin screens, and diffs.\n- Use the same bounded code and diff views from third-party plugins without HTML or native modules.\n- See today’s local coding-agent activity through a pinned offline ccusage backend, alongside current Codex limits.\n- Keep costs, prompts, model names, projects, and session details out of the Usage card."
+    },
+    {
       "title": "Shared relays and safer setup",
       "summary": "Guided onboarding, machine-scoped VPS relays, and runtime agent discovery.",
       "markdown": "- Run `muxr` for a reviewed, Cancel-first setup and maintenance menu.\n- Host one encrypted relay for several machines without copying relay-owner authority.\n- Pair a read-only browser from a clickable HTTPS link with clear eight-hour expiry and recovery.\n- Choose agents from the connected Herdr host and view safe coding-CLI usage status."
@@ -11,5 +16,5 @@
       "markdown": "- Watch sessions, terminals, changes, and attention state from your phone.\n- Send keys, inspect attachments, and start agents in a selected workspace.\n- Use provider-neutral realtime voice or fully local Whisper dictation."
     }
   ],
-  "latestTitle": "Shared relays and safer setup"
+  "latestTitle": "Readable code and honest usage"
 }
