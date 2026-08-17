@@ -14,6 +14,13 @@ function repo() {
 
 const method = process.argv[2];
 if (method === 'log') {
+    const cwd = String(input.cwd ?? '');
+    if (cwd === '' || cwd.includes('\0')) {
+        // A session can have no working directory yet; that is an empty state,
+        // not a crash.
+        process.stdout.write(JSON.stringify({ title: 'Git history', count: 'No repository for this session', commits: [] }));
+        process.exit(0);
+    }
     const root = execFileSync('git', ['-C', repo(), 'rev-parse', '--show-toplevel'], { encoding: 'utf8', timeout: 20000 }).trim();
     const commits = git(['log', '-25', '--date=short', '--pretty=%H%x1f%h%x1f%s%x1f%an%x1f%ad']).split('\n').filter(Boolean)
         .map((line) => { const [sha, short, subject, author, date] = line.split('\x1f'); return { sha, short, subject, author, date, meta: `${short} · ${author} · ${date}`, cwd: repo() }; });
