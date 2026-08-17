@@ -31,7 +31,7 @@
     <li>Hard-kill stuck RPCs, isolate concurrency, and stop repeated full catalog reparsing.</li>
     <li>Publish schemas and prove bundled plus adversarial third-party plugins on Android.</li>
   </ol></div>
-  <div class="card"><h2>Latest revision</h2><p>UI version 11 adds a bounded declarative <code>code</code> node. One app-owned Prism tokenizer now renders plugin previews, native/web file views, Markdown code fences, and native diff lines with shared theme colors, line numbers, selection, and safe plain-text fallback. File previews read at most 24 KiB / 240 lines and report truncation; plugins still ship no HTML or native code.</p></div>
+  <div class="card"><h2>Latest revision</h2><p>Usage now delegates local multi-agent activity to an exact pinned ccusage native backend in offline/no-cost mode, then allowlists only agent names and rounded total-token counts; only the final bounded card text is cached for one minute. Codex current limits still use its bounded local API; other CLIs are never executed. UI version 11 also adds one app-owned Prism tokenizer for plugin previews, native/web files, Markdown fences, and native diff lines.</p></div>
   <div class="card"><h2>Verification</h2><ul class="check">
     <li>Automation passes 29/29; all 17 bundled plugins and adversarial combinations validate correctly.</li>
     <li>The v11 manifest/tokenization flow, mobile typecheck, web export, and Android production JS bundle pass.</li>

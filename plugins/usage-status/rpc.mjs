@@ -1,7 +1,16 @@
 #!/usr/bin/env node
 import { spawn } from 'node:child_process';
-import { constants, accessSync } from 'node:fs';
+import { constants, accessSync, chmodSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { delimiter, join } from 'node:path';
+
+const require = createRequire(import.meta.url);
+let ccusageFailure;
+const AGENTS = {
+  claude: 'Anthropic Claude', codex: 'OpenAI Codex', opencode: 'OpenCode', amp: 'Amp', droid: 'Droid', codebuff: 'Codebuff',
+  hermes: 'Hermes Agent', pi: 'Pi', goose: 'Goose', openclaw: 'OpenClaw', kilo: 'Kilo Code', kimi: 'Kimi Code', qwen: 'Qwen',
+  copilot: 'GitHub Copilot CLI', cursor: 'Cursor', gemini: 'Gemini CLI', grok: 'xAI Grok',
+};
 
 function available(command) {
   for (const directory of (process.env.PATH ?? '').split(delimiter)) {
@@ -10,22 +19,128 @@ function available(command) {
   return false;
 }
 
+function ccusageBinary() {
+  if (process.env.MUXR_CCUSAGE_BIN?.trim()) return process.env.MUXR_CCUSAGE_BIN.trim();
+  const target = {
+    'darwin-arm64': '@ccusage/ccusage-darwin-arm64', 'darwin-x64': '@ccusage/ccusage-darwin-x64',
+    'linux-arm64': '@ccusage/ccusage-linux-arm64', 'linux-x64': '@ccusage/ccusage-linux-x64',
+  }[`${process.platform}-${process.arch}`];
+  if (!target) return undefined;
+  try {
+    const binary = require.resolve(`${target}/bin/ccusage`);
+    try { accessSync(binary, constants.X_OK); }
+    catch {
+      try { chmodSync(binary, 0o755); }
+      catch { ccusageFailure = 'ccusage backend is not executable · reinstall muxr without sudo'; return undefined; }
+    }
+    return binary;
+  } catch { ccusageFailure = 'ccusage backend is missing · reinstall muxr'; return undefined; }
+}
+
+function runJson(command, args, timeout = 8_000) {
+  if (!command) return Promise.resolve(undefined);
+  return new Promise((resolve) => {
+    const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'ignore'] });
+    let buffer = '';
+    let settled = false;
+    let escalation;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (child.exitCode === null) {
+        child.kill('SIGTERM');
+        escalation = setTimeout(() => { if (child.exitCode === null) child.kill('SIGKILL'); }, 1_000);
+      }
+      resolve(value);
+    };
+    const timer = setTimeout(() => finish(undefined), timeout);
+    child.once('error', () => finish(undefined));
+    child.stdout.setEncoding('utf8');
+    child.stdout.on('data', (chunk) => {
+      buffer += chunk;
+      if (buffer.length > 64 * 1024) finish(undefined);
+    });
+    child.once('close', (code) => {
+      if (escalation) clearTimeout(escalation);
+      if (code !== 0) { finish(undefined); return; }
+      try { finish(JSON.parse(buffer)); } catch { finish(undefined); }
+    });
+  });
+}
+
+async function ccusageDaily() {
+  const binary = ccusageBinary();
+  if (!binary) return undefined;
+  const result = await runJson(binary, ['daily', '--last', '1', '--by-agent', '--json', '--no-cost', '--offline'], 15_000);
+  if (result === undefined && ccusageFailure === undefined) ccusageFailure = 'ccusage activity unavailable · reopen Usage in a minute';
+  return result;
+}
+
+function tokens(value) {
+  if (!Number.isSafeInteger(value) || value < 0) return undefined;
+  if (value >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(1)}B`;
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`;
+  return String(Math.round(value));
+}
+
+function ccusageText(result) {
+  const totals = new Map();
+  for (const day of Array.isArray(result?.daily) ? result.daily.slice(0, 1) : []) {
+    for (const row of Array.isArray(day?.agents) ? day.agents.slice(0, 32) : []) {
+      if (!Object.hasOwn(AGENTS, row?.agent) || !Number.isSafeInteger(row.totalTokens) || row.totalTokens < 0) continue;
+      totals.set(row.agent, (totals.get(row.agent) ?? 0) + row.totalTokens);
+    }
+  }
+  const lines = [...totals].sort((a, b) => b[1] - a[1]).slice(0, 16).flatMap(([agent, total]) => {
+    const value = tokens(total);
+    return value === undefined ? [] : [`  ${AGENTS[agent]}  ${value} tokens`];
+  });
+  return lines.length ? { text: ['Local activity today · ccusage', ...lines].join('\n'), agents: new Set(totals.keys()) } : undefined;
+}
+
+function cachedOutput() {
+  const state = process.env.MUXR_PLUGIN_STATE_DIR?.trim();
+  if (!state) return undefined;
+  try {
+    const saved = JSON.parse(readFileSync(join(state, 'usage.json'), 'utf8'));
+    if (Date.now() - saved.at < 60_000 && typeof saved.text === 'string' && saved.text.length <= 8192) return saved.text;
+  } catch {}
+  return undefined;
+}
+
+function saveOutput(text) {
+  const state = process.env.MUXR_PLUGIN_STATE_DIR?.trim();
+  if (!state) return;
+  const cache = join(state, 'usage.json');
+  const temporary = `${cache}.${process.pid}.tmp`;
+  try {
+    writeFileSync(temporary, JSON.stringify({ at: Date.now(), text }), { mode: 0o600 });
+    renameSync(temporary, cache);
+  } catch {}
+}
+
 function codexUsage() {
   if (!available('codex')) return Promise.resolve(undefined);
   return new Promise((resolve) => {
     const child = spawn('codex', ['app-server'], { stdio: ['pipe', 'pipe', 'ignore'] });
     let buffer = '';
     let settled = false;
+    let escalation;
     const finish = (value) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      child.kill('SIGTERM');
-      setTimeout(() => { if (child.exitCode === null) child.kill('SIGKILL'); }, 1_000).unref();
+      if (child.exitCode === null) {
+        child.kill('SIGTERM');
+        escalation = setTimeout(() => { if (child.exitCode === null) child.kill('SIGKILL'); }, 1_000);
+      }
       resolve(value);
     };
     const timer = setTimeout(() => finish(undefined), 8_000);
     child.once('error', () => finish(undefined));
+    child.once('close', () => { if (escalation) clearTimeout(escalation); finish(undefined); });
     child.stdin.on('error', () => finish(undefined));
     child.stdout.setEncoding('utf8');
     child.stdout.on('data', (chunk) => {
@@ -59,27 +174,35 @@ function codexText(result) {
   const limits = Object.values(result?.rateLimitsByLimitId ?? {});
   if (!limits.length && result?.rateLimits) limits.push(result.rateLimits);
   if (!limits.length) return undefined;
-  return ['OpenAI Codex', ...limits.slice(0, 16).map((limit) => {
+  return ['OpenAI Codex limits', ...limits.slice(0, 16).map((limit) => {
     const window = limit.primary;
     const name = String(limit.limitName ?? limit.limitId ?? 'Codex').replace(/[^\x20-\x7e]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80) || 'Codex';
-    const left = Number.isFinite(window?.usedPercent) ? `${Math.max(0, Math.min(100, 100 - window.usedPercent))}% left` : 'usage available';
+    const left = Number.isFinite(window?.usedPercent) ? `${Math.round(Math.max(0, Math.min(100, 100 - window.usedPercent)))}% left` : 'usage available';
     const reset = relativeReset(window?.resetsAt);
     return `  ${name}  ${left}${reset ? ` · resets in ${reset}` : ''}`;
   })].join('\n');
 }
 
-const sections = [];
-const codexAvailable = available('codex');
-const codex = codexText(await codexUsage());
-if (codex) sections.push(codex);
-else if (codexAvailable) sections.push('OpenAI Codex\n  CLI available · open /usage in that CLI for current limits');
-const visible = [
-  ['pi', 'Pi'],
-  ['claude', 'Anthropic Claude'],
-  ['kimi', 'Kimi Code'],
-  ['cursor', 'Cursor'],
-  ['grok', 'xAI Grok'],
-  ['gemini', 'Gemini CLI'],
-].filter(([command]) => available(command)).map(([, name]) => `${name}\n  CLI available · open /usage in that CLI for current limits`);
-sections.push(...visible);
-process.stdout.write(JSON.stringify(sections.join('\n') || 'Usage unavailable'));
+const cached = cachedOutput();
+if (cached !== undefined) {
+  process.stdout.write(JSON.stringify(cached));
+} else {
+  const sections = [];
+  const codexAvailable = available('codex');
+  const [activity, codex] = await Promise.all([
+    ccusageDaily().then(ccusageText),
+    codexUsage().then(codexText),
+  ]);
+  if (activity) sections.push(activity.text);
+  else if (ccusageFailure) sections.push(`Local activity\n  ${ccusageFailure}`);
+  if (codex) sections.push(codex);
+  else if (codexAvailable) sections.push('OpenAI Codex limits\n  CLI available · open /usage in that CLI for current limits');
+  const active = activity?.agents ?? new Set();
+  const visible = [
+    ['pi', 'pi'], ['claude', 'claude'], ['kimi', 'kimi'], ['cursor', 'cursor'], ['grok', 'grok'], ['gemini', 'gemini'],
+  ].filter(([command, agent]) => available(command) && !active.has(agent)).map(([, agent]) => `${AGENTS[agent] ?? agent}\n  CLI available · open /usage in that CLI for current limits`);
+  sections.push(...visible);
+  const output = sections.join('\n') || 'Usage unavailable';
+  saveOutput(output);
+  process.stdout.write(JSON.stringify(output));
+}

@@ -849,6 +849,36 @@
   resolved "https://registry.yarnpkg.com/@braintree/sanitize-url/-/sanitize-url-7.1.2.tgz#ca2035b0fefe956a8676ff0c69af73e605fcd81f"
   integrity sha512-jigsZK+sMF/cuiB7sERuo9V7N9jx+dhmHHnQyDSVdpZwVutaBu7WvNYqMDLSgFgfB30n452TP3vjDAvFC973mA==
 
+"@ccusage/ccusage-darwin-arm64@20.0.20":
+  version "20.0.20"
+  resolved "https://registry.yarnpkg.com/@ccusage/ccusage-darwin-arm64/-/ccusage-darwin-arm64-20.0.20.tgz#c762ffc7f32236c934adee85ea0fa21b04f67713"
+  integrity sha512-TgvU1u9bjgBD+CuQqj55PNAl3LnrW9awCeXDkPS0acntTP72A4gdGjCBZ+LAmR8HECBlvD9lSDqWHhpCX9kZQw==
+
+"@ccusage/ccusage-darwin-x64@20.0.20":
+  version "20.0.20"
+  resolved "https://registry.yarnpkg.com/@ccusage/ccusage-darwin-x64/-/ccusage-darwin-x64-20.0.20.tgz#f00485da1b8771e1f772fbc3537f18837aef31f3"
+  integrity sha512-UkanWl+XRiC7rgTG7eZDy4xqleQOZ3xd8i6RBW77p2OhHheBpGznMkqS7/5rPT2JQ10cnkOKqjxFE09CLAmIrQ==
+
+"@ccusage/ccusage-linux-arm64@20.0.20":
+  version "20.0.20"
+  resolved "https://registry.yarnpkg.com/@ccusage/ccusage-linux-arm64/-/ccusage-linux-arm64-20.0.20.tgz#50e083b5915c2d29f0fc475863759c60830e5993"
+  integrity sha512-iiURX4sqr3S7jrDJW6P6F0QtP6lx7lkhqqxBQXzaL/66xjhUkCDHKzRglixPuSBxkNaKGL6RAtKGk/ubFGvdBg==
+
+"@ccusage/ccusage-linux-x64@20.0.20":
+  version "20.0.20"
+  resolved "https://registry.yarnpkg.com/@ccusage/ccusage-linux-x64/-/ccusage-linux-x64-20.0.20.tgz#1e23ebb111e1c8db483bebf9bf7bd884ea49646a"
+  integrity sha512-qG5LcyerzKJVPu3hTRHYaWo6VtKB9uyGbRdviw4imInIWRQdPcrEAIb22oCO7iWEfAEv5ZYmTjYWJLX+dR5HXg==
+
+"@ccusage/ccusage-win32-arm64@20.0.20":
+  version "20.0.20"
+  resolved "https://registry.yarnpkg.com/@ccusage/ccusage-win32-arm64/-/ccusage-win32-arm64-20.0.20.tgz#cbdcf3e1c4d1836133fc89a728ba22277c85b2a2"
+  integrity sha512-BUXxVGbZ6WtA8RGqjukzkKFmS2x2cjMTV1kU5weZ4+K/uPHIHJjDIDnSKJtNAllwpwlPKpC+k3UdhkapeVM10w==
+
+"@ccusage/ccusage-win32-x64@20.0.20":
+  version "20.0.20"
+  resolved "https://registry.yarnpkg.com/@ccusage/ccusage-win32-x64/-/ccusage-win32-x64-20.0.20.tgz#be4ceaca27fe0565e6c889efc616015428fb57bb"
+  integrity sha512-6R9cdLuRy529ewdkKbwtjx7boCQNFK8KG1F6d5G/pw2ApKRmucWcwjFo/7sNULQtZMyUxhYa40tUnWy9L/yTMA==
+
 "@chevrotain/types@~11.1.2":
   version "11.1.2"
   resolved "https://registry.yarnpkg.com/@chevrotain/types/-/types-11.1.2.tgz#e83a1a2704f0c5e49e7592b214031a0f4a34d7e5"
@@ -3719,6 +3749,18 @@ ccount@^2.0.0:
   version "2.0.1"
   resolved "https://registry.yarnpkg.com/ccount/-/ccount-2.0.1.tgz#17a3bf82302e0870d6da43a01311a8bc02a3ecf5"
   integrity sha512-eyrF0jiFpY+3drT6383f1qhkbGsLSifNAjA61IUjZjmLCWjItY6LB9ft9YhoDgwfmclB2zhu51Lc7+95b8NRAg==
+
+ccusage@20.0.20:
+  version "20.0.20"
+  resolved "https://registry.yarnpkg.com/ccusage/-/ccusage-20.0.20.tgz#895da27d8a171d52af60eb4b9107844ec3f60b93"
+  integrity sha512-xctCxhwK4Nqo1i3zSa1+JM3wN/oSdPSglzgxIWZyk9KLsLyQQMfntG3NJHoRH3DJHzkvG1EzVwH/xSI2z6VH3Q==
+  optionalDependencies:
+    "@ccusage/ccusage-darwin-arm64" "20.0.20"
+    "@ccusage/ccusage-darwin-x64" "20.0.20"
+    "@ccusage/ccusage-linux-arm64" "20.0.20"
+    "@ccusage/ccusage-linux-x64" "20.0.20"
+    "@ccusage/ccusage-win32-arm64" "20.0.20"
+    "@ccusage/ccusage-win32-x64" "20.0.20"
 
 chai@^5.2.0:
   version "5.3.3"

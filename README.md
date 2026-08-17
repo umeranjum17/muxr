@@ -30,9 +30,10 @@ Drive every coding agent on your machine — Pi, Claude Code, Codex, Cursor, and
 - **Start agents and squads:** choose from the bounded agent catalog reported by
   the connected Herdr host, select a directory and optional worktree, or start
   several agents together. A safe fallback remains available offline.
-- **Usage at a glance:** aggregate available coding-CLI limits. Codex uses its
-  local app-server contract directly; CLIs without a guaranteed non-model usage
-  API are reported as available with an honest in-CLI `/usage` action.
+- **Usage at a glance:** pinned [ccusage](https://github.com/ccusage/ccusage) reads local coding-agent logs offline
+  for today's per-agent activity, while Codex's local app-server reports current
+  rate limits. Costs, prompts, models, and session details stay out of the card;
+  other installed CLIs get an honest in-CLI `/usage` action.
 - **Voice:** start an explicit provider-neutral realtime conversation through a
   backend plugin, or dictate editable text locally with bundled Whisper Base
   English. Provider credentials stay on the host; dictation audio never leaves
