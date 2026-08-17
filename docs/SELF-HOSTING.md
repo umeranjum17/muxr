@@ -96,8 +96,9 @@ enrollment; do not copy the relay mint secret or its data volume onto agent
 machines. Set `MUXR_TRUST_PROXY=1` in `docker-compose.yml` when a reverse proxy
 sits in front.
 
-`nixpacks.toml` is a Railway leftover that installs `unzip` for the relay image;
-it is not a second product. Use the Dockerfile.
+The relay image additionally installs `unzip` via `nixpacks.toml` (an Expo
+native dependency needs it at install time). The Dockerfile is the supported
+path.
 
 ## Shared relay on a VPS
 

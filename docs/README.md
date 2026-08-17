@@ -22,13 +22,17 @@ Start here, then follow one path.
 - [Spec board](specs/index.html) ([source](specs/))
 - [npm CLI readme](npm-readme.md) — the packaged CLI
 
-## Legal / launch
+## Legal
 
 - [License inventory](license-inventory.md)
-- [Historical open-source review](OPEN-SOURCE-REVIEW.md) (2026-08-15; superseded by the checklist and suite)
-- [Public flip checklist](FLIP-CHECKLIST.md)
+
+## Maintainers
+
 - [Release automation](RELEASING.md) — tag gate, npm trusted publishing, and provenance
-- [Clean-room new-user smoke](NEW-USER-SMOKE.md)
+- [Distribution runway](DISTRIBUTION-RUNWAY.md) — exactly what the owner must do for Play/iOS
 - [Google Play launch plan](PLAY-STORE-PLAN.md)
+- [Clean-room new-user smoke](NEW-USER-SMOKE.md)
+- [Public flip checklist](FLIP-CHECKLIST.md)
+- [Historical open-source review](OPEN-SOURCE-REVIEW.md) (2026-08-15; superseded by the checklist and suite)
 
 Archived working notes live in [archive/](archive/).

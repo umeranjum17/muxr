@@ -1,6 +1,8 @@
 # muxr
 
-Control every coding agent on your machine from your phone. The `@trymuxr/cli` package installs the complete self-hosted CLI, relay, host bridge, plugin runtime, and web client.
+**Every coding agent, on your phone.** [Website](https://trymuxr.com) · [GitHub](https://github.com/umeranjum17/muxr) · [Quickstart](https://trymuxr.com/docs/quickstart) · [Android APK](https://github.com/umeranjum17/muxr/releases/latest)
+
+The `@trymuxr/cli` package installs the complete self-hosted CLI, relay, host bridge, plugin runtime, and web client.
 
 ## Quickstart
 

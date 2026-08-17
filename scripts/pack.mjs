@@ -206,6 +206,7 @@ const pkg = {
     ],
     dependencies: runtimeDependencies,
     repository: { type: 'git', url: 'git+https://github.com/umeranjum17/muxr.git' },
+    homepage: 'https://trymuxr.com',
 };
 writeFileSync(join(out, 'package.json'), `${JSON.stringify(pkg, null, 2)}\n`);
 process.stdout.write(`packed self-hostable @trymuxr/cli@${version} -> dist-npm/ (${dependencies.length} audited dependencies)\n`);
