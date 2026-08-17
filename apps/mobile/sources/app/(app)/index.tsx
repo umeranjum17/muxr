@@ -150,7 +150,9 @@ function NotAuthenticated() {
     };
     // Discovery only ever proposes a machine; the user still confirms. Finding a
     // relay must never mean joining it.
-    const pairWithDiscovered = (relay: DiscoveredRelay) => promptForPairingString(`Pair with ${relay.name}?`);
+    const pairWithDiscovered = (relay: DiscoveredRelay) => Platform.OS === 'web'
+        ? promptForPairingString(`Pair with ${relay.name}?`)
+        : scanHostedQr();
 
     if (hosted) {
         return (

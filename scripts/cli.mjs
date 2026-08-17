@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { createRequire } from 'node:module';
-import { runDaemon, runDevices, runDoctor, runIntegrations, runPair, runSelfHost } from './local-setup.mjs';
-import { runSetup } from './setup-wizard.mjs';
+import { hasPendingRemoteConnect, runDaemon, runDevices, runDoctor, runIntegrations, runMachines, runPair, runRemoteConnect, runSelfHost } from './local-setup.mjs';
+import { runMachineManagement, runRemoteRelaySetup, runSetup, runSharedRelaySetup } from './setup-wizard.mjs';
 import { runPlugin } from './plugin.mjs';
 import { runPackage } from './package.mjs';
 import { runUpdate } from './update.mjs';
@@ -15,12 +15,15 @@ Get started
   muxr setup                     install, connect, and pair this machine
   muxr doctor                    check the complete local setup
   muxr pair [--browser]          pair another phone or read-only browser
+  muxr connect --enrollment ...  connect this agent machine to a shared relay
+  muxr shared-relay              host an always-on relay for other machines
 
 Run and maintain
   muxr update [--check|--yes]    check for or install the latest npm release
   muxr self-host [options]       run the relay, host, and pairing flow
   muxr daemon <command>          install, start, stop, restart, or inspect muxr services
   muxr devices list|revoke       list or revoke paired devices
+  muxr machines enroll|list|revoke manage machines on a shared relay
   muxr integrations sync|uninstall
 
 Build plugins
@@ -39,6 +42,9 @@ const COMMAND_HELP = {
     pair: `muxr pair [--browser]\n\nCreate a short-lived pairing QR for another native device or an 8-hour read-only browser.\n`,
     doctor: `muxr doctor\n\nCheck Node, Herdr, integrations, managed files, and the self-host relay without printing secrets.\n`,
     update: `muxr update [--check|--yes]\n\nCheck npm for a newer @trymuxr/cli release. Interactive terminals ask before installing; --yes updates without prompting.\n`,
+    connect: `muxr connect --enrollment <muxr://enroll?...> [--no-pair|--pair-browser|--pair-both]\nmuxr connect --resume\n`,
+    machines: `muxr machines enroll\nmuxr machines list\nmuxr machines revoke <number|name>\n`,
+    'shared-relay': `muxr shared-relay\n\nInteractively configure a supervised VPS relay, optional browser client, and machine enrollments.\n`,
 };
 
 function printHelp(command) {
@@ -50,7 +56,11 @@ let command = input[0];
 let args = input.slice(1);
 if (command === undefined && process.stdin.isTTY && process.stdout.isTTY) {
     const selected = await select('What would you like to do?', [
-        { value: 'setup', title: 'Set up or change connection', description: 'review networking, Herdr, integrations, plugins, and services' },
+        { value: 'setup', title: 'Set up this agent machine', description: 'run a relay here and pair phone or browser' },
+        { value: 'connect-remote', title: 'Connect to a shared relay', description: 'paste a one-use enrollment from your relay server' },
+        ...(hasPendingRemoteConnect() ? [{ value: 'resume-remote', title: 'Resume remote connection', description: 'finish an enrollment saved before an interrupted setup' }] : []),
+        { value: 'shared-relay', title: 'Host or change a shared relay', description: 'run an always-on relay for other agent machines' },
+        { value: 'machines-menu', title: 'Manage shared relay machines', description: 'create enrollment, list machines, or revoke access' },
         { value: 'update', title: 'Update muxr', description: 'check npm and install the latest release' },
         { value: 'pair', title: 'Pair another phone', description: 'show a short-lived encrypted pairing QR' },
         { value: 'pair-browser', title: 'Pair a browser', description: 'create an eight-hour read-only browser grant' },
@@ -60,6 +70,11 @@ if (command === undefined && process.stdin.isTTY && process.stdout.isTTY) {
     ]);
     if (selected === undefined) process.exit(0);
     command = selected;
+    if (command === 'connect-remote') command = 'connect-wizard';
+    if (command === 'resume-remote') {
+        command = 'connect';
+        args = ['--resume'];
+    }
     if (command === 'restart') {
         command = 'daemon';
         args = ['restart'];
@@ -79,11 +94,22 @@ if (command === 'help' || command === '--help' || command === '-h') {
     await import('./host-up.mjs');
 } else if (command === 'setup') {
     code = await runSetup(args);
+} else if (command === 'shared-relay') {
+    code = await runSharedRelaySetup();
+} else if (command === 'connect-wizard') {
+    code = await runRemoteRelaySetup();
+} else if (command === 'machines-menu') {
+    code = await runMachineManagement();
+} else if (command === 'connect') {
+    code = await runRemoteConnect(args);
 } else if (command === 'self-host') {
     code = await runSelfHost(args);
 } else if (command === 'devices') {
     const [deviceCommand = 'list', ...deviceArgs] = args;
     code = await runDevices(deviceCommand, deviceArgs);
+} else if (command === 'machines') {
+    const [machineCommand = 'list', ...machineArgs] = args;
+    code = await runMachines(machineCommand, machineArgs);
 } else if (command === 'doctor') {
     code = await runDoctor();
 } else if (command === 'update') {

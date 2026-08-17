@@ -77,13 +77,16 @@ export async function runUpdate(args = []) {
 
     process.stdout.write(`muxr ${latest} is available (installed: ${current}).\n`);
     if (args.includes('--check')) return 0;
+    const installedMode = daemonMode();
 
     let approved = args.includes('--yes');
     if (!approved && process.stdin.isTTY && process.stdout.isTTY) {
         process.stdout.write([
             'Update plan:',
             `  • install ${PACKAGE}@${latest}`,
-            '  • ensure the Herdr server is running and relink bundled plugins',
+            installedMode === 'relay'
+                ? '  • leave Herdr and agent integrations unchanged on this relay-only server'
+                : '  • ensure the Herdr server is running and relink bundled plugins',
             '  • restart the muxr relay and host if they are running',
             '',
         ].join('\n'));
@@ -98,11 +101,11 @@ export async function runUpdate(args = []) {
     }
 
     const restart = daemonIsRunning();
-    const restartMode = daemonMode();
+    const restartMode = installedMode;
     const install = npm(['install', '-g', `${PACKAGE}@${latest}`], 'inherit');
     if (install.status !== 0) return install.status ?? 1;
 
-    if ((await runBootstrap(['--no-install-herdr'])) !== 0) {
+    if (restartMode !== 'relay' && (await runBootstrap(['--no-install-herdr'])) !== 0) {
         process.stderr.write('The package updated, but plugin refresh failed. Run `muxr doctor`.\n');
         return 1;
     }
@@ -110,9 +113,9 @@ export async function runUpdate(args = []) {
     try {
         if (restart) {
             if ((await runDaemon(['stop'])) !== 0) throw new Error('host service did not stop');
-            if (restartMode === 'selfhost') relayRestarted = await stopSelfhostRelayIfRunning();
+            if (restartMode === 'selfhost' || restartMode === 'relay') relayRestarted = await stopSelfhostRelayIfRunning();
             if ((await runDaemon(['start'])) !== 0) throw new Error('host service did not start');
-            relayRestarted = restartMode === 'selfhost';
+            relayRestarted = restartMode === 'selfhost' || restartMode === 'relay';
         } else {
             relayRestarted = await restartSelfhostRelayIfRunning();
         }

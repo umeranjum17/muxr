@@ -18,7 +18,7 @@ import {
     statSync,
     writeFileSync,
 } from 'node:fs';
-import { homedir, hostname, networkInterfaces, platform as hostPlatform, tmpdir } from 'node:os';
+import { homedir, hostname, networkInterfaces, platform as hostPlatform, tmpdir, userInfo } from 'node:os';
 import { basename, delimiter, dirname, join } from 'node:path';
 import { createInterface } from 'node:readline';
 
@@ -422,6 +422,158 @@ export async function runLocalPrerequisites(args = []) {
     }
 }
 
+function enrollmentPayload(link) {
+    try {
+        const parsed = new URL(link.trim());
+        if (parsed.protocol !== 'muxr:' || parsed.hostname !== 'enroll') throw new Error('scheme');
+        const compact = parsed.searchParams.get('payload');
+        const payload = compact === null ? undefined : JSON.parse(Buffer.from(compact, 'base64url').toString('utf8'));
+        const relay = publicRelayUrl(payload?.relay);
+        if (payload?.v !== 1 || typeof payload?.id !== 'string' || typeof payload?.claim !== 'string'
+            || relay === undefined || !relay.startsWith('wss://') || typeof payload?.expires === 'number' && payload.expires <= Date.now()) throw new Error('shape');
+        return { id: payload.id, claim: payload.claim, relay };
+    } catch { throw new Error('enrollment must be the muxr://enroll string created on the relay server'); }
+}
+
+export async function sharedMachineCount() {
+    const state = readSelfhostState();
+    if (state?.relayRole !== 'shared' || typeof state.mintSecret !== 'string') return 0;
+    const listed = await api(selfhostControlBase(state), '/v1/selfhost/machines', { headers: { authorization: `Bearer ${state.mintSecret}` } });
+    if (!listed.response.ok || !Array.isArray(listed.body.machines)) throw new Error(listed.body.error || 'could not verify enrolled machines');
+    return listed.body.machines.filter((machine) => machine.revoked !== true).length;
+}
+
+export async function runMachines(command = 'list', args = []) {
+    try {
+        const state = readSelfhostState();
+        if (state?.relayLocation === 'remote' || typeof state?.mintSecret !== 'string') throw new Error('machine management runs on the shared relay server');
+        if (!(await selfhostRelayHealthy(state))) throw new Error('shared relay service is not healthy; choose Restart muxr, then try again');
+        const base = selfhostControlBase(state);
+        const headers = { authorization: `Bearer ${state.mintSecret}` };
+        if (command === 'enroll') {
+            if (state.connectionMode === 'cloudflare' && !cloudflaredAlive(state.ingress)) throw new Error('the Cloudflare tunnel is not running; restore the shared relay before creating enrollment');
+            if (!(await selfhostRelayHealthy(state))) throw new Error('the shared relay is not healthy; run `muxr doctor` first');
+            const relayUrl = publicRelayUrl(state.relayUrl);
+            if (relayUrl === undefined || !relayUrl.startsWith('wss://')) throw new Error('shared relay enrollment requires a public wss:// relay URL');
+            const created = await api(base, '/v1/selfhost/enrollments', {
+                method: 'POST', headers,
+                body: JSON.stringify({ relay_url: relayUrl, ...(state.webEnabled ? { web_url: relayUrl.replace(/^wss/, 'https') } : {}) }),
+            });
+            if (!created.response.ok) throw new Error(created.body.error || 'could not create enrollment');
+            const payload = Buffer.from(JSON.stringify({ v: 1, id: created.body.enrollment_id, claim: created.body.claim,
+                relay: created.body.relay_url, expires: Date.now() + Number(created.body.expires_in ?? 300) * 1000,
+                ...(typeof created.body.web_url === 'string' ? { web: created.body.web_url } : {}) })).toString('base64url');
+            const link = `muxr://enroll?payload=${payload}`;
+            print('');
+            if (process.stdout.isTTY) print(await QRCode.toString(link, { type: 'terminal', small: true }));
+            print('Machine enrollment string (single-use, expires in five minutes):');
+            print(link);
+            const path = join(stateDir(), 'enrollment-link.txt');
+            writeFileSync(path, `${link}\n`, { mode: 0o600 });
+            print(`  saved exact enrollment string to ${path}`);
+            return 0;
+        }
+        const listed = await api(base, '/v1/selfhost/machines', { headers });
+        if (!listed.response.ok || !Array.isArray(listed.body.machines)) throw new Error(listed.body.error || 'could not list enrolled machines');
+        const machines = listed.body.machines;
+        if (command === 'list') {
+            if (machines.length === 0) print('No enrolled machines.');
+            else machines.forEach((machine, index) => print(`  ${index + 1}. ${machine.name || 'agent machine'} — enrolled ${new Date(machine.createdAt).toLocaleDateString()} · ${machine.revoked ? 'revoked; select it again to retry cleanup' : machine.expired ? 'credential expired' : `credential expires ${new Date(machine.expiresAt).toLocaleDateString()}`}`));
+            return 0;
+        }
+        if (command !== 'revoke') throw new Error('usage: muxr machines enroll | list | revoke <number|name>');
+        const reference = args.join(' ').trim();
+        const position = /^\d+$/.test(reference) ? Number(reference) - 1 : -1;
+        const named = machines.filter((machine) => machine.name?.toLowerCase() === reference.toLowerCase());
+        const target = position >= 0 ? machines[position] : named.length === 1 ? named[0] : undefined;
+        if (target === undefined) throw new Error(named.length > 1 ? 'machine name is ambiguous; use its list number' : 'machine not found');
+        const revoked = await api(base, `/v1/selfhost/machines/${encodeURIComponent(target.slug)}`, { method: 'DELETE', headers });
+        if (!revoked.response.ok) throw new Error(revoked.body.error || 'machine revocation failed');
+        print(`  ✓ revoked ${target.name || 'agent machine'} and disconnected its devices`);
+        return 0;
+    } catch (cause) {
+        error(cause instanceof Error ? cause.message : String(cause));
+        return 1;
+    }
+}
+
+export async function runRemoteConnect(args = []) {
+    try {
+        if (args.includes('--resume')) return await resumeRemoteConnect(args);
+        const raw = flagValue(args, '--enrollment') ?? args.find((arg) => !arg.startsWith('--'));
+        if (!raw) throw new Error('paste the enrollment with `muxr connect --enrollment <muxr://enroll?...>`');
+        const enrollment = enrollmentPayload(raw);
+        const existing = readSelfhostState();
+        if (existing !== undefined && !args.includes('--force')) throw new Error('this machine already has muxr state; rerun interactive `muxr` to review replacing it');
+        ensurePrivateDir(stateDir());
+        const reuseIdentity = existing?.relayLocation === 'remote' && publicRelayUrl(existing.relayUrl) === enrollment.relay;
+        const identity = machineIdentity(reuseIdentity ? existing : undefined);
+        const message = Buffer.from(`muxr-enroll-v1\n${enrollment.id}\n${enrollment.relay}\n${identity.crypto.signingPublicKey}`, 'utf8');
+        const proof = Buffer.from(nacl.sign.detached(message, Buffer.from(identity.crypto.signingSecretKey, 'base64'))).toString('base64');
+        const enrollmentBase = env('MUXR_REMOTE_CONTROL_BASE')?.replace(/\/$/, '') ?? enrollment.relay.replace(/^wss:/, 'https:');
+        const claimed = await api(enrollmentBase, `/v1/selfhost/enrollments/${encodeURIComponent(enrollment.id)}/claim`, {
+            method: 'POST',
+            body: JSON.stringify({ claim: enrollment.claim, relay_url: enrollment.relay,
+                signing_public_key: identity.crypto.signingPublicKey, proof, name: identity.name ?? hostname() }),
+        });
+        if (!claimed.response.ok) throw new Error(claimed.body.error || 'machine enrollment failed');
+        const expectedSlug = `machine-${createHash('sha256').update('muxr-machine-v1\0').update(Buffer.from(identity.crypto.signingPublicKey, 'base64')).digest('hex').slice(0, 32)}`;
+        if (claimed.body.machine_slug !== expectedSlug || typeof claimed.body.machine_credential !== 'string'
+            || typeof claimed.body.credential_expires_at !== 'string' || Date.parse(claimed.body.credential_expires_at) <= Date.now()) {
+            throw new Error('relay returned an invalid machine identity');
+        }
+        identity.id = expectedSlug;
+        const state = {
+            version: 1,
+            relayLocation: 'remote',
+            relayUrl: enrollment.relay,
+            connectionMode: 'remote',
+            machineCredential: claimed.body.machine_credential,
+            credentialExpiresAt: claimed.body.credential_expires_at,
+            webEnabled: typeof claimed.body.web_url === 'string',
+            webOrigin: typeof claimed.body.web_url === 'string' ? claimed.body.web_url : undefined,
+            machine: identity,
+        };
+        const pendingPath = join(stateDir(), 'selfhost.pending.json');
+        writeFileSync(pendingPath, `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 });
+        if (existing !== undefined) {
+            writeFileSync(join(stateDir(), 'selfhost.previous.json'), `${JSON.stringify(existing, null, 2)}\n`, { mode: 0o600 });
+            try {
+                if (existing.relayLocation !== 'remote') cleanupManagedIngress(existing);
+                if (daemonIsRunning() && (await runDaemon(['stop'])) !== 0) throw new Error('could not stop the existing muxr service');
+                await stopOwnedSelfhostRelay();
+            } catch (cause) {
+                writeSelfhostState(state);
+                rmSync(pendingPath, { force: true });
+                try { await startMuxrDaemon('selfhost', args, true); } catch { /* doctor reports the remaining service issue */ }
+                throw new Error(`enrollment completed and the scoped credential was saved, but replacing the previous runtime failed: ${cause instanceof Error ? cause.message : String(cause)}; run \`muxr doctor\``);
+            }
+        }
+        writeSelfhostState(state);
+        rmSync(pendingPath, { force: true });
+        try { await startMuxrDaemon('selfhost', args, true); }
+        catch (cause) {
+            throw new Error(`enrollment completed and the scoped credential was saved, but the local service did not start: ${cause instanceof Error ? cause.message : String(cause)}; choose Restart muxr after fixing the reported service issue`);
+        }
+        for (let attempt = 0; attempt < 40 && !(await remoteHostOnline(state)); attempt += 1) {
+            await new Promise((resolve) => setTimeout(resolve, 250));
+        }
+        if (!(await remoteHostOnline(state))) throw new Error('the scoped credential was saved, but the local host did not authenticate with the shared relay; run `muxr doctor`');
+        rmSync(join(stateDir(), 'selfhost.previous.json'), { force: true });
+        print(`  ✓ connected this machine to ${enrollment.relay}`);
+        print(`  ✓ machine credential expires ${new Date(state.credentialExpiresAt).toLocaleDateString()}`);
+        if (args.includes('--no-pair')) return 0;
+        const kind = args.includes('--pair-browser') ? 'browser' : 'native';
+        if ((kind === 'browser' || args.includes('--pair-both')) && !state.webEnabled) throw new Error('this shared relay does not host the browser client; pair the native app instead');
+        const paired = await withSelfhostRotationLock(() => runSelfhostPair(state, kind));
+        if (paired !== 0) return paired;
+        return args.includes('--pair-both') ? runPair(['--browser']) : 0;
+    } catch (cause) {
+        error(cause instanceof Error ? cause.message : String(cause));
+        return 1;
+    }
+}
+
 export async function runIntegrations(args = []) {
     const dryRun = args.includes('--dry-run');
     const force = args.includes('--force');
@@ -535,7 +687,7 @@ function systemdArg(text) {
 }
 
 function daemonDefinition(mode) {
-    if (mode !== undefined && mode !== 'hosted' && mode !== 'selfhost') throw new Error('--mode must be hosted or selfhost');
+    if (mode !== undefined && mode !== 'hosted' && mode !== 'selfhost' && mode !== 'relay') throw new Error('--mode must be hosted, selfhost, or relay');
     const cli = realpathSync(process.argv[1]);
     const logs = join(stateDir(), 'logs');
     if (platform() === 'darwin') {
@@ -596,7 +748,9 @@ export function daemonIsRunning() {
 export function daemonMode() {
     try {
         const content = readFileSync(daemonDefinition().path, 'utf8');
-        return /MUXR_MODE[\s\S]{0,80}selfhost/.test(content) ? 'selfhost' : /MUXR_MODE[\s\S]{0,80}hosted/.test(content) ? 'hosted' : undefined;
+        return /MUXR_MODE[\s\S]{0,80}selfhost/.test(content) ? 'selfhost'
+            : /MUXR_MODE[\s\S]{0,80}relay/.test(content) ? 'relay'
+                : /MUXR_MODE[\s\S]{0,80}hosted/.test(content) ? 'hosted' : undefined;
     } catch { return undefined; }
 }
 
@@ -608,19 +762,57 @@ function publicRelayUrl(value) {
     } catch { return undefined; }
 }
 
+function selfhostControlBase(state) {
+    const relay = publicRelayUrl(state?.relayUrl);
+    return state?.relayLocation === 'remote' && env('MUXR_REMOTE_CONTROL_BASE')
+        ? env('MUXR_REMOTE_CONTROL_BASE').replace(/\/$/, '')
+        : state?.relayLocation === 'remote' && relay !== undefined
+            ? relay.replace(/^ws:/, 'http:').replace(/^wss:/, 'https:')
+        : `http://127.0.0.1:${state?.relayPort}`;
+}
+
+function selfhostCredential(state) {
+    return typeof state?.machineCredential === 'string' ? state.machineCredential : state?.mintSecret;
+}
+
+async function selfhostRelayHealthy(state) {
+    if (state === undefined) return false;
+    return fetch(`${selfhostControlBase(state)}/health`).then((response) => response.ok).catch(() => false);
+}
+
+async function advertisedRelayHealthy(state) {
+    const relay = publicRelayUrl(state?.relayUrl);
+    if (relay === undefined) return false;
+    const base = relay.replace(/^ws:/, 'http:').replace(/^wss:/, 'https:');
+    return fetch(`${base}/health`, { signal: AbortSignal.timeout(10_000) }).then((response) => response.ok).catch(() => false);
+}
+
+async function remoteHostOnline(state) {
+    if (state?.relayLocation !== 'remote' || env('MUXR_REMOTE_HOST_ONLINE') === '1') return true;
+    const result = await api(selfhostControlBase(state), '/v1/selfhost/machine-status', {
+        headers: { authorization: `Bearer ${selfhostCredential(state)}` },
+    }).catch(() => undefined);
+    return result?.response.ok === true && result.body.online === true;
+}
+
 export async function selfhostPublicSummary() {
     const state = readSelfhostState();
     if (state === undefined) return undefined;
-    const relayHealthy = await fetch(`http://127.0.0.1:${state.relayPort}/health`).then((response) => response.ok).catch(() => false);
+    const relayHealthy = await selfhostRelayHealthy(state);
+    const publicHealthy = await advertisedRelayHealthy(state);
     return {
         connectionMode: typeof state.connectionMode === 'string' ? state.connectionMode : undefined,
+        relayLocation: state.relayLocation === 'remote' ? 'remote' : 'local',
+        relayRole: state.relayRole === 'shared' ? 'shared' : state.relayRole === 'single-machine' ? 'single-machine' : undefined,
         relayPort: Number.isInteger(state.relayPort) ? state.relayPort : undefined,
         relayUrl: publicRelayUrl(state.relayUrl),
         webEnabled: state.webEnabled === true,
         ingressHealthy: state.connectionMode !== 'cloudflare' || cloudflaredAlive(state.ingress),
         webUrl: state.webEnabled === true ? publicRelayUrl(state.relayUrl)?.replace(/^ws/, 'http') : undefined,
         relayHealthy,
+        publicHealthy,
         hostRunning: daemonIsRunning(),
+        credentialExpiresAt: typeof state.credentialExpiresAt === 'string' ? state.credentialExpiresAt : undefined,
     };
 }
 
@@ -640,6 +832,14 @@ export async function runDaemon(args = []) {
             if (!dryRun) {
                 const reload = serviceCommand('reload');
                 if (!reload.ok) throw new Error(reload.stderr || reload.stdout || 'service reload failed');
+                if (mode === 'relay' && platform() === 'linux' && env('MUXR_NO_SERVICE_COMMANDS') !== '1') {
+                    const username = userInfo().username;
+                    const linger = run('loginctl', ['show-user', username, '-p', 'Linger', '--value']);
+                    if (!linger.ok || linger.stdout.trim() !== 'yes') {
+                        const enabled = run('loginctl', ['enable-linger', username]);
+                        if (!enabled.ok) throw new Error(enabled.stderr || enabled.stdout || 'could not enable boot persistence for the relay service');
+                    }
+                }
             }
             print(`Daemon registered. Start it with: muxr daemon start`);
             return 0;
@@ -855,6 +1055,33 @@ function writeSelfhostState(state) {
     atomicWrite(selfhostPath(), `${JSON.stringify(state, null, 2)}\n`);
 }
 
+function pendingRemotePath() { return join(stateDir(), 'selfhost.pending.json'); }
+
+export function hasPendingRemoteConnect() { return existsSync(pendingRemotePath()); }
+
+async function resumeRemoteConnect(args = []) {
+    if (!hasPendingRemoteConnect()) throw new Error('no interrupted remote enrollment is waiting to resume');
+    const pending = JSON.parse(readFileSync(pendingRemotePath(), 'utf8'));
+    if (pending?.version !== 1 || pending.relayLocation !== 'remote' || typeof pending.machineCredential !== 'string'
+        || typeof pending.credentialExpiresAt !== 'string' || Date.parse(pending.credentialExpiresAt) <= Date.now()) {
+        throw new Error('pending remote enrollment is invalid or expired; create a fresh enrollment on the relay server');
+    }
+    const check = await api(selfhostControlBase(pending), '/v1/selfhost/machine-status', {
+        headers: { authorization: `Bearer ${pending.machineCredential}` },
+    }).catch(() => { throw new Error('could not reach the shared relay; check the network and try Resume again'); });
+    if (!check.response.ok) throw new Error(check.body.error || 'pending machine credential was rejected');
+    const current = readSelfhostState();
+    if (current !== undefined) writeFileSync(join(stateDir(), 'selfhost.previous.json'), `${JSON.stringify(current, null, 2)}\n`, { mode: 0o600 });
+    writeSelfhostState(pending);
+    rmSync(pendingRemotePath(), { force: true });
+    await startMuxrDaemon('selfhost', args, true);
+    for (let attempt = 0; attempt < 40 && !(await remoteHostOnline(pending)); attempt += 1) await new Promise((resolve) => setTimeout(resolve, 250));
+    if (!(await remoteHostOnline(pending))) throw new Error('remote enrollment was restored, but the host did not authenticate; run `muxr doctor`');
+    rmSync(join(stateDir(), 'selfhost.previous.json'), { force: true });
+    print('  ✓ resumed the remote relay connection');
+    return 0;
+}
+
 function lanAddress() {
     for (const list of Object.values(networkInterfaces())) {
         for (const info of list ?? []) {
@@ -1031,7 +1258,7 @@ async function ensureSelfhostRelay(port, webRoot, host = '0.0.0.0', webOrigin) {
 
 async function stopOwnedSelfhostRelay() {
     const state = readSelfhostState();
-    if (state === undefined) return undefined;
+    if (state === undefined || state.relayLocation === 'remote') return undefined;
     const port = Number(state.relayPort);
     const health = await fetch(`http://127.0.0.1:${port}/health`).then((response) => response.ok ? response.json() : undefined).catch(() => undefined);
     if (health?.ok !== true) return undefined;
@@ -1099,10 +1326,9 @@ async function startMuxrDaemon(mode, args = [], restartRunning = true) {
     }
     for (let attempt = 0; attempt < 40; attempt += 1) {
         if (serviceCommand('status').ok) {
-            const relayReady = mode !== 'selfhost' || await (async () => {
+            const relayReady = mode !== 'selfhost' && mode !== 'relay' || await (async () => {
                 const state = readSelfhostState();
-                return state?.relayPort !== undefined
-                    && fetch(`http://127.0.0.1:${state.relayPort}/health`).then((response) => response.ok).catch(() => false);
+                return selfhostRelayHealthy(state);
             })();
             if (relayReady) {
                 print(`  ✓ muxr services running in ${mode} mode`);
@@ -1118,6 +1344,7 @@ export async function runSelfHost(args = []) {
     let pendingIngress;
     const port = Number(flagValue(args, '--port') ?? 8792);
     const relayOnly = args.includes('--relay-only');
+    const managedRelay = args.includes('--managed-relay');
     const hostOnly = args.includes('--host-only');
     const dryRun = args.includes('--dry-run');
     const web = args.includes('--web');
@@ -1183,6 +1410,8 @@ export async function runSelfHost(args = []) {
         const secretRaw = JSON.parse(readFileSync(mintPath, 'utf8'));
         state.mintSecret = secretRaw;
         state.relayUrl = advertise.url;
+        state.relayLocation = 'local';
+        state.relayRole = managedRelay ? 'shared' : 'single-machine';
         state.connectionMode = connectionMode;
         state.webEnabled = web;
         state.webRoot = web ? webRoot : undefined;
@@ -1195,7 +1424,19 @@ export async function runSelfHost(args = []) {
         print(`  ✓ advertise ${advertise.url}`);
         if (web) print(`  ✓ web client ${advertise.url.replace(/^ws/, 'http')}`);
         if (relayOnly) {
-            print('Relay ready. Run `muxr self-host --host-only` on the machine holding this state.');
+            if (managedRelay) {
+                if (env('MUXR_NO_SERVICE_COMMANDS') !== '1') await stopOwnedSelfhostRelay();
+                try { await startMuxrDaemon('relay', args, !sameConfiguration || !hostWasRunning); }
+                catch (cause) {
+                    await ensureSelfhostRelay(port, web ? webRoot : undefined, bindHost, webOrigin).catch(() => undefined);
+                    throw new Error(`the supervised relay service did not start; the temporary relay was restored when possible: ${cause instanceof Error ? cause.message : String(cause)}`);
+                }
+                delete state.machine;
+                writeSelfhostState(state);
+                print('Shared relay service ready. Create a machine enrollment from the muxr menu.');
+            } else {
+                print('Relay ready. Run `muxr self-host --host-only` on the machine holding this state.');
+            }
             return 0;
         }
         if (env('MUXR_NO_SERVICE_COMMANDS') !== '1' && (!sameConfiguration || !hostWasRunning)) await stopOwnedSelfhostRelay();
@@ -1247,8 +1488,8 @@ async function withSelfhostRotationLock(operation) {
 }
 
 async function selfhostDevices(state) {
-    const result = await api(`http://127.0.0.1:${state.relayPort}`, `/v1/selfhost/devices?machine=${encodeURIComponent(state.machine.id)}`, {
-        headers: { authorization: `Bearer ${state.mintSecret}` },
+    const result = await api(selfhostControlBase(state), `/v1/selfhost/devices?machine=${encodeURIComponent(state.machine.id)}`, {
+        headers: { authorization: `Bearer ${selfhostCredential(state)}` },
     });
     if (!result.response.ok || !Array.isArray(result.body.devices)) {
         throw new Error(result.body.error || 'could not list paired devices; start the self-host relay first');
@@ -1259,7 +1500,7 @@ async function selfhostDevices(state) {
 export async function runDevices(command = 'list', args = []) {
     try {
         const state = readSelfhostState();
-        if (state?.machine?.crypto === undefined || typeof state.mintSecret !== 'string') {
+        if (state?.machine?.crypto === undefined || typeof selfhostCredential(state) !== 'string') {
             throw new Error('no self-host pairing state; run `muxr self-host` first');
         }
         if (command === 'list') {
@@ -1282,8 +1523,8 @@ export async function runDevices(command = 'list', args = []) {
                 if (target === undefined) throw new Error(named.length > 1 ? 'device name is ambiguous; use its list number' : 'device not found');
                 const local = current.machine.crypto.devices;
                 if (!local.some((device) => device.deviceId === target.deviceId)) {
-                    const cleaned = await api(`http://127.0.0.1:${current.relayPort}`, `/v1/selfhost/devices/${encodeURIComponent(target.deviceId)}`, {
-                        method: 'DELETE', headers: { authorization: `Bearer ${current.mintSecret}` },
+                    const cleaned = await api(selfhostControlBase(current), `/v1/selfhost/devices/${encodeURIComponent(target.deviceId)}`, {
+                        method: 'DELETE', headers: { authorization: `Bearer ${selfhostCredential(current)}` },
                     });
                     if (!cleaned.response.ok) throw new Error(cleaned.body.error || 'incomplete pairing cleanup failed');
                     print(`  ✓ revoked incomplete pairing for ${target.name || 'phone'}`);
@@ -1333,8 +1574,8 @@ export async function runDevices(command = 'list', args = []) {
                 writeSelfhostState(current);
             }
 
-            const base = `http://127.0.0.1:${current.relayPort}`;
-            const headers = { authorization: `Bearer ${current.mintSecret}` };
+            const base = selfhostControlBase(current);
+            const headers = { authorization: `Bearer ${selfhostCredential(current)}` };
             const revoked = await api(base, `/v1/selfhost/devices/${encodeURIComponent(pending.revokedDeviceId)}`, {
                 method: 'DELETE', headers,
             });
@@ -1381,8 +1622,8 @@ export async function runDevices(command = 'list', args = []) {
 }
 
 async function runSelfhostPair(state, requestedKind = 'native') {
-    const base = `http://127.0.0.1:${state.relayPort}`;
-    const authHeaders = { authorization: `Bearer ${state.mintSecret}` };
+    const base = selfhostControlBase(state);
+    const authHeaders = { authorization: `Bearer ${selfhostCredential(state)}` };
     let pending = state.machine.crypto.pendingPair;
     if (pending !== undefined && (pending.deviceKind ?? 'native') !== requestedKind) {
         delete state.machine.crypto.pendingPair;
@@ -1517,17 +1758,17 @@ async function runSelfhostPair(state, requestedKind = 'native') {
 export async function runPair(args = []) {
     try {
         const state = readSelfhostState();
-        if (state?.machine?.crypto === undefined || typeof state.mintSecret !== 'string') {
+        if (state?.machine?.crypto === undefined || typeof selfhostCredential(state) !== 'string') {
             throw new Error('muxr is not set up yet; run `muxr setup` first');
         }
         const browser = args.includes('--browser');
         if (browser && (!state.webEnabled || !publicRelayUrl(state.relayUrl)?.startsWith('wss://'))) throw new Error('the browser client is off; run `muxr` and enable secure browser hosting first');
-        let healthy = await fetch(`http://127.0.0.1:${state.relayPort}/health`).then((response) => response.ok).catch(() => false);
+        let healthy = await selfhostRelayHealthy(state);
         if (!healthy) {
             const definition = daemonDefinition('selfhost');
             if (existsSync(definition.path)) await runDaemon(['restart']);
-            else await ensureSelfhostRelay(state.relayPort, state.webRoot, state.bindHost, state.webOrigin);
-            healthy = await fetch(`http://127.0.0.1:${state.relayPort}/health`).then((response) => response.ok).catch(() => false);
+            else if (state.relayLocation !== 'remote') await ensureSelfhostRelay(state.relayPort, state.webRoot, state.bindHost, state.webOrigin);
+            healthy = await selfhostRelayHealthy(state);
         }
         if (!healthy) throw new Error('the relay could not restart; run `muxr doctor` for the exact failing check');
         return await withSelfhostRotationLock(() => runSelfhostPair(state, browser ? 'browser' : 'native'));
@@ -1728,10 +1969,17 @@ export async function runDoctor() {
     const major = Number(process.versions.node.split('.')[0]);
     add(major >= 22 ? 'ok' : 'fail', 'node', `v${process.versions.node}${major >= 22 ? '' : ' — needs >= 22'}`);
     const cliDir = dirname(realpathSync(process.argv[1]));
-    const host = existsSync(join(cliDir, 'host.js')) || existsSync(join(process.cwd(), 'apps', 'host', 'dist', 'main.js'));
-    add(host ? 'ok' : 'fail', 'host', host ? 'host runtime present' : 'missing host runtime; rebuild or reinstall muxr');
-    const binary = herdrBin();
-    if (!binary) {
+    const managedMode = daemonMode();
+    const runtime = managedMode === 'relay'
+        ? existsSync(join(cliDir, 'relay.js')) || existsSync(join(process.cwd(), 'apps', 'relay', 'dist', 'main.js'))
+        : existsSync(join(cliDir, 'host.js')) || existsSync(join(process.cwd(), 'apps', 'host', 'dist', 'main.js'));
+    add(runtime ? 'ok' : 'fail', managedMode === 'relay' ? 'relay' : 'host', runtime
+        ? `${managedMode === 'relay' ? 'relay' : 'host'} runtime present`
+        : `missing ${managedMode === 'relay' ? 'relay' : 'host'} runtime; rebuild or reinstall muxr`);
+    const binary = managedMode === 'relay' ? undefined : herdrBin();
+    if (managedMode === 'relay') {
+        add('ok', 'profile', 'shared relay only · Herdr and agent integrations not required');
+    } else if (!binary) {
         add('fail', 'herdr', `missing — ${HERDR_INSTALL_HINT}`);
     } else {
         const versionResult = run(binary, ['--version']);
@@ -1754,23 +2002,33 @@ export async function runDoctor() {
     const drifted = states.filter((state) => state.endsWith(':drifted') || state.endsWith(':missing'));
     add(drifted.length ? 'fail' : states.length ? 'ok' : 'warn', 'managed setup', states.length ? (drifted.join(', ') || `${states.length} entries current`) : 'not installed');
     const selfhost = readSelfhostState();
-    const relayReady = selfhost?.relayPort === undefined
-        ? false
-        : await fetch(`http://127.0.0.1:${selfhost.relayPort}/health`).then((response) => response.ok).catch(() => false);
+    const relayReady = await selfhostRelayHealthy(selfhost);
+    const relayDetail = selfhost?.relayLocation === 'remote'
+        ? publicRelayUrl(selfhost.relayUrl) ?? 'remote relay'
+        : `:${selfhost?.relayPort}`;
     add(selfhost === undefined ? 'warn' : relayReady ? 'ok' : 'warn', 'self-host relay', selfhost === undefined
         ? 'not configured — run muxr setup'
-        : relayReady ? `running on :${selfhost.relayPort}` : `configured on :${selfhost.relayPort}, not running`);
+        : relayReady ? `reachable at ${relayDetail}` : `configured at ${relayDetail}, not reachable`);
     if (selfhost !== undefined) {
         const ingressReady = selfhost.connectionMode !== 'cloudflare' || cloudflaredAlive(selfhost.ingress);
         add(ingressReady ? 'ok' : 'warn', 'connection', ingressReady
             ? `${selfhost.connectionMode ?? 'self-host'} · ${publicRelayUrl(selfhost.relayUrl) ?? `local port ${selfhost.relayPort}`}`
             : 'Cloudflare tunnel is not running; run `muxr` to restore it and pair the new endpoint');
         const hostRunning = daemonIsRunning();
-        add(hostRunning ? 'ok' : 'warn', 'host service', hostRunning ? 'running' : 'not running');
+        const hostAuthenticated = selfhost.relayLocation !== 'remote' || await remoteHostOnline(selfhost);
+        add(hostRunning && hostAuthenticated ? 'ok' : 'warn', managedMode === 'relay' ? 'relay service' : 'host service',
+            !hostRunning ? 'not running' : hostAuthenticated ? 'running and authenticated' : 'running but not authenticated with the shared relay');
+        if (selfhost.relayLocation === 'remote' && typeof selfhost.credentialExpiresAt === 'string') {
+            const days = Math.ceil((Date.parse(selfhost.credentialExpiresAt) - Date.now()) / (24 * 60 * 60_000));
+            add(days <= 30 ? 'warn' : 'ok', 'machine credential', days <= 0
+                ? 'expired · create a fresh enrollment on the shared relay server'
+                : `${days} day${days === 1 ? '' : 's'} remaining · create a fresh enrollment before expiry`);
+        }
         if (selfhost.webEnabled === true) add(ingressReady ? 'ok' : 'warn', 'web client', ingressReady
             ? `${publicRelayUrl(selfhost.relayUrl)?.replace(/^ws/, 'http') ?? 'configured'} · read-only browser grants expire after eight hours`
             : 'configured but unreachable until the tunnel is restored');
     }
+    if (hasPendingRemoteConnect()) add('fail', 'pending enrollment', 'run `muxr` and choose Resume remote connection');
     const width = Math.max(...checks.map((check) => check.name.length));
     print();
     for (const check of checks) print(`  ${{ ok: 'ok  ', warn: 'warn', fail: 'FAIL' }[check.level]}  ${check.name.padEnd(width)}  ${check.detail}`);

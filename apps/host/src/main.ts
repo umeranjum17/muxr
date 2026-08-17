@@ -52,8 +52,12 @@ interface MachineCrypto {
 
 interface SelfhostState {
     version: 1;
-    relayPort: number;
-    mintSecret: string;
+    relayPort?: number;
+    relayUrl?: string;
+    mintSecret?: string;
+    machineCredential?: string;
+    credentialExpiresAt?: string;
+    relayLocation?: 'local' | 'remote';
     machine: { id: string; crypto: MachineCrypto };
 }
 
@@ -69,9 +73,13 @@ function readSelfhostAuth(): SelfhostState | undefined {
         throw new Error(`${path} must be a regular owner-only file`);
     }
     const parsed = JSON.parse(readFileSync(path, 'utf8')) as Partial<SelfhostState>;
-    if (parsed.version !== 1 || typeof parsed.relayPort !== 'number'
-        || typeof parsed.mintSecret !== 'string' || typeof parsed.machine?.id !== 'string'
-        || parsed.machine.crypto === undefined) return undefined;
+    if (parsed.version !== 1 || typeof parsed.machine?.id !== 'string' || parsed.machine.crypto === undefined
+        || typeof parsed.mintSecret !== 'string' && typeof parsed.machineCredential !== 'string'
+        || parsed.relayLocation === 'remote' && typeof parsed.relayUrl !== 'string'
+        || parsed.relayLocation !== 'remote' && typeof parsed.relayPort !== 'number') return undefined;
+    if (parsed.credentialExpiresAt !== undefined && Date.parse(parsed.credentialExpiresAt) <= Date.now()) {
+        throw new HostedAuthExpiredError('remote relay machine credential expired; create a fresh enrollment from the relay owner');
+    }
     return parsed as SelfhostState;
 }
 
@@ -227,10 +235,17 @@ async function reconcileHostedKeys(auth: HostedAuthState): Promise<void> {
     await submitPending();
 }
 
-const hostedAuth = readHostedAuth();
-const selfhostAuth = readSelfhostAuth();
+function readAuthStates() {
+    try { return { hostedAuth: readHostedAuth(), selfhostAuth: readSelfhostAuth() }; }
+    catch (error) {
+        process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+        process.exit(error instanceof HostedAuthExpiredError ? 0 : 1);
+    }
+}
+const { hostedAuth, selfhostAuth } = readAuthStates();
 const relayUrl = env('MUXR_RELAY_URL') ?? hostedAuth?.relayUrl
-    ?? (selfhostAuth === undefined ? undefined : `ws://127.0.0.1:${selfhostAuth.relayPort}/relay`)
+    ?? (selfhostAuth?.relayLocation === 'remote' ? selfhostAuth.relayUrl : undefined)
+    ?? (selfhostAuth?.relayPort === undefined ? undefined : `ws://127.0.0.1:${selfhostAuth.relayPort}/relay`)
     ?? 'ws://127.0.0.1:8792';
 const machineId = env('MUXR_MACHINE_ID') ?? hostedAuth?.machine.id ?? selfhostAuth?.machine.id ?? hostname();
 const dataDir = env('MUXR_DATA_DIR') ?? defaultDataDir();
@@ -243,7 +258,7 @@ if (requestedMode !== undefined && requestedMode !== 'hosted' && requestedMode !
 }
 const mode = requestedMode ?? (hostedAuth !== undefined ? 'hosted' : selfhostAuth !== undefined ? 'selfhost' : useFake ? 'local' : undefined);
 if (mode === undefined) throw new Error('no hosted auth state; set MUXR_MODE=local explicitly for development');
-const token = env('MUXR_RELAY_TOKEN') ?? (mode === 'hosted' ? hostedAuth?.credential : mode === 'selfhost' ? selfhostAuth?.mintSecret : undefined);
+const token = env('MUXR_RELAY_TOKEN') ?? (mode === 'hosted' ? hostedAuth?.credential : mode === 'selfhost' ? selfhostAuth?.machineCredential ?? selfhostAuth?.mintSecret : undefined);
 if (mode === 'hosted' && hostedAuth === undefined) throw new Error('hosted mode requires muxr setup/login state');
 if (mode === 'selfhost' && selfhostAuth === undefined) throw new Error('selfhost mode requires `muxr self-host` state');
 if ((mode === 'hosted' || mode === 'selfhost') && sharedKey !== undefined) throw new Error('E2EE modes reject MUXR_E2EE_SHARED_KEY; pair devices instead');

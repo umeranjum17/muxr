@@ -327,6 +327,8 @@ try {
     const beforeHelp = filesSnapshot(home);
     assert.match(run(cli, ['setup', '--help'], { cwd: installDir, env }).stdout, /Interactive setup lets you choose networking/);
     assert.match(run(cli, ['update', '--help'], { cwd: installDir, env }).stdout, /Check npm for a newer/);
+    assert.match(run(cli, ['connect', '--help'], { cwd: installDir, env }).stdout, /--enrollment/);
+    assert.match(run(cli, ['machines', '--help'], { cwd: installDir, env }).stdout, /machines enroll/);
     assert.equal(filesSnapshot(home), beforeHelp, 'subcommand help changed the home directory');
 
     const beforeDryRun = filesSnapshot(home);
@@ -398,6 +400,63 @@ try {
             }
         }, 100);
     });
+
+    const lingerLog = join(scratch, 'linger.log');
+    writeFileSync(join(binDir, 'systemctl'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+    writeFileSync(join(binDir, 'loginctl'), `#!/bin/sh\nif [ "$1" = show-user ]; then echo no; exit 0; fi\necho "$*" >> "${lingerLog}"\nexit 0\n`, { mode: 0o755 });
+    const lingerHome = join(scratch, 'linger-home');
+    mkdirSync(lingerHome, { recursive: true });
+    run(cli, ['daemon', 'install', '--mode', 'relay'], { cwd: installDir, env: cliEnv(lingerHome, { MUXR_NO_SERVICE_COMMANDS: '' }) });
+    assert.match(readFileSync(lingerLog, 'utf8'), /enable-linger/, 'relay service did not enable Linux boot persistence');
+
+    writeFileSync(join(binDir, 'systemctl'), '#!/bin/sh\ncase "$*" in\n  *daemon-reload*) exit 0 ;;\n  *status*) exit 3 ;;\n  *) exit 1 ;;\nesac\n', { mode: 0o755 });
+    const failedServiceHome = join(scratch, 'failed-relay-service-home');
+    mkdirSync(failedServiceHome, { recursive: true });
+    const failedServicePort = setupPort + 2;
+    const failedServiceEnv = cliEnv(failedServiceHome, { MUXR_NO_SERVICE_COMMANDS: '' });
+    const failedService = run(cli, ['self-host', '--relay-only', '--managed-relay', '--yes', '--port', String(failedServicePort),
+        '--advertise', 'wss://failed-service.example.test', '--connection-mode', 'external'], { cwd: installDir, env: failedServiceEnv, allowFailure: true });
+    assert.notEqual(failedService.status, 0, 'relay service failure unexpectedly succeeded');
+    assert.ok(await fetch(`http://127.0.0.1:${failedServicePort}/health`).then((response) => response.ok).catch(() => false), 'relay service failure did not restore the temporary relay');
+    stopRelayFor(join(failedServiceHome, '.muxr', 'relay'));
+
+    const relayHome = join(scratch, 'relay-home');
+    mkdirSync(relayHome, { recursive: true });
+    const relayEnv = cliEnv(relayHome);
+    run(cli, ['daemon', 'install', '--mode', 'relay'], { cwd: installDir, env: relayEnv });
+    assert.match(readFileSync(join(relayHome, '.config', 'systemd', 'user', 'muxr.service'), 'utf8'), /MUXR_MODE=.*relay/, 'relay-only daemon mode was not registered');
+    assert.match(run(cli, ['doctor'], { cwd: installDir, env: relayEnv }).stdout, /shared relay only/);
+    const relayServicePort = setupPort + 1;
+    run(cli, ['self-host', '--relay-only', '--managed-relay', '--yes', '--port', String(relayServicePort),
+        '--advertise', 'wss://relay.example.test', '--connection-mode', 'external'], { cwd: installDir, env: relayEnv });
+    const relayOwnerState = JSON.parse(readFileSync(join(relayHome, '.muxr', 'selfhost.json'), 'utf8'));
+    assert.equal(relayOwnerState.relayRole, 'shared');
+    assert.equal(relayOwnerState.machine, undefined, 'shared relay owner state retained unused machine private keys');
+    stopRelayFor(join(relayHome, '.muxr', 'relay'));
+    for (let attempt = 0; attempt < 30 && await fetch(`http://127.0.0.1:${relayServicePort}/health`).then((response) => response.ok).catch(() => false); attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    const relayService = spawn(cli, ['up'], { cwd: installDir, env: { ...relayEnv, MUXR_MODE: 'relay' }, stdio: 'ignore' });
+    await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('packaged relay-only service did not start')), 10_000);
+        const poll = setInterval(async () => {
+            if (await fetch(`http://127.0.0.1:${relayServicePort}/health`).then((response) => response.ok).catch(() => false)) {
+                clearTimeout(timer); clearInterval(poll); resolve();
+            }
+        }, 100);
+    });
+    assert.match(run(cli, ['machines', 'enroll'], { cwd: installDir, env: relayEnv }).stdout, /muxr:\/\/enroll\?payload=/);
+    const relayUnitBeforeList = readFileSync(join(relayHome, '.config', 'systemd', 'user', 'muxr.service'), 'utf8');
+    assert.match(run(cli, ['machines', 'list'], { cwd: installDir, env: relayEnv }).stdout, /No enrolled machines/);
+    assert.equal(readFileSync(join(relayHome, '.config', 'systemd', 'user', 'muxr.service'), 'utf8'), relayUnitBeforeList, 'machine listing rewrote the relay service');
+    relayService.kill('SIGTERM');
+    await new Promise((resolve) => relayService.once('exit', resolve));
+    if (await fetch(`http://127.0.0.1:${relayServicePort}/health`).then((response) => response.ok).catch(() => false)) throw new Error('relay-only service left its relay child running');
+    const relayUpdateLog = join(scratch, 'relay-update.log');
+    const herdrBeforeRelayUpdate = existsSync(fakeLog) ? readFileSync(fakeLog, 'utf8') : '';
+    run(cli, ['update', '--yes'], { cwd: installDir, env: { ...relayEnv, MUXR_NPM_BIN: updateNpm, MUXR_UPDATE_LOG: relayUpdateLog } });
+    assert.match(readFileSync(relayUpdateLog, 'utf8'), /install -g @trymuxr\/cli@9\.9\.9/);
+    assert.equal(existsSync(fakeLog) ? readFileSync(fakeLog, 'utf8') : '', herdrBeforeRelayUpdate, 'relay-only update mutated Herdr');
 
     const macHome = join(scratch, 'mac-home');
     const launchctlLog = join(scratch, 'launchctl.log');

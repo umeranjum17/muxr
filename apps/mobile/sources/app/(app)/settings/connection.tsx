@@ -93,6 +93,12 @@ export default function ConnectionSettingsScreen() {
     const [initial, setInitial] = React.useState(() => getCachedConnectionSettings());
     const { status, error: socketError } = useSocketStatus();
     const [showAdvanced, setShowAdvanced] = React.useState(false);
+    const [clock, setClock] = React.useState(Date.now());
+    React.useEffect(() => {
+        if (Platform.OS !== 'web') return undefined;
+        const timer = setInterval(() => setClock(Date.now()), 60_000);
+        return () => clearInterval(timer);
+    }, []);
     const statusText = {
         connected: t('status.connected'),
         connecting: t('status.connecting'),
@@ -137,6 +143,7 @@ export default function ConnectionSettingsScreen() {
             ? 'Forwarded through the SSH connection you opened in Advanced setup'
             : initial.relayUrl;
         const browserExpiresAt = Platform.OS === 'web' ? getCachedHostedGrant(initial.machineId)?.expiresAt : undefined;
+        const browserMinutes = browserExpiresAt === undefined ? undefined : Math.max(0, Math.ceil((browserExpiresAt - clock) / 60_000));
         return (
             <ItemList>
                 <ItemGroup title="Status">
@@ -148,9 +155,9 @@ export default function ConnectionSettingsScreen() {
                     />
                     <Item title="Transport" subtitle={transport} detail={overSsh ? 'SSH' : 'Self-host'} />
                     <Item title="Relay" subtitle={where} subtitleLines={0} />
-                    {Platform.OS === 'web' && <Item title="Browser access" subtitle={browserExpiresAt === undefined
+                    {Platform.OS === 'web' && <Item title="Browser access" subtitle={browserExpiresAt === undefined || browserMinutes === undefined
                         ? 'Read-only · pair again every eight hours'
-                        : `Read-only · expires ${new Date(browserExpiresAt).toLocaleString()}`} />}
+                        : `Read-only · expires in ${Math.floor(browserMinutes / 60)}h ${browserMinutes % 60}m · ${new Date(browserExpiresAt).toLocaleString()}`} />}
                 </ItemGroup>
 
                 <ItemGroup
