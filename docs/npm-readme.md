@@ -8,12 +8,16 @@ Requires Node 22+ and [Herdr](https://herdr.dev). If Herdr is missing, setup ask
 
 ```bash
 npm install -g @trymuxr/cli
-muxr setup
+muxr
 ```
 
-`muxr setup` inspects the machine, adopts the existing Herdr configuration, installs muxr's bundled plugins, syncs detected coding-agent integrations, starts the relay and host, and displays a short-lived pairing QR plus pasteable pairing string.
+The interactive onboarding inspects the machine, then asks you to choose the connection method, Herdr and coding-agent integrations, optional plugins, managed services, browser hosting, and phone/browser pairing. Nothing changes until you review and apply the plan. It then verifies the supervised relay and host and reports the selected relay URL, web URL when enabled, and service health without printing credentials. Native setup displays a QR; browser setup displays a clickable HTTPS pairing link for an eight-hour read-only grant.
+
+Run `muxr` with no arguments for the interactive setup and maintenance menu.
 
 ```bash
+muxr update                    # check, confirm, update, and restart
+muxr update --check            # check without changing anything
 muxr doctor                    # redacted setup diagnostics
 muxr pair                      # pair another phone
 muxr pair --browser            # pair an 8-hour read-only browser

@@ -1,6 +1,7 @@
 import { loadRelayConfig } from './config.js';
 import { startRelay } from './relay.js';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 
 const config = loadRelayConfig();
@@ -13,7 +14,9 @@ if (existsSync(lockFile)) {
     if (Number.isSafeInteger(pid) && pid > 0) {
         let aliveRelay = false;
         try {
-            aliveRelay = readFileSync(`/proc/${pid}/cmdline`, 'utf8').includes('apps/relay');
+            process.kill(pid, 0);
+            const command = spawnSync(process.env.MUXR_PS_BIN?.trim() || 'ps', ['-ww', '-p', String(pid), '-o', 'command='], { encoding: 'utf8' });
+            aliveRelay = command.status === 0 && /(?:\/relay\.js|apps\/relay\/.+\/main\.js)(?:\s|$)/.test(command.stdout);
         } catch {
             // dead pid: stale lock
         }

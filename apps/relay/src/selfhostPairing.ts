@@ -15,6 +15,7 @@ export interface SelfhostPairSession {
     pairId: string;
     claimHash: string;
     machineSlug: string;
+    deviceKind: 'native' | 'browser';
     createdAt: number;
     expiresAt: number;
     usedAt?: number;
@@ -90,7 +91,7 @@ export class SelfhostPairing {
     }
 
     /** CLI side (mint-secret authed at the route): open a 5-minute pairing window. */
-    createSession(input: { claim: string; machineSlug: string }, now = Date.now()): Promise<{ pairId: string; expiresIn: number }> {
+    createSession(input: { claim: string; machineSlug: string; deviceKind: 'native' | 'browser' }, now = Date.now()): Promise<{ pairId: string; expiresIn: number }> {
         return this.serialized(async () => {
             await this.load();
             this.state.sessions = this.state.sessions
@@ -101,6 +102,7 @@ export class SelfhostPairing {
                 pairId,
                 claimHash: hash(input.claim),
                 machineSlug: input.machineSlug,
+                deviceKind: input.deviceKind,
                 createdAt: now,
                 expiresAt: now + PAIR_TTL_MS,
             });
@@ -112,14 +114,15 @@ export class SelfhostPairing {
     /** Phone side: single-use claim. Returns the device credential on success. */
     claim(
         pairId: string,
-        input: { claim: string; devicePublicKey: string; deviceName: string; mailbox: string; expiresAt?: number },
+        input: { claim: string; devicePublicKey: string; deviceName: string; deviceKind: 'native' | 'browser'; mailbox: string; expiresAt?: number },
         now = Date.now(),
-    ): Promise<{ state: 'issued'; deviceId: string; credential: string } | { state: 'already_claimed' | 'expired' | 'invalid_claim' }> {
+    ): Promise<{ state: 'issued'; deviceId: string; credential: string } | { state: 'already_claimed' | 'expired' | 'invalid_claim' | 'wrong_device_kind' }> {
         return this.serialized(async () => {
             await this.load();
             const session = this.state.sessions.find((s) => s.pairId === pairId);
             if (session === undefined || session.claimHash !== hash(input.claim)) return { state: 'invalid_claim' };
             if (session.expiresAt <= now) return { state: 'expired' };
+            if ((session.deviceKind ?? 'native') !== input.deviceKind) return { state: 'wrong_device_kind' };
             if (session.usedAt !== undefined) return { state: 'already_claimed' };
             session.usedAt = now;
             session.devicePublicKey = input.devicePublicKey;

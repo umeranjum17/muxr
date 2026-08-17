@@ -375,10 +375,20 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                             : <ActivityIndicator size="small" color={theme.colors.textSecondary} />}
                     </Pressable>
                 )}
-                <Pressable onPress={stopSession} hitSlop={10} disabled={stopping} accessibilityRole="button" accessibilityLabel="Stop agent" accessibilityState={{ disabled: stopping }} style={{ padding: 4 }}>
-                    <Ionicons name="stop-circle-outline" size={19} color={theme.colors.textSecondary} />
-                </Pressable>
+                {Platform.OS !== 'web' && (
+                    <Pressable onPress={stopSession} hitSlop={10} disabled={stopping} accessibilityRole="button" accessibilityLabel="Stop agent" accessibilityState={{ disabled: stopping }} style={{ padding: 4 }}>
+                        <Ionicons name="stop-circle-outline" size={19} color={theme.colors.textSecondary} />
+                    </Pressable>
+                )}
             </View>
+
+            {Platform.OS === 'web' && (
+                <View style={{ paddingHorizontal: 12, paddingVertical: 7, backgroundColor: theme.colors.surfaceHigh, borderBottomWidth: 1, borderBottomColor: theme.colors.divider }}>
+                    <Text style={{ color: theme.colors.textSecondary, fontSize: 12, textAlign: 'center' }}>
+                        Read-only browser · terminal input and agent controls are disabled · access expires eight hours after pairing
+                    </Text>
+                </View>
+            )}
 
             <View
                 ref={paneGestures.ref}
@@ -483,6 +493,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                 )}
             </View>
 
+            {Platform.OS !== 'web' && <>
             <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
@@ -567,6 +578,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                     <Ionicons name="arrow-up-circle" size={30} color={theme.colors.text} />
                 </Pressable>
             </View>
+            </>}
 
             <PluginSlot
                 slot="session.overlay"

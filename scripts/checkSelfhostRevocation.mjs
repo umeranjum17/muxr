@@ -40,13 +40,13 @@ async function pair(name) {
     const keys = generateKeyPair();
     const claim = randomBytes(32).toString('base64url');
     const opened = await json('/v1/selfhost/pair-sessions', {
-        method: 'POST', headers: bearer(mintSecret), body: JSON.stringify({ claim, machineSlug: machine }),
+        method: 'POST', headers: bearer(mintSecret), body: JSON.stringify({ claim, machineSlug: machine, deviceKind: 'native' }),
     });
     if (!opened.response.ok) throw new Error(`open pair failed: ${JSON.stringify(opened.body)}`);
     const pairId = opened.body.pair_id;
     const claimed = await json(`/v1/selfhost/pair-sessions/${pairId}/claim`, {
         method: 'POST',
-        body: JSON.stringify({ claim, device_public_key: keys.publicKey, device_name: name, mailbox: 'opaque-mailbox' }),
+        body: JSON.stringify({ claim, device_public_key: keys.publicKey, device_name: name, device_kind: 'native', mailbox: 'opaque-mailbox' }),
     });
     if (!claimed.response.ok) throw new Error(`claim failed: ${JSON.stringify(claimed.body)}`);
     const device = { id: claimed.body.device_id, credential: claimed.body.device_credential, keys, name };
@@ -119,6 +119,19 @@ let socketB;
 try {
     await startRelay();
     mintSecret = JSON.parse(readFileSync(join(dataDir, 'mint-secret'), 'utf8'));
+
+    const authorityClaim = randomBytes(32).toString('base64url');
+    const authoritySession = await json('/v1/selfhost/pair-sessions', {
+        method: 'POST', headers: bearer(mintSecret),
+        body: JSON.stringify({ claim: authorityClaim, machineSlug: machine, deviceKind: 'native' }),
+    });
+    const rejectedBrowser = await json(`/v1/selfhost/pair-sessions/${authoritySession.body.pair_id}/claim`, {
+        method: 'POST',
+        body: JSON.stringify({ claim: authorityClaim, device_public_key: generateKeyPair().publicKey, device_name: 'Browser', device_kind: 'browser', mailbox: 'opaque-mailbox' }),
+    });
+    if (rejectedBrowser.response.status !== 403 || rejectedBrowser.body.error !== 'wrong_device_kind') {
+        throw new Error('browser claim accepted a native/full-control invitation');
+    }
 
     const a = await pair('phone A');
     const b = await pair('phone B');

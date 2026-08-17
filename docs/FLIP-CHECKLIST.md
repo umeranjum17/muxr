@@ -11,7 +11,7 @@ tree; they do not make the repo public or publish npm.
 - [x] `**/android/build/` gitignored; Gradle intermediates untracked
 - [x] Stray root artifacts removed (`demo-change.ts`, `commands.json`, `herdr-api.schema.json`)
 - [x] GitHub repository renamed to `muxr` (clone `umeranjum17/muxr`). npm publishes under `@trymuxr/cli`; the installed command remains `muxr`.
-- [x] Public quickstart is npm-first: `npm install -g @trymuxr/cli`, then `muxr setup`; source-clone setup is for contributors
+- [x] Public quickstart is npm-first: `npm install -g @trymuxr/cli`, then interactive `muxr`; source-clone setup is for contributors
 - [x] OFL-1.1 text + NOTICE for Inter / JetBrains Mono / Bricolage Grotesque; Whisper + xterm in NOTICE
 - [x] Issue/PR templates, Dependabot, docs index, plugin READMEs, capabilities docs
 - [x] Contract plugin-bridge types match `plugin.*`; CI checks RequestMap + bundled `plugin check`

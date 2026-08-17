@@ -8,7 +8,7 @@ const scratch = mkdtempSync(join(tmpdir(), 'muxr-tailscale-'));
 const fake = join(scratch, 'tailscale');
 const originalPath = process.env.PATH;
 const configure = (status, serveStatus = '{}') => {
-    writeFileSync(fake, `#!/bin/sh\ncase "$*" in\n  "status --json") printf '%s' '${JSON.stringify(status)}' ;;\n  "serve status --json") printf '%s' '${serveStatus.replaceAll("'", "'\\''")}' ;;\n  "serve --bg --https=443 http://127.0.0.1:8792") exit 0 ;;\n  *) exit 1 ;;\nesac\n`);
+    writeFileSync(fake, `#!/bin/sh\ncase "$*" in\n  "status --json") printf '%s' '${JSON.stringify(status)}' ;;\n  "serve status --json") printf '%s' '${serveStatus.replaceAll("'", "'\\''")}' ;;\n  "serve --yes --bg --https=443 http://127.0.0.1:8792") exit 0 ;;\n  *) exit 1 ;;\nesac\n`);
     chmodSync(fake, 0o755);
 };
 process.env.PATH = `${scratch}:${originalPath}`;
@@ -17,11 +17,16 @@ try {
     const ingress = tailscaleIngress([]);
     assert.deepEqual(ingress, { dnsName: 'dev.tailnet.ts.net' });
     assert.deepEqual(await resolveAdvertise([], 8792, ingress), {
-        url: 'wss://dev.tailnet.ts.net', note: 'Tailscale Serve (private tailnet HTTPS)',
+        url: 'wss://dev.tailnet.ts.net',
+        note: 'Tailscale Serve (private tailnet HTTPS)',
+        ingress: { kind: 'tailscale-serve', port: 8792, dnsName: 'dev.tailnet.ts.net' },
     });
 
     configure({ Self: { DNSName: 'dev.tailnet.ts.net.' } }, JSON.stringify({ TCP: { '443': { HTTPS: true } }, Web: { 'dev.tailnet.ts.net:443': { Handlers: { '/': { Proxy: 'http://127.0.0.1:9999' } } } } }));
     await assert.rejects(resolveAdvertise([], 8792, tailscaleIngress([])), /already owned/);
+
+    configure({ Self: { DNSName: 'dev.tailnet.ts.net.' } }, JSON.stringify({ Web: { 'other.tailnet.ts.net:8443': { Handlers: { '/': { Proxy: 'http://127.0.0.1:8792' } } } } }));
+    assert.equal((await resolveAdvertise([], 8792, tailscaleIngress([]))).url, 'wss://dev.tailnet.ts.net');
 
     configure({ Self: { TailscaleIPs: ['100.64.0.1'] } });
     assert.throws(() => tailscaleIngress([]), /MagicDNS/);
@@ -30,6 +35,8 @@ try {
     assert.equal(tailscaleIngress(['--tailscale-direct']), undefined);
     const direct = await resolveAdvertise(['--tailscale-direct'], 8792, undefined);
     assert.equal(direct.url, 'ws://100.64.0.1:8792');
+    await assert.rejects(resolveAdvertise(['--advertise', 'wss://user:pass@example.com'], 8792), /without credentials/);
+    await assert.rejects(resolveAdvertise(['--advertise', 'wss://example.com/muxr'], 8792), /without credentials/);
     process.stdout.write('tailscale ingress ownership passed\n');
 } finally {
     process.env.PATH = originalPath;

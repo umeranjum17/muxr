@@ -89,6 +89,7 @@ function cliEnv(targetHome = home, extra = {}) {
         ...inherited,
         HOME: targetHome,
         PATH: `${binDir}:${dirname(process.execPath)}`,
+        MUXR_PS_BIN: '/usr/bin/ps',
         HERDR_BIN: join(binDir, 'herdr'),
         FAKE_HERDR_STATE: fakeState,
         FAKE_HERDR_LOG: fakeLog,
@@ -224,6 +225,7 @@ try {
     assert.ok(listing.includes('package/THIRD_PARTY_LICENSES.json'));
     assert.ok(!listing.includes('package/esbuild-metafile.json'));
     assert.ok(listing.includes('package/relay.js'), 'self-host relay bundle missing from npm artifact');
+    assert.ok(listing.includes('package/update.mjs'), 'interactive CLI updater missing from npm artifact');
     assert.ok(listing.includes('package/plugins/control/run.mjs'), 'control plugin missing from npm artifact');
     assert.ok(listing.includes('package/plugins/run-server/start.mjs'), 'Run Server plugin missing from npm artifact');
     assert.ok(listing.includes('package/plugins/voice/rpc.mjs'), 'Voice plugin missing from npm artifact');
@@ -251,6 +253,25 @@ try {
         env: { ...process.env, npm_config_cache: join(scratch, 'npm-cache') },
     });
     const cli = join(installDir, 'node_modules', '.bin', 'muxr');
+    const installedUpdate = await import(new URL(`file://${join(installDir, 'node_modules', '@trymuxr', 'cli', 'update.mjs')}`).href);
+    assert.ok(installedUpdate.compareVersions('1.0.0-beta.10', '1.0.0-beta.9') > 0);
+    assert.ok(installedUpdate.compareVersions('1.0.0-beta.9', '1.0.0-beta.10') < 0);
+    assert.ok(installedUpdate.compareVersions('1.0.0', '1.0.0-rc.1') > 0);
+    const promptSmokePath = join(scratch, 'prompt-smoke.mjs');
+    const setupUiUrl = new URL(`file://${join(installDir, 'node_modules', '@trymuxr', 'cli', 'setup-ui.mjs')}`).href;
+    writeFileSync(promptSmokePath, `import { prompt } from ${JSON.stringify(setupUiUrl)};\nconst answer = await prompt('Cancel prompt');\nif (answer !== undefined) process.exitCode = 1;\n`);
+    const promptSmoke = await runTty(`${process.execPath} ${promptSmokePath}`, cliEnv(), '\u0003', 20_000, undefined, 'never', 'Cancel prompt');
+    assert.equal(promptSmoke.code, 0, promptSmoke.output);
+    assert.doesNotMatch(promptSmoke.output, /unsettled top-level await|SyntaxError/);
+    const menuCancel = await runTty(cli, cliEnv(), '\u0003', 20_000, undefined, 'never', 'What would you like to do?');
+    assert.equal(menuCancel.code, 0, menuCancel.output);
+    assert.doesNotMatch(menuCancel.output, /Get started\s+ muxr setup/, 'cancelling the menu printed command help');
+    const inspectHome = join(scratch, 'inspect-home');
+    mkdirSync(inspectHome, { recursive: true });
+    const inspectBefore = filesSnapshot(inspectHome);
+    const inspected = run(cli, ['setup', '--inspect'], { cwd: installDir, env: cliEnv(inspectHome) });
+    assert.match(inspected.stdout, /Inspection complete\. Nothing changed\./);
+    assert.equal(filesSnapshot(inspectHome), inspectBefore, '`setup --inspect` mutated a non-TTY HOME');
 
     const refusalHome = join(scratch, 'refusal-home');
     mkdirSync(refusalHome, { recursive: true });
@@ -304,7 +325,8 @@ try {
     const setupArgs = ['--relay-only', '--port', String(setupPort), '--advertise', `ws://127.0.0.1:${setupPort}`];
     assert.equal(run(cli, ['version'], { cwd: installDir, env }).stdout.trim(), packageJson.version);
     const beforeHelp = filesSnapshot(home);
-    assert.match(run(cli, ['setup', '--help'], { cwd: installDir, env }).stdout, /Guided setup adopts or installs Herdr/);
+    assert.match(run(cli, ['setup', '--help'], { cwd: installDir, env }).stdout, /Interactive setup lets you choose networking/);
+    assert.match(run(cli, ['update', '--help'], { cwd: installDir, env }).stdout, /Check npm for a newer/);
     assert.equal(filesSnapshot(home), beforeHelp, 'subcommand help changed the home directory');
 
     const beforeDryRun = filesSnapshot(home);
@@ -317,6 +339,20 @@ try {
     run(cli, ['setup', ...setupArgs], { cwd: installDir, env });
     assert.equal(readFileSync(join(home, '.muxr', 'setup-manifest.json'), 'utf8'), manifestAfterFirst);
     run(cli, ['daemon', 'install', '--mode', 'selfhost'], { cwd: installDir, env });
+    run(cli, ['daemon', 'restart'], { cwd: installDir, env });
+    const updateNpm = join(scratch, 'update-npm');
+    const updateLog = join(scratch, 'update.log');
+    writeFileSync(updateNpm, '#!/bin/sh\nif [ "$1" = view ]; then printf \'"%s"\\n\' "${MUXR_UPDATE_LATEST:-9.9.9}"; exit 0; fi\nif [ "$1" = install ]; then printf "%s\\n" "$*" >> "$MUXR_UPDATE_LOG"; exit 0; fi\nexit 1\n', { mode: 0o755 });
+    const updateEnv = { ...env, MUXR_NPM_BIN: updateNpm, MUXR_UPDATE_LOG: updateLog };
+    const cancelledUpdate = await runTty(`${cli} update`, updateEnv, '\r', 20_000, undefined, 'never', 'Apply this update?');
+    assert.equal(cancelledUpdate.code, 0, cancelledUpdate.output);
+    assert.ok(!existsSync(updateLog), 'pressing Enter applied the update');
+    assert.match(run(cli, ['update', '--yes'], { cwd: installDir, env: { ...updateEnv, MUXR_UPDATE_LATEST: '0.0.1' } }).stdout, /newer than npm latest/);
+    assert.ok(!existsSync(updateLog), 'updater installed a registry downgrade');
+    assert.match(run(cli, ['update', '--check'], { cwd: installDir, env: updateEnv }).stdout, /9\.9\.9 is available/);
+    run(cli, ['update', '--yes'], { cwd: installDir, env: updateEnv });
+    assert.match(readFileSync(updateLog, 'utf8'), /install -g @trymuxr\/cli@9\.9\.9/);
+    assert.match(readFileSync(join(home, '.config', 'systemd', 'user', 'muxr.service'), 'utf8'), /MUXR_MODE=.*selfhost/, 'update removed the daemon mode');
     assert.equal(readFileSync(join(home, '.config', 'herdr', 'config.toml'), 'utf8'), configBefore);
     const instructions = readFileSync(instructionPath, 'utf8');
     assert.equal(instructions.match(/muxr:herdr-skill:start/g)?.length, 1);
@@ -335,14 +371,14 @@ try {
     assert.match(readFileSync(instructionPath, 'utf8'), /Keep this line\./);
     run(cli, ['doctor'], { cwd: installDir, env });
 
-    const host = spawn(cli, ['up', '--fake'], { cwd: installDir, env, stdio: ['ignore', 'pipe', 'pipe'] });
+    const host = spawn(cli, ['up', '--fake'], { cwd: installDir, env: { ...env, MUXR_MODE: 'selfhost' }, stdio: ['ignore', 'pipe', 'pipe'] });
     let hostOutput = '';
     host.stdout.on('data', (chunk) => { hostOutput += chunk; });
     host.stderr.on('data', (chunk) => { hostOutput += chunk; });
     await new Promise((resolve, reject) => {
         const timer = setTimeout(() => reject(new Error(`packaged host did not start\n${hostOutput}`)), 10_000);
         const poll = setInterval(() => {
-            if (hostOutput.includes('(fake)')) {
+            if (hostOutput.includes('(fake)') && existsSync(join(home, '.muxr', 'relay', 'relay.pid'))) {
                 clearTimeout(timer);
                 clearInterval(poll);
                 resolve();
@@ -351,12 +387,29 @@ try {
     });
     host.kill('SIGTERM');
     await new Promise((resolve) => host.once('exit', resolve));
+    await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('managed relay survived its host service')), 5_000);
+        const poll = setInterval(async () => {
+            const alive = await fetch(`http://127.0.0.1:${setupPort}/health`).then((response) => response.ok).catch(() => false);
+            if (!alive) {
+                clearTimeout(timer);
+                clearInterval(poll);
+                resolve();
+            }
+        }, 100);
+    });
 
     const macHome = join(scratch, 'mac-home');
+    const launchctlLog = join(scratch, 'launchctl.log');
+    const launchctlState = join(scratch, 'launchctl.state');
+    writeFileSync(join(binDir, 'launchctl'), `#!/bin/sh\necho "$*" >> "${launchctlLog}"\ncase "$1" in\n  print) [ -f "${launchctlState}" ] && cat "${launchctlState}" || exit 1 ;;\n  bootstrap) echo 'state = waiting' > "${launchctlState}" ;;\n  kickstart) echo 'state = running' > "${launchctlState}" ;;\n  bootout) rm -f "${launchctlState}" ;;\nesac\n`, { mode: 0o755 });
     mkdirSync(macHome, { recursive: true });
-    const macEnv = cliEnv(macHome, { MUXR_PLATFORM: 'darwin' });
+    const macEnv = cliEnv(macHome, { MUXR_PLATFORM: 'darwin', MUXR_NO_SERVICE_COMMANDS: '' });
     run(cli, ['daemon', 'install'], { cwd: installDir, env: macEnv });
     assert.match(readFileSync(join(macHome, 'Library', 'LaunchAgents', 'com.muxr.host.plist'), 'utf8'), /com\.muxr\.host/);
+    run(cli, ['daemon', 'start'], { cwd: installDir, env: macEnv });
+    assert.match(readFileSync(launchctlLog, 'utf8'), /bootstrap[\s\S]*kickstart/, 'first macOS start did not kickstart after bootstrap');
+    run(cli, ['daemon', 'status'], { cwd: installDir, env: macEnv });
     run(cli, ['daemon', 'uninstall'], { cwd: installDir, env: macEnv });
 
     writeFileSync(join(home, '.muxr', 'xai.key'), 'xai-user-owned\n', { mode: 0o600 });
