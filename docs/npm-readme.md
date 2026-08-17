@@ -15,7 +15,7 @@ The interactive onboarding inspects the machine, then asks you to choose the con
 
 Run `muxr` with no arguments for the interactive setup and maintenance menu. The same menu can host a supervised shared relay on a VPS, create one-use machine enrollments, or connect a local Herdr host using only a machine-scoped credential.
 
-The bundled Usage card runs the exact pinned [ccusage](https://github.com/ccusage/ccusage) backend offline against local coding-agent logs and shows today's allowlisted per-agent token totals without costs, prompts, models, or session details. npm installs one platform-specific ccusage binary (about 4 MB) for Linux or macOS. Current Codex percentages come from its local app-server; other coding CLIs are never invoked.
+The bundled Usage item sheet runs the exact pinned [ccusage](https://github.com/ccusage/ccusage) backend offline against local coding-agent logs and shows today's allowlisted per-agent token totals without costs, prompts, models, or session details. It also lists every known installed CLI and distinguishes no activity reported today from agents ccusage does not support. npm installs one platform-specific ccusage binary (about 4 MB) for Linux or macOS. Current Codex percentages come from its local app-server; other coding CLIs are PATH-detected but never invoked.
 
 ```bash
 muxr update                    # check, confirm, update, and restart

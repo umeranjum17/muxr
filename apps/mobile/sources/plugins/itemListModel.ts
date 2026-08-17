@@ -12,7 +12,7 @@ export interface PluginItemListItem {
     subtitle?: string;
     icon?: string;
     metadata: PluginItemMetadata[];
-    action: PluginAction;
+    action?: PluginAction;
 }
 
 export interface PluginItemListAction {
@@ -68,7 +68,7 @@ export function asPluginItemList(value: unknown, validateAction: (value: unknown
         const title = display(item.title, 255);
         if (id === undefined || title === undefined) return [];
         try {
-            const action = validateAction(item.action);
+            const action = item.action === undefined ? undefined : validateAction(item.action);
             if (itemIds.has(id)) return [];
             itemIds.add(id);
             const subtitle = display(item.subtitle, 512);
@@ -79,7 +79,7 @@ export function asPluginItemList(value: unknown, validateAction: (value: unknown
                 ...(subtitle === undefined ? {} : { subtitle }),
                 ...(icon === undefined ? {} : { icon }),
                 metadata: metadata(item.metadata),
-                action,
+                ...(action === undefined ? {} : { action }),
             }];
         } catch {
             return [];

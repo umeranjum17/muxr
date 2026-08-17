@@ -9,8 +9,10 @@ let ccusageFailure;
 const AGENTS = {
   claude: 'Anthropic Claude', codex: 'OpenAI Codex', opencode: 'OpenCode', amp: 'Amp', droid: 'Droid', codebuff: 'Codebuff',
   hermes: 'Hermes Agent', pi: 'Pi', goose: 'Goose', openclaw: 'OpenClaw', kilo: 'Kilo Code', kimi: 'Kimi Code', qwen: 'Qwen',
-  copilot: 'GitHub Copilot CLI', cursor: 'Cursor', gemini: 'Gemini CLI', grok: 'xAI Grok',
+  copilot: 'GitHub Copilot CLI', gemini: 'Gemini CLI', grok: 'xAI Grok', cursor: 'Cursor', omp: 'OMP',
 };
+const CCUSAGE_AGENTS = new Set(Object.keys(AGENTS).filter((agent) => agent !== 'cursor' && agent !== 'omp'));
+const AGENT_COMMANDS = { ...Object.fromEntries(Object.keys(AGENTS).map((agent) => [agent, agent])), cursor: 'cursor-agent' };
 
 function available(command) {
   for (const directory of (process.env.PATH ?? '').split(delimiter)) {
@@ -85,19 +87,22 @@ function tokens(value) {
   return String(Math.round(value));
 }
 
-function ccusageText(result) {
+function ccusageItems(result) {
   const totals = new Map();
   for (const day of Array.isArray(result?.daily) ? result.daily.slice(0, 1) : []) {
     for (const row of Array.isArray(day?.agents) ? day.agents.slice(0, 32) : []) {
-      if (!Object.hasOwn(AGENTS, row?.agent) || !Number.isSafeInteger(row.totalTokens) || row.totalTokens < 0) continue;
+      if (!CCUSAGE_AGENTS.has(row?.agent) || !Number.isSafeInteger(row.totalTokens) || row.totalTokens < 0) continue;
       totals.set(row.agent, (totals.get(row.agent) ?? 0) + row.totalTokens);
     }
   }
-  const lines = [...totals].sort((a, b) => b[1] - a[1]).slice(0, 16).flatMap(([agent, total]) => {
+  const items = [...totals].sort((a, b) => b[1] - a[1]).slice(0, 16).flatMap(([agent, total]) => {
     const value = tokens(total);
-    return value === undefined ? [] : [`  ${AGENTS[agent]}  ${value} tokens`];
+    return value === undefined ? [] : [{
+      id: `activity-${agent}`, title: AGENTS[agent], subtitle: 'Local activity today · ccusage', icon: 'analytics-outline',
+      metadata: [{ value: `${value} tokens`, tone: 'primary' }],
+    }];
   });
-  return lines.length ? { text: ['Local activity today · ccusage', ...lines].join('\n'), agents: new Set(totals.keys()) } : undefined;
+  return { items, agents: new Set(totals.keys()) };
 }
 
 function cachedOutput() {
@@ -105,18 +110,19 @@ function cachedOutput() {
   if (!state) return undefined;
   try {
     const saved = JSON.parse(readFileSync(join(state, 'usage.json'), 'utf8'));
-    if (Date.now() - saved.at < 60_000 && typeof saved.text === 'string' && saved.text.length <= 8192) return saved.text;
+    const age = Date.now() - saved.at;
+    if (age >= 0 && age < 60_000 && Array.isArray(saved.output?.items) && JSON.stringify(saved.output).length <= 16_384) return saved.output;
   } catch {}
   return undefined;
 }
 
-function saveOutput(text) {
+function saveOutput(output) {
   const state = process.env.MUXR_PLUGIN_STATE_DIR?.trim();
   if (!state) return;
   const cache = join(state, 'usage.json');
   const temporary = `${cache}.${process.pid}.tmp`;
   try {
-    writeFileSync(temporary, JSON.stringify({ at: Date.now(), text }), { mode: 0o600 });
+    writeFileSync(temporary, JSON.stringify({ at: Date.now(), output }), { mode: 0o600 });
     renameSync(temporary, cache);
   } catch {}
 }
@@ -170,39 +176,48 @@ function relativeReset(seconds) {
   return [days && `${days}d`, hours && `${hours}h`, !days && minutes && `${minutes}m`].filter(Boolean).join(' ');
 }
 
-function codexText(result) {
+function codexItems(result) {
   const limits = Object.values(result?.rateLimitsByLimitId ?? {});
   if (!limits.length && result?.rateLimits) limits.push(result.rateLimits);
-  if (!limits.length) return undefined;
-  return ['OpenAI Codex limits', ...limits.slice(0, 16).map((limit) => {
+  return limits.slice(0, 16).map((limit, index) => {
     const window = limit.primary;
-    const name = String(limit.limitName ?? limit.limitId ?? 'Codex').replace(/[^\x20-\x7e]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80) || 'Codex';
-    const left = Number.isFinite(window?.usedPercent) ? `${Math.round(Math.max(0, Math.min(100, 100 - window.usedPercent)))}% left` : 'usage available';
+    const rawName = String(limit.limitName ?? limit.limitId ?? 'Codex').replace(/[^\x20-\x7e]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80) || 'Codex';
+    const name = rawName.toLowerCase() === 'codex' ? AGENTS.codex : rawName;
+    const remaining = Number.isFinite(window?.usedPercent) ? Math.round(Math.max(0, Math.min(100, 100 - window.usedPercent))) : undefined;
     const reset = relativeReset(window?.resetsAt);
-    return `  ${name}  ${left}${reset ? ` · resets in ${reset}` : ''}`;
-  })].join('\n');
+    return {
+      id: `limit-codex-${index}`, title: name, subtitle: 'OpenAI Codex current limit', icon: 'speedometer-outline',
+      metadata: [
+        { value: remaining === undefined ? 'Available' : `${remaining}% left`, ...(remaining === undefined ? {} : { tone: remaining <= 10 ? 'danger' : remaining <= 25 ? 'warning' : 'positive' }) },
+        ...(reset ? [{ label: 'Resets', value: `in ${reset}` }] : []),
+      ],
+    };
+  });
 }
 
 const cached = cachedOutput();
 if (cached !== undefined) {
   process.stdout.write(JSON.stringify(cached));
 } else {
-  const sections = [];
-  const codexAvailable = available('codex');
   const [activity, codex] = await Promise.all([
-    ccusageDaily().then(ccusageText),
-    codexUsage().then(codexText),
+    ccusageDaily().then(ccusageItems),
+    codexUsage().then(codexItems),
   ]);
-  if (activity) sections.push(activity.text);
-  else if (ccusageFailure) sections.push(`Local activity\n  ${ccusageFailure}`);
-  if (codex) sections.push(codex);
-  else if (codexAvailable) sections.push('OpenAI Codex limits\n  CLI available · open /usage in that CLI for current limits');
-  const active = activity?.agents ?? new Set();
-  const visible = [
-    ['pi', 'pi'], ['claude', 'claude'], ['kimi', 'kimi'], ['cursor', 'cursor'], ['grok', 'grok'], ['gemini', 'gemini'],
-  ].filter(([command, agent]) => available(command) && !active.has(agent)).map(([, agent]) => `${AGENTS[agent] ?? agent}\n  CLI available · open /usage in that CLI for current limits`);
-  sections.push(...visible);
-  const output = sections.join('\n') || 'Usage unavailable';
+  const items = [...activity.items, ...codex];
+  if (ccusageFailure && activity.items.length === 0) items.push({
+    id: 'ccusage-unavailable', title: 'Local activity unavailable', subtitle: ccusageFailure, icon: 'warning-outline', metadata: [],
+  });
+  const reported = new Set(activity.agents);
+  if (codex.length) reported.add('codex');
+  for (const [agent, command] of Object.entries(AGENT_COMMANDS)) {
+    if (!available(command) || reported.has(agent)) continue;
+    items.push({
+      id: `available-${agent}`, title: AGENTS[agent], icon: 'terminal-outline', metadata: [{ value: 'Installed' }],
+      subtitle: CCUSAGE_AGENTS.has(agent) ? 'No activity reported by ccusage today' : 'Local totals unsupported by ccusage',
+    });
+  }
+  const output = { items: items.slice(0, 50), actions: [] };
+  if (output.items.length === 0) output.items.push({ id: 'usage-unavailable', title: 'Usage unavailable', icon: 'warning-outline', metadata: [] });
   saveOutput(output);
   process.stdout.write(JSON.stringify(output));
 }

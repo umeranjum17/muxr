@@ -10,7 +10,7 @@ These packages install into Herdr during muxr setup. Each can have an optional H
 | `inbox` | public session context RPC | Inbox tab using the source-driven `collection` primitive |
 | `changes` | `git status` list RPC | session pill using `item-list` |
 | `attachments` | dump-dir list RPC | session pill using `item-list` |
-| `usage-status` | pinned offline ccusage + bounded Codex limits | declarative data card |
+| `usage-status` | pinned offline ccusage + bounded Codex limits | generic read-only item list |
 | `terminal-keys` | none | declarative terminal key row |
 | `dictation` | none | home composer using `dictate` |
 | `workspace-hierarchy` | public workspace-tree context RPC | session overlay using source-driven `tree-sheet` |

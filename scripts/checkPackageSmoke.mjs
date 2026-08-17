@@ -278,7 +278,9 @@ try {
             requestId: 'smoke-request', sessionId: 'smoke-session', timestamp: new Date().toISOString(), version: '2.0.0',
         })}\n`);
         const usagePlugin = join(installDir, 'node_modules', '@trymuxr', 'cli', 'plugins', 'usage-status', 'rpc.mjs');
-        run(process.execPath, [usagePlugin], { cwd: installDir, env: { ...process.env, HOME: usageHome, PATH: binDir } });
+        const usageResult = run(process.execPath, [usagePlugin], { cwd: installDir, env: { ...process.env, HOME: usageHome, PATH: binDir } });
+        const usageOutput = JSON.parse(usageResult.stdout);
+        assert.ok(usageOutput.items.some((item) => item.id === 'activity-claude' && item.metadata[0]?.value === '2 tokens' && item.action === undefined), 'installed Usage did not return a read-only Claude activity item');
         assert.notEqual(statSync(ccusageTarget).mode & 0o111, 0, 'packaged ccusage backend stayed non-executable');
         const resolveScript = `const {createRequire}=require('node:module');process.stdout.write(createRequire(${JSON.stringify(usagePlugin)}).resolve('@ccusage/ccusage-${process.platform}-${process.arch}/bin/ccusage'))`;
         const resolvedCcusage = run(process.execPath, ['-e', resolveScript], { cwd: installDir }).stdout;

@@ -586,7 +586,7 @@ export const MAX_SCREEN_PARAMS = 8;
  * says so instead of silently dropping contributions the app cannot render.
  * Bumped whenever a manifest can contain values an older phone cannot parse.
  */
-export const MUXR_UI_VERSION = 11;
+export const MUXR_UI_VERSION = 12;
 /** Static list rows, and the render cap for a repeat expansion. */
 export const MAX_SCREEN_LIST_ROWS = 32;
 export const MAX_RPC_INPUT_BYTES = 8 * 1024;

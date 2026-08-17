@@ -1,6 +1,7 @@
 {
   "schemaVersion": 1,
   "pluginId": "muxr.usage-status",
+  "minMuxrVersion": 12,
   "contributions": [
     {
       "slot": "host.rpc",
@@ -12,27 +13,32 @@
     {
       "slot": "home.cards",
       "id": "card",
-      "type": "data-card",
-      "title": "Usage",
-      "presentation": "sheet",
-      "source": {
-        "type": "plugin.call",
-        "contributionId": "usage"
-      },
-      "emptyText": "Usage unavailable"
+      "type": "native",
+      "primitive": "item-list",
+      "params": {
+        "title": "Usage",
+        "icon": "speedometer-outline",
+        "accessibilityLabel": "Open coding-agent usage",
+        "source": {
+          "type": "plugin.call",
+          "contributionId": "usage"
+        }
+      }
     },
     {
       "slot": "session.header.trailing",
       "id": "chip",
-      "type": "data-card",
-      "title": "Usage",
-      "source": {
-        "type": "plugin.call",
-        "contributionId": "usage"
-      },
-      "emptyText": "\u2014",
-      "presentation": "sheet",
-      "icon": "speedometer-outline"
+      "type": "native",
+      "primitive": "item-list",
+      "params": {
+        "title": "Usage",
+        "icon": "speedometer-outline",
+        "accessibilityLabel": "Open coding-agent usage",
+        "source": {
+          "type": "plugin.call",
+          "contributionId": "usage"
+        }
+      }
     }
   ]
 }
