@@ -38,30 +38,38 @@ async function waitForRelay(port) {
     throw new Error(`muxr relay did not become ready on :${port}`);
 }
 
-if (process.env.MUXR_MODE === 'selfhost') {
+for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => stop(signal));
+process.on('exit', () => {
+    for (const child of children) if (child.exitCode === null) child.kill('SIGKILL');
+});
+
+const mode = process.env.MUXR_MODE;
+if (mode === 'selfhost' || mode === 'relay') {
     const root = process.env.MUXR_HOME?.trim() || join(homedir(), '.muxr');
     const state = JSON.parse(readFileSync(join(root, 'selfhost.json'), 'utf8'));
-    const port = Number(state.relayPort);
-    if (!Number.isInteger(port)) throw new Error('self-host relay state has no valid port');
-    const relay = start(relayEntry, {
-        ...process.env,
-        MUXR_RELAY_LOCAL_AUTHORITY: '1',
-        MUXR_RELAY_MDNS: '1',
-        MUXR_RELAY_PORT: String(port),
-        MUXR_RELAY_HOST: state.bindHost || '0.0.0.0',
-        MUXR_RELAY_DATA_DIR: join(root, 'relay'),
-        ...(state.webRoot ? { MUXR_WEB_ROOT: state.webRoot } : {}),
-        ...(state.webOrigin ? { MUXR_ALLOWED_ORIGINS: state.webOrigin } : {}),
-    });
-    try { await waitForRelay(port); }
-    catch (cause) {
-        stopping = true;
-        relay.kill('SIGTERM');
-        throw cause;
+    if (mode === 'relay' || state.relayLocation !== 'remote') {
+        const port = Number(state.relayPort);
+        if (!Number.isInteger(port)) throw new Error('self-host relay state has no valid port');
+        const relay = start(relayEntry, {
+            ...process.env,
+            MUXR_RELAY_LOCAL_AUTHORITY: '1',
+            MUXR_RELAY_MDNS: '1',
+            MUXR_RELAY_PORT: String(port),
+            MUXR_RELAY_HOST: state.bindHost || '0.0.0.0',
+            MUXR_RELAY_DATA_DIR: join(root, 'relay'),
+            ...(state.webRoot ? { MUXR_WEB_ROOT: state.webRoot } : {}),
+            ...(state.webOrigin ? { MUXR_ALLOWED_ORIGINS: state.webOrigin } : {}),
+        });
+        try { await waitForRelay(port); }
+        catch (cause) {
+            stopping = true;
+            relay.kill('SIGTERM');
+            throw cause;
+        }
     }
 }
 
-start(hostEntry, process.env, process.argv.slice(3));
+if (mode !== 'relay') start(hostEntry, process.env, process.argv.slice(3));
 
 function stop(signal) {
     if (stopping) return;
@@ -72,4 +80,3 @@ function stop(signal) {
         process.exit(0);
     }, 2000).unref();
 }
-for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => stop(signal));

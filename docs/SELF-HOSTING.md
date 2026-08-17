@@ -32,9 +32,9 @@ In the native app: **Scan QR code** (or paste the pairing string). For the
 read-only browser, setup prints a clickable HTTPS pairing link; the browser
 grant expires after eight hours and the UI then asks you to pair again.
 
-For automation use `muxr daemon status|logs|start|stop|restart`. Advanced
-split deployments can use `muxr self-host --relay-only` and
-`muxr self-host --host-only`.
+For automation use `muxr daemon status|logs|start|stop|restart`. Shared relay
+automation uses `muxr shared-relay`, `muxr machines enroll|list|revoke`, and
+`muxr connect --enrollment …`; interactive `muxr` remains the primary path.
 
 ## Reaching the relay from your phone
 
@@ -90,19 +90,40 @@ The [Dockerfile](../Dockerfile) is a relay-only image. From the repo root:
 docker compose up
 ```
 
-That binds port 8792 and stores relay state in the `relay-data` volume. Pair
-from the same machine with `muxr self-host --host-only` (or
-point `--advertise` at the container's published URL). Set `MUXR_TRUST_PROXY=1`
-in `docker-compose.yml` when a reverse proxy sits in front.
+That binds port 8792 and stores relay state in the `relay-data` volume. The
+interactive shared-relay flow is preferred because it adds machine-scoped
+enrollment; do not copy the relay mint secret or its data volume onto agent
+machines. Set `MUXR_TRUST_PROXY=1` in `docker-compose.yml` when a reverse proxy
+sits in front.
 
 `nixpacks.toml` is a Railway leftover that installs `unzip` for the relay image;
 it is not a second product. Use the Dockerfile.
 
-## Multiple machines
+## Shared relay on a VPS
 
-Run `muxr self-host` on each box. The app keeps every paired machine in
-Settings and routes agents to whichever you select. Each machine has its own
-relay, its own keys, its own device list.
+Run interactive `muxr` on the VPS and choose **Host or change a shared relay**.
+Choose Tailscale Serve, Cloudflare, or your external `wss://` reverse proxy,
+optionally host the read-only web client, review the plan, and Apply. The VPS
+runs only the supervised relay; it does not need Herdr or an agent host.
+
+Choose **Manage shared relay machines → Create enrollment**. The resulting
+string is single-use, expires after five minutes, and contains the relay URL plus
+one-time bootstrap material. It never contains relay-owner authority.
+
+On each agent machine, run interactive `muxr`, choose **Connect to a shared
+relay**, and paste that string. Machine keys are created locally. The relay
+derives the machine identity from its signing key and returns only a credential
+scoped to that machine. The local Herdr host connects outbound, then setup offers
+native and read-only browser pairing.
+
+Use **Manage shared relay machines** on the VPS to list or revoke machines by
+friendly name or list number. Revocation immediately invalidates unused tickets,
+disconnects the host and its devices, and cannot affect another enrolled machine.
+The relay still routes E2EE ciphertext only.
+
+Changing a relay endpoint requires fresh pairing because existing devices pin
+the endpoint from their pairing grant. Plugin and agent changes sync live and do
+not require pairing again.
 
 ## Updating
 

@@ -111,6 +111,13 @@ export class SelfhostPairing {
         });
     }
 
+    sessionMachineSlug(pairId: string): Promise<string | undefined> {
+        return this.serialized(async () => {
+            await this.load();
+            return this.state.sessions.find((session) => session.pairId === pairId)?.machineSlug;
+        });
+    }
+
     /** Phone side: single-use claim. Returns the device credential on success. */
     claim(
         pairId: string,
@@ -146,11 +153,11 @@ export class SelfhostPairing {
     }
 
     /** CLI polls for the phone's mailbox. */
-    poll(pairId: string, now = Date.now()): Promise<{ state: 'pending' | 'expired' | 'claimed'; mailbox?: string; deviceId?: string; devicePublicKey?: string; grantPresent?: boolean }> {
+    poll(pairId: string, machineSlug: string | undefined, now = Date.now()): Promise<{ state: 'pending' | 'expired' | 'claimed'; mailbox?: string; deviceId?: string; devicePublicKey?: string; grantPresent?: boolean }> {
         return this.serialized(async () => {
             await this.load();
             const session = this.state.sessions.find((s) => s.pairId === pairId);
-            if (session === undefined || (session.usedAt === undefined && session.expiresAt <= now)) return { state: 'expired' };
+            if (session === undefined || machineSlug !== undefined && session.machineSlug !== machineSlug || (session.usedAt === undefined && session.expiresAt <= now)) return { state: 'expired' };
             if (session.usedAt === undefined) return { state: 'pending' };
             const result: { state: 'claimed'; mailbox?: string; deviceId?: string; devicePublicKey?: string; grantPresent?: boolean } = { state: 'claimed' };
             if (session.mailbox !== undefined) result.mailbox = session.mailbox;
@@ -162,11 +169,11 @@ export class SelfhostPairing {
     }
 
     /** CLI uploads the authenticated machine grant after decrypting the mailbox. */
-    uploadGrant(pairId: string, grant: string, now = Date.now()): Promise<boolean> {
+    uploadGrant(pairId: string, machineSlug: string | undefined, grant: string, now = Date.now()): Promise<boolean> {
         return this.serialized(async () => {
             await this.load();
             const session = this.state.sessions.find((s) => s.pairId === pairId);
-            if (session === undefined || session.usedAt === undefined) return false;
+            if (session === undefined || machineSlug !== undefined && session.machineSlug !== machineSlug || session.usedAt === undefined) return false;
             const device = this.state.devices.find((entry) => entry.deviceId === session.deviceId && entry.revokedAt === undefined);
             if (device === undefined) return false;
             session.grant = grant;
@@ -242,10 +249,10 @@ export class SelfhostPairing {
     }
 
     /** Revoke a paired device: credential dies immediately, grants stop being served. */
-    revokeDevice(deviceId: string): Promise<{ machineSlug: string } | undefined> {
+    revokeDevice(deviceId: string, machineSlug?: string): Promise<{ machineSlug: string } | undefined> {
         return this.serialized(async () => {
             await this.load();
-            const device = this.state.devices.find((d) => d.deviceId === deviceId && d.revokedAt === undefined);
+            const device = this.state.devices.find((d) => d.deviceId === deviceId && (machineSlug === undefined || d.machineSlug === machineSlug) && d.revokedAt === undefined);
             if (device === undefined) return undefined;
             device.revokedAt = Date.now();
             delete device.currentGrant;

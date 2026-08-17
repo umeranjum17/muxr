@@ -13,7 +13,7 @@ muxr
 
 The interactive onboarding inspects the machine, then asks you to choose the connection method, Herdr and coding-agent integrations, optional plugins, managed services, browser hosting, and phone/browser pairing. Nothing changes until you review and apply the plan. It then verifies the supervised relay and host and reports the selected relay URL, web URL when enabled, and service health without printing credentials. Native setup displays a QR; browser setup displays a clickable HTTPS pairing link for an eight-hour read-only grant.
 
-Run `muxr` with no arguments for the interactive setup and maintenance menu.
+Run `muxr` with no arguments for the interactive setup and maintenance menu. The same menu can host a supervised shared relay on a VPS, create one-use machine enrollments, or connect a local Herdr host using only a machine-scoped credential.
 
 ```bash
 muxr update                    # check, confirm, update, and restart
@@ -35,6 +35,16 @@ muxr self-host [--advertise <ws-url>] [--tunnel] [--tailscale-direct]
 ```
 
 The default uses Tailscale when available or the trusted local network otherwise. Session, terminal, attachment, and plugin-stream payloads use the strict v2 E2EE data plane; the relay routes ciphertext it cannot read.
+
+For a shared VPS relay, prefer interactive `muxr`. Automation equivalents are:
+
+```text
+muxr shared-relay
+muxr machines enroll|list|revoke
+muxr connect --enrollment <muxr://enroll?...> [--no-pair|--pair-browser|--pair-both]
+```
+
+Enrollment is one-use and five minutes. The VPS retains owner authority; the agent machine generates keys locally and stores only its scoped credential.
 
 ## Build a plugin
 

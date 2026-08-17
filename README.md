@@ -68,7 +68,13 @@ its plan. You choose networking, Herdr and agent integrations, optional plugins,
 managed services, and phone/browser pairing. It then verifies the supervised
 relay and host and reports their URLs and health without printing secrets.
 Native setup displays a QR; browser setup displays a clickable HTTPS pairing
-link for an eight-hour read-only grant. Voice and Run Server are optional bundled plugins using the same public
+link for an eight-hour read-only grant.
+
+Need one always-on relay for several computers? Run interactive `muxr` on a VPS,
+choose **Host or change a shared relay**, then create a five-minute machine
+enrollment. On each agent computer choose **Connect to a shared relay**. Keys are
+generated locally and each machine receives only a revocable credential scoped
+to itself; the relay-owner secret never leaves the VPS. Voice and Run Server are optional bundled plugins using the same public
 API as every third-party plugin.
 
 **Android:** [download the signed muxr v0.1.2 APK](https://github.com/umeranjum17/muxr/releases/download/v0.1.2/muxr-0.1.2.apk) ([SHA256SUMS](https://github.com/umeranjum17/muxr/releases/download/v0.1.2/SHA256SUMS)). A Google Play release is coming soon. **iOS is coming soon.** Prefer a browser today? Choose the read-only web client during interactive `muxr` setup.

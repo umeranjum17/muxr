@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { networkInterfaces } from 'node:os';
 import { intro, heading, status, note, outro, prompt, select, withSpinner } from './setup-ui.mjs';
-import { runDoctor, runLocalPrerequisites, runPair, runSelfHost, selfhostPublicSummary } from './local-setup.mjs';
+import { runDaemon, runDoctor, runLocalPrerequisites, runMachines, runPair, runRemoteConnect, runSelfHost, selfhostPublicSummary, sharedMachineCount } from './local-setup.mjs';
 
 function command(name, args = []) {
     const result = spawnSync(name, args, { encoding: 'utf8', timeout: 120_000 });
@@ -354,4 +354,199 @@ export async function runSetup(args = []) {
         ? 'Setup updated. Existing devices will reconnect automatically.'
         : 'Paired. Open muxr on your phone, or run `muxr` anytime to change these choices.');
     return browserPairFailed ? 1 : 0;
+}
+
+export async function runSharedRelaySetup() {
+    intro();
+    const found = await withSpinner('Inspecting secure networking on this server', async () => inspectSetup());
+    const current = await selfhostPublicSummary();
+    if (current !== undefined && current.relayRole !== 'shared') {
+        process.stderr.write('This machine already runs an agent host. Use a dedicated VPS for a shared relay, or remove the existing setup first.\n');
+        return 1;
+    }
+    const options = choices(found).filter((choice) => ['tailscale', 'external'].includes(choice.value)).map((choice) => choice.value === current?.connectionMode
+        ? { ...choice, title: `${choice.title} · current` }
+        : choice);
+    const initial = Math.max(0, options.findIndex((choice) => choice.value === current?.connectionMode));
+    let mode = await select('How should machines reach this shared relay?', options, initial);
+    if (mode === undefined) return 0;
+    let port;
+    while (port === undefined) {
+        const entered = await prompt('Relay port', String(current?.relayPort ?? 8792));
+        if (entered === undefined) return 0;
+        const parsed = Number(entered);
+        if (Number.isInteger(parsed) && parsed >= 1024 && parsed <= 65535) port = parsed;
+        else status('Relay port', 'enter an integer from 1024 to 65535', 'warn');
+    }
+    let endpoint;
+    if (mode === 'external') {
+        while (endpoint === undefined) {
+            const entered = await prompt('Public relay URL (wss://...)', current?.connectionMode === 'external' ? current.relayUrl : '');
+            if (entered === undefined) return 0;
+            try {
+                const parsed = new URL(entered);
+                if (parsed.protocol === 'wss:' && parsed.hostname && !parsed.username && !parsed.password
+                    && parsed.pathname === '/' && !parsed.search && !parsed.hash) endpoint = parsed.origin;
+                else status('Public relay URL', 'use a root wss://host URL without credentials, query, or fragment', 'warn');
+            } catch { status('Public relay URL', 'use a valid wss:// URL', 'warn'); }
+        }
+    }
+    const desiredUrl = mode === 'external' ? endpoint : found.tailscale.dnsName ? `wss://${found.tailscale.dnsName}` : undefined;
+    const endpointChanged = current !== undefined && (desiredUrl === undefined || desiredUrl !== current.relayUrl);
+    if (endpointChanged && await sharedMachineCount() > 0) {
+        process.stderr.write('Revoke the enrolled machines before changing the shared relay endpoint. Their credentials and devices pin the current URL.\n');
+        return 1;
+    }
+    const web = await select('Host the read-only browser client?', [
+        { value: false, title: 'Relay only', description: 'route encrypted native-app traffic only' },
+        { value: true, title: 'Relay + browser', description: 'serve the read-only web client over the same HTTPS origin' },
+    ], current?.webEnabled ? 1 : 0);
+    if (web === undefined) return 0;
+    heading('Review shared relay');
+    note([
+        `Public connection: ${connectionLabel(mode, endpoint, port)}`,
+        `Browser client: ${web ? 'read-only web app over HTTPS; grants expire after eight hours' : 'off'}`,
+        `Ingress: ${mode === 'tailscale' ? 'muxr-owned Tailscale Serve route' : 'your stable external reverse proxy or named Cloudflare tunnel'}`,
+        'Service: supervised relay-only systemd/launchd service with Linux boot persistence; no Herdr or agent host on this server',
+        'Authority: owner state remains on this server; enrolled machines receive scoped credentials only',
+        ...(endpointChanged ? ['Endpoint change: create fresh enrollments and pair every machine again'] : []),
+        'No change is made until you choose Apply shared relay.',
+    ]);
+    const apply = await select('Apply this shared relay?', [
+        { value: false, title: 'Cancel', description: 'leave this server unchanged' },
+        { value: true, title: 'Apply shared relay', description: 'configure ingress, relay, web, and its service' },
+    ]);
+    if (apply !== true) return 0;
+    const servicePrepared = await runDaemon(['install', '--mode', 'relay']);
+    if (servicePrepared !== 0) return servicePrepared;
+    const relayArgs = ['--relay-only', '--managed-relay', '--reconfigure', '--port', String(port), '--connection-mode', mode];
+    if (mode === 'external') relayArgs.push('--advertise', endpoint);
+    if (web) relayArgs.push('--web', '--yes');
+    const result = await runSelfHost(relayArgs);
+    if (result !== 0) return result;
+    const summary = await selfhostPublicSummary();
+    if (!summary?.publicHealthy) {
+        process.stderr.write(`The relay is running locally, but ${summary?.relayUrl ?? 'the public endpoint'} did not pass HTTPS health verification. Fix DNS/reverse-proxy access, then rerun muxr.\n`);
+        return 1;
+    }
+    heading('Shared relay ready');
+    note([
+        'Relay location: this server',
+        `Relay URL: ${summary?.relayUrl ?? 'unavailable'}`,
+        `Web URL: ${summary?.webUrl ?? 'off'}`,
+        `Relay service: ${summary?.relayHealthy && summary?.hostRunning ? 'running' : 'check required'}`,
+        'Owner state: ~/.muxr (owner-only; never copy it to agent machines)',
+    ]);
+    const enroll = await select('Create an enrollment for an agent machine?', [
+        { value: false, title: 'Not now', description: 'return to the muxr menu' },
+        { value: true, title: 'Create enrollment', description: 'show a five-minute, single-use enrollment string' },
+    ]);
+    return enroll === true ? runMachines('enroll') : 0;
+}
+
+function describeEnrollment(raw) {
+    try {
+        const parsed = new URL(raw.trim());
+        const payload = JSON.parse(Buffer.from(parsed.searchParams.get('payload') ?? '', 'base64url').toString('utf8'));
+        if (parsed.protocol !== 'muxr:' || parsed.hostname !== 'enroll' || payload.v !== 1 || !String(payload.relay).startsWith('wss://')
+            || typeof payload.expires === 'number' && payload.expires <= Date.now()) throw new Error('invalid');
+        return { relay: new URL(payload.relay).origin, web: typeof payload.web === 'string' ? new URL(payload.web).origin : undefined };
+    } catch { throw new Error('paste the complete muxr://enroll string from the shared relay server'); }
+}
+
+export async function runRemoteRelaySetup() {
+    intro();
+    const raw = await prompt('Machine enrollment string (muxr://enroll?...)');
+    if (raw === undefined || raw === '') return 0;
+    let enrollment;
+    try { enrollment = describeEnrollment(raw); }
+    catch (cause) { process.stderr.write(`${cause.message}\n`); return 1; }
+    const found = await withSpinner('Inspecting Herdr and coding agents', async () => inspectSetup());
+    renderInspection(found);
+    const current = await selfhostPublicSummary();
+    const installHerdr = found.herdr.installed ? false : await select('Herdr is required. Install it during setup?', [
+        { value: false, title: 'Cancel setup', description: 'leave this machine and enrollment unused' },
+        { value: true, title: 'Install Herdr', description: 'download the public installer and verify it' },
+    ]);
+    if (!found.herdr.installed && installHerdr !== true) return 0;
+    const syncIntegrations = await select('Sync detected coding-agent integrations?', [
+        { value: true, title: 'Sync integrations', description: `${found.agents.available.length} available` },
+        { value: false, title: 'Leave unchanged', description: 'do not alter coding-agent hooks or instruction files' },
+    ]);
+    if (syncIntegrations === undefined) return 0;
+    const pairingChoices = [
+        { value: 'phone', title: 'Phone', description: 'pair the native app after the host connects' },
+        ...(enrollment.web ? [
+            { value: 'browser', title: 'Browser', description: 'pair one read-only browser for eight hours' },
+            { value: 'both', title: 'Phone, then browser', description: 'complete both pairing steps' },
+        ] : []),
+        { value: 'none', title: 'Not now', description: 'connect the host without pairing a client yet' },
+    ];
+    const pairing = await select('Which client should pair?', pairingChoices);
+    if (pairing === undefined) return 0;
+    heading('Optional Herdr add-ons');
+    const plugins = await choosePlugins();
+    if (plugins === undefined) return 0;
+    heading('Review remote connection');
+    note([
+        'Relay location: shared remote server',
+        `Relay URL: ${enrollment.relay}`,
+        `Web URL: ${enrollment.web ?? 'off'}`,
+        'Machine keys: generated locally; private keys never leave this machine',
+        'Credential: scoped to this machine; relay-owner authority is never copied here',
+        `Herdr: ${found.herdr.installed ? 'adopt and start existing installation' : 'install after your explicit selection'}`,
+        `Integrations: ${syncIntegrations ? 'sync detected providers' : 'leave unchanged'}`,
+        `Plugins: ${plugins.length ? plugins.map((plugin) => plugin.title).join(', ') : 'bundled only'}`,
+        `Pairing: ${pairing === 'none' ? 'not now' : pairing === 'both' ? 'phone, then browser' : pairing}`,
+        ...(current === undefined ? [] : [`Existing setup: replace ${current.relayLocation} relay ${current.relayUrl ?? ''}; every existing device needs a fresh pairing`]),
+        'No local or remote state changes until you choose Apply connection.',
+    ]);
+    const apply = await select('Apply this remote connection?', [
+        { value: false, title: 'Cancel', description: 'leave this machine unchanged; enrollment remains usable until it expires' },
+        { value: true, title: 'Apply connection', description: 'claim enrollment, configure Herdr and host, then pair' },
+    ]);
+    if (apply !== true) return 0;
+    const prerequisites = await runLocalPrerequisites([
+        ...(found.herdr.installed ? [] : ['--install-herdr']),
+        ...(syncIntegrations ? [] : ['--no-integrations']),
+    ]);
+    if (prerequisites !== 0) return prerequisites;
+    const pluginResult = await installPlugins(plugins);
+    const connectArgs = ['--enrollment', raw, '--force',
+        ...(pairing === 'none' ? ['--no-pair'] : []),
+        ...(pairing === 'browser' ? ['--pair-browser'] : []),
+        ...(pairing === 'both' ? ['--pair-both'] : []),
+    ];
+    const connected = await runRemoteConnect(connectArgs);
+    if (connected !== 0) return connected;
+    const summary = await selfhostPublicSummary();
+    heading('Remote connection ready');
+    note([
+        'Relay location: shared remote server',
+        `Relay URL: ${summary?.relayUrl ?? enrollment.relay}`,
+        `Web URL: ${summary?.webUrl ?? 'off'}`,
+        `Relay: ${summary?.relayHealthy ? 'reachable' : 'check required'}`,
+        `Local host service: ${summary?.hostRunning ? 'running' : 'check required'}`,
+        `Machine credential expires: ${summary?.credentialExpiresAt ? new Date(summary.credentialExpiresAt).toLocaleDateString() : 'unavailable'}`,
+        `Pairing: ${pairing === 'none' ? 'not requested' : `${pairing} completed`}`,
+        `Plugins: bundled${pluginResult.installed.length ? ` + ${pluginResult.installed.map((plugin) => plugin.title).join(', ')}` : ''}`,
+        ...(pluginResult.failed.length ? [`Plugin install failed: ${pluginResult.failed.map((plugin) => plugin.title).join(', ')}`] : []),
+        'Configuration: ~/.muxr (owner-only)',
+    ]);
+    outro('Ready. The local host connects outbound to the shared relay; Herdr must remain running on this machine.');
+    return 0;
+}
+
+export async function runMachineManagement() {
+    const action = await select('Shared relay machines', [
+        { value: 'enroll', title: 'Create enrollment', description: 'show a five-minute, one-use string for an agent machine' },
+        { value: 'list', title: 'List machines', description: 'show friendly names and credential expiry' },
+        { value: 'revoke', title: 'Revoke a machine', description: 'disconnect its host and every paired device' },
+        { value: 'cancel', title: 'Back', description: 'make no changes' },
+    ]);
+    if (action === undefined || action === 'cancel') return 0;
+    if (action !== 'revoke') return runMachines(action);
+    if ((await runMachines('list')) !== 0) return 1;
+    const reference = await prompt('Machine list number or exact name');
+    return reference ? runMachines('revoke', [reference]) : 0;
 }

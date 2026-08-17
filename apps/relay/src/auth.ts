@@ -8,6 +8,7 @@ export interface Ticket {
     machineSlug: string;
     accountId: string;
     deviceId?: string;
+    machineCredentialId?: string;
     transport: 'relay' | 'terminal' | 'preview' | 'stream';
     channel?: string;
 }
@@ -38,6 +39,7 @@ export interface TicketPeerIdentity {
     machineIds: ReadonlySet<string>;
     accountId: string;
     deviceId?: string;
+    machineCredentialId?: string;
     transport: 'relay' | 'terminal' | 'preview' | 'stream';
     channel?: string;
 }
@@ -73,6 +75,7 @@ export async function authenticateWebSocket(input: AuthInput): Promise<PeerIdent
             machineIds: new Set([ticket.machineSlug]),
             accountId: ticket.accountId,
             ...(ticket.deviceId === undefined ? {} : { deviceId: ticket.deviceId }),
+            ...(ticket.machineCredentialId === undefined ? {} : { machineCredentialId: ticket.machineCredentialId }),
             transport: ticket.transport,
             ...(ticket.channel === undefined ? {} : { channel: ticket.channel }),
         };
