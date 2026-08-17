@@ -26,8 +26,12 @@ Drive every coding agent on your machine — Pi, Claude Code, Codex, Cursor, and
 - **Attention inbox:** surface blocked agents and answer approvals from your phone.
 - **Changes and attachments:** inspect per-run git changes and receive screenshots,
   APKs, exports, and other artifacts from the pane that produced them.
-- **Start agents and squads:** choose an agent, directory, optional worktree, or
-  start several agents together.
+- **Start agents and squads:** choose from the bounded agent catalog reported by
+  the connected Herdr host, select a directory and optional worktree, or start
+  several agents together. A safe fallback remains available offline.
+- **Usage at a glance:** aggregate available coding-CLI limits. Codex uses its
+  local app-server contract directly; CLIs without a guaranteed non-model usage
+  API are reported as available with an honest in-CLI `/usage` action.
 - **Voice:** start an explicit provider-neutral realtime conversation through a
   backend plugin, or dictate editable text locally with bundled Whisper Base
   English. Provider credentials stay on the host; dictation audio never leaves

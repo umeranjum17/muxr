@@ -33,7 +33,7 @@ import {
     saveConnectionSettings,
 } from '@/state/connectionSettings';
 
-import { AGENT_KINDS as KINDS } from '@/sync/agentKinds';
+import { FALLBACK_AGENT_KINDS } from '@/sync/agentKinds';
 
 const MAX_SQUAD = 4;
 const MAX_RECENT_CHIPS = 6;
@@ -207,6 +207,8 @@ export default function NewAgentScreen() {
     const insets = useSafeAreaInsets();
     const settings = getCachedConnectionSettings();
 
+    const [catalog, setCatalog] = React.useState<readonly string[]>(FALLBACK_AGENT_KINDS);
+    const [catalogSource, setCatalogSource] = React.useState<'loading' | 'host' | 'fallback'>('loading');
     const [selected, setSelected] = React.useState<ReadonlySet<string>>(new Set(['pi']));
     const [cwd, setCwd] = React.useState(settings.lastSessionCwd ?? '');
     const [worktree, setWorktree] = React.useState(false);
@@ -222,6 +224,21 @@ export default function NewAgentScreen() {
                 if (live) setWorkspaces(tree.workspaces ?? []);
             })
             .catch(() => {});
+        void sync
+            .request('herdr.agentKinds', {})
+            .then((result) => {
+                if (!live) return;
+                const kinds = [...new Set((result.kinds ?? []).filter((kind) => /^[a-z][a-z0-9_-]{0,31}$/.test(kind)))].slice(0, 64);
+                if (kinds.length === 0) { setCatalogSource('fallback'); return; }
+                setCatalog(kinds);
+                setCatalogSource('host');
+                setSelected((previous) => {
+                    const supported = new Set([...previous].filter((kind) => kinds.includes(kind)));
+                    if (supported.size === 0) supported.add(kinds[0]!);
+                    return supported;
+                });
+            })
+            .catch(() => { if (live) setCatalogSource('fallback'); });
         return () => {
             live = false;
         };
@@ -310,15 +327,20 @@ export default function NewAgentScreen() {
                 <View>
                     <View style={styles.sectionLabelRow}>
                         <Text style={styles.sectionLabel}>AGENT</Text>
-                        {squad && (
-                            <View style={styles.squadBadge}>
-                                <Ionicons name="grid" size={11} color={theme.colors.accent} />
-                                <Text style={styles.squadBadgeText}>SQUAD {kinds.length}</Text>
-                            </View>
-                        )}
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                            <Text style={styles.squadBadgeText}>
+                                {catalogSource === 'host' ? 'FROM HERDR' : catalogSource === 'loading' ? 'CHECKING HOST' : 'OFFLINE FALLBACK'}
+                            </Text>
+                            {squad && (
+                                <View style={styles.squadBadge}>
+                                    <Ionicons name="grid" size={11} color={theme.colors.accent} />
+                                    <Text style={styles.squadBadgeText}>SQUAD {kinds.length}</Text>
+                                </View>
+                            )}
+                        </View>
                     </View>
                     <View style={styles.grid}>
-                        {KINDS.map((option) => {
+                        {catalog.map((option) => {
                             const isSelected = selected.has(option);
                             return (
                                 <Pressable

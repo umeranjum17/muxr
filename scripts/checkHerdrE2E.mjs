@@ -147,6 +147,10 @@ async function run() {
     send(socket, { type: 'client.hello', clientId: 'herdr-e2e' });
     const discovered = await request(socket, 'session.list', {});
     console.log(`ok: session.list returned ${discovered.length} herdr session(s)`);
+    const catalog = await request(socket, 'herdr.agentKinds', {});
+    if (!Array.isArray(catalog?.kinds) || catalog.kinds.length === 0 || catalog.kinds.length > 64
+        || !catalog.kinds.every((kind) => /^[a-z][a-z0-9_-]{0,31}$/.test(kind))) fail('herdr.agentKinds returned an invalid catalog');
+    console.log(`ok: herdr.agentKinds returned ${catalog.kinds.length} host-supported kind(s)`);
 
     // 2. session.start (async agent.start: the answer must beat the 20s client timeout)
     const started = await request(socket, 'session.start', { cwd: workdir, kind: 'pi', label: 'e2e' });

@@ -1288,6 +1288,14 @@ export async function createHerdrSessionSource(
             };
         },
 
+        async agentKinds(): Promise<string[]> {
+            const result = await client.call<{ manifests?: Array<{ agent?: string }> }>('server.agent_manifests', {});
+            return [...new Set((result.manifests ?? [])
+                .map((manifest) => manifest.agent?.trim())
+                .filter((agent): agent is string => agent !== undefined && /^[a-z][a-z0-9_-]{0,31}$/.test(agent)))]
+                .slice(0, 64);
+        },
+
         async herdrTree(): Promise<HerdrTreeWorkspace[]> {
             // Cached maps are event-fresh; a snapshot call here would work too but
             // the Spaces screen polls, so keep this free.
