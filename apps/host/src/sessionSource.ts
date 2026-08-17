@@ -85,6 +85,8 @@ export interface SessionSource {
     refreshPlugins?(): Promise<void>;
     /** The whole herd: workspaces -> tabs -> panes with live agent state. */
     herdrTree(): Promise<HerdrTreeWorkspace[]>;
+    /** Agent kinds supported by the connected Herdr host. */
+    agentKinds(): Promise<string[]>;
     /** Immutable native UI plugin catalog and snapshots. */
     pluginList(deviceId: string): Promise<PluginSummary[]>;
     pluginManifest(options: { pluginId: string; manifestHash: string }): Promise<PluginManifestV1>;

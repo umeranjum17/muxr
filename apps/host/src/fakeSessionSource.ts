@@ -95,6 +95,10 @@ export function createFakeSessionSource(): SessionSource {
             return [];
         },
 
+        async agentKinds() {
+            return ['pi', 'claude', 'codex'];
+        },
+
         async pluginList() {
             return [];
         },

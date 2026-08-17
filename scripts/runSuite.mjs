@@ -30,6 +30,7 @@ const checks = [
     ['e2e: device pairing through relay', 'node', ['scripts/checkPairing.mjs']],
     ['e2e: durable self-host device revocation', 'node', ['scripts/checkSelfhostRevocation.mjs']],
     ['e2e: shared remote relay isolation', 'node', ['scripts/checkRemoteRelay.mjs']],
+    ['e2e: multi-provider usage aggregation', 'node', ['scripts/checkUsageStatus.mjs']],
     ['e2e: tailscale ingress ownership', 'node', ['scripts/checkTailscaleIngress.mjs']],
     ['e2e: voice plugin secret lifecycle', 'node', ['scripts/checkVoicePlugin.mjs']],
     ['e2e: strict auth (local fixture exposure)', 'node', ['scripts/checkStrictAuth.mjs']],

@@ -71,6 +71,7 @@ export interface RequestMap {
     };
     /** The whole herd: workspaces -> tabs -> panes with live agent state. */
     'herdr.tree': { params: Record<string, never>; result: { workspaces: HerdrTreeWorkspace[] } };
+    'herdr.agentKinds': { params: Record<string, never>; result: { kinds: string[] } };
     /** Immutable native UI plugin catalog. Safe to enumerate from read-only clients. */
     'plugin.list': {
         params: Record<string, never>;

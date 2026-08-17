@@ -54,6 +54,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         },
         'session.open': (params) => source.open(params),
         'herdr.tree': async () => ({ workspaces: await source.herdrTree() }),
+        'herdr.agentKinds': async () => ({ kinds: await source.agentKinds() }),
         'plugin.list': () => { throw new Error('authenticated device context required'); },
         'plugin.manifest': (params) => source.pluginManifest(params),
         'plugin.approve': () => { throw new Error('authenticated device context required'); },
@@ -178,7 +179,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
             const readOnly = options.canMutateDevice?.(deviceId) === false;
             const readOnlyRequests = new Set<RequestType>([
                 'session.list', 'session.open', 'session.status',
-                'herdr.tree', 'herdr.layout', 'pane.read', 'plugin.list', 'plugin.manifest',
+                'herdr.tree', 'herdr.agentKinds', 'herdr.layout', 'pane.read', 'plugin.list', 'plugin.manifest',
                 'attachment.fetch', 'attachment.read', 'unread.catalog',
                 'attention.catalog', 'machines.list', 'terminal.attach',
             ]);
