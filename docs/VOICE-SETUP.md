@@ -4,7 +4,7 @@
 
 ## Setup
 
-In a source checkout, `yarn build` plus the documented setup flow installs bundled plugins. Open **Settings → Grok realtime voice**. Its secure prompt sends the value once through authenticated E2EE to the plugin's write RPC; declarative UI never stores or displays it.
+Voice ships bundled with `@trymuxr/cli` — the npm install already includes it. You need an [xAI API key](https://console.x.ai) (a paid provider; the key lives only on your machine). Then open **Settings → Grok realtime voice** on the phone and paste the key. Its secure prompt sends the value once through authenticated E2EE to the plugin's write RPC; declarative UI never stores or displays it. In a source checkout, `yarn build` plus the documented setup flow installs the same bundled plugins.
 
 The plugin stores the key only on the machine at:
 

@@ -17,8 +17,8 @@ You need Node ≥ 22, yarn 1.x, and — for anything touching the live backend �
 host (`node apps/host/dist/main.js --fake`) drives a scripted agent so mobile work
 needs no real agents.
 
-Dev loop: `yarn up` (relay + host), then the app dev server per the
-[README](README.md). `yarn doctor` diagnoses a stack that will not come up.
+Dev loop: `yarn up` (relay + host), then the app dev server with
+`cd apps/mobile && yarn start`. `yarn doctor` diagnoses a stack that will not come up.
 The unsupported local relay fixture lives in
 [docs/SELF-HOSTING.md](docs/SELF-HOSTING.md); local Android builds live in
 [docs/NATIVE-BUILD.md](docs/NATIVE-BUILD.md).
@@ -41,8 +41,8 @@ node apps/probe/dist/main.js
 
 1. **One vocabulary.** The app speaks herdr's words: herd, agents, workspaces
    ("spaces"), tabs, panes. Don't introduce chat-era concepts (sessions-as-chats,
-   model pickers, thinking levels) into the UI. Pi is the only coding-agent
-   provider presented as supported by muxr.
+   model pickers, thinking levels) into the UI. The app presents whatever agents
+   the connected Herdr host reports; don't hardcode one provider's concepts.
 2. **herdr owns processes.** No lifecycle bookkeeping in the host or app — no
    archival ledgers, no tombstones, no reaping. If herdr says a pane is gone, it's
    gone. New capabilities start from herdr's API, not from shadow state.

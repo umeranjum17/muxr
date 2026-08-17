@@ -13,7 +13,7 @@
 <p align="center">
   <a href="https://trymuxr.com">Website</a> ·
   <a href="https://trymuxr.com/docs/quickstart">Quickstart</a> ·
-  <a href="https://github.com/umeranjum17/muxr/releases/download/v0.1.4/muxr-demo-v0.1.4.mp4">Demo</a> ·
+  <a href="https://trymuxr.com/#demo">Demo</a> ·
   <a href="https://github.com/umeranjum17/muxr/releases/latest">Android</a> ·
   <a href="https://trymuxr.com/docs/plugins">Extensions</a>
 </p>
@@ -24,7 +24,7 @@
   <a href="LICENSE"><img alt="Apache 2.0" src="https://img.shields.io/badge/license-Apache--2.0-666?style=flat-square" /></a>
 </p>
 
-[![muxr on Android](docs/play/store-assets/01-herd.png)](https://github.com/umeranjum17/muxr/releases/download/v0.1.4/muxr-demo-v0.1.4.mp4)
+[![muxr on Android](docs/play/store-assets/01-herd.png)](https://trymuxr.com/#demo)
 
 ## What it does
 
@@ -36,7 +36,7 @@
 
 ## Install
 
-You need [Node.js 22 or newer](https://nodejs.org/).
+You need [Node.js 22 or newer](https://nodejs.org/) and [Herdr](https://herdr.dev) on Linux, macOS, or WSL. If Herdr is missing, setup offers to install it from herdr.dev — nothing is installed or changed until you approve the plan.
 
 ```bash
 npm install -g @trymuxr/cli
