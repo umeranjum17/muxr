@@ -36,6 +36,9 @@ export function startRealtimeSession(options: {
     let pendingSpeech: string | undefined;
     let reconnects = 0;
     let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+    let stableTimer: ReturnType<typeof setTimeout> | undefined;
+    /** A stream that stays connected this long was healthy; forget its retries. */
+    const STABLE_AFTER_MS = 30_000;
 
     const stopCapture = (): void => {
         if (!microphoneStarted) return;
@@ -45,6 +48,8 @@ export function startRealtimeSession(options: {
     const teardown = (): void => {
         if (reconnectTimer !== undefined) clearTimeout(reconnectTimer);
         reconnectTimer = undefined;
+        if (stableTimer !== undefined) clearTimeout(stableTimer);
+        stableTimer = undefined;
         stopCapture();
         stopRealtimePcm();
         const current = stream;
@@ -79,7 +84,12 @@ export function startRealtimeSession(options: {
             wavFile: '',
         });
         LiveAudioStream.on('data', (data) => {
-            if (!stopped && !muted) stream?.send({ type: 'realtime.audio', data });
+            if (!stopped && !muted) {
+                stream?.send({ type: 'realtime.audio', data });
+                // The user speaking is activity; without this the idle timer
+                // hangs up mid-sentence when the provider stays quiet.
+                onActivity?.();
+            }
         });
         await LiveAudioStream.start();
         if (stopped) stopCapture();
@@ -99,6 +109,7 @@ export function startRealtimeSession(options: {
                 if (stopped || stream !== next) return;
                 stream = undefined;
                 clearRealtimePcm();
+                if (stableTimer !== undefined) { clearTimeout(stableTimer); stableTimer = undefined; }
                 if (microphoneStarted && reconnects < 2 && retryableClose(reason)) {
                     reconnects += 1;
                     reconnectTimer = setTimeout(() => { void connect(); }, reconnects * 500);
@@ -114,6 +125,10 @@ export function startRealtimeSession(options: {
                     void ready.then(() => {
                         if (stopped || stream !== next) return;
                         onStatus('connected', reconnects === 0 ? undefined : 'Voice stream reconnected');
+                        // Reconnect budget is consecutive, not cumulative: after a
+                        // stable stretch the next drop gets the full budget again.
+                        if (stableTimer !== undefined) clearTimeout(stableTimer);
+                        stableTimer = setTimeout(() => { reconnects = 0; }, STABLE_AFTER_MS);
                         if (pendingSpeech !== undefined) {
                             next.send({ type: 'realtime.say', text: pendingSpeech });
                             pendingSpeech = undefined;
