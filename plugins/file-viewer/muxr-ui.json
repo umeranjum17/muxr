@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "pluginId": "muxr.file-viewer",
-  "minMuxrVersion": 10,
+  "minMuxrVersion": 11,
   "contributions": [
     {
       "slot": "host.rpc",
@@ -111,8 +111,14 @@
       },
       "children": [
         {
+          "type": "code",
+          "path": "data.body",
+          "fileNamePath": "data.name"
+        },
+        {
           "type": "text",
-          "text": "{{data.body}}"
+          "text": "{{data.note}}",
+          "tone": "secondary"
         }
       ]
     }

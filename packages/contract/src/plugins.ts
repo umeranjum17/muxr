@@ -338,6 +338,15 @@ export interface PluginScreenDiffNode {
     type: 'diff';
     path: string;
 }
+/** Bounded source text at `path`, syntax-highlighted by the app without plugin HTML. */
+export interface PluginScreenCodeNode {
+    type: 'code';
+    path: string;
+    /** Optional app-supported language identifier; unknown values fall back to plain text. */
+    language?: string;
+    /** Optional data path used to infer the language and label the source. */
+    fileNamePath?: string;
+}
 /** Closed action vocabulary. Downloaded manifests never supply executable code. */
 export type PluginAction =
     | {
@@ -463,6 +472,7 @@ export interface PluginScreenListNode {
 export type PluginScreenNode =
     | PluginScreenTextNode
     | PluginScreenDiffNode
+    | PluginScreenCodeNode
     | PluginScreenRowNode
     | PluginScreenMetricNode
     | PluginScreenBadgeNode
@@ -576,12 +586,14 @@ export const MAX_SCREEN_PARAMS = 8;
  * says so instead of silently dropping contributions the app cannot render.
  * Bumped whenever a manifest can contain values an older phone cannot parse.
  */
-export const MUXR_UI_VERSION = 10;
+export const MUXR_UI_VERSION = 11;
 /** Static list rows, and the render cap for a repeat expansion. */
 export const MAX_SCREEN_LIST_ROWS = 32;
 export const MAX_RPC_INPUT_BYTES = 8 * 1024;
 export const MAX_RPC_STDOUT_BYTES = 64 * 1024;
 export const MAX_RPC_STDERR_BYTES = 256 * 1024;
+/** Per-string transport cap; ordinary text nodes apply the smaller display cap. */
+export const MAX_RPC_RESULT_STRING_BYTES = MAX_RPC_STDOUT_BYTES;
 export const MAX_RPC_DISPLAY_BYTES = 4 * 1024;
 export const MAX_RPC_DISPLAY_DEPTH = 8;
 export const MAX_RPC_ARRAY_ENTRIES = 256;

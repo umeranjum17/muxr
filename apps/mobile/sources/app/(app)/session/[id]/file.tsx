@@ -16,6 +16,7 @@ import { FileIcon } from '@/components/FileIcon';
 import { PierreDiffView } from '@/components/diff/PierreDiffView';
 import { resolveSessionFilePath } from '@/utils/sessionFileLinks';
 import { MobileGlassSurface } from '@/components/MobileGlass';
+import { syntaxLanguage } from '@/components/code/syntaxHighlighting';
 
 interface FileContent {
     content: string;
@@ -78,61 +79,6 @@ export default React.memo(function FileScreen() {
             ),
         [fontSize],
     );
-
-    const getFileLanguage = React.useCallback((path: string): string | null => {
-        const ext = path.split('.').pop()?.toLowerCase();
-        switch (ext) {
-            case 'js':
-            case 'jsx':
-                return 'javascript';
-            case 'ts':
-            case 'tsx':
-                return 'typescript';
-            case 'py':
-                return 'python';
-            case 'html':
-            case 'htm':
-                return 'html';
-            case 'css':
-                return 'css';
-            case 'json':
-                return 'json';
-            case 'md':
-                return 'markdown';
-            case 'xml':
-                return 'xml';
-            case 'yaml':
-            case 'yml':
-                return 'yaml';
-            case 'sh':
-            case 'bash':
-                return 'bash';
-            case 'sql':
-                return 'sql';
-            case 'go':
-                return 'go';
-            case 'rs':
-                return 'rust';
-            case 'java':
-                return 'java';
-            case 'c':
-                return 'c';
-            case 'cpp':
-            case 'cc':
-            case 'cxx':
-                return 'cpp';
-            case 'php':
-                return 'php';
-            case 'rb':
-                return 'ruby';
-            case 'swift':
-                return 'swift';
-            case 'kt':
-                return 'kotlin';
-            default:
-                return null;
-        }
-    }, []);
 
     const isBinaryFile = React.useCallback((path: string): boolean => {
         const ext = path.split('.').pop()?.toLowerCase();
@@ -283,7 +229,7 @@ export default React.memo(function FileScreen() {
         const slash = Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\'));
         return slash > 0 ? p.slice(0, slash) : '';
     };
-    const language = getFileLanguage(filePath);
+    const language = syntaxLanguage(undefined, filePath) ?? null;
 
     if (isLoading) {
         return (

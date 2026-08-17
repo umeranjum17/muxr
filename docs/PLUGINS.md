@@ -206,6 +206,7 @@ External extensions compose a closed native vocabulary. A `navigation.content` s
 
 - `section` and bounded `list` containers;
 - `text`, `row`, `metric`, `badge`, `progress`, `divider`, and `empty` display nodes;
+- bounded `code` and unified `diff` nodes rendered by the app with syntax highlighting, line numbers, selection, light/dark themes, and no plugin HTML;
 - an expandable/collapsible `tree` bound to flat or nested runtime nodes, with optional lazy read source, leaf action, and folder `selectionField`;
 - an RPC action `button` (with optional `fields`);
 - bounded `text`, `switch`, and `select` `field` nodes for forms.
@@ -226,6 +227,18 @@ A tree accepts bounded nodes shaped as `{ name, path, kind: "folder" | "file", p
 ```
 
 Folders toggle natively and may update `selectionField`; leaf actions remain in the closed action vocabulary. `source` must name a read-mode RPC. Runtime rendering is capped at 512 nodes, while lazy loading keeps large trees browseable without oversized RPC output.
+
+A source preview binds the body and may bind a file name for automatic language detection. A fixed `language` may be supplied instead. Supported identifiers and common aliases are HTML/XML/SVG, CSS, JavaScript/JS, TypeScript/TS, JSX, TSX, JSON/JSONC, Markdown/MD/MDX, YAML/YML, TOML, INI, Bash/Shell/SH/Zsh, Dockerfile/Docker, GraphQL/GQL, Python/Py, Go, Rust/Rs, Java, C/C++/headers, SQL, PHP, Ruby/Rb, Swift, Kotlin/Kt/Kts, and HCL/Terraform. Unknown extensions/languages render as plain text; source remains bounded and selectable.
+
+```json
+{ "type": "code", "path": "data.body", "fileNamePath": "data.name" }
+```
+
+A diff binds a unified patch and uses the same app-owned highlighting vocabulary:
+
+```json
+{ "type": "diff", "path": "data.patch" }
+```
 
 muxr owns layout, typography, spacing, accessibility behavior, loading states, and light/dark rendering. Extensions provide content and intent.
 
@@ -283,7 +296,7 @@ Static UI needs no backend. Dynamic UI declares a read-mode RPC contribution and
 
 Bindings are dotted paths only. There is no expression language. Calculate derived values in your backend and return data that matches the declared schema.
 
-The host limits input size (8 KiB of JSON), response size (64 KiB of stdout; output exceeding the limit is rejected rather than truncated), per-value display size (4 KiB of UTF-8 per string before it reaches React Native, with controls/bidi/zero-width stripped and deep/wide structures dropped), duration, and concurrency. Calls have a 30-second host deadline and two-second hard-kill grace; the phone waits 40 seconds so it does not abandon work the host still runs. A four-process global cap is narrowed to two admitted calls per plugin and three per device. Deadline, revoke, and shutdown terminate the POSIX process group, release the slot without waiting for inherited pipes, and escalate to SIGKILL. stderr is bounded separately from stdout, so verbose logging cannot break a successful plugin. Unchanged manifests reuse a file-identity-keyed parsed projection while source, Herdr authority, and the final hash are recomputed on every catalog refresh. Offline apps label cached UI as stale and disable host actions.
+The host limits input size (8 KiB of JSON), response size (64 KiB of stdout; output exceeding the limit is rejected rather than truncated), per-string transport size (64 KiB with controls/bidi/zero-width stripped and deep/wide structures dropped), ordinary text display size (4 KiB), duration, and concurrency. Calls have a 30-second host deadline and two-second hard-kill grace; the phone waits 40 seconds so it does not abandon work the host still runs. A four-process global cap is narrowed to two admitted calls per plugin and three per device. Deadline, revoke, and shutdown terminate the POSIX process group, release the slot without waiting for inherited pipes, and escalate to SIGKILL. stderr is bounded separately from stdout, so verbose logging cannot break a successful plugin. Unchanged manifests reuse a file-identity-keyed parsed projection while source, Herdr authority, and the final hash are recomputed on every catalog refresh. Offline apps label cached UI as stale and disable host actions.
 
 The phone caches each validated manifest by plugin id plus immutable manifest hash and preserves unchanged snapshot identity. Invalidation frames retain their bounded plugin ids: only named data sources refetch, while an empty list after reconnect means a full refresh. A successful write reloads its screen data. Ambiguous write failures retain one idempotency key for the same hashed canonical input; success or changed input mints a new key, and secret plaintext is never retained in the retry store.
 
@@ -355,7 +368,7 @@ Navigation content is scoped by plugin id and contribution id. `/plugin` renders
 - Unknown slots/components/actions/nodes are skipped, not fatal.
 - IDs are namespaced to the extension; duplicate contribution and screen-field ids are rejected.
 - Screens are capped at 64 nodes and depth 4; select fields at 32 options; strings and each localized variant are bounded per field; localized values allow at most 16 BCP-47 tags.
-- `plugin.call` input is capped at 8 KiB of JSON; RPC stdout is limited to 64 KiB (rejected when exceeded, never silently truncated before parsing); each displayed string at 4 KiB of UTF-8 (byte-capped, sanitized); deep/wide result structures are dropped rather than rendered raw; stderr is capped separately so verbose logging cannot break a successful plugin.
+- `plugin.call` input is capped at 8 KiB of JSON; RPC stdout and each transported result string are limited to 64 KiB (oversized stdout is rejected; strings are byte-capped and sanitized); ordinary displayed text is capped again at 4 KiB while bounded `code` nodes may use the larger result; deep/wide result structures are dropped rather than rendered raw; stderr is capped separately so verbose logging cannot break a successful plugin.
 - Data cards reference read-mode RPCs only.
 - Password and secret fields are not part of the screen vocabulary.
 - External extensions cannot set global ordering priority.
@@ -473,7 +486,7 @@ validates shape; `plugin call` proves wiring.
 { "schemaVersion": 1, "pluginId": "you.thing", "minMuxrVersion": 8, "contributions": [] }
 ```
 
-`minMuxrVersion` is optional and is preserved when the host parses the manifest. UI version 10 adds the generic declarative `tree` node: per-folder expand/collapse, expand/collapse-all controls, optional lazy `host.rpc` children, closed leaf actions, and folder selection into an existing form field. UI version 9 adds provider-neutral `host.stream` contributions and strict encrypted stream transport. UI version 8 adds bounded per-row icons/metadata and optional sheet-level actions to the generic `item-list` response. UI version 7 adds plugin-owned `navigation-item.badge` read sources and singleton tree-sheet cardinality. UI version 6 adds bounded localized values for every user-visible manifest string and runtime Android launcher projection for shortcut contributions. UI version 5 removes `url-chip`; adds bounded active-only refresh and presentation parameters to `item-list`; adds current-session preview navigation by validated port; and defines capability actions, Assistant shortcuts, the realtime indicator, and singleton realtime-overlay cardinality. UI version 4 added source-driven grouped collections/tree sheets and allow-listed public RPC context. Each phone compares it with its own `MUXR_UI_VERSION`; an older app lists the plugin as unavailable with an update message and refuses to mount its contributions instead of quietly rendering partial UI.
+`minMuxrVersion` is optional and is preserved when the host parses the manifest. UI version 11 adds the bounded declarative `code` node and syntax highlighting for source previews and native unified diffs. UI version 10 adds the generic declarative `tree` node: per-folder expand/collapse, expand/collapse-all controls, optional lazy `host.rpc` children, closed leaf actions, and folder selection into an existing form field. UI version 9 adds provider-neutral `host.stream` contributions and strict encrypted stream transport. UI version 8 adds bounded per-row icons/metadata and optional sheet-level actions to the generic `item-list` response. UI version 7 adds plugin-owned `navigation-item.badge` read sources and singleton tree-sheet cardinality. UI version 6 adds bounded localized values for every user-visible manifest string and runtime Android launcher projection for shortcut contributions. UI version 5 removes `url-chip`; adds bounded active-only refresh and presentation parameters to `item-list`; adds current-session preview navigation by validated port; and defines capability actions, Assistant shortcuts, the realtime indicator, and singleton realtime-overlay cardinality. UI version 4 added source-driven grouped collections/tree sheets and allow-listed public RPC context. Each phone compares it with its own `MUXR_UI_VERSION`; an older app lists the plugin as unavailable with an update message and refuses to mount its contributions instead of quietly rendering partial UI.
 
 ## Capabilities
 

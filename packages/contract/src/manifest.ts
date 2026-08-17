@@ -223,6 +223,12 @@ function parseScreenNode(item: Record<string, unknown>, depth: number, budget: {
             return parseScreenRow(item);
         case 'diff':
             return { type: 'diff', path: bindingPath(item.path) };
+        case 'code':
+            return {
+                type: 'code', path: bindingPath(item.path),
+                ...(item.language === undefined ? {} : { language: text(item.language, 32) }),
+                ...(item.fileNamePath === undefined ? {} : { fileNamePath: bindingPath(item.fileNamePath) }),
+            };
         case 'metric':
             return { type: 'metric', label: pluginText(item.label, 80), value: pluginText(item.value, MAX_TEXT) };
         case 'badge':

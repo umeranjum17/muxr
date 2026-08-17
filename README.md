@@ -24,8 +24,9 @@ Drive every coding agent on your machine — Pi, Claude Code, Codex, Cursor, and
   and single-swipe between working or just-finished agents without paging through
   old shells.
 - **Attention inbox:** surface blocked agents and answer approvals from your phone.
-- **Changes and attachments:** inspect per-run git changes and receive screenshots,
-  APKs, exports, and other artifacts from the pane that produced them.
+- **Files, changes, and attachments:** browse repositories with app-owned syntax
+  highlighting and readable diffs, then receive screenshots, APKs, exports, and
+  other artifacts from the pane that produced them.
 - **Start agents and squads:** choose from the bounded agent catalog reported by
   the connected Herdr host, select a directory and optional worktree, or start
   several agents together. A safe fallback remains available offline.

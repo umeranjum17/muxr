@@ -14,7 +14,7 @@
   <div class="kicker">muxr spec</div>
   <h1>Plugins on primitives</h1>
   <span class="badge">tested</span>
-  <p class="meta">plugin-primitives.md · created 2026-08-15 · updated 2026-08-16 · umer</p>
+  <p class="meta">plugin-primitives.md · created 2026-08-15 · updated 2026-08-17 · umer</p>
   <p class="lead">Primitives, slots, actions, capabilities, and runtime contracts are the public platform. Inbox, Voice, Preview, Changes, Attachments, and future product features are plugins composed entirely from it.</p>
   <div class="card"><h2>Decision</h2><p>Enabled Herdr plugins remain trusted and default-on. Enabling or linking is the user's trust decision. Explicit disable and revoke remain authoritative. This rework strengthens the platform without adding per-device hash reapproval.</p></div>
   <div class="card"><h2>Five platform layers</h2><ol>
@@ -31,9 +31,10 @@
     <li>Hard-kill stuck RPCs, isolate concurrency, and stop repeated full catalog reparsing.</li>
     <li>Publish schemas and prove bundled plus adversarial third-party plugins on Android.</li>
   </ol></div>
-  <div class="card"><h2>Latest revision</h2><p>UI version 10 adds a generic declarative tree with bounded flat/lazy data, folder expansion, closed leaf actions, and folder-to-field selection. File Viewer now browses hierarchically; Runbook executes in a selected folder. Realtime provider policy also lives entirely behind provider-neutral backend streams.</p></div>
+  <div class="card"><h2>Latest revision</h2><p>UI version 11 adds a bounded declarative <code>code</code> node. One app-owned Prism tokenizer now renders plugin previews, native/web file views, Markdown code fences, and native diff lines with shared theme colors, line numbers, selection, and safe plain-text fallback. File previews read at most 24 KiB / 240 lines and report truncation; plugins still ship no HTML or native code.</p></div>
   <div class="card"><h2>Verification</h2><ul class="check">
-    <li>Automation passes 27/27; all 17 bundled plugins and adversarial combinations validate correctly.</li>
+    <li>Automation passes 29/29; all 17 bundled plugins and adversarial combinations validate correctly.</li>
+    <li>The v11 manifest/tokenization flow, mobile typecheck, web export, and Android production JS bundle pass.</li>
     <li>Workspace/mobile typechecks and 62 focused Android acceptance tests pass.</li>
     <li>Hung, oversized, incompatible, and rapidly changing plugins fail locally.</li>
     <li>An API 36 release APK passes cold E2EE pairing, generic plugin navigation/forms, collection/list/tree primitives, mutation refresh, disable/remount, localization, shortcuts, concurrent calls, secure prompts, TalkBack activation, rotation, dictation, and microphone foreground-service lifecycle.</li>
