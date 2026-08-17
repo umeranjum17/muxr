@@ -1,10 +1,15 @@
 {
   "entries": [
     {
+      "title": "Shared relays and safer setup",
+      "summary": "Guided onboarding, machine-scoped VPS relays, and runtime agent discovery.",
+      "markdown": "- Run `muxr` for a reviewed, Cancel-first setup and maintenance menu.\n- Host one encrypted relay for several machines without copying relay-owner authority.\n- Pair a read-only browser from a clickable HTTPS link with clear eight-hour expiry and recovery.\n- Choose agents from the connected Herdr host and view safe coding-CLI usage status."
+    },
+    {
       "title": "muxr",
-      "summary": "A focused mobile control surface for Pi sessions running through herdr.",
-      "markdown": "- Watch Pi sessions, terminals, changes, and attention state from your phone.\n- Send keys, inspect attachments, and start Pi in a selected workspace.\n- Use provider-neutral realtime voice or fully local Whisper dictation."
+      "summary": "A focused mobile control surface for coding agents running through Herdr.",
+      "markdown": "- Watch sessions, terminals, changes, and attention state from your phone.\n- Send keys, inspect attachments, and start agents in a selected workspace.\n- Use provider-neutral realtime voice or fully local Whisper dictation."
     }
   ],
-  "latestTitle": "muxr"
+  "latestTitle": "Shared relays and safer setup"
 }
