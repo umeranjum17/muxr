@@ -17,7 +17,7 @@ tree; they do not make the repo public or publish npm.
 - [x] Contract plugin-bridge types match `plugin.*`; CI checks RequestMap + bundled `plugin check`
 - [x] SECURITY.md states paired-device ⇒ shell; Runbook named as bundled remote shell
 
-The repository and fresh public history are live. This checklist now tracks the current `v0.1.2` release candidate.
+The repository and fresh public history are live. This checklist now tracks the current `v0.1.3` release candidate.
 
 ## Pre-flight (code state)
 
@@ -27,7 +27,7 @@ The repository and fresh public history are live. This checklist now tracks the 
 - [x] LICENSE replaced with Apache-2.0 text; all `package.json` license fields → `Apache-2.0`
 - [x] NOTICE intact: Happy + PI WEB attribution present; no Apache headers stamped on inherited third-party files
 - [x] CONTRIBUTING.md, DCO.md, TRADEMARK.md, docs/SELF-HOSTING.md current
-- [x] CI and CodeQL green on public `v0.1.1`; final `v0.1.2` candidate passes the full local 27/27 suite and clean x86_64 emulator install/pair (2026-08-16)
+- [x] CI and CodeQL green through PR #23; the `v0.1.3` candidate passes the full local 29/29 suite, package smoke, shared-relay isolation, and clean runtime-discovery checks (2026-08-17)
 
 ## History decision (choose one)
 
@@ -46,8 +46,8 @@ The repository and fresh public history are live. This checklist now tracks the 
 
 - [x] Repo public; description, homepage, and topics set
 - [x] Published `v0.1.1` with signed APK/AAB, `@trymuxr/cli` tarball, frozen source archive, complete demo, and verified `SHA256SUMS`
-- [ ] Publish the final `v0.1.2` artifacts after protected CI and scanner gates pass
-- [ ] Publish and anonymously verify `@trymuxr/cli@0.1.1` and `@trymuxr/cli@0.1.2` through the protected OIDC workflow
+- [ ] Publish the final `v0.1.3` artifacts after protected CI and scanner gates pass
+- [ ] Publish and anonymously verify `@trymuxr/cli@0.1.3` through the protected OIDC workflow
 - [x] Support policy posted in `README.md`: issues accepted, best-effort, no SLA
 
 ## After
