@@ -35,6 +35,7 @@ import {
     MAX_PLUGIN_LOCALE_TAG_LENGTH,
     MAX_PLUGIN_TEXT_LOCALES,
     PLUGIN_TEXT_MIN_UI_VERSION,
+    DYNAMIC_SCREEN_MIN_UI_VERSION,
     sanitizeDisplayText,
 } from './plugins.js';
 
@@ -234,11 +235,30 @@ function parseScreenNode(item: Record<string, unknown>, depth: number, budget: {
         case 'badge':
             return { type: 'badge', label: pluginText(item.label, 40), ...(item.tone === undefined ? {} : { tone: tone(item.tone) }) };
         case 'progress': {
-            const value = number(item.value);
+            const hasValue = item.value !== undefined;
+            const hasPath = item.path !== undefined;
+            if (hasValue === hasPath) throw new Error('plugin screen progress requires exactly one of value or path');
+            const value = hasValue ? number(item.value) : undefined;
+            const path = hasPath ? bindingPath(item.path) : undefined;
             const max = item.max === undefined ? 100 : number(item.max);
-            if (!Number.isFinite(value) || value < 0 || !Number.isFinite(max) || max <= 0 || value > max * 1_000_000) throw new Error('invalid plugin screen progress');
-            return { type: 'progress', value, ...(item.max === undefined ? {} : { max }) };
+            if (value !== undefined && (value < 0 || value > max * 1_000_000) || max <= 0) throw new Error('invalid plugin screen progress');
+            return {
+                type: 'progress',
+                ...(value === undefined ? {} : { value }),
+                ...(path === undefined ? {} : { path }),
+                ...(item.max === undefined ? {} : { max }),
+                ...(item.label === undefined ? {} : { label: pluginText(item.label, 80) }),
+                ...(item.valueLabel === undefined ? {} : { valueLabel: pluginText(item.valueLabel, 80) }),
+                ...(item.tone === undefined ? {} : { tone: tone(item.tone) }),
+            };
         }
+        case 'chart':
+            if (item.variant !== 'bar' && item.variant !== 'ring') throw new Error('invalid plugin screen chart variant');
+            return {
+                type: 'chart', variant: item.variant, path: bindingPath(item.path),
+                ...(item.title === undefined ? {} : { title: pluginText(item.title, 80) }),
+                ...(item.emptyText === undefined ? {} : { emptyText: pluginText(item.emptyText, 120) }),
+            };
         case 'divider':
             return { type: 'divider' };
         case 'empty':
@@ -252,8 +272,15 @@ function parseScreenNode(item: Record<string, unknown>, depth: number, budget: {
             if (action.type === 'plugin.call' && action.input !== undefined) throw new Error('plugin screen button input comes from fields and screen params');
             return { type: 'button', label: pluginText(item.label, 40), action, ...(fields === undefined ? {} : { fields }), ...(item.variant === undefined ? {} : { variant: variant(item.variant) }) };
         }
-        case 'section':
-            return { type: 'section', ...(item.title === undefined ? {} : { title: pluginText(item.title, 80) }), children: parseScreenNodes(item.children, depth + 1, budget) };
+        case 'section': {
+            const columns = item.columns === undefined ? undefined : number(item.columns);
+            if (columns !== undefined && columns !== 2 && columns !== 3) throw new Error('plugin screen section columns must be 2 or 3');
+            const children = parseScreenNodes(item.children, depth + 1, budget);
+            if (columns !== undefined && children.some((child) => ['field', 'button', 'tree', 'list', 'code', 'diff'].includes(child.type))) {
+                throw new Error('plugin screen section columns only support summary nodes');
+            }
+            return { type: 'section', ...(item.title === undefined ? {} : { title: pluginText(item.title, 80) }), ...(columns === undefined ? {} : { columns: columns as 2 | 3 }), children };
+        }
         case 'tree':
             return {
                 type: 'tree', path: bindingPath(item.path),
@@ -443,6 +470,12 @@ function containsLocalizedText(value: unknown, parentKey?: string): boolean {
     if (typeof value.default === 'string' && isRecord(value.translations)
         && Object.keys(value).every((key) => key === 'default' || key === 'translations')) return true;
     return Object.entries(value).some(([key, entry]) => containsLocalizedText(entry, key));
+}
+
+function usesDynamicScreenNodes(nodes: PluginScreenNode[]): boolean {
+    return nodes.some((node) => node.type === 'chart'
+        || node.type === 'progress' && node.path !== undefined
+        || node.type === 'section' && (node.columns !== undefined || usesDynamicScreenNodes(node.children)));
 }
 
 function assertFiniteNumbers(value: unknown): void {
@@ -709,6 +742,10 @@ export function parseManifest(value: unknown): PluginManifestV1 {
     if (contributions.some((contribution) => containsLocalizedText(contribution))
         && (minMuxrVersion ?? 1) < PLUGIN_TEXT_MIN_UI_VERSION) {
         throw new Error(`localized plugin text requires minMuxrVersion ${PLUGIN_TEXT_MIN_UI_VERSION}`);
+    }
+    if (contributions.some((contribution) => 'type' in contribution && contribution.type === 'screen' && usesDynamicScreenNodes(contribution.children))
+        && (minMuxrVersion ?? 1) < DYNAMIC_SCREEN_MIN_UI_VERSION) {
+        throw new Error(`dynamic plugin screen nodes require minMuxrVersion ${DYNAMIC_SCREEN_MIN_UI_VERSION}`);
     }
     return { schemaVersion: 1, pluginId, ...(minMuxrVersion === undefined ? {} : { minMuxrVersion }), ...(capabilities === undefined ? {} : { capabilities }), contributions };
 }

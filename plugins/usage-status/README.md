@@ -1,7 +1,8 @@
 # Usage status
 
-Read-only coding-agent usage item sheet.
+Read-only coding-agent usage item sheet plus a declarative detail screen.
 
+- **Presentation:** the home card opens an item sheet of rows; the session header button opens a native detail screen with summary metrics, a bar chart of today's per-agent token share, and Codex limit progress/ring visuals (UI v13 public nodes).
 - **Local activity:** runs the exact pinned [ccusage](https://github.com/ccusage/ccusage) native binary with `daily --last 1 --by-agent --json --no-cost --offline`. It reads local coding-agent logs, makes no model or pricing request, and returns only allowlisted agent names plus rounded total-token counts.
 - **Current Codex limits:** queries the installed Codex local app-server API and renders only bounded percentages and reset times.
 - **Installed agents:** PATH-only detection lists every known installed CLI. Agents absent from today's ccusage rows are labeled either “no activity reported” or “local totals unsupported by ccusage”; muxr never invokes those CLIs.

@@ -205,7 +205,7 @@ breaks an older app. The boxed Voice plugin is the worked example: the manifest 
 External extensions compose a closed native vocabulary. A `navigation.content` screen contribution composes these nodes:
 
 - `section` and bounded `list` containers;
-- `text`, `row`, `metric`, `badge`, `progress`, `divider`, and `empty` display nodes;
+- `text`, `row`, `metric`, `badge`, `progress`, `chart`, `divider`, and `empty` display nodes;
 - bounded `code` and unified `diff` nodes rendered by the app with syntax highlighting, line numbers, selection, light/dark themes, and no plugin HTML;
 - an expandable/collapsible `tree` bound to flat or nested runtime nodes, with optional lazy read source, leaf action, and folder `selectionField`;
 - an RPC action `button` (with optional `fields`);
@@ -239,6 +239,20 @@ A diff binds a unified patch and uses the same app-owned highlighting vocabulary
 ```json
 { "type": "diff", "path": "data.patch" }
 ```
+
+`progress` renders a literal `value` (default max 100) or binds a numeric runtime path with optional `label` and `valueLabel`:
+
+```json
+{ "type": "progress", "path": "data.remaining", "max": 100, "label": "Plan remaining", "valueLabel": "{{data.remainingLabel}}", "tone": "positive" }
+```
+
+`chart` renders a bounded `bar` or `ring` graphic from a runtime path. The data is an array of `{ "label": "Claude", "value": 42, "valueLabel": "42 tokens", "tone": "positive" }` entries: at most 8, with sanitized 24-byte labels, finite non-negative values, and tones from the shared set. The app owns all colors, always draws a visible label/value legend (information is never color-only), and exposes an accessibility summary; an empty or all-zero series renders `emptyText`. There are no axes, animations, touch handlers, or plugin-supplied colors.
+
+```json
+{ "type": "chart", "variant": "bar", "path": "data.agents", "title": "Token activity", "emptyText": "No activity today" }
+```
+
+A `section` may set `"columns": 2` or `3` to lay summary nodes (`metric`, `badge`, `progress`, `text`, `row`, `empty`, `chart`, `divider`) side by side; the app collapses three columns to two on narrow screens. Sections containing `field`, `button`, `tree`, `list`, `code`, or `diff` children must stay full width and are rejected with columns. A bound `progress`, `chart`, or `columns` requires `minMuxrVersion: 13`.
 
 muxr owns layout, typography, spacing, accessibility behavior, loading states, and light/dark rendering. Extensions provide content and intent.
 

@@ -1,10 +1,11 @@
 import * as React from 'react';
-import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View, type StyleProp, type ViewStyle } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View, useWindowDimensions, type StyleProp, type ViewStyle } from 'react-native';
 import { randomUUID } from 'expo-crypto';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { Circle, Svg } from 'react-native-svg';
 import { useUnistyles } from 'react-native-unistyles';
-import type { PluginManifestV1, PluginScreenButtonNode, PluginScreenContribution, PluginScreenNode, PluginScreenRowAction, PluginScreenRowNode, PluginScreenTreeNode, PluginSource, PluginText, RequestParams } from '@muxr/contract';
+import type { PluginManifestV1, PluginScreenButtonNode, PluginScreenChartNode, PluginScreenContribution, PluginScreenNode, PluginScreenRowAction, PluginScreenRowNode, PluginScreenTone, PluginScreenTreeNode, PluginSource, PluginText, RequestParams } from '@muxr/contract';
 import { MAX_SCREEN_LIST_ROWS, PLUGIN_CALL_CLIENT_TIMEOUT_MS, capUtf8Bytes, defaultPluginText, sanitizeDisplayText } from '@muxr/contract';
 import type { Theme } from '@/theme';
 import { Switch } from '@/components/Switch';
@@ -17,6 +18,7 @@ import { subscribePluginDataInvalidation } from './pluginDataInvalidation';
 import { bindText, initialFieldValues, loadScreenData, resolvePath, runScreenButton, sharedPluginWriteKeys, shouldReloadAfterAction, type ScreenFieldValues } from './screenModel';
 import { resolvePluginText } from './pluginText';
 import { asScreenTree, type RuntimeTreeItem } from './screenTreeModel';
+import { asChartSeries, type PluginChartItem } from './chartModel';
 import { t } from '@/text';
 import { boundText } from '@/utils/boundedText';
 
@@ -28,6 +30,18 @@ function toneColor(theme: Theme, tone: string | undefined): string {
         case 'secondary': return theme.colors.textSecondary;
         default: return theme.colors.text;
     }
+}
+
+function visualColor(theme: Theme, tone: PluginScreenTone | undefined, index = 0): string {
+    if (tone === 'positive') return theme.colors.success;
+    if (tone === 'warning') return theme.colors.box.warning.text;
+    if (tone === 'danger') return theme.colors.box.error.text;
+    if (tone === 'secondary') return theme.colors.textSecondary;
+    return [theme.colors.accent, theme.colors.textLink, theme.colors.success, theme.colors.box.warning.text, theme.colors.box.error.text, theme.colors.textSecondary][index % 6]!;
+}
+
+function chartValue(item: PluginChartItem): string {
+    return item.valueLabel ?? String(item.value);
 }
 
 function ScreenRow(props: {
@@ -152,6 +166,65 @@ function ScreenTree(props: {
     </View>;
 }
 
+function ScreenChart({ node, data }: { node: PluginScreenChartNode; data: unknown }) {
+    const { theme } = useUnistyles();
+    const series = asChartSeries(resolvePath(data, node.path));
+    const title = node.title === undefined ? undefined : bindText(resolvePluginText(node.title), data);
+    const empty = node.emptyText === undefined ? t('plugins.nothingToShow') : bindText(resolvePluginText(node.emptyText), data);
+    if (series.length === 0) return <View style={{ marginBottom: 12 }}>
+        {title !== undefined && <Text style={{ color: theme.colors.text, fontSize: 15, fontWeight: '600', marginBottom: 8 }}>{title}</Text>}
+        <Text style={{ color: theme.colors.textSecondary, fontSize: 14 }}>{empty}</Text>
+    </View>;
+    const total = series.reduce((sum, item) => sum + item.value, 0);
+    const summary = `${title ?? 'Chart'}: ${series.map((item) => `${item.label} ${node.variant === 'ring' ? `${Math.round(item.value / total * 100)} percent` : chartValue(item)}`).join(', ')}`;
+    if (node.variant === 'ring') {
+        const radius = 42;
+        const circumference = 2 * Math.PI * radius;
+        let offset = 0;
+        return <View style={{ marginBottom: 14 }}>
+            {title !== undefined && <Text style={{ color: theme.colors.text, fontSize: 15, fontWeight: '600', marginBottom: 10 }}>{title}</Text>}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 18 }}>
+                <View accessible accessibilityRole="image" accessibilityLabel={summary}>
+                    <Svg width={104} height={104} viewBox="0 0 104 104">
+                        <Circle cx={52} cy={52} r={radius} fill="none" stroke={theme.colors.surfaceHighest} strokeWidth={12} />
+                        {series.map((item, index) => {
+                            const length = item.value / total * circumference;
+                            const dashOffset = -offset;
+                            offset += length;
+                            return item.value === 0 ? null : <Circle key={`${item.label}-${index}`} cx={52} cy={52} r={radius} fill="none"
+                                stroke={visualColor(theme, item.tone, index)} strokeWidth={12} strokeLinecap="butt"
+                                strokeDasharray={[length, circumference - length]} strokeDashoffset={dashOffset}
+                                rotation={-90} origin="52, 52" />;
+                        })}
+                    </Svg>
+                </View>
+                <View style={{ flex: 1, gap: 8 }}>
+                    {series.map((item, index) => <View key={`${item.label}-${index}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
+                        <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: visualColor(theme, item.tone, index) }} />
+                        <Text numberOfLines={1} style={{ color: theme.colors.text, fontSize: 13, flex: 1 }}>{item.label}</Text>
+                        <Text style={{ color: theme.colors.textSecondary, fontSize: 13 }}>{chartValue(item)}</Text>
+                    </View>)}
+                </View>
+            </View>
+        </View>;
+    }
+    const max = Math.max(...series.map((item) => item.value));
+    return <View style={{ marginBottom: 14 }} accessible accessibilityRole="image" accessibilityLabel={summary}>
+        {title !== undefined && <Text style={{ color: theme.colors.text, fontSize: 15, fontWeight: '600', marginBottom: 10 }}>{title}</Text>}
+        <View style={{ gap: 10 }}>
+            {series.map((item, index) => <View key={`${item.label}-${index}`}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
+                    <Text numberOfLines={1} style={{ color: theme.colors.text, fontSize: 13, flex: 1 }}>{item.label}</Text>
+                    <Text style={{ color: theme.colors.textSecondary, fontSize: 13 }}>{chartValue(item)}</Text>
+                </View>
+                <View style={{ height: 7, borderRadius: 4, backgroundColor: theme.colors.surfaceHighest, overflow: 'hidden' }}>
+                    <View style={{ width: `${item.value / max * 100}%`, height: '100%', borderRadius: 4, backgroundColor: visualColor(theme, item.tone, index) }} />
+                </View>
+            </View>)}
+        </View>
+    </View>;
+}
+
 function ScreenNode(props: {
     node: PluginScreenNode;
     data: unknown;
@@ -164,6 +237,7 @@ function ScreenNode(props: {
     onTreeError: (error: unknown) => void;
 }) {
     const { theme } = useUnistyles();
+    const { width } = useWindowDimensions();
     const { node, data, fields } = props;
     const bind = (value: PluginText) => bindText(resolvePluginText(value), data);
     switch (node.type) {
@@ -198,15 +272,27 @@ function ScreenNode(props: {
             );
         case 'progress': {
             const max = node.max ?? 100;
-            const pct = Math.max(0, Math.min(100, (node.value / max) * 100));
+            const resolved = node.path === undefined ? node.value : resolvePath(data, node.path);
+            const raw = typeof resolved === 'number' && Number.isFinite(resolved) ? resolved : 0;
+            const value = Math.max(0, Math.min(max, raw));
+            const pct = value / max * 100;
+            const label = node.label === undefined ? undefined : bind(node.label);
+            const valueLabel = node.valueLabel === undefined ? undefined : bind(node.valueLabel);
             return (
-                <View style={{ marginBottom: 8 }} accessibilityRole="progressbar" accessibilityValue={{ min: 0, max, now: node.value }}>
-                    <View style={{ height: 6, borderRadius: 3, backgroundColor: theme.colors.surfaceHighest, overflow: 'hidden' }}>
-                        <View style={{ width: `${pct}%`, height: '100%', backgroundColor: theme.colors.success }} />
+                <View style={{ marginBottom: 12 }} accessibilityRole="progressbar" accessibilityLabel={[label, valueLabel].filter(Boolean).join(', ') || undefined}
+                    accessibilityValue={{ min: 0, max, now: value }}>
+                    {(label !== undefined || valueLabel !== undefined) && <View style={{ flexDirection: 'row', marginBottom: 6 }}>
+                        {label !== undefined && <Text style={{ color: theme.colors.text, fontSize: 13, flex: 1 }}>{label}</Text>}
+                        {valueLabel !== undefined && <Text style={{ color: theme.colors.textSecondary, fontSize: 13 }}>{valueLabel}</Text>}
+                    </View>}
+                    <View style={{ height: 7, borderRadius: 4, backgroundColor: theme.colors.surfaceHighest, overflow: 'hidden' }}>
+                        <View style={{ width: `${pct}%`, height: '100%', borderRadius: 4, backgroundColor: visualColor(theme, node.tone) }} />
                     </View>
                 </View>
             );
         }
+        case 'chart':
+            return <ScreenChart node={node} data={data} />;
         case 'divider':
             return <View style={{ height: 1, backgroundColor: theme.colors.divider, marginVertical: 8 }} />;
         case 'empty':
@@ -216,15 +302,20 @@ function ScreenNode(props: {
                     {node.message !== undefined && <Text style={{ color: theme.colors.textSecondary, fontSize: 14, marginTop: 4, textAlign: 'center' }}>{bind(node.message)}</Text>}
                 </View>
             );
-        case 'section':
+        case 'section': {
+            const columns = node.columns === 3 && width < 480 ? 2 : node.columns;
             return (
                 <View style={{ marginBottom: 8 }}>
                     {node.title !== undefined && <Text style={{ color: theme.colors.textSecondary, fontSize: 13, textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 6, marginTop: 12 }}>{bind(node.title)}</Text>}
-                    <View style={{ backgroundColor: theme.colors.surfaceHigh, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 6 }}>
-                        {node.children.map((child, index) => <ScreenNode key={index} {...props} node={child} />)}
+                    <View style={{ backgroundColor: theme.colors.surfaceHigh, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 6,
+                        ...(columns === undefined ? {} : { flexDirection: 'row', flexWrap: 'wrap', columnGap: 10 }) }}>
+                        {node.children.map((child, index) => columns === undefined
+                            ? <ScreenNode key={index} {...props} node={child} />
+                            : <View key={index} style={{ flexBasis: `${100 / columns - 2}%`, flexGrow: 1, maxWidth: `${100 / columns}%` }}><ScreenNode {...props} node={child} /></View>)}
                     </View>
                 </View>
             );
+        }
         case 'tree':
             return <ScreenTree node={node} data={data} fields={fields} setField={props.setField} onRowAction={props.onRowAction} onError={props.onTreeError}
                 {...(node.source === undefined ? {} : { loadChildren: (path) => props.onTreeLoad(node, path) })} />;

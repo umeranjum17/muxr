@@ -1,258 +1,92 @@
-# muxr
+<p align="center">
+  <img src="docs/play/store-assets/store-icon.png" width="96" alt="muxr" />
+</p>
 
-Drive every coding agent on your machine — Pi, Claude Code, Codex, Cursor, and 17 more — from your phone or browser through [herdr](https://herdr.dev), without moving anything off your machine.
+<h1 align="center">muxr</h1>
 
-> **Fully open source:** this repository is the complete product—CLI, relay,
-> mobile app, pairing, encryption, and plugin platform. Run it yourself, modify
-> it, and extend it under Apache-2.0.
-
-> **Security:** terminal and session traffic is end-to-end encrypted (v2 machine
-> keys) whenever E2EE is on — the secure default outside the explicit loopback development fixture.
-> The relay routes ciphertext it cannot read. The explicit source development
-> fixture may run cleartext; normal relays do not.
+<p align="center"><strong>Every coding agent, on your phone.</strong></p>
 
 <p align="center">
-  <img src="docs/play/store-assets/01-herd.png" alt="muxr Herd overview on Android" width="31%" />
-  <img src="docs/play/store-assets/02-terminal.png" alt="muxr real terminal controls on Android" width="31%" />
-  <img src="docs/play/store-assets/03-plugins.png" alt="muxr public plugin catalog on Android" width="31%" />
+  Watch terminals, answer prompts, send instructions, move files, and talk to your agents from Android or a read-only browser. Your machine stays the source of truth.
 </p>
+
+<p align="center">
+  <a href="https://trymuxr.com">Website</a> ·
+  <a href="https://trymuxr.com/docs/quickstart">Quickstart</a> ·
+  <a href="https://github.com/umeranjum17/muxr/releases/download/v0.1.4/muxr-demo-v0.1.4.mp4">Demo</a> ·
+  <a href="https://github.com/umeranjum17/muxr/releases/latest">Android</a> ·
+  <a href="https://trymuxr.com/docs/plugins">Extensions</a>
+</p>
+
+<p align="center">
+  <a href="https://www.npmjs.com/package/@trymuxr/cli"><img alt="npm" src="https://img.shields.io/npm/v/@trymuxr/cli?style=flat-square&label=npm" /></a>
+  <a href="https://github.com/umeranjum17/muxr/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/umeranjum17/muxr/ci.yml?style=flat-square&branch=main" /></a>
+  <a href="LICENSE"><img alt="Apache 2.0" src="https://img.shields.io/badge/license-Apache--2.0-666?style=flat-square" /></a>
+</p>
+
+[![muxr on Android](docs/play/store-assets/01-herd.png)](https://github.com/umeranjum17/muxr/releases/download/v0.1.4/muxr-demo-v0.1.4.mp4)
 
 ## What it does
 
-- **Herd overview:** see every active agent, workspace, tab, and pane at a glance.
-- **Real terminals:** render the agent's actual TUI, send keys, scroll, split panes,
-  and single-swipe between working or just-finished agents without paging through
-  old shells.
-- **Attention inbox:** surface blocked agents and answer approvals from your phone.
-- **Files, changes, and attachments:** browse repositories with app-owned syntax
-  highlighting and readable diffs, then receive screenshots, APKs, exports, and
-  other artifacts from the pane that produced them.
-- **Start agents and squads:** choose from the bounded agent catalog reported by
-  the connected Herdr host, select a directory and optional worktree, or start
-  several agents together. A safe fallback remains available offline.
-- **Usage at a glance:** pinned [ccusage](https://github.com/ccusage/ccusage) reads local coding-agent logs offline
-  for today's per-agent activity, while Codex's local app-server reports current
-  rate limits. Costs, prompts, models, and session details stay out of the sheet;
-  other installed CLIs are labeled as having no reported activity or unsupported local totals.
-- **Voice:** start an explicit provider-neutral realtime conversation through a
-  backend plugin, or dictate editable text locally with bundled Whisper Base
-  English. Provider credentials stay on the host; dictation audio never leaves
-  the phone.
-- **Local host bridge:** your machine remains the source of truth and runs the
-  agents under your user. Connect over your network, Tailscale, a tunnel, or SSH.
+- **One herd:** see every agent and terminal, including who is working, blocked, or done.
+- **Real terminal control:** read output, type, prompt, interrupt, and manage sessions remotely.
+- **Phone-native tools:** Files, Changes, attachments, Runbook, Usage, Voice, and notifications.
+- **End-to-end encrypted:** relays route encrypted envelopes; your code and terminal output stay between your devices.
+- **Open extension platform:** bundled and third-party extensions use the same bounded public contract. No plugin HTML or arbitrary WebViews.
 
-## Architecture
+## Install
 
-```text
-PHONE / WEB             RELAY                 YOUR MACHINE
-apps/mobile      <----> apps/relay      <----> apps/host      <----> herdr
-terminal + UI           routes bytes           translates            owns PTYs
-```
-
-The relay routes ciphertext it cannot read: session envelopes and terminal
-frames are v2 end-to-end encrypted whenever E2EE is on (the secure default
-outside the explicit source development fixture). The host translates herdr's socket
-and terminal streams into the shared contract. The app renders and stores local
-presentation state; it does not own agent lifecycle state.
-
-See [Architecture](docs/ARCHITECTURE.md) for the full data flow and ownership
-boundaries. muxr ships a Pi-like plugin platform: one host-installed package
-can combine Herdr backend hooks with declarative native mobile contributions. See
-[Build a muxr plugin](docs/PLUGINS.md).
-
-## Quick start
-
-Requires Linux, macOS, or WSL and Node.js 22 or newer.
+You need [Node.js 22 or newer](https://nodejs.org/).
 
 ```bash
 npm install -g @trymuxr/cli
 muxr
 ```
 
-The interactive `muxr` onboarding changes nothing until you review and apply
-its plan. You choose networking, Herdr and agent integrations, optional plugins,
-managed services, and phone/browser pairing. It then verifies the supervised
-relay and host and reports their URLs and health without printing secrets.
-Native setup displays a QR; browser setup displays a clickable HTTPS pairing
-link for an eight-hour read-only grant.
+The setup wizard inspects first and changes nothing until you review the plan and choose **Apply setup**. Pick local network, Tailscale, Cloudflare, your own WSS endpoint, or a shared self-hosted relay. Then scan the one-use QR with the app.
 
-Need one always-on relay for several computers? Run interactive `muxr` on a VPS,
-choose **Host or change a shared relay**, then create a five-minute machine
-enrollment. On each agent computer choose **Connect to a shared relay**. Keys are
-generated locally and each machine receives only a revocable credential scoped
-to itself; the relay-owner secret never leaves the VPS. Voice and Run Server are optional bundled plugins using the same public
-API as every third-party plugin.
+- **Android:** [signed APK](https://github.com/umeranjum17/muxr/releases/download/v0.1.4/muxr-0.1.4.apk) · [SHA256SUMS](https://github.com/umeranjum17/muxr/releases/download/v0.1.4/SHA256SUMS) · Google Play coming soon
+- **Web:** choose the eight-hour read-only browser client during setup
+- **iOS:** in development, not yet available
 
-**Android:** [download the signed muxr v0.1.4 APK](https://github.com/umeranjum17/muxr/releases/download/v0.1.4/muxr-0.1.4.apk) ([SHA256SUMS](https://github.com/umeranjum17/muxr/releases/download/v0.1.4/SHA256SUMS)). A Google Play release is coming soon. **iOS is coming soon.** Prefer a browser today? Choose the read-only web client during interactive `muxr` setup.
+Read the [step-by-step quickstart](https://trymuxr.com/docs/quickstart).
 
-### Let your coding agent set it up
+## Agents
 
-Paste this prompt into Pi, Claude Code, Codex, or another local coding agent:
+muxr reads the agent catalog from [Herdr](https://github.com/herdrdev/herdr) and works with what is installed on your machine:
 
-> Set up muxr on this machine from the public release at
-> <https://github.com/umeranjum17/muxr>. Use Node.js 22+ and install the CLI with
-> `npm install -g @trymuxr/cli`, then launch `muxr` in an interactive terminal
-> for me. Do not choose connection, Herdr, integration, plugin, or service
-> options on my behalf; let me review and apply the onboarding plan. Run
-> `muxr doctor` afterward and fix any local setup problem it reports. Do not use
-> cloud EAS builds, paid APIs, or hosted services. Leave the short-lived pairing
-> QR in the terminal for me; never repeat its payload in chat or logs. Finally,
-> point me to the signed Android APK and `SHA256SUMS` on the latest GitHub
-> release.
+**Pi, Claude Code, Codex, Gemini CLI, Cursor, OpenCode, GitHub Copilot CLI, Kimi Code, Grok, Hermes, Amp, Droid, Devin, Cline, Kiro, Kilo Code, Qwen, OMP, Qoder, Maki, MastraCode, and custom Herdr agent kinds.**
 
-A successful setup ends with the selected integrations applied, the local relay
-and host running, and a one-use encrypted pairing QR ready for the phone.
+muxr does not replace or wrap them. Herdr owns their real terminal sessions; muxr gives you a secure remote surface.
 
-Run `muxr` with no arguments for the interactive setup and maintenance menu.
-Choose **Update muxr** there, or run `muxr update --yes` in automation; it updates
-the npm package, refreshes bundled plugins, and restarts the running relay and
-host.
+## Extensions
+
+Extensions can add native controls, screens, files, diffs, trees, metrics, charts, shortcuts, events, and backend streams through a versioned public API. The app renders compiled, theme-aware components; extensions never download executable UI.
+
+Start with the [extension guide](https://trymuxr.com/docs/plugins) and the [bundled examples](plugins/).
+
+## Self-hosting
+
+The host and relay are open source. Run everything on one computer, expose it with Tailscale or Cloudflare, connect to your own WSS endpoint, or enroll machines into a relay you operate.
+
+- [Quickstart](https://trymuxr.com/docs/quickstart)
+- [Self-hosting](docs/SELF-HOSTING.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [Security](SECURITY.md)
+- [Voice](docs/VOICE-SETUP.md)
 
 ## Development
 
-Clone the repository, run `yarn install --frozen-lockfile`, then start the development relay and host:
-
 ```bash
-yarn up
-```
-
-`yarn up` prints the relay URL, machine id, and development-only scoped account credential needed by
-the app. Strict paired traffic uses scoped credentials only to mint short-lived one-use WebSocket tickets. It uses the real herdr server; for UI work without herdr, run the relay
-and scripted host separately:
-
-```bash
-MUXR_RELAY_HOST=127.0.0.1 node apps/relay/dist/main.js
-node apps/host/dist/main.js --fake
-```
-
-Start the web app in another terminal using the connection values printed by
-`yarn up`:
-
-```bash
-cd apps/mobile
-EXPO_PUBLIC_MUXR_MODE=local \
-EXPO_PUBLIC_MUXR_RELAY_URL=ws://127.0.0.1:8792 \
-EXPO_PUBLIC_MUXR_MACHINE_ID=devbox \
-EXPO_PUBLIC_MUXR_TOKEN=<account-token-if-shown> \
-  yarn web
-```
-
-Open <http://localhost:8081>, create the local account, and select the machine.
-A physical phone must use the host's LAN or HTTPS address—not `127.0.0.1`.
-Run `yarn doctor` when the stack does not connect.
-
-## Self-hosting and native builds
-
-- [Self-hosting](docs/SELF-HOSTING.md): run your own relay, pair via QR or
-  pairing string, and Tailscale/Cloudflare Tunnel/SSH connectivity.
-  The relay also has a [Dockerfile](Dockerfile) (`docker compose up` runs it).
-- [Native Android build](docs/NATIVE-BUILD.md): JDK/SDK/NDK requirements and the
-  local arm64 APK build. Android builds are local; the project does not spend
-  cloud EAS build credits. **Expo Go will not work** — the app uses custom native
-  modules and `patch-package`.
-- [Voice setup](docs/VOICE-SETUP.md): provider-neutral realtime voice, backend
-  plugin credentials, local Whisper dictation, and platform boundaries.
-- [Build a muxr plugin](docs/PLUGINS.md): package shape, native hooks,
-  components, data, actions, notifications, trust, and the author loop.
-- [Docs index](docs/README.md): architecture, ADRs, specs, and setup guides.
-- [Contributing](CONTRIBUTING.md): development rules and verification commands.
-- [Security](SECURITY.md): report a vulnerability privately; what is and is not in scope.
-- [Governance](GOVERNANCE.md) and [Code of conduct](CODE_OF_CONDUCT.md).
-
-## Configuration
-
-### Relay
-
-| Variable | Default | Purpose |
-|---|---|---|
-| `MUXR_RELAY_DEVELOPMENT_API` | `0` | Set to `1` only for the loopback development fixture; normal relays use strict auth and E2EE |
-| `MUXR_RELAY_LOCAL_AUTHORITY` | `1` | File-backed pairing, revocation, and one-use ticket authority |
-| `MUXR_RELAY_PUBLIC_EDGE` | `0` | Public-edge HTTP hardening for an embedding process |
-| `MUXR_RELAY_HOST` | `127.0.0.1` | Relay bind address |
-| `MUXR_RELAY_PORT` | `8792` | Relay port |
-| `MUXR_RELAY_DATA_DIR` | `~/.muxr/relay` | Relay state (tickets, registry, buffers) |
-| `MUXR_RELAY_E2EE` | `on` | `off` is accepted only by the explicit development API |
-| `MUXR_TRUST_PROXY` | off | `1` when behind cloudflared/nginx so rate limits key on real client IPs |
-
-Self-hosting is the product, not a reduced tier. See [docs/SELF-HOSTING.md](docs/SELF-HOSTING.md).
-
-### Host
-
-| Variable | Purpose |
-|---|---|
-| `MUXR_MODE` | Strict paired mode is inferred from valid self-host setup state; `local` is an explicit development fixture |
-| `MUXR_MACHINE_ID` | Local fixture override; paired setup owns the machine id |
-| `MUXR_RELAY_URL` | Local fixture override; paired setup owns relay discovery |
-| `MUXR_RELAY_TOKEN` | Local/support override; paired setup stores the scoped machine credential owner-only |
-| `MUXR_E2EE_SHARED_KEY` | Explicit local legacy fixture only; strict paired startup rejects it |
-
-### App build
-
-| Variable | Purpose |
-|---|---|
-| `EXPO_PUBLIC_MUXR_MODE` | Strict paired mode (default) or explicit `local` development fixture |
-| `EXPO_PUBLIC_MUXR_RELAY_URL` | Initial relay origin or local fixture URL; the paired relay remains editable in Settings |
-| `EXPO_PUBLIC_MUXR_MACHINE_ID` | Local fixture default only; pairing selects the machine |
-| `EXPO_PUBLIC_MUXR_TOKEN` / `EXPO_PUBLIC_MUXR_E2EE_KEY` | Local fixture only; ignored and scrubbed in strict paired mode |
-| `MUXR_APP_ID_BASE` | Optional validation override; production is permanently `com.trymuxr.app` |
-| `MUXR_PUBLIC_BASE_URL` | Owner-controlled HTTPS origin for activation and verified links; required for production |
-| `MUXR_EAS_PROJECT_ID` | Optional EAS project association; no inherited project is hard-coded |
-
-Development uses the reserved local identifier `app.muxr.local.dev`; preview
-uses `app.muxr.local.preview`. Production is permanently `com.trymuxr.app` and
-fails configuration until the owner supplies the publishing HTTPS origin.
-Connection values are baked into the bundle and remain editable under Settings →
-Connection.
-
-### Setup safety
-
-If herdr is missing, interactive `muxr setup` asks before downloading its
-installer and defaults to No; non-interactive use requires `--install-herdr`.
-Set `MUXR_HERDR_INSTALLER` to an executable reviewed local installer to avoid
-remote installer execution.
-
-muxr state lives under `~/.muxr` unless `MUXR_HOME` is set; environment variables use the `MUXR_*` prefix.
-
-## Development checks
-
-```bash
+git clone https://github.com/umeranjum17/muxr
+cd muxr
+yarn install --frozen-lockfile
 yarn typecheck
-npx vitest run
-node packages/contract/dist/selfCheck.js
-node scripts/runSuite.mjs  # includes the clean npm-package smoke flow
+node scripts/runSuite.mjs
 ```
 
-For contract or relay changes, also run the live fake-host probe:
-
-```bash
-node apps/probe/dist/main.js
-```
-
-For native changes, run `node scripts/verifyNativePatches.mjs` before building.
-
-## Repository layout
-
-```text
-apps/host          herdr bridge, changes, attachments
-apps/relay         session envelopes, plaintext dev terminal/preview routing, push
-apps/mobile        Expo web and native app
-apps/probe         live contract/relay probe
-packages/wire      private app wire schemas
-packages/contract  host/mobile contract
-packages/crypto    E2EE payload codec
-plugins            bundled Herdr + muxr UI plugins
-scripts            development, verification, and build tools
-docs               architecture and setup guides
-Dockerfile         self-host relay image (`docker compose up`)
-```
-
-## Support
-
-Bug reports and focused feature requests are welcome in [GitHub Issues](https://github.com/umeranjum17/muxr/issues). Community support is best-effort; no response-time or resolution SLA is offered.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and pull requests.
 
 ## License
 
-muxr product code is licensed under [Apache License 2.0](LICENSE).
-Third-party and inherited code keeps its original license and copyright notices
-in [NOTICE](NOTICE), [LICENSES](LICENSES/), and the
-[distribution inventory](docs/license-inventory.md).
+muxr is licensed under [Apache License 2.0](LICENSE). Third-party notices are recorded in [NOTICE](NOTICE) and the [license inventory](docs/license-inventory.md). The muxr name and marks are covered by [TRADEMARK.md](TRADEMARK.md).

@@ -6,6 +6,7 @@ import { asPluginCollection } from './collectionModel';
 import { asPluginTree } from './treeModel';
 import { bindText, buttonInput, initialFieldValues, loadScreenData, runScreenButton, shouldReloadAfterAction, WriteKeyStore } from './screenModel';
 import { asScreenTree } from './screenTreeModel';
+import { asChartSeries } from './chartModel';
 import { highlightCodeLines, syntaxLanguage } from '@/components/code/syntaxHighlighting';
 
 const manifest: PluginManifestV1 = {
@@ -173,6 +174,63 @@ describe('declarative screen flow', () => {
                 children: [{ type: 'tree', path: 'data.folders', selectionField: 'missing' }],
             }],
         })).toThrow('unknown field');
+    });
+
+    it('validates v13 dynamic visuals: bound progress, columns, and bounded charts', () => {
+        const parsed = parseManifest({
+            schemaVersion: 1, pluginId: 'example.charts', minMuxrVersion: 13,
+            contributions: [{
+                slot: 'navigation.content', id: 'charts', type: 'screen',
+                children: [
+                    { type: 'section', columns: 2, children: [
+                        { type: 'metric', label: 'A', value: '1' },
+                        { type: 'metric', label: 'B', value: '2' },
+                    ] },
+                    { type: 'progress', path: 'data.progress', label: 'Left', valueLabel: '{{data.left}}' },
+                    { type: 'chart', variant: 'bar', path: 'data.bars' },
+                    { type: 'chart', variant: 'ring', path: 'data.rings' },
+                ],
+            }],
+        });
+        expect(parsed.contributions[0]).toMatchObject({ type: 'screen' });
+
+        // Version gate: v13 shapes must not silently degrade on older phones.
+        expect(() => parseManifest({
+            schemaVersion: 1, pluginId: 'example.charts',
+            contributions: [{
+                slot: 'navigation.content', id: 'c', type: 'screen',
+                children: [{ type: 'chart', variant: 'bar', path: 'data.bars' }],
+            }],
+        })).toThrow('minMuxrVersion 13');
+
+        // Exactly one of path/value; columns only for summary children.
+        expect(() => parseManifest({
+            schemaVersion: 1, pluginId: 'example.charts', minMuxrVersion: 13,
+            contributions: [{
+                slot: 'navigation.content', id: 'c', type: 'screen',
+                children: [{ type: 'progress', path: 'data.p', value: 3 }],
+            }],
+        })).toThrow('exactly one');
+        expect(() => parseManifest({
+            schemaVersion: 1, pluginId: 'example.charts', minMuxrVersion: 13,
+            contributions: [{
+                slot: 'navigation.content', id: 'c', type: 'screen',
+                children: [{ type: 'section', columns: 2, children: [{ type: 'field', kind: 'text', id: 'x', label: 'X' }] }],
+            }],
+        })).toThrow('summary nodes');
+
+        // Runtime chart data is untrusted: bound it before it reaches the SVG.
+        expect(asChartSeries([
+            { label: 'Claude', value: 10, tone: 'positive' },
+            { label: 'long'.repeat(20), value: 5 },
+            { label: 'bad', value: Number.NaN },
+            { label: 'neg', value: -1 },
+            { label: 'raw', value: 2, tone: '#ff0000' },
+            { label: 42, value: 3 },
+            ...Array.from({ length: 10 }, (_, i) => ({ label: `x${i}`, value: 1 })),
+        ])).toHaveLength(8);
+        expect(asChartSeries([{ label: 'zero', value: 0 }])).toEqual([]);
+        expect(asChartSeries('nope')).toEqual([]);
     });
 
     it('keeps a null RPC result successful', async () => {
