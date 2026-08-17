@@ -121,11 +121,11 @@ export function ItemList({ context, pluginId, manifestHash, contribution }: Prim
         return () => clearInterval(timer);
     }, [appActive, contribution.refreshIntervalMs, isFocused, load]);
 
-    const onAction = React.useCallback(async (entry: PluginItemListItem | PluginItemListAction, busyKey: string) => {
-        if (manifest === undefined) return;
+    const onAction = React.useCallback(async (action: PluginItemListItem['action'] | PluginItemListAction['action'], busyKey: string) => {
+        if (manifest === undefined || action === undefined) return;
         setBusyId(busyKey);
         try {
-            await dispatchPluginAction(entry.action, {
+            await dispatchPluginAction(action, {
                 router, pluginId, manifestHash, manifest,
                 ...(sessionId === undefined ? {} : { sessionId }),
             });
@@ -159,7 +159,7 @@ export function ItemList({ context, pluginId, manifestHash, contribution }: Prim
                 {model.actions.length > 0 && <View style={styles.sheetActions}>
                     {model.actions.map((action) => {
                         const busyKey = `action:${action.id}`;
-                        return <Pressable key={action.id} onPress={() => void onAction(action, busyKey)} accessibilityRole="button" accessibilityLabel={action.label}
+                        return <Pressable key={action.id} onPress={() => void onAction(action.action, busyKey)} accessibilityRole="button" accessibilityLabel={action.label}
                             accessibilityState={{ busy: busyId === busyKey }}
                             style={({ pressed }) => [styles.sheetAction, { backgroundColor: theme.colors.surfaceHigh, borderColor: theme.colors.divider }, pressed && { opacity: 0.6 }]}>
                             {busyId === busyKey
@@ -172,8 +172,8 @@ export function ItemList({ context, pluginId, manifestHash, contribution }: Prim
                 {items.map((item) => {
                     const busyKey = `item:${item.id}`;
                     const metadataLabel = item.metadata.map((entry) => `${entry.label === undefined ? '' : `${entry.label} `}${entry.value}`).join(', ');
-                    return <Pressable key={item.id} onPress={() => void onAction(item, busyKey)} accessibilityRole="button" accessibilityLabel={`${item.title}${metadataLabel === '' ? '' : `, ${metadataLabel}`}`}
-                        accessibilityState={{ busy: busyId === busyKey }} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8 }}>
+                    const label = [item.title, item.subtitle, metadataLabel].filter((part) => part !== undefined && part !== '').join(', ');
+                    const content = <>
                         {busyId === busyKey
                             ? <ActivityIndicator size="small" color={theme.colors.textSecondary} />
                             : <Ionicons name={(item.icon ?? icon) as never} size={18} color={theme.colors.textSecondary} />}
@@ -186,7 +186,11 @@ export function ItemList({ context, pluginId, manifestHash, contribution }: Prim
                                 {entry.label === undefined ? '' : `${entry.label} `}{entry.value}
                             </Text>)}
                         </View>}
-                    </Pressable>;
+                    </>;
+                    return item.action === undefined
+                        ? <View key={item.id} accessible accessibilityLabel={label} style={styles.itemRow}>{content}</View>
+                        : <Pressable key={item.id} onPress={() => void onAction(item.action, busyKey)} accessibilityRole="button" accessibilityLabel={label}
+                            accessibilityState={{ busy: busyId === busyKey }} style={styles.itemRow}>{content}</Pressable>;
                 })}
             </View>
         } />
@@ -198,6 +202,7 @@ const styles = StyleSheet.create({
     count: { fontSize: 11, ...Typography.mono('semiBold') },
     sheetActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingBottom: 4 },
     sheetAction: { minHeight: 44, borderRadius: 999, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', gap: 6 },
+    itemRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8 },
     metadata: { flexDirection: 'row', alignItems: 'center', gap: 7 },
     metadataText: { fontSize: 12, ...Typography.mono('semiBold') },
 });

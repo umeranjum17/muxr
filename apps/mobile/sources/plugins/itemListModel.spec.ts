@@ -20,13 +20,18 @@ describe('item-list public response', () => {
                 ],
                 action: { type: 'open-url', url: 'https://example.com/file' },
             }, {
+                id: 'read-only', title: 'Pi', subtitle: 'Local activity today', metadata: [{ value: '1.3M tokens' }],
+            }, {
                 id: 'src/app.ts', title: 'duplicate', action: { type: 'open-url', url: 'https://example.com/duplicate' },
             }, { id: 'bad', title: 'bad', action: { type: 'unknown' } }],
             actions: [{ id: 'review', label: 'Review', icon: 'eye-outline', action: { type: 'open-url', url: 'https://example.com' } }],
         }, validate);
 
         expect(model).toMatchObject({
-            items: [{ id: 'src/app.ts', icon: 'git-compare-outline', metadata: [{ value: '+12', tone: 'positive' }, { value: '−3', tone: 'danger' }, { label: 'kind', value: 'modified' }] }],
+            items: [
+                { id: 'src/app.ts', icon: 'git-compare-outline', metadata: [{ value: '+12', tone: 'positive' }, { value: '−3', tone: 'danger' }, { label: 'kind', value: 'modified' }] },
+                { id: 'read-only', title: 'Pi', metadata: [{ value: '1.3M tokens' }] },
+            ],
             actions: [{ id: 'review', label: 'Review', icon: 'eye-outline' }],
         });
     });
