@@ -246,8 +246,11 @@ export class PluginStreamManager {
         });
         child.once('error', (error) => attachment.close(`plugin stream failed: ${error.message}`));
         child.once('close', (code) => {
+            // Never forward stack traces or local paths: keep one clean line.
             const rawDetail = stderr.toString('utf8').trim();
-            const detail = Buffer.from(rawDetail).subarray(0, 400).toString('utf8').replace(/[\u0000-\u001F\u007F]/g, ' ').trim();
+            const exceptionLine = rawDetail.split('\n').map((line) => line.trim()).find((line) => /^(?:[A-Za-z]+Error|Error): /.test(line));
+            const detail = Buffer.from(exceptionLine ?? rawDetail.split('\n')[0] ?? '').subarray(0, 400).toString('utf8')
+                .replace(/file:\/\/\S+/g, 'plugin').replace(/[\u0000-\u001F\u007F]/g, ' ').trim();
             const finishChild = () => attachment.close(code === 0 ? undefined : detail === '' ? `plugin stream exited (${code ?? 'signal'})` : detail);
             // Let the encrypted graceful-close frame reach the phone before its
             // socket close event; decryption completes asynchronously there.

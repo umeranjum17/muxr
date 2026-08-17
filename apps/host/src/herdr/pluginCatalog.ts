@@ -513,7 +513,7 @@ export function runPluginProcess(options: RunPluginProcessOptions): Promise<unkn
         });
         child.once('error', () => {
             if (escalationTimer !== undefined) { clearTimeout(escalationTimer); escalationTimer = undefined; }
-            finish(() => reject(new Error((stderr.toString('utf8').trim() || 'plugin call failed').slice(0, 500))));
+            finish(() => reject(new Error(pluginStderrMessage(stderr, 'plugin call failed'))));
         });
         child.once('close', (code) => {
             if (escalationTimer !== undefined) {
@@ -527,7 +527,7 @@ export function runPluginProcess(options: RunPluginProcessOptions): Promise<unkn
             finish(() => {
                 if (stdoutOversize) { reject(new Error(`plugin ${options.pluginId}.${options.method} output exceeded ${MAX_RPC_STDOUT_BYTES} bytes`)); return; }
                 if (code !== 0) {
-                    reject(new Error((stderr.toString('utf8').trim() || `plugin exited with code ${code}`).slice(0, 500)));
+                    reject(new Error(pluginStderrMessage(stderr, `plugin exited with code ${code}`)));
                     return;
                 }
                 try { resolve(boundRpcDisplay(JSON.parse(stdout.toString('utf8')))); }
@@ -542,6 +542,17 @@ export function runPluginProcess(options: RunPluginProcessOptions): Promise<unkn
         options.signal?.addEventListener('abort', onAbort, { once: true });
         if (options.signal?.aborted === true) onAbort();
     });
+}
+
+function pluginStderrMessage(stderr: Buffer, fallback: string): string {
+    const text = stderr.toString('utf8').trim();
+    if (text === '') return fallback;
+    // A plugin that crashes with an uncaught exception prints a code frame and
+    // a stack with local install paths. The phone must see one clean message,
+    // never the host's filesystem. Prefer the exception's own message line.
+    const exceptionLine = text.split('\n').map((line) => line.trim()).find((line) => /^(?:[A-Za-z]+Error|Error): /.test(line));
+    const message = (exceptionLine ?? text.split('\n')[0] ?? fallback).replace(/file:\/\/\S+/g, 'plugin').trim();
+    return message.slice(0, 300) || fallback;
 }
 
 function pluginProcessError(name: string, message: string): Error {
