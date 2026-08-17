@@ -14,7 +14,7 @@ The workflow uses GitHub OIDC (`id-token: write`) and npm provenance. Do not add
 
 ## Release flow
 
-1. Bump `package.json` and update release notes in a pull request.
+1. Bump `package.json`, update release notes, and bump the version-pinned README download links (`muxr-X.Y.Z.apk`, `SHA256SUMS`, demo) in a pull request.
 2. Wait for `.github/workflows/ci.yml` to pass.
 3. Create and publish the matching GitHub release tag (`vX.Y.Z`).
 4. `.github/workflows/publish.yml` verifies that the tag matches the package version, rebuilds the audited package, and publishes it with provenance. If that exact immutable version already exists, it exits successfully without republishing.
