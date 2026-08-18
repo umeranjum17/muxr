@@ -1633,7 +1633,12 @@ async function runSelfhostPair(state, requestedKind = 'native') {
     const base = selfhostControlBase(state);
     const authHeaders = { authorization: `Bearer ${selfhostCredential(state)}` };
     let pending = state.machine.crypto.pendingPair;
-    if (pending !== undefined && (pending.deviceKind ?? 'native') !== requestedKind) {
+    if (pending !== undefined
+        && ((pending.deviceKind ?? 'native') !== requestedKind
+            || (typeof pending.expiresAt === 'number' && pending.expiresAt <= Date.now()))) {
+        // A kind change or an expired five-minute session must mint a fresh
+        // claim; reusing a dead one strands every later `muxr pair` on the
+        // relay's expired session.
         delete state.machine.crypto.pendingPair;
         writeSelfhostState(state);
         pending = undefined;
