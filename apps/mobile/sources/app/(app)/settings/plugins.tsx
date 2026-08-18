@@ -88,8 +88,8 @@ export default function PluginsScreen() {
                         return <Item
                             key={plugin.pluginId}
                             title={plugin.name}
-                            subtitle={[incompatibility ?? warning ?? plugin.description ?? describe(manifests[plugin.pluginId]), requestedContexts(manifests[plugin.pluginId]), trust].filter(Boolean).join(' · ')}
-                            detail={incompatibility === undefined && warning === undefined ? undefined : t('plugins.unavailableLabel')}
+                            subtitle={[incompatibility ?? warning ?? plugin.description ?? describe(manifests[plugin.pluginId]), requestedContexts(manifests[plugin.pluginId])].filter(Boolean).join(' · ')}
+                            detail={[incompatibility === undefined && warning === undefined ? undefined : t('plugins.unavailableLabel'), trust].filter(Boolean).join(' · ') || undefined}
                             showChevron={false}
                             rightElement={<Switch value={plugin.approved} onValueChange={(next) => void setApproved([plugin], next)} />}
                         />;

@@ -51,7 +51,7 @@ const AGENT_NAMES: Partial<Record<NewSessionAgentType, string>> = {
     pi: 'Pi',
     claude: 'Claude Code',
     codex: 'Codex',
-    omp: 'OpenCode Go',
+    omp: 'OMP',
     opencode: 'OpenCode',
     droid: 'Factory Droid',
     qodercli: 'Qoder CLI',

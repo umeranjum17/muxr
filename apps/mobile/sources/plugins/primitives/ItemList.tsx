@@ -190,7 +190,7 @@ export function ItemList({ context, pluginId, manifestHash, contribution }: Prim
                     return item.action === undefined
                         ? <View key={item.id} accessible accessibilityLabel={label} style={styles.itemRow}>{content}</View>
                         : <Pressable key={item.id} onPress={() => void onAction(item.action, busyKey)} accessibilityRole="button" accessibilityLabel={label}
-                            accessibilityState={{ busy: busyId === busyKey }} style={styles.itemRow}>{content}</Pressable>;
+                            accessibilityState={{ busy: busyId === busyKey }} style={({ pressed }) => [styles.itemRow, pressed && { opacity: 0.6 }]}>{content}</Pressable>;
                 })}
             </View>
         } />

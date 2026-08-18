@@ -363,7 +363,7 @@ function ScreenNode(props: {
                                 return (
                                     <Pressable key={optionValue} onPress={() => set(optionValue)} accessibilityRole="button" accessibilityState={{ selected }}
                                         style={{ borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6, backgroundColor: selected ? theme.colors.accent : theme.colors.surfaceHighest }}>
-                                        <Text style={{ color: selected ? '#fff' : theme.colors.text, fontSize: 14 }}>{resolvePluginText(option)}</Text>
+                                        <Text style={{ color: selected ? theme.colors.button.primary.tint : theme.colors.text, fontSize: 14 }}>{resolvePluginText(option)}</Text>
                                     </Pressable>
                                 );
                             })}
@@ -392,7 +392,7 @@ function ScreenNode(props: {
             const variantColor = node.variant === 'danger'
                 ? theme.colors.box.error.border
                 : node.variant === 'primary' ? theme.colors.accent : theme.colors.surfaceHighest;
-            const labelColor = node.variant === 'danger' || node.variant === 'primary' ? '#fff' : theme.colors.text;
+            const labelColor = node.variant === 'danger' ? '#fff' : node.variant === 'primary' ? theme.colors.button.primary.tint : theme.colors.text;
             return (
                 <Pressable
                     onPress={() => props.onButton(node)}

@@ -310,7 +310,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                     borderBottomColor: theme.colors.divider,
                 }}
             >
-                <Pressable onPress={() => router.back()} hitSlop={10} accessibilityRole="button" accessibilityLabel="Back" style={{ padding: 4 }}>
+                <Pressable onPress={() => router.back()} hitSlop={10} accessibilityRole="button" accessibilityLabel="Back" style={({ pressed }) => ({ padding: 4, opacity: pressed ? 0.6 : 1 })}>
                     <Ionicons name="chevron-back" size={20} color={theme.colors.text} />
                 </Pressable>
                 {(() => {
@@ -334,7 +334,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                 <View style={{ flex: 1 }} />
                 {/* Same sheet as the title pressable — hidden from screen readers. */}
                 {hasOverlay && (
-                    <Pressable onPress={() => setTreeOpen(true)} hitSlop={10} accessible={false} accessibilityElementsHidden importantForAccessibility="no" style={{ padding: 4 }}>
+                    <Pressable onPress={() => setTreeOpen(true)} hitSlop={10} accessible={false} accessibilityElementsHidden importantForAccessibility="no" style={({ pressed }) => ({ padding: 4, opacity: pressed ? 0.6 : 1 })}>
                         <Ionicons name="list" size={19} color={theme.colors.textSecondary} />
                     </Pressable>
                 )}
@@ -368,7 +368,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                         accessibilityRole="button"
                         accessibilityLabel="More actions"
                         accessibilityState={{ disabled: pluginActionBusy !== undefined }}
-                        style={{ padding: 4 }}
+                        style={({ pressed }) => ({ padding: 4, opacity: pressed ? 0.6 : 1 })}
                     >
                         {pluginActionBusy === undefined
                             ? <Ionicons name="ellipsis-vertical" size={19} color={theme.colors.textSecondary} />
@@ -376,7 +376,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                     </Pressable>
                 )}
                 {Platform.OS !== 'web' && (
-                    <Pressable onPress={stopSession} hitSlop={10} disabled={stopping} accessibilityRole="button" accessibilityLabel="Stop agent" accessibilityState={{ disabled: stopping }} style={{ padding: 4 }}>
+                    <Pressable onPress={stopSession} hitSlop={10} disabled={stopping} accessibilityRole="button" accessibilityLabel="Stop agent" accessibilityState={{ disabled: stopping }} style={({ pressed }) => ({ padding: 4, opacity: pressed ? 0.6 : 1 })}>
                         <Ionicons name="stop-circle-outline" size={19} color={theme.colors.textSecondary} />
                     </Pressable>
                 )}
@@ -498,7 +498,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                 horizontal
                 showsHorizontalScrollIndicator={false}
                 keyboardShouldPersistTaps="always"
-                style={{ maxHeight: 52, backgroundColor: theme.colors.surface }}
+                style={{ maxHeight: 56, backgroundColor: theme.colors.surface }}
                 contentContainerStyle={{ alignItems: 'center', gap: 6, paddingHorizontal: 8, paddingVertical: 6 }}
             >
                 {/* Pills lead: the key toolbar is wider than a phone, so anything
@@ -574,7 +574,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                     }}
                 />
                 <PluginSlot slot="session.composer.trailing" context={{ sessionId: props.id, getText: () => draftRef.current, setText: setDraft }} />
-                <Pressable onPress={sendPrompt} hitSlop={8} accessibilityRole="button" accessibilityLabel="Send" accessibilityState={{ disabled: !canSend }} style={{ opacity: canSend ? 1 : 0.4 }}>
+                <Pressable onPress={sendPrompt} hitSlop={8} disabled={!canSend} accessibilityRole="button" accessibilityLabel="Send" accessibilityState={{ disabled: !canSend }} style={{ opacity: canSend ? 1 : 0.4 }}>
                     <Ionicons name="arrow-up-circle" size={30} color={theme.colors.text} />
                 </Pressable>
             </View>
@@ -605,7 +605,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                                         setMenu(null);
                                         item.onPress();
                                     }}
-                                    style={{ paddingHorizontal: 16, paddingVertical: 12 }}
+                                    style={({ pressed }) => ({ paddingHorizontal: 16, paddingVertical: 12, opacity: pressed ? 0.6 : 1 })}
                                 >
                                     <Text style={{ color: theme.colors.text, fontSize: 15 }}>{item.label}</Text>
                                     {item.hint !== undefined && (
