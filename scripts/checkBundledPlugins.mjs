@@ -66,9 +66,15 @@ for (const path of shellFiles) {
 const require = createRequire(import.meta.url);
 const { bundledShortcutData, shortcutResources } = require(join(root, 'apps/mobile/plugins/withAppActions.js'));
 const bakedShortcutsPath = join(root, 'apps/mobile/sources/plugins/bundledShortcuts.json');
+const nativeShortcutsPath = join(root, 'apps/mobile/android/app/src/main/res/xml/shortcuts.xml');
 const expectedShortcuts = `${JSON.stringify(bundledShortcutData(), null, 2)}\n`;
 if (readFileSync(bakedShortcutsPath, 'utf8') !== expectedShortcuts) {
     process.stderr.write('FAIL bundledShortcuts.json is stale; run the Expo config or update it from bundled manifests\n');
+    failed += 1;
+}
+const nativeShortcuts = readFileSync(nativeShortcutsPath, 'utf8');
+if (!nativeShortcuts.includes('android:targetPackage="com.trymuxr.app"') || /android:targetPackage="@/.test(nativeShortcuts)) {
+    process.stderr.write('FAIL Android App Actions targetPackage must be the literal Play package id\n');
     failed += 1;
 }
 const localizedShortcutFixture = [{

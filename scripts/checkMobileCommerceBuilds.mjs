@@ -31,6 +31,11 @@ assert.doesNotMatch(JSON.stringify(store), /revenuecat|posthog|stripeKey|checkou
 
 const eas = JSON.parse(readFileSync(join(mobile, 'eas.json'), 'utf8'));
 assert.equal(eas.build.production.env.ORG_GRADLE_PROJECT_reactNativeArchitectures, 'arm64-v8a');
+const podProperties = JSON.parse(readFileSync(join(mobile, 'ios', 'Podfile.properties.json'), 'utf8'));
+assert.equal(podProperties['ios.deploymentTarget'], '16.4', 'iOS target must satisfy expo-libghostty');
+const xcodeTargets = [...readFileSync(join(mobile, 'ios', 'muxr.xcodeproj', 'project.pbxproj'), 'utf8').matchAll(/IPHONEOS_DEPLOYMENT_TARGET = ([0-9.]+);/g)].map((match) => Number(match[1]));
+assert.equal(xcodeTargets.length, 4, 'expected four Xcode deployment-target settings');
+assert.ok(xcodeTargets.every((target) => target >= 16.4), 'Xcode target is below expo-libghostty minimum');
 assert.match(readFileSync(join(mobile, 'android', 'app', 'build.gradle'), 'utf8'), /applicationId 'com\.trymuxr\.app'/);
 const voiceManifest = readFileSync(join(mobile, 'modules', 'voice-overlay', 'android', 'src', 'main', 'AndroidManifest.xml'), 'utf8');
 assert.match(voiceManifest, /FOREGROUND_SERVICE_DATA_SYNC/);
