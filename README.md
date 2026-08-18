@@ -24,12 +24,13 @@
   <a href="LICENSE"><img alt="Apache 2.0" src="https://img.shields.io/badge/license-Apache--2.0-666?style=flat-square" /></a>
 </p>
 
-[![muxr on Android](docs/play/store-assets/01-herd.png)](https://trymuxr.com/#demo)
+[![muxr — every coding agent, on your phone](docs/screenshots/v015/rpg-herd.png)](https://trymuxr.com/#demo)
 
 <p align="center">
-  <img src="docs/screenshots/v015/terminal.png" width="260" alt="Real Kimi Code terminal in muxr" />
-  <img src="docs/screenshots/v015/workspace.png" width="260" alt="Herd view with live agent terminals" />
-  <img src="docs/screenshots/v015/usage.png" width="260" alt="Usage charts" />
+  <img src="docs/screenshots/v015/home.png" height="420" alt="muxr home: the herd with live agent terminals" />
+  <img src="docs/screenshots/v015/claude.png" height="420" alt="Claude Code terminal in muxr" />
+  <img src="docs/screenshots/v015/codex.png" height="420" alt="Codex terminal in muxr" />
+  <img src="docs/screenshots/v015/kimi.png" height="420" alt="Kimi Code terminal in muxr" />
 </p>
 <p align="center"><em>Real Herdr panes, real agents — captured from the shipping app.</em></p>
 
@@ -62,7 +63,31 @@ Read the [step-by-step quickstart](https://trymuxr.com/docs/quickstart).
 
 muxr reads the agent catalog from [Herdr](https://github.com/herdrdev/herdr) and works with what is installed on your machine:
 
-**Pi, Claude Code, Codex, Gemini CLI, Cursor, OpenCode, GitHub Copilot CLI, Kimi Code, Grok, Hermes, Amp, Droid, Devin, Cline, Kiro, Kilo Code, Qwen, OMP, Qoder, Maki, MastraCode, and custom Herdr agent kinds.**
+<p>
+  <img src="docs/agents/icons/pi.svg" width="28" alt="Pi" title="Pi" />
+  <img src="docs/agents/icons/claude.svg" width="28" alt="Claude Code" title="Claude Code" />
+  <img src="docs/agents/icons/codex.svg" width="28" alt="Codex" title="Codex" />
+  <img src="docs/agents/icons/gemini.svg" width="28" alt="Gemini CLI" title="Gemini CLI" />
+  <img src="docs/agents/icons/cursor.svg" width="28" alt="Cursor" title="Cursor" />
+  <img src="docs/agents/icons/opencode.svg" width="28" alt="OpenCode" title="OpenCode" />
+  <img src="docs/agents/icons/copilot.svg" width="28" alt="GitHub Copilot CLI" title="GitHub Copilot CLI" />
+  <img src="docs/agents/icons/kimi.svg" width="28" alt="Kimi Code" title="Kimi Code" />
+  <img src="docs/agents/icons/grok.svg" width="28" alt="Grok" title="Grok" />
+  <img src="docs/agents/icons/hermes.svg" width="28" alt="Hermes Agent" title="Hermes Agent" />
+  <img src="docs/agents/icons/amp.svg" width="28" alt="Amp" title="Amp" />
+  <img src="docs/agents/icons/droid.svg" width="28" alt="Factory Droid" title="Factory Droid" />
+  <img src="docs/agents/icons/devin.svg" width="28" alt="Devin" title="Devin" />
+  <img src="docs/agents/icons/cline.svg" width="28" alt="Cline" title="Cline" />
+  <img src="docs/agents/icons/kiro.svg" width="28" alt="Kiro" title="Kiro" />
+  <img src="docs/agents/icons/kilocode.svg" width="28" alt="Kilo Code" title="Kilo Code" />
+  <img src="docs/agents/icons/qoder.svg" width="28" alt="Qoder CLI" title="Qoder CLI" />
+  <img src="docs/agents/icons/omp.svg" width="28" alt="OMP (Oh My Pi)" title="OMP (Oh My Pi)" />
+  <img src="docs/agents/icons/antigravity.svg" width="28" alt="Antigravity" title="Antigravity" />
+  <img src="docs/agents/icons/mastracode.svg" width="28" alt="MastraCode" title="MastraCode" />
+  <img src="docs/agents/icons/maki.svg" width="28" alt="Maki" title="Maki" />
+</p>
+
+Pi, Claude Code, Codex, Gemini CLI, Cursor, OpenCode, GitHub Copilot CLI, Kimi Code, Grok, Hermes, Amp, Droid, Devin, Cline, Kiro, Kilo Code, Qwen, OMP, Qoder, Maki, MastraCode, and custom Herdr agent kinds.
 
 muxr does not replace or wrap them. Herdr owns their real terminal sessions; muxr gives you a secure remote surface.
 

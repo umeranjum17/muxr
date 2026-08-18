@@ -10,9 +10,11 @@ import Animated, {
     useAnimatedStyle,
     useSharedValue,
     withSpring,
+    withTiming,
 } from 'react-native-reanimated';
 import { RealtimeConversation } from '@/realtime/RealtimeConversation';
 import { RealtimeSessionVisual } from '@/realtime/RealtimeSessionVisual';
+import { useUnistyles } from 'react-native-unistyles';
 import { mountPrimitive } from '../primitivePresence';
 import { t } from '@/text';
 import {
@@ -31,6 +33,7 @@ const MARGIN = 12;
 
 /** The floating conversation control, above every screen. */
 export const RealtimeSessionOverlay = React.memo(function RealtimeSessionOverlay() {
+    const { theme } = useUnistyles();
     const { state, detail } = useRealtimeSessionState();
     const safeArea = useSafeAreaInsets();
     React.useEffect(() => mountPrimitive('realtime-session-overlay'), []);
@@ -50,7 +53,6 @@ export const RealtimeSessionOverlay = React.memo(function RealtimeSessionOverlay
               ? t('plugins.realtimeError')
               : t('plugins.realtimeOff');
     const conversationVisible = useRealtimeConversationVisible();
-    const speaking = state === 'speaking';
 
     const window = Dimensions.get('window');
     const x = useSharedValue(window.width - WIDTH - MARGIN);
@@ -91,10 +93,15 @@ export const RealtimeSessionOverlay = React.memo(function RealtimeSessionOverlay
         [safeArea.bottom, safeArea.top, startX, startY, x, y],
     );
 
-    const tap = React.useMemo(() => Gesture.Tap().onEnd(openRealtimeConversation).runOnJS(true), []);
+    const press = useSharedValue(1);
+    const tap = React.useMemo(() => Gesture.Tap()
+        .onBegin(() => { press.value = withTiming(0.97, { duration: 80 }); })
+        .onFinalize(() => { press.value = withTiming(1, { duration: 160 }); })
+        .onEnd(openRealtimeConversation)
+        .runOnJS(true), [press]);
 
     const style = useAnimatedStyle(() => ({
-        transform: [{ translateX: x.value }, { translateY: y.value }],
+        transform: [{ translateX: x.value }, { translateY: y.value }, { scale: press.value }],
     }));
 
     if (!open && !conversationVisible && !failed) return null;
@@ -126,18 +133,18 @@ export const RealtimeSessionOverlay = React.memo(function RealtimeSessionOverlay
                                     paddingLeft: (HEIGHT - ORB_SIZE) / 2,
                                     paddingRight: 12,
                                     gap: 10,
-                                    backgroundColor: '#1c1d21',
+                                    backgroundColor: theme.colors.surfaceHigh,
                                     borderWidth: 1,
-                                    borderColor: muted ? 'rgba(190,95,108,0.32)' : 'rgba(255,255,255,0.10)',
+                                    borderColor: muted ? theme.colors.textDestructive : theme.colors.divider,
                                 },
                                 style,
                             ]}
                         >
                             <RealtimeSessionVisual size={ORB_SIZE} state={state} muted={muted} />
-                            <Text numberOfLines={1} style={{ flex: 1, color: '#f4f6fb', fontSize: 13, fontWeight: '600' }}>
-                                {state === 'connecting' ? `${t('plugins.realtimeConnecting')}…` : state === 'connected' ? `${t('plugins.realtimeListening')}…` : state === 'thinking' ? `${t('plugins.realtimeThinking')}…` : speaking ? `${t('plugins.realtimeSpeaking')}…` : failed ? t('plugins.realtimeError') : t('plugins.realtime')}
+                            <Text numberOfLines={1} style={{ flex: 1, color: theme.colors.text, fontSize: 13, fontWeight: '600' }}>
+                                {sessionLabel}…
                             </Text>
-                            <Ionicons name="chevron-up" size={16} color="#d8dce8" />
+                            <Ionicons name="chevron-up" size={16} color={theme.colors.textSecondary} />
                         </Animated.View>
                     </GestureDetector>
                 </View>

@@ -130,9 +130,9 @@
           "text": "The xAI key is sent directly to the connected machine and is never stored or displayed by the phone."
         },
         {
-          "type": "metric",
-          "label": "Configured",
-          "value": "{{data.configured}}"
+          "type": "row",
+          "title": "xAI key",
+          "value": "{{data.statusLabel}}"
         },
         {
           "type": "button",

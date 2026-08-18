@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useUnistyles } from 'react-native-unistyles';
 import { BubblePressable } from '@/components/BubblePressable';
@@ -22,11 +23,13 @@ export function DictateButton({ context }: PrimitiveProps) {
             accessibilityLabel={t('plugins.dictate')}
             accessibilityState={{ busy: dictation.transcribing, selected: dictation.recording }}
         >
-            <Ionicons
-                name={dictation.recording ? 'stop-circle' : dictation.transcribing ? 'hourglass-outline' : 'mic-outline'}
-                size={22}
-                color={dictation.recording ? theme.colors.status.error : theme.colors.textSecondary}
-            />
+            {dictation.transcribing
+                ? <ActivityIndicator size="small" color={theme.colors.textSecondary} />
+                : <Ionicons
+                    name={dictation.recording ? 'stop-circle' : 'mic-outline'}
+                    size={22}
+                    color={dictation.recording ? theme.colors.status.error : theme.colors.textSecondary}
+                />}
         </BubblePressable>
     );
 }

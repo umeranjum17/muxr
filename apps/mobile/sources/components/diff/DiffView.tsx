@@ -176,7 +176,7 @@ export const DiffView: React.FC<DiffViewProps> = ({
                             }}
                         >
                             {showPlusMinusSymbols && (
-                                <Text style={{ color: textColor }}>
+                                <Text style={{ color: isAdded ? theme.colors.diff.success : isRemoved ? theme.colors.diff.error : textColor, fontWeight: isAdded || isRemoved ? '600' : 'normal' }}>
                                     {`${isAdded ? '+' : isRemoved ? '-' : ' '} `}
                                 </Text>
                             )}

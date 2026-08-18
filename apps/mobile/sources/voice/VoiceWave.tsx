@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { View } from 'react-native';
-import Animated, { useAnimatedStyle, useSharedValue, withRepeat, withTiming } from 'react-native-reanimated';
+import Animated, { useAnimatedStyle, useReducedMotion, useSharedValue, withRepeat, withTiming } from 'react-native-reanimated';
 
 /** Uneven on purpose; evenly stepped bars read as a loading spinner. */
 const BARS = [0.45, 0.8, 1, 0.65, 0.9, 0.5, 0.75];
@@ -61,18 +61,21 @@ function Bar({
     color: string;
 }) {
     const level = useSharedValue(0.25);
+    const reduceMotion = useReducedMotion();
 
     React.useEffect(() => {
-        if (!active) {
-            level.value = withTiming(0.22, { duration: 220 });
+        if (!active || reduceMotion) {
+            level.value = withTiming(reduceMotion && active ? 0.6 : 0.22, { duration: 220 });
             return;
         }
         // Staggered so the bars never march in step, which looks mechanical.
         const duration = 300 + index * 45;
         level.value = withRepeat(withTiming(peak, { duration }), -1, true);
-    }, [active, index, level, peak]);
+    }, [active, index, level, peak, reduceMotion]);
 
-    const style = useAnimatedStyle(() => ({ height: Math.max(width, height * level.value) }));
+    // scaleY keeps the wave off the layout thread; a fixed height box means
+    // siblings never reflow while it moves.
+    const style = useAnimatedStyle(() => ({ transform: [{ scaleY: level.value }] }));
 
-    return <Animated.View style={[{ width, borderRadius: width / 2, backgroundColor: color }, style]} />;
+    return <Animated.View style={[{ width, height, borderRadius: width / 2, backgroundColor: color }, style]} />;
 }

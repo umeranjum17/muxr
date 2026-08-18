@@ -372,7 +372,7 @@ function PlainPatchView({
                         }}
                     >
                         {isPatchCodeLine(line)
-                            ? <><Text style={{ color: fg }}>{first}</Text><SyntaxSpans spans={i < highlighted.length - 1 ? highlighted[i]! : [{ text: line.slice(1) }]} theme={theme} fallbackColor={fg} /></>
+                            ? <><Text style={{ color: first === '+' ? colors.success : first === '-' ? colors.error : fg, fontWeight: '600' }}>{first}</Text><SyntaxSpans spans={i < highlighted.length - 1 ? highlighted[i]! : [{ text: line.slice(1) }]} theme={theme} fallbackColor={fg} /></>
                             : (line.length === 0 ? ' ' : line)}
                     </Text>
                 );

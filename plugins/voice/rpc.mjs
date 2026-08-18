@@ -40,7 +40,7 @@ async function writeKey(value) {
 
 let output;
 if (method === 'status') {
-    output = await readKey().then(() => ({ configured: true }), () => ({ configured: false }));
+    output = await readKey().then(() => ({ configured: true, statusLabel: 'Key set' }), () => ({ configured: false, statusLabel: 'No key set' }));
 } else if (method === 'key.set') {
     await writeKey(input?.key); output = null;
 } else if (method === 'key.clear') {
