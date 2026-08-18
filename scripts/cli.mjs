@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { createRequire } from 'node:module';
-import { hasPendingRemoteConnect, runDaemon, runDevices, runDoctor, runIntegrations, runMachines, runPair, runRemoteConnect, runSelfHost } from './local-setup.mjs';
+import { browserHostingReady, hasPendingRemoteConnect, runDaemon, runDevices, runDoctor, runIntegrations, runMachines, runPair, runRemoteConnect, runSelfHost, selfhostConfigured } from './local-setup.mjs';
 import { runMachineManagement, runRemoteRelaySetup, runSetup, runSharedRelaySetup } from './setup-wizard.mjs';
 import { runPlugin } from './plugin.mjs';
 import { runPackage } from './package.mjs';
@@ -55,17 +55,21 @@ const input = process.argv.slice(2);
 let command = input[0];
 let args = input.slice(1);
 if (command === undefined && process.stdin.isTTY && process.stdout.isTTY) {
+    const configured = selfhostConfigured();
     const selected = await select('What would you like to do?', [
-        { value: 'setup', title: 'Set up this agent machine', description: 'run a relay here and pair phone or browser' },
+        { value: 'setup', title: configured ? 'Change this machine’s setup' : 'Set up this machine', description: 'install the relay and host here, then pair your phone or browser' },
         { value: 'connect-remote', title: 'Connect to a shared relay', description: 'paste a one-use enrollment from your relay server' },
         ...(hasPendingRemoteConnect() ? [{ value: 'resume-remote', title: 'Resume remote connection', description: 'finish an enrollment saved before an interrupted setup' }] : []),
         { value: 'shared-relay', title: 'Host or change a shared relay', description: 'run an always-on relay for other agent machines' },
         { value: 'machines-menu', title: 'Manage shared relay machines', description: 'create enrollment, list machines, or revoke access' },
         { value: 'update', title: 'Update muxr', description: 'check npm and install the latest release' },
-        { value: 'pair', title: 'Pair another phone', description: 'show a short-lived encrypted pairing QR' },
-        { value: 'pair-browser', title: 'Pair a browser', description: 'create an eight-hour read-only browser grant' },
-        { value: 'doctor', title: 'Check this setup', description: 'run safe diagnostics without printing secrets' },
-        { value: 'restart', title: 'Restart muxr', description: 'restart the supervised relay and host' },
+        ...(configured ? [
+            { value: 'pair', title: 'Pair another phone', description: 'show a short-lived encrypted pairing QR' },
+            { value: 'pair-browser', title: 'Pair a browser', description: 'create an eight-hour read-only browser grant' },
+            { value: 'doctor', title: 'Check this setup', description: 'run safe diagnostics without printing secrets' },
+            { value: 'restart', title: 'Restart muxr', description: 'restart the supervised relay and host' },
+            { value: 'uninstall', title: 'Uninstall muxr', description: 'remove muxr services and managed files; keep Herdr and your data' },
+        ] : []),
         { value: 'help', title: 'Show commands', description: 'print the non-interactive command reference' },
     ]);
     if (selected === undefined) process.exit(0);
@@ -74,6 +78,32 @@ if (command === undefined && process.stdin.isTTY && process.stdout.isTTY) {
     if (command === 'resume-remote') {
         command = 'connect';
         args = ['--resume'];
+    }
+    if (command === 'pair-browser' && !browserHostingReady()) {
+        const enable = await select(
+            'Browser hosting is off. It needs a secure HTTPS endpoint (Tailscale Serve, Cloudflare, or your own WSS) and is turned on during setup.',
+            [
+                { value: 'setup', title: 'Open setup', description: 'enable browser hosting with a reviewed plan' },
+                { value: 'back', title: 'Back', description: 'return without changing anything' },
+            ],
+            1,
+        );
+        if (enable === undefined || enable === 'back') process.exit(0);
+        command = enable;
+    }
+    if (command === 'uninstall') {
+        const confirmed = await select(
+            'Uninstall muxr from this machine? This removes muxr services and managed integration files. Herdr, your sessions, and your data stay.',
+            [
+                { value: 'cancel', title: 'Cancel', description: 'keep everything as it is' },
+                { value: 'yes', title: 'Uninstall', description: 'remove services and managed files' },
+            ],
+        );
+        if (confirmed !== 'yes') process.exit(0);
+        let uninstallCode = await runDaemon(['uninstall']);
+        if (uninstallCode === 0) uninstallCode = await runIntegrations(['uninstall']);
+        if (uninstallCode === 0) process.stdout.write('\nmuxr services are removed. Finish with: npm uninstall -g @trymuxr/cli\n');
+        process.exit(uninstallCode);
     }
     if (command === 'restart') {
         command = 'daemon';

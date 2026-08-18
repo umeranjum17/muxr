@@ -1051,6 +1051,14 @@ function readSelfhostState() {
     return parsed?.version === 1 ? parsed : undefined;
 }
 
+/** Menu-only summary used by cli.mjs to guide browser pairing. */
+export function browserHostingReady() {
+    const state = readSelfhostState();
+    return state !== undefined && state.webEnabled === true && publicRelayUrl(state.relayUrl)?.startsWith('wss://') === true;
+}
+
+export function selfhostConfigured() { return readSelfhostState() !== undefined; }
+
 function writeSelfhostState(state) {
     atomicWrite(selfhostPath(), `${JSON.stringify(state, null, 2)}\n`);
 }
@@ -1762,7 +1770,7 @@ export async function runPair(args = []) {
             throw new Error('muxr is not set up yet; run `muxr setup` first');
         }
         const browser = args.includes('--browser');
-        if (browser && (!state.webEnabled || !publicRelayUrl(state.relayUrl)?.startsWith('wss://'))) throw new Error('the browser client is off; run `muxr` and enable secure browser hosting first');
+        if (browser && !browserHostingReady()) throw new Error('browser hosting is off. Run `muxr`, choose Set up this machine, and pick Tailscale Serve, Cloudflare, or your own WSS endpoint with browser hosting enabled');
         let healthy = await selfhostRelayHealthy(state);
         if (!healthy) {
             const definition = daemonDefinition('selfhost');
