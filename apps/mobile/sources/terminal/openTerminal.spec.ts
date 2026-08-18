@@ -125,3 +125,15 @@ describe('openTerminal reconnect ownership', () => {
         channel.close();
     });
 });
+
+describe('recentTerminalLinks', () => {
+    it('extracts deduped URLs latest-first from ANSI terminal output', async () => {
+        const { recordTerminalOutput, recentTerminalLinks, clearTerminalOutput } = await import('./recentOutput');
+        const { encodeBase64 } = await import('@/encryption/base64');
+        clearTerminalOutput('s1');
+        recordTerminalOutput('s1', encodeBase64(new TextEncoder().encode('\x1b[32mServing on https://localhost:8901/index.html.\x1b[0m then http://example.com/a?x=1')));
+        recordTerminalOutput('s1', encodeBase64(new TextEncoder().encode('\nagain https://localhost:8901/index.html.')));
+        expect(recentTerminalLinks('s1')).toEqual(['http://example.com/a?x=1', 'https://localhost:8901/index.html']);
+        expect(recentTerminalLinks('unknown')).toEqual([]);
+    });
+});
