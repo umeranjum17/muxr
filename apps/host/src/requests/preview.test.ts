@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { insideProject, processCwd } from './preview.js';
 // @ts-expect-error bundled plugins are executable public fixtures, not TS packages
-import { insideProject as pluginInsideProject, parseLsofListeners as parsePluginLsof, parseSsListeners as parsePluginSs } from '../../../../plugins/run-server/rpc.mjs';
+import { insideProject as pluginInsideProject, parseLsofListeners as parsePluginLsof, parseSsListeners as parsePluginSs } from '../../../../plugins/servers/serve.mjs';
 
 describe('insideProject', () => {
     it('matches a server running in the project root', () => {

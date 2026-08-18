@@ -347,7 +347,18 @@ async function ensureBundledPlugins(binary, dryRun) {
             installed = parsed.result?.plugins ?? parsed.plugins ?? [];
         } catch {}
     }
-    for (const { id, name } of bundledPlugins()) {
+    const bundled = bundledPlugins();
+    const bundledIds = new Set(bundled.map((plugin) => plugin.id));
+    for (const current of installed) {
+        // A bundled plugin that disappeared from the package (merged or
+        // retired) must not linger enabled, pointing at a vanished directory.
+        if (typeof current.plugin_id === 'string' && current.plugin_id.startsWith('muxr.') && !bundledIds.has(current.plugin_id)) {
+            if (dryRun) { print(`  would unlink retired bundled plugin ${current.plugin_id}`); continue; }
+            const unlinked = run(binary, ['plugin', 'unlink', current.plugin_id]);
+            print(`  ${unlinked.ok ? '✓' : 'warn:'} unlinked retired bundled plugin ${current.plugin_id}`);
+        }
+    }
+    for (const { id, name } of bundled) {
         const current = installed.find((plugin) => plugin.plugin_id === id);
         const expected = realpathSync(bundledPluginPath(name));
         if (current?.enabled === true && realpathOrUndefined(current.plugin_root) === expected) {

@@ -22,7 +22,7 @@ try {
     })}'\n`, { mode: 0o755 });
     writeFileSync(join(scratch, 'codex'), `#!/usr/bin/env node\nrequire('fs').appendFileSync(${JSON.stringify(codexMarker)}, 'x');let b='';process.stdin.setEncoding('utf8');process.stdin.on('data',d=>{b+=d;for(;;){const i=b.indexOf('\\n');if(i<0)break;const line=b.slice(0,i);b=b.slice(i+1);const m=JSON.parse(line);if(m.id===1)console.log(JSON.stringify({id:1,result:{}}));if(m.id===2)console.log(JSON.stringify({id:2,result:{rateLimitsByLimitId:{codex:{limitId:'codex',primary:{usedPercent:25,resetsAt:Math.floor(Date.now()/1000)+3600}}}}}));}});\n`, { mode: 0o755 });
     for (const command of ['claude', 'kimi', 'opencode', 'hermes', 'copilot', 'cursor-agent', 'omp', 'gemini', 'grok']) writeFileSync(join(scratch, command), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
-    const result = spawnSync(process.execPath, ['plugins/usage-status/rpc.mjs'], {
+    const result = spawnSync(process.execPath, ['plugins/status/usage.mjs'], {
         cwd: process.cwd(), encoding: 'utf8', env: { ...process.env, PATH: `${scratch}:${process.env.PATH}`, MUXR_CCUSAGE_BIN: ccusage, MUXR_PLUGIN_STATE_DIR: scratch }, timeout: 20_000,
     });
     assert.equal(result.status, 0, result.stderr);
@@ -43,7 +43,7 @@ try {
     assert.ok(output.items.every((item) => item.action === undefined), 'read-only Usage rows unexpectedly expose actions');
     assert.ok(existsSync(ccusageMarker), 'Usage plugin did not invoke its pinned ccusage backend');
     assert.ok(!existsSync(piMarker), 'Usage plugin invoked Pi and could enter a paid model path');
-    const cached = spawnSync(process.execPath, ['plugins/usage-status/rpc.mjs'], {
+    const cached = spawnSync(process.execPath, ['plugins/status/usage.mjs'], {
         cwd: process.cwd(), encoding: 'utf8', env: { ...process.env, PATH: `${scratch}:${process.env.PATH}`, MUXR_CCUSAGE_BIN: ccusage, MUXR_PLUGIN_STATE_DIR: scratch }, timeout: 20_000,
     });
     assert.equal(cached.status, 0, cached.stderr);
@@ -53,7 +53,7 @@ try {
 
     rmSync(join(scratch, 'usage.json'));
     rmSync(join(scratch, 'codex'));
-    const fallback = spawnSync(process.execPath, ['plugins/usage-status/rpc.mjs'], {
+    const fallback = spawnSync(process.execPath, ['plugins/status/usage.mjs'], {
         cwd: process.cwd(), encoding: 'utf8', env: { ...process.env, PATH: scratch, MUXR_CCUSAGE_BIN: join(scratch, 'missing') }, timeout: 20_000,
     });
     assert.equal(fallback.status, 0, fallback.stderr);
