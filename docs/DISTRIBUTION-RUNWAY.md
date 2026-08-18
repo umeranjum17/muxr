@@ -62,14 +62,13 @@ that. Budget ~3 weeks, almost all of it waiting.
 
 ### Agent can do (in order, once 1–2 exist)
 
-1. `npx expo prebuild --platform ios` and get the app compiling (React Native
-   core is shared; expect a day of module shims).
+**Done already (2026-08-18):** the production iOS project is generated and committed at `apps/mobile/ios` — `com.trymuxr.app`, audio + remote-notification background modes, `applinks:trymuxr.com`, camera/mic usage descriptions. The Android-only modules degrade gracefully in JS. What remains needs the account and a build machine:
+
+1. First compile on the chosen path (Xcode/EAS/macOS runner); fix whatever surfaces.
 2. Stub or port the three Android-only native modules: `voice-overlay`,
    `ssh-tunnel`, `plugin-shortcuts`. Minimum viable: compile-time stubs so the
    app ships without voice/SSH/shortcuts; full ports later.
-3. Fix the live AASA file: it still advertises `STAGING000.com.trymuxr.app`
-   instead of a real Apple Team ID, so Universal Links are broken by
-   definition today. Needs the Team ID from step 1.
+3. Fix the live AASA file: set `MUXR_APPLE_TEAM_ID` on the site service to the real Team ID from developer.apple.com → Membership (it currently still answers `STAGING000`).
 4. TestFlight external beta (light review, no full App Store launch required).
 5. App Store listing: privacy nutrition labels, iPhone screenshots, review.
 
