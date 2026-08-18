@@ -1,7 +1,7 @@
 ---
 title: Plugins on primitives
 slug: plugin-primitives
-status: implemented
+status: tested
 created: 2026-08-15
 updated: 2026-08-19
 owner: umer
@@ -86,7 +86,7 @@ UI version 12 allows generic `item-list` rows to omit actions for read-only stat
 
 ## Revisions
 
-- 2026-08-19 — Remove optional Assistant App Actions capability metadata after Google Play continued rejecting the signed release despite owner acceptance of both terms surfaces. Keep the same public `shortcuts` contribution, localized launcher shortcut, deep link, and live enabled-catalog guard.
+- 2026-08-19 — Remove optional Assistant App Actions capability metadata after Google Play continued rejecting the signed release despite owner acceptance of both terms surfaces. Keep the same public `shortcuts` contribution, localized launcher shortcut, deep link, and live enabled-catalog guard. The signed versionCode 8 bundle then passed Play ingestion, internal testing, and closed-test release validation.
 - 2026-08-18 — Browser grants now admit only explicitly read-mode RPCs from package-owned bundled plugin roots; omitted modes and third-party self-declarations fail closed. Read-only session opens no longer acknowledge global attention. Terminal link extraction is stateful, control-safe, canonical, credential-free, latest-first, and bounded across sessions.
 - 2026-08-18 — Bundled plugin consolidation: file-viewer + changes + git-history + runbook merged into `code`, usage-status + vitals into `status`, ports + run-server into `servers` (17 → 12 packages). Same public contract, same primitives; the contribution cap rises 16 → 24 for merged manifests, and setup now unlinks retired bundled ids.
 - 2026-08-17 — Reopened for bounded dynamic presentation: add data-bound progress, responsive summary columns, and one app-owned bar/ring chart with capped series, visible legends, and no plugin colors, markup, animation, or executable UI.
