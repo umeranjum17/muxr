@@ -86,6 +86,7 @@ UI version 12 allows generic `item-list` rows to omit actions for read-only stat
 
 ## Revisions
 
+- 2026-08-18 — Bundled plugin consolidation: file-viewer + changes + git-history + runbook merged into `code`, usage-status + vitals into `status`, ports + run-server into `servers` (17 → 12 packages). Same public contract, same primitives; the contribution cap rises 16 → 24 for merged manifests, and setup now unlinks retired bundled ids.
 - 2026-08-17 — Reopened for bounded dynamic presentation: add data-bound progress, responsive summary columns, and one app-owned bar/ring chart with capped series, visible legends, and no plugin colors, markup, animation, or executable UI.
 - 2026-08-17 — Reopened Usage presentation: replace the flat text card with read-only item-list rows and report every installed known agent honestly as measured, no activity reported, or unsupported by ccusage.
 - 2026-08-17 — Usage now delegates local multi-agent activity to an exact pinned ccusage backend in offline/no-cost mode while retaining the bounded local Codex limit API and never invoking other coding CLIs.

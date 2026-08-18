@@ -1,9 +1,10 @@
-id = "muxr.run-server"
-name = "muxr Run Server"
+id = "muxr.servers"
+name = "Servers"
 version = "0.1.0"
 min_herdr_version = "0.8.0"
-description = "Start a project dev script and discover its HTTP listeners for muxr"
+min_muxr_version = 5
 platforms = ["linux", "macos"]
+description = "See what is listening, stop stray processes, and start a project dev script for Preview"
 
 [[actions]]
 id = "start"

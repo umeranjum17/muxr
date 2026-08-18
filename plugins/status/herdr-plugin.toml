@@ -1,0 +1,6 @@
+id = "muxr.status"
+name = "Status"
+version = "0.1.0"
+min_herdr_version = "0.8.0"
+platforms = ["linux", "macos"]
+description = "Coding-agent usage and machine vitals"

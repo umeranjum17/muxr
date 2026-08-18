@@ -1,9 +1,0 @@
-{
-  "schemaVersion": 1,
-  "pluginId": "muxr.vitals",
-  "contributions": [
-    { "slot": "host.rpc", "id": "vitals", "type": "rpc", "method": "vitals", "entry": "rpc.mjs", "mode": "read" },
-    { "slot": "home.cards", "id": "card", "type": "data-card", "title": "Machine", "presentation": "sheet",
-      "source": { "type": "plugin.call", "contributionId": "vitals" }, "emptyText": "Vitals unavailable" }
-  ]
-}

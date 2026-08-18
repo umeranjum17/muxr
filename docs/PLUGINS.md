@@ -111,7 +111,7 @@ Reference it from the UI:
 
 muxr never executes a command from the UI document. It sends the enabled extension ID, manifest hash, declared action ID, and explicit session context to the host. The host verifies them and asks Herdr to invoke the action from that same package.
 
-Your action receives `HERDR_PLUGIN_CONTEXT_JSON`, including the muxr-resolved `focused_pane_id`, `focused_pane_cwd`, `workspace_id`, `tab_id`, and `invocation_source`. Write state under `HERDR_PLUGIN_STATE_DIR`. There is no `HERDR_PANE_ID` in an action process; that variable belongs to panes. See [`../plugins/run-server/start.mjs`](../plugins/run-server/start.mjs) for a working backend example.
+Your action receives `HERDR_PLUGIN_CONTEXT_JSON`, including the muxr-resolved `focused_pane_id`, `focused_pane_cwd`, `workspace_id`, `tab_id`, and `invocation_source`. Write state under `HERDR_PLUGIN_STATE_DIR`. There is no `HERDR_PANE_ID` in an action process; that variable belongs to panes. See [`../plugins/servers/start.mjs`](../plugins/servers/start.mjs) for a working backend example.
 
 ## Hooks
 
@@ -435,7 +435,7 @@ with `{{item.x}}`. At most 32 entries render.
 A `row` with an `action` becomes tappable and opens another `navigation.content`
 screen in the same plugin. `params` values are bound the same way and are passed
 as the input to that screen's data RPC, so a detail screen can load exactly the
-record you tapped. `plugins/file-viewer` is a complete worked example: list the
+record you tapped. `plugins/code` is a complete worked example: list the
 files in a repo, tap one, read it.
 
 ## Overriding a bundled plugin
@@ -458,7 +458,7 @@ different plugin's UI would be a way to hide trusted surfaces. Disabling is an e
 
 A button on a detail screen sends its declared `fields` **plus the params the
 screen was opened with**, so it can act on the record you tapped without making
-you retype it. Fields win on a key collision. `plugins/ports` is the worked
+you retype it. Fields win on a key collision. `plugins/servers` is the worked
 example: list what is listening, tap one, stop it.
 
 ## What a backend RPC gets
@@ -533,7 +533,7 @@ phone-effect name is skipped, not fatal.
 
 `session.header.trailing` accepts `type: "screen-button"` in addition to
 `data-card`. A screen-button is a header chip that opens another contribution
-in the same plugin (see `plugins/git-history/muxr-ui.json`).
+in the same plugin (see `plugins/code/muxr-ui.json`).
 
 ```json
 {

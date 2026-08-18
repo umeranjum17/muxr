@@ -227,7 +227,7 @@ try {
     assert.ok(listing.includes('package/relay.js'), 'self-host relay bundle missing from npm artifact');
     assert.ok(listing.includes('package/update.mjs'), 'interactive CLI updater missing from npm artifact');
     assert.ok(listing.includes('package/plugins/control/run.mjs'), 'control plugin missing from npm artifact');
-    assert.ok(listing.includes('package/plugins/run-server/start.mjs'), 'Run Server plugin missing from npm artifact');
+    assert.ok(listing.includes('package/plugins/servers/start.mjs'), 'Run Server plugin missing from npm artifact');
     assert.ok(listing.includes('package/plugins/voice/rpc.mjs'), 'Voice plugin missing from npm artifact');
     assert.ok(listing.includes('package/web/index.html'), 'secure browser client missing from npm artifact');
     assert.ok(!listing.some((file) => /apps\/relay|commerce|stripe|website|betaCodeAdmin|controlPlane|controlRepository/i.test(file)), 'private control-plane source shipped in npm artifact');
@@ -277,7 +277,7 @@ try {
             message: { id: 'smoke', model: 'claude-sonnet-4-20250514', role: 'assistant', usage: { cache_creation_input_tokens: 0, cache_read_input_tokens: 0, input_tokens: 1, output_tokens: 1 } },
             requestId: 'smoke-request', sessionId: 'smoke-session', timestamp: new Date().toISOString(), version: '2.0.0',
         })}\n`);
-        const usagePlugin = join(installDir, 'node_modules', '@trymuxr', 'cli', 'plugins', 'usage-status', 'rpc.mjs');
+        const usagePlugin = join(installDir, 'node_modules', '@trymuxr', 'cli', 'plugins', 'status', 'usage.mjs');
         const usageResult = run(process.execPath, [usagePlugin], { cwd: installDir, env: { ...process.env, HOME: usageHome, PATH: binDir } });
         const usageOutput = JSON.parse(usageResult.stdout);
         assert.ok(usageOutput.items.some((item) => item.id === 'activity-claude' && item.metadata[0]?.value === '2 tokens' && item.action === undefined), 'installed Usage did not return a read-only Claude activity item');

@@ -1,4 +1,0 @@
-{ "schemaVersion": 1, "pluginId": "muxr.changes", "minMuxrVersion": 2, "contributions": [
-  { "slot": "host.rpc", "id": "list", "type": "rpc", "method": "list", "entry": "rpc.mjs", "mode": "read" },
-  { "slot": "session.pills", "id": "changes", "type": "native", "primitive": "item-list", "params": { "title": "Changes", "icon": "git-compare-outline", "accessibilityLabel": "Open changed files", "source": { "type": "plugin.call", "contributionId": "list" } } }
-] }

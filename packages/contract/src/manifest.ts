@@ -49,7 +49,7 @@ import {
  * capabilities) are resolved here.
  */
 
-const MAX_CONTRIBUTIONS = 16;
+const MAX_CONTRIBUTIONS = 24;
 const MAX_TEXT = 200;
 const SCREEN_TONES = new Set(['primary', 'secondary', 'positive', 'warning', 'danger']);
 const SCREEN_FIELD_KINDS = new Set(['text', 'switch', 'select']);
