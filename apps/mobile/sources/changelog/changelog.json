@@ -1,6 +1,11 @@
 {
   "entries": [
     {
+      "title": "Polish everywhere",
+      "summary": "A design-review pass plus simpler, fewer bundled plugins.",
+      "markdown": "- Proper green/red diffs, theme-correct voice overlay, and press feedback across terminal, sheets, and plugin screens.\n- Copy a link from recent terminal output in one tap from the Actions menu.\n- Fewer, simpler bundled plugins: Code (files, changes, history, runbook), Status (usage and vitals), and Servers (ports and preview).\n- The read-only browser now shows read-only plugin screens like Usage and Files.\n- The setup menu guides instead of dead-ending, pairing recovers from expired sessions, and the app names OMP correctly."
+    },
+    {
       "title": "Visual usage and steadier voice",
       "summary": "Charts and progress in plugin screens, plus screen-off voice fixes.",
       "markdown": "- See today\u2019s per-agent token activity as charts and Codex limits as progress rings on a native Usage screen.\n- Build richer plugin screens with data-bound progress, responsive columns, and bounded bar/ring charts \u2014 the same public UI vocabulary every extension uses.\n- Keep voice alive with the screen off: wake and Wi-Fi locks during calls, speaking counts as activity, and reconnects recover over long sessions.\n- Plugin failures show one clean message instead of technical detail; Git history shows a friendly empty state when a session has no folder."
@@ -21,5 +26,5 @@
       "markdown": "- Watch sessions, terminals, changes, and attention state from your phone.\n- Send keys, inspect attachments, and start agents in a selected workspace.\n- Use provider-neutral realtime voice or fully local Whisper dictation."
     }
   ],
-  "latestTitle": "Visual usage and steadier voice"
+  "latestTitle": "Polish everywhere"
 }

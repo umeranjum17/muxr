@@ -53,7 +53,7 @@ muxr
 
 The setup wizard inspects first and changes nothing until you review the plan and choose **Apply setup**. Pick local network, Tailscale, Cloudflare, your own WSS endpoint, or a shared self-hosted relay. Then scan the one-use QR with the app.
 
-- **Android:** [signed APK](https://github.com/umeranjum17/muxr/releases/download/v0.1.5/muxr-0.1.5.apk) · [SHA256SUMS](https://github.com/umeranjum17/muxr/releases/download/v0.1.5/SHA256SUMS) · Google Play coming soon
+- **Android:** [signed APK](https://github.com/umeranjum17/muxr/releases/download/v0.1.6/muxr-0.1.6.apk) · [SHA256SUMS](https://github.com/umeranjum17/muxr/releases/download/v0.1.6/SHA256SUMS) · Google Play coming soon
 - **Web:** choose the eight-hour read-only browser client during setup
 - **iOS:** in development, not yet available
 
