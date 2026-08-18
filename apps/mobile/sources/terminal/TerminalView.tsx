@@ -16,6 +16,7 @@ import { View } from 'react-native';
 import { TerminalView as GhosttyView, type TerminalViewRef } from 'expo-libghostty';
 import { decodeBase64, encodeBase64 } from '@/encryption/base64';
 import { openTerminal, type TerminalChannel } from './openTerminal';
+import { recordTerminalOutput } from './recentOutput';
 
 /** herdr repaints the whole screen per scroll; don't ask it for the world. */
 const MAX_SCROLL_LINES = 40;
@@ -128,6 +129,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                     // arrive as many socket messages; one Ghostty write per
                     // frame instead of one per message.
                     channel.onData((base64) => {
+                        recordTerminalOutput(sessionId, base64);
                         pendingWritesRef.current.push(base64);
                         if (writeRafRef.current === undefined) {
                             writeRafRef.current = requestAnimationFrame(flushWrites);

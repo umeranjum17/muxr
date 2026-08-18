@@ -14,6 +14,7 @@ import { useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
 import { Modal } from '@/modal';
+import * as Clipboard from 'expo-clipboard';
 import { storage, useSession, useSessions } from '@/sync/storage';
 import { sync } from '@/sync/sync';
 import type { HerdrTreeTab } from '@muxr/contract';
@@ -31,6 +32,7 @@ import { PluginSlot } from '@/plugins/PluginSlot';
 import { DeclarativeChips, DeclarativeHeaderButtons, DeclarativeTerminalKeySlot } from '@/plugins/DeclarativePluginSlot';
 import { useSlotContributions } from '@/plugins/useSlotContributions';
 import type { SessionMenu } from '@/plugins/slotTypes';
+import { recentTerminalLinks } from '@/terminal/recentOutput';
 import { resolvePluginText } from '@/plugins/pluginText';
 import { randomUUID } from 'expo-crypto';
 
@@ -341,11 +343,29 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                 <PluginSlot slot="session.header.trailing" context={{ sessionId: props.id, cwd: session?.metadata?.path }} />
                 <DeclarativeHeaderButtons cwd={session?.metadata?.path} />
                 <DeclarativeChips slot="session.header.trailing" />
-                {pluginButtons.length > 0 && (
+                {(
                     <Pressable
-                        onPress={() => setMenu({
-                            title: 'Actions',
-                            items: pluginButtons.map((button) => ({
+                        onPress={() => {
+                            const links = recentTerminalLinks(props.id);
+                            const linkItems: SessionMenu['items'] = links.length === 0 ? [] : [{
+                                label: 'Copy link',
+                                hint: links[0] !== undefined && links[0].length > 60 ? `${links[0].slice(0, 57)}…` : links[0],
+                                onPress: () => {
+                                    setMenu({
+                                        title: 'Copy link',
+                                        note: 'From the recent terminal output',
+                                        items: links.map((url) => ({
+                                            label: url.length > 72 ? `${url.slice(0, 69)}…` : url,
+                                            onPress: () => {
+                                                void Clipboard.setStringAsync(url).then(() => Modal.alert('Link copied', url));
+                                            },
+                                        })),
+                                    });
+                                },
+                            }];
+                            setMenu({
+                                title: 'Actions',
+                                items: [...linkItems, ...pluginButtons.map((button) => ({
                                 label: resolvePluginText(button.label),
                                 hint: button.name,
                                 onPress: () => {
@@ -361,8 +381,9 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                                     }).catch((error) => Modal.alert(`${button.name} failed`, error instanceof Error ? error.message : String(error)))
                                         .finally(() => setExtensionActionBusy(undefined));
                                 },
-                            })),
-                        })}
+                            }))],
+                            });
+                        }}
                         disabled={pluginActionBusy !== undefined}
                         hitSlop={10}
                         accessibilityRole="button"

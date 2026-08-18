@@ -93,6 +93,8 @@ export interface SessionSource {
     pluginApprove(options: { deviceId: string; pluginId: string; manifestHash: string; approved: boolean }): Promise<void>;
     pluginInvoke(options: { deviceId: string; pluginId: string; manifestHash: string; contributionId: string; sessionId: string; idempotencyKey: string }): Promise<void>;
     pluginCall(options: { deviceId: string; pluginId: string; manifestHash: string; contributionId: string; input?: unknown; idempotencyKey?: string }): Promise<unknown>;
+    /** Declared RPC mode for a catalog contribution, so read-only devices can be allowed through read paths only. */
+    pluginRpcMode?(options: { pluginId: string; manifestHash: string; contributionId: string }): 'read' | 'write' | undefined;
     pluginStream(options: { deviceId: string; pluginId: string; manifestHash: string; contributionId: string; channel: string; sessionId?: string }): Promise<null>;
     /** Split layout of one tab (rects in terminal cells) for grid views. */
     herdrLayout(tabId: string): Promise<{

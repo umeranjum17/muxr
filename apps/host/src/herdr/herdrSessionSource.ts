@@ -1161,6 +1161,10 @@ export async function createHerdrSessionSource(
             }
         },
 
+        pluginRpcMode({ pluginId, manifestHash, contributionId }: { pluginId: string; manifestHash: string; contributionId: string }): 'read' | 'write' | undefined {
+            try { return catalog.call(pluginId, manifestHash, contributionId).mode; } catch { return undefined; }
+        },
+
         async pluginCall({ deviceId, pluginId, manifestHash, contributionId, input, idempotencyKey }): Promise<unknown> {
             // Force one authoritative catalog read before entering the bounded
             // process queue. The active hash is checked again at dequeue.
