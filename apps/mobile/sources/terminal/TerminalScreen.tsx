@@ -36,6 +36,15 @@ import { recentTerminalLinks } from '@/terminal/recentOutput';
 import { resolvePluginText } from '@/plugins/pluginText';
 import { randomUUID } from 'expo-crypto';
 
+function displayLink(url: string, maxLength: number): string {
+    const parsed = new URL(url);
+    const prefix = `${parsed.protocol}//${parsed.host}`;
+    const suffix = `${parsed.pathname}${parsed.search}${parsed.hash}`;
+    const remaining = maxLength - prefix.length;
+    if (remaining <= 1) return prefix;
+    return suffix.length > remaining ? `${prefix}${suffix.slice(0, remaining - 1)}…` : `${prefix}${suffix}`;
+}
+
 export const TerminalScreen = React.memo((props: { id: string }) => {
     const { theme } = useUnistyles();
     const insets = useSafeAreaInsets();
@@ -349,13 +358,13 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                             const links = recentTerminalLinks(props.id);
                             const linkItems: SessionMenu['items'] = links.length === 0 ? [] : [{
                                 label: 'Copy link',
-                                hint: links[0] !== undefined && links[0].length > 60 ? `${links[0].slice(0, 57)}…` : links[0],
+                                hint: links[0] === undefined ? undefined : displayLink(links[0], 60),
                                 onPress: () => {
                                     setMenu({
                                         title: 'Copy link',
                                         note: 'From the recent terminal output',
                                         items: links.map((url) => ({
-                                            label: url.length > 72 ? `${url.slice(0, 69)}…` : url,
+                                            label: displayLink(url, 72),
                                             onPress: () => {
                                                 void Clipboard.setStringAsync(url).then(() => Modal.alert('Link copied', url));
                                             },
@@ -363,9 +372,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                                     });
                                 },
                             }];
-                            setMenu({
-                                title: 'Actions',
-                                items: [...linkItems, ...pluginButtons.map((button) => ({
+                            const items: SessionMenu['items'] = [...linkItems, ...pluginButtons.map((button) => ({
                                 label: resolvePluginText(button.label),
                                 hint: button.name,
                                 onPress: () => {
@@ -381,8 +388,8 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                                     }).catch((error) => Modal.alert(`${button.name} failed`, error instanceof Error ? error.message : String(error)))
                                         .finally(() => setExtensionActionBusy(undefined));
                                 },
-                            }))],
-                            });
+                            }))];
+                            setMenu({ title: 'Actions', items, ...(items.length === 0 ? { note: 'No actions available' } : {}) });
                         }}
                         disabled={pluginActionBusy !== undefined}
                         hitSlop={10}

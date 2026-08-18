@@ -14,7 +14,7 @@
   <div class="kicker">muxr spec</div>
   <h1>Plugins on primitives</h1>
   <span class="badge">tested</span>
-  <p class="meta">plugin-primitives.md · created 2026-08-15 · updated 2026-08-17 · umer</p>
+  <p class="meta">plugin-primitives.md · created 2026-08-15 · updated 2026-08-18 · umer</p>
   <p class="lead">Primitives, slots, actions, capabilities, and runtime contracts are the public platform. Inbox, Voice, Preview, Changes, Attachments, and future product features are plugins composed entirely from it.</p>
   <div class="card"><h2>Decision</h2><p>Enabled Herdr plugins remain trusted and default-on. Enabling or linking is the user's trust decision. Explicit disable and revoke remain authoritative. This rework strengthens the platform without adding per-device hash reapproval.</p></div>
   <div class="card"><h2>Five platform layers</h2><ol>
@@ -31,9 +31,9 @@
     <li>Hard-kill stuck RPCs, isolate concurrency, and stop repeated full catalog reparsing.</li>
     <li>Publish schemas and prove bundled plus adversarial third-party plugins on Android.</li>
   </ol></div>
-  <div class="card"><h2>Latest revision</h2><p>Usage is being revised from one flat text card into bounded, read-only item-list rows. Every installed known agent will be represented honestly as measured activity, no activity reported today, or unsupported by ccusage. The exact pinned ccusage backend remains offline and no-cost; only allowlisted names and rounded totals enter the cached item model. Codex limits still use its bounded local API, while every other coding CLI is PATH-detected but never executed. UI version 11 also provides one app-owned Prism tokenizer for plugin previews, native/web files, Markdown fences, and native diff lines.</p></div>
+  <div class="card"><h2>Latest revision</h2><p>Browser grants admit only explicitly read-mode RPCs from package-owned bundled plugin roots. Omitted modes and third-party self-declarations fail closed, while read-only session opens leave global attention untouched. Terminal links are stripped statefully, reject control, bidi, and credential-bearing forms, canonicalize through the platform URL parser, and remain latest-first and bounded across sessions.</p></div>
   <div class="card"><h2>Verification</h2><ul class="check">
-    <li>Automation passes 29/29; all 17 bundled plugins and adversarial combinations validate correctly.</li>
+    <li>Automation passes 29/29; all 12 bundled plugins and adversarial combinations validate correctly.</li>
     <li>The v11 manifest/tokenization flow, mobile typecheck, web export, and Android production JS bundle pass.</li>
     <li>Workspace/mobile typechecks and 62 focused Android acceptance tests pass.</li>
     <li>Hung, oversized, incompatible, and rapidly changing plugins fail locally.</li>

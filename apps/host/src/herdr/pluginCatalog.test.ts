@@ -65,7 +65,7 @@ describe('plugin catalog flow', () => {
         await catalog.refresh([plugin(root)]);
         const loaded = catalog.list(() => true)[0]!;
         expect(catalog.call(loaded.pluginId, loaded.manifestHash!, 'read')).toEqual({
-            method: 'read', entry: 'rpc.mjs', mode: 'read', context: ['sessions', 'workspace-tree'],
+            method: 'read', entry: 'rpc.mjs', mode: 'read', modeDeclared: true, context: ['sessions', 'workspace-tree'],
         });
 
         await writeFile(manifestPath, JSON.stringify({
@@ -150,7 +150,7 @@ describe('plugin catalog flow', () => {
         }));
         await catalog.refresh([plugin(root)]);
         const rpc = catalog.list(() => true)[0]!;
-        expect(catalog.call(rpc.pluginId, rpc.manifestHash!, 'token')).toEqual({ method: 'token', entry: 'rpc.mjs', mode: 'read' });
+        expect(catalog.call(rpc.pluginId, rpc.manifestHash!, 'token')).toEqual({ method: 'token', entry: 'rpc.mjs', mode: 'read', modeDeclared: false });
 
         await writeFile(manifestPath, JSON.stringify({
             schemaVersion: 1, pluginId: 'example.muxr-ui',
@@ -259,9 +259,9 @@ describe('plugin catalog flow', () => {
         const section = screen.children.find((node) => node.type === 'section');
         if (section?.type !== 'section') throw new Error('section missing');
         expect(section.children.map((node) => node.type)).toEqual(['field', 'field', 'field', 'button']);
-        expect(catalog.call(loaded.pluginId, loaded.manifestHash!, 'save-rpc')).toEqual({ method: 'save', entry: 'rpc.mjs', mode: 'write' });
-        expect(catalog.call(loaded.pluginId, loaded.manifestHash!, 'list-rpc')).toEqual({ method: 'list', entry: 'rpc.mjs', mode: 'read' });
-        expect(catalog.callTarget(loaded.pluginId, loaded.manifestHash!, 'list-rpc')).toEqual({ method: 'list', entry: 'rpc.mjs', mode: 'read', pluginRoot: root });
+        expect(catalog.call(loaded.pluginId, loaded.manifestHash!, 'save-rpc')).toEqual({ method: 'save', entry: 'rpc.mjs', mode: 'write', modeDeclared: true });
+        expect(catalog.call(loaded.pluginId, loaded.manifestHash!, 'list-rpc')).toEqual({ method: 'list', entry: 'rpc.mjs', mode: 'read', modeDeclared: true });
+        expect(catalog.callTarget(loaded.pluginId, loaded.manifestHash!, 'list-rpc')).toEqual({ method: 'list', entry: 'rpc.mjs', mode: 'read', modeDeclared: true, pluginRoot: root });
 
         // Unknown fields in the raw manifest rotate the approval hash even when
         // the validated projection is byte-identical.

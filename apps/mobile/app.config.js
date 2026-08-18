@@ -106,7 +106,7 @@ export default {
     expo: {
         name,
         slug: "muxr",
-        version: "0.1.6",
+        version: "0.1.7",
         runtimeVersion: "1",
         orientation: "default",
         icon: "./sources/assets/images/icon.png",
@@ -213,7 +213,8 @@ export default {
                 "expo-notifications",
                 {
                     "enableBackgroundRemoteNotifications": true,
-                    "icon": "./sources/assets/images/icon-notification.png"
+                    "icon": "./sources/assets/images/icon-notification.png",
+                    "mode": variant === "production" ? "production" : "development"
                 }
             ],
             [

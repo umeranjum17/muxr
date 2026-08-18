@@ -537,6 +537,7 @@ export function parseManifest(value: unknown): PluginManifestV1 {
             const entry = text(item.entry, 80);
             if (!/^[a-zA-Z0-9._-]+\.mjs$/.test(entry)) throw new Error('invalid plugin RPC entry');
             let mode: PluginRpcMode;
+            const modeDeclared = item.mode !== undefined;
             if (item.mode === 'write') mode = 'write';
             else if (item.mode === undefined || item.mode === 'read') mode = 'read';
             else throw new Error('invalid plugin RPC mode');
@@ -553,7 +554,7 @@ export function parseManifest(value: unknown): PluginManifestV1 {
                 });
                 if (new Set(context).size !== context.length) throw new Error('duplicate plugin RPC context');
             }
-            contributions.push({ slot: 'host.rpc', id: id(item.id), type: 'rpc', method: id(item.method), entry, mode, ...(context === undefined ? {} : { context }) });
+            contributions.push({ slot: 'host.rpc', id: id(item.id), type: 'rpc', method: id(item.method), entry, mode, modeDeclared, ...(context === undefined ? {} : { context }) });
             continue;
         }
         if (item.type === 'native' && typeof item.slot === 'string' && NATIVE_SLOT_SET.has(item.slot)) {

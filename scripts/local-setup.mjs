@@ -19,7 +19,7 @@ import {
     writeFileSync,
 } from 'node:fs';
 import { homedir, hostname, networkInterfaces, platform as hostPlatform, tmpdir, userInfo } from 'node:os';
-import { basename, delimiter, dirname, join } from 'node:path';
+import { basename, delimiter, dirname, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 
 const MIN_HERDR = [0, 8, 0];
@@ -349,14 +349,27 @@ async function ensureBundledPlugins(binary, dryRun) {
     }
     const bundled = bundledPlugins();
     const bundledIds = new Set(bundled.map((plugin) => plugin.id));
+    const bundledRoot = realpathSync(dirname(bundledPluginPath(bundled[0].name)));
+    // Retired bundled IDs merged into a successor. Match both the explicit ID
+    // and its package-owned root so a local plugin reusing an old ID survives.
+    const retiredBundled = new Map([
+        ['muxr.file-viewer', { successor: 'muxr.code', directory: 'file-viewer' }],
+        ['muxr.changes', { successor: 'muxr.code', directory: 'changes' }],
+        ['muxr.git-history', { successor: 'muxr.code', directory: 'git-history' }],
+        ['muxr.runbook', { successor: 'muxr.code', directory: 'runbook' }],
+        ['muxr.usage-status', { successor: 'muxr.status', directory: 'usage-status' }],
+        ['muxr.vitals', { successor: 'muxr.status', directory: 'vitals' }],
+        ['muxr.ports', { successor: 'muxr.servers', directory: 'ports' }],
+        ['muxr.run-server', { successor: 'muxr.servers', directory: 'run-server' }],
+    ]);
     for (const current of installed) {
-        // A bundled plugin that disappeared from the package (merged or
-        // retired) must not linger enabled, pointing at a vanished directory.
-        if (typeof current.plugin_id === 'string' && current.plugin_id.startsWith('muxr.') && !bundledIds.has(current.plugin_id)) {
-            if (dryRun) { print(`  would unlink retired bundled plugin ${current.plugin_id}`); continue; }
-            const unlinked = run(binary, ['plugin', 'unlink', current.plugin_id]);
-            print(`  ${unlinked.ok ? '✓' : 'warn:'} unlinked retired bundled plugin ${current.plugin_id}`);
-        }
+        const retired = retiredBundled.get(current.plugin_id);
+        if (retired === undefined || !bundledIds.has(retired.successor)
+            || typeof current.plugin_root !== 'string'
+            || resolve(current.plugin_root) !== resolve(bundledRoot, retired.directory)) continue;
+        if (dryRun) { print(`  would unlink retired bundled plugin ${current.plugin_id}`); continue; }
+        const unlinked = run(binary, ['plugin', 'unlink', current.plugin_id]);
+        print(`  ${unlinked.ok ? '✓' : 'warn:'} unlinked retired bundled plugin ${current.plugin_id}`);
     }
     for (const { id, name } of bundled) {
         const current = installed.find((plugin) => plugin.plugin_id === id);
@@ -1644,12 +1657,24 @@ async function runSelfhostPair(state, requestedKind = 'native') {
     const base = selfhostControlBase(state);
     const authHeaders = { authorization: `Bearer ${selfhostCredential(state)}` };
     let pending = state.machine.crypto.pendingPair;
-    if (pending !== undefined
-        && ((pending.deviceKind ?? 'native') !== requestedKind
-            || (typeof pending.expiresAt === 'number' && pending.expiresAt <= Date.now()))) {
-        // A kind change or an expired five-minute session must mint a fresh
-        // claim; reusing a dead one strands every later `muxr pair` on the
-        // relay's expired session.
+    let recoveredPoll;
+    if (pending !== undefined && typeof pending.expiresAt === 'number' && pending.expiresAt <= Date.now()) {
+        // A claimed relay session remains recoverable after its local display
+        // deadline. Poll once before discarding the only copy of its pair key.
+        const polled = await api(base, `/v1/selfhost/pair-sessions/${encodeURIComponent(pending.pairId)}`, { headers: authHeaders });
+        if (!polled.response.ok) {
+            if (polled.response.status !== 403 && polled.response.status !== 404) throw new Error(polled.body.error || 'pair recovery polling failed');
+            delete state.machine.crypto.pendingPair;
+            writeSelfhostState(state);
+            pending = undefined;
+        } else if (polled.body.state === 'claimed') recoveredPoll = polled;
+        else if (polled.body.state === 'expired') {
+            delete state.machine.crypto.pendingPair;
+            writeSelfhostState(state);
+            pending = undefined;
+        }
+    }
+    if (pending !== undefined && (pending.deviceKind ?? 'native') !== requestedKind && recoveredPoll === undefined) {
         delete state.machine.crypto.pendingPair;
         writeSelfhostState(state);
         pending = undefined;
@@ -1698,31 +1723,37 @@ async function runSelfhostPair(state, requestedKind = 'native') {
         return 0;
     }
 
-    print('');
-    const browser = pending.deviceKind === 'browser';
-    const payload = new URL(pending.pairUrl).searchParams.get('payload');
-    const browserOrigin = publicRelayUrl(state.relayUrl)?.replace(/^wss/, 'https');
-    if (browser && browserOrigin && payload) {
-        print('Open this secure browser pairing link within five minutes:');
-        print(`${browserOrigin}/pair#payload=${payload}`);
-        print('The resulting browser access is read-only and expires after eight hours.');
-    } else if (process.stdout.isTTY) {
-        print(await QRCode.toString(pending.pairUrl, { type: 'terminal', small: true }));
+    if (recoveredPoll === undefined) {
+        print('');
+        const browser = pending.deviceKind === 'browser';
+        const payload = new URL(pending.pairUrl).searchParams.get('payload');
+        const browserOrigin = publicRelayUrl(state.relayUrl)?.replace(/^wss/, 'https');
+        if (browser && browserOrigin && payload) {
+            print('Open this secure browser pairing link within five minutes:');
+            print(`${browserOrigin}/pair#payload=${payload}`);
+            print('The resulting browser access is read-only and expires after eight hours.');
+        } else if (process.stdout.isTTY) {
+            print(await QRCode.toString(pending.pairUrl, { type: 'terminal', small: true }));
+        }
+        print(browser ? 'Browser pairing string (paste into the hosted web client):' : 'Pairing string (paste in the app if the QR is awkward):');
+        print(pending.pairUrl);
+        const pairFile = join(stateDir(), 'pairing-link.txt');
+        writeFileSync(pairFile, `${pending.pairUrl}\n`, { mode: 0o600 });
+        // wl-copy/xclip stay alive as clipboard owners and can freeze setup in a
+        // terminal or headless session. macOS pbcopy writes once and exits.
+        const clipboard = hostPlatform() === 'darwin'
+            ? spawnSync('pbcopy', [], { input: pending.pairUrl, timeout: 2_000 })
+            : undefined;
+        print(clipboard?.status === 0 ? '  ✓ copied pairing string to clipboard' : `  saved exact pairing string to ${pairFile}`);
+        print('Waiting for the device to claim this single-use pairing session…');
     }
-    print(browser ? 'Browser pairing string (paste into the hosted web client):' : 'Pairing string (paste in the app if the QR is awkward):');
-    print(pending.pairUrl);
-    const pairFile = join(stateDir(), 'pairing-link.txt');
-    writeFileSync(pairFile, `${pending.pairUrl}\n`, { mode: 0o600 });
-    // wl-copy/xclip stay alive as clipboard owners and can freeze setup in a
-    // terminal or headless session. macOS pbcopy writes once and exits.
-    const clipboard = hostPlatform() === 'darwin'
-        ? spawnSync('pbcopy', [], { input: pending.pairUrl, timeout: 2_000 })
-        : undefined;
-    print(clipboard?.status === 0 ? '  ✓ copied pairing string to clipboard' : `  saved exact pairing string to ${pairFile}`);
-    print('Waiting for the device to claim this single-use pairing session…');
     while (true) {
-        await new Promise((resolve) => setTimeout(resolve, 2000));
-        const polled = await api(base, `/v1/selfhost/pair-sessions/${encodeURIComponent(pending.pairId)}`, { headers: authHeaders });
+        let polled = recoveredPoll;
+        recoveredPoll = undefined;
+        if (polled === undefined) {
+            await new Promise((resolve) => setTimeout(resolve, 2000));
+            polled = await api(base, `/v1/selfhost/pair-sessions/${encodeURIComponent(pending.pairId)}`, { headers: authHeaders });
+        }
         if (!polled.response.ok) throw new Error(polled.body.error || 'pair polling failed');
         if (polled.body.state === 'pending') continue;
         if (polled.body.state === 'expired') {

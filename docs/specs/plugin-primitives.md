@@ -3,7 +3,7 @@ title: Plugins on primitives
 slug: plugin-primitives
 status: tested
 created: 2026-08-15
-updated: 2026-08-17
+updated: 2026-08-18
 owner: umer
 links:
   - ../decisions/0005-pi-like-extension-runtime.md
@@ -71,7 +71,7 @@ UI version 12 allows generic `item-list` rows to omit actions for read-only stat
 
 ## Verification
 
-- `node scripts/runSuite.mjs` passes 29/29, including the structured Usage agent-item flow and actionless read-only item-list rows; `node scripts/checkBundledPlugins.mjs` validates all 17 bundled plugins and rejects wrong target/primitive/parameter combinations.
+- `node scripts/runSuite.mjs` passes 29/29, including the structured Usage agent-item flow and actionless read-only item-list rows; `node scripts/checkBundledPlugins.mjs` validates all 12 bundled plugins and rejects wrong target/primitive/parameter combinations.
 - The mobile typecheck, focused manifest/tokenization flow, web export, and Android production JS bundle all pass with the v11 `code` node.
 - Workspace and mobile typechecks pass; focused Android acceptance checks pass 62/62.
 - Existing host/mobile flow tests cover catalog snapshots, explicit disable/revoke, event/action modes, write refresh, timeout isolation, cache invalidation, and process-group cleanup.
@@ -86,6 +86,7 @@ UI version 12 allows generic `item-list` rows to omit actions for read-only stat
 
 ## Revisions
 
+- 2026-08-18 — Browser grants now admit only explicitly read-mode RPCs from package-owned bundled plugin roots; omitted modes and third-party self-declarations fail closed. Read-only session opens no longer acknowledge global attention. Terminal link extraction is stateful, control-safe, canonical, credential-free, latest-first, and bounded across sessions.
 - 2026-08-18 — Bundled plugin consolidation: file-viewer + changes + git-history + runbook merged into `code`, usage-status + vitals into `status`, ports + run-server into `servers` (17 → 12 packages). Same public contract, same primitives; the contribution cap rises 16 → 24 for merged manifests, and setup now unlinks retired bundled ids.
 - 2026-08-17 — Reopened for bounded dynamic presentation: add data-bound progress, responsive summary columns, and one app-owned bar/ring chart with capped series, visible legends, and no plugin colors, markup, animation, or executable UI.
 - 2026-08-17 — Reopened Usage presentation: replace the flat text card with read-only item-list rows and report every installed known agent honestly as measured, no activity reported, or unsupported by ccusage.

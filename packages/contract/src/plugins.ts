@@ -121,6 +121,8 @@ export interface PluginRpcCapability {
      * is dropped so it can re-execute on retry. read calls are never cached.
      */
     mode: PluginRpcMode;
+    /** true when the manifest spelled the mode out; omitted mode fails closed for browser access. */
+    modeDeclared?: boolean;
     /** Optional allow-listed public snapshots passed as MUXR_PLUGIN_CONTEXT_JSON. */
     context?: PluginContextRequest[];
 }

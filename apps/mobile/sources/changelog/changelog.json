@@ -3,7 +3,7 @@
     {
       "title": "Polish everywhere",
       "summary": "A design-review pass plus simpler, fewer bundled plugins.",
-      "markdown": "- Proper green/red diffs, theme-correct voice overlay, and press feedback across terminal, sheets, and plugin screens.\n- Copy a link from recent terminal output in one tap from the Actions menu.\n- Fewer, simpler bundled plugins: Code (files, changes, history, runbook), Status (usage and vitals), and Servers (ports and preview).\n- The read-only browser now shows read-only plugin screens like Usage and Files.\n- The setup menu guides instead of dead-ending, pairing recovers from expired sessions, and the app names OMP correctly."
+      "markdown": "- Proper green/red diffs, theme-correct voice overlay, and press feedback across terminal, sheets, and plugin screens.\n- Copy a link from recent terminal output in one tap from the Actions menu.\n- Fewer, simpler bundled plugins: Code (files, changes, history, runbook), Status (usage and vitals), and Servers (ports and preview).\n- The read-only browser now shows audited read-only plugin screens like Usage and Files; bundled plugin permissions refresh once after this safety upgrade.\n- The setup menu guides instead of dead-ending, pairing recovers from expired sessions, and the app names OMP correctly."
     },
     {
       "title": "Visual usage and steadier voice",

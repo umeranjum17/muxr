@@ -193,6 +193,10 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
             if (readOnly && request.type === 'terminal.attach') {
                 request = { ...request, params: { ...request.params, mode: 'observe' } } as ClientRequest;
             }
+            if (readOnly && request.type === 'session.open') {
+                try { return { type: 'result', requestId: request.requestId, ok: true, data: await source.open({ ...request.params, acknowledgeAttention: false }) }; }
+                catch (error) { return { type: 'result', requestId: request.requestId, ok: false, error: error instanceof Error ? error.message : String(error) }; }
+            }
             if (request.type === 'plugin.list') {
                 try { return { type: 'result', requestId: request.requestId, ok: true, data: await source.pluginList(deviceId) }; }
                 catch (error) { return { type: 'result', requestId: request.requestId, ok: false, error: error instanceof Error ? error.message : String(error) }; }
