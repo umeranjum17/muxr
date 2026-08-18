@@ -26,6 +26,13 @@
 
 [![muxr on Android](docs/play/store-assets/01-herd.png)](https://trymuxr.com/#demo)
 
+<p align="center">
+  <img src="docs/screenshots/v015/terminal.png" width="260" alt="Real Kimi Code terminal in muxr" />
+  <img src="docs/screenshots/v015/workspace.png" width="260" alt="Herd view with live agent terminals" />
+  <img src="docs/screenshots/v015/usage.png" width="260" alt="Usage charts" />
+</p>
+<p align="center"><em>Real Herdr panes, real agents — captured from the shipping app.</em></p>
+
 ## What it does
 
 - **One herd:** see every agent and terminal, including who is working, blocked, or done.
