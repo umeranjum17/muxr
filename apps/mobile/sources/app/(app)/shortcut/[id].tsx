@@ -4,7 +4,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { runShortcut } from '@/plugins/runShortcut';
 
 /**
- * Assistant deep-link target. Home is restored first so the shortcut's action
+ * Launcher deep-link target. Home is restored first so the shortcut's action
  * lands on a mounted app rather than racing this screen's own teardown.
  */
 export default function ShortcutRoute() {

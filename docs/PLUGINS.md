@@ -122,7 +122,7 @@ Every slot below is shipped. **JSON** means you edit `muxr-ui.json` and the chan
 | Slot | What you contribute | How |
 |---|---|---|
 | `events` | a trigger: when app state changes, run a kernel action | JSON |
-| `shortcuts` | an Android launcher shortcut; build-bundled contributions also become Assistant App Actions | JSON (launcher) / app rebuild (Assistant) |
+| `shortcuts` | an Android launcher shortcut | JSON; bundled entries require an app rebuild |
 | `host.rpc` | a bounded one-shot backend entrypoint | JSON + `.mjs` |
 | `host.stream` | a persistent provider adapter over bounded NDJSON frames | `.mjs` |
 | `navigation.primary` | a top-level destination | JSON (`navigation-item`) |
@@ -500,7 +500,7 @@ validates shape; `plugin call` proves wiring.
 { "schemaVersion": 1, "pluginId": "you.thing", "minMuxrVersion": 8, "contributions": [] }
 ```
 
-`minMuxrVersion` is optional and is preserved when the host parses the manifest. UI version 12 allows generic `item-list` rows to omit actions for honest read-only status and metric lists; actionable rows still require a validated closed action. UI version 11 adds the bounded declarative `code` node and syntax highlighting for source previews and native unified diffs. UI version 10 adds the generic declarative `tree` node: per-folder expand/collapse, expand/collapse-all controls, optional lazy `host.rpc` children, closed leaf actions, and folder selection into an existing form field. UI version 9 adds provider-neutral `host.stream` contributions and strict encrypted stream transport. UI version 8 adds bounded per-row icons/metadata and optional sheet-level actions to the generic `item-list` response. UI version 7 adds plugin-owned `navigation-item.badge` read sources and singleton tree-sheet cardinality. UI version 6 adds bounded localized values for every user-visible manifest string and runtime Android launcher projection for shortcut contributions. UI version 5 removes `url-chip`; adds bounded active-only refresh and presentation parameters to `item-list`; adds current-session preview navigation by validated port; and defines capability actions, Assistant shortcuts, the realtime indicator, and singleton realtime-overlay cardinality. UI version 4 added source-driven grouped collections/tree sheets and allow-listed public RPC context. Each phone compares it with its own `MUXR_UI_VERSION`; an older app lists the plugin as unavailable with an update message and refuses to mount its contributions instead of quietly rendering partial UI.
+`minMuxrVersion` is optional and is preserved when the host parses the manifest. UI version 12 allows generic `item-list` rows to omit actions for honest read-only status and metric lists; actionable rows still require a validated closed action. UI version 11 adds the bounded declarative `code` node and syntax highlighting for source previews and native unified diffs. UI version 10 adds the generic declarative `tree` node: per-folder expand/collapse, expand/collapse-all controls, optional lazy `host.rpc` children, closed leaf actions, and folder selection into an existing form field. UI version 9 adds provider-neutral `host.stream` contributions and strict encrypted stream transport. UI version 8 adds bounded per-row icons/metadata and optional sheet-level actions to the generic `item-list` response. UI version 7 adds plugin-owned `navigation-item.badge` read sources and singleton tree-sheet cardinality. UI version 6 adds bounded localized values for every user-visible manifest string and runtime Android launcher projection for shortcut contributions. UI version 5 removes `url-chip`; adds bounded active-only refresh and presentation parameters to `item-list`; adds current-session preview navigation by validated port; and defines capability actions, Android launcher shortcuts, the realtime indicator, and singleton realtime-overlay cardinality. UI version 4 added source-driven grouped collections/tree sheets and allow-listed public RPC context. Each phone compares it with its own `MUXR_UI_VERSION`; an older app lists the plugin as unavailable with an update message and refuses to mount its contributions instead of quietly rendering partial UI.
 
 ## Capabilities
 
@@ -548,7 +548,7 @@ in the same plugin (see `plugins/code/muxr-ui.json`).
 
 ## Shortcuts
 
-Contribute Google Assistant / App Actions entries with the `shortcuts` slot:
+Contribute Android launcher entries with the `shortcuts` slot:
 
 ```json
 {
@@ -561,22 +561,15 @@ Contribute Google Assistant / App Actions entries with the `shortcuts` slot:
 }
 ```
 
-Assistant matches a synonym and deep-links `muxr://shortcut/<pluginId>.<contributionId>`;
-the app runs the same closed action union events use (`capability` or `plugin.call`).
-A cold shortcut first refreshes the enabled catalog and resolves the live
-contribution before any capability or RPC runs. If the host is unavailable or
-the plugin is disabled, the shortcut does nothing.
+The app runs the same closed action union events use (`capability` or `plugin.call`). A cold shortcut first refreshes the enabled catalog and resolves the live contribution before any capability or RPC runs. If the host is unavailable or the plugin is disabled, the shortcut does nothing.
 
-`synonyms` feed Assistant only when the contribution is present at app build time; Android's runtime launcher API cannot register spoken aliases. The app projects every currently enabled runtime contribution into Android's dynamic launcher shortcuts with `ShortcutManagerCompat`; disabling or uninstalling the plugin removes it on the next catalog refresh. Build-bundled plugins are also baked into `res/xml/shortcuts.xml` by `apps/mobile/plugins/withAppActions.js`, using the same public manifest contribution and localized resources.
+The app projects every currently enabled runtime contribution into Android's dynamic launcher shortcuts with `ShortcutManagerCompat`; disabling or uninstalling the plugin removes it on the next catalog refresh. Build-bundled plugins are also baked into `res/xml/shortcuts.xml` by `apps/mobile/plugins/withAppActions.js`, using the same public manifest contribution and localized resources. Both paths deep-link through `muxr://shortcut/<id>` and re-check the live enabled catalog before acting.
 
-Android does not permit runtime dynamic shortcuts to add Assistant `capability-binding` metadata. Therefore runtime-installed plugins get launcher long-press shortcuts, while any plugin included in a custom app build gets the same Assistant App Action as muxr's bundled plugins. This is an Android lifecycle limit, not a private bundled-plugin API. Both paths deep-link through `muxr://shortcut/<id>` and re-check the live enabled catalog before acting.
+`synonyms` remain accepted as legacy aliases for deep links made by older builds. The Play build intentionally omits optional Assistant App Actions capability metadata because Google Play rejects those resources unless its separate Actions terms entitlement is active.
 
 ### Testing on a physical device
 
-1. Install the release build on a phone signed into the same Google account.
-2. Android Studio → Tools → App Actions → App Actions Test Tool; create a preview for the app.
-3. Say “Hey Google, open Jarvis in muxr”.
-4. Inline-inventory previews expire after 6 hours — recreate them when they go stale.
-5. Locale must be one of `en-US` / `en-GB` / `en-CA` / `en-IN` / `en-BE` / `en-SG` / `en-AU`.
-6. No-Assistant fallback:
+1. Install the release build on a phone.
+2. Long-press the launcher icon and tap the contributed shortcut.
+3. Or test the deep link directly:
    `adb shell am start -a android.intent.action.VIEW -d "muxr://shortcut/muxr.voice.jarvis"`

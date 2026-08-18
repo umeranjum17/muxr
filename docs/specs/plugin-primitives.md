@@ -1,9 +1,9 @@
 ---
 title: Plugins on primitives
 slug: plugin-primitives
-status: tested
+status: implemented
 created: 2026-08-15
-updated: 2026-08-18
+updated: 2026-08-19
 owner: umer
 links:
   - ../decisions/0005-pi-like-extension-runtime.md
@@ -50,7 +50,7 @@ The Usage plugin uses the exact pinned ccusage native package as its backend agg
 
 UI version 13 makes dynamic plugin data genuinely visual without creating a plugin layout engine: progress may bind one bounded numeric data path; sections may arrange safe summary nodes in two or three responsive columns; and one bounded `chart` node renders app-owned bar or ring presentation with a visible text legend and full accessibility summary. Series are capped, plugins cannot supply colors, markup, axes, animation, or interaction, and malformed runtime values degrade to an empty state. Usage is the load-bearing proof: today’s measured agent activity and Codex limits use the same public nodes available to every third-party plugin.
 
-UI version 12 allows generic `item-list` rows to omit actions for read-only status/metric presentation while preserving closed validation for actionable rows. UI version 11 adds a bounded declarative `code` node with app-owned Prism tokenization, line numbers, selection, shared theme tokens, and plain-text fallback. The same tokenizer now powers native/web file views, Markdown code fences, and native diff lines, replacing the duplicate hand-rolled regex highlighter. File previews read at most 24 KiB / 240 lines and report truncation; ordinary text remains capped at 4 KiB while a sanitized RPC result string may use the existing 64 KiB total transport budget. UI version 7 adds plugin-owned navigation badge read sources and singleton tree-sheet cardinality. UI version 6 makes user-visible manifest strings bounded localized values with exact-locale, base-locale, then default fallback on the phone. The same public `shortcuts` contribution drives build-time localized Assistant resources and the live Android launcher projection. Runtime-installed plugins cannot add Assistant capability bindings because Android only accepts those from packaged XML; a third-party plugin included in a custom build receives the identical build-time behavior.
+UI version 12 allows generic `item-list` rows to omit actions for read-only status/metric presentation while preserving closed validation for actionable rows. UI version 11 adds a bounded declarative `code` node with app-owned Prism tokenization, line numbers, selection, shared theme tokens, and plain-text fallback. The same tokenizer now powers native/web file views, Markdown code fences, and native diff lines, replacing the duplicate hand-rolled regex highlighter. File previews read at most 24 KiB / 240 lines and report truncation; ordinary text remains capped at 4 KiB while a sanitized RPC result string may use the existing 64 KiB total transport budget. UI version 7 adds plugin-owned navigation badge read sources and singleton tree-sheet cardinality. UI version 6 makes user-visible manifest strings bounded localized values with exact-locale, base-locale, then default fallback on the phone. The same public `shortcuts` contribution drives build-time localized launcher resources and the live Android launcher projection. Optional Assistant capability metadata is intentionally absent from every build.
 
 ## Files
 
@@ -86,6 +86,7 @@ UI version 12 allows generic `item-list` rows to omit actions for read-only stat
 
 ## Revisions
 
+- 2026-08-19 — Remove optional Assistant App Actions capability metadata after Google Play continued rejecting the signed release despite owner acceptance of both terms surfaces. Keep the same public `shortcuts` contribution, localized launcher shortcut, deep link, and live enabled-catalog guard.
 - 2026-08-18 — Browser grants now admit only explicitly read-mode RPCs from package-owned bundled plugin roots; omitted modes and third-party self-declarations fail closed. Read-only session opens no longer acknowledge global attention. Terminal link extraction is stateful, control-safe, canonical, credential-free, latest-first, and bounded across sessions.
 - 2026-08-18 — Bundled plugin consolidation: file-viewer + changes + git-history + runbook merged into `code`, usage-status + vitals into `status`, ports + run-server into `servers` (17 → 12 packages). Same public contract, same primitives; the contribution cap rises 16 → 24 for merged manifests, and setup now unlinks retired bundled ids.
 - 2026-08-17 — Reopened for bounded dynamic presentation: add data-bound progress, responsive summary columns, and one app-owned bar/ring chart with capped series, visible legends, and no plugin colors, markup, animation, or executable UI.

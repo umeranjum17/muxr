@@ -74,7 +74,11 @@ if (readFileSync(bakedShortcutsPath, 'utf8') !== expectedShortcuts) {
 }
 const nativeShortcuts = readFileSync(nativeShortcutsPath, 'utf8');
 if (!nativeShortcuts.includes('android:targetPackage="com.trymuxr.app"') || /android:targetPackage="@/.test(nativeShortcuts)) {
-    process.stderr.write('FAIL Android App Actions targetPackage must be the literal Play package id\n');
+    process.stderr.write('FAIL Android launcher shortcut targetPackage must be the literal Play package id\n');
+    failed += 1;
+}
+if (/<capability(?:-binding)?\b/.test(nativeShortcuts) || nativeShortcuts.includes('actions.intent.')) {
+    process.stderr.write('FAIL Android launcher shortcuts must not declare Play-blocked App Actions capabilities\n');
     failed += 1;
 }
 const localizedShortcutFixture = [{
