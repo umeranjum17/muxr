@@ -39,6 +39,8 @@ export interface SessionStartOptions {
 export interface SessionOpenOptions {
     sessionId: string;
     path?: string;
+    /** Internal dispatcher flag: read-only devices observe without acknowledging attention. */
+    acknowledgeAttention?: boolean;
 }
 
 export interface SessionPromptOptions {

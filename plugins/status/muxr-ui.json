@@ -8,7 +8,8 @@
       "id": "usage",
       "type": "rpc",
       "method": "usage",
-      "entry": "usage.mjs"
+      "entry": "usage.mjs",
+      "mode": "read"
     },
     {
       "slot": "home.cards",

@@ -127,13 +127,24 @@ describe('openTerminal reconnect ownership', () => {
 });
 
 describe('recentTerminalLinks', () => {
-    it('extracts deduped URLs latest-first from ANSI terminal output', async () => {
+    it('keeps a bounded latest-first list of safe visible URLs', async () => {
         const { recordTerminalOutput, recentTerminalLinks, clearTerminalOutput } = await import('./recentOutput');
         const { encodeBase64 } = await import('@/encryption/base64');
+        const record = (sessionId: string, text: string) => recordTerminalOutput(sessionId, encodeBase64(new TextEncoder().encode(text)));
+
         clearTerminalOutput('s1');
-        recordTerminalOutput('s1', encodeBase64(new TextEncoder().encode('\x1b[32mServing on https://localhost:8901/index.html.\x1b[0m then http://example.com/a?x=1')));
-        recordTerminalOutput('s1', encodeBase64(new TextEncoder().encode('\nagain https://localhost:8901/index.html.')));
-        expect(recentTerminalLinks('s1')).toEqual(['http://example.com/a?x=1', 'https://localhost:8901/index.html']);
+        record('s1', '\x1b[32mServing on https://localhost:8901/index.html.\x1b[0m then http://example.com/a?x=1');
+        record('s1', '\n\x1b]8;;https://hidden.example');
+        record('s1', '\x07again https://localhost:8901/index.html. https://safe.example/\u202eevil https://user:secret@evil.example/ https://exa\x1b(');
+        record('s1', 'Bmple.com');
+        expect(recentTerminalLinks('s1')).toEqual(['https://example.com/', 'https://localhost:8901/index.html', 'http://example.com/a?x=1']);
+
+        clearTerminalOutput('s2');
+        for (let index = 0; index < 10; index++) record('s2', ` https://link-${index}.example`);
+        expect(recentTerminalLinks('s2')).toEqual(Array.from({ length: 8 }, (_, index) => `https://link-${9 - index}.example/`));
+
+        for (let index = 0; index < 33; index++) record(`lru-${index}`, ' https://example.com');
+        expect(recentTerminalLinks('lru-0')).toEqual([]);
         expect(recentTerminalLinks('unknown')).toEqual([]);
     });
 });

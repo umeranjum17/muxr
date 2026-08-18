@@ -1,13 +1,13 @@
 # Google Play launch plan
 
-Status: **v0.1.5 release candidate; local signed artifacts remain required and Play Console submission stays deferred.** Production package ID is permanently `com.trymuxr.app`.
+Status: **v0.1.7 release candidate; Play Console app exists and local signed artifacts remain required before closed testing.** Production package ID is permanently `com.trymuxr.app`.
 
 ## 1. Freeze the release identity
 
 - Package/application ID: `com.trymuxr.app` (immutable after first upload).
 - Store title: **muxr**.
 - Category: **Productivity**.
-- Version name: `0.1.5`; version code: `6`. Every subsequent upload must increment it.
+- Version name: `0.1.7`; version code: `8`. Every subsequent upload must increment it.
 - Production App-Link origin: `https://trymuxr.com`.
 - Keep preview/dev identifiers separate. Never sign preview and production with the same upload workflow by accident.
 
@@ -31,12 +31,12 @@ APP_ENV=production \
 MUXR_DISTRIBUTION=store \
 MUXR_PUBLIC_BASE_URL=https://trymuxr.com \
 eas build --platform android --profile production --local --non-interactive \
-  --output ./muxr-0.1.5.aab
+  --output ./muxr-0.1.7.aab
 ```
 
 Before submission:
 
-- `node scripts/runSuite.mjs` passes 27/27.
+- `node scripts/runSuite.mjs` passes 29/29.
 - Build metadata points at the release commit and the working tree is clean.
 - Bundle targets API 36, contains `arm64-v8a`, and includes no unsupported 32-bit ABI without its corresponding 64-bit ABI.
 - Use `bundletool` to generate/install device APKs from the AAB and run the clean-room smoke on API 36.

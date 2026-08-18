@@ -39,7 +39,7 @@ export type HerdrPlugin = {
     warnings?: (string | null)[];
 };
 
-type PluginCall = { method: string; entry: string; mode: PluginRpcMode; context?: PluginContextRequest[] };
+type PluginCall = { method: string; entry: string; mode: PluginRpcMode; modeDeclared: boolean; context?: PluginContextRequest[] };
 type PluginStream = { entry: string };
 type Snapshot = { pluginRoot: string; manifest: PluginManifestV1; summary: Omit<PluginSummary, 'approved'>; actions: Map<string, string>; calls: Map<string, PluginCall>; streams: Map<string, PluginStream> };
 type ParsedProjection = { pluginRoot: string; manifest: PluginManifestV1; canonical: string };
@@ -172,8 +172,8 @@ export class PluginCatalog {
     }
 
     call(pluginId: string, manifestHash: string, contributionId: string): PluginCall {
-        const { method, entry, mode, context } = this.callTarget(pluginId, manifestHash, contributionId);
-        return { method, entry, mode, ...(context === undefined ? {} : { context }) };
+        const { method, entry, mode, modeDeclared, context } = this.callTarget(pluginId, manifestHash, contributionId);
+        return { method, entry, mode, modeDeclared, ...(context === undefined ? {} : { context }) };
     }
 
     /** Return the validated call and plugin root from one active catalog snapshot. */
@@ -254,6 +254,7 @@ async function loadPlugin(
                     method: contribution.method,
                     entry: contribution.entry,
                     mode: contribution.mode,
+                    modeDeclared: contribution.modeDeclared === true,
                     ...(contribution.context === undefined ? {} : { context: contribution.context }),
                 });
             }

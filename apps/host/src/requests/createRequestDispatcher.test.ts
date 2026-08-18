@@ -49,6 +49,7 @@ describe('plugin device authority', () => {
     it('binds approvals and calls to the authenticated sender and blocks browser mutation', async () => {
         const calls: unknown[] = [];
         const source = {
+            async open(options: unknown) { calls.push(options); return { info: { id: 'session-1' } }; },
             async pluginApprove(options: unknown) { calls.push(options); },
             async pluginCall(options: unknown) { calls.push(options); return { ok: true }; },
             pluginRpcMode(options: { contributionId: string }) { return options.contributionId === 'rpc' ? 'read' as const : 'write' as const; },
@@ -71,6 +72,12 @@ describe('plugin device authority', () => {
         expect(await dispatch(call, 'browser-1')).toMatchObject({ ok: true, data: { ok: true } });
         const writeCall = { type: 'plugin.call', requestId: 'call-2', params: { pluginId: 'example.ui', manifestHash: 'hash', contributionId: 'write-rpc' } } as never;
         expect(await dispatch(writeCall, 'browser-1')).toMatchObject({ ok: false, error: expect.stringContaining('read-only') });
+
+        const open = { type: 'session.open', requestId: 'open', params: { sessionId: 'session-1' } } as never;
+        expect(await dispatch(open, 'browser-1')).toMatchObject({ ok: true });
+        expect(calls[3]).toEqual({ sessionId: 'session-1', acknowledgeAttention: false });
+        expect(await dispatch(open, 'native-1')).toMatchObject({ ok: true });
+        expect(calls[4]).toEqual({ sessionId: 'session-1' });
     });
 });
 

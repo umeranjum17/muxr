@@ -8,10 +8,11 @@
  */
 
 import { execFile } from 'node:child_process';
-import { mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, realpathSync } from 'node:fs';
 import { mkdir, open, readFile, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type {
     AgentLifecycle,
     PluginsInvalidatedFrame,
@@ -50,6 +51,9 @@ import { buildPluginPublicContext, type PublicContextSource } from './pluginPubl
 const PLUGIN_CALL_QUEUE_TIMEOUT_MS = 8_000;
 const MAX_PLUGIN_INVOCATIONS_PER_SCOPE = 64;
 const MAX_PLUGIN_INVOCATIONS_TOTAL = 1_024;
+const moduleRoot = dirname(fileURLToPath(import.meta.url));
+const bundledPluginsRoot = [join(moduleRoot, 'plugins'), join(moduleRoot, '../../../../plugins')].find(existsSync);
+const BROWSER_RPC_PLUGINS_ROOT = bundledPluginsRoot === undefined ? undefined : realpathSync(bundledPluginsRoot);
 
 function decrement(map: Map<string, number>, key: string): void {
     const next = (map.get(key) ?? 1) - 1;
@@ -1162,7 +1166,12 @@ export async function createHerdrSessionSource(
         },
 
         pluginRpcMode({ pluginId, manifestHash, contributionId }: { pluginId: string; manifestHash: string; contributionId: string }): 'read' | 'write' | undefined {
-            try { return catalog.call(pluginId, manifestHash, contributionId).mode; } catch { return undefined; }
+            // Browser access is package-owned and fail-closed: third-party code
+            // cannot make itself browser-callable by self-declaring read mode.
+            try {
+                const call = catalog.callTarget(pluginId, manifestHash, contributionId);
+                return BROWSER_RPC_PLUGINS_ROOT !== undefined && dirname(call.pluginRoot) === BROWSER_RPC_PLUGINS_ROOT && call.modeDeclared && call.mode === 'read' ? 'read' : undefined;
+            } catch { return undefined; }
         },
 
         async pluginCall({ deviceId, pluginId, manifestHash, contributionId, input, idempotencyKey }): Promise<unknown> {
@@ -1257,7 +1266,7 @@ export async function createHerdrSessionSource(
             // herdr clears `done` when the tab is focused; focusing from a phone
             // would yank the desk's focus, so opening the session is the "seen"
             // signal here instead.
-            clearAttention(openOptions.sessionId);
+            if (openOptions.acknowledgeAttention !== false) clearAttention(openOptions.sessionId);
             return snapshotFor(record);
         },
 
