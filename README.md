@@ -24,12 +24,13 @@
   <a href="LICENSE"><img alt="Apache 2.0" src="https://img.shields.io/badge/license-Apache--2.0-666?style=flat-square" /></a>
 </p>
 
-[![muxr on Android](docs/play/store-assets/01-herd.png)](https://trymuxr.com/#demo)
+[![muxr — every coding agent, on your phone](docs/screenshots/v015/rpg-herd.png)](https://trymuxr.com/#demo)
 
 <p align="center">
-  <img src="docs/screenshots/v015/terminal.png" width="260" alt="Real Kimi Code terminal in muxr" />
-  <img src="docs/screenshots/v015/workspace.png" width="260" alt="Herd view with live agent terminals" />
-  <img src="docs/screenshots/v015/usage.png" width="260" alt="Usage charts" />
+  <img src="docs/screenshots/v015/claude.png" height="420" alt="Claude Code terminal in muxr" />
+  <img src="docs/screenshots/v015/codex.png" height="420" alt="Codex terminal in muxr" />
+  <img src="docs/screenshots/v015/kimi.png" height="420" alt="Kimi Code terminal in muxr" />
+  <img src="docs/screenshots/v015/usage.png" height="420" alt="Usage charts in muxr" />
 </p>
 <p align="center"><em>Real Herdr panes, real agents — captured from the shipping app.</em></p>
 
