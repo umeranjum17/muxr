@@ -565,16 +565,16 @@ export type PluginEventAction =
     };
 
 /**
- * An Android launcher shortcut. Packaged contributions additionally become
- * Assistant App Actions; runtime-installed contributions become dynamic
- * launcher shortcuts. Both run the same closed action union events use.
+ * An Android launcher shortcut. Packaged contributions are baked into the app;
+ * runtime-installed contributions become dynamic shortcuts. Both run the same
+ * closed action union events use.
  */
 export interface PluginShortcut {
     slot: 'shortcuts';
     id: string;
     label: PluginText;
     longLabel?: PluginText;
-    /** Spoken phrases, e.g. ["Jarvis", "voice agent", "talk"]. */
+    /** Legacy aliases retained for deep links made by older builds. */
     synonyms: PluginText[];
     action: PluginEventAction;
 }

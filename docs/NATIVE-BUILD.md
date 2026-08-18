@@ -20,9 +20,9 @@ can silently replace the committed identity.
 
 The first `eas build --local` creates a keystore through your Expo account
 (`eas credentials` in `apps/mobile`). `credentials.json` is gitignored; do not
-commit it. Google Assistant / App Actions shortcuts from bundled plugins are
-baked into `res/xml/shortcuts.xml` at prebuild — a new APK is required after
-changing `plugins/*/muxr-ui.json` shortcuts.
+commit it. Android launcher shortcuts from bundled plugins are baked into
+`res/xml/shortcuts.xml` at prebuild, so changing `plugins/*/muxr-ui.json`
+shortcuts requires a new APK.
 
 In-app SSH (Settings → SSH) is TOFU host-key pinning via
 `apps/mobile/modules/ssh-tunnel`. It is Android-only.

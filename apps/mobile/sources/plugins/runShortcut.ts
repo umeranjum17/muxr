@@ -22,8 +22,8 @@ function canonicalShortcutId(shortcutId: string): string {
 }
 
 /**
- * Run a plugin shortcut by its Assistant shortcut id (`<pluginId>.<contributionId>`)
- * or by the spoken OPEN_APP_FEATURE synonym Assistant puts in the deep link.
+ * Run a plugin shortcut by its canonical id (`<pluginId>.<contributionId>`)
+ * or a legacy alias from an older deep link.
  *
  * The baked Android mapping is identity/alias data only. The enabled catalog is
  * authoritative even on cold start, so a disabled plugin can never open the mic.

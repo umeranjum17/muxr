@@ -1,9 +1,8 @@
-// Expo config plugin: Google Assistant App Actions.
+// Expo config plugin: Android launcher shortcuts.
 //
-// Shortcuts come from the bundled plugins' own muxr-ui.json, so adding a voice
-// shortcut is a manifest edit rather than an Android change. Static shortcuts
+// Shortcuts come from the bundled plugins' own muxr-ui.json. Static shortcuts
 // are baked at build time by Android's design. Runtime-installed plugins use
-// the same contribution through ShortcutManagerCompat for launcher shortcuts.
+// the same contribution through ShortcutManagerCompat.
 const { readdirSync, readFileSync, mkdirSync, writeFileSync, existsSync, unlinkSync } = require('fs');
 const { join } = require('path');
 const { withAndroidManifest, withDangerousMod, AndroidConfig } = require('expo/config-plugins');
@@ -78,7 +77,7 @@ function bundledShortcutData(shortcuts = bundledShortcuts()) {
     return shortcuts.map((shortcut) => ({
         id: shortcut.shortcutId,
         action: shortcut.action,
-        // OPEN_APP_FEATURE puts the spoken synonym in the URL, not shortcutId.
+        // Keep aliases so old deep links still resolve to the canonical id.
         aliases: dedupe([
             ...shortcut.synonyms,
             ...Object.values(shortcut.localized).flatMap((value) => value.synonyms),
@@ -141,8 +140,6 @@ module.exports = function withAppActions(config) {
             writeStable(join(values, 'muxr_shortcuts.xml'), shortcutResources(shortcuts, locale));
         }
 
-        // url-template turns the Assistant match into an ordinary deep link, so
-        // no native intent bridging is needed: expo-router already handles it.
         const target = packageName === undefined ? [] : [
             `            android:targetPackage="${escapeXml(packageName)}"`,
             `            android:targetClass="${escapeXml(packageName)}.MainActivity"`,
@@ -158,23 +155,12 @@ module.exports = function withAppActions(config) {
             `            android:action="android.intent.action.VIEW"`,
             ...target,
             `            android:data="muxr://shortcut/${escapeXml(shortcut.shortcutId)}" />`,
-            `        <capability-binding android:key="actions.intent.OPEN_APP_FEATURE">`,
-            `            <parameter-binding`,
-            `                android:key="feature"`,
-            `                android:value="@array/muxr_shortcut_${shortcut.resourceName}_synonyms" />`,
-            `        </capability-binding>`,
             `    </shortcut>`,
         ].join('\n'));
 
         writeStable(join(res, 'xml', 'shortcuts.xml'), [
             '<?xml version="1.0" encoding="utf-8"?>',
             '<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">',
-            '    <capability android:name="actions.intent.OPEN_APP_FEATURE">',
-            '        <intent>',
-            '            <url-template android:value="muxr://shortcut{/featureParam}" />',
-            '            <parameter android:name="feature" android:key="featureParam" />',
-            '        </intent>',
-            '    </capability>',
             ...entries,
             '</shortcuts>',
             '',

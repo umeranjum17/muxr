@@ -7,14 +7,14 @@
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;700&family=Hanken+Grotesk:wght@400;600&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
   <style>
     :root{--paper:#f4efe4;--card:#faf7ef;--ink:#211c15;--muted:#6b6253;--accent:#d14523;--sage:#5f7a5a;--amber:#b8791f;--line:#ddd3bf}
-    *{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:17px/1.55 'Hanken Grotesk',sans-serif}main{max-width:820px;margin:auto;padding:56px 24px 80px}h1,h2{font-family:Fraunces,serif}h1{font-size:clamp(36px,6vw,56px);margin:.2em 0}.kicker,.meta,.badge{font:500 12px 'IBM Plex Mono',monospace;text-transform:uppercase;letter-spacing:.07em}.badge{display:inline-block;padding:6px 10px;border-radius:999px;background:var(--sage);color:#fff}.meta{color:var(--muted);margin:12px 0 28px}.lead{font-size:20px}.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:22px 24px;margin:16px 0;box-shadow:0 7px 20px #6b625310}code{font-family:'IBM Plex Mono',monospace;font-size:.86em;background:#eee6d6;padding:.1em .35em;border-radius:4px}ol,ul{padding-left:1.2em}li{margin:.45em 0}.check li{list-style:'□  '}
+    *{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:17px/1.55 'Hanken Grotesk',sans-serif}main{max-width:820px;margin:auto;padding:56px 24px 80px}h1,h2{font-family:Fraunces,serif}h1{font-size:clamp(36px,6vw,56px);margin:.2em 0}.kicker,.meta,.badge{font:500 12px 'IBM Plex Mono',monospace;text-transform:uppercase;letter-spacing:.07em}.badge{display:inline-block;padding:6px 10px;border-radius:999px;background:var(--amber);color:#fff}.meta{color:var(--muted);margin:12px 0 28px}.lead{font-size:20px}.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:22px 24px;margin:16px 0;box-shadow:0 7px 20px #6b625310}code{font-family:'IBM Plex Mono',monospace;font-size:.86em;background:#eee6d6;padding:.1em .35em;border-radius:4px}ol,ul{padding-left:1.2em}li{margin:.45em 0}.check li{list-style:'□  '}
   </style>
 </head>
 <body><main>
   <div class="kicker">muxr spec</div>
   <h1>Plugins on primitives</h1>
-  <span class="badge">tested</span>
-  <p class="meta">plugin-primitives.md · created 2026-08-15 · updated 2026-08-18 · umer</p>
+  <span class="badge">implemented</span>
+  <p class="meta">plugin-primitives.md · created 2026-08-15 · updated 2026-08-19 · umer</p>
   <p class="lead">Primitives, slots, actions, capabilities, and runtime contracts are the public platform. Inbox, Voice, Preview, Changes, Attachments, and future product features are plugins composed entirely from it.</p>
   <div class="card"><h2>Decision</h2><p>Enabled Herdr plugins remain trusted and default-on. Enabling or linking is the user's trust decision. Explicit disable and revoke remain authoritative. This rework strengthens the platform without adding per-device hash reapproval.</p></div>
   <div class="card"><h2>Five platform layers</h2><ol>
@@ -31,7 +31,7 @@
     <li>Hard-kill stuck RPCs, isolate concurrency, and stop repeated full catalog reparsing.</li>
     <li>Publish schemas and prove bundled plus adversarial third-party plugins on Android.</li>
   </ol></div>
-  <div class="card"><h2>Latest revision</h2><p>Browser grants admit only explicitly read-mode RPCs from package-owned bundled plugin roots. Omitted modes and third-party self-declarations fail closed, while read-only session opens leave global attention untouched. Terminal links are stripped statefully, reject control, bidi, and credential-bearing forms, canonicalize through the platform URL parser, and remain latest-first and bounded across sessions.</p></div>
+  <div class="card"><h2>Latest revision</h2><p>The public <code>shortcuts</code> contribution keeps its localized Android launcher entry, deep link, and live enabled-catalog guard. Optional Assistant App Actions capability metadata is being removed because Google Play continued rejecting the signed release after the owner accepted both terms surfaces.</p></div>
   <div class="card"><h2>Verification</h2><ul class="check">
     <li>Automation passes 29/29; all 12 bundled plugins and adversarial combinations validate correctly.</li>
     <li>The v11 manifest/tokenization flow, mobile typecheck, web export, and Android production JS bundle pass.</li>

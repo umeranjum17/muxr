@@ -141,6 +141,6 @@ const SLOT_LABELS: Record<string, string> = {
     'home.composer.leading': 'a composer button',
     'home.composer.trailing': 'a composer button',
     'session.composer.trailing': 'a composer button',
-    'shortcuts': 'an Assistant shortcut',
+    'shortcuts': 'a launcher shortcut',
     'events': 'an event trigger',
 };
