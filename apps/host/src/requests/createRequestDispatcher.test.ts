@@ -51,6 +51,7 @@ describe('plugin device authority', () => {
         const source = {
             async pluginApprove(options: unknown) { calls.push(options); },
             async pluginCall(options: unknown) { calls.push(options); return { ok: true }; },
+            pluginRpcMode(options: { contributionId: string }) { return options.contributionId === 'rpc' ? 'read' as const : 'write' as const; },
         } as unknown as SessionSource;
         const { dispatch } = createRequestDispatcher({
             source,
@@ -67,7 +68,9 @@ describe('plugin device authority', () => {
         const call = { type: 'plugin.call', requestId: 'call', params: { pluginId: 'example.ui', manifestHash: 'hash', contributionId: 'rpc', input: { value: 1 } } } as never;
         expect(await dispatch(call, 'native-1')).toMatchObject({ ok: true, data: { ok: true } });
         expect(calls[1]).toMatchObject({ deviceId: 'native-1', contributionId: 'rpc' });
-        expect(await dispatch(call, 'browser-1')).toMatchObject({ ok: false, error: expect.stringContaining('read-only') });
+        expect(await dispatch(call, 'browser-1')).toMatchObject({ ok: true, data: { ok: true } });
+        const writeCall = { type: 'plugin.call', requestId: 'call-2', params: { pluginId: 'example.ui', manifestHash: 'hash', contributionId: 'write-rpc' } } as never;
+        expect(await dispatch(writeCall, 'browser-1')).toMatchObject({ ok: false, error: expect.stringContaining('read-only') });
     });
 });
 

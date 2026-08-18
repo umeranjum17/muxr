@@ -183,7 +183,11 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
                 'attachment.fetch', 'attachment.read', 'unread.catalog',
                 'attention.catalog', 'machines.list', 'terminal.attach',
             ]);
-            if (readOnly && !readOnlyRequests.has(request.type)) {
+            // A read-only browser may still call read-mode plugin RPCs (Usage,
+            // Files, Git history); write RPCs, invokes, and streams stay fenced.
+            const readOnlyPluginRead = readOnly && request.type === 'plugin.call'
+                && source.pluginRpcMode?.(request.params) === 'read';
+            if (readOnly && !readOnlyRequests.has(request.type) && !readOnlyPluginRead) {
                 return { type: 'result', requestId: request.requestId, ok: false, error: 'browser grant is read-only; use the native app for control' };
             }
             if (readOnly && request.type === 'terminal.attach') {
