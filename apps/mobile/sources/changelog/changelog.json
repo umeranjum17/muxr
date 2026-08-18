@@ -1,9 +1,14 @@
 {
   "entries": [
     {
+      "title": "Visual usage and steadier voice",
+      "summary": "Charts and progress in plugin screens, plus screen-off voice fixes.",
+      "markdown": "- See today\u2019s per-agent token activity as charts and Codex limits as progress rings on a native Usage screen.\n- Build richer plugin screens with data-bound progress, responsive columns, and bounded bar/ring charts \u2014 the same public UI vocabulary every extension uses.\n- Keep voice alive with the screen off: wake and Wi-Fi locks during calls, speaking counts as activity, and reconnects recover over long sessions.\n- Plugin failures show one clean message instead of technical detail; Git history shows a friendly empty state when a session has no folder."
+    },
+    {
       "title": "Readable code and honest usage",
       "summary": "Syntax-highlighted source and offline multi-agent activity.",
-      "markdown": "- Read source with line numbers and consistent syntax highlighting across Files, Markdown, plugin screens, and diffs.\n- Use the same bounded code and diff views from third-party plugins without HTML or native modules.\n- See today’s local coding-agent activity through a pinned offline ccusage backend, alongside current Codex limits.\n- Keep costs, prompts, model names, projects, and session details out of the Usage card."
+      "markdown": "- Read source with line numbers and consistent syntax highlighting across Files, Markdown, plugin screens, and diffs.\n- Use the same bounded code and diff views from third-party plugins without HTML or native modules.\n- See today\u2019s local coding-agent activity through a pinned offline ccusage backend, alongside current Codex limits.\n- Keep costs, prompts, model names, projects, and session details out of the Usage card."
     },
     {
       "title": "Shared relays and safer setup",
@@ -16,5 +21,5 @@
       "markdown": "- Watch sessions, terminals, changes, and attention state from your phone.\n- Send keys, inspect attachments, and start agents in a selected workspace.\n- Use provider-neutral realtime voice or fully local Whisper dictation."
     }
   ],
-  "latestTitle": "Readable code and honest usage"
+  "latestTitle": "Visual usage and steadier voice"
 }
