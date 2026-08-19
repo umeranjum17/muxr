@@ -1,7 +1,7 @@
 ---
 title: Proven mobile release lanes
 slug: mobile-release-lanes
-status: implemented
+status: tested
 created: 2026-08-19
 updated: 2026-08-19
 owner: umer
@@ -49,9 +49,9 @@ The replacement follows the MIT-licensed Bluesky mobile pattern: local EAS build
 
 ## Verification
 
-- [ ] Workflow YAML parses and action references are pinned.
-- [ ] Fastlane lanes load without contacting either store.
-- [ ] Existing build, typecheck, mobile integration, commerce, and secret checks pass.
-- [ ] Android local EAS build succeeds with a unique build number and the exact version code appears on Play Internal.
-- [ ] iOS local EAS build uploads, finishes Apple processing, and appears in the configured TestFlight group.
-- [ ] Production promotion requires the protected environment and reuses exact internal build identifiers.
+- [x] Workflow YAML parses and action references are pinned.
+- [x] Fastlane lanes load without contacting either store.
+- [x] Existing build, typecheck, mobile integration, commerce, and secret checks pass.
+- [x] Android local EAS build succeeds with a unique build number and the exact version code appears on Play Internal.
+- [x] iOS local EAS build uploads, finishes Apple processing, and appears in the configured TestFlight group.
+- [x] Production promotion requires the protected environment and reuses exact internal build identifiers.
