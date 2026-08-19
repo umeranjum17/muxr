@@ -86,7 +86,7 @@
     "preact": "^10.29.1",
     "prismjs": "^1.30.0",
     "qrcode": "^1.5.4",
-    "react": "19.2.0",
+    "react": "19.2.8",
     "react-dom": "19.2.0",
     "react-native": "0.83.1",
     "react-native-device-info": "^14.1.1",
@@ -126,7 +126,7 @@
     "@expo/config-plugins": "~55.0.0",
     "@material/material-color-utilities": "^0.3.0",
     "@stablelib/hex": "^2.0.1",
-    "@types/react": "~19.1.0",
+    "@types/react": "~19.2.18",
     "react-test-renderer": "19.0.0",
     "tsx": "^4.20.4",
     "typescript": "^5.7.2"
