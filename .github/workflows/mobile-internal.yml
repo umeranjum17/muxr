@@ -51,6 +51,9 @@ jobs:
       PLATFORM: ${{ inputs.platform || 'all' }}
       HAS_EXPO_AUTH: ${{ secrets.EXPO_TOKEN != '' || secrets.EXPO_STATE_JSON != '' }}
       HAS_PLAY_CREDENTIAL: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON != '' }}
+      HAS_ASC_KEY_ID: ${{ secrets.ASC_KEY_ID != '' }}
+      HAS_ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID != '' }}
+      HAS_ASC_PRIVATE_KEY: ${{ secrets.ASC_KEY_P8_BASE64 != '' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -61,6 +64,11 @@ jobs:
         run: |
           test "$HAS_EXPO_AUTH" = true
           if [ "$PLATFORM" != ios ]; then test "$HAS_PLAY_CREDENTIAL" = true; fi
+          if [ "$PLATFORM" != android ]; then
+            test "$HAS_ASC_KEY_ID" = true
+            test "$HAS_ASC_ISSUER_ID" = true
+            test "$HAS_ASC_PRIVATE_KEY" = true
+          fi
       - run: yarn install --frozen-lockfile --non-interactive
       - name: Mobile release gate
         run: |
@@ -255,7 +263,11 @@ jobs:
     env:
       EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
       EXPO_STATE_JSON: ${{ secrets.EXPO_STATE_JSON }}
-      RELEASE_NOTES: ${{ github.event.head_commit.message || format('Manual internal build from {0}', github.sha) }}
+      EXPO_APPLE_TEAM_ID: FKBTSU84AY
+      EXPO_ASC_API_KEY_PATH: ${{ runner.temp }}/AuthKey.p8
+      EXPO_ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+      EXPO_ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+      ASC_KEY_P8_BASE64: ${{ secrets.ASC_KEY_P8_BASE64 }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -272,9 +284,13 @@ jobs:
           mkdir -p ~/.expo
           printf '%s' "$EXPO_STATE_JSON" > ~/.expo/state.json
           chmod 600 ~/.expo/state.json
-      - name: Submit and distribute iOS through EAS-managed App Store credentials
+      - name: Materialize App Store Connect key for TestFlight setup
+        run: |
+          printf '%s' "$ASC_KEY_P8_BASE64" | base64 --decode > "$EXPO_ASC_API_KEY_PATH"
+          chmod 600 "$EXPO_ASC_API_KEY_PATH"
+      - name: Submit and distribute iOS through EAS
         working-directory: apps/mobile
-        run: npx eas-cli@22.0.0 submit --platform ios --profile production --path "$GITHUB_WORKSPACE/artifacts/ios/muxr.ipa" --what-to-test "$RELEASE_NOTES" --non-interactive --wait
+        run: npx eas-cli@22.0.0 submit --platform ios --profile production --path "$GITHUB_WORKSPACE/artifacts/ios/muxr.ipa" --non-interactive --wait
 
   summary:
     if: always()
