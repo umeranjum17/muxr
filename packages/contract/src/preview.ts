@@ -41,16 +41,6 @@ export function decodePreviewFrame(raw: Uint8Array): PreviewFrame | undefined {
     return { connId, flag: raw[4] as number, payload: raw.subarray(PREVIEW_HEADER_BYTES) };
 }
 
-/** An HTTP listener the host found on its own machine. */
-export interface PreviewServer {
-    port: number;
-    /** Bind address as the OS reports it, e.g. `127.0.0.1` or `0.0.0.0`. */
-    bind: string;
-    /** Process name, e.g. `node`. Empty when the OS withheld it. */
-    command: string;
-    pid?: number;
-}
-
 /** Random channel id. The relay pairs the two sockets quoting the same one. */
 export function newPreviewChannel(): string {
     return `pv_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
