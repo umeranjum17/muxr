@@ -189,8 +189,10 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
         hintTimer.current = setTimeout(() => setGestureHint(null), 1400);
     }, []);
 
-    // The dev-server chip: the link on screen now (a scroll repaint knows),
-    // falling back to the newest URL the terminal printed.
+    // The dev-server chip: strictly the link on screen now. Every whole-screen
+    // repaint herdr sends -- attach, resize, scroll -- is a viewport capture,
+    // so there is nothing to fall back to: falling back to the newest URL ever
+    // printed left the chip advertising a link that had scrolled away.
     const [chipLink, setChipLink] = React.useState<string | undefined>(undefined);
     const [chipKind, setChipKind] = React.useState<'preview' | 'open' | undefined>(undefined);
     const chipKindCache = React.useRef(new Map<string, 'preview' | 'open'>());
@@ -198,7 +200,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     React.useEffect(() => {
         const refresh = (sessionId?: string) => {
             if (sessionId !== undefined && sessionId !== props.id) return;
-            const link = viewportTerminalLinks(props.id)[0] ?? recentTerminalLinks(props.id)[0];
+            const link = viewportTerminalLinks(props.id)[0];
             setChipLink((previous) => (previous === link ? previous : link));
         };
         refresh();

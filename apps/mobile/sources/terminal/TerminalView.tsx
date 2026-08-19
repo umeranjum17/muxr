@@ -110,6 +110,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                     // its own for a keyboard or a pinch, and herdr would keep
                     // sending diffs for a screen that no longer matches.
                     channelRef.current?.resize(cols, rows);
+                    beginViewportCapture(sessionId);
                     channelRef.current?.repaint();
                 }, RESIZE_DEBOUNCE_MS);
                 return;
@@ -125,6 +126,10 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                 .then(() => openTerminal(sessionId, { cols, rows }))
                 .then((channel) => {
                     channelRef.current = channel;
+                    // The first thing herdr sends is the whole screen, so this
+                    // attach is a viewport capture. Without it the chip has no
+                    // viewport until the first scroll.
+                    beginViewportCapture(sessionId);
                     // Same discipline as the web view: herdr repaint bursts
                     // arrive as many socket messages; one Ghostty write per
                     // frame instead of one per message.
@@ -148,6 +153,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                         if (resizeTimerRef.current !== undefined) clearTimeout(resizeTimerRef.current);
                         resizeTimerRef.current = undefined;
                         channel.resize(latest.cols, latest.rows);
+                        beginViewportCapture(sessionId);
                         channel.repaint();
                     }
                 })
