@@ -1,0 +1,69 @@
+opt_out_usage
+
+
+def app_store_key
+  app_store_connect_api_key(
+    key_id: ENV.fetch("ASC_KEY_ID"),
+    issuer_id: ENV.fetch("ASC_ISSUER_ID"),
+    key_content: ENV.fetch("ASC_KEY_P8_BASE64"),
+    is_key_content_base64: true
+  )
+end
+
+platform :ios do
+  desc "Submit an existing TestFlight build for App Review"
+  lane :promote_production do
+    upload_to_app_store(
+      api_key: app_store_key,
+      app_identifier: "com.trymuxr.app",
+      app_version: ENV.fetch("APP_VERSION"),
+      build_number: ENV.fetch("IOS_BUILD_NUMBER"),
+      skip_binary_upload: true,
+      skip_screenshots: true,
+      release_notes: { "en-US" => ENV.fetch("RELEASE_NOTES") },
+      submit_for_review: true,
+      automatic_release: ENV.fetch("AUTOMATIC_RELEASE", "false") == "true",
+      force: true,
+      run_precheck_before_submit: false
+    )
+  end
+end
+
+platform :android do
+  desc "Prove the submitted build is completed on Play Internal"
+  lane :verify_internal do
+    expected = Integer(ENV.fetch("ANDROID_VERSION_CODE"))
+    versions = []
+    10.times do |attempt|
+      versions = google_play_track_version_codes(
+        package_name: "com.trymuxr.app",
+        json_key_data: ENV.fetch("PLAY_SERVICE_ACCOUNT_JSON"),
+        track: "internal"
+      ).map(&:to_i)
+      break if versions.include?(expected)
+
+      UI.message("Play Internal has not exposed versionCode #{expected}; retry #{attempt + 1}/10")
+      sleep 15
+    end
+    UI.user_error!("Play Internal does not contain versionCode #{expected}") unless versions.include?(expected)
+  end
+
+  desc "Promote an existing Play Internal build to Production"
+  lane :promote_production do
+    fraction = Integer(ENV.fetch("ROLLOUT_PERCENT", "10")) / 100.0
+    upload_to_play_store(
+      package_name: "com.trymuxr.app",
+      json_key_data: ENV.fetch("PLAY_SERVICE_ACCOUNT_JSON"),
+      track: "internal",
+      track_promote_to: "production",
+      version_code: ENV.fetch("ANDROID_VERSION_CODE"),
+      track_promote_release_status: fraction == 1.0 ? "completed" : "inProgress",
+      rollout: fraction.to_s,
+      skip_upload_apk: true,
+      skip_upload_aab: true,
+      skip_upload_metadata: true,
+      skip_upload_images: true,
+      skip_upload_screenshots: true
+    )
+  end
+end

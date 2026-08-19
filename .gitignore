@@ -15,6 +15,8 @@ dist/
 google-services.json
 GoogleService-Info.plist
 apps/mobile/play-service-account.json
+fastlane/report.xml
+fastlane/README.md
 *.aab
 *.ipa
 

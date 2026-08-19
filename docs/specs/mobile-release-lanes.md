@@ -1,0 +1,57 @@
+---
+title: Proven mobile release lanes
+slug: mobile-release-lanes
+status: implemented
+created: 2026-08-19
+updated: 2026-08-19
+owner: umer
+links:
+  - https://github.com/bluesky-social/social-app/blob/main/.github/workflows/build-submit-android.yml
+  - https://github.com/bluesky-social/social-app/blob/main/.github/workflows/build-submit-ios.yml
+---
+
+# Proven mobile release lanes
+
+## Context
+
+The first muxr store release proved that local EAS builds can reach App Store Connect and Google Play, but the tag-only workflow mixed release creation, native builds, retries, and store delivery. Internal testing should be automatic for mobile-relevant merges, while public production remains a separate promotion of the exact binary already tested.
+
+The replacement follows the MIT-licensed Bluesky mobile pattern: local EAS build, short-lived artifact handoff, and EAS submission. Current EAS Submit uses the existing EAS-managed App Store Connect key for internal TestFlight distribution; Fastlane is reserved for production promotion. GitHub Actions remains the orchestrator because Android builds must stay local and muxr is a monorepo.
+
+## Internal lane
+
+- Trigger on mobile-relevant pushes to `main`, plus a manual per-platform retry.
+- Serialize releases and coalesce superseded pending commits, run the existing mobile gate, and use EAS remote build counters with automatic increments.
+- Build production-signed Android and iOS artifacts locally on the appropriate GitHub runners.
+- Submit Android to Play Internal and wait until the exact version code appears through the Play API.
+- Submit iOS to App Store Connect, wait for Apple processing, and assign the exact build to the configured internal TestFlight group.
+- Retain artifacts and diagnostic logs briefly and write one release summary with version and build identifiers.
+
+## Production lane
+
+- Start as a manual workflow protected by the `production` GitHub environment.
+- Require the exact tested Android version code and iOS build number.
+- Promote Play Internal to Production and submit the existing TestFlight build for App Review without rebuilding.
+- Keep automatic public release disabled initially. A future policy change may trigger the same promotion workflow after a successful internal lane.
+
+## Reused open-source components
+
+- Expo EAS CLI, MIT: local builds and initial store submission.
+- Fastlane, MIT: Play track promotion and App Store review submission.
+- Bluesky social-app, MIT: architecture reference. muxr implements the pattern rather than vendoring its workflow.
+
+## Files
+
+- Replace `.github/workflows/stores.yml` with automatic internal and protected production workflows.
+- Configure remote build counters in `apps/mobile/eas.json`.
+- Add pinned Fastlane lanes and dependency metadata.
+- Update `docs/RELEASING.md` with the two-lane operating procedure.
+
+## Verification
+
+- [ ] Workflow YAML parses and action references are pinned.
+- [ ] Fastlane lanes load without contacting either store.
+- [ ] Existing build, typecheck, mobile integration, commerce, and secret checks pass.
+- [ ] Android local EAS build succeeds with a unique build number and the exact version code appears on Play Internal.
+- [ ] iOS local EAS build uploads, finishes Apple processing, and appears in the configured TestFlight group.
+- [ ] Production promotion requires the protected environment and reuses exact internal build identifiers.

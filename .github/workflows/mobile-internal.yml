@@ -1,0 +1,302 @@
+name: mobile internal
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/mobile-internal.yml"
+      - "Gemfile"
+      - "Gemfile.lock"
+      - "fastlane/**"
+      - "apps/mobile/**"
+      - "packages/contract/**"
+      - "packages/crypto/**"
+      - "packages/wire/**"
+      - "patches/**"
+      - "plugins/**"
+      - "scripts/checkMobileCommerceBuilds.mjs"
+      - "scripts/checkNoSecrets.mjs"
+      - "package.json"
+      - "yarn.lock"
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: Store target to retry
+        required: true
+        default: all
+        type: choice
+        options: [all, android, ios]
+
+concurrency:
+  group: mobile-internal
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  APP_ENV: production
+  MUXR_EAS_PROJECT_ID: 94c02367-50fe-44e0-a6d5-8461a0d06058
+  MUXR_PUBLIC_BASE_URL: https://trymuxr.com
+  MUXR_DISTRIBUTION: store
+  EXPO_PUBLIC_MUXR_MODE: hosted
+  EXPO_PUBLIC_MUXR_RELAY_URL: wss://trymuxr.com
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: stores
+    env:
+      PLATFORM: ${{ inputs.platform || 'all' }}
+      HAS_EXPO_AUTH: ${{ secrets.EXPO_TOKEN != '' || secrets.EXPO_STATE_JSON != '' }}
+      HAS_PLAY_CREDENTIAL: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON != '' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.23.2
+          cache: yarn
+      - name: Verify CI credentials
+        run: |
+          test "$HAS_EXPO_AUTH" = true
+          if [ "$PLATFORM" != ios ]; then test "$HAS_PLAY_CREDENTIAL" = true; fi
+      - run: yarn install --frozen-lockfile --non-interactive
+      - name: Mobile release gate
+        run: |
+          yarn build
+          yarn workspace @muxr/wire build
+          yarn workspace @muxr/mobile typecheck
+          yarn workspace @muxr/mobile vitest run sources/auth/accountSession.integration.spec.ts sources/sync/sessionSync.integration.spec.ts
+          node scripts/checkMobileCommerceBuilds.mjs
+          node scripts/checkNoSecrets.mjs
+
+  android:
+    if: inputs.platform != 'ios'
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: stores
+    outputs:
+      app-version: ${{ steps.version.outputs.app-version }}
+      version-code: ${{ steps.version.outputs.version-code }}
+    env:
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+      EXPO_STATE_JSON: ${{ secrets.EXPO_STATE_JSON }}
+      ORG_GRADLE_PROJECT_reactNativeArchitectures: arm64-v8a
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.23.2
+          cache: yarn
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: Restore Expo authentication
+        if: env.EXPO_TOKEN == ''
+        run: |
+          mkdir -p ~/.expo
+          printf '%s' "$EXPO_STATE_JSON" > ~/.expo/state.json
+          chmod 600 ~/.expo/state.json
+      - run: yarn install --frozen-lockfile --non-interactive
+      - name: Give Android lint enough JVM metaspace
+        run: |
+          sed -i 's/MaxMetaspaceSize=512m/MaxMetaspaceSize=1536m/' apps/mobile/android/gradle.properties
+          grep -q 'MaxMetaspaceSize=1536m' apps/mobile/android/gradle.properties
+      - name: Build Android locally with EAS
+        working-directory: apps/mobile
+        run: |
+          set -o pipefail
+          npx eas-cli@22.0.0 build --platform android --profile production --local --non-interactive --output "$RUNNER_TEMP/muxr.aab" 2>&1 | tee "$RUNNER_TEMP/android-eas.log"
+      - name: Download pinned bundletool
+        run: |
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/bundletool.jar" https://github.com/google/bundletool/releases/download/1.18.3/bundletool-all-1.18.3.jar
+          echo 'a099cfa1543f55593bc2ed16a70a7c67fe54b1747bb7301f37fdfd6d91028e29  bundletool.jar' | (cd "$RUNNER_TEMP" && sha256sum -c -)
+      - name: Read and verify built version
+        id: version
+        working-directory: apps/mobile
+        run: |
+          version_code=$(java -jar "$RUNNER_TEMP/bundletool.jar" dump manifest --bundle "$RUNNER_TEMP/muxr.aab" --xpath '/manifest/@android:versionCode')
+          app_version=$(java -jar "$RUNNER_TEMP/bundletool.jar" dump manifest --bundle "$RUNNER_TEMP/muxr.aab" --xpath '/manifest/@android:versionName')
+          remote_version_code=$(npx eas-cli@22.0.0 build:version:get --platform android --profile production --non-interactive --json | jq -r '.versionCode')
+          test "$version_code" -gt 0
+          test "$version_code" = "$remote_version_code"
+          test -n "$app_version"
+          echo "app-version=$app_version" >> "$GITHUB_OUTPUT"
+          echo "version-code=$version_code" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: android-internal
+          path: ${{ runner.temp }}/muxr.aab
+          retention-days: 7
+          if-no-files-found: error
+      - name: Upload Android diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: android-internal-log
+          path: ${{ runner.temp }}/android-eas.log
+          retention-days: 7
+          if-no-files-found: warn
+
+  ios:
+    if: inputs.platform != 'android'
+    needs: verify
+    runs-on: macos-15
+    timeout-minutes: 90
+    environment: stores
+    outputs:
+      app-version: ${{ steps.version.outputs.app-version }}
+      build-number: ${{ steps.version.outputs.build-number }}
+    env:
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+      EXPO_STATE_JSON: ${{ secrets.EXPO_STATE_JSON }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.23.2
+          cache: yarn
+      - name: Restore Expo authentication
+        if: env.EXPO_TOKEN == ''
+        run: |
+          mkdir -p ~/.expo
+          printf '%s' "$EXPO_STATE_JSON" > ~/.expo/state.json
+          chmod 600 ~/.expo/state.json
+      - run: yarn install --frozen-lockfile --non-interactive
+      - name: Select Xcode 26
+        run: |
+          xcode=$(find /Applications -maxdepth 1 -type d -name 'Xcode_26*.app' | sort -V | tail -1)
+          test -n "$xcode"
+          sudo xcode-select --switch "$xcode/Contents/Developer"
+          xcodebuild -version
+      - name: Build iOS locally with EAS
+        working-directory: apps/mobile
+        run: |
+          set -o pipefail
+          npx eas-cli@22.0.0 build --platform ios --profile production --local --non-interactive --output "$RUNNER_TEMP/muxr.ipa" 2>&1 | tee "$RUNNER_TEMP/ios-eas.log"
+      - name: Read built version
+        id: version
+        run: |
+          plist=$(zipinfo -1 "$RUNNER_TEMP/muxr.ipa" | grep -E '^Payload/[^/]+\.app/Info\.plist$' | head -1)
+          test -n "$plist"
+          unzip -p "$RUNNER_TEMP/muxr.ipa" "$plist" > "$RUNNER_TEMP/Info.plist"
+          app_version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$RUNNER_TEMP/Info.plist")
+          build_number=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$RUNNER_TEMP/Info.plist")
+          test -n "$app_version"
+          test -n "$build_number"
+          echo "app-version=$app_version" >> "$GITHUB_OUTPUT"
+          echo "build-number=$build_number" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ios-internal
+          path: ${{ runner.temp }}/muxr.ipa
+          retention-days: 7
+          if-no-files-found: error
+      - name: Upload iOS diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ios-internal-log
+          path: ${{ runner.temp }}/ios-eas.log
+          retention-days: 7
+          if-no-files-found: warn
+
+  submit-android:
+    if: inputs.platform != 'ios'
+    needs: android
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: stores
+    env:
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+      EXPO_STATE_JSON: ${{ secrets.EXPO_STATE_JSON }}
+      PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+      ANDROID_VERSION_CODE: ${{ needs.android.outputs.version-code }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.23.2
+      - uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0
+        with:
+          ruby-version: "3.3"
+          bundler-cache: true
+      - run: yarn install --frozen-lockfile --non-interactive
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: android-internal
+          path: artifacts/android
+      - name: Restore Expo authentication
+        if: env.EXPO_TOKEN == ''
+        run: |
+          mkdir -p ~/.expo
+          printf '%s' "$EXPO_STATE_JSON" > ~/.expo/state.json
+          chmod 600 ~/.expo/state.json
+      - name: Materialize Play credential
+        working-directory: apps/mobile
+        run: |
+          printf '%s' "$PLAY_SERVICE_ACCOUNT_JSON" > play-service-account.json
+          chmod 600 play-service-account.json
+      - name: Submit Android internal release
+        working-directory: apps/mobile
+        run: npx eas-cli@22.0.0 submit --platform android --profile production --path "$GITHUB_WORKSPACE/artifacts/android/muxr.aab" --non-interactive --wait
+      - name: Verify Play Internal contains this build
+        run: bundle exec fastlane android verify_internal
+
+  submit-ios:
+    if: inputs.platform != 'android'
+    needs: ios
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: stores
+    env:
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+      EXPO_STATE_JSON: ${{ secrets.EXPO_STATE_JSON }}
+      RELEASE_NOTES: ${{ github.event.head_commit.message || format('Manual internal build from {0}', github.sha) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.23.2
+      - run: yarn install --frozen-lockfile --non-interactive
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: ios-internal
+          path: artifacts/ios
+      - name: Restore Expo authentication
+        if: env.EXPO_TOKEN == ''
+        run: |
+          mkdir -p ~/.expo
+          printf '%s' "$EXPO_STATE_JSON" > ~/.expo/state.json
+          chmod 600 ~/.expo/state.json
+      - name: Submit and distribute iOS through EAS-managed App Store credentials
+        working-directory: apps/mobile
+        run: npx eas-cli@22.0.0 submit --platform ios --profile production --path "$GITHUB_WORKSPACE/artifacts/ios/muxr.ipa" --what-to-test "$RELEASE_NOTES" --non-interactive --wait
+
+  summary:
+    if: always()
+    needs: [verify, android, ios, submit-android, submit-ios]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Write internal release summary
+        env:
+          VERIFY: ${{ needs.verify.result }}
+          ANDROID_BUILD: ${{ needs.android.result }}
+          ANDROID_SUBMIT: ${{ needs.submit-android.result }}
+          ANDROID_VERSION_CODE: ${{ needs.android.outputs.version-code }}
+          IOS_BUILD: ${{ needs.ios.result }}
+          IOS_SUBMIT: ${{ needs.submit-ios.result }}
+          IOS_BUILD_NUMBER: ${{ needs.ios.outputs.build-number }}
+        run: |
+          {
+            echo "## Mobile internal release"
+            echo
+            echo "| Lane | Build | Store | Identifier |"
+            echo "| --- | --- | --- | --- |"
+            echo "| Verification | $VERIFY | — | — |"
+            echo "| Android | $ANDROID_BUILD | $ANDROID_SUBMIT | versionCode ${ANDROID_VERSION_CODE:-—} |"
+            echo "| iOS | $IOS_BUILD | $IOS_SUBMIT | build ${IOS_BUILD_NUMBER:-—} |"
+          } >> "$GITHUB_STEP_SUMMARY"
