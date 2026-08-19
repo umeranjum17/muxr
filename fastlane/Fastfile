@@ -11,6 +11,16 @@ def app_store_key
 end
 
 platform :ios do
+  desc "Upload an internal build directly to TestFlight"
+  lane :upload_internal do
+    upload_to_testflight(
+      api_key: app_store_key,
+      ipa: ENV.fetch("IPA_PATH"),
+      skip_waiting_for_build_processing: true,
+      distribute_external: false
+    )
+  end
+
   desc "Submit an existing TestFlight build for App Review"
   lane :promote_production do
     upload_to_app_store(

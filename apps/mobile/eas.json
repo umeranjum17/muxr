@@ -52,8 +52,7 @@
                 "releaseStatus": "completed"
             },
             "ios": {
-                "ascAppId": "6802917007",
-                "groups": ["Team (Expo)"]
+                "ascAppId": "6802917007"
             }
         }
     }

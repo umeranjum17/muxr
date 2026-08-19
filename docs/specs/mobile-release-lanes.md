@@ -16,7 +16,7 @@ links:
 
 The first muxr store release proved that local EAS builds can reach App Store Connect and Google Play, but the tag-only workflow mixed release creation, native builds, retries, and store delivery. Internal testing should be automatic for mobile-relevant merges, while public production remains a separate promotion of the exact binary already tested.
 
-The replacement follows the MIT-licensed Bluesky mobile pattern: local EAS build, short-lived artifact handoff, and EAS submission. Current EAS Submit uses the existing EAS-managed App Store Connect key for internal TestFlight distribution; Fastlane is reserved for production promotion. GitHub Actions remains the orchestrator because Android builds must stay local and muxr is a monorepo.
+The replacement follows the MIT-licensed Bluesky mobile pattern: local EAS build, short-lived artifact handoff, and separate store submission jobs. Android submits through EAS. iOS uploads directly through Fastlane with the existing App Store Connect key so Expo queue latency cannot hold the workflow open. GitHub Actions remains the orchestrator because Android builds must stay local and muxr is a monorepo.
 
 ## Internal lane
 
@@ -24,7 +24,7 @@ The replacement follows the MIT-licensed Bluesky mobile pattern: local EAS build
 - Serialize releases and coalesce superseded pending commits, run the existing mobile gate, and use EAS remote build counters with automatic increments.
 - Build production-signed Android and iOS artifacts locally on the appropriate GitHub runners.
 - Submit Android to Play Internal and wait until the exact version code appears through the Play API.
-- Submit iOS to App Store Connect, wait for Apple processing, and assign the exact build to the configured internal TestFlight group.
+- Upload iOS directly to TestFlight; the automatic internal group receives the exact build after Apple processing.
 - Retain artifacts and diagnostic logs briefly and write one release summary with version and build identifiers.
 
 ## Production lane
@@ -37,7 +37,7 @@ The replacement follows the MIT-licensed Bluesky mobile pattern: local EAS build
 ## Reused open-source components
 
 - Expo EAS CLI, MIT: local builds and initial store submission.
-- Fastlane, MIT: Play track promotion and App Store review submission.
+- Fastlane, MIT: direct TestFlight upload, Play track promotion, and App Store review submission.
 - Bluesky social-app, MIT: architecture reference. muxr implements the pattern rather than vendoring its workflow.
 
 ## Files
