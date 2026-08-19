@@ -3,6 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { createDeviceGrant } from '@muxr/crypto';
 import { homedir, hostname } from 'node:os';
 import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { assertFakeSourceCoversContract, createFakeSessionSource } from './fakeSessionSource.js';
 import { startHost } from './host.js';
 import { createHerdrSessionSource } from './herdr/herdrSessionSource.js';
@@ -18,6 +19,28 @@ function env(name: string): string | undefined {
 
 function defaultDataDir(): string {
     return join(homedir(), '.muxr', 'host');
+}
+
+/**
+ * The product/build version this host belongs to. The published artifact
+ * bundles the host to a host.js beside the @trymuxr/cli package.json; in the
+ * monorepo the workspace manifests are all 0.0.0 and the version lives at the
+ * root. Walk up to the first manifest with a real version.
+ */
+function resolveHostVersion(): string | undefined {
+    let dir = dirname(fileURLToPath(import.meta.url));
+    for (let depth = 0; depth < 5; depth++) {
+        try {
+            const manifest = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')) as { version?: unknown };
+            if (typeof manifest.version === 'string' && manifest.version !== '0.0.0') return manifest.version;
+        } catch {
+            // No manifest here — keep walking.
+        }
+        const parent = dirname(dir);
+        if (parent === dir) return undefined;
+        dir = parent;
+    }
+    return undefined;
 }
 
 class HostedAuthExpiredError extends Error {}
@@ -348,6 +371,7 @@ async function main(): Promise<void> {
               ...(hostedE2ee === undefined ? {} : { hostedE2ee }),
           });
 
+    const hostVersion = resolveHostVersion();
     startHost({
         ...(sharedKey ? { sharedKey } : {}),
         ...(hostedE2ee === undefined ? {} : { hostedE2ee }),
@@ -357,6 +381,7 @@ async function main(): Promise<void> {
         source,
         domain,
         terminals,
+        ...(hostVersion === undefined ? {} : { hostVersion }),
         onStateChange: (state) => {
             process.stdout.write(`relay link: ${state}\n`);
             if (state === 'replaced') {
