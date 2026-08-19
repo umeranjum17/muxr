@@ -264,7 +264,7 @@ jobs:
       EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
       EXPO_STATE_JSON: ${{ secrets.EXPO_STATE_JSON }}
       EXPO_APPLE_TEAM_ID: FKBTSU84AY
-      EXPO_ASC_API_KEY_PATH: ${{ runner.temp }}/AuthKey.p8
+      EXPO_ASC_API_KEY_PATH: /tmp/AuthKey.p8
       EXPO_ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
       EXPO_ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
       ASC_KEY_P8_BASE64: ${{ secrets.ASC_KEY_P8_BASE64 }}
