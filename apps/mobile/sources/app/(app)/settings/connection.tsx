@@ -1,11 +1,12 @@
 import * as React from 'react';
 import { Platform, Text, TextInput, View } from 'react-native';
+import Constants from 'expo-constants';
 import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
 import { ItemList } from '@/components/ItemList';
 import { RoundButton } from '@/components/RoundButton';
 import { Typography } from '@/constants/Typography';
-import { useSocketStatus } from '@/sync/storage';
+import { useMachine, useSocketStatus } from '@/sync/storage';
 import { syncReconnect } from '@/sync/sync';
 import { getActiveSshForward } from '@/state/sshForward';
 import {
@@ -17,6 +18,7 @@ import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { t } from '@/text';
 import { useRouter } from 'expo-router';
 import { getCachedHostedGrant } from '@/state/hostedE2ee';
+import { knownHostVersion, versionsMismatch } from '@/utils/versionStatus';
 
 const stylesheet = StyleSheet.create((theme) => ({
     label: {
@@ -53,6 +55,7 @@ const stylesheet = StyleSheet.create((theme) => ({
         ...Typography.default(),
     },
     actions: { paddingHorizontal: 16, paddingTop: 4, paddingBottom: 24 },
+    detailMismatch: { color: theme.colors.warning },
     dot: { width: 9, height: 9, borderRadius: 5 },
     dotOn: { backgroundColor: theme.colors.success },
     dotBusy: { backgroundColor: theme.colors.warning },
@@ -114,6 +117,7 @@ export default function ConnectionSettingsScreen() {
     const [encryptionKey, setEncryptionKey] = React.useState(initial.encryptionKey);
     const [error, setError] = React.useState<string | undefined>(undefined);
     const [saving, setSaving] = React.useState(false);
+    const machine = useMachine(initial.machineId);
 
     // getCachedConnectionSettings returns build-time defaults until storage has
     // hydrated. Opening this screen before that and pressing Save wrote those
@@ -141,6 +145,12 @@ export default function ConnectionSettingsScreen() {
         const where = overSsh
             ? 'Forwarded through the SSH connection you opened in Advanced setup'
             : initial.relayUrl;
+        // Diagnostic only: a mismatch never blocks anything, it answers "is my
+        // host older than my app?" without a debugging session.
+        const appVersion = Constants.expoConfig?.version || '0.0.0';
+        const reportedHost = machine?.metadata?.happyCliVersion;
+        const hostVersion = knownHostVersion(reportedHost);
+        const mismatch = versionsMismatch(appVersion, reportedHost);
         const browserExpiresAt = Platform.OS === 'web' ? getCachedHostedGrant(initial.machineId)?.expiresAt : undefined;
         const browserMinutes = browserExpiresAt === undefined ? undefined : Math.max(0, Math.ceil((browserExpiresAt - clock) / 60_000));
         return (
@@ -154,6 +164,11 @@ export default function ConnectionSettingsScreen() {
                     />
                     <Item title="Transport" subtitle={transport} detail={overSsh ? 'SSH' : 'Self-host'} />
                     <Item title="Relay" subtitle={where} subtitleLines={0} />
+                    <Item
+                        title="Versions"
+                        subtitle={`app ${appVersion} · host ${hostVersion ?? 'unknown'}`}
+                        {...(mismatch ? { detail: '⚠ mismatch', detailStyle: styles.detailMismatch } : {})}
+                    />
                     {Platform.OS === 'web' && <Item title="Browser access" subtitle={browserExpiresAt === undefined || browserMinutes === undefined
                         ? 'Read-only · pair again every eight hours'
                         : `Read-only · expires in ${Math.floor(browserMinutes / 60)}h ${browserMinutes % 60}m · ${new Date(browserExpiresAt).toLocaleString()}`} />}
