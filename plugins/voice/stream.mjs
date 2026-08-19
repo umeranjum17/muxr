@@ -228,6 +228,24 @@ function handleClientFrame(frame) {
     // mute/unmute are enforced on the phone's capture side; nothing to forward.
 }
 
+/**
+ * The provider explains a refusal in the HTTP body; the close code does not.
+ * An out-of-credits 403 is otherwise indistinguishable from a dropped network,
+ * and reporting only the code costs a debugging session to rediscover.
+ */
+export function providerRefusal(status, body) {
+    let detail = '';
+    try {
+        const parsed = JSON.parse(body);
+        if (typeof parsed?.error === 'string') detail = parsed.error;
+        else if (typeof parsed?.code === 'string') detail = parsed.code;
+    } catch { /* not JSON: fall back to the raw body */ }
+    if (detail === '') detail = body.trim();
+    return detail === ''
+        ? `Voice provider refused the connection (HTTP ${status}).`
+        : `Voice provider refused the connection (HTTP ${status}): ${detail.slice(0, 300)}`;
+}
+
 function connectProvider(key) {
     if (stopped) return;
     state('connecting', providerReconnects === 0 ? undefined : 'Voice provider reconnecting');
@@ -236,6 +254,15 @@ function connectProvider(key) {
         maxPayload: 4 * 1024 * 1024,
     });
     ws = current;
+    const onDown = (reason) => {
+        if (stopped || ws !== current) return;
+        if (providerReconnects >= 2) {
+            close(reason);
+            return;
+        }
+        providerReconnects += 1;
+        reconnectTimer = setTimeout(() => connectProvider(key), providerReconnects * 500);
+    };
     current.on('open', () => {
         if (stopped || ws !== current) return;
         current.send(JSON.stringify({
@@ -260,15 +287,21 @@ function connectProvider(key) {
         stableTimer = setTimeout(() => { providerReconnects = 0; }, PROVIDER_STABLE_AFTER_MS);
     });
     current.on('message', (data) => { if (ws === current) handleXaiEvent(String(data)); });
-    current.on('close', (code) => {
-        if (stopped || ws !== current) return;
-        if (providerReconnects >= 2) {
-            close(`The voice provider disconnected (${code}).`);
-            return;
-        }
-        providerReconnects += 1;
-        reconnectTimer = setTimeout(() => connectProvider(key), providerReconnects * 500);
+    // ws suppresses 'error' and 'close' once this is handled, so the failure
+    // path is driven from here. Auth and permission refusals are terminal:
+    // retrying an out-of-credits account only delays the real message.
+    current.on('unexpected-response', (_request, response) => {
+        let body = '';
+        response.on('data', (chunk) => { body += chunk; });
+        response.on('end', () => {
+            current.terminate();
+            if (stopped || ws !== current) return;
+            const reason = providerRefusal(response.statusCode, body);
+            if (response.statusCode === 401 || response.statusCode === 403) close(reason);
+            else onDown(reason);
+        });
     });
+    current.on('close', (code) => onDown(`The voice provider disconnected (${code}).`));
     current.on('error', (error) => {
         if (!stopped && ws === current) state('connecting', `Voice provider connection interrupted: ${String(error.message).slice(0, 160)}`);
     });
