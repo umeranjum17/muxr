@@ -10,6 +10,7 @@ import * as React from 'react';
 import { ActivityIndicator, AppState, BackHandler, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useKeyboardState } from 'react-native-keyboard-controller';
+import Animated, { FadeIn, FadeOut, ReduceMotion } from 'react-native-reanimated';
 import { useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
@@ -618,7 +619,15 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
             >
                 {/* Pills lead: the key toolbar is wider than a phone, so anything
                     after it is scrolled off-screen and effectively invisible. */}
+                {/* The chip appears and disappears on its own as you scroll past
+                    a link, so a hard pop reads as a glitch rather than a state
+                    change. Opacity only: it is the one property that survives
+                    reduced motion, and the row would reflow if we moved it. */}
                 {chipLink !== undefined && chipKind !== undefined && (
+                    <Animated.View
+                        entering={FadeIn.duration(180).reduceMotion(ReduceMotion.System)}
+                        exiting={FadeOut.duration(120).reduceMotion(ReduceMotion.System)}
+                    >
                     <Pressable
                         onPress={openChipLink}
                         onLongPress={() => void Clipboard.setStringAsync(chipLink).then(() => showGestureHint('Link copied'))}
@@ -643,6 +652,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                             {displayLink(chipLink, 40)}
                         </Text>
                     </Pressable>
+                    </Animated.View>
                 )}
                 <PluginSlot slot="session.pills" context={{ sessionId: props.id }} />
                 <DeclarativeChips slot="session.pills" />
