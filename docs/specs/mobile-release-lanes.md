@@ -16,7 +16,7 @@ links:
 
 The first muxr store release proved that local EAS builds can reach App Store Connect and Google Play, but the tag-only workflow mixed release creation, native builds, retries, and store delivery. Internal testing should be automatic for mobile-relevant merges, while public production remains a separate promotion of the exact binary already tested.
 
-The replacement follows the MIT-licensed Bluesky mobile pattern: local EAS build, short-lived artifact handoff, EAS submission, Fastlane TestFlight distribution or store promotion. GitHub Actions remains the orchestrator because Android builds must stay local and muxr is a monorepo.
+The replacement follows the MIT-licensed Bluesky mobile pattern: local EAS build, short-lived artifact handoff, and EAS submission. Current EAS Submit uses the existing EAS-managed App Store Connect key for internal TestFlight distribution; Fastlane is reserved for production promotion. GitHub Actions remains the orchestrator because Android builds must stay local and muxr is a monorepo.
 
 ## Internal lane
 
@@ -37,7 +37,7 @@ The replacement follows the MIT-licensed Bluesky mobile pattern: local EAS build
 ## Reused open-source components
 
 - Expo EAS CLI, MIT: local builds and initial store submission.
-- Fastlane, MIT: TestFlight distribution, Play track promotion, and App Store review submission.
+- Fastlane, MIT: Play track promotion and App Store review submission.
 - Bluesky social-app, MIT: architecture reference. muxr implements the pattern rather than vendoring its workflow.
 
 ## Files

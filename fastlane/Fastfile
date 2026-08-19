@@ -11,20 +11,6 @@ def app_store_key
 end
 
 platform :ios do
-  desc "Wait for an uploaded build and assign it to internal TestFlight testers"
-  lane :distribute_internal do
-    upload_to_testflight(
-      api_key: app_store_key,
-      app_identifier: "com.trymuxr.app",
-      app_version: ENV.fetch("APP_VERSION"),
-      build_number: ENV.fetch("IOS_BUILD_NUMBER"),
-      distribute_only: true,
-      groups: [ENV.fetch("TESTFLIGHT_GROUP")],
-      changelog: ENV["RELEASE_NOTES"],
-      notify_external_testers: false
-    )
-  end
-
   desc "Submit an existing TestFlight build for App Review"
   lane :promote_production do
     upload_to_app_store(

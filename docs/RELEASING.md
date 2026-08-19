@@ -4,7 +4,7 @@ Pull requests run the normal CI suite. Mobile-relevant merges to `main` addition
 
 ## Mobile internal testing
 
-`.github/workflows/mobile-internal.yml` follows the same local EAS build → artifact → submit → distribute pattern used by Bluesky's mobile app.
+`.github/workflows/mobile-internal.yml` follows the same local EAS build → artifact → submit pattern used by Bluesky's mobile app, while current EAS Submit handles the internal TestFlight group with its existing App Store Connect key.
 
 A push to `main` triggers it when mobile code, shared wire/contract packages, bundled plugins, native patches, or mobile build policy changes. It can also be rerun manually for Android, iOS, or both. Releases are serialized; if several merges arrive while one build is running, GitHub keeps the running build and the newest pending commit rather than spending store builds on superseded intermediate commits.
 
@@ -17,7 +17,7 @@ The workflow:
 5. submits iOS, waits for Apple processing, and assigns that exact build to the internal TestFlight group;
 6. records both identifiers in the GitHub job summary.
 
-The `stores` GitHub environment owns `EXPO_TOKEN` (preferred) or `EXPO_STATE_JSON`, `PLAY_SERVICE_ACCOUNT_JSON`, `ASC_KEY_ID`, `ASC_ISSUER_ID`, and `ASC_KEY_P8_BASE64`. Its `TESTFLIGHT_GROUP` environment variable names the existing internal tester group. Keep these values out of the repository.
+The `stores` GitHub environment owns `EXPO_TOKEN` (preferred) or `EXPO_STATE_JSON` and `PLAY_SERVICE_ACCOUNT_JSON`. EAS owns the existing App Store Connect key and maintains the automatic `Team (Expo)` internal tester group. Keep all credential material out of the repository.
 
 ## Mobile production promotion
 
