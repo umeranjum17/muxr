@@ -24,6 +24,7 @@ import { loadAppConfig } from '@/sync/appConfig';
 import { DeclarativeSettingsItems } from '@/plugins/DeclarativePluginSlot';
 import {
     canPostPromotedNotifications,
+    openBackgroundActivitySettings,
     openPromotedNotificationSettings,
     supportsPromotedNotifications,
 } from '@/../modules/voice-overlay';
@@ -346,6 +347,14 @@ export const SettingsView = React.memo(function SettingsView({
                     icon={<Ionicons name="options-outline" size={29} color="#FF9500" />}
                     onPress={() => router.push('/settings/features')}
                 />
+                {Platform.OS === 'android' && (
+                    <Item
+                        title="Background connection"
+                        subtitle="Allow background activity so Live stays connected when you leave muxr"
+                        icon={<Ionicons name="battery-charging-outline" size={29} color="#34C759" />}
+                        onPress={openBackgroundActivitySettings}
+                    />
+                )}
                 {promotedNotificationsSupported && (
                     <Item
                         title="Live agent updates"

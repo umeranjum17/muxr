@@ -255,7 +255,7 @@ if (cached !== undefined) {
   const output = {
     items: ordered.slice(0, 50), actions: [],
     ...(activity.totalTokens > 0 && totalTokens !== undefined
-      ? { badge: { value: totalTokens, ...(codex.items.length && codex.remaining <= 10 ? { tone: 'danger' } : {}) } }
+      ? { badge: { value: `${totalTokens} tokens today` } }
       : {}),
     summary: {
       measured: String(activity.series.length),

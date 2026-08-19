@@ -223,15 +223,15 @@ try {
     // Local install/update/remove and a declined confirmation use the same
     // Herdr registry lifecycle as npm packages.
     const localRoot = join(scratch, 'local-plugin'); mkdirSync(localRoot);
-    writeFileSync(join(localRoot, 'herdr-plugin.toml'), 'id = "test.local"\nname = "Local"\nversion = "1.0.0"\n');
+    writeFileSync(join(localRoot, 'herdr-plugin.toml'), 'id = "local.my-plugin"\nname = "Local"\nversion = "1.0.0"\n');
     await runPackage('install', [localRoot]);
     assert.equal(readFileSync(statePath, 'utf8'), '', 'cancelled local install left a registry entry');
     await runPackage('install', [localRoot, '--yes']);
     assert.equal(JSON.parse(readFileSync(statePath)).enabled, true);
-    writeFileSync(join(localRoot, 'herdr-plugin.toml'), 'id = "test.local"\nname = "Local updated"\nversion = "2.0.0"\n');
+    writeFileSync(join(localRoot, 'herdr-plugin.toml'), 'id = "local.my-plugin"\nname = "Local updated"\nversion = "2.0.0"\n');
     await runPackage('update', [localRoot, '--yes']);
     assert.equal(JSON.parse(readFileSync(statePath)).plugin_root, realpathSync(localRoot));
-    await runPackage('remove', ['test.local', '--yes']);
+    await runPackage('remove', ['my-plugin', '--yes']);
     assert.equal(readFileSync(statePath, 'utf8'), '');
 
     const liveLock = join(extensionRoot, '.locks', 'test.npm.lock');
