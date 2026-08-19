@@ -148,3 +148,37 @@ describe('recentTerminalLinks', () => {
         expect(recentTerminalLinks('unknown')).toEqual([]);
     });
 });
+
+describe('viewportTerminalLinks', () => {
+    it('surfaces only the scroll burst’s links, not the older tail', async () => {
+        vi.useFakeTimers();
+        try {
+            const { recordTerminalOutput, beginViewportCapture, viewportTerminalLinks, recentTerminalLinks, clearTerminalOutput } = await import('./recentOutput');
+            const { encodeBase64 } = await import('@/encryption/base64');
+            const record = (text: string) => recordTerminalOutput('scroll', encodeBase64(new TextEncoder().encode(text)));
+
+            clearTerminalOutput('scroll');
+            record('old boot log: serving https://old-tail.example/ since yesterday');
+
+            // A scroll gesture: herdr answers with full-screen repaint frames.
+            beginViewportCapture('scroll');
+            record('\x1b[2J\x1b[Hrepainted screen  Local: http://localhost:3210/');
+            record('  ready in 412ms');
+            // The regex runs once per gesture: nothing before the debounce.
+            expect(viewportTerminalLinks('scroll')).toEqual([]);
+            await vi.advanceTimersByTimeAsync(120);
+            expect(viewportTerminalLinks('scroll')).toEqual(['http://localhost:3210/']);
+            // The tail still holds both, for the ⋮ menu.
+            expect(recentTerminalLinks('scroll')).toEqual(['http://localhost:3210/', 'https://old-tail.example/']);
+
+            // Scrolling past the link clears the chip.
+            beginViewportCapture('scroll');
+            record('\x1b[2J\x1b[Han older screen with no links at all');
+            await vi.advanceTimersByTimeAsync(120);
+            expect(viewportTerminalLinks('scroll')).toEqual([]);
+            clearTerminalOutput('scroll');
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+});

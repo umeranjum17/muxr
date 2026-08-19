@@ -16,7 +16,7 @@ import { View } from 'react-native';
 import { TerminalView as GhosttyView, type TerminalViewRef } from 'expo-libghostty';
 import { decodeBase64, encodeBase64 } from '@/encryption/base64';
 import { openTerminal, type TerminalChannel } from './openTerminal';
-import { recordTerminalOutput } from './recentOutput';
+import { beginViewportCapture, recordTerminalOutput } from './recentOutput';
 
 /** herdr repaints the whole screen per scroll; don't ask it for the world. */
 const MAX_SCROLL_LINES = 40;
@@ -181,6 +181,9 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                 // Ghostty counts rows the way the finger moved, herdr counts
                 // them the way the text does, hence the negation.
                 onScroll={({ nativeEvent }) => {
+                    // The repaint herdr sends back is the new viewport; capture
+                    // it for the link chip (see recentOutput.ts).
+                    beginViewportCapture(sessionId);
                     pendingScrollRef.current -= nativeEvent.rows;
                     if (scrollRafRef.current === undefined) {
                         scrollRafRef.current = requestAnimationFrame(flushScroll);

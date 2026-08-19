@@ -30,7 +30,6 @@ import type {
     UnreadCatalog,
 } from './sessionDomain.js';
 import type { PluginManifestV1, PluginSummary } from './plugins.js';
-import type { PreviewServer } from './preview.js';
 import type { LandWorktreeResult } from './worktree.js';
 import type { AttentionCatalog, HerdrTreeWorkspace, SessionInfo, SessionShellOutcome, SessionStatus } from './sessionState.js';
 
@@ -301,10 +300,12 @@ export interface RequestMap {
 
     // --- browser preview ----------------------------------------------------
     /**
-     * HTTP listeners the host can see on its own loopback. `cwd` narrows the
-     * list to servers running inside that project directory.
+     * What content-type a loopback port answers with, probed on the host
+     * (where the port is). `text/html` marks a web app worth a Preview chip;
+     * anything else is an API the phone should only open externally.
+     * `contentType` is null when nothing HTTP answers.
      */
-    'preview.list': { params: { cwd?: string }; result: PreviewServer[] };
+    'preview.probe': { params: { port: number }; result: { contentType: string | null } };
     /**
      * Ask the host to join `channel` and forward it to `port`. The caller opens
      * the matching side itself; the relay pairs them.

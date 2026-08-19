@@ -11,7 +11,7 @@ import type {
 import type { DomainStores } from '../domain/index.js';
 import type { TerminalManager } from '../herdr/terminalManager.js';
 import type { SessionSource } from '../sessionSource.js';
-import { attachPreview, listPreviewServers } from './preview.js';
+import { attachPreview, probePreviewPort } from './preview.js';
 import { landWorktree } from './landWorktree.js';
 import { listDir } from './listDir.js';
 import { runMachineShell } from './runMachineShell.js';
@@ -147,10 +147,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         'machine.shell': (params) => runMachineShell(params.command, params.cwd),
         'machine.listDir': (params) => listDir(params.path),
         'worktree.land': (params) => landWorktree(params.worktreePath, params.message, params.stash),
-        'preview.list': (params) => {
-            if (options.relayUrl === undefined) throw new Error('Hosted Preview is disabled until browser trust and pinning are complete.');
-            return listPreviewServers(relayPort(options.relayUrl), params.cwd);
-        },
+        'preview.probe': async (params) => ({ contentType: await probePreviewPort(params.port) }),
         'preview.attach': (params) => {
             if (options.relayUrl === undefined) {
                 throw new Error('preview: host has no relay url');
@@ -254,13 +251,3 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
     };
 }
 
-/** The relay answers HTTP too, so without this it lists itself as a dev server. */
-function relayPort(relayUrl: string | undefined): number | undefined {
-    if (relayUrl === undefined) return undefined;
-    try {
-        const port = new URL(relayUrl).port;
-        return port === '' ? undefined : Number(port);
-    } catch {
-        return undefined;
-    }
-}

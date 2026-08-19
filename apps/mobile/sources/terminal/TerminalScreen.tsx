@@ -10,6 +10,7 @@ import * as React from 'react';
 import { ActivityIndicator, AppState, BackHandler, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useKeyboardState } from 'react-native-keyboard-controller';
+import Animated, { FadeIn, FadeOut, ReduceMotion } from 'react-native-reanimated';
 import { useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
@@ -32,7 +33,8 @@ import { PluginSlot } from '@/plugins/PluginSlot';
 import { DeclarativeChips, DeclarativeHeaderButtons, DeclarativeTerminalKeySlot } from '@/plugins/DeclarativePluginSlot';
 import { useSlotContributions } from '@/plugins/useSlotContributions';
 import type { SessionMenu } from '@/plugins/slotTypes';
-import { recentTerminalLinks } from '@/terminal/recentOutput';
+import { recentTerminalLinks, subscribeTerminalLinks, viewportTerminalLinks } from '@/terminal/recentOutput';
+import { openExternalUrl } from '@/utils/openExternalUrl';
 import { resolvePluginText } from '@/plugins/pluginText';
 import { randomUUID } from 'expo-crypto';
 
@@ -43,6 +45,18 @@ function displayLink(url: string, maxLength: number): string {
     const remaining = maxLength - prefix.length;
     if (remaining <= 1) return prefix;
     return suffix.length > remaining ? `${prefix}${suffix.slice(0, remaining - 1)}…` : `${prefix}${suffix}`;
+}
+
+/** Loopback URLs can be tunnelled into the preview WebView; the rest cannot. */
+function loopbackPort(url: string): number | undefined {
+    try {
+        const parsed = new URL(url);
+        if (parsed.hostname !== 'localhost' && parsed.hostname !== '127.0.0.1') return undefined;
+        if (parsed.port !== '') return Number(parsed.port);
+        return parsed.protocol === 'https:' ? 443 : 80;
+    } catch {
+        return undefined;
+    }
 }
 
 export const TerminalScreen = React.memo((props: { id: string }) => {
@@ -174,6 +188,65 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
         if (hintTimer.current !== null) clearTimeout(hintTimer.current);
         hintTimer.current = setTimeout(() => setGestureHint(null), 1400);
     }, []);
+
+    // The dev-server chip: the link on screen now (a scroll repaint knows),
+    // falling back to the newest URL the terminal printed.
+    const [chipLink, setChipLink] = React.useState<string | undefined>(undefined);
+    const [chipKind, setChipKind] = React.useState<'preview' | 'open' | undefined>(undefined);
+    const chipKindCache = React.useRef(new Map<string, 'preview' | 'open'>());
+
+    React.useEffect(() => {
+        const refresh = (sessionId?: string) => {
+            if (sessionId !== undefined && sessionId !== props.id) return;
+            const link = viewportTerminalLinks(props.id)[0] ?? recentTerminalLinks(props.id)[0];
+            setChipLink((previous) => (previous === link ? previous : link));
+        };
+        refresh();
+        return subscribeTerminalLinks(refresh);
+    }, [props.id]);
+
+    // localhost + html is a web app worth a Preview; anything else only opens
+    // externally. The probe runs on the host, where the port actually is.
+    React.useEffect(() => {
+        if (chipLink === undefined) {
+            setChipKind(undefined);
+            return;
+        }
+        const cached = chipKindCache.current.get(chipLink);
+        if (cached !== undefined) {
+            setChipKind(cached);
+            return;
+        }
+        const port = loopbackPort(chipLink);
+        if (port === undefined) {
+            chipKindCache.current.set(chipLink, 'open');
+            setChipKind('open');
+            return;
+        }
+        let cancelled = false;
+        setChipKind(undefined);
+        void sync.request('preview.probe', { port })
+            .then(({ contentType }) => {
+                const kind = contentType !== null && contentType.toLowerCase().startsWith('text/html') ? 'preview' : 'open';
+                chipKindCache.current.set(chipLink, kind);
+                if (!cancelled) setChipKind(kind);
+            })
+            .catch(() => {
+                // Older hosts have no probe; an external open always works.
+                if (!cancelled) setChipKind('open');
+            });
+        return () => { cancelled = true; };
+    }, [chipLink]);
+
+    const openChipLink = React.useCallback(() => {
+        if (chipLink === undefined || chipKind === undefined) return;
+        if (chipKind === 'preview') {
+            const port = loopbackPort(chipLink);
+            if (port !== undefined) router.push(`/session/${encodeURIComponent(props.id)}/preview?port=${port}` as never);
+            return;
+        }
+        void openExternalUrl(chipLink);
+    }, [chipLink, chipKind, props.id]);
 
     // Coming back to a screen whose socket died while it was backgrounded used
     // to leave a dead terminal until the user navigated away and back. Retry on
@@ -357,6 +430,21 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                         onPress={() => {
                             const links = recentTerminalLinks(props.id);
                             const linkItems: SessionMenu['items'] = links.length === 0 ? [] : [{
+                                label: 'Open link',
+                                hint: links[0] === undefined ? undefined : displayLink(links[0], 60),
+                                onPress: () => {
+                                    setMenu({
+                                        title: 'Open link',
+                                        note: 'From the recent terminal output',
+                                        items: links.map((url) => ({
+                                            label: displayLink(url, 72),
+                                            onPress: () => {
+                                                void openExternalUrl(url);
+                                            },
+                                        })),
+                                    });
+                                },
+                            }, {
                                 label: 'Copy link',
                                 hint: links[0] === undefined ? undefined : displayLink(links[0], 60),
                                 onPress: () => {
@@ -531,6 +619,41 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
             >
                 {/* Pills lead: the key toolbar is wider than a phone, so anything
                     after it is scrolled off-screen and effectively invisible. */}
+                {/* The chip appears and disappears on its own as you scroll past
+                    a link, so a hard pop reads as a glitch rather than a state
+                    change. Opacity only: it is the one property that survives
+                    reduced motion, and the row would reflow if we moved it. */}
+                {chipLink !== undefined && chipKind !== undefined && (
+                    <Animated.View
+                        entering={FadeIn.duration(180).reduceMotion(ReduceMotion.System)}
+                        exiting={FadeOut.duration(120).reduceMotion(ReduceMotion.System)}
+                    >
+                    <Pressable
+                        onPress={openChipLink}
+                        onLongPress={() => void Clipboard.setStringAsync(chipLink).then(() => showGestureHint('Link copied'))}
+                        accessibilityRole="button"
+                        accessibilityLabel={`${chipKind === 'preview' ? 'Preview' : 'Open'} ${chipLink}`}
+                        style={({ pressed }) => ({
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            gap: 4,
+                            paddingHorizontal: 8,
+                            paddingVertical: 4,
+                            borderRadius: 12,
+                            backgroundColor: theme.colors.surfaceHigh,
+                            opacity: pressed ? 0.6 : 1,
+                        })}
+                    >
+                        <Ionicons name={chipKind === 'preview' ? 'globe-outline' : 'open-outline'} size={12} color={theme.colors.textSecondary} />
+                        <Text style={{ color: theme.colors.text, fontSize: 12, fontWeight: '600' }}>
+                            {chipKind === 'preview' ? 'Preview' : 'Open'}
+                        </Text>
+                        <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 12 }}>
+                            {displayLink(chipLink, 40)}
+                        </Text>
+                    </Pressable>
+                    </Animated.View>
+                )}
                 <PluginSlot slot="session.pills" context={{ sessionId: props.id }} />
                 <DeclarativeChips slot="session.pills" />
                 <DeclarativeTerminalKeySlot channel={channel} />

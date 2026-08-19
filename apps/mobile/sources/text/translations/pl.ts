@@ -648,6 +648,7 @@ export const pl: TranslationStructure = {
         linkNewDevice: 'Połącz nowe urządzenie',
         restoreWithSecretKey: 'Przywróć kluczem tajnym',
         browserPreview: 'Podgląd w przeglądarce',
+        browserTakeover: 'Przejęcie przeglądarki',
         whatsNew: 'Co nowego',
         friends: 'Przyjaciele',
     },

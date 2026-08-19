@@ -43,7 +43,7 @@ export type {
 export { MISSING_CWD_ERROR_PREFIX, normalizeRequestFailure, requestRequiresE2ee } from './requests.js';
 export type { LayoutSnapshot } from './requests.js';
 
-export type { PreviewFrame, PreviewServer } from './preview.js';
+export type { PreviewFrame } from './preview.js';
 export {
     decodePreviewFrame,
     encodePreviewFrame,
