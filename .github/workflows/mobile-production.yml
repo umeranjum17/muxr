@@ -1,0 +1,133 @@
+name: mobile production promotion
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: Store target
+        required: true
+        default: all
+        type: choice
+        options: [all, android, ios]
+      version:
+        description: Tested marketing version, for example 0.1.9
+        required: true
+        type: string
+      android_version_code:
+        description: Exact versionCode already completed on Play Internal
+        required: false
+        type: string
+      ios_build_number:
+        description: Exact build already distributed through TestFlight
+        required: false
+        type: string
+      ios_release_notes:
+        description: English What's New text required for App Review
+        required: false
+        type: string
+      rollout_percent:
+        description: Initial Google Play production rollout
+        required: true
+        default: "10"
+        type: choice
+        options: ["10", "25", "50", "100"]
+      automatic_ios_release:
+        description: Release automatically after Apple approval
+        required: true
+        default: false
+        type: boolean
+
+concurrency:
+  group: mobile-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate exact tested build identifiers
+        env:
+          PLATFORM: ${{ inputs.platform }}
+          APP_VERSION: ${{ inputs.version }}
+          ANDROID_VERSION_CODE: ${{ inputs.android_version_code }}
+          IOS_BUILD_NUMBER: ${{ inputs.ios_build_number }}
+          IOS_RELEASE_NOTES: ${{ inputs.ios_release_notes }}
+        run: |
+          [[ "$APP_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          if [ "$PLATFORM" != ios ]; then [[ "$ANDROID_VERSION_CODE" =~ ^[1-9][0-9]*$ ]]; fi
+          if [ "$PLATFORM" != android ]; then
+            [[ "$IOS_BUILD_NUMBER" =~ ^[1-9][0-9]*(\.[0-9]+)*$ ]]
+            test -n "$IOS_RELEASE_NOTES"
+          fi
+
+  android:
+    if: inputs.platform != 'ios'
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production
+    env:
+      PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+      APP_VERSION: ${{ inputs.version }}
+      ANDROID_VERSION_CODE: ${{ inputs.android_version_code }}
+      ROLLOUT_PERCENT: ${{ inputs.rollout_percent }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0
+        with:
+          ruby-version: "3.3"
+          bundler-cache: true
+      - name: Prove the exact build is on Play Internal
+        run: bundle exec fastlane android verify_internal
+      - name: Promote the tested build to Play Production
+        run: bundle exec fastlane android promote_production
+
+  ios:
+    if: inputs.platform != 'android'
+    needs: validate
+    runs-on: macos-15
+    timeout-minutes: 30
+    environment: production
+    env:
+      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+      ASC_KEY_P8_BASE64: ${{ secrets.ASC_KEY_P8_BASE64 }}
+      APP_VERSION: ${{ inputs.version }}
+      IOS_BUILD_NUMBER: ${{ inputs.ios_build_number }}
+      RELEASE_NOTES: ${{ inputs.ios_release_notes }}
+      AUTOMATIC_RELEASE: ${{ inputs.automatic_ios_release }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0
+        with:
+          ruby-version: "3.3"
+          bundler-cache: true
+      - name: Submit the tested TestFlight build for App Review
+        run: bundle exec fastlane ios promote_production
+
+  summary:
+    if: always()
+    needs: [validate, android, ios]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Write production promotion summary
+        env:
+          APP_VERSION: ${{ inputs.version }}
+          ANDROID: ${{ needs.android.result }}
+          ANDROID_VERSION_CODE: ${{ inputs.android_version_code }}
+          IOS: ${{ needs.ios.result }}
+          IOS_BUILD_NUMBER: ${{ inputs.ios_build_number }}
+        run: |
+          {
+            echo "## Mobile production promotion"
+            echo
+            echo "Version: $APP_VERSION"
+            echo
+            echo "| Store | Result | Tested build |"
+            echo "| --- | --- | --- |"
+            echo "| Google Play | $ANDROID | versionCode ${ANDROID_VERSION_CODE:-—} |"
+            echo "| App Store | $IOS | build ${IOS_BUILD_NUMBER:-—} |"
+          } >> "$GITHUB_STEP_SUMMARY"
