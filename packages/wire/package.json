@@ -33,7 +33,7 @@
     "@types/node": ">=20",
     "pkgroll": "^2.14.2",
     "shx": "^0.3.3",
-    "typescript": "5.9.3",
+    "typescript": "7.0.2",
     "vitest": "^3.2.4"
   }
 }

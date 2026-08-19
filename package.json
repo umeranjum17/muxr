@@ -30,7 +30,7 @@
         "@types/ws": "^8.5.13",
         "esbuild": "^0.28.1",
         "patch-package": "^8.0.1",
-        "typescript": "^5.7.2"
+        "typescript": "^7.0.2"
     },
     "dependencies": {
         "@xterm/addon-fit": "^0.11.0",
