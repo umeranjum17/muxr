@@ -17,7 +17,7 @@ The workflow:
 5. submits iOS, waits for Apple processing, and assigns that exact build to the internal TestFlight group;
 6. records both identifiers in the GitHub job summary.
 
-The `stores` GitHub environment owns `EXPO_TOKEN` (preferred) or `EXPO_STATE_JSON` and `PLAY_SERVICE_ACCOUNT_JSON`. EAS owns the existing App Store Connect key and maintains the automatic `Team (Expo)` internal tester group. Keep all credential material out of the repository.
+The `stores` GitHub environment owns `EXPO_TOKEN` (preferred) or `EXPO_STATE_JSON`, `PLAY_SERVICE_ACCOUNT_JSON`, and a copy of the existing EAS-managed App Store Connect key. The iOS submit job uses that key only for EAS's automatic `Team (Expo)` tester-group setup; EAS Submit performs the upload and group assignment. Keep all credential material out of the repository.
 
 ## Mobile production promotion
 
