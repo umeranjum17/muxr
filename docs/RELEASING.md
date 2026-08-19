@@ -4,7 +4,7 @@ Pull requests run the normal CI suite. Mobile-relevant merges to `main` addition
 
 ## Mobile internal testing
 
-`.github/workflows/mobile-internal.yml` follows the same local EAS build → artifact → submit pattern used by Bluesky's mobile app, while current EAS Submit handles the internal TestFlight group with its existing App Store Connect key.
+`.github/workflows/mobile-internal.yml` follows the same local EAS build → artifact → submit pattern used by Bluesky's mobile app. Android submits through EAS; iOS uploads directly through Fastlane so Expo queue latency cannot hold the workflow open.
 
 A push to `main` triggers it when mobile code, shared wire/contract packages, bundled plugins, native patches, or mobile build policy changes. It can also be rerun manually for Android, iOS, or both. Releases are serialized; if several merges arrive while one build is running, GitHub keeps the running build and the newest pending commit rather than spending store builds on superseded intermediate commits.
 
@@ -14,10 +14,10 @@ The workflow:
 2. reserves unique EAS-managed `versionCode` and `buildNumber` values;
 3. builds the production-signed AAB and IPA locally on GitHub runners;
 4. submits Android to Play Internal and waits until that exact version code appears on the track;
-5. submits iOS, waits for Apple processing, and assigns that exact build to the internal TestFlight group;
+5. uploads iOS directly to TestFlight; the automatic `Team (Expo)` group receives it after Apple processing;
 6. records both identifiers in the GitHub job summary.
 
-The `stores` GitHub environment owns `EXPO_TOKEN` (preferred) or `EXPO_STATE_JSON`, `PLAY_SERVICE_ACCOUNT_JSON`, and a copy of the existing EAS-managed App Store Connect key. The iOS submit job uses that key only for EAS's automatic `Team (Expo)` tester-group setup; EAS Submit performs the upload and group assignment. Keep all credential material out of the repository.
+The `stores` GitHub environment owns `EXPO_TOKEN` (preferred) or `EXPO_STATE_JSON`, `PLAY_SERVICE_ACCOUNT_JSON`, and a copy of the existing EAS-managed App Store Connect key. Fastlane uses the Apple key only for the direct TestFlight upload; the existing `Team (Expo)` group has automatic access to new builds. Keep all credential material out of the repository.
 
 ## Mobile production promotion
 
