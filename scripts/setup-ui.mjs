@@ -38,24 +38,43 @@ export function outro(text) {
     process.stdout.write(`\n${green('◆')} ${bold(text)}\n\n`);
 }
 
+// Returned by select() on escape/left so callers can go up one level;
+// ctrl-c still resolves undefined and means quit.
+export const BACK = Symbol('muxr.back');
+
 export async function select(message, choices, initial = 0) {
     if (!interactive()) return choices[initial]?.value;
     emitKeypressEvents(process.stdin);
     const wasRaw = process.stdin.isRaw;
     process.stdin.setRawMode?.(true);
     process.stdin.resume();
+    const selectable = choices.map((choice) => !choice.disabled);
+    if (!selectable.some(Boolean)) selectable.fill(true);
     let selected = Math.max(0, Math.min(initial, choices.length - 1));
-    const rows = choices.length + 1;
+    while (!selectable[selected]) selected = (selected + 1) % choices.length;
+    // Long descriptions (e.g. detection reasons with remedies) wrap; count the
+    // wrapped rows or the cursor-up redraw smears the frame.
+    const frameRows = () => {
+        const width = process.stdout.columns || 80;
+        const wrapped = (length) => Math.max(1, Math.ceil(length / width));
+        return wrapped(2 + message.length)
+            + choices.reduce((total, choice, index) => total + wrapped(4 + choice.title.length + (index === selected ? 2 : 0)
+                + (choice.description ? choice.description.length + 1 : 0)), 0)
+            + 1;
+    };
     const draw = (first = false) => {
-        if (!first) process.stdout.write(`\x1b[${rows}A`);
+        if (!first) process.stdout.write(`\x1b[${lastRows}A`);
         process.stdout.write(`${bold(`◆ ${message}`)}\x1b[K\n`);
         choices.forEach((choice, index) => {
             const active = index === selected;
-            const marker = active ? green('●') : dim('○');
-            const label = active ? inverse(` ${choice.title} `) : choice.title;
+            const marker = choice.disabled ? dim('○') : active ? green('●') : dim('○');
+            const label = choice.disabled ? dim(choice.title) : active ? inverse(` ${choice.title} `) : choice.title;
             process.stdout.write(`  ${marker} ${label}${choice.description ? ` ${dim(choice.description)}` : ''}\x1b[K\n`);
         });
+        process.stdout.write(`  ${dim('esc back · ctrl-c quit')}\x1b[K\n`);
+        lastRows = frameRows();
     };
+    let lastRows = 0;
     draw(true);
     return new Promise((resolve) => {
         const cleanup = () => {
@@ -70,9 +89,19 @@ export async function select(message, choices, initial = 0) {
                 resolve(undefined);
                 return;
             }
-            if (key.name === 'up' || key.name === 'k') selected = (selected - 1 + choices.length) % choices.length;
-            else if (key.name === 'down' || key.name === 'j') selected = (selected + 1) % choices.length;
-            else if (key.name === 'return') {
+            if (key.name === 'escape' || key.name === 'left') {
+                cleanup();
+                process.stdout.write('\n');
+                resolve(BACK);
+                return;
+            }
+            if (key.name === 'up' || key.name === 'k') {
+                do selected = (selected - 1 + choices.length) % choices.length;
+                while (!selectable[selected]);
+            } else if (key.name === 'down' || key.name === 'j') {
+                do selected = (selected + 1) % choices.length;
+                while (!selectable[selected]);
+            } else if (key.name === 'return') {
                 cleanup();
                 resolve(choices[selected].value);
                 return;

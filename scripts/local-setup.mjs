@@ -388,6 +388,121 @@ async function ensureBundledPlugins(binary, dryRun) {
     }
 }
 
+/** Absolute paths referenced by a service file's exec line that no longer exist. */
+function staleUnitPaths(unitPath) {
+    const content = readFileSync(unitPath, 'utf8');
+    // systemd allows -@!:+ prefixes on the executable; strip them before
+    // tokenizing or the prefix fuses with the quoted path into one token.
+    const execStart = content.match(/^ExecStart=(.*)$/m)?.[1]?.replace(/^[-@!:+]+/, '');
+    const tokens = execStart !== undefined
+        ? [...execStart.matchAll(/"([^"]+)"|(\S+)/g)].map((match) => match[1] ?? match[2])
+        : [...(content.match(/<key>ProgramArguments<\/key>\s*<array>([\s\S]*?)<\/array>/)?.[1] ?? '')
+            .matchAll(/<string>([^<]+)<\/string>/g)].map((match) => match[1]);
+    return tokens
+        // Undo systemd %% escaping so a path containing % is not a false FAIL.
+        .map((token) => token.replaceAll('%%', '%'))
+        .filter((token) => token.startsWith('/') && !existsSync(token));
+}
+
+function herdrServiceUnitPaths() {
+    if (platform() === 'linux') {
+        const unit = join(home(), '.config', 'systemd', 'user', 'herdr-server.service');
+        return existsSync(unit) ? [unit] : [];
+    }
+    if (platform() === 'darwin') {
+        // No known label: adopt any herdr LaunchAgent the user already has.
+        const dir = join(home(), 'Library', 'LaunchAgents');
+        try {
+            return readdirSync(dir)
+                .filter((name) => /herdr/i.test(name) && name.endsWith('.plist'))
+                .map((name) => join(dir, name));
+        } catch { return []; }
+    }
+    return [];
+}
+
+/**
+ * A system upgrade can move the herdr binary while the service file pins the
+ * old absolute path — the 203/EXEC boot-loop landmine. Rewrite only a
+ * genuinely stale pinned path; never touch a unit whose exec still resolves.
+ */
+function repairHerdrServiceUnits(binary, dryRun) {
+    for (const unitPath of herdrServiceUnitPaths()) {
+        const pinned = staleUnitPaths(unitPath).find((path) => basename(path) === 'herdr');
+        if (pinned === undefined || pinned === binary) continue;
+        if (dryRun) {
+            print(`  would repair ${unitPath}: pinned herdr ${pinned} no longer exists`);
+            continue;
+        }
+        const content = readFileSync(unitPath, 'utf8');
+        const execLine = content.match(/^ExecStart=.*$/m)?.[0]?.trim() ?? pinned;
+        const updated = content.includes('ExecStart=')
+            ? content.replace(/^ExecStart=.*$/m, (line) => line.replaceAll(pinned, binary))
+            : content.replace(`<string>${pinned}</string>`, `<string>${xml(binary)}</string>`);
+        // muxr does not own this file: back it up, write atomically, and print
+        // the old exec line so the change is recoverable by hand.
+        const backupPath = backup(unitPath);
+        atomicWrite(unitPath, updated, statSync(unitPath).mode & 0o777);
+        print(`  repaired ${unitPath}: was \`${execLine}\`, now runs ${binary} (backup: ${backupPath})`);
+        if (env('MUXR_NO_SERVICE_COMMANDS') !== '1' && platform() === 'linux') run('systemctl', ['--user', 'daemon-reload']);
+    }
+}
+
+/** Start herdr through its own service manager so it stays managed. */
+function startHerdrServiceUnits(unitPaths) {
+    for (const unitPath of unitPaths) {
+        if (platform() === 'darwin') {
+            const service = `gui/${process.getuid()}/${basename(unitPath, '.plist')}`;
+            const loaded = run('launchctl', ['print', service]);
+            if (loaded.ok) run('launchctl', ['kickstart', '-k', service]);
+            else run('launchctl', ['bootstrap', `gui/${process.getuid()}`, unitPath]);
+        } else {
+            run('systemctl', ['--user', 'start', basename(unitPath)]);
+        }
+    }
+}
+
+/**
+ * Make sure the herdr server is running: repair a stale service path first,
+ * then start it. Idempotent — host-up calls this on every service start.
+ */
+export async function ensureHerdrServer(binary = herdrBin(), dryRun = false) {
+    if (!binary) throw new Error(`herdr is missing; ${HERDR_INSTALL_HINT}`);
+    repairHerdrServiceUnits(binary, dryRun);
+    let status = run(binary, ['status']);
+    if (!status.ok) {
+        if (dryRun) {
+            print('  would start the herdr server');
+        } else {
+            const units = env('MUXR_NO_SERVICE_COMMANDS') === '1' ? [] : herdrServiceUnitPaths();
+            let logPath;
+            if (units.length > 0) {
+                // Start the managed unit, not a stray process: a direct spawn
+                // lands in muxr.service's cgroup (`muxr daemon stop` kills
+                // herdr) and races the systemd-started server at boot.
+                startHerdrServiceUnits(units);
+            } else {
+                logPath = join(stateDir(), 'logs', 'herdr.log');
+                ensurePrivateDir(dirname(logPath));
+                const out = openSync(logPath, 'a', 0o600);
+                const server = spawn(binary, ['server'], { detached: true, stdio: ['ignore', out, out] });
+                server.unref();
+            }
+            for (let attempt = 0; attempt < 30 && !status.ok; attempt += 1) {
+                await new Promise((resolve) => setTimeout(resolve, 300));
+                status = run(binary, ['status']);
+            }
+            if (!status.ok) {
+                throw new Error(units.length > 0
+                    ? `herdr server did not start; check \`journalctl --user -u ${units.map((unit) => basename(unit)).join(' ')}\``
+                    : `herdr server did not start; see ${logPath}`);
+            }
+        }
+    }
+    print(`  ✓ herdr server ${dryRun && !status.ok ? 'would be started' : 'ready'}`);
+    return binary;
+}
+
 async function bootstrapHerdr(args) {
     const dryRun = args.includes('--dry-run');
     const binary = await ensureHerdr({
@@ -396,24 +511,7 @@ async function bootstrapHerdr(args) {
         installRequested: args.includes('--install-herdr'),
     });
     if (!binary) return undefined;
-    let status = run(binary, ['status']);
-    if (!status.ok) {
-        if (dryRun) {
-            print('  would start the herdr server');
-        } else {
-            const logPath = join(stateDir(), 'logs', 'herdr.log');
-            ensurePrivateDir(dirname(logPath));
-            const out = openSync(logPath, 'a', 0o600);
-            const server = spawn(binary, ['server'], { detached: true, stdio: ['ignore', out, out] });
-            server.unref();
-            for (let attempt = 0; attempt < 30 && !status.ok; attempt += 1) {
-                await new Promise((resolve) => setTimeout(resolve, 300));
-                status = run(binary, ['status']);
-            }
-            if (!status.ok) throw new Error(`herdr server did not start; see ${logPath}`);
-        }
-    }
-    print(`  ✓ herdr server ${dryRun && !status.ok ? 'would be started' : 'ready'}`);
+    await ensureHerdrServer(binary, dryRun);
     await ensureBundledPlugins(binary, dryRun);
     return binary;
 }
@@ -730,7 +828,10 @@ function daemonDefinition(mode) {
             ...(mode === undefined ? [] : [`Environment=MUXR_MODE=${systemdArg(mode)}`]),
             ...(process.env.MUXR_HOME?.trim() ? [`Environment=MUXR_HOME=${systemdArg(stateDir())}`] : []),
         ].join('\n');
-        const content = `[Unit]\nDescription=muxr host bridge\nAfter=network-online.target\n\n[Service]\nExecStart=${systemdArg(process.execPath)} ${systemdArg(cli)} up\n${modeEnv ? `${modeEnv}\n` : ''}Restart=on-failure\nRestartSec=3\n\n[Install]\nWantedBy=default.target\n`;
+        // No After=network-online.target: it does not exist in the systemd user
+        // manager and reads as ordering while being a silent no-op. The host
+        // and relay retry their own connections instead.
+        const content = `[Unit]\nDescription=muxr host bridge\n\n[Service]\nExecStart=${systemdArg(process.execPath)} ${systemdArg(cli)} up\n${modeEnv ? `${modeEnv}\n` : ''}Restart=on-failure\nRestartSec=3\n\n[Install]\nWantedBy=default.target\n`;
         return { path, content, mode: 0o600 };
     }
     throw new Error('daemon services support Linux and macOS; use WSL on Windows');
@@ -758,8 +859,14 @@ function serviceCommand(action) {
     }
     if (action === 'reload') return run('systemctl', ['--user', 'daemon-reload']);
     if (action === 'start') return run('systemctl', ['--user', 'enable', '--now', 'muxr.service']);
-    if (action === 'restart') return run('systemctl', ['--user', 'restart', 'muxr.service']);
-    if (action === 'stop') return run('systemctl', ['--user', 'disable', '--now', 'muxr.service']);
+    if (action === 'restart') {
+        // Restart must also enable: a stop-then-restart unit is otherwise
+        // active now but silently gone at the next boot.
+        const enabled = run('systemctl', ['--user', 'enable', 'muxr.service']);
+        if (!enabled.ok) return enabled;
+        return run('systemctl', ['--user', 'restart', 'muxr.service']);
+    }
+    if (action === 'stop') return run('systemctl', ['--user', 'stop', 'muxr.service']);
     if (action === 'status') return run('systemctl', ['--user', 'status', 'muxr.service', '--no-pager']);
     if (action === 'unload') return run('systemctl', ['--user', 'disable', '--now', 'muxr.service']);
     return { ok: false, stdout: '', stderr: `unknown service action ${action}` };
@@ -849,19 +956,32 @@ export async function runDaemon(args = []) {
     try {
         if (action === 'install') {
             const definition = daemonDefinition(mode);
+            let content = definition.content;
+            if (existsSync(definition.path)) {
+                // Preserve Environment lines this generator did not author —
+                // e.g. MUXR_HOME pinned by an earlier install would otherwise
+                // be silently dropped by a re-install.
+                const authored = new Set([...content.matchAll(/^Environment="?(\w+)=/gm)].map((match) => match[1]));
+                const foreign = (readFileSync(definition.path, 'utf8').match(/^Environment=.*$/gm) ?? [])
+                    .filter((line) => !authored.has(line.match(/^Environment="?(\w+)=/)?.[1]));
+                if (foreign.length > 0) content = content.replace('[Service]\n', `[Service]\n${foreign.join('\n')}\n`);
+            }
             if (!dryRun) ensurePrivateDir(join(stateDir(), 'logs'));
-            writeOwned(definition.path, definition.content, manifest, { dryRun, force, mode: definition.mode });
+            writeOwned(definition.path, content, manifest, { dryRun, force, mode: definition.mode });
             if (!dryRun) manifest.entries[definition.path].scope = 'daemon';
             saveManifest(manifest, dryRun);
             if (!dryRun) {
                 const reload = serviceCommand('reload');
                 if (!reload.ok) throw new Error(reload.stderr || reload.stdout || 'service reload failed');
-                if (mode === 'relay' && platform() === 'linux' && env('MUXR_NO_SERVICE_COMMANDS') !== '1') {
+                // Every mode needs linger: without it the service dies at
+                // logout and never starts on a headless or SSH-only box.
+                if (platform() === 'linux' && env('MUXR_NO_SERVICE_COMMANDS') !== '1') {
                     const username = userInfo().username;
                     const linger = run('loginctl', ['show-user', username, '-p', 'Linger', '--value']);
                     if (!linger.ok || linger.stdout.trim() !== 'yes') {
                         const enabled = run('loginctl', ['enable-linger', username]);
-                        if (!enabled.ok) throw new Error(enabled.stderr || enabled.stdout || 'could not enable boot persistence for the relay service');
+                        // WSL and containers have no loginctl; warn, don't fail.
+                        if (!enabled.ok) print(`  warn: could not enable boot persistence (${enabled.stderr || enabled.stdout || 'loginctl unavailable'}); the service will not restart after logout`);
                     }
                 }
             }
@@ -1070,9 +1190,30 @@ const relayEntry = () => existsSync(fileURLToPath(new URL('./relay.js', import.m
     : fileURLToPath(new URL('../apps/relay/dist/main.js', import.meta.url));
 
 function readSelfhostState() {
-    if (!existsSync(selfhostPath())) return undefined;
-    const parsed = JSON.parse(readFileSync(selfhostPath(), 'utf8'));
-    return parsed?.version === 1 ? parsed : undefined;
+    try {
+        if (!existsSync(selfhostPath())) return undefined;
+        const parsed = JSON.parse(readFileSync(selfhostPath(), 'utf8'));
+        return parsed?.version === 1 ? parsed : undefined;
+    } catch {
+        // A truncated selfhost.json must not kill `muxr`/`muxr doctor` — the
+        // command whose job is diagnosing a broken install.
+        return undefined;
+    }
+}
+
+/**
+ * True when selfhost.json exists but does not parse. Corrupt is not "not
+ * configured": setup must never mint a new machine identity over it (that
+ * destroys every pairing), so callers distinguish the two.
+ */
+export function selfhostStateUnreadable() {
+    if (!existsSync(selfhostPath())) return false;
+    try {
+        JSON.parse(readFileSync(selfhostPath(), 'utf8'));
+        return false;
+    } catch {
+        return true;
+    }
 }
 
 /** Menu-only summary used by cli.mjs to guide browser pairing. */
@@ -1127,7 +1268,11 @@ export function tailscaleIngress(args) {
     if (args.includes('--tunnel') || flagValue(args, '--advertise') || args.includes('--tailscale-direct')) return undefined;
     const status = spawnSync('tailscale', ['status', '--json'], { encoding: 'utf8' });
     if (status.error?.code === 'ENOENT') return undefined;
-    if (status.status !== 0) throw new Error(`Tailscale is installed but unavailable: ${status.stderr.trim() || 'sign in or use --advertise'}`);
+    if (status.status !== 0) {
+        // A spawn error (EACCES, …) gives status:null and no stderr stream.
+        const detail = (status.stderr ?? status.error?.message ?? '').trim();
+        throw new Error(`Tailscale is installed but unavailable: ${detail || 'sign in or use --advertise'}`);
+    }
     try {
         const parsed = JSON.parse(status.stdout);
         const dnsName = parsed?.Self?.DNSName?.replace(/\.$/, '');
@@ -1246,7 +1391,16 @@ export async function resolveAdvertise(args, port, tailscale) {
     throw new Error('no advertise address; use --advertise <url>');
 }
 
-async function ensureSelfhostRelay(port, webRoot, host = '0.0.0.0', webOrigin) {
+function relayDiscovery(state) {
+    return state?.machine?.id && state?.relayUrl ? {
+        machineId: state.machine.id,
+        name: state.machine.name,
+        relayUrl: state.relayUrl,
+        mode: state.connectionMode,
+    } : undefined;
+}
+
+async function ensureSelfhostRelay(port, webRoot, host = '0.0.0.0', webOrigin, discovery) {
     const health = await fetch(`http://127.0.0.1:${port}/health`).then((r) => r.ok ? r.json() : undefined).catch(() => undefined);
     const healthy = health?.ok === true;
     const dataDir = join(stateDir(), 'relay');
@@ -1272,7 +1426,11 @@ async function ensureSelfhostRelay(port, webRoot, host = '0.0.0.0', webOrigin) {
         env: {
             ...process.env,
             MUXR_RELAY_LOCAL_AUTHORITY: '1',
-            MUXR_RELAY_MDNS: '1',
+            MUXR_RELAY_MDNS: discovery ? '1' : '0',
+            ...(discovery?.machineId ? { MUXR_RELAY_MDNS_MACHINE: discovery.machineId } : {}),
+            ...(discovery?.name ? { MUXR_RELAY_MDNS_NAME: `muxr ${discovery.name}` } : {}),
+            ...(discovery?.relayUrl ? { MUXR_RELAY_MDNS_RELAY: discovery.relayUrl } : {}),
+            ...(discovery?.mode ? { MUXR_RELAY_MDNS_MODE: discovery.mode } : {}),
             MUXR_RELAY_PORT: String(port),
             MUXR_RELAY_HOST: host,
             MUXR_RELAY_DATA_DIR: dataDir,
@@ -1332,7 +1490,7 @@ export async function restartSelfhostRelayIfRunning() {
     if (previous === undefined) return false;
     persistRelayRuntimeState(previous);
     const { state, port } = previous;
-    await ensureSelfhostRelay(port, state.webRoot, state.bindHost, state.webOrigin);
+    await ensureSelfhostRelay(port, state.webRoot, state.bindHost, state.webOrigin, relayDiscovery(state));
     return true;
 }
 
@@ -1391,6 +1549,11 @@ export async function runSelfHost(args = []) {
     const webRoot = flagValue(args, '--web-root') ?? join(dirname(realpathSync(process.argv[1])), 'web');
     try {
         if (relayOnly && hostOnly) throw new Error('choose only one of --relay-only or --host-only');
+        if (selfhostStateUnreadable()) {
+            // Corrupt is not "not configured": reconfiguring would mint a new
+            // machine identity and destroy every pairing.
+            throw new Error(`${selfhostPath()} exists but is unreadable (truncated or corrupt); refusing to reconfigure over it. Move it aside when you are sure — \`mv ${selfhostPath()} ${selfhostPath()}.broken\` — then rerun`);
+        }
         if (web && process.stdout.isTTY && !args.includes('--yes')) {
             print('Web access creates an 8-hour read-only browser device. Secret material is WebCrypto-wrapped in IndexedDB; close shared browsers and revoke them from `muxr devices`.');
             const approved = await askVisible('Continue with browser access? [y/N] ');
@@ -1425,7 +1588,14 @@ export async function runSelfHost(args = []) {
         }
         state.relayPort = port;
         if (web && !existsSync(join(webRoot, 'index.html'))) throw new Error(`web client missing at ${webRoot}; install a package with the web client or pass --web-root`);
-        const tailscale = tailscaleIngress(args);
+        // Missing Tailscale is fine; BROKEN Tailscale (daemon down, MagicDNS
+        // off) must not abort setup — the direct/LAN fallbacks still work.
+        let tailscale;
+        try {
+            tailscale = tailscaleIngress(args);
+        } catch (cause) {
+            print(`  warn: ${cause instanceof Error ? cause.message : String(cause)}`);
+        }
         const advertise = sameConfiguration && connectionMode === 'cloudflare' && typeof state.relayUrl === 'string' && cloudflaredAlive(state.ingress)
             ? { url: state.relayUrl, note: 'existing Cloudflare quick tunnel', ingress: state.ingress }
             : await resolveAdvertise(args, port, tailscale);
@@ -1433,7 +1603,12 @@ export async function runSelfHost(args = []) {
         if (web && !advertise.url.startsWith('wss://')) throw new Error('--web requires HTTPS (Tailscale Serve, a named HTTPS tunnel, or --advertise wss://...)');
         const bindHost = tailscale || args.includes('--tunnel') || web || explicitAdvertise?.startsWith('wss://') ? '127.0.0.1' : '0.0.0.0';
         const webOrigin = web ? advertise.url.replace(/^wss/, 'https') : undefined;
-        await ensureSelfhostRelay(port, web ? webRoot : undefined, bindHost, webOrigin);
+        await ensureSelfhostRelay(port, web ? webRoot : undefined, bindHost, webOrigin, {
+            machineId: state.machine.id,
+            name: state.machine.name,
+            relayUrl: advertise.url,
+            mode: connectionMode,
+        });
         const mintPath = join(stateDir(), 'relay', 'mint-secret');
         const mintInfo = lstatSync(mintPath);
         if (!mintInfo.isFile() || mintInfo.isSymbolicLink() || (mintInfo.mode & 0o077) !== 0) {
@@ -1460,7 +1635,7 @@ export async function runSelfHost(args = []) {
                 if (env('MUXR_NO_SERVICE_COMMANDS') !== '1') await stopOwnedSelfhostRelay();
                 try { await startMuxrDaemon('relay', args, !sameConfiguration || !hostWasRunning); }
                 catch (cause) {
-                    await ensureSelfhostRelay(port, web ? webRoot : undefined, bindHost, webOrigin).catch(() => undefined);
+                    await ensureSelfhostRelay(port, web ? webRoot : undefined, bindHost, webOrigin, relayDiscovery(state)).catch(() => undefined);
                     throw new Error(`the supervised relay service did not start; the temporary relay was restored when possible: ${cause instanceof Error ? cause.message : String(cause)}`);
                 }
                 delete state.machine;
@@ -1822,7 +1997,7 @@ export async function runPair(args = []) {
         if (!healthy) {
             const definition = daemonDefinition('selfhost');
             if (existsSync(definition.path)) await runDaemon(['restart']);
-            else if (state.relayLocation !== 'remote') await ensureSelfhostRelay(state.relayPort, state.webRoot, state.bindHost, state.webOrigin);
+            else if (state.relayLocation !== 'remote') await ensureSelfhostRelay(state.relayPort, state.webRoot, state.bindHost, state.webOrigin, relayDiscovery(state));
             healthy = await selfhostRelayHealthy(state);
         }
         if (!healthy) throw new Error('the relay could not restart; run `muxr doctor` for the exact failing check');
@@ -2020,7 +2195,8 @@ function entryStatus(path, entry) {
 
 export async function runDoctor() {
     const checks = [];
-    const add = (level, name, detail) => checks.push({ level, name, detail });
+    // repair: { label, run } — offered interactively when the check fails.
+    const add = (level, name, detail, repair) => checks.push({ level, name, detail, repair });
     const major = Number(process.versions.node.split('.')[0]);
     add(major >= 22 ? 'ok' : 'fail', 'node', `v${process.versions.node}${major >= 22 ? '' : ' — needs >= 22'}`);
     const cliDir = dirname(realpathSync(process.argv[1]));
@@ -2039,40 +2215,117 @@ export async function runDoctor() {
     } else {
         const versionResult = run(binary, ['--version']);
         const version = parseVersion(versionResult.stdout);
-        add(version && versionIsCompatible(version) ? 'ok' : 'fail', 'herdr', versionResult.stdout || versionResult.stderr);
+        const versionOk = version !== undefined && versionIsCompatible(version);
+        add(versionOk ? 'ok' : 'fail', 'herdr', versionOk
+            ? versionResult.stdout
+            : `${versionResult.stdout || versionResult.stderr || 'unreadable version'} — needs >= ${MIN_HERDR.join('.')}; run \`herdr update\` after reviewing the upgrade`);
         const status = run(binary, ['status']);
-        add(status.ok ? 'ok' : 'warn', 'herdr server', status.stdout.split('\n')[0] || status.stderr || 'not running');
+        add(status.ok ? 'ok' : 'fail', 'herdr server', status.ok
+            ? status.stdout.split('\n')[0] || 'running'
+            : `${status.stdout.split('\n')[0] || status.stderr || 'not running'} — start it with \`herdr server\``,
+            status.ok ? undefined : { label: 'start the herdr server', run: async () => { await ensureHerdrServer(binary); } });
         const integrations = run(binary, ['integration', 'status']);
         if (integrations.ok) {
             const statuses = parseIntegrationStatus(integrations.stdout);
             const detected = detectedTargets().map((target) => `${target.id}:${statuses.get(target.id) ?? 'unknown'}`);
             const needsSync = detected.some((status) => !status.endsWith(':current'));
-            add(needsSync ? 'warn' : 'ok', 'integrations', detected.join(', ') || 'no supported agent CLI detected');
+            add(needsSync ? 'warn' : 'ok', 'integrations', needsSync
+                ? `${detected.join(', ')} — run \`muxr integrations sync\``
+                : detected.join(', ') || 'no supported agent CLI detected');
         } else {
-            add('warn', 'integrations', integrations.stderr || 'status unavailable');
+            add('warn', 'integrations', `${integrations.stderr || 'status unavailable'} — run \`muxr integrations sync\``);
         }
     }
     const manifest = loadManifest();
     const states = Object.entries(manifest.entries).map(([path, entry]) => `${path.startsWith(`${home()}/`) ? `~/${path.slice(home().length + 1)}` : basename(path)}:${entryStatus(path, entry)}`);
     const drifted = states.filter((state) => state.endsWith(':drifted') || state.endsWith(':missing'));
-    add(drifted.length ? 'fail' : states.length ? 'ok' : 'warn', 'managed setup', states.length ? (drifted.join(', ') || `${states.length} entries current`) : 'not installed');
+    add(drifted.length ? 'fail' : states.length ? 'ok' : 'warn', 'managed setup', states.length
+        ? (drifted.length ? `${drifted.join(', ')} — run \`muxr integrations sync --force\`` : `${states.length} entries current`)
+        : 'not installed — run `muxr setup`',
+        drifted.length ? { label: 're-sync managed integration files', run: () => runIntegrations(['sync', '--force']) } : undefined);
+    // The pinned-path landmine: a service file whose exec paths no longer
+    // resolve dies 203/EXEC at boot while doctor's liveness checks stay green.
+    const muxrServicePath = platform() === 'linux'
+        ? join(home(), '.config', 'systemd', 'user', 'muxr.service')
+        : join(home(), 'Library', 'LaunchAgents', 'com.muxr.host.plist');
+    const serviceFiles = [
+        ...(platform() === 'linux' || platform() === 'darwin' ? [[muxrServicePath, 'muxr service file']] : []),
+        ...(managedMode === 'relay' ? [] : herdrServiceUnitPaths().map((path) => [path, 'herdr service file'])),
+    ];
+    for (const [servicePath, serviceName] of serviceFiles) {
+        if (!existsSync(servicePath)) continue;
+        const stale = staleUnitPaths(servicePath);
+        if (stale.length === 0) {
+            add('ok', serviceName, 'exec paths resolve');
+            continue;
+        }
+        const isMuxr = serviceName === 'muxr service file';
+        const repairable = isMuxr || binary !== undefined;
+        add('fail', serviceName, `points at missing ${stale.join(', ')} — ${isMuxr
+            ? 're-pin it with `muxr daemon install`'
+            : repairable ? 'repair it with `muxr doctor`' : `herdr moved; ${HERDR_INSTALL_HINT}`}`,
+            repairable
+                ? isMuxr
+                    ? { label: 're-register the muxr service with current paths', run: () => runDaemon(['install', ...(managedMode === undefined ? [] : ['--mode', managedMode])]) }
+                    : { label: 'repair the herdr service file and start herdr', run: async () => { await ensureHerdrServer(binary); } }
+                : undefined);
+    }
+    // Installed-but-disabled: works now, silently gone at the next boot.
+    if (platform() === 'linux' && existsSync(muxrServicePath) && env('MUXR_NO_SERVICE_COMMANDS') !== '1') {
+        const enabled = run('systemctl', ['--user', 'is-enabled', 'muxr.service']);
+        const isEnabled = enabled.stdout === 'enabled' || enabled.stdout === 'enabled-runtime';
+        add(isEnabled ? 'ok' : 'fail', 'service enabled', isEnabled
+            ? 'muxr.service starts at login'
+            : `muxr.service is ${enabled.stdout || 'not enabled'} — it will not survive a reboot; enable it with \`muxr daemon start\``,
+            isEnabled ? undefined : { label: 'enable and start the muxr service', run: () => runDaemon(['start']) });
+    }
     const selfhost = readSelfhostState();
+    if (selfhostStateUnreadable()) {
+        add('fail', 'self-host state', `${selfhostPath()} exists but is unreadable (truncated or corrupt) — move it aside with \`mv ${selfhostPath()} ${selfhostPath()}.broken\` only after pairings are backed up; setup refuses to mint a new identity over it`);
+    }
     const relayReady = await selfhostRelayHealthy(selfhost);
     const relayDetail = selfhost?.relayLocation === 'remote'
         ? publicRelayUrl(selfhost.relayUrl) ?? 'remote relay'
         : `:${selfhost?.relayPort}`;
-    add(selfhost === undefined ? 'warn' : relayReady ? 'ok' : 'warn', 'self-host relay', selfhost === undefined
+    add(selfhost === undefined ? 'warn' : relayReady ? 'ok' : 'fail', 'self-host relay', selfhost === undefined
         ? 'not configured — run muxr setup'
-        : relayReady ? `reachable at ${relayDetail}` : `configured at ${relayDetail}, not reachable`);
+        : relayReady ? `reachable at ${relayDetail}` : `configured at ${relayDetail}, not reachable — restart it with \`muxr daemon restart\``,
+        selfhost !== undefined && !relayReady && selfhost.relayLocation !== 'remote'
+            // Same recovery runPair uses: the daemon unit owns the relay when
+            // installed; only a unitless install has a standalone relay process.
+            ? { label: 'restart the self-host relay', run: async () => {
+                const definition = daemonDefinition();
+                if (existsSync(definition.path)) {
+                    if ((await runDaemon(['restart'])) !== 0) throw new Error('muxr daemon restart failed');
+                } else {
+                    await ensureSelfhostRelay(selfhost.relayPort, selfhost.webRoot, selfhost.bindHost, selfhost.webOrigin);
+                }
+            } }
+            : undefined);
     if (selfhost !== undefined) {
-        const ingressReady = selfhost.connectionMode !== 'cloudflare' || cloudflaredAlive(selfhost.ingress);
-        add(ingressReady ? 'ok' : 'warn', 'connection', ingressReady
+        // Probe the advertised relay for real; 'external' is exempt because NAT
+        // hairpin makes self-probing unreliable from the host itself.
+        const ingressReady = selfhost.connectionMode === 'external'
+            || ((selfhost.connectionMode !== 'cloudflare' || cloudflaredAlive(selfhost.ingress))
+                && await advertisedRelayHealthy(selfhost));
+        add(ingressReady ? 'ok' : 'fail', 'connection', ingressReady
             ? `${selfhost.connectionMode ?? 'self-host'} · ${publicRelayUrl(selfhost.relayUrl) ?? `local port ${selfhost.relayPort}`}`
-            : 'Cloudflare tunnel is not running; run `muxr` to restore it and pair the new endpoint');
+            : selfhost.connectionMode === 'cloudflare'
+                ? 'Cloudflare tunnel is not running; run `muxr` to restore it and pair the new endpoint'
+                : `advertised relay ${publicRelayUrl(selfhost.relayUrl) ?? `on local port ${selfhost.relayPort}`} is not reachable — restart with \`muxr daemon restart\` or reconfigure with \`muxr\``);
         const hostRunning = daemonIsRunning();
         const hostAuthenticated = selfhost.relayLocation !== 'remote' || await remoteHostOnline(selfhost);
-        add(hostRunning && hostAuthenticated ? 'ok' : 'warn', managedMode === 'relay' ? 'relay service' : 'host service',
-            !hostRunning ? 'not running' : hostAuthenticated ? 'running and authenticated' : 'running but not authenticated with the shared relay');
+        add(hostRunning && hostAuthenticated ? 'ok' : 'fail', managedMode === 'relay' ? 'relay service' : 'host service',
+            !hostRunning ? 'not running — start it with `muxr daemon start`'
+                : hostAuthenticated ? 'running and authenticated'
+                : 'running but not authenticated with the shared relay — restart it with `muxr daemon restart`',
+            !hostRunning ? { label: 'start and enable the muxr service', run: () => runDaemon(['start']) } : undefined);
+        const devices = selfhost.machine?.crypto?.devices;
+        if (Array.isArray(devices)) {
+            add('ok', 'paired devices', devices.length === 0
+                ? 'none yet — pair a phone with `muxr pair`'
+                : `${devices.length} paired`);
+        }
         if (selfhost.relayLocation === 'remote' && typeof selfhost.credentialExpiresAt === 'string') {
             const days = Math.ceil((Date.parse(selfhost.credentialExpiresAt) - Date.now()) / (24 * 60 * 60_000));
             add(days <= 30 ? 'warn' : 'ok', 'machine credential', days <= 0
@@ -2089,5 +2342,24 @@ export async function runDoctor() {
     for (const check of checks) print(`  ${{ ok: 'ok  ', warn: 'warn', fail: 'FAIL' }[check.level]}  ${check.name.padEnd(width)}  ${check.detail}`);
     const failures = checks.filter((check) => check.level === 'fail');
     print(failures.length ? `\n${failures.length} blocking problem${failures.length === 1 ? '' : 's'} above.` : '\nmuxr setup checks passed.');
+    // Interactive repair: offer only what failed and has a known-safe action;
+    // anything else stays a printed remedy. Non-interactive runs report only.
+    const repairs = failures.filter((check) => check.repair !== undefined);
+    if (repairs.length > 0 && process.stdin.isTTY && process.stdout.isTTY) {
+        print('\nRepairs available:');
+        for (const check of repairs) print(`  • ${check.repair.label}`);
+        if (await askVisible(`Run ${repairs.length === 1 ? 'this repair' : `these ${repairs.length} repairs`} now? [y/N] `)) {
+            for (const check of repairs) {
+                print(`  → ${check.repair.label}`);
+                try {
+                    const code = await check.repair.run();
+                    if (typeof code === 'number' && code !== 0) print(`  warn: repair for "${check.name}" did not finish cleanly`);
+                } catch (cause) {
+                    print(`  warn: repair for "${check.name}" failed: ${cause instanceof Error ? cause.message : String(cause)}`);
+                }
+            }
+            print('Repairs finished — rerun `muxr doctor` to confirm.');
+        }
+    }
     return failures.length ? 1 : 0;
 }

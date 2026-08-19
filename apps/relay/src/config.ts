@@ -20,6 +20,11 @@ export interface RelayConfig {
     developmentApi: boolean;
     /** Enables LAN mDNS advertisement. */
     advertiseMdns: boolean;
+    /** Non-secret machine locator and current dial URL advertised over mDNS. */
+    mdnsMachineId?: string;
+    mdnsRelayUrl?: string;
+    mdnsConnectionMode?: string;
+    mdnsName?: string;
     /** Adds strict public-edge HTTP behavior such as HSTS and request timeout. */
     publicEdge: boolean;
     trustProxy: boolean;
@@ -86,6 +91,10 @@ export function loadRelayConfig(overrides: Partial<RelayConfig> = {}): RelayConf
         throw new Error('MUXR_RELAY_DEVELOPMENT_API refuses a non-loopback bind');
     }
     const pushWebhookUrl = overrides.pushWebhookUrl ?? readEnv('MUXR_RELAY_PUSH_WEBHOOK');
+    const mdnsMachineId = overrides.mdnsMachineId ?? readEnv('MUXR_RELAY_MDNS_MACHINE');
+    const mdnsRelayUrl = overrides.mdnsRelayUrl ?? readEnv('MUXR_RELAY_MDNS_RELAY');
+    const mdnsConnectionMode = overrides.mdnsConnectionMode ?? readEnv('MUXR_RELAY_MDNS_MODE');
+    const mdnsName = overrides.mdnsName ?? readEnv('MUXR_RELAY_MDNS_NAME');
     return {
         port: overrides.port ?? readInt('MUXR_RELAY_PORT', publicEdge ? readInt('PORT', 0) : 8792),
         host,
@@ -95,6 +104,10 @@ export function loadRelayConfig(overrides: Partial<RelayConfig> = {}): RelayConf
         localAuthority,
         developmentApi,
         advertiseMdns: overrides.advertiseMdns ?? readBool('MUXR_RELAY_MDNS', localAuthority),
+        ...(mdnsMachineId === undefined ? {} : { mdnsMachineId }),
+        ...(mdnsRelayUrl === undefined ? {} : { mdnsRelayUrl }),
+        ...(mdnsConnectionMode === undefined ? {} : { mdnsConnectionMode }),
+        ...(mdnsName === undefined ? {} : { mdnsName }),
         publicEdge,
         trustProxy: overrides.trustProxy ?? readBool('MUXR_TRUST_PROXY', publicEdge),
         maxPayloadBytes: overrides.maxPayloadBytes ?? readInt('MUXR_RELAY_MAX_PAYLOAD_BYTES', developmentApi ? 512 * 1024 * 1024 : 4 * 1024 * 1024),

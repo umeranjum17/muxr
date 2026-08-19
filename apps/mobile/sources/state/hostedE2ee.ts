@@ -21,6 +21,7 @@ import {
 import { relayControlUrl } from '@muxr/contract';
 import { getActiveSshForward } from './sshForward';
 import { deleteWebSecret, getWebSecret, setWebSecret } from './webSecureStore';
+import { getCachedConnectionSettings, loadConnectionSettingsAsync, saveConnectionSettings } from './connectionSettings';
 import { decodeBase64 } from '@/encryption/base64';
 
 const DEVICE_KEY = 'muxr.hosted-e2ee.device.v2';
@@ -149,12 +150,17 @@ async function saveHostedGrant(grant: StoredHostedGrant): Promise<void> {
     await secretSet(GRANTS_INDEX, JSON.stringify(Object.keys(all)));
 }
 
-export async function refreshHostedGrant(machineId: string, credential = ''): Promise<StoredHostedGrant | undefined> {
+export async function refreshHostedGrant(
+    machineId: string,
+    credential = '',
+    relayUrl = '',
+): Promise<StoredHostedGrant | undefined> {
     const current = await loadHostedGrant(machineId);
     if (current === undefined) return undefined;
     const activeCredential = credential.trim() || current.credential;
+    const candidateRelay = relayUrl.trim() || current.relayUrl;
     try {
-        const result = await json(relayControlUrl(current.relayUrl), `/v1/machines/${encodeURIComponent(machineId)}/grant`, {
+        const result = await json(relayControlUrl(candidateRelay), `/v1/machines/${encodeURIComponent(machineId)}/grant`, {
             headers: { authorization: `Bearer ${activeCredential}` },
         });
         const sealed = JSON.parse(String(result.grant)) as SealedDeviceGrant;
@@ -169,7 +175,9 @@ export async function refreshHostedGrant(machineId: string, credential = ''): Pr
             deviceKey: current.deviceKey,
             machineBoxPublicKey: sealed.sender,
             credential: activeCredential,
-            relayUrl: current.relayUrl,
+            // A discovered endpoint becomes durable only after it returns a
+            // grant verified by the machine key already pinned on this device.
+            relayUrl: candidateRelay,
             ...(current.machineName === undefined ? {} : { machineName: current.machineName }),
             ...(current.source === undefined ? {} : { source: current.source }),
         };
@@ -184,6 +192,40 @@ export async function refreshHostedGrant(machineId: string, credential = ''): Pr
         if (fallback !== current) await saveHostedGrant(fallback);
         return fallback;
     }
+}
+
+/** Restore an active pairing from secure storage; the grant, not discovery or AsyncStorage, owns authority. */
+export async function restoreHostedConnection(): Promise<StoredHostedGrant | undefined> {
+    const settings = await loadConnectionSettingsAsync();
+    if (settings.mode !== 'hosted') return undefined;
+    const paired = await listPairedGrants();
+    const grant = paired.find((entry) => entry.machineId === settings.machineId)
+        ?? (settings.machineId === '' && paired.length === 1 ? paired[0] : undefined);
+    if (grant === undefined) return undefined;
+    if (settings.machineId !== grant.machineId || settings.relayUrl !== grant.relayUrl
+        || settings.selfhost !== (grant.source === 'selfhost' ? true : undefined)) {
+        await saveConnectionSettings({
+            ...settings,
+            relayUrl: grant.relayUrl,
+            machineId: grant.machineId,
+            selfhost: grant.source === 'selfhost' ? true : undefined,
+        });
+    }
+    return grant;
+}
+
+/** Verify a discovered locator with the stored grant before switching the active transport. */
+export async function reconnectViaDiscoveredRelay(machineId: string, relayUrl: string): Promise<boolean> {
+    const settings = getCachedConnectionSettings();
+    if (settings.mode !== 'hosted' || settings.machineId !== machineId || settings.relayUrl === relayUrl) return false;
+    const verified = await refreshHostedGrant(machineId, '', relayUrl);
+    if (verified?.relayUrl !== relayUrl) return false;
+    await saveConnectionSettings({
+        ...settings,
+        relayUrl,
+        selfhost: verified.source === 'selfhost' ? true : undefined,
+    });
+    return true;
 }
 
 async function json(base: string, path: string, options: RequestInit = {}): Promise<Record<string, any>> {

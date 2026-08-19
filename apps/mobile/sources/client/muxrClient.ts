@@ -138,7 +138,7 @@ export class MuxrClient {
             if (permanent) {
                 this.options.onPermanentError?.(expired
                     ? 'This browser grant expired. Pair again from `muxr pair --browser`.'
-                    : 'This device was revoked. Pair it again from the muxr menu.');
+                    : 'This device was revoked. Run `muxr pair` on the machine, then re-pair from Settings → Pair another machine on this device.');
                 return;
             }
             if (!this.closed) {
@@ -155,10 +155,10 @@ export class MuxrClient {
 
         socket.onopen = () => {
             this.reconnectAttempt = 0;
-            this.setState('open');
-            // Cumulative state (attachments, changes) is only pushed when it
-            // changes, so a client connecting later never hears about what is
-            // already there. Announce ourselves and the host re-sends.
+            // The relay accepts a client peer even when no machine is attached,
+            // so socket open is not "connected". Stay `connecting` until the
+            // first authenticated host frame arrives (handleMessage flips it);
+            // the host answers client.hello immediately when it is alive.
             this.send({ type: 'client.hello', clientId: this.clientId });
         };
         socket.onmessage = (message: MessageEvent) => { void this.handleMessage(String(message.data)); };
@@ -210,7 +210,11 @@ export class MuxrClient {
             const requestId = nextRequestId('rn');
             const timer = setTimeout(() => {
                 this.pending.delete(requestId);
-                if (this.state === 'open') this.setState('stale');
+                // Demote from `connecting` too: the relay accepts the socket
+                // with no machine attached, and only an answered request ever
+                // proves otherwise — otherwise the app pins on "connecting"
+                // forever. `closed` is excluded; onclose already owns that.
+                if (this.state !== 'closed') this.setState('stale');
                 // Overwhelmingly the cause is a machineId mismatch: the relay
                 // buffers frames for a machine that never connects, so the
                 // request just never comes back. Name the id being addressed.
@@ -287,13 +291,16 @@ export class MuxrClient {
             return;
         }
 
+        // Socket open only proves the relay accepted us; the first frame that
+        // survives the machine's E2EE context proves the host is really there.
+        if (this.state !== 'open') this.setState('open');
+
         if (frame.type === 'result') {
             const pending = this.pending.get(frame.requestId);
             if (pending === undefined) return;
             if (this.hosted !== undefined && envelope.header.channel !== pending.channel) return;
             clearTimeout(pending.timer);
             this.pending.delete(frame.requestId);
-            if (this.state === 'stale') this.setState('open');
             if (frame.ok) pending.resolve(frame.data);
             else pending.reject(requestFailure(pending.requestType, frame.error, frame.code));
             return;

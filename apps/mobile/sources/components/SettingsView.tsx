@@ -96,12 +96,31 @@ export const SettingsView = React.memo(function SettingsView({
         () => allMachinesWithOffline.filter(m => !isMachineOnline(m)).length,
         [allMachinesWithOffline]
     );
-    const visibleMachines = React.useMemo(
-        () => showOfflineMachines
-            ? allMachinesWithOffline
-            : allMachinesWithOffline.filter(isMachineOnline),
-        [allMachinesWithOffline, showOfflineMachines]
-    );
+    // The picker is the union of the live list and the persisted pairing
+    // grants: the live list is empty whenever the host is down, but switching
+    // and pairing must stay reachable exactly then. Grants load on mount —
+    // this view remounts every time the Settings tab is opened.
+    const [pairedGrants, setPairedGrants] = React.useState<Awaited<ReturnType<typeof listPairedGrants>>>([]);
+    React.useEffect(() => {
+        let cancelled = false;
+        void listPairedGrants().then((grants) => {
+            if (!cancelled) setPairedGrants(grants);
+        });
+        return () => { cancelled = true; };
+    }, []);
+    const machineRows = React.useMemo(() => {
+        const rows: { id: string; live?: (typeof allMachinesWithOffline)[number] }[] = [];
+        const listedIds = new Set<string>();
+        for (const machine of allMachinesWithOffline) {
+            if (!showOfflineMachines && !isMachineOnline(machine)) continue;
+            listedIds.add(machine.id);
+            rows.push({ id: machine.id, live: machine });
+        }
+        for (const grant of pairedGrants) {
+            if (!listedIds.has(grant.machineId)) rows.push({ id: grant.machineId });
+        }
+        return rows;
+    }, [allMachinesWithOffline, pairedGrants, showOfflineMachines]);
     const [pushState, setPushState] = React.useState<PushState>('unsupported');
     const [pushBusy, setPushBusy] = React.useState(false);
     const promotedNotificationsSupported = Platform.OS === 'android' && supportsPromotedNotifications();
@@ -109,6 +128,7 @@ export const SettingsView = React.memo(function SettingsView({
         !promotedNotificationsSupported || canPostPromotedNotifications(),
     );
     const auth = useAuth();
+    const activeMachineId = getCachedConnectionSettings().machineId;
 
     const openMachine = React.useCallback(async (machineId: string) => {
         const active = getCachedConnectionSettings().machineId;
@@ -138,6 +158,16 @@ export const SettingsView = React.memo(function SettingsView({
         });
         await auth.login(grant.credential, grant.deviceKey.secretKey);
     }, [auth, router]);
+
+    const confirmLogout = React.useCallback(async () => {
+        const confirmed = await Modal.confirm(
+            t('settingsAccount.logout'),
+            'This signs out and removes this device\u2019s pairing with every machine it has ever paired with. To reconnect, pair each machine again from `muxr pair`.',
+            { confirmText: t('settingsAccount.logout'), destructive: true },
+        );
+        if (!confirmed) return;
+        await auth.logout();
+    }, [auth]);
 
     React.useEffect(() => {
         let cancelled = false;
@@ -220,73 +250,75 @@ export const SettingsView = React.memo(function SettingsView({
                 </View>
             </View>
 
-            {/* Machines (sorted: online first, then last seen desc) */}
-            {allMachinesWithOffline.length > 0 && (
-                <ItemGroup title={t('settings.machines')}>
-                    {visibleMachines.map((machine) => {
-                        const isOnline = isMachineOnline(machine);
-                        const host = machine.metadata?.host;
-                        const displayName = machine.metadata?.displayName;
-                        const pairedName = getCachedHostedGrant(machine.id)?.machineName;
-                        const safeHost = host && !/^machine[-_]/i.test(host) ? host : undefined;
-                        const platform = machine.metadata?.platform || '';
+            {/* Machines: union of the live list and the persisted pairing
+                grants. The live list alone is empty whenever the host is down —
+                exactly when switching and pairing must stay reachable. */}
+            <ItemGroup title={t('settings.machines')}>
+                {machineRows.map(({ id, live: machine }) => {
+                    const isOnline = machine !== undefined && isMachineOnline(machine);
+                    const host = machine?.metadata?.host;
+                    const displayName = machine?.metadata?.displayName;
+                    const pairedName = getCachedHostedGrant(id)?.machineName;
+                    const safeHost = host && !/^machine[-_]/i.test(host) ? host : undefined;
+                    const platform = machine?.metadata?.platform || '';
 
-                        const title = displayName || pairedName || safeHost || 'Paired computer';
+                    const title = displayName || pairedName || safeHost || 'Paired computer';
 
-                        // Internal machine ids are routing state, never user-facing names.
-                        let subtitle = '';
-                        if (displayName && safeHost && displayName !== safeHost) {
-                            subtitle = safeHost;
-                        }
-                        if (platform) {
-                            subtitle = subtitle ? `${subtitle} • ${platform}` : platform;
-                        }
-                        subtitle = subtitle ? `${subtitle} • ${isOnline ? t('status.online') : t('status.offline')}` : (isOnline ? t('status.online') : t('status.offline'));
+                    // Internal machine ids are routing state, never user-facing names.
+                    let subtitle = '';
+                    if (displayName && safeHost && displayName !== safeHost) {
+                        subtitle = safeHost;
+                    }
+                    if (platform) {
+                        subtitle = subtitle ? `${subtitle} • ${platform}` : platform;
+                    }
+                    subtitle = subtitle ? `${subtitle} • ${isOnline ? t('status.online') : t('status.offline')}` : (isOnline ? t('status.online') : t('status.offline'));
 
-                        return (
-                            <Item
-                                key={machine.id}
-                                title={title}
-                                subtitle={subtitle}
-                                icon={
-                                    <Ionicons
-                                        name="desktop-outline"
-                                        size={29}
-                                        color={isOnline ? theme.colors.status.connected : theme.colors.status.disconnected}
-                                    />
-                                }
-                                onPress={() => void openMachine(machine.id)}
-                            />
-                        );
-                    })}
-                    {offlineMachineCount > 0 && (
+                    return (
                         <Item
-                            title={showOfflineMachines
-                                ? t('settings.hideOfflineMachines')
-                                : t('settings.showOfflineMachines', { count: offlineMachineCount })}
-                            onPress={() => setShowOfflineMachines(v => !v)}
-                            showChevron={false}
-                            titleStyle={{
-                                textAlign: 'center',
-                                color: theme.colors.textLink,
-                            }}
+                            key={id}
+                            title={title}
+                            subtitle={subtitle}
+                            detail={id === activeMachineId ? 'Active' : undefined}
+                            icon={
+                                <Ionicons
+                                    name="desktop-outline"
+                                    size={29}
+                                    color={isOnline ? theme.colors.status.connected : theme.colors.status.disconnected}
+                                />
+                            }
+                            onPress={() => void openMachine(id)}
                         />
-                    )}
-                </ItemGroup>
-            )}
-
-            {/* Paired self-host machines that have not connected yet don't appear in the live list */}
-            <PairedSelfhostMachines onSwitch={(id) => void openMachine(id)} existing={allMachinesWithOffline.map((m) => m.id)} />
-
-            <ItemGroup title="App and plugins">
-                {getCachedConnectionSettings().mode === 'local' && (
+                    );
+                })}
+                {offlineMachineCount > 0 && (
                     <Item
-                        title="Local development connection"
-                        subtitle="Advanced fixture settings"
-                        icon={<Ionicons name="link-outline" size={29} color="#FF9500" />}
-                        onPress={() => router.push('/settings/connection' as any)}
+                        title={showOfflineMachines
+                            ? t('settings.hideOfflineMachines')
+                            : t('settings.showOfflineMachines', { count: offlineMachineCount })}
+                        onPress={() => setShowOfflineMachines(v => !v)}
+                        showChevron={false}
+                        titleStyle={{
+                            textAlign: 'center',
+                            color: theme.colors.textLink,
+                        }}
                     />
                 )}
+                <Item
+                    title="Pair another machine"
+                    subtitle="Scan or paste a fresh pairing string from `muxr pair`"
+                    icon={<Ionicons name="qr-code-outline" size={29} color="#007AFF" />}
+                    onPress={() => router.push('/pair')}
+                />
+            </ItemGroup>
+
+            <ItemGroup title="App and plugins">
+                <Item
+                    title="Connection"
+                    subtitle="Status, transport, relay, and how to fix it"
+                    icon={<Ionicons name="link-outline" size={29} color="#FF9500" />}
+                    onPress={() => router.push('/settings/connection' as any)}
+                />
                 {Platform.OS === 'android' && (
                     <Item
                         title="Connect over SSH"
@@ -366,34 +398,16 @@ export const SettingsView = React.memo(function SettingsView({
                 />
             </ItemGroup>
 
-        </ItemList>
-    );
-});
-
-/** Self-host paired machines that have no live connection row yet. */
-const PairedSelfhostMachines = React.memo((props: { onSwitch: (machineId: string) => void; existing: string[] }) => {
-    const { theme } = useUnistyles();
-    const [paired, setPaired] = React.useState<{ id: string; name?: string }[]>([]);
-    React.useEffect(() => {
-        let cancelled = false;
-        void listPairedGrants().then((grants) => {
-            if (!cancelled) setPaired(grants.filter((g) => g.source === 'selfhost').map((g) => ({ id: g.machineId, name: g.machineName })));
-        });
-        return () => { cancelled = true; };
-    }, []);
-    const missing = paired.filter(({ id }) => !props.existing.includes(id));
-    if (missing.length === 0) return null;
-    return (
-        <ItemGroup title="Paired machines">
-            {missing.map(({ id, name }) => (
+            <ItemGroup>
                 <Item
-                    key={id}
-                    title={name || 'Paired computer'}
-                    subtitle="self-hosted • tap to connect"
-                    icon={<Ionicons name="desktop-outline" size={29} color={theme.colors.status.disconnected} />}
-                    onPress={() => props.onSwitch(id)}
+                    title={t('settingsAccount.logout')}
+                    subtitle={t('settingsAccount.logoutSubtitle')}
+                    icon={<Ionicons name="log-out-outline" size={29} color={theme.colors.textDestructive} />}
+                    onPress={() => void confirmLogout()}
+                    showChevron={false}
                 />
-            ))}
-        </ItemGroup>
+            </ItemGroup>
+
+        </ItemList>
     );
 });

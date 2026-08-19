@@ -92,7 +92,6 @@ export default function ConnectionSettingsScreen() {
     const router = useRouter();
     const [initial, setInitial] = React.useState(() => getCachedConnectionSettings());
     const { status, error: socketError } = useSocketStatus();
-    const [showAdvanced, setShowAdvanced] = React.useState(false);
     const [clock, setClock] = React.useState(Date.now());
     React.useEffect(() => {
         if (Platform.OS !== 'web') return undefined;
@@ -177,17 +176,11 @@ export default function ConnectionSettingsScreen() {
                 </ItemGroup>
 
                 <ItemGroup title="Advanced">
-                    {showAdvanced ? (
-                        <>
-                            <Item title="Reconnect now" subtitle="Drops the socket and dials again" onPress={() => void syncReconnect()} />
-                            <Item title="Pair another machine" subtitle="Paste a fresh string from `muxr pair`, or open its pairing link" onPress={() => router.push('/pair')} />
-                            <Text style={styles.hint}>
-                                To stop this device reaching a machine, revoke it from the interactive muxr menu.
-                            </Text>
-                        </>
-                    ) : (
-                        <Item title="Show advanced" subtitle="Reconnect and pairing notes" onPress={() => setShowAdvanced(true)} />
-                    )}
+                    <Item title="Reconnect now" subtitle="Drops the socket and dials again" onPress={() => void syncReconnect()} />
+                    <Item title="Pair another machine" subtitle="Paste a fresh string from `muxr pair`, or open its pairing link" onPress={() => router.push('/pair')} />
+                    <Text style={styles.hint}>
+                        To stop this device reaching a machine, revoke it from the interactive muxr menu.
+                    </Text>
                 </ItemGroup>
             </ItemList>
         );

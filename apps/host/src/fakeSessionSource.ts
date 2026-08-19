@@ -92,7 +92,7 @@ export function createFakeSessionSource(): SessionSource {
         async refreshHerdr() {},
 
         async herdrTree() {
-            return [];
+            return { workspaces: [], connected: true };
         },
 
         async agentKinds() {

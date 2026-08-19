@@ -85,8 +85,8 @@ export interface SessionSource {
     refreshHerdr(): Promise<void>;
     /** Reconcile the authoritative plugin catalog after an out-of-band mutation. */
     refreshPlugins?(): Promise<void>;
-    /** The whole herd: workspaces -> tabs -> panes with live agent state. */
-    herdrTree(): Promise<HerdrTreeWorkspace[]>;
+    /** The whole herd: workspaces -> tabs -> panes with live agent state. `connected` is herdr event-socket liveness. */
+    herdrTree(): Promise<{ workspaces: HerdrTreeWorkspace[]; connected: boolean }>;
     /** Agent kinds supported by the connected Herdr host. */
     agentKinds(): Promise<string[]>;
     /** Immutable native UI plugin catalog and snapshots. */

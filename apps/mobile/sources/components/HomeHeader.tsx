@@ -128,7 +128,10 @@ function HeaderTitleWithSubtitle() {
                 return {
                     color: styles.statusError.color,
                     isPulsing: false,
-                    text: t('status.error'),
+                    // socketError is only ever a permanent pairing failure
+                    // (revoked/expired grant) — the nav header gets the short
+                    // label, connection.tsx shows the full sentence.
+                    text: socketStatus.error !== null ? t('status.pairingIssue') : t('status.error'),
                     textColor: styles.statusError.color
                 };
             default:
@@ -157,7 +160,7 @@ function HeaderTitleWithSubtitle() {
                         size={6}
                         style={styles.statusDot}
                     />
-                    <Text style={[
+                    <Text numberOfLines={1} style={[
                         styles.statusText,
                         { color: connectionStatus.textColor }
                     ]}>

@@ -25,6 +25,7 @@ describe('item-list public response', () => {
                 id: 'src/app.ts', title: 'duplicate', action: { type: 'open-url', url: 'https://example.com/duplicate' },
             }, { id: 'bad', title: 'bad', action: { type: 'unknown' } }],
             actions: [{ id: 'review', label: 'Review', icon: 'eye-outline', action: { type: 'open-url', url: 'https://example.com' } }],
+            badge: { value: '1.3M', tone: 'danger' },
         }, validate);
 
         expect(model).toMatchObject({
@@ -33,6 +34,30 @@ describe('item-list public response', () => {
                 { id: 'read-only', title: 'Pi', metadata: [{ value: '1.3M tokens' }] },
             ],
             actions: [{ id: 'review', label: 'Review', icon: 'eye-outline' }],
+            badge: { value: '1.3M', tone: 'danger' },
         });
+    });
+
+    it('keeps groups, clamps progress, and drops malformed optional fields', () => {
+        const model = asPluginItemList({
+            items: [{
+                id: 'a', title: 'A', group: 'Active today', progress: { value: 1.7, tone: 'positive' }, metadata: [],
+            }, {
+                id: 'b', title: 'B', group: 'Active today', progress: { value: -2 }, metadata: [],
+            }, {
+                id: 'c', title: 'C', progress: { value: 'fast', tone: 'loud' }, metadata: [],
+            }],
+            badge: { value: '' },
+        }, validate);
+
+        expect(model).toMatchObject({
+            items: [
+                { id: 'a', group: 'Active today', progress: { value: 1, tone: 'positive' } },
+                { id: 'b', group: 'Active today', progress: { value: 0 } },
+                { id: 'c' },
+            ],
+        });
+        expect(model.items[2]!.progress).toBeUndefined();
+        expect(model.badge).toBeUndefined();
     });
 });

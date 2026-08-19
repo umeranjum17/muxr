@@ -917,11 +917,16 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
             const { default: Bonjour } = await import('bonjour-service');
             const bonjour = new Bonjour();
             const service = bonjour.publish({
-                name: `muxr-${hostname()}`,
+                name: config.mdnsName ?? `muxr-${hostname()}`,
                 type: 'muxr',
                 protocol: 'tcp',
                 port: listeningPort,
-                txt: { v: '2' },
+                txt: {
+                    v: '2',
+                    ...(config.mdnsMachineId === undefined ? {} : { machine: config.mdnsMachineId }),
+                    ...(config.mdnsRelayUrl === undefined ? {} : { relay: config.mdnsRelayUrl }),
+                    ...(config.mdnsConnectionMode === undefined ? {} : { mode: config.mdnsConnectionMode }),
+                },
             });
             bonjourStop = () => {
                 service.stop();

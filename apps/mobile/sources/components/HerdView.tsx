@@ -24,10 +24,12 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { sync } from '@/sync/sync';
 import { Modal } from '@/modal';
-import { storage, useAllMachines, useHerdrTree, useSocketStatus } from '@/sync/storage';
+import { storage, useHerdrTree, useSocketStatus } from '@/sync/storage';
+import { useHostedPairing, usePairQrScanner } from '@/hooks/usePairing';
 import * as Clipboard from 'expo-clipboard';
 import { loadAppConfig } from '@/sync/appConfig';
 import { getCachedConnectionSettings } from '@/state/connectionSettings';
+import { listPairedGrants } from '@/state/hostedE2ee';
 import { openExternalUrl } from '@/utils/openExternalUrl';
 import { setupEmptyState } from '@/commercialization';
 import type { HerdrTreePane, HerdrTreeWorkspace } from '@muxr/contract';
@@ -161,6 +163,22 @@ const stylesheet = StyleSheet.create((theme) => ({
         justifyContent: 'center',
         gap: 8,
         padding: 32,
+    },
+    banner: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        gap: 8,
+        marginHorizontal: 16,
+        marginTop: 8,
+        padding: 12,
+        borderRadius: 10,
+        backgroundColor: theme.colors.surfaceHigh,
+    },
+    bannerText: {
+        flex: 1,
+        fontSize: 13,
+        lineHeight: 18,
+        ...Typography.default(),
     },
     emptyText: {
         color: theme.colors.textSecondary,
@@ -381,17 +399,33 @@ export const HerdView = React.memo(({
     const safeArea = useSafeAreaInsets();
     const { workspaces: sourceWorkspaces, loaded } = useHerdrTree();
     const { status: socketStatus } = useSocketStatus();
+    const processPairLink = useHostedPairing();
+    const scanPairQr = usePairQrScanner((url) => void processPairLink(url));
     const workspaces = React.useMemo(
         () => lifecycleTree(sourceWorkspaces, socketStatus === 'connected'),
         [socketStatus, sourceWorkspaces],
     );
     const [attempted, setAttempted] = React.useState(false);
     const [error, setError] = React.useState<string | null>(null);
+    // undefined = host has not told us (older host build); false = herdr is down.
+    const [herdrConnected, setHerdrConnected] = React.useState<boolean | undefined>(undefined);
+    // "Has this device ever paired" can only come from the persisted grants:
+    // machineId falls back to the build default on a fresh install, so it can
+    // never answer this. Async, so undefined = still loading.
+    const [hasPairedGrant, setHasPairedGrant] = React.useState<boolean | undefined>(undefined);
+    React.useEffect(() => {
+        let cancelled = false;
+        void listPairedGrants().then((grants) => {
+            if (!cancelled) setHasPairedGrant(grants.length > 0);
+        });
+        return () => { cancelled = true; };
+    }, []);
     const [expanded, setExpanded] = React.useState<ReadonlySet<string>>(new Set());
 
     const refresh = React.useCallback(async () => {
         try {
-            const workspaces = await sync.refreshHerdTree();
+            const { workspaces, herdrConnected } = await sync.refreshHerdTree();
+            setHerdrConnected(herdrConnected);
             // Default: workspaces that host agents start expanded; shell-only stays closed.
             setExpanded((previous) => (previous.size > 0
                 ? previous
@@ -530,10 +564,12 @@ export const HerdView = React.memo(({
     // Shell-only spaces still list (and close) their panes, so "empty" means
     // herdr has no workspaces at all, not "no agents".
     const agentsEmpty = workspaces.length === 0;
-    const machines = useAllMachines({ includeOffline: true });
     const setup = setupEmptyState(loadAppConfig().publicBaseUrl);
     const connection = getCachedConnectionSettings();
-    const noHostedMachine = connection.mode === 'hosted' && machines.length === 0;
+    // machines.list rejects while the host is down, and machineId falls back
+    // to the build default on a fresh install — only the persisted pairing
+    // grants can tell "never paired" from "paired but the machine is off".
+    const neverPaired = connection.mode === 'hosted' && hasPairedGrant === false;
 
     if (!loaded && !attempted) {
         return (
@@ -544,7 +580,16 @@ export const HerdView = React.memo(({
     }
 
     if (agentsEmpty) {
-        if (noHostedMachine) {
+        if (connection.mode === 'hosted' && hasPairedGrant === undefined) {
+            // Grant storage has not answered yet: showing either the onboarding
+            // card or the error branch now would be a guess.
+            return (
+                <View style={[styles.empty, { paddingBottom: safeArea.bottom }]}>
+                    <ActivityIndicator color={theme.colors.textSecondary} />
+                </View>
+            );
+        }
+        if (neverPaired) {
             return (
                 <View style={[styles.empty, { paddingBottom: safeArea.bottom }]}>
                     <Ionicons name="desktop-outline" size={40} color={theme.colors.textSecondary} />
@@ -582,9 +627,14 @@ export const HerdView = React.memo(({
                     <View style={styles.emptyAction}>
                         {Platform.OS === 'web' ? (
                             <ActionButton title="Paste browser pairing string" icon="clipboard-outline" onPress={() => router.push('/pair')} />
-                        ) : setup.setupUrl ? (
-                            <ActionButton title="Open setup guide" variant="quiet" icon="open-outline" onPress={() => void openExternalUrl(setup.setupUrl!)} />
-                        ) : null}
+                        ) : (
+                            <>
+                                <ActionButton title="Scan pairing QR" icon="qr-code-outline" onPress={() => void scanPairQr()} />
+                                {setup.setupUrl ? (
+                                    <ActionButton title="Open setup guide" variant="quiet" icon="open-outline" onPress={() => void openExternalUrl(setup.setupUrl!)} />
+                                ) : null}
+                            </>
+                        )}
                     </View>
                 </View>
             );
@@ -594,6 +644,14 @@ export const HerdView = React.memo(({
             // a new user, who most needs to see that their plugins landed.
             <View style={{ flex: 1, paddingTop: topContentInset }}>
                 {header}
+            {herdrConnected === false ? (
+                <View style={styles.banner}>
+                    <Ionicons name="warning-outline" size={16} color={theme.colors.box.warning.text} />
+                    <Text style={[styles.bannerText, { color: theme.colors.box.warning.text }]}>
+                        This computer is online, but its agent runtime (herdr) is not answering — sessions may be stale. Restart herdr on the machine to refresh them.
+                    </Text>
+                </View>
+            ) : null}
             <View style={[styles.empty, { paddingBottom: safeArea.bottom }]}>
                 <Ionicons name="albums-outline" size={40} color={theme.colors.textSecondary} />
                 <Text style={styles.emptyText}>
@@ -622,6 +680,14 @@ export const HerdView = React.memo(({
             {error === null ? null : (
                 <Text style={[styles.error, { color: theme.colors.status.error }]}>{error}</Text>
             )}
+            {herdrConnected === false ? (
+                <View style={styles.banner}>
+                    <Ionicons name="warning-outline" size={16} color={theme.colors.box.warning.text} />
+                    <Text style={[styles.bannerText, { color: theme.colors.box.warning.text }]}>
+                        This computer is online, but its agent runtime (herdr) is not answering — sessions below may be stale. Restart herdr on the machine to refresh them.
+                    </Text>
+                </View>
+            ) : null}
             <View style={styles.contentContainer}>
                 <SectionList
                     sections={sections}

@@ -8,6 +8,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/auth/AuthContext';
 import { claimHostedPairing, hostedPairingDisplayName } from '@/state/hostedE2ee';
 import { getCachedConnectionSettings, saveConnectionSettings } from '@/state/connectionSettings';
+import { usePairQrScanner } from '@/hooks/usePairing';
 import { ActionButton } from '@/components/ActionButton';
 import { Typography } from '@/constants/Typography';
 import { Modal } from '@/modal';
@@ -53,6 +54,10 @@ export default function PairScreen() {
     const pairingSteps = browser
         ? ['This browser claims the one-time code from the link.', ...PAIRING_STEPS.slice(1)]
         : PAIRING_STEPS;
+    const switching = getCachedConnectionSettings().machineId !== '';
+    const scanQr = usePairQrScanner(React.useCallback((url: string) => {
+        setState({ phase: 'confirm', url, machineName: hostedPairingDisplayName(url) });
+    }, []), !browser);
     const routePairUrl = React.useMemo(() => {
         const v = routeParams.v;
         if (typeof v !== 'string' || v === '') return undefined;
@@ -160,7 +165,7 @@ export default function PairScreen() {
             </View>
 
             <View style={styles.card}>
-                {state === undefined || state.phase === 'working' ? (
+                {state?.phase === 'working' ? (
                     <>
                         <View style={styles.progressHead}>
                             <ActivityIndicator color={styles.progressText.color} />
@@ -173,7 +178,7 @@ export default function PairScreen() {
                             </View>
                         ))}
                     </>
-                ) : state.phase === 'confirm' ? (
+                ) : state?.phase === 'confirm' ? (
                     <>
                         <View style={styles.stepGroup}>
                             <Text style={styles.stepHeading}>{browser ? 'This browser will be able to' : 'This phone will be able to'}</Text>
@@ -190,6 +195,14 @@ export default function PairScreen() {
                                 Only continue if you just ran `muxr setup` or `muxr pair` on that computer.
                             </Text>
                         </View>
+                        {switching && (
+                            <View style={styles.securityRow}>
+                                <Ionicons name="swap-horizontal-outline" size={16} color={styles.securityText.color} />
+                                <Text style={styles.securityText}>
+                                    This device is already paired — pairing switches the active machine to this one. The previous pairing stays saved in Settings.
+                                </Text>
+                            </View>
+                        )}
                         <View style={styles.stepGroup}>
                             <Text style={styles.stepHeading}>How it is secured</Text>
                             {pairingSteps.map((step, index) => (
@@ -202,11 +215,23 @@ export default function PairScreen() {
                         <ActionButton title="Pair" icon="link-outline" onPress={confirm} />
                         <ActionButton title="Cancel" variant="secondary" onPress={cancel} />
                     </>
-                ) : (
+                ) : state?.phase === 'error' && state.url !== undefined ? (
                     <>
                         <Text accessibilityRole="alert" style={styles.errorText}>{state.message}</Text>
-                        {state.url !== undefined && (
-                            <ActionButton title="Try again" icon="refresh-outline" onPress={confirm} />
+                        <ActionButton title="Try again" icon="refresh-outline" onPress={confirm} />
+                        <ActionButton title="Paste pairing string" icon="clipboard-outline" onPress={() => void paste()} />
+                        <ActionButton title="Back" variant="secondary" onPress={cancel} />
+                    </>
+                ) : (
+                    // No link arrived (or the screen was opened directly from
+                    // Settings): a neutral chooser, not a red alert for a user
+                    // who did nothing wrong.
+                    <>
+                        {state?.phase === 'error' && (
+                            <Text style={styles.stepText}>{state.message}</Text>
+                        )}
+                        {!browser && (
+                            <ActionButton title="Scan QR" icon="qr-code-outline" onPress={() => void scanQr()} />
                         )}
                         <ActionButton title="Paste pairing string" icon="clipboard-outline" onPress={() => void paste()} />
                         <ActionButton title="Back" variant="secondary" onPress={cancel} />

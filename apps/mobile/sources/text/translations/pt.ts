@@ -115,6 +115,7 @@ export const pt: TranslationStructure = {
         connecting: 'conectando',
         disconnected: 'desconectado',
         error: 'erro',
+        pairingIssue: 'problema de emparelhamento',
         online: 'online',
         offline: 'offline',
         lastSeen: ({ time }: { time: string }) => `visto por último ${time}`,

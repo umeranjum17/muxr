@@ -69,8 +69,8 @@ export interface RequestMap {
         };
         result: SessionSnapshot;
     };
-    /** The whole herd: workspaces -> tabs -> panes with live agent state. */
-    'herdr.tree': { params: Record<string, never>; result: { workspaces: HerdrTreeWorkspace[] } };
+    /** The whole herd: workspaces -> tabs -> panes with live agent state. `connected` is herdr liveness; absent from pre-liveness hosts. */
+    'herdr.tree': { params: Record<string, never>; result: { workspaces: HerdrTreeWorkspace[]; connected?: boolean } };
     'herdr.agentKinds': { params: Record<string, never>; result: { kinds: string[] } };
     /** Immutable native UI plugin catalog. Safe to enumerate from read-only clients. */
     'plugin.list': {

@@ -57,6 +57,10 @@ export function KernelNotifications() {
             clearVoiceNotification();
             return;
         }
+        // A brief background network drop must not tear down the service that
+        // keeps the socket alive long enough to reconnect. A connected idle
+        // herd still stops it normally.
+        if (!appActive && keepalive.current && status !== 'connected') return;
         // Native stops its dataSync service once the herd settles. Mirror that
         // here so the next working transition actually starts it again.
         if (!herdActive) keepalive.current = false;
@@ -67,7 +71,7 @@ export function KernelNotifications() {
             if (herdActive && !keepalive.current) keepalive.current = startHerdKeepalive();
         });
         return () => { live = false; };
-    }, [herd, herdActive, isAuthenticated, muted, presentation, voiceName, voiceState]);
+    }, [appActive, herd, herdActive, isAuthenticated, muted, presentation, status, voiceName, voiceState]);
 
     React.useEffect(() => {
         if (!isAuthenticated) return;

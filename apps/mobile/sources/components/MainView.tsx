@@ -217,7 +217,9 @@ const HeaderTitle = React.memo(({ activeTab, pluginTitle }: { activeTab: ActiveT
                 return {
                     color: theme.colors.status.error,
                     isPulsing: false,
-                    text: t('status.error'),
+                    // socketError is only ever a permanent pairing failure — the
+                    // nav header gets the short label, connection.tsx the sentence.
+                    text: socketStatus.error !== null ? t('status.pairingIssue') : t('status.error'),
                 };
             default:
                 return {
@@ -241,7 +243,7 @@ const HeaderTitle = React.memo(({ activeTab, pluginTitle }: { activeTab: ActiveT
                         size={6}
                         style={{ marginRight: 4 }}
                     />
-                    <Text style={[styles.statusText, { color: connectionStatus.color }]}>
+                    <Text numberOfLines={1} style={[styles.statusText, { color: connectionStatus.color }]}>
                         {connectionStatus.text}
                     </Text>
                 </View>

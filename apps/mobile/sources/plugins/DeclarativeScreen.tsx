@@ -3,7 +3,8 @@ import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View, useWin
 import { randomUUID } from 'expo-crypto';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { Circle, Svg } from 'react-native-svg';
+import { PolarChart, Pie } from 'victory-native';
+import Animated, { Easing, FadeInDown, useAnimatedStyle, useReducedMotion, useSharedValue, withDelay, withTiming } from 'react-native-reanimated';
 import { useUnistyles } from 'react-native-unistyles';
 import type { PluginManifestV1, PluginScreenButtonNode, PluginScreenChartNode, PluginScreenContribution, PluginScreenNode, PluginScreenRowAction, PluginScreenRowNode, PluginScreenTone, PluginScreenTreeNode, PluginSource, PluginText, RequestParams } from '@muxr/contract';
 import { MAX_SCREEN_LIST_ROWS, PLUGIN_CALL_CLIENT_TIMEOUT_MS, capUtf8Bytes, defaultPluginText, sanitizeDisplayText } from '@muxr/contract';
@@ -21,6 +22,7 @@ import { asScreenTree, type RuntimeTreeItem } from './screenTreeModel';
 import { asChartSeries, type PluginChartItem } from './chartModel';
 import { t } from '@/text';
 import { boundText } from '@/utils/boundedText';
+import { Typography } from '@/constants/Typography';
 
 function toneColor(theme: Theme, tone: string | undefined): string {
     switch (tone) {
@@ -32,12 +34,28 @@ function toneColor(theme: Theme, tone: string | undefined): string {
     }
 }
 
-function visualColor(theme: Theme, tone: PluginScreenTone | undefined, index = 0): string {
-    if (tone === 'positive') return theme.colors.success;
-    if (tone === 'warning') return theme.colors.box.warning.text;
-    if (tone === 'danger') return theme.colors.box.error.text;
-    if (tone === 'secondary') return theme.colors.textSecondary;
-    return [theme.colors.accent, theme.colors.textLink, theme.colors.success, theme.colors.box.warning.text, theme.colors.box.error.text, theme.colors.textSecondary][index % 6]!;
+/** Chart fills: untoned series get the accent, never a per-index rainbow. */
+function chartFill(theme: Theme, tone: PluginScreenTone | undefined): string {
+    switch (tone) {
+        case 'positive': return theme.colors.success;
+        case 'warning': return theme.colors.box.warning.text;
+        case 'danger': return theme.colors.box.error.text;
+        case 'secondary': return theme.colors.textSecondary;
+        default: return theme.colors.accent;
+    }
+}
+
+const SLICE_PALETTE = (theme: Theme) => [theme.colors.accent, theme.colors.textLink, theme.colors.success, theme.colors.box.warning.text, theme.colors.box.error.text, theme.colors.textSecondary];
+
+/** Track fill that sweeps in when its value first arrives; decorative only. */
+function AnimatedBarFill({ ratio, color, delay }: { ratio: number; color: string; delay: number }) {
+    const reduceMotion = useReducedMotion();
+    const width = useSharedValue(reduceMotion ? ratio : 0);
+    React.useEffect(() => {
+        width.value = reduceMotion ? ratio : withDelay(delay, withTiming(ratio, { duration: 400, easing: Easing.bezier(0.23, 1, 0.32, 1) }));
+    }, [delay, ratio, reduceMotion, width]);
+    const animated = useAnimatedStyle(() => ({ width: `${Math.max(0, Math.min(1, width.value)) * 100}%` }));
+    return <Animated.View style={[{ height: '100%', borderRadius: 3, backgroundColor: color }, animated]} />;
 }
 
 function chartValue(item: PluginChartItem): string {
@@ -168,6 +186,7 @@ function ScreenTree(props: {
 
 function ScreenChart({ node, data }: { node: PluginScreenChartNode; data: unknown }) {
     const { theme } = useUnistyles();
+    const reduceMotion = useReducedMotion();
     const series = asChartSeries(resolvePath(data, node.path));
     const title = node.title === undefined ? undefined : bindText(resolvePluginText(node.title), data);
     const empty = node.emptyText === undefined ? t('plugins.nothingToShow') : bindText(resolvePluginText(node.emptyText), data);
@@ -178,47 +197,46 @@ function ScreenChart({ node, data }: { node: PluginScreenChartNode; data: unknow
     const total = series.reduce((sum, item) => sum + item.value, 0);
     const summary = `${title ?? 'Chart'}: ${series.map((item) => `${item.label} ${node.variant === 'ring' ? `${Math.round(item.value / total * 100)} percent` : chartValue(item)}`).join(', ')}`;
     if (node.variant === 'ring') {
-        const radius = 42;
-        const circumference = 2 * Math.PI * radius;
-        let offset = 0;
-        return <View style={{ marginBottom: 14 }}>
-            {title !== undefined && <Text style={{ color: theme.colors.text, fontSize: 15, fontWeight: '600', marginBottom: 10 }}>{title}</Text>}
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 18 }}>
-                <View accessible accessibilityRole="image" accessibilityLabel={summary}>
-                    <Svg width={104} height={104} viewBox="0 0 104 104">
-                        <Circle cx={52} cy={52} r={radius} fill="none" stroke={theme.colors.surfaceHighest} strokeWidth={12} />
-                        {series.map((item, index) => {
-                            const length = item.value / total * circumference;
-                            const dashOffset = -offset;
-                            offset += length;
-                            return item.value === 0 ? null : <Circle key={`${item.label}-${index}`} cx={52} cy={52} r={radius} fill="none"
-                                stroke={visualColor(theme, item.tone, index)} strokeWidth={12} strokeLinecap="butt"
-                                strokeDasharray={[length, circumference - length]} strokeDashoffset={dashOffset}
-                                rotation={-90} origin="52, 52" />;
-                        })}
-                    </Svg>
-                </View>
-                <View style={{ flex: 1, gap: 8 }}>
-                    {series.map((item, index) => <View key={`${item.label}-${index}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
-                        <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: visualColor(theme, item.tone, index) }} />
-                        <Text numberOfLines={1} style={{ color: theme.colors.text, fontSize: 13, flex: 1 }}>{item.label}</Text>
-                        <Text style={{ color: theme.colors.textSecondary, fontSize: 13 }}>{chartValue(item)}</Text>
-                    </View>)}
+        // First slice is the hero: its value/label sit in the donut center.
+        const hero = series[0]!;
+        const palette = SLICE_PALETTE(theme);
+        const slices = series.map((item, index) => ({
+            label: item.label,
+            value: item.value,
+            color: item.tone === 'secondary'
+                ? theme.colors.surfaceHighest
+                : item.tone !== undefined ? chartFill(theme, item.tone) : palette[index % palette.length]!,
+        }));
+        return <View accessible accessibilityRole="image" accessibilityLabel={summary}
+            style={{ marginBottom: 14, backgroundColor: theme.colors.surfaceHigh, borderRadius: 16, padding: 16 }}>
+            {title !== undefined && <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 12 }}>{title}</Text>}
+            <View style={{ alignItems: 'center' }}>
+                <View style={{ width: 132, height: 132 }}>
+                    <PolarChart data={slices} labelKey="label" valueKey="value" colorKey="color" containerStyle={{ width: 132, height: 132 }}>
+                        <Pie.Chart innerRadius="74%" startAngle={-90}>
+                            {() => <Pie.Slice {...(reduceMotion ? {} : { animate: { type: 'timing', duration: 500, easing: Easing.bezier(0.23, 1, 0.32, 1) } })} />}
+                        </Pie.Chart>
+                    </PolarChart>
+                    <View pointerEvents="none" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center' }}>
+                        <Text style={{ color: theme.colors.text, fontSize: 24, fontWeight: '700', letterSpacing: -0.5 }}>{chartValue(hero)}</Text>
+                        <Text style={{ color: theme.colors.textSecondary, fontSize: 11, marginTop: 1 }}>{hero.label}</Text>
+                    </View>
                 </View>
             </View>
         </View>;
     }
     const max = Math.max(...series.map((item) => item.value));
-    return <View style={{ marginBottom: 14 }} accessible accessibilityRole="image" accessibilityLabel={summary}>
-        {title !== undefined && <Text style={{ color: theme.colors.text, fontSize: 15, fontWeight: '600', marginBottom: 10 }}>{title}</Text>}
-        <View style={{ gap: 10 }}>
+    return <View style={{ marginBottom: 14, backgroundColor: theme.colors.surfaceHigh, borderRadius: 16, padding: 16 }}
+        accessible accessibilityRole="image" accessibilityLabel={summary}>
+        {title !== undefined && <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 12 }}>{title}</Text>}
+        <View style={{ gap: 14 }}>
             {series.map((item, index) => <View key={`${item.label}-${index}`}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
-                    <Text numberOfLines={1} style={{ color: theme.colors.text, fontSize: 13, flex: 1 }}>{item.label}</Text>
-                    <Text style={{ color: theme.colors.textSecondary, fontSize: 13 }}>{chartValue(item)}</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'baseline', marginBottom: 6 }}>
+                    <Text numberOfLines={1} style={{ color: theme.colors.text, fontSize: 13, fontWeight: '500', flex: 1, marginRight: 12 }}>{item.label}</Text>
+                    <Text style={{ color: theme.colors.textSecondary, fontSize: 13, ...Typography.mono('semiBold') }}>{chartValue(item)}</Text>
                 </View>
-                <View style={{ height: 7, borderRadius: 4, backgroundColor: theme.colors.surfaceHighest, overflow: 'hidden' }}>
-                    <View style={{ width: `${item.value / max * 100}%`, height: '100%', borderRadius: 4, backgroundColor: visualColor(theme, item.tone, index) }} />
+                <View style={{ height: 6, borderRadius: 3, backgroundColor: theme.colors.surfaceHighest, overflow: 'hidden' }}>
+                    <AnimatedBarFill ratio={max === 0 ? 0 : item.value / max} color={chartFill(theme, item.tone)} delay={index * 50} />
                 </View>
             </View>)}
         </View>
@@ -260,8 +278,8 @@ function ScreenNode(props: {
         case 'metric':
             return (
                 <View style={{ paddingVertical: 10 }}>
-                    <Text style={{ color: theme.colors.textSecondary, fontSize: 13 }}>{bind(node.label)}</Text>
-                    <Text style={{ color: theme.colors.text, fontSize: 22, fontWeight: '600', marginTop: 2 }}>{bind(node.value)}</Text>
+                    <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.6 }}>{bind(node.label)}</Text>
+                    <Text style={{ color: theme.colors.text, fontSize: 30, fontWeight: '700', letterSpacing: -0.5, marginTop: 2 }}>{bind(node.value)}</Text>
                 </View>
             );
         case 'badge':
@@ -275,7 +293,6 @@ function ScreenNode(props: {
             const resolved = node.path === undefined ? node.value : resolvePath(data, node.path);
             const raw = typeof resolved === 'number' && Number.isFinite(resolved) ? resolved : 0;
             const value = Math.max(0, Math.min(max, raw));
-            const pct = value / max * 100;
             const label = node.label === undefined ? undefined : bind(node.label);
             const valueLabel = node.valueLabel === undefined ? undefined : bind(node.valueLabel);
             return (
@@ -285,8 +302,8 @@ function ScreenNode(props: {
                         {label !== undefined && <Text style={{ color: theme.colors.text, fontSize: 13, flex: 1 }}>{label}</Text>}
                         {valueLabel !== undefined && <Text style={{ color: theme.colors.textSecondary, fontSize: 13 }}>{valueLabel}</Text>}
                     </View>}
-                    <View style={{ height: 7, borderRadius: 4, backgroundColor: theme.colors.surfaceHighest, overflow: 'hidden' }}>
-                        <View style={{ width: `${pct}%`, height: '100%', borderRadius: 4, backgroundColor: visualColor(theme, node.tone) }} />
+                    <View style={{ height: 6, borderRadius: 3, backgroundColor: theme.colors.surfaceHighest, overflow: 'hidden' }}>
+                        <AnimatedBarFill ratio={max === 0 ? 0 : value / max} color={chartFill(theme, node.tone)} delay={0} />
                     </View>
                 </View>
             );
@@ -526,6 +543,10 @@ function ScreenBody(props: {
     }, [props.manifest, props.manifestHash, props.params, props.pluginId, request]);
 
     const { theme } = useUnistyles();
+    const reduceMotion = useReducedMotion();
+    // While data is in flight, render a spinner instead of the children:
+    // charts would otherwise flash their empty text before real data lands.
+    const loadingData = dataContributionId !== undefined && data === undefined && dataError === undefined;
     return (
         <ScrollView style={{ flex: 1, backgroundColor: theme.colors.surface }} contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
             <View style={{ marginBottom: 12, borderBottomWidth: 1, borderBottomColor: theme.colors.divider, paddingBottom: 10 }}>
@@ -539,8 +560,14 @@ function ScreenBody(props: {
                 <Text style={{ color: theme.colors.box.error.text, fontSize: 13 }}>{capUtf8Bytes(sanitizeDisplayText(dataError), 300)}</Text>
                 <Text style={{ color: theme.colors.textLink, fontSize: 13, marginTop: 4 }}>{t('plugins.retry')}</Text>
             </Pressable>}
-            {screen.children.map((node, index) => <ScreenNode key={index} node={node} data={data} fields={fields} setField={setField} running={running} onButton={onButton} onRowAction={onRowAction} onTreeLoad={onTreeLoad}
-                onTreeError={(error) => setStatus({ ok: false, text: error instanceof Error ? error.message : String(error) })} />)}
+            {loadingData
+                ? <ActivityIndicator style={{ marginTop: 48 }} color={theme.colors.textSecondary} />
+                : screen.children.map((node, index) => (
+                    <Animated.View key={index} entering={reduceMotion ? undefined : FadeInDown.duration(280).delay(Math.min(index, 8) * 40).easing(Easing.bezier(0.23, 1, 0.32, 1))}>
+                        <ScreenNode node={node} data={data} fields={fields} setField={setField} running={running} onButton={onButton} onRowAction={onRowAction} onTreeLoad={onTreeLoad}
+                            onTreeError={(error) => setStatus({ ok: false, text: error instanceof Error ? error.message : String(error) })} />
+                    </Animated.View>
+                ))}
             {status !== undefined && (
                 <Text accessibilityLiveRegion="polite" accessibilityRole="alert"
                     style={{ color: status.ok ? theme.colors.success : theme.colors.box.error.text, fontSize: 13, marginTop: 10 }}>

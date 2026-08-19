@@ -10,8 +10,8 @@ const harness = vi.hoisted(() => ({
         lastSessionCwd: '',
         recentSessionCwds: [] as string[],
     },
-    grant: undefined as { machineId: string; relayUrl: string } | undefined,
-    clientOptions: [] as Array<{ onTicketRejected?: () => void }>,
+    grant: undefined as { machineId: string; relayUrl: string; credential: string } | undefined,
+    clientOptions: [] as Array<{ token?: string; onTicketRejected?: () => void }>,
     clientConnects: 0,
     socketStatus: 'disconnected',
     socketError: null as string | null,
@@ -41,7 +41,7 @@ vi.mock('../client/muxrClient', () => ({
     MuxrClient: class {
         state = 'closed';
         private listeners: Array<(state: string) => void> = [];
-        constructor(options: { onTicketRejected?: () => void }) {
+        constructor(options: { token?: string; onTicketRejected?: () => void }) {
             harness.clientOptions.push(options);
         }
         connect() {
@@ -119,7 +119,7 @@ describe('hosted account-only lifecycle', () => {
         vi.stubGlobal('fetch', originalFetch);
     });
 
-    it('survives no-machine reconnect and Settings, starts transport after pairing, and logs out only on account rejection', async () => {
+    it('survives no-machine startup, reconnects with the stored grant, and logs out only on account rejection', async () => {
         const fetch = vi.fn()
             .mockResolvedValueOnce(response(200, { access_token: 'pck_account' }))
             .mockResolvedValueOnce(response(200, { machines: [] }))
@@ -146,17 +146,18 @@ describe('hosted account-only lifecycle', () => {
         expect(harness.socketStatus).toBe('disconnected');
         expect(harness.clientOptions).toHaveLength(0);
 
-        await expect(sync.refreshHerdTree()).resolves.toEqual([]);
+        await expect(sync.refreshHerdTree()).resolves.toEqual({ workspaces: [], herdrConnected: undefined });
         await expect(syncReconnect()).resolves.toBeUndefined();
         await expect(sync.refreshAccountSession()).resolves.toBe('valid');
         expect(authenticated).toBe(true);
         expect(harness.clientOptions).toHaveLength(0);
 
         harness.connection.machineId = 'machine-a';
-        harness.grant = { machineId: 'machine-a', relayUrl: 'ws://relay.test' };
-        await syncCreate({ ...credentials, token: 'pck_paired' });
+        harness.grant = { machineId: 'machine-a', relayUrl: 'ws://relay.test', credential: 'stored-grant' };
+        await syncCreate({ ...credentials, token: 'stale-login-token' });
         await vi.waitFor(() => expect(harness.clientConnects).toBe(1));
         expect(harness.clientOptions).toHaveLength(1);
+        expect(harness.clientOptions[0].token).toBe('stored-grant');
 
         harness.clientOptions[0].onTicketRejected?.();
         await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(7));

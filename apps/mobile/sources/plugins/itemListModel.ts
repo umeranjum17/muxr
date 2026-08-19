@@ -6,13 +6,27 @@ export interface PluginItemMetadata {
     tone?: PluginScreenTone;
 }
 
+export interface PluginItemProgress {
+    value: number;
+    tone?: PluginScreenTone;
+}
+
 export interface PluginItemListItem {
     id: string;
     title: string;
     subtitle?: string;
     icon?: string;
+    /** Section name; items sharing a group render under one header, in first-seen order. */
+    group?: string;
+    /** Thin fill bar under the row, 0..1. */
+    progress?: PluginItemProgress;
     metadata: PluginItemMetadata[];
     action?: PluginAction;
+}
+
+export interface PluginItemListBadge {
+    value: string;
+    tone?: PluginScreenTone;
 }
 
 export interface PluginItemListAction {
@@ -25,9 +39,14 @@ export interface PluginItemListAction {
 export interface PluginItemListModel {
     items: PluginItemListItem[];
     actions: PluginItemListAction[];
+    badge?: PluginItemListBadge;
 }
 
 const TONES = new Set<PluginScreenTone>(['primary', 'secondary', 'positive', 'warning', 'danger']);
+
+function tone(value: unknown): PluginScreenTone | undefined {
+    return typeof value === 'string' && TONES.has(value as PluginScreenTone) ? value as PluginScreenTone : undefined;
+}
 
 function display(value: unknown, max: number): string | undefined {
     if (typeof value !== 'string') return undefined;
@@ -48,11 +67,27 @@ function metadata(value: unknown): PluginItemMetadata[] {
         const dataValue = display(record.value, 40);
         if (dataValue === undefined) return [];
         const label = display(record.label, 40);
-        const tone = typeof record.tone === 'string' && TONES.has(record.tone as PluginScreenTone)
-            ? record.tone as PluginScreenTone
-            : undefined;
-        return [{ ...(label === undefined ? {} : { label }), value: dataValue, ...(tone === undefined ? {} : { tone }) }];
+        const entryTone = tone(record.tone);
+        return [{ ...(label === undefined ? {} : { label }), value: dataValue, ...(entryTone === undefined ? {} : { tone: entryTone }) }];
     });
+}
+
+function progress(value: unknown): PluginItemProgress | undefined {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) return undefined;
+    const record = value as Record<string, unknown>;
+    if (typeof record.value !== 'number' || !Number.isFinite(record.value)) return undefined;
+    const clamped = Math.max(0, Math.min(1, record.value));
+    const progressTone = tone(record.tone);
+    return { value: clamped, ...(progressTone === undefined ? {} : { tone: progressTone }) };
+}
+
+function badge(value: unknown): PluginItemListBadge | undefined {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) return undefined;
+    const record = value as Record<string, unknown>;
+    const badgeValue = display(record.value, 12);
+    if (badgeValue === undefined) return undefined;
+    const badgeTone = tone(record.tone);
+    return { value: badgeValue, ...(badgeTone === undefined ? {} : { tone: badgeTone }) };
 }
 
 /** Parse one untrusted item-list RPC result into a bounded native model. */
@@ -73,11 +108,15 @@ export function asPluginItemList(value: unknown, validateAction: (value: unknown
             itemIds.add(id);
             const subtitle = display(item.subtitle, 512);
             const icon = identifier(item.icon);
+            const group = display(item.group, 40);
+            const itemProgress = progress(item.progress);
             return [{
                 id,
                 title,
                 ...(subtitle === undefined ? {} : { subtitle }),
                 ...(icon === undefined ? {} : { icon }),
+                ...(group === undefined ? {} : { group }),
+                ...(itemProgress === undefined ? {} : { progress: itemProgress }),
                 metadata: metadata(item.metadata),
                 ...(action === undefined ? {} : { action }),
             }];
@@ -103,5 +142,6 @@ export function asPluginItemList(value: unknown, validateAction: (value: unknown
             return [];
         }
     });
-    return { items, actions };
+    const modelBadge = badge(record.badge);
+    return { items, actions, ...(modelBadge === undefined ? {} : { badge: modelBadge }) };
 }

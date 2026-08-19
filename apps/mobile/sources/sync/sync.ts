@@ -175,8 +175,9 @@ class MuxrSync {
     async refreshAccountSession(): Promise<AccountSessionState> {
         const settings = this.getConnection();
         if (settings.mode !== 'hosted' || this.credentials === undefined) return 'valid';
-        // Self-host relays have no account surface; the paired grant is the session.
-        if (settings.selfhost === true) return 'valid';
+        // Self-host relays have no account surface; the stored machine grant is
+        // the session even if older connection settings lack the selfhost flag.
+        if (settings.selfhost === true || getCachedHostedGrant(settings.machineId)?.source === 'selfhost') return 'valid';
         if (this.accountValidation !== undefined) return this.accountValidation;
         this.accountValidation = validateHostedAccountSession(settings.relayUrl, this.credentials.token)
             .catch((error) => {
@@ -202,8 +203,10 @@ class MuxrSync {
             relayUrl: hostedGrant?.relayUrl ?? settings.relayUrl,
             machineId: settings.machineId,
             ...(settings.mode === 'local' && settings.encryptionKey.trim().length > 0 ? { sharedKey: settings.encryptionKey.trim() } : {}),
-            ...((settings.mode === 'hosted' ? this.credentials?.token : settings.token.trim()) ? {
-                token: settings.mode === 'hosted' ? this.credentials!.token : settings.token.trim(),
+            ...((settings.mode === 'hosted' ? hostedGrant?.credential : settings.token.trim()) ? {
+                // Discovery chooses where to dial; only the stored grant may
+                // choose the reconnect credential.
+                token: settings.mode === 'hosted' ? hostedGrant!.credential : settings.token.trim(),
             } : {}),
             ...(hostedGrant === undefined ? {} : { hostedGrant }),
             ...(settings.mode === 'hosted' ? {
@@ -224,12 +227,10 @@ class MuxrSync {
                 reconcilePluginCaches({ type: 'plugins.invalidated', reason: 'changed', pluginIds: [] });
                 void this.refreshHerdTree().catch(() => undefined);
                 for (const sessionId of [...this.openedSessions]) this.resync(sessionId);
-                // A refresh that started disconnected never got the catalog; without
-                // this retry the list -- and every session screen -- stays empty
-                // until the next full reload.
-                if (!storage.getState().sessionsLoaded) {
-                    void this.refreshCatalog().catch(() => undefined);
-                }
+                // Session events are not replayed after a disconnect. Always
+                // reconcile the catalog or Spaces can show a pane that Live and
+                // file links do not know exists.
+                void this.refreshCatalog().catch(() => undefined);
             }
         });
         client.onEvent((sessionId, event) => this.handleSessionEvent(sessionId, event));
@@ -375,19 +376,22 @@ class MuxrSync {
         return settled;
     }
 
-    async refreshHerdTree(): Promise<HerdrTreeWorkspace[]> {
+    async refreshHerdTree(): Promise<{ workspaces: HerdrTreeWorkspace[]; herdrConnected: boolean | undefined }> {
         const request = ++this.herdrTreeRequest;
         if (!this.hasTransport()) {
             storage.getState().setSocketStatus('disconnected');
             storage.getState().applyHerdrTree([]);
             await this.refreshAccountSession();
-            return [];
+            return { workspaces: [], herdrConnected: undefined };
         }
         const tree = await this.ensureClient().request('herdr.tree', {});
         // Requests can cross when a done frame and a newer working frame arrive
         // close together. Only the latest canonical read may update the UI.
         if (request === this.herdrTreeRequest) storage.getState().applyHerdrTree(tree.workspaces);
-        return tree.workspaces;
+        // The host adds `connected` (herdr runtime liveness) to this response.
+        // A missing field means "unknown", not "healthy" — callers must only
+        // treat an explicit false as a dead runtime.
+        return { workspaces: tree.workspaces, herdrConnected: (tree as { connected?: boolean }).connected };
     }
 
     private async refreshCatalog(): Promise<void> {
@@ -481,7 +485,7 @@ class MuxrSync {
         const settings = await loadConnectionSettingsAsync();
         if (settings.mode === 'hosted' && settings.machineId !== '') {
             await loadHostedGrant(settings.machineId);
-            await refreshHostedGrant(settings.machineId, credentials.token);
+            await refreshHostedGrant(settings.machineId);
         }
         // Account validation and machine transport are deliberately independent.
         // Offline/account-only startup renders immediately; only a definite /v1/session
