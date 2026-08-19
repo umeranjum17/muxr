@@ -638,6 +638,7 @@ export const ru: TranslationStructure = {
         linkNewDevice: 'Связать новое устройство',
         restoreWithSecretKey: 'Восстановить секретным ключом',
         browserPreview: 'Предпросмотр в браузере',
+        browserTakeover: 'Управление браузером',
         whatsNew: 'Что нового',
         friends: 'Друзья',
     },

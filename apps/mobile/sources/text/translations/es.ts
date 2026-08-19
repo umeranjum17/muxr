@@ -632,6 +632,7 @@ export const es: TranslationStructure = {
         linkNewDevice: 'Vincular nuevo dispositivo', 
         restoreWithSecretKey: 'Restaurar con clave secreta',
         browserPreview: 'Vista previa del navegador',
+        browserTakeover: 'Control del navegador',
         whatsNew: 'Novedades',
         friends: 'Amigos',
     },

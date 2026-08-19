@@ -633,6 +633,7 @@ export const zhHant: TranslationStructure = {
         linkNewDevice: '連結新裝置',
         restoreWithSecretKey: '透過金鑰恢復',
         browserPreview: '瀏覽器預覽',
+        browserTakeover: '瀏覽器接管',
         whatsNew: "更新日誌",
         friends: '好友',
     },
