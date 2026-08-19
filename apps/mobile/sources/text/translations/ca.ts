@@ -632,6 +632,7 @@ export const ca: TranslationStructure = {
         linkNewDevice: 'Enllaça un nou dispositiu', 
         restoreWithSecretKey: 'Restaura amb clau secreta',
         browserPreview: 'Vista prèvia del navegador',
+        browserTakeover: 'Control del navegador',
         whatsNew: 'Novetats',
         friends: 'Amics',
     },

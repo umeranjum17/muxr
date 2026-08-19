@@ -19,12 +19,24 @@ export interface OpenPreview {
     close: () => void;
 }
 
+export interface PreviewTunnel {
+    hostname: string;
+    port: number;
+    close: () => void;
+}
+
 /** Regex, not `new URL`: React Native's URL is partial and this is one field. */
 function relayHostname(relayUrl: string): string | undefined {
     return /^wss?:\/\/([^/:?#]+)/i.exec(relayUrl)?.[1];
 }
 
-export async function openPreview(port: number): Promise<OpenPreview> {
+/**
+ * Join a preview channel to a loopback port and hold it open. The relay
+ * listener carries raw TCP without parsing it, so anything that speaks over a
+ * socket -- HTTP for previews, a WebSocket for the takeover stream -- can
+ * ride the same tunnel.
+ */
+export async function attachPreviewTunnel(port: number): Promise<PreviewTunnel> {
     const settings = getCachedConnectionSettings();
     if (settings.mode !== 'local') throw new Error('Hosted Preview is disabled until browser trust and pinning are complete.');
     const hostname = relayHostname(settings.relayUrl);
@@ -80,8 +92,13 @@ export async function openPreview(port: number): Promise<OpenPreview> {
     });
 
     // Always http: the preview port carries raw TCP with no TLS in front of it.
+    return { hostname, port: previewPort, close: () => socket.close() };
+}
+
+export async function openPreview(port: number): Promise<OpenPreview> {
+    const tunnel = await attachPreviewTunnel(port);
     return {
-        url: `http://${hostname}:${previewPort}/`,
-        close: () => socket.close(),
+        url: `http://${tunnel.hostname}:${tunnel.port}/`,
+        close: tunnel.close,
     };
 }
