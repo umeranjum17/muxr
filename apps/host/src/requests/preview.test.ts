@@ -1,29 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { insideProject, processCwd } from './preview.js';
 // @ts-expect-error bundled plugins are executable public fixtures, not TS packages
 import { insideProject as pluginInsideProject, parseLsofListeners as parsePluginLsof, parseSsListeners as parsePluginSs } from '../../../../plugins/servers/serve.mjs';
-
-describe('insideProject', () => {
-    it('matches a server running in the project root', () => {
-        expect(insideProject('/home/u/app', '/home/u/app')).toBe(true);
-    });
-
-    it('matches a server in a package below the session directory', () => {
-        expect(insideProject('/home/u/app', '/home/u/app/apps/web')).toBe(true);
-    });
-
-    it('matches a server at the root when the session sits in a package', () => {
-        expect(insideProject('/home/u/app/apps/web', '/home/u/app')).toBe(true);
-    });
-
-    it('rejects a sibling project', () => {
-        expect(insideProject('/home/u/app', '/home/u/other')).toBe(false);
-    });
-
-    it('rejects a directory that only shares a name prefix', () => {
-        expect(insideProject('/home/u/app', '/home/u/app-store')).toBe(false);
-    });
-});
 
 describe('bundled run-server discovery', () => {
     it('parses Linux/macOS listeners and rejects sibling or prefix-only projects', () => {
@@ -37,15 +14,5 @@ describe('bundled run-server discovery', () => {
         expect(pluginInsideProject('/home/u/app/apps/web', '/home/u/app')).toBe(true);
         expect(pluginInsideProject('/home/u/app', '/home/u/app-store')).toBe(false);
         expect(pluginInsideProject('/home/u/app', '/home/u/other')).toBe(false);
-    });
-});
-
-describe('processCwd', () => {
-    it('resolves this process', async () => {
-        expect(await processCwd(process.pid)).toBe(process.cwd());
-    });
-
-    it('stays undefined without a pid', async () => {
-        expect(await processCwd(undefined)).toBeUndefined();
     });
 });

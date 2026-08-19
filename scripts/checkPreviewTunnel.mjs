@@ -1,10 +1,7 @@
 /**
- * Proves browser preview end to end: the host finds a local HTTP server, the
+ * Proves browser preview end to end: the host probes a local HTTP port, the
  * relay pairs two preview sockets it cannot read, and a real HTTP request
  * crosses the tunnel and comes back with its body intact.
- *
- * Also asserts the listener parsers, which are the one piece with no runtime
- * feedback when they silently return nothing.
  */
 import { waitForRelay } from './waitForRelay.mjs';
 import { spawn } from 'node:child_process';
@@ -17,30 +14,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import WebSocket from 'ws';
 import { decodePreviewFrame, encodePreviewFrame, PREVIEW_DATA } from '@muxr/contract';
-import { parseLsofListeners, parseSsListeners } from '../apps/host/dist/requests/preview.js';
-
-// --- parsers ----------------------------------------------------------------
-
-const ss = parseSsListeners([
-    'State  Recv-Q Send-Q Local Address:Port  Peer Address:Port Process',
-    'LISTEN 0      511          127.0.0.1:8080       0.0.0.0:*    users:(("node",pid=4039084,fd=21))',
-    'LISTEN 0      511                  *:8081             *:*    users:(("node-MainThread",pid=509184,fd=101))',
-    'LISTEN 0      4096             [::1]:9000          [::]:*    users:(("postgres",pid=77,fd=6))',
-    'ESTAB  0      0            10.0.0.1:1234       10.0.0.2:80',
-].join('\n'));
-assert.equal(ss.length, 3, 'ss: only LISTEN rows');
-assert.deepEqual(ss[0], { port: 8080, bind: '127.0.0.1', command: 'node', pid: 4039084 });
-assert.equal(ss[1].bind, '*', 'ss: wildcard bind kept as reported');
-assert.equal(ss[2].port, 9000, 'ss: ipv6 bracket form');
-assert.equal(ss[2].bind, '[::1]');
-
-const lsof = parseLsofListeners([
-    'COMMAND   PID USER   FD   TYPE  DEVICE SIZE/OFF NODE NAME',
-    'node    12345 umer   21u  IPv4 0x1234      0t0  TCP 127.0.0.1:5173 (LISTEN)',
-    'node    12345 umer   22u  IPv4 0x1235      0t0  TCP 10.0.0.4:443->10.0.0.9:52 (ESTABLISHED)',
-].join('\n'));
-assert.equal(lsof.length, 1, 'lsof: only LISTEN rows');
-assert.deepEqual(lsof[0], { port: 5173, bind: '127.0.0.1', command: 'node', pid: 12345 });
 
 // A frame must survive a round trip with its payload byte-identical.
 const round = decodePreviewFrame(encodePreviewFrame(70000, PREVIEW_DATA, new Uint8Array([1, 2, 255])));
@@ -48,7 +21,7 @@ assert.equal(round.connId, 70000, 'connId must survive above 16 bits');
 assert.deepEqual([...round.payload], [1, 2, 255]);
 assert.equal(decodePreviewFrame(new Uint8Array([1, 2])), undefined, 'short frame rejected');
 
-process.stdout.write('parsers + frame codec OK\n');
+process.stdout.write('frame codec OK\n');
 
 // --- end to end -------------------------------------------------------------
 
@@ -124,23 +97,17 @@ const send = (frame) => {
 };
 
 const CHANNEL = 'check-channel-1';
-let listed;
 
-session.on('open', () => send({ type: 'preview.list', requestId: 'p1', params: {} }));
+session.on('open', () => send({ type: 'preview.probe', requestId: 'p1', params: { port: devPort } }));
 
 session.on('message', (raw) => {
     const frame = JSON.parse(JSON.parse(String(raw)).payload);
     if (frame.type !== 'result') return;
 
     if (frame.requestId === 'p1') {
-        if (!frame.ok) done(1, `\nFAIL: preview.list errored: ${frame.error}\n`);
-        listed = frame.data;
-        const found = listed.find((server) => server.port === devPort);
-        if (!found) {
-            done(1, `\nFAIL: dev server on ${devPort} not detected. saw: ${JSON.stringify(listed)}\n`);
-        }
-        if (listed.some((server) => server.port === Number(PORT))) {
-            done(1, `\nFAIL: relay listed itself as a dev server\n`);
+        if (!frame.ok) done(1, `\nFAIL: preview.probe errored: ${frame.error}\n`);
+        if (frame.data?.contentType !== 'application/json') {
+            done(1, `\nFAIL: probe of dev server on ${devPort} saw: ${JSON.stringify(frame.data)}\n`);
         }
         send({ type: 'preview.attach', requestId: 'p2', params: { channel: CHANNEL, port: devPort } });
         return;
@@ -194,7 +161,7 @@ function openTunnel() {
             }
 
             done(0, `\nPASS: browser preview through the relay\n`
-                + `      detected servers: ${listed.length}\n`
+                + `      loopback port probed: application/json\n`
                 + `      loopback-bound dev server reached: yes\n`
                 + `      preview port: ${message.port}\n`
                 + `      concurrent connections muxed: yes\n`
