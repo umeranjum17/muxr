@@ -70,6 +70,7 @@ jobs:
     if: inputs.platform != 'ios'
     needs: verify
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     environment: stores
     env:
       EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
@@ -94,6 +95,8 @@ jobs:
           printf '%s' "$EXPO_STATE_JSON" > ~/.expo/state.json
           chmod 600 ~/.expo/state.json
       - run: yarn install --frozen-lockfile --non-interactive
+      - name: Give Android lint enough JVM metaspace
+        run: sed -i 's/MaxMetaspaceSize=512m/MaxMetaspaceSize=1536m/' apps/mobile/android/gradle.properties
       - name: Build Android locally with EAS
         working-directory: apps/mobile
         run: npx eas-cli@22.0.0 build --platform android --profile production --local --non-interactive --output "$RUNNER_TEMP/muxr.aab"
