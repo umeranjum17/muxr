@@ -8,6 +8,8 @@ import { FontAwesome } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { AuthCredentials, TokenStorage } from '@/auth/tokenStorage';
 import { AuthProvider } from '@/auth/AuthContext';
+import { restoreHostedConnection } from '@/state/hostedE2ee';
+import { RelayDiscoveryReconnect } from '@/discovery/useRelayDiscovery';
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { initialWindowMetrics, SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -243,6 +245,12 @@ export default function RootLayout() {
                 await sodium.ready;
 
                 credentials = await TokenStorage.getCredentials();
+                const restoredGrant = await restoreHostedConnection();
+                if (restoredGrant !== undefined && (credentials?.token !== restoredGrant.credential
+                    || credentials?.secret !== restoredGrant.deviceKey.secretKey)) {
+                    credentials = { token: restoredGrant.credential, secret: restoredGrant.deviceKey.secretKey };
+                    await TokenStorage.setCredentials(credentials);
+                }
                 const devCredentials = getDevWebQueryCredentials() ?? getDevEnvironmentCredentials();
 
                 if (devCredentials) {
@@ -396,6 +404,7 @@ export default function RootLayout() {
                         : { flex: 1, backgroundColor: theme.colors.groupped.background }}
                 >
                     <AuthProvider initialCredentials={initState.credentials}>
+                        <RelayDiscoveryReconnect />
                         <KernelNotifications />
                         <ThemeProvider value={navigationTheme}>
                             <StatusBarProvider />

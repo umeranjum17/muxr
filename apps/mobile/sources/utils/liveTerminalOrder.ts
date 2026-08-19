@@ -84,8 +84,8 @@ export function nextWorkingAgentId(
 
 /**
  * Apply changes that must be visible without waiting for the dwell window:
- * closed panes leave, new panes append, and blocked panes move to the front.
- * Working/done/idle changes deliberately keep their existing positions.
+ * closed panes leave, new panes append, and active panes move to the front.
+ * Same-status cards keep their existing positions.
  */
 function immediateIds(previousIds: readonly string[], cards: readonly LiveTerminalOrderCard[]): string[] {
     const byId = new Map(cards.map((card) => [card.session.id, card]));
@@ -100,9 +100,11 @@ function immediateIds(previousIds: readonly string[], cards: readonly LiveTermin
     ids.push(...newIds);
 
     const blocked = ids.filter((id) => byId.get(id)?.status === 'blocked');
-    return blocked.length === 0
-        ? ids
-        : [...blocked, ...ids.filter((id) => byId.get(id)?.status !== 'blocked')];
+    const working = ids.filter((id) => byId.get(id)?.status === 'working');
+    return [...blocked, ...working, ...ids.filter((id) => {
+        const status = byId.get(id)?.status;
+        return status !== 'blocked' && status !== 'working';
+    })];
 }
 
 export function createLiveTerminalOrderState(

@@ -15,6 +15,9 @@ export interface HerdrEvent {
 }
 
 const REQUEST_TIMEOUT_MS = 15_000;
+// The host and herdr boot together; a short backoff absorbs the startup race.
+// After these, start() gives up to the 1s reconnect loop so the host stays up.
+const START_RETRY_DELAYS_MS = [250, 500, 1000, 2000];
 
 export class HerdrClient {
     private events: Socket | undefined;
@@ -23,6 +26,10 @@ export class HerdrClient {
     private readonly listeners = new Set<(event: HerdrEvent) => void>();
     private reconnectTimer: NodeJS.Timeout | undefined;
     private closed = false;
+    /** Live event-socket state, surfaced on `herdr.tree` so the phone can tell a dead herdr from a quiet one. */
+    connected = false;
+    /** Edge trigger: log the first reconnect failure and the recovery, never every retry. */
+    private down = false;
 
     constructor(
         private readonly socketPath: string,
@@ -30,7 +37,23 @@ export class HerdrClient {
     ) {}
 
     async start(): Promise<void> {
-        await this.openEventSocket();
+        let lastError: unknown;
+        for (let attempt = 0; attempt <= START_RETRY_DELAYS_MS.length; attempt += 1) {
+            try {
+                await this.openEventSocket();
+                return;
+            } catch (cause) {
+                lastError = cause;
+                const delay = START_RETRY_DELAYS_MS[attempt];
+                if (delay === undefined) break;
+                await new Promise((resolve) => setTimeout(resolve, delay));
+            }
+        }
+        // Staying up matters more than starting clean: the reconnect loop keeps
+        // retrying and onReconnect resubscribes when herdr comes back.
+        this.down = true;
+        this.scheduleReconnect();
+        throw lastError;
     }
 
     /** One request, one connection. The server closes after answering. */
@@ -164,6 +187,7 @@ export class HerdrClient {
 
     close(): void {
         this.closed = true;
+        this.connected = false;
         if (this.reconnectTimer !== undefined) clearTimeout(this.reconnectTimer);
         this.events?.destroy();
     }
@@ -172,7 +196,9 @@ export class HerdrClient {
         const socket = connect(this.socketPath);
         await new Promise<void>((resolve, reject) => {
             socket.once('connect', resolve);
-            socket.once('error', reject);
+            socket.once('error', (cause: Error) => reject(new Error(
+                `herdr server not reachable at ${this.socketPath} (${cause.message}); start it with \`herdr server\``,
+            )));
         });
         // A partial line from the dead socket must not corrupt this one.
         this.eventBuffer = '';
@@ -211,9 +237,11 @@ export class HerdrClient {
         });
         socket.on('close', () => {
             this.events = undefined;
+            this.connected = false;
             this.scheduleReconnect();
         });
         socket.on('error', () => {});
+        this.connected = true;
     }
 
     private scheduleReconnect(): void {
@@ -223,9 +251,19 @@ export class HerdrClient {
             if (this.closed) return;
             void this.openEventSocket()
                 .then(() => {
+                    if (this.down) {
+                        this.down = false;
+                        process.stderr.write(`herdr server reachable again at ${this.socketPath}\n`);
+                    }
                     this.onReconnect();
                 })
-                .catch(() => this.scheduleReconnect());
+                .catch((cause: unknown) => {
+                    if (!this.down) {
+                        this.down = true;
+                        process.stderr.write(`${cause instanceof Error ? cause.message : String(cause)}\n`);
+                    }
+                    this.scheduleReconnect();
+                });
         }, 1000);
     }
 }

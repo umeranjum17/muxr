@@ -358,6 +358,7 @@ export const ru: TranslationStructure = {
         connecting: 'подключение',
         disconnected: 'отключено',
         error: 'ошибка',
+        pairingIssue: 'проблема сопряжения',
         online: 'online',
         offline: 'offline',
         lastSeen: ({ time }: { time: string }) => `в сети ${time}`,

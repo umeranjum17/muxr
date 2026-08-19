@@ -2,7 +2,7 @@ import { sync } from './sync';
 import { storage } from './storage';
 import { applyStatusToSession } from './sessionMapping';
 import { MISSING_CWD_ERROR_PREFIX, type SessionStatus } from '@muxr/contract';
-import type { SessionAgentModesPatch, MachineMetadata } from './storageTypes';
+import type { SessionAgentModesPatch } from './storageTypes';
 import type { NewSessionAgentType } from './persistence';
 
 export type { SessionAgentModesPatch };
@@ -242,28 +242,6 @@ export async function machineResumeSession(
     _options: ResumeSessionOptions & { model?: string; permissionMode?: string },
 ): Promise<SpawnSessionResult> {
     return { type: 'error', errorMessage: 'Resume via session list' };
-}
-
-export async function machineDelete(_machineId: string): Promise<{ success: boolean; message?: string }> {
-    return { success: false, message: 'muxr mobile: machine delete not wired' };
-}
-
-export async function machineStopDaemon(_machineId: string): Promise<{ message: string }> {
-    return { message: 'muxr mobile: stop daemon not wired' };
-}
-
-/*
- * Fails closed like its neighbours. Returning the expected version made the
- * caller report "Machine renamed successfully" for a write that never left the
- * device -- the only stub here that lied rather than erroring.
- */
-export async function machineUpdateMetadata(
-    _machineId: string,
-    _metadata: MachineMetadata,
-    _expectedVersion: number,
-    _maxRetries?: number,
-): Promise<{ version: number; metadata: string }> {
-    throw new Error('muxr mobile: machine rename not wired');
 }
 
 export async function claudeListRewindPoints(_options: ClaudeForkSessionOptions): Promise<ClaudeListRewindPointsResult> {

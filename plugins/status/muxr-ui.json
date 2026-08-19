@@ -45,24 +45,19 @@
       },
       "children": [
         {
-          "type": "text",
-          "text": "Local activity only. Costs, prompts, models, projects, and session details stay out.",
-          "tone": "secondary"
-        },
-        {
           "type": "section",
           "title": "Today",
           "columns": 2,
           "children": [
             {
               "type": "metric",
-              "label": "Measured agents",
-              "value": "{{data.summary.measured}}"
+              "label": "Tokens today",
+              "value": "{{data.summary.totalTokens}}"
             },
             {
               "type": "metric",
-              "label": "Installed agents",
-              "value": "{{data.summary.installed}}"
+              "label": "Active agents",
+              "value": "{{data.summary.measured}}"
             }
           ]
         },
@@ -72,14 +67,6 @@
           "path": "data.activitySeries",
           "title": "Token activity",
           "emptyText": "No measured activity today"
-        },
-        {
-          "type": "progress",
-          "path": "data.codexRemaining",
-          "max": 100,
-          "label": "Codex remaining",
-          "valueLabel": "{{data.codexRemainingLabel}}",
-          "tone": "positive"
         },
         {
           "type": "chart",
@@ -94,6 +81,11 @@
           "path": "data.codexSeries",
           "title": "Codex limits",
           "emptyText": "Codex limits unavailable"
+        },
+        {
+          "type": "text",
+          "text": "Local activity only. Costs, prompts, models, projects, and session details stay out.",
+          "tone": "secondary"
         }
       ]
     },

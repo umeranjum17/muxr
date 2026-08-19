@@ -115,6 +115,7 @@ export const es: TranslationStructure = {
         connecting: 'conectando',
         disconnected: 'desconectado',
         error: 'error',
+        pairingIssue: 'problema de emparejamiento',
         online: 'en línea',
         offline: 'desconectado',
         lastSeen: ({ time }: { time: string }) => `visto por última vez ${time}`,

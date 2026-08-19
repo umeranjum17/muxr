@@ -113,6 +113,14 @@ export async function runUpdate(args = []) {
     try {
         if (restart) {
             if ((await runDaemon(['stop'])) !== 0) throw new Error('host service did not stop');
+            // Re-pin the unit's node/CLI paths before starting again: version
+            // managers prune old runtimes (the 203/EXEC boot failure) and an
+            // interrupted update can leave the unit disabled. Advisory: a
+            // drifted or hand-edited unit must not turn an update into an
+            // outage — the start below still uses the existing unit.
+            if ((await runDaemon(['install', ...(restartMode === undefined ? [] : ['--mode', restartMode])])) !== 0) {
+                process.stderr.write('warn: service re-registration was skipped (unit drifted?); run `muxr doctor` before the next reboot\n');
+            }
             if (restartMode === 'selfhost' || restartMode === 'relay') relayRestarted = await stopSelfhostRelayIfRunning();
             if ((await runDaemon(['start'])) !== 0) throw new Error('host service did not start');
             relayRestarted = restartMode === 'selfhost' || restartMode === 'relay';

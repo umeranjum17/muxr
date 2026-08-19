@@ -53,7 +53,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
             return source.start(params);
         },
         'session.open': (params) => source.open(params),
-        'herdr.tree': async () => ({ workspaces: await source.herdrTree() }),
+        'herdr.tree': async () => source.herdrTree(),
         'herdr.agentKinds': async () => ({ kinds: await source.agentKinds() }),
         'plugin.list': () => { throw new Error('authenticated device context required'); },
         'plugin.manifest': (params) => source.pluginManifest(params),

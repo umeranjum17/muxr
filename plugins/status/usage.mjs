@@ -96,10 +96,13 @@ function ccusageItems(result) {
     }
   }
   const sorted = [...totals].sort((a, b) => b[1] - a[1]).slice(0, 16);
+  const max = sorted.length === 0 ? 0 : sorted[0][1];
   const items = sorted.flatMap(([agent, total]) => {
     const value = tokens(total);
     return value === undefined ? [] : [{
-      id: `activity-${agent}`, title: AGENTS[agent], subtitle: 'Local activity today · ccusage', icon: 'analytics-outline',
+      id: `activity-${agent}`, title: AGENTS[agent], subtitle: 'Local activity today', icon: 'analytics-outline',
+      group: 'Active today',
+      ...(max > 0 ? { progress: { value: total / max } } : {}),
       metadata: [{ value: `${value} tokens`, tone: 'primary' }],
     }];
   });
@@ -107,7 +110,8 @@ function ccusageItems(result) {
     const valueLabel = tokens(total);
     return valueLabel === undefined ? [] : [{ label: AGENTS[agent], value: total, valueLabel }];
   });
-  return { items, series, agents: new Set(totals.keys()) };
+  const totalTokens = [...totals.values()].reduce((sum, value) => sum + value, 0);
+  return { items, series, agents: new Set(totals.keys()), totalTokens };
 }
 
 function cachedOutput() {
@@ -181,31 +185,40 @@ function relativeReset(seconds) {
   return [days && `${days}d`, hours && `${hours}h`, !days && minutes && `${minutes}m`].filter(Boolean).join(' ');
 }
 
+function limitTone(remaining) {
+  return remaining <= 10 ? 'danger' : remaining <= 25 ? 'warning' : 'positive';
+}
+
 function codexItems(result) {
   const limits = Object.values(result?.rateLimitsByLimitId ?? {});
   if (!limits.length && result?.rateLimits) limits.push(result.rateLimits);
   const details = [];
-  const items = limits.slice(0, 16).map((limit, index) => {
+  const parsed = limits.slice(0, 16).map((limit, index) => {
     const window = limit.primary;
     const rawName = String(limit.limitName ?? limit.limitId ?? 'Codex').replace(/[^\x20-\x7e]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80) || 'Codex';
     const name = rawName.toLowerCase() === 'codex' ? AGENTS.codex : rawName;
     const remaining = Number.isFinite(window?.usedPercent) ? Math.round(Math.max(0, Math.min(100, 100 - window.usedPercent))) : undefined;
     const reset = relativeReset(window?.resetsAt);
     if (remaining !== undefined && details.length < 8) details.push({ name, remaining, reset });
-    return {
-      id: `limit-codex-${index}`, title: name, subtitle: 'OpenAI Codex current limit', icon: 'speedometer-outline',
-      metadata: [
-        { value: remaining === undefined ? 'Available' : `${remaining}% left`, ...(remaining === undefined ? {} : { tone: remaining <= 10 ? 'danger' : remaining <= 25 ? 'warning' : 'positive' }) },
-        ...(reset ? [{ label: 'Resets', value: `in ${reset}` }] : []),
-      ],
-    };
+    return { index, name, remaining, reset };
   });
+  // Critical windows first: the limit you are about to hit leads the list.
+  parsed.sort((a, b) => (a.remaining ?? 101) - (b.remaining ?? 101) || a.index - b.index);
+  const items = parsed.map(({ index, name, remaining, reset }) => ({
+    id: `limit-codex-${index}`, title: name, subtitle: 'OpenAI Codex current limit', icon: 'speedometer-outline',
+    group: 'Rate limits',
+    ...(remaining === undefined ? {} : { progress: { value: remaining / 100, tone: limitTone(remaining) } }),
+    metadata: [
+      { value: remaining === undefined ? 'Available' : `${remaining}% left`, ...(remaining === undefined ? {} : { tone: limitTone(remaining) }) },
+      ...(reset ? [{ value: `resets in ${reset}` }] : []),
+    ],
+  }));
   const first = details.length === 0 ? undefined : details.reduce((lowest, limit) => (limit.remaining < lowest.remaining ? limit : lowest));
   return {
     items,
-    series: details.map((limit) => ({ label: limit.name, value: limit.remaining, valueLabel: `${limit.remaining}%` })),
+    series: details.map((limit) => ({ label: limit.name, value: limit.remaining, valueLabel: `${limit.remaining}%`, tone: limitTone(limit.remaining) })),
     ring: first === undefined ? [] : [
-      { label: 'Remaining', value: first.remaining, valueLabel: `${first.remaining}%`, tone: first.remaining <= 10 ? 'danger' : first.remaining <= 25 ? 'warning' : 'positive' },
+      { label: 'Remaining', value: first.remaining, valueLabel: `${first.remaining}%`, tone: limitTone(first.remaining) },
       { label: 'Used', value: 100 - first.remaining, valueLabel: `${100 - first.remaining}%`, tone: 'secondary' },
     ],
     remaining: first?.remaining ?? 0,
@@ -221,7 +234,7 @@ if (cached !== undefined) {
     ccusageDaily().then(ccusageItems),
     codexUsage().then(codexItems),
   ]);
-  const items = [...activity.items, ...codex.items];
+  const items = [];
   if (ccusageFailure && activity.items.length === 0) items.push({
     id: 'ccusage-unavailable', title: 'Local activity unavailable', subtitle: ccusageFailure, icon: 'warning-outline', metadata: [],
   });
@@ -231,13 +244,24 @@ if (cached !== undefined) {
   for (const [agent] of installedAgents) {
     if (reported.has(agent)) continue;
     items.push({
-      id: `available-${agent}`, title: AGENTS[agent], icon: 'terminal-outline', metadata: [{ value: 'Installed' }],
-      subtitle: CCUSAGE_AGENTS.has(agent) ? 'No activity reported by ccusage today' : 'Local totals unsupported by ccusage',
+      id: `available-${agent}`, title: AGENTS[agent], icon: 'terminal-outline', metadata: [],
+      group: 'Idle today',
+      ...(CCUSAGE_AGENTS.has(agent) ? {} : { subtitle: 'Totals unsupported by ccusage' }),
     });
   }
+  // Rate limits lead (they need attention), then today's activity, then idle.
+  const ordered = [...codex.items, ...activity.items, ...items];
+  const totalTokens = tokens(activity.totalTokens);
   const output = {
-    items: items.slice(0, 50), actions: [],
-    summary: { measured: String(activity.series.length), installed: String(installedAgents.length) },
+    items: ordered.slice(0, 50), actions: [],
+    ...(activity.totalTokens > 0 && totalTokens !== undefined
+      ? { badge: { value: totalTokens, ...(codex.items.length && codex.remaining <= 10 ? { tone: 'danger' } : {}) } }
+      : {}),
+    summary: {
+      measured: String(activity.series.length),
+      installed: String(installedAgents.length),
+      totalTokens: totalTokens ?? '0',
+    },
     activitySeries: activity.series,
     codexSeries: codex.series,
     codexRing: codex.ring,

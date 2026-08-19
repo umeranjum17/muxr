@@ -74,8 +74,9 @@ export default function PluginsScreen() {
             <ItemGroup title={t('plugins.settingsTitle')} footer={loadError ?? (withUi.length === 0
                 ? (status === 'connected' ? t('plugins.linkHost') : t('plugins.waitingHost'))
                 : `${enabledCount}/${withUi.length} ${t('plugins.enabled')}`)}>
-                <Item title={t('plugins.enableAll')} detail={`${withUi.length - enabledCount} ${t('plugins.off')}`} onPress={() => void enableAll()} showChevron={false} />
-                <Item title={t('plugins.disableAll')} detail={`${enabledCount} ${t('plugins.on')}`} onPress={() => void setApproved(withUi, false)} showChevron={false} />
+                <Item title={t('plugins.enableAll')} detail={withUi.length - enabledCount > 0 ? `${withUi.length - enabledCount} ${t('plugins.off')}` : undefined}
+                    onPress={() => void enableAll()} showChevron={false} disabled={withUi.length - enabledCount === 0} />
+                <Item title={t('plugins.disableAll')} onPress={() => void setApproved(withUi, false)} showChevron={false} disabled={enabledCount === 0} />
             </ItemGroup>
             {withUi.length > 0 && (
                 <ItemGroup title={t('plugins.installed')}>
@@ -85,11 +86,12 @@ export default function PluginsScreen() {
                             : pluginCompatibilityError(manifests[plugin.pluginId], MUXR_UI_VERSION);
                         const warning = plugin.warnings[0];
                         const trust = `${sourceLabel(plugin.source)} · ${plugin.hasBackend ? t('plugins.runsCode') : t('plugins.uiOnly')}`;
+                        const blocked = incompatibility ?? warning;
                         return <Item
                             key={plugin.pluginId}
                             title={plugin.name}
-                            subtitle={[incompatibility ?? warning ?? plugin.description ?? describe(manifests[plugin.pluginId]), requestedContexts(manifests[plugin.pluginId])].filter(Boolean).join(' · ')}
-                            detail={[incompatibility === undefined && warning === undefined ? undefined : t('plugins.unavailableLabel'), trust].filter(Boolean).join(' · ') || undefined}
+                            subtitle={[...(blocked === undefined ? [] : [t('plugins.unavailableLabel')]), blocked ?? plugin.description ?? describe(manifests[plugin.pluginId]), trust, requestedContexts(manifests[plugin.pluginId])].filter(Boolean).join(' · ')}
+                            subtitleLines={2}
                             showChevron={false}
                             rightElement={<Switch value={plugin.approved} onValueChange={(next) => void setApproved([plugin], next)} />}
                         />;

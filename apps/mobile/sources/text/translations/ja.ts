@@ -117,6 +117,7 @@ export const ja: TranslationStructure = {
         connecting: '接続中',
         disconnected: '切断済み',
         error: 'エラー',
+        pairingIssue: 'ペアリングの問題',
         online: 'オンライン',
         offline: 'オフライン',
         lastSeen: ({ time }: { time: string }) => `最終アクセス: ${time}`,

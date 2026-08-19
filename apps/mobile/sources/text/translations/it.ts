@@ -114,6 +114,7 @@ export const it: TranslationStructure = {
         connecting: 'connessione in corso',
         disconnected: 'disconnesso',
         error: 'errore',
+        pairingIssue: 'problema di abbinamento',
         online: 'online',
         offline: 'offline',
         lastSeen: ({ time }: { time: string }) => `visto l'ultima volta ${time}`,

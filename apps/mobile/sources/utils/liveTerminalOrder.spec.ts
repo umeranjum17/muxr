@@ -110,16 +110,16 @@ describe('live terminal order', () => {
         expect(order()).toBe('b,a');
     });
 
-    it('prioritizes blocked panes immediately and handles structural changes without churn', () => {
-        render([card('a', 0), card('b', 0)]);
+    it('prioritizes active panes immediately and handles structural changes without churn', () => {
+        render([card('a', 0, 'done'), card('b', 0, 'idle')]);
         expect(order()).toBe('a,b');
 
         vi.setSystemTime(10_000);
-        update([card('a', 0), card('b', 10_000, 'blocked')]);
+        update([card('a', 0, 'done'), card('b', 10_000)]);
         expect(order()).toBe('b,a');
 
-        update([card('a', 20_000), card('b', 20_000)]);
-        expect(order()).toBe('b,a');
+        update([card('a', 20_000, 'blocked'), card('b', 20_000)]);
+        expect(order()).toBe('a,b');
 
         update([card('a', 20_000)]);
         expect(order()).toBe('a');

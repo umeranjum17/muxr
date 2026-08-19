@@ -787,9 +787,17 @@ export async function createHerdrSessionSource(
         }
     });
 
-    await client.start();
-    await client.subscribeEvents(EVENT_KINDS);
-    await refreshSnapshot();
+    // A dead herdr must not take the host down with it: the phone needs this
+    // process alive to see connected:false instead of a healthy-looking ghost.
+    // start() already retried with backoff and left the reconnect loop armed;
+    // onReconnect resubscribes and resnapshots when herdr comes back.
+    try {
+        await client.start();
+        await client.subscribeEvents(EVENT_KINDS);
+        await refreshSnapshot();
+    } catch (cause) {
+        process.stderr.write(`${cause instanceof Error ? cause.message : String(cause)}\n`);
+    }
 
     async function resolvePane(sessionId: string): Promise<HerdrIdentity> {
         const record = identity.get(sessionId);
@@ -1252,7 +1260,17 @@ export async function createHerdrSessionSource(
 
 
         async list(listOptions?: SessionListOptions): Promise<SessionInfo[]> {
-            await refreshSnapshot().catch(() => {});
+            // A failed refresh must mark herdr down; serving the on-disk map
+            // as if it were fresh is what makes the ghost convincing. A
+            // successful snapshot is positive proof herdr is reachable again.
+            await refreshSnapshot().then(
+                () => {
+                    client.connected = true;
+                },
+                () => {
+                    client.connected = false;
+                },
+            );
             let records = identity.all();
             if (listOptions?.cwd !== undefined) {
                 records = records.filter((record) => record.cwd === listOptions.cwd);
@@ -1309,7 +1327,7 @@ export async function createHerdrSessionSource(
                 .slice(0, 64);
         },
 
-        async herdrTree(): Promise<HerdrTreeWorkspace[]> {
+        async herdrTree(): Promise<{ workspaces: HerdrTreeWorkspace[]; connected: boolean }> {
             // Cached maps are event-fresh; a snapshot call here would work too but
             // the Spaces screen polls, so keep this free.
             const lifecycleOfPane = (paneId: string): AgentLifecycle => lifecycleOf(paneId);
@@ -1371,7 +1389,7 @@ export async function createHerdrSessionSource(
                     tabs,
                 });
             }
-            return workspaces;
+            return { workspaces, connected: client.connected };
         },
 
         async paneSplit(splitOptions: {

@@ -115,6 +115,7 @@ export const ca: TranslationStructure = {
         connecting: 'connectant',
         disconnected: 'desconnectat',
         error: 'error',
+        pairingIssue: 'problema d\'aparellament',
         online: 'en línia',
         offline: 'fora de línia',
         lastSeen: ({ time }: { time: string }) => `vist per última vegada ${time}`,

@@ -114,6 +114,7 @@ export const en = {
         connecting: 'connecting',
         disconnected: 'disconnected',
         error: 'host not responding',
+        pairingIssue: 'pairing issue',
         online: 'online',
         offline: 'offline',
         lastSeen: ({ time }: { time: string }) => `last seen ${time}`,

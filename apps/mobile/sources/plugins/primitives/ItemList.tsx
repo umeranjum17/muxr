@@ -3,6 +3,7 @@ import { ActivityIndicator, AppState, Pressable, Text, View } from 'react-native
 import { Ionicons } from '@expo/vector-icons';
 import { useIsFocused } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
+import Animated, { Easing, useAnimatedStyle, useReducedMotion, useSharedValue, withDelay, withTiming } from 'react-native-reanimated';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { OptionSheet } from '@/components/OptionSheet';
 import { Modal } from '@/modal';
@@ -10,8 +11,9 @@ import { sync } from '@/sync/sync';
 import { Typography } from '@/constants/Typography';
 import { PLUGIN_CALL_CLIENT_TIMEOUT_MS } from '@muxr/contract';
 import type { Theme } from '@/theme';
+import type { PluginScreenTone } from '@muxr/contract';
 import type { PrimitiveProps } from '../primitiveRegistry';
-import { asPluginItemList, type PluginItemListAction, type PluginItemListItem, type PluginItemListModel, type PluginItemMetadata } from '../itemListModel';
+import { asPluginItemList, type PluginItemListAction, type PluginItemListItem, type PluginItemListModel } from '../itemListModel';
 import { dispatchPluginAction, validatePluginAction } from '../pluginActions';
 import { pluginSnapshot } from '../pluginStore';
 import { clearPluginCache, registerPluginDataCacheInvalidator, subscribePluginDataInvalidation } from '../pluginDataInvalidation';
@@ -25,14 +27,70 @@ registerPluginDataCacheInvalidator((pluginIds) => {
     else for (const pluginId of pluginIds) clearPluginCache(cache, pluginId);
 });
 
-function metadataColor(metadata: PluginItemMetadata, theme: Theme): string {
-    switch (metadata.tone) {
+function toneColor(theme: Theme, tone: PluginScreenTone | undefined): string {
+    switch (tone) {
         case 'positive': return theme.colors.status.done;
         case 'warning': return theme.colors.status.working;
         case 'danger': return theme.colors.status.error;
         case 'primary': return theme.colors.accent;
         default: return theme.colors.textSecondary;
     }
+}
+
+/** Thin fill bar that sweeps in once on mount; decorative, never blocks taps. */
+function RowProgress({ value, color, delay }: { value: number; color: string; delay: number }) {
+    const { theme } = useUnistyles();
+    const reduceMotion = useReducedMotion();
+    const width = useSharedValue(reduceMotion ? value : 0);
+    React.useEffect(() => {
+        width.value = reduceMotion ? value : withDelay(delay, withTiming(value, { duration: 350, easing: Easing.bezier(0.23, 1, 0.32, 1) }));
+    }, [delay, reduceMotion, value, width]);
+    const animated = useAnimatedStyle(() => ({ width: `${width.value * 100}%` }));
+    return (
+        <View style={[styles.progressTrack, { backgroundColor: theme.colors.surfaceHighest }]}>
+            <Animated.View style={[styles.progressFill, { backgroundColor: color }, animated]} />
+        </View>
+    );
+}
+
+function SheetRow({ item, fallbackIcon, busy, index, onPress }: {
+    item: PluginItemListItem;
+    fallbackIcon: string;
+    busy: boolean;
+    index: number;
+    onPress?: () => void;
+}) {
+    const { theme } = useUnistyles();
+    const [primary, ...rest] = item.metadata;
+    const secondary = rest.map((entry) => `${entry.label === undefined ? '' : `${entry.label} `}${entry.value}`.trim()).join(' · ');
+    const metadataLabel = item.metadata.map((entry) => `${entry.label === undefined ? '' : `${entry.label} `}${entry.value}`).join(', ');
+    const label = [item.group, item.title, item.subtitle, metadataLabel].filter((part) => part !== undefined && part !== '').join(', ');
+    const progressColor = toneColor(theme, item.progress?.tone ?? 'primary');
+    const content = <>
+        <View style={styles.itemRow}>
+            {busy
+                ? <ActivityIndicator size="small" color={theme.colors.textSecondary} style={styles.iconTile} />
+                : <View style={[styles.iconTile, { backgroundColor: theme.colors.accentSubtle }]}>
+                    <Ionicons name={(item.icon ?? fallbackIcon) as never} size={16} color={theme.colors.textSecondary} />
+                </View>}
+            <View style={{ flex: 1 }}>
+                <Text numberOfLines={1} style={{ color: theme.colors.text, fontSize: 15, fontWeight: '500' }}>{item.title}</Text>
+                {item.subtitle !== undefined && <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 12, marginTop: 1 }}>{item.subtitle}</Text>}
+            </View>
+            {primary !== undefined && <View style={styles.metadata}>
+                <Text style={[styles.metadataValue, { color: primary.tone === undefined ? theme.colors.text : toneColor(theme, primary.tone) }]}>
+                    {primary.label === undefined ? '' : `${primary.label} `}{primary.value}
+                </Text>
+                {secondary !== '' && <Text numberOfLines={1} style={[styles.metadataSecondary, { color: theme.colors.textSecondary }]}>{secondary}</Text>}
+            </View>}
+        </View>
+        {item.progress !== undefined && <RowProgress value={item.progress.value} color={progressColor} delay={index * 50} />}
+    </>;
+    if (onPress === undefined) return <View accessible accessibilityLabel={label}>{content}</View>;
+    return (
+        <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ busy }}
+            style={({ pressed }) => pressed && { opacity: 0.6 }}>{content}</Pressable>
+    );
 }
 
 /** Lazy action list: the plugin declares every tap; there are no feature fallbacks. */
@@ -140,6 +198,24 @@ export function ItemList({ context, pluginId, manifestHash, contribution }: Prim
     const title = contribution.title === undefined ? t('plugins.items') : resolvePluginText(contribution.title);
     const icon = contribution.icon ?? 'document-outline';
     const accessibilityLabel = contribution.accessibilityLabel === undefined ? title : resolvePluginText(contribution.accessibilityLabel);
+    // Order-preserving grouping; ungrouped items render in one silent section.
+    const groups = React.useMemo(() => {
+        const found: { name?: string; items: { item: PluginItemListItem; index: number }[] }[] = [];
+        const byName = new Map<string, { name?: string; items: { item: PluginItemListItem; index: number }[] }>();
+        items.forEach((item, index) => {
+            const key = item.group ?? '';
+            let group = byName.get(key);
+            if (group === undefined) {
+                group = { ...(item.group === undefined ? {} : { name: item.group }), items: [] };
+                byName.set(key, group);
+                found.push(group);
+            }
+            group.items.push({ item, index });
+        });
+        return found;
+    }, [items]);
+    const badgeTone = model.badge?.tone;
+    const badgeColor = failed ? theme.colors.textDestructive : badgeTone === undefined ? theme.colors.textSecondary : toneColor(theme, badgeTone);
     if (items.length === 0 && model.actions.length === 0) {
         if (!failed) return null;
         return <Pressable onPress={() => load(true)} accessibilityRole="button" accessibilityLabel={`${accessibilityLabel} ${t('plugins.unavailableSuffix')}. ${t('plugins.retry')}`} hitSlop={11}
@@ -151,11 +227,11 @@ export function ItemList({ context, pluginId, manifestHash, contribution }: Prim
     return <>
         <Pressable onPress={() => { setOpen(true); load(true); }} accessibilityRole="button" accessibilityLabel={`${accessibilityLabel}${failed ? `, ${t('plugins.showingStale')}. ${t('plugins.retry')}` : ''}`} hitSlop={11}
             style={({ pressed }) => [styles.pill, { backgroundColor: theme.colors.surfaceHigh, borderColor: failed ? theme.colors.textDestructive : theme.colors.divider }, pressed && { opacity: 0.6 }]}>
-            <Ionicons name={(failed ? 'warning-outline' : icon) as never} size={11} color={failed ? theme.colors.textDestructive : theme.colors.textSecondary} />
-            <Text style={[styles.count, { color: theme.colors.textSecondary }]}>{items.length}</Text>
+            <Ionicons name={(failed ? 'warning-outline' : icon) as never} size={11} color={badgeColor} />
+            <Text style={[styles.count, { color: badgeColor }]}>{model.badge?.value ?? items.length}</Text>
         </Pressable>
         <OptionSheet visible={open} title={title} options={[]} onSelect={() => {}} onClose={() => setOpen(false)} body={
-            <View style={{ paddingHorizontal: 16, paddingBottom: 12, gap: 8 }}>
+            <View style={{ paddingHorizontal: 16, paddingBottom: 12 }}>
                 {model.actions.length > 0 && <View style={styles.sheetActions}>
                     {model.actions.map((action) => {
                         const busyKey = `action:${action.id}`;
@@ -169,29 +245,20 @@ export function ItemList({ context, pluginId, manifestHash, contribution }: Prim
                         </Pressable>;
                     })}
                 </View>}
-                {items.map((item) => {
-                    const busyKey = `item:${item.id}`;
-                    const metadataLabel = item.metadata.map((entry) => `${entry.label === undefined ? '' : `${entry.label} `}${entry.value}`).join(', ');
-                    const label = [item.title, item.subtitle, metadataLabel].filter((part) => part !== undefined && part !== '').join(', ');
-                    const content = <>
-                        {busyId === busyKey
-                            ? <ActivityIndicator size="small" color={theme.colors.textSecondary} />
-                            : <Ionicons name={(item.icon ?? icon) as never} size={18} color={theme.colors.textSecondary} />}
-                        <View style={{ flex: 1 }}>
-                            <Text style={{ color: theme.colors.text, fontSize: 14 }}>{item.title}</Text>
-                            {item.subtitle !== undefined && <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>{item.subtitle}</Text>}
+                {groups.map((group, groupIndex) => (
+                    <View key={group.name ?? `ungrouped-${groupIndex}`} style={{ marginTop: groupIndex === 0 && model.actions.length === 0 ? 0 : 14 }}>
+                        {group.name !== undefined && <Text style={[styles.groupLabel, { color: theme.colors.textSecondary }]}>{group.name}</Text>}
+                        <View style={[styles.groupCard, { backgroundColor: theme.colors.surfaceHigh }]}>
+                            {group.items.map(({ item, index }, rowIndex) => (
+                                <React.Fragment key={item.id}>
+                                    {rowIndex > 0 && <View style={[styles.rowDivider, { backgroundColor: theme.colors.divider }]} />}
+                                    <SheetRow item={item} fallbackIcon={icon} busy={busyId === `item:${item.id}`} index={index}
+                                        {...(item.action === undefined ? {} : { onPress: () => void onAction(item.action, `item:${item.id}`) })} />
+                                </React.Fragment>
+                            ))}
                         </View>
-                        {item.metadata.length > 0 && <View style={styles.metadata}>
-                            {item.metadata.map((entry, index) => <Text key={`${entry.label ?? ''}:${index}`} style={[styles.metadataText, { color: metadataColor(entry, theme) }]}>
-                                {entry.label === undefined ? '' : `${entry.label} `}{entry.value}
-                            </Text>)}
-                        </View>}
-                    </>;
-                    return item.action === undefined
-                        ? <View key={item.id} accessible accessibilityLabel={label} style={styles.itemRow}>{content}</View>
-                        : <Pressable key={item.id} onPress={() => void onAction(item.action, busyKey)} accessibilityRole="button" accessibilityLabel={label}
-                            accessibilityState={{ busy: busyId === busyKey }} style={({ pressed }) => [styles.itemRow, pressed && { opacity: 0.6 }]}>{content}</Pressable>;
-                })}
+                    </View>
+                ))}
             </View>
         } />
     </>;
@@ -202,7 +269,14 @@ const styles = StyleSheet.create({
     count: { fontSize: 11, ...Typography.mono('semiBold') },
     sheetActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingBottom: 4 },
     sheetAction: { minHeight: 44, borderRadius: 999, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', gap: 6 },
-    itemRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8 },
-    metadata: { flexDirection: 'row', alignItems: 'center', gap: 7 },
-    metadataText: { fontSize: 12, ...Typography.mono('semiBold') },
+    groupLabel: { fontSize: 11, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 6, marginLeft: 4 },
+    groupCard: { borderRadius: 14, overflow: 'hidden' },
+    rowDivider: { height: StyleSheet.hairlineWidth, marginLeft: 54 },
+    itemRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 12, paddingVertical: 10 },
+    iconTile: { width: 30, height: 30, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
+    metadata: { alignItems: 'flex-end', gap: 2, marginLeft: 8 },
+    metadataValue: { fontSize: 14, ...Typography.mono('semiBold') },
+    metadataSecondary: { fontSize: 11 },
+    progressTrack: { height: 3, borderRadius: 1.5, marginLeft: 54, marginRight: 12, marginTop: -3, marginBottom: 10, overflow: 'hidden' },
+    progressFill: { height: '100%', borderRadius: 1.5 },
 });

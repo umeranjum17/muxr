@@ -32,6 +32,7 @@ const checks = [
     ['e2e: shared remote relay isolation', 'node', ['scripts/checkRemoteRelay.mjs']],
     ['e2e: multi-provider usage aggregation', 'node', ['scripts/checkUsageStatus.mjs']],
     ['e2e: tailscale ingress ownership', 'node', ['scripts/checkTailscaleIngress.mjs']],
+    ['unit: selfhost state survives garbage JSON', 'node', ['scripts/checkSelfhostState.mjs']],
     ['e2e: voice plugin secret lifecycle', 'node', ['scripts/checkVoicePlugin.mjs']],
     ['e2e: strict auth (local fixture exposure)', 'node', ['scripts/checkStrictAuth.mjs']],
     ['e2e: second host retires the first', 'node', ['scripts/checkHostTakeover.mjs']],

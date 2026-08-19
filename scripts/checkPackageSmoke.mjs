@@ -419,7 +419,9 @@ try {
     assert.equal(readFileSync(fakeLog, 'utf8'), mutationsBeforeDrift, 'drift preflight invoked mutating herdr commands');
     run(cli, ['integrations', 'sync', '--force'], { cwd: installDir, env });
     assert.match(readFileSync(instructionPath, 'utf8'), /Keep this line\./);
-    run(cli, ['doctor'], { cwd: installDir, env });
+    const stoppedDoctor = run(cli, ['doctor'], { cwd: installDir, env, allowFailure: true });
+    assert.notEqual(stoppedDoctor.status, 0, 'doctor accepted a configured relay that was not running');
+    assert.match(`${stoppedDoctor.stdout}${stoppedDoctor.stderr}`, /not reachable/);
 
     const host = spawn(cli, ['up', '--fake'], { cwd: installDir, env: { ...env, MUXR_MODE: 'selfhost' }, stdio: ['ignore', 'pipe', 'pipe'] });
     let hostOutput = '';
@@ -435,6 +437,7 @@ try {
             }
         }, 50);
     });
+    run(cli, ['doctor'], { cwd: installDir, env });
     host.kill('SIGTERM');
     await new Promise((resolve) => host.once('exit', resolve));
     await new Promise((resolve, reject) => {

@@ -7,7 +7,7 @@
 <p align="center"><strong>Every coding agent, on your phone.</strong></p>
 
 <p align="center">
-  Watch terminals, answer prompts, send instructions, move files, and talk to your agents from Android or a read-only browser. Your machine stays the source of truth.
+  Start on your desktop, step away with your phone, and come back without a handoff. Watch terminals, answer prompts, send instructions, move files, and talk to the same agents while your machine stays the source of truth.
 </p>
 
 <p align="center">
@@ -37,6 +37,7 @@
 ## What it does
 
 - **One herd:** see every agent and terminal, including who is working, blocked, or done.
+- **Seamless continuity:** switch between desktop and phone without moving sessions or losing context — the same machines, panes, and agents stay live.
 - **Real terminal control:** read output, type, prompt, interrupt, and manage sessions remotely.
 - **Phone-native tools:** Files, Changes, attachments, Runbook, Usage, Voice, and notifications.
 - **End-to-end encrypted:** relays route encrypted envelopes; your code and terminal output stay between your devices.

@@ -1,7 +1,6 @@
 import { ActionButton } from "@/components/ActionButton";
 import { useAuth } from "@/auth/AuthContext";
 import { Text, View, Platform } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as React from 'react';
 import { encodeBase64 } from "@/encryption/base64";
@@ -10,17 +9,15 @@ import { router, useRouter } from "expo-router";
 import { StyleSheet } from "react-native-unistyles";
 import { getRandomBytesAsync } from "expo-crypto";
 import { useIsLandscape } from "@/utils/responsive";
-import { useRelayDiscovery, type DiscoveredRelay } from "@/discovery/useRelayDiscovery";
 import { Typography } from "@/constants/Typography";
 import { HomeHeaderNotAuth } from "@/components/HomeHeader";
 import { MainView } from "@/components/MainView";
 import { Wordmark } from "@/components/Wordmark";
 import { t } from '@/text';
-import { CameraView } from 'expo-camera';
-import { useCheckScannerPermissions } from '@/hooks/useCheckCameraPermissions';
 import { Modal } from '@/modal';
-import { claimHostedPairing, hostedPairingDisplayName, resumePendingHostedPairing } from '@/state/hostedE2ee';
+import { resumePendingHostedPairing } from '@/state/hostedE2ee';
 import { getCachedConnectionSettings, saveConnectionSettings } from '@/state/connectionSettings';
+import { useHostedPairing, usePairQrScanner } from '@/hooks/usePairing';
 import { MOBILE_ONBOARDING_CHOICES } from '@/commercialization';
 
 export default function Home() {
@@ -43,7 +40,6 @@ function NotAuthenticated() {
     const isLandscape = useIsLandscape();
     const insets = useSafeAreaInsets();
     const hosted = getCachedConnectionSettings().mode === 'hosted';
-    const checkScannerPermissions = useCheckScannerPermissions();
     const pairing = React.useRef(false);
 
     React.useEffect(() => {
@@ -66,62 +62,8 @@ function NotAuthenticated() {
         }).finally(() => { pairing.current = false; });
     }, [auth]);
 
-    const processPairLink = React.useCallback(async (url: string) => {
-        if (pairing.current) return;
-        pairing.current = true;
-        try {
-            const approved = await Modal.confirm(
-                `Pair with ${hostedPairingDisplayName(url)}?`,
-                Platform.OS === 'web'
-                    ? 'This browser receives read-only access for eight hours. Machine keys stay end-to-end encrypted with WebCrypto in this browser.\n\nOnly continue if you just ran `muxr pair --browser` there.'
-                    : 'This phone will be able to read and type into every agent terminal on that computer, answer approvals, and start or stop agents as the user who launched muxr.\n\nOnly continue if you just ran `muxr setup` or `muxr pair` there.',
-                { confirmText: 'Pair' },
-            );
-            if (!approved) return;
-            const grant = await claimHostedPairing(url);
-            await saveConnectionSettings({
-                ...getCachedConnectionSettings(),
-                mode: 'hosted',
-                relayUrl: grant.relayUrl,
-                machineId: grant.machineId,
-                token: '',
-                encryptionKey: '',
-                selfhost: grant.source === 'selfhost' ? true : undefined,
-            });
-            await auth.login(grant.credential, grant.deviceKey.secretKey);
-        } catch (error) {
-            Modal.alert('Pairing failed', error instanceof Error ? error.message : String(error));
-        } finally {
-            pairing.current = false;
-        }
-    }, [auth]);
-
-    React.useEffect(() => {
-        if (!hosted || !CameraView.isModernBarcodeScannerAvailable) return;
-        const subscription = CameraView.onModernBarcodeScanned((event) => {
-            if (/^https:\/\/[^#]+\/pair#/.test(event.data) || /^muxr:\/\/pair[?#]/.test(event.data) || /^http:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?\/pair#/.test(event.data)) {
-                void CameraView.dismissScanner().catch(() => undefined);
-                void processPairLink(event.data);
-            }
-        });
-        return () => subscription.remove();
-    }, [hosted, processPairLink]);
-
-    const scanHostedQr = async () => {
-        // Prime before the system prompt: a bare permission dialog with no
-        // context reads as suspicious on a security product.
-        const primed = await Modal.confirm(
-            'Scan your machine QR',
-            'Point the camera at the QR code shown by `muxr setup` or `muxr pair` on your computer. The scan completes an end-to-end encrypted pairing — the image never leaves this phone.',
-            { confirmText: 'Open camera' },
-        );
-        if (!primed) return;
-        if (!(await checkScannerPermissions())) {
-            Modal.alert('Camera required', 'Allow camera access to scan the secure machine QR.');
-            return;
-        }
-        CameraView.launchScanner({ barcodeTypes: ['qr'] });
-    };
+    const processPairLink = useHostedPairing();
+    const scanHostedQr = usePairQrScanner((url) => void processPairLink(url), hosted);
 
     // One mark, in a soft halo. The hero previously stacked glyph.png (upscaled
     // from a small source, hence the blur) above the wordmark saying the same
@@ -135,7 +77,6 @@ function NotAuthenticated() {
         </View>
     );
 
-    const discoveredRelays = useRelayDiscovery();
     const [showOtherWays, setShowOtherWays] = React.useState(false);
     const promptForPairingString = async (title: string) => {
         const pasted = await Modal.prompt(
@@ -148,12 +89,6 @@ function NotAuthenticated() {
         if (!pasted?.trim()) return;
         await processPairLink(pasted.trim());
     };
-    // Discovery only ever proposes a machine; the user still confirms. Finding a
-    // relay must never mean joining it.
-    const pairWithDiscovered = (relay: DiscoveredRelay) => Platform.OS === 'web'
-        ? promptForPairingString(`Pair with ${relay.name}?`)
-        : scanHostedQr();
-
     if (hosted) {
         return (
             <View style={styles.screen}>
@@ -163,20 +98,6 @@ function NotAuthenticated() {
                     <Text style={styles.subtitle}>Pair once. Every agent session on your computer, end-to-end encrypted.</Text>
                 </View>
                 <View style={[styles.actions, { paddingBottom: insets.bottom + 24 }]}>
-                    {discoveredRelays.map((relay) => (
-                        <View key={`${relay.name}-${relay.host}`} style={styles.foundCard}>
-                            <View style={styles.foundHeader}>
-                                <View style={styles.foundIcon}>
-                                    <Ionicons name="desktop-outline" size={18} color={styles.foundIconGlyph.color} />
-                                </View>
-                                <View style={styles.foundCopy}>
-                                    <Text style={styles.foundTitle} numberOfLines={1}>Found muxr on {relay.name}</Text>
-                                    <Text style={styles.foundMeta} numberOfLines={1}>On this network · not connected yet</Text>
-                                </View>
-                            </View>
-                            <ActionButton title="Pair" icon="link-outline" action={() => pairWithDiscovered(relay)} />
-                        </View>
-                    ))}
                     {Platform.OS === 'web' ? (
                         <ActionButton title="Paste browser pairing string" icon="clipboard-outline" action={() => promptForPairingString('Pair this browser')} />
                     ) : (
@@ -344,47 +265,6 @@ const styles = StyleSheet.create((theme) => ({
     },
     otherWays: {
         gap: 10,
-    },
-    foundCard: {
-        backgroundColor: theme.colors.surfaceHigh,
-        borderWidth: 1,
-        borderColor: theme.colors.divider,
-        borderRadius: 18,
-        padding: 14,
-        gap: 12,
-        marginBottom: 2,
-    },
-    foundHeader: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 12,
-    },
-    foundIcon: {
-        width: 38,
-        height: 38,
-        borderRadius: 12,
-        alignItems: 'center',
-        justifyContent: 'center',
-        backgroundColor: theme.colors.surfaceHighest,
-        borderWidth: 1,
-        borderColor: theme.colors.divider,
-    },
-    foundIconGlyph: {
-        color: theme.colors.text,
-    },
-    foundCopy: {
-        flex: 1,
-        gap: 2,
-    },
-    foundTitle: {
-        ...Typography.default('semiBold'),
-        fontSize: 15,
-        color: theme.colors.text,
-    },
-    foundMeta: {
-        ...Typography.default(),
-        fontSize: 13,
-        color: theme.colors.textSecondary,
     },
     footer: {
         ...Typography.default(),
