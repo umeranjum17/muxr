@@ -429,9 +429,12 @@ export async function runPackage(command, args = []) {
     if (command === 'list') { if (args.length) fail('muxr plugin list takes no arguments'); for (const plugin of herdrPlugins()) process.stdout.write(`${plugin.plugin_id}\t${plugin.version ?? '0.0.0'}\t${plugin.enabled ? 'enabled' : 'disabled'}\t${JSON.stringify(sourceFor(plugin))}\t${plugin.plugin_root ?? ''}\n`); return 0; }
     if (!['install', 'update', 'remove'].includes(command)) fail(`unknown package command: ${command}`);
     if (command === 'remove') {
-        const { spec: id, yes } = requireArgs(args, command); if (!ID_RE.test(id)) fail('plugin id must match [a-z0-9][a-z0-9._-]{0,63}');
+        const { spec: requested, yes } = requireArgs(args, command); if (!ID_RE.test(requested)) fail('plugin id must match [a-z0-9][a-z0-9._-]{0,63}');
+        const installed = herdrPlugins();
+        const localId = `local.${requested}`.slice(0, 64);
+        const id = pluginFor(installed, requested) ? requested : pluginFor(installed, localId) ? localId : requested;
         return withRegistryLock(id, async () => {
-            const plugin = pluginFor(herdrPlugins(), id); if (!plugin) fail(`plugin is not installed: ${id}`); const npm = validNpmProvenance(plugin); const action = npm ? 'unlink then remove managed npm materialization' : plugin.source?.kind === 'github' ? 'uninstall' : 'unlink';
+            const plugin = pluginFor(herdrPlugins(), id); if (!plugin) fail(`plugin is not installed: ${requested}`); const npm = validNpmProvenance(plugin); const action = npm ? 'unlink then remove managed npm materialization' : plugin.source?.kind === 'github' ? 'uninstall' : 'unlink';
             if (!await confirm(yes, `Remove ${id} (${action})?`)) return 0;
             if (npm) { runHerdr(['plugin', 'unlink', id]); const root = validRoot(plugin.plugin_root); if (!root || root !== join(resolve(extensionHome()), id)) fail('refusing to remove an untrusted npm materialization path'); rmSync(root, { recursive: true, force: true }); removeProvenance(id); }
             else runHerdr(['plugin', action === 'uninstall' ? 'uninstall' : 'unlink', id]);

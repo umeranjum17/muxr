@@ -6,6 +6,7 @@ import { useHerdrTree, useLocalSettingMutable, useSessions, useSocketStatus } fr
 import {
     canPostPromotedNotifications,
     clearVoiceNotification,
+    openBackgroundActivitySettings,
     openPromotedNotificationSettings,
     startHerdKeepalive,
     stopHerdKeepalive,
@@ -37,7 +38,9 @@ export function KernelNotifications() {
     const [presentation, setPresentation] = React.useState(herd);
     const [appActive, setAppActive] = React.useState(AppState.currentState === 'active');
     const [promotionPrompted, setPromotionPrompted] = useLocalSettingMutable('promotedNotificationsPrompted');
+    const [backgroundPrompted, setBackgroundPrompted] = useLocalSettingMutable('backgroundConnectionPrompted');
     const promotionPrompting = React.useRef(false);
+    const backgroundPrompting = React.useRef(false);
     const keepalive = React.useRef(false);
     const herdActive = herd.mode === 'working' || herd.mode === 'attention';
 
@@ -90,8 +93,29 @@ export function KernelNotifications() {
             || !appActive
             || !isAuthenticated
             || !herdActive
+            || backgroundPrompted
+            || backgroundPrompting.current
+        ) return;
+        backgroundPrompting.current = true;
+        setBackgroundPrompted(true);
+        void Modal.confirm(
+            'Keep muxr connected in the background?',
+            'Android may pause muxr when you leave the app. Open app settings, choose Battery, then allow background activity or select Unrestricted. If your phone has “Manage automatically”, turn it off and allow background running.',
+            { confirmText: 'Open settings' },
+        ).then((confirmed) => {
+            if (confirmed) openBackgroundActivitySettings();
+        }).finally(() => { backgroundPrompting.current = false; });
+    }, [appActive, backgroundPrompted, herdActive, isAuthenticated, setBackgroundPrompted]);
+
+    React.useEffect(() => {
+        if (
+            Platform.OS !== 'android'
+            || !appActive
+            || !isAuthenticated
+            || !herdActive
             || promotionPrompted
             || promotionPrompting.current
+            || backgroundPrompting.current
             || !supportsPromotedNotifications()
             || canPostPromotedNotifications()
         ) return;

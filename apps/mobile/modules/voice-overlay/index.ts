@@ -27,6 +27,7 @@ interface VoiceNative {
     supportsPromotedNotifications?: () => boolean;
     canPostPromotedNotifications?: () => boolean;
     openPromotedNotificationSettings?: () => boolean;
+    openBackgroundActivitySettings?: () => boolean;
     clearNotification: () => boolean;
     addListener: (
         event: 'onNotificationActionRequested',
@@ -142,6 +143,14 @@ export function canPostPromotedNotifications(): boolean {
 export function openPromotedNotificationSettings(): boolean {
     try {
         return native?.openPromotedNotificationSettings?.() ?? false;
+    } catch {
+        return false;
+    }
+}
+
+export function openBackgroundActivitySettings(): boolean {
+    try {
+        return native?.openBackgroundActivitySettings?.() ?? false;
     } catch {
         return false;
     }

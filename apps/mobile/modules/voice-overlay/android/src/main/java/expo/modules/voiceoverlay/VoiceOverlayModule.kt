@@ -256,6 +256,19 @@ class VoiceOverlayModule : Module() {
         .getOrDefault(false)
     }
 
+    Function("openBackgroundActivitySettings") {
+      val context = context() ?: return@Function false
+      val details = Intent(
+        Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+        Uri.parse("package:${context.packageName}"),
+      ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+      runCatching {
+        context.startActivity(details)
+        true
+      }.onFailure { Log.w(TAG, "Opening background activity settings failed", it) }
+        .getOrDefault(false)
+    }
+
     Function("clearNotification") {
       val context = context() ?: return@Function false
       VoiceOverlayService.clearNotification(context)

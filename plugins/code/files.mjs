@@ -12,11 +12,20 @@ const input = JSON.parse(readFileSync(0, 'utf8') || 'null') ?? {};
 
 function repos() {
     const workspaces = JSON.parse(exec(herdr, ['workspace', 'list'])).result.workspaces ?? [];
+    const panes = JSON.parse(exec(herdr, ['pane', 'list'])).result.panes ?? [];
     const seen = new Map();
     for (const workspace of workspaces) {
-        const root = workspace.worktree?.repo_root;
-        if (typeof root === 'string' && root !== '' && !seen.has(root)) {
-            seen.set(root, { root, name: root.split('/').pop() ?? root, path: root });
+        const configured = workspace.worktree?.repo_root;
+        const candidates = typeof configured === 'string' && configured !== ''
+            ? [configured]
+            : panes.filter((pane) => pane.workspace_id === workspace.workspace_id)
+                .map((pane) => pane.foreground_cwd ?? pane.cwd);
+        for (const candidate of new Set(candidates)) {
+            if (typeof candidate !== 'string' || candidate === '') continue;
+            let root;
+            try { root = exec('git', ['-C', candidate, 'rev-parse', '--show-toplevel'], 3000).trim(); }
+            catch { continue; }
+            if (root !== '' && !seen.has(root)) seen.set(root, { root, name: root.split('/').pop() ?? root, path: root });
         }
     }
     return [...seen.values()].slice(0, 32);

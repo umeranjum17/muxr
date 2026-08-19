@@ -31,7 +31,7 @@ try {
     assert.deepEqual(activity, { 'Anthropic Claude': '1.3M tokens', 'Kimi Code': '2.5K tokens', Pi: '800 tokens' });
     assert.ok(output.items.some((item) => item.id === 'limit-codex-0' && item.metadata[0]?.value === '75% left' && item.group === 'Rate limits'));
     assert.ok(output.items.some((item) => item.id === 'activity-claude' && item.group === 'Active today' && item.progress?.value === 1));
-    assert.equal(output.badge?.value, '1.3M');
+    assert.equal(output.badge?.value, '1.3M tokens today');
     assert.equal(output.summary?.totalTokens, '1.3M');
     const installed = Object.fromEntries(output.items.filter((item) => item.id.startsWith('available-')).map((item) => [item.title, item]));
     assert.equal(installed.OpenCode?.group, 'Idle today');
