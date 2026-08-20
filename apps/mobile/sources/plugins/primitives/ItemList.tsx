@@ -6,7 +6,7 @@ import { useRouter } from 'expo-router';
 import Animated, { Easing, useAnimatedStyle, useReducedMotion, useSharedValue, withDelay, withTiming } from 'react-native-reanimated';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { OptionSheet } from '@/components/OptionSheet';
-import { hapticsLight } from '@/components/haptics';
+import { hapticsError, hapticsLight } from '@/components/haptics';
 import { Modal } from '@/modal';
 import { sync } from '@/sync/sync';
 import { Typography } from '@/constants/Typography';
@@ -200,8 +200,11 @@ export function ItemList({ context, pluginId, manifestHash, contribution }: Prim
                 router, pluginId, manifestHash, manifest,
                 ...(sessionId === undefined ? {} : { sessionId }),
             });
+            // One dispatch point, so every plugin tap answers the same way.
+            hapticsLight();
             setOpen(false);
         } catch (error) {
+            hapticsError();
             Modal.alert(t('plugins.openFailed'), error instanceof Error ? error.message : String(error));
         } finally {
             setBusyId(null);
@@ -248,7 +251,7 @@ export function ItemList({ context, pluginId, manifestHash, contribution }: Prim
                 {model.actions.length > 0 && <View style={styles.sheetActions}>
                     {model.actions.map((action) => {
                         const busyKey = `action:${action.id}`;
-                        return <Pressable key={action.id} onPress={() => { hapticsLight(); void onAction(action.action, busyKey); }} accessibilityRole="button" accessibilityLabel={action.label}
+                        return <Pressable key={action.id} onPress={() => void onAction(action.action, busyKey)} accessibilityRole="button" accessibilityLabel={action.label}
                             accessibilityState={{ busy: busyId === busyKey }}
                             style={({ pressed }) => [styles.sheetAction, { backgroundColor: theme.colors.surfaceHigh, borderColor: theme.colors.divider }, pressed && { backgroundColor: theme.colors.surfaceHighest }]}>
                             {busyId === busyKey
@@ -261,7 +264,7 @@ export function ItemList({ context, pluginId, manifestHash, contribution }: Prim
                 {groups.map((group, groupIndex) => (
                     <View key={group.name ?? `ungrouped-${groupIndex}`} style={{ marginTop: groupIndex === 0 && model.actions.length === 0 ? 0 : 14 }}>
                         {group.name !== undefined && <Text style={[styles.groupLabel, { color: theme.colors.textSecondary }]}>{group.name}</Text>}
-                        <View style={[styles.groupCard, { backgroundColor: theme.colors.surfaceHigh }]}>
+                        <View style={[styles.groupCard, { backgroundColor: theme.colors.surfaceHigh, borderColor: theme.colors.divider }]}>
                             {group.items.map(({ item, index }, rowIndex) => (
                                 <React.Fragment key={item.id}>
                                     {rowIndex > 0 && <View style={[styles.rowDivider, { backgroundColor: theme.colors.divider }]} />}
@@ -286,7 +289,7 @@ const styles = StyleSheet.create({
     // on declarative screens, and a sheet that whispers at 11/0.8 reads as a
     // different app.
     groupLabel: { fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 8, marginLeft: 4 },
-    groupCard: { borderRadius: 16, overflow: 'hidden' },
+    groupCard: { borderRadius: 16, borderWidth: StyleSheet.hairlineWidth, overflow: 'hidden' },
     rowDivider: { height: StyleSheet.hairlineWidth, marginLeft: 54 },
     itemRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 14, paddingVertical: 11 },
     iconTile: { width: 30, height: 30, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },

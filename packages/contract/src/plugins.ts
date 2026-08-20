@@ -458,7 +458,7 @@ export interface PluginScreenChartNode {
      * gauge carries one value against its ceiling, ring splits a whole.
      */
     variant: 'bar' | 'column' | 'gauge' | 'ring';
-    /** Runtime path to bounded `{ label, value, valueLabel?, tone? }` entries. */
+    /** Runtime path to bounded `{ label, value, valueLabel?, detail?, tone? }` entries. */
     path: string;
     title?: PluginText;
     emptyText?: PluginText;

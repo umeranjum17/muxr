@@ -4,6 +4,8 @@ export interface PluginChartItem {
     label: string;
     value: number;
     valueLabel?: string;
+    /** Second, quieter figure after the value: a reset time next to a percentage. */
+    detail?: string;
     tone?: PluginScreenTone;
 }
 
@@ -22,10 +24,13 @@ export function asChartSeries(value: unknown): PluginChartItem[] {
         const valueLabel = typeof raw.valueLabel === 'string'
             ? capUtf8Bytes(sanitizeDisplayText(raw.valueLabel).trim(), MAX_CHART_LABEL_BYTES)
             : undefined;
+        const detail = typeof raw.detail === 'string'
+            ? capUtf8Bytes(sanitizeDisplayText(raw.detail).trim(), MAX_CHART_LABEL_BYTES)
+            : undefined;
         const tone = typeof raw.tone === 'string' && TONES.has(raw.tone as PluginScreenTone)
             ? raw.tone as PluginScreenTone
             : undefined;
-        return [{ label, value: raw.value, ...(valueLabel ? { valueLabel } : {}), ...(tone ? { tone } : {}) }];
+        return [{ label, value: raw.value, ...(valueLabel ? { valueLabel } : {}), ...(detail ? { detail } : {}), ...(tone ? { tone } : {}) }];
     }).slice(0, MAX_CHART_SERIES);
     return items.some((item) => item.value > 0) ? items : [];
 }
