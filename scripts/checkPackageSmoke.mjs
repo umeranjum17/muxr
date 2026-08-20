@@ -280,12 +280,12 @@ try {
         const usagePlugin = join(installDir, 'node_modules', '@trymuxr', 'cli', 'plugins', 'status', 'usage.mjs');
         const usageResult = run(process.execPath, [usagePlugin], { cwd: installDir, env: { ...process.env, HOME: usageHome, PATH: binDir } });
         const usageOutput = JSON.parse(usageResult.stdout);
-        assert.ok(usageOutput.items.some((item) => item.id === 'activity-claude' && item.metadata[0]?.value === '2 tokens' && item.action === undefined), 'installed Usage did not return a read-only Claude activity item');
+        assert.ok(usageOutput.items.some((item) => item.id === 'activity-claude' && item.metadata[0]?.value === '2 tokens' && item.action?.type === 'screen'), 'installed Usage did not return a Claude activity item that opens its details');
         assert.notEqual(statSync(ccusageTarget).mode & 0o111, 0, 'packaged ccusage backend stayed non-executable');
         const resolveScript = `const {createRequire}=require('node:module');process.stdout.write(createRequire(${JSON.stringify(usagePlugin)}).resolve('@ccusage/ccusage-${process.platform}-${process.arch}/bin/ccusage'))`;
         const resolvedCcusage = run(process.execPath, ['-e', resolveScript], { cwd: installDir }).stdout;
         assert.equal(resolvedCcusage, ccusageTarget, 'Usage plugin did not resolve its installed native ccusage package');
-        const probe = run(resolvedCcusage, ['daily', '--last', '1', '--by-agent', '--json', '--no-cost', '--offline'], {
+        const probe = run(resolvedCcusage, ['daily', '--by-agent', '--json', '--offline'], {
             cwd: installDir,
             env: { ...process.env, HOME: usageHome, HTTPS_PROXY: 'http://127.0.0.1:1', HTTP_PROXY: 'http://127.0.0.1:1' },
         });

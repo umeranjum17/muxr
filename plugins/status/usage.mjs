@@ -166,6 +166,8 @@ function ccusageItems(agents) {
       group: 'Active today',
       ...(max > 0 ? { progress: { value: total / max } } : {}),
       metadata: [{ value: `${value} tokens`, tone: 'primary' }],
+      // The card is a summary; the detail lives on one screen, wherever it opened from.
+      action: { type: 'screen', contributionId: 'usage.details', params: { provider: agent } },
     }];
   });
   const series = sorted.slice(0, 8).flatMap(([agent, total]) => {
@@ -327,13 +329,15 @@ if (cached !== undefined) {
       id: `available-${agent}`, title: AGENTS[agent], icon: 'terminal-outline', metadata: [],
       group: 'Idle today',
       ...(CCUSAGE_AGENTS.has(agent) ? {} : { subtitle: 'Totals unsupported by ccusage' }),
+      action: { type: 'screen', contributionId: 'usage.details', params: { provider: agent } },
     });
   }
   // Rate limits lead (they need attention), then today's activity, then idle.
   const ordered = [...codex.items, ...activity.items, ...items];
   const totalTokens = tokens(activity.totalTokens);
   const output = {
-    items: ordered.slice(0, 50), actions: [],
+    items: ordered.slice(0, 50),
+    actions: [{ id: 'details', label: 'Open full usage', icon: 'stats-chart-outline', action: { type: 'screen', contributionId: 'usage.details' } }],
     ...(activity.totalTokens > 0 && totalTokens !== undefined
       ? { badge: { value: `${totalTokens} tokens today` } }
       : {}),

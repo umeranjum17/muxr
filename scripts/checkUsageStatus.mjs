@@ -96,7 +96,14 @@ try {
     assert.deepEqual(cursor.modelSeries, []);
 
     assert.doesNotMatch(result.stdout, /hostile/);
-    assert.ok(output.items.every((item) => item.action === undefined), 'read-only Usage rows unexpectedly expose actions');
+    // Rows open the details screen and nothing else: the card is a summary of
+    // the same screen, not a second place that shows usage its own way.
+    assert.ok(
+        output.items.every((item) => item.action === undefined || item.action.type === 'screen' && item.action.contributionId === 'usage.details'),
+        'Usage rows reach past their own details screen',
+    );
+    assert.equal(output.items.find((item) => item.id === 'activity-kimi')?.action?.params?.provider, 'kimi');
+    assert.equal(output.actions[0]?.action?.contributionId, 'usage.details');
     assert.ok(existsSync(ccusageMarker), 'Usage plugin did not invoke its pinned ccusage backend');
     assert.ok(!existsSync(piMarker), 'Usage plugin invoked Pi and could enter a paid model path');
 
