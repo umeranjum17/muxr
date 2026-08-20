@@ -281,14 +281,17 @@ const styles = StyleSheet.create({
     count: { fontSize: 11, ...Typography.mono('semiBold') },
     sheetActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingBottom: 4 },
     sheetAction: { minHeight: 44, borderRadius: 999, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', gap: 6 },
-    groupLabel: { fontSize: 11, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 6, marginLeft: 4 },
-    groupCard: { borderRadius: 14, overflow: 'hidden' },
+    // One label scale across plugin surfaces: 12/600/0.6 is the section voice
+    // on declarative screens, and a sheet that whispers at 11/0.8 reads as a
+    // different app.
+    groupLabel: { fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 8, marginLeft: 4 },
+    groupCard: { borderRadius: 16, overflow: 'hidden' },
     rowDivider: { height: StyleSheet.hairlineWidth, marginLeft: 54 },
-    itemRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 12, paddingVertical: 10 },
-    iconTile: { width: 30, height: 30, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
+    itemRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 14, paddingVertical: 11 },
+    iconTile: { width: 30, height: 30, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
     metadata: { alignItems: 'flex-end', gap: 2, marginLeft: 8 },
-    metadataValue: { fontSize: 14, ...Typography.mono('semiBold') },
+    metadataValue: { fontSize: 13, ...Typography.mono('semiBold') },
     metadataSecondary: { fontSize: 11 },
-    progressTrack: { height: 3, borderRadius: 1.5, marginLeft: 54, marginRight: 12, marginTop: -3, marginBottom: 10, overflow: 'hidden' },
-    progressFill: { height: '100%', borderRadius: 1.5 },
+    progressTrack: { height: 4, borderRadius: 2, marginLeft: 54, marginRight: 14, marginTop: -2, marginBottom: 11, overflow: 'hidden' },
+    progressFill: { height: '100%', borderRadius: 2 },
 });

@@ -199,9 +199,9 @@ function ScreenTree(props: {
     });
     flatten(items, 0);
     const title = props.node.title === undefined ? undefined : bindText(resolvePluginText(props.node.title), props.data);
-    return <View style={{ marginBottom: 8 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 12, marginBottom: 6 }}>
-            {title !== undefined && <Text style={{ color: theme.colors.textSecondary, fontSize: 13, textTransform: 'uppercase', letterSpacing: 0.4, flex: 1 }}>{title}</Text>}
+    return <View style={{ marginBottom: 14 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
+            {title !== undefined && <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.6, flex: 1 }}>{title}</Text>}
             {folders.length > 0 && <>
                 <Pressable onPress={() => setExpanded(new Set(folders))} accessibilityRole="button" accessibilityLabel="Expand all folders" hitSlop={8}>
                     <Text style={{ color: theme.colors.textLink, fontSize: 12, paddingHorizontal: 8 }}>Expand all</Text>
@@ -211,8 +211,8 @@ function ScreenTree(props: {
                 </Pressable>
             </>}
         </View>
-        <View style={{ backgroundColor: theme.colors.surfaceHigh, borderRadius: 12, paddingVertical: 4 }}>
-            {rows.length === 0 ? <Text style={{ color: theme.colors.textSecondary, padding: 14 }}>
+        <View style={{ backgroundColor: theme.colors.surfaceHigh, borderRadius: 16, paddingVertical: 6 }}>
+            {rows.length === 0 ? <Text style={{ color: theme.colors.textSecondary, fontSize: 13, padding: 14 }}>
                 {props.node.emptyText === undefined ? t('plugins.nothingToShow') : bindText(resolvePluginText(props.node.emptyText), props.data)}
             </Text> : rows.map(({ item, depth }) => {
                 const isFolder = item.kind === 'folder';
@@ -410,8 +410,8 @@ function ScreenNode(props: {
             );
         case 'badge':
             return (
-                <View style={{ alignSelf: 'flex-start', borderRadius: 999, paddingHorizontal: 10, paddingVertical: 3, marginBottom: 8, backgroundColor: theme.colors.surfaceHighest }}>
-                    <Text style={{ color: toneColor(theme, node.tone), fontSize: 13, fontWeight: '600' }}>{bind(node.label)}</Text>
+                <View style={{ alignSelf: 'flex-start', borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4, marginBottom: 10, backgroundColor: theme.colors.surfaceHighest }}>
+                    <Text style={{ color: toneColor(theme, node.tone), fontSize: 12, fontWeight: '600', letterSpacing: 0.2 }}>{bind(node.label)}</Text>
                 </View>
             );
         case 'progress': {
@@ -437,7 +437,7 @@ function ScreenNode(props: {
         case 'chart':
             return <ScreenChart node={node} data={data} nested={props.nested === true} />;
         case 'divider':
-            return <View style={{ height: 1, backgroundColor: theme.colors.divider, marginVertical: 8 }} />;
+            return <View style={{ height: 1, backgroundColor: theme.colors.divider, marginVertical: 12 }} />;
         case 'empty':
             return (
                 <View style={{ paddingVertical: 24, alignItems: 'center' }}>
@@ -500,14 +500,14 @@ function ScreenNode(props: {
             })();
             const all = [...node.rows.map((row) => ({ row, item: undefined as unknown })), ...repeated];
             return (
-                <View style={{ marginBottom: 8 }}>
-                    {node.title !== undefined && <Text style={{ color: theme.colors.textSecondary, fontSize: 13, textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 6, marginTop: 12 }}>{bind(node.title)}</Text>}
-                    <View style={{ backgroundColor: theme.colors.surfaceHigh, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 6 }}>
+                <View style={{ marginBottom: props.nested ? 4 : 14 }}>
+                    {node.title !== undefined && <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 10, marginTop: props.nested ? 10 : 0 }}>{bind(node.title)}</Text>}
+                    <View style={props.nested ? {} : { backgroundColor: theme.colors.surfaceHigh, borderRadius: 16, paddingHorizontal: 16, paddingVertical: 4 }}>
                         {all.length === 0
-                            ? <Text style={{ color: theme.colors.textSecondary, fontSize: 14, paddingVertical: 10 }}>{bind(node.emptyText ?? t('plugins.nothingToShow'))}</Text>
+                            ? <Text style={{ color: theme.colors.textSecondary, fontSize: 13, paddingVertical: 10 }}>{bind(node.emptyText ?? t('plugins.nothingToShow'))}</Text>
                             : all.map(({ row, item }, index) => (
                                 <ScreenRow key={index} row={row} data={data} item={item} onRowAction={props.onRowAction}
-                                    style={{ paddingVertical: 10, borderTopWidth: index === 0 ? 0 : 1, borderTopColor: theme.colors.divider }} />
+                                    style={{ paddingVertical: 11, borderTopWidth: index === 0 ? 0 : 1, borderTopColor: theme.colors.divider }} />
                             ))}
                     </View>
                 </View>
