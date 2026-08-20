@@ -11,13 +11,13 @@ import { ItemGroup } from '@/components/ItemGroup';
 import { StatusDot } from '@/components/StatusDot';
 import { Typography } from '@/constants/Typography';
 import { layout } from '@/components/layout';
-import type { Theme } from '@/theme';
 import { PLUGIN_CALL_CLIENT_TIMEOUT_MS } from '@muxr/contract';
 import type { PrimitiveProps } from '../primitiveRegistry';
 import { asPluginCollection, type PluginCollectionGroup, type PluginCollectionItem } from '../collectionModel';
 import { dispatchPluginAction, validatePluginAction } from '../pluginActions';
 import { pluginSnapshot } from '../pluginStore';
 import { clearPluginCache, registerPluginDataCacheInvalidator, subscribePluginDataInvalidation } from '../pluginDataInvalidation';
+import { toneColor } from '../pluginTone';
 import { resolvePluginText } from '../pluginText';
 import { t } from '@/text';
 
@@ -27,16 +27,6 @@ registerPluginDataCacheInvalidator((pluginIds) => {
     if (pluginIds === undefined) cache.clear();
     else for (const pluginId of pluginIds) clearPluginCache(cache, pluginId);
 });
-
-function statusColor(status: PluginCollectionItem['status'], theme: Theme): string {
-    switch (status) {
-        case 'positive': return theme.colors.status.done;
-        case 'warning': return theme.colors.status.working;
-        case 'danger': return theme.colors.status.error;
-        case 'primary': return theme.colors.accent;
-        default: return theme.colors.textSecondary;
-    }
-}
 
 function relativeTime(value: string): string {
     const seconds = Math.max(0, Math.floor((Date.now() - Date.parse(value)) / 1000));
@@ -181,6 +171,8 @@ export function CollectionView({ context, pluginId, manifestHash, contribution }
                             paddingHorizontal: 16,
                             paddingVertical: 14,
                             backgroundColor: theme.colors.surface,
+                            // Settled work steps back so the row still working keeps the contrast.
+                            opacity: item.status === 'positive' ? 0.75 : 1,
                             borderBottomWidth: itemIndex === group.items.length - 1 ? 0 : StyleSheet.hairlineWidth,
                             borderBottomColor: theme.colors.divider,
                         }, pressed && { backgroundColor: theme.colors.surfacePressed }]}
@@ -193,7 +185,7 @@ export function CollectionView({ context, pluginId, manifestHash, contribution }
                                 {[item.glyph, item.timestamp === undefined ? undefined : relativeTime(item.timestamp)].filter(Boolean).join(' · ')}
                             </Text>}
                         </View>
-                        {item.status !== undefined && <StatusDot color={statusColor(item.status, theme)} isPulsing={item.pulsing === true} size={8} style={{ marginLeft: 10 }} />}
+                        {item.status !== undefined && <StatusDot color={toneColor(theme, item.status)} isPulsing={item.pulsing === true} size={8} style={{ marginLeft: 10 }} />}
                     </Pressable>)}
                 </ItemGroup>)}
             </ScrollView>

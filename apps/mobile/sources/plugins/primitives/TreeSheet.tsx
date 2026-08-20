@@ -8,25 +8,15 @@ import { Modal } from '@/modal';
 import { sync } from '@/sync/sync';
 import { OptionSheet } from '@/components/OptionSheet';
 import { StatusDot } from '@/components/StatusDot';
-import type { Theme } from '@/theme';
 import type { PrimitiveProps } from '../primitiveRegistry';
 import type { PluginSlotContexts } from '../slotTypes';
 import { asPluginTree, type PluginTreeNode } from '../treeModel';
 import { dispatchPluginAction, validatePluginAction } from '../pluginActions';
 import { pluginSnapshot } from '../pluginStore';
 import { subscribePluginDataInvalidation } from '../pluginDataInvalidation';
+import { toneColor } from '../pluginTone';
 import { resolvePluginText } from '../pluginText';
 import { t } from '@/text';
-
-function statusColor(status: PluginTreeNode['status'], theme: Theme): string {
-    switch (status) {
-        case 'positive': return theme.colors.status.done;
-        case 'warning': return theme.colors.status.working;
-        case 'danger': return theme.colors.status.error;
-        case 'primary': return theme.colors.accent;
-        default: return theme.colors.textSecondary;
-    }
-}
 
 function flatten(nodes: PluginTreeNode[], depth = 0): Array<{ node: PluginTreeNode; depth: number }> {
     return nodes.flatMap((node) => [{ node, depth }, ...flatten(node.children ?? [], depth + 1)]);
@@ -143,10 +133,10 @@ export function TreeSheet({ context, pluginId, manifestHash, contribution }: Pri
                     })}
                 >
                     {node.status !== undefined
-                        ? <StatusDot color={statusColor(node.status, theme)} isPulsing={node.pulsing === true} size={7} />
+                        ? <StatusDot color={toneColor(theme, node.status)} isPulsing={node.pulsing === true} size={7} />
                         : <Ionicons name={(node.icon ?? 'ellipse-outline') as never} size={12} color={theme.colors.textSecondary} />}
                     <View style={{ flex: 1, minWidth: 0 }}>
-                        <Text numberOfLines={1} style={{ color: node.current === true ? theme.colors.accent : theme.colors.textSecondary, fontSize: depth === 0 ? 14 : 13, fontWeight: node.current === true ? '600' : '400' }}>
+                        <Text numberOfLines={1} style={{ color: node.current === true ? theme.colors.accent : theme.colors.text, fontSize: depth === 0 ? 14 : 13, fontWeight: node.current === true ? '600' : '400' }}>
                             {node.title}
                         </Text>
                         {node.subtitle !== undefined && <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 12 }}>{node.subtitle}</Text>}

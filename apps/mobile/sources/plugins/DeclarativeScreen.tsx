@@ -17,7 +17,8 @@ import { SyntaxHighlightedCode } from '@/components/code/SyntaxHighlightedCode';
 import { sync } from '@/sync/sync';
 import { pluginSnapshot } from './pluginStore';
 import { dispatchPluginAction } from './pluginActions';
-import { subscribePluginDataInvalidation } from './pluginDataInvalidation';
+import { clearPluginCache, registerPluginDataCacheInvalidator, subscribePluginDataInvalidation } from './pluginDataInvalidation';
+import { toneColor } from './pluginTone';
 import { bindText, initialFieldValues, loadScreenData, resolvePath, runScreenButton, sharedPluginWriteKeys, shouldReloadAfterAction, type ScreenFieldValues } from './screenModel';
 import { resolvePluginText } from './pluginText';
 import { asScreenTree, type RuntimeTreeItem } from './screenTreeModel';
@@ -27,25 +28,16 @@ import { t } from '@/text';
 import { boundText } from '@/utils/boundedText';
 import { Typography } from '@/constants/Typography';
 
-function toneColor(theme: Theme, tone: string | undefined): string {
-    switch (tone) {
-        case 'positive': return theme.colors.success;
-        case 'warning': return theme.colors.box.warning.text;
-        case 'danger': return theme.colors.box.error.text;
-        case 'secondary': return theme.colors.textSecondary;
-        default: return theme.colors.text;
-    }
-}
+/** Screen payloads survive a close: reopening renders at once, then refreshes. */
+const screenCache = new Map<string, unknown>();
+registerPluginDataCacheInvalidator((pluginIds) => {
+    if (pluginIds === undefined) screenCache.clear();
+    else for (const pluginId of pluginIds) clearPluginCache(screenCache, pluginId);
+});
 
 /** Chart fills: untoned series get the accent, never a per-index rainbow. */
 function chartFill(theme: Theme, tone: PluginScreenTone | undefined): string {
-    switch (tone) {
-        case 'positive': return theme.colors.success;
-        case 'warning': return theme.colors.box.warning.text;
-        case 'danger': return theme.colors.box.error.text;
-        case 'secondary': return theme.colors.textSecondary;
-        default: return theme.colors.accent;
-    }
+    return tone === undefined ? theme.colors.accent : toneColor(theme, tone);
 }
 
 function withAlpha(color: string, alpha: number): string {
@@ -511,7 +503,7 @@ function ScreenNode(props: {
     const bind = (value: PluginText) => bindText(resolvePluginText(value), data);
     switch (node.type) {
         case 'text':
-            return <Text style={{ color: toneColor(theme, node.tone), fontSize: 15, lineHeight: 21, marginBottom: 8 }}>{bind(node.text)}</Text>;
+            return <Text style={{ color: node.tone === undefined ? theme.colors.text : toneColor(theme, node.tone), fontSize: 15, lineHeight: 21, marginBottom: 8 }}>{bind(node.text)}</Text>;
         case 'row':
             return <ScreenRow row={node} data={data} onRowAction={props.onRowAction} insideCard={props.nested === true} style={{ paddingVertical: 10 }} />;
         case 'diff': {
@@ -536,7 +528,7 @@ function ScreenNode(props: {
         case 'badge':
             return (
                 <View style={{ alignSelf: 'flex-start', borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4, marginBottom: 10, backgroundColor: theme.colors.surfaceHighest }}>
-                    <Text style={{ color: toneColor(theme, node.tone), fontSize: 12, fontWeight: '600', letterSpacing: 0.2 }}>{bind(node.label)}</Text>
+                    <Text style={{ color: node.tone === undefined ? theme.colors.text : toneColor(theme, node.tone), fontSize: 12, fontWeight: '600', letterSpacing: 0.2 }}>{bind(node.label)}</Text>
                 </View>
             );
         case 'progress': {
@@ -678,6 +670,11 @@ function ScreenNode(props: {
     }
 }
 
+/** Stable across key order so a tab revisit hits the same cache entry. */
+function paramsKey(params: Record<string, string> | undefined): string {
+    return params === undefined ? '' : JSON.stringify(Object.entries(params).sort(([a], [b]) => a.localeCompare(b)));
+}
+
 function sourceLabel(source: PluginSource): string {
     if (source.kind === 'github') {
         const owner = source.owner ?? 'unknown';
@@ -700,14 +697,7 @@ function ScreenBody(props: {
 }) {
     const { screen } = props;
     const router = useRouter();
-    const [data, setData] = React.useState<unknown>(undefined);
-    const [dataError, setDataError] = React.useState<string>();
-    const [fields, setFields] = React.useState<ScreenFieldValues>(() => initialFieldValues(screen));
-    const [running, setRunning] = React.useState(false);
-    const [status, setStatus] = React.useState<{ ok: boolean; text: string }>();
-    const [refreshNonce, setRefreshNonce] = React.useState(0);
-    const [loading, setLoading] = React.useState(screen.data?.contributionId !== undefined);
-    const [refreshing, setRefreshing] = React.useState(false);
+    const dataContributionId = screen.data?.contributionId;
     // A pressed tab is just another screen param, so one payload per tab keeps
     // the plugin's reply small instead of shipping every tab's detail at once.
     const [tabParams, setTabParams] = React.useState<Record<string, string>>({});
@@ -715,11 +705,22 @@ function ScreenBody(props: {
         const merged = { ...(props.params ?? {}), ...tabParams };
         return Object.keys(merged).length === 0 ? undefined : merged;
     }, [props.params, tabParams]);
+    const cacheKey = React.useMemo(() => dataContributionId === undefined
+        ? undefined
+        : `${props.pluginId}:${props.manifestHash}:${dataContributionId}:${paramsKey(callParams)}`,
+    [callParams, dataContributionId, props.manifestHash, props.pluginId]);
+    const [data, setData] = React.useState<unknown>(() => cacheKey === undefined ? undefined : screenCache.get(cacheKey));
+    const [dataError, setDataError] = React.useState<string>();
+    const [fields, setFields] = React.useState<ScreenFieldValues>(() => initialFieldValues(screen));
+    const [running, setRunning] = React.useState(false);
+    const [status, setStatus] = React.useState<{ ok: boolean; text: string }>();
+    const [refreshNonce, setRefreshNonce] = React.useState(0);
+    const [loading, setLoading] = React.useState(dataContributionId !== undefined);
+    const [refreshing, setRefreshing] = React.useState(false);
     const operationVersion = React.useRef(0);
     const dirtyFields = React.useRef(new Set<string>());
     const writeKeys = sharedPluginWriteKeys;
     const request = React.useCallback((type: 'plugin.call', params: RequestParams<'plugin.call'>): Promise<unknown> => sync.request(type, params, PLUGIN_CALL_CLIENT_TIMEOUT_MS), []);
-    const dataContributionId = screen.data?.contributionId;
     React.useEffect(() => {
         operationVersion.current += 1;
         dirtyFields.current.clear();
@@ -731,13 +732,17 @@ function ScreenBody(props: {
         if (dataContributionId !== undefined) setRefreshNonce((value) => value + 1);
     }), [dataContributionId, props.pluginId]);
     React.useEffect(() => {
-        if (dataContributionId === undefined) return;
+        if (dataContributionId === undefined || cacheKey === undefined) return;
         let cancelled = false;
+        // Stale first, fresh behind it: a reopened screen never starts blank.
+        const cached = screenCache.get(cacheKey);
+        if (cached !== undefined) setData(cached);
         setLoading(true);
         setDataError(undefined);
         void loadScreenData(dataContributionId, props.manifest, props.pluginId, props.manifestHash, request, callParams)
             .then((value) => {
                 if (cancelled) return;
+                screenCache.set(cacheKey, value);
                 setData(value);
                 const defaults = initialFieldValues(screen, value);
                 setFields((current) => Object.fromEntries(Object.entries(defaults).map(([id, initial]) =>
@@ -746,7 +751,7 @@ function ScreenBody(props: {
             .catch((error: unknown) => { if (!cancelled) setDataError(error instanceof Error ? error.message : String(error)); })
             .finally(() => { if (!cancelled) { setLoading(false); setRefreshing(false); } });
         return () => { cancelled = true; };
-    }, [dataContributionId, props.manifest, props.pluginId, props.manifestHash, callParams, request, refreshNonce]);
+    }, [cacheKey, dataContributionId, props.manifest, props.pluginId, props.manifestHash, callParams, request, refreshNonce]);
 
     const onRowAction = React.useCallback((action: PluginScreenRowAction, item: unknown) => {
         const bound = action.type === 'screen' && action.params !== undefined
@@ -822,9 +827,6 @@ function ScreenBody(props: {
                     onRefresh={() => { setRefreshing(true); setRefreshNonce((value) => value + 1); }} />
             )}>
             <LoadingHairline active={loading} />
-            {/* One provenance line, not a header block: the navigation bar already
-                names the plugin, and the screen's own title needs the room. */}
-            {props.source.kind !== 'local' && <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 11, marginBottom: 6 }}>{`${props.pluginName} · ${sourceLabel(props.source)}`}</Text>}
             {screen.title !== undefined && <Text style={{ color: theme.colors.text, fontSize: 21, fontWeight: '700', marginBottom: 8 }}>{bindText(resolvePluginText(screen.title), data)}</Text>}
             {/* Show why, not just that: a plugin author debugging a screen has
                 nothing to go on otherwise. The host already bounds this text. */}
@@ -850,6 +852,9 @@ function ScreenBody(props: {
                     {status.text}
                 </Text>
             )}
+            {/* Provenance is a footnote, not a headline: the screen's own title
+                leads, and where the plugin came from waits at the bottom. */}
+            {props.source.kind !== 'local' && <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 11, marginTop: 20 }}>{`${props.pluginName} · ${sourceLabel(props.source)}`}</Text>}
         </ScrollView>
     );
 }
