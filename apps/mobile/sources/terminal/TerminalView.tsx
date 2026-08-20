@@ -18,8 +18,14 @@ import { decodeBase64, encodeBase64 } from '@/encryption/base64';
 import { openTerminal, type TerminalChannel } from './openTerminal';
 import { beginViewportCapture, recordTerminalOutput } from './recentOutput';
 
-/** herdr repaints the whole screen per scroll; don't ask it for the world. */
-const MAX_SCROLL_LINES = 40;
+/**
+ * One scroll message costs herdr one full-screen repaint whatever the line
+ * count, so a fling should travel as one big jump, not as forty queued small
+ * ones. The cap only guards against a runaway accumulator.
+ */
+const MAX_SCROLL_LINES = 400;
+/** A scroll whose repaint never came back must not gate scrolling forever. */
+const SCROLL_ACK_TIMEOUT_MS = 250;
 
 export interface TerminalViewProps {
     sessionId: string;
@@ -41,12 +47,17 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
     const writeRafRef = React.useRef<number | undefined>(undefined);
     const pendingScrollRef = React.useRef(0);
     const scrollRafRef = React.useRef<number | undefined>(undefined);
+    const scrollInFlightRef = React.useRef(false);
+    const scrollAckTimerRef = React.useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
     const cancelCoalesce = (): void => {
         if (writeRafRef.current !== undefined) cancelAnimationFrame(writeRafRef.current);
         if (scrollRafRef.current !== undefined) cancelAnimationFrame(scrollRafRef.current);
+        if (scrollAckTimerRef.current !== undefined) clearTimeout(scrollAckTimerRef.current);
         writeRafRef.current = undefined;
         scrollRafRef.current = undefined;
+        scrollAckTimerRef.current = undefined;
+        scrollInFlightRef.current = false;
         pendingWritesRef.current = [];
         pendingScrollRef.current = 0;
     };
@@ -73,13 +84,33 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
         void view.write(encodeBase64(all));
     };
 
+    /**
+     * Latest-wins gating: while one scroll's repaint is on the wire, new drag
+     * and fling deltas pile into the accumulator instead of the network. Each
+     * queued round trip behind a fling is felt as rubber-band lag; one bigger
+     * jump repaints the same screen once.
+     */
     const flushScroll = (): void => {
         scrollRafRef.current = undefined;
+        if (scrollInFlightRef.current) return;
         const lines = Math.trunc(pendingScrollRef.current);
         pendingScrollRef.current = 0;
         if (lines === 0) return;
         const clamped = Math.max(-MAX_SCROLL_LINES, Math.min(MAX_SCROLL_LINES, lines));
+        scrollInFlightRef.current = true;
+        scrollAckTimerRef.current = setTimeout(settleScroll, SCROLL_ACK_TIMEOUT_MS);
         channelRef.current?.scroll(clamped);
+    };
+
+    /** The repaint (or the timeout) releases the gate and drains what piled up. */
+    const settleScroll = (): void => {
+        if (!scrollInFlightRef.current) return;
+        if (scrollAckTimerRef.current !== undefined) clearTimeout(scrollAckTimerRef.current);
+        scrollAckTimerRef.current = undefined;
+        scrollInFlightRef.current = false;
+        if (Math.trunc(pendingScrollRef.current) !== 0 && scrollRafRef.current === undefined) {
+            scrollRafRef.current = requestAnimationFrame(flushScroll);
+        }
     };
 
     React.useEffect(
@@ -135,6 +166,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                     // frame instead of one per message.
                     channel.onData((base64) => {
                         recordTerminalOutput(sessionId, base64);
+                        settleScroll();
                         pendingWritesRef.current.push(base64);
                         if (writeRafRef.current === undefined) {
                             writeRafRef.current = requestAnimationFrame(flushWrites);
