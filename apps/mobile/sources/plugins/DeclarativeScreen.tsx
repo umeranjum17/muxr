@@ -4,7 +4,8 @@ import { randomUUID } from 'expo-crypto';
 import { useRouter } from 'expo-router';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { PolarChart, Pie } from 'victory-native';
-import Animated, { Easing, FadeInDown, useAnimatedStyle, useReducedMotion, useSharedValue, withDelay, withTiming } from 'react-native-reanimated';
+import { Canvas, Path, Skia } from '@shopify/react-native-skia';
+import Animated, { Easing, FadeInDown, useAnimatedStyle, useDerivedValue, useReducedMotion, useSharedValue, withDelay, withTiming } from 'react-native-reanimated';
 import { useUnistyles } from 'react-native-unistyles';
 import type { PluginManifestV1, PluginScreenButtonNode, PluginScreenChartNode, PluginScreenContribution, PluginScreenNode, PluginScreenRowAction, PluginScreenRowNode, PluginScreenTone, PluginScreenTreeNode, PluginSource, PluginText, RequestParams } from '@muxr/contract';
 import { MAX_SCREEN_LIST_ROWS, PLUGIN_CALL_CLIENT_TIMEOUT_MS, capUtf8Bytes, defaultPluginText, sanitizeDisplayText } from '@muxr/contract';
@@ -62,6 +63,54 @@ function withAlpha(color: string, alpha: number): string {
 function rampFill(theme: Theme, index: number, count: number): string {
     const step = count <= 1 ? 0 : index / (count - 1);
     return withAlpha(theme.colors.accent, 1 - step * 0.62);
+}
+
+/**
+ * Open-bottom arc, so the gap reads as the scale's start and end rather than as
+ * a slice that was left out of a pie.
+ */
+function GaugeArc({ ratio, size, color, track }: { ratio: number; size: number; color: string; track: string }) {
+    const reduceMotion = useReducedMotion();
+    const sweep = useSharedValue(reduceMotion ? ratio : 0);
+    React.useEffect(() => {
+        sweep.value = reduceMotion ? ratio : withTiming(ratio, { duration: 620, easing: Easing.bezier(0.23, 1, 0.32, 1) });
+    }, [ratio, reduceMotion, sweep]);
+    const stroke = size * 0.085;
+    const radius = (size - stroke) / 2;
+    const box = Skia.XYWHRect(stroke / 2, stroke / 2, radius * 2, radius * 2);
+    const START = 135;
+    const SPAN = 270;
+    const trackPath = React.useMemo(() => {
+        const path = Skia.Path.Make();
+        path.addArc(box, START, SPAN);
+        return path;
+    }, [box]);
+    const valuePath = useDerivedValue(() => {
+        const path = Skia.Path.Make();
+        path.addArc(box, START, Math.max(0.001, SPAN * sweep.value));
+        return path;
+    });
+    return (
+        <Canvas style={{ width: size, height: size }}>
+            <Path path={trackPath} color={track} style="stroke" strokeWidth={stroke} strokeCap="round" />
+            <Path path={valuePath} color={color} style="stroke" strokeWidth={stroke} strokeCap="round" />
+        </Canvas>
+    );
+}
+
+function AnimatedColumn({ ratio, color, track, delay }: { ratio: number; color: string; track: string; delay: number }) {
+    const reduceMotion = useReducedMotion();
+    const height = useSharedValue(reduceMotion ? ratio : 0);
+    React.useEffect(() => {
+        height.value = reduceMotion ? ratio : withDelay(delay, withTiming(ratio, { duration: 480, easing: Easing.bezier(0.23, 1, 0.32, 1) }));
+    }, [delay, ratio, reduceMotion, height]);
+    // Floored so an idle day stays a visible baseline instead of disappearing.
+    const animated = useAnimatedStyle(() => ({ height: `${Math.max(2, Math.min(1, height.value) * 100)}%` }));
+    return (
+        <View style={{ width: '100%', flex: 1, justifyContent: 'flex-end', backgroundColor: track, borderRadius: 5, overflow: 'hidden' }}>
+            <Animated.View style={[{ width: '100%', borderRadius: 5, backgroundColor: color }, animated]} />
+        </View>
+    );
 }
 
 /** Track fill that sweeps in when its value first arrives; decorative only. */
@@ -221,6 +270,52 @@ function ScreenChart({ node, data }: { node: PluginScreenChartNode; data: unknow
     </View>;
     const total = series.reduce((sum, item) => sum + item.value, 0);
     const summary = `${title ?? 'Chart'}: ${series.map((item) => `${item.label} ${node.variant === 'ring' ? `${Math.round(item.value / total * 100)} percent` : chartValue(item)}`).join(', ')}`;
+    const card = { marginBottom: 14, backgroundColor: theme.colors.surfaceHigh, borderRadius: 16, padding: 16 } as const;
+    const heading = title === undefined ? null : (
+        <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 12 }}>{title}</Text>
+    );
+
+    // One value against its ceiling. A two-slice donut says the same thing with
+    // a second slice that carries no information of its own.
+    if (node.variant === 'gauge') {
+        const hero = series[0]!;
+        const ratio = Math.max(0, Math.min(1, total === 0 ? 0 : hero.value / total));
+        return <View accessible accessibilityRole="progressbar" accessibilityLabel={summary}
+            accessibilityValue={{ min: 0, max: 100, now: Math.round(ratio * 100) }} style={card}>
+            {heading}
+            <View style={{ alignItems: 'center' }}>
+                <GaugeArc ratio={ratio} size={148} color={hero.tone === undefined ? theme.colors.accent : chartFill(theme, hero.tone)} track={theme.colors.surfaceHighest} />
+                <View pointerEvents="none" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center' }}>
+                    <Text style={{ color: theme.colors.text, fontSize: 30, fontWeight: '700', letterSpacing: -0.8 }}>{chartValue(hero)}</Text>
+                    <Text style={{ color: theme.colors.textSecondary, fontSize: 11, marginTop: 1 }}>{hero.label}</Text>
+                </View>
+            </View>
+        </View>;
+    }
+
+    // Time reads left to right. Ranking a series of days destroys the shape.
+    if (node.variant === 'column') {
+        const peak = Math.max(...series.map((item) => item.value));
+        const last = series.length - 1;
+        return <View accessible accessibilityRole="image" accessibilityLabel={summary} style={card}>
+            {heading}
+            <View style={{ flexDirection: 'row', alignItems: 'flex-end', height: 108, gap: 6 }}>
+                {series.map((item, index) => (
+                    <View key={`${item.label}-${index}`} style={{ flex: 1, alignItems: 'center', justifyContent: 'flex-end', height: '100%' }}>
+                        {index === last && <Text numberOfLines={1} style={{ color: theme.colors.text, fontSize: 11, marginBottom: 4, ...Typography.mono('semiBold') }}>{chartValue(item)}</Text>}
+                        <AnimatedColumn ratio={peak === 0 ? 0 : item.value / peak} delay={index * 45}
+                            color={index === last ? theme.colors.accent : withAlpha(theme.colors.accent, 0.45)} track={theme.colors.surfaceHighest} />
+                    </View>
+                ))}
+            </View>
+            <View style={{ flexDirection: 'row', gap: 6, marginTop: 8 }}>
+                {series.map((item, index) => (
+                    <Text key={`${item.label}-${index}-label`} numberOfLines={1}
+                        style={{ flex: 1, textAlign: 'center', color: index === last ? theme.colors.text : theme.colors.textSecondary, fontSize: 11 }}>{item.label}</Text>
+                ))}
+            </View>
+        </View>;
+    }
     if (node.variant === 'ring') {
         // First slice is the hero: its value/label sit in the donut center.
         const hero = series[0]!;

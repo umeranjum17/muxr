@@ -258,7 +258,9 @@ function parseScreenNode(item: Record<string, unknown>, depth: number, budget: {
             };
         }
         case 'chart':
-            if (item.variant !== 'bar' && item.variant !== 'ring') throw new Error('invalid plugin screen chart variant');
+            if (item.variant !== 'bar' && item.variant !== 'column' && item.variant !== 'gauge' && item.variant !== 'ring') {
+                throw new Error('invalid plugin screen chart variant');
+            }
             return {
                 type: 'chart', variant: item.variant, path: bindingPath(item.path),
                 ...(item.title === undefined ? {} : { title: pluginText(item.title, 80) }),

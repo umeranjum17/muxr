@@ -69,7 +69,7 @@
         },
         {
           "type": "chart",
-          "variant": "ring",
+          "variant": "gauge",
           "path": "data.limitRing",
           "title": "Current limit",
           "emptyText": "No published limit for this provider"
@@ -112,7 +112,7 @@
         },
         {
           "type": "chart",
-          "variant": "bar",
+          "variant": "column",
           "path": "data.weekSeries",
           "emptyText": "No measured activity this week"
         },

@@ -453,7 +453,11 @@ export interface PluginScreenSectionNode {
 }
 export interface PluginScreenChartNode {
     type: 'chart';
-    variant: 'bar' | 'ring';
+    /**
+     * bar ranks categories, column reads a series over time left to right,
+     * gauge carries one value against its ceiling, ring splits a whole.
+     */
+    variant: 'bar' | 'column' | 'gauge' | 'ring';
     /** Runtime path to bounded `{ label, value, valueLabel?, tone? }` entries. */
     path: string;
     title?: PluginText;
