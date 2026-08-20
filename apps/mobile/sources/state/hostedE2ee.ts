@@ -6,7 +6,9 @@ import {
     generateKeyPair,
     newV2ReplayTracker,
     newV2SenderState,
+    openPairingCodePayload,
     openV2,
+    pairingCodeHash,
     sealV2,
     v2EnvelopeSequence,
     v2ReplayFromSnapshot,
@@ -258,6 +260,8 @@ async function json(base: string, path: string, options: RequestInit = {}): Prom
             const message = String(body.error ?? `request failed (${response.status})`);
             const friendlyErrors: Record<string, string> = {
                 invalid_claim: 'This pairing string is invalid. Create a fresh one on the machine.',
+                invalid_pairing_code: 'This pairing code is invalid or was already used. Create a fresh one on the machine.',
+                pairing_code_expired: 'This pairing code expired. Create a fresh one on the machine.',
                 already_claimed: 'This pairing string was already used. Create a fresh one on the machine.',
                 expired: 'This pairing string expired. Create a fresh one on the machine.',
                 wrong_device_kind: 'This pairing link is for a different client type. Generate a fresh link from the muxr menu.',
@@ -357,10 +361,23 @@ export async function resumePendingHostedPairing(): Promise<StoredHostedGrant | 
     return completePendingHostedPair(JSON.parse(raw) as PendingHostedPair, false);
 }
 
-/** Consume a QR/App-Link claim and store the verified machine grant in the platform secret store. */
+async function resolvePairingCode(value: string): Promise<string> {
+    const locator = new URL(value);
+    const code = locator.searchParams.get('pair');
+    if ((locator.protocol !== 'ws:' && locator.protocol !== 'wss:') || code === null) return value;
+    const result = await json(relayControlUrl(value), '/v1/selfhost/pair-code', {
+        method: 'POST',
+        body: JSON.stringify({ code_hash: pairingCodeHash(code) }),
+    });
+    if (typeof result.payload !== 'string') throw new Error('pairing code payload is unavailable');
+    return `muxr://pair?payload=${openPairingCodePayload(result.payload, code)}`;
+}
+
+/** Consume a QR/code claim and store the verified machine grant in the platform secret store. */
 export async function claimHostedPairing(url: string): Promise<StoredHostedGrant> {
-    // Mobile keyboards and wrapped copy often insert whitespace into long QR
-    // strings. Pairing URLs cannot contain meaningful whitespace, so strip it.
+    url = url.trim();
+    if (/^wss?:\/\//i.test(url)) url = await resolvePairingCode(url);
+    // Deep-link copy can wrap long browser payloads. URLs contain no meaningful whitespace.
     url = url.replace(/\s+/g, '');
     const isSelfhostLink = url.startsWith('muxr://pair?') || url.startsWith('muxr://pair#');
     const parsed = new URL(url);

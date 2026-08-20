@@ -28,7 +28,7 @@ return after login or reboot and `muxr update` restarts them as one managed unit
 Unchanged setup choices keep existing devices paired; changing the endpoint
 requires and displays a fresh pairing step.
 
-In the native app: **Scan QR code** (or paste the pairing string). For the
+In the native app: **Scan QR code** or enter the short relay-qualified pairing string. For the
 read-only browser, setup prints a clickable HTTPS pairing link; the browser
 grant expires after eight hours and the UI then asks you to pair again.
 
@@ -59,9 +59,10 @@ limits key on real client IPs.
 - The relay enforces end-to-end encryption (v2 machine keys). Terminal output,
   keystrokes, prompts, and files are sealed on your machines; the relay routes
   ciphertext it cannot read.
-- Pairing is single-use and expires in five minutes. The QR/pairing string
-  carries a one-time claim, a pair secret, and your machine's public key. The
-  pair secret never touches the relay.
+- Native pairing is single-use and expires in two minutes. QR and manual entry
+  use the same short value, for example `wss://relay.example?pair=7KDM4-QXP7N`.
+  The relay stores only a code hash and code-encrypted payload, deletes the
+  lookup on first resolution, and never receives the code or pair secret.
 - The phone proves itself once and receives a durable device credential. It remains paired until explicit revocation; normal calendar time never forces another QR.
 - Never edit relay state by hand. List and revoke phones with:
 

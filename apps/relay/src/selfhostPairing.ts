@@ -8,7 +8,7 @@ import { readPrivateFile, writeJsonFileAtomic } from './persist.js';
  * The self-host analog of the cloud pairSessions/credentials collections.
  */
 
-const PAIR_TTL_MS = 5 * 60_000;
+const PAIR_TTL_MS = 2 * 60_000;
 const MAX_SESSIONS = 100;
 
 export interface SelfhostPairSession {
@@ -24,6 +24,9 @@ export interface SelfhostPairSession {
     deviceName?: string;
     mailbox?: string;
     grant?: string;
+    codeHash?: string;
+    codePayload?: string;
+    codeExpiresAt?: number;
 }
 
 export interface SelfhostDevice {
@@ -54,6 +57,8 @@ export class SelfhostPairing {
 
     constructor(dataDir: string) {
         this.file = join(dataDir, 'selfhost-pairing.json');
+        const sweep = setInterval(() => { void this.sweepExpired().catch(() => undefined); }, 30_000);
+        sweep.unref();
     }
 
     private serialized<T>(op: () => Promise<T>): Promise<T> {
@@ -86,11 +91,26 @@ export class SelfhostPairing {
 
     private async persist(): Promise<void> {
         const previous = await readPrivateFile(this.file);
-        if (previous !== undefined) await writeJsonFileAtomic(`${this.file}.bak`, this.parse(previous));
+        if (previous !== undefined) {
+            const backup = this.parse(previous);
+            // Pairing handoffs are deliberately ephemeral. A forensic backup may
+            // retain device authorization history, never consumed codes/sessions.
+            backup.sessions = [];
+            await writeJsonFileAtomic(`${this.file}.bak`, backup);
+        }
         await writeJsonFileAtomic(this.file, this.state);
     }
 
-    /** CLI side (mint-secret authed at the route): open a 5-minute pairing window. */
+    private sweepExpired(now = Date.now()): Promise<void> {
+        return this.serialized(async () => {
+            await this.load();
+            const before = this.state.sessions.length;
+            this.state.sessions = this.state.sessions.filter((session) => session.usedAt !== undefined || session.expiresAt > now);
+            if (this.state.sessions.length !== before) await this.persist();
+        });
+    }
+
+    /** CLI side (owner/machine authed at the route): open a two-minute pairing window. */
     createSession(input: { claim: string; machineSlug: string; deviceKind: 'native' | 'browser' }, now = Date.now()): Promise<{ pairId: string; expiresIn: number }> {
         return this.serialized(async () => {
             await this.load();
@@ -111,6 +131,41 @@ export class SelfhostPairing {
         });
     }
 
+    publishCode(pairId: string, machineSlug: string | undefined, input: { codeHash: string; payload: string }, now = Date.now()): Promise<boolean> {
+        return this.serialized(async () => {
+            await this.load();
+            const session = this.state.sessions.find((entry) => entry.pairId === pairId);
+            if (session === undefined || machineSlug !== undefined && session.machineSlug !== machineSlug
+                || session.expiresAt <= now || session.usedAt !== undefined || input.codeHash.length !== 43
+                || input.payload.length === 0 || input.payload.length > 16 * 1024) return false;
+            session.codeHash = input.codeHash;
+            session.codePayload = input.payload;
+            session.codeExpiresAt = session.expiresAt;
+            await this.persist();
+            return true;
+        });
+    }
+
+    /** Phone side: consume the encrypted lookup before claiming the underlying session. */
+    resolveCode(codeHash: string, now = Date.now()): Promise<{ state: 'resolved'; payload: string } | { state: 'invalid' | 'expired' }> {
+        return this.serialized(async () => {
+            await this.load();
+            const session = this.state.sessions.find((entry) => entry.codeHash === codeHash);
+            if (session === undefined || session.codePayload === undefined) return { state: 'invalid' };
+            if ((session.codeExpiresAt ?? session.expiresAt) <= now) {
+                this.state.sessions = this.state.sessions.filter((entry) => entry !== session);
+                await this.persist();
+                return { state: 'expired' };
+            }
+            const payload = session.codePayload;
+            delete session.codeHash;
+            delete session.codePayload;
+            delete session.codeExpiresAt;
+            await this.persist();
+            return { state: 'resolved', payload };
+        });
+    }
+
     sessionMachineSlug(pairId: string): Promise<string | undefined> {
         return this.serialized(async () => {
             await this.load();
@@ -128,7 +183,11 @@ export class SelfhostPairing {
             await this.load();
             const session = this.state.sessions.find((s) => s.pairId === pairId);
             if (session === undefined || session.claimHash !== hash(input.claim)) return { state: 'invalid_claim' };
-            if (session.expiresAt <= now) return { state: 'expired' };
+            if (session.expiresAt <= now) {
+                this.state.sessions = this.state.sessions.filter((entry) => entry !== session);
+                await this.persist();
+                return { state: 'expired' };
+            }
             if ((session.deviceKind ?? 'native') !== input.deviceKind) return { state: 'wrong_device_kind' };
             if (session.usedAt !== undefined) return { state: 'already_claimed' };
             session.usedAt = now;
@@ -157,7 +216,12 @@ export class SelfhostPairing {
         return this.serialized(async () => {
             await this.load();
             const session = this.state.sessions.find((s) => s.pairId === pairId);
-            if (session === undefined || machineSlug !== undefined && session.machineSlug !== machineSlug || (session.usedAt === undefined && session.expiresAt <= now)) return { state: 'expired' };
+            if (session === undefined || machineSlug !== undefined && session.machineSlug !== machineSlug) return { state: 'expired' };
+            if (session.usedAt === undefined && session.expiresAt <= now) {
+                this.state.sessions = this.state.sessions.filter((entry) => entry !== session);
+                await this.persist();
+                return { state: 'expired' };
+            }
             if (session.usedAt === undefined) return { state: 'pending' };
             const result: { state: 'claimed'; mailbox?: string; deviceId?: string; devicePublicKey?: string; grantPresent?: boolean } = { state: 'claimed' };
             if (session.mailbox !== undefined) result.mailbox = session.mailbox;
@@ -188,8 +252,11 @@ export class SelfhostPairing {
         return this.serialized(async () => {
             await this.load();
             const session = this.state.sessions.find((s) => s.pairId === pairId);
-            if (session === undefined || session.deviceId !== deviceId) return undefined;
-            return session.grant;
+            if (session === undefined || session.deviceId !== deviceId || session.grant === undefined) return undefined;
+            const grant = session.grant;
+            this.state.sessions = this.state.sessions.filter((entry) => entry !== session);
+            await this.persist();
+            return grant;
         });
     }
 

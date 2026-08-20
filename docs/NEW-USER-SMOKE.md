@@ -17,7 +17,7 @@ Primary gate: clean Linux VM plus a fresh API 36 Android emulator. Follow-up doc
    - Fail if undocumented secrets, private packages, maintainer paths, or unpublished npm commands are required.
 3. **Start the self-hosted product**
    - Run `muxr setup` in the isolated HOME; do not run a second undocumented startup command.
-   - Confirm the relay health endpoint, host connection, owner-only state permissions, and a visible QR plus pasteable pairing string.
+   - Confirm relay health, host connection, owner-only state permissions, and a visible QR plus short two-minute pairing string.
 4. **Pair a fresh phone**
    - Install the exact release build on a factory-reset emulator.
    - Complete QR/pair-string consent. Confirm the app discovers or reaches only the chosen relay and reaches the Herd without email, checkout, or managed-tier UI.

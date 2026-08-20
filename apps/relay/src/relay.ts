@@ -511,11 +511,31 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
                 writeJson(res, 200, { ticket, expires_in: 60 });
                 return;
             }
-            // Self-host pairing: CLI opens sessions with the mint secret; the phone
-            // claims with the one-time claim from the QR, then uses its device
-            // credential for grants and tickets.
+            // Native short codes resolve on the selected self-host relay. The
+            // relay sees only a hash and code-encrypted payload, never the code
+            // or high-entropy pairing secret inside it.
+            if (config.localAuthority && localPairing !== undefined && req.method === 'POST'
+                && url.pathname === '/v1/selfhost/pair-code') {
+                if (rateLimited(`pair-code:${clientIp(req, config.trustProxy)}`, 10, 60_000, Date.now())) {
+                    writeJsonError(res, 429, 'too many requests');
+                    return;
+                }
+                const body = (await readJsonBody(req).catch(() => undefined)) as Record<string, unknown> | undefined;
+                const codeHash = typeof body?.code_hash === 'string' ? body.code_hash : '';
+                if (!/^[A-Za-z0-9_-]{43}$/.test(codeHash)) { writeJsonError(res, 400, 'invalid_pairing_code'); return; }
+                const result = await localPairing.resolveCode(codeHash);
+                if (result.state !== 'resolved') {
+                    writeJsonError(res, result.state === 'expired' ? 410 : 404, result.state === 'expired' ? 'pairing_code_expired' : 'invalid_pairing_code');
+                    return;
+                }
+                writeJson(res, 200, { payload: result.payload });
+                return;
+            }
+            // Self-host pairing: CLI opens sessions with owner/machine authority;
+            // the phone claims with the encrypted payload resolved by the code.
             if (config.localAuthority && localPairing !== undefined && url.pathname.startsWith('/v1/selfhost/pair-sessions')) {
                 const claimMatch = /^\/v1\/selfhost\/pair-sessions\/([^/]+)\/claim$/.exec(url.pathname);
+                const codeMatch = /^\/v1\/selfhost\/pair-sessions\/([^/]+)\/code$/.exec(url.pathname);
                 const grantMatch = /^\/v1\/selfhost\/pair-sessions\/([^/]+)\/grant$/.exec(url.pathname);
                 const pollMatch = /^\/v1\/selfhost\/pair-sessions\/([^/]+)$/.exec(url.pathname);
                 if (req.method === 'POST' && url.pathname === '/v1/selfhost/pair-sessions') {
@@ -534,6 +554,22 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
                     if (!(await machineAuthority?.isMachineAllowed(machineSlug))) { writeJsonError(res, 403, 'machine is revoked or expired'); return; }
                     const session = await localPairing.createSession({ claim, machineSlug, deviceKind });
                     writeJson(res, 201, { pair_id: session.pairId, expires_in: session.expiresIn });
+                    return;
+                }
+                if (req.method === 'POST' && codeMatch?.[1] !== undefined) {
+                    const authority = await resolveAuthority(req);
+                    if (!authority.owner && authority.machine === undefined) { writeJsonError(res, 403, 'pair code publication requires owner or machine authority'); return; }
+                    const sessionSlug = await localPairing.sessionMachineSlug(codeMatch[1]);
+                    if (sessionSlug !== undefined && !(await machineAuthority?.isMachineAllowed(sessionSlug))) { writeJsonError(res, 403, 'machine is revoked or expired'); return; }
+                    const body = (await readJsonBody(req).catch(() => undefined)) as Record<string, unknown> | undefined;
+                    const codeHash = typeof body?.code_hash === 'string' ? body.code_hash : '';
+                    const payload = typeof body?.payload === 'string' ? body.payload : '';
+                    if (!/^[A-Za-z0-9_-]{43}$/.test(codeHash) || payload === ''
+                        || !(await localPairing.publishCode(codeMatch[1], authority.machine?.slug, { codeHash, payload }))) {
+                        writeJsonError(res, 400, 'pairing_code_invalid');
+                        return;
+                    }
+                    writeJson(res, 200, { ok: true });
                     return;
                 }
                 if (req.method === 'POST' && claimMatch?.[1] !== undefined) {

@@ -1,6 +1,11 @@
 {
   "entries": [
     {
+      "title": "Pair without the payload",
+      "summary": "A short relay-qualified code replaces the giant native pairing string.",
+      "markdown": "- Enter one short two-minute pairing string or scan the same value as a QR.\n- Pair through LAN, Tailscale, Cloudflare, or a custom relay without a central discovery service.\n- Pairing lookups are encrypted, single-use, and deleted after resolution; completed handoffs are deleted after grant delivery."
+    },
+    {
       "title": "Polish everywhere",
       "summary": "A design-review pass plus simpler, fewer bundled plugins.",
       "markdown": "- Proper green/red diffs, theme-correct voice overlay, and press feedback across terminal, sheets, and plugin screens.\n- Copy a link from recent terminal output in one tap from the Actions menu.\n- Fewer, simpler bundled plugins: Code (files, changes, history, runbook), Status (usage and vitals), and Servers (ports and preview).\n- The read-only browser now shows audited read-only plugin screens like Usage and Files; bundled plugin permissions refresh once after this safety upgrade.\n- The setup menu guides instead of dead-ending, pairing recovers from expired sessions, and the app names OMP correctly."
@@ -26,5 +31,5 @@
       "markdown": "- Watch sessions, terminals, changes, and attention state from your phone.\n- Send keys, inspect attachments, and start agents in a selected workspace.\n- Use provider-neutral realtime voice or fully local Whisper dictation."
     }
   ],
-  "latestTitle": "Polish everywhere"
+  "latestTitle": "Pair without the payload"
 }

@@ -7,7 +7,7 @@ import { claimHostedPairing, hostedPairingDisplayName } from '@/state/hostedE2ee
 import { getCachedConnectionSettings, saveConnectionSettings } from '@/state/connectionSettings';
 import { useCheckScannerPermissions } from '@/hooks/useCheckCameraPermissions';
 
-const PAIR_LINK = /^https:\/\/[^#]+\/pair#|^muxr:\/\/pair[?#]|^http:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?\/pair#/;
+const PAIR_LINK = /^https:\/\/[^#]+\/pair#|^muxr:\/\/pair[?#]|^wss?:\/\/[^?\s]+\?[^#\s]*\bpair=|^http:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?\/pair#/i;
 
 /**
  * Confirm + claim + save + login for a muxr pair link, wherever it came from
@@ -74,8 +74,8 @@ function ensureScanSubscription(): void {
 }
 
 /**
- * QR entry to hosted pairing. Returns a function that primes the user, checks
- * camera permission and launches the scanner; `onScanned` gets the pair link.
+ * QR entry to pairing. Returns a function that primes the user, checks camera
+ * permission and launches the scanner; `onScanned` gets the short relay code.
  */
 export function usePairQrScanner(onScanned: (url: string) => void, enabled: boolean = true) {
     const checkScannerPermissions = useCheckScannerPermissions();
