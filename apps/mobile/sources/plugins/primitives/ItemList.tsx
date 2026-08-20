@@ -37,6 +37,14 @@ function toneColor(theme: Theme, tone: PluginScreenTone | undefined): string {
     }
 }
 
+function withAlpha(color: string, alpha: number): string {
+    const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(color)?.[1];
+    if (hex === undefined) return color;
+    const full = hex.length === 3 ? hex.split('').map((part) => part + part).join('') : hex;
+    const value = Number.parseInt(full, 16);
+    return `rgba(${(value >> 16) & 255}, ${(value >> 8) & 255}, ${value & 255}, ${alpha.toFixed(3)})`;
+}
+
 /** Thin fill bar that sweeps in once on mount; decorative, never blocks taps. */
 function RowProgress({ value, color, delay }: { value: number; color: string; delay: number }) {
     const { theme } = useUnistyles();
@@ -65,7 +73,11 @@ function SheetRow({ item, fallbackIcon, busy, index, onPress }: {
     const secondary = rest.map((entry) => `${entry.label === undefined ? '' : `${entry.label} `}${entry.value}`.trim()).join(' · ');
     const metadataLabel = item.metadata.map((entry) => `${entry.label === undefined ? '' : `${entry.label} `}${entry.value}`).join(', ');
     const label = [item.group, item.title, item.subtitle, metadataLabel].filter((part) => part !== undefined && part !== '').join(', ');
-    const progressColor = toneColor(theme, item.progress?.tone ?? 'primary');
+    // Untoned bars step back down the list: a column of identical full-strength
+    // accent reads as decoration rather than ranking.
+    const progressColor = item.progress?.tone === undefined
+        ? withAlpha(theme.colors.accent, Math.max(0.4, 1 - index * 0.14))
+        : toneColor(theme, item.progress.tone);
     const content = <>
         <View style={styles.itemRow}>
             {busy
@@ -269,14 +281,17 @@ const styles = StyleSheet.create({
     count: { fontSize: 11, ...Typography.mono('semiBold') },
     sheetActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingBottom: 4 },
     sheetAction: { minHeight: 44, borderRadius: 999, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', gap: 6 },
-    groupLabel: { fontSize: 11, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 6, marginLeft: 4 },
-    groupCard: { borderRadius: 14, overflow: 'hidden' },
+    // One label scale across plugin surfaces: 12/600/0.6 is the section voice
+    // on declarative screens, and a sheet that whispers at 11/0.8 reads as a
+    // different app.
+    groupLabel: { fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 8, marginLeft: 4 },
+    groupCard: { borderRadius: 16, overflow: 'hidden' },
     rowDivider: { height: StyleSheet.hairlineWidth, marginLeft: 54 },
-    itemRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 12, paddingVertical: 10 },
-    iconTile: { width: 30, height: 30, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
+    itemRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 14, paddingVertical: 11 },
+    iconTile: { width: 30, height: 30, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
     metadata: { alignItems: 'flex-end', gap: 2, marginLeft: 8 },
-    metadataValue: { fontSize: 14, ...Typography.mono('semiBold') },
+    metadataValue: { fontSize: 13, ...Typography.mono('semiBold') },
     metadataSecondary: { fontSize: 11 },
-    progressTrack: { height: 3, borderRadius: 1.5, marginLeft: 54, marginRight: 12, marginTop: -3, marginBottom: 10, overflow: 'hidden' },
-    progressFill: { height: '100%', borderRadius: 1.5 },
+    progressTrack: { height: 4, borderRadius: 2, marginLeft: 54, marginRight: 14, marginTop: -2, marginBottom: 11, overflow: 'hidden' },
+    progressFill: { height: '100%', borderRadius: 2 },
 });

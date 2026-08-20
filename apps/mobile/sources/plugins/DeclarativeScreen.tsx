@@ -4,7 +4,8 @@ import { randomUUID } from 'expo-crypto';
 import { useRouter } from 'expo-router';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { PolarChart, Pie } from 'victory-native';
-import Animated, { Easing, FadeInDown, useAnimatedStyle, useReducedMotion, useSharedValue, withDelay, withTiming } from 'react-native-reanimated';
+import { Canvas, Path, Skia } from '@shopify/react-native-skia';
+import Animated, { Easing, FadeInDown, useAnimatedStyle, useDerivedValue, useReducedMotion, useSharedValue, withDelay, withTiming } from 'react-native-reanimated';
 import { useUnistyles } from 'react-native-unistyles';
 import type { PluginManifestV1, PluginScreenButtonNode, PluginScreenChartNode, PluginScreenContribution, PluginScreenNode, PluginScreenRowAction, PluginScreenRowNode, PluginScreenTone, PluginScreenTreeNode, PluginSource, PluginText, RequestParams } from '@muxr/contract';
 import { MAX_SCREEN_LIST_ROWS, PLUGIN_CALL_CLIENT_TIMEOUT_MS, capUtf8Bytes, defaultPluginText, sanitizeDisplayText } from '@muxr/contract';
@@ -46,7 +47,71 @@ function chartFill(theme: Theme, tone: PluginScreenTone | undefined): string {
     }
 }
 
-const SLICE_PALETTE = (theme: Theme) => [theme.colors.accent, theme.colors.textLink, theme.colors.success, theme.colors.box.warning.text, theme.colors.box.error.text, theme.colors.textSecondary];
+function withAlpha(color: string, alpha: number): string {
+    const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(color)?.[1];
+    if (hex === undefined) return color;
+    const full = hex.length === 3 ? hex.split('').map((part) => part + part).join('') : hex;
+    const value = Number.parseInt(full, 16);
+    return `rgba(${(value >> 16) & 255}, ${(value >> 8) & 255}, ${value & 255}, ${alpha.toFixed(3)})`;
+}
+
+/**
+ * Rank by depth of one hue, never by a categorical rainbow: borrowing the
+ * status colours for slice three and four is what makes a chart look cheap, and
+ * it spends red on a series that is not in trouble.
+ */
+function rampFill(theme: Theme, index: number, count: number): string {
+    const step = count <= 1 ? 0 : index / (count - 1);
+    return withAlpha(theme.colors.accent, 1 - step * 0.62);
+}
+
+/**
+ * Open-bottom arc, so the gap reads as the scale's start and end rather than as
+ * a slice that was left out of a pie.
+ */
+function GaugeArc({ ratio, size, color, track }: { ratio: number; size: number; color: string; track: string }) {
+    const reduceMotion = useReducedMotion();
+    const sweep = useSharedValue(reduceMotion ? ratio : 0);
+    React.useEffect(() => {
+        sweep.value = reduceMotion ? ratio : withTiming(ratio, { duration: 620, easing: Easing.bezier(0.23, 1, 0.32, 1) });
+    }, [ratio, reduceMotion, sweep]);
+    const stroke = size * 0.085;
+    const radius = (size - stroke) / 2;
+    const box = Skia.XYWHRect(stroke / 2, stroke / 2, radius * 2, radius * 2);
+    const START = 135;
+    const SPAN = 270;
+    const trackPath = React.useMemo(() => {
+        const path = Skia.Path.Make();
+        path.addArc(box, START, SPAN);
+        return path;
+    }, [box]);
+    const valuePath = useDerivedValue(() => {
+        const path = Skia.Path.Make();
+        path.addArc(box, START, Math.max(0.001, SPAN * sweep.value));
+        return path;
+    });
+    return (
+        <Canvas style={{ width: size, height: size }}>
+            <Path path={trackPath} color={track} style="stroke" strokeWidth={stroke} strokeCap="round" />
+            <Path path={valuePath} color={color} style="stroke" strokeWidth={stroke} strokeCap="round" />
+        </Canvas>
+    );
+}
+
+function AnimatedColumn({ ratio, color, track, delay }: { ratio: number; color: string; track: string; delay: number }) {
+    const reduceMotion = useReducedMotion();
+    const height = useSharedValue(reduceMotion ? ratio : 0);
+    React.useEffect(() => {
+        height.value = reduceMotion ? ratio : withDelay(delay, withTiming(ratio, { duration: 480, easing: Easing.bezier(0.23, 1, 0.32, 1) }));
+    }, [delay, ratio, reduceMotion, height]);
+    // Floored so an idle day stays a visible baseline instead of disappearing.
+    const animated = useAnimatedStyle(() => ({ height: `${Math.max(2, Math.min(1, height.value) * 100)}%` }));
+    return (
+        <View style={{ width: '100%', flex: 1, justifyContent: 'flex-end', backgroundColor: track, borderRadius: 5, overflow: 'hidden' }}>
+            <Animated.View style={[{ width: '100%', borderRadius: 5, backgroundColor: color }, animated]} />
+        </View>
+    );
+}
 
 /** Track fill that sweeps in when its value first arrives; decorative only. */
 function AnimatedBarFill({ ratio, color, delay }: { ratio: number; color: string; delay: number }) {
@@ -56,7 +121,7 @@ function AnimatedBarFill({ ratio, color, delay }: { ratio: number; color: string
         width.value = reduceMotion ? ratio : withDelay(delay, withTiming(ratio, { duration: 400, easing: Easing.bezier(0.23, 1, 0.32, 1) }));
     }, [delay, ratio, reduceMotion, width]);
     const animated = useAnimatedStyle(() => ({ width: `${Math.max(0, Math.min(1, width.value)) * 100}%` }));
-    return <Animated.View style={[{ height: '100%', borderRadius: 3, backgroundColor: color }, animated]} />;
+    return <Animated.View style={[{ height: '100%', borderRadius: 2.5, backgroundColor: color }, animated]} />;
 }
 
 function chartValue(item: PluginChartItem): string {
@@ -134,9 +199,9 @@ function ScreenTree(props: {
     });
     flatten(items, 0);
     const title = props.node.title === undefined ? undefined : bindText(resolvePluginText(props.node.title), props.data);
-    return <View style={{ marginBottom: 8 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 12, marginBottom: 6 }}>
-            {title !== undefined && <Text style={{ color: theme.colors.textSecondary, fontSize: 13, textTransform: 'uppercase', letterSpacing: 0.4, flex: 1 }}>{title}</Text>}
+    return <View style={{ marginBottom: 14 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
+            {title !== undefined && <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.6, flex: 1 }}>{title}</Text>}
             {folders.length > 0 && <>
                 <Pressable onPress={() => setExpanded(new Set(folders))} accessibilityRole="button" accessibilityLabel="Expand all folders" hitSlop={8}>
                     <Text style={{ color: theme.colors.textLink, fontSize: 12, paddingHorizontal: 8 }}>Expand all</Text>
@@ -146,8 +211,8 @@ function ScreenTree(props: {
                 </Pressable>
             </>}
         </View>
-        <View style={{ backgroundColor: theme.colors.surfaceHigh, borderRadius: 12, paddingVertical: 4 }}>
-            {rows.length === 0 ? <Text style={{ color: theme.colors.textSecondary, padding: 14 }}>
+        <View style={{ backgroundColor: theme.colors.surfaceHigh, borderRadius: 16, paddingVertical: 6 }}>
+            {rows.length === 0 ? <Text style={{ color: theme.colors.textSecondary, fontSize: 13, padding: 14 }}>
                 {props.node.emptyText === undefined ? t('plugins.nothingToShow') : bindText(resolvePluginText(props.node.emptyText), props.data)}
             </Text> : rows.map(({ item, depth }) => {
                 const isFolder = item.kind === 'folder';
@@ -193,28 +258,77 @@ function ScreenTree(props: {
     </View>;
 }
 
-function ScreenChart({ node, data }: { node: PluginScreenChartNode; data: unknown }) {
+function ScreenChart({ node, data, nested }: { node: PluginScreenChartNode; data: unknown; nested: boolean }) {
     const { theme } = useUnistyles();
     const reduceMotion = useReducedMotion();
     const series = asChartSeries(resolvePath(data, node.path));
     const title = node.title === undefined ? undefined : bindText(resolvePluginText(node.title), data);
     const empty = node.emptyText === undefined ? t('plugins.nothingToShow') : bindText(resolvePluginText(node.emptyText), data);
-    if (series.length === 0) return <View style={{ marginBottom: 12 }}>
-        {title !== undefined && <Text style={{ color: theme.colors.text, fontSize: 15, fontWeight: '600', marginBottom: 8 }}>{title}</Text>}
-        <Text style={{ color: theme.colors.textSecondary, fontSize: 14 }}>{empty}</Text>
+    // Empty says so in one quiet line. A full card drawn around "nothing yet"
+    // spends the same space as real data.
+    if (series.length === 0) return <View style={{ marginBottom: nested ? 8 : 14 }}>
+        {title !== undefined && <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 4, marginTop: nested ? 10 : 0 }}>{title}</Text>}
+        <Text style={{ color: theme.colors.textSecondary, fontSize: 13 }}>{empty}</Text>
     </View>;
     const total = series.reduce((sum, item) => sum + item.value, 0);
     const summary = `${title ?? 'Chart'}: ${series.map((item) => `${item.label} ${node.variant === 'ring' ? `${Math.round(item.value / total * 100)} percent` : chartValue(item)}`).join(', ')}`;
+    const card = nested
+        ? { marginBottom: 4 }
+        : { marginBottom: 14, backgroundColor: theme.colors.surfaceHigh, borderRadius: 16, padding: 16 } as const;
+    const heading = title === undefined ? null : (
+        <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 12, marginTop: nested ? 10 : 0 }}>{title}</Text>
+    );
+
+    // One value against its ceiling. A two-slice donut says the same thing with
+    // a second slice that carries no information of its own.
+    if (node.variant === 'gauge') {
+        const hero = series[0]!;
+        const ratio = Math.max(0, Math.min(1, total === 0 ? 0 : hero.value / total));
+        return <View accessible accessibilityRole="progressbar" accessibilityLabel={summary}
+            accessibilityValue={{ min: 0, max: 100, now: Math.round(ratio * 100) }} style={card}>
+            {heading}
+            <View style={{ alignItems: 'center' }}>
+                <GaugeArc ratio={ratio} size={148} color={hero.tone === undefined ? theme.colors.accent : chartFill(theme, hero.tone)} track={theme.colors.surfaceHighest} />
+                <View pointerEvents="none" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center' }}>
+                    <Text style={{ color: theme.colors.text, fontSize: 30, fontWeight: '700', letterSpacing: -0.8 }}>{chartValue(hero)}</Text>
+                    <Text style={{ color: theme.colors.textSecondary, fontSize: 11, marginTop: 1 }}>{hero.label}</Text>
+                </View>
+            </View>
+        </View>;
+    }
+
+    // Time reads left to right. Ranking a series of days destroys the shape.
+    if (node.variant === 'column') {
+        const peak = Math.max(...series.map((item) => item.value));
+        const last = series.length - 1;
+        return <View accessible accessibilityRole="image" accessibilityLabel={summary} style={card}>
+            {heading}
+            <View style={{ flexDirection: 'row', alignItems: 'flex-end', height: 108, gap: 6 }}>
+                {series.map((item, index) => (
+                    <View key={`${item.label}-${index}`} style={{ flex: 1, alignItems: 'center', justifyContent: 'flex-end', height: '100%' }}>
+                        {index === last && <Text numberOfLines={1} style={{ color: theme.colors.text, fontSize: 11, marginBottom: 4, ...Typography.mono('semiBold') }}>{chartValue(item)}</Text>}
+                        <AnimatedColumn ratio={peak === 0 ? 0 : item.value / peak} delay={index * 45}
+                            color={index === last ? theme.colors.accent : withAlpha(theme.colors.accent, 0.45)} track={theme.colors.surfaceHighest} />
+                    </View>
+                ))}
+            </View>
+            <View style={{ flexDirection: 'row', gap: 6, marginTop: 8 }}>
+                {series.map((item, index) => (
+                    <Text key={`${item.label}-${index}-label`} numberOfLines={1}
+                        style={{ flex: 1, textAlign: 'center', color: index === last ? theme.colors.text : theme.colors.textSecondary, fontSize: 11 }}>{item.label}</Text>
+                ))}
+            </View>
+        </View>;
+    }
     if (node.variant === 'ring') {
         // First slice is the hero: its value/label sit in the donut center.
         const hero = series[0]!;
-        const palette = SLICE_PALETTE(theme);
         const slices = series.map((item, index) => ({
             label: item.label,
             value: item.value,
             color: item.tone === 'secondary'
                 ? theme.colors.surfaceHighest
-                : item.tone !== undefined ? chartFill(theme, item.tone) : palette[index % palette.length]!,
+                : item.tone !== undefined ? chartFill(theme, item.tone) : rampFill(theme, index, series.length),
         }));
         return <View accessible accessibilityRole="image" accessibilityLabel={summary}
             style={{ marginBottom: 14, backgroundColor: theme.colors.surfaceHigh, borderRadius: 16, padding: 16 }}>
@@ -235,17 +349,17 @@ function ScreenChart({ node, data }: { node: PluginScreenChartNode; data: unknow
         </View>;
     }
     const max = Math.max(...series.map((item) => item.value));
-    return <View style={{ marginBottom: 14, backgroundColor: theme.colors.surfaceHigh, borderRadius: 16, padding: 16 }}
-        accessible accessibilityRole="image" accessibilityLabel={summary}>
-        {title !== undefined && <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 12 }}>{title}</Text>}
-        <View style={{ gap: 14 }}>
+    return <View style={card} accessible accessibilityRole="image" accessibilityLabel={summary}>
+        {heading}
+        <View style={{ gap: 12 }}>
             {series.map((item, index) => <View key={`${item.label}-${index}`}>
-                <View style={{ flexDirection: 'row', alignItems: 'baseline', marginBottom: 6 }}>
-                    <Text numberOfLines={1} style={{ color: theme.colors.text, fontSize: 13, fontWeight: '500', flex: 1, marginRight: 12 }}>{item.label}</Text>
-                    <Text style={{ color: theme.colors.textSecondary, fontSize: 13, ...Typography.mono('semiBold') }}>{chartValue(item)}</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'baseline', marginBottom: 5 }}>
+                    <Text numberOfLines={1} style={{ color: index === 0 ? theme.colors.text : theme.colors.textSecondary, fontSize: 13, fontWeight: index === 0 ? '600' : '500', flex: 1, marginRight: 12 }}>{item.label}</Text>
+                    <Text style={{ color: index === 0 ? theme.colors.text : theme.colors.textSecondary, fontSize: 12.5, ...Typography.mono('semiBold') }}>{chartValue(item)}</Text>
                 </View>
-                <View style={{ height: 6, borderRadius: 3, backgroundColor: theme.colors.surfaceHighest, overflow: 'hidden' }}>
-                    <AnimatedBarFill ratio={max === 0 ? 0 : item.value / max} color={chartFill(theme, item.tone)} delay={index * 50} />
+                <View style={{ height: 5, borderRadius: 2.5, backgroundColor: theme.colors.surfaceHighest, overflow: 'hidden' }}>
+                    <AnimatedBarFill ratio={max === 0 ? 0 : item.value / max}
+                        color={item.tone === undefined ? rampFill(theme, index, series.length) : chartFill(theme, item.tone)} delay={index * 45} />
                 </View>
             </View>)}
         </View>
@@ -263,6 +377,8 @@ function ScreenNode(props: {
     onTreeLoad: (node: PluginScreenTreeNode, path: string) => Promise<RuntimeTreeItem[]>;
     onTreeError: (error: unknown) => void;
     onSelectTab: (param: string, value: string) => void;
+    /** Inside a section, which already owns the card around this node. */
+    nested?: boolean;
 }) {
     const { theme } = useUnistyles();
     const { width } = useWindowDimensions();
@@ -294,8 +410,8 @@ function ScreenNode(props: {
             );
         case 'badge':
             return (
-                <View style={{ alignSelf: 'flex-start', borderRadius: 999, paddingHorizontal: 10, paddingVertical: 3, marginBottom: 8, backgroundColor: theme.colors.surfaceHighest }}>
-                    <Text style={{ color: toneColor(theme, node.tone), fontSize: 13, fontWeight: '600' }}>{bind(node.label)}</Text>
+                <View style={{ alignSelf: 'flex-start', borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4, marginBottom: 10, backgroundColor: theme.colors.surfaceHighest }}>
+                    <Text style={{ color: toneColor(theme, node.tone), fontSize: 12, fontWeight: '600', letterSpacing: 0.2 }}>{bind(node.label)}</Text>
                 </View>
             );
         case 'progress': {
@@ -319,9 +435,9 @@ function ScreenNode(props: {
             );
         }
         case 'chart':
-            return <ScreenChart node={node} data={data} />;
+            return <ScreenChart node={node} data={data} nested={props.nested === true} />;
         case 'divider':
-            return <View style={{ height: 1, backgroundColor: theme.colors.divider, marginVertical: 8 }} />;
+            return <View style={{ height: 1, backgroundColor: theme.colors.divider, marginVertical: 12 }} />;
         case 'empty':
             return (
                 <View style={{ paddingVertical: 24, alignItems: 'center' }}>
@@ -331,15 +447,24 @@ function ScreenNode(props: {
             );
         case 'section': {
             const columns = node.columns === 3 && width < 480 ? 2 : node.columns;
+            // A section inside a section is a group, not a second card: stacking
+            // panels inside panels is what turns a screen into a wall of boxes.
+            const body = (
+                <View style={props.nested
+                    ? (columns === undefined ? {} : { flexDirection: 'row', flexWrap: 'wrap', columnGap: 10 })
+                    : {
+                        backgroundColor: theme.colors.surfaceHigh, borderRadius: 16, paddingHorizontal: 16, paddingVertical: 12,
+                        ...(columns === undefined ? {} : { flexDirection: 'row', flexWrap: 'wrap', columnGap: 10 }),
+                    }}>
+                    {node.children.map((child, index) => columns === undefined
+                        ? <ScreenNode key={index} {...props} node={child} nested />
+                        : <View key={index} style={{ flexBasis: `${100 / columns - 2}%`, flexGrow: 1, maxWidth: `${100 / columns}%` }}><ScreenNode {...props} node={child} nested /></View>)}
+                </View>
+            );
             return (
-                <View style={{ marginBottom: 8 }}>
-                    {node.title !== undefined && <Text style={{ color: theme.colors.textSecondary, fontSize: 13, textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 6, marginTop: 12 }}>{bind(node.title)}</Text>}
-                    <View style={{ backgroundColor: theme.colors.surfaceHigh, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 6,
-                        ...(columns === undefined ? {} : { flexDirection: 'row', flexWrap: 'wrap', columnGap: 10 }) }}>
-                        {node.children.map((child, index) => columns === undefined
-                            ? <ScreenNode key={index} {...props} node={child} />
-                            : <View key={index} style={{ flexBasis: `${100 / columns - 2}%`, flexGrow: 1, maxWidth: `${100 / columns}%` }}><ScreenNode {...props} node={child} /></View>)}
-                    </View>
+                <View style={{ marginBottom: props.nested ? 4 : 14 }}>
+                    {node.title !== undefined && <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 10, marginTop: props.nested ? 10 : 0 }}>{bind(node.title)}</Text>}
+                    {body}
                 </View>
             );
         }
@@ -375,14 +500,14 @@ function ScreenNode(props: {
             })();
             const all = [...node.rows.map((row) => ({ row, item: undefined as unknown })), ...repeated];
             return (
-                <View style={{ marginBottom: 8 }}>
-                    {node.title !== undefined && <Text style={{ color: theme.colors.textSecondary, fontSize: 13, textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 6, marginTop: 12 }}>{bind(node.title)}</Text>}
-                    <View style={{ backgroundColor: theme.colors.surfaceHigh, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 6 }}>
+                <View style={{ marginBottom: props.nested ? 4 : 14 }}>
+                    {node.title !== undefined && <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 10, marginTop: props.nested ? 10 : 0 }}>{bind(node.title)}</Text>}
+                    <View style={props.nested ? {} : { backgroundColor: theme.colors.surfaceHigh, borderRadius: 16, paddingHorizontal: 16, paddingVertical: 4 }}>
                         {all.length === 0
-                            ? <Text style={{ color: theme.colors.textSecondary, fontSize: 14, paddingVertical: 10 }}>{bind(node.emptyText ?? t('plugins.nothingToShow'))}</Text>
+                            ? <Text style={{ color: theme.colors.textSecondary, fontSize: 13, paddingVertical: 10 }}>{bind(node.emptyText ?? t('plugins.nothingToShow'))}</Text>
                             : all.map(({ row, item }, index) => (
                                 <ScreenRow key={index} row={row} data={data} item={item} onRowAction={props.onRowAction}
-                                    style={{ paddingVertical: 10, borderTopWidth: index === 0 ? 0 : 1, borderTopColor: theme.colors.divider }} />
+                                    style={{ paddingVertical: 11, borderTopWidth: index === 0 ? 0 : 1, borderTopColor: theme.colors.divider }} />
                             ))}
                     </View>
                 </View>
