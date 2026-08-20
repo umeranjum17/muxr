@@ -1,6 +1,6 @@
 # Google Play launch plan
 
-Status: **v0.1.7 release candidate; Play Console app exists and local signed artifacts remain required before closed testing.** Production package ID is permanently `com.trymuxr.app`.
+Status: **Play Console app is live; signed store artifacts are built through the manual EAS Cloud internal-testing workflow.** Production package ID is permanently `com.trymuxr.app`.
 
 ## 1. Freeze the release identity
 
@@ -15,24 +15,19 @@ Status: **v0.1.7 release candidate; Play Console app exists and local signed art
 
 1. Create the app in Play Console with `com.trymuxr.app` and opt into Play App Signing.
 2. Generate a dedicated RSA upload key (2048-bit minimum), never commit it, and back it up in two encrypted owner-controlled locations. Keep passwords outside shell history and CI logs.
-3. Configure local EAS/Gradle credentials to sign the upload AAB with that key. Android builds remain local; do not spend cloud EAS credits.
+3. Configure EAS credentials to sign cloud-built upload AABs with that key.
 4. After Play exposes the **app-signing certificate** SHA-256 fingerprint, configure the trymuxr.com service with `MUXR_ANDROID_CERT_FINGERPRINTS`. Use the Play signing certificate—not merely the upload certificate.
 5. Verify `https://trymuxr.com/.well-known/assetlinks.json` returns `com.trymuxr.app` plus the exact Play signing fingerprint, with 200 status, JSON content type, no redirect, and no authentication.
 6. Install a Play-delivered build and prove a `/pair` HTTPS link opens muxr directly. A locally signed APK proves only the upload/development certificate path.
 
 Google requires Android App Bundles for new apps and recommends separate upload and app-signing keys: [Play App Signing](https://support.google.com/googleplay/android-developer/answer/9842756) and [Android App Bundles](https://developer.android.com/guide/app-bundle).
 
-## 3. Build the exact store artifact locally
+## 3. Build the exact store artifact in EAS Cloud
 
-From the final clean tag:
-
-```bash
-APP_ENV=production \
-MUXR_DISTRIBUTION=store \
-MUXR_PUBLIC_BASE_URL=https://trymuxr.com \
-eas build --platform android --profile production --local --non-interactive \
-  --output ./muxr-0.1.7.aab
-```
+Run the `mobile internal testing` workflow manually from GitHub Actions and
+select Android or all platforms. The workflow verifies the source, triggers the
+production profile in EAS Cloud, submits the resulting AAB to Play Internal,
+and records its exact version code and EAS build identifier.
 
 Before submission:
 
