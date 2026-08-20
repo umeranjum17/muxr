@@ -65,6 +65,11 @@ function id(value: unknown): string {
     if (typeof value !== 'string' || !/^[a-z0-9][a-z0-9._-]{0,63}$/.test(value)) throw new Error('invalid plugin id');
     return value;
 }
+/** Screen params name RPC input fields, which are camelCase, not plugin ids. */
+function paramKey(value: unknown): string {
+    if (typeof value !== 'string' || !/^[a-z][a-zA-Z0-9_]{0,63}$/.test(value)) throw new Error('invalid plugin screen param');
+    return value;
+}
 function presentation(value: unknown): 'card' | 'sheet' {
     if (value !== 'card' && value !== 'sheet') throw new Error('invalid data-card presentation');
     return value;
@@ -259,6 +264,13 @@ function parseScreenNode(item: Record<string, unknown>, depth: number, budget: {
                 ...(item.title === undefined ? {} : { title: pluginText(item.title, 80) }),
                 ...(item.emptyText === undefined ? {} : { emptyText: pluginText(item.emptyText, 120) }),
             };
+        case 'tabs':
+            return {
+                type: 'tabs',
+                path: bindingPath(item.path),
+                selectedPath: bindingPath(item.selectedPath),
+                param: paramKey(item.param),
+            };
         case 'divider':
             return { type: 'divider' };
         case 'empty':
@@ -359,7 +371,7 @@ function actionInput(value: unknown): unknown {
 
 export function parsePluginScreenParams(value: unknown): Record<string, string> {
     if (!isRecord(value) || Object.keys(value).length > MAX_SCREEN_PARAMS) throw new Error('invalid plugin screen action params');
-    return Object.fromEntries(Object.entries(value).map(([key, entry]) => [id(key), text(entry, MAX_TEXT)]));
+    return Object.fromEntries(Object.entries(value).map(([key, entry]) => [paramKey(key), text(entry, MAX_TEXT)]));
 }
 
 /** Shared structural validator for manifest actions and untrusted RPC results. */

@@ -425,7 +425,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                     </Pressable>
                 )}
                 <PluginSlot slot="session.header.trailing" context={{ sessionId: props.id, cwd: session?.metadata?.path }} />
-                <DeclarativeHeaderButtons cwd={session?.metadata?.path} />
+                <DeclarativeHeaderButtons cwd={session?.metadata?.path} sessionId={props.id} />
                 <DeclarativeChips slot="session.header.trailing" />
                 {(
                     <Pressable

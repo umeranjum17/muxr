@@ -473,6 +473,21 @@ export interface PluginScreenTreeNode {
     action?: PluginScreenRowAction;
 }
 
+/**
+ * Data-driven tab strip. Selecting a tab reloads the screen with `param` set to
+ * that tab's id, so a plugin serves one provider at a time instead of shipping
+ * every provider's detail in a single payload.
+ */
+export interface PluginScreenTabsNode {
+    type: 'tabs';
+    /** Runtime path to bounded `{ id, label }` entries. */
+    path: string;
+    /** Runtime path holding the id of the tab the payload belongs to. */
+    selectedPath: string;
+    /** Screen param set to the pressed tab's id. */
+    param: string;
+}
+
 export interface PluginScreenListNode {
     type: 'list';
     title?: PluginText;
@@ -501,6 +516,7 @@ export type PluginScreenNode =
     | PluginScreenButtonNode
     | PluginScreenSectionNode
     | PluginScreenListNode
+    | PluginScreenTabsNode
     | PluginScreenTreeNode;
 
 export interface PluginScreenContribution {

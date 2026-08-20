@@ -69,6 +69,14 @@
       ]
     },
     {
+      "slot": "session.header.trailing",
+      "id": "files.open",
+      "type": "screen-button",
+      "title": "Files",
+      "icon": "folder-outline",
+      "contentContributionId": "files"
+    },
+    {
       "slot": "navigation.content",
       "id": "files",
       "type": "screen",
@@ -202,7 +210,7 @@
                 "contributionId": "history.commit",
                 "params": {
                   "sha": "{{item.sha}}",
-                  "cwd": "{{item.cwd}}"
+                  "sessionId": "{{item.sessionId}}"
                 }
               }
             }
