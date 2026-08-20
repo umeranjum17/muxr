@@ -100,7 +100,7 @@ function NotAuthenticated() {
                     ) : (
                         <>
                             <ActionButton title="Scan QR to pair" icon="qr-code-outline" action={scanHostedQr} />
-                            <ActionButton variant="secondary" title="Paste pairing string" icon="clipboard-outline" action={() => promptForPairingString('Paste pairing string')} />
+                            <ActionButton variant="secondary" title="Enter pairing string" icon="keypad-outline" onPress={() => router.push('/pair')} />
                         </>
                     )}
                     <Text style={styles.footer}>End-to-end encrypted · machine keys never leave your devices</Text>

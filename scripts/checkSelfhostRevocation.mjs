@@ -5,8 +5,28 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
 import WebSocket from 'ws';
-import { createDeviceGrant, generateKeyPair, generateSigningKeyPair, verifyDeviceGrant } from '@muxr/crypto';
+import {
+    createDeviceGrant,
+    generateKeyPair,
+    generateSigningKeyPair,
+    openPairingCodePayload,
+    pairingCodeHash,
+    sealPairingCodePayload,
+    verifyDeviceGrant,
+} from '@muxr/crypto';
 import { waitForRelay } from './waitForRelay.mjs';
+import { SelfhostPairing } from '../apps/relay/dist/selfhostPairing.js';
+
+const expiryDir = mkdtempSync(join(tmpdir(), 'muxr-pair-expiry-'));
+const expiryStore = new SelfhostPairing(expiryDir);
+const expirySession = await expiryStore.createSession({ claim: 'x'.repeat(43), machineSlug: 'expiry', deviceKind: 'native' }, 1_000);
+await expiryStore.publishCode(expirySession.pairId, 'expiry', { codeHash: 'h'.repeat(43), payload: 'sealed' }, 1_000);
+const expiredCode = await expiryStore.resolveCode('h'.repeat(43), 121_001);
+if (expiredCode.state !== 'expired' || [join(expiryDir, 'selfhost-pairing.json'), join(expiryDir, 'selfhost-pairing.json.bak')]
+    .some((file) => readFileSync(file, 'utf8').includes('sealed'))) {
+    throw new Error('expired pairing code was not deleted');
+}
+rmSync(expiryDir, { recursive: true, force: true });
 
 const dataDir = mkdtempSync(join(tmpdir(), 'muxr-revoke-'));
 const child = { current: undefined };
@@ -43,7 +63,31 @@ async function pair(name) {
         method: 'POST', headers: bearer(mintSecret), body: JSON.stringify({ claim, machineSlug: machine, deviceKind: 'native' }),
     });
     if (!opened.response.ok) throw new Error(`open pair failed: ${JSON.stringify(opened.body)}`);
+    if (opened.body.expires_in !== 120) throw new Error(`pairing code TTL drifted: ${opened.body.expires_in}`);
     const pairId = opened.body.pair_id;
+    const code = '7KDM4-QXP7N';
+    const clearPayload = `payload-${randomBytes(24).toString('base64url')}`;
+    const encryptedPayload = sealPairingCodePayload(clearPayload, code);
+    const codeHash = pairingCodeHash(code);
+    const publishedCode = await json(`/v1/selfhost/pair-sessions/${pairId}/code`, {
+        method: 'POST', headers: bearer(mintSecret), body: JSON.stringify({ code_hash: codeHash, payload: encryptedPayload }),
+    });
+    if (!publishedCode.response.ok) throw new Error(`pair code publish failed: ${JSON.stringify(publishedCode.body)}`);
+    const atRest = readFileSync(join(dataDir, 'selfhost-pairing.json'), 'utf8');
+    if (atRest.includes(code) || atRest.includes(clearPayload)) throw new Error('relay persisted a pairing code or clear payload');
+    const resolved = await json('/v1/selfhost/pair-code', {
+        method: 'POST', body: JSON.stringify({ code_hash: codeHash }),
+    });
+    if (!resolved.response.ok || openPairingCodePayload(resolved.body.payload, code) !== clearPayload) {
+        throw new Error(`pair code resolve failed: ${JSON.stringify(resolved.body)}`);
+    }
+    const replayedCode = await json('/v1/selfhost/pair-code', {
+        method: 'POST', body: JSON.stringify({ code_hash: codeHash }),
+    });
+    if (replayedCode.response.status !== 404) throw new Error('consumed pairing code resolved twice');
+    const afterResolve = [join(dataDir, 'selfhost-pairing.json'), join(dataDir, 'selfhost-pairing.json.bak')]
+        .map((file) => readFileSync(file, 'utf8')).join('');
+    if (afterResolve.includes(codeHash) || afterResolve.includes(encryptedPayload)) throw new Error('consumed pairing lookup was not deleted');
     const claimed = await json(`/v1/selfhost/pair-sessions/${pairId}/claim`, {
         method: 'POST',
         body: JSON.stringify({ claim, device_public_key: keys.publicKey, device_name: name, device_kind: 'native', mailbox: 'opaque-mailbox' }),
@@ -55,6 +99,10 @@ async function pair(name) {
         method: 'POST', headers: bearer(mintSecret), body: JSON.stringify({ grant: JSON.stringify(grant) }),
     });
     if (!uploaded.response.ok) throw new Error(`grant upload failed: ${JSON.stringify(uploaded.body)}`);
+    const fetched = await json(`/v1/selfhost/pair-sessions/${pairId}/grant`, { headers: bearer(device.credential) });
+    if (!fetched.response.ok || fetched.body.grant !== JSON.stringify(grant)) throw new Error('paired device did not fetch its grant');
+    const deleted = await json(`/v1/selfhost/pair-sessions/${pairId}`, { headers: bearer(mintSecret) });
+    if (deleted.body.state !== 'expired') throw new Error('completed pairing handoff was not deleted');
     return device;
 }
 

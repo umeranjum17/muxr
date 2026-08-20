@@ -178,14 +178,14 @@ export default function ConnectionSettingsScreen() {
                     />
                     <Item
                         title="Pairing holds the credentials"
-                        subtitle="Keys and tokens come from the QR grant. There is nothing to type in, and no shared-key fallback."
+                        subtitle="Keys and tokens come from the QR or short-code grant. There is no shared-key fallback."
                         subtitleLines={0}
                     />
                 </ItemGroup>
 
                 <ItemGroup title="Advanced">
                     <Item title="Reconnect now" subtitle="Drops the socket and dials again" onPress={() => void syncReconnect()} />
-                    <Item title="Pair another machine" subtitle="Paste a fresh string from `muxr pair`, or open its pairing link" onPress={() => router.push('/pair')} />
+                    <Item title="Pair another machine" subtitle="Scan the QR or enter the short string from `muxr pair`" onPress={() => router.push('/pair')} />
                     <Text style={styles.hint}>
                         To stop this device reaching a machine, revoke it from the interactive muxr menu.
                     </Text>

@@ -15,7 +15,10 @@ import {
     isV2Envelope,
     newV2ReplayTracker,
     newV2SenderState,
+    openPairingCodePayload,
     openV2,
+    pairingCodeHash,
+    sealPairingCodePayload,
     sealV2,
     signDetached,
     v2ReplayFromSnapshot,
@@ -60,6 +63,16 @@ assert.equal(off.encode(plaintext), plaintext);
 const on = createPayloadCodec(machineShared);
 assert.equal(on.enabled, true);
 assert.equal(on.decode(on.encode(plaintext)), plaintext);
+
+// --- short pairing-code payload ---------------------------------------------
+
+const pairingCode = '7KDM4-QXP7N';
+const pairingPayload = JSON.stringify({ pairSecret: 'high-entropy-secret', relay: 'wss://relay.example' });
+const pairingCiphertext = sealPairingCodePayload(pairingPayload, pairingCode);
+assert.ok(!pairingCiphertext.includes('high-entropy-secret'), 'relay-stored code payload hides the pairing secret');
+assert.ok(!pairingCodeHash(pairingCode).includes('7KDM4'), 'relay lookup does not contain the human code');
+assert.equal(openPairingCodePayload(pairingCiphertext, pairingCode), pairingPayload, 'pairing code opens its payload');
+assert.throws(() => openPairingCodePayload(pairingCiphertext, '8KDM4-QXP7N'), /authentication/, 'wrong pairing code fails closed');
 
 // --- v2 strict envelope (hosted) --------------------------------------------
 

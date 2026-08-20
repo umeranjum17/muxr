@@ -1,6 +1,6 @@
 import * as React from 'react';
 import * as Linking from 'expo-linking';
-import { ActivityIndicator, Platform, Text, View } from 'react-native';
+import { ActivityIndicator, Platform, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StyleSheet } from 'react-native-unistyles';
@@ -11,7 +11,6 @@ import { getCachedConnectionSettings, saveConnectionSettings } from '@/state/con
 import { usePairQrScanner } from '@/hooks/usePairing';
 import { ActionButton } from '@/components/ActionButton';
 import { Typography } from '@/constants/Typography';
-import { Modal } from '@/modal';
 
 /**
  * What pairing actually authorises. The previous copy described only the
@@ -30,8 +29,12 @@ const BROWSER_PAIRING_GRANTS = [
     'Use this read-only grant for eight hours, then pair again.',
 ] as const;
 
+const SHORT_PAIRING_STRING = /^wss?:\/\/[^?\s]+\?[^#\s]*\bpair=[23456789ABCDEFGHJKMNPQRSTUVWXYZ-]+$/i;
+const isPairingValue = (value: string): boolean => SHORT_PAIRING_STRING.test(value)
+    || value.includes('/pair?') || value.includes('/pair#');
+
 const PAIRING_STEPS = [
-    'This phone claims the one-time code from the QR.',
+    'This phone claims the one-time code from the QR or pairing string.',
     'Your machine seals its key grant to this phone only.',
     'The grant is verified against the machine key in the QR.',
 ] as const;
@@ -46,6 +49,7 @@ export default function PairScreen() {
     const router = useRouter();
     const insets = useSafeAreaInsets();
     const [state, setState] = React.useState<PairState | undefined>(undefined);
+    const [pairingValue, setPairingValue] = React.useState('');
     // Deep links arrive as route params (expo-router drops unknown query keys
     // from getInitialURL, so the raw URL is only a fallback).
     const routeParams = useLocalSearchParams();
@@ -77,7 +81,7 @@ export default function PairScreen() {
     React.useEffect(() => {
         let cancelled = false;
         const receive = (url: string | null) => {
-            if (cancelled || !url || (!url.includes('/pair?') && !url.includes('/pair#'))) return false;
+            if (cancelled || !url || !isPairingValue(url)) return false;
             setState((current) => current?.url === url
                 ? current
                 : { phase: 'confirm', url, machineName: hostedPairingDisplayName(url) });
@@ -92,7 +96,7 @@ export default function PairScreen() {
             if (!receive(url)) {
                 setState({ phase: 'error', message: browser
                     ? 'Paste a fresh browser pairing string from `muxr pair --browser`.'
-                    : 'Open a fresh pairing QR or link from `muxr pair` on the computer you want to connect.' });
+                    : 'Enter the short pairing string shown by `muxr pair`, or scan its QR code.' });
             };
         }).catch((cause) => {
             if (!cancelled) setState({ phase: 'error', message: cause instanceof Error ? cause.message : String(cause) });
@@ -131,20 +135,14 @@ export default function PairScreen() {
         });
     }, [state, pair]);
 
-    const paste = React.useCallback(async () => {
-        const pasted = await Modal.prompt(
-            browser ? 'Paste browser pairing string' : 'Paste pairing string',
-            `Paste the one-use string shown by ${browser ? '`muxr pair --browser`' : '`muxr pair`'} on the computer.`,
-            { placeholder: 'muxr://pair?payload=…' },
-        );
-        if (!pasted?.trim()) return;
-        const url = pasted.trim();
-        if (!url.includes('/pair?') && !url.includes('/pair#')) {
-            setState({ phase: 'error', message: 'That is not a muxr pairing string.' });
+    const connectManual = React.useCallback(() => {
+        const value = pairingValue.trim();
+        if (!isPairingValue(value)) {
+            setState({ phase: 'error', message: 'Enter the short relay and pairing code shown by `muxr pair`.' });
             return;
         }
-        setState({ phase: 'confirm', url, machineName: hostedPairingDisplayName(url) });
-    }, [browser]);
+        setState({ phase: 'confirm', url: value, machineName: hostedPairingDisplayName(value) });
+    }, [pairingValue]);
 
     const cancel = React.useCallback(() => router.replace('/'), [router]);
 
@@ -219,22 +217,35 @@ export default function PairScreen() {
                     <>
                         <Text accessibilityRole="alert" style={styles.errorText}>{state.message}</Text>
                         <ActionButton title="Try again" icon="refresh-outline" onPress={confirm} />
-                        <ActionButton title="Paste pairing string" icon="clipboard-outline" onPress={() => void paste()} />
+                        <ActionButton title="Enter another code" icon="keypad-outline" onPress={() => setState(undefined)} />
                         <ActionButton title="Back" variant="secondary" onPress={cancel} />
                     </>
                 ) : (
-                    // No link arrived (or the screen was opened directly from
-                    // Settings): a neutral chooser, not a red alert for a user
-                    // who did nothing wrong.
+                    // No claim arrived: one inline field and the same QR path,
+                    // matching the familiar Expo Go connection pattern.
                     <>
                         {state?.phase === 'error' && (
                             <Text style={styles.stepText}>{state.message}</Text>
                         )}
+                        <Text style={styles.inputLabel}>Enter pairing string manually</Text>
+                        <TextInput
+                            accessibilityLabel="Pairing string"
+                            autoCapitalize="none"
+                            autoCorrect={false}
+                            keyboardType="url"
+                            placeholder={browser ? 'https://trymuxr.com/pair#…' : 'wss://your-relay?pair=7KDM4-QXP7N'}
+                            placeholderTextColor={styles.inputPlaceholder.color}
+                            returnKeyType="go"
+                            style={styles.input}
+                            value={pairingValue}
+                            onChangeText={setPairingValue}
+                            onSubmitEditing={connectManual}
+                        />
+                        <ActionButton title="Connect" icon="link-outline" disabled={!pairingValue.trim()} onPress={connectManual} />
                         {!browser && (
-                            <ActionButton title="Scan QR" icon="qr-code-outline" onPress={() => void scanQr()} />
+                            <ActionButton title="Scan QR code" variant="secondary" icon="qr-code-outline" onPress={() => void scanQr()} />
                         )}
-                        <ActionButton title="Paste pairing string" icon="clipboard-outline" onPress={() => void paste()} />
-                        <ActionButton title="Back" variant="secondary" onPress={cancel} />
+                        <ActionButton title="Back" variant="quiet" onPress={cancel} />
                     </>
                 )}
             </View>
@@ -365,6 +376,25 @@ const styles = StyleSheet.create((theme) => ({
         flex: 1,
         fontSize: 14,
         lineHeight: 20,
+        color: theme.colors.textSecondary,
+    },
+    inputLabel: {
+        ...Typography.default('semiBold'),
+        fontSize: 14,
+        color: theme.colors.text,
+    },
+    input: {
+        ...Typography.default(),
+        height: 50,
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: theme.colors.divider,
+        backgroundColor: theme.colors.surfaceHighest,
+        color: theme.colors.text,
+        paddingHorizontal: 14,
+        fontSize: 15,
+    },
+    inputPlaceholder: {
         color: theme.colors.textSecondary,
     },
     errorText: {

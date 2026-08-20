@@ -45,7 +45,7 @@ const COMMAND_HELP = {
     devices: `muxr devices list\nmuxr devices revoke <number|name>\n`,
     integrations: `muxr integrations sync [--all] [--dry-run]\nmuxr integrations uninstall [--dry-run]\n`,
     plugin: `muxr plugin create <name>\nmuxr plugin check|dev <path> [--web]\nmuxr plugin call <path> <contribution-id> [--input '<json>'] [--context '<json>']\nmuxr plugin list\nmuxr plugin install|update <local-path|owner/repo[/subdir][@ref]|npm:<name>@<exact-version>> [--yes]\nmuxr plugin remove <plugin-id> [--yes]\n`,
-    pair: `muxr pair [--browser]\n\nCreate a short-lived pairing QR for another native device or an 8-hour read-only browser.\n`,
+    pair: `muxr pair [--browser]\n\nCreate a two-minute QR and short pairing string for a native device, or an 8-hour read-only browser grant.\n`,
     doctor: `muxr doctor\n\nCheck Node, Herdr, integrations, managed files, and the self-host relay without printing secrets.\n`,
     status: `muxr status\n\nAlias for muxr doctor.\n`,
     restart: `muxr restart\n\nRestart the supervised relay and host (same as muxr daemon restart).\n`,
@@ -212,7 +212,7 @@ async function repairMenu() {
 async function devicesMenu() {
     for (;;) {
         const choice = await select('Phones and browsers', [
-            { value: 'pair', title: 'Pair a phone', description: 'show a short-lived encrypted pairing QR' },
+            { value: 'pair', title: 'Pair a phone', description: 'show a two-minute QR and short pairing string' },
             { value: 'pair-browser', title: 'Pair a browser', description: 'create an eight-hour read-only browser grant' },
             { value: 'list', title: 'List paired devices', description: 'names and pairing dates' },
             { value: 'revoke', title: 'Revoke a device', description: 'disconnect a phone or browser' },

@@ -75,7 +75,28 @@ const base64 = (bytes) => Buffer.from(bytes).toString('base64');
 const cryptoEntry = existsSync(fileURLToPath(new URL('./crypto.js', import.meta.url)))
     ? new URL('./crypto.js', import.meta.url)
     : new URL('../packages/crypto/dist/index.js', import.meta.url);
-const { createDeviceGrant, deriveV2Key, newV2ReplayTracker, openV2 } = await import(cryptoEntry.href);
+const {
+    PAIRING_CODE_ALPHABET,
+    createDeviceGrant,
+    deriveV2Key,
+    formatPairingCode,
+    newV2ReplayTracker,
+    openV2,
+    pairingCodeHash,
+    sealPairingCodePayload,
+} = await import(cryptoEntry.href);
+
+function newPairingCode() {
+    let code = '';
+    const ceiling = Math.floor(256 / PAIRING_CODE_ALPHABET.length) * PAIRING_CODE_ALPHABET.length;
+    while (code.length < 10) {
+        for (const value of randomBytes(16)) {
+            if (value < ceiling) code += PAIRING_CODE_ALPHABET[value % PAIRING_CODE_ALPHABET.length];
+            if (code.length === 10) break;
+        }
+    }
+    return formatPairingCode(code);
+}
 
 function ensurePrivateDir(path) {
     mkdirSync(path, { recursive: true, mode: 0o700 });
@@ -1849,7 +1870,8 @@ async function runSelfhostPair(state, requestedKind = 'native') {
             pending = undefined;
         }
     }
-    if (pending !== undefined && (pending.deviceKind ?? 'native') !== requestedKind && recoveredPoll === undefined) {
+    if (pending !== undefined && ((pending.deviceKind ?? 'native') !== requestedKind
+        || requestedKind === 'native' && typeof pending.pairString !== 'string') && recoveredPoll === undefined) {
         delete state.machine.crypto.pendingPair;
         writeSelfhostState(state);
         pending = undefined;
@@ -1873,11 +1895,25 @@ async function runSelfhostPair(state, requestedKind = 'native') {
             machinePk: state.machine.crypto.signingPublicKey,
             r: state.relayUrl,
         })).toString('base64url');
+        const pairUrl = `muxr://pair?payload=${payload}`;
+        let pairString;
+        if (requestedKind === 'native') {
+            const code = newPairingCode();
+            const published = await api(base, `/v1/selfhost/pair-sessions/${encodeURIComponent(created.body.pair_id)}/code`, {
+                method: 'POST',
+                headers: authHeaders,
+                body: JSON.stringify({ code_hash: pairingCodeHash(code), payload: sealPairingCodePayload(payload, code) }),
+            });
+            if (!published.response.ok) throw new Error(published.body.error || 'pairing code publication failed');
+            const locator = new URL(state.relayUrl);
+            locator.searchParams.set('pair', code);
+            pairString = locator.toString();
+        }
         pending = {
             pairId: created.body.pair_id,
             pairSecret,
-            pairUrl: `muxr://pair?payload=${payload}`,
-            expiresAt: Date.now() + Number(created.body.expires_in ?? 300) * 1000,
+            ...(pairString === undefined ? { pairUrl } : { pairString }),
+            expiresAt: Date.now() + Number(created.body.expires_in ?? 120) * 1000,
             deviceKind: requestedKind,
         };
         state.machine.crypto.pendingPair = pending;
@@ -1901,25 +1937,27 @@ async function runSelfhostPair(state, requestedKind = 'native') {
     if (recoveredPoll === undefined) {
         print('');
         const browser = pending.deviceKind === 'browser';
-        const payload = new URL(pending.pairUrl).searchParams.get('payload');
+        const pairValue = browser ? pending.pairUrl : pending.pairString;
+        const payload = browser && typeof pairValue === 'string' ? new URL(pairValue).searchParams.get('payload') : undefined;
         const browserOrigin = publicRelayUrl(state.relayUrl)?.replace(/^wss/, 'https');
         if (browser && browserOrigin && payload) {
-            print('Open this secure browser pairing link within five minutes:');
+            print('Open this secure browser pairing link within two minutes:');
             print(`${browserOrigin}/pair#payload=${payload}`);
             print('The resulting browser access is read-only and expires after eight hours.');
-        } else if (process.stdout.isTTY) {
-            print(await QRCode.toString(pending.pairUrl, { type: 'terminal', small: true }));
+        } else if (process.stdout.isTTY && typeof pairValue === 'string') {
+            print(await QRCode.toString(pairValue, { type: 'terminal', small: true }));
         }
-        print(browser ? 'Browser pairing string (paste into the hosted web client):' : 'Pairing string (paste in the app if the QR is awkward):');
-        print(pending.pairUrl);
-        const pairFile = join(stateDir(), 'pairing-link.txt');
-        writeFileSync(pairFile, `${pending.pairUrl}\n`, { mode: 0o600 });
+        if (typeof pairValue !== 'string') throw new Error('pairing string is unavailable');
+        print(browser ? 'Browser pairing string:' : 'Pairing string (expires in two minutes):');
+        print(pairValue);
+        const pairFile = join(stateDir(), 'pairing-string.txt');
+        writeFileSync(pairFile, `${pairValue}\n`, { mode: 0o600 });
         // wl-copy/xclip stay alive as clipboard owners and can freeze setup in a
         // terminal or headless session. macOS pbcopy writes once and exits.
         const clipboard = hostPlatform() === 'darwin'
-            ? spawnSync('pbcopy', [], { input: pending.pairUrl, timeout: 2_000 })
+            ? spawnSync('pbcopy', [], { input: pairValue, timeout: 2_000 })
             : undefined;
-        print(clipboard?.status === 0 ? '  ✓ copied pairing string to clipboard' : `  saved exact pairing string to ${pairFile}`);
+        print(clipboard?.status === 0 ? '  ✓ copied pairing string to clipboard' : `  saved pairing string to ${pairFile}`);
         print('Waiting for the device to claim this single-use pairing session…');
     }
     while (true) {

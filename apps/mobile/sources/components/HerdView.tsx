@@ -630,6 +630,7 @@ export const HerdView = React.memo(({
                         ) : (
                             <>
                                 <ActionButton title="Scan pairing QR" icon="qr-code-outline" onPress={() => void scanPairQr()} />
+                                <ActionButton title="Enter pairing string" variant="secondary" icon="keypad-outline" onPress={() => router.push('/pair')} />
                                 {setup.setupUrl ? (
                                     <ActionButton title="Open setup guide" variant="quiet" icon="open-outline" onPress={() => void openExternalUrl(setup.setupUrl!)} />
                                 ) : null}
