@@ -1,5 +1,5 @@
 import { Wordmark } from '@/components/Wordmark';
-import { AppState, NativeScrollEvent, NativeSyntheticEvent, View, ScrollView, Pressable, Platform } from 'react-native';
+import { AppState, NativeScrollEvent, NativeSyntheticEvent, View, ScrollView, Pressable, Platform, Text } from 'react-native';
 import { openExternalUrl } from '@/utils/openExternalUrl';
 import * as React from 'react';
 import { useRouter } from 'expo-router';
@@ -8,7 +8,7 @@ import Constants from 'expo-constants';
 import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
 import { getCachedConnectionSettings, saveConnectionSettings } from '@/state/connectionSettings';
-import { getCachedHostedGrant, listPairedGrants } from '@/state/hostedE2ee';
+import { getCachedHostedGrant, listPairedGrants, removeHostedGrant } from '@/state/hostedE2ee';
 import { useAuth } from '@/auth/AuthContext';
 import { ItemList } from '@/components/ItemList';
 import { useLocalSettingMutable } from '@/sync/storage';
@@ -160,6 +160,29 @@ export const SettingsView = React.memo(function SettingsView({
         await auth.login(grant.credential, grant.deviceKey.secretKey);
     }, [auth, router]);
 
+    const forgetMachine = React.useCallback(async (machineId: string, name: string) => {
+        const confirmed = await Modal.confirm(
+            `Forget ${name}?`,
+            'This removes the pairing from this phone. The machine keeps running, and you can pair it again later.',
+            { confirmText: 'Forget', destructive: true },
+        );
+        if (!confirmed) return;
+        const remaining = await removeHostedGrant(machineId);
+        setPairedGrants(remaining);
+        if (machineId !== getCachedConnectionSettings().machineId) return;
+        const next = remaining[0];
+        if (next === undefined) {
+            await auth.logout();
+            return;
+        }
+        await saveConnectionSettings({
+            ...getCachedConnectionSettings(),
+            mode: 'hosted', relayUrl: next.relayUrl, machineId: next.machineId,
+            token: '', encryptionKey: '', selfhost: next.source === 'selfhost' ? true : undefined,
+        });
+        await auth.login(next.credential, next.deviceKey.secretKey);
+    }, [auth]);
+
     const confirmLogout = React.useCallback(async () => {
         const confirmed = await Modal.confirm(
             t('settingsAccount.logout'),
@@ -259,7 +282,8 @@ export const SettingsView = React.memo(function SettingsView({
                     const isOnline = machine !== undefined && isMachineOnline(machine);
                     const host = machine?.metadata?.host;
                     const displayName = machine?.metadata?.displayName;
-                    const pairedName = getCachedHostedGrant(id)?.machineName;
+                    const grant = getCachedHostedGrant(id) ?? pairedGrants.find((entry) => entry.machineId === id);
+                    const pairedName = grant?.machineName;
                     const safeHost = host && !/^machine[-_]/i.test(host) ? host : undefined;
                     const platform = machine?.metadata?.platform || '';
 
@@ -280,7 +304,19 @@ export const SettingsView = React.memo(function SettingsView({
                             key={id}
                             title={title}
                             subtitle={subtitle}
-                            detail={id === activeMachineId ? 'Active' : undefined}
+                            rightElement={grant === undefined ? undefined : (
+                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                                    {id === activeMachineId && <Text style={{ color: theme.colors.textSecondary, fontSize: 13 }}>Active</Text>}
+                                    <Pressable
+                                        accessibilityRole="button"
+                                        accessibilityLabel={`Forget ${title}`}
+                                        hitSlop={10}
+                                        onPress={(event) => { event.stopPropagation(); void forgetMachine(id, title); }}
+                                    >
+                                        <Ionicons name="trash-outline" size={19} color={theme.colors.textDestructive} />
+                                    </Pressable>
+                                </View>
+                            )}
                             icon={
                                 <Ionicons
                                     name="desktop-outline"
@@ -320,14 +356,6 @@ export const SettingsView = React.memo(function SettingsView({
                     icon={<Ionicons name="link-outline" size={29} color="#FF9500" />}
                     onPress={() => router.push('/settings/connection' as any)}
                 />
-                {Platform.OS === 'android' && (
-                    <Item
-                        title="Connect over SSH"
-                        subtitle="Tunnel to a box you already SSH into"
-                        icon={<Ionicons name="terminal-outline" size={29} color="#8E8E93" />}
-                        onPress={() => router.push('/settings/ssh' as any)}
-                    />
-                )}
                 <Item
                     title="Plugins"
                     subtitle="Native UI and capabilities installed through Herdr"

@@ -616,7 +616,7 @@ export const HerdView = React.memo(({
                         <View style={styles.setupStep}>
                             <View style={styles.stepBadge}><Text style={styles.stepNumber}>2</Text></View>
                             <Text style={[styles.stepText, styles.stepTextInline]}>
-                                Choose this network, Tailscale, a tunnel, or SSH
+                                Choose this network, Tailscale, or your secure relay
                             </Text>
                         </View>
                         <View style={[styles.setupStep, { marginBottom: 0 }]}>

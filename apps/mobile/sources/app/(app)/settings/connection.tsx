@@ -8,7 +8,6 @@ import { RoundButton } from '@/components/RoundButton';
 import { Typography } from '@/constants/Typography';
 import { useMachine, useSocketStatus } from '@/sync/storage';
 import { syncReconnect } from '@/sync/sync';
-import { getActiveSshForward } from '@/state/sshForward';
 import {
     getCachedConnectionSettings,
     loadConnectionSettingsAsync,
@@ -136,15 +135,9 @@ export default function ConnectionSettingsScreen() {
     }, []);
 
     if (initial.mode === 'hosted') {
-        const overSsh = getActiveSshForward() !== undefined;
-        const transport = overSsh
-            ? 'SSH tunnel'
-            : initial.relayUrl.startsWith('wss://')
-                ? 'HTTPS/WSS transport + end-to-end encryption'
-                : 'Trusted-network WS transport + end-to-end encryption';
-        const where = overSsh
-            ? 'Forwarded through the SSH connection you opened in Advanced setup'
-            : initial.relayUrl;
+        const transport = initial.relayUrl.startsWith('wss://')
+            ? 'HTTPS/WSS transport + end-to-end encryption'
+            : 'Trusted-network WS transport + end-to-end encryption';
         // Diagnostic only: a mismatch never blocks anything, it answers "is my
         // host older than my app?" without a debugging session.
         const appVersion = Constants.expoConfig?.version || '0.0.0';
@@ -162,8 +155,8 @@ export default function ConnectionSettingsScreen() {
                         leftElement={<View style={[styles.dot, statusDot]} />}
                         loading={status === 'connecting'}
                     />
-                    <Item title="Transport" subtitle={transport} detail={overSsh ? 'SSH' : 'Self-host'} />
-                    <Item title="Relay" subtitle={where} subtitleLines={0} />
+                    <Item title="Transport" subtitle={transport} detail="Self-host" />
+                    <Item title="Relay" subtitle={initial.relayUrl} subtitleLines={0} />
                     <Item
                         title="Versions"
                         subtitle={`app ${appVersion} · host ${hostVersion ?? 'unknown'}`}
@@ -176,7 +169,7 @@ export default function ConnectionSettingsScreen() {
 
                 <ItemGroup
                     title="You run the relay"
-                    footer="Use your local network, Tailscale, a tunnel, or SSH. Every product feature stays available in the open-source self-hosted stack."
+                    footer="Use your local network, Tailscale, or your own secure tunnel. Every product feature stays available in the open-source self-hosted stack."
                 >
                     <Item
                         title="End-to-end encrypted"
