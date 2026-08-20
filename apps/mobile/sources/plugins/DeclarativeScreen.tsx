@@ -258,21 +258,25 @@ function ScreenTree(props: {
     </View>;
 }
 
-function ScreenChart({ node, data }: { node: PluginScreenChartNode; data: unknown }) {
+function ScreenChart({ node, data, nested }: { node: PluginScreenChartNode; data: unknown; nested: boolean }) {
     const { theme } = useUnistyles();
     const reduceMotion = useReducedMotion();
     const series = asChartSeries(resolvePath(data, node.path));
     const title = node.title === undefined ? undefined : bindText(resolvePluginText(node.title), data);
     const empty = node.emptyText === undefined ? t('plugins.nothingToShow') : bindText(resolvePluginText(node.emptyText), data);
-    if (series.length === 0) return <View style={{ marginBottom: 12 }}>
-        {title !== undefined && <Text style={{ color: theme.colors.text, fontSize: 15, fontWeight: '600', marginBottom: 8 }}>{title}</Text>}
-        <Text style={{ color: theme.colors.textSecondary, fontSize: 14 }}>{empty}</Text>
+    // Empty says so in one quiet line. A full card drawn around "nothing yet"
+    // spends the same space as real data.
+    if (series.length === 0) return <View style={{ marginBottom: nested ? 8 : 14 }}>
+        {title !== undefined && <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 4, marginTop: nested ? 10 : 0 }}>{title}</Text>}
+        <Text style={{ color: theme.colors.textSecondary, fontSize: 13 }}>{empty}</Text>
     </View>;
     const total = series.reduce((sum, item) => sum + item.value, 0);
     const summary = `${title ?? 'Chart'}: ${series.map((item) => `${item.label} ${node.variant === 'ring' ? `${Math.round(item.value / total * 100)} percent` : chartValue(item)}`).join(', ')}`;
-    const card = { marginBottom: 14, backgroundColor: theme.colors.surfaceHigh, borderRadius: 16, padding: 16 } as const;
+    const card = nested
+        ? { marginBottom: 4 }
+        : { marginBottom: 14, backgroundColor: theme.colors.surfaceHigh, borderRadius: 16, padding: 16 } as const;
     const heading = title === undefined ? null : (
-        <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 12 }}>{title}</Text>
+        <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 12, marginTop: nested ? 10 : 0 }}>{title}</Text>
     );
 
     // One value against its ceiling. A two-slice donut says the same thing with
@@ -345,9 +349,8 @@ function ScreenChart({ node, data }: { node: PluginScreenChartNode; data: unknow
         </View>;
     }
     const max = Math.max(...series.map((item) => item.value));
-    return <View style={{ marginBottom: 14, backgroundColor: theme.colors.surfaceHigh, borderRadius: 16, padding: 16 }}
-        accessible accessibilityRole="image" accessibilityLabel={summary}>
-        {title !== undefined && <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 12 }}>{title}</Text>}
+    return <View style={card} accessible accessibilityRole="image" accessibilityLabel={summary}>
+        {heading}
         <View style={{ gap: 12 }}>
             {series.map((item, index) => <View key={`${item.label}-${index}`}>
                 <View style={{ flexDirection: 'row', alignItems: 'baseline', marginBottom: 5 }}>
@@ -374,6 +377,8 @@ function ScreenNode(props: {
     onTreeLoad: (node: PluginScreenTreeNode, path: string) => Promise<RuntimeTreeItem[]>;
     onTreeError: (error: unknown) => void;
     onSelectTab: (param: string, value: string) => void;
+    /** Inside a section, which already owns the card around this node. */
+    nested?: boolean;
 }) {
     const { theme } = useUnistyles();
     const { width } = useWindowDimensions();
@@ -430,7 +435,7 @@ function ScreenNode(props: {
             );
         }
         case 'chart':
-            return <ScreenChart node={node} data={data} />;
+            return <ScreenChart node={node} data={data} nested={props.nested === true} />;
         case 'divider':
             return <View style={{ height: 1, backgroundColor: theme.colors.divider, marginVertical: 8 }} />;
         case 'empty':
@@ -442,15 +447,24 @@ function ScreenNode(props: {
             );
         case 'section': {
             const columns = node.columns === 3 && width < 480 ? 2 : node.columns;
+            // A section inside a section is a group, not a second card: stacking
+            // panels inside panels is what turns a screen into a wall of boxes.
+            const body = (
+                <View style={props.nested
+                    ? (columns === undefined ? {} : { flexDirection: 'row', flexWrap: 'wrap', columnGap: 10 })
+                    : {
+                        backgroundColor: theme.colors.surfaceHigh, borderRadius: 16, paddingHorizontal: 16, paddingVertical: 12,
+                        ...(columns === undefined ? {} : { flexDirection: 'row', flexWrap: 'wrap', columnGap: 10 }),
+                    }}>
+                    {node.children.map((child, index) => columns === undefined
+                        ? <ScreenNode key={index} {...props} node={child} nested />
+                        : <View key={index} style={{ flexBasis: `${100 / columns - 2}%`, flexGrow: 1, maxWidth: `${100 / columns}%` }}><ScreenNode {...props} node={child} nested /></View>)}
+                </View>
+            );
             return (
-                <View style={{ marginBottom: 8 }}>
-                    {node.title !== undefined && <Text style={{ color: theme.colors.textSecondary, fontSize: 13, textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 6, marginTop: 12 }}>{bind(node.title)}</Text>}
-                    <View style={{ backgroundColor: theme.colors.surfaceHigh, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 6,
-                        ...(columns === undefined ? {} : { flexDirection: 'row', flexWrap: 'wrap', columnGap: 10 }) }}>
-                        {node.children.map((child, index) => columns === undefined
-                            ? <ScreenNode key={index} {...props} node={child} />
-                            : <View key={index} style={{ flexBasis: `${100 / columns - 2}%`, flexGrow: 1, maxWidth: `${100 / columns}%` }}><ScreenNode {...props} node={child} /></View>)}
-                    </View>
+                <View style={{ marginBottom: props.nested ? 4 : 14 }}>
+                    {node.title !== undefined && <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 10, marginTop: props.nested ? 10 : 0 }}>{bind(node.title)}</Text>}
+                    {body}
                 </View>
             );
         }
