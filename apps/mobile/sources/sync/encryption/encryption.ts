@@ -13,19 +13,17 @@ export class Encryption {
 
     static async create(masterSecret: Uint8Array) {
 
-        // Compatibility: the inherited "Happy …" KDF labels are cryptographic
-        // domain separators; renaming them would make existing ciphertext unreadable.
-        // Derive content data key to open session and machine records
-        const contentDataKey = await deriveKey(masterSecret, 'Happy EnCoder', ['content']);
+        // Derive content data key to open session and machine records.
+        const contentDataKey = await deriveKey(masterSecret, 'muxr content', ['content']);
 
         // Derive content data key keypair
         const contentKeyPair = sodium.crypto_box_seed_keypair(contentDataKey);
 
         // Derive anonymous ID
-        const anonID = encodeHex((await deriveKey(masterSecret, 'Happy Coder', ['analytics', 'id']))).slice(0, 16).toLowerCase();
+        const anonID = encodeHex((await deriveKey(masterSecret, 'muxr analytics', ['analytics', 'id']))).slice(0, 16).toLowerCase();
 
         // Derive master blob key for legacy sessions (those with no per-session dataKey)
-        const masterBlobKey = await deriveKey(masterSecret, 'Happy Blobs', ['master']);
+        const masterBlobKey = await deriveKey(masterSecret, 'muxr blobs', ['master']);
 
         // Create encryption
         return new Encryption(anonID, masterSecret, contentKeyPair, masterBlobKey);
@@ -94,7 +92,7 @@ export class Encryption {
             // Newer sessions derive a subkey from their own dataKey so blobs
             // are cryptographically isolated from message encryption.
             const blobKey = dataKey
-                ? await deriveKey(dataKey, 'Happy Blobs', ['session'])
+                ? await deriveKey(dataKey, 'muxr blobs', ['session'])
                 : this.masterBlobKey;
             this.sessionBlobKeys.set(sessionId, blobKey);
         }

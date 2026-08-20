@@ -141,7 +141,7 @@ export default function ConnectionSettingsScreen() {
         // Diagnostic only: a mismatch never blocks anything, it answers "is my
         // host older than my app?" without a debugging session.
         const appVersion = Constants.expoConfig?.version || '0.0.0';
-        const reportedHost = machine?.metadata?.happyCliVersion;
+        const reportedHost = machine?.metadata?.muxrCliVersion;
         const hostVersion = knownHostVersion(reportedHost);
         const mismatch = versionsMismatch(appVersion, reportedHost);
         const browserExpiresAt = Platform.OS === 'web' ? getCachedHostedGrant(initial.machineId)?.expiresAt : undefined;

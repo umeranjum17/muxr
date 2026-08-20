@@ -140,7 +140,7 @@ export const MetadataSchema = z.object({
     mcpServers: z.array(z.object({ name: z.string(), status: z.string() })).optional(),
     skills: z.array(z.string()).optional(),
     homeDir: z.string().optional(), // User's home directory on the machine
-    happyHomeDir: z.string().optional(), // Legacy configuration directory
+    legacyConfigDir: z.string().optional(),
     startedFromDaemon: z.boolean().optional(),
     hostPid: z.number().optional(), // Process ID of the session
     startedBy: z.enum(['daemon', 'terminal']).optional(),
@@ -348,8 +348,8 @@ export interface DecryptedMessage {
 export const MachineMetadataSchema = z.object({
     host: z.string(),
     platform: z.string(),
-    happyCliVersion: z.string(),
-    happyHomeDir: z.string(), // Legacy auth/settings/log directory
+    muxrCliVersion: z.string(),
+    muxrHomeDir: z.string(),
     homeDir: z.string(), // User's home directory (matches CLI field name)
     // Optional fields that may be added in future versions
     username: z.string().optional(),
@@ -359,7 +359,7 @@ export const MachineMetadataSchema = z.object({
     daemonLastKnownStatus: z.enum(['running', 'shutting-down']).optional(),
     daemonLastKnownPid: z.number().optional(),
     shutdownRequestedAt: z.number().optional(),
-    shutdownSource: z.enum(['happy-app', 'happy-cli', 'os-signal', 'unknown']).optional(),
+    shutdownSource: z.string().optional(),
     cliAvailability: z.object({
         claude: z.boolean(),
         codex: z.boolean(),
@@ -371,8 +371,8 @@ export const MachineMetadataSchema = z.object({
     resumeSupport: z.object({
         rpcAvailable: z.boolean(),
         requiresSameMachine: z.boolean(),
-        requiresHappyAgentAuth: z.boolean(),
-        happyAgentAuthenticated: z.boolean(),
+        requiresAgentAuth: z.boolean(),
+        agentAuthenticated: z.boolean(),
         detectedAt: z.number(),
     }).optional(),
 });

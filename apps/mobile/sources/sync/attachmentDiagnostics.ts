@@ -226,7 +226,7 @@ function sanitizeDiagnosticText(value: string | undefined): string | undefined {
         .replace(/\bref(?:\s*[=:]\s*|\s+)\/?[A-Za-z0-9._~@-]+(?:\/[A-Za-z0-9._~@-]+)+(?:\?[^\s"'<>]*)?/gi, 'ref=[attachment-ref]')
         .replace(/\b(?:X-Amz-[A-Za-z0-9-]+|AWSAccessKeyId|policy|token|access_token|signature)=[^\s"'<>]+/gi, '[redacted-query]')
         .replace(/(^|[\s(["'=])\/(?:Users|home|var|tmp|private|Volumes|data\/user\/0|data\/data|storage\/emulated\/0|sdcard)\/[^"')\],}]+/g, '$1[local-file]')
-        .replace(/(^|[\s(["'])\/?(?:happy|sessions)\/[A-Za-z0-9._~@-]+(?:\/[A-Za-z0-9._~@-]+)+(?:\?[^\s"'<>]*)?/gi, '$1[attachment-ref]');
+        .replace(/(^|[\s(["'])\/?(?:muxr|sessions)\/[A-Za-z0-9._~@-]+(?:\/[A-Za-z0-9._~@-]+)+(?:\?[^\s"'<>]*)?/gi, '$1[attachment-ref]');
 }
 
 function isBrandedAttachmentDiagnosticError(value: unknown): value is {

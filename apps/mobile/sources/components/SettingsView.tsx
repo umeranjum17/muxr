@@ -300,7 +300,7 @@ export const SettingsView = React.memo(function SettingsView({
                     const pairedName = grant?.machineName;
                     const safeHost = host && !/^machine[-_]/i.test(host) ? host : undefined;
                     const platform = machine?.metadata?.platform || '';
-                    const hostVersion = knownHostVersion(machine?.metadata?.happyCliVersion);
+                    const hostVersion = knownHostVersion(machine?.metadata?.muxrCliVersion);
 
                     const title = displayName || pairedName || safeHost || 'Paired computer';
 

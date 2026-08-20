@@ -2,8 +2,8 @@ import * as React from 'react';
 import { useRouter } from 'expo-router';
 import { Modal } from '@/modal';
 import { t } from '@/text';
-import { HappyError } from '@/utils/errors';
-import { useHappyAction } from '@/hooks/useHappyAction';
+import { ActionError } from '@/utils/errors';
+import { useAsyncAction } from '@/hooks/useAsyncAction';
 import { getRepoPath, isWorktreePath, landWorktree } from '@/utils/worktree';
 import { getSessionName } from '@/utils/sessionUtils';
 import { machineSpawnNewSession } from '@/sync/ops';
@@ -29,7 +29,7 @@ export function useLandWorktree(session: Session | null | undefined) {
     const path = session?.metadata?.path;
     const canLand = !!session && !!path && isWorktreePath(path);
 
-    const [landing, perform] = useHappyAction(async () => {
+    const [landing, perform] = useAsyncAction(async () => {
         if (!canLand) return;
         const message = await Modal.prompt(
             t('sessionInfo.landWorktree'),
@@ -73,7 +73,7 @@ export function useLandWorktree(session: Session | null | undefined) {
         // Rebase conflicts need a brain, not a script: offer an agent that runs
         // in the base checkout, safely outside the worktree being landed.
         if (result.status !== 'conflict') {
-            throw new HappyError(t('sessionInfo.landWorktreeFailed'), false);
+            throw new ActionError(t('sessionInfo.landWorktreeFailed'), false);
         }
         const handoff = await Modal.confirm(
             'Rebase conflict',
@@ -86,7 +86,7 @@ export function useLandWorktree(session: Session | null | undefined) {
             directory: getRepoPath(path!),
         });
         if (spawn.type !== 'success') {
-            throw new HappyError(spawn.type === 'error' ? spawn.errorMessage : 'Could not start the agent', false);
+            throw new ActionError(spawn.type === 'error' ? spawn.errorMessage : 'Could not start the agent', false);
         }
         await sync.sendMessage(spawn.sessionId, handoffPrompt(path!, result.branch, result.detail));
         router.push(`/session/${spawn.sessionId}`);
