@@ -46,7 +46,23 @@ function chartFill(theme: Theme, tone: PluginScreenTone | undefined): string {
     }
 }
 
-const SLICE_PALETTE = (theme: Theme) => [theme.colors.accent, theme.colors.textLink, theme.colors.success, theme.colors.box.warning.text, theme.colors.box.error.text, theme.colors.textSecondary];
+function withAlpha(color: string, alpha: number): string {
+    const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(color)?.[1];
+    if (hex === undefined) return color;
+    const full = hex.length === 3 ? hex.split('').map((part) => part + part).join('') : hex;
+    const value = Number.parseInt(full, 16);
+    return `rgba(${(value >> 16) & 255}, ${(value >> 8) & 255}, ${value & 255}, ${alpha.toFixed(3)})`;
+}
+
+/**
+ * Rank by depth of one hue, never by a categorical rainbow: borrowing the
+ * status colours for slice three and four is what makes a chart look cheap, and
+ * it spends red on a series that is not in trouble.
+ */
+function rampFill(theme: Theme, index: number, count: number): string {
+    const step = count <= 1 ? 0 : index / (count - 1);
+    return withAlpha(theme.colors.accent, 1 - step * 0.62);
+}
 
 /** Track fill that sweeps in when its value first arrives; decorative only. */
 function AnimatedBarFill({ ratio, color, delay }: { ratio: number; color: string; delay: number }) {
@@ -56,7 +72,7 @@ function AnimatedBarFill({ ratio, color, delay }: { ratio: number; color: string
         width.value = reduceMotion ? ratio : withDelay(delay, withTiming(ratio, { duration: 400, easing: Easing.bezier(0.23, 1, 0.32, 1) }));
     }, [delay, ratio, reduceMotion, width]);
     const animated = useAnimatedStyle(() => ({ width: `${Math.max(0, Math.min(1, width.value)) * 100}%` }));
-    return <Animated.View style={[{ height: '100%', borderRadius: 3, backgroundColor: color }, animated]} />;
+    return <Animated.View style={[{ height: '100%', borderRadius: 2.5, backgroundColor: color }, animated]} />;
 }
 
 function chartValue(item: PluginChartItem): string {
@@ -208,13 +224,12 @@ function ScreenChart({ node, data }: { node: PluginScreenChartNode; data: unknow
     if (node.variant === 'ring') {
         // First slice is the hero: its value/label sit in the donut center.
         const hero = series[0]!;
-        const palette = SLICE_PALETTE(theme);
         const slices = series.map((item, index) => ({
             label: item.label,
             value: item.value,
             color: item.tone === 'secondary'
                 ? theme.colors.surfaceHighest
-                : item.tone !== undefined ? chartFill(theme, item.tone) : palette[index % palette.length]!,
+                : item.tone !== undefined ? chartFill(theme, item.tone) : rampFill(theme, index, series.length),
         }));
         return <View accessible accessibilityRole="image" accessibilityLabel={summary}
             style={{ marginBottom: 14, backgroundColor: theme.colors.surfaceHigh, borderRadius: 16, padding: 16 }}>
@@ -238,14 +253,15 @@ function ScreenChart({ node, data }: { node: PluginScreenChartNode; data: unknow
     return <View style={{ marginBottom: 14, backgroundColor: theme.colors.surfaceHigh, borderRadius: 16, padding: 16 }}
         accessible accessibilityRole="image" accessibilityLabel={summary}>
         {title !== undefined && <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 12 }}>{title}</Text>}
-        <View style={{ gap: 14 }}>
+        <View style={{ gap: 12 }}>
             {series.map((item, index) => <View key={`${item.label}-${index}`}>
-                <View style={{ flexDirection: 'row', alignItems: 'baseline', marginBottom: 6 }}>
-                    <Text numberOfLines={1} style={{ color: theme.colors.text, fontSize: 13, fontWeight: '500', flex: 1, marginRight: 12 }}>{item.label}</Text>
-                    <Text style={{ color: theme.colors.textSecondary, fontSize: 13, ...Typography.mono('semiBold') }}>{chartValue(item)}</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'baseline', marginBottom: 5 }}>
+                    <Text numberOfLines={1} style={{ color: index === 0 ? theme.colors.text : theme.colors.textSecondary, fontSize: 13, fontWeight: index === 0 ? '600' : '500', flex: 1, marginRight: 12 }}>{item.label}</Text>
+                    <Text style={{ color: index === 0 ? theme.colors.text : theme.colors.textSecondary, fontSize: 12.5, ...Typography.mono('semiBold') }}>{chartValue(item)}</Text>
                 </View>
-                <View style={{ height: 6, borderRadius: 3, backgroundColor: theme.colors.surfaceHighest, overflow: 'hidden' }}>
-                    <AnimatedBarFill ratio={max === 0 ? 0 : item.value / max} color={chartFill(theme, item.tone)} delay={index * 50} />
+                <View style={{ height: 5, borderRadius: 2.5, backgroundColor: theme.colors.surfaceHighest, overflow: 'hidden' }}>
+                    <AnimatedBarFill ratio={max === 0 ? 0 : item.value / max}
+                        color={item.tone === undefined ? rampFill(theme, index, series.length) : chartFill(theme, item.tone)} delay={index * 45} />
                 </View>
             </View>)}
         </View>

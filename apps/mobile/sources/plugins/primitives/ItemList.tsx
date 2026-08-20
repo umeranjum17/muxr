@@ -37,6 +37,14 @@ function toneColor(theme: Theme, tone: PluginScreenTone | undefined): string {
     }
 }
 
+function withAlpha(color: string, alpha: number): string {
+    const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(color)?.[1];
+    if (hex === undefined) return color;
+    const full = hex.length === 3 ? hex.split('').map((part) => part + part).join('') : hex;
+    const value = Number.parseInt(full, 16);
+    return `rgba(${(value >> 16) & 255}, ${(value >> 8) & 255}, ${value & 255}, ${alpha.toFixed(3)})`;
+}
+
 /** Thin fill bar that sweeps in once on mount; decorative, never blocks taps. */
 function RowProgress({ value, color, delay }: { value: number; color: string; delay: number }) {
     const { theme } = useUnistyles();
@@ -65,7 +73,11 @@ function SheetRow({ item, fallbackIcon, busy, index, onPress }: {
     const secondary = rest.map((entry) => `${entry.label === undefined ? '' : `${entry.label} `}${entry.value}`.trim()).join(' · ');
     const metadataLabel = item.metadata.map((entry) => `${entry.label === undefined ? '' : `${entry.label} `}${entry.value}`).join(', ');
     const label = [item.group, item.title, item.subtitle, metadataLabel].filter((part) => part !== undefined && part !== '').join(', ');
-    const progressColor = toneColor(theme, item.progress?.tone ?? 'primary');
+    // Untoned bars step back down the list: a column of identical full-strength
+    // accent reads as decoration rather than ranking.
+    const progressColor = item.progress?.tone === undefined
+        ? withAlpha(theme.colors.accent, Math.max(0.4, 1 - index * 0.14))
+        : toneColor(theme, item.progress.tone);
     const content = <>
         <View style={styles.itemRow}>
             {busy

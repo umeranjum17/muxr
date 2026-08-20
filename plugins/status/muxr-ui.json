@@ -82,20 +82,20 @@
         {
           "type": "chart",
           "variant": "bar",
+          "path": "data.limitSeries",
+          "title": "Rate limits",
+          "emptyText": "No published rate limits"
+        },
+        {
+          "type": "chart",
+          "variant": "bar",
           "path": "data.modelSeries",
           "title": "Models today",
           "emptyText": "No measured activity today"
         },
         {
-          "type": "chart",
-          "variant": "bar",
-          "path": "data.weekSeries",
-          "title": "Last 7 days",
-          "emptyText": "No measured activity this week"
-        },
-        {
           "type": "section",
-          "title": "This week",
+          "title": "Last 7 days",
           "columns": 2,
           "children": [
             {
@@ -113,9 +113,8 @@
         {
           "type": "chart",
           "variant": "bar",
-          "path": "data.limitSeries",
-          "title": "Rate limits",
-          "emptyText": "No published rate limits"
+          "path": "data.weekSeries",
+          "emptyText": "No measured activity this week"
         },
         {
           "type": "text",
