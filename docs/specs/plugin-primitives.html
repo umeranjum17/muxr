@@ -13,7 +13,7 @@
 <body><main>
   <div class="kicker">muxr spec</div>
   <h1>Plugins on primitives</h1>
-  <span class="badge" style="background:var(--amber)">implemented</span>
+  <span class="badge" style="background:var(--accent)">in-progress</span>
   <p class="meta">plugin-primitives.md · created 2026-08-15 · updated 2026-08-19 · umer</p>
   <p class="lead">Primitives, slots, actions, capabilities, and runtime contracts are the public platform. Inbox, Voice, Preview, Changes, Attachments, and future product features are plugins composed entirely from it.</p>
   <div class="card"><h2>Decision</h2><p>Enabled Herdr plugins remain trusted and default-on. Enabling or linking is the user's trust decision. Explicit disable and revoke remain authoritative. This rework strengthens the platform without adding per-device hash reapproval.</p></div>
@@ -31,7 +31,7 @@
     <li>Hard-kill stuck RPCs, isolate concurrency, and stop repeated full catalog reparsing.</li>
     <li>Publish schemas and prove bundled plus adversarial third-party plugins on Android.</li>
   </ol></div>
-  <div class="card"><h2>Latest revision</h2><p>Usage becomes one plain pill beside Machine and opens provider tabs directly. Preview filters raw listeners down to real HTML frontends for the session project, removes the redundant Run server action, and carries the active paired relay URL through preview attach.</p></div>
+  <div class="card"><h2>Latest revision</h2><p>Native Preview encrypts frontend bytes with a per-preview key delivered through the existing E2EE control channel. The relay may multiplex bounded connection headers but cannot read the HTTP, WebSocket, or stream payload.</p></div>
   <div class="card"><h2>Verification</h2><ul class="check">
     <li>Automation passes 29/29; all 12 bundled plugins and adversarial combinations validate correctly.</li>
     <li>The v11 manifest/tokenization flow, mobile typecheck, web export, and Android production JS bundle pass.</li>

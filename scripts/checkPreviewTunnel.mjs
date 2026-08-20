@@ -13,6 +13,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import WebSocket from 'ws';
+import { deriveV2Key, newPreviewKey, openPreviewPayload, sealPreviewPayload } from '@muxr/crypto';
 import { decodePreviewFrame, encodePreviewFrame, PREVIEW_DATA } from '@muxr/contract';
 
 // A frame must survive a round trip with its payload byte-identical.
@@ -98,6 +99,9 @@ const send = (frame) => {
 
 const CHANNEL = 'check-channel-1';
 const BRIDGE_CHANNEL = 'check-channel-2';
+const BRIDGE_KEY = newPreviewKey();
+const BRIDGE_CLIENT_KEY = deriveV2Key(BRIDGE_KEY, 'client->host');
+const BRIDGE_HOST_KEY = deriveV2Key(BRIDGE_KEY, 'host->client');
 
 session.on('open', () => send({ type: 'preview.probe', requestId: 'p1', params: { port: devPort } }));
 
@@ -134,7 +138,7 @@ const bridgeAttached = new Promise((resolve) => { bridgeResolve = resolve; });
  * the preview works against a relay published only on 443.
  */
 async function runBridge() {
-    send({ type: 'preview.attach', requestId: 'p3', params: { channel: BRIDGE_CHANNEL, port: devPort } });
+    send({ type: 'preview.attach', requestId: 'p3', params: { channel: BRIDGE_CHANNEL, port: devPort, key: BRIDGE_KEY } });
     await bridgeAttached;
 
     const control = new WebSocket(`${RELAY}/preview?role=client&machineId=${MACHINE}&channel=${BRIDGE_CHANNEL}&bridge=1`);
@@ -151,7 +155,7 @@ async function runBridge() {
             const frame = decodePreviewFrame(new Uint8Array(raw));
             const socket = connections.get(frame.connId);
             if (socket === undefined) return;
-            if (frame.payload.length > 0) socket.write(Buffer.from(frame.payload));
+            if (frame.payload.length > 0) socket.write(Buffer.from(openPreviewPayload(frame.payload, BRIDGE_HOST_KEY)));
         });
         setTimeout(() => reject(new Error('relay never paired the bridge')), 10000);
     });
@@ -160,7 +164,7 @@ async function runBridge() {
         nextConnId += 1;
         const connId = nextConnId;
         connections.set(connId, socket);
-        socket.on('data', (chunk) => control.send(encodePreviewFrame(connId, PREVIEW_DATA, new Uint8Array(chunk)), { binary: true }));
+        socket.on('data', (chunk) => control.send(encodePreviewFrame(connId, PREVIEW_DATA, sealPreviewPayload(new Uint8Array(chunk), BRIDGE_CLIENT_KEY)), { binary: true }));
         socket.on('close', () => connections.delete(connId));
     });
     await new Promise((resolve) => local.listen(0, '127.0.0.1', resolve));

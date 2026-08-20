@@ -11,6 +11,7 @@
 
 import { connect, type Socket } from 'node:net';
 import WebSocket from 'ws';
+import { deriveV2Key, openPreviewPayload, sealPreviewPayload } from '@muxr/crypto';
 import {
     decodePreviewFrame,
     encodePreviewFrame,
@@ -46,6 +47,7 @@ export interface AttachPreviewOptions {
     machineId: string;
     channel: string;
     port: number;
+    key?: string;
     token?: string;
 }
 
@@ -89,10 +91,15 @@ export async function attachPreview(options: AttachPreviewOptions): Promise<null
     });
 
     const connections = new Map<number, Socket>();
+    const hostToClientKey = options.key === undefined ? undefined : deriveV2Key(options.key, 'host->client');
+    const clientToHostKey = options.key === undefined ? undefined : deriveV2Key(options.key, 'client->host');
 
     const send = (connId: number, flag: number, payload?: Uint8Array): void => {
         if (socket.readyState === WebSocket.OPEN) {
-            socket.send(encodePreviewFrame(connId, flag, payload));
+            const body = payload === undefined || hostToClientKey === undefined
+                ? payload
+                : sealPreviewPayload(payload, hostToClientKey);
+            socket.send(encodePreviewFrame(connId, flag, body));
         }
     };
 
@@ -130,7 +137,16 @@ export async function attachPreview(options: AttachPreviewOptions): Promise<null
                 send(frame.connId, PREVIEW_CLOSE);
             });
         }
-        if (frame.payload.length > 0) upstream.write(frame.payload);
+        if (frame.payload.length > 0) {
+            try {
+                upstream.write(clientToHostKey === undefined
+                    ? frame.payload
+                    : openPreviewPayload(frame.payload, clientToHostKey));
+            } catch {
+                drop(frame.connId);
+                send(frame.connId, PREVIEW_CLOSE);
+            }
+        }
     });
 
     // The relay closes this side when the device goes away. Without the sweep

@@ -4,14 +4,14 @@ import { stripTrailingSlashes } from './controlPlaneUrl.js';
  * Browser preview: the wire format for tunnelling a dev server to the device.
  *
  * The device binds a local TCP listener and the host dials the dev server on its
- * own loopback; the bytes in between are forwarded verbatim. Nothing on the path
- * parses HTTP, which is why websockets, SSE and streaming responses survive it --
- * and why a dev server bound to 127.0.0.1 works without rebinding.
+ * own loopback. Native endpoints encrypt each payload before the relay forwards
+ * it; the relay reads only the connection id and flag needed to multiplex TCP.
+ * Nothing on the path parses HTTP, so WebSockets, SSE, and streams survive.
  *
  * A browser opens several TCP connections per page, so frames are multiplexed
  * over one socket and tagged with a connection id.
  *
- * Layout: connId (uint32 BE) | flag (uint8) | payload
+ * Layout: connId (uint32 BE) | flag (uint8) | payload (opaque ciphertext on native E2EE)
  */
 
 export const PREVIEW_DATA = 0;

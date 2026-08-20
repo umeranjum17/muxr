@@ -13,12 +13,15 @@ import {
     generateSigningKeyPair,
     isEncryptedPayload,
     isV2Envelope,
+    newPreviewKey,
     newV2ReplayTracker,
     newV2SenderState,
     openPairingCodePayload,
+    openPreviewPayload,
     openV2,
     pairingCodeHash,
     sealPairingCodePayload,
+    sealPreviewPayload,
     sealV2,
     signDetached,
     v2ReplayFromSnapshot,
@@ -73,6 +76,15 @@ assert.ok(!pairingCiphertext.includes('high-entropy-secret'), 'relay-stored code
 assert.ok(!pairingCodeHash(pairingCode).includes('7KDM4'), 'relay lookup does not contain the human code');
 assert.equal(openPairingCodePayload(pairingCiphertext, pairingCode), pairingPayload, 'pairing code opens its payload');
 assert.throws(() => openPairingCodePayload(pairingCiphertext, '8KDM4-QXP7N'), /authentication/, 'wrong pairing code fails closed');
+
+const previewRoot = newPreviewKey();
+const previewClientKey = deriveV2Key(previewRoot, 'client->host');
+const previewHostKey = deriveV2Key(previewRoot, 'host->client');
+const previewPlaintext = new TextEncoder().encode('GET /private HTTP/1.1');
+const previewCiphertext = sealPreviewPayload(previewPlaintext, previewClientKey);
+assert.notDeepEqual(previewCiphertext, previewPlaintext, 'relay cannot read preview TCP bytes');
+assert.deepEqual(openPreviewPayload(previewCiphertext, previewClientKey), previewPlaintext, 'host opens client preview bytes');
+assert.throws(() => openPreviewPayload(previewCiphertext, previewHostKey), /authentication/, 'preview directions cannot be reflected');
 
 // --- v2 strict envelope (hosted) --------------------------------------------
 

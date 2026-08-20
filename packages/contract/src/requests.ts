@@ -307,10 +307,11 @@ export interface RequestMap {
      */
     'preview.probe': { params: { port: number }; result: { contentType: string | null } };
     /**
-     * Ask the host to join `channel` and forward it to `port`. The caller opens
-     * the matching side itself; the relay pairs them.
+     * Ask the host to join `channel` and forward it to `port`. Native callers
+     * send a per-preview key through this encrypted request; local legacy web
+     * preview may omit it because the browser cannot decrypt a raw TCP listener.
      */
-    'preview.attach': { params: { channel: string; port: number }; result: null };
+    'preview.attach': { params: { channel: string; port: number; key?: string }; result: null };
 
     // --- worktrees ----------------------------------------------------------
     /**

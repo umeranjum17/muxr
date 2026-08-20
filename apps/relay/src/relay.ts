@@ -465,10 +465,6 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
                     return;
                 }
                 const body = (await readJsonBody(req).catch(() => undefined)) as Record<string, unknown> | undefined;
-                if (body?.transport === 'preview' && config.e2eeMode === 'on') {
-                    writeJsonError(res, 400, 'preview is unavailable with E2EE on');
-                    return;
-                }
                 const role = body?.role;
                 const machineSlug = (typeof body?.machineSlug === 'string' ? body.machineSlug
                     : typeof body?.machineId === 'string' ? body.machineId
@@ -793,8 +789,9 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
             socket.close(1008, 'ticket scope mismatch');
             return;
         }
-        if (config.e2eeMode === 'on' && transport === 'preview') {
-            socket.close(1008, 'preview requires cleartext framing and is unavailable with E2EE on');
+        if (config.e2eeMode === 'on' && transport === 'preview'
+            && identity.role === 'client' && url.searchParams.get('bridge') !== '1') {
+            socket.close(1008, 'encrypted preview requires the native bridge');
             return;
         }
         const authenticatedSocket = { socket, identity };

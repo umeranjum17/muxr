@@ -24,6 +24,8 @@ export interface RequestDispatcherOptions {
     hostVersion: string;
     /** Where to join preview channels. Absent means preview is unavailable. */
     relayUrl?: string;
+    /** Hosted E2EE never permits clear preview payloads from older clients. */
+    requirePreviewEncryption?: boolean;
     terminals?: TerminalManager;
     token?: string;
     /** Browser grants can observe but cannot mutate terminal/machine state. */
@@ -152,11 +154,15 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
             if (options.relayUrl === undefined) {
                 throw new Error('preview: host has no relay url');
             }
+            if (options.requirePreviewEncryption === true && params.key === undefined) {
+                throw new Error('preview: update the app to use encrypted preview');
+            }
             return attachPreview({
                 relayUrl: options.relayUrl,
                 machineId,
                 channel: params.channel,
                 port: params.port,
+                ...(params.key === undefined ? {} : { key: params.key }),
                 ...(options.token === undefined ? {} : { token: options.token }),
             });
         },

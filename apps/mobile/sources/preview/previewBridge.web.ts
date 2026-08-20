@@ -7,6 +7,6 @@ export interface PreviewBridge {
 
 export const previewBridgeAvailable = false;
 
-export function startPreviewBridge(_socket: WebSocket): Promise<PreviewBridge> {
+export function startPreviewBridge(_socket: WebSocket, _key: string): Promise<PreviewBridge> {
     return Promise.reject(new Error('Browser preview needs the muxr app on this platform.'));
 }
