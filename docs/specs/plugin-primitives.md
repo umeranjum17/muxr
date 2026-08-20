@@ -1,7 +1,7 @@
 ---
 title: Plugins on primitives
 slug: plugin-primitives
-status: tested
+status: in-progress
 created: 2026-08-15
 updated: 2026-08-19
 owner: umer
@@ -44,7 +44,7 @@ Attachments and changes list via `plugin.call` (metadata only). Actionable rows 
 
 RPC contributions may explicitly request `sessions` and/or `workspace-tree`. Immediately before spawn, the host passes a fresh bounded `MUXR_PLUGIN_CONTEXT_JSON` with stable muxr session ids, labels, cwd/workspace/tab labels, agent kind/status, attention timestamps, and label-only tree relationships. It never includes secrets, terminal bytes, device ids, pane ids, workspace ids, tab ids, or other internal ids; records and bytes are capped. Inbox consumes `sessions` and owns grouping, ordering, wording, and the six-hour done TTL. Workspace Hierarchy consumes `workspace-tree` and owns tab/session labels, current state, status, and navigation actions. Its old New tab, split, tab-grid, save/restore layout, close/watch/focus operations are deliberately omitted until they fit declared write RPCs without exposing internal ids; they must not return as React Native product policy.
 
-Run Server now owns Linux/macOS listener discovery, project-cwd filtering, HTTP probes, labels, refresh cadence, and whether its generic `item-list` control exists. UI version 5 removes `url-chip`; active-only bounded item-list polling stops when unfocused and force-refreshes on open. The plugin returns only a validated `{ target: "preview", port }` kernel action. The compiled preview route/transport owns `preview.list` fallback and `preview.attach`; no primitive calls either request or accepts an arbitrary HTTP/file URL.
+Preview discovery owns Linux/macOS listener discovery, project-cwd filtering, bounded HTML probes, page-title labels, refresh cadence, and whether its generic `item-list` control exists. It excludes raw APIs, relays, and non-HTML listeners instead of presenting every open project port as a frontend. UI version 5 removes `url-chip`; active-only bounded item-list polling stops when unfocused and force-refreshes on open. The plugin returns only a validated `{ target: "preview", port }` kernel action. The compiled preview route/transport owns `preview.list` fallback and `preview.attach`; no primitive calls either request or accepts an arbitrary HTTP/file URL.
 
 The Usage plugin uses the exact pinned ccusage native package as its backend aggregator. It runs one bounded `daily --last 1 --by-agent --json --no-cost --offline` read over local agent logs, allowlists names and total-token counts, and never exposes costs, prompts, models, or session details. Its generic item-list distinguishes measured activity from installed-but-unreported agents, including agents ccusage does not support, and caches only the final bounded item model for one minute. Codex current limits still come from its local app-server; other coding CLIs are detected through PATH but never executed.
 
@@ -86,6 +86,7 @@ UI version 12 allows generic `item-list` rows to omit actions for read-only stat
 
 ## Revisions
 
+- 2026-08-20 — Collapse Usage to one plain navigation pill beside Machine that opens the provider-tab details screen directly. Preview lists only real HTML frontends for the session project, removes the redundant Run server action, and carries the paired relay URL through preview attach.
 - 2026-08-19 — Remove optional Assistant App Actions capability metadata after Google Play continued rejecting the signed release despite owner acceptance of both terms surfaces. Keep the same public `shortcuts` contribution, localized launcher shortcut, deep link, and live enabled-catalog guard. The signed versionCode 8 bundle then passed Play ingestion, internal testing, and closed-test release validation.
 - 2026-08-18 — Browser grants now admit only explicitly read-mode RPCs from package-owned bundled plugin roots; omitted modes and third-party self-declarations fail closed. Read-only session opens no longer acknowledge global attention. Terminal link extraction is stateful, control-safe, canonical, credential-free, latest-first, and bounded across sessions.
 - 2026-08-18 — Bundled plugin consolidation: file-viewer + changes + git-history + runbook merged into `code`, usage-status + vitals into `status`, ports + run-server into `servers` (17 → 12 packages). Same public contract, same primitives; the contribution cap rises 16 → 24 for merged manifests, and setup now unlinks retired bundled ids.

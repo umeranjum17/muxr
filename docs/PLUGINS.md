@@ -111,7 +111,7 @@ Reference it from the UI:
 
 muxr never executes a command from the UI document. It sends the enabled extension ID, manifest hash, declared action ID, and explicit session context to the host. The host verifies them and asks Herdr to invoke the action from that same package.
 
-Your action receives `HERDR_PLUGIN_CONTEXT_JSON`, including the muxr-resolved `focused_pane_id`, `focused_pane_cwd`, `workspace_id`, `tab_id`, and `invocation_source`. Write state under `HERDR_PLUGIN_STATE_DIR`. There is no `HERDR_PANE_ID` in an action process; that variable belongs to panes. See [`../plugins/servers/start.mjs`](../plugins/servers/start.mjs) for a working backend example.
+Your action receives `HERDR_PLUGIN_CONTEXT_JSON`, including the muxr-resolved `focused_pane_id`, `focused_pane_cwd`, `workspace_id`, `tab_id`, and `invocation_source`. Write state under `HERDR_PLUGIN_STATE_DIR`. There is no `HERDR_PANE_ID` in an action process; that variable belongs to panes.
 
 ## Hooks
 

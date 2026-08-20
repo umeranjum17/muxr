@@ -1,6 +1,11 @@
 {
   "entries": [
     {
+      "title": "One tap, one destination",
+      "summary": "Pairing, Usage, machine details, and Preview lose their duplicate steps.",
+      "markdown": "- Keep Scan QR and manual pairing separate; the manual screen now contains only the string field and Connect.\n- Open the provider-tab Usage screen from one plain pill beside Machine.\n- See the active transport, relay URL, and muxr CLI version in machine details.\n- Preview only detected HTML frontends by page title and carry the paired relay through the tunnel."
+    },
+    {
       "title": "Pair without the payload",
       "summary": "A short relay-qualified code replaces the giant native pairing string.",
       "markdown": "- Enter one short two-minute pairing string or scan the same value as a QR.\n- Pair through LAN, Tailscale, Cloudflare, or a custom relay without a central discovery service.\n- Pairing lookups are encrypted, single-use, and deleted after resolution; completed handoffs are deleted after grant delivery."
@@ -31,5 +36,5 @@
       "markdown": "- Watch sessions, terminals, changes, and attention state from your phone.\n- Send keys, inspect attachments, and start agents in a selected workspace.\n- Use provider-neutral realtime voice or fully local Whisper dictation."
     }
   ],
-  "latestTitle": "Pair without the payload"
+  "latestTitle": "One tap, one destination"
 }

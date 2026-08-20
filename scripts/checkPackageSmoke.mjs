@@ -227,7 +227,7 @@ try {
     assert.ok(listing.includes('package/relay.js'), 'self-host relay bundle missing from npm artifact');
     assert.ok(listing.includes('package/update.mjs'), 'interactive CLI updater missing from npm artifact');
     assert.ok(listing.includes('package/plugins/control/run.mjs'), 'control plugin missing from npm artifact');
-    assert.ok(listing.includes('package/plugins/servers/start.mjs'), 'Run Server plugin missing from npm artifact');
+    assert.ok(listing.includes('package/plugins/servers/serve.mjs'), 'Preview discovery plugin missing from npm artifact');
     assert.ok(listing.includes('package/plugins/voice/rpc.mjs'), 'Voice plugin missing from npm artifact');
     assert.ok(listing.includes('package/web/index.html'), 'secure browser client missing from npm artifact');
     assert.ok(!listing.some((file) => /apps\/relay|commerce|stripe|website|betaCodeAdmin|controlPlane|controlRepository/i.test(file)), 'private control-plane source shipped in npm artifact');

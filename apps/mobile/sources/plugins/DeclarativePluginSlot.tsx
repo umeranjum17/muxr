@@ -215,17 +215,19 @@ export function DeclarativeNavigationItems({ activeKey, onSelect }: { activeKey?
 export function DeclarativePhoneNavRow({ onSelect }: { onSelect: (pluginId: string, contentId: string) => void }) {
     const { theme } = useUnistyles();
     useSlotContributions('navigation.primary');
-    const chips = pluginSnapshot().flatMap(({ summary, manifest }) => manifest.contributions.flatMap((contribution) => 'type' in contribution && contribution.type === 'data-card' && contribution.slot === 'home.cards' && contribution.presentation === 'sheet' ? [
+    const plugins = pluginSnapshot();
+    const chipPluginIds = new Set(plugins.flatMap(({ summary, manifest }) => manifest.contributions.some((contribution) => 'type' in contribution && contribution.type === 'data-card' && contribution.slot === 'home.cards' && contribution.presentation === 'sheet') ? [summary.pluginId] : []));
+    const chips = plugins.flatMap(({ summary, manifest }) => manifest.contributions.flatMap((contribution) => 'type' in contribution && contribution.type === 'data-card' && contribution.slot === 'home.cards' && contribution.presentation === 'sheet' ? [
         <DataCard key={`${summary.pluginId}:${contribution.id}`} contribution={contribution} pluginId={summary.pluginId} manifestHash={summary.manifestHash} pluginName={summary.name} />,
     ] : []));
-    const items = pluginSnapshot().flatMap(({ summary, manifest }) => manifest.contributions.flatMap((contribution) => 'type' in contribution && contribution.type === 'navigation-item' ? [{
+    const items = plugins.flatMap(({ summary, manifest }) => manifest.contributions.flatMap((contribution) => 'type' in contribution && contribution.type === 'navigation-item' ? [{
         key: `${summary.pluginId}:${contribution.id}`,
         label: resolvePluginText(contribution.label),
         contribution,
         pluginId: summary.pluginId,
         manifestHash: summary.manifestHash,
         contentId: contribution.contentContributionId,
-    }] : []));
+    }] : [])).sort((left, right) => Number(chipPluginIds.has(right.pluginId)) - Number(chipPluginIds.has(left.pluginId)));
     if (chips.length === 0 && items.length === 0) return null;
     return (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }} contentContainerStyle={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingVertical: 10 }}>

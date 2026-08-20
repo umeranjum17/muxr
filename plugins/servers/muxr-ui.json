@@ -100,28 +100,6 @@
       ]
     },
     {
-      "slot": "settings.sections",
-      "id": "servers.info",
-      "title": "Run Server",
-      "children": [
-        {
-          "type": "row",
-          "title": "Project server",
-          "subtitle": "Starts the selected project's existing dev script for Preview."
-        }
-      ]
-    },
-    {
-      "slot": "session.toolbar",
-      "id": "servers.start",
-      "type": "button",
-      "label": "Run server",
-      "action": {
-        "type": "plugin.invoke",
-        "actionId": "start"
-      }
-    },
-    {
       "slot": "session.header.trailing",
       "id": "listeners",
       "type": "native",

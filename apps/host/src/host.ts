@@ -44,7 +44,7 @@ export function startHost(options: HostOptions): Host {
         domain,
         machineId: options.machineId,
         hostVersion,
-        ...(options.hostedE2ee === undefined ? { relayUrl: options.relayUrl } : {}),
+        relayUrl: options.relayUrl,
         ...(options.terminals === undefined ? {} : { terminals: options.terminals }),
         ...(options.token === undefined ? {} : { token: options.token }),
         ...(options.hostedE2ee === undefined ? {} : {

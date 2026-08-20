@@ -8,7 +8,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/auth/AuthContext';
 import { claimHostedPairing, hostedPairingDisplayName } from '@/state/hostedE2ee';
 import { getCachedConnectionSettings, saveConnectionSettings } from '@/state/connectionSettings';
-import { usePairQrScanner } from '@/hooks/usePairing';
 import { ActionButton } from '@/components/ActionButton';
 import { Typography } from '@/constants/Typography';
 
@@ -59,9 +58,6 @@ export default function PairScreen() {
         ? ['This browser claims the one-time code from the link.', ...PAIRING_STEPS.slice(1)]
         : PAIRING_STEPS;
     const switching = getCachedConnectionSettings().machineId !== '';
-    const scanQr = usePairQrScanner(React.useCallback((url: string) => {
-        setState({ phase: 'confirm', url, machineName: hostedPairingDisplayName(url) });
-    }, []), !browser);
     const routePairUrl = React.useMemo(() => {
         const v = routeParams.v;
         if (typeof v !== 'string' || v === '') return undefined;
@@ -96,7 +92,7 @@ export default function PairScreen() {
             if (!receive(url)) {
                 setState({ phase: 'error', message: browser
                     ? 'Paste a fresh browser pairing string from `muxr pair --browser`.'
-                    : 'Enter the short pairing string shown by `muxr pair`, or scan its QR code.' });
+                    : 'Enter the short pairing string shown by `muxr pair`.' });
             };
         }).catch((cause) => {
             if (!cancelled) setState({ phase: 'error', message: cause instanceof Error ? cause.message : String(cause) });
@@ -221,8 +217,7 @@ export default function PairScreen() {
                         <ActionButton title="Back" variant="secondary" onPress={cancel} />
                     </>
                 ) : (
-                    // No claim arrived: one inline field and the same QR path,
-                    // matching the familiar Expo Go connection pattern.
+                    // Manual entry stays separate from the QR action on onboarding.
                     <>
                         {state?.phase === 'error' && (
                             <Text style={styles.stepText}>{state.message}</Text>
@@ -242,9 +237,6 @@ export default function PairScreen() {
                             onSubmitEditing={connectManual}
                         />
                         <ActionButton title="Connect" icon="link-outline" disabled={!pairingValue.trim()} onPress={connectManual} />
-                        {!browser && (
-                            <ActionButton title="Scan QR code" variant="secondary" icon="qr-code-outline" onPress={() => void scanQr()} />
-                        )}
                         <ActionButton title="Back" variant="quiet" onPress={cancel} />
                     </>
                 )}

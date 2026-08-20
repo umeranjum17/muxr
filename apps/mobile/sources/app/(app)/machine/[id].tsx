@@ -18,6 +18,8 @@ import { useNavigateToSession } from '@/hooks/useNavigateToSession';
 import { machineSpawnNewSession } from '@/sync/ops';
 import { resolveAbsolutePath } from '@/utils/pathUtils';
 import { MultiTextInput, type MultiTextInputHandle } from '@/components/MultiTextInput';
+import { getCachedHostedGrant } from '@/state/hostedE2ee';
+import { getCachedConnectionSettings, pairingTransport } from '@/state/connectionSettings';
 
 const styles = StyleSheet.create((theme) => ({
     pathInputContainer: {
@@ -199,6 +201,9 @@ export default function MachineDetailScreen() {
 
     const metadata = machine.metadata;
     const machineName = metadata?.displayName || metadata?.host || 'Paired computer';
+    const settings = getCachedConnectionSettings();
+    const relayUrl = getCachedHostedGrant(machineId!)?.relayUrl
+        ?? (settings.machineId === machineId ? settings.relayUrl : undefined);
 
     const spawnButtonDisabled = !customPath.trim() || isSpawning || !isMachineOnline(machine!);
 
@@ -405,6 +410,15 @@ export default function MachineDetailScreen() {
 
                 {/* Machine */}
                 <ItemGroup title={t('machine.machineGroup')}>
+                        {relayUrl && (
+                            <>
+                                <Item title="Transport" subtitle={pairingTransport(relayUrl) ?? 'Relay'} />
+                                <Item title="Relay" subtitle={relayUrl} subtitleLines={0} />
+                            </>
+                        )}
+                        {metadata?.muxrCliVersion && (
+                            <Item title="muxr CLI" subtitle={metadata.muxrCliVersion} />
+                        )}
                         <Item
                             title={t('machine.host')}
                             subtitle={metadata?.host || machineName}

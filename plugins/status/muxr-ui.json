@@ -12,19 +12,12 @@
       "mode": "read"
     },
     {
-      "slot": "home.cards",
-      "id": "usage.card",
-      "type": "native",
-      "primitive": "item-list",
-      "params": {
-        "title": "Usage",
-        "icon": "speedometer-outline",
-        "accessibilityLabel": "Open coding-agent usage",
-        "source": {
-          "type": "plugin.call",
-          "contributionId": "usage"
-        }
-      }
+      "slot": "navigation.primary",
+      "id": "usage.nav",
+      "type": "navigation-item",
+      "label": "Usage",
+      "icon": "speedometer-outline",
+      "contentContributionId": "usage.details"
     },
     {
       "slot": "session.header.trailing",

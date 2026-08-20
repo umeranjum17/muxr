@@ -7,7 +7,7 @@ import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
 import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
-import { getCachedConnectionSettings, saveConnectionSettings } from '@/state/connectionSettings';
+import { getCachedConnectionSettings, pairingTransport, saveConnectionSettings } from '@/state/connectionSettings';
 import { getCachedHostedGrant, listPairedGrants, removeHostedGrant } from '@/state/hostedE2ee';
 import { useAuth } from '@/auth/AuthContext';
 import { ItemList } from '@/components/ItemList';
@@ -38,19 +38,6 @@ type BuildConfig = {
 function getBuildConfig(): BuildConfig {
     const appConfig = Constants.expoConfig?.extra?.app;
     return appConfig && typeof appConfig === 'object' ? appConfig as BuildConfig : {};
-}
-
-function pairingTransport(relayUrl: string | undefined): string | undefined {
-    if (relayUrl === undefined) return undefined;
-    try {
-        const { hostname, protocol } = new URL(relayUrl);
-        if (hostname.endsWith('.ts.net') || /^100\.(6[4-9]|[78]\d|9\d|1[01]\d|12[0-7])\./.test(hostname)) return 'Tailscale';
-        if (hostname.endsWith('.trycloudflare.com')) return 'Cloudflare tunnel';
-        if (protocol === 'ws:' && (/^(localhost|127\.)/.test(hostname) || /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(hostname))) return 'Local network';
-        return 'Hosted VPS / custom relay';
-    } catch {
-        return undefined;
-    }
 }
 
 function formatUtcTimestamp(value: string): string {

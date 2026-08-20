@@ -9,6 +9,7 @@ const MAX_ITEMS = 24;
 const COMMAND_TIMEOUT_MS = 1_500;
 const PROBE_TIMEOUT_MS = 900;
 const PROBE_CONCURRENCY = 8;
+const MAX_HTML_BYTES = 32 * 1024;
 
 function run(command, args) {
     try {
@@ -91,26 +92,46 @@ function processCwds(listeners) {
     return result;
 }
 
-async function speaksHttp(port) {
+async function frontendTitle(port) {
     try {
-        await fetch(`http://127.0.0.1:${port}/`, {
-            method: 'HEAD',
+        const response = await fetch(`http://127.0.0.1:${port}/`, {
+            headers: { accept: 'text/html' },
             redirect: 'manual',
             signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
         });
-        return true;
+        if (!response.ok || !response.headers.get('content-type')?.toLowerCase().includes('text/html')) {
+            await response.body?.cancel();
+            return undefined;
+        }
+        const reader = response.body?.getReader();
+        if (reader === undefined) return undefined;
+        const decoder = new TextDecoder();
+        let html = '';
+        let bytes = 0;
+        while (bytes < MAX_HTML_BYTES) {
+            const { done, value } = await reader.read();
+            if (done || value === undefined) break;
+            const chunk = value.subarray(0, MAX_HTML_BYTES - bytes);
+            bytes += chunk.length;
+            html += decoder.decode(chunk, { stream: bytes < MAX_HTML_BYTES });
+        }
+        await reader.cancel().catch(() => undefined);
+        if (!/<(?:!doctype\s+html|html)\b/i.test(html)) return undefined;
+        return safeText(/<title[^>]*>([\s\S]*?)<\/title>/i.exec(html)?.[1].replace(/<[^>]+>/g, ' '), 'Frontend');
     } catch {
-        return false;
+        return undefined;
     }
 }
 
-async function httpListeners(listeners) {
+async function frontendListeners(listeners) {
     const accepted = [];
     let next = 0;
     const worker = async () => {
         while (next < listeners.length) {
             const listener = listeners[next++];
-            if (listener !== undefined && await speaksHttp(listener.port)) accepted.push(listener);
+            if (listener === undefined) continue;
+            const title = await frontendTitle(listener.port);
+            if (title !== undefined) accepted.push({ ...listener, title });
         }
     };
     await Promise.all(Array.from({ length: Math.min(PROBE_CONCURRENCY, listeners.length) }, worker));
@@ -150,12 +171,12 @@ export async function discover(cwd) {
         const processCwd = pid === undefined ? undefined : cwds.get(pid);
         return processCwd !== undefined && insideProject(project, processCwd);
     });
-    const http = await httpListeners(contained);
+    const frontends = await frontendListeners(contained);
     const projectLabel = safeText(basename(project), 'project');
-    return http.sort((a, b) => a.port - b.port).slice(0, MAX_ITEMS).map(({ port, command }) => ({
+    return frontends.sort((a, b) => a.port - b.port).slice(0, MAX_ITEMS).map(({ port, title }) => ({
         id: `port-${port}`,
-        title: `localhost:${port}`,
-        subtitle: `${safeText(command, 'HTTP server')} · ${projectLabel}`,
+        title,
+        subtitle: `localhost:${port} · ${projectLabel}`,
         action: { type: 'kernel.navigate', target: 'preview', port },
     }));
 }
