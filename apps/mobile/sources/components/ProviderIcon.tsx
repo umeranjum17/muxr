@@ -9,8 +9,7 @@ const providerImages = {
     claude: require('@/assets/images/icon-claude.png'),
 } as const;
 
-/** `monochrome` is for list chrome, where colour is reserved for session state. */
-export function ProviderIcon({ kind, size = 14, monochrome = false }: { kind?: string | null; size?: number; monochrome?: boolean }) {
+export function ProviderIcon({ kind, size = 14 }: { kind?: string | null; size?: number }) {
     const { theme } = useUnistyles();
     const mapped = getProviderIconKind(kind);
     if (mapped === 'codex' || mapped === 'claude') {
@@ -19,7 +18,7 @@ export function ProviderIcon({ kind, size = 14, monochrome = false }: { kind?: s
                 source={providerImages[mapped]}
                 style={{ width: size, height: size }}
                 contentFit="contain"
-                tintColor={mapped === 'codex' || monochrome ? theme.colors.textSecondary : undefined}
+                tintColor={mapped === 'codex' ? theme.colors.textSecondary : undefined}
             />
         );
     }

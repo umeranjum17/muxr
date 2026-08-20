@@ -3,10 +3,11 @@ import { View, Pressable, Platform } from 'react-native';
 import { Text } from '@/components/StyledText';
 import { SessionRowData } from '@/sync/storage';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { formatPathRelativeToHome, sessionStateColors, unreadStateColors, vibingMessages } from '@/utils/sessionUtils';
+import { formatPathRelativeToHome, sessionStateColors, unreadStateColors, vibingMessages, formatLastSeen } from '@/utils/sessionUtils';
 import { Avatar } from './Avatar';
 import { Typography } from '@/constants/Typography';
-import { isSettledSession, SESSION_GLYPH_COLUMN, SessionMetaLine, SessionStateGlyph } from './SessionRowParts';
+import { StatusDot } from './StatusDot';
+import { isSettledSession, SessionMetaLine } from './SessionRowParts';
 import { useAllMachines } from '@/sync/storage';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { t } from '@/text';
@@ -158,15 +159,11 @@ export function ActiveSessionsGroupCompact({ sessions, selectedSessionId }: Acti
                                             <View key={subgroup.key}>
                                                 {subgroup.label !== null && (
                                                     <View style={styles.subgroupHeader}>
-                                                        {/* Same 16pt glyph box as the rows below, so the
-                                                            label starts on the one text grid. */}
-                                                        <View style={styles.subgroupIcon}>
-                                                            <Ionicons
-                                                                name={subgroup.isWorktree ? 'git-branch-outline' : 'albums-outline'}
-                                                                size={12}
-                                                                color={theme.colors.textSecondary}
-                                                            />
-                                                        </View>
+                                                        <Ionicons
+                                                            name={subgroup.isWorktree ? 'git-branch-outline' : 'albums-outline'}
+                                                            size={12}
+                                                            color={theme.colors.textSecondary}
+                                                        />
                                                         <Text style={styles.subgroupLabel} numberOfLines={1}>
                                                             {subgroup.label}
                                                         </Text>
@@ -222,25 +219,40 @@ const CompactSessionRow = React.memo(({ session, selected, showBorder }: { sessi
         onContextMenu: handleContextMenu,
     } as any : {};
 
+    const renderLeadingIndicator = () => {
+        let indicator: React.ReactNode = null;
+
+        if (session.hasUnread) {
+            indicator = <StatusDot color={status.dotColor} isPulsing={false} />;
+        } else if (session.state === 'waiting' && session.hasDraft) {
+            indicator = (
+                <Ionicons
+                    name="create-outline"
+                    size={14}
+                    color={theme.colors.textSecondary}
+                />
+            );
+        } else if (session.state === 'permission_required' || session.state === 'thinking') {
+            indicator = <StatusDot color={status.dotColor} isPulsing={status.isPulsing} />;
+        } else if (session.state === 'waiting') {
+            indicator = <StatusDot color={theme.colors.textSecondary} isPulsing={false} />;
+        }
+
+        return (
+            <View style={styles.leadingIndicatorSlot}>
+                {indicator}
+            </View>
+        );
+    };
+
     const settled = isSettledSession(session);
-    const vibingMessage = React.useMemo(() => (
-        vibingMessages[Math.floor(Math.random() * vibingMessages.length)].toLowerCase() + '…'
-    ), [session.state]);
-    const statusText = session.hasUnread
-        ? t('status.unread')
-        : session.state === 'thinking'
-            ? vibingMessage
-            : session.state === 'permission_required'
-                ? t('status.permissionRequired')
-                : session.state === 'disconnected'
-                    ? t('status.offline')
-                    : t('status.online');
 
     const itemContent = (
         <Pressable
             style={({ pressed }) => [
                 styles.sessionRow,
                 { opacity: pressed ? 0.55 : settled ? 0.75 : 1 },
+                showBorder && styles.sessionRowWithBorder,
                 selected && styles.sessionRowSelected
             ]}
             onPress={handlePress}
@@ -251,37 +263,37 @@ const CompactSessionRow = React.memo(({ session, selected, showBorder }: { sessi
         >
             <View style={styles.sessionContent}>
                 <View style={styles.sessionTitleRow}>
-                    <SessionStateGlyph session={session} status={status} />
+                    {renderLeadingIndicator()}
 
                     <Text
                         style={[
                             styles.sessionTitle,
                             status.isConnected ? styles.sessionTitleConnected : styles.sessionTitleDisconnected
                         ]}
-                        numberOfLines={1}
+                        numberOfLines={2}
                     >
                         {session.name}
                     </Text>
-                    {/* The provider mark rides the title's trailing edge: in the
-                        metadata line it would push the text off the one left
-                        grid every row shares. */}
-                    <ProviderIcon kind={session.providerKind} size={12} monochrome />
                     <SessionShortcutHintBadge
                         sessionId={session.id}
                         style={styles.sessionShortcutBadge}
                     />
                 </View>
-                <SessionMetaLine
-                    style={styles.sessionMetaLine}
-                    segments={[
-                        { text: statusText, color: settled ? theme.colors.textSecondary : status.color },
-                        { text: session.modelName },
-                        { text: session.totalTodosCount > 0 ? `${session.completedTodosCount}/${session.totalTodosCount}` : null },
-                        { text: session.activitySummary },
-                    ]}
-                />
+                {session.identityLine && (
+                    <View style={styles.sessionIdentityRow}>
+                        <ProviderIcon kind={session.providerKind} size={11} />
+                        <SessionMetaLine
+                            style={{ flex: 1 }}
+                            segments={[
+                                { text: session.identityLine },
+                                { text: session.modelName },
+                                { text: session.activitySummary },
+                            ]}
+                        />
+                    </View>
+                )}
                 {session.spawnedBy !== null && (
-                    <Text style={styles.sessionSpawned} numberOfLines={1}>
+                    <Text style={styles.sessionIdentity} numberOfLines={1}>
                         spawned
                     </Text>
                 )}
@@ -292,9 +304,6 @@ const CompactSessionRow = React.memo(({ session, selected, showBorder }: { sessi
     return (
         <>
             {itemContent}
-            {/* Inset to the text grid, and outside the row so it keeps full
-                strength while the row it follows is dimmed or pressed. */}
-            {showBorder === true && <View style={styles.rowDivider} />}
             <SessionActionsPopover
                 anchor={actionsAnchor}
                 onClose={() => setActionsAnchor(null)}
@@ -362,14 +371,10 @@ const stylesheet = StyleSheet.create((theme) => ({
     subgroupHeader: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 8,
-        paddingHorizontal: 16,
-        paddingTop: 10,
-        paddingBottom: 2,
-    },
-    subgroupIcon: {
-        width: 16,
-        alignItems: 'center',
+        gap: 6,
+        paddingHorizontal: 14,
+        paddingTop: 8,
+        paddingBottom: 4,
     },
     subgroupLabel: {
         color: theme.colors.textSecondary,
@@ -392,19 +397,17 @@ const stylesheet = StyleSheet.create((theme) => ({
     },
     // Session row styles
     sessionRow: {
-        minHeight: 56,
+        height: 56,
         flexDirection: 'row',
         alignItems: 'center',
-        paddingVertical: 8,
         paddingHorizontal: 16,
         backgroundColor: 'transparent',
         // Long-press must open multi-select, not highlight the row's text.
         ...Platform.select({ web: { userSelect: 'none' } as any, default: {} }),
     },
-    rowDivider: {
-        height: StyleSheet.hairlineWidth,
-        marginLeft: 16 + SESSION_GLYPH_COLUMN,
-        backgroundColor: theme.colors.divider,
+    sessionRowWithBorder: {
+        borderBottomWidth: StyleSheet.hairlineWidth,
+        borderBottomColor: theme.colors.divider,
     },
     sessionRowSelected: {
         backgroundColor: theme.colors.surfaceSelected,
@@ -416,17 +419,15 @@ const stylesheet = StyleSheet.create((theme) => ({
     sessionTitleRow: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 8,
     },
     sessionTitle: {
         fontSize: 15,
-        lineHeight: 20,
-        letterSpacing: -0.1,
         flex: 1,
-        ...Typography.default(),
+        ...Typography.default('regular'),
     },
     sessionShortcutBadge: {
         flexShrink: 0,
+        marginLeft: 8,
     },
     sessionTitleConnected: {
         color: theme.colors.text,
@@ -434,15 +435,24 @@ const stylesheet = StyleSheet.create((theme) => ({
     sessionTitleDisconnected: {
         color: theme.colors.textSecondary,
     },
-    sessionSpawned: {
-        marginLeft: SESSION_GLYPH_COLUMN,
+    sessionIdentity: {
         fontSize: 11,
         color: theme.colors.textSecondary,
         ...Typography.default('regular'),
         flexShrink: 1,
     },
-    sessionMetaLine: {
-        marginLeft: SESSION_GLYPH_COLUMN,
-        marginTop: 1,
+    sessionIdentityRow: {
+        marginLeft: 24,
+        marginTop: 2,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+    },
+    leadingIndicatorSlot: {
+        alignItems: 'center',
+        justifyContent: 'center',
+        width: 16,
+        height: 16,
+        marginRight: 8,
     },
 }));
