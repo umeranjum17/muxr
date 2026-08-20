@@ -1,18 +1,27 @@
-# muxr Voice provider plugin
+# muxr realtime provider plugins
 
-`muxr.voice` is the bundled xAI Grok speech-to-speech adapter. Its UI is ordinary plugin composition: generic capability buttons, a provider-neutral realtime overlay, a declarative Settings destination, and a shortcut. The app kernel owns microphone permission, foreground-service startup, audio routing, and generic PCM/WebRTC capabilities. The backend plugin owns provider authentication, models, prompts, tools, codecs, and event translation.
+Realtime voice is ordinary plugin composition: generic capability buttons, a provider-neutral realtime overlay, and a declarative Settings destination. The app kernel owns microphone permission, foreground-service startup, audio routing, and generic PCM/WebRTC capabilities. Each backend plugin owns its provider authentication, model, prompt, tools, codecs, and event translation.
 
 ## Setup
 
-Voice ships bundled with `@trymuxr/cli` — the npm install already includes it. You need an [xAI API key](https://console.x.ai) (a paid provider; the key lives only on your machine). Then open **Settings → Grok realtime voice** on the phone and paste the key. Its secure prompt sends the value once through authenticated E2EE to the plugin's write RPC; declarative UI never stores or displays it. In a source checkout, `yarn build` plus the documented setup flow installs the same bundled plugins.
+All three adapters ship with `@trymuxr/cli`:
 
-The plugin stores the key only on the machine at:
+| Plugin | Provider | Default | Key file |
+|---|---|---|---|
+| `muxr.voice` | xAI Grok | enabled | `~/.muxr/xai.key` |
+| `muxr.voice-gemini` | Gemini Live | disabled | `~/.muxr/gemini.key` |
+| `muxr.voice-openai` | OpenAI Realtime | disabled | `~/.muxr/openai.key` |
 
-```text
-~/.muxr/xai.key
+Exactly one provider may be enabled because all three claim `voice.session`. To switch, disable the current plugin before enabling another:
+
+```bash
+herdr plugin disable muxr.voice
+herdr plugin enable muxr.voice-gemini # or muxr.voice-openai
 ```
 
-`MUXR_HOME` relocates the directory. It is owner-only (`0700`); the key is owner-only (`0600`), written through a unique temporary file and atomic rename. Reads reject symlinks, non-regular files, and unsafe permissions.
+Open the enabled provider under **Settings → Plugins** and paste its API key. The attributed secure prompt sends the value once through authenticated E2EE to that plugin's write RPC; declarative UI never stores or displays it. Explicit enable/disable choices survive `npm` upgrades and subsequent `muxr setup` runs.
+
+`MUXR_HOME` relocates the key directory. It is owner-only (`0700`); each key is owner-only (`0600`), written through a unique temporary file and atomic rename. Reads reject symlinks, non-regular files, and unsafe permissions.
 
 ## Boundary
 
@@ -23,6 +32,6 @@ Core has no vendor-specific host handler. The generic plugin bridge resolves:
 - `voice.session` — a persistent provider-neutral `host.stream`;
 - `voice.report` — supplies plugin-owned wake wording.
 
-The phone sends and receives only bounded audio, state, transcript, and control frames. The bundled backend translates those frames to xAI `grok-voice-think-fast-2.0`. Another plugin can implement OpenAI, Gemini Live, or another speech-to-speech provider without adding provider branches to React Native. A backend may select a compiled generic WebRTC capability when that gives a better media path; provider endpoints and credentials still remain behind muxr signaling.
+The phone sends and receives only bounded audio, state, transcript, and control frames. The bundled adapters translate those frames to xAI `grok-voice-think-fast-2.0`, Gemini `gemini-3.1-flash-live-preview`, or OpenAI `gpt-realtime-2.1`. Another plugin can implement a different speech-to-speech provider without adding a provider branch to React Native. A backend may select a compiled generic WebRTC capability when that gives a better media path; provider endpoints and credentials still remain behind muxr signaling.
 
 Local Whisper dictation is separate, on-device, and does not require this provider plugin.

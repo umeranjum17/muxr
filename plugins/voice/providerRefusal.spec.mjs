@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { providerRefusal } from './stream.mjs';
+import { providerError, providerRefusal } from './stream.mjs';
 
 /**
  * A close code alone sent someone hunting a version mismatch for an account
@@ -28,5 +28,13 @@ describe('providerRefusal', () => {
 
     it('still names the status when the body is empty', () => {
         expect(providerRefusal(429, '')).toBe('Voice provider refused the connection (HTTP 429).');
+    });
+
+    it('does not retry a provider billing event after the socket opens', () => {
+        expect(providerError({ message: 'You have no credits remaining. Add credits to continue.' })).toEqual({
+            detail: 'You have no credits remaining. Add credits to continue.',
+            terminal: true,
+        });
+        expect(providerError('API key not valid. Please pass a valid API key.').terminal).toBe(true);
     });
 });

@@ -64,7 +64,7 @@ function bundledPlugins() {
         .map((entry) => {
             const id = readFileSync(join(dir, entry.name, 'herdr-plugin.toml'), 'utf8').match(/^id\s*=\s*"([^"]+)"/m)?.[1];
             if (id === undefined) throw new Error(`plugins/${entry.name}/herdr-plugin.toml is missing id`);
-            return { id, name: entry.name };
+            return { id, name: entry.name, enabledByDefault: !['voice-gemini', 'voice-openai'].includes(entry.name) };
         })
         .sort((left, right) => left.name.localeCompare(right.name));
 }
@@ -361,12 +361,19 @@ async function ensureHerdr({ dryRun, noInstall, installRequested }) {
 
 async function ensureBundledPlugins(binary, dryRun) {
     const pluginList = run(binary, ['plugin', 'list', '--json']);
-    let installed = [];
-    if (pluginList.ok) {
-        try {
-            const parsed = JSON.parse(pluginList.stdout);
-            installed = parsed.result?.plugins ?? parsed.plugins ?? [];
-        } catch {}
+    if (!pluginList.ok) throw new Error(pluginList.stderr || pluginList.stdout || 'failed to list Herdr plugins');
+    let installed;
+    try {
+        const parsed = JSON.parse(pluginList.stdout);
+        installed = parsed.result?.plugins ?? parsed.plugins;
+    } catch {
+        throw new Error('Herdr returned an invalid plugin list');
+    }
+    if (!Array.isArray(installed) || installed.some((plugin) =>
+        typeof plugin?.plugin_id !== 'string' || plugin.plugin_id === ''
+        || typeof plugin.plugin_root !== 'string' || plugin.plugin_root === ''
+        || typeof plugin.enabled !== 'boolean')) {
+        throw new Error('Herdr returned an invalid plugin list');
     }
     const bundled = bundledPlugins();
     const bundledIds = new Set(bundled.map((plugin) => plugin.id));
@@ -392,20 +399,21 @@ async function ensureBundledPlugins(binary, dryRun) {
         const unlinked = run(binary, ['plugin', 'unlink', current.plugin_id]);
         print(`  ${unlinked.ok ? '✓' : 'warn:'} unlinked retired bundled plugin ${current.plugin_id}`);
     }
-    for (const { id, name } of bundled) {
+    for (const { id, name, enabledByDefault } of bundled) {
         const current = installed.find((plugin) => plugin.plugin_id === id);
         const expected = realpathSync(bundledPluginPath(name));
-        if (current?.enabled === true && realpathOrUndefined(current.plugin_root) === expected) {
-            print(`  ✓ ${id} Herdr plugin ready`);
+        if (current && realpathOrUndefined(current.plugin_root) === expected) {
+            print(`  ✓ ${id} Herdr plugin ready${current.enabled === true ? '' : ' (disabled)'}`);
             continue;
         }
+        const enabled = current ? current.enabled === true : enabledByDefault;
         if (dryRun) {
-            print(`  would link ${id} from ${expected}`);
+            print(`  would link ${id} from ${expected} (${enabled ? 'enabled' : 'disabled'})`);
             continue;
         }
-        const linked = run(binary, ['plugin', 'link', expected, '--enabled']);
+        const linked = run(binary, ['plugin', 'link', expected, enabled ? '--enabled' : '--disabled']);
         if (!linked.ok) throw new Error(linked.stderr || linked.stdout || `failed to link ${id}`);
-        print(`  ✓ ${id} Herdr plugin ${current ? 'updated' : 'installed'}`);
+        print(`  ✓ ${id} Herdr plugin ${current ? 'updated' : 'installed'}${enabled ? '' : ' (disabled)'}`);
     }
 }
 

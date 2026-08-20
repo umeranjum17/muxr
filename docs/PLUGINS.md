@@ -518,7 +518,9 @@ validates shape; `plugin call` proves wiring.
 
 A stream process receives one private `realtime.open` line followed by bounded provider-neutral NDJSON frames. The phone sends PCM audio, mute/stop controls, or text to speak; the adapter returns ready/state/audio/clear/transcript/closed frames. It owns all provider credentials, models, prompts, tools, codecs, and protocol events. The host enforces approval revocation, per-device admission, idle/process-group cleanup, frame bounds, and encrypted relay transport. Adding another provider means adding another plugin adapter, not changing React Native.
 
-Voice uses this without knowing `muxr.voice`. Its one-shot semantic RPC aliases remain:
+The package ships xAI (`plugins/voice`, default on), Gemini Live (`plugins/voice-gemini`, default off), and OpenAI Realtime (`plugins/voice-openai`, default off) as complete examples. All claim `voice.session`; the resolver rejects an ambiguous claim, so disable the active provider before enabling another. Setup defaults apply only on first install and never overwrite an existing enabled/disabled choice.
+
+Voice uses this without knowing any provider plugin id. Its one-shot semantic RPC aliases remain:
 
 - `voice.status`: input `null`, output `{ "configured": boolean }`;
 - `voice.key.set`: input `{ "key": string }`, output `null` (write mode; reached through attributed secure prompt);
