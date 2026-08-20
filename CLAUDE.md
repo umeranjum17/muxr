@@ -24,7 +24,6 @@ Exception: security and crypto paths keep their coverage.
 
 ## Builds
 
-- Android builds are **local only** (`eas build --local`). Never use cloud EAS credits.
 - Long builds/servers run in their own shell pane, never inline inside an agent.
 
 ## Attachments

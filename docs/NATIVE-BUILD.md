@@ -92,11 +92,11 @@ has no default and must be the HTTPS origin that will host activation plus iOS
 Universal Link and Android App Link association files.
 
 Set `MUXR_EAS_PROJECT_ID` only after creating or transferring the owner’s muxr
-project. Without that env var, `eas build --local` refuses to start. Signed
-release APKs and AABs must use the local EAS profiles below; do not distribute a
-direct Gradle build, which has no owner release credential. Changing the
-production app identifier creates a separate store identity unless the owner
-arranges a transfer/update under the final identifier.
+project. Signed store releases use the manual EAS Cloud workflow documented in
+`RELEASING.md`; do not distribute a direct Gradle build, which has no owner
+release credential. Local EAS profiles remain available for development APKs.
+Changing the production app identifier creates a separate store identity unless
+the owner arranges a transfer/update under the final identifier.
 
 ## Fast bundle check
 
