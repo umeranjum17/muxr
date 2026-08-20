@@ -193,7 +193,7 @@ function ScreenRow(props: {
                 <Text style={{ color: theme.colors.text, fontSize: 15 }}>{bind(row.title)}</Text>
                 {row.subtitle !== undefined && <Text style={{ color: theme.colors.textSecondary, fontSize: 12.5, marginTop: 2 }}>{bind(row.subtitle)}</Text>}
             </View>
-            {value !== undefined && <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 13, maxWidth: '45%', ...Typography.mono('regular') }}>{value}</Text>}
+            {value !== undefined && <Text numberOfLines={1} style={{ color: theme.colors.text, fontSize: 13, maxWidth: '45%', ...Typography.mono('regular') }}>{value}</Text>}
             {action?.type === 'screen' && <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />}
         </View>
     );
@@ -564,7 +564,10 @@ function ScreenNode(props: {
                         {valueLabel !== undefined && <Text style={{ color: theme.colors.textSecondary, fontSize: 13, ...Typography.mono('regular') }}>{valueLabel}</Text>}
                     </View>}
                     <View style={{ height: 6, borderRadius: 3, backgroundColor: theme.colors.surfaceHighest, overflow: 'hidden' }}>
-                        <AnimatedBarFill ratio={max === 0 ? 0 : value / max} color={chartFill(theme, node.tone)} delay={0} />
+                        {/* A healthy meter is not news: green here is decoration,
+                            and a column of full-chroma bars is what makes a panel
+                            look cheap. Colour is kept for the one nearing its limit. */}
+                        <AnimatedBarFill ratio={max === 0 ? 0 : value / max} color={chartFill(theme, node.tone === 'positive' ? undefined : node.tone)} delay={0} />
                     </View>
                 </View>
             );

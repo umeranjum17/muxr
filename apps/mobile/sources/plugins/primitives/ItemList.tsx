@@ -66,8 +66,9 @@ function SheetRow({ item, fallbackIcon, busy, index, onPress }: {
     // full contrast, so the eye goes to the row that still needs a person.
     const settled = (item.progress?.tone ?? primary?.tone) === 'positive';
     // Untoned bars step back down the list: a column of identical full-strength
-    // accent reads as decoration rather than ranking.
-    const progressColor = item.progress?.tone === undefined
+    // accent reads as decoration rather than ranking. A finished bar is not news
+    // either, so green is spent on nothing; colour stays for trouble.
+    const progressColor = item.progress?.tone === undefined || item.progress.tone === 'positive'
         ? withAlpha(theme.colors.accent, Math.max(0.4, 1 - index * 0.14))
         : toneColor(theme, item.progress.tone);
     const content = <View style={{ opacity: settled ? 0.75 : 1 }}>
@@ -295,7 +296,7 @@ const styles = StyleSheet.create({
     iconTile: { width: 30, height: 30, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
     metadata: { alignItems: 'flex-end', gap: 2, marginLeft: 8 },
     metadataValue: { fontSize: 13, ...Typography.mono('semiBold') },
-    metadataSecondary: { fontSize: 11 },
+    metadataSecondary: { fontSize: 11, ...Typography.mono('regular') },
     progressTrack: { height: 4, borderRadius: 2, marginLeft: 54, marginRight: 14, marginTop: -2, marginBottom: 11, overflow: 'hidden' },
     progressFill: { height: '100%', borderRadius: 2 },
 });
