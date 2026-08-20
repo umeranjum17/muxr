@@ -117,7 +117,19 @@ jobs:
         working-directory: apps/mobile
         run: |
           set -o pipefail
-          npx eas-cli@22.0.0 build --platform android --profile production --local --non-interactive --output "$RUNNER_TEMP/muxr.aab" 2>&1 | tee "$RUNNER_TEMP/android-eas.log"
+          # Maven Central answers 429 often enough to fail a release on its own.
+          # One retry costs a rebuild; a lost release costs the run.
+          for attempt in 1 2; do
+            if npx eas-cli@22.0.0 build --platform android --profile production --local --non-interactive --output "$RUNNER_TEMP/muxr.aab" 2>&1 | tee "$RUNNER_TEMP/android-eas.log"; then
+              exit 0
+            fi
+            if ! grep -q "Too Many Requests" "$RUNNER_TEMP/android-eas.log"; then
+              exit 1
+            fi
+            echo "::warning::Maven Central rate-limited the build; retrying once."
+            sleep 60
+          done
+          exit 1
       - name: Download pinned bundletool
         run: |
           curl -fsSL --retry 3 -o "$RUNNER_TEMP/bundletool.jar" https://github.com/google/bundletool/releases/download/1.18.3/bundletool-all-1.18.3.jar
