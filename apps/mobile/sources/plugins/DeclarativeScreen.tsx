@@ -585,7 +585,7 @@ function ScreenNode(props: {
         case 'diff': {
             const patch = resolvePath(data, node.path);
             if (typeof patch !== 'string' || patch === '') return null;
-            return <View style={{ marginBottom: 8 }}><PierreDiffView patch={boundText(patch, 600, 64 * 1024).text} diffStyle="unified" overflow="scroll" /></View>;
+            return <View style={{ marginBottom: 10 }}><PierreDiffView patch={boundText(patch, 600, 64 * 1024).text} diffStyle="unified" overflow={width < 700 ? 'wrap' : 'scroll'} fontSize={12} /></View>;
         }
         case 'code': {
             const source = resolvePath(data, node.path);

@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ActivityIndicator, AppState, Pressable, Text, View } from 'react-native';
+import { ActivityIndicator, AppState, Pressable, Text, View, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useIsFocused } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
@@ -20,8 +20,14 @@ import { toneColor } from '../pluginTone';
 import { cardStyle, Meter, SectionLabel, ui, withAlpha } from '@/components/ui';
 import { resolvePluginText } from '../pluginText';
 import { t } from '@/text';
+import { AttachmentGallery, AttachmentThumbnail, type GalleryImage } from '@/components/AttachmentGallery';
+import type { AttachmentAction } from '@/utils/attachmentPreview';
 
 const EMPTY_MODEL: PluginItemListModel = { items: [], actions: [] };
+
+function imageAction(item: PluginItemListItem): AttachmentAction | undefined {
+    return item.action?.type === 'attachment' && item.action.mimeType?.startsWith('image/') ? item.action : undefined;
+}
 const cache = new Map<string, PluginItemListModel>();
 registerPluginDataCacheInvalidator((pluginIds) => {
     if (pluginIds === undefined) cache.clear();
@@ -81,6 +87,7 @@ function SheetRow({ item, fallbackIcon, busy, index, onPress }: {
 /** Lazy action list: the plugin declares every tap; there are no feature fallbacks. */
 export function ItemList({ context, pluginId, manifestHash, contribution }: PrimitiveProps) {
     const { theme } = useUnistyles();
+    const { width } = useWindowDimensions();
     const router = useRouter();
     const isFocused = useIsFocused();
     const [appActive, setAppActive] = React.useState(AppState.currentState === 'active');
@@ -94,6 +101,7 @@ export function ItemList({ context, pluginId, manifestHash, contribution }: Prim
     const [failed, setFailed] = React.useState(false);
     const [open, setOpen] = React.useState(false);
     const [busyId, setBusyId] = React.useState<string | null>(null);
+    const [galleryIndex, setGalleryIndex] = React.useState<number>();
     const loading = React.useRef(false);
     const requestVersion = React.useRef(0);
     const reloadQueued = React.useRef(false);
@@ -202,6 +210,12 @@ export function ItemList({ context, pluginId, manifestHash, contribution }: Prim
         });
         return found;
     }, [items]);
+    const galleryImages = React.useMemo<GalleryImage[]>(() => items.flatMap((item) => {
+        const action = imageAction(item);
+        return action === undefined ? [] : [{ id: item.id, title: item.title, subtitle: item.subtitle, action }];
+    }), [items]);
+    const galleryById = React.useMemo(() => new Map(galleryImages.map((image, index) => [image.id, index])), [galleryImages]);
+    const galleryWidth = Math.min(220, Math.max(132, (width - 40) / 2));
     const badgeTone = model.badge?.tone;
     const badgeColor = failed ? theme.colors.textDestructive : badgeTone === undefined ? theme.colors.textSecondary : toneColor(theme, badgeTone);
     if (items.length === 0 && model.actions.length === 0) {
@@ -236,19 +250,29 @@ export function ItemList({ context, pluginId, manifestHash, contribution }: Prim
                 {groups.map((group, groupIndex) => (
                     <View key={group.name ?? `ungrouped-${groupIndex}`} style={{ marginTop: groupIndex === 0 && model.actions.length === 0 ? 0 : 14 }}>
                         {group.name !== undefined && <SectionLabel style={styles.groupLabel}>{group.name}</SectionLabel>}
-                        <View style={[cardStyle(theme), { overflow: 'hidden' }]}>
-                            {group.items.map(({ item, index }, rowIndex) => (
+                        {group.items.some(({ item }) => imageAction(item) !== undefined) && <View style={styles.imageGrid}>
+                            {group.items.flatMap(({ item }) => {
+                                const gallery = galleryById.get(item.id);
+                                if (gallery === undefined) return [];
+                                return [<View key={item.id} style={{ width: galleryWidth }}>
+                                    <AttachmentThumbnail sessionId={sessionId!} image={galleryImages[gallery]!} onPress={() => setGalleryIndex(gallery)} />
+                                </View>];
+                            })}
+                        </View>}
+                        {group.items.some(({ item }) => imageAction(item) === undefined) && <View style={[cardStyle(theme), { overflow: 'hidden' }]}>
+                            {group.items.filter(({ item }) => imageAction(item) === undefined).map(({ item, index }, rowIndex) => (
                                 <React.Fragment key={item.id}>
                                     {rowIndex > 0 && <View style={[styles.rowDivider, { backgroundColor: theme.colors.divider }]} />}
                                     <SheetRow item={item} fallbackIcon={icon} busy={busyId === `item:${item.id}`} index={index}
                                         {...(item.action === undefined ? {} : { onPress: () => void onAction(item.action, `item:${item.id}`) })} />
                                 </React.Fragment>
                             ))}
-                        </View>
+                        </View>}
                     </View>
                 ))}
             </View>
         } />
+        {galleryIndex !== undefined && <AttachmentGallery sessionId={sessionId!} images={galleryImages} initialIndex={galleryIndex} onClose={() => setGalleryIndex(undefined)} />}
     </>;
 }
 
@@ -256,6 +280,7 @@ const styles = StyleSheet.create({
     pill: { flexDirection: 'row', alignItems: 'center', gap: 5, height: 26, borderRadius: 999, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 8 },
     count: { fontSize: 11, ...Typography.mono('semiBold') },
     sheetActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingBottom: 4 },
+    imageGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8 },
     sheetAction: { minHeight: 44, borderRadius: 999, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', gap: 6 },
     groupLabel: { marginBottom: 8, marginLeft: 4 },
     rowDivider: { height: StyleSheet.hairlineWidth, marginLeft: 54 },

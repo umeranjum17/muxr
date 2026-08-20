@@ -21,6 +21,7 @@ import { sync } from '@/sync/sync';
 import { resolveMessageModeMeta } from '@/sync/messageMeta';
 import { permissionModeChip, resolveStatusBarGitBranch } from '@/utils/sessionStatusBar';
 import { SessionMetaLine } from '@/components/SessionRowParts';
+import { HeaderBackButton } from '@/components/navigation/HeaderBackButton';
 import type { HerdrTreeTab } from '@muxr/contract';
 import { TerminalView } from '@/terminal/TerminalView';
 import { usePaneGestures } from '@/terminal/usePaneGestures';
@@ -411,9 +412,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                     borderBottomColor: theme.colors.divider,
                 }}
             >
-                <Pressable onPress={() => router.back()} hitSlop={8} accessibilityRole="button" accessibilityLabel="Back" style={({ pressed }) => ({ padding: 6, opacity: pressed ? 0.6 : 1 })}>
-                    <Ionicons name="chevron-back" size={20} color={theme.colors.text} />
-                </Pressable>
+                <HeaderBackButton onPress={() => router.back()} style={{ marginLeft: -6 }} />
                 {(() => {
                     const currentTab = tabs.find((tab) => tab.tabId === tabId);
                     const currentPane = currentTab?.panes.find((pane) => pane.sessionId === props.id);
