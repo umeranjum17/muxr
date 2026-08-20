@@ -183,7 +183,7 @@ export function CollectionView({ context, pluginId, manifestHash, contribution }
                             backgroundColor: theme.colors.surface,
                             borderBottomWidth: itemIndex === group.items.length - 1 ? 0 : StyleSheet.hairlineWidth,
                             borderBottomColor: theme.colors.divider,
-                        }, pressed && { opacity: 0.65 }]}
+                        }, pressed && { backgroundColor: theme.colors.surfacePressed }]}
                     >
                         <View style={{ marginRight: 12 }}><ItemVisual item={item} /></View>
                         <View style={{ flex: 1, minWidth: 0, paddingRight: 12 }}>

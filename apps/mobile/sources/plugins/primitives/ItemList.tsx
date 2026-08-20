@@ -6,6 +6,7 @@ import { useRouter } from 'expo-router';
 import Animated, { Easing, useAnimatedStyle, useReducedMotion, useSharedValue, withDelay, withTiming } from 'react-native-reanimated';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { OptionSheet } from '@/components/OptionSheet';
+import { hapticsLight } from '@/components/haptics';
 import { Modal } from '@/modal';
 import { sync } from '@/sync/sync';
 import { Typography } from '@/constants/Typography';
@@ -101,7 +102,7 @@ function SheetRow({ item, fallbackIcon, busy, index, onPress }: {
     if (onPress === undefined) return <View accessible accessibilityLabel={label}>{content}</View>;
     return (
         <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ busy }}
-            style={({ pressed }) => pressed && { opacity: 0.6 }}>{content}</Pressable>
+            style={({ pressed }) => pressed && { backgroundColor: theme.colors.surfaceHighest }}>{content}</Pressable>
     );
 }
 
@@ -231,14 +232,14 @@ export function ItemList({ context, pluginId, manifestHash, contribution }: Prim
     if (items.length === 0 && model.actions.length === 0) {
         if (!failed) return null;
         return <Pressable onPress={() => load(true)} accessibilityRole="button" accessibilityLabel={`${accessibilityLabel} ${t('plugins.unavailableSuffix')}. ${t('plugins.retry')}`} hitSlop={11}
-            style={({ pressed }) => [styles.pill, { backgroundColor: theme.colors.surfaceHigh, borderColor: theme.colors.divider }, pressed && { opacity: 0.6 }]}>
+            style={({ pressed }) => [styles.pill, { backgroundColor: theme.colors.surfaceHigh, borderColor: theme.colors.divider }, pressed && { backgroundColor: theme.colors.surfacePressed }]}>
             <Ionicons name="warning-outline" size={11} color={theme.colors.textDestructive} />
             <Text style={[styles.count, { color: theme.colors.textDestructive }]}>!</Text>
         </Pressable>;
     }
     return <>
         <Pressable onPress={() => { setOpen(true); load(true); }} accessibilityRole="button" accessibilityLabel={`${accessibilityLabel}${failed ? `, ${t('plugins.showingStale')}. ${t('plugins.retry')}` : ''}`} hitSlop={11}
-            style={({ pressed }) => [styles.pill, { backgroundColor: theme.colors.surfaceHigh, borderColor: failed ? theme.colors.textDestructive : theme.colors.divider }, pressed && { opacity: 0.6 }]}>
+            style={({ pressed }) => [styles.pill, { backgroundColor: theme.colors.surfaceHigh, borderColor: failed ? theme.colors.textDestructive : theme.colors.divider }, pressed && { backgroundColor: theme.colors.surfacePressed }]}>
             <Ionicons name={(failed ? 'warning-outline' : icon) as never} size={11} color={badgeColor} />
             <Text style={[styles.count, { color: badgeColor }]}>{model.badge?.value ?? items.length}</Text>
         </Pressable>
@@ -247,9 +248,9 @@ export function ItemList({ context, pluginId, manifestHash, contribution }: Prim
                 {model.actions.length > 0 && <View style={styles.sheetActions}>
                     {model.actions.map((action) => {
                         const busyKey = `action:${action.id}`;
-                        return <Pressable key={action.id} onPress={() => void onAction(action.action, busyKey)} accessibilityRole="button" accessibilityLabel={action.label}
+                        return <Pressable key={action.id} onPress={() => { hapticsLight(); void onAction(action.action, busyKey); }} accessibilityRole="button" accessibilityLabel={action.label}
                             accessibilityState={{ busy: busyId === busyKey }}
-                            style={({ pressed }) => [styles.sheetAction, { backgroundColor: theme.colors.surfaceHigh, borderColor: theme.colors.divider }, pressed && { opacity: 0.6 }]}>
+                            style={({ pressed }) => [styles.sheetAction, { backgroundColor: theme.colors.surfaceHigh, borderColor: theme.colors.divider }, pressed && { backgroundColor: theme.colors.surfaceHighest }]}>
                             {busyId === busyKey
                                 ? <ActivityIndicator size="small" color={theme.colors.textSecondary} />
                                 : action.icon !== undefined && <Ionicons name={action.icon as never} size={15} color={theme.colors.textSecondary} />}
