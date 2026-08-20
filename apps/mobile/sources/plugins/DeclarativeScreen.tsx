@@ -2,7 +2,7 @@ import * as React from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View, useWindowDimensions, type StyleProp, type ViewStyle } from 'react-native';
 import { randomUUID } from 'expo-crypto';
 import { useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { PolarChart, Pie } from 'victory-native';
 import Animated, { Easing, FadeInDown, useAnimatedStyle, useReducedMotion, useSharedValue, withDelay, withTiming } from 'react-native-reanimated';
 import { useUnistyles } from 'react-native-unistyles';
@@ -20,6 +20,7 @@ import { bindText, initialFieldValues, loadScreenData, resolvePath, runScreenBut
 import { resolvePluginText } from './pluginText';
 import { asScreenTree, type RuntimeTreeItem } from './screenTreeModel';
 import { asChartSeries, type PluginChartItem } from './chartModel';
+import { fileIcon, folderIcon, type FileIcon } from './fileIcon';
 import { t } from '@/text';
 import { boundText } from '@/utils/boundedText';
 import { Typography } from '@/constants/Typography';
@@ -87,12 +88,19 @@ function ScreenRow(props: {
     );
 }
 
-function treeIcon(item: RuntimeTreeItem, expanded: boolean): React.ComponentProps<typeof Ionicons>['name'] {
-    if (item.kind === 'folder') return expanded ? 'folder-open-outline' : 'folder-outline';
-    if (/\.(png|jpe?g|gif|webp)$/i.test(item.name)) return 'image-outline';
-    if (/\.(mp4|mov|webm|wav|mp3)$/i.test(item.name)) return 'play-circle-outline';
-    if (/\.(ts|tsx|js|jsx|mjs|py|kt|swift|rs|go|java|c|cpp|h)$/i.test(item.name)) return 'code-slash-outline';
-    return 'document-text-outline';
+/** Plugin replies are untrusted: keep only well-formed, bounded tab entries. */
+function asScreenTabs(value: unknown): Array<{ id: string; label: string }> {
+    if (!Array.isArray(value)) return [];
+    return value.flatMap((entry) => {
+        if (typeof entry !== 'object' || entry === null) return [];
+        const { id, label } = entry as { id?: unknown; label?: unknown };
+        if (typeof id !== 'string' || id === '' || typeof label !== 'string' || label === '') return [];
+        return [{ id: id.slice(0, 64), label: label.slice(0, 32) }];
+    }).slice(0, 16);
+}
+
+function treeIcon(item: RuntimeTreeItem, expanded: boolean): FileIcon {
+    return item.kind === 'folder' ? folderIcon(expanded) : fileIcon(item.name);
 }
 
 function ScreenTree(props: {
@@ -146,6 +154,7 @@ function ScreenTree(props: {
                 const open = expanded.has(item.path);
                 const busy = loading.has(item.path);
                 const selected = props.node.selectionField !== undefined && props.fields[props.node.selectionField] === item.path;
+                const icon = treeIcon(item, open);
                 return <Pressable key={item.path} accessibilityRole="button" accessibilityState={{ expanded: isFolder ? open : undefined, selected }}
                     accessibilityLabel={`${isFolder ? 'Folder' : 'File'} ${item.name}`}
                     onPress={() => {
@@ -173,11 +182,11 @@ function ScreenTree(props: {
                         }).catch(props.onError)
                             .finally(() => setLoading((current) => { const next = new Set(current); next.delete(item.path); return next; }));
                     }}
-                    style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', minHeight: 44, paddingLeft: 12 + Math.min(depth, 8) * 20, paddingRight: 12, opacity: pressed ? 0.6 : 1, backgroundColor: selected ? theme.colors.surfaceHighest : 'transparent' })}>
-                    {isFolder && (busy ? <ActivityIndicator size="small" color={theme.colors.textSecondary} style={{ width: 14 }} /> : <Ionicons name={open ? 'chevron-down' : 'chevron-forward'} size={14} color={theme.colors.textSecondary} />)}
-                    {!isFolder && <View style={{ width: 14 }} />}
-                    <Ionicons name={treeIcon(item, open)} size={18} color={selected ? theme.colors.accent : theme.colors.textSecondary} style={{ marginHorizontal: 7 }} />
-                    <Text numberOfLines={1} style={{ color: selected ? theme.colors.accent : theme.colors.text, fontSize: 14, flex: 1 }}>{item.name}</Text>
+                    style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', minHeight: 34, paddingLeft: 8 + Math.min(depth, 8) * 14, paddingRight: 12, opacity: pressed ? 0.6 : 1, backgroundColor: selected ? theme.colors.surfaceHighest : 'transparent' })}>
+                    {isFolder && (busy ? <ActivityIndicator size="small" color={theme.colors.textSecondary} style={{ width: 12 }} /> : <Ionicons name={open ? 'chevron-down' : 'chevron-forward'} size={12} color={theme.colors.textSecondary} />)}
+                    {!isFolder && <View style={{ width: 12 }} />}
+                    <MaterialCommunityIcons name={icon.name} size={16} color={selected ? theme.colors.accent : icon.color ?? theme.colors.textSecondary} style={{ marginHorizontal: 6 }} />
+                    <Text numberOfLines={1} style={{ color: selected ? theme.colors.accent : theme.colors.text, fontSize: 13.5, flex: 1 }}>{item.name}</Text>
                 </Pressable>;
             })}
         </View>
@@ -253,6 +262,7 @@ function ScreenNode(props: {
     onRowAction: (action: PluginScreenRowAction, item: unknown) => void;
     onTreeLoad: (node: PluginScreenTreeNode, path: string) => Promise<RuntimeTreeItem[]>;
     onTreeError: (error: unknown) => void;
+    onSelectTab: (param: string, value: string) => void;
 }) {
     const { theme } = useUnistyles();
     const { width } = useWindowDimensions();
@@ -331,6 +341,26 @@ function ScreenNode(props: {
                             : <View key={index} style={{ flexBasis: `${100 / columns - 2}%`, flexGrow: 1, maxWidth: `${100 / columns}%` }}><ScreenNode {...props} node={child} /></View>)}
                     </View>
                 </View>
+            );
+        }
+        case 'tabs': {
+            const tabs = asScreenTabs(resolvePath(data, node.path));
+            if (tabs.length === 0) return null;
+            const selected = resolvePath(data, node.selectedPath);
+            const active = typeof selected === 'string' && selected !== '' ? selected : tabs[0]!.id;
+            return (
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }} contentContainerStyle={{ gap: 6 }}>
+                    {tabs.map((tab) => (
+                        <Pressable key={tab.id} accessibilityRole="tab" accessibilityState={{ selected: tab.id === active }} accessibilityLabel={tab.label}
+                            onPress={() => props.onSelectTab(node.param, tab.id)}
+                            style={({ pressed }) => ({
+                                paddingHorizontal: 12, paddingVertical: 7, borderRadius: 999, opacity: pressed ? 0.6 : 1,
+                                backgroundColor: tab.id === active ? theme.colors.accent : theme.colors.surfaceHigh,
+                            })}>
+                            <Text style={{ fontSize: 13, fontWeight: '600', color: tab.id === active ? theme.colors.surface : theme.colors.textSecondary }}>{tab.label}</Text>
+                        </Pressable>
+                    ))}
+                </ScrollView>
             );
         }
         case 'tree':
@@ -453,6 +483,13 @@ function ScreenBody(props: {
     const [running, setRunning] = React.useState(false);
     const [status, setStatus] = React.useState<{ ok: boolean; text: string }>();
     const [refreshNonce, setRefreshNonce] = React.useState(0);
+    // A pressed tab is just another screen param, so one payload per tab keeps
+    // the plugin's reply small instead of shipping every tab's detail at once.
+    const [tabParams, setTabParams] = React.useState<Record<string, string>>({});
+    const callParams = React.useMemo(() => {
+        const merged = { ...(props.params ?? {}), ...tabParams };
+        return Object.keys(merged).length === 0 ? undefined : merged;
+    }, [props.params, tabParams]);
     const operationVersion = React.useRef(0);
     const dirtyFields = React.useRef(new Set<string>());
     const writeKeys = sharedPluginWriteKeys;
@@ -462,6 +499,7 @@ function ScreenBody(props: {
         operationVersion.current += 1;
         dirtyFields.current.clear();
         setRunning(false);
+        setTabParams({});
         return () => { operationVersion.current += 1; };
     }, [props.manifest, props.manifestHash, props.params]);
     React.useEffect(() => subscribePluginDataInvalidation(props.pluginId, () => {
@@ -472,7 +510,7 @@ function ScreenBody(props: {
         let cancelled = false;
         setData(undefined);
         setDataError(undefined);
-        void loadScreenData(dataContributionId, props.manifest, props.pluginId, props.manifestHash, request, props.params)
+        void loadScreenData(dataContributionId, props.manifest, props.pluginId, props.manifestHash, request, callParams)
             .then((value) => {
                 if (cancelled) return;
                 setData(value);
@@ -482,7 +520,7 @@ function ScreenBody(props: {
             })
             .catch((error: unknown) => { if (!cancelled) setDataError(error instanceof Error ? error.message : String(error)); });
         return () => { cancelled = true; };
-    }, [dataContributionId, props.manifest, props.pluginId, props.manifestHash, props.params, request, refreshNonce]);
+    }, [dataContributionId, props.manifest, props.pluginId, props.manifestHash, callParams, request, refreshNonce]);
 
     const onRowAction = React.useCallback((action: PluginScreenRowAction, item: unknown) => {
         const bound = action.type === 'screen' && action.params !== undefined
@@ -515,7 +553,7 @@ function ScreenBody(props: {
         void runScreenButton({
             button, fields, pluginId: props.pluginId, manifestHash: props.manifestHash,
             manifest: props.manifest, writeKeys,
-            ...(props.params === undefined ? {} : { params: props.params }),
+            ...(callParams === undefined ? {} : { params: callParams }),
             slot, newIdempotencyKey: () => newIdempotencyKey(),
         }, request).then((outcome) => {
             setRunning(false);
@@ -523,7 +561,7 @@ function ScreenBody(props: {
             setStatus(outcome);
             if (shouldReloadAfterAction(props.manifest, button.action, outcome.ok)) setRefreshNonce((value) => value + 1);
         });
-    }, [fields, props.pluginId, props.manifestHash, props.manifest, props.params, request, router, writeKeys]);
+    }, [fields, props.pluginId, props.manifestHash, props.manifest, callParams, request, router, writeKeys]);
 
     const setField = React.useCallback((id: string, value: string | boolean) => {
         dirtyFields.current.add(id);
@@ -537,10 +575,10 @@ function ScreenBody(props: {
             props.pluginId,
             props.manifestHash,
             request,
-            { ...(props.params ?? {}), path },
+            { ...(callParams ?? {}), path },
         );
         return asScreenTree(resolvePath(value, node.path));
-    }, [props.manifest, props.manifestHash, props.params, props.pluginId, request]);
+    }, [props.manifest, props.manifestHash, callParams, props.pluginId, request]);
 
     const { theme } = useUnistyles();
     const reduceMotion = useReducedMotion();
@@ -548,12 +586,11 @@ function ScreenBody(props: {
     // charts would otherwise flash their empty text before real data lands.
     const loadingData = dataContributionId !== undefined && data === undefined && dataError === undefined;
     return (
-        <ScrollView style={{ flex: 1, backgroundColor: theme.colors.surface }} contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
-            <View style={{ marginBottom: 12, borderBottomWidth: 1, borderBottomColor: theme.colors.divider, paddingBottom: 10 }}>
-                <Text style={{ color: theme.colors.text, fontSize: 13, fontWeight: '600' }}>{props.pluginName}</Text>
-                <Text style={{ color: theme.colors.textSecondary, fontSize: 12, marginTop: 1 }}>{sourceLabel(props.source)}</Text>
-            </View>
-            {screen.title !== undefined && <Text style={{ color: theme.colors.text, fontSize: 26, fontWeight: '700', marginBottom: 12 }}>{bindText(resolvePluginText(screen.title), data)}</Text>}
+        <ScrollView style={{ flex: 1, backgroundColor: theme.colors.surface }} contentContainerStyle={{ padding: 14, paddingTop: 10, paddingBottom: 40 }}>
+            {/* One provenance line, not a header block: the navigation bar already
+                names the plugin, and the screen's own title needs the room. */}
+            <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 11, marginBottom: 6 }}>{`${props.pluginName} · ${sourceLabel(props.source)}`}</Text>
+            {screen.title !== undefined && <Text style={{ color: theme.colors.text, fontSize: 21, fontWeight: '700', marginBottom: 8 }}>{bindText(resolvePluginText(screen.title), data)}</Text>}
             {/* Show why, not just that: a plugin author debugging a screen has
                 nothing to go on otherwise. The host already bounds this text. */}
             {dataError !== undefined && <Pressable onPress={() => setRefreshNonce((value) => value + 1)} accessibilityRole="button" accessibilityLabel={`${capUtf8Bytes(sanitizeDisplayText(dataError), 300)}. ${t('plugins.retry')}`} style={{ marginBottom: 8, paddingVertical: 10 }}>
@@ -565,6 +602,7 @@ function ScreenBody(props: {
                 : screen.children.map((node, index) => (
                     <Animated.View key={index} entering={reduceMotion ? undefined : FadeInDown.duration(280).delay(Math.min(index, 8) * 40).easing(Easing.bezier(0.23, 1, 0.32, 1))}>
                         <ScreenNode node={node} data={data} fields={fields} setField={setField} running={running} onButton={onButton} onRowAction={onRowAction} onTreeLoad={onTreeLoad}
+                            onSelectTab={(param, value) => setTabParams((current) => ({ ...current, [param]: value }))}
                             onTreeError={(error) => setStatus({ ok: false, text: error instanceof Error ? error.message : String(error) })} />
                     </Animated.View>
                 ))}

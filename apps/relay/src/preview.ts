@@ -43,6 +43,39 @@ export class PreviewChannels {
     }
 
     /**
+     * Forwards frames between a client that runs its own listener and the host.
+     * The relay holds no socket of its own here, so the preview survives a relay
+     * published only on 443 -- a tunnel, or any TLS front door.
+     */
+    async bridgeClient(channel: string, socket: WebSocket): Promise<void> {
+        const upstream = await this.waitForUpstream(channel);
+        if (upstream === undefined) {
+            socket.close(1008, 'preview: no host on this channel');
+            return;
+        }
+        this.upstreams.delete(channel);
+
+        const copy = (from: WebSocket, to: WebSocket) => (data: RawData) => {
+            // Decoded, not relayed blind: a malformed frame is dropped here
+            // rather than handed to the other end.
+            if (decodePreviewFrame(new Uint8Array(data as Buffer)) === undefined) return;
+            if (to.readyState === to.OPEN) to.send(data as Buffer, { binary: true });
+        };
+        socket.on('message', copy(socket, upstream));
+        upstream.on('message', copy(upstream, socket));
+
+        const teardown = (): void => {
+            if (socket.readyState === socket.OPEN) socket.close();
+            if (upstream.readyState === upstream.OPEN) upstream.close();
+        };
+        socket.on('close', teardown);
+        socket.on('error', teardown);
+        upstream.on('close', teardown);
+        upstream.on('error', teardown);
+        socket.send(JSON.stringify({ type: 'preview.bridge' }));
+    }
+
+    /**
      * Opens the TCP listener this client will point a WebView at and reports the
      * port back over `socket`. Rejects when no host has joined the channel, so
      * the app can say so instead of showing a page that never loads.

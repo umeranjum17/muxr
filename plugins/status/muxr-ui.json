@@ -45,46 +45,81 @@
       },
       "children": [
         {
+          "type": "tabs",
+          "path": "data.providers",
+          "selectedPath": "data.provider",
+          "param": "provider"
+        },
+        {
           "type": "section",
           "title": "Today",
           "columns": 2,
           "children": [
             {
               "type": "metric",
-              "label": "Tokens today",
-              "value": "{{data.summary.totalTokens}}"
+              "label": "Tokens",
+              "value": "{{data.todayTokens}}"
             },
             {
               "type": "metric",
-              "label": "Active agents",
-              "value": "{{data.summary.measured}}"
+              "label": "Cost",
+              "value": "{{data.todayCost}}"
+            }
+          ]
+        },
+        {
+          "type": "chart",
+          "variant": "ring",
+          "path": "data.limitRing",
+          "title": "Current limit",
+          "emptyText": "No published limit for this provider"
+        },
+        {
+          "type": "text",
+          "text": "{{data.limitLabel}}",
+          "tone": "secondary"
+        },
+        {
+          "type": "chart",
+          "variant": "bar",
+          "path": "data.modelSeries",
+          "title": "Models today",
+          "emptyText": "No measured activity today"
+        },
+        {
+          "type": "chart",
+          "variant": "bar",
+          "path": "data.weekSeries",
+          "title": "Last 7 days",
+          "emptyText": "No measured activity this week"
+        },
+        {
+          "type": "section",
+          "title": "This week",
+          "columns": 2,
+          "children": [
+            {
+              "type": "metric",
+              "label": "Tokens",
+              "value": "{{data.weekTokens}}"
+            },
+            {
+              "type": "metric",
+              "label": "Cost",
+              "value": "{{data.weekCost}}"
             }
           ]
         },
         {
           "type": "chart",
           "variant": "bar",
-          "path": "data.activitySeries",
-          "title": "Token activity",
-          "emptyText": "No measured activity today"
-        },
-        {
-          "type": "chart",
-          "variant": "ring",
-          "path": "data.codexRing",
-          "title": "Codex availability",
-          "emptyText": "Codex limits unavailable"
-        },
-        {
-          "type": "chart",
-          "variant": "bar",
-          "path": "data.codexSeries",
-          "title": "Codex limits",
-          "emptyText": "Codex limits unavailable"
+          "path": "data.limitSeries",
+          "title": "Rate limits",
+          "emptyText": "No published rate limits"
         },
         {
           "type": "text",
-          "text": "Local activity only. Costs, prompts, models, projects, and session details stay out.",
+          "text": "Read from local agent logs. Prompts and project details stay out.",
           "tone": "secondary"
         }
       ]

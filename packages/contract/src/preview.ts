@@ -53,7 +53,7 @@ export function newPreviewChannel(): string {
  */
 export function previewSocketUrl(
     relayUrl: string,
-    options: { machineId: string; channel: string; role: 'machine' | 'client'; token?: string },
+    options: { machineId: string; channel: string; role: 'machine' | 'client'; token?: string; bridge?: boolean },
 ): string {
     // Hand-built rather than URLSearchParams: this runs on React Native too,
     // where that polyfill is partial.
@@ -66,5 +66,9 @@ export function previewSocketUrl(
     if (options.token !== undefined && options.token !== '') {
         parts.push(`token=${encodeURIComponent(options.token)}`);
     }
+    // A bridging client holds its own listener, so the relay must not open one:
+    // an ephemeral relay port is unreachable behind a tunnel that only proxies
+    // 443, and it would be plain HTTP across the internet if it were.
+    if (options.bridge === true) parts.push('bridge=1');
     return `${base}/preview?${parts.join('&')}`;
 }

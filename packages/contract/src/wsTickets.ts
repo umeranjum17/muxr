@@ -41,7 +41,8 @@ export async function issueWsTicket(input: {
     return body.ticket;
 }
 
-export function ticketSocketUrl(relayUrl: string, ticket: string, transport: WsTransport): string {
+export function ticketSocketUrl(relayUrl: string, ticket: string, transport: WsTransport, bridge = false): string {
     const path = transport === 'relay' ? '' : `/${transport}`;
-    return `${stripTrailingSlashes(relayUrl)}${path}?ticket=${encodeURIComponent(ticket)}`;
+    const query = `ticket=${encodeURIComponent(ticket)}${bridge ? '&bridge=1' : ''}`;
+    return `${stripTrailingSlashes(relayUrl)}${path}?${query}`;
 }

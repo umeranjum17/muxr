@@ -173,17 +173,19 @@ function DataChip({ contribution, pluginId, manifestHash }: { contribution: Plug
 }
 
 /**
- * Header icon that opens a plugin screen for the session's directory. Without
- * the cwd the screen has no repository to act on, so it stays hidden.
+ * Header icon that opens a plugin screen for the session's directory. The screen
+ * travels with the session id, not the path: the host replaces a caller-supplied
+ * cwd with the one it holds for that session, so a path sent from here is
+ * dropped and the screen opens with no repository.
  */
-export function DeclarativeHeaderButtons({ cwd }: { cwd?: string }) {
+export function DeclarativeHeaderButtons({ cwd, sessionId }: { cwd?: string; sessionId: string }) {
     const { theme } = useUnistyles();
     const router = useRouter();
     useSlotContributions('session.header.trailing');
     if (cwd === undefined || cwd === '') return null;
     return <>{pluginSnapshot().flatMap(({ summary, manifest }) => manifest.contributions.flatMap((contribution) => 'type' in contribution && contribution.type === 'screen-button' ? [
         <Pressable key={`${summary.pluginId}:${contribution.id}`} accessibilityRole="button" accessibilityLabel={resolvePluginText(contribution.title)} hitSlop={8}
-            onPress={() => router.push(pluginHref(summary.pluginId, contribution.contentContributionId, { cwd }))}
+            onPress={() => router.push(pluginHref(summary.pluginId, contribution.contentContributionId, { sessionId }))}
             style={{ width: 30, height: 30, alignItems: 'center', justifyContent: 'center', borderRadius: 999, backgroundColor: theme.colors.surfaceHigh }}>
             <Ionicons name={contribution.icon as any} size={16} color={theme.colors.textSecondary} />
         </Pressable>,

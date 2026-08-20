@@ -31,8 +31,22 @@ function repos() {
     return [...seen.values()].slice(0, 32);
 }
 
+/** The host injects the session's cwd; a caller can never choose it. */
+function sessionRoot() {
+    const cwd = String(input.cwd ?? '');
+    if (cwd === '' || cwd.includes('\0')) return undefined;
+    try { return exec('git', ['-C', cwd, 'rev-parse', '--show-toplevel'], 3000).trim() || undefined; }
+    catch { return undefined; }
+}
+
 function repoRoot(value) {
-    const found = repos().find((entry) => entry.root === String(value ?? ''));
+    const requested = String(value ?? '');
+    const session = sessionRoot();
+    if (requested === '' || requested === session) {
+        if (session === undefined) throw new Error('unknown repository');
+        return session;
+    }
+    const found = repos().find((entry) => entry.root === requested);
     if (found === undefined) throw new Error('unknown repository');
     return found.root;
 }

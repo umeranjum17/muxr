@@ -797,6 +797,8 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
             const key = `${accountId.length}:${accountId}${machineId.length}:${machineId}${channel}`;
             if (identity.role === 'machine') {
                 previews.joinMachine(key, socket);
+            } else if (url.searchParams.get('bridge') === '1') {
+                previews.bridgeClient(key, socket);
             } else {
                 // Same interface the relay itself is reachable on, so a preview
                 // reaches exactly as far as the session link does.

@@ -23,7 +23,7 @@ if (method === 'log') {
     }
     const root = execFileSync('git', ['-C', repo(), 'rev-parse', '--show-toplevel'], { encoding: 'utf8', timeout: 20000 }).trim();
     const commits = git(['log', '-25', '--date=short', '--pretty=%H%x1f%h%x1f%s%x1f%an%x1f%ad']).split('\n').filter(Boolean)
-        .map((line) => { const [sha, short, subject, author, date] = line.split('\x1f'); return { sha, short, subject, author, date, meta: `${short} · ${author} · ${date}`, cwd: repo() }; });
+        .map((line) => { const [sha, short, subject, author, date] = line.split('\x1f'); return { sha, short, subject, author, date, meta: `${short} · ${author} · ${date}`, sessionId: String(input.sessionId ?? '') }; });
     process.stdout.write(JSON.stringify({ title: root.split('/').pop(), count: `${commits.length} recent commits`, commits }));
 } else {
     const sha = String(input.sha ?? '');
