@@ -19,7 +19,6 @@ import {
     type V2SenderState,
 } from '@muxr/crypto';
 import { relayControlUrl } from '@muxr/contract';
-import { getActiveSshForward } from './sshForward';
 import { deleteWebSecret, getWebSecret, setWebSecret } from './webSecureStore';
 import { getCachedConnectionSettings, loadConnectionSettingsAsync, saveConnectionSettings } from './connectionSettings';
 import { decodeBase64 } from '@/encryption/base64';
@@ -139,6 +138,23 @@ export function getCachedHostedGrant(machineId: string): StoredHostedGrant | und
 /** Every machine this device is paired to, for the Settings machine picker. */
 export async function listPairedGrants(): Promise<StoredHostedGrant[]> {
     return Object.values(await grants());
+}
+
+/** Forget one machine without deleting this phone's other pairings. */
+export async function removeHostedGrant(machineId: string): Promise<StoredHostedGrant[]> {
+    const all = await grants();
+    if (all[machineId] === undefined) return Object.values(all);
+    delete all[machineId];
+    await Promise.all([
+        secretDelete(grantKey(machineId)),
+        secretSet(GRANTS_INDEX, JSON.stringify(Object.keys(all))),
+    ]);
+    const snapshots = await replaySnapshots();
+    for (const key of Object.keys(snapshots)) {
+        if (key.startsWith(`${machineId}\0`)) delete snapshots[key];
+    }
+    await AsyncStorage.setItem(REPLAY_KEY, JSON.stringify(snapshots));
+    return Object.values(all);
 }
 
 async function saveHostedGrant(grant: StoredHostedGrant): Promise<void> {
@@ -379,11 +395,7 @@ export async function claimHostedPairing(url: string): Promise<StoredHostedGrant
     if (selfhostRelayParam !== null && !/^wss?:\/\/[^/]+/.test(selfhostRelayParam)) {
         throw new Error('pairing link has an invalid relay URL');
     }
-    // An active SSH tunnel reaches the box's relay via the local forward.
-    const sshForward = getActiveSshForward();
-    const selfhostRelay = selfhostRelayParam !== null && sshForward !== undefined
-        ? `ws://127.0.0.1:${sshForward.localPort}`
-        : selfhostRelayParam;
+    const selfhostRelay = selfhostRelayParam;
     // Self-host links carry the relay in `r`; the control base derives via the canonical helper.
     const controlBase = selfhostRelay !== null ? relayControlUrl(selfhostRelay) : parsed.origin;
     const keys = await getOrCreateHostedDeviceKey();

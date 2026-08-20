@@ -5,7 +5,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as React from 'react';
 import { encodeBase64 } from "@/encryption/base64";
 import { authGetToken } from "@/auth/authGetToken";
-import { router, useRouter } from "expo-router";
+import { router } from "expo-router";
 import { StyleSheet } from "react-native-unistyles";
 import { getRandomBytesAsync } from "expo-crypto";
 import { useIsLandscape } from "@/utils/responsive";
@@ -18,7 +18,6 @@ import { Modal } from '@/modal';
 import { resumePendingHostedPairing } from '@/state/hostedE2ee';
 import { getCachedConnectionSettings, saveConnectionSettings } from '@/state/connectionSettings';
 import { useHostedPairing, usePairQrScanner } from '@/hooks/usePairing';
-import { MOBILE_ONBOARDING_CHOICES } from '@/commercialization';
 
 export default function Home() {
     const auth = useAuth();
@@ -36,7 +35,6 @@ function Authenticated() {
 
 function NotAuthenticated() {
     const auth = useAuth();
-    const router = useRouter();
     const isLandscape = useIsLandscape();
     const insets = useSafeAreaInsets();
     const hosted = getCachedConnectionSettings().mode === 'hosted';
@@ -77,7 +75,6 @@ function NotAuthenticated() {
         </View>
     );
 
-    const [showOtherWays, setShowOtherWays] = React.useState(false);
     const promptForPairingString = async (title: string) => {
         const pasted = await Modal.prompt(
             title,
@@ -99,22 +96,12 @@ function NotAuthenticated() {
                 </View>
                 <View style={[styles.actions, { paddingBottom: insets.bottom + 24 }]}>
                     {Platform.OS === 'web' ? (
-                        <ActionButton title="Paste browser pairing string" icon="clipboard-outline" action={() => promptForPairingString('Pair this browser')} />
+                        <ActionButton title="Pair this browser" icon="link-outline" action={() => promptForPairingString('Pair this browser')} />
                     ) : (
-                        <ActionButton title={MOBILE_ONBOARDING_CHOICES[0]} icon="qr-code-outline" action={scanHostedQr} />
-                    )}
-                    {showOtherWays ? (
-                        <View style={styles.otherWays}>
-                            <ActionButton variant="secondary" title="Paste a pairing string" icon="clipboard-outline" action={() => promptForPairingString('Paste pairing string')} />
-                            <ActionButton variant="quiet" title="Advanced setup" icon="terminal-outline" onPress={() => router.push('/settings/ssh')} />
-                        </View>
-                    ) : (
-                        <ActionButton
-                            variant="quiet"
-                            title="Other ways to connect"
-                            icon="chevron-down"
-                            onPress={() => setShowOtherWays(true)}
-                        />
+                        <>
+                            <ActionButton title="Scan QR to pair" icon="qr-code-outline" action={scanHostedQr} />
+                            <ActionButton variant="secondary" title="Paste pairing string" icon="clipboard-outline" action={() => promptForPairingString('Paste pairing string')} />
+                        </>
                     )}
                     <Text style={styles.footer}>End-to-end encrypted · machine keys never leave your devices</Text>
                 </View>
@@ -261,9 +248,6 @@ const styles = StyleSheet.create((theme) => ({
         width: '100%',
         maxWidth: 340,
         paddingHorizontal: 24,
-        gap: 10,
-    },
-    otherWays: {
         gap: 10,
     },
     footer: {

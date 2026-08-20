@@ -356,7 +356,7 @@ export async function runSetup(args = []) {
             value: 'none',
             title: 'Keep paired devices',
             description: connectionChanged
-                ? 'stored grants securely adopt the new endpoint through autodiscovery; no new QR'
+                ? 'same-LAN devices can adopt it through local discovery; remote devices must pair once with the new endpoint'
                 : 'no new QR; existing devices keep working',
         }] : []),
         { value: 'phone', title: 'Phone', description: 'pair the native app first' },
