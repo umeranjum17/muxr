@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { useHappyAction } from '@/hooks/useHappyAction';
+import { useAsyncAction } from '@/hooks/useAsyncAction';
 import { useNavigateToSession } from '@/hooks/useNavigateToSession';
 import { Modal } from '@/modal';
 import { machineResumeSession, sessionSetAgentModes, forkAndSpawn, type ForkSource } from '@/sync/ops';
@@ -8,7 +8,7 @@ import { Machine, Session } from '@/sync/storageTypes';
 import { sync } from '@/sync/sync';
 import { resolveMessageModeMeta } from '@/sync/messageMeta';
 import { t } from '@/text';
-import { HappyError } from '@/utils/errors';
+import { ActionError } from '@/utils/errors';
 import { copySessionMetadataToClipboard, copySessionMetadataAndLogsToClipboard } from '@/utils/copySessionMetadataToClipboard';
 import { useSessionStatus } from '@/utils/sessionUtils';
 import { isMachineOnline } from '@/utils/machineUtils';
@@ -175,15 +175,15 @@ export function useSessionQuickActions(
         })();
     }, [onAfterCopySessionMetadata, session]);
 
-    const [resumingSession, performResume] = useHappyAction(async () => {
+    const [resumingSession, performResume] = useAsyncAction(async () => {
         if (!session) return;
 
         if (!resumeAvailability.canResume) {
-            throw new HappyError(resumeAvailability.message, false);
+            throw new ActionError(resumeAvailability.message, false);
         }
 
         if (!machineId) {
-            throw new HappyError(t('sessionInfo.resumeSessionMissingMachine'), false);
+            throw new ActionError(t('sessionInfo.resumeSessionMissingMachine'), false);
         }
 
         const modeMeta = resolveMessageModeMeta(session);
@@ -210,9 +210,9 @@ export function useSessionQuickActions(
                 return;
             }
             case 'requestToApproveDirectoryCreation':
-                throw new HappyError(t('sessionInfo.resumeSessionUnexpectedDirectoryPrompt'), false);
+                throw new ActionError(t('sessionInfo.resumeSessionUnexpectedDirectoryPrompt'), false);
             case 'error':
-                throw new HappyError(result.errorMessage, false);
+                throw new ActionError(result.errorMessage, false);
         }
     });
 
@@ -223,16 +223,16 @@ export function useSessionQuickActions(
     // Fork the session (no truncation) — copies the on-disk Claude JSONL
     // and spawns a fresh session on the same machine. Works for
     // both active and inactive sessions; the source row stays untouched.
-    const [forking, performFork] = useHappyAction(async () => {
+    const [forking, performFork] = useAsyncAction(async () => {
         if (!canFork) {
-            throw new HappyError(t('session.forkErrorMissingMetadata'), false);
+            throw new ActionError(t('session.forkErrorMissingMetadata'), false);
         }
         if (!forkSource) {
-            throw new HappyError(t('session.forkErrorMissingMetadata'), false);
+            throw new ActionError(t('session.forkErrorMissingMetadata'), false);
         }
         const result = await forkAndSpawn(forkSource as ForkSource);
         if (result.type !== 'success') {
-            throw new HappyError(result.type === 'error' ? result.errorMessage : t('session.forkErrorGeneric'), false);
+            throw new ActionError(result.type === 'error' ? result.errorMessage : t('session.forkErrorGeneric'), false);
         }
         navigateToSession(result.sessionId);
     });

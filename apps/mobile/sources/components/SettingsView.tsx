@@ -21,6 +21,7 @@ import { layout } from '@/components/layout';
 import { t } from '@/text';
 import { requestPermissionAndSubscribe, refreshPushState, type PushState } from '@/utils/pushNotifications';
 import { loadAppConfig } from '@/sync/appConfig';
+import { knownHostVersion } from '@/utils/versionStatus';
 import { DeclarativeSettingsItems } from '@/plugins/DeclarativePluginSlot';
 import {
     canPostPromotedNotifications,
@@ -37,6 +38,19 @@ type BuildConfig = {
 function getBuildConfig(): BuildConfig {
     const appConfig = Constants.expoConfig?.extra?.app;
     return appConfig && typeof appConfig === 'object' ? appConfig as BuildConfig : {};
+}
+
+function pairingTransport(relayUrl: string | undefined): string | undefined {
+    if (relayUrl === undefined) return undefined;
+    try {
+        const { hostname, protocol } = new URL(relayUrl);
+        if (hostname.endsWith('.ts.net') || /^100\.(6[4-9]|[78]\d|9\d|1[01]\d|12[0-7])\./.test(hostname)) return 'Tailscale';
+        if (hostname.endsWith('.trycloudflare.com')) return 'Cloudflare tunnel';
+        if (protocol === 'ws:' && (/^(localhost|127\.)/.test(hostname) || /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(hostname))) return 'Local network';
+        return 'Hosted VPS / custom relay';
+    } catch {
+        return undefined;
+    }
 }
 
 function formatUtcTimestamp(value: string): string {
@@ -286,18 +300,18 @@ export const SettingsView = React.memo(function SettingsView({
                     const pairedName = grant?.machineName;
                     const safeHost = host && !/^machine[-_]/i.test(host) ? host : undefined;
                     const platform = machine?.metadata?.platform || '';
+                    const hostVersion = knownHostVersion(machine?.metadata?.muxrCliVersion);
 
                     const title = displayName || pairedName || safeHost || 'Paired computer';
 
                     // Internal machine ids are routing state, never user-facing names.
-                    let subtitle = '';
-                    if (displayName && safeHost && displayName !== safeHost) {
-                        subtitle = safeHost;
-                    }
-                    if (platform) {
-                        subtitle = subtitle ? `${subtitle} • ${platform}` : platform;
-                    }
-                    subtitle = subtitle ? `${subtitle} • ${isOnline ? t('status.online') : t('status.offline')}` : (isOnline ? t('status.online') : t('status.offline'));
+                    const subtitle = [
+                        displayName && safeHost && displayName !== safeHost ? safeHost : undefined,
+                        platform || undefined,
+                        pairingTransport(grant?.relayUrl),
+                        hostVersion === undefined ? undefined : `host ${hostVersion}`,
+                        isOnline ? t('status.online') : t('status.offline'),
+                    ].filter(Boolean).join(' • ');
 
                     return (
                         <Item

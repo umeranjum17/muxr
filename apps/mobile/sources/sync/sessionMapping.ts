@@ -132,8 +132,8 @@ export function machineInfoToMachine(info: MachineInfo): Machine {
         metadata: {
             host: '',
             platform: 'linux',
-            happyCliVersion: info.hostVersion ?? 'muxr',
-            happyHomeDir: '',
+            muxrCliVersion: info.hostVersion ?? 'muxr',
+            muxrHomeDir: '',
             homeDir: '',
             ...(info.name?.trim() ? { displayName: info.name.trim() } : {}),
         },

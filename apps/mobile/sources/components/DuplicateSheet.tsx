@@ -5,7 +5,7 @@ import { useRouter } from 'expo-router';
 import { Modal } from '@/modal';
 import { t } from '@/text';
 import { useSession } from '@/sync/storage';
-import { useHappyAction } from '@/hooks/useHappyAction';
+import { useAsyncAction } from '@/hooks/useAsyncAction';
 import { getDuplicateSheetFrame } from '@/utils/duplicateSheetLayout';
 import {
     forkAndSpawn,
@@ -129,7 +129,7 @@ export const DuplicateSheet = React.memo(function DuplicateSheet(props: Duplicat
         ? points.find((p) => p.id === selectedId) ?? null
         : null;
 
-    const [loading, doDuplicate] = useHappyAction(async () => {
+    const [loading, doDuplicate] = useAsyncAction(async () => {
         if (!source) {
             Modal.alert(t('common.error'), t('session.forkErrorMissingMetadata'));
             return;

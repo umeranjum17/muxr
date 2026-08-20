@@ -12,7 +12,7 @@ import { ItemGroup } from '@/components/ItemGroup';
 import { Item } from '@/components/Item';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { layout } from '@/components/layout';
-import { useHappyAction } from '@/hooks/useHappyAction';
+import { useAsyncAction } from '@/hooks/useAsyncAction';
 import { Modal } from '@/modal';
 import { t } from '@/text';
 import { Ionicons } from '@expo/vector-icons';
@@ -51,7 +51,7 @@ export default function UserProfileScreen() {
     }, [credentials, id]);
 
     // Add friend / Accept request action
-    const [addingFriend, addFriend] = useHappyAction(async () => {
+    const [addingFriend, addFriend] = useAsyncAction(async () => {
         if (!credentials || !userProfile) return;
 
         const updatedProfile = await sendFriendRequest(credentials, userProfile.id);
@@ -63,7 +63,7 @@ export default function UserProfileScreen() {
     });
 
     // Remove friend / Cancel request / Reject request action  
-    const [removingFriend, handleRemoveFriend] = useHappyAction(async () => {
+    const [removingFriend, handleRemoveFriend] = useAsyncAction(async () => {
         if (!credentials || !userProfile) return;
 
         if (userProfile.status === 'friend') {
