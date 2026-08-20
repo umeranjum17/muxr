@@ -10,6 +10,7 @@
  */
 
 import TcpSocket from 'react-native-tcp-socket';
+import { deriveV2Key, openPreviewPayload, sealPreviewPayload } from '@muxr/crypto';
 import { decodePreviewFrame, encodePreviewFrame, PREVIEW_CLOSE, PREVIEW_DATA } from '@muxr/contract';
 
 export interface PreviewBridge {
@@ -31,13 +32,16 @@ function toBytes(data: string | Buffer): Uint8Array {
     return bytes;
 }
 
-export async function startPreviewBridge(socket: WebSocket): Promise<PreviewBridge> {
+export async function startPreviewBridge(socket: WebSocket, key: string): Promise<PreviewBridge> {
+    const clientToHostKey = deriveV2Key(key, 'client->host');
+    const hostToClientKey = deriveV2Key(key, 'host->client');
     const connections = new Map<number, Connection>();
     let nextConnId = 0;
     let server: Server | undefined;
 
     const send = (connId: number, flag: number, payload?: Uint8Array): void => {
-        if (socket.readyState === WebSocket.OPEN) socket.send(encodePreviewFrame(connId, flag, payload));
+        const body = payload === undefined ? undefined : sealPreviewPayload(payload, clientToHostKey);
+        if (socket.readyState === WebSocket.OPEN) socket.send(encodePreviewFrame(connId, flag, body));
     };
 
     socket.onmessage = (event) => {
@@ -51,7 +55,15 @@ export async function startPreviewBridge(socket: WebSocket): Promise<PreviewBrid
             connection.destroy();
             return;
         }
-        if (frame.payload.length > 0) connection.write(Buffer.from(frame.payload));
+        if (frame.payload.length > 0) {
+            try {
+                connection.write(Buffer.from(openPreviewPayload(frame.payload, hostToClientKey)));
+            } catch {
+                connections.delete(frame.connId);
+                connection.destroy();
+                send(frame.connId, PREVIEW_CLOSE);
+            }
+        }
     };
 
     const close = (): void => {

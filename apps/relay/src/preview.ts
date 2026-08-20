@@ -7,8 +7,8 @@
  * preview at a root path is the point: absolute asset paths, HMR websockets and
  * redirects all work without rewriting a single byte.
  *
- * The relay does not parse HTTP here. It moves bytes and tags them with a
- * connection id, because a browser opens several TCP connections per page.
+ * The relay does not parse HTTP here. It reads only the connection id and flag
+ * needed to multiplex sockets; native E2EE payloads remain ciphertext.
  *
  * Deliberately off `routeEnvelope` and out of `PeerTable`: preview traffic is
  * bulk, so recording it would evict real session events from a replay log sized

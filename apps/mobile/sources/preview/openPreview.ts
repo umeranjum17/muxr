@@ -9,6 +9,7 @@
  * a listener -- is the only caller left on that path.
  */
 
+import { newPreviewKey } from '@muxr/crypto';
 import { issueWsTicket, newPreviewChannel, previewSocketUrl, ticketSocketUrl } from '@muxr/contract';
 import { getCachedConnectionSettings } from '@/state/connectionSettings';
 import { sync } from '@/sync/sync';
@@ -67,8 +68,10 @@ export async function attachPreviewTunnel(port: number): Promise<PreviewTunnel> 
     }
 
     const channel = newPreviewChannel();
-    // The host has to be on the channel before the relay will open a listener.
-    await sync.request('preview.attach', { channel, port });
+    const key = previewBridgeAvailable ? newPreviewKey() : undefined;
+    // The per-preview key crosses inside the existing E2EE request. The relay
+    // sees connection ids for multiplexing, never the frontend bytes.
+    await sync.request('preview.attach', { channel, port, ...(key === undefined ? {} : { key }) });
 
     const socketUrl = settings.token === '' || settings.token.startsWith('acctok_')
         ? previewSocketUrl(settings.relayUrl, {
@@ -91,7 +94,8 @@ export async function attachPreviewTunnel(port: number): Promise<PreviewTunnel> 
     if (previewBridgeAvailable) {
         socket.binaryType = 'arraybuffer';
         await waitForRelay(socket, 'preview.bridge');
-        const bridge = await startPreviewBridge(socket);
+        if (key === undefined) throw new Error('Encrypted preview key unavailable.');
+        const bridge = await startPreviewBridge(socket, key);
         return { hostname: '127.0.0.1', port: bridge.port, close: bridge.close };
     }
 

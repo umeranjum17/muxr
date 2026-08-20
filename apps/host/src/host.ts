@@ -48,6 +48,7 @@ export function startHost(options: HostOptions): Host {
         ...(options.terminals === undefined ? {} : { terminals: options.terminals }),
         ...(options.token === undefined ? {} : { token: options.token }),
         ...(options.hostedE2ee === undefined ? {} : {
+            requirePreviewEncryption: true,
             canMutateDevice: (deviceId: string) => options.hostedE2ee!.deviceKinds?.[deviceId] !== 'browser',
         }),
     });
