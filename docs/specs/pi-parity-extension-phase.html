@@ -10,7 +10,7 @@
     *{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:17px/1.65 'Hanken Grotesk',sans-serif}
     main{max-width:820px;margin:auto;padding:64px 24px 96px}h1,h2{font-family:Fraunces,serif;line-height:1.1}h1{font-size:clamp(42px,7vw,70px);margin:.25em 0}h2{font-size:29px;margin:0 0 12px}
     .eyebrow,.meta,.badge{font:500 12px 'IBM Plex Mono',monospace;text-transform:uppercase;letter-spacing:.08em}
-    .badge{display:inline-block;color:white;background:#b8791f;padding:7px 11px;border-radius:999px}
+    .badge{display:inline-block;color:white;background:#5f7a5a;padding:7px 11px;border-radius:999px}
     .meta{color:var(--muted);margin:18px 0 40px}.lead{font-size:22px}
     .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:26px;margin:20px 0;box-shadow:0 8px 24px #6b625312}
     code,pre{font-family:'IBM Plex Mono',monospace}code{background:#eadfcb;padding:2px 5px;border-radius:4px}
@@ -25,12 +25,12 @@
 <main>
   <div class="eyebrow">muxr tracked specification</div>
   <h1>Pi-Parity Extension Phase</h1>
-  <span class="badge">Implemented</span>
-  <div class="meta">pi-parity-extension-phase.md · created 2026-08-14 · updated 2026-08-15 · umer</div>
+  <span class="badge">Tested</span>
+  <div class="meta">pi-parity-extension-phase.md · created 2026-08-14 · updated 2026-08-20 · umer</div>
   <p class="lead">A thin kernel plus plugins, like Pi: Herdr runs backend code, the phone only composes approved native surfaces. No downloaded mobile code.</p>
   <section class="card">
     <h2>Context</h2>
-    <p>muxr discovers Herdr packages, validates hash-bound manifests, asks each device for approval, and composes approved contributions through generic slots. The original four milestones shipped. The 2026-08-15 leftover is the conversion from <code>extension.*</code> names: the shell still mounted every destination at <code>/inbox</code> and titled it Inbox, so a third-party tab could not look like its own surface.</p>
+    <p>muxr discovers Herdr packages, validates hash-bound manifests, asks each device for approval, and composes approved contributions through generic slots. The platform works; a fresh-agent npm gauntlet found the remaining authoring friction: hidden installed docs, generic subcommand help, manual bundled-plugin copying, and no managed authoring skill.</p>
   </section>
   <div class="grid">
     <section class="card">
@@ -51,8 +51,8 @@
     </section>
   </div>
   <section class="card">
-    <h2>2026-08-15 leftover</h2>
-    <p>The generic content mount is <code>/plugin</code>. Inbox remains a plugin that uses it. <code>/inbox</code> redirects. Leftover <code>extension*</code> identifiers in the mobile runtime are renamed. Decision 0005 notes that the wire shipped as <code>plugin.*</code>.</p>
+    <h2>2026-08-20 authoring rework</h2>
+    <p><code>muxr plugin docs</code> locates the installed guide and agent skill. <code>plugin clone</code> copies a bundled plugin outside npm ownership with a rewritten local identity. Detailed subcommand help, managed agent instructions, truthful validator wording, and the isolated upgrade gauntlet make creation and override behavior discoverable and durable.</p>
   </section>
   <section class="card">
     <h2>Authority model</h2>
@@ -85,6 +85,10 @@ source/authority change
       <li>Mobile typecheck and focused plugin/invalidation flows pass</li>
       <li>A navigation destination opens <code>/plugin</code> with that plugin's own title</li>
       <li>Inbox still appears as a plugin destination, not a shell tab named Inbox</li>
+      <li>Installed-package smoke proves docs, managed skill, minimal create, atomic clone, validator, detailed help, collision-safe IDs, and direct/symlink package-root rejection</li>
+      <li>Fresh agents create UI/RPC plugins and safely override a bundled plugin without repository access; measured creation falls to 99/86 seconds</li>
+      <li>Real global npm reinstall plus uninstall/reinstall preserves cloned bytes, registration root, and explicit enabled state</li>
+      <li>A separate emulator cold-pairs to the isolated stack, lists all three agent-created/overridden plugins, and renders live focus-note and system-greeting RPC screens</li>
       <li>Prior milestone checks remain the historical tested record</li>
     </ul>
   </section>

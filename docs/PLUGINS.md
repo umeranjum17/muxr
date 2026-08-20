@@ -4,6 +4,12 @@ muxr plugins are designed to be small. The target workflow is to install one fol
 
 One artifact, two tools: a muxr plugin *is* a Herdr plugin. `herdr plugin` runs it on your computer; `muxr plugin` authors it and manages how it appears on your phone. There is no separate muxr package format.
 
+This guide and the authoring skill ship inside the npm package. A human or coding agent can locate both without the repository or web access:
+
+```bash
+muxr plugin docs
+```
+
 A plugin can be:
 
 - **backend-only:** Herdr actions, panes, startup, or event hooks;
@@ -70,6 +76,11 @@ An enabled Herdr plugin appears in muxr automatically. Open **Settings → Plugi
 Package management keeps Herdr as the only executable registry and runtime:
 
 ```bash
+muxr plugin docs
+muxr plugin create hello-muxr
+muxr plugin clone muxr.terminal-keys ./my-keys
+muxr plugin check ./hello-muxr
+muxr plugin dev ./hello-muxr
 muxr plugin list
 muxr plugin install ./hello-muxr [--yes]
 muxr plugin install owner/repo[/subdir][@ref] [--yes]
@@ -395,7 +406,9 @@ See the normative security and rollback rules in [`decisions/0005-pi-like-extens
 The required author experience is:
 
 ```bash
-muxr plugin create hello-muxr   # copies the minimal example
+muxr plugin docs                # prints the installed guide and agent-skill paths
+muxr plugin create hello-muxr   # writes a minimal three-file settings-screen plugin
+muxr plugin clone muxr.status   # copies a bundled plugin with a new local id
 muxr plugin dev ./hello-muxr    # validates and links it into Herdr
 muxr plugin dev ./hello-muxr --web  # ...and opens the app in a browser with hot reload
 muxr plugin check ./hello-muxr  # validates files, ids, slots, and primitives
@@ -415,7 +428,7 @@ Every extension should explain:
 6. how to disable and unlink it;
 7. supported muxr UI and Herdr versions.
 
-Copy [`../plugins/example-ui`](../plugins/example-ui) for the minimal example package. Its manifest shape is the one the host validation flow and `muxr plugin check` cover, and it renders after the plugin is enabled in Herdr.
+Read [`../plugins/example-ui`](../plugins/example-ui) when you need a rich list/detail/form/RPC/chart example. The smaller `muxr plugin create` output is the faster starting point for ordinary plugins; both use the same validator and public manifest contract.
 
 ## Lists of real things
 
@@ -442,15 +455,17 @@ files in a repo, tap one, read it.
 
 Bundled plugins have no special status: they are ordinary plugins linked from
 the muxr install. The terminal key row is the clearest example — it is pure
-JSON with no compiled primitive, so replacing it takes two steps:
+JSON with no compiled primitive. Use the clone command so package identity is rewritten and your source lives outside npm ownership:
 
 ```bash
-muxr plugin install ./my-keys     # your own terminal.key-row contribution
+muxr plugin clone muxr.terminal-keys ./my-keys
+# edit ./my-keys/muxr-ui.json
 herdr plugin disable muxr.terminal-keys
+muxr plugin dev ./my-keys
+# if linking fails: herdr plugin enable muxr.terminal-keys
 ```
 
-Copy `plugins/terminal-keys/muxr-ui.json` as the starting point. Everything
-declarative works the same way.
+Direct edits under the global npm package work live but are replaced by the next npm install. A cloned folder and its Herdr registration survive package upgrades; subsequent `muxr setup` runs preserve both plugins' explicit enabled/disabled states.
 
 Both stay enabled if you do not disable the bundled one, and both render — muxr
 does not let one plugin suppress another, because a manifest that could hide a
