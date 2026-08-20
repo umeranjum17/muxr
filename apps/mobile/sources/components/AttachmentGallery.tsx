@@ -19,11 +19,22 @@ export interface GalleryImage {
 
 const MAX_THUMBNAIL_BYTES = 8 * 1024 * 1024;
 
-export function AttachmentThumbnail({ sessionId, image, onPress, enabled = true }: { sessionId: string; image: GalleryImage; onPress: () => void; enabled?: boolean }) {
+export function AttachmentThumbnail({ sessionId, image, onPress, enabled = true, onSettled }: { sessionId: string; image: GalleryImage; onPress: () => void; enabled?: boolean; onSettled?: (id: string) => void }) {
     // A grid preview is convenience, not permission to pull a 200 MB original.
     const preview = useAttachmentPreview(sessionId, image.action, enabled && image.action.size <= MAX_THUMBNAIL_BYTES);
     const [failed, setFailed] = React.useState(false);
-    React.useEffect(() => setFailed(false), [image.id]);
+    const [loaded, setLoaded] = React.useState(false);
+    const reported = React.useRef(false);
+    React.useEffect(() => { setFailed(false); setLoaded(false); reported.current = false; }, [image.id]);
+    const settle = React.useCallback(() => {
+        if (reported.current) return;
+        reported.current = true;
+        onSettled?.(image.id);
+    }, [image.id, onSettled]);
+    React.useEffect(() => {
+        if (!enabled || preview === undefined) setLoaded(false);
+        if (enabled && (image.action.size > MAX_THUMBNAIL_BYTES || preview === null)) settle();
+    }, [enabled, image.action.size, preview, settle]);
     return (
         <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={`Open ${image.title}`}
             style={({ pressed }) => [styles.thumbnail, pressed && styles.pressed]}>
@@ -33,7 +44,10 @@ export function AttachmentThumbnail({ sessionId, image, onPress, enabled = true 
                   ? <ActivityIndicator color="rgba(255,255,255,0.45)" />
                   : preview === null || failed
                   ? <Ionicons name="image-outline" size={22} color="rgba(255,255,255,0.38)" />
-                  : <Image source={{ uri: preview.uri }} style={StyleSheet.absoluteFill} contentFit="cover" transition={120} recyclingKey={image.id} onError={() => setFailed(true)} />}
+                  : <>
+                      <Image source={{ uri: preview.uri }} style={StyleSheet.absoluteFill} contentFit="cover" transition={120} recyclingKey={image.id} onLoad={() => { setLoaded(true); settle(); }} onError={() => { setFailed(true); settle(); }} />
+                      {!loaded && <ActivityIndicator style={StyleSheet.absoluteFill} color="rgba(255,255,255,0.45)" />}
+                  </>}
             <LinearGradient pointerEvents="none" colors={['transparent', 'rgba(0,0,0,0.8)']} locations={[0.25, 1]} style={styles.thumbnailShade} />
             <View style={styles.thumbnailCaption}>
                 <Text numberOfLines={1} style={styles.thumbnailName}>{image.title}</Text>
@@ -146,7 +160,7 @@ function useAttachmentPreview(sessionId: string, action: AttachmentAction, enabl
 }
 
 const styles = StyleSheet.create({
-    thumbnail: { aspectRatio: 1.25, borderRadius: 14, overflow: 'hidden', backgroundColor: '#151619', alignItems: 'center', justifyContent: 'center' },
+    thumbnail: { aspectRatio: 1.25, borderRadius: 14, overflow: 'hidden', backgroundColor: '#151619', borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center' },
     thumbnailShade: { ...StyleSheet.absoluteFillObject, top: '30%' },
     thumbnailCaption: { position: 'absolute', left: 10, right: 10, bottom: 9 },
     thumbnailName: { color: '#fff', fontSize: 12, lineHeight: 15, ...Typography.default('semiBold') },

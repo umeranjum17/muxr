@@ -103,16 +103,22 @@ const COMPACT_WEB_DIFF_CSS = `
   margin-block-end: 8px;
 }
 [data-diffs-header='default'] {
-  min-height: 34px;
+  min-height: 30px;
   padding-inline: 8px;
   background: var(--diffs-bg-context);
   border-bottom: 1px solid var(--diffs-bg-separator);
 }
-[data-change-icon] { width: 14px; height: 14px; }
+[data-change-icon] { display: none; }
+[data-header-content] {
+  gap: 4px;
+  font-family: var(--diffs-font-family, var(--diffs-font-fallback));
+  font-size: 11px;
+}
+[data-diffs-header='default'] [data-metadata] { gap: 6px; font-size: 11px; }
 [data-separator='line-info'],
 [data-separator='line-info-basic'],
-[data-separator='metadata'] { height: 24px; margin-block: 0; }
-[data-separator-content] { padding-inline: 8px; border-radius: 0 !important; }
+[data-separator='metadata'] { height: 22px; margin-block: 0; }
+[data-separator-content] { padding-inline: 8px; border-radius: 0 !important; font-size: 11px; }
 `;
 
 const PierreDiffViewWeb = React.memo(function PierreDiffViewWeb(props: PierreDiffViewProps) {

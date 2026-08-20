@@ -262,13 +262,24 @@ export function ItemList({ context, pluginId, manifestHash, contribution }: Prim
     const sheetBodyHeight = React.useMemo(() => 12 + (model.actions.length > 0 ? 52 : 0) + sheetRows.reduce((height, row) => height
         + (row.spaced ? 14 : 0)
         + (row.kind === 'label' ? 24 : row.kind === 'images' ? galleryWidth / 1.25 + 8 : 53 + (row.rowIndex === row.rowCount - 1 ? 8 : 0)), 0), [galleryWidth, model.actions.length, sheetRows]);
-    const [activeThumbnailIds, setActiveThumbnailIds] = React.useState<Set<string>>(new Set());
+    const [visibleThumbnailIds, setVisibleThumbnailIds] = React.useState<string[]>([]);
+    const [settledThumbnailIds, setSettledThumbnailIds] = React.useState<Set<string>>(new Set());
     const thumbnailViewability = React.useRef({ itemVisiblePercentThreshold: 15 }).current;
     const onThumbnailViewable = React.useCallback(({ viewableItems }: { viewableItems: ViewToken<SheetListEntry>[] }) => {
-        const next = new Set(viewableItems.flatMap(({ item }) => item?.kind === 'images' ? item.images.map(({ image }) => image.id) : []).slice(0, MAX_ACTIVE_THUMBNAILS));
-        setActiveThumbnailIds((current) => current.size === next.size && [...current].every((id) => next.has(id)) ? current : next);
+        const next = viewableItems.flatMap(({ item }) => item?.kind === 'images' ? item.images.map(({ image }) => image.id) : []);
+        setVisibleThumbnailIds((current) => current.length === next.length && current.every((id, index) => id === next[index]) ? current : next);
     }, []);
-    React.useEffect(() => { if (!open) setActiveThumbnailIds(new Set()); }, [open]);
+    const visibleThumbnailSet = React.useMemo(() => new Set(visibleThumbnailIds), [visibleThumbnailIds]);
+    const loadingThumbnailIds = React.useMemo(() => new Set(visibleThumbnailIds.filter((id) => !settledThumbnailIds.has(id)).slice(0, MAX_ACTIVE_THUMBNAILS)), [settledThumbnailIds, visibleThumbnailIds]);
+    const thumbnailSettled = React.useCallback((id: string) => setSettledThumbnailIds((current) => {
+        if (current.has(id)) return current;
+        const next = new Set(current);
+        next.add(id);
+        return next;
+    }), []);
+    React.useEffect(() => {
+        if (!open) { setVisibleThumbnailIds([]); setSettledThumbnailIds(new Set()); }
+    }, [open]);
     const badgeTone = model.badge?.tone;
     const badgeColor = failed ? theme.colors.textDestructive : badgeTone === undefined ? theme.colors.textSecondary : toneColor(theme, badgeTone);
     if (items.length === 0 && model.actions.length === 0) {
@@ -300,7 +311,7 @@ export function ItemList({ context, pluginId, manifestHash, contribution }: Prim
                     renderItem={({ item: row }) => {
                         if (row.kind === 'label') return <SectionLabel style={[styles.groupLabel, row.spaced && styles.spacedRow]}>{row.name}</SectionLabel>;
                         if (row.kind === 'images') return <View style={[styles.imageGrid, row.spaced && styles.spacedRow]}>{row.images.map(({ image, galleryIndex }) => <View key={image.id} style={{ width: galleryWidth }}>
-                            <AttachmentThumbnail sessionId={sessionId!} image={image} enabled={activeThumbnailIds.has(image.id)} onPress={() => setGalleryIndex(galleryIndex)} />
+                            <AttachmentThumbnail sessionId={sessionId!} image={image} enabled={visibleThumbnailSet.has(image.id) && (settledThumbnailIds.has(image.id) || loadingThumbnailIds.has(image.id))} onSettled={thumbnailSettled} onPress={() => setGalleryIndex(galleryIndex)} />
                         </View>)}</View>;
                         const first = row.rowIndex === 0;
                         const last = row.rowIndex === row.rowCount - 1;
