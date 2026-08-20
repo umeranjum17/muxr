@@ -13,7 +13,7 @@ import { MAX_SCREEN_LIST_ROWS, PLUGIN_CALL_CLIENT_TIMEOUT_MS, capUtf8Bytes, defa
 import type { Theme } from '@/theme';
 import { Switch } from '@/components/Switch';
 import { hapticsError, hapticsSelection, hapticsSuccess } from '@/components/haptics';
-import { PierreDiffView } from '@/components/diff/PierreDiffView';
+import { NavigableDiff } from '@/components/diff/NavigableDiff';
 import { SyntaxHighlightedCode } from '@/components/code/SyntaxHighlightedCode';
 import { sync } from '@/sync/sync';
 import { pluginSnapshot } from './pluginStore';
@@ -585,7 +585,7 @@ function ScreenNode(props: {
         case 'diff': {
             const patch = resolvePath(data, node.path);
             if (typeof patch !== 'string' || patch === '') return null;
-            return <View style={{ marginBottom: 10 }}><PierreDiffView patch={boundText(patch, 600, 64 * 1024).text} diffStyle="unified" overflow={width < 700 ? 'wrap' : 'scroll'} fontSize={12} /></View>;
+            return <View style={{ marginBottom: 10 }}><NavigableDiff patch={boundText(patch, 600, 64 * 1024).text} /></View>;
         }
         case 'code': {
             const source = resolvePath(data, node.path);
