@@ -446,7 +446,7 @@ export const SessionItem = React.memo(({ session, selected, isFirst, isLast, isS
 
                 {session.identityLine ? (
                     <View style={styles.sessionSubtitleRow}>
-                        <ProviderIcon kind={session.providerKind} size={13} />
+                        <ProviderIcon kind={session.providerKind} size={13} monochrome />
                         <Text style={styles.sessionSubtitle} numberOfLines={1}>
                             {session.identityLine}
                         </Text>

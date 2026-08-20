@@ -231,26 +231,26 @@ export const darkTheme = {
         // Main colors
         //
 
-        text: '#eae8ee',
+        text: '#ececec',
         textDestructive: Platform.select({ ios: '#FF453A', default: '#F48FB1' }),
-        textSecondary: '#9399b2',
+        textSecondary: '#9a9a9f',
         textLink: '#cba6f7',
-        accent: '#eae8ee',
-        accentSubtle: 'rgba(234, 232, 238, 0.12)',
-        accentFaint: 'rgba(234, 232, 238, 0.05)',
+        accent: '#ececec',
+        accentSubtle: 'rgba(236, 236, 236, 0.12)',
+        accentFaint: 'rgba(236, 236, 236, 0.05)',
         deleteAction: '#FF6B6B', // Delete/remove button color (same in both themes)
         warningCritical: '#f38ba8',
-        warning: '#6c7086',
+        warning: '#77777d',
         success: '#94e2d5',
         // herdr ink palette: terminal darkest, app chrome one step up.
-        surface: Platform.select({ web: '#1a1d22', default: '#1a1d22' }),
+        surface: Platform.select({ web: '#1a1a1a', default: '#1a1a1a' }),
         surfaceRipple: Platform.select({ web: 'rgba(255, 255, 255, 0.08)', default: 'rgba(255, 255, 255, 0.07)' }),
-        surfacePressed: '#262b33',
-        surfaceSelected: '#262b33',
-        surfacePressedOverlay: Platform.select({ web: 'transparent', default: '#262b33' }),
-        surfaceHigh: '#20242c',
-        surfaceHighest: '#262b33',
-        divider: '#2b3038',
+        surfacePressed: '#2a2a2a',
+        surfaceSelected: '#2a2a2a',
+        surfacePressedOverlay: Platform.select({ web: 'transparent', default: '#2a2a2a' }),
+        surfaceHigh: '#212121',
+        surfaceHighest: '#2a2a2a',
+        divider: '#2e2e2e',
         scrim: 'rgba(0, 0, 0, 0.67)',
         shadow: {
             color: Platform.select({ default: '#000000', web: 'rgba(0, 0, 0, 0.1)' }),
@@ -313,9 +313,9 @@ export const darkTheme = {
                 // Monochrome chrome: green/amber/cyan/purple all carry meaning in
                 // terminal output, status dots and agent avatars, so the primary
                 // action is plain light-on-dark and lets that colour lead.
-                background: '#eae8ee',
+                background: '#ececec',
                 tint: '#17171a',
-                disabled: '#6c7086',
+                disabled: '#77777d',
             },
             secondary: {
                 tint: '#8E8E93',

@@ -281,7 +281,7 @@ const CompactSessionRow = React.memo(({ session, selected, showBorder }: { sessi
                 </View>
                 {session.identityLine && (
                     <View style={styles.sessionIdentityRow}>
-                        <ProviderIcon kind={session.providerKind} size={11} />
+                        <ProviderIcon kind={session.providerKind} size={11} monochrome />
                         <SessionMetaLine
                             style={{ flex: 1 }}
                             segments={[
