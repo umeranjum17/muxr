@@ -8,6 +8,7 @@ import { Modal } from '@/modal';
 import { sync } from '@/sync/sync';
 import { OptionSheet } from '@/components/OptionSheet';
 import { StatusDot } from '@/components/StatusDot';
+import { hapticsError, hapticsLight } from '@/components/haptics';
 import type { PrimitiveProps } from '../primitiveRegistry';
 import type { PluginSlotContexts } from '../slotTypes';
 import { asPluginTree, type PluginTreeNode } from '../treeModel';
@@ -78,9 +79,11 @@ export function TreeSheet({ context, pluginId, manifestHash, contribution }: Pri
         if (manifest === undefined || action === undefined) return;
         try {
             await dispatchPluginAction(action, { router, pluginId, manifestHash, manifest, sessionId });
+            hapticsLight();
             if (action.type === 'kernel.navigate' || action.type === 'screen') onClose();
             else await load();
         } catch (error) {
+            hapticsError();
             Modal.alert(t('plugins.actionFailed'), error instanceof Error ? error.message : String(error));
         }
     }, [load, manifest, manifestHash, onClose, pluginId, router, sessionId]);
@@ -129,7 +132,8 @@ export function TreeSheet({ context, pluginId, manifestHash, contribution }: Pri
                         paddingLeft: 18 + depth * 22,
                         paddingRight: 18,
                         paddingVertical: depth === 0 ? 11 : 9,
-                        opacity: pressed ? 0.6 : disabled ? 0.45 : 1,
+                        backgroundColor: pressed ? theme.colors.surfaceHighest : 'transparent',
+                        opacity: disabled ? 0.45 : 1,
                     })}
                 >
                     {node.status !== undefined

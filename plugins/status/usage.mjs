@@ -284,9 +284,13 @@ function codexItems(result) {
   const first = details.length === 0 ? undefined : details.reduce((lowest, limit) => (limit.remaining < lowest.remaining ? limit : lowest));
   return {
     items,
-    series: details.map((limit) => ({ label: limit.name, value: limit.remaining, valueLabel: `${limit.remaining}%`, tone: limitTone(limit.remaining) })),
+    // detail carries the reset clock, so a limit row reads "75% · 1h 53m".
+    series: details.map((limit) => ({
+      label: limit.name, value: limit.remaining, valueLabel: `${limit.remaining}%`, tone: limitTone(limit.remaining),
+      ...(limit.reset ? { detail: limit.reset } : {}),
+    })),
     ring: first === undefined ? [] : [
-      { label: 'Remaining', value: first.remaining, valueLabel: `${first.remaining}%`, tone: limitTone(first.remaining) },
+      { label: 'Remaining', value: first.remaining, valueLabel: `${first.remaining}%`, tone: limitTone(first.remaining), ...(first.reset ? { detail: first.reset } : {}) },
       { label: 'Used', value: 100 - first.remaining, valueLabel: `${100 - first.remaining}%`, tone: 'secondary' },
     ],
     remaining: first?.remaining ?? 0,

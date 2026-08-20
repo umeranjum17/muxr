@@ -40,6 +40,20 @@ function chartFill(theme: Theme, tone: PluginScreenTone | undefined): string {
     return tone === undefined ? theme.colors.accent : toneColor(theme, tone);
 }
 
+/**
+ * One card recipe for every plugin panel. Sections, lists, charts and trees
+ * each carried their own radius and surface, so a single screen stacked three
+ * subtly different boxes. Padding stays per-card; the shell does not.
+ */
+function cardStyle(theme: Theme): ViewStyle {
+    return {
+        backgroundColor: theme.colors.surfaceHigh,
+        borderRadius: 16,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: theme.colors.divider,
+    };
+}
+
 function withAlpha(color: string, alpha: number): string {
     const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(color)?.[1];
     if (hex === undefined) return color;
@@ -253,7 +267,7 @@ function ScreenTree(props: {
                 </Pressable>
             </>}
         </View>
-        <View style={{ backgroundColor: theme.colors.surfaceHigh, borderRadius: 16, paddingVertical: 6 }}>
+        <View style={{ ...cardStyle(theme), paddingVertical: 6 }}>
             {rows.length === 0 ? <Text style={{ color: theme.colors.textSecondary, fontSize: 13, padding: 14 }}>
                 {props.node.emptyText === undefined ? t('plugins.nothingToShow') : bindText(resolvePluginText(props.node.emptyText), props.data)}
             </Text> : rows.map(({ item, depth }) => {
@@ -315,10 +329,10 @@ function ScreenChart({ node, data, nested }: { node: PluginScreenChartNode; data
         <Text style={{ color: theme.colors.textSecondary, fontSize: 13 }}>{empty}</Text>
     </View>;
     const total = series.reduce((sum, item) => sum + item.value, 0);
-    const summary = `${title ?? 'Chart'}: ${series.map((item) => `${item.label} ${node.variant === 'ring' ? `${Math.round(item.value / total * 100)} percent` : chartValue(item)}`).join(', ')}`;
-    const card = nested
+    const summary = `${title ?? 'Chart'}: ${series.map((item) => `${item.label} ${node.variant === 'ring' ? `${Math.round(item.value / total * 100)} percent` : chartValue(item)}${item.detail === undefined ? '' : ` ${item.detail}`}`).join(', ')}`;
+    const card: ViewStyle = nested
         ? { marginBottom: 4 }
-        : { marginBottom: 14, backgroundColor: theme.colors.surfaceHigh, borderRadius: 16, padding: 16 } as const;
+        : { ...cardStyle(theme), marginBottom: 14, padding: 16 };
     const heading = title === undefined ? null : (
         <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 12, marginTop: nested ? 10 : 0 }}>{title}</Text>
     );
@@ -335,13 +349,14 @@ function ScreenChart({ node, data, nested }: { node: PluginScreenChartNode; data
                 <View style={{ width: 96, height: 96 }}>
                     <GaugeArc ratio={ratio} size={96} color={hero.tone === undefined ? theme.colors.accent : chartFill(theme, hero.tone)} track={theme.colors.surfaceHighest} />
                     <View pointerEvents="none" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center' }}>
-                        <Text style={{ color: theme.colors.text, fontSize: 22, fontWeight: '700', letterSpacing: -0.5, fontVariant: ['tabular-nums'] }}>{chartValue(hero)}</Text>
+                        <Text style={{ color: theme.colors.text, fontSize: 22, letterSpacing: -0.5, ...Typography.mono('semiBold') }}>{chartValue(hero)}</Text>
                         <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 10, marginTop: 1 }}>{hero.label}</Text>
                     </View>
                 </View>
                 <View style={{ flex: 1, minWidth: 0 }}>
                     <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.6 }}>{hero.label}</Text>
-                    <Text numberOfLines={1} style={{ color: theme.colors.text, fontSize: 28, fontWeight: '700', letterSpacing: -0.8, marginTop: 2, fontVariant: ['tabular-nums'] }}>{chartValue(hero)}</Text>
+                    <Text numberOfLines={1} style={{ color: theme.colors.text, fontSize: 28, letterSpacing: -0.8, marginTop: 2, ...Typography.mono('semiBold') }}>{chartValue(hero)}</Text>
+                    {hero.detail !== undefined && <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 12, marginTop: 2, ...Typography.mono('regular') }}>{hero.detail}</Text>}
                 </View>
             </View>
         </View>;
@@ -379,7 +394,7 @@ function ScreenChart({ node, data, nested }: { node: PluginScreenChartNode; data
             : item.tone !== undefined ? chartFill(theme, item.tone) : rampFill(theme, index, series.length);
         const slices = series.map((item, index) => ({ label: item.label, value: item.value, color: sliceColor(item, index) }));
         return <View accessible accessibilityRole="image" accessibilityLabel={summary}
-            style={{ marginBottom: 14, backgroundColor: theme.colors.surfaceHigh, borderRadius: 16, padding: 16 }}>
+            style={{ ...cardStyle(theme), marginBottom: 14, padding: 16 }}>
             {title !== undefined && <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 12 }}>{title}</Text>}
             <View style={{ alignItems: 'center' }}>
                 <View style={{ width: 132, height: 132 }}>
@@ -389,7 +404,7 @@ function ScreenChart({ node, data, nested }: { node: PluginScreenChartNode; data
                         </Pie.Chart>
                     </PolarChart>
                     <View pointerEvents="none" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center' }}>
-                        <Text style={{ color: theme.colors.text, fontSize: 24, fontWeight: '700', letterSpacing: -0.5, fontVariant: ['tabular-nums'] }}>{chartValue(hero)}</Text>
+                        <Text style={{ color: theme.colors.text, fontSize: 24, letterSpacing: -0.5, ...Typography.mono('semiBold') }}>{chartValue(hero)}</Text>
                         <Text style={{ color: theme.colors.textSecondary, fontSize: 11, marginTop: 1 }}>{hero.label}</Text>
                     </View>
                 </View>
@@ -414,6 +429,9 @@ function ScreenChart({ node, data, nested }: { node: PluginScreenChartNode; data
                 <View style={{ flexDirection: 'row', alignItems: 'baseline', marginBottom: 5 }}>
                     <Text numberOfLines={1} style={{ color: index === 0 ? theme.colors.text : theme.colors.textSecondary, fontSize: 13, fontWeight: index === 0 ? '600' : '500', flex: 1, marginRight: 12 }}>{item.label}</Text>
                     <Text style={{ color: index === 0 ? theme.colors.text : theme.colors.textSecondary, fontSize: 12.5, ...Typography.mono('semiBold') }}>{chartValue(item)}</Text>
+                    {/* The meter row reads label · bar · value · detail, so a limit
+                        can say how much is left and when it comes back. */}
+                    {item.detail !== undefined && <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 11.5, marginLeft: 8, ...Typography.mono('regular') }}>{item.detail}</Text>}
                 </View>
                 <View style={{ height: 5, borderRadius: 2.5, backgroundColor: theme.colors.surfaceHighest, overflow: 'hidden' }}>
                     <AnimatedBarFill ratio={max === 0 ? 0 : item.value / max}
@@ -474,7 +492,7 @@ function ScreenButton(props: { node: PluginScreenButtonNode; label: string; runn
                 accessibilityRole="button"
                 accessibilityLabel={props.label}
                 accessibilityState={{ busy: props.running, disabled: props.running }}
-                style={{ borderRadius: 10, paddingVertical: 11, alignItems: 'center', backgroundColor: variantColor, marginVertical: 6, opacity: props.running ? 0.6 : 1 }}>
+                style={{ borderRadius: 999, paddingVertical: 11, alignItems: 'center', backgroundColor: variantColor, marginVertical: 6, opacity: props.running ? 0.6 : 1 }}>
                 {props.running ? <ActivityIndicator color={labelColor} /> : <Text style={{ color: labelColor, fontSize: 15, fontWeight: '600' }}>{props.label}</Text>}
             </Pressable>
         </Animated.View>
@@ -522,13 +540,13 @@ function ScreenNode(props: {
             return (
                 <View style={{ paddingVertical: 10 }}>
                     <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.6 }}>{bind(node.label)}</Text>
-                    <Text style={{ color: theme.colors.text, fontSize: 30, fontWeight: '700', letterSpacing: -0.5, marginTop: 2, fontVariant: ['tabular-nums'] }}>{bind(node.value)}</Text>
+                    <Text style={{ color: theme.colors.text, fontSize: 30, letterSpacing: -0.5, marginTop: 2, ...Typography.mono('semiBold') }}>{bind(node.value)}</Text>
                 </View>
             );
         case 'badge':
             return (
                 <View style={{ alignSelf: 'flex-start', borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4, marginBottom: 10, backgroundColor: theme.colors.surfaceHighest }}>
-                    <Text style={{ color: node.tone === undefined ? theme.colors.text : toneColor(theme, node.tone), fontSize: 12, fontWeight: '600', letterSpacing: 0.2 }}>{bind(node.label)}</Text>
+                    <Text style={{ color: node.tone === undefined ? theme.colors.text : toneColor(theme, node.tone), fontSize: 12, letterSpacing: 0.2, ...Typography.mono('semiBold') }}>{bind(node.label)}</Text>
                 </View>
             );
         case 'progress': {
@@ -543,7 +561,7 @@ function ScreenNode(props: {
                     accessibilityValue={{ min: 0, max, now: value }}>
                     {(label !== undefined || valueLabel !== undefined) && <View style={{ flexDirection: 'row', marginBottom: 6 }}>
                         {label !== undefined && <Text style={{ color: theme.colors.text, fontSize: 13, flex: 1 }}>{label}</Text>}
-                        {valueLabel !== undefined && <Text style={{ color: theme.colors.textSecondary, fontSize: 13 }}>{valueLabel}</Text>}
+                        {valueLabel !== undefined && <Text style={{ color: theme.colors.textSecondary, fontSize: 13, ...Typography.mono('regular') }}>{valueLabel}</Text>}
                     </View>}
                     <View style={{ height: 6, borderRadius: 3, backgroundColor: theme.colors.surfaceHighest, overflow: 'hidden' }}>
                         <AnimatedBarFill ratio={max === 0 ? 0 : value / max} color={chartFill(theme, node.tone)} delay={0} />
@@ -570,7 +588,7 @@ function ScreenNode(props: {
                 <View style={props.nested
                     ? (columns === undefined ? {} : { flexDirection: 'row', flexWrap: 'wrap', columnGap: 10 })
                     : {
-                        backgroundColor: theme.colors.surfaceHigh, borderRadius: 16, paddingHorizontal: 16, paddingVertical: 12,
+                        ...cardStyle(theme), paddingHorizontal: 16, paddingVertical: 12,
                         ...(columns === undefined ? {} : { flexDirection: 'row', flexWrap: 'wrap', columnGap: 10 }),
                     }}>
                     {node.children.map((child, index) => columns === undefined
@@ -621,7 +639,7 @@ function ScreenNode(props: {
             return (
                 <View style={{ marginBottom: props.nested ? 4 : 14 }}>
                     {node.title !== undefined && <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 10, marginTop: props.nested ? 10 : 0 }}>{bind(node.title)}</Text>}
-                    <View style={props.nested ? {} : { backgroundColor: theme.colors.surfaceHigh, borderRadius: 16, paddingHorizontal: 16, paddingVertical: 4 }}>
+                    <View style={props.nested ? {} : { ...cardStyle(theme), paddingHorizontal: 16, paddingVertical: 4 }}>
                         {all.length === 0
                             ? <Text style={{ color: theme.colors.textSecondary, fontSize: 13, paddingVertical: 10 }}>{bind(node.emptyText ?? t('plugins.nothingToShow'))}</Text>
                             : all.map(({ row, item }, index) => (
