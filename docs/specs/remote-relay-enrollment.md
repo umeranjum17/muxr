@@ -1,7 +1,7 @@
 ---
 title: Shared Remote Relay Enrollment
 slug: remote-relay-enrollment
-status: tested
+status: in-progress
 created: 2026-08-17
 updated: 2026-08-20
 owner: umer
@@ -111,4 +111,5 @@ The VPS menu includes **Machines** with friendly names and list-number selection
 
 ## Revisions
 
+- 2026-08-20: Keep QR scanning and manual entry as separate onboarding choices, remove the repeated QR action from the manual screen, and expose the paired relay, transport, and CLI version in machine details.
 - 2026-08-20: Replace native long payload strings with short relay-qualified pairing codes while preserving broker-free custom relay discovery and relay-blind pairing secrets.

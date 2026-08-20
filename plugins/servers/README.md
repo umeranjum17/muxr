@@ -3,5 +3,5 @@
 What is listening on this machine, and project dev servers for Preview.
 
 - **Ports:** every listener with process and pid; stop stray processes from your phone (declared write).
-- **Run server:** start the selected project's dev script and surface its HTTP listeners in the Preview pill.
+- **Preview:** detect HTML frontends already running in the selected project and open them through the paired relay.
 - **Removal:** `herdr plugin unlink muxr.servers`.
