@@ -11,13 +11,12 @@ import { Modal } from '@/modal';
 import { sync } from '@/sync/sync';
 import { Typography } from '@/constants/Typography';
 import { PLUGIN_CALL_CLIENT_TIMEOUT_MS } from '@muxr/contract';
-import type { Theme } from '@/theme';
-import type { PluginScreenTone } from '@muxr/contract';
 import type { PrimitiveProps } from '../primitiveRegistry';
 import { asPluginItemList, type PluginItemListAction, type PluginItemListItem, type PluginItemListModel } from '../itemListModel';
 import { dispatchPluginAction, validatePluginAction } from '../pluginActions';
 import { pluginSnapshot } from '../pluginStore';
 import { clearPluginCache, registerPluginDataCacheInvalidator, subscribePluginDataInvalidation } from '../pluginDataInvalidation';
+import { toneColor } from '../pluginTone';
 import { resolvePluginText } from '../pluginText';
 import { t } from '@/text';
 
@@ -27,16 +26,6 @@ registerPluginDataCacheInvalidator((pluginIds) => {
     if (pluginIds === undefined) cache.clear();
     else for (const pluginId of pluginIds) clearPluginCache(cache, pluginId);
 });
-
-function toneColor(theme: Theme, tone: PluginScreenTone | undefined): string {
-    switch (tone) {
-        case 'positive': return theme.colors.status.done;
-        case 'warning': return theme.colors.status.working;
-        case 'danger': return theme.colors.status.error;
-        case 'primary': return theme.colors.accent;
-        default: return theme.colors.textSecondary;
-    }
-}
 
 function withAlpha(color: string, alpha: number): string {
     const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(color)?.[1];
@@ -71,15 +60,17 @@ function SheetRow({ item, fallbackIcon, busy, index, onPress }: {
 }) {
     const { theme } = useUnistyles();
     const [primary, ...rest] = item.metadata;
-    const secondary = rest.map((entry) => `${entry.label === undefined ? '' : `${entry.label} `}${entry.value}`.trim()).join(' · ');
     const metadataLabel = item.metadata.map((entry) => `${entry.label === undefined ? '' : `${entry.label} `}${entry.value}`).join(', ');
     const label = [item.group, item.title, item.subtitle, metadataLabel].filter((part) => part !== undefined && part !== '').join(', ');
+    // Work that already landed steps back; anything working or in trouble keeps
+    // full contrast, so the eye goes to the row that still needs a person.
+    const settled = (item.progress?.tone ?? primary?.tone) === 'positive';
     // Untoned bars step back down the list: a column of identical full-strength
     // accent reads as decoration rather than ranking.
     const progressColor = item.progress?.tone === undefined
         ? withAlpha(theme.colors.accent, Math.max(0.4, 1 - index * 0.14))
         : toneColor(theme, item.progress.tone);
-    const content = <>
+    const content = <View style={{ opacity: settled ? 0.75 : 1 }}>
         <View style={styles.itemRow}>
             {busy
                 ? <ActivityIndicator size="small" color={theme.colors.textSecondary} style={styles.iconTile} />
@@ -94,11 +85,20 @@ function SheetRow({ item, fallbackIcon, busy, index, onPress }: {
                 <Text style={[styles.metadataValue, { color: primary.tone === undefined ? theme.colors.text : toneColor(theme, primary.tone) }]}>
                     {primary.label === undefined ? '' : `${primary.label} `}{primary.value}
                 </Text>
-                {secondary !== '' && <Text numberOfLines={1} style={[styles.metadataSecondary, { color: theme.colors.textSecondary }]}>{secondary}</Text>}
+                {/* Each entry keeps its own tone: a row reads "+26 −12 · repo"
+                    with the counts coloured, not one flat grey run-on. */}
+                {rest.length > 0 && <Text numberOfLines={1} style={[styles.metadataSecondary, { color: theme.colors.textSecondary }]}>
+                    {rest.flatMap((entry, entryIndex) => [
+                        ...(entryIndex === 0 ? [] : [<Text key={`separator-${entryIndex}`}>{' · '}</Text>]),
+                        <Text key={entryIndex} {...(entry.tone === undefined ? {} : { style: { color: toneColor(theme, entry.tone) } })}>
+                            {`${entry.label === undefined ? '' : `${entry.label} `}${entry.value}`}
+                        </Text>,
+                    ])}
+                </Text>}
             </View>}
         </View>
         {item.progress !== undefined && <RowProgress value={item.progress.value} color={progressColor} delay={index * 50} />}
-    </>;
+    </View>;
     if (onPress === undefined) return <View accessible accessibilityLabel={label}>{content}</View>;
     return (
         <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ busy }}
