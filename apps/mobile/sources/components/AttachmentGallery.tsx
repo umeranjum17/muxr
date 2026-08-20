@@ -17,16 +17,21 @@ export interface GalleryImage {
     action: AttachmentAction;
 }
 
-export function AttachmentThumbnail({ sessionId, image, onPress }: { sessionId: string; image: GalleryImage; onPress: () => void }) {
-    const preview = useAttachmentPreview(sessionId, image.action);
+const MAX_THUMBNAIL_BYTES = 8 * 1024 * 1024;
+
+export function AttachmentThumbnail({ sessionId, image, onPress, enabled = true }: { sessionId: string; image: GalleryImage; onPress: () => void; enabled?: boolean }) {
+    // A grid preview is convenience, not permission to pull a 200 MB original.
+    const preview = useAttachmentPreview(sessionId, image.action, enabled && image.action.size <= MAX_THUMBNAIL_BYTES);
     const [failed, setFailed] = React.useState(false);
     React.useEffect(() => setFailed(false), [image.id]);
     return (
         <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={`Open ${image.title}`}
             style={({ pressed }) => [styles.thumbnail, pressed && styles.pressed]}>
-            {preview === undefined
-                ? <ActivityIndicator color="rgba(255,255,255,0.45)" />
-                : preview === null || failed
+            {!enabled || image.action.size > MAX_THUMBNAIL_BYTES
+                ? <Ionicons name="image-outline" size={22} color="rgba(255,255,255,0.38)" />
+                : preview === undefined
+                  ? <ActivityIndicator color="rgba(255,255,255,0.45)" />
+                  : preview === null || failed
                   ? <Ionicons name="image-outline" size={22} color="rgba(255,255,255,0.38)" />
                   : <Image source={{ uri: preview.uri }} style={StyleSheet.absoluteFill} contentFit="cover" transition={120} recyclingKey={image.id} onError={() => setFailed(true)} />}
             <LinearGradient pointerEvents="none" colors={['transparent', 'rgba(0,0,0,0.8)']} locations={[0.25, 1]} style={styles.thumbnailShade} />
@@ -96,9 +101,9 @@ export function AttachmentGallery({ sessionId, images, initialIndex, onClose }: 
                     onScrollToIndexFailed={() => undefined}
                     viewabilityConfig={viewabilityConfig}
                     onViewableItemsChanged={onViewableItemsChanged}
-                    renderItem={({ item }) => <GalleryPage sessionId={sessionId} image={item} width={width} height={height} />}
+                    renderItem={({ item, index: itemIndex }) => <GalleryPage sessionId={sessionId} image={item} width={width} height={height} active={itemIndex === index} />}
                 />
-                {images.length > 1 && <View style={[styles.dots, { paddingBottom: Math.max(insets.bottom, 16) }]}>
+                {images.length > 1 && images.length <= 12 && <View style={[styles.dots, { paddingBottom: Math.max(insets.bottom, 16) }]}>
                     {images.map((image, dot) => <Pressable key={image.id} onPress={() => list.current?.scrollToIndex({ index: dot })} hitSlop={6} accessibilityLabel={`Show image ${dot + 1}`}
                         style={[styles.dot, dot === index && styles.dotActive]} />)}
                 </View>}
@@ -107,31 +112,36 @@ export function AttachmentGallery({ sessionId, images, initialIndex, onClose }: 
     );
 }
 
-function GalleryPage({ sessionId, image, width, height }: { sessionId: string; image: GalleryImage; width: number; height: number }) {
-    const preview = useAttachmentPreview(sessionId, image.action);
+function GalleryPage({ sessionId, image, width, height, active }: { sessionId: string; image: GalleryImage; width: number; height: number; active: boolean }) {
+    // FlatList keeps neighbour pages mounted for smooth swiping; only the page
+    // actually on screen is allowed to ask the host for bytes.
+    const preview = useAttachmentPreview(sessionId, image.action, active);
     const [failed, setFailed] = React.useState(false);
     React.useEffect(() => setFailed(false), [image.id]);
     return <View style={{ width, height, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12, paddingVertical: 86 }}>
-        {preview === undefined
-            ? <ActivityIndicator color="rgba(255,255,255,0.6)" />
+        {!active
+            ? null
+            : preview === undefined
+              ? <ActivityIndicator color="rgba(255,255,255,0.6)" />
             : preview === null || failed
               ? <Ionicons name="image-outline" size={34} color="rgba(255,255,255,0.32)" />
               : <Image source={{ uri: preview.uri }} style={{ width: '100%', height: '100%' }} contentFit="contain" transition={160} recyclingKey={image.id} onError={() => setFailed(true)} />}
     </View>;
 }
 
-function useAttachmentPreview(sessionId: string, action: AttachmentAction): AttachmentPreviewSource | null | undefined {
+function useAttachmentPreview(sessionId: string, action: AttachmentAction, enabled = true): AttachmentPreviewSource | null | undefined {
     const [source, setSource] = React.useState<AttachmentPreviewSource | null>();
     React.useEffect(() => {
         let alive = true;
         let loaded: AttachmentPreviewSource | undefined;
         setSource(undefined);
+        if (!enabled) return () => { alive = false; };
         void attachmentPreview(sessionId, action).then((next) => {
             loaded = next;
             if (alive) setSource(next); else next.dispose?.();
         }).catch(() => { if (alive) setSource(null); });
         return () => { alive = false; loaded?.dispose?.(); };
-    }, [action.id, action.name, action.size, sessionId]);
+    }, [action.id, action.name, action.size, enabled, sessionId]);
     return source;
 }
 

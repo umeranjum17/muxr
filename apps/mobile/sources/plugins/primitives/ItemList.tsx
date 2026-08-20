@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ActivityIndicator, AppState, Pressable, Text, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, AppState, FlatList, Pressable, Text, View, useWindowDimensions, type ViewToken } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useIsFocused } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
@@ -24,6 +24,12 @@ import { AttachmentGallery, AttachmentThumbnail, type GalleryImage } from '@/com
 import type { AttachmentAction } from '@/utils/attachmentPreview';
 
 const EMPTY_MODEL: PluginItemListModel = { items: [], actions: [] };
+const MAX_ACTIVE_THUMBNAILS = 4;
+
+type SheetListEntry =
+    | { key: string; kind: 'label'; name: string; spaced: boolean }
+    | { key: string; kind: 'images'; images: { image: GalleryImage; galleryIndex: number }[]; spaced: boolean }
+    | { key: string; kind: 'item'; item: PluginItemListItem; index: number; rowIndex: number; rowCount: number; spaced: boolean };
 
 function imageAction(item: PluginItemListItem): AttachmentAction | undefined {
     return item.action?.type === 'attachment' && item.action.mimeType?.startsWith('image/') ? item.action : undefined;
@@ -82,6 +88,25 @@ function SheetRow({ item, fallbackIcon, busy, index, onPress }: {
         <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ busy }}
             style={({ pressed }) => pressed && { backgroundColor: theme.colors.surfaceHighest }}>{content}</Pressable>
     );
+}
+
+function SheetActions({ actions, busyId, onAction }: {
+    actions: PluginItemListAction[];
+    busyId: string | null;
+    onAction: (action: PluginItemListAction['action'], busyKey: string) => Promise<void>;
+}) {
+    const { theme } = useUnistyles();
+    return <View style={styles.sheetActions}>{actions.map((action) => {
+        const busyKey = `action:${action.id}`;
+        return <Pressable key={action.id} onPress={() => void onAction(action.action, busyKey)} accessibilityRole="button" accessibilityLabel={action.label}
+            accessibilityState={{ busy: busyId === busyKey }}
+            style={({ pressed }) => [styles.sheetAction, { backgroundColor: theme.colors.surfaceHigh, borderColor: theme.colors.divider }, pressed && { backgroundColor: theme.colors.surfaceHighest }]}>
+            {busyId === busyKey
+                ? <ActivityIndicator size="small" color={theme.colors.textSecondary} />
+                : action.icon !== undefined && <Ionicons name={action.icon as never} size={15} color={theme.colors.textSecondary} />}
+            <Text style={{ color: theme.colors.text, fontSize: 13 }}>{action.label}</Text>
+        </Pressable>;
+    })}</View>;
 }
 
 /** Lazy action list: the plugin declares every tap; there are no feature fallbacks. */
@@ -216,6 +241,34 @@ export function ItemList({ context, pluginId, manifestHash, contribution }: Prim
     }), [items]);
     const galleryById = React.useMemo(() => new Map(galleryImages.map((image, index) => [image.id, index])), [galleryImages]);
     const galleryWidth = Math.min(220, Math.max(132, (width - 40) / 2));
+    const sheetRows = React.useMemo<SheetListEntry[]>(() => groups.flatMap((group, groupIndex) => {
+        const rows: SheetListEntry[] = [];
+        const spaced = groupIndex > 0 || model.actions.length > 0;
+        if (group.name !== undefined) rows.push({ key: `label:${group.name}`, kind: 'label', name: group.name, spaced });
+        const images = group.items.flatMap(({ item }) => {
+            const galleryIndex = galleryById.get(item.id);
+            return galleryIndex === undefined ? [] : [{ image: galleryImages[galleryIndex]!, galleryIndex }];
+        });
+        for (let index = 0; index < images.length; index += 2) {
+            rows.push({ key: `images:${groupIndex}:${index}`, kind: 'images', images: images.slice(index, index + 2), spaced: rows.length === 0 && spaced });
+        }
+        const plain = group.items.filter(({ item }) => imageAction(item) === undefined);
+        plain.forEach(({ item, index }, rowIndex) => rows.push({
+            key: `item:${item.id}`, kind: 'item', item, index, rowIndex, rowCount: plain.length,
+            spaced: rows.length === 0 && spaced,
+        }));
+        return rows;
+    }), [galleryById, galleryImages, groups, model.actions.length]);
+    const sheetBodyHeight = React.useMemo(() => 12 + (model.actions.length > 0 ? 52 : 0) + sheetRows.reduce((height, row) => height
+        + (row.spaced ? 14 : 0)
+        + (row.kind === 'label' ? 24 : row.kind === 'images' ? galleryWidth / 1.25 + 8 : 53 + (row.rowIndex === row.rowCount - 1 ? 8 : 0)), 0), [galleryWidth, model.actions.length, sheetRows]);
+    const [activeThumbnailIds, setActiveThumbnailIds] = React.useState<Set<string>>(new Set());
+    const thumbnailViewability = React.useRef({ itemVisiblePercentThreshold: 15 }).current;
+    const onThumbnailViewable = React.useCallback(({ viewableItems }: { viewableItems: ViewToken<SheetListEntry>[] }) => {
+        const next = new Set(viewableItems.flatMap(({ item }) => item?.kind === 'images' ? item.images.map(({ image }) => image.id) : []).slice(0, MAX_ACTIVE_THUMBNAILS));
+        setActiveThumbnailIds((current) => current.size === next.size && [...current].every((id) => next.has(id)) ? current : next);
+    }, []);
+    React.useEffect(() => { if (!open) setActiveThumbnailIds(new Set()); }, [open]);
     const badgeTone = model.badge?.tone;
     const badgeColor = failed ? theme.colors.textDestructive : badgeTone === undefined ? theme.colors.textSecondary : toneColor(theme, badgeTone);
     if (items.length === 0 && model.actions.length === 0) {
@@ -232,45 +285,45 @@ export function ItemList({ context, pluginId, manifestHash, contribution }: Prim
             <Ionicons name={(failed ? 'warning-outline' : icon) as never} size={11} color={badgeColor} />
             <Text style={[styles.count, { color: badgeColor }]}>{model.badge?.value ?? items.length}</Text>
         </Pressable>
-        <OptionSheet visible={open} title={title} options={[]} onSelect={() => {}} onClose={() => setOpen(false)} body={
-            <View style={{ paddingHorizontal: 16, paddingBottom: 12 }}>
-                {model.actions.length > 0 && <View style={styles.sheetActions}>
-                    {model.actions.map((action) => {
-                        const busyKey = `action:${action.id}`;
-                        return <Pressable key={action.id} onPress={() => void onAction(action.action, busyKey)} accessibilityRole="button" accessibilityLabel={action.label}
-                            accessibilityState={{ busy: busyId === busyKey }}
-                            style={({ pressed }) => [styles.sheetAction, { backgroundColor: theme.colors.surfaceHigh, borderColor: theme.colors.divider }, pressed && { backgroundColor: theme.colors.surfaceHighest }]}>
-                            {busyId === busyKey
-                                ? <ActivityIndicator size="small" color={theme.colors.textSecondary} />
-                                : action.icon !== undefined && <Ionicons name={action.icon as never} size={15} color={theme.colors.textSecondary} />}
-                            <Text style={{ color: theme.colors.text, fontSize: 13 }}>{action.label}</Text>
-                        </Pressable>;
-                    })}
-                </View>}
-                {groups.map((group, groupIndex) => (
-                    <View key={group.name ?? `ungrouped-${groupIndex}`} style={{ marginTop: groupIndex === 0 && model.actions.length === 0 ? 0 : 14 }}>
+        <OptionSheet visible={open} title={title} options={[]} onSelect={() => {}} onClose={() => setOpen(false)} virtualizedBody={galleryImages.length > 0} virtualizedBodyHeight={sheetBodyHeight} body={
+            galleryImages.length > 0
+                ? <FlatList
+                    data={sheetRows}
+                    keyExtractor={(row) => row.key}
+                    contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 12 }}
+                    initialNumToRender={4}
+                    maxToRenderPerBatch={4}
+                    windowSize={3}
+                    viewabilityConfig={thumbnailViewability}
+                    onViewableItemsChanged={onThumbnailViewable}
+                    ListHeaderComponent={model.actions.length > 0 ? <SheetActions actions={model.actions} busyId={busyId} onAction={onAction} /> : null}
+                    renderItem={({ item: row }) => {
+                        if (row.kind === 'label') return <SectionLabel style={[styles.groupLabel, row.spaced && styles.spacedRow]}>{row.name}</SectionLabel>;
+                        if (row.kind === 'images') return <View style={[styles.imageGrid, row.spaced && styles.spacedRow]}>{row.images.map(({ image, galleryIndex }) => <View key={image.id} style={{ width: galleryWidth }}>
+                            <AttachmentThumbnail sessionId={sessionId!} image={image} enabled={activeThumbnailIds.has(image.id)} onPress={() => setGalleryIndex(galleryIndex)} />
+                        </View>)}</View>;
+                        const first = row.rowIndex === 0;
+                        const last = row.rowIndex === row.rowCount - 1;
+                        return <View style={[styles.virtualRow, { backgroundColor: theme.colors.surfaceHigh, borderColor: theme.colors.divider }, first && styles.virtualRowFirst, last && styles.virtualRowLast, row.spaced && styles.spacedRow]}>
+                            {!first && <View style={[styles.rowDivider, { backgroundColor: theme.colors.divider }]} />}
+                            <SheetRow item={row.item} fallbackIcon={icon} busy={busyId === `item:${row.item.id}`} index={row.index}
+                                {...(row.item.action === undefined ? {} : { onPress: () => void onAction(row.item.action, `item:${row.item.id}`) })} />
+                        </View>;
+                    }}
+                />
+                : <View style={{ paddingHorizontal: 16, paddingBottom: 12 }}>
+                    {model.actions.length > 0 && <SheetActions actions={model.actions} busyId={busyId} onAction={onAction} />}
+                    {groups.map((group, groupIndex) => <View key={group.name ?? `ungrouped-${groupIndex}`} style={{ marginTop: groupIndex === 0 && model.actions.length === 0 ? 0 : 14 }}>
                         {group.name !== undefined && <SectionLabel style={styles.groupLabel}>{group.name}</SectionLabel>}
-                        {group.items.some(({ item }) => imageAction(item) !== undefined) && <View style={styles.imageGrid}>
-                            {group.items.flatMap(({ item }) => {
-                                const gallery = galleryById.get(item.id);
-                                if (gallery === undefined) return [];
-                                return [<View key={item.id} style={{ width: galleryWidth }}>
-                                    <AttachmentThumbnail sessionId={sessionId!} image={galleryImages[gallery]!} onPress={() => setGalleryIndex(gallery)} />
-                                </View>];
-                            })}
-                        </View>}
-                        {group.items.some(({ item }) => imageAction(item) === undefined) && <View style={[cardStyle(theme), { overflow: 'hidden' }]}>
-                            {group.items.filter(({ item }) => imageAction(item) === undefined).map(({ item, index }, rowIndex) => (
-                                <React.Fragment key={item.id}>
-                                    {rowIndex > 0 && <View style={[styles.rowDivider, { backgroundColor: theme.colors.divider }]} />}
-                                    <SheetRow item={item} fallbackIcon={icon} busy={busyId === `item:${item.id}`} index={index}
-                                        {...(item.action === undefined ? {} : { onPress: () => void onAction(item.action, `item:${item.id}`) })} />
-                                </React.Fragment>
-                            ))}
-                        </View>}
-                    </View>
-                ))}
-            </View>
+                        <View style={[cardStyle(theme), { overflow: 'hidden' }]}>
+                            {group.items.map(({ item, index }, rowIndex) => <React.Fragment key={item.id}>
+                                {rowIndex > 0 && <View style={[styles.rowDivider, { backgroundColor: theme.colors.divider }]} />}
+                                <SheetRow item={item} fallbackIcon={icon} busy={busyId === `item:${item.id}`} index={index}
+                                    {...(item.action === undefined ? {} : { onPress: () => void onAction(item.action, `item:${item.id}`) })} />
+                            </React.Fragment>)}
+                        </View>
+                    </View>)}
+                </View>
         } />
         {galleryIndex !== undefined && <AttachmentGallery sessionId={sessionId!} images={galleryImages} initialIndex={galleryIndex} onClose={() => setGalleryIndex(undefined)} />}
     </>;
@@ -280,7 +333,11 @@ const styles = StyleSheet.create({
     pill: { flexDirection: 'row', alignItems: 'center', gap: 5, height: 26, borderRadius: 999, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 8 },
     count: { fontSize: 11, ...Typography.mono('semiBold') },
     sheetActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingBottom: 4 },
-    imageGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8 },
+    imageGrid: { flexDirection: 'row', gap: 8, marginBottom: 8 },
+    spacedRow: { marginTop: 14 },
+    virtualRow: { borderLeftWidth: StyleSheet.hairlineWidth, borderRightWidth: StyleSheet.hairlineWidth, overflow: 'hidden' },
+    virtualRowFirst: { borderTopWidth: StyleSheet.hairlineWidth, borderTopLeftRadius: ui.radius.card, borderTopRightRadius: ui.radius.card },
+    virtualRowLast: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomLeftRadius: ui.radius.card, borderBottomRightRadius: ui.radius.card, marginBottom: 8 },
     sheetAction: { minHeight: 44, borderRadius: 999, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', gap: 6 },
     groupLabel: { marginBottom: 8, marginLeft: 4 },
     rowDivider: { height: StyleSheet.hairlineWidth, marginLeft: 54 },

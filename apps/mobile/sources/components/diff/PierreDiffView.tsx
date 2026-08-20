@@ -91,6 +91,30 @@ function usePierreBundle(): PierreBundle | null {
 // Web rendering.
 // ────────────────────────────────────────────────────────────────────────────
 
+const COMPACT_WEB_DIFF_CSS = `
+:host {
+  --diffs-gap-inline: 6px;
+  --diffs-gap-block: 2px;
+  --diffs-font-size: 12px;
+  --diffs-line-height: 18px;
+  border: 1px solid var(--diffs-bg-separator);
+  border-radius: 10px;
+  overflow: hidden;
+  margin-block-end: 8px;
+}
+[data-diffs-header='default'] {
+  min-height: 34px;
+  padding-inline: 8px;
+  background: var(--diffs-bg-context);
+  border-bottom: 1px solid var(--diffs-bg-separator);
+}
+[data-change-icon] { width: 14px; height: 14px; }
+[data-separator='line-info'],
+[data-separator='line-info-basic'],
+[data-separator='metadata'] { height: 24px; margin-block: 0; }
+[data-separator-content] { padding-inline: 8px; border-radius: 0 !important; }
+`;
+
 const PierreDiffViewWeb = React.memo(function PierreDiffViewWeb(props: PierreDiffViewProps) {
     const { theme } = useUnistyles();
     const themeName: 'dark' | 'light' = props.theme ?? (theme.dark ? 'dark' : 'light');
@@ -108,6 +132,9 @@ const PierreDiffViewWeb = React.memo(function PierreDiffViewWeb(props: PierreDif
         disableLineNumbers: props.disableLineNumbers,
         disableFileHeader: props.disableFileHeader,
         expandUnchanged: props.expandUnchanged,
+        hunkSeparators: 'line-info-basic' as const,
+        diffIndicators: 'bars' as const,
+        unsafeCSS: COMPACT_WEB_DIFF_CSS,
     };
 
     if (props.patch) {
@@ -372,7 +399,7 @@ function PlainPatchView({
                 if (row.kind === 'file') {
                     const name = row.name.split('/').pop() ?? row.name;
                     const folder = row.name.slice(0, Math.max(0, row.name.length - name.length - 1));
-                    return <View key={`${row.raw}:${index}`} style={{ minHeight: 42, paddingHorizontal: 11, flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: theme.colors.surfaceHigh, borderTopWidth: index === 0 ? 0 : StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: colors.outline }}>
+                    return <View key={`${row.raw}:${index}`} style={{ minHeight: 36, paddingHorizontal: 9, flexDirection: 'row', alignItems: 'center', gap: 7, backgroundColor: theme.colors.surfaceHigh, borderTopWidth: index === 0 ? 0 : StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: colors.outline }}>
                         <Ionicons name="document-text-outline" size={15} color={theme.colors.textSecondary} />
                         <Text numberOfLines={1} style={{ color: theme.colors.text, fontSize: 11.5, ...Typography.mono('semiBold') }}>{name}</Text>
                         {folder !== '' && <Text numberOfLines={1} ellipsizeMode="head" style={{ flex: 1, color: theme.colors.textSecondary, fontSize: 10.5, ...Typography.mono() }}>{folder}</Text>}

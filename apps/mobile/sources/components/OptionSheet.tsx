@@ -48,6 +48,8 @@ export function OptionSheet({
     emptyText,
     footer,
     body,
+    virtualizedBody = false,
+    virtualizedBodyHeight,
     onSubmitCustom,
     searchPlaceholder,
 }: {
@@ -56,6 +58,10 @@ export function OptionSheet({
     options: ModelMode[];
     /** Renders in place of the option list, for a sheet that reports rather than picks. */
     body?: React.ReactNode;
+    /** The body owns scrolling (usually a FlatList), so do not nest it in a ScrollView. */
+    virtualizedBody?: boolean;
+    /** Content height before the sheet cap is applied. */
+    virtualizedBodyHeight?: number;
     selectedKey?: string | null;
     onSelect: (option: ModelMode) => void;
     onClose: () => void;
@@ -164,7 +170,9 @@ export function OptionSheet({
                     <Text style={styles.title}>{title}</Text>
 
                     {body ? (
-                        <ScrollView style={{ maxHeight: sheetCap - 108 }}>{body}</ScrollView>
+                        virtualizedBody
+                            ? <View style={{ height: Math.min(sheetCap - 108, virtualizedBodyHeight ?? sheetCap - 108) }}>{body}</View>
+                            : <ScrollView style={{ maxHeight: sheetCap - 108 }}>{body}</ScrollView>
                     ) : (
                     <View style={styles.body}>
                         {providers.length > 1 && (
