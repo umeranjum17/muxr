@@ -1,7 +1,7 @@
 ---
 title: Shared Remote Relay Enrollment
 slug: remote-relay-enrollment
-status: implemented
+status: tested
 created: 2026-08-17
 updated: 2026-08-20
 owner: umer
@@ -102,11 +102,12 @@ The VPS menu includes **Machines** with friendly names and list-number selection
 - [x] Revoking machine B invalidates B's unused tickets and drops B's live host/client peers without affecting A.
 - [x] Relay-only unit generation, Linux linger, immediate-stop child cleanup, restart, update, and doctor profile pass package smoke.
 - [x] Agent host uses only the remote WSS URL and machine credential, waits for authenticated presence, and resumes interrupted enrollment.
-- [ ] Native QR and manual entry use the same short relay-qualified pairing code.
+- [x] Native QR and manual entry use the same short relay-qualified pairing code.
 - [x] Code lookup expires after two minutes, is deleted on first resolution, and does not expose the embedded pairing secret to the relay.
 - [x] Clickable read-only browser pairing retains server-bound authority and secure-context checks.
 - [x] Final summaries expose URLs and health, never ids, credentials, claims, or keys.
 - [x] Existing local self-host flow, 30-gate suite, and package smoke are green.
+- [x] The EAS Cloud Android 0.1.11 emulator build accepted a live Tailscale pairing string, completed the grant handoff, deleted relay lookup state, and reached the connected Herd screen.
 
 ## Revisions
 
