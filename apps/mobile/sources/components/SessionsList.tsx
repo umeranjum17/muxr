@@ -3,14 +3,12 @@ import { View, Pressable, FlatList, NativeScrollEvent, NativeSyntheticEvent, Pla
 import { Text } from '@/components/StyledText';
 import { usePathname } from 'expo-router';
 import { SessionListViewItem, SessionRowData } from '@/sync/storage';
-import { Ionicons } from '@expo/vector-icons';
 import { formatLastSeen, sessionStateColors, unreadStateColors, vibingMessages } from '@/utils/sessionUtils';
-import { Avatar } from './Avatar';
 import { ActiveSessionsGroupCompact } from './ActiveSessionsGroupCompact';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useVisibleSessionListViewData } from '@/hooks/useVisibleSessionListViewData';
 import { Typography } from '@/constants/Typography';
-import { StatusDot } from './StatusDot';
+import { isSettledSession, SESSION_GLYPH_COLUMN, SessionMetaLine, SessionStateGlyph } from './SessionRowParts';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useIsTablet } from '@/utils/responsive';
 import { requestReview } from '@/utils/requestReview';
@@ -49,10 +47,10 @@ const stylesheet = StyleSheet.create((theme) => ({
         ...Typography.default('semiBold'),
     },
     sessionItem: {
-        height: 88,
-        flexDirection: 'row',
-        alignItems: 'center',
+        minHeight: 60,
+        justifyContent: 'center',
         paddingHorizontal: 16,
+        paddingVertical: 10,
         backgroundColor: 'transparent',
         // Long-press must open multi-select, not highlight the row's text.
         ...Platform.select({ web: { userSelect: 'none' } as any, default: {} }),
@@ -92,25 +90,20 @@ const stylesheet = StyleSheet.create((theme) => ({
     sessionItemSelected: {
         backgroundColor: theme.colors.surfaceSelected,
     },
-    sessionContent: {
-        flex: 1,
-        marginLeft: 16,
-        justifyContent: 'center',
-    },
     sessionTitleRow: {
         flexDirection: 'row',
         alignItems: 'center',
-        marginBottom: 2,
+        gap: 8,
     },
     sessionTitle: {
         fontSize: 15,
-        fontWeight: '500',
+        lineHeight: 20,
+        letterSpacing: -0.1,
         flex: 1,
-        ...Typography.default('semiBold'),
+        ...Typography.default(),
     },
     sessionShortcutBadge: {
         flexShrink: 0,
-        marginLeft: 8,
     },
     sessionTitleConnected: {
         color: theme.colors.text,
@@ -118,51 +111,9 @@ const stylesheet = StyleSheet.create((theme) => ({
     sessionTitleDisconnected: {
         color: theme.colors.textSecondary,
     },
-    sessionSubtitleRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 4,
-        marginBottom: 4,
-    },
-    sessionSubtitle: {
-        fontSize: 13,
-        color: theme.colors.textSecondary,
-        flexShrink: 1,
-        ...Typography.default(),
-    },
-    statusRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-    },
-    statusDotContainer: {
-        alignItems: 'center',
-        justifyContent: 'center',
-        height: 16,
-        marginTop: 2,
-        marginRight: 4,
-    },
-    statusText: {
-        fontSize: 12,
-        fontWeight: '500',
-        lineHeight: 16,
-        ...Typography.default(),
-    },
-    avatarContainer: {
-        position: 'relative',
-        width: 48,
-        height: 48,
-    },
-    draftIconContainer: {
-        position: 'absolute',
-        bottom: -2,
-        right: -2,
-        width: 18,
-        height: 18,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    draftIconOverlay: {
-        color: theme.colors.textSecondary,
+    sessionMetaLine: {
+        marginLeft: SESSION_GLYPH_COLUMN,
+        marginTop: 1,
     },
     artifactsSection: {
         paddingHorizontal: 16,
@@ -404,10 +355,13 @@ export const SessionItem = React.memo(({ session, selected, isFirst, isLast, isS
         onContextMenu: handleContextMenu,
     } as any : {};
 
+    const settled = isSettledSession(session);
+
     const row = (
         <Pressable
-            style={[
+            style={({ pressed }) => [
                 styles.sessionItem,
+                { opacity: pressed ? 0.55 : settled ? 0.75 : 1 },
                 selected && styles.sessionItemSelected,
                 isSingle ? styles.sessionItemSingle :
                     isFirst ? styles.sessionItemFirst :
@@ -419,63 +373,35 @@ export const SessionItem = React.memo(({ session, selected, isFirst, isLast, isS
             accessibilityLabel={`${session.name}, ${factualStatus}`}
             {...menuProps}
         >
-            <View style={styles.avatarContainer}>
-                <Avatar id={session.avatarId} size={48} monochrome={!status.isConnected} flavor={session.flavor} clientId={session.clientId} />
-                {session.hasDraft && (
-                    <View style={styles.draftIconContainer}>
-                        <Ionicons
-                            name="create-outline"
-                            size={12}
-                            style={styles.draftIconOverlay}
-                        />
-                    </View>
-                )}
+            <View style={styles.sessionTitleRow}>
+                <SessionStateGlyph session={session} status={status} />
+                <Text style={[
+                    styles.sessionTitle,
+                    status.isConnected ? styles.sessionTitleConnected : styles.sessionTitleDisconnected
+                ]} numberOfLines={1}>
+                    {session.name}
+                </Text>
+                {/* The provider mark rides the title's trailing edge: in the
+                    metadata line it would push the text off the one left grid
+                    every row shares. */}
+                <ProviderIcon kind={session.providerKind} size={12} monochrome />
+                <SessionShortcutHintBadge
+                    sessionId={session.id}
+                    style={styles.sessionShortcutBadge}
+                />
             </View>
-            <View style={styles.sessionContent}>
-                <View style={styles.sessionTitleRow}>
-                    <Text style={[
-                        styles.sessionTitle,
-                        status.isConnected ? styles.sessionTitleConnected : styles.sessionTitleDisconnected
-                    ]} numberOfLines={1}>
-                        {session.name}
-                    </Text>
-                    <SessionShortcutHintBadge
-                        sessionId={session.id}
-                        style={styles.sessionShortcutBadge}
-                    />
-                </View>
 
-                {session.identityLine ? (
-                    <View style={styles.sessionSubtitleRow}>
-                        <ProviderIcon kind={session.providerKind} size={13} />
-                        <Text style={styles.sessionSubtitle} numberOfLines={1}>
-                            {session.identityLine}
-                        </Text>
-                    </View>
-                ) : session.path ? (
-                    <View style={styles.sessionSubtitleRow}>
-                        <Text style={styles.sessionSubtitle} numberOfLines={1}>
-                            {session.path.split(/[/\\]/).filter(Boolean).pop()}
-                        </Text>
-                    </View>
-                ) : (
-                    <Text style={styles.sessionSubtitle} numberOfLines={1}>
-                        {session.subtitle}
-                    </Text>
-                )}
-
-                <View style={styles.statusRow}>
-                    <View style={styles.statusDotContainer}>
-                        <StatusDot color={status.dotColor} isPulsing={status.isPulsing} />
-                    </View>
-                    <Text style={[
-                        styles.statusText,
-                        { color: status.color }
-                    ]}>
-                        {session.modelName ? `${session.modelName} · ` : ''}{statusText}{session.activitySummary ? ` · ${session.activitySummary}` : ''}
-                    </Text>
-                </View>
-            </View>
+            {/* Verb first, then where it happened: settled rows spend no
+                colour, so the eye lands on the one still working. */}
+            <SessionMetaLine
+                style={styles.sessionMetaLine}
+                segments={[
+                    { text: statusText, color: settled ? theme.colors.textSecondary : status.color },
+                    { text: session.modelName },
+                    { text: session.path?.split(/[/\\]/).filter(Boolean).pop() ?? session.subtitle },
+                    { text: session.activitySummary },
+                ]}
+            />
         </Pressable>
     );
 

@@ -16,8 +16,11 @@ import { Ionicons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
 import { Modal } from '@/modal';
 import * as Clipboard from 'expo-clipboard';
-import { storage, useSession, useSessions } from '@/sync/storage';
+import { storage, useSession, useSessionGitStatus, useSessions } from '@/sync/storage';
 import { sync } from '@/sync/sync';
+import { resolveMessageModeMeta } from '@/sync/messageMeta';
+import { permissionModeChip, resolveStatusBarGitBranch } from '@/utils/sessionStatusBar';
+import { SessionMetaLine } from '@/components/SessionRowParts';
 import type { HerdrTreeTab } from '@muxr/contract';
 import { TerminalView } from '@/terminal/TerminalView';
 import { usePaneGestures } from '@/terminal/usePaneGestures';
@@ -68,6 +71,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const keyboardHeight = useKeyboardState().height;
     const session = useSession(props.id);
     const sessions = useSessions();
+    const gitStatus = useSessionGitStatus(props.id);
     const pluginButtons = useSessionPlugins();
     const [pluginActionBusy, setExtensionActionBusy] = React.useState<string>();
     const [swipeNow, setSwipeNow] = React.useState(Date.now);
@@ -374,6 +378,15 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     // Mirrors sendPrompt's early return: nothing to send, nothing to press.
     const canSend = draft.trim() !== '' || attachedPaths.length > 0;
 
+    // Where this session sits and how it is allowed to act, in one quiet row.
+    // Connection stays out of it: the header dot and the reconnect pill above
+    // the terminal already say it, and saying it twice makes neither read.
+    const branch = resolveStatusBarGitBranch(gitStatus?.branch, session?.metadata?.worktree?.branch, session?.metadata?.path);
+    const permission = permissionModeChip(session === null || session === undefined ? null : resolveMessageModeMeta(session).permissionMode);
+    const linesAdded = gitStatus !== null && gitStatus.linesAdded > 0 ? `+${gitStatus.linesAdded}` : null;
+    const linesRemoved = gitStatus !== null && gitStatus.linesRemoved > 0 ? `−${gitStatus.linesRemoved}` : null;
+    const hasStatusRow = branch !== null || linesAdded !== null || linesRemoved !== null || permission !== null;
+
     // Same shape as KeyboardAvoidingView, minus the animation: that padding
     // moves frame by frame and Ghostty reflows its whole grid on every size
     // change, which is the flicker. One step change, one reflow.
@@ -392,7 +405,9 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                     paddingHorizontal: 10,
                     paddingVertical: 6,
                     backgroundColor: theme.colors.surface,
-                    borderBottomWidth: 1,
+                    // Header and status row are one chrome block: the edge
+                    // belongs at its bottom, not between its two rows.
+                    borderBottomWidth: hasStatusRow ? 0 : 1,
                     borderBottomColor: theme.colors.divider,
                 }}
             >
@@ -499,6 +514,21 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                     </Pressable>
                 )}
             </View>
+
+            {hasStatusRow && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, paddingBottom: 7, backgroundColor: theme.colors.surface, borderBottomWidth: 1, borderBottomColor: theme.colors.divider }}>
+                    {branch !== null && <Ionicons name="git-branch-outline" size={12} color={theme.colors.textSecondary} />}
+                    <SessionMetaLine
+                        style={{ flex: 1 }}
+                        segments={[
+                            { text: branch },
+                            { text: linesAdded, color: theme.colors.gitAddedText },
+                            { text: linesRemoved, color: theme.colors.gitRemovedText, attached: linesAdded !== null },
+                            { text: permission?.label, ...(permission?.danger === true ? { color: theme.colors.permission.yolo } : {}) },
+                        ]}
+                    />
+                </View>
+            )}
 
             {Platform.OS === 'web' && (
                 <View style={{ paddingHorizontal: 12, paddingVertical: 7, backgroundColor: theme.colors.surfaceHigh, borderBottomWidth: 1, borderBottomColor: theme.colors.divider }}>

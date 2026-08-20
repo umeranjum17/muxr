@@ -190,12 +190,6 @@ export const lightTheme = {
             inlineRemovedText: '#5A0A05',
         },
 
-        // Message View colors
-        userMessageBackground: '#f0eee6',
-        userMessageText: '#000000',
-        agentMessageText: '#000000',
-        agentEventText: '#666666',
-
         // Code/Syntax colors
         syntaxKeyword: '#1d4ed8',
         syntaxString: '#059669',
@@ -422,12 +416,6 @@ export const darkTheme = {
             inlineRemovedBg: '#5A2A2A',
             inlineRemovedText: '#FF7A7A',
         },
-
-        // Message View colors
-        userMessageBackground: '#2C2C2E',
-        userMessageText: '#FFFFFF',
-        agentMessageText: '#FFFFFF',
-        agentEventText: '#8E8E93',
 
         // Code/Syntax colors (brighter for dark mode)
         syntaxKeyword: '#569CD6',
