@@ -96,7 +96,8 @@ jobs:
             --json \
             > "$RUNNER_TEMP/eas/result.json" \
             2> >(tee "$RUNNER_TEMP/eas/build.log" >&2)
-          jq -e 'length > 0 and all(.[]; .status == "FINISHED" and (.submissions | length > 0) and all(.submissions[]; .status == "FINISHED"))' "$RUNNER_TEMP/eas/result.json"
+          # EAS JSON keeps launch-time statuses; --wait's exit code proves completion.
+          jq -e 'length > 0 and all(.[]; (.id | length > 0) and (.appBuildVersion | length > 0) and (.submissions | length > 0) and all(.submissions[]; (.id | length) > 0))' "$RUNNER_TEMP/eas/result.json"
       - name: Write release summary
         if: success()
         run: |

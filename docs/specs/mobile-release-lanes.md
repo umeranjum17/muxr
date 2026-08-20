@@ -1,7 +1,7 @@
 ---
 title: Proven mobile release lanes
 slug: mobile-release-lanes
-status: implemented
+status: tested
 created: 2026-08-19
 updated: 2026-08-20
 owner: umer
@@ -47,11 +47,12 @@ Mobile delivery must not depend on a merge, a workstation, or a locally availabl
 ## Revisions
 
 - 2026-08-20: Replace merge-triggered local EAS jobs with a manual GitHub workflow that builds and submits through EAS Cloud, removing release scheduling from source merges and native runners.
+- 2026-08-20: Trust the waited EAS command exit status and validate immutable result identifiers because its JSON can retain launch-time statuses after successful completion.
 
 ## Verification
 
 - [x] Workflow YAML parses and all third-party actions remain SHA-pinned.
 - [x] The mobile build, typecheck, integration, commerce, and secret checks pass.
 - [x] Manual Android, iOS, and all-platform dispatch inputs map to the expected EAS Cloud platform.
-- [ ] EAS Cloud reports finished builds and finished linked submissions.
+- [x] EAS Cloud reports finished builds and finished linked submissions.
 - [x] Production remains protected and reuses exact internal build identifiers without rebuilding.
