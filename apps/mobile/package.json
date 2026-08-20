@@ -101,6 +101,7 @@
     "react-native-safe-area-context": "~5.7.0",
     "react-native-screens": "~4.22.0",
     "react-native-svg": "15.12.1",
+    "react-native-tcp-socket": "6.4.2",
     "react-native-typography": "^1.4.1",
     "react-native-unistyles": "~3.1.1",
     "react-native-web": "^0.21.0",

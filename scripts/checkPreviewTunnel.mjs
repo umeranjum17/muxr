@@ -6,7 +6,7 @@
 import { waitForRelay } from './waitForRelay.mjs';
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
-import { connect } from 'node:net';
+import { connect, createServer as createTcpServer } from 'node:net';
 import assert from 'node:assert/strict';
 import { setTimeout as delay } from 'node:timers/promises';
 import { mkdtempSync } from 'node:fs';
@@ -97,6 +97,7 @@ const send = (frame) => {
 };
 
 const CHANNEL = 'check-channel-1';
+const BRIDGE_CHANNEL = 'check-channel-2';
 
 session.on('open', () => send({ type: 'preview.probe', requestId: 'p1', params: { port: devPort } }));
 
@@ -116,8 +117,64 @@ session.on('message', (raw) => {
     if (frame.requestId === 'p2') {
         if (!frame.ok) done(1, `\nFAIL: preview.attach errored: ${frame.error}\n`);
         openTunnel();
+        return;
+    }
+
+    if (frame.requestId === 'p3') {
+        if (!frame.ok) done(1, `\nFAIL: bridge preview.attach errored: ${frame.error}\n`);
+        bridgeResolve();
     }
 });
+
+let bridgeResolve;
+const bridgeAttached = new Promise((resolve) => { bridgeResolve = resolve; });
+
+/**
+ * The device end of the bridge: the listener lives here, not on the relay, so
+ * the preview works against a relay published only on 443.
+ */
+async function runBridge() {
+    send({ type: 'preview.attach', requestId: 'p3', params: { channel: BRIDGE_CHANNEL, port: devPort } });
+    await bridgeAttached;
+
+    const control = new WebSocket(`${RELAY}/preview?role=client&machineId=${MACHINE}&channel=${BRIDGE_CHANNEL}&bridge=1`);
+    const connections = new Map();
+    let nextConnId = 0;
+
+    await new Promise((resolve, reject) => {
+        control.on('error', reject);
+        control.on('message', (raw, isBinary) => {
+            if (!isBinary) {
+                if (JSON.parse(String(raw)).type === 'preview.bridge') resolve();
+                return;
+            }
+            const frame = decodePreviewFrame(new Uint8Array(raw));
+            const socket = connections.get(frame.connId);
+            if (socket === undefined) return;
+            if (frame.payload.length > 0) socket.write(Buffer.from(frame.payload));
+        });
+        setTimeout(() => reject(new Error('relay never paired the bridge')), 10000);
+    });
+
+    const local = createTcpServer((socket) => {
+        nextConnId += 1;
+        const connId = nextConnId;
+        connections.set(connId, socket);
+        socket.on('data', (chunk) => control.send(encodePreviewFrame(connId, PREVIEW_DATA, new Uint8Array(chunk)), { binary: true }));
+        socket.on('close', () => connections.delete(connId));
+    });
+    await new Promise((resolve) => local.listen(0, '127.0.0.1', resolve));
+    const localPort = local.address().port;
+
+    const response = await fetch(`http://127.0.0.1:${localPort}/bridged`, { signal: AbortSignal.timeout(10000) });
+    const body = await response.text();
+    local.close();
+    control.close();
+    if (response.status !== 200 || !body.includes(MARKER) || !body.includes('/bridged')) {
+        done(1, `\nFAIL: bridged request got: ${response.status} ${body.slice(0, 300)}\n`);
+    }
+    return localPort;
+}
 
 function openTunnel() {
     const control = new WebSocket(`${RELAY}/preview?role=client&machineId=${MACHINE}&channel=${CHANNEL}`);
@@ -160,12 +217,15 @@ function openTunnel() {
                 done(1, '\nFAIL: preview port served a client it was not opened for\n');
             }
 
+            const bridgedPort = await runBridge();
+
             done(0, `\nPASS: browser preview through the relay\n`
                 + `      loopback port probed: application/json\n`
                 + `      loopback-bound dev server reached: yes\n`
                 + `      preview port: ${message.port}\n`
                 + `      concurrent connections muxed: yes\n`
                 + `      foreign source address refused: ${pinned === undefined ? 'skipped' : 'yes'}\n`
+                + `      device-side bridge port: ${bridgedPort}\n`
                 + `      body bytes: ${body.length}\n`);
         } catch (error) {
             done(1, `\nFAIL: request through preview port: ${error.message}\n`);

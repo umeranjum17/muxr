@@ -1,16 +1,18 @@
 /**
  * Browser preview, device half.
  *
- * The relay opens the TCP listener; this only asks for one and holds the control
- * socket open, because the listener lives exactly as long as that socket. The
- * preview URL is built from the relay host the app is already connected to, so a
- * preview reaches as far as the session does -- LAN, Tailscale, a tunnel -- with
- * nothing extra to configure.
+ * The device binds the listener and the relay only forwards frames, so the page
+ * loads from the phone's own loopback over whatever transport the session
+ * already uses -- LAN, Tailscale, a tunnel, a hosted relay. Asking the relay for
+ * an ephemeral port instead only works where the relay is published beyond 443,
+ * and is plain HTTP across the internet where it is, so web -- which cannot bind
+ * a listener -- is the only caller left on that path.
  */
 
 import { issueWsTicket, newPreviewChannel, previewSocketUrl, ticketSocketUrl } from '@muxr/contract';
 import { getCachedConnectionSettings } from '@/state/connectionSettings';
 import { sync } from '@/sync/sync';
+import { previewBridgeAvailable, startPreviewBridge } from './previewBridge';
 
 const READY_TIMEOUT_MS = 15_000;
 
@@ -30,6 +32,24 @@ function relayHostname(relayUrl: string): string | undefined {
     return /^wss?:\/\/([^/:?#]+)/i.exec(relayUrl)?.[1];
 }
 
+function waitForRelay(socket: WebSocket, type: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+            socket.close();
+            reject(new Error('The relay did not pair the preview in time.'));
+        }, READY_TIMEOUT_MS);
+        socket.onmessage = (event) => {
+            try {
+                if ((JSON.parse(String(event.data)) as { type?: string }).type !== type) return;
+            } catch { return; }
+            clearTimeout(timer);
+            resolve();
+        };
+        socket.onclose = () => { clearTimeout(timer); reject(new Error('The relay closed the preview before it was ready.')); };
+        socket.onerror = () => { clearTimeout(timer); reject(new Error('Could not reach the relay to open a preview.')); };
+    });
+}
+
 /**
  * Join a preview channel to a loopback port and hold it open. The relay
  * listener carries raw TCP without parsing it, so anything that speaks over a
@@ -38,7 +58,9 @@ function relayHostname(relayUrl: string): string | undefined {
  */
 export async function attachPreviewTunnel(port: number): Promise<PreviewTunnel> {
     const settings = getCachedConnectionSettings();
-    if (settings.mode !== 'local') throw new Error('Hosted Preview is disabled until browser trust and pinning are complete.');
+    if (!previewBridgeAvailable && settings.mode !== 'local') {
+        throw new Error('Browser preview needs the muxr app on this platform.');
+    }
     const hostname = relayHostname(settings.relayUrl);
     if (hostname === undefined) {
         throw new Error(`Cannot read a host from the relay URL "${settings.relayUrl}".`);
@@ -54,6 +76,7 @@ export async function attachPreviewTunnel(port: number): Promise<PreviewTunnel> 
             channel,
             role: 'client',
             ...(settings.token === '' ? {} : { token: settings.token }),
+            ...(previewBridgeAvailable ? { bridge: true } : {}),
         })
         : ticketSocketUrl(settings.relayUrl, await issueWsTicket({
             relayUrl: settings.relayUrl,
@@ -62,8 +85,15 @@ export async function attachPreviewTunnel(port: number): Promise<PreviewTunnel> 
             role: 'client',
             transport: 'preview',
             channel,
-        }), 'preview');
+        }), 'preview', previewBridgeAvailable);
     const socket = new WebSocket(socketUrl);
+
+    if (previewBridgeAvailable) {
+        socket.binaryType = 'arraybuffer';
+        await waitForRelay(socket, 'preview.bridge');
+        const bridge = await startPreviewBridge(socket);
+        return { hostname: '127.0.0.1', port: bridge.port, close: bridge.close };
+    }
 
     const previewPort = await new Promise<number>((resolve, reject) => {
         const timer = setTimeout(() => {
