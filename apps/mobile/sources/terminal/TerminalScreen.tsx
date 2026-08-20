@@ -411,7 +411,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                     borderBottomColor: theme.colors.divider,
                 }}
             >
-                <Pressable onPress={() => router.back()} hitSlop={10} accessibilityRole="button" accessibilityLabel="Back" style={({ pressed }) => ({ padding: 4, opacity: pressed ? 0.6 : 1 })}>
+                <Pressable onPress={() => router.back()} hitSlop={8} accessibilityRole="button" accessibilityLabel="Back" style={({ pressed }) => ({ padding: 6, opacity: pressed ? 0.6 : 1 })}>
                     <Ionicons name="chevron-back" size={20} color={theme.colors.text} />
                 </Pressable>
                 {(() => {
@@ -421,27 +421,25 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                     const dot = agentStatusColor(currentTab?.agentStatus ?? 'unknown', theme);
                     const paneIndex = siblings.indexOf(props.id);
                     return (
-                        <Pressable onPress={() => hasOverlay && setTreeOpen(true)} disabled={!hasOverlay} hitSlop={6} accessibilityRole="button" accessibilityLabel={overlayLabel} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 1, paddingVertical: 4 }}>
+                        // The session's name is the one thing this bar exists to
+                        // say, so it takes the width and the actions give way.
+                        <Pressable onPress={() => hasOverlay && setTreeOpen(true)} disabled={!hasOverlay} hitSlop={6} accessibilityRole="button" accessibilityLabel={overlayLabel} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, minWidth: 0, paddingVertical: 4 }}>
                             <StatusDot color={dot.color} isPulsing={dot.pulsing} size={7} />
                             <Text numberOfLines={1} style={{ color: theme.colors.text, fontSize: 13, fontWeight: '600', flexShrink: 1 }}>
                                 {contextTitle}
                             </Text>
                             {paneIndex !== -1 && siblings.length > 1 && (
-                                <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>· {paneIndex + 1}/{siblings.length}</Text>
+                                <Text style={{ color: theme.colors.textSecondary, fontSize: 12, flexShrink: 0 }}>· {paneIndex + 1}/{siblings.length}</Text>
                             )}
                         </Pressable>
                     );
                 })()}
-                <View style={{ flex: 1 }} />
                 {/* Same sheet as the title pressable — hidden from screen readers. */}
                 {hasOverlay && (
-                    <Pressable onPress={() => setTreeOpen(true)} hitSlop={10} accessible={false} accessibilityElementsHidden importantForAccessibility="no" style={({ pressed }) => ({ padding: 4, opacity: pressed ? 0.6 : 1 })}>
-                        <Ionicons name="list" size={19} color={theme.colors.textSecondary} />
+                    <Pressable onPress={() => setTreeOpen(true)} hitSlop={8} accessible={false} accessibilityElementsHidden importantForAccessibility="no" style={({ pressed }) => ({ padding: 6, opacity: pressed ? 0.6 : 1 })}>
+                        <Ionicons name="list-outline" size={20} color={theme.colors.textSecondary} />
                     </Pressable>
                 )}
-                <PluginSlot slot="session.header.trailing" context={{ sessionId: props.id, cwd: session?.metadata?.path }} />
-                <DeclarativeHeaderButtons cwd={session?.metadata?.path} sessionId={props.id} />
-                <DeclarativeChips slot="session.header.trailing" />
                 {(
                     <Pressable
                         onPress={() => {
@@ -493,24 +491,24 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                                     }).catch((error) => Modal.alert(`${button.name} failed`, error instanceof Error ? error.message : String(error)))
                                         .finally(() => setExtensionActionBusy(undefined));
                                 },
-                            }))];
+                            })), ...(Platform.OS === 'web' || stopping ? [] : [{
+                                label: 'Stop agent',
+                                hint: 'Closes this pane in herdr',
+                                destructive: true,
+                                onPress: stopSession,
+                            }])];
                             setMenu({ title: 'Actions', items, ...(items.length === 0 ? { note: 'No actions available' } : {}) });
                         }}
                         disabled={pluginActionBusy !== undefined}
-                        hitSlop={10}
+                        hitSlop={8}
                         accessibilityRole="button"
                         accessibilityLabel="More actions"
                         accessibilityState={{ disabled: pluginActionBusy !== undefined }}
-                        style={({ pressed }) => ({ padding: 4, opacity: pressed ? 0.6 : 1 })}
+                        style={({ pressed }) => ({ padding: 6, opacity: pressed ? 0.6 : 1 })}
                     >
                         {pluginActionBusy === undefined
-                            ? <Ionicons name="ellipsis-vertical" size={19} color={theme.colors.textSecondary} />
+                            ? <Ionicons name="ellipsis-horizontal" size={20} color={theme.colors.textSecondary} />
                             : <ActivityIndicator size="small" color={theme.colors.textSecondary} />}
-                    </Pressable>
-                )}
-                {Platform.OS !== 'web' && (
-                    <Pressable onPress={stopSession} hitSlop={10} disabled={stopping} accessibilityRole="button" accessibilityLabel="Stop agent" accessibilityState={{ disabled: stopping }} style={({ pressed }) => ({ padding: 4, opacity: pressed ? 0.6 : 1 })}>
-                        <Ionicons name="stop-circle-outline" size={19} color={theme.colors.textSecondary} />
                     </Pressable>
                 )}
             </View>
@@ -686,6 +684,12 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                     </Pressable>
                     </Animated.View>
                 )}
+                {/* Plugin chips live here, not in the header: six trailing
+                    buttons left the session's own name truncated to three
+                    characters, and the name is what the bar is for. */}
+                <PluginSlot slot="session.header.trailing" context={{ sessionId: props.id, cwd: session?.metadata?.path }} />
+                <DeclarativeHeaderButtons cwd={session?.metadata?.path} sessionId={props.id} />
+                <DeclarativeChips slot="session.header.trailing" />
                 <PluginSlot slot="session.pills" context={{ sessionId: props.id }} />
                 <DeclarativeChips slot="session.pills" />
                 <DeclarativeTerminalKeySlot channel={channel} />
@@ -790,7 +794,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                                     }}
                                     style={({ pressed }) => ({ paddingHorizontal: 16, paddingVertical: 12, opacity: pressed ? 0.6 : 1 })}
                                 >
-                                    <Text style={{ color: theme.colors.text, fontSize: 15 }}>{item.label}</Text>
+                                    <Text style={{ color: item.destructive === true ? theme.colors.status.error : theme.colors.text, fontSize: 15 }}>{item.label}</Text>
                                     {item.hint !== undefined && (
                                         <Text style={{ color: theme.colors.textSecondary, fontSize: 12, marginTop: 2 }}>{item.hint}</Text>
                                     )}

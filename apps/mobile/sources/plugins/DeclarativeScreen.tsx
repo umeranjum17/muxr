@@ -27,6 +27,7 @@ import { fileIcon, folderIcon, type FileIcon } from './fileIcon';
 import { t } from '@/text';
 import { boundText } from '@/utils/boundedText';
 import { Typography } from '@/constants/Typography';
+import { cardStyle, Meter, SectionLabel, ui, withAlpha } from '@/components/ui';
 
 /** Screen payloads survive a close: reopening renders at once, then refreshes. */
 const screenCache = new Map<string, unknown>();
@@ -38,28 +39,6 @@ registerPluginDataCacheInvalidator((pluginIds) => {
 /** Chart fills: untoned series get the accent, never a per-index rainbow. */
 function chartFill(theme: Theme, tone: PluginScreenTone | undefined): string {
     return tone === undefined ? theme.colors.accent : toneColor(theme, tone);
-}
-
-/**
- * One card recipe for every plugin panel. Sections, lists, charts and trees
- * each carried their own radius and surface, so a single screen stacked three
- * subtly different boxes. Padding stays per-card; the shell does not.
- */
-function cardStyle(theme: Theme): ViewStyle {
-    return {
-        backgroundColor: theme.colors.surfaceHigh,
-        borderRadius: 16,
-        borderWidth: StyleSheet.hairlineWidth,
-        borderColor: theme.colors.divider,
-    };
-}
-
-function withAlpha(color: string, alpha: number): string {
-    const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(color)?.[1];
-    if (hex === undefined) return color;
-    const full = hex.length === 3 ? hex.split('').map((part) => part + part).join('') : hex;
-    const value = Number.parseInt(full, 16);
-    return `rgba(${(value >> 16) & 255}, ${(value >> 8) & 255}, ${value & 255}, ${alpha.toFixed(3)})`;
 }
 
 /**
@@ -113,22 +92,13 @@ function AnimatedColumn({ ratio, color, track, delay }: { ratio: number; color: 
     }, [delay, ratio, reduceMotion, height]);
     // Floored so an idle day stays a visible baseline instead of disappearing.
     const animated = useAnimatedStyle(() => ({ height: `${Math.max(2, Math.min(1, height.value) * 100)}%` }));
+    // No track behind the column: seven filled boxes with lighter boxes inside
+    // read as blocks, not as a shape you can compare across days.
     return (
-        <View style={{ width: '100%', flex: 1, justifyContent: 'flex-end', backgroundColor: track, borderRadius: 5, overflow: 'hidden' }}>
-            <Animated.View style={[{ width: '100%', borderRadius: 5, backgroundColor: color }, animated]} />
+        <View style={{ width: '100%', flex: 1, justifyContent: 'flex-end' }}>
+            <Animated.View style={[{ width: '100%', borderTopLeftRadius: 3, borderTopRightRadius: 3, backgroundColor: color }, animated]} />
         </View>
     );
-}
-
-/** Track fill that sweeps in when its value first arrives; decorative only. */
-function AnimatedBarFill({ ratio, color, delay }: { ratio: number; color: string; delay: number }) {
-    const reduceMotion = useReducedMotion();
-    const width = useSharedValue(reduceMotion ? ratio : 0);
-    React.useEffect(() => {
-        width.value = reduceMotion ? ratio : withDelay(delay, withTiming(ratio, { duration: 400, easing: Easing.bezier(0.23, 1, 0.32, 1) }));
-    }, [delay, ratio, reduceMotion, width]);
-    const animated = useAnimatedStyle(() => ({ width: `${Math.max(0, Math.min(1, width.value)) * 100}%` }));
-    return <Animated.View style={[{ height: '100%', borderRadius: 2.5, backgroundColor: color }, animated]} />;
 }
 
 function chartValue(item: PluginChartItem): string {
@@ -190,11 +160,13 @@ function ScreenRow(props: {
     const body = (
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
             <View style={{ flex: 1, minWidth: 0 }}>
-                <Text style={{ color: theme.colors.text, fontSize: 15 }}>{bind(row.title)}</Text>
-                {row.subtitle !== undefined && <Text style={{ color: theme.colors.textSecondary, fontSize: 12.5, marginTop: 2 }}>{bind(row.subtitle)}</Text>}
+                {/* Two lines is a subject line; past that a list of commits turns
+                    into a wall and you can see four of them on a phone. */}
+                <Text numberOfLines={2} style={{ color: theme.colors.text, fontSize: 15, lineHeight: 20, letterSpacing: -0.1 }}>{bind(row.title)}</Text>
+                {row.subtitle !== undefined && <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 11.5, lineHeight: 15, marginTop: 3, ...Typography.mono('regular') }}>{bind(row.subtitle)}</Text>}
             </View>
             {value !== undefined && <Text numberOfLines={1} style={{ color: theme.colors.text, fontSize: 13, maxWidth: '45%', ...Typography.mono('regular') }}>{value}</Text>}
-            {action?.type === 'screen' && <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />}
+            {action?.type === 'screen' && <Ionicons name="chevron-forward" size={13} color={withAlpha(theme.colors.textSecondary, 0.6)} />}
         </View>
     );
     // A row without an action stays non-interactive.
@@ -257,13 +229,13 @@ function ScreenTree(props: {
     const title = props.node.title === undefined ? undefined : bindText(resolvePluginText(props.node.title), props.data);
     return <View style={{ marginBottom: 14 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
-            {title !== undefined && <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.6, flex: 1 }}>{title}</Text>}
+            {title !== undefined && <SectionLabel style={{ flex: 1 }}>{title}</SectionLabel>}
             {folders.length > 0 && <>
                 <Pressable onPress={() => setExpanded(new Set(folders))} accessibilityRole="button" accessibilityLabel="Expand all folders" hitSlop={8}>
-                    <Text style={{ color: theme.colors.textLink, fontSize: 12, paddingHorizontal: 8 }}>Expand all</Text>
+                    <Text style={{ color: theme.colors.textSecondary, fontSize: 12, paddingHorizontal: 8 }}>Expand all</Text>
                 </Pressable>
                 <Pressable onPress={() => setExpanded(new Set())} accessibilityRole="button" accessibilityLabel="Collapse all folders" hitSlop={8}>
-                    <Text style={{ color: theme.colors.textLink, fontSize: 12 }}>Collapse</Text>
+                    <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>Collapse</Text>
                 </Pressable>
             </>}
         </View>
@@ -306,7 +278,7 @@ function ScreenTree(props: {
                     style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', minHeight: 34, paddingLeft: 8 + Math.min(depth, 8) * 14, paddingRight: 12, backgroundColor: pressed || selected ? theme.colors.surfaceHighest : 'transparent' })}>
                     {isFolder && (busy ? <ActivityIndicator size="small" color={theme.colors.textSecondary} style={{ width: 12 }} /> : <Ionicons name={open ? 'chevron-down' : 'chevron-forward'} size={12} color={theme.colors.textSecondary} />)}
                     {!isFolder && <View style={{ width: 12 }} />}
-                    <MaterialCommunityIcons name={icon.name} size={16} color={selected ? theme.colors.accent : icon.color ?? theme.colors.textSecondary} style={{ marginHorizontal: 6 }} />
+                    <MaterialCommunityIcons name={icon.name} size={ui.icon.row} color={selected ? theme.colors.accent : theme.colors.textSecondary} style={{ marginHorizontal: 6 }} />
                     <Text numberOfLines={1} style={{ color: selected ? theme.colors.accent : theme.colors.text, fontSize: 13.5, flex: 1 }}>{item.name}</Text>
                 </Pressable>;
             })}
@@ -325,7 +297,7 @@ function ScreenChart({ node, data, nested }: { node: PluginScreenChartNode; data
     // already carries the context, so an empty chart leaves no trace at all.
     if (series.length === 0 && nested && title !== undefined) return null;
     if (series.length === 0) return <View style={{ marginBottom: nested ? 8 : 14 }}>
-        {title !== undefined && <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 4, marginTop: nested ? 10 : 0 }}>{title}</Text>}
+        {title !== undefined && <SectionLabel style={{ marginBottom: 4, marginTop: nested ? 10 : 0 }}>{title}</SectionLabel>}
         <Text style={{ color: theme.colors.textSecondary, fontSize: 13 }}>{empty}</Text>
     </View>;
     const total = series.reduce((sum, item) => sum + item.value, 0);
@@ -334,7 +306,7 @@ function ScreenChart({ node, data, nested }: { node: PluginScreenChartNode; data
         ? { marginBottom: 4 }
         : { ...cardStyle(theme), marginBottom: 14, padding: 16 };
     const heading = title === undefined ? null : (
-        <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 12, marginTop: nested ? 10 : 0 }}>{title}</Text>
+        <SectionLabel style={{ marginBottom: 12, marginTop: nested ? 10 : 0 }}>{title}</SectionLabel>
     );
 
     // One value against its ceiling. A two-slice donut says the same thing with
@@ -346,15 +318,13 @@ function ScreenChart({ node, data, nested }: { node: PluginScreenChartNode; data
             accessibilityValue={{ min: 0, max: 100, now: Math.round(ratio * 100) }} style={card}>
             {heading}
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
-                <View style={{ width: 96, height: 96 }}>
-                    <GaugeArc ratio={ratio} size={96} color={hero.tone === undefined ? theme.colors.accent : chartFill(theme, hero.tone)} track={theme.colors.surfaceHighest} />
-                    <View pointerEvents="none" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center' }}>
-                        <Text style={{ color: theme.colors.text, fontSize: 22, letterSpacing: -0.5, ...Typography.mono('semiBold') }}>{chartValue(hero)}</Text>
-                        <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 10, marginTop: 1 }}>{hero.label}</Text>
-                    </View>
+                {/* The arc is the picture and the number beside it is the
+                    value; printing it inside the arc as well said it twice. */}
+                <View style={{ width: 84, height: 84 }}>
+                    <GaugeArc ratio={ratio} size={84} color={theme.colors.accent} track={withAlpha(theme.colors.accent, 0.1)} />
                 </View>
                 <View style={{ flex: 1, minWidth: 0 }}>
-                    <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.6 }}>{hero.label}</Text>
+                    <SectionLabel numberOfLines={1}>{hero.label}</SectionLabel>
                     <Text numberOfLines={1} style={{ color: theme.colors.text, fontSize: 28, letterSpacing: -0.8, marginTop: 2, ...Typography.mono('semiBold') }}>{chartValue(hero)}</Text>
                     {hero.detail !== undefined && <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 12, marginTop: 2, ...Typography.mono('regular') }}>{hero.detail}</Text>}
                 </View>
@@ -369,15 +339,16 @@ function ScreenChart({ node, data, nested }: { node: PluginScreenChartNode; data
         const peakIndex = series.findIndex((item) => item.value === peak);
         return <View accessible accessibilityRole="image" accessibilityLabel={summary} style={card}>
             {heading}
-            <View style={{ flexDirection: 'row', alignItems: 'flex-end', height: 108, gap: 6 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'flex-end', height: 104, gap: 6 }}>
                 {series.map((item, index) => (
                     <View key={`${item.label}-${index}`} style={{ flex: 1, alignItems: 'center', justifyContent: 'flex-end', height: '100%' }}>
                         {(index === last || index === peakIndex) && <Text numberOfLines={1} style={{ color: index === last ? theme.colors.text : theme.colors.textSecondary, fontSize: 11, marginBottom: 4, ...Typography.mono('semiBold') }}>{chartValue(item)}</Text>}
                         <AnimatedColumn ratio={peak === 0 ? 0 : item.value / peak} delay={index * 45}
-                            color={index === last ? theme.colors.accent : withAlpha(theme.colors.accent, 0.45)} track={theme.colors.surfaceHighest} />
+                            color={index === last ? theme.colors.accent : withAlpha(theme.colors.accent, 0.28)} track="transparent" />
                     </View>
                 ))}
             </View>
+            <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: theme.colors.divider }} />
             <View style={{ flexDirection: 'row', gap: 6, marginTop: 8 }}>
                 {series.map((item, index) => (
                     <Text key={`${item.label}-${index}-label`} numberOfLines={1}
@@ -395,7 +366,7 @@ function ScreenChart({ node, data, nested }: { node: PluginScreenChartNode; data
         const slices = series.map((item, index) => ({ label: item.label, value: item.value, color: sliceColor(item, index) }));
         return <View accessible accessibilityRole="image" accessibilityLabel={summary}
             style={{ ...cardStyle(theme), marginBottom: 14, padding: 16 }}>
-            {title !== undefined && <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 12 }}>{title}</Text>}
+            {title !== undefined && <SectionLabel style={{ marginBottom: 12 }}>{title}</SectionLabel>}
             <View style={{ alignItems: 'center' }}>
                 <View style={{ width: 132, height: 132 }}>
                     <PolarChart data={slices} labelKey="label" valueKey="value" colorKey="color" containerStyle={{ width: 132, height: 132 }}>
@@ -410,9 +381,9 @@ function ScreenChart({ node, data, nested }: { node: PluginScreenChartNode; data
                 </View>
             </View>
             {/* Two slices are Left/Used: the centre already names both. */}
-            {series.length >= 3 && <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginTop: 14 }}>
+            {series.length >= 3 && <View style={{ marginTop: 14 }}>
                 {series.map((item, index) => (
-                    <View key={`${item.label}-${index}-legend`} style={{ width: '50%', flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 3, paddingRight: 10 }}>
+                    <View key={`${item.label}-${index}-legend`} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 4 }}>
                         <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: sliceColor(item, index) }} />
                         <Text numberOfLines={1} style={{ flex: 1, color: theme.colors.textSecondary, fontSize: 12 }}>{item.label}</Text>
                         <Text numberOfLines={1} style={{ color: theme.colors.text, fontSize: 12, ...Typography.mono('regular') }}>{chartValue(item)}</Text>
@@ -427,16 +398,13 @@ function ScreenChart({ node, data, nested }: { node: PluginScreenChartNode; data
         <View style={{ gap: 12 }}>
             {series.map((item, index) => <View key={`${item.label}-${index}`}>
                 <View style={{ flexDirection: 'row', alignItems: 'baseline', marginBottom: 5 }}>
-                    <Text numberOfLines={1} style={{ color: index === 0 ? theme.colors.text : theme.colors.textSecondary, fontSize: 13, fontWeight: index === 0 ? '600' : '500', flex: 1, marginRight: 12 }}>{item.label}</Text>
-                    <Text style={{ color: index === 0 ? theme.colors.text : theme.colors.textSecondary, fontSize: 12.5, ...Typography.mono('semiBold') }}>{chartValue(item)}</Text>
+                    <Text numberOfLines={1} style={{ color: theme.colors.text, fontSize: 13, flex: 1, marginRight: 12 }}>{item.label}</Text>
+                    <Text style={{ color: item.tone === undefined ? (index === 0 ? theme.colors.text : theme.colors.textSecondary) : toneColor(theme, item.tone), fontSize: 12.5, ...Typography.mono('semiBold') }}>{chartValue(item)}</Text>
                     {/* The meter row reads label · bar · value · detail, so a limit
                         can say how much is left and when it comes back. */}
                     {item.detail !== undefined && <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 11.5, marginLeft: 8, ...Typography.mono('regular') }}>{item.detail}</Text>}
                 </View>
-                <View style={{ height: 5, borderRadius: 2.5, backgroundColor: theme.colors.surfaceHighest, overflow: 'hidden' }}>
-                    <AnimatedBarFill ratio={max === 0 ? 0 : item.value / max}
-                        color={item.tone === undefined ? rampFill(theme, index, series.length) : chartFill(theme, item.tone)} delay={index * 45} />
-                </View>
+                <Meter ratio={max === 0 ? 0 : item.value / max} emphasis={1 - index * 0.18} delay={index * 45} />
             </View>)}
         </View>
     </View>;
@@ -492,8 +460,8 @@ function ScreenButton(props: { node: PluginScreenButtonNode; label: string; runn
                 accessibilityRole="button"
                 accessibilityLabel={props.label}
                 accessibilityState={{ busy: props.running, disabled: props.running }}
-                style={{ borderRadius: 999, paddingVertical: 11, alignItems: 'center', backgroundColor: variantColor, marginVertical: 6, opacity: props.running ? 0.6 : 1 }}>
-                {props.running ? <ActivityIndicator color={labelColor} /> : <Text style={{ color: labelColor, fontSize: 15, fontWeight: '600' }}>{props.label}</Text>}
+                style={{ borderRadius: ui.radius.control, paddingVertical: 10, alignItems: 'center', backgroundColor: variantColor, borderWidth: props.node.variant === undefined || props.node.variant === 'secondary' ? StyleSheet.hairlineWidth : 0, borderColor: theme.colors.divider, marginVertical: 6, opacity: props.running ? 0.6 : 1 }}>
+                {props.running ? <ActivityIndicator color={labelColor} /> : <Text style={{ color: labelColor, fontSize: 14, fontWeight: '600' }}>{props.label}</Text>}
             </Pressable>
         </Animated.View>
     );
@@ -539,14 +507,15 @@ function ScreenNode(props: {
         case 'metric':
             return (
                 <View style={{ paddingVertical: 10 }}>
-                    <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.6 }}>{bind(node.label)}</Text>
+                    <SectionLabel>{bind(node.label)}</SectionLabel>
                     <Text style={{ color: theme.colors.text, fontSize: 30, letterSpacing: -0.5, marginTop: 2, ...Typography.mono('semiBold') }}>{bind(node.value)}</Text>
                 </View>
             );
         case 'badge':
             return (
-                <View style={{ alignSelf: 'flex-start', borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4, marginBottom: 10, backgroundColor: theme.colors.surfaceHighest }}>
-                    <Text style={{ color: node.tone === undefined ? theme.colors.text : toneColor(theme, node.tone), fontSize: 12, letterSpacing: 0.2, ...Typography.mono('semiBold') }}>{bind(node.label)}</Text>
+                <View style={{ alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 6, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4, marginBottom: 10, backgroundColor: withAlpha(theme.colors.accent, 0.08) }}>
+                    {node.tone !== undefined && <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: toneColor(theme, node.tone) }} />}
+                    <Text style={{ color: theme.colors.text, fontSize: 12, ...Typography.mono('regular') }}>{bind(node.label)}</Text>
                 </View>
             );
         case 'progress': {
@@ -561,14 +530,9 @@ function ScreenNode(props: {
                     accessibilityValue={{ min: 0, max, now: value }}>
                     {(label !== undefined || valueLabel !== undefined) && <View style={{ flexDirection: 'row', marginBottom: 6 }}>
                         {label !== undefined && <Text style={{ color: theme.colors.text, fontSize: 13, flex: 1 }}>{label}</Text>}
-                        {valueLabel !== undefined && <Text style={{ color: theme.colors.textSecondary, fontSize: 13, ...Typography.mono('regular') }}>{valueLabel}</Text>}
+                        {valueLabel !== undefined && <Text style={{ color: node.tone === undefined || node.tone === 'positive' ? theme.colors.textSecondary : toneColor(theme, node.tone), fontSize: 13, ...Typography.mono('regular') }}>{valueLabel}</Text>}
                     </View>}
-                    <View style={{ height: 6, borderRadius: 3, backgroundColor: theme.colors.surfaceHighest, overflow: 'hidden' }}>
-                        {/* A healthy meter is not news: green here is decoration,
-                            and a column of full-chroma bars is what makes a panel
-                            look cheap. Colour is kept for the one nearing its limit. */}
-                        <AnimatedBarFill ratio={max === 0 ? 0 : value / max} color={chartFill(theme, node.tone === 'positive' ? undefined : node.tone)} delay={0} />
-                    </View>
+                    <Meter ratio={max === 0 ? 0 : value / max} />
                 </View>
             );
         }
@@ -601,7 +565,7 @@ function ScreenNode(props: {
             );
             return (
                 <View style={{ marginBottom: props.nested ? 4 : 14 }}>
-                    {node.title !== undefined && <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 10, marginTop: props.nested ? 10 : 0 }}>{bind(node.title)}</Text>}
+                    {node.title !== undefined && <SectionLabel style={{ marginBottom: 10, marginTop: props.nested ? 10 : 0 }}>{bind(node.title)}</SectionLabel>}
                     {body}
                 </View>
             );
@@ -641,13 +605,13 @@ function ScreenNode(props: {
             const all = [...node.rows.map((row) => ({ row, item: undefined as unknown })), ...repeated];
             return (
                 <View style={{ marginBottom: props.nested ? 4 : 14 }}>
-                    {node.title !== undefined && <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 10, marginTop: props.nested ? 10 : 0 }}>{bind(node.title)}</Text>}
+                    {node.title !== undefined && <SectionLabel style={{ marginBottom: 10, marginTop: props.nested ? 10 : 0 }}>{bind(node.title)}</SectionLabel>}
                     <View style={props.nested ? {} : { ...cardStyle(theme), paddingHorizontal: 16, paddingVertical: 4 }}>
                         {all.length === 0
                             ? <Text style={{ color: theme.colors.textSecondary, fontSize: 13, paddingVertical: 10 }}>{bind(node.emptyText ?? t('plugins.nothingToShow'))}</Text>
                             : all.map(({ row, item }, index) => (
                                 <ScreenRow key={index} row={row} data={data} item={item} onRowAction={props.onRowAction} insideCard
-                                    style={{ paddingVertical: 11, borderTopWidth: index === 0 ? 0 : 1, borderTopColor: theme.colors.divider }} />
+                                    style={{ paddingVertical: 9, borderTopWidth: index === 0 ? 0 : StyleSheet.hairlineWidth, borderTopColor: theme.colors.divider }} />
                             ))}
                     </View>
                 </View>

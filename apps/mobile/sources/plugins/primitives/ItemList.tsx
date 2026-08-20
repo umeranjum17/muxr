@@ -17,6 +17,7 @@ import { dispatchPluginAction, validatePluginAction } from '../pluginActions';
 import { pluginSnapshot } from '../pluginStore';
 import { clearPluginCache, registerPluginDataCacheInvalidator, subscribePluginDataInvalidation } from '../pluginDataInvalidation';
 import { toneColor } from '../pluginTone';
+import { cardStyle, Meter, SectionLabel, ui, withAlpha } from '@/components/ui';
 import { resolvePluginText } from '../pluginText';
 import { t } from '@/text';
 
@@ -26,30 +27,6 @@ registerPluginDataCacheInvalidator((pluginIds) => {
     if (pluginIds === undefined) cache.clear();
     else for (const pluginId of pluginIds) clearPluginCache(cache, pluginId);
 });
-
-function withAlpha(color: string, alpha: number): string {
-    const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(color)?.[1];
-    if (hex === undefined) return color;
-    const full = hex.length === 3 ? hex.split('').map((part) => part + part).join('') : hex;
-    const value = Number.parseInt(full, 16);
-    return `rgba(${(value >> 16) & 255}, ${(value >> 8) & 255}, ${value & 255}, ${alpha.toFixed(3)})`;
-}
-
-/** Thin fill bar that sweeps in once on mount; decorative, never blocks taps. */
-function RowProgress({ value, color, delay }: { value: number; color: string; delay: number }) {
-    const { theme } = useUnistyles();
-    const reduceMotion = useReducedMotion();
-    const width = useSharedValue(reduceMotion ? value : 0);
-    React.useEffect(() => {
-        width.value = reduceMotion ? value : withDelay(delay, withTiming(value, { duration: 350, easing: Easing.bezier(0.23, 1, 0.32, 1) }));
-    }, [delay, reduceMotion, value, width]);
-    const animated = useAnimatedStyle(() => ({ width: `${width.value * 100}%` }));
-    return (
-        <View style={[styles.progressTrack, { backgroundColor: theme.colors.surfaceHighest }]}>
-            <Animated.View style={[styles.progressFill, { backgroundColor: color }, animated]} />
-        </View>
-    );
-}
 
 function SheetRow({ item, fallbackIcon, busy, index, onPress }: {
     item: PluginItemListItem;
@@ -65,12 +42,6 @@ function SheetRow({ item, fallbackIcon, busy, index, onPress }: {
     // Work that already landed steps back; anything working or in trouble keeps
     // full contrast, so the eye goes to the row that still needs a person.
     const settled = (item.progress?.tone ?? primary?.tone) === 'positive';
-    // Untoned bars step back down the list: a column of identical full-strength
-    // accent reads as decoration rather than ranking. A finished bar is not news
-    // either, so green is spent on nothing; colour stays for trouble.
-    const progressColor = item.progress?.tone === undefined || item.progress.tone === 'positive'
-        ? withAlpha(theme.colors.accent, Math.max(0.4, 1 - index * 0.14))
-        : toneColor(theme, item.progress.tone);
     const content = <View style={{ opacity: settled ? 0.75 : 1 }}>
         <View style={styles.itemRow}>
             {busy
@@ -98,7 +69,7 @@ function SheetRow({ item, fallbackIcon, busy, index, onPress }: {
                 </Text>}
             </View>}
         </View>
-        {item.progress !== undefined && <RowProgress value={item.progress.value} color={progressColor} delay={index * 50} />}
+        {item.progress !== undefined && <Meter ratio={item.progress.value} emphasis={1 - index * 0.14} delay={index * 50} style={styles.rowMeter} />}
     </View>;
     if (onPress === undefined) return <View accessible accessibilityLabel={label}>{content}</View>;
     return (
@@ -264,8 +235,8 @@ export function ItemList({ context, pluginId, manifestHash, contribution }: Prim
                 </View>}
                 {groups.map((group, groupIndex) => (
                     <View key={group.name ?? `ungrouped-${groupIndex}`} style={{ marginTop: groupIndex === 0 && model.actions.length === 0 ? 0 : 14 }}>
-                        {group.name !== undefined && <Text style={[styles.groupLabel, { color: theme.colors.textSecondary }]}>{group.name}</Text>}
-                        <View style={[styles.groupCard, { backgroundColor: theme.colors.surfaceHigh, borderColor: theme.colors.divider }]}>
+                        {group.name !== undefined && <SectionLabel style={styles.groupLabel}>{group.name}</SectionLabel>}
+                        <View style={[cardStyle(theme), { overflow: 'hidden' }]}>
                             {group.items.map(({ item, index }, rowIndex) => (
                                 <React.Fragment key={item.id}>
                                     {rowIndex > 0 && <View style={[styles.rowDivider, { backgroundColor: theme.colors.divider }]} />}
@@ -286,17 +257,12 @@ const styles = StyleSheet.create({
     count: { fontSize: 11, ...Typography.mono('semiBold') },
     sheetActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingBottom: 4 },
     sheetAction: { minHeight: 44, borderRadius: 999, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', gap: 6 },
-    // One label scale across plugin surfaces: 12/600/0.6 is the section voice
-    // on declarative screens, and a sheet that whispers at 11/0.8 reads as a
-    // different app.
-    groupLabel: { fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 8, marginLeft: 4 },
-    groupCard: { borderRadius: 16, borderWidth: StyleSheet.hairlineWidth, overflow: 'hidden' },
+    groupLabel: { marginBottom: 8, marginLeft: 4 },
     rowDivider: { height: StyleSheet.hairlineWidth, marginLeft: 54 },
     itemRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 14, paddingVertical: 11 },
     iconTile: { width: 30, height: 30, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
     metadata: { alignItems: 'flex-end', gap: 2, marginLeft: 8 },
     metadataValue: { fontSize: 13, ...Typography.mono('semiBold') },
     metadataSecondary: { fontSize: 11, ...Typography.mono('regular') },
-    progressTrack: { height: 4, borderRadius: 2, marginLeft: 54, marginRight: 14, marginTop: -2, marginBottom: 11, overflow: 'hidden' },
-    progressFill: { height: '100%', borderRadius: 2 },
+    rowMeter: { marginLeft: 54, marginRight: 14, marginTop: -2, marginBottom: 11 },
 });
