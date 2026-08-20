@@ -283,7 +283,7 @@ function PlainPatchView({
 }) {
     const { theme } = useUnistyles();
     const colors = theme.colors.diff;
-    const codeFontSize = fontSize ?? 13;
+    const codeFontSize = fontSize ?? 12;
     const lines = React.useMemo(() => patch.split('\n'), [patch]);
     const language = React.useMemo(() => syntaxLanguage(undefined, patchFileName(patch)), [patch]);
     const highlightSource = React.useMemo(() => boundText(lines.map((line) => isPatchCodeLine(line) ? line.slice(1) : '').join('\n'), 600, 64 * 1024).text, [lines]);
@@ -302,15 +302,23 @@ function PlainPatchView({
         <View style={{ flex: 1, overflow: 'hidden' }}>
             {lines.map((line, i) => {
                 const first = line.charAt(0);
-                const isFileHeader =
-                    line.startsWith('+++') ||
-                    line.startsWith('---') ||
+                // Plumbing says nothing the surrounding UI does not already say:
+                // the screen names the file, and `index`/`---`/`+++` are for
+                // `git apply`, not for a reader.
+                const isPlumbing =
+                    line.startsWith('+++ ') ||
+                    line.startsWith('--- ') ||
                     line.startsWith('diff ') ||
                     line.startsWith('index ') ||
+                    line.startsWith('similarity ') ||
+                    line.startsWith('dissimilarity ') ||
+                    line.startsWith('\\ No newline');
+                if (isPlumbing) return null;
+                // These carry real information; keep them as one quiet line each.
+                const isFileHeader =
                     line.startsWith('new file') ||
                     line.startsWith('deleted file') ||
                     line.startsWith('rename ') ||
-                    line.startsWith('similarity ') ||
                     line.startsWith('Binary files');
                 const isHunkHeader = line.startsWith('@@');
 
@@ -335,7 +343,7 @@ function PlainPatchView({
                                 style={{
                                     ...Typography.mono(),
                                     fontSize: codeFontSize - 2,
-                                    lineHeight: Math.round((codeFontSize - 2) * 1.45),
+                                    lineHeight: Math.round((codeFontSize - 2) * 1.4),
                                     color: colors.hunkHeaderText,
                                 }}
                             >
@@ -364,7 +372,7 @@ function PlainPatchView({
                         style={{
                             ...Typography.mono(),
                             fontSize: codeFontSize,
-                            lineHeight: Math.round(codeFontSize * 1.55),
+                            lineHeight: Math.round(codeFontSize * 1.45),
                             backgroundColor: bg,
                             color: fg,
                             paddingHorizontal: isFileHeader ? 12 : 8,

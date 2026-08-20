@@ -57,7 +57,7 @@ export default React.memo(function FileScreen() {
     const [isLoading, setIsLoading] = React.useState(!cached);
     const [error, setError] = React.useState<string | null>(null);
     const scrollViewRef = React.useRef<ScrollView | null>(null);
-    const [fontSize, setFontSize] = React.useState(13);
+    const [fontSize, setFontSize] = React.useState(12);
     // Pinch steps the size rather than scaling continuously: the code re-lays
     // out on every change, and a smooth scale would relayout every frame.
     const pinchStart = React.useRef(13);
