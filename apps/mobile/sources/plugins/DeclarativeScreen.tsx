@@ -231,10 +231,12 @@ function ScreenTree(props: {
         <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
             {title !== undefined && <SectionLabel style={{ flex: 1 }}>{title}</SectionLabel>}
             {folders.length > 0 && <>
-                <Pressable onPress={() => setExpanded(new Set(folders))} accessibilityRole="button" accessibilityLabel="Expand all folders" hitSlop={8}>
+                <Pressable onPress={() => setExpanded(new Set(folders))} accessibilityRole="button" accessibilityLabel="Expand all folders" hitSlop={12}
+                    style={{ minHeight: 32, justifyContent: 'center' }}>
                     <Text style={{ color: theme.colors.textSecondary, fontSize: 12, paddingHorizontal: 8 }}>Expand all</Text>
                 </Pressable>
-                <Pressable onPress={() => setExpanded(new Set())} accessibilityRole="button" accessibilityLabel="Collapse all folders" hitSlop={8}>
+                <Pressable onPress={() => setExpanded(new Set())} accessibilityRole="button" accessibilityLabel="Collapse all folders" hitSlop={12}
+                    style={{ minHeight: 32, justifyContent: 'center' }}>
                     <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>Collapse</Text>
                 </Pressable>
             </>}
@@ -275,7 +277,7 @@ function ScreenTree(props: {
                         }).catch(props.onError)
                             .finally(() => setLoading((current) => { const next = new Set(current); next.delete(item.path); return next; }));
                     }}
-                    style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', minHeight: 34, paddingLeft: 8 + Math.min(depth, 8) * 14, paddingRight: 12, backgroundColor: pressed || selected ? theme.colors.surfaceHighest : 'transparent' })}>
+                    style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', minHeight: 40, paddingLeft: 8 + Math.min(depth, 8) * 14, paddingRight: 12, backgroundColor: pressed || selected ? theme.colors.surfaceHighest : 'transparent' })}>
                     {isFolder && (busy ? <ActivityIndicator size="small" color={theme.colors.textSecondary} style={{ width: 12 }} /> : <Ionicons name={open ? 'chevron-down' : 'chevron-forward'} size={12} color={theme.colors.textSecondary} />)}
                     {!isFolder && <View style={{ width: 12 }} />}
                     <MaterialCommunityIcons name={icon.name} size={ui.icon.row} color={selected ? theme.colors.accent : theme.colors.textSecondary} style={{ marginHorizontal: 6 }} />
@@ -286,9 +288,36 @@ function ScreenTree(props: {
     </View>;
 }
 
+/**
+ * Label, number, bar, qualifier. A ranked series, a gauge and a ring all reduce
+ * to this, which is why a phone can decline three desktop chart shapes and lose
+ * no information: an arc and a bar encode the same scalar, and a donut's legend
+ * has to reprint every value anyway.
+ */
+function MeterRow({ item, ratio, emphasis, delay, hero }: { item: PluginChartItem; ratio: number; emphasis: number; delay: number; hero?: boolean }) {
+    const { theme } = useUnistyles();
+    return (
+        <View>
+            <View style={{ flexDirection: 'row', alignItems: 'baseline', marginBottom: 5 }}>
+                <Text numberOfLines={1} style={{ color: theme.colors.text, fontSize: 13, flex: 1, marginRight: 12 }}>{item.label}</Text>
+                <Text style={{ color: item.tone === undefined || item.tone === 'secondary' ? theme.colors.text : toneColor(theme, item.tone), fontSize: hero === true ? 20 : 12.5, letterSpacing: hero === true ? -0.4 : 0, ...Typography.mono('semiBold') }}>{chartValue(item)}</Text>
+                {item.detail !== undefined && <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 11.5, marginLeft: 8, ...Typography.mono('regular') }}>{item.detail}</Text>}
+            </View>
+            <Meter ratio={ratio} emphasis={emphasis} delay={delay} />
+        </View>
+    );
+}
+
 function ScreenChart({ node, data, nested }: { node: PluginScreenChartNode; data: unknown; nested: boolean }) {
     const { theme } = useUnistyles();
     const reduceMotion = useReducedMotion();
+    // The plugin declares what the number means; this decides what it can look
+    // like at this width. An arc and a donut are dashboard shapes, and a phone
+    // is not a dashboard.
+    // ponytail: window width, not the card's. Plugin screens own the content
+    // area today; measure the card with onLayout if one ever renders in a
+    // narrow column on a wide screen.
+    const wide = useWindowDimensions().width >= 700;
     const series = asChartSeries(resolvePath(data, node.path));
     const title = node.title === undefined ? undefined : bindText(resolvePluginText(node.title), data);
     const empty = node.emptyText === undefined ? t('plugins.nothingToShow') : bindText(resolvePluginText(node.emptyText), data);
@@ -317,7 +346,8 @@ function ScreenChart({ node, data, nested }: { node: PluginScreenChartNode; data
         return <View accessible accessibilityRole="progressbar" accessibilityLabel={summary}
             accessibilityValue={{ min: 0, max: 100, now: Math.round(ratio * 100) }} style={card}>
             {heading}
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
+            {!wide && <MeterRow item={hero} ratio={ratio} emphasis={1} delay={0} hero />}
+            {wide && <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
                 {/* The arc is the picture and the number beside it is the
                     value; printing it inside the arc as well said it twice. */}
                 <View style={{ width: 84, height: 84 }}>
@@ -328,7 +358,7 @@ function ScreenChart({ node, data, nested }: { node: PluginScreenChartNode; data
                     <Text numberOfLines={1} style={{ color: theme.colors.text, fontSize: 28, letterSpacing: -0.8, marginTop: 2, ...Typography.mono('semiBold') }}>{chartValue(hero)}</Text>
                     {hero.detail !== undefined && <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 12, marginTop: 2, ...Typography.mono('regular') }}>{hero.detail}</Text>}
                 </View>
-            </View>
+            </View>}
         </View>;
     }
 
@@ -339,7 +369,7 @@ function ScreenChart({ node, data, nested }: { node: PluginScreenChartNode; data
         const peakIndex = series.findIndex((item) => item.value === peak);
         return <View accessible accessibilityRole="image" accessibilityLabel={summary} style={card}>
             {heading}
-            <View style={{ flexDirection: 'row', alignItems: 'flex-end', height: 104, gap: 6 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'flex-end', height: wide ? 104 : 64, gap: 6 }}>
                 {series.map((item, index) => (
                     <View key={`${item.label}-${index}`} style={{ flex: 1, alignItems: 'center', justifyContent: 'flex-end', height: '100%' }}>
                         {(index === last || index === peakIndex) && <Text numberOfLines={1} style={{ color: index === last ? theme.colors.text : theme.colors.textSecondary, fontSize: 11, marginBottom: 4, ...Typography.mono('semiBold') }}>{chartValue(item)}</Text>}
@@ -364,6 +394,20 @@ function ScreenChart({ node, data, nested }: { node: PluginScreenChartNode; data
             ? theme.colors.surfaceHighest
             : item.tone !== undefined ? chartFill(theme, item.tone) : rampFill(theme, index, series.length);
         const slices = series.map((item, index) => ({ label: item.label, value: item.value, color: sliceColor(item, index) }));
+        if (!wide) {
+            // The remainder slice is exactly what the empty part of a meter
+            // already draws, so used/left collapses to a single row.
+            const parts = series.filter((item) => item.tone !== 'secondary');
+            return <View accessible accessibilityRole="image" accessibilityLabel={summary} style={{ ...cardStyle(theme), marginBottom: 14, padding: 16 }}>
+                {title !== undefined && <SectionLabel style={{ marginBottom: 12 }}>{title}</SectionLabel>}
+                <View style={{ gap: 12 }}>
+                    {parts.map((item, index) => (
+                        <MeterRow key={`${item.label}-${index}`} item={item} ratio={total === 0 ? 0 : item.value / total}
+                            emphasis={1 - index * 0.18} delay={index * 45} hero={parts.length === 1} />
+                    ))}
+                </View>
+            </View>;
+        }
         return <View accessible accessibilityRole="image" accessibilityLabel={summary}
             style={{ ...cardStyle(theme), marginBottom: 14, padding: 16 }}>
             {title !== undefined && <SectionLabel style={{ marginBottom: 12 }}>{title}</SectionLabel>}
@@ -396,16 +440,10 @@ function ScreenChart({ node, data, nested }: { node: PluginScreenChartNode; data
     return <View style={card} accessible accessibilityRole="image" accessibilityLabel={summary}>
         {heading}
         <View style={{ gap: 12 }}>
-            {series.map((item, index) => <View key={`${item.label}-${index}`}>
-                <View style={{ flexDirection: 'row', alignItems: 'baseline', marginBottom: 5 }}>
-                    <Text numberOfLines={1} style={{ color: theme.colors.text, fontSize: 13, flex: 1, marginRight: 12 }}>{item.label}</Text>
-                    <Text style={{ color: item.tone === undefined ? (index === 0 ? theme.colors.text : theme.colors.textSecondary) : toneColor(theme, item.tone), fontSize: 12.5, ...Typography.mono('semiBold') }}>{chartValue(item)}</Text>
-                    {/* The meter row reads label · bar · value · detail, so a limit
-                        can say how much is left and when it comes back. */}
-                    {item.detail !== undefined && <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 11.5, marginLeft: 8, ...Typography.mono('regular') }}>{item.detail}</Text>}
-                </View>
-                <Meter ratio={max === 0 ? 0 : item.value / max} emphasis={1 - index * 0.18} delay={index * 45} />
-            </View>)}
+            {series.map((item, index) => (
+                <MeterRow key={`${item.label}-${index}`} item={item} ratio={max === 0 ? 0 : item.value / max}
+                    emphasis={1 - index * 0.18} delay={index * 45} />
+            ))}
         </View>
     </View>;
 }
@@ -638,7 +676,8 @@ function ScreenNode(props: {
                                 const selected = value === optionValue;
                                 return (
                                     <Pressable key={optionValue} onPress={() => { hapticsSelection(); set(optionValue); }} accessibilityRole="button" accessibilityState={{ selected }}
-                                        style={({ pressed }) => ({ borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6, backgroundColor: selected ? theme.colors.accent : pressed ? theme.colors.surfacePressed : theme.colors.surfaceHighest })}>
+                                        hitSlop={8}
+                                        style={({ pressed }) => ({ borderRadius: 999, paddingHorizontal: 14, minHeight: 34, justifyContent: 'center', backgroundColor: selected ? theme.colors.accent : pressed ? theme.colors.surfacePressed : theme.colors.surfaceHighest })}>
                                         <Text style={{ color: selected ? theme.colors.button.primary.tint : theme.colors.text, fontSize: 14 }}>{resolvePluginText(option)}</Text>
                                     </Pressable>
                                 );
