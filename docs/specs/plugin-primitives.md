@@ -1,7 +1,7 @@
 ---
 title: Plugins on primitives
 slug: plugin-primitives
-status: in-progress
+status: implemented
 created: 2026-08-15
 updated: 2026-08-19
 owner: umer

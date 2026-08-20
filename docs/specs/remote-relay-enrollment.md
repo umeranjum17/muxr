@@ -1,7 +1,7 @@
 ---
 title: Shared Remote Relay Enrollment
 slug: remote-relay-enrollment
-status: in-progress
+status: implemented
 created: 2026-08-17
 updated: 2026-08-20
 owner: umer
