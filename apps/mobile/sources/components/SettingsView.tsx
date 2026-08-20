@@ -44,10 +44,10 @@ function pairingTransport(relayUrl: string | undefined): string | undefined {
     if (relayUrl === undefined) return undefined;
     try {
         const { hostname, protocol } = new URL(relayUrl);
-        if (hostname.endsWith('.ts.net')) return 'Tailscale Serve';
+        if (hostname.endsWith('.ts.net') || /^100\.(6[4-9]|[78]\d|9\d|1[01]\d|12[0-7])\./.test(hostname)) return 'Tailscale';
         if (hostname.endsWith('.trycloudflare.com')) return 'Cloudflare tunnel';
         if (protocol === 'ws:' && (/^(localhost|127\.)/.test(hostname) || /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(hostname))) return 'Local network';
-        return protocol === 'wss:' ? 'Secure relay' : 'Direct relay';
+        return 'Hosted VPS / custom relay';
     } catch {
         return undefined;
     }
