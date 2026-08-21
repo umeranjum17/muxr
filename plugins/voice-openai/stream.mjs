@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /**
- * xAI Grok speech-to-speech adapter behind the provider-neutral realtime stream.
+ * OpenAI Realtime speech-to-speech adapter behind the provider-neutral realtime stream.
  *
  * stdin: one `realtime.open` line, then generic realtime client frames.
  * stdout: generic realtime host frames, one JSON per line.
- * All xAI auth, model, event and prompt detail lives here; the phone and relay
+ * All OpenAI auth, model, event and prompt detail lives here; the phone and relay
  * only ever see the generic frame vocabulary.
  */
 import WebSocket from 'ws';
@@ -16,10 +16,10 @@ import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 
-const MODEL = 'grok-voice-think-fast-2.0';
+const MODEL = 'gpt-realtime-2.1';
 const RATE = 24_000;
 const root = process.env.MUXR_HOME?.trim() || join(homedir(), '.muxr');
-const keyFile = join(root, 'xai.key');
+const keyFile = join(root, 'openai.key');
 const runFile = promisify(execFile);
 let activePane = '';
 let endAfterResponse = false;
@@ -74,14 +74,14 @@ async function readKey() {
     let info;
     try { directory = await lstat(root); info = await lstat(keyFile); }
     catch (cause) {
-        if (cause?.code === 'ENOENT') throw new Error('No xAI key. Configure the provider from muxr Settings.');
+        if (cause?.code === 'ENOENT') throw new Error('No OpenAI key. Configure the provider from muxr Settings.');
         throw cause;
     }
     if (!directory.isDirectory() || directory.isSymbolicLink() || (directory.mode & 0o077) !== 0 || !info.isFile() || info.isSymbolicLink() || (info.mode & 0o077) !== 0) {
-        throw new Error('xAI key store must be owner-only');
+        throw new Error('OpenAI key store must be owner-only');
     }
     const value = (await readFile(keyFile, 'utf8')).trim();
-    if (!value) throw new Error('No xAI key. Configure the provider from muxr Settings.');
+    if (!value) throw new Error('No OpenAI key. Configure the provider from muxr Settings.');
     return value;
 }
 
@@ -94,11 +94,7 @@ const close = (reason) => {
 
 let ws;
 let stopped = false;
-let providerReconnects = 0;
-let reconnectTimer;
-let stableTimer;
-/** A provider link alive this long was healthy; forget its retries. */
-const PROVIDER_STABLE_AFTER_MS = 30_000;
+let providerReady = false;
 
 const text = (value) => String(value ?? '').trim();
 export function providerError(error) {
@@ -158,11 +154,19 @@ async function runTool(name, input) {
     return `No such tool: ${name}.`;
 }
 
-function handleXaiEvent(raw) {
+const pendingToolCalls = new Map();
+
+function handleOpenAiEvent(raw) {
     let message;
     try { message = JSON.parse(raw); } catch { return; }
     switch (message.type) {
+        case 'session.updated':
+            providerReady = true;
+            emit({ type: 'realtime.ready', inputRate: RATE, outputRate: RATE });
+            state('connected');
+            break;
         case 'input_audio_buffer.speech_started':
+            // ponytail: the generic stream has no playback clock; add a playback-progress frame before truncating provider history.
             emit({ type: 'realtime.audio.clear' });
             break;
         case 'response.created':
@@ -174,8 +178,29 @@ function handleXaiEvent(raw) {
             if (audio) emitAudio(audio);
             break;
         }
-        case 'response.done':
-            if (endAfterResponse) {
+        case 'response.done': {
+            const responseId = message.response?.id;
+            const calls = typeof responseId === 'string' ? pendingToolCalls.get(responseId) ?? [] : [];
+            if (typeof responseId === 'string') pendingToolCalls.delete(responseId);
+            if (message.response?.status === 'completed' && calls.length > 0) {
+                void (async () => {
+                    const outputs = [];
+                    for (const call of calls) {
+                        let output;
+                        try { output = await runTool(call.name, call.args); }
+                        catch (error) { output = `That failed: ${error instanceof Error ? error.message : String(error)}`; }
+                        outputs.push({ callId: call.callId, output });
+                    }
+                    if (stopped || ws?.readyState !== WebSocket.OPEN) return;
+                    for (const output of outputs) {
+                        ws.send(JSON.stringify({
+                            type: 'conversation.item.create',
+                            item: { type: 'function_call_output', call_id: output.callId, output: text(output.output).slice(0, 24_000) },
+                        }));
+                    }
+                    ws.send(JSON.stringify({ type: 'response.create' }));
+                })();
+            } else if (message.response?.status === 'completed' && endAfterResponse) {
                 stopped = true;
                 ws?.close();
                 close('ended');
@@ -183,6 +208,7 @@ function handleXaiEvent(raw) {
                 state('connected');
             }
             break;
+        }
         case 'conversation.item.input_audio_transcription.completed':
             if (typeof message.transcript === 'string' && message.transcript.trim() !== '') {
                 emit({ type: 'realtime.transcript', role: 'user', text: message.transcript });
@@ -193,24 +219,18 @@ function handleXaiEvent(raw) {
                 emit({ type: 'realtime.transcript', role: 'agent', text: message.transcript });
             }
             break;
-        case 'response.function_call_arguments.done':
-            void (async () => {
-                let args = {};
-                try { args = JSON.parse(message.arguments || '{}'); } catch { /* interrupted arguments */ }
-                let output;
-                try { output = await runTool(message.name, args); }
-                catch (error) { output = `That failed: ${error instanceof Error ? error.message : String(error)}`; }
-                if (stopped || ws?.readyState !== WebSocket.OPEN) return;
-                ws.send(JSON.stringify({
-                    type: 'conversation.item.create',
-                    item: { type: 'function_call_output', call_id: message.call_id, output: text(output).slice(0, 24_000) },
-                }));
-                ws.send(JSON.stringify({ type: 'response.create' }));
-            })();
+        case 'response.function_call_arguments.done': {
+            if (typeof message.response_id !== 'string') break;
+            let args = {};
+            try { args = JSON.parse(message.arguments || '{}'); } catch { /* interrupted arguments */ }
+            const calls = pendingToolCalls.get(message.response_id) ?? [];
+            calls.push({ name: message.name, callId: message.call_id, args });
+            pendingToolCalls.set(message.response_id, calls);
             break;
+        }
         case 'error': {
             const { detail, terminal } = providerError(message.error);
-            if (terminal) {
+            if (!providerReady || terminal) {
                 stopped = true;
                 ws?.close();
                 close(`Voice provider error: ${detail}`);
@@ -262,45 +282,46 @@ export function providerRefusal(status, body) {
 
 function connectProvider(key) {
     if (stopped) return;
-    state('connecting', providerReconnects === 0 ? undefined : 'Voice provider reconnecting');
-    const current = new WebSocket(`wss://api.x.ai/v1/realtime?model=${MODEL}`, {
+    state('connecting');
+    const current = new WebSocket(`wss://api.openai.com/v1/realtime?model=${MODEL}`, {
         headers: { Authorization: `Bearer ${key}` },
         maxPayload: 4 * 1024 * 1024,
     });
     ws = current;
     const onDown = (reason) => {
         if (stopped || ws !== current) return;
-        if (providerReconnects >= 2) {
-            close(reason);
-            return;
-        }
-        providerReconnects += 1;
-        reconnectTimer = setTimeout(() => connectProvider(key), providerReconnects * 500);
+        stopped = true;
+        close(reason);
     };
     current.on('open', () => {
         if (stopped || ws !== current) return;
         current.send(JSON.stringify({
             type: 'session.update',
             session: {
+                type: 'realtime',
+                model: MODEL,
                 instructions: PROMPT,
-                voice: 'ara',
-                reasoning: { effort: 'none' },
-                turn_detection: { type: 'server_vad', threshold: 0.9, silence_duration_ms: 700, prefix_padding_ms: 300 },
+                output_modalities: ['audio'],
                 audio: {
-                    input: { format: { type: 'audio/pcm', rate: RATE }, transport: 'json' },
-                    output: { format: { type: 'audio/pcm', rate: RATE }, transport: 'json' },
+                    input: {
+                        format: { type: 'audio/pcm', rate: RATE },
+                        transcription: { model: 'gpt-4o-mini-transcribe' },
+                        turn_detection: {
+                            type: 'server_vad',
+                            threshold: 0.9,
+                            silence_duration_ms: 700,
+                            prefix_padding_ms: 300,
+                            create_response: true,
+                            interrupt_response: true,
+                        },
+                    },
+                    output: { format: { type: 'audio/pcm' }, voice: 'marin' },
                 },
                 tools: TOOLS,
             },
         }));
-        emit({ type: 'realtime.ready', inputRate: RATE, outputRate: RATE });
-        state('connected', providerReconnects === 0 ? undefined : 'Voice provider reconnected');
-        // Reconnect budget is consecutive, not cumulative: a long healthy call
-        // gets the full budget again after its next transient drop.
-        clearTimeout(stableTimer);
-        stableTimer = setTimeout(() => { providerReconnects = 0; }, PROVIDER_STABLE_AFTER_MS);
     });
-    current.on('message', (data) => { if (ws === current) handleXaiEvent(String(data)); });
+    current.on('message', (data) => { if (ws === current) handleOpenAiEvent(String(data)); });
     // ws suppresses 'error' and 'close' once this is handled, so the failure
     // path is driven from here. Auth and permission refusals are terminal:
     // retrying an out-of-credits account only delays the real message.
@@ -317,7 +338,7 @@ function connectProvider(key) {
     });
     current.on('close', (code, reasonBuffer) => {
         const reason = String(reasonBuffer).trim();
-        const detail = `The voice provider disconnected (${code})${reason ? `: ${reason}` : '.'}`;
+        const detail = `OpenAI session ended (${code})${reason ? `: ${reason}` : '.'}`;
         if (providerError(reason).terminal) {
             stopped = true;
             close(detail);

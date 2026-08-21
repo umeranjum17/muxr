@@ -6,12 +6,12 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 const root = process.env.MUXR_HOME?.trim() || join(homedir(), '.muxr');
-const keyFile = join(root, 'xai.key');
+const keyFile = join(root, 'gemini.key');
 const method = process.argv[2];
 const input = JSON.parse(readFileSync(0, 'utf8') || 'null');
 
 function assertKeyRoot(info) {
-    if (!info.isDirectory() || info.isSymbolicLink()) throw new Error('xAI key store must be a real directory');
+    if (!info.isDirectory() || info.isSymbolicLink()) throw new Error('Gemini key store must be a real directory');
 }
 
 async function readKey() {
@@ -19,21 +19,21 @@ async function readKey() {
     let info;
     try { directory = await lstat(root); info = await lstat(keyFile); }
     catch (cause) {
-        if (cause?.code === 'ENOENT') throw new Error('No xAI key. Configure the provider from muxr Settings.');
+        if (cause?.code === 'ENOENT') throw new Error('No Gemini key. Configure the provider from muxr Settings.');
         throw cause;
     }
     assertKeyRoot(directory);
     if ((directory.mode & 0o077) !== 0 || !info.isFile() || info.isSymbolicLink() || (info.mode & 0o077) !== 0) {
-        throw new Error('xAI key store must be owner-only');
+        throw new Error('Gemini key store must be owner-only');
     }
     const value = (await readFile(keyFile, 'utf8')).trim();
-    if (!value) throw new Error('No xAI key. Configure the provider from muxr Settings.');
+    if (!value) throw new Error('No Gemini key. Configure the provider from muxr Settings.');
     return value;
 }
 
 async function writeKey(value) {
     const key = String(value ?? '').trim();
-    if (!key) throw new Error('xAI key must not be empty');
+    if (!key) throw new Error('Gemini key must not be empty');
     await mkdir(root, { recursive: true, mode: 0o700 });
     assertKeyRoot(await lstat(root));
     await chmod(root, 0o700);
@@ -71,6 +71,6 @@ if (method === 'status') {
         ].join('\n'),
     };
 } else {
-    throw new Error(`unknown muxr Voice method: ${method ?? ''}`);
+    throw new Error(`unknown Gemini Live method: ${method ?? ''}`);
 }
 process.stdout.write(JSON.stringify(output));

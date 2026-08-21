@@ -8,6 +8,7 @@ import {
     readdirSync,
     rmSync,
     statSync,
+    symlinkSync,
     writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -35,8 +36,10 @@ const fakeHerdr = `#!/bin/sh
 case "$*" in
   "--version") echo "herdr 0.8.0" ;;
   "status") echo "server: running" ;;
-  "plugin list --json") echo '{"result":{"plugins":[]}}' ;;
-  "plugin link "*) echo plugin-link >> "$FAKE_HERDR_LOG" ;;
+  "plugin list --json")
+    if [ -n "$FAKE_PLUGIN_LIST" ]; then printf '%s\n' "$FAKE_PLUGIN_LIST";
+    else echo '{"result":{"plugins":[]}}'; fi ;;
+  "plugin link "*) printf '%s\n' "$*" >> "$FAKE_HERDR_LOG" ;;
   "plugin unlink "*) echo plugin-unlink >> "$FAKE_HERDR_LOG" ;;
   "integration status")
     if [ -f "$FAKE_HERDR_STATE" ]; then echo "pi: current (v8) ($HOME/.pi/agent/extensions/herdr-agent-state.ts)";
@@ -228,7 +231,9 @@ try {
     assert.ok(listing.includes('package/update.mjs'), 'interactive CLI updater missing from npm artifact');
     assert.ok(listing.includes('package/plugins/control/run.mjs'), 'control plugin missing from npm artifact');
     assert.ok(listing.includes('package/plugins/servers/serve.mjs'), 'Preview discovery plugin missing from npm artifact');
-    assert.ok(listing.includes('package/plugins/voice/rpc.mjs'), 'Voice plugin missing from npm artifact');
+    assert.ok(listing.includes('package/plugins/voice/rpc.mjs'), 'xAI Voice plugin missing from npm artifact');
+    assert.ok(listing.includes('package/plugins/voice-gemini/rpc.mjs') && listing.includes('package/plugins/voice-gemini/stream.mjs'), 'Gemini Live plugin missing from npm artifact');
+    assert.ok(listing.includes('package/plugins/voice-openai/rpc.mjs') && listing.includes('package/plugins/voice-openai/stream.mjs'), 'OpenAI Realtime plugin missing from npm artifact');
     assert.ok(listing.includes('package/web/index.html'), 'secure browser client missing from npm artifact');
     assert.ok(listing.includes('package/web/install.sh'), 'hosted npm installer wrapper missing from web artifact');
     assert.ok(!listing.some((file) => /apps\/relay|commerce|stripe|website|betaCodeAdmin|controlPlane|controlRepository/i.test(file)), 'private control-plane source shipped in npm artifact');
@@ -264,6 +269,26 @@ try {
         env: { ...process.env, npm_config_cache: join(scratch, 'npm-cache') },
     });
     const cli = join(installDir, 'node_modules', '.bin', 'muxr');
+    const installedPlugins = join(installDir, 'node_modules', '@trymuxr', 'cli', 'plugins');
+    const providerHome = join(scratch, 'provider-home');
+    const providerRoot = join(providerHome, '.muxr');
+    for (const [directory, keyFile] of [['voice-gemini', 'gemini.key'], ['voice-openai', 'openai.key']]) {
+        const plugin = join(installedPlugins, directory);
+        run(cli, ['plugin', 'call', plugin, 'key-set', '--input', '{"key":"smoke-key"}'], { cwd: installDir, env: { ...cliEnv(providerHome), MUXR_HOME: providerRoot } });
+        assert.equal(statSync(providerRoot).mode & 0o777, 0o700);
+        assert.equal(statSync(join(providerRoot, keyFile)).mode & 0o777, 0o600);
+        assert.match(run(cli, ['plugin', 'call', plugin, 'status'], { cwd: installDir, env: { ...cliEnv(providerHome), MUXR_HOME: providerRoot } }).stdout, /"configured": true/);
+        run(cli, ['plugin', 'call', plugin, 'key-clear', '--input', 'null'], { cwd: installDir, env: { ...cliEnv(providerHome), MUXR_HOME: providerRoot } });
+    }
+    const symlinkTarget = join(scratch, 'provider-symlink-target');
+    const symlinkRoot = join(scratch, 'provider-symlink-root');
+    mkdirSync(symlinkTarget);
+    symlinkSync(symlinkTarget, symlinkRoot, 'dir');
+    const symlinkWrite = run(cli, ['plugin', 'call', join(installedPlugins, 'voice-openai'), 'key-set', '--input', '{"key":"must-not-write"}'], {
+        cwd: installDir, env: { ...cliEnv(providerHome), MUXR_HOME: symlinkRoot }, allowFailure: true,
+    });
+    assert.notEqual(symlinkWrite.status, 0, 'provider key write followed a symlinked MUXR_HOME');
+    assert.equal(existsSync(join(symlinkTarget, 'openai.key')), false);
     assert.ok(existsSync(join(installDir, 'node_modules', 'ccusage', 'src', 'cli.js')), 'ccusage wrapper missing from installed package');
     const ccusageTarget = ['linux', 'darwin'].includes(process.platform) && ['x64', 'arm64'].includes(process.arch)
         ? join(installDir, 'node_modules', '@ccusage', `ccusage-${process.platform}-${process.arch}`, 'bin', 'ccusage')
@@ -383,11 +408,50 @@ try {
     const beforeDryRun = filesSnapshot(home);
     run(cli, ['setup', '--dry-run'], { cwd: installDir, env });
     assert.equal(filesSnapshot(home), beforeDryRun, 'dry-run changed the home directory');
+    const beforeInvalidList = existsSync(fakeLog) ? readFileSync(fakeLog, 'utf8') : '';
+    const invalidList = run(cli, ['setup', ...setupArgs], { cwd: installDir, env: { ...env, FAKE_PLUGIN_LIST: 'not-json' }, allowFailure: true });
+    assert.notEqual(invalidList.status, 0, 'setup accepted a malformed Herdr plugin list');
+    assert.equal(existsSync(fakeLog) ? readFileSync(fakeLog, 'utf8') : '', beforeInvalidList, 'setup mutated plugins after a malformed list');
+    const malformedEntry = run(cli, ['setup', ...setupArgs], {
+        cwd: installDir,
+        env: { ...env, FAKE_PLUGIN_LIST: JSON.stringify({ result: { plugins: [{ plugin_id: 'muxr.voice', plugin_root: '/old/root' }] } }) },
+        allowFailure: true,
+    });
+    assert.notEqual(malformedEntry.status, 0, 'setup accepted a plugin without an enabled state');
+    assert.equal(existsSync(fakeLog) ? readFileSync(fakeLog, 'utf8') : '', beforeInvalidList, 'setup mutated plugins after a malformed entry');
 
     const configBefore = readFileSync(join(home, '.config', 'herdr', 'config.toml'), 'utf8');
     run(cli, ['setup', ...setupArgs], { cwd: installDir, env });
     const manifestAfterFirst = readFileSync(join(home, '.muxr', 'setup-manifest.json'), 'utf8');
-    run(cli, ['setup', ...setupArgs], { cwd: installDir, env });
+    const pluginRoot = join(installDir, 'node_modules', '@trymuxr', 'cli', 'plugins');
+    const firstSetupLinks = readFileSync(fakeLog, 'utf8');
+    assert.match(firstSetupLinks, new RegExp(`plugin link ${join(pluginRoot, 'voice').replaceAll('\\', '\\\\')} --enabled`));
+    assert.match(firstSetupLinks, new RegExp(`plugin link ${join(pluginRoot, 'voice-gemini').replaceAll('\\', '\\\\')} --disabled`));
+    assert.match(firstSetupLinks, new RegExp(`plugin link ${join(pluginRoot, 'voice-openai').replaceAll('\\', '\\\\')} --disabled`));
+    const existingProviders = {
+        result: {
+            plugins: [
+                { plugin_id: 'muxr.voice', plugin_root: join(pluginRoot, 'voice'), enabled: false },
+                { plugin_id: 'muxr.voice-gemini', plugin_root: join(pluginRoot, 'voice-gemini'), enabled: false },
+                { plugin_id: 'muxr.voice-openai', plugin_root: join(pluginRoot, 'voice-openai'), enabled: true },
+            ],
+        },
+    };
+    const logBeforeSecondSetup = readFileSync(fakeLog, 'utf8');
+    run(cli, ['setup', ...setupArgs], { cwd: installDir, env: { ...env, FAKE_PLUGIN_LIST: JSON.stringify(existingProviders) } });
+    const secondSetupLinks = readFileSync(fakeLog, 'utf8').slice(logBeforeSecondSetup.length);
+    assert.doesNotMatch(secondSetupLinks, /plugins[/\\]voice(?:-gemini|-openai)?(?:\s|[/\\])/, 'setup relinked an existing provider and changed its enabled state');
+    const movedProviders = {
+        result: {
+            plugins: existingProviders.result.plugins.map((plugin) => ({ ...plugin, plugin_root: join(scratch, 'old-package', plugin.plugin_id) })),
+        },
+    };
+    const logBeforeMovedSetup = readFileSync(fakeLog, 'utf8');
+    run(cli, ['setup', ...setupArgs], { cwd: installDir, env: { ...env, FAKE_PLUGIN_LIST: JSON.stringify(movedProviders) } });
+    const movedSetupLinks = readFileSync(fakeLog, 'utf8').slice(logBeforeMovedSetup.length);
+    assert.match(movedSetupLinks, new RegExp(`plugin link ${join(pluginRoot, 'voice').replaceAll('\\', '\\\\')} --disabled`));
+    assert.match(movedSetupLinks, new RegExp(`plugin link ${join(pluginRoot, 'voice-gemini').replaceAll('\\', '\\\\')} --disabled`));
+    assert.match(movedSetupLinks, new RegExp(`plugin link ${join(pluginRoot, 'voice-openai').replaceAll('\\', '\\\\')} --enabled`));
     assert.equal(readFileSync(join(home, '.muxr', 'setup-manifest.json'), 'utf8'), manifestAfterFirst);
     run(cli, ['daemon', 'install', '--mode', 'selfhost'], { cwd: installDir, env });
     run(cli, ['daemon', 'restart'], { cwd: installDir, env });

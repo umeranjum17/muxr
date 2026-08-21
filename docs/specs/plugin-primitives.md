@@ -16,7 +16,7 @@ links:
 
 muxr called Inbox, Attachments, Changes, Voice, and the rest "plugins" while each still owned a private React component in the APK (`muxr.attachments`, `muxr.inbox-content`, …). That caste is the confusion. There are not two kinds of plugin. Some packages ship in the box as starting points. All of them compose the same compiled primitives. Kernel stays small and snappy; file bytes and git lists are pulled when a pill opens, never pushed down the session event path.
 
-The power this unlocks: today's bundled Voice plugin adapts xAI speech-to-speech behind a provider-neutral `host.stream`. Tomorrow someone disables it and enables an OpenAI or Gemini Live adapter. Every provider uses the same generic PCM channel, `icon-button` controls, overlay, and semantic capability; the phone never names a provider or owns optional Voice policy.
+The power this unlocks: the bundled xAI, OpenAI Realtime, and Gemini Live plugins each adapt speech-to-speech behind the same provider-neutral `host.stream`. Exactly one is enabled at a time. Every provider uses the same generic PCM channel, `icon-button` controls, overlay, and semantic capability; the phone never names a provider or owns optional Voice policy.
 
 ## Approach
 
@@ -62,7 +62,8 @@ UI version 12 allows generic `item-list` rows to omit actions for read-only stat
 - `apps/mobile/sources/components/KernelNotifications.tsx` — unconditional foreground-service and baseline notification owner
 - `apps/mobile/sources/plugins/primitives/` — the compiled widgets
 - `apps/mobile/sources/voice/realtimeSession.ts` — token `url` + `transport`
-- `plugins/voice/stream.mjs` — boxed xAI adapter for the public provider-neutral `voice.session` stream; `rpc.mjs` owns only key lifecycle and report wording
+- `plugins/voice*/stream.mjs` — self-contained xAI, OpenAI Realtime, and Gemini Live adapters for the public provider-neutral `voice.session` stream; each `rpc.mjs` owns only its key lifecycle and report wording
+- `scripts/local-setup.mjs` — xAI defaults on, Gemini/OpenAI default off, and setup preserves every existing enabled/disabled choice across npm upgrades
 - `plugins/*/muxr-ui.json` plus RPC sources, including Inbox, Workspace Hierarchy, and `plugins/run-server/rpc.mjs`
 - `apps/host/src/herdr/pluginPublicContext.ts` — sanitized bounded public context snapshots
 - `apps/host/src/herdr/herdrSessionSource.ts` — session context on `plugin.call`; stop pushing attachment/change events
@@ -79,13 +80,15 @@ UI version 12 allows generic `item-list` rows to omit actions for read-only stat
 - A local API 36 x86_64 release APK installs and completes cold E2EE pairing, catalog/settings, generic navigation and forms, CollectionView, ItemList, TreeSheet, mutation refresh, explicit disable/remount, localization fallback, dynamic and static shortcuts, concurrent calls, secure prompts, TalkBack activation, rotation, microphone foreground-service lifecycle, and bounded dictation on the emulator. The provider-neutral realtime stream reaches Listening through strict E2EE with its backend adapter and microphone FGS active, then stops its adapter/recording and downgrades the shared service cleanly. Physical-device microphone/speaker AEC and barge-in remain a manual check.
 - Android 16 Live Updates verification starts with promoted access off, shows one lifecycle prompt, opens the exact system setting, persists the prompt, reflects off/on after return, and reposts an ongoing working notification with `requestPromotedOngoing=true`, short critical text, and native promotion access enabled.
 - Item-list UI verification proves distinct Changes/Files pill icons, git-status and MIME-aware row icons, green additions/red deletions, file and attachment row dispatch, and an independent temporary plugin’s sheet-level action dispatch. A 177,321,373-byte APK also downloads fully over hosted E2EE chunks, matches its source SHA-256, and reaches Android’s share handoff without loading the blob into JS memory.
-- Live xAI backend smokes return PCM audio plus transcript and complete a real `list_panes` tool call. The phone receives only generic stream frames; provider authentication/model/prompt/tools/events remain in `plugins/voice/stream.mjs`.
+- Live xAI backend smokes return PCM audio plus transcript and complete a real `list_panes` tool call. The phone receives only generic stream frames; provider authentication/model/prompt/tools/events remain in each backend adapter.
+- Gemini Live and OpenAI Realtime acceptance uses the same smoke: ready frame with provider rates, text/audio transcript, PCM output, `list_panes` tool completion, stop/close, and no provider vocabulary on the phone. Setup verification starts xAI enabled and Gemini/OpenAI disabled, then proves a user provider switch survives npm reinstall plus a later `muxr setup`.
 - UI version 10 device acceptance proves File Viewer starts as a compact folder tree, lazily expands deep folders, collapses/expands loaded branches, and opens a text file. Runbook selects a non-default repository folder, executes there, and retains the selected folder after write refresh.
 - Independent architecture, performance, security, correctness, UX/accessibility, dead-code, public-core, Live Update, item-list, realtime-stream, and declarative-tree reviews have no unresolved blockers.
 - Final phone artifact: `muxr-preview-arm64-v8a.apk`, SHA-256 `717e6365adb7ed55f55cab41b755fc5393e58a15e805d17c570987e211cbdce7`; ARM64-only, target SDK 36, APK v2 signature verified.
 
 ## Revisions
 
+- 2026-08-20 — Add separate default-off Gemini Live and OpenAI Realtime adapters beside default-on xAI, all claiming the same provider-neutral `voice.session`; preserve user enable/disable choices across npm upgrades and setup reruns.
 - 2026-08-20 — Encrypt each native Preview TCP payload with a per-preview key delivered through the existing E2EE control channel, allowing the relay to multiplex connection headers without reading frontend bytes.
 - 2026-08-20 — Collapse Usage to one plain navigation pill beside Machine that opens the provider-tab details screen directly. Preview lists only real HTML frontends for the session project, removes the redundant Run server action, and carries the paired relay URL through preview attach.
 - 2026-08-19 — Remove optional Assistant App Actions capability metadata after Google Play continued rejecting the signed release despite owner acceptance of both terms surfaces. Keep the same public `shortcuts` contribution, localized launcher shortcut, deep link, and live enabled-catalog guard. The signed versionCode 8 bundle then passed Play ingestion, internal testing, and closed-test release validation.

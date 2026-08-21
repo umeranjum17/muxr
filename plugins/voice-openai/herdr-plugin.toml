@@ -1,0 +1,6 @@
+id = "muxr.voice-openai"
+name = "OpenAI Realtime"
+version = "0.1.0"
+min_herdr_version = "0.8.0"
+description = "OpenAI Realtime speech-to-speech behind muxr's provider-neutral stream"
+platforms = ["linux", "macos"]
