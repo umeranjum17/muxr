@@ -4,7 +4,10 @@ import { ContactShadows, MeshReflectorMaterial, RoundedBox } from '@react-three/
 import { useThree } from '@react-three/fiber';
 import { Video } from '@remotion/media';
 import { ThreeCanvas } from '@remotion/three';
+import React2 from 'react';
 import {
+    continueRender,
+    delayRender,
     interpolate,
     useCurrentFrame,
     useRemotionEnvironment,
@@ -102,7 +105,7 @@ function useStudioEnvironment() {
 }
 
 /** One screen: a headless decoder painting into a canvas the material samples. */
-function useScreen(src: string | undefined) {
+function useScreen(src: string | undefined, stillSrc?: string) {
     const [surface] = useState(() => {
         const canvas = new OffscreenCanvas(SHOT_W, SHOT_H);
         const context = canvas.getContext('2d')!;
@@ -124,6 +127,24 @@ function useScreen(src: string | undefined) {
         if (isRendering) advance((frame / fps) * 1000);
         else invalidate();
     }, [surface, advance, invalidate, isRendering, frame, fps]);
+
+    // A settled PNG instead of a clip, for the store frames. Same canvas, same
+    // material, so it reaches the screen the same way a video frame does.
+    const [stillHandle] = useState(() => (stillSrc === undefined ? null : delayRender(`still ${stillSrc}`)));
+    React2.useEffect(() => {
+        if (stillSrc === undefined) return;
+        let cancelled = false;
+        void (async () => {
+            const bitmap = await createImageBitmap(await (await fetch(stillSrc)).blob());
+            if (cancelled) return;
+            surface.context.drawImage(bitmap, 0, 0, SHOT_W, SHOT_H);
+            surface.texture.needsUpdate = true;
+            if (isRendering) advance(0);
+            else invalidate();
+            if (stillHandle !== null) continueRender(stillHandle);
+        })();
+        return () => { cancelled = true; };
+    }, [stillSrc, stillHandle, surface, advance, invalidate, isRendering]);
 
     return {
         texture: surface.texture,
@@ -214,7 +235,10 @@ const Handset: React.FC<{
                 />
             </RoundedBox>
             <mesh geometry={screen} position={[0, 0, DEPTH / 2 + 0.002]}>
-                <meshBasicMaterial map={front} toneMapped={false} />
+                {/* Keyed on the texture: swapping a material's map does not
+                    recompile its shader, so a still arriving after the first
+                    draw would otherwise render black. */}
+                <meshBasicMaterial key={front.uuid} map={front} toneMapped={false} />
             </mesh>
             {/* The other theme lives on the back of the same object, so the flip
                 is one handset turning over rather than two clips crossfading. */}
@@ -227,7 +251,7 @@ const Handset: React.FC<{
     );
 };
 
-export type CameraKey = 'push' | 'close' | 'flip' | 'orbit' | 'tilt';
+export type CameraKey = 'push' | 'close' | 'flip' | 'orbit' | 'tilt' | 'store';
 
 /** Where the camera is, and what it looks at, as a function of shot progress. */
 function framing(kind: CameraKey, t: number) {
@@ -269,6 +293,13 @@ function framing(kind: CameraKey, t: number) {
                 position: [0, 0.15, interpolate(t, [0, 1], [11.6, 10.9])] as [number, number, number],
                 target: [interpolate(t, [0, 1], [-0.55, -0.78]), 0, 0] as [number, number, number],
             };
+        case 'store':
+            // Still, straight on, framed so the whole handset sits in a 1080x1580
+            // well with room for its reflection.
+            return {
+                position: [0.12, 0.16, 10.35] as [number, number, number],
+                target: [0, 0.16, 0] as [number, number, number],
+            };
         case 'push':
         default:
             return {
@@ -292,16 +323,17 @@ const Rig: React.FC<{ kind: CameraKey; t: number }> = ({ kind, t }) => {
 };
 
 const Scene: React.FC<{
-    frontSrc: string;
+    frontSrc?: string;
     backSrc?: string;
+    frontStill?: string;
     kind: CameraKey;
     t: number;
     spin: number;
     lean: number;
     lift: number;
-}> = ({ frontSrc, backSrc, kind, t, spin, lean, lift }) => {
+}> = ({ frontSrc, backSrc, frontStill, kind, t, spin, lean, lift }) => {
     useStudioEnvironment();
-    const front = useScreen(frontSrc);
+    const front = useScreen(frontSrc, frontStill);
     const back = useScreen(backSrc);
 
     return (
@@ -317,7 +349,13 @@ const Scene: React.FC<{
             <pointLight position={[3.2, 1.4, 3.4]} intensity={22} color="#ffffff" distance={16} decay={2} />
             <Floor />
             <FloorFade />
-            <Handset front={front.texture} back={backSrc === undefined ? null : back.texture} spin={spin} lean={lean} lift={lift} />
+            <Handset
+                front={front.texture}
+                back={backSrc === undefined ? null : back.texture}
+                spin={spin}
+                lean={lean}
+                lift={lift}
+            />
             <ContactShadows
                 position={[0, FLOOR_Y + 0.01, 0]}
                 opacity={0.7}
@@ -332,8 +370,10 @@ const Scene: React.FC<{
 };
 
 export const Stage3D: React.FC<{
-    frontSrc: string;
+    frontSrc?: string;
     backSrc?: string;
+    /** A PNG instead of a clip, for the store frames. */
+    frontStill?: string;
     kind?: CameraKey;
     width: number;
     height: number;
@@ -342,7 +382,7 @@ export const Stage3D: React.FC<{
     spin?: number;
     lean?: number;
     lift?: number;
-}> = ({ frontSrc, backSrc, kind = 'push', width, height, t, spin = 0, lean = 0.015, lift = 0 }) => (
+}> = ({ frontSrc, backSrc, frontStill, kind = 'push', width, height, t, spin = 0, lean = 0.015, lift = 0 }) => (
     <ThreeCanvas
         width={width}
         height={height}
@@ -350,6 +390,6 @@ export const Stage3D: React.FC<{
         gl={{ antialias: true, alpha: true }}
         style={{ background: 'transparent' }}
     >
-        <Scene frontSrc={frontSrc} backSrc={backSrc} kind={kind} t={t} spin={spin} lean={lean} lift={lift} />
+        <Scene frontSrc={frontSrc} backSrc={backSrc} frontStill={frontStill} kind={kind} t={t} spin={spin} lean={lean} lift={lift} />
     </ThreeCanvas>
 );

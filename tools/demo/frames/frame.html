@@ -93,6 +93,7 @@
   .badge[hidden] { display: none; }
 </style>
 <body>
+  <img id="backdrop" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:0" />
   <div class="glow a"></div>
   <div class="glow b"></div>
   <div class="grain"></div>
@@ -121,6 +122,13 @@
   const sub = document.getElementById('sub');
   if (data.sub) sub.textContent = data.sub; else sub.remove();
   document.getElementById('shot').src = data.shot;
+  // Optional generated backdrop, for comparing an AI-made stage against the
+  // painted one. Off unless a scene asks for it.
+  if (data.backdrop) {
+    const b = document.getElementById('backdrop');
+    b.src = data.backdrop;
+    b.style.opacity = '1';
+  }
   if (data.shotTheme === 'dark') document.getElementById('device').classList.add('dark');
 
   if (data.badge) {

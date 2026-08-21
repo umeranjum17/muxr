@@ -13,6 +13,17 @@ export const text = '#f4f4f5';
 export const muted = '#8b8b90';
 /** The dark theme's accent, used for rules and the kicker. */
 export const accent = '#ececec';
+/**
+ * The only colour in the film, and only ever at dot size. These are the app's
+ * own status hues (apps/mobile/sources/utils/sessionUtils.ts): red needs you,
+ * blue is working, green is done.
+ */
+export const status = {
+    working: '#0A84FF',
+    blocked: '#FF453A',
+    done: '#30D158',
+};
+
 /** One soft key light behind the handset, white, so nothing reads as a tint. */
 export const halo = 'rgba(255, 255, 255, 0.055)';
 

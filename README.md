@@ -27,10 +27,10 @@
 [![muxr — every coding agent, on your phone](docs/demo/muxr-loop.webp)](https://trymuxr.com/#demo)
 
 <p align="center">
-  <img src="docs/screenshots/v0112/dark/herd.png" height="400" alt="muxr home in dark: the herd, with live agent terminals and every session grouped by repo" />
-  <img src="docs/screenshots/v0112/light/changes.png" height="400" alt="A commit diff in muxr: per-file tab rail, dual line-number gutter, add and remove tints" />
-  <img src="docs/screenshots/v0112/dark/usage.png" height="400" alt="muxr usage: tokens and spend per model, read from local agent logs" />
-  <img src="docs/screenshots/v0112/light/files.png" height="400" alt="The muxr file explorer: breadcrumbs down through the repo the agent is working in" />
+  <img src="docs/screenshots/v0112/dark/herd.png" height="380" alt="muxr home in dark: the herd, with live agent terminals and every session grouped by repo" />
+  <img src="docs/screenshots/v0112/dark/voice.png" height="380" alt="muxr realtime voice: a live speech-to-speech session, the visual reacting to the conversation" />
+  <img src="docs/screenshots/v0112/light/changes.png" height="380" alt="A commit diff in muxr: per-file tab rail, dual line-number gutter, add and remove tints" />
+  <img src="docs/screenshots/v0112/dark/connection.png" height="380" alt="muxr connection: self-hosted transport over Tailscale, end-to-end encrypted, you run the relay" />
 </p>
 <p align="center">
   <em>Light and dark, both captured from the shipping build against a live host with

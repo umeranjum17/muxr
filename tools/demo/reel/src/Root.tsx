@@ -1,6 +1,7 @@
 import React from 'react';
 import { Composition } from 'remotion';
 import { Reel, reelDuration } from './Reel';
+import { StoreFrame } from './StoreFrame';
 import { ShotSpec } from './Shot';
 import { fontsReady } from './theme';
 import { reel, scenes, timing } from '../../lib/scenes.mjs';
@@ -45,6 +46,17 @@ export const RemotionRoot: React.FC = () => (
             width={1080}
             height={1920}
             defaultProps={props}
+        />
+        {/* One Play Store screenshot, rendered on the film's stage. Driven per
+            scene from the command line with --props. */}
+        <Composition
+            id="StoreFrame"
+            component={StoreFrame}
+            durationInFrames={1}
+            fps={30}
+            width={1080}
+            height={1920}
+            defaultProps={{ id: 'herd', theme: 'dark' as const, caption: 'Every agent, one screen.', sub: '' }}
         />
         <Composition
             id="ReelLoop"

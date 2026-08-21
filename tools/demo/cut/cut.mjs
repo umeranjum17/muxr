@@ -107,7 +107,8 @@ async function cutScene(scene, theme) {
 
 async function main() {
     const only = process.argv.slice(2);
-    const shots = scenes.filter((s) => s.reel !== undefined);
+    // Panel shots are the CLI, snapshotted as text — there is no recording.
+    const shots = scenes.filter((s) => s.reel !== undefined && s.reel.layout !== 'panel');
     const chosen = only.length ? shots.filter((s) => only.includes(s.id)) : shots;
     if (!chosen.length) throw new Error(`no reel scenes matched ${only.join(', ')}`);
 

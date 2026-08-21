@@ -1,0 +1,10 @@
+appId: com.trymuxr.app
+---
+- tapOn: "Dictate"
+- waitForAnimationToEnd:
+    timeout: 8000
+- repeat:
+    times: 7
+    commands:
+      - waitForAnimationToEnd:
+          timeout: 900

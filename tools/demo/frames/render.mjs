@@ -50,7 +50,7 @@ async function shoot(page, name, html, width, height, file) {
 async function main() {
     const frameTemplate = await readFile(path.join(here, 'frame.html'), 'utf8');
     const brandTemplate = await readFile(path.join(here, 'brand.html'), 'utf8');
-    const storeScenes = scenes.filter((s) => s.store);
+    const storeScenes = scenes.filter((s) => s.store).sort((a, b) => (a.storeOrder ?? 99) - (b.storeOrder ?? 99));
     const chosen = only.length ? storeScenes.filter((s) => only.includes(s.id)) : storeScenes;
     await mkdir(OUT, { recursive: true });
     await mkdir(RAW, { recursive: true });
@@ -72,6 +72,7 @@ async function main() {
             sub: scene.sub ?? '',
             shot: pathToFileURL(shot).href,
             shotTheme: scene.storeTheme ?? 'light',
+            backdrop: process.env.MUXR_BACKDROP ? pathToFileURL(process.env.MUXR_BACKDROP).href : '',
             // Show the whole screen by default; the composer is part of the story.
             arWidth: 1080,
             arHeight: scene.cropTo ?? 2400,

@@ -5,6 +5,9 @@ import { DISPLAY, MONO, SANS, muted, text } from './theme';
 
 const EASE = Easing.bezier(0.16, 1, 0.3, 1);
 
+/** The wordmark is twenty-five cells wide (scripts/genBrand.sh, 300px / 12px). */
+const WORDMARK_COLUMNS = 25;
+
 const reveal = (frame: number, delay: number, duration = 28) =>
     interpolate(frame - delay, [0, duration], [0, 1], {
         extrapolateLeft: 'clamp',
@@ -44,7 +47,7 @@ export const TitleCard: React.FC<{ tagline: string; durationInFrames: number }> 
     const portrait = height > width;
     const size = portrait ? 84 : 118;
 
-    const mark = reveal(frame, 0, 22);
+    const mark = reveal(frame, 0, 30);
     const rule = reveal(frame, 26, 34);
     const out = interpolate(frame, [durationInFrames - 16, durationInFrames - 2], [1, 0], {
         extrapolateLeft: 'clamp',
@@ -64,16 +67,22 @@ export const TitleCard: React.FC<{ tagline: string; durationInFrames: number }> 
                     opacity: out,
                 }}
             >
-                <Img
-                    src={staticFile('img/wordmark@3x.png')}
+                {/* The mark is a display matrix — scripts/genBrand.sh rasterises
+                    it from a pixel font and knocks a gap out of every cell. So
+                    it assembles rather than fades: the reveal steps one cell
+                    column at a time, and its own construction does the work. */}
+                <div
                     style={{
                         width: portrait ? 340 : 420,
-                        opacity: mark,
-                        transform: `translateY(${interpolate(mark, [0, 1], [16, 0])}px)`,
-                        filter: 'brightness(0) invert(1)',
                         marginBottom: portrait ? 56 : 66,
+                        clipPath: `inset(0 ${100 - Math.round(mark * WORDMARK_COLUMNS) * (100 / WORDMARK_COLUMNS)}% 0 0)`,
                     }}
-                />
+                >
+                    <Img
+                        src={staticFile('img/wordmark@3x.png')}
+                        style={{ width: '100%', display: 'block', filter: 'brightness(0) invert(1)' }}
+                    />
+                </div>
                 <div style={{ textAlign: 'center' }}>
                     {lines.map((line, i) => (
                         <Line key={line} delay={10 + i * 7} size={size}>{line}</Line>

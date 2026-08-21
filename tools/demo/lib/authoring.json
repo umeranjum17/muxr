@@ -1,0 +1,31 @@
+{
+    "label": "muxr plugin create",
+    "agent": "cli",
+    "branch": "field-notes",
+    "lines": [
+        "$ muxr plugin create field-notes",
+        "created ./field-notes (local.field-notes-74c1cf20)",
+        "",
+        "$ cat field-notes/muxr-ui.json",
+        "  {",
+        "    \"slot\": \"navigation.content\",",
+        "    \"id\": \"settings-screen\",",
+        "    \"type\": \"screen\",",
+        "    \"title\": \"field-notes\",",
+        "    \"children\": [",
+        "      {",
+        "        \"type\": \"text\",",
+        "        \"text\": \"This native screen comes from muxr-ui.json.\"",
+        "      },",
+        "      {",
+        "        \"type\": \"row\",",
+        "",
+        "$ muxr plugin check field-notes",
+        "✓ local.field-notes-74c1cf20: muxr UI manifest",
+        "",
+        "$ muxr plugin dev field-notes",
+        "✓ local.field-notes-74c1cf20: muxr UI manifest",
+        "linked field-notes; reconnect muxr after manifest edits",
+        ""
+    ]
+}

@@ -1,0 +1,35 @@
+appId: com.trymuxr.app
+---
+- tapOn: "Settings"
+- extendedWaitUntil:
+    visible: "Connection"
+    timeout: 20000
+- waitForAnimationToEnd:
+    timeout: 2500
+- tapOn: "Connection"
+- extendedWaitUntil:
+    visible: "YOU RUN THE RELAY"
+    timeout: 20000
+- waitForAnimationToEnd:
+    timeout: 3000
+# Frame on the claim, not on the hostname. The Relay row carries the owner's
+# real tailnet name, which is not a credential — the screen says as much — but
+# it has no business on a public store listing.
+- swipe:
+    start: "50%, 70%"
+    end: "50%, 36%"
+    duration: 1000
+- waitForAnimationToEnd:
+    timeout: 1500
+- swipe:
+    start: "50%, 62%"
+    end: "50%, 44%"
+    duration: 800
+- waitForAnimationToEnd:
+    timeout: 3000
+- repeat:
+    times: 7
+    commands:
+      - assertVisible: "YOU RUN THE RELAY"
+      - waitForAnimationToEnd:
+          timeout: 800
