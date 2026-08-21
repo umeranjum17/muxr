@@ -13,6 +13,10 @@ appId: com.trymuxr.app
 # A cold start can restore the last open session a beat after Home paints, and
 # a freshly paired install raises one-time consent dialogs. Clear both so the
 # scene flow always starts on a bare Herd.
+#
+# The back-press is gated on the session composer, not on the absence of
+# SPACES: a disconnected host shows a Herd with no spaces at all, and backing
+# out of that walks straight out of the app.
 - repeat:
     times: 3
     commands:
@@ -25,7 +29,7 @@ appId: com.trymuxr.app
                 timeout: 3000
       - runFlow:
           when:
-            notVisible: "SPACES"
+            visible: "Type a prompt…"
           commands:
             - pressKey: Back
             - waitForAnimationToEnd:
