@@ -63,7 +63,10 @@ export const lightTheme = {
         },
         switch: {
             track: {
-                active: Platform.select({ ios: '#34C759', default: '#1976D2' }),
+                // The one accent the palette owns. A toggle is the loudest
+                // repeated object on a settings screen, so it does not get to
+                // introduce a hue of its own.
+                active: '#007AFF',
                 inactive: '#dddddd',
             },
             thumb: {
@@ -282,7 +285,7 @@ export const darkTheme = {
         },
         switch: {
             track: {
-                active: Platform.select({ ios: '#34C759', default: '#1976D2' }),
+                active: '#0A84FF',
                 inactive: Platform.select({ web: '#3a393f', default: '#363636' }),
             },
             thumb: {
