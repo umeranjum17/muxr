@@ -28,7 +28,7 @@ The installer:
 - accepts only a bounded version/tag token;
 - installs `@trymuxr/cli@<version>` with `--global --ignore-scripts`;
 - validates exactly `<npm-prefix>/bin/muxr`, never a stale binary elsewhere on PATH;
-- prints actionable guidance for non-writable prefixes and missing PATH entries;
+- identifies a stale `muxr` earlier on PATH and tells users to put the installed prefix first before handing off;
 - ends by directing the user to the existing guided `muxr` setup.
 
 Documentation downloads the script completely to a `mktemp` file before execution. `curl | sh` is intentionally not shown because a truncated pipeline can execute partially and report the wrong status.
@@ -60,3 +60,4 @@ Remove the documented convenience URL and `install.sh`; npm installation and `mu
 ## Revisions
 
 - 2026-08-20 — Replaced the initially proposed `trymuxr.com/install.sh` endpoint after review proved that URL is not deployed by this repository. GitHub raw `main/install.sh` is published by the same reviewed source merge; release verification byte-compares it to the repository file.
+- 2026-08-21 — Fable review: moved PATH repair guidance before handoff, named the stale binary, required prefix-first ordering, and isolated the README cleanup trap in a subshell.

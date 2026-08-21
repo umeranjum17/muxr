@@ -57,7 +57,7 @@ muxr
 Convenience one-liner, backed by that same npm package:
 
 ```bash
-tmp=$(mktemp) && trap 'rm -f "$tmp"' 0 && curl -fsSL https://raw.githubusercontent.com/umeranjum17/muxr/main/install.sh -o "$tmp" && sh "$tmp"
+( tmp=$(mktemp) && trap 'rm -f "$tmp"' 0 && curl -fsSL https://raw.githubusercontent.com/umeranjum17/muxr/main/install.sh -o "$tmp" && sh "$tmp" )
 muxr
 ```
 

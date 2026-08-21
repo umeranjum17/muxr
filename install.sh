@@ -46,7 +46,9 @@ fi
 
 installed=$("$muxr_bin" version)
 printf '%s\n' "Installed muxr ${installed}."
-printf '%s\n' 'Next: run `muxr` for guided setup.'
-if [ "$(command -v muxr 2>/dev/null || true)" != "$muxr_bin" ]; then
-    printf '%s\n' "Add ${prefix}/bin to PATH first."
+resolved=$(command -v muxr 2>/dev/null || true)
+if [ "$resolved" != "$muxr_bin" ]; then
+    [ -z "$resolved" ] || printf '%s\n' "Your PATH currently resolves muxr to ${resolved}."
+    printf '%s\n' "Put ${prefix}/bin first in PATH."
 fi
+printf '%s\n' 'Next: run `muxr` for guided setup.'
