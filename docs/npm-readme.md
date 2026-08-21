@@ -57,7 +57,9 @@ Enrollment is one-use and five minutes. The VPS retains owner authority; the age
 Bundled and third-party plugins use the same public contract, including bounded app-rendered code and diff views with syntax highlighting—never plugin HTML. Working examples and the full authoring guide ship in `plugins/` and `PLUGINS.md`.
 
 ```bash
+muxr plugin docs
 muxr plugin create <name>
+muxr plugin clone <bundled-plugin-id> [destination]
 muxr plugin check <path>
 muxr plugin dev <path> [--web]
 muxr plugin call <path> <contribution-id> [--input '<json>']

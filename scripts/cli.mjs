@@ -33,7 +33,7 @@ Run and maintain
   muxr integrations sync|uninstall
 
 Build plugins
-  muxr plugin create|check|dev|call|list|install|update|remove
+  muxr plugin docs|create|clone|check|dev|call|list|install|update|remove
 
 Use “muxr help <command>” for command options.
 `;
@@ -44,7 +44,17 @@ const COMMAND_HELP = {
     daemon: `muxr daemon install|uninstall|start|stop|restart|status|logs\n`,
     devices: `muxr devices list\nmuxr devices revoke <number|name>\n`,
     integrations: `muxr integrations sync [--all] [--dry-run]\nmuxr integrations uninstall [--dry-run]\n`,
-    plugin: `muxr plugin create <name>\nmuxr plugin check|dev <path> [--web]\nmuxr plugin call <path> <contribution-id> [--input '<json>'] [--context '<json>']\nmuxr plugin list\nmuxr plugin install|update <local-path|owner/repo[/subdir][@ref]|npm:<name>@<exact-version>> [--yes]\nmuxr plugin remove <plugin-id> [--yes]\n`,
+    plugin: `muxr plugin docs\nmuxr plugin create <name>\nmuxr plugin clone <bundled-plugin-id> [destination]\nmuxr plugin check|dev <path> [--web]\nmuxr plugin call <path> <contribution-id> [--input '<json>'] [--context '<json>']\nmuxr plugin list\nmuxr plugin install|update <local-path|owner/repo[/subdir][@ref]|npm:<name>@<exact-version>> [--yes]\nmuxr plugin remove <plugin-id> [--yes]\n`,
+    'plugin docs': `muxr plugin docs\n\nPrint absolute paths to the installed authoring guide and agent skill.\n`,
+    'plugin create': `muxr plugin create <name>\n\nCreate a minimal three-file settings-screen plugin with a collision-resistant local id.\n`,
+    'plugin clone': `muxr plugin clone <bundled-plugin-id> [destination]\n\nCopy a package-owned plugin to a user-owned folder, assign a new local id, and print the safe replace workflow.\n`,
+    'plugin check': `muxr plugin check <path>\n\nValidate Herdr identity, muxr manifest, slots, primitives, actions, RPCs, and streams without linking.\n`,
+    'plugin dev': `muxr plugin dev <path> [--web]\n\nValidate and link a local plugin enabled. --web also starts the source-checkout web client.\n`,
+    'plugin call': `muxr plugin call <path> <contribution-id> [--input '<json>'] [--context '<json>']\n\nRun one declared RPC through the same bounded author contract used by the host.\n`,
+    'plugin list': `muxr plugin list\n\nList registered plugins, source, version, root, and enabled state.\n`,
+    'plugin install': `muxr plugin install <local-path|owner/repo[/subdir][@ref]|npm:<name>@<exact-version>> [--yes]\n\nMaterialize, validate, confirm, and enable a plugin.\n`,
+    'plugin update': `muxr plugin update <local-path|owner/repo[/subdir][@ref]|npm:<name>@<exact-version>> [--yes]\n\nReplace plugin files transactionally while preserving its enabled state.\n`,
+    'plugin remove': `muxr plugin remove <plugin-id> [--yes]\n\nDisable, unlink, and remove muxr-managed plugin files.\n`,
     pair: `muxr pair [--browser]\n\nCreate a two-minute QR and short pairing string for a native device, or an 8-hour read-only browser grant.\n`,
     doctor: `muxr doctor\n\nCheck Node, Herdr, integrations, managed files, and the self-host relay without printing secrets.\n`,
     status: `muxr status\n\nAlias for muxr doctor.\n`,
@@ -138,11 +148,12 @@ async function runUninstall() {
 
 async function dispatch(command, args = []) {
     if (command === 'help' || command === '--help' || command === '-h') {
-        printHelp(args[0]);
+        printHelp(args.length > 1 ? `${args[0]} ${args[1]}` : args[0]);
         return 0;
     }
     if (args.includes('--help') || args.includes('-h')) {
-        printHelp(command);
+        const pluginSubcommand = command === 'plugin' && args[0] && !args[0].startsWith('-') ? args[0] : undefined;
+        printHelp(pluginSubcommand ? `plugin ${pluginSubcommand}` : command);
         return 0;
     }
     if (command === 'up') {
@@ -172,7 +183,7 @@ async function dispatch(command, args = []) {
     if (command === 'plugin') {
         const [pluginCommand = 'list', ...pluginArgs] = args;
         try {
-            return ['create', 'check', 'call', 'dev'].includes(pluginCommand)
+            return ['docs', 'create', 'clone', 'check', 'call', 'dev'].includes(pluginCommand)
                 ? runPlugin(pluginCommand, pluginArgs)
                 : await runPackage(pluginCommand, pluginArgs);
         } catch (error) {

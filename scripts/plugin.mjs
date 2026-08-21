@@ -1,5 +1,6 @@
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
-import { basename, dirname, join, resolve } from 'node:path';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { basename, dirname, join, relative, resolve, sep } from 'node:path';
+import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { homedir, tmpdir } from 'node:os';
@@ -31,6 +32,81 @@ function mobilePackageJson() {
     const here = fileURLToPath(new URL('.', import.meta.url));
     const candidate = resolve(here, '../apps/mobile/package.json');
     return existsSync(candidate) ? candidate : undefined;
+}
+
+function packagePath(packedRelative, sourceRelative) {
+    const here = fileURLToPath(new URL('.', import.meta.url));
+    const packed = resolve(here, packedRelative);
+    return existsSync(packed) ? packed : resolve(here, sourceRelative);
+}
+
+function printPluginDocs() {
+    process.stdout.write(`Plugin guide: ${packagePath('PLUGINS.md', '../docs/PLUGINS.md')}\n`);
+    process.stdout.write(`Agent skill: ${packagePath('skills/muxr-plugin-authoring/SKILL.md', '../skills/muxr-plugin-authoring/SKILL.md')}\n`);
+    return 0;
+}
+
+function pluginDestination(path) {
+    const target = resolve(path);
+    let ancestor = dirname(target);
+    while (!existsSync(ancestor)) {
+        const parent = dirname(ancestor);
+        if (parent === ancestor) break;
+        ancestor = parent;
+    }
+    const canonical = resolve(realpathSync(ancestor), relative(ancestor, target));
+    const here = realpathSync(fileURLToPath(new URL('.', import.meta.url)));
+    if (existsSync(join(here, 'PLUGINS.md')) && (canonical === here || canonical.startsWith(`${here}${sep}`))) {
+        fail('plugin destination must be outside the npm package so updates cannot remove it');
+    }
+    return { target, canonical };
+}
+
+function localPluginId(target, canonical = target) {
+    const slug = basename(target).toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^[^a-z0-9]+/, '') || 'plugin';
+    const suffix = createHash('sha256').update(canonical).digest('hex').slice(0, 8);
+    return `local.${slug.slice(0, 48)}-${suffix}`;
+}
+
+function cloneBundledPlugin(pluginId, destination) {
+    if (!id(pluginId)) fail('muxr plugin clone requires a valid bundled plugin id');
+    const plugins = packagePath('plugins', '../plugins');
+    const source = readdirSync(plugins, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => join(plugins, entry.name))
+        .find((root) => existsSync(join(root, 'herdr-plugin.toml'))
+            && readFileSync(join(root, 'herdr-plugin.toml'), 'utf8').match(/^id\s*=\s*"([^"]+)"/m)?.[1] === pluginId);
+    if (!source) fail(`no bundled plugin ${pluginId}`);
+    const { target, canonical } = pluginDestination(destination ?? `${basename(source)}-custom`);
+    if (existsSync(target)) fail(`${target}: already exists`);
+    mkdirSync(dirname(target), { recursive: true });
+    const temporary = `${target}.tmp-${process.pid}-${Date.now()}`;
+    const clonedId = localPluginId(target, canonical);
+    try {
+        cpSync(source, temporary, { recursive: true });
+        const pluginPath = join(temporary, 'herdr-plugin.toml');
+        writeFileSync(pluginPath, readFileSync(pluginPath, 'utf8')
+            .replace(/^id\s*=\s*"[^"]+"/m, `id = "${clonedId}"`)
+            .replace(/^name\s*=\s*"([^"]+)"/m, (_line, name) => `name = "${name} custom"`));
+        const uiPath = join(temporary, 'muxr-ui.json');
+        if (existsSync(uiPath)) {
+            const manifest = JSON.parse(readFileSync(uiPath, 'utf8'));
+            manifest.pluginId = clonedId;
+            writeFileSync(uiPath, `${JSON.stringify(manifest, null, 2)}\n`);
+        }
+        const readmePath = join(temporary, 'README.md');
+        if (existsSync(readmePath)) writeFileSync(readmePath, readFileSync(readmePath, 'utf8').replaceAll(pluginId, clonedId));
+        checkPlugin(temporary);
+        renameSync(temporary, target);
+    } finally {
+        rmSync(temporary, { recursive: true, force: true });
+    }
+    process.stdout.write(`cloned ${pluginId} -> ${target} (${clonedId})\n`);
+    process.stdout.write('edit it, then replace safely:\n');
+    process.stdout.write(`  herdr plugin disable ${pluginId}\n`);
+    process.stdout.write(`  muxr plugin dev ${target}\n`);
+    process.stdout.write(`if linking fails, restore with: herdr plugin enable ${pluginId}\n`);
+    return 0;
 }
 
 // Validation is delegated to the single shared manifest parser from
@@ -146,6 +222,14 @@ function runRpcCall(checked, contributionId, inputJson, contextJson) {
 }
 
 export function runPlugin(command, args = []) {
+    if (command === 'docs') {
+        if (args.length !== 0) fail('muxr plugin docs takes no arguments');
+        return printPluginDocs();
+    }
+    if (command === 'clone') {
+        if (!args[0] || args.length > 2) fail('muxr plugin clone requires a plugin id and optional destination');
+        return cloneBundledPlugin(args[0], args[1]);
+    }
     if (command === 'call') {
         const option = (name) => {
             const index = args.indexOf(name);
@@ -171,32 +255,45 @@ export function runPlugin(command, args = []) {
     if (!path) fail(`muxr plugin ${command} requires a path or name`);
     if (web && command !== 'dev') fail(`--web is only valid with muxr plugin dev`);
     if (command === 'create') {
-        const root = resolve(path);
+        const { target: root, canonical } = pluginDestination(path);
         if (existsSync(root)) fail(`${root}: already exists`);
         mkdirSync(root, { recursive: true });
-        const here = fileURLToPath(new URL('.', import.meta.url));
-        const template = existsSync(resolve(here, 'plugins/example-ui'))
-            ? resolve(here, 'plugins/example-ui')
-            : resolve(here, '../plugins/example-ui');
-        cpSync(template, root, { recursive: true });
-        const slug = basename(root).toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^[^a-z0-9]+/, '') || 'plugin';
-        const pluginId = `local.${slug}`.slice(0, 64);
-        for (const file of [`${root}/herdr-plugin.toml`, `${root}/muxr-ui.json`, `${root}/README.md`]) {
-            const text = readFileSync(file, 'utf8')
-                .replaceAll('example.muxr-ui', pluginId)
-                .replaceAll('Example muxr UI', basename(root))
-                .replaceAll('example.list', `${slug}.list`)
-                .replaceAll('example.save', `${slug}.save`)
-                .replaceAll('./plugins/example-ui', '.')
-                .replaceAll('"Example"', JSON.stringify(basename(root)))
-                .replace(/The package is also the starter template `muxr plugin create` copies, and it /, 'It ');
-            writeFileSync(file, text);
-        }
+        const title = basename(root);
+        const pluginId = localPluginId(root, canonical);
+        writeFileSync(join(root, 'herdr-plugin.toml'), [
+            `id = "${pluginId}"`,
+            `name = ${JSON.stringify(title)}`,
+            'version = "0.1.0"',
+            'min_herdr_version = "0.8.0"',
+            `description = ${JSON.stringify(`${title} muxr plugin`)}`,
+            'platforms = ["linux", "macos", "windows"]',
+            '',
+        ].join('\n'));
+        writeFileSync(join(root, 'muxr-ui.json'), `${JSON.stringify({
+            schemaVersion: 1,
+            pluginId,
+            contributions: [
+                {
+                    slot: 'settings.items', id: 'settings', type: 'settings-item', label: title,
+                    subtitle: 'Open this plugin', icon: 'extension-puzzle-outline',
+                    action: { type: 'screen', contributionId: 'settings-screen' },
+                },
+                {
+                    slot: 'navigation.content', id: 'settings-screen', type: 'screen', title,
+                    children: [
+                        { type: 'text', text: 'This native screen comes from muxr-ui.json.' },
+                        { type: 'row', title: 'Status', value: 'It works' },
+                    ],
+                },
+            ],
+        }, null, 2)}\n`);
+        writeFileSync(join(root, 'README.md'), `# ${title}\n\nA minimal UI-only muxr plugin created by \`muxr plugin create\`.\n\n- **Phone:** one Settings item opening a native declarative screen.\n- **Host:** no executable backend or data access.\n- **Offline:** hidden until the host reconnects.\n- **Develop:** \`muxr plugin dev .\`\n- **Remove:** \`herdr plugin unlink ${pluginId}\`\n`);
+        checkPlugin(root);
         process.stdout.write(`created ${root} (${pluginId})\n`);
         return 0;
     }
     const checked = checkPlugin(path);
-    process.stdout.write(`✓ ${checked.pluginId}: ${checked.ui ? 'backend + muxr UI' : 'backend only'}\n`);
+    process.stdout.write(`✓ ${checked.pluginId}: ${checked.ui ? 'muxr UI manifest' : 'Herdr only'}\n`);
     if (command === 'check') return 0;
     if (command !== 'dev') fail(`unknown plugin command: ${command}`);
     const result = spawnSync(process.env.HERDR_BIN?.trim() || 'herdr', ['plugin', 'link', checked.root, '--enabled'], { stdio: 'inherit' });

@@ -1,9 +1,9 @@
 ---
 title: Pi-Parity Extension Phase
 slug: pi-parity-extension-phase
-status: implemented
+status: tested
 created: 2026-08-14
-updated: 2026-08-15
+updated: 2026-08-20
 owner: umer
 links:
   - ../decisions/0005-pi-like-extension-runtime.md
@@ -16,6 +16,8 @@ links:
 muxr has the secure Pi-like extension skeleton: Herdr owns executable plugins, the host validates immutable hash-addressed manifests and explicit disable/revoke, and mobile composes enabled contributions through generic slots. The next phase closes four practical gaps without allowing downloaded React, JavaScript UI, native modules, HTML, or WebViews on phones.
 
 The work ships as four serial milestones. Each milestone must compile and pass its focused flow before the next begins.
+
+The authoring rework closes the remaining human/agent usability gap: installed docs must be discoverable from the CLI, bundled plugins must be safely cloneable outside npm ownership, subcommand help must explain the real operation, and setup must install a managed authoring skill reference without giving agents private APIs.
 
 ## Decisions
 
@@ -178,9 +180,14 @@ Likely files:
 - [x] Android emulator proves approval, declarative screen interaction, reload, revocation, a metadata-only 3 MiB attachment, 200-of-205 file attribution, and a 2,000-of-3,001-line render bound.
 - [x] The separate hosted service consumes the released public contract and verifies it independently.
 - [x] Independent Claude and Codex reviews find no architecture or security blockers.
+- [x] Packed npm smoke proves installed guide/skill discovery, minimal create, safe clone, detailed help, and direct/symlink package-root rejection.
+- [x] Fresh agents create a declarative plugin, an RPC plugin, and a bundled override using only installed package resources; the minimal scaffold cuts measured authoring to 99/86 seconds.
+- [x] A real isolated global npm reinstall, uninstall/reinstall, and setup preserve cloned bytes, registry root, and original/clone enabled states.
+- [x] A separate emulator cold-pairs to the isolated stack, lists all three agent-created/overridden plugins, and renders live focus-note and system-greeting RPC screens.
 
 ## Revisions
 
+- 2026-08-20: Reopened authoring DX after a fresh-agent npm gauntlet. Add `muxr plugin docs`, safe bundled-plugin cloning with rewritten local identity, detailed subcommand help, a packaged/managed authoring skill, truthful validator wording, and isolated install/clone/update survival proof.
 - 2026-08-14: Added exact attachment/file-review anti-hang caps and corrected machine-frame dispatch, all-cache invalidation, complete-manifest hashing, npm provenance/transactionality/archive limits, pre-enable authority confirmation, full RPC response bounds, write idempotency, action context, Herdr 0.8 polling fallback, hosted frame limits, and aggregate patch bounds after independent Claude/Codex review.
 - 2026-08-14: Milestone 3 uses a bounded authoritative `plugin.list` poll and the additive encrypted `extensions.invalidated` machine frame; no watcher or lifecycle subscription is required.
 - 2026-08-14: Final Android E2E moved the generic phone navigation row below the native header safe area, then proved declarative form writes, live hash invalidation, revocation, metadata-only large attachments, changed-file omission attribution, and the 2,000-line renderer bound. Core passed 25/25, cloud compatibility passed, and the spec moved to tested.

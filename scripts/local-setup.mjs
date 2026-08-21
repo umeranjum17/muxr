@@ -55,6 +55,9 @@ const authPath = () => join(stateDir(), 'auth.json');
 const bundledPluginPath = (name) => existsSync(fileURLToPath(new URL(`./plugins/${name}/herdr-plugin.toml`, import.meta.url)))
     ? fileURLToPath(new URL(`./plugins/${name}`, import.meta.url))
     : fileURLToPath(new URL(`../plugins/${name}`, import.meta.url));
+const pluginAuthoringSkillSource = () => existsSync(fileURLToPath(new URL('./skills/muxr-plugin-authoring/SKILL.md', import.meta.url)))
+    ? fileURLToPath(new URL('./skills/muxr-plugin-authoring/SKILL.md', import.meta.url))
+    : fileURLToPath(new URL('../skills/muxr-plugin-authoring/SKILL.md', import.meta.url));
 function bundledPlugins() {
     const packaged = fileURLToPath(new URL('./plugins', import.meta.url));
     const fromRepo = fileURLToPath(new URL('../plugins', import.meta.url));
@@ -199,8 +202,8 @@ function detectedLifecycleTargets(statuses, all = false) {
     });
 }
 
-function managedBlock(skillPath) {
-    return `${START}\n## Herdr\nWhen the user explicitly asks to use Herdr, read \`${skillPath}\` before acting.\n${END}`;
+function managedBlock(skillPath, pluginSkillPath) {
+    return `${START}\n## Herdr\nWhen the user explicitly asks to use Herdr, read \`${skillPath}\` before acting.\n\n## muxr plugins\nWhen the user asks to create, modify, install, or replace a muxr plugin, read \`${pluginSkillPath}\` before acting.\n${END}`;
 }
 
 function blockFrom(text) {
@@ -790,10 +793,12 @@ export async function runIntegrations(args = []) {
             const skill = run(binary, ['--skill']);
             if (!skill.ok || !skill.stdout.startsWith('---')) throw new Error('herdr --skill did not return a skill file');
             const skillPath = join(stateDir(), 'integrations', 'herdr', 'SKILL.md');
+            const pluginSkillPath = join(stateDir(), 'integrations', 'muxr-plugin-authoring', 'SKILL.md');
             writeOwned(skillPath, `${skill.stdout}\n`, manifest, { dryRun, force });
+            writeOwned(pluginSkillPath, readFileSync(pluginAuthoringSkillSource(), 'utf8'), manifest, { dryRun, force });
             for (const target of targets) {
                 const instructionPath = join(home(), ...target.instructionParts);
-                writeBlock(instructionPath, managedBlock(skillPath), manifest, { dryRun, force });
+                writeBlock(instructionPath, managedBlock(skillPath, pluginSkillPath), manifest, { dryRun, force });
             }
         }
         saveManifest(manifest, dryRun);

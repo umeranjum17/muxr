@@ -24,4 +24,4 @@ object (`default` plus BCP-47 translations), so it requires muxr UI 6.
 herdr plugin link ./plugins/example-ui --enabled
 ```
 
-The package is also the starter template `muxr plugin create` copies, and it exercises the same manifest shape the host validation flow and `muxr plugin check` cover.
+This is the rich list/detail/form/RPC/chart reference. `muxr plugin create` intentionally writes a smaller three-file starting point; both exercise the same host validation and public manifest contract.
