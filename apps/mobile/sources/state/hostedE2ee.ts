@@ -401,7 +401,7 @@ export async function claimHostedPairing(url: string): Promise<StoredHostedGrant
     }
     if (fragment.get('v') !== '2') throw new Error('unknown pairing link version');
     const generation = Number(fragment.get('generation'));
-    if (!Number.isInteger(generation) || generation < 2) throw new Error('pairing link uses an unsupported encryption generation');
+    if (!Number.isInteger(generation) || generation < 1) throw new Error('pairing link uses an invalid encryption generation');
     const pairId = fragment.get('id');
     const claim = fragment.get('claim');
     const pairSecret = fragment.get('pair');

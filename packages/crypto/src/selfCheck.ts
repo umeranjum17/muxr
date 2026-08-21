@@ -65,7 +65,7 @@ const ctx = {
     channel: 'session', streamId: 'sess-1', keyVersion: 2,
 } as const;
 const sender = newV2SenderState();
-assert.throws(() => sealV2('old generation', hostToDevice, { ...ctx, keyVersion: 1 }, newV2SenderState()), /generation/, 'retired key generation is rejected');
+assert.throws(() => sealV2('invalid generation', hostToDevice, { ...ctx, keyVersion: 0 }, newV2SenderState()), /generation/, 'invalid key generation is rejected');
 const env = sealV2('hello from host', hostToDevice, ctx, sender);
 assert.ok(isV2Envelope(env), 'v2 payload must be tagged');
 assert.ok(!env.includes('hello from host'), 'plaintext must not appear in the envelope');
@@ -146,8 +146,8 @@ assert.equal(grant.signer, machineSigning.publicKey, 'grant names the signing ke
 assert.throws(() => createDeviceGrant({
     machineId: 'm1', machineSigningSecretKey: machineSigning.secretKey, machineKey: machineX,
     deviceId: 'dev-1', devicePublicKey: deviceX.publicKey, dataKey: dataRoot, ingressKey: ingressRoot,
-    keyVersion: 1, expiresAt: Date.now() + 60_000,
-}), /generation/, 'retired grants are rejected');
+    keyVersion: 0, expiresAt: Date.now() + 60_000,
+}), /generation/, 'invalid grant generations are rejected');
 assert.equal(verifyDetached(
     Buffer.from('pinned bytes'),
     signDetached(Buffer.from('pinned bytes'), machineSigning.secretKey),

@@ -212,7 +212,7 @@ function validateV2Context(ctx: V2Context): void {
     if (typeof recipientId !== 'string' || recipientId === '') throw new Error('v2: recipientId required');
     if (!V2_CHANNELS.includes(channel)) throw new Error('v2: unknown channel');
     if (typeof streamId !== 'string' || streamId === '') throw new Error('v2: streamId required');
-    if (!Number.isInteger(keyVersion) || keyVersion < 2) throw new Error('v2: key generation must be 2 or newer');
+    if (!Number.isInteger(keyVersion) || keyVersion < 1) throw new Error('v2: key generation must be a positive integer');
 }
 
 function concatBytes(...arrays: Uint8Array[]): Uint8Array {
@@ -500,7 +500,7 @@ export function createDeviceGrant(params: {
     const { machineId, deviceId, devicePublicKey, keyVersion, expiresAt } = params;
     if (typeof machineId !== 'string' || machineId === '') throw new Error('grant: machineId required');
     if (typeof deviceId !== 'string' || deviceId === '') throw new Error('grant: deviceId required');
-    if (!Number.isInteger(keyVersion) || keyVersion < 2) throw new Error('grant: key generation must be 2 or newer');
+    if (!Number.isInteger(keyVersion) || keyVersion < 1) throw new Error('grant: key generation must be a positive integer');
     if (!Number.isFinite(expiresAt)) throw new Error('grant: expiresAt required');
     toKeyBytes(devicePublicKey, 'grant devicePublicKey');
     toKeyBytes(params.machineKey.secretKey, 'grant machineKey.secretKey');
@@ -576,7 +576,7 @@ export function verifyDeviceGrant(
     if (opts.deviceId !== undefined && parsed.deviceId !== opts.deviceId) throw new Error('grant: device id mismatch');
     if (typeof parsed.expiresAt !== 'number' || !Number.isFinite(parsed.expiresAt)) throw new Error('grant: invalid expiry');
     if (parsed.expiresAt <= Date.now()) throw new Error('grant: expired');
-    if (!Number.isInteger(parsed.keyVersion) || parsed.keyVersion < 2) throw new Error('grant: invalid key generation');
+    if (!Number.isInteger(parsed.keyVersion) || parsed.keyVersion < 1) throw new Error('grant: invalid key generation');
     if (typeof parsed.dataKey !== 'string' || toKeyBytes(parsed.dataKey, 'grant dataKey').length !== 32) throw new Error('grant: invalid dataKey');
     if (typeof parsed.ingressKey !== 'string' || toKeyBytes(parsed.ingressKey, 'grant ingressKey').length !== 32) throw new Error('grant: invalid ingressKey');
     return parsed;

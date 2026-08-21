@@ -68,7 +68,7 @@ function isOpaqueV2Envelope(value: unknown): value is Envelope {
         && typeof header.recipientId === 'string'
         && (header.channel === 'session' || header.channel === 'terminal' || header.channel === 'attachment' || header.channel === 'stream')
         && typeof header.streamId === 'string'
-        && Number.isSafeInteger(header.keyVersion) && Number(header.keyVersion) >= 2
+        && Number.isSafeInteger(header.keyVersion) && Number(header.keyVersion) > 0
         && Number.isSafeInteger(header.seq) && header.seq >= 0;
 }
 
