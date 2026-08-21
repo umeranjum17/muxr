@@ -128,7 +128,7 @@ describe('openTerminal reconnect ownership', () => {
 
 describe('recentTerminalLinks', () => {
     it('keeps a bounded latest-first list of safe visible URLs', async () => {
-        const { recordTerminalOutput, recentTerminalLinks, clearTerminalOutput, setTerminalColumns } = await import('./recentOutput');
+        const { recordTerminalOutput, recentTerminalLinks, viewportTerminalLinks, clearTerminalOutput, setTerminalColumns } = await import('./recentOutput');
         const { encodeBase64 } = await import('@/encryption/base64');
         const record = (sessionId: string, text: string) => recordTerminalOutput(sessionId, encodeBase64(new TextEncoder().encode(text)));
 
@@ -147,6 +147,13 @@ describe('recentTerminalLinks', () => {
         setTerminalColumns('long', columns);
         wrappedRows.forEach((row, index) => record('long', `${row}${index === wrappedRows.length - 1 ? '' : '\r\n'}`));
         expect(recentTerminalLinks('long')).toEqual([longUrl]);
+
+        clearTerminalOutput('split-scheme');
+        record('split-scheme', 'ht');
+        record('split-scheme', 'tps://split.example/path');
+        await new Promise((resolve) => setTimeout(resolve, 350));
+        expect(viewportTerminalLinks('long')).toEqual([longUrl]);
+        expect(viewportTerminalLinks('split-scheme')).toEqual(['https://split.example/path']);
 
         clearTerminalOutput('hard-break');
         setTerminalColumns('hard-break', columns);

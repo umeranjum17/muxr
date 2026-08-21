@@ -150,12 +150,14 @@ export function recordTerminalOutput(sessionId: string, base64: string): void {
         state.scanTimer = setTimeout(() => scanViewport(sessionId), SCROLL_SCAN_DEBOUNCE_MS);
         return;
     }
-    // Not scrolling: the frame path is one boolean check. A chunk carrying a
-    // URL (a dev server just announced itself, and at the live edge that URL
-    // is on screen) schedules a single debounced chip refresh.
-    if (visible.includes('http') && state.tailTimer === undefined) {
+    // At the live edge, rescan once per output burst. Do not gate this on one
+    // socket chunk containing "http": the scheme itself can cross chunks.
+    if (visible !== '' && state.tailTimer === undefined) {
         state.tailTimer = setTimeout(() => {
             state.tailTimer = undefined;
+            const links = extractLinks(unwrapTerminalLinks(state.chunks.join(''), state.columns));
+            if (links.length === state.viewportLinks.length && links.every((link, index) => link === state.viewportLinks[index])) return;
+            state.viewportLinks = links;
             notifyLinks(sessionId);
         }, TAIL_NOTIFY_DEBOUNCE_MS);
     }
