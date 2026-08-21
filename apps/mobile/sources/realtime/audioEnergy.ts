@@ -25,6 +25,8 @@ let input = 0;
 let output = 0;
 let inputAt = Date.now();
 let outputAt = Date.now();
+type EnergyListener = (direction: EnergyDirection, level: number) => void;
+const listeners = new Set<EnergyListener>();
 
 function decayed(value: number, since: number, now: number): number {
     return Math.max(0, value - (now - since) * DECAY_PER_MS);
@@ -61,15 +63,18 @@ export function reportEnergy(direction: EnergyDirection, base64: string): void {
     if (direction === 'input') {
         input = Math.max(decayed(input, inputAt, now), level);
         inputAt = now;
+        for (const listener of listeners) listener('input', input);
     } else {
         output = Math.max(decayed(output, outputAt, now), level);
         outputAt = now;
+        for (const listener of listeners) listener('output', output);
     }
 }
 
-export function readEnergy(direction: EnergyDirection): number {
-    const now = Date.now();
-    return direction === 'input' ? decayed(input, inputAt, now) : decayed(output, outputAt, now);
+/** PCM arrives on JS; shared values carry only the bounded level to the UI thread. */
+export function subscribeEnergy(listener: EnergyListener): () => void {
+    listeners.add(listener);
+    return () => { listeners.delete(listener); };
 }
 
 export function resetEnergy(): void {
@@ -77,4 +82,8 @@ export function resetEnergy(): void {
     output = 0;
     inputAt = Date.now();
     outputAt = Date.now();
+    for (const listener of listeners) {
+        listener('input', 0);
+        listener('output', 0);
+    }
 }
