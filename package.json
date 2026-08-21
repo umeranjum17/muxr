@@ -20,7 +20,7 @@
         "doctor": "node scripts/doctor.mjs",
         "worktrees:clean": "node scripts/cleanWorktrees.mjs",
         "web:deploy": "bash scripts/deployWebExport.sh",
-        "web:export": "cd apps/mobile && APP_ENV=production MUXR_PUBLIC_BASE_URL=https://trymuxr.com env -u EXPO_PUBLIC_MUXR_TOKEN -u EXPO_PUBLIC_MUXR_E2EE_KEY -u EXPO_PUBLIC_MUXR_MACHINE_ID -u EXPO_PUBLIC_MUXR_MODE npx expo export --platform web",
+        "web:export": "cd apps/mobile && APP_ENV=production MUXR_PUBLIC_BASE_URL=https://trymuxr.com env -u EXPO_PUBLIC_MUXR_TOKEN -u EXPO_PUBLIC_MUXR_MACHINE_ID -u EXPO_PUBLIC_MUXR_MODE npx expo export --platform web",
         "pack": "yarn build && yarn web:export && node scripts/pack.mjs",
         "pack:smoke": "yarn build && yarn web:export && node scripts/checkPackageSmoke.mjs && node scripts/packageLifecycleSmoke.mjs"
     },

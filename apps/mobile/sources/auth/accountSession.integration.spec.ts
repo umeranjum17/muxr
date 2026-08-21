@@ -5,7 +5,6 @@ const harness = vi.hoisted(() => ({
         mode: 'hosted' as 'hosted' | 'local',
         relayUrl: 'ws://relay.test',
         machineId: '',
-        encryptionKey: '',
         token: '',
         lastSessionCwd: '',
         recentSessionCwds: [] as string[],

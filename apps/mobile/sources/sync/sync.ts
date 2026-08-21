@@ -202,7 +202,6 @@ class MuxrSync {
             mode: settings.mode,
             relayUrl: hostedGrant?.relayUrl ?? settings.relayUrl,
             machineId: settings.machineId,
-            ...(settings.mode === 'local' && settings.encryptionKey.trim().length > 0 ? { sharedKey: settings.encryptionKey.trim() } : {}),
             ...((settings.mode === 'hosted' ? hostedGrant?.credential : settings.token.trim()) ? {
                 // Discovery chooses where to dial; only the stored grant may
                 // choose the reconnect credential.

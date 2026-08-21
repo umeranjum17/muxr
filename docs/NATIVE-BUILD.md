@@ -70,8 +70,8 @@ keys are created at runtime and live in platform SecureStore:
 ```
 
 `scripts/buildAndroidLocal.sh` defaults to `EXPO_PUBLIC_MUXR_MODE=hosted` and
-unsets public token/shared-key variables. For the internal LAN fixture only,
-set `EXPO_PUBLIC_MUXR_MODE=local` explicitly and provide its local connection
+unsets the public fixture token. For the internal LAN fixture only, set
+`EXPO_PUBLIC_MUXR_MODE=local` explicitly and provide its local connection
 values. Never distribute a build containing fixture credentials.
 
 ## Publishing identity

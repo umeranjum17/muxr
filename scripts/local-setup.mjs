@@ -1832,14 +1832,11 @@ export async function runDevices(command = 'list', args = []) {
                 throw new Error('self-host key version changed during revocation; refusing to overwrite it');
             }
 
-            const definition = daemonDefinition();
-            const restarted = existsSync(definition.path) ? serviceCommand('restart') : undefined;
-            if (restarted !== undefined && !restarted.ok) {
-                print(`  warn: daemon restart unavailable; the running host will hot-reload the rotated keys (${restarted.stderr || restarted.stdout})`);
-            }
-            // A foreground host adopts the atomic state change through its 2s
-            // watcher; an offline host reads it on next start.
-            if (restarted?.ok !== true) await new Promise((resolve) => setTimeout(resolve, 2500));
+            // The host watches this atomic state file and hot-reloads keys.
+            // Restarting the service here also restarts the relay; that can cut
+            // off grant publication after clients have already been revoked,
+            // stranding every remaining device on the previous generation.
+            await new Promise((resolve) => setTimeout(resolve, 2500));
             const uploaded = await api(base, `/v1/selfhost/machines/${encodeURIComponent(current.machine.id)}/grants`, {
                 method: 'POST',
                 headers,
@@ -1853,7 +1850,7 @@ export async function runDevices(command = 'list', args = []) {
             if (current.machine.crypto.keyVersion !== pending.keyVersion) throw new Error('self-host key state changed before rotation completed');
             delete current.machine.crypto.pendingRotation;
             writeSelfhostState(current);
-            print(`  ✓ revoked ${pending.revokedDeviceName}; remaining devices received key version ${pending.keyVersion}`);
+            print(`  ✓ revoked ${pending.revokedDeviceName}; remaining devices received fresh encryption keys`);
         });
         return 0;
     } catch (cause) {
@@ -1900,6 +1897,7 @@ async function runSelfhostPair(state, requestedKind = 'native') {
         if (!created.response.ok) throw new Error(created.body.error || `pair session failed (${created.response.status})`);
         const payload = Buffer.from(JSON.stringify({
             v: '2',
+            generation: String(state.machine.crypto.keyVersion),
             id: created.body.pair_id,
             claim,
             pair: pairSecret,
@@ -1925,6 +1923,7 @@ async function runSelfhostPair(state, requestedKind = 'native') {
         pending = {
             pairId: created.body.pair_id,
             pairSecret,
+            generation: state.machine.crypto.keyVersion,
             ...(pairString === undefined ? { pairUrl } : { pairString }),
             expiresAt: Date.now() + Number(created.body.expires_in ?? 120) * 1000,
             deviceKind: requestedKind,
@@ -1998,7 +1997,7 @@ async function runSelfhostPair(state, requestedKind = 'native') {
             recipientId: state.machine.id,
             channel: 'pairing',
             streamId: pending.pairId,
-            keyVersion: 1,
+            keyVersion: pending.generation ?? 1,
         }, newV2ReplayTracker());
         const request = JSON.parse(plaintext);
         if (request.devicePublicKey !== devicePublicKey || request.machineSigningPublicKey !== state.machine.crypto.signingPublicKey) {
@@ -2154,6 +2153,7 @@ export async function runAccount(command, args = []) {
                 machine: auth.machine.id,
                 name: auth.machine.name,
                 machinePk: auth.machine.crypto.signingPublicKey,
+                generation: String(auth.machine.crypto.keyVersion),
             });
             const pairUrl = `${result.body.verification_uri}#${fragment}`;
             print(`Open: ${pairUrl}`);
@@ -2180,7 +2180,7 @@ export async function runAccount(command, args = []) {
                     recipientId: auth.machine.id,
                     channel: 'pairing',
                     streamId: result.body.pair_id,
-                    keyVersion: 1,
+                    keyVersion: auth.machine.crypto.keyVersion,
                 }, newV2ReplayTracker());
                 const request = JSON.parse(plaintext);
                 if (request.devicePublicKey !== device.public_key || request.machineSigningPublicKey !== auth.machine.crypto.signingPublicKey) {

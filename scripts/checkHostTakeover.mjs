@@ -14,7 +14,7 @@ import { waitForRelay } from './waitForRelay.mjs';
 // A live deployment exports these. Inherited, they point the throwaway relay
 // and the hosts spawned here at real credentials, and the relay refuses them.
 const env = { ...process.env };
-for (const key of ['MUXR_RELAY_TOKEN', 'MUXR_E2EE_SHARED_KEY', 'MUXR_RELAY_URL', 'MUXR_MACHINE_ID', 'MUXR_RELAY_AUTH']) {
+for (const key of ['MUXR_RELAY_TOKEN', 'MUXR_RELAY_URL', 'MUXR_MACHINE_ID', 'MUXR_RELAY_AUTH']) {
     delete env[key];
 }
 

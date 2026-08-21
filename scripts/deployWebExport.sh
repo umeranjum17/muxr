@@ -7,7 +7,6 @@ DOC_ROOT="${MUXR_WEB_EXPORT_DIR:-$HOME/.muxr/web-public}"
 
 cd "$ROOT"
 env -u EXPO_PUBLIC_MUXR_TOKEN \
-    -u EXPO_PUBLIC_MUXR_E2EE_KEY \
     -u EXPO_PUBLIC_MUXR_MACHINE_ID \
     -u EXPO_PUBLIC_MUXR_MODE \
     npm run web:export

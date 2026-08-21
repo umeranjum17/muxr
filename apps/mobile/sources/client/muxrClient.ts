@@ -5,7 +5,6 @@
  * host; this class never invents domain state.
  */
 
-import { createPayloadCodec, type PayloadCodec } from '@muxr/crypto';
 import {
     decodePayload,
     encodePayload,
@@ -36,8 +35,6 @@ export interface MuxrClientOptions {
     machineId: string;
     requestTimeoutMs?: number;
     reconnectDelayMs?: number;
-    /** base64 shared key from @muxr/crypto. Absent = cleartext (explicit opt-in). */
-    sharedKey?: string;
     /** Account token. Required by a strict relay, which is any remote one. */
     token?: string;
     hostedGrant?: StoredHostedGrant;
@@ -78,7 +75,6 @@ export class MuxrClient {
     private readonly eventListeners = new Set<EventListener>();
     private readonly stateListeners = new Set<StateListener>();
     private readonly pluginInvalidationListeners = new Set<PluginInvalidationListener>();
-    private readonly codec: PayloadCodec;
     private hosted: DeviceV2Crypto | undefined;
     private seq = 0;
     private closed = false;
@@ -90,13 +86,11 @@ export class MuxrClient {
 
     constructor(private readonly options: MuxrClientOptions) {
         if (options.mode === 'hosted' && options.hostedGrant === undefined) throw new Error('hosted connection requires a verified machine grant');
-        if (options.mode === 'hosted' && options.sharedKey !== undefined) throw new Error('hosted connection rejects legacy shared keys');
-        this.codec = createPayloadCodec(options.sharedKey);
         this.hosted = options.hostedGrant === undefined ? undefined : new DeviceV2Crypto(options.hostedGrant);
     }
 
     get e2eeEnabled(): boolean {
-        return this.hosted !== undefined || this.codec.enabled;
+        return this.hosted !== undefined;
     }
 
     connect(): void {
@@ -259,7 +253,7 @@ export class MuxrClient {
                 seq: sealed?.sequence ?? this.seq,
                 at: Date.now(),
             },
-            payload: sealed?.payload ?? this.codec.encode(encodePayload(frame)),
+            payload: sealed?.payload ?? encodePayload(frame),
         };
         this.socket?.send(JSON.stringify(envelope));
     }
@@ -276,7 +270,7 @@ export class MuxrClient {
             if (envelope.header.machineId !== this.options.machineId) throw new Error('hosted e2ee: routing machine mismatch');
             const streamId = envelope.header.streamId ?? envelope.header.sessionId ?? 'machine';
             const plaintext = this.hosted === undefined
-                ? this.codec.decode(envelope.payload)
+                ? envelope.payload
                 : (() => {
                     const channel = envelope.header.channel;
                     if (envelope.header.senderId !== this.options.machineId || envelope.header.recipientId !== '*'

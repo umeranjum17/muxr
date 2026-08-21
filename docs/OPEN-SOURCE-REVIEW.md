@@ -145,11 +145,9 @@ Method: six parallel deep-dive reviews (host/relay, mobile, plugin SDK, packages
    that outlive every cap (`plugins/run-server/start.mjs:28-34` does exactly this); `cwd` is the
    host's cwd so plugins act machine-wide.
 
-6. **Legacy v1 codec accepts cleartext when enabled.** `decryptPayload` returns input untouched
-   when the `e2ee:v1:` tag is absent (`packages/crypto/src/index.ts:89-91`), so
-   `createPayloadCodec(key).decode` passes cleartext silently — a downgrade surface if a relay
-   strips encryption in local mode. v2 fails closed correctly (`openV2`, index.ts:317-360).
-   Dev-fixture-only today; schedule v1 + `MUXR_E2EE_SHARED_KEY` removal post-1.0.
+6. **The retired optional shared-key codec has been removed.** Hosted and self-hosted encrypted
+   traffic use the same fail-closed authenticated envelope. Local development is explicitly
+   cleartext instead of carrying a second downgrade-prone transport.
 
 ---
 
@@ -302,9 +300,8 @@ Method: six parallel deep-dive reviews (host/relay, mobile, plugin SDK, packages
 - Keystore setup steps for `eas build --local` (`credentials.json`) — NATIVE-BUILD.md lists the
   requirement but never says how.
 - "Expo Go will not work" statement (custom native modules + patch-package).
-- Document the undocumented env vars: `EXPO_PUBLIC_MUXR_E2EE_KEY`
-  (`connectionSettings.ts:38`), `EXPO_PUBLIC_DEV_TOKEN`/`EXPO_PUBLIC_DEV_SECRET` dev auto-login
-  (`app/_layout.tsx:179-186`), `EXPO_PUBLIC_SERVER_URL` (`appConfig.ts:73`).
+- Document the undocumented env vars: `EXPO_PUBLIC_DEV_TOKEN`/`EXPO_PUBLIC_DEV_SECRET` dev
+  auto-login (`app/_layout.tsx:179-186`) and `EXPO_PUBLIC_SERVER_URL` (`appConfig.ts:73`).
 - iOS story: both local native modules (`voice-overlay`, `ssh-tunnel`) are Android-only Kotlin —
   an iOS build compiles but silently lacks voice-overlay/SSH. Undocumented.
 - The in-app SSH tunnel feature (TOFU host-key pinning, `modules/ssh-tunnel/`, `sshForward.ts`,
