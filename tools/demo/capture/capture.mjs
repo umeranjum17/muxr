@@ -35,21 +35,11 @@ const adbArgs = (args) => (SERIAL === '' ? args : ['-s', SERIAL, ...args]);
 const sh = (args, opts = {}) => exec('adb', adbArgs(args), { maxBuffer: 1 << 26, ...opts });
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
-// A clean, deterministic status bar: 9:41, full battery, wifi, no notifications.
-async function statusBar(mode) {
-    const demo = (args) => sh(['shell', 'am', 'broadcast', '-a', 'com.android.systemui.demo', ...args]);
-    if (mode === 'off') {
-        await demo(['-e', 'command', 'exit']);
-        return;
-    }
-    await sh(['shell', 'settings', 'put', 'global', 'sysui_demo_allowed', '1']);
-    await demo(['-e', 'command', 'enter']);
-    await demo(['-e', 'command', 'clock', '-e', 'hhmm', '0941']);
-    await demo(['-e', 'command', 'battery', '-e', 'level', '100', '-e', 'plugged', 'false']);
-    await demo(['-e', 'command', 'network', '-e', 'wifi', 'show', '-e', 'level', '4']);
-    await demo(['-e', 'command', 'network', '-e', 'mobile', 'hide']);
-    await demo(['-e', 'command', 'notifications', '-e', 'visible', 'false']);
-}
+// The phone status bar is cropped off every still as it is written. Staging it
+// only trades one tell for another — 9:41 is Apple's keynote time on an Android
+// listing, and the wifi glyph carries a "no internet" triangle on the assets
+// selling a live self-hosted relay. Nothing above this line is product.
+const STATUS_BAR = 100;
 
 function startRecording() {
     const child = spawn('adb', adbArgs([
@@ -104,7 +94,10 @@ async function still(outFile) {
         maxBuffer: 1 << 27,
         encoding: 'buffer',
     });
-    await writeFile(outFile, stdout);
+    const tmp = `${outFile}.raw.png`;
+    await writeFile(tmp, stdout);
+    await exec('ffmpeg', ['-v', 'error', '-i', tmp, '-vf', `crop=1080:${2400 - STATUS_BAR}:0:${STATUS_BAR}`, '-y', outFile]);
+    await rm(tmp, { force: true });
 }
 
 /** The app reads the system theme, so this is the whole switch. */
@@ -112,7 +105,6 @@ async function setTheme(theme) {
     await sh(['shell', 'cmd', 'uimode', 'night', theme === 'dark' ? 'yes' : 'no']);
     await sh(['shell', 'am', 'force-stop', 'com.trymuxr.app']).catch(() => { });
     await wait(1500);
-    await statusBar('on'); // a uimode change resets SystemUI's demo state
 }
 
 async function captureScene(scene, theme) {
@@ -176,7 +168,6 @@ async function main() {
 
     await rm(path.join(RAW, '.keep'), { force: true });
     await mkdir(RAW, { recursive: true });
-    await statusBar('on');
     try {
         for (const theme of THEMES) {
         await setTheme(theme);
@@ -194,7 +185,6 @@ async function main() {
         }
     } finally {
         await setTheme('light');
-        await statusBar('off');
     }
     console.log(`\ncaptured ${chosen.length} scene(s) x ${THEMES.length} theme(s) into ${RAW}`);
 }

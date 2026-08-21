@@ -10,9 +10,11 @@ appId: com.trymuxr.app
     timeout: 2000
 # Hold. The visual reads live PCM every frame — it is the shot, and it needs
 # seconds on camera, not a beat. Re-asserting is the wait; nothing is touched.
+# Hold long enough for the session to carry a transcript. The bare orb leaves
+# the bottom third of the frame flat, which is the weakest tile on the
+# carousel; the transcript is what makes it read as a conversation.
 - repeat:
-    times: 9
+    times: 16
     commands:
-      - assertVisible: "Listening"
       - waitForAnimationToEnd:
           timeout: 800

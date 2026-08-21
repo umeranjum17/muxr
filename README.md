@@ -27,6 +27,11 @@
 [![muxr — every coding agent, on your phone](docs/demo/muxr-loop.webp)](https://trymuxr.com/#demo)
 
 <p align="center">
+  <em>The opening of the film. The whole forty seconds is
+  <a href="docs/demo/muxr-demo.mp4">docs/demo/muxr-demo.mp4</a>.</em>
+</p>
+
+<p align="center">
   <img src="docs/screenshots/v0112/dark/herd.png" height="380" alt="muxr home in dark: the herd, with live agent terminals and every session grouped by repo" />
   <img src="docs/screenshots/v0112/dark/voice.png" height="380" alt="muxr realtime voice: a live speech-to-speech session, the visual reacting to the conversation" />
   <img src="docs/screenshots/v0112/light/changes.png" height="380" alt="A commit diff in muxr: per-file tab rail, dual line-number gutter, add and remove tints" />

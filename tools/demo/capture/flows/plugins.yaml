@@ -25,4 +25,21 @@ appId: com.trymuxr.app
     end: "50%, 72%"
     duration: 1100
 - waitForAnimationToEnd:
-    timeout: 4000
+    timeout: 3000
+# A swipe that starts on the header can open the Enable all / Disable all
+# overflow. Caught half-open it is a clipped menu with a greyed item on top of
+# the list; dismissed, the same space carries two more plugin rows, which are
+# the actual proof of the claim.
+- runFlow:
+    when:
+      visible: "Enable all"
+    commands:
+      - pressKey: Back
+      - waitForAnimationToEnd:
+          timeout: 2000
+- repeat:
+    times: 5
+    commands:
+      - assertVisible: "INSTALLED"
+      - waitForAnimationToEnd:
+          timeout: 900

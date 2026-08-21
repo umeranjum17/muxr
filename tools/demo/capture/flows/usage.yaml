@@ -6,12 +6,15 @@ appId: com.trymuxr.app
     timeout: 25000
 - waitForAnimationToEnd:
     timeout: 3000
+# Fully past the header collapse, not half into it: the half-way position
+# prints "Usage" twice, the second clipped through its cap-heights, and slices
+# the model pills at the right edge.
 - swipe:
-    start: "50%, 72%"
-    end: "50%, 52%"
-    duration: 1000
+    start: "50%, 78%"
+    end: "50%, 38%"
+    duration: 1100
 - waitForAnimationToEnd:
-    timeout: 3000
+    timeout: 3500
 # Hold on the loaded figures. The screen paints skeleton cards first, and a
 # window that reaches back far enough spends the shot on them.
 - repeat:

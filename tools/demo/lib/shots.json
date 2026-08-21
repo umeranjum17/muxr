@@ -1,0 +1,53 @@
+{
+  "fps": 30,
+  "comment": "Source windows for the film. Durations are whole multiples of 6 frames so every cut lands on the same 0.2s grid and the eye can build a pulse without music. Two shots that share a window are cut from ONE continuous take, so the match cut between them is literally the same footage carrying on.",
+  "windows": {
+    "herdA": {
+      "src": "dark/herd",
+      "frames": 270,
+      "note": "shots 1+2 \u2014 one continuous take; the pane the film opens on is the pane inside the phone"
+    },
+    "terminal": {
+      "src": "dark/terminal",
+      "frames": 78,
+      "note": "shot 3 \u2014 key row, composer, ^C"
+    },
+    "voice": {
+      "src": "dark/voice",
+      "frames": 96,
+      "note": "shot 4 \u2014 tap, overlay opens, Listening"
+    },
+    "changesA": {
+      "src": "light/changes",
+      "frames": 168,
+      "note": "shots 6+7 \u2014 the review act, one take on paper"
+    },
+    "usage": {
+      "src": "dark/usage",
+      "frames": 78,
+      "note": "shot 8 \u2014 269.4M / $177"
+    },
+    "plugins": {
+      "src": "dark/plugins",
+      "frames": 78,
+      "note": "shot 9 \u2014 native panels"
+    },
+    "connection": {
+      "src": "dark/connection",
+      "frames": 66,
+      "note": "shot 10 \u2014 pinned to the held tail of the flow, not the liveliest moment: this shot is a claim rather than an action, and the lively part is a scroll that carries the machine owner's relay host into frame. review/leakcheck.mjs enforces it.",
+      "start": 18.2
+    },
+    "herdB": {
+      "src": "dark/herd",
+      "frames": 96,
+      "start": 24.5,
+      "note": "shot 11 \u2014 the spaces list, where 16 agents is on screen. Pinned rather than found: the scorer picks the liveliest window and the scale reveal needs a specific one."
+    },
+    "inbox": {
+      "src": "dark/inbox",
+      "frames": 84,
+      "note": "shot 12 \u2014 five finished rows"
+    }
+  }
+}

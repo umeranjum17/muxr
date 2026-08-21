@@ -58,11 +58,17 @@ async function main() {
         // The agent's own status footer is pane chrome, and it carries spend and
         // context ratios that mean nothing outside the terminal.
         .filter((line) => !/^~?[/~]|^\s*[↑↓]|^\s*○|ponytail:/.test(line))
-        // Markdown table rows survive the pane's narrow wrap as pipe soup. The
-        // prose is what reads at film size, so keep the prose.
-        .filter((line) => !/^\s*\|/.test(line) && !/^\s*\|?-{2,}/.test(line));
+        // Markdown survives the pane's narrow wrap as pipe soup, half-open
+        // code spans and orphaned headings. The prose is what reads at film
+        // size, so keep the prose and nothing else.
+        .filter((line) => !/\|/.test(line) && !/^\s*-{2,}/.test(line))
+        .filter((line) => !/^\s*(#|`|\.\.\. \()/.test(line));
 
-    const offenders = lines.filter((line) => FORBIDDEN.some((re) => re.test(line)));
+    // The pane draws a one-column gutter. Keeping it would set the scrollback
+    // one character in from the plate's own padding.
+    const flush = lines.every((line) => line.startsWith(' ')) ? lines.map((line) => line.slice(1)) : lines;
+
+    const offenders = flush.filter((line) => FORBIDDEN.some((re) => re.test(line)));
     if (offenders.length > 0) {
         throw new Error(`refusing to snapshot: routing state or a secret is on screen\n  ${offenders.join('\n  ')}`);
     }
@@ -71,7 +77,7 @@ async function main() {
         label: pane.label,
         agent: pane.agent ?? 'shell',
         branch: (pane.cwd ?? '').split('/').pop() ?? '',
-        lines: lines.slice(-20),
+        lines: flush.slice(-20),
     };
     await writeFile(path.join(root, 'lib', 'desk.json'), `${JSON.stringify(snapshot, null, 4)}\n`);
     console.log(`--> lib/desk.json  ${snapshot.lines.length} lines from ${snapshot.label}`);

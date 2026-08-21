@@ -15,16 +15,14 @@ appId: com.trymuxr.app
 # Frame on the claim, not on the hostname. The Relay row carries the owner's
 # real tailnet name, which is not a credential — the screen says as much — but
 # it has no business on a public store listing.
+# One swipe, and one that lands the gap between the two cards on the header
+# rather than cutting a row through its x-height. Two swipes stacked put the
+# card edge across "Transport" and left "Self-host" floating over a truncated
+# subtitle.
 - swipe:
-    start: "50%, 70%"
-    end: "50%, 36%"
+    start: "50%, 74%"
+    end: "50%, 46%"
     duration: 1000
-- waitForAnimationToEnd:
-    timeout: 1500
-- swipe:
-    start: "50%, 62%"
-    end: "50%, 44%"
-    duration: 800
 - waitForAnimationToEnd:
     timeout: 3000
 - repeat:
