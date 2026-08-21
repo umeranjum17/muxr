@@ -34,18 +34,21 @@ export function CapabilityButton({ context, contribution, pluginId, manifestHash
         accessibilityLabel={available ? label : `${label} ${t('plugins.unavailableSuffix')}`}
         accessibilityState={{ busy: connecting, selected: active, disabled: !available }}
         style={({ pressed }) => ({
-            width: 42,
-            height: 42,
-            borderRadius: 21,
+            width: 44,
+            height: 44,
+            borderRadius: 22,
             alignItems: 'center',
             justifyContent: 'center',
-            backgroundColor: active ? withAlpha(theme.colors.accent, 0.16) : theme.colors.surfaceHigh,
+            // Bare until it is live: an always-on pill made this sit in the
+            // composer as a widget beside the chrome-free dictation mic instead
+            // of as its peer. The state pays for the fill.
+            backgroundColor: active ? withAlpha(theme.colors.accent, 0.16) : 'transparent',
             opacity: available ? (pressed ? 0.7 : 1) : 0.4,
         })}
     >
-        {/* The realtime control draws the thing it opens, small: a lit core with
-            one orbit. A glyph from the icon set says headset or radio, and both
-            promise hardware rather than a voice. */}
+        {/* The realtime control is a pulse line: the mic beside it is what you
+            speak into, and a second audio glyph there would read as a second
+            way to dictate. */}
         {showsRealtime
             ? <RealtimeGlyph size={22} state={realtime.state} color={tint} />
             : <Ionicons name={icon as never} size={22} color={tint} />}

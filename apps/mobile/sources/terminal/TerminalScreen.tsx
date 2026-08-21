@@ -635,15 +635,36 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                 >
                     <DeclarativeTerminalKeySlot channel={channel} />
                 </ScrollView>
+                {/* Session tools, pinned outside the key ScrollView so the caps
+                    can never scroll under it. Round and raised where the caps are
+                    flat rectangles: it floats beside the row rather than ending
+                    it, which is what stopped the old boxed glyph from reading as
+                    one more key. */}
                 <Pressable
                     onPress={() => setActionsOpen((open) => !open)}
                     hitSlop={8}
                     accessibilityRole="button"
                     accessibilityLabel="Session actions"
                     accessibilityState={{ expanded: actionsOpen }}
-                    style={({ pressed }) => ({ width: 46, height: 40, marginRight: 8, alignItems: 'center', justifyContent: 'center', borderRadius: 8, backgroundColor: actionsOpen ? theme.colors.surfaceHighest : theme.colors.surfaceHigh, opacity: pressed ? 0.65 : 1 })}
+                    style={({ pressed }) => ({
+                        width: 44,
+                        height: 44,
+                        marginHorizontal: 8,
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        borderRadius: 22,
+                        backgroundColor: actionsOpen ? theme.colors.surfaceHighest : theme.colors.surfaceHigh,
+                        borderWidth: StyleSheet.hairlineWidth,
+                        borderColor: theme.colors.divider,
+                        shadowColor: theme.colors.shadow.color,
+                        shadowOffset: { width: 0, height: 2 },
+                        shadowRadius: 6,
+                        shadowOpacity: theme.colors.shadow.opacity,
+                        elevation: 3,
+                        opacity: pressed ? 0.75 : 1,
+                    })}
                 >
-                    <Ionicons name="ellipsis-horizontal" size={20} color={actionsOpen ? theme.colors.text : theme.colors.textSecondary} />
+                    <Ionicons name={actionsOpen ? 'construct' : 'construct-outline'} size={20} color={actionsOpen ? theme.colors.text : theme.colors.textSecondary} />
                 </Pressable>
             </View>
 
