@@ -10,7 +10,7 @@ import * as React from 'react';
 import { ActivityIndicator, AppState, BackHandler, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useKeyboardState } from 'react-native-keyboard-controller';
-import Animated, { FadeIn, FadeOut, ReduceMotion } from 'react-native-reanimated';
+import Animated, { Easing, FadeIn, FadeOut, ReduceMotion, SlideInDown, SlideOutDown } from 'react-native-reanimated';
 import { useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
@@ -34,10 +34,10 @@ import { encodeBase64 } from '@/encryption/base64';
 import { nextWorkingAgentId, workingAgentSwipeIds } from '@/utils/liveTerminalOrder';
 import { useSessionPlugins } from '@/plugins/useSessionPlugins';
 import { PluginSlot } from '@/plugins/PluginSlot';
-import { DeclarativeChips, DeclarativeHeaderButtons, DeclarativeTerminalKeySlot } from '@/plugins/DeclarativePluginSlot';
+import { DeclarativeSessionActions, DeclarativeTerminalKeySlot } from '@/plugins/DeclarativePluginSlot';
 import { useSlotContributions } from '@/plugins/useSlotContributions';
 import type { SessionMenu } from '@/plugins/slotTypes';
-import { recentTerminalLinks, subscribeTerminalLinks, viewportTerminalLinks } from '@/terminal/recentOutput';
+import { subscribeTerminalLinks, viewportTerminalLinks } from '@/terminal/recentOutput';
 import { openExternalUrl } from '@/utils/openExternalUrl';
 import { resolvePluginText } from '@/plugins/pluginText';
 import { randomUUID } from 'expo-crypto';
@@ -89,6 +89,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     // Modal.alert lays buttons out in a row: past three it collapses into
     // overlapping mush on a phone. Anything with more options uses this sheet.
     const [menu, setMenu] = React.useState<SessionMenu | null>(null);
+    const [actionsOpen, setActionsOpen] = React.useState(false);
     const [attachedPaths, setAttachedPaths] = React.useState<string[]>([]);
     // Other openable panes in this session's tab, in layout order. A pane only
     // gets a sessionId once herdr detects an agent in it, so bare shells are
@@ -278,13 +279,14 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     // The action menu is a plain absolute View, not a modal, so Android's
     // hardware back would leave the screen instead of dismissing it.
     React.useEffect(() => {
-        if (menu === null || Platform.OS !== 'android') return;
+        if ((menu === null && !actionsOpen) || Platform.OS !== 'android') return;
         const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
             setMenu(null);
+            setActionsOpen(false);
             return true;
         });
         return () => subscription.remove();
-    }, [menu]);
+    }, [actionsOpen, menu]);
 
     // The agent is a TUI: it can only reach a file by having the path in its
     // prompt. But splicing that path into the draft the moment you attach
@@ -437,77 +439,6 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                 {hasOverlay && (
                     <Pressable onPress={() => setTreeOpen(true)} hitSlop={8} accessible={false} accessibilityElementsHidden importantForAccessibility="no" style={({ pressed }) => ({ padding: 6, opacity: pressed ? 0.6 : 1 })}>
                         <Ionicons name="list-outline" size={20} color={theme.colors.textSecondary} />
-                    </Pressable>
-                )}
-                {(
-                    <Pressable
-                        onPress={() => {
-                            const links = recentTerminalLinks(props.id);
-                            const linkItems: SessionMenu['items'] = links.length === 0 ? [] : [{
-                                label: 'Open link',
-                                hint: links[0] === undefined ? undefined : displayLink(links[0], 60),
-                                onPress: () => {
-                                    setMenu({
-                                        title: 'Open link',
-                                        note: 'From the recent terminal output',
-                                        items: links.map((url) => ({
-                                            label: displayLink(url, 72),
-                                            onPress: () => {
-                                                void openExternalUrl(url);
-                                            },
-                                        })),
-                                    });
-                                },
-                            }, {
-                                label: 'Copy link',
-                                hint: links[0] === undefined ? undefined : displayLink(links[0], 60),
-                                onPress: () => {
-                                    setMenu({
-                                        title: 'Copy link',
-                                        note: 'From the recent terminal output',
-                                        items: links.map((url) => ({
-                                            label: displayLink(url, 72),
-                                            onPress: () => {
-                                                void Clipboard.setStringAsync(url).then(() => Modal.alert('Link copied', url));
-                                            },
-                                        })),
-                                    });
-                                },
-                            }];
-                            const items: SessionMenu['items'] = [...linkItems, ...pluginButtons.map((button) => ({
-                                label: resolvePluginText(button.label),
-                                hint: button.name,
-                                onPress: () => {
-                                    const key = `${button.pluginId}:${button.id}`;
-                                    if (pluginActionBusy !== undefined) return;
-                                    setExtensionActionBusy(key);
-                                    void sync.request('plugin.invoke', {
-                                        pluginId: button.pluginId,
-                                        manifestHash: button.manifestHash,
-                                        contributionId: button.id,
-                                        sessionId: props.id,
-                                        idempotencyKey: randomUUID(),
-                                    }).catch((error) => Modal.alert(`${button.name} failed`, error instanceof Error ? error.message : String(error)))
-                                        .finally(() => setExtensionActionBusy(undefined));
-                                },
-                            })), ...(Platform.OS === 'web' || stopping ? [] : [{
-                                label: 'Stop agent',
-                                hint: 'Closes this pane in herdr',
-                                destructive: true,
-                                onPress: stopSession,
-                            }])];
-                            setMenu({ title: 'Actions', items, ...(items.length === 0 ? { note: 'No actions available' } : {}) });
-                        }}
-                        disabled={pluginActionBusy !== undefined}
-                        hitSlop={8}
-                        accessibilityRole="button"
-                        accessibilityLabel="More actions"
-                        accessibilityState={{ disabled: pluginActionBusy !== undefined }}
-                        style={({ pressed }) => ({ padding: 6, opacity: pressed ? 0.6 : 1 })}
-                    >
-                        {pluginActionBusy === undefined
-                            ? <Ionicons name="ellipsis-horizontal" size={20} color={theme.colors.textSecondary} />
-                            : <ActivityIndicator size="small" color={theme.colors.textSecondary} />}
                     </Pressable>
                 )}
             </View>
@@ -674,25 +605,26 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
             </View>
 
             {Platform.OS !== 'web' && <>
-            <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                keyboardShouldPersistTaps="always"
-                style={{ maxHeight: 56, backgroundColor: theme.colors.surface }}
-                contentContainerStyle={{ alignItems: 'center', gap: 6, paddingHorizontal: 8, paddingVertical: 6 }}
-            >
-                {/* Pills lead: the key toolbar is wider than a phone, so anything
-                    after it is scrolled off-screen and effectively invisible. */}
-                {/* Plugin chips live here, not in the header: six trailing
-                    buttons left the session's own name truncated to three
-                    characters, and the name is what the bar is for. */}
-                <PluginSlot slot="session.header.trailing" context={{ sessionId: props.id, cwd: session?.metadata?.path }} />
-                <DeclarativeHeaderButtons cwd={session?.metadata?.path} sessionId={props.id} />
-                <DeclarativeChips slot="session.header.trailing" />
-                <PluginSlot slot="session.pills" context={{ sessionId: props.id }} />
-                <DeclarativeChips slot="session.pills" />
-                <DeclarativeTerminalKeySlot channel={channel} />
-            </ScrollView>
+            <View style={{ minHeight: 52, flexDirection: 'row', alignItems: 'center', backgroundColor: theme.colors.surface }}>
+                <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    keyboardShouldPersistTaps="always"
+                    style={{ flex: 1, maxHeight: 52 }}
+                    contentContainerStyle={{ alignItems: 'center', gap: 6, paddingLeft: 8, paddingRight: 6, paddingVertical: 6 }}
+                >
+                    <DeclarativeTerminalKeySlot channel={channel} />
+                </ScrollView>
+                <Pressable
+                    onPress={() => setActionsOpen(true)}
+                    hitSlop={8}
+                    accessibilityRole="button"
+                    accessibilityLabel="Session actions"
+                    style={({ pressed }) => ({ width: 46, height: 40, marginRight: 8, alignItems: 'center', justifyContent: 'center', borderRadius: 8, backgroundColor: theme.colors.surfaceHigh, opacity: pressed ? 0.65 : 1 })}
+                >
+                    <Ionicons name="apps-outline" size={20} color={theme.colors.textSecondary} />
+                </Pressable>
+            </View>
 
             {attachedPaths.length > 0 && (
                 <ScrollView
@@ -770,6 +702,60 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                 slot="session.overlay"
                 context={{ sessionId: props.id, visible: treeOpen, onClose: () => setTreeOpen(false), openMenu: setMenu, showHint: showGestureHint }}
             />
+
+            {actionsOpen && (
+                <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 20, justifyContent: 'flex-end' }}>
+                    <Animated.View pointerEvents="none" entering={FadeIn.duration(140).reduceMotion(ReduceMotion.System)} exiting={FadeOut.duration(120).reduceMotion(ReduceMotion.System)} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: theme.colors.scrim }} />
+                    <Pressable onPress={() => setActionsOpen(false)} accessibilityLabel="Close session actions" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} />
+                    <Animated.View
+                        entering={SlideInDown.duration(220).easing(Easing.bezier(0.23, 1, 0.32, 1)).reduceMotion(ReduceMotion.System)}
+                        exiting={SlideOutDown.duration(170).easing(Easing.bezier(0.23, 1, 0.32, 1)).reduceMotion(ReduceMotion.System)}
+                        style={{ maxHeight: '78%', backgroundColor: theme.colors.surface, paddingBottom: insets.bottom + 8, borderTopLeftRadius: 20, borderTopRightRadius: 20, overflow: 'hidden' }}
+                    >
+                        <View style={{ alignItems: 'center', paddingTop: 8 }}><View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: theme.colors.textSecondary, opacity: 0.45 }} /></View>
+                        <View style={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 10 }}>
+                            <Text style={{ color: theme.colors.text, fontWeight: '600', fontSize: 18 }}>Actions</Text>
+                            <Text style={{ color: theme.colors.textSecondary, fontSize: 12, marginTop: 2 }}>Files, previews, changes and session controls</Text>
+                        </View>
+                        <ScrollView style={{ maxHeight: 460 }} contentContainerStyle={{ gap: 12, paddingHorizontal: 12, paddingBottom: 8 }}>
+                            <DeclarativeSessionActions cwd={session?.metadata?.path} sessionId={props.id} onNavigate={() => setActionsOpen(false)} />
+                            {pluginButtons.length > 0 && (
+                                <View style={{ overflow: 'hidden', borderRadius: 12, borderWidth: 1, borderColor: theme.colors.divider, backgroundColor: theme.colors.surfaceHigh }}>
+                                    {pluginButtons.map((button) => {
+                                        const key = `${button.pluginId}:${button.id}`;
+                                        return <Pressable key={key} onPress={() => {
+                                            if (pluginActionBusy !== undefined) return;
+                                            setActionsOpen(false);
+                                            setExtensionActionBusy(key);
+                                            void sync.request('plugin.invoke', {
+                                                pluginId: button.pluginId,
+                                                manifestHash: button.manifestHash,
+                                                contributionId: button.id,
+                                                sessionId: props.id,
+                                                idempotencyKey: randomUUID(),
+                                            }).catch((error) => Modal.alert(`${button.name} failed`, error instanceof Error ? error.message : String(error)))
+                                                .finally(() => setExtensionActionBusy(undefined));
+                                        }} disabled={pluginActionBusy !== undefined} accessibilityRole="button" accessibilityLabel={resolvePluginText(button.label)} accessibilityState={{ busy: pluginActionBusy === key, disabled: pluginActionBusy !== undefined }}
+                                            style={({ pressed }) => ({ minHeight: 52, flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 10, opacity: pressed ? 0.65 : 1 })}>
+                                            {pluginActionBusy === key ? <ActivityIndicator size="small" color={theme.colors.textSecondary} /> : <Ionicons name="extension-puzzle-outline" size={20} color={theme.colors.textSecondary} />}
+                                            <View style={{ flex: 1 }}><Text style={{ color: theme.colors.text, fontSize: 15, fontWeight: '500' }}>{resolvePluginText(button.label)}</Text><Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>{button.name}</Text></View>
+                                            <Ionicons name="chevron-forward" size={16} color={theme.colors.textSecondary} />
+                                        </Pressable>;
+                                    })}
+                                </View>
+                            )}
+                            {!stopping && (
+                                <Pressable onPress={() => { setActionsOpen(false); stopSession(); }} accessibilityRole="button" accessibilityLabel="Stop agent"
+                                    style={({ pressed }) => ({ minHeight: 52, flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.divider, backgroundColor: theme.colors.surfaceHigh, opacity: pressed ? 0.65 : 1 })}>
+                                    <Ionicons name="stop-circle-outline" size={20} color={theme.colors.status.error} />
+                                    <View style={{ flex: 1 }}><Text style={{ color: theme.colors.status.error, fontSize: 15, fontWeight: '500' }}>Stop agent</Text><Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>Closes this pane in herdr</Text></View>
+                                </Pressable>
+                            )}
+                        </ScrollView>
+                        <Pressable onPress={() => setActionsOpen(false)} style={{ paddingHorizontal: 16, paddingVertical: 14 }}><Text style={{ color: theme.colors.textSecondary, fontSize: 15 }}>Cancel</Text></Pressable>
+                    </Animated.View>
+                </View>
+            )}
 
             {menu !== null && (
                 <Pressable

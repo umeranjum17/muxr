@@ -110,7 +110,7 @@ function SheetActions({ actions, busyId, onAction }: {
 }
 
 /** Lazy action list: the plugin declares every tap; there are no feature fallbacks. */
-export function ItemList({ context, pluginId, manifestHash, contribution }: PrimitiveProps) {
+export function ItemList({ context, pluginId, manifestHash, contribution, presentation = 'pill' }: PrimitiveProps & { presentation?: 'pill' | 'action-row' }) {
     const { theme } = useUnistyles();
     const { width } = useWindowDimensions();
     const router = useRouter();
@@ -283,18 +283,22 @@ export function ItemList({ context, pluginId, manifestHash, contribution }: Prim
     const badgeTone = model.badge?.tone;
     const badgeColor = failed ? theme.colors.textDestructive : badgeTone === undefined ? theme.colors.textSecondary : toneColor(theme, badgeTone);
     if (items.length === 0 && model.actions.length === 0) {
-        if (!failed) return null;
-        return <Pressable onPress={() => load(true)} accessibilityRole="button" accessibilityLabel={`${accessibilityLabel} ${t('plugins.unavailableSuffix')}. ${t('plugins.retry')}`} hitSlop={11}
-            style={({ pressed }) => [styles.pill, { backgroundColor: theme.colors.surfaceHigh, borderColor: theme.colors.divider }, pressed && { backgroundColor: theme.colors.surfacePressed }]}>
-            <Ionicons name="warning-outline" size={11} color={theme.colors.textDestructive} />
-            <Text style={[styles.count, { color: theme.colors.textDestructive }]}>!</Text>
+        if (!failed && presentation === 'pill') return null;
+        return <Pressable onPress={failed ? () => load(true) : undefined} disabled={!failed} accessibilityRole="button" accessibilityLabel={failed ? `${accessibilityLabel} ${t('plugins.unavailableSuffix')}. ${t('plugins.retry')}` : `${accessibilityLabel}, no items`} hitSlop={11}
+            style={({ pressed }) => [presentation === 'action-row' ? styles.actionRow : styles.pill, { backgroundColor: theme.colors.surfaceHigh, borderColor: theme.colors.divider, opacity: failed || presentation === 'pill' ? 1 : 0.55 }, pressed && { backgroundColor: theme.colors.surfacePressed }]}>
+            <Ionicons name={(failed ? 'warning-outline' : icon) as never} size={presentation === 'action-row' ? 20 : 11} color={failed ? theme.colors.textDestructive : theme.colors.textSecondary} />
+            {presentation === 'action-row' && <Text style={[styles.actionLabel, { color: theme.colors.text }]}>{title}</Text>}
+            <Text style={[styles.count, { color: failed ? theme.colors.textDestructive : theme.colors.textSecondary }]}>{failed ? '!' : '0'}</Text>
         </Pressable>;
     }
+    const count = model.badge?.value ?? items.length;
     return <>
         <Pressable onPress={() => { setOpen(true); load(true); }} accessibilityRole="button" accessibilityLabel={`${accessibilityLabel}${failed ? `, ${t('plugins.showingStale')}. ${t('plugins.retry')}` : ''}`} hitSlop={11}
-            style={({ pressed }) => [styles.pill, { backgroundColor: theme.colors.surfaceHigh, borderColor: failed ? theme.colors.textDestructive : theme.colors.divider }, pressed && { backgroundColor: theme.colors.surfacePressed }]}>
-            <Ionicons name={(failed ? 'warning-outline' : icon) as never} size={11} color={badgeColor} />
-            <Text style={[styles.count, { color: badgeColor }]}>{model.badge?.value ?? items.length}</Text>
+            style={({ pressed }) => [presentation === 'action-row' ? styles.actionRow : styles.pill, { backgroundColor: theme.colors.surfaceHigh, borderColor: failed ? theme.colors.textDestructive : theme.colors.divider }, pressed && { backgroundColor: theme.colors.surfacePressed }]}>
+            <Ionicons name={(failed ? 'warning-outline' : icon) as never} size={presentation === 'action-row' ? 20 : 11} color={badgeColor} />
+            {presentation === 'action-row' && <Text style={[styles.actionLabel, { color: theme.colors.text }]}>{title}</Text>}
+            <Text style={[styles.count, { color: badgeColor }]}>{count}</Text>
+            {presentation === 'action-row' && <Ionicons name="chevron-forward" size={16} color={theme.colors.textSecondary} />}
         </Pressable>
         <OptionSheet visible={open} title={title} options={[]} onSelect={() => {}} onClose={() => setOpen(false)} virtualizedBody={galleryImages.length > 0} virtualizedBodyHeight={sheetBodyHeight} body={
             galleryImages.length > 0
@@ -342,6 +346,8 @@ export function ItemList({ context, pluginId, manifestHash, contribution }: Prim
 
 const styles = StyleSheet.create({
     pill: { flexDirection: 'row', alignItems: 'center', gap: 5, height: 26, borderRadius: 999, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 8 },
+    actionRow: { minHeight: 52, flexDirection: 'row', alignItems: 'center', gap: 12, borderBottomWidth: StyleSheet.hairlineWidth, paddingHorizontal: 16, paddingVertical: 10 },
+    actionLabel: { flex: 1, fontSize: 15, fontWeight: '500' },
     count: { fontSize: 11, ...Typography.mono('semiBold') },
     sheetActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingBottom: 4 },
     imageGrid: { flexDirection: 'row', gap: 8, marginBottom: 8 },

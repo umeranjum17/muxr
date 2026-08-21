@@ -1,11 +1,11 @@
 import * as React from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Item } from '@/components/Item';
 import { OptionSheet } from '@/components/OptionSheet';
 import { useUnistyles } from 'react-native-unistyles';
-import type { PluginDataCard, PluginNavigationItem, PluginTerminalKeyRow } from '@muxr/contract';
+import type { PluginDataCard, PluginNativeContribution, PluginNavigationItem, PluginTerminalKeyRow } from '@muxr/contract';
 import { MAX_RPC_DISPLAY_BYTES, PLUGIN_CALL_CLIENT_TIMEOUT_MS, capUtf8Bytes, sanitizeDisplayText } from '@muxr/contract';
 import type { TerminalChannel } from '@/terminal/openTerminal';
 import { sync } from '@/sync/sync';
@@ -17,6 +17,7 @@ import { Modal } from '@/modal';
 import { subscribePluginDataInvalidation } from './pluginDataInvalidation';
 import { resolvePluginText } from './pluginText';
 import { t } from '@/text';
+import { ItemList } from './primitives/ItemList';
 
 function KeyRow({ contribution, channel }: { contribution: PluginTerminalKeyRow; channel?: TerminalChannel }) {
     const { theme } = useUnistyles();
@@ -190,6 +191,41 @@ export function DeclarativeHeaderButtons({ cwd, sessionId }: { cwd?: string; ses
             <Ionicons name={contribution.icon as any} size={16} color={theme.colors.textSecondary} />
         </Pressable>,
     ] : []))}</>;
+}
+
+type DeclarativeSessionAction =
+    | { kind: 'screen'; key: string; label: string; icon: string; pluginId: string; contentId: string }
+    | { kind: 'list'; key: string; label: string; pluginId: string; manifestHash: string; contribution: PluginNativeContribution };
+
+/** Labeled session tools for the terminal's single Actions sheet. */
+export function DeclarativeSessionActions({ cwd, sessionId, onNavigate }: { cwd?: string; sessionId: string; onNavigate: () => void }) {
+    const { theme } = useUnistyles();
+    const router = useRouter();
+    useSlotContributions('session.header.trailing');
+    useSlotContributions('session.pills');
+    const actions = pluginSnapshot().flatMap<DeclarativeSessionAction>(({ summary, manifest }) => manifest.contributions.flatMap<DeclarativeSessionAction>((contribution) => {
+        if ('type' in contribution && contribution.type === 'screen-button' && contribution.slot === 'session.header.trailing' && cwd !== undefined && cwd !== '') {
+            return [{ kind: 'screen' as const, key: `${summary.pluginId}:${contribution.id}`, label: resolvePluginText(contribution.title), icon: contribution.icon, pluginId: summary.pluginId, contentId: contribution.contentContributionId }];
+        }
+        if ('type' in contribution && contribution.type === 'native' && contribution.primitive === 'item-list'
+            && (contribution.slot === 'session.header.trailing' || contribution.slot === 'session.pills')) {
+            return [{ kind: 'list' as const, key: `${summary.pluginId}:${contribution.id}`, label: contribution.title === undefined ? summary.name : resolvePluginText(contribution.title), pluginId: summary.pluginId, manifestHash: summary.manifestHash, contribution }];
+        }
+        return [];
+    })).sort((left, right) => left.label.localeCompare(right.label));
+    if (actions.length === 0) return null;
+    return <View style={{ overflow: 'hidden', borderRadius: 12, borderWidth: 1, borderColor: theme.colors.divider, backgroundColor: theme.colors.surfaceHigh }}>
+        {actions.map((action) => action.kind === 'screen'
+            ? <Pressable key={action.key} accessibilityRole="button" accessibilityLabel={action.label} onPress={() => {
+                onNavigate();
+                router.push(pluginHref(action.pluginId, action.contentId, { sessionId }));
+            }} style={({ pressed }) => ({ minHeight: 52, flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
+                <Ionicons name={action.icon as never} size={20} color={theme.colors.textSecondary} />
+                <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15, fontWeight: '500' }}>{action.label}</Text>
+                <Ionicons name="chevron-forward" size={16} color={theme.colors.textSecondary} />
+            </Pressable>
+            : <ItemList key={action.key} context={{ sessionId }} pluginId={action.pluginId} manifestHash={action.manifestHash} contribution={action.contribution} presentation="action-row" />)}
+    </View>;
 }
 
 /** Declarative chips for a compact slot; renders nothing when no plugin claims it. */
