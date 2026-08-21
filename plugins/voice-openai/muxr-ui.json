@@ -60,7 +60,7 @@
       "primitive": "icon-button",
       "params": {
         "capability": "voice.start",
-        "icon": "planet-outline",
+        "icon": "pulse-outline",
         "accessibilityLabel": "Start or open realtime conversation",
         "indicator": "realtime-session"
       }
@@ -72,7 +72,7 @@
       "primitive": "icon-button",
       "params": {
         "capability": "voice.start",
-        "icon": "planet-outline",
+        "icon": "pulse-outline",
         "accessibilityLabel": "Talk to this session",
         "indicator": "realtime-session"
       }
@@ -109,7 +109,7 @@
           "ja": "音声操作の設定"
         }
       },
-      "icon": "planet-outline",
+      "icon": "pulse-outline",
       "action": {
         "type": "screen",
         "contributionId": "settings-screen"
