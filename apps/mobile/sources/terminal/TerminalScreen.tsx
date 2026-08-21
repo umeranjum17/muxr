@@ -38,7 +38,7 @@ import { PluginSlot } from '@/plugins/PluginSlot';
 import { DeclarativeSessionActions, DeclarativeTerminalKeySlot } from '@/plugins/DeclarativePluginSlot';
 import { useSlotContributions } from '@/plugins/useSlotContributions';
 import type { SessionMenu } from '@/plugins/slotTypes';
-import { subscribeTerminalLinks, viewportTerminalLinks } from '@/terminal/recentOutput';
+import { recentTerminalLinks, subscribeTerminalLinks, viewportTerminalLinks } from '@/terminal/recentOutput';
 import { openExternalUrl } from '@/utils/openExternalUrl';
 import { resolvePluginText } from '@/plugins/pluginText';
 import { randomUUID } from 'expo-crypto';
@@ -259,6 +259,22 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
         }
         void openExternalUrl(chipLink);
     }, [chipLink, chipKind, props.id]);
+
+    const showRecentLinks = React.useCallback((action: 'open' | 'copy') => {
+        const links = recentTerminalLinks(props.id);
+        if (links.length === 0) return;
+        setActionsOpen(false);
+        setMenu({
+            title: action === 'open' ? 'Open link' : 'Copy link',
+            note: 'From the recent terminal output',
+            items: links.map((url) => ({
+                label: displayLink(url, 72),
+                onPress: action === 'open'
+                    ? () => { void openExternalUrl(url); }
+                    : () => { void Clipboard.setStringAsync(url).then(() => Modal.alert('Link copied', url)); },
+            })),
+        });
+    }, [props.id]);
 
     // Coming back to a screen whose socket died while it was backgrounded used
     // to leave a dead terminal until the user navigated away and back. Retry on
@@ -738,7 +754,23 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                         elevation: 12,
                     }}>
                         <ScrollView style={{ flexGrow: 0, flexShrink: 1 }} keyboardShouldPersistTaps="always">
+                            <PluginSlot slot="session.header.trailing" context={{ sessionId: props.id, cwd: session?.metadata?.path }} />
+                            <PluginSlot slot="session.pills" context={{ sessionId: props.id }} />
                             <DeclarativeSessionActions cwd={session?.metadata?.path} sessionId={props.id} onNavigate={() => setActionsOpen(false)} />
+                            {recentTerminalLinks(props.id).length > 0 && <>
+                                <Pressable onPress={() => showRecentLinks('open')} accessibilityRole="button" accessibilityLabel="Open recent terminal link"
+                                    style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
+                                    <Ionicons name="open-outline" size={18} color={theme.colors.textSecondary} />
+                                    <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Open link</Text>
+                                    <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
+                                </Pressable>
+                                <Pressable onPress={() => showRecentLinks('copy')} accessibilityRole="button" accessibilityLabel="Copy recent terminal link"
+                                    style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
+                                    <Ionicons name="copy-outline" size={18} color={theme.colors.textSecondary} />
+                                    <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Copy link</Text>
+                                    <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
+                                </Pressable>
+                            </>}
                             {pluginButtons.map((button) => {
                                 const key = `${button.pluginId}:${button.id}`;
                                 return <Pressable key={key} onPress={() => {

@@ -146,56 +146,34 @@ export function DeclarativeHomeCards() {
     return <>{pluginSnapshot().flatMap(({ summary, manifest }) => manifest.contributions.flatMap((contribution) => 'type' in contribution && contribution.type === 'data-card' && contribution.slot === 'home.cards' && contribution.presentation !== 'sheet' ? [<DataCard key={`${summary.pluginId}:${contribution.id}`} contribution={contribution} pluginId={summary.pluginId} manifestHash={summary.manifestHash} pluginName={summary.name} />] : []))}</>;
 }
 
-/** Compact read-only chip: the same data-card contribution rendered for a header or pill row. */
-function DataChip({ contribution, pluginId, manifestHash }: { contribution: PluginDataCard; pluginId: string; manifestHash: string }) {
-    const { theme } = useUnistyles(); const data = useDataValue(pluginId, manifestHash, contribution.source.contributionId);
+function DataActionRow({ contribution, pluginId, manifestHash }: { contribution: PluginDataCard; pluginId: string; manifestHash: string }) {
+    const { theme } = useUnistyles();
+    const data = useDataValue(pluginId, manifestHash, contribution.source.contributionId);
     const [open, setOpen] = React.useState(false);
     const shown = data.value ?? (data.failed ? t('plugins.unavailableLabel') : contribution.emptyText === undefined ? undefined : resolvePluginText(contribution.emptyText));
     const label = resolvePluginText(contribution.title);
-    const failureLabel = `${label}, ${data.value === undefined ? t('plugins.unavailableSuffix') : t('plugins.showingStale')}. ${t('plugins.retry')}`;
     if (shown === undefined) return null;
-    // A header has room for one control, not a sentence: icon opens the detail.
-    if (contribution.presentation === 'sheet') {
-        return <>
-            <Pressable onPress={() => { if (data.failed) data.retry(); setOpen(true); }} accessibilityRole="button" accessibilityLabel={data.failed ? failureLabel : label} hitSlop={8}
-                style={{ width: 30, height: 30, alignItems: 'center', justifyContent: 'center', borderRadius: 999, backgroundColor: theme.colors.surfaceHigh }}>
-                <Ionicons name={(contribution.icon ?? 'stats-chart-outline') as any} size={16} color={theme.colors.textSecondary} />
-            </Pressable>
-            <OptionSheet visible={open} title={resolvePluginText(contribution.title)} options={[]} onSelect={() => {}} onClose={() => setOpen(false)}
-                body={<View style={{ paddingHorizontal: 16, paddingBottom: 12 }}><Text style={{ color: theme.colors.text, fontSize: 13, lineHeight: 20 }}>{shown}</Text></View>} />
-        </>;
-    }
-    // Chips sit in a dense row next to native controls, so one bounded line only.
-    const chipBody = <><Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 11, fontWeight: '600', maxWidth: 160 }}>{label}</Text>{data.failed && <Ionicons name="warning-outline" size={12} color={theme.colors.textDestructive} />}<Text numberOfLines={1} style={{ color: data.failed ? theme.colors.textDestructive : theme.colors.text, fontSize: 11, maxWidth: 160 }}>{shown}</Text></>;
-    const chipStyle = { flexDirection: 'row' as const, alignItems: 'center' as const, gap: 4, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 3, backgroundColor: theme.colors.surfaceHigh };
-    return data.failed
-        ? <Pressable onPress={data.retry} accessibilityRole="button" accessibilityLabel={failureLabel} hitSlop={14} style={chipStyle}>{chipBody}</Pressable>
-        : <View style={chipStyle}>{chipBody}</View>;
-}
-
-/**
- * Header icon that opens a plugin screen for the session's directory. The screen
- * travels with the session id, not the path: the host replaces a caller-supplied
- * cwd with the one it holds for that session, so a path sent from here is
- * dropped and the screen opens with no repository.
- */
-export function DeclarativeHeaderButtons({ cwd, sessionId }: { cwd?: string; sessionId: string }) {
-    const { theme } = useUnistyles();
-    const router = useRouter();
-    useSlotContributions('session.header.trailing');
-    if (cwd === undefined || cwd === '') return null;
-    return <>{pluginSnapshot().flatMap(({ summary, manifest }) => manifest.contributions.flatMap((contribution) => 'type' in contribution && contribution.type === 'screen-button' ? [
-        <Pressable key={`${summary.pluginId}:${contribution.id}`} accessibilityRole="button" accessibilityLabel={resolvePluginText(contribution.title)} hitSlop={8}
-            onPress={() => router.push(pluginHref(summary.pluginId, contribution.contentContributionId, { sessionId }))}
-            style={{ width: 30, height: 30, alignItems: 'center', justifyContent: 'center', borderRadius: 999, backgroundColor: theme.colors.surfaceHigh }}>
-            <Ionicons name={contribution.icon as any} size={16} color={theme.colors.textSecondary} />
-        </Pressable>,
-    ] : []))}</>;
+    const failureLabel = `${label}, ${data.value === undefined ? t('plugins.unavailableSuffix') : t('plugins.showingStale')}. ${t('plugins.retry')}`;
+    const style = ({ pressed = false } = {}) => ({ minHeight: 44, flexDirection: 'row' as const, alignItems: 'center' as const, gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh });
+    const body = <>
+        <Ionicons name={(contribution.icon ?? 'stats-chart-outline') as never} size={18} color={theme.colors.textSecondary} />
+        <Text numberOfLines={1} style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>{label}</Text>
+        {data.failed && <Ionicons name="warning-outline" size={14} color={theme.colors.textDestructive} />}
+        <Text numberOfLines={1} style={{ maxWidth: 120, color: data.failed ? theme.colors.textDestructive : theme.colors.textSecondary, fontSize: 12 }}>{shown}</Text>
+        {contribution.presentation === 'sheet' && <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />}
+    </>;
+    if (contribution.presentation !== 'sheet' && !data.failed) return <View style={style()}>{body}</View>;
+    return <>
+        <Pressable onPress={() => { if (data.failed) data.retry(); if (contribution.presentation === 'sheet') setOpen(true); }} accessibilityRole="button" accessibilityLabel={data.failed ? failureLabel : label} style={style}>{body}</Pressable>
+        {contribution.presentation === 'sheet' && <OptionSheet visible={open} title={label} options={[]} onSelect={() => {}} onClose={() => setOpen(false)}
+            body={<View style={{ paddingHorizontal: 16, paddingBottom: 12 }}><Text style={{ color: theme.colors.text, fontSize: 13, lineHeight: 20 }}>{shown}</Text></View>} />}
+    </>;
 }
 
 type DeclarativeSessionAction =
     | { kind: 'screen'; key: string; label: string; icon: string; pluginId: string; contentId: string }
-    | { kind: 'list'; key: string; label: string; pluginId: string; manifestHash: string; contribution: PluginNativeContribution };
+    | { kind: 'list'; key: string; label: string; pluginId: string; manifestHash: string; contribution: PluginNativeContribution }
+    | { kind: 'data'; key: string; label: string; pluginId: string; manifestHash: string; contribution: PluginDataCard };
 
 /** Labeled session tools, as rows for the terminal's Actions menu. */
 export function DeclarativeSessionActions({ cwd, sessionId, onNavigate }: { cwd?: string; sessionId: string; onNavigate: () => void }) {
@@ -205,35 +183,31 @@ export function DeclarativeSessionActions({ cwd, sessionId, onNavigate }: { cwd?
     useSlotContributions('session.pills');
     const actions = pluginSnapshot().flatMap<DeclarativeSessionAction>(({ summary, manifest }) => manifest.contributions.flatMap<DeclarativeSessionAction>((contribution) => {
         if ('type' in contribution && contribution.type === 'screen-button' && contribution.slot === 'session.header.trailing' && cwd !== undefined && cwd !== '') {
-            return [{ kind: 'screen' as const, key: `${summary.pluginId}:${contribution.id}`, label: resolvePluginText(contribution.title), icon: contribution.icon, pluginId: summary.pluginId, contentId: contribution.contentContributionId }];
+            return [{ kind: 'screen', key: `${summary.pluginId}:${contribution.id}`, label: resolvePluginText(contribution.title), icon: contribution.icon, pluginId: summary.pluginId, contentId: contribution.contentContributionId }];
         }
         if ('type' in contribution && contribution.type === 'native' && contribution.primitive === 'item-list'
             && (contribution.slot === 'session.header.trailing' || contribution.slot === 'session.pills')) {
-            return [{ kind: 'list' as const, key: `${summary.pluginId}:${contribution.id}`, label: contribution.title === undefined ? summary.name : resolvePluginText(contribution.title), pluginId: summary.pluginId, manifestHash: summary.manifestHash, contribution }];
+            return [{ kind: 'list', key: `${summary.pluginId}:${contribution.id}`, label: contribution.title === undefined ? summary.name : resolvePluginText(contribution.title), pluginId: summary.pluginId, manifestHash: summary.manifestHash, contribution }];
+        }
+        if ('type' in contribution && contribution.type === 'data-card'
+            && (contribution.slot === 'session.header.trailing' || contribution.slot === 'session.pills')) {
+            return [{ kind: 'data', key: `${summary.pluginId}:${contribution.id}`, label: resolvePluginText(contribution.title), pluginId: summary.pluginId, manifestHash: summary.manifestHash, contribution }];
         }
         return [];
     })).sort((left, right) => left.label.localeCompare(right.label));
     if (actions.length === 0) return null;
-    // No wrapper: the menu is the surface these rows sit on, and a bordered card
-    // inside it would draw a second box around every list.
-    return <>
-        {actions.map((action) => action.kind === 'screen'
-            ? <Pressable key={action.key} accessibilityRole="button" accessibilityLabel={action.label} onPress={() => {
-                onNavigate();
-                router.push(pluginHref(action.pluginId, action.contentId, { sessionId }));
-            }} style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
-                <Ionicons name={action.icon as never} size={18} color={theme.colors.textSecondary} />
-                <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>{action.label}</Text>
-                <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
-            </Pressable>
-            : <ItemList key={action.key} context={{ sessionId }} pluginId={action.pluginId} manifestHash={action.manifestHash} contribution={action.contribution} presentation="action-row" />)}
-    </>;
-}
-
-/** Declarative chips for a compact slot; renders nothing when no plugin claims it. */
-export function DeclarativeChips({ slot }: { slot: 'session.header.trailing' | 'session.pills' }) {
-    useSlotContributions(slot);
-    return <>{pluginSnapshot().flatMap(({ summary, manifest }) => manifest.contributions.flatMap((contribution) => 'type' in contribution && contribution.type === 'data-card' && contribution.slot === slot ? [<DataChip key={`${summary.pluginId}:${contribution.id}`} contribution={contribution} pluginId={summary.pluginId} manifestHash={summary.manifestHash} />] : []))}</>;
+    return <>{actions.map((action) => {
+        if (action.kind === 'screen') return <Pressable key={action.key} accessibilityRole="button" accessibilityLabel={action.label} onPress={() => {
+            onNavigate();
+            router.push(pluginHref(action.pluginId, action.contentId, { sessionId }));
+        }} style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
+            <Ionicons name={action.icon as never} size={18} color={theme.colors.textSecondary} />
+            <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>{action.label}</Text>
+            <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
+        </Pressable>;
+        if (action.kind === 'list') return <ItemList key={action.key} context={{ sessionId }} pluginId={action.pluginId} manifestHash={action.manifestHash} contribution={action.contribution} presentation="action-row" />;
+        return <DataActionRow key={action.key} contribution={action.contribution} pluginId={action.pluginId} manifestHash={action.manifestHash} />;
+    })}</>;
 }
 
 export function DeclarativeNavigationItems({ activeKey, onSelect }: { activeKey?: string; onSelect: (key: string, pluginId: string, contentId: string, label: string) => void }) {
