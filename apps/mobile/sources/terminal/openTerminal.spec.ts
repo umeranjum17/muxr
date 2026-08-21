@@ -128,7 +128,7 @@ describe('openTerminal reconnect ownership', () => {
 
 describe('recentTerminalLinks', () => {
     it('keeps a bounded latest-first list of safe visible URLs', async () => {
-        const { recordTerminalOutput, recentTerminalLinks, clearTerminalOutput } = await import('./recentOutput');
+        const { recordTerminalOutput, recentTerminalLinks, viewportTerminalLinks, clearTerminalOutput, setTerminalColumns } = await import('./recentOutput');
         const { encodeBase64 } = await import('@/encryption/base64');
         const record = (sessionId: string, text: string) => recordTerminalOutput(sessionId, encodeBase64(new TextEncoder().encode(text)));
 
@@ -138,6 +138,27 @@ describe('recentTerminalLinks', () => {
         record('s1', '\x07again https://localhost:8901/index.html. https://safe.example/\u202eevil https://user:secret@evil.example/ https://exa\x1b(');
         record('s1', 'Bmple.com');
         expect(recentTerminalLinks('s1')).toEqual(['https://example.com/', 'https://localhost:8901/index.html', 'http://example.com/a?x=1']);
+
+        const columns = 80;
+        const longUrl = `https://example.com/releases/(latest)/download?token=${'a'.repeat(320)}&source=terminal`;
+        const wrappedRows = longUrl.match(new RegExp(`.{1,${columns}}`, 'g')) ?? [];
+        expect(wrappedRows).toHaveLength(5);
+        clearTerminalOutput('long');
+        setTerminalColumns('long', columns);
+        wrappedRows.forEach((row, index) => record('long', `${row}${index === wrappedRows.length - 1 ? '' : '\r\n'}`));
+        expect(recentTerminalLinks('long')).toEqual([longUrl]);
+
+        clearTerminalOutput('split-scheme');
+        record('split-scheme', 'ht');
+        record('split-scheme', 'tps://split.example/path');
+        await new Promise((resolve) => setTimeout(resolve, 350));
+        expect(viewportTerminalLinks('long')).toEqual([longUrl]);
+        expect(viewportTerminalLinks('split-scheme')).toEqual(['https://split.example/path']);
+
+        clearTerminalOutput('hard-break');
+        setTerminalColumns('hard-break', columns);
+        record('hard-break', 'https://short.example/path\nnot-part-of-the-link');
+        expect(recentTerminalLinks('hard-break')).toEqual(['https://short.example/path']);
 
         clearTerminalOutput('s2');
         for (let index = 0; index < 10; index++) record('s2', ` https://link-${index}.example`);

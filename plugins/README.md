@@ -13,7 +13,7 @@ These packages install into Herdr during muxr setup. Each can have an optional H
 | `workspace-hierarchy` | public workspace-tree context RPC | session overlay using source-driven `tree-sheet` |
 | `pane-titler` | rename panes from scrollback | backend only |
 | `code` | bounded repo tree/preview, `git status`, `git log`/`show`, saved commands | Files explorer, Changes pill, Git history screens, Runbook destination |
-| `status` | pinned offline ccusage + bounded Codex limits; disk/memory/load/uptime | Usage rows + chart detail screen; Home machine card |
+| `status` | pinned offline ccusage + bounded Claude/Codex plan limits; disk/memory/load/uptime | Usage rows + chart detail screen; Home machine card |
 | `servers` | list/stop listeners; start the project's dev script | Ports destination; Preview `item-list` with validated port actions |
 | `example-ui` | echo list/save RPCs | settings example for SDK validation |
 

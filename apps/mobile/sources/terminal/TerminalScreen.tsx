@@ -636,6 +636,41 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                         <Ionicons name="arrow-down" size={18} color={theme.colors.text} />
                     </Pressable>
                 )}
+                {Platform.OS !== 'web' && chipLink !== undefined && chipKind !== undefined && (
+                    <Animated.View
+                        entering={FadeIn.duration(180).reduceMotion(ReduceMotion.System)}
+                        exiting={FadeOut.duration(120).reduceMotion(ReduceMotion.System)}
+                        style={{ position: 'absolute', left: 12, right: showJump ? 64 : 12, bottom: 8, alignItems: 'flex-start' }}
+                    >
+                        <Pressable
+                            onPress={openChipLink}
+                            onLongPress={() => void Clipboard.setStringAsync(chipLink).then(() => showGestureHint('Link copied'))}
+                            accessibilityRole="button"
+                            accessibilityLabel={`${chipKind === 'preview' ? 'Preview' : 'Open'} ${chipLink}`}
+                            style={({ pressed }) => ({
+                                maxWidth: '100%',
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                gap: 4,
+                                paddingHorizontal: 9,
+                                paddingVertical: 6,
+                                borderRadius: 14,
+                                backgroundColor: theme.colors.surfaceHigh,
+                                borderWidth: 1,
+                                borderColor: theme.colors.divider,
+                                opacity: pressed ? 0.6 : 1,
+                            })}
+                        >
+                            <Ionicons name={chipKind === 'preview' ? 'globe-outline' : 'open-outline'} size={12} color={theme.colors.textSecondary} />
+                            <Text style={{ color: theme.colors.text, fontSize: 12, fontWeight: '600' }}>
+                                {chipKind === 'preview' ? 'Preview' : 'Open'}
+                            </Text>
+                            <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 12, flexShrink: 1 }}>
+                                {displayLink(chipLink, 80)}
+                            </Text>
+                        </Pressable>
+                    </Animated.View>
+                )}
             </View>
 
             {Platform.OS !== 'web' && <>
@@ -648,41 +683,6 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
             >
                 {/* Pills lead: the key toolbar is wider than a phone, so anything
                     after it is scrolled off-screen and effectively invisible. */}
-                {/* The chip appears and disappears on its own as you scroll past
-                    a link, so a hard pop reads as a glitch rather than a state
-                    change. Opacity only: it is the one property that survives
-                    reduced motion, and the row would reflow if we moved it. */}
-                {chipLink !== undefined && chipKind !== undefined && (
-                    <Animated.View
-                        entering={FadeIn.duration(180).reduceMotion(ReduceMotion.System)}
-                        exiting={FadeOut.duration(120).reduceMotion(ReduceMotion.System)}
-                    >
-                    <Pressable
-                        onPress={openChipLink}
-                        onLongPress={() => void Clipboard.setStringAsync(chipLink).then(() => showGestureHint('Link copied'))}
-                        accessibilityRole="button"
-                        accessibilityLabel={`${chipKind === 'preview' ? 'Preview' : 'Open'} ${chipLink}`}
-                        style={({ pressed }) => ({
-                            flexDirection: 'row',
-                            alignItems: 'center',
-                            gap: 4,
-                            paddingHorizontal: 8,
-                            paddingVertical: 4,
-                            borderRadius: 12,
-                            backgroundColor: theme.colors.surfaceHigh,
-                            opacity: pressed ? 0.6 : 1,
-                        })}
-                    >
-                        <Ionicons name={chipKind === 'preview' ? 'globe-outline' : 'open-outline'} size={12} color={theme.colors.textSecondary} />
-                        <Text style={{ color: theme.colors.text, fontSize: 12, fontWeight: '600' }}>
-                            {chipKind === 'preview' ? 'Preview' : 'Open'}
-                        </Text>
-                        <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 12 }}>
-                            {displayLink(chipLink, 40)}
-                        </Text>
-                    </Pressable>
-                    </Animated.View>
-                )}
                 {/* Plugin chips live here, not in the header: six trailing
                     buttons left the session's own name truncated to three
                     characters, and the name is what the bar is for. */}
