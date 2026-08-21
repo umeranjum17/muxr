@@ -1,0 +1,27 @@
+{
+    "label": "ui-polish",
+    "agent": "pi",
+    "branch": "plugin-ui-polish",
+    "lines": [
+        " tree.",
+        " ## Files changed",
+        " `apps/mobile/sources/plugins/DeclarativeScreen.tsx`",
+        " 9, 10, 11, 12, 13 |",
+        " `apps/mobile/sources/plugins/primitives/ItemList.tsx",
+        " ` | Item 3 (sheet action light impact), item 4",
+        " (pill, sheet action, sheet row press states) |",
+        " ... (41 more lines, 51 total, ctrl+o to expand)",
+        " All 13 brief items are implemented in the renderer",
+        " layer; npx tsc --noEmit --project",
+        " apps/mobile/tsconfig.json is clean and node",
+        " scripts/runSuite.mjs reports 30/30. Changes are left",
+        " uncommitted in the worktree, with POLISH-REPORT.md",
+        " written at the root.",
+        " One deviation worth flagging: I also added the two",
+        " new no-op exports to",
+        " apps/mobile/sources/components/haptics.web.ts, since",
+        " Metro resolves that file on web and would otherwise",
+        " crash on the new hapticsSelection/hapticsSuccess",
+        " calls."
+    ]
+}

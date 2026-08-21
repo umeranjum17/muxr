@@ -60,7 +60,7 @@ async function main() {
 
     let n = 0;
     for (const scene of chosen) {
-        const shot = path.join(RAW, `${scene.id}.png`);
+        const shot = path.join(RAW, scene.storeTheme ?? 'light', `${scene.id}.png`);
         await access(shot).catch(() => {
             throw new Error(`missing capture ${shot} — run \`node build.mjs capture\` first`);
         });
@@ -71,6 +71,7 @@ async function main() {
             caption: scene.caption,
             sub: scene.sub ?? '',
             shot: pathToFileURL(shot).href,
+            shotTheme: scene.storeTheme ?? 'light',
             // Show the whole screen by default; the composer is part of the story.
             arWidth: 1080,
             arHeight: scene.cropTo ?? 2400,

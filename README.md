@@ -27,13 +27,14 @@
 [![muxr — every coding agent, on your phone](docs/demo/muxr-loop.webp)](https://trymuxr.com/#demo)
 
 <p align="center">
-  <img src="docs/screenshots/v0112/herd.png" height="420" alt="muxr home: the herd, with live agent terminals and every session grouped by repo" />
-  <img src="docs/screenshots/v0112/terminal.png" height="420" alt="A real agent terminal in muxr, with the branch, the plugin pill row, and a composer" />
-  <img src="docs/screenshots/v0112/changes.png" height="420" alt="A commit diff in muxr: per-file tab rail, dual line-number gutter, add and remove tints" />
-  <img src="docs/screenshots/v0112/usage.png" height="420" alt="muxr usage: tokens and spend per model, read from local agent logs" />
+  <img src="docs/screenshots/v0112/dark/herd.png" height="400" alt="muxr home in dark: the herd, with live agent terminals and every session grouped by repo" />
+  <img src="docs/screenshots/v0112/light/changes.png" height="400" alt="A commit diff in muxr: per-file tab rail, dual line-number gutter, add and remove tints" />
+  <img src="docs/screenshots/v0112/dark/usage.png" height="400" alt="muxr usage: tokens and spend per model, read from local agent logs" />
+  <img src="docs/screenshots/v0112/light/files.png" height="400" alt="The muxr file explorer: breadcrumbs down through the repo the agent is working in" />
 </p>
 <p align="center">
-  <em>Real Herdr panes, real agents — captured from the shipping build with <a href="tools/demo">tools/demo</a>.</em>
+  <em>Light and dark, both captured from the shipping build against a live host with
+  <a href="tools/demo">tools/demo</a> — no mockups, no fixture mode.</em>
 </p>
 
 ## What it does

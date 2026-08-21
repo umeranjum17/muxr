@@ -13,10 +13,23 @@ appId: com.trymuxr.app
 - waitForAnimationToEnd:
     timeout: 4000
 - tapOn: "Open ui-polish"
-- waitForAnimationToEnd:
-    timeout: 3000
 - extendedWaitUntil:
     visible: "Type a prompt…"
     timeout: 25000
 - waitForAnimationToEnd:
-    timeout: 6000
+    timeout: 4000
+# Hold on the terminal and read it, rather than arriving and cutting. The desk
+# shot puts this pane beside its desktop window, so the pane has to be on screen
+# for the whole shot, not the last second of it.
+- swipe:
+    start: "50%, 42%"
+    end: "50%, 66%"
+    duration: 1100
+- waitForAnimationToEnd:
+    timeout: 3000
+- swipe:
+    start: "50%, 62%"
+    end: "50%, 40%"
+    duration: 1100
+- waitForAnimationToEnd:
+    timeout: 4000

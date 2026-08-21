@@ -1,33 +1,15 @@
 import React from 'react';
 import { AbsoluteFill } from 'remotion';
 import { TransitionSeries, linearTiming } from '@remotion/transitions';
-import { slide } from '@remotion/transitions/slide';
 import { fade } from '@remotion/transitions/fade';
 import { Shot, ShotSpec } from './Shot';
 import { EndCard, TitleCard } from './Cards';
 import { ink } from './theme';
 
-export const TITLE_FRAMES = 78;
-export const SHOT_FRAMES = 180;
-export const END_FRAMES = 138;
-export const TRANSITION_FRAMES = 18;
+export type Timing = { title: number; shot: number; end: number; transition: number };
 
-export type Timing = {
-    title: number;
-    shot: number;
-    end: number;
-    transition: number;
-};
-
-export const defaultTiming: Timing = {
-    title: TITLE_FRAMES,
-    shot: SHOT_FRAMES,
-    end: END_FRAMES,
-    transition: TRANSITION_FRAMES,
-};
-
-export const reelDuration = (shots: number, timing: Timing = defaultTiming) =>
-    timing.title + shots * timing.shot + timing.end - (shots + 1) * timing.transition;
+export const reelDuration = (shots: number, t: Timing) =>
+    t.title + shots * t.shot + t.end - (shots + 1) * t.transition;
 
 export type ReelProps = {
     shots: ShotSpec[];
@@ -35,24 +17,26 @@ export type ReelProps = {
     install: string;
     site: string;
     note: string;
-    timing?: Timing;
+    timing: Timing;
 };
 
-export const Reel: React.FC<ReelProps> = ({ shots, tagline, install, site, note, timing = defaultTiming }) => (
+// Cuts are fades, not slides. A film whose shots already move the camera does
+// not need the edit to move as well; two motions at once reads as a template.
+export const Reel: React.FC<ReelProps> = ({ shots, tagline, install, site, note, timing }) => (
     <AbsoluteFill style={{ backgroundColor: ink }}>
         <TransitionSeries>
             <TransitionSeries.Sequence durationInFrames={timing.title}>
-                <TitleCard tagline={tagline} />
+                <TitleCard tagline={tagline} durationInFrames={timing.title} />
             </TransitionSeries.Sequence>
 
-            {shots.flatMap((spec, i) => [
+            {shots.flatMap((spec) => [
                 <TransitionSeries.Transition
                     key={`t-${spec.id}`}
-                    presentation={i % 2 === 0 ? slide({ direction: 'from-right' }) : fade()}
+                    presentation={fade()}
                     timing={linearTiming({ durationInFrames: timing.transition })}
                 />,
                 <TransitionSeries.Sequence key={spec.id} durationInFrames={timing.shot}>
-                    <Shot spec={spec} />
+                    <Shot spec={spec} durationInFrames={timing.shot} />
                 </TransitionSeries.Sequence>,
             ])}
 

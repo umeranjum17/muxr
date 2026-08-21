@@ -11,4 +11,18 @@ appId: com.trymuxr.app
     visible: "INSTALLED"
     timeout: 20000
 - waitForAnimationToEnd:
-    timeout: 6000
+    timeout: 3000
+# Hold on the list and read down it. Without this the shot spends most of its
+# window on the Settings screen it passed through to get here.
+- swipe:
+    start: "50%, 74%"
+    end: "50%, 44%"
+    duration: 1100
+- waitForAnimationToEnd:
+    timeout: 3000
+- swipe:
+    start: "50%, 48%"
+    end: "50%, 72%"
+    duration: 1100
+- waitForAnimationToEnd:
+    timeout: 4000

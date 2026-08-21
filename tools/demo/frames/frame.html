@@ -66,6 +66,15 @@
   }
   .screen { width: 100%; height: 100%; border-radius: 48px; overflow: hidden; background: #000; position: relative; }
   .screen img { width: 100%; height: 100%; object-fit: cover; object-position: top center; display: block; }
+  /* A dark screenshot on an ink field needs its own edge, or the handset
+     dissolves into the background. Light ones already separate themselves. */
+  .device.dark {
+    box-shadow:
+      0 60px 130px -34px rgba(0,0,0,0.9),
+      0 0 0 1px rgba(255,255,255,0.13),
+      0 0 90px -10px rgba(255,255,255,0.10),
+      inset 0 0 0 1px rgba(255,255,255,0.06);
+  }
   /* A single specular streak keeps the glass from reading as flat paper. */
   .screen::after {
     content: ''; position: absolute; inset: 0; border-radius: 48px; pointer-events: none;
@@ -112,6 +121,7 @@
   const sub = document.getElementById('sub');
   if (data.sub) sub.textContent = data.sub; else sub.remove();
   document.getElementById('shot').src = data.shot;
+  if (data.shotTheme === 'dark') document.getElementById('device').classList.add('dark');
 
   if (data.badge) {
     const b = document.getElementById('badge');

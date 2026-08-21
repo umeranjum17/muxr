@@ -8,7 +8,11 @@
         "allowJs": true,
         "skipLibCheck": true,
         "noEmit": true,
-        "esModuleInterop": true
+        "esModuleInterop": true,
+        "resolveJsonModule": true
     },
-    "include": ["src", "remotion.config.ts"]
+    "include": [
+        "src",
+        "remotion.config.ts"
+    ]
 }

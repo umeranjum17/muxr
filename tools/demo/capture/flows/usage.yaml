@@ -5,10 +5,18 @@ appId: com.trymuxr.app
     visible: "Models today"
     timeout: 25000
 - waitForAnimationToEnd:
-    timeout: 4000
+    timeout: 3000
 - swipe:
     start: "50%, 72%"
-    end: "50%, 50%"
-    duration: 900
+    end: "50%, 52%"
+    duration: 1000
 - waitForAnimationToEnd:
-    timeout: 4000
+    timeout: 3000
+# Hold on the loaded figures. The screen paints skeleton cards first, and a
+# window that reaches back far enough spends the shot on them.
+- repeat:
+    times: 6
+    commands:
+      - assertVisible: "Models today"
+      - waitForAnimationToEnd:
+          timeout: 900

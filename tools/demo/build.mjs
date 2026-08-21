@@ -2,6 +2,7 @@
 // One entry point for the whole pipeline:
 //
 //   stage    copy the app's own fonts and marks into the Remotion public dir
+//   desk     snapshot one pane's real scrollback for the desk shot
 //   capture  drive the real app with Maestro while adb records the screen
 //   cut      trim each recording to its shot and speed it to one slot
 //   frames   lay the settled stills into branded Play Store frames
@@ -37,7 +38,8 @@ async function stage() {
     const pub = path.join(here, 'reel', 'public');
     await mkdir(path.join(pub, 'fonts'), { recursive: true });
     await mkdir(path.join(pub, 'img'), { recursive: true });
-    await mkdir(path.join(pub, 'shots'), { recursive: true });
+    await mkdir(path.join(pub, 'shots', 'light'), { recursive: true });
+    await mkdir(path.join(pub, 'shots', 'dark'), { recursive: true });
     for (const name of FONTS) {
         await copyFile(
             path.join(repo, 'apps/mobile/sources/assets/fonts', `${name}.ttf`),
@@ -55,7 +57,8 @@ async function stage() {
 
 const STEPS = {
     stage,
-    capture: () => run('node', ['capture/capture.mjs']),
+    desk: () => run('node', ['capture/desk.mjs']),
+    capture: () => run('node', ['capture/capture.mjs', '--both']),
     cut: () => run('node', ['cut/cut.mjs']),
     frames: () => run('node', ['frames/render.mjs']),
     reel: () => run('node', ['reel/render.mjs']),

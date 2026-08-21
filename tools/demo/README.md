@@ -23,10 +23,11 @@ Individual steps: `node build.mjs capture`, `… cut`, `… frames`, `… reel`.
 | step | tool | output |
 |---|---|---|
 | `stage` | — | copies the app's own fonts and marks into `reel/public` |
-| `capture` | Maestro + `adb screenrecord` | `raw/<scene>.mp4` + `raw/<scene>.png` |
-| `cut` | ffmpeg | `reel/public/shots/<scene>.mp4`, one shot slot each |
+| `desk` | herdr | `lib/desk.json`, one pane's real scrollback for the desk shot |
+| `capture` | Maestro + `adb screenrecord` | `raw/<theme>/<scene>.{mp4,png}`, both themes |
+| `cut` | ffmpeg | `reel/public/shots/<theme>/<scene>.mp4`, one shot slot each |
 | `frames` | Playwright | `docs/play/store-assets/NN-<scene>.png`, 1080×1920 |
-| `reel` | Remotion + React Three Fiber | `docs/demo/muxr-demo.mp4` (720p), `docs/demo/muxr-loop.webp`, and a 1080p master in `raw/` |
+| `reel` | Remotion + React Three Fiber + drei | `docs/demo/muxr-demo.mp4` (720p), `docs/demo/muxr-loop.webp`, and a 1080p master in `raw/` |
 
 `lib/scenes.mjs` is the single source of truth: what to film, the marketing
 copy for each frame, and which scenes make the store set and the reel.
@@ -35,6 +36,27 @@ The 1080p master lands in `raw/muxr-demo-1080.mp4` and is deliberately not
 tracked — forty seconds of fine terminal text encodes to twenty-odd megabytes,
 which does not belong in every clone. Upload that one to the site and the store
 listing; the repo carries the 720p cut and the WebP.
+
+## The film
+
+`reel/src/Stage3D.tsx` is the set: a handset standing on a mirrored floor under
+a painted studio environment, and a camera that moves. Each shot picks a
+framing — `push`, `close`, `orbit`, `tilt`, `flip` — so the film is edited
+rather than templated.
+
+Two rules hold it together:
+
+- **Nothing reads the r3f clock.** Frames render concurrently across browser
+  tabs whose clocks start at different instants, so wall-time animation lands
+  somewhere different in every frame and the handset vibrates. Every value comes
+  from `useCurrentFrame()`.
+- **No downloaded assets.** drei's `<Environment preset>` fetches an HDR from a
+  CDN. The environment here is an equirect gradient with three softboxes painted
+  on a canvas and run through `PMREMGenerator`, so the body and the floor have
+  something real to reflect, offline and reproducibly.
+
+The last shot turns the handset over: dark on the front face, light on the back
+of the same object. That is why every scene is captured in both themes.
 
 ## Requirements
 
@@ -45,6 +67,23 @@ listing; the repo carries the 720p cut and the WebP.
 - Node 22+.
 
 ## Things that will bite you
+
+- **`screenrecord` writes variable frame rate and only emits a frame when the
+  screen changes.** A settled UI leaves seconds of timeline with no packets at
+  all, so trimming the recording directly returns the single held frame — one
+  clip came out 0.03 seconds long. Rebuild a constant frame rate *before*
+  cutting the window (`fps=30,trim=…`, in that order), never after.
+- **Cut no longer than the shot plays.** A window longer than `timing.shot`
+  spends the extra at its start, which is the navigation, and the shot never
+  reaches the screen it is about.
+- **Maestro has no sleep.** To hold on a screen, re-assert something on it in a
+  `repeat` block: each iteration costs a hierarchy dump, which is the wait, and
+  it touches nothing. Do not swipe to pass time — on the Inbox a swipe lands on
+  a session row and opens it.
+- **Pin the device.** A second emulator appearing mid-run breaks every adb call
+  with `more than one device/emulator`. Set `ANDROID_SERIAL`; the harness passes
+  it to both adb and Maestro, and refuses to start if two devices are attached
+  and it is unset.
 
 - **Maestro text selectors are full-match regexes.** `"recent commits"` does
   not match `25 recent commits`; write `".*recent commits"`.
