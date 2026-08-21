@@ -68,6 +68,7 @@ export const pl: TranslationStructure = {
         off: 'wył.',
         on: 'wł.',
         unavailableLabel: 'Niedostępne',
+        updateAvailable: 'Dostępna aktualizacja',
         runsCode: 'Uruchamia kod jako Ty',
         uiOnly: 'Tylko interfejs',
         readsSessions: 'Czyta podsumowania sesji',

@@ -1,7 +1,10 @@
 import * as React from 'react';
-import { ActivityIndicator, Switch } from 'react-native';
+import { ActivityIndicator } from 'react-native';
 import { MUXR_UI_VERSION, pluginCompatibilityError, type PluginManifestV1, type PluginSummary } from '@muxr/contract';
 import { Item } from '@/components/Item';
+// The themed switch, not react-native's: the bare one falls back to the
+// platform accent, which is a teal muxr's palette does not own.
+import { Switch } from '@/components/Switch';
 import { ItemGroup } from '@/components/ItemGroup';
 import { ItemList } from '@/components/ItemList';
 import { Modal } from '@/modal';
@@ -90,7 +93,15 @@ export default function PluginsScreen() {
                         return <Item
                             key={plugin.pluginId}
                             title={plugin.name}
-                            subtitle={[...(blocked === undefined ? [] : [t('plugins.unavailableLabel')]), blocked ?? plugin.description ?? describe(manifests[plugin.pluginId]), trust, requestedContexts(manifests[plugin.pluginId])].filter(Boolean).join(' · ')}
+                            subtitle={[
+                                ...(blocked === undefined ? [] : [t('plugins.unavailableLabel')]),
+                                // Drift between the checkout and the copy the host runs is
+                                // otherwise invisible here until something misbehaves.
+                                ...(plugin.updateAvailable === true ? [t('plugins.updateAvailable')] : []),
+                                blocked ?? plugin.description ?? describe(manifests[plugin.pluginId]),
+                                trust,
+                                requestedContexts(manifests[plugin.pluginId]),
+                            ].filter(Boolean).join(' · ')}
                             subtitleLines={2}
                             showChevron={false}
                             rightElement={<Switch value={plugin.approved} onValueChange={(next) => void setApproved([plugin], next)} />}

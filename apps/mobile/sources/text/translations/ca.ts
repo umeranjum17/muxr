@@ -57,6 +57,7 @@ export const ca: TranslationStructure = {
         off: 'desact.',
         on: 'act.',
         unavailableLabel: 'No disponible',
+        updateAvailable: 'Actualització disponible',
         runsCode: 'Executa codi com tu',
         uiOnly: 'Només interfície',
         readsSessions: 'Llegeix resums de sessions',

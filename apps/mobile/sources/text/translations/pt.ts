@@ -57,6 +57,7 @@ export const pt: TranslationStructure = {
         off: 'desat.',
         on: 'at.',
         unavailableLabel: 'Indisponível',
+        updateAvailable: 'Atualização disponível',
         runsCode: 'Executa código como você',
         uiOnly: 'Somente interface',
         readsSessions: 'Lê resumos de sessões',

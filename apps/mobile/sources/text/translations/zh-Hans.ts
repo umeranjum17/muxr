@@ -59,6 +59,7 @@ export const zhHans: TranslationStructure = {
         off: '关',
         on: '开',
         unavailableLabel: '不可用',
+        updateAvailable: '有可用更新',
         runsCode: '以你的身份运行代码',
         uiOnly: '仅界面',
         readsSessions: '读取会话摘要',

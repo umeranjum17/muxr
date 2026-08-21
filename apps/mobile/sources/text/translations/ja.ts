@@ -60,6 +60,7 @@ export const ja: TranslationStructure = {
         off: 'オフ',
         on: 'オン',
         unavailableLabel: '利用不可',
+        updateAvailable: 'アップデートがあります',
         runsCode: 'あなたとしてコードを実行',
         uiOnly: 'UI のみ',
         readsSessions: 'セッション概要を読み取り',

@@ -14,6 +14,54 @@ function plugin(root: string, actions: HerdrPlugin['actions'] = []): HerdrPlugin
 }
 
 describe('plugin catalog flow', () => {
+    it('reloads a plugin whose backend changed but whose manifest did not', async () => {
+        // The failure this covers: editing rpc.mjs changes nothing the catalog
+        // hashes, so the device is never told to refetch and no error says why.
+        // `muxr plugin reload` bumps a token, and that has to move the digest.
+        const home = await mkdtemp(join(tmpdir(), 'muxr-home-'));
+        const root = await mkdtemp(join(tmpdir(), 'muxr-plugin-'));
+        await writeFile(join(root, 'muxr-ui.json'), JSON.stringify({
+            schemaVersion: 1, pluginId: 'example.muxr-ui',
+            capabilities: { 'example.list': 'list-rpc' },
+            contributions: [{ slot: 'host.rpc', id: 'list-rpc', type: 'rpc', method: 'list', entry: 'rpc.mjs', mode: 'read' }],
+        }));
+        await writeFile(join(root, 'rpc.mjs'), 'export default () => ({ items: [] });\n');
+
+        const previous = process.env.MUXR_HOME;
+        process.env.MUXR_HOME = home;
+        try {
+            const catalog = new PluginCatalog();
+            const before = await catalog.refresh([plugin(root)]);
+
+            // A backend edit on its own is invisible, which is the bug.
+            await writeFile(join(root, 'rpc.mjs'), 'export default () => ({ items: [1] });\n');
+            const afterEdit = await catalog.refresh([plugin(root)]);
+            expect(afterEdit.get('example.muxr-ui')).toBe(before.get('example.muxr-ui'));
+
+            await writeFile(join(home, 'plugin-reload.json'), JSON.stringify({ 'example.muxr-ui': 'token-1' }));
+            const afterReload = await catalog.refresh([plugin(root)]);
+            expect(afterReload.get('example.muxr-ui')).not.toBe(before.get('example.muxr-ui'));
+            expect(pluginInvalidationFrame(
+                { digests: before, enabled: new Map([['example.muxr-ui', true]]) },
+                { digests: afterReload, enabled: new Map([['example.muxr-ui', true]]) },
+            )).toBeDefined();
+
+            // `--all` has to reach a plugin that has no entry of its own.
+            await writeFile(join(home, 'plugin-reload.json'), JSON.stringify({ '*': 'token-2' }));
+            const afterAll = await catalog.refresh([plugin(root)]);
+            expect(afterAll.get('example.muxr-ui')).not.toBe(afterReload.get('example.muxr-ui'));
+
+            // A malformed file must not stop the catalog refreshing.
+            await writeFile(join(home, 'plugin-reload.json'), 'not json');
+            const afterGarbage = await catalog.refresh([plugin(root)]);
+            expect(afterGarbage.get('example.muxr-ui')).toBe(before.get('example.muxr-ui'));
+        } finally {
+            if (previous === undefined) delete process.env.MUXR_HOME; else process.env.MUXR_HOME = previous;
+            await rm(home, { recursive: true, force: true });
+            await rm(root, { recursive: true, force: true });
+        }
+    });
+
     it('forces a read started after every freshness-critical caller', async () => {
         const releases: Array<() => void> = [];
         let reads = 0;

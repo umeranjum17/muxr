@@ -59,6 +59,7 @@ export const zhHant: TranslationStructure = {
         off: '關',
         on: '開',
         unavailableLabel: '無法使用',
+        updateAvailable: '有可用更新',
         runsCode: '以你的身分執行程式碼',
         uiOnly: '僅介面',
         readsSessions: '讀取工作階段摘要',
