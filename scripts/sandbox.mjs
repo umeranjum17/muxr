@@ -65,14 +65,22 @@ if (command === 'up') {
     }
     console.log(`source with:  eval "$(node ${process.argv[1]} env ${name})"`);
 } else if (command === 'env' || command === 'agent-env') {
-    const env = sandboxEnv();
     for (const key of Object.keys(process.env)) {
         if (key.startsWith('HERDR_') || key === 'MUXR_HOME') console.log(`unset ${key}`);
     }
+    const values = {
+        HOME: home,
+        XDG_CONFIG_HOME: join(home, '.config'),
+        XDG_DATA_HOME: join(home, '.local', 'share'),
+        XDG_STATE_HOME: join(home, '.local', 'state'),
+        MUXR_HOME: join(home, '.muxr'),
+        npm_config_prefix: join(home, 'npm'),
+    };
     const keys = command === 'env'
-        ? ['HOME', 'XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_STATE_HOME', 'MUXR_HOME', 'npm_config_prefix', 'PATH']
-        : ['XDG_CONFIG_HOME', 'MUXR_HOME', 'npm_config_prefix', 'PATH'];
-    for (const key of keys) console.log(`export ${key}=${JSON.stringify(env[key])}`);
+        ? Object.keys(values)
+        : ['XDG_CONFIG_HOME', 'MUXR_HOME', 'npm_config_prefix'];
+    for (const key of keys) console.log(`export ${key}=${JSON.stringify(values[key])}`);
+    console.log(`export PATH=${JSON.stringify(join(home, 'npm', 'bin'))}:"$PATH"`);
 } else if (command === 'status') {
     execFileSync('herdr', ['status'], { env: sandboxEnv(), stdio: 'inherit' });
 } else if (command === 'down' || command === 'destroy') {
