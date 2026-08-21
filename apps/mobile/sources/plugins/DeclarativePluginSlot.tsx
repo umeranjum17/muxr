@@ -197,7 +197,7 @@ type DeclarativeSessionAction =
     | { kind: 'screen'; key: string; label: string; icon: string; pluginId: string; contentId: string }
     | { kind: 'list'; key: string; label: string; pluginId: string; manifestHash: string; contribution: PluginNativeContribution };
 
-/** Labeled session tools for the terminal's single Actions sheet. */
+/** Labeled session tools, as rows for the terminal's Actions menu. */
 export function DeclarativeSessionActions({ cwd, sessionId, onNavigate }: { cwd?: string; sessionId: string; onNavigate: () => void }) {
     const { theme } = useUnistyles();
     const router = useRouter();
@@ -214,18 +214,20 @@ export function DeclarativeSessionActions({ cwd, sessionId, onNavigate }: { cwd?
         return [];
     })).sort((left, right) => left.label.localeCompare(right.label));
     if (actions.length === 0) return null;
-    return <View style={{ overflow: 'hidden', borderRadius: 12, borderWidth: 1, borderColor: theme.colors.divider, backgroundColor: theme.colors.surfaceHigh }}>
+    // No wrapper: the menu is the surface these rows sit on, and a bordered card
+    // inside it would draw a second box around every list.
+    return <>
         {actions.map((action) => action.kind === 'screen'
             ? <Pressable key={action.key} accessibilityRole="button" accessibilityLabel={action.label} onPress={() => {
                 onNavigate();
                 router.push(pluginHref(action.pluginId, action.contentId, { sessionId }));
-            }} style={({ pressed }) => ({ minHeight: 52, flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
-                <Ionicons name={action.icon as never} size={20} color={theme.colors.textSecondary} />
-                <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15, fontWeight: '500' }}>{action.label}</Text>
-                <Ionicons name="chevron-forward" size={16} color={theme.colors.textSecondary} />
+            }} style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
+                <Ionicons name={action.icon as never} size={18} color={theme.colors.textSecondary} />
+                <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>{action.label}</Text>
+                <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
             </Pressable>
             : <ItemList key={action.key} context={{ sessionId }} pluginId={action.pluginId} manifestHash={action.manifestHash} contribution={action.contribution} presentation="action-row" />)}
-    </View>;
+    </>;
 }
 
 /** Declarative chips for a compact slot; renders nothing when no plugin claims it. */

@@ -7,10 +7,10 @@
  */
 
 import * as React from 'react';
-import { ActivityIndicator, AppState, BackHandler, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, AppState, BackHandler, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useKeyboardState } from 'react-native-keyboard-controller';
-import Animated, { Easing, FadeIn, FadeOut, ReduceMotion, SlideInDown, SlideOutDown } from 'react-native-reanimated';
+import Animated, { FadeIn, FadeOut, ReduceMotion } from 'react-native-reanimated';
 import { useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
@@ -26,6 +26,7 @@ import type { HerdrTreeTab } from '@muxr/contract';
 import { TerminalView } from '@/terminal/TerminalView';
 import { usePaneGestures } from '@/terminal/usePaneGestures';
 import { StatusDot } from '@/components/StatusDot';
+import { AnimatedPopup } from '@/components/AnimatedOverlay';
 import { agentStatusColor } from '@/utils/sessionUtils';
 import type { TerminalChannel } from '@/terminal/openTerminal';
 import { useImagePicker } from '@/hooks/useImagePicker';
@@ -90,6 +91,9 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     // overlapping mush on a phone. Anything with more options uses this sheet.
     const [menu, setMenu] = React.useState<SessionMenu | null>(null);
     const [actionsOpen, setActionsOpen] = React.useState(false);
+    // The actions menu hangs above the keys, attachments and composer, and that
+    // block changes height as attachments come and go.
+    const [bottomBlockHeight, setBottomBlockHeight] = React.useState(0);
     const [attachedPaths, setAttachedPaths] = React.useState<string[]>([]);
     // Other openable panes in this session's tab, in layout order. A pane only
     // gets a sessionId once herdr detects an agent in it, so bare shells are
@@ -604,7 +608,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                 )}
             </View>
 
-            {Platform.OS !== 'web' && <>
+            {Platform.OS !== 'web' && <View onLayout={(event) => setBottomBlockHeight(event.nativeEvent.layout.height)}>
             <View style={{ minHeight: 52, flexDirection: 'row', alignItems: 'center', backgroundColor: theme.colors.surface }}>
                 <ScrollView
                     horizontal
@@ -616,13 +620,14 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                     <DeclarativeTerminalKeySlot channel={channel} />
                 </ScrollView>
                 <Pressable
-                    onPress={() => setActionsOpen(true)}
+                    onPress={() => setActionsOpen((open) => !open)}
                     hitSlop={8}
                     accessibilityRole="button"
                     accessibilityLabel="Session actions"
-                    style={({ pressed }) => ({ width: 46, height: 40, marginRight: 8, alignItems: 'center', justifyContent: 'center', borderRadius: 8, backgroundColor: theme.colors.surfaceHigh, opacity: pressed ? 0.65 : 1 })}
+                    accessibilityState={{ expanded: actionsOpen }}
+                    style={({ pressed }) => ({ width: 46, height: 40, marginRight: 8, alignItems: 'center', justifyContent: 'center', borderRadius: 8, backgroundColor: actionsOpen ? theme.colors.surfaceHighest : theme.colors.surfaceHigh, opacity: pressed ? 0.65 : 1 })}
                 >
-                    <Ionicons name="apps-outline" size={20} color={theme.colors.textSecondary} />
+                    <Ionicons name="ellipsis-horizontal" size={20} color={actionsOpen ? theme.colors.text : theme.colors.textSecondary} />
                 </Pressable>
             </View>
 
@@ -696,65 +701,77 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                     <Ionicons name="arrow-up-circle" size={30} color={theme.colors.text} />
                 </Pressable>
             </View>
-            </>}
+            </View>}
 
             <PluginSlot
                 slot="session.overlay"
                 context={{ sessionId: props.id, visible: treeOpen, onClose: () => setTreeOpen(false), openMenu: setMenu, showHint: showGestureHint }}
             />
 
+            {/* An actions menu, not a sheet: it belongs to the button that opened
+                it, so it hangs off that corner, stays only as tall as it needs,
+                and leaves the terminal visible behind it. */}
             {actionsOpen && (
-                <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 20, justifyContent: 'flex-end' }}>
-                    <Animated.View pointerEvents="none" entering={FadeIn.duration(140).reduceMotion(ReduceMotion.System)} exiting={FadeOut.duration(120).reduceMotion(ReduceMotion.System)} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: theme.colors.scrim }} />
+                <Animated.View
+                    exiting={FadeOut.duration(160).reduceMotion(ReduceMotion.System)}
+                    accessibilityViewIsModal
+                    style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 20, alignItems: 'flex-end', justifyContent: 'flex-end' }}
+                >
+                    <Animated.View pointerEvents="none" entering={FadeIn.duration(140).reduceMotion(ReduceMotion.System)} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0, 0, 0, 0.28)' }} />
                     <Pressable onPress={() => setActionsOpen(false)} accessibilityLabel="Close session actions" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} />
-                    <Animated.View
-                        entering={SlideInDown.duration(220).easing(Easing.bezier(0.23, 1, 0.32, 1)).reduceMotion(ReduceMotion.System)}
-                        exiting={SlideOutDown.duration(170).easing(Easing.bezier(0.23, 1, 0.32, 1)).reduceMotion(ReduceMotion.System)}
-                        style={{ maxHeight: '78%', backgroundColor: theme.colors.surface, paddingBottom: insets.bottom + 8, borderTopLeftRadius: 20, borderTopRightRadius: 20, overflow: 'hidden' }}
-                    >
-                        <View style={{ alignItems: 'center', paddingTop: 8 }}><View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: theme.colors.textSecondary, opacity: 0.45 }} /></View>
-                        <View style={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 10 }}>
-                            <Text style={{ color: theme.colors.text, fontWeight: '600', fontSize: 18 }}>Actions</Text>
-                            <Text style={{ color: theme.colors.textSecondary, fontSize: 12, marginTop: 2 }}>Files, previews, changes and session controls</Text>
-                        </View>
-                        <ScrollView style={{ maxHeight: 460 }} contentContainerStyle={{ gap: 12, paddingHorizontal: 12, paddingBottom: 8 }}>
+                    <AnimatedPopup style={{
+                        flexShrink: 1,
+                        minWidth: 236,
+                        maxWidth: 320,
+                        marginRight: 8,
+                        marginLeft: 16,
+                        marginTop: 12,
+                        marginBottom: bottomBlockHeight + 6,
+                        borderRadius: 14,
+                        overflow: 'hidden',
+                        // Rows carry the lighter fill; the surface behind them is
+                        // only ever seen through the gap above the stop control.
+                        backgroundColor: theme.colors.surface,
+                        borderWidth: StyleSheet.hairlineWidth,
+                        borderColor: theme.colors.divider,
+                        transformOrigin: 'bottom right',
+                        elevation: 12,
+                    }}>
+                        <ScrollView style={{ flexGrow: 0, flexShrink: 1 }} keyboardShouldPersistTaps="always">
                             <DeclarativeSessionActions cwd={session?.metadata?.path} sessionId={props.id} onNavigate={() => setActionsOpen(false)} />
-                            {pluginButtons.length > 0 && (
-                                <View style={{ overflow: 'hidden', borderRadius: 12, borderWidth: 1, borderColor: theme.colors.divider, backgroundColor: theme.colors.surfaceHigh }}>
-                                    {pluginButtons.map((button) => {
-                                        const key = `${button.pluginId}:${button.id}`;
-                                        return <Pressable key={key} onPress={() => {
-                                            if (pluginActionBusy !== undefined) return;
-                                            setActionsOpen(false);
-                                            setExtensionActionBusy(key);
-                                            void sync.request('plugin.invoke', {
-                                                pluginId: button.pluginId,
-                                                manifestHash: button.manifestHash,
-                                                contributionId: button.id,
-                                                sessionId: props.id,
-                                                idempotencyKey: randomUUID(),
-                                            }).catch((error) => Modal.alert(`${button.name} failed`, error instanceof Error ? error.message : String(error)))
-                                                .finally(() => setExtensionActionBusy(undefined));
-                                        }} disabled={pluginActionBusy !== undefined} accessibilityRole="button" accessibilityLabel={resolvePluginText(button.label)} accessibilityState={{ busy: pluginActionBusy === key, disabled: pluginActionBusy !== undefined }}
-                                            style={({ pressed }) => ({ minHeight: 52, flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 10, opacity: pressed ? 0.65 : 1 })}>
-                                            {pluginActionBusy === key ? <ActivityIndicator size="small" color={theme.colors.textSecondary} /> : <Ionicons name="extension-puzzle-outline" size={20} color={theme.colors.textSecondary} />}
-                                            <View style={{ flex: 1 }}><Text style={{ color: theme.colors.text, fontSize: 15, fontWeight: '500' }}>{resolvePluginText(button.label)}</Text><Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>{button.name}</Text></View>
-                                            <Ionicons name="chevron-forward" size={16} color={theme.colors.textSecondary} />
-                                        </Pressable>;
-                                    })}
-                                </View>
-                            )}
-                            {!stopping && (
-                                <Pressable onPress={() => { setActionsOpen(false); stopSession(); }} accessibilityRole="button" accessibilityLabel="Stop agent"
-                                    style={({ pressed }) => ({ minHeight: 52, flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.divider, backgroundColor: theme.colors.surfaceHigh, opacity: pressed ? 0.65 : 1 })}>
-                                    <Ionicons name="stop-circle-outline" size={20} color={theme.colors.status.error} />
-                                    <View style={{ flex: 1 }}><Text style={{ color: theme.colors.status.error, fontSize: 15, fontWeight: '500' }}>Stop agent</Text><Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>Closes this pane in herdr</Text></View>
-                                </Pressable>
-                            )}
+                            {pluginButtons.map((button) => {
+                                const key = `${button.pluginId}:${button.id}`;
+                                return <Pressable key={key} onPress={() => {
+                                    if (pluginActionBusy !== undefined) return;
+                                    setActionsOpen(false);
+                                    setExtensionActionBusy(key);
+                                    void sync.request('plugin.invoke', {
+                                        pluginId: button.pluginId,
+                                        manifestHash: button.manifestHash,
+                                        contributionId: button.id,
+                                        sessionId: props.id,
+                                        idempotencyKey: randomUUID(),
+                                    }).catch((error) => Modal.alert(`${button.name} failed`, error instanceof Error ? error.message : String(error)))
+                                        .finally(() => setExtensionActionBusy(undefined));
+                                }} disabled={pluginActionBusy !== undefined} accessibilityRole="button" accessibilityLabel={resolvePluginText(button.label)} accessibilityState={{ busy: pluginActionBusy === key, disabled: pluginActionBusy !== undefined }}
+                                    style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
+                                    {pluginActionBusy === key ? <ActivityIndicator size="small" color={theme.colors.textSecondary} /> : <Ionicons name="extension-puzzle-outline" size={18} color={theme.colors.textSecondary} />}
+                                    <Text numberOfLines={1} style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>{resolvePluginText(button.label)}</Text>
+                                </Pressable>;
+                            })}
                         </ScrollView>
-                        <Pressable onPress={() => setActionsOpen(false)} style={{ paddingHorizontal: 16, paddingVertical: 14 }}><Text style={{ color: theme.colors.textSecondary, fontSize: 15 }}>Cancel</Text></Pressable>
-                    </Animated.View>
-                </View>
+                        {/* Stopping the agent is the one row here that destroys
+                            something, so it never scrolls away and never sits in
+                            the run of things you were only going to look at. */}
+                        {!stopping && (
+                            <Pressable onPress={() => { setActionsOpen(false); stopSession(); }} accessibilityRole="button" accessibilityLabel="Stop agent"
+                                style={({ pressed }) => ({ minHeight: 44, marginTop: 5, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
+                                <Ionicons name="stop-circle-outline" size={18} color={theme.colors.status.error} />
+                                <Text style={{ flex: 1, color: theme.colors.status.error, fontSize: 15 }}>Stop agent</Text>
+                            </Pressable>
+                        )}
+                    </AnimatedPopup>
+                </Animated.View>
             )}
 
             {menu !== null && (
