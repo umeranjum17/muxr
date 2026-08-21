@@ -10,7 +10,8 @@ import * as React from 'react';
 import { ActivityIndicator, AppState, BackHandler, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useKeyboardState } from 'react-native-keyboard-controller';
-import Animated, { FadeIn, FadeOut, ReduceMotion } from 'react-native-reanimated';
+import Animated, { FadeIn, FadeOut, ReduceMotion, useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
@@ -42,6 +43,17 @@ import { recentTerminalLinks, subscribeTerminalLinks, viewportTerminalLinks } fr
 import { openExternalUrl } from '@/utils/openExternalUrl';
 import { resolvePluginText } from '@/plugins/pluginText';
 import { randomUUID } from 'expo-crypto';
+
+/**
+ * The floating tools trigger: a small icon inside a target big enough to hit and
+ * to drag. The circle is what you see, the box around it is what you press.
+ *
+ * It rests a jump button's height above the key row because the jump-to-bottom
+ * control and the link chip already own that corner, and a default that lands on
+ * top of them is a default nobody chose.
+ */
+const TOOLS_TARGET = 44;
+const TOOLS_BASE = 60;
 
 function displayLink(url: string, maxLength: number): string {
     const parsed = new URL(url);
@@ -94,6 +106,14 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     // The actions menu hangs above the keys, attachments and composer, and that
     // block changes height as attachments come and go.
     const [bottomBlockHeight, setBottomBlockHeight] = React.useState(0);
+    // How far the tools trigger has been dragged up its edge, and how far it may
+    // go: the terminal band only, never the header above or the keys below.
+    const toolsLift = useSharedValue(0);
+    const toolsLiftStart = useSharedValue(0);
+    const toolsMaxLift = useSharedValue(0);
+    // The menu reads that offset once, when it opens: nothing can drag the
+    // trigger while the menu covering the screen is up.
+    const [openLift, setOpenLift] = React.useState(0);
     const [attachedPaths, setAttachedPaths] = React.useState<string[]>([]);
     // Other openable panes in this session's tab, in layout order. A pane only
     // gets a sessionId once herdr detects an agent in it, so bare shells are
@@ -410,6 +430,20 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const linesRemoved = gitStatus !== null && gitStatus.linesRemoved > 0 ? `−${gitStatus.linesRemoved}` : null;
     const hasStatusRow = branch !== null || linesAdded !== null || linesRemoved !== null || permission !== null;
 
+    // Vertical drag only, clamped on the UI thread, so the trigger can be walked
+    // off whatever output it covers without ever landing on the composer or
+    // under the keyboard. The threshold is what keeps a tap a tap: below it the
+    // pan never activates and the Pressable underneath gets its press, above it
+    // gesture-handler takes the touch and the press is cancelled.
+    const toolsPan = React.useMemo(() => Gesture.Pan()
+        .enabled(!actionsOpen)
+        .activeOffsetY([-8, 8])
+        .onStart(() => { toolsLiftStart.set(toolsLift.get()); })
+        .onUpdate((event) => {
+            toolsLift.set(Math.min(Math.max(toolsLiftStart.get() - event.translationY, 0), toolsMaxLift.get()));
+        }), [actionsOpen, toolsLift, toolsLiftStart, toolsMaxLift]);
+    const toolsStyle = useAnimatedStyle(() => ({ transform: [{ translateY: -toolsLift.get() }] }));
+
     // Same shape as KeyboardAvoidingView, minus the animation: that padding
     // moves frame by frame and Ghostty reflows its whole grid on every size
     // change, which is the flicker. One step change, one reflow.
@@ -491,6 +525,14 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                 onTouchStart={paneGestures.onTouchStart}
                 onTouchMove={paneGestures.onTouchMove}
                 onTouchEnd={paneGestures.onTouchEnd}
+                onLayout={(event) => {
+                    // The band the trigger may be parked in. A keyboard or a row
+                    // of attachments shrinks it, so anything already dragged past
+                    // the new ceiling comes back down with it.
+                    const max = Math.max(0, event.nativeEvent.layout.height - TOOLS_TARGET - TOOLS_BASE - 8);
+                    toolsMaxLift.set(max);
+                    if (toolsLift.get() > max) toolsLift.set(max);
+                }}
                 style={{ flex: 1 }}
             >
                 <TerminalView sessionId={props.id} onStatus={onStatus} onChannel={onChannel} />
@@ -635,37 +677,6 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                 >
                     <DeclarativeTerminalKeySlot channel={channel} />
                 </ScrollView>
-                {/* Session tools, pinned outside the key ScrollView so the caps
-                    can never scroll under it. Round and raised where the caps are
-                    flat rectangles: it floats beside the row rather than ending
-                    it, which is what stopped the old boxed glyph from reading as
-                    one more key. */}
-                <Pressable
-                    onPress={() => setActionsOpen((open) => !open)}
-                    hitSlop={8}
-                    accessibilityRole="button"
-                    accessibilityLabel="Session actions"
-                    accessibilityState={{ expanded: actionsOpen }}
-                    style={({ pressed }) => ({
-                        width: 44,
-                        height: 44,
-                        marginHorizontal: 8,
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        borderRadius: 22,
-                        backgroundColor: actionsOpen ? theme.colors.surfaceHighest : theme.colors.surfaceHigh,
-                        borderWidth: StyleSheet.hairlineWidth,
-                        borderColor: theme.colors.divider,
-                        shadowColor: theme.colors.shadow.color,
-                        shadowOffset: { width: 0, height: 2 },
-                        shadowRadius: 6,
-                        shadowOpacity: theme.colors.shadow.opacity,
-                        elevation: 3,
-                        opacity: pressed ? 0.75 : 1,
-                    })}
-                >
-                    <Ionicons name={actionsOpen ? 'construct' : 'construct-outline'} size={20} color={actionsOpen ? theme.colors.text : theme.colors.textSecondary} />
-                </Pressable>
             </View>
 
             {attachedPaths.length > 0 && (
@@ -747,7 +758,9 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
 
             {/* An actions menu, not a sheet: it belongs to the button that opened
                 it, so it hangs off that corner, stays only as tall as it needs,
-                and leaves the terminal visible behind it. */}
+                and leaves the terminal visible behind it. The corner moves with
+                the trigger -- a menu that stayed at the bottom while its button
+                sat halfway up the screen would belong to nothing. */}
             {actionsOpen && (
                 <Animated.View
                     exiting={FadeOut.duration(160).reduceMotion(ReduceMotion.System)}
@@ -763,7 +776,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                         marginRight: 8,
                         marginLeft: 16,
                         marginTop: 12,
-                        marginBottom: bottomBlockHeight + 6,
+                        marginBottom: bottomBlockHeight + TOOLS_BASE + TOOLS_TARGET + 6 + openLift,
                         borderRadius: 14,
                         overflow: 'hidden',
                         // Rows carry the lighter fill; the surface behind them is
@@ -825,10 +838,51 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                 </Animated.View>
             )}
 
+            {/* Session tools: a small icon that floats over the terminal's right
+                edge rather than sitting in the key row, where it was one more
+                key cap. It starts above the keys and can be walked up the edge
+                and left there, because the one place a fixed control is always
+                wrong is on top of the line you are trying to read.
+
+                It sits above its own menu's backdrop, so it stays lit as the
+                thing the menu hangs off and a second press closes it, and below
+                the option sheet, which is a sheet and owns the screen. */}
+            {Platform.OS !== 'web' && (
+                <GestureDetector gesture={toolsPan}>
+                    <Animated.View style={[{ position: 'absolute', right: 10, bottom: bottomBlockHeight + TOOLS_BASE, zIndex: 30 }, toolsStyle]}>
+                        <Pressable
+                            onPress={() => { setOpenLift(toolsLift.get()); setActionsOpen((open) => !open); }}
+                            accessibilityRole="button"
+                            accessibilityLabel="Session actions"
+                            accessibilityState={{ expanded: actionsOpen }}
+                            style={({ pressed }) => ({ width: TOOLS_TARGET, height: TOOLS_TARGET, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.75 : 1 })}
+                        >
+                            <View style={{
+                                width: 34,
+                                height: 34,
+                                borderRadius: 17,
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                backgroundColor: actionsOpen ? theme.colors.surfaceHighest : theme.colors.surfaceHigh,
+                                borderWidth: StyleSheet.hairlineWidth,
+                                borderColor: theme.colors.divider,
+                                shadowColor: theme.colors.shadow.color,
+                                shadowOffset: { width: 0, height: 2 },
+                                shadowRadius: 6,
+                                shadowOpacity: theme.colors.shadow.opacity,
+                                elevation: 3,
+                            }}>
+                                <Ionicons name={actionsOpen ? 'construct' : 'construct-outline'} size={18} color={actionsOpen ? theme.colors.text : theme.colors.textSecondary} />
+                            </View>
+                        </Pressable>
+                    </Animated.View>
+                </GestureDetector>
+            )}
+
             {menu !== null && (
                 <Pressable
                     onPress={() => setMenu(null)}
-                    style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: theme.colors.scrim, justifyContent: 'flex-end' }}
+                    style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 40, backgroundColor: theme.colors.scrim, justifyContent: 'flex-end' }}
                 >
                     <View style={{ backgroundColor: theme.colors.surface, paddingBottom: insets.bottom + 8, borderTopLeftRadius: 14, borderTopRightRadius: 14 }}>
                         <View style={{ paddingHorizontal: 16, paddingTop: 14, paddingBottom: 8 }}>
