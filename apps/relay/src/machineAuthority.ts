@@ -21,11 +21,11 @@ interface Machine {
 interface State { enrollments: Enrollment[]; machines: Machine[] }
 
 export function enrolledMachineSlug(signingPublicKey: string): string {
-    return `machine-${createHash('sha256').update('muxr-machine-v1\0').update(Buffer.from(signingPublicKey, 'base64')).digest('hex').slice(0, 32)}`;
+    return `machine-${createHash('sha256').update('muxr-machine-v2\0').update(Buffer.from(signingPublicKey, 'base64')).digest('hex').slice(0, 32)}`;
 }
 
 export function enrollmentProofMessage(id: string, relayUrl: string, signingPublicKey: string): Buffer {
-    return Buffer.from(`muxr-enroll-v1\n${id}\n${relayUrl}\n${signingPublicKey}`, 'utf8');
+    return Buffer.from(`muxr-enroll-v2\n${id}\n${relayUrl}\n${signingPublicKey}`, 'utf8');
 }
 
 export class MachineAuthority {

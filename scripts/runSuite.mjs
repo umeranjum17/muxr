@@ -37,7 +37,6 @@ const checks = [
     ['e2e: strict auth (local fixture exposure)', 'node', ['scripts/checkStrictAuth.mjs']],
     ['e2e: second host retires the first', 'node', ['scripts/checkHostTakeover.mjs']],
     ['e2e: wire + RPC (all event types)', 'node', ['scripts/runSkeletonCheck.mjs']],
-    ['e2e: explicit local legacy E2EE fixture', 'node', ['scripts/checkE2ee.mjs']],
     ['e2e: browser preview tunnel', 'node', ['scripts/checkPreviewTunnel.mjs']],
     ['e2e: herdr backend loop (live server)', 'node', ['scripts/checkHerdrE2E.mjs'], 'herdr', 180000],
     ['e2e: worktree session (live stack)', 'node', ['scripts/checkWorktreeE2E.mjs'], 'herdr'],
@@ -57,7 +56,7 @@ function run(name, cmd, args, timeoutMs = 150000) {
         // point a real token and key at the throwaway relays these checks spawn,
         // which then refuse the host -- failures that look like code regressions.
         const env = { ...process.env };
-        for (const key of ['RELAY_TOKEN', 'E2EE_SHARED_KEY', 'RELAY_URL', 'MACHINE_ID', 'RELAY_AUTH']) {
+        for (const key of ['RELAY_TOKEN', 'RELAY_URL', 'MACHINE_ID', 'RELAY_AUTH']) {
             delete env[`MUXR_${key}`];
         }
         const child = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'], env });

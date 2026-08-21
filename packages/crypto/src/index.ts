@@ -8,14 +8,12 @@
  * daemon and in React Native. X25519 key agreement + XSalsa20-Poly1305 AEAD via
  * nacl.box, which is authenticated -- a tampered frame fails to open.
  *
- * The legacy `e2ee:v1:` codec below stays for explicit local mode. Hosted
- * deployments use the strict v2 envelope and the ed25519/X25519 grant helpers
- * further down.
+ * Production traffic uses the strict v2 envelope and the ed25519/X25519
+ * grant helpers below. Local development is deliberately cleartext rather
+ * than carrying a second, downgrade-prone encryption protocol.
  */
 
 import nacl from 'tweetnacl';
-
-const PREFIX = 'e2ee:v1:';
 
 export interface KeyPair {
     /** base64 */
@@ -61,8 +59,8 @@ export function generateKeyPair(): KeyPair {
     return { publicKey: toBase64(pair.publicKey), secretKey: toBase64(pair.secretKey) };
 }
 
-const PAIRING_CODE_PREFIX = 'muxr:pair-code:v1:';
-const PAIRING_CODE_DOMAIN = encodeUtf8('muxr.pair-code.v1');
+const PAIRING_CODE_PREFIX = 'muxr:pair-code:v2:';
+const PAIRING_CODE_DOMAIN = encodeUtf8('muxr.pair-code.v2');
 export const PAIRING_CODE_ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
 
 export function normalizePairingCode(value: string): string {
@@ -131,60 +129,6 @@ export function openPreviewPayload(payload: Uint8Array, key: string): Uint8Array
     if (opened === null) throw new Error('preview payload failed authentication');
     return opened;
 }
-
-/**
- * Precompute the shared key once per peer instead of per frame.
- * Returns base64 so callers can hold it as a plain string.
- */
-export function deriveSharedKey(ownSecretKeyBase64: string, peerPublicKeyBase64: string): string {
-    const shared = nacl.box.before(fromBase64(peerPublicKeyBase64), fromBase64(ownSecretKeyBase64));
-    return toBase64(shared);
-}
-
-export function isEncryptedPayload(payload: string): boolean {
-    return payload.startsWith(PREFIX);
-}
-
-/** `e2ee:v1:<nonce_b64>.<ciphertext_b64>` */
-export function encryptPayload(plaintext: string, sharedKeyBase64: string): string {
-    const nonce = nacl.randomBytes(nacl.box.nonceLength);
-    const boxed = nacl.box.after(encodeUtf8(plaintext), nonce, fromBase64(sharedKeyBase64));
-    return `${PREFIX}${toBase64(nonce)}.${toBase64(boxed)}`;
-}
-
-export function decryptPayload(payload: string, sharedKeyBase64: string): string {
-    if (!isEncryptedPayload(payload)) return payload;
-    const body = payload.slice(PREFIX.length);
-    const separator = body.indexOf('.');
-    if (separator < 0) throw new Error('malformed encrypted payload');
-    const nonce = fromBase64(body.slice(0, separator));
-    const boxed = fromBase64(body.slice(separator + 1));
-    const opened = nacl.box.open.after(boxed, nonce, fromBase64(sharedKeyBase64));
-    if (opened === null) throw new Error('payload failed authentication');
-    return decodeUtf8(opened);
-}
-
-/**
- * Payload codec used by host and client. When no shared key is configured,
- * payloads pass through in cleartext -- E2EE is opt-in and must be explicit,
- * never silently assumed.
- */
-export function createPayloadCodec(sharedKeyBase64?: string) {
-    if (sharedKeyBase64 === undefined || sharedKeyBase64 === '') {
-        return {
-            enabled: false as const,
-            encode: (plaintext: string): string => plaintext,
-            decode: (payload: string): string => payload,
-        };
-    }
-    return {
-        enabled: true as const,
-        encode: (plaintext: string): string => encryptPayload(plaintext, sharedKeyBase64),
-        decode: (payload: string): string => decryptPayload(payload, sharedKeyBase64),
-    };
-}
-
-export type PayloadCodec = ReturnType<typeof createPayloadCodec>;
 
 // ===========================================================================
 // v2 strict envelope (hosted control plane)
@@ -268,7 +212,7 @@ function validateV2Context(ctx: V2Context): void {
     if (typeof recipientId !== 'string' || recipientId === '') throw new Error('v2: recipientId required');
     if (!V2_CHANNELS.includes(channel)) throw new Error('v2: unknown channel');
     if (typeof streamId !== 'string' || streamId === '') throw new Error('v2: streamId required');
-    if (!Number.isInteger(keyVersion) || keyVersion < 1) throw new Error('v2: keyVersion must be a positive integer');
+    if (!Number.isInteger(keyVersion) || keyVersion < 2) throw new Error('v2: key generation must be 2 or newer');
 }
 
 function concatBytes(...arrays: Uint8Array[]): Uint8Array {
@@ -496,7 +440,7 @@ export interface DeviceGrant {
     /** Device X25519 public key the grant was encrypted to, base64. */
     devicePublicKey: string;
     keyVersion: number;
-    /** Legacy compatibility field. Device grants remain valid until explicit revocation. */
+    /** Durable grants remain valid until explicit revocation. */
     expiresAt: number;
     /** 32-byte root for host->device data, base64. */
     dataKey: string;
@@ -505,7 +449,7 @@ export interface DeviceGrant {
 }
 
 export interface SealedDeviceGrant {
-    v: 1;
+    v: 2;
     /** Machine X25519 public key that sealed the box, base64. */
     sender: string;
     /** base64(nonce || ciphertext), encrypted to the device X25519 public key. */
@@ -534,7 +478,7 @@ export function verifyDetached(bytes: Uint8Array, signatureBase64: string, publi
 /**
  * Create a device grant: signed by the machine's ed25519 key, encrypted to the
  * device's X25519 public key. Carries the machine data key and per-device
- * ingress key plus a legacy lifetime field, key version, and device binding.
+ * ingress key plus its lifetime, key generation, and device binding.
  */
 export function createDeviceGrant(params: {
     machineId: string;
@@ -550,13 +494,13 @@ export function createDeviceGrant(params: {
     /** 32-byte root for device->host ingress, base64 or bytes. */
     ingressKey: string | Uint8Array;
     keyVersion: number;
-    /** Legacy compatibility field for older clients; use a parser-safe far-future timestamp. */
+    /** Durable native grants use a parser-safe far-future timestamp. */
     expiresAt: number;
 }): SealedDeviceGrant {
     const { machineId, deviceId, devicePublicKey, keyVersion, expiresAt } = params;
     if (typeof machineId !== 'string' || machineId === '') throw new Error('grant: machineId required');
     if (typeof deviceId !== 'string' || deviceId === '') throw new Error('grant: deviceId required');
-    if (!Number.isInteger(keyVersion) || keyVersion < 1) throw new Error('grant: keyVersion must be a positive integer');
+    if (!Number.isInteger(keyVersion) || keyVersion < 2) throw new Error('grant: key generation must be 2 or newer');
     if (!Number.isFinite(expiresAt)) throw new Error('grant: expiresAt required');
     toKeyBytes(devicePublicKey, 'grant devicePublicKey');
     toKeyBytes(params.machineKey.secretKey, 'grant machineKey.secretKey');
@@ -580,7 +524,7 @@ export function createDeviceGrant(params: {
     const nonce = nacl.randomBytes(nacl.box.nonceLength);
     const box = nacl.box(plaintext, nonce, fromBase64(devicePublicKey), fromBase64(params.machineKey.secretKey));
     return {
-        v: 1,
+        v: 2,
         sender: params.machineKey.publicKey,
         box: toBase64(concatBytes(nonce, box)),
         signer: machineSigningPublicKey,
@@ -608,7 +552,7 @@ export function verifyDeviceGrant(
     },
 ): DeviceGrant {
     if (grant === null || typeof grant !== 'object') throw new Error('grant: malformed grant');
-    if (grant.v !== 1) throw new Error(`grant: unknown version ${grant.v}`);
+    if (grant.v !== 2) throw new Error(`grant: unknown version ${grant.v}`);
     if (grant.signer !== opts.pinnedMachineSigningPublicKey) throw new Error('grant: signer is not the pinned machine key');
     toKeyBytes(opts.deviceKey.secretKey, 'grant deviceKey.secretKey');
     const boxBytes = fromBase64(grant.box);
@@ -632,7 +576,7 @@ export function verifyDeviceGrant(
     if (opts.deviceId !== undefined && parsed.deviceId !== opts.deviceId) throw new Error('grant: device id mismatch');
     if (typeof parsed.expiresAt !== 'number' || !Number.isFinite(parsed.expiresAt)) throw new Error('grant: invalid expiry');
     if (parsed.expiresAt <= Date.now()) throw new Error('grant: expired');
-    if (!Number.isInteger(parsed.keyVersion) || parsed.keyVersion < 1) throw new Error('grant: invalid keyVersion');
+    if (!Number.isInteger(parsed.keyVersion) || parsed.keyVersion < 2) throw new Error('grant: invalid key generation');
     if (typeof parsed.dataKey !== 'string' || toKeyBytes(parsed.dataKey, 'grant dataKey').length !== 32) throw new Error('grant: invalid dataKey');
     if (typeof parsed.ingressKey !== 'string' || toKeyBytes(parsed.ingressKey, 'grant ingressKey').length !== 32) throw new Error('grant: invalid ingressKey');
     return parsed;

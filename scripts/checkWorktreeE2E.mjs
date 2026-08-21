@@ -23,7 +23,7 @@ const machineId = `wt-check-${process.pid}`;
 const dataDir = mkdtempSync(join(tmpdir(), 'muxr-wt-'));
 const children = [];
 const env = { ...process.env };
-for (const key of ['MUXR_RELAY_TOKEN', 'MUXR_E2EE_SHARED_KEY', 'MUXR_RELAY_AUTH']) {
+for (const key of ['MUXR_RELAY_TOKEN', 'MUXR_RELAY_AUTH']) {
     delete env[key];
 }
 Object.assign(env, {

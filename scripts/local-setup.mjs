@@ -583,7 +583,7 @@ function enrollmentPayload(link) {
         const compact = parsed.searchParams.get('payload');
         const payload = compact === null ? undefined : JSON.parse(Buffer.from(compact, 'base64url').toString('utf8'));
         const relay = publicRelayUrl(payload?.relay);
-        if (payload?.v !== 1 || typeof payload?.id !== 'string' || typeof payload?.claim !== 'string'
+        if (payload?.v !== 2 || typeof payload?.id !== 'string' || typeof payload?.claim !== 'string'
             || relay === undefined || !relay.startsWith('wss://') || typeof payload?.expires === 'number' && payload.expires <= Date.now()) throw new Error('shape');
         return { id: payload.id, claim: payload.claim, relay };
     } catch { throw new Error('enrollment must be the muxr://enroll string created on the relay server'); }
@@ -614,7 +614,7 @@ export async function runMachines(command = 'list', args = []) {
                 body: JSON.stringify({ relay_url: relayUrl, ...(state.webEnabled ? { web_url: relayUrl.replace(/^wss/, 'https') } : {}) }),
             });
             if (!created.response.ok) throw new Error(created.body.error || 'could not create enrollment');
-            const payload = Buffer.from(JSON.stringify({ v: 1, id: created.body.enrollment_id, claim: created.body.claim,
+            const payload = Buffer.from(JSON.stringify({ v: 2, id: created.body.enrollment_id, claim: created.body.claim,
                 relay: created.body.relay_url, expires: Date.now() + Number(created.body.expires_in ?? 300) * 1000,
                 ...(typeof created.body.web_url === 'string' ? { web: created.body.web_url } : {}) })).toString('base64url');
             const link = `muxr://enroll?payload=${payload}`;
@@ -662,7 +662,7 @@ export async function runRemoteConnect(args = []) {
         ensurePrivateDir(stateDir());
         const reuseIdentity = existing?.relayLocation === 'remote' && publicRelayUrl(existing.relayUrl) === enrollment.relay;
         const identity = machineIdentity(reuseIdentity ? existing : undefined);
-        const message = Buffer.from(`muxr-enroll-v1\n${enrollment.id}\n${enrollment.relay}\n${identity.crypto.signingPublicKey}`, 'utf8');
+        const message = Buffer.from(`muxr-enroll-v2\n${enrollment.id}\n${enrollment.relay}\n${identity.crypto.signingPublicKey}`, 'utf8');
         const proof = Buffer.from(nacl.sign.detached(message, Buffer.from(identity.crypto.signingSecretKey, 'base64'))).toString('base64');
         const enrollmentBase = env('MUXR_REMOTE_CONTROL_BASE')?.replace(/\/$/, '') ?? enrollment.relay.replace(/^wss:/, 'https:');
         const claimed = await api(enrollmentBase, `/v1/selfhost/enrollments/${encodeURIComponent(enrollment.id)}/claim`, {
@@ -671,7 +671,7 @@ export async function runRemoteConnect(args = []) {
                 signing_public_key: identity.crypto.signingPublicKey, proof, name: identity.name ?? hostname() }),
         });
         if (!claimed.response.ok) throw new Error(claimed.body.error || 'machine enrollment failed');
-        const expectedSlug = `machine-${createHash('sha256').update('muxr-machine-v1\0').update(Buffer.from(identity.crypto.signingPublicKey, 'base64')).digest('hex').slice(0, 32)}`;
+        const expectedSlug = `machine-${createHash('sha256').update('muxr-machine-v2\0').update(Buffer.from(identity.crypto.signingPublicKey, 'base64')).digest('hex').slice(0, 32)}`;
         if (claimed.body.machine_slug !== expectedSlug || typeof claimed.body.machine_credential !== 'string'
             || typeof claimed.body.credential_expires_at !== 'string' || Date.parse(claimed.body.credential_expires_at) <= Date.now()) {
             throw new Error('relay returned an invalid machine identity');
@@ -1102,7 +1102,7 @@ function machineIdentity(existing) {
             boxPublicKey: base64(box.publicKey),
             boxSecretKey: base64(box.secretKey),
             dataKey: base64(nacl.randomBytes(32)),
-            keyVersion: 1,
+            keyVersion: 2,
             devices: [],
         },
     };
@@ -1754,7 +1754,7 @@ export async function runDevices(command = 'list', args = []) {
         await withSelfhostRotationLock(async () => {
             let current = readSelfhostState();
             let pending = current?.machine?.crypto?.pendingRotation;
-            if (pending?.kind !== 'selfhost-revoke-v1') {
+            if (pending?.kind !== 'selfhost-revoke') {
                 const reference = args.join(' ').trim();
                 if (reference === '') throw new Error('choose a device from `muxr devices list`');
                 const devices = await selfhostDevices(current);
@@ -1802,7 +1802,7 @@ export async function runDevices(command = 'list', args = []) {
                     })),
                 }));
                 pending = {
-                    kind: 'selfhost-revoke-v1',
+                    kind: 'selfhost-revoke',
                     revokedDeviceId: target.deviceId,
                     revokedDeviceName: target.name || 'phone',
                     previousKeyVersion: current.machine.crypto.keyVersion,
@@ -1832,14 +1832,11 @@ export async function runDevices(command = 'list', args = []) {
                 throw new Error('self-host key version changed during revocation; refusing to overwrite it');
             }
 
-            const definition = daemonDefinition();
-            const restarted = existsSync(definition.path) ? serviceCommand('restart') : undefined;
-            if (restarted !== undefined && !restarted.ok) {
-                print(`  warn: daemon restart unavailable; the running host will hot-reload the rotated keys (${restarted.stderr || restarted.stdout})`);
-            }
-            // A foreground host adopts the atomic state change through its 2s
-            // watcher; an offline host reads it on next start.
-            if (restarted?.ok !== true) await new Promise((resolve) => setTimeout(resolve, 2500));
+            // The host watches this atomic state file and hot-reloads keys.
+            // Restarting the service here also restarts the relay; that can cut
+            // off grant publication after clients have already been revoked,
+            // stranding every remaining device on the previous generation.
+            await new Promise((resolve) => setTimeout(resolve, 2500));
             const uploaded = await api(base, `/v1/selfhost/machines/${encodeURIComponent(current.machine.id)}/grants`, {
                 method: 'POST',
                 headers,
@@ -1853,7 +1850,7 @@ export async function runDevices(command = 'list', args = []) {
             if (current.machine.crypto.keyVersion !== pending.keyVersion) throw new Error('self-host key state changed before rotation completed');
             delete current.machine.crypto.pendingRotation;
             writeSelfhostState(current);
-            print(`  ✓ revoked ${pending.revokedDeviceName}; remaining devices received key version ${pending.keyVersion}`);
+            print(`  ✓ revoked ${pending.revokedDeviceName}; remaining devices received fresh encryption keys`);
         });
         return 0;
     } catch (cause) {
@@ -1900,6 +1897,7 @@ async function runSelfhostPair(state, requestedKind = 'native') {
         if (!created.response.ok) throw new Error(created.body.error || `pair session failed (${created.response.status})`);
         const payload = Buffer.from(JSON.stringify({
             v: '2',
+            generation: String(state.machine.crypto.keyVersion),
             id: created.body.pair_id,
             claim,
             pair: pairSecret,
@@ -1925,6 +1923,7 @@ async function runSelfhostPair(state, requestedKind = 'native') {
         pending = {
             pairId: created.body.pair_id,
             pairSecret,
+            generation: state.machine.crypto.keyVersion,
             ...(pairString === undefined ? { pairUrl } : { pairString }),
             expiresAt: Date.now() + Number(created.body.expires_in ?? 120) * 1000,
             deviceKind: requestedKind,
@@ -1998,7 +1997,7 @@ async function runSelfhostPair(state, requestedKind = 'native') {
             recipientId: state.machine.id,
             channel: 'pairing',
             streamId: pending.pairId,
-            keyVersion: 1,
+            keyVersion: pending.generation,
         }, newV2ReplayTracker());
         const request = JSON.parse(plaintext);
         if (request.devicePublicKey !== devicePublicKey || request.machineSigningPublicKey !== state.machine.crypto.signingPublicKey) {
@@ -2154,6 +2153,7 @@ export async function runAccount(command, args = []) {
                 machine: auth.machine.id,
                 name: auth.machine.name,
                 machinePk: auth.machine.crypto.signingPublicKey,
+                generation: String(auth.machine.crypto.keyVersion),
             });
             const pairUrl = `${result.body.verification_uri}#${fragment}`;
             print(`Open: ${pairUrl}`);
@@ -2180,7 +2180,7 @@ export async function runAccount(command, args = []) {
                     recipientId: auth.machine.id,
                     channel: 'pairing',
                     streamId: result.body.pair_id,
-                    keyVersion: 1,
+                    keyVersion: auth.machine.crypto.keyVersion,
                 }, newV2ReplayTracker());
                 const request = JSON.parse(plaintext);
                 if (request.devicePublicKey !== device.public_key || request.machineSigningPublicKey !== auth.machine.crypto.signingPublicKey) {

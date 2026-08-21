@@ -23,8 +23,6 @@ export interface ConnectionSettings {
     mode: 'hosted' | 'local';
     relayUrl: string;
     machineId: string;
-    /** base64 shared key; empty string means cleartext (explicit opt-out). */
-    encryptionKey: string;
     /** Account token from POST /v1/accounts. Required by a strict relay. */
     token: string;
     /** True when the active machine is a self-host pairing (no account surface). */
@@ -39,12 +37,11 @@ export interface ConnectionSettings {
  * Static process.env.EXPO_PUBLIC_* references only: Expo inlines them at
  * bundle time, so a dynamic template lookup silently bakes undefined.
  */
-function buildEnv(suffix: 'MODE' | 'RELAY_URL' | 'MACHINE_ID' | 'E2EE_KEY' | 'TOKEN'): string | undefined {
+function buildEnv(suffix: 'MODE' | 'RELAY_URL' | 'MACHINE_ID' | 'TOKEN'): string | undefined {
     switch (suffix) {
         case 'MODE': return process.env.EXPO_PUBLIC_MUXR_MODE;
         case 'RELAY_URL': return process.env.EXPO_PUBLIC_MUXR_RELAY_URL;
         case 'MACHINE_ID': return process.env.EXPO_PUBLIC_MUXR_MACHINE_ID;
-        case 'E2EE_KEY': return process.env.EXPO_PUBLIC_MUXR_E2EE_KEY;
         case 'TOKEN': return process.env.EXPO_PUBLIC_MUXR_TOKEN;
     }
 }
@@ -55,7 +52,6 @@ export const DEFAULT_CONNECTION: ConnectionSettings = {
     mode: DEFAULT_MODE,
     relayUrl: buildEnv('RELAY_URL') ?? 'ws://127.0.0.1:8792',
     machineId: buildEnv('MACHINE_ID') ?? 'devbox',
-    encryptionKey: DEFAULT_MODE === 'local' ? (buildEnv('E2EE_KEY') ?? '') : '',
     token: DEFAULT_MODE === 'local' ? (buildEnv('TOKEN') ?? '') : '',
     lastSessionCwd: '',
     recentSessionCwds: [],
@@ -86,7 +82,6 @@ function parseSettings(raw: string): ConnectionSettings {
             : typeof parsed.machineId === 'string' && parsed.machineId.trim().length > 0
                 ? parsed.machineId.trim()
                 : DEFAULT_CONNECTION.machineId,
-        encryptionKey: mode === 'local' && typeof parsed.encryptionKey === 'string' ? parsed.encryptionKey.trim() : '',
         // An empty stored token is never usable against a strict relay, so it
         // falls back to the build default rather than pinning the app to a
         // permanent unauthorized retry loop.

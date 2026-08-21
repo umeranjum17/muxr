@@ -63,7 +63,7 @@ const scratch = mkdtempSync(join(tmpdir(), 'muxr-preview-e2e-'));
 const env = { ...process.env };
 // A live deployment exports these. Inherited, the throwaway relay below refuses
 // the host and the failure looks like a code regression.
-for (const key of ['MUXR_RELAY_TOKEN', 'MUXR_E2EE_SHARED_KEY', 'MUXR_RELAY_AUTH']) {
+for (const key of ['MUXR_RELAY_TOKEN', 'MUXR_RELAY_AUTH']) {
     delete env[key];
 }
 Object.assign(env, {

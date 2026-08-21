@@ -26,7 +26,7 @@ export EXPO_PUBLIC_MUXR_MODE="${EXPO_PUBLIC_MUXR_MODE:-hosted}"
 if [ "$EXPO_PUBLIC_MUXR_MODE" = local ]; then
   export EXPO_PUBLIC_MUXR_TOKEN="${EXPO_PUBLIC_MUXR_TOKEN:-$(read_secret MUXR_TOKEN)}"
 else
-  unset EXPO_PUBLIC_MUXR_TOKEN EXPO_PUBLIC_MUXR_E2EE_KEY
+  unset EXPO_PUBLIC_MUXR_TOKEN
 fi
 export ORG_GRADLE_PROJECT_reactNativeArchitectures="${ORG_GRADLE_PROJECT_reactNativeArchitectures:-arm64-v8a}"
 export APP_ENV="${APP_ENV:-preview}"

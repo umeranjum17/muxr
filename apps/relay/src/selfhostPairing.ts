@@ -303,7 +303,7 @@ export class SelfhostPairing {
             const active = this.state.devices.filter((device) => device.machineSlug === machineSlug && device.revokedAt === undefined);
             const supplied = new Map(grants.map((entry) => [entry.deviceId, entry.grant]));
             const currentVersion = Math.max(0, ...active.map((device) => device.keyVersion ?? 0));
-            if (!Number.isInteger(keyVersion) || keyVersion < currentVersion || keyVersion < 1
+            if (!Number.isInteger(keyVersion) || keyVersion < currentVersion || keyVersion < 2
                 || supplied.size !== grants.length || supplied.size !== active.length
                 || active.some((device) => !supplied.has(device.deviceId))) return false;
             for (const device of active) {

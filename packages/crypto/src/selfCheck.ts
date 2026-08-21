@@ -4,14 +4,9 @@ import assert from 'node:assert/strict';
 import nacl from 'tweetnacl';
 import {
     createDeviceGrant,
-    createPayloadCodec,
-    decryptPayload,
-    deriveSharedKey,
     deriveV2Key,
-    encryptPayload,
     generateKeyPair,
     generateSigningKeyPair,
-    isEncryptedPayload,
     isV2Envelope,
     newPreviewKey,
     newV2ReplayTracker,
@@ -31,41 +26,6 @@ import {
     verifyDeviceGrant,
     type V2Context,
 } from './index.js';
-
-// --- legacy v1 codec (local mode; must keep working) -----------------------
-
-const machine = generateKeyPair();
-const client = generateKeyPair();
-
-const machineShared = deriveSharedKey(machine.secretKey, client.publicKey);
-const clientShared = deriveSharedKey(client.secretKey, machine.publicKey);
-assert.equal(machineShared, clientShared, 'both sides must derive the same key');
-
-const plaintext = JSON.stringify({ type: 'session.event', secret: 'do not leak' });
-const encrypted = encryptPayload(plaintext, machineShared);
-assert.ok(isEncryptedPayload(encrypted), 'payload must be tagged');
-assert.ok(!encrypted.includes('do not leak'), 'plaintext must not appear in ciphertext');
-assert.equal(decryptPayload(encrypted, clientShared), plaintext, 'client must decrypt machine payload');
-
-// Tampering must fail loudly, not silently return garbage.
-const tampered = `${encrypted.slice(0, -4)}AAAA`;
-assert.throws(() => decryptPayload(tampered, clientShared), /authentication|malformed/);
-
-// A third party with its own key must not be able to read it.
-const attacker = generateKeyPair();
-const attackerShared = deriveSharedKey(attacker.secretKey, machine.publicKey);
-assert.throws(() => decryptPayload(encrypted, attackerShared), /authentication/);
-
-// Nonce reuse check: same plaintext twice must produce different ciphertext.
-assert.notEqual(encryptPayload(plaintext, machineShared), encryptPayload(plaintext, machineShared));
-
-// Opt-in: no key means passthrough, never silent fake encryption.
-const off = createPayloadCodec();
-assert.equal(off.enabled, false);
-assert.equal(off.encode(plaintext), plaintext);
-const on = createPayloadCodec(machineShared);
-assert.equal(on.enabled, true);
-assert.equal(on.decode(on.encode(plaintext)), plaintext);
 
 // --- short pairing-code payload ---------------------------------------------
 
@@ -102,9 +62,10 @@ assert.throws(() => deriveV2Key(nacl.randomBytes(16), 'host->client'), /32 bytes
 
 const ctx = {
     machineId: 'm1', senderId: 'host', recipientId: 'dev-1',
-    channel: 'session', streamId: 'sess-1', keyVersion: 1,
+    channel: 'session', streamId: 'sess-1', keyVersion: 2,
 } as const;
 const sender = newV2SenderState();
+assert.throws(() => sealV2('old generation', hostToDevice, { ...ctx, keyVersion: 1 }, newV2SenderState()), /generation/, 'retired key generation is rejected');
 const env = sealV2('hello from host', hostToDevice, ctx, sender);
 assert.ok(isV2Envelope(env), 'v2 payload must be tagged');
 assert.ok(!env.includes('hello from host'), 'plaintext must not appear in the envelope');
@@ -129,7 +90,7 @@ assert.throws(() => openV2(env, hostToDevice, { ...ctx, senderId: 'spoof' }, rep
 assert.throws(() => openV2(env, hostToDevice, { ...ctx, recipientId: 'dev-2' }, replay), /context mismatch/);
 assert.throws(() => openV2(env, hostToDevice, { ...ctx, channel: 'terminal' }, replay), /context mismatch/);
 assert.throws(() => openV2(env, hostToDevice, { ...ctx, streamId: 'sess-2' }, replay), /context mismatch/);
-assert.throws(() => openV2(env, hostToDevice, { ...ctx, keyVersion: 2 }, replay), /context mismatch/);
+assert.throws(() => openV2(env, hostToDevice, { ...ctx, keyVersion: 3 }, replay), /context mismatch/);
 assert.throws(() => sealV2('x', hostToDevice, { ...ctx, channel: 'nope' } as unknown as V2Context, newV2SenderState()), /unknown channel/, 'seal rejects bad context');
 
 // Tamper, plaintext, malformed, unknown version.
@@ -137,7 +98,7 @@ const flipAt = Math.floor(env.length / 2);
 const tamperedEnv = env.slice(0, flipAt) + (env[flipAt] === 'A' ? 'B' : 'A') + env.slice(flipAt + 1);
 assert.throws(() => openV2(tamperedEnv, hostToDevice, ctx, newV2ReplayTracker()), /authentication/, 'tampered ciphertext must fail');
 assert.throws(() => openV2('hello clear', hostToDevice, ctx, newV2ReplayTracker()), /non-v2/, 'cleartext fails closed');
-assert.throws(() => openV2('e2ee:v1:abc.def', hostToDevice, ctx, newV2ReplayTracker()), /non-v2/, 'legacy frame fails closed in strict mode');
+assert.throws(() => openV2('e2ee:unknown:abc.def', hostToDevice, ctx, newV2ReplayTracker()), /non-v2/, 'unknown frame fails closed in strict mode');
 assert.throws(() => openV2('e2ee:v2:', hostToDevice, ctx, newV2ReplayTracker()), /malformed/, 'empty envelope fails');
 assert.throws(() => openV2('e2ee:v2:' + Buffer.concat([Buffer.from([3]), Buffer.alloc(24)]).toString('base64'), hostToDevice, ctx, newV2ReplayTracker()), /unknown version/, 'bad version fails');
 assert.throws(() => openV2(env.slice(0, env.length - 8), hostToDevice, ctx, newV2ReplayTracker()), /malformed|authentication/, 'truncated envelope fails');
@@ -178,10 +139,15 @@ const grant = createDeviceGrant({
     devicePublicKey: deviceX.publicKey,
     dataKey: dataRoot,
     ingressKey: ingressRoot,
-    keyVersion: 1,
+    keyVersion: 2,
     expiresAt: Date.now() + 60_000,
 });
 assert.equal(grant.signer, machineSigning.publicKey, 'grant names the signing key');
+assert.throws(() => createDeviceGrant({
+    machineId: 'm1', machineSigningSecretKey: machineSigning.secretKey, machineKey: machineX,
+    deviceId: 'dev-1', devicePublicKey: deviceX.publicKey, dataKey: dataRoot, ingressKey: ingressRoot,
+    keyVersion: 1, expiresAt: Date.now() + 60_000,
+}), /generation/, 'retired grants are rejected');
 assert.equal(verifyDetached(
     Buffer.from('pinned bytes'),
     signDetached(Buffer.from('pinned bytes'), machineSigning.secretKey),
@@ -195,7 +161,7 @@ const openedGrant = verifyDeviceGrant(grant, {
 });
 assert.equal(openedGrant.machineId, 'm1');
 assert.equal(openedGrant.devicePublicKey, deviceX.publicKey);
-assert.equal(openedGrant.keyVersion, 1);
+assert.equal(openedGrant.keyVersion, 2);
 assert.equal(openedGrant.dataKey, Buffer.from(dataRoot).toString('base64'));
 assert.equal(openedGrant.ingressKey, Buffer.from(ingressRoot).toString('base64'));
 
@@ -222,7 +188,7 @@ const expired = createDeviceGrant({
     devicePublicKey: deviceX.publicKey,
     dataKey: dataRoot,
     ingressKey: ingressRoot,
-    keyVersion: 1,
+    keyVersion: 2,
     expiresAt: Date.now() - 1000,
 });
 assert.throws(
@@ -236,4 +202,4 @@ function tamperBase64(value: string): string {
     return value.slice(0, at) + (value[at] === 'A' ? 'B' : 'A') + value.slice(at + 1);
 }
 
-process.stdout.write('PASS: crypto selfCheck (legacy codec, v2 envelope, context auth, replay, restart snapshots, grants)\n');
+process.stdout.write('PASS: crypto selfCheck (strict envelope, context auth, replay, restart snapshots, grants)\n');

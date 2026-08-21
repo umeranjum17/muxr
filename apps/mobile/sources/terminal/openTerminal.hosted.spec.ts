@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const grant = {
     machineId: 'machine',
     deviceId: 'device-1',
-    keyVersion: 1,
+    keyVersion: 2,
     dataKey: 'data',
     ingressKey: 'ingress',
     expiresAt: Date.now() + 60_000,
@@ -138,7 +138,7 @@ describe('openTerminal hosted transport', () => {
                     recipientId: '*',
                     channel: 'terminal',
                     streamId,
-                    keyVersion: 1,
+                    keyVersion: 2,
                     seq: 7,
                     at: Date.now(),
                 },
@@ -159,7 +159,7 @@ describe('openTerminal hosted transport', () => {
             recipientId: 'machine',
             channel: 'terminal',
             streamId,
-            keyVersion: 1,
+            keyVersion: 2,
         });
         expect(sent.payload).toBe(`sealed:${JSON.stringify({ type: 'terminal.input', text: 'ls' })}`);
 
@@ -169,7 +169,7 @@ describe('openTerminal hosted transport', () => {
             data: JSON.stringify({
                 header: {
                     machineId: 'machine', senderId: 'machine', recipientId: '*', channel: 'terminal',
-                    streamId, keyVersion: 1, seq: 8, at: Date.now(),
+                    streamId, keyVersion: 2, seq: 8, at: Date.now(),
                 },
                 payload: `sealed:${JSON.stringify({ type: 'terminal.closed', reason: 'control moved to another device' })}`,
             }),

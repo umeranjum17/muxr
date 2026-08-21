@@ -100,7 +100,7 @@ describe('TerminalManager stream exit', () => {
             machineId: 'machine',
             identity,
             hostedE2ee: {
-                machineId: 'machine', keyVersion: 1, dataKey: root,
+                machineId: 'machine', keyVersion: 2, dataKey: root,
                 ingressKeys: { 'device-a': root, 'device-b': root },
             },
         });
@@ -128,12 +128,12 @@ describe('TerminalManager stream exit', () => {
         const plaintext = JSON.stringify({ type: 'terminal.input', text: 'live' });
         const payload = sealV2(plaintext, deriveV2Key(root, 'client->host'), {
             machineId: 'machine', senderId: 'device-b', recipientId: 'machine', channel: 'terminal',
-            streamId: 'phone-b', keyVersion: 1,
+            streamId: 'phone-b', keyVersion: 2,
         }, newV2SenderState());
         const envelope: Envelope = {
             header: {
                 machineId: 'machine', senderId: 'device-b', recipientId: 'machine', channel: 'terminal',
-                streamId: 'phone-b', keyVersion: 1, seq: v2EnvelopeSequence(payload), at: Date.now(),
+                streamId: 'phone-b', keyVersion: 2, seq: v2EnvelopeSequence(payload), at: Date.now(),
             },
             payload,
         };

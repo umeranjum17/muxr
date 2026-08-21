@@ -400,6 +400,8 @@ export async function claimHostedPairing(url: string): Promise<StoredHostedGrant
         }
     }
     if (fragment.get('v') !== '2') throw new Error('unknown pairing link version');
+    const generation = Number(fragment.get('generation'));
+    if (!Number.isInteger(generation) || generation < 2) throw new Error('pairing link uses an unsupported encryption generation');
     const pairId = fragment.get('id');
     const claim = fragment.get('claim');
     const pairSecret = fragment.get('pair');
@@ -427,7 +429,7 @@ export async function claimHostedPairing(url: string): Promise<StoredHostedGrant
         recipientId: machineId!,
         channel: 'pairing',
         streamId: pairId!,
-        keyVersion: 1,
+        keyVersion: generation,
     }, newV2SenderState());
     const claimPath = selfhostRelay !== null
         ? `/v1/selfhost/pair-sessions/${encodeURIComponent(pairId!)}/claim`

@@ -6,7 +6,7 @@
  */
 
 import WebSocket from 'ws';
-import { createPayloadCodec, isEncryptedPayload, v2EnvelopeSequence, type PayloadCodec } from '@muxr/crypto';
+import { v2EnvelopeSequence } from '@muxr/crypto';
 import { HostV2Crypto, type HostedMachineKeys } from './hostedE2ee.js';
 import {
     decodePayload,
@@ -27,12 +27,7 @@ export interface RelayLinkOptions {
     onStateChange?: (state: 'connecting' | 'open' | 'closed' | 'replaced') => void;
     /** ponytail: fixed backoff. Make it adaptive when a real network says so. */
     reconnectDelayMs?: number;
-    /**
-     * base64 shared key from @muxr/crypto. When absent, payloads travel in
-     * cleartext -- E2EE is explicit opt-in and is never silently assumed.
-     */
-    sharedKey?: string;
-    /** Mandatory strict v2 keys in hosted mode. Mutually exclusive with sharedKey. */
+    /** Mandatory strict v2 keys in hosted mode. */
     hostedE2ee?: HostedMachineKeys;
     /**
      * Machine token from POST /v1/machines. Required whenever the relay runs in
@@ -48,22 +43,12 @@ export interface RelayLink {
 
 export function connectToRelay(options: RelayLinkOptions): RelayLink {
     const reconnectDelayMs = options.reconnectDelayMs ?? 1000;
-    if (options.hostedE2ee !== undefined && options.sharedKey !== undefined) {
-        throw new Error('hosted e2ee cannot use the legacy shared key codec');
-    }
-    const codec: PayloadCodec = createPayloadCodec(options.sharedKey);
     const hosted = options.hostedE2ee === undefined ? undefined : new HostV2Crypto(options.hostedE2ee);
     let socket: WebSocket | undefined;
     let seq = 0;
     let closed = false;
     let reconnectAttempt = 0;
     const retryDelay = (): number => Math.min(reconnectDelayMs * 2 ** reconnectAttempt++, 30_000);
-    /**
-     * Request ids that arrived CLEARTEXT (the relay's synthetic requests, e.g.
-     * attachment downloads and push actions) must be answered in cleartext --
-     * the relay has no shared key. Everything else stays encrypted.
-     */
-    const cleartextRequestIds = new Set<string>();
     /** Frames that arrived while the socket was down. Hello still goes first. */
     const outbound: Array<{ frame: HostFrame; sessionId?: string; channel: 'session' | 'attachment' }> = [];
     const MAX_OUTBOUND = 64;
@@ -73,12 +58,9 @@ export function connectToRelay(options: RelayLinkOptions): RelayLink {
         seq += 1;
         const plaintext = encodePayload(frame);
         const streamId = sessionId ?? 'machine';
-        // Local-only synthetic requests retain their compatibility response.
-        // Hosted mode has no relay-decryptable request path at all.
-        const stayCleartext = hosted === undefined && frame.type === 'result' && cleartextRequestIds.delete(frame.requestId);
-        const payload = hosted === undefined
-            ? (stayCleartext ? plaintext : codec.encode(plaintext))
-            : hosted.seal(channel, streamId, plaintext);
+        // Local development is cleartext. User-operated and hosted connections
+        // always use the strict encrypted envelope.
+        const payload = hosted === undefined ? plaintext : hosted.seal(channel, streamId, plaintext);
         const envelope: Envelope = {
             header: {
                 machineId: options.machineId,
@@ -148,7 +130,7 @@ export function connectToRelay(options: RelayLinkOptions): RelayLink {
             try {
                 if (envelope.header.machineId !== options.machineId) throw new Error('hosted e2ee: routing machine mismatch');
                 const plaintext = hosted === undefined
-                    ? codec.decode(envelope.payload)
+                    ? envelope.payload
                     : (() => {
                         const sender = envelope.header.senderId;
                         const stream = envelope.header.streamId;
@@ -164,10 +146,6 @@ export function connectToRelay(options: RelayLinkOptions): RelayLink {
                 const frame = decodePayload<ClientFrame>(plaintext);
                 if (hosted !== undefined && envelope.header.channel !== (frame.type === 'attachment.read' ? 'attachment' : 'session')) {
                     throw new Error('hosted e2ee: request channel mismatch');
-                }
-                if (hosted === undefined && !isEncryptedPayload(envelope.payload) && 'requestId' in frame && typeof frame.requestId === 'string') {
-                    cleartextRequestIds.add(frame.requestId);
-                    if (cleartextRequestIds.size > 1000) cleartextRequestIds.clear();
                 }
                 options.onClientFrame(frame, hosted === undefined ? undefined : envelope.header.senderId);
             } catch {

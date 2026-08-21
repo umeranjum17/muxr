@@ -41,7 +41,6 @@ export function useHostedPairing() {
                 relayUrl: grant.relayUrl,
                 machineId: grant.machineId,
                 token: '',
-                encryptionKey: '',
                 selfhost: grant.source === 'selfhost' ? true : undefined,
             });
             await auth.login(grant.credential, grant.deviceKey.secretKey);

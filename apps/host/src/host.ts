@@ -22,8 +22,6 @@ export interface HostOptions {
     terminals?: TerminalManager;
     hostVersion?: string;
     onStateChange?: (state: 'connecting' | 'open' | 'closed' | 'replaced') => void;
-    /** Explicit local-mode legacy key. Never accepted with hostedE2ee. */
-    sharedKey?: string;
     /** Mandatory strict v2 endpoint keys for hosted mode. */
     hostedE2ee?: HostedMachineKeys;
     token?: string;
@@ -81,7 +79,6 @@ export function startHost(options: HostOptions): Host {
     link = connectToRelay({
         relayUrl: options.relayUrl,
         machineId: options.machineId,
-        ...(options.sharedKey === undefined ? {} : { sharedKey: options.sharedKey }),
         ...(options.hostedE2ee === undefined ? {} : { hostedE2ee: options.hostedE2ee }),
         ...(options.token === undefined ? {} : { token: options.token }),
         onStateChange: (state) => {
