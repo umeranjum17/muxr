@@ -54,6 +54,11 @@ import { randomUUID } from 'expo-crypto';
  */
 const TOOLS_TARGET = 44;
 const TOOLS_BASE = 60;
+/** The gap between the trigger and the menu that hangs off it. */
+const TOOLS_MENU_GAP = 6;
+/** Room for roughly five rows: the least a menu can be and still be worth
+ *  opening. The trigger stops climbing when the menu would fall below it. */
+const TOOLS_MENU_MIN = 260;
 
 function displayLink(url: string, maxLength: number): string {
     const parsed = new URL(url);
@@ -526,10 +531,15 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                 onTouchMove={paneGestures.onTouchMove}
                 onTouchEnd={paneGestures.onTouchEnd}
                 onLayout={(event) => {
-                    // The band the trigger may be parked in. A keyboard or a row
-                    // of attachments shrinks it, so anything already dragged past
-                    // the new ceiling comes back down with it.
-                    const max = Math.max(0, event.nativeEvent.layout.height - TOOLS_TARGET - TOOLS_BASE - 8);
+                    // The menu hangs above the trigger, so the trigger's ceiling
+                    // is really the menu's floor: it may climb only while a menu
+                    // worth opening still fits over it. 12 is the popup's own top
+                    // margin; the header it may also cover is not counted, so a
+                    // short band gives up its travel rather than its menu.
+                    //
+                    // A keyboard or a row of attachments shrinks the band, so
+                    // anything dragged past the new ceiling comes down with it.
+                    const max = Math.max(0, event.nativeEvent.layout.height - TOOLS_BASE - TOOLS_TARGET - TOOLS_MENU_GAP - 12 - TOOLS_MENU_MIN);
                     toolsMaxLift.set(max);
                     if (toolsLift.get() > max) toolsLift.set(max);
                 }}
@@ -776,7 +786,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                         marginRight: 8,
                         marginLeft: 16,
                         marginTop: 12,
-                        marginBottom: bottomBlockHeight + TOOLS_BASE + TOOLS_TARGET + 6 + openLift,
+                        marginBottom: bottomBlockHeight + TOOLS_BASE + TOOLS_TARGET + TOOLS_MENU_GAP + openLift,
                         borderRadius: 14,
                         overflow: 'hidden',
                         // Rows carry the lighter fill; the surface behind them is
