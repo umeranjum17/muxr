@@ -583,7 +583,7 @@ function enrollmentPayload(link) {
         const compact = parsed.searchParams.get('payload');
         const payload = compact === null ? undefined : JSON.parse(Buffer.from(compact, 'base64url').toString('utf8'));
         const relay = publicRelayUrl(payload?.relay);
-        if (payload?.v !== 2 || typeof payload?.id !== 'string' || typeof payload?.claim !== 'string'
+        if (payload?.v !== 1 || typeof payload?.id !== 'string' || typeof payload?.claim !== 'string'
             || relay === undefined || !relay.startsWith('wss://') || typeof payload?.expires === 'number' && payload.expires <= Date.now()) throw new Error('shape');
         return { id: payload.id, claim: payload.claim, relay };
     } catch { throw new Error('enrollment must be the muxr://enroll string created on the relay server'); }
@@ -614,7 +614,7 @@ export async function runMachines(command = 'list', args = []) {
                 body: JSON.stringify({ relay_url: relayUrl, ...(state.webEnabled ? { web_url: relayUrl.replace(/^wss/, 'https') } : {}) }),
             });
             if (!created.response.ok) throw new Error(created.body.error || 'could not create enrollment');
-            const payload = Buffer.from(JSON.stringify({ v: 2, id: created.body.enrollment_id, claim: created.body.claim,
+            const payload = Buffer.from(JSON.stringify({ v: 1, id: created.body.enrollment_id, claim: created.body.claim,
                 relay: created.body.relay_url, expires: Date.now() + Number(created.body.expires_in ?? 300) * 1000,
                 ...(typeof created.body.web_url === 'string' ? { web: created.body.web_url } : {}) })).toString('base64url');
             const link = `muxr://enroll?payload=${payload}`;
@@ -662,7 +662,7 @@ export async function runRemoteConnect(args = []) {
         ensurePrivateDir(stateDir());
         const reuseIdentity = existing?.relayLocation === 'remote' && publicRelayUrl(existing.relayUrl) === enrollment.relay;
         const identity = machineIdentity(reuseIdentity ? existing : undefined);
-        const message = Buffer.from(`muxr-enroll-v2\n${enrollment.id}\n${enrollment.relay}\n${identity.crypto.signingPublicKey}`, 'utf8');
+        const message = Buffer.from(`muxr-enroll-v1\n${enrollment.id}\n${enrollment.relay}\n${identity.crypto.signingPublicKey}`, 'utf8');
         const proof = Buffer.from(nacl.sign.detached(message, Buffer.from(identity.crypto.signingSecretKey, 'base64'))).toString('base64');
         const enrollmentBase = env('MUXR_REMOTE_CONTROL_BASE')?.replace(/\/$/, '') ?? enrollment.relay.replace(/^wss:/, 'https:');
         const claimed = await api(enrollmentBase, `/v1/selfhost/enrollments/${encodeURIComponent(enrollment.id)}/claim`, {
@@ -671,7 +671,7 @@ export async function runRemoteConnect(args = []) {
                 signing_public_key: identity.crypto.signingPublicKey, proof, name: identity.name ?? hostname() }),
         });
         if (!claimed.response.ok) throw new Error(claimed.body.error || 'machine enrollment failed');
-        const expectedSlug = `machine-${createHash('sha256').update('muxr-machine-v2\0').update(Buffer.from(identity.crypto.signingPublicKey, 'base64')).digest('hex').slice(0, 32)}`;
+        const expectedSlug = `machine-${createHash('sha256').update('muxr-machine-v1\0').update(Buffer.from(identity.crypto.signingPublicKey, 'base64')).digest('hex').slice(0, 32)}`;
         if (claimed.body.machine_slug !== expectedSlug || typeof claimed.body.machine_credential !== 'string'
             || typeof claimed.body.credential_expires_at !== 'string' || Date.parse(claimed.body.credential_expires_at) <= Date.now()) {
             throw new Error('relay returned an invalid machine identity');
@@ -1102,7 +1102,7 @@ function machineIdentity(existing) {
             boxPublicKey: base64(box.publicKey),
             boxSecretKey: base64(box.secretKey),
             dataKey: base64(nacl.randomBytes(32)),
-            keyVersion: 2,
+            keyVersion: 1,
             devices: [],
         },
     };
@@ -1754,7 +1754,7 @@ export async function runDevices(command = 'list', args = []) {
         await withSelfhostRotationLock(async () => {
             let current = readSelfhostState();
             let pending = current?.machine?.crypto?.pendingRotation;
-            if (pending?.kind !== 'selfhost-revoke') {
+            if (pending?.kind !== 'selfhost-revoke-v1') {
                 const reference = args.join(' ').trim();
                 if (reference === '') throw new Error('choose a device from `muxr devices list`');
                 const devices = await selfhostDevices(current);
@@ -1802,7 +1802,7 @@ export async function runDevices(command = 'list', args = []) {
                     })),
                 }));
                 pending = {
-                    kind: 'selfhost-revoke',
+                    kind: 'selfhost-revoke-v1',
                     revokedDeviceId: target.deviceId,
                     revokedDeviceName: target.name || 'phone',
                     previousKeyVersion: current.machine.crypto.keyVersion,

@@ -38,8 +38,8 @@ const json = async (path, options = {}) => {
     return { response, body: await response.json() };
 };
 const bearer = (value) => ({ authorization: `Bearer ${value}` });
-const proofMessage = (id, publicKey) => Buffer.from(`muxr-enroll-v2\n${id}\n${relayUrl}\n${publicKey}`);
-const slug = (publicKey) => `machine-${createHash('sha256').update('muxr-machine-v2\0').update(Buffer.from(publicKey, 'base64')).digest('hex').slice(0, 32)}`;
+const proofMessage = (id, publicKey) => Buffer.from(`muxr-enroll-v1\n${id}\n${relayUrl}\n${publicKey}`);
+const slug = (publicKey) => `machine-${createHash('sha256').update('muxr-machine-v1\0').update(Buffer.from(publicKey, 'base64')).digest('hex').slice(0, 32)}`;
 
 async function enroll(name) {
     const opened = await json('/v1/selfhost/enrollments', { method: 'POST', headers: bearer(mint), body: JSON.stringify({ relay_url: relayUrl }) });
@@ -84,7 +84,7 @@ try {
     const cliEnrollment = await json('/v1/selfhost/enrollments', {
         method: 'POST', headers: bearer(mint), body: JSON.stringify({ relay_url: relayUrl }),
     });
-    const cliPayload = Buffer.from(JSON.stringify({ v: 2, id: cliEnrollment.body.enrollment_id,
+    const cliPayload = Buffer.from(JSON.stringify({ v: 1, id: cliEnrollment.body.enrollment_id,
         claim: cliEnrollment.body.claim, relay: relayUrl })).toString('base64url');
     const cliResult = spawnSync(process.execPath, ['scripts/cli.mjs', 'connect', '--enrollment', `muxr://enroll?payload=${cliPayload}`, '--no-pair'], {
         cwd: process.cwd(), encoding: 'utf8',
@@ -98,7 +98,7 @@ try {
     const replacement = await json('/v1/selfhost/enrollments', {
         method: 'POST', headers: bearer(mint), body: JSON.stringify({ relay_url: relayUrl }),
     });
-    const replacementPayload = Buffer.from(JSON.stringify({ v: 2, id: replacement.body.enrollment_id,
+    const replacementPayload = Buffer.from(JSON.stringify({ v: 1, id: replacement.body.enrollment_id,
         claim: replacement.body.claim, relay: relayUrl })).toString('base64url');
     const replacementResult = spawnSync(process.execPath, ['scripts/cli.mjs', 'connect', '--enrollment', `muxr://enroll?payload=${replacementPayload}`, '--no-pair', '--force'], {
         cwd: process.cwd(), encoding: 'utf8',

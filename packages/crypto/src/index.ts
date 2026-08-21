@@ -59,8 +59,9 @@ export function generateKeyPair(): KeyPair {
     return { publicKey: toBase64(pair.publicKey), secretKey: toBase64(pair.secretKey) };
 }
 
-const PAIRING_CODE_PREFIX = 'muxr:pair-code:v2:';
-const PAIRING_CODE_DOMAIN = encodeUtf8('muxr.pair-code.v2');
+// Wire-stable identifiers: these are format domains, not supported protocol choices.
+const PAIRING_CODE_PREFIX = 'muxr:pair-code:v1:';
+const PAIRING_CODE_DOMAIN = encodeUtf8('muxr.pair-code.v1');
 export const PAIRING_CODE_ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
 
 export function normalizePairingCode(value: string): string {
@@ -449,7 +450,8 @@ export interface DeviceGrant {
 }
 
 export interface SealedDeviceGrant {
-    v: 2;
+    // Wire-stable grant schema. This is unrelated to the retired shared-key transport.
+    v: 1;
     /** Machine X25519 public key that sealed the box, base64. */
     sender: string;
     /** base64(nonce || ciphertext), encrypted to the device X25519 public key. */
@@ -524,7 +526,7 @@ export function createDeviceGrant(params: {
     const nonce = nacl.randomBytes(nacl.box.nonceLength);
     const box = nacl.box(plaintext, nonce, fromBase64(devicePublicKey), fromBase64(params.machineKey.secretKey));
     return {
-        v: 2,
+        v: 1,
         sender: params.machineKey.publicKey,
         box: toBase64(concatBytes(nonce, box)),
         signer: machineSigningPublicKey,
@@ -552,7 +554,7 @@ export function verifyDeviceGrant(
     },
 ): DeviceGrant {
     if (grant === null || typeof grant !== 'object') throw new Error('grant: malformed grant');
-    if (grant.v !== 2) throw new Error(`grant: unknown version ${grant.v}`);
+    if (grant.v !== 1) throw new Error(`grant: unknown version ${grant.v}`);
     if (grant.signer !== opts.pinnedMachineSigningPublicKey) throw new Error('grant: signer is not the pinned machine key');
     toKeyBytes(opts.deviceKey.secretKey, 'grant deviceKey.secretKey');
     const boxBytes = fromBase64(grant.box);
