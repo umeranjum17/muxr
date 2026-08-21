@@ -243,6 +243,14 @@ export default function RootLayout() {
             try {
                 await loadFonts();
                 await sodium.ready;
+                // Skia draws the gauge and ring charts. Native ships it in the
+                // binary; the browser has to fetch CanvasKit first, and without
+                // this every plugin panel holding one of those charts died on
+                // `CanvasKit is not defined`.
+                if (Platform.OS === 'web') {
+                    const { LoadSkiaWeb } = await import('@shopify/react-native-skia/lib/module/web');
+                    await LoadSkiaWeb({ locateFile: (file: string) => `/${file}` });
+                }
 
                 credentials = await TokenStorage.getCredentials();
                 const restoredGrant = await restoreHostedConnection();

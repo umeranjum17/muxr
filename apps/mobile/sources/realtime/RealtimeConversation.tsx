@@ -1,11 +1,13 @@
 import * as React from 'react';
-import { BackHandler, Pressable, View } from 'react-native';
+import { BackHandler, Pressable, ScrollView, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 import { Text } from '@/components/StyledText';
 import { Typography } from '@/constants/Typography';
+import { useSession } from '@/sync/storage';
+import { getRigActivityIndicators, getRigIdentity } from '@/sync/rig';
 import { RealtimeSessionVisual } from './RealtimeSessionVisual';
 import {
     rememberedRealtimeSession,
@@ -29,6 +31,17 @@ export const RealtimeConversation = React.memo(function RealtimeConversation({
     const turns = useRealtimeTurns();
     const muted = useRealtimeMuted();
     const previousState = React.useRef(state);
+    const transcript = React.useRef<ScrollView>(null);
+    // The voice is attached to a working session; what that session is doing is
+    // the other half of "what is happening right now".
+    const bound = rememberedRealtimeSession();
+    const session = useSession(bound ?? '');
+    const activity = React.useMemo(() => {
+        const identity = getRigIdentity(session?.metadata);
+        const indicators = getRigActivityIndicators(session?.metadata)
+            .map((item) => `${item.count}${item.queued === undefined || item.queued === 0 ? '' : `+${item.queued}`} ${item.key}`);
+        return [identity?.modelName, ...indicators].filter((part) => part !== undefined && part !== null && part !== '').join(' · ') || undefined;
+    }, [session?.metadata]);
 
     React.useEffect(() => {
         if (!visible || previousState.current === state) return;
@@ -48,7 +61,10 @@ export const RealtimeConversation = React.memo(function RealtimeConversation({
     if (!visible) return null;
 
     const speaking = state === 'speaking';
-    const status = detail ?? (state === 'disconnected'
+    // The state word is the headline; a provider's failure string is not. Set at
+    // 28pt it wrapped into four lines and took the screen, which is how a
+    // hiccup ends up looking like a crash.
+    const status = (state === 'disconnected'
         ? 'Asleep — tap the mic to wake'
         : state === 'connecting'
           ? 'Connecting…'
@@ -59,7 +75,7 @@ export const RealtimeConversation = React.memo(function RealtimeConversation({
               : muted
               ? 'Microphone muted'
               : 'Listening');
-    const latest = turns.at(-1)?.text;
+    const failure = state === 'disconnected' || state === 'connecting' ? detail : undefined;
 
     return (
         <Animated.View
@@ -87,18 +103,38 @@ export const RealtimeConversation = React.memo(function RealtimeConversation({
                 <View style={{ width: 44 }} />
             </View>
 
-            <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 28, gap: 28 }}>
-                <RealtimeSessionVisual size={238} state={state} muted={muted} />
-                <View style={{ minHeight: 104, alignItems: 'center', gap: 10 }}>
-                    <Text style={{ color: '#f7f8fb', fontSize: 28, lineHeight: 34, textAlign: 'center', ...Typography.default('semiBold') }}>
-                        {status}
+            <View style={{ flex: 1, alignItems: 'center', paddingHorizontal: 24, paddingTop: 8, gap: 18 }}>
+                <RealtimeSessionVisual size={200} state={state} muted={muted} />
+                <Text style={{ color: '#f7f8fb', fontSize: 22, lineHeight: 28, textAlign: 'center', ...Typography.default('semiBold') }}>
+                    {status}
+                </Text>
+                {activity !== undefined && (
+                    <Text numberOfLines={1} style={{ color: '#8f96a3', fontSize: 12, lineHeight: 16, ...Typography.mono('regular') }}>
+                        {activity}
                     </Text>
-                    {latest === undefined ? null : (
-                        <Text numberOfLines={3} style={{ color: '#aeb4c0', fontSize: 16, lineHeight: 22, textAlign: 'center', ...Typography.default() }}>
-                            {latest}
-                        </Text>
-                    )}
-                </View>
+                )}
+                {failure !== undefined && (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, maxWidth: '100%', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, backgroundColor: 'rgba(255,69,58,0.12)' }}>
+                        <Ionicons name="alert-circle-outline" size={14} color="#ff6a5e" />
+                        <Text numberOfLines={2} style={{ color: '#ff9e96', fontSize: 12, lineHeight: 16, flexShrink: 1, ...Typography.mono('regular') }}>{failure}</Text>
+                    </View>
+                )}
+                {/* What it heard and what it said, in order: a single latest line
+                    hid the half of the conversation you wanted to check. */}
+                <ScrollView ref={transcript} style={{ flex: 1, alignSelf: 'stretch' }} contentContainerStyle={{ paddingVertical: 8, gap: 10 }}
+                    showsVerticalScrollIndicator={false}
+                    onContentSizeChange={() => transcript.current?.scrollToEnd({ animated: true })}>
+                    {turns.slice(-24).map((turn) => (
+                        <View key={turn.id} style={{ flexDirection: 'row', gap: 10 }}>
+                            <Text style={{ color: turn.role === 'agent' ? '#7f8794' : '#5d636e', fontSize: 11, lineHeight: 21, width: 34, ...Typography.mono('regular') }}>
+                                {turn.role === 'agent' ? 'it' : 'you'}
+                            </Text>
+                            <Text style={{ color: turn.role === 'agent' ? '#e9ebf0' : '#9aa1ad', fontSize: 15, lineHeight: 21, flex: 1, ...Typography.default() }}>
+                                {turn.text}
+                            </Text>
+                        </View>
+                    ))}
+                </ScrollView>
             </View>
 
             <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 28, paddingBottom: insets.bottom + 28 }}>

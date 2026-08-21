@@ -7,6 +7,7 @@ import { formatPathRelativeToHome, sessionStateColors, unreadStateColors, vibing
 import { Avatar } from './Avatar';
 import { Typography } from '@/constants/Typography';
 import { StatusDot } from './StatusDot';
+import { isSettledSession, SessionMetaLine } from './SessionRowParts';
 import { useAllMachines } from '@/sync/storage';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { t } from '@/text';
@@ -244,10 +245,13 @@ const CompactSessionRow = React.memo(({ session, selected, showBorder }: { sessi
         );
     };
 
+    const settled = isSettledSession(session);
+
     const itemContent = (
         <Pressable
-            style={[
+            style={({ pressed }) => [
                 styles.sessionRow,
+                { opacity: pressed ? 0.55 : settled ? 0.75 : 1 },
                 showBorder && styles.sessionRowWithBorder,
                 selected && styles.sessionRowSelected
             ]}
@@ -277,10 +281,15 @@ const CompactSessionRow = React.memo(({ session, selected, showBorder }: { sessi
                 </View>
                 {session.identityLine && (
                     <View style={styles.sessionIdentityRow}>
-                        <ProviderIcon kind={session.providerKind} size={11} />
-                        <Text style={styles.sessionIdentity} numberOfLines={1}>
-                            {session.identityLine}{session.modelName ? ` · ${session.modelName}` : ''}{session.activitySummary ? ` · ${session.activitySummary}` : ''}
-                        </Text>
+                        <ProviderIcon kind={session.providerKind} size={11} monochrome />
+                        <SessionMetaLine
+                            style={{ flex: 1 }}
+                            segments={[
+                                { text: session.identityLine },
+                                { text: session.modelName },
+                                { text: session.activitySummary },
+                            ]}
+                        />
                     </View>
                 )}
                 {session.spawnedBy !== null && (

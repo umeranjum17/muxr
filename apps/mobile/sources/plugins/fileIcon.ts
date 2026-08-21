@@ -1,7 +1,8 @@
 /**
  * File-type icons for the plugin explorer, keyed by extension the way editors
- * do it. Colours are the language's own so a long tree is scannable without
- * reading a single name.
+ * do it. The glyph carries the type; the language's brand hue does not come
+ * with it. Sixty brand colours in one tree is the look of a 2016 IDE, and it
+ * spends colour on nothing the reader has to act on.
  */
 
 import type { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -10,76 +11,75 @@ type IconName = React.ComponentProps<typeof MaterialCommunityIcons>['name'];
 
 export interface FileIcon {
     name: IconName;
-    color?: string;
 }
 
 const BY_EXTENSION: Record<string, FileIcon> = {
-    ts: { name: 'language-typescript', color: '#3178c6' },
-    tsx: { name: 'language-typescript', color: '#3178c6' },
-    js: { name: 'language-javascript', color: '#f1e05a' },
-    jsx: { name: 'language-javascript', color: '#f1e05a' },
-    mjs: { name: 'language-javascript', color: '#f1e05a' },
-    cjs: { name: 'language-javascript', color: '#f1e05a' },
-    json: { name: 'code-json', color: '#cbcb41' },
-    py: { name: 'language-python', color: '#4b8bbe' },
-    rs: { name: 'language-rust', color: '#dea584' },
-    go: { name: 'language-go', color: '#00add8' },
-    java: { name: 'language-java', color: '#b07219' },
-    kt: { name: 'language-kotlin', color: '#a97bff' },
-    kts: { name: 'language-kotlin', color: '#a97bff' },
-    swift: { name: 'language-swift', color: '#f05138' },
-    c: { name: 'language-c', color: '#8ab4f8' },
-    h: { name: 'language-c', color: '#8ab4f8' },
-    cc: { name: 'language-cpp', color: '#f34b7d' },
-    cpp: { name: 'language-cpp', color: '#f34b7d' },
-    hpp: { name: 'language-cpp', color: '#f34b7d' },
-    rb: { name: 'language-ruby', color: '#cc342d' },
-    php: { name: 'language-php', color: '#8993be' },
-    html: { name: 'language-html5', color: '#e34c26' },
-    css: { name: 'language-css3', color: '#8f7ddb' },
-    scss: { name: 'language-css3', color: '#cf649a' },
-    sh: { name: 'console', color: '#89e051' },
-    bash: { name: 'console', color: '#89e051' },
-    zsh: { name: 'console', color: '#89e051' },
-    fish: { name: 'console', color: '#89e051' },
-    md: { name: 'language-markdown', color: '#8ab4f8' },
-    mdx: { name: 'language-markdown', color: '#8ab4f8' },
-    yml: { name: 'cog-outline', color: '#e6a44e' },
-    yaml: { name: 'cog-outline', color: '#e6a44e' },
-    toml: { name: 'cog-outline', color: '#e6a44e' },
-    ini: { name: 'cog-outline', color: '#e6a44e' },
-    env: { name: 'key-variant', color: '#e6a44e' },
-    lock: { name: 'lock-outline', color: '#8a8f98' },
-    sql: { name: 'database-outline', color: '#e38c00' },
-    png: { name: 'file-image-outline', color: '#a074c4' },
-    jpg: { name: 'file-image-outline', color: '#a074c4' },
-    jpeg: { name: 'file-image-outline', color: '#a074c4' },
-    gif: { name: 'file-image-outline', color: '#a074c4' },
-    webp: { name: 'file-image-outline', color: '#a074c4' },
-    svg: { name: 'svg', color: '#ffb13b' },
-    ico: { name: 'file-image-outline', color: '#a074c4' },
-    mp4: { name: 'file-video-outline', color: '#8ab4f8' },
-    mov: { name: 'file-video-outline', color: '#8ab4f8' },
-    webm: { name: 'file-video-outline', color: '#8ab4f8' },
-    mp3: { name: 'file-music-outline', color: '#8ab4f8' },
-    wav: { name: 'file-music-outline', color: '#8ab4f8' },
-    pdf: { name: 'file-pdf-box', color: '#e05a4e' },
-    zip: { name: 'folder-zip-outline', color: '#e6a44e' },
-    gz: { name: 'folder-zip-outline', color: '#e6a44e' },
-    tar: { name: 'folder-zip-outline', color: '#e6a44e' },
+    ts: { name: 'language-typescript' },
+    tsx: { name: 'language-typescript' },
+    js: { name: 'language-javascript' },
+    jsx: { name: 'language-javascript' },
+    mjs: { name: 'language-javascript' },
+    cjs: { name: 'language-javascript' },
+    json: { name: 'code-json' },
+    py: { name: 'language-python' },
+    rs: { name: 'language-rust' },
+    go: { name: 'language-go' },
+    java: { name: 'language-java' },
+    kt: { name: 'language-kotlin' },
+    kts: { name: 'language-kotlin' },
+    swift: { name: 'language-swift' },
+    c: { name: 'language-c' },
+    h: { name: 'language-c' },
+    cc: { name: 'language-cpp' },
+    cpp: { name: 'language-cpp' },
+    hpp: { name: 'language-cpp' },
+    rb: { name: 'language-ruby' },
+    php: { name: 'language-php' },
+    html: { name: 'language-html5' },
+    css: { name: 'language-css3' },
+    scss: { name: 'language-css3' },
+    sh: { name: 'console' },
+    bash: { name: 'console' },
+    zsh: { name: 'console' },
+    fish: { name: 'console' },
+    md: { name: 'language-markdown' },
+    mdx: { name: 'language-markdown' },
+    yml: { name: 'cog-outline' },
+    yaml: { name: 'cog-outline' },
+    toml: { name: 'cog-outline' },
+    ini: { name: 'cog-outline' },
+    env: { name: 'key-variant' },
+    lock: { name: 'lock-outline' },
+    sql: { name: 'database-outline' },
+    png: { name: 'file-image-outline' },
+    jpg: { name: 'file-image-outline' },
+    jpeg: { name: 'file-image-outline' },
+    gif: { name: 'file-image-outline' },
+    webp: { name: 'file-image-outline' },
+    svg: { name: 'svg' },
+    ico: { name: 'file-image-outline' },
+    mp4: { name: 'file-video-outline' },
+    mov: { name: 'file-video-outline' },
+    webm: { name: 'file-video-outline' },
+    mp3: { name: 'file-music-outline' },
+    wav: { name: 'file-music-outline' },
+    pdf: { name: 'file-pdf-box' },
+    zip: { name: 'folder-zip-outline' },
+    gz: { name: 'folder-zip-outline' },
+    tar: { name: 'folder-zip-outline' },
 };
 
 const BY_NAME: Record<string, FileIcon> = {
-    '.gitignore': { name: 'git', color: '#f14e32' },
-    '.gitattributes': { name: 'git', color: '#f14e32' },
-    '.gitmodules': { name: 'git', color: '#f14e32' },
-    dockerfile: { name: 'docker', color: '#2496ed' },
-    'docker-compose.yml': { name: 'docker', color: '#2496ed' },
-    'package.json': { name: 'npm', color: '#cb3837' },
-    'yarn.lock': { name: 'lock-outline', color: '#8a8f98' },
-    'package-lock.json': { name: 'lock-outline', color: '#8a8f98' },
-    makefile: { name: 'cog-outline', color: '#e6a44e' },
-    license: { name: 'scale-balance', color: '#8a8f98' },
+    '.gitignore': { name: 'git' },
+    '.gitattributes': { name: 'git' },
+    '.gitmodules': { name: 'git' },
+    dockerfile: { name: 'docker' },
+    'docker-compose.yml': { name: 'docker' },
+    'package.json': { name: 'npm' },
+    'yarn.lock': { name: 'lock-outline' },
+    'package-lock.json': { name: 'lock-outline' },
+    makefile: { name: 'cog-outline' },
+    license: { name: 'scale-balance' },
 };
 
 export function fileIcon(name: string): FileIcon {
@@ -92,5 +92,5 @@ export function fileIcon(name: string): FileIcon {
 }
 
 export function folderIcon(expanded: boolean): FileIcon {
-    return { name: expanded ? 'folder-open' : 'folder', color: '#7aa2d6' };
+    return { name: expanded ? 'folder-open' : 'folder' };
 }

@@ -4,15 +4,16 @@ import { randomUUID } from 'expo-crypto';
 import { useRouter } from 'expo-router';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { PolarChart, Pie } from 'victory-native';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { Canvas, Path, Skia } from '@shopify/react-native-skia';
-import Animated, { Easing, FadeInDown, cancelAnimation, useAnimatedStyle, useDerivedValue, useReducedMotion, useSharedValue, withDelay, withRepeat, withSpring, withTiming } from 'react-native-reanimated';
+import Animated, { Easing, FadeIn, FadeInDown, SlideInLeft, SlideInRight, cancelAnimation, runOnJS, useAnimatedStyle, useDerivedValue, useReducedMotion, useSharedValue, withDelay, withRepeat, withSpring, withTiming } from 'react-native-reanimated';
 import { useUnistyles } from 'react-native-unistyles';
 import type { PluginManifestV1, PluginScreenButtonNode, PluginScreenChartNode, PluginScreenContribution, PluginScreenNode, PluginScreenRowAction, PluginScreenRowNode, PluginScreenTone, PluginScreenTreeNode, PluginSource, PluginText, RequestParams } from '@muxr/contract';
 import { MAX_SCREEN_LIST_ROWS, PLUGIN_CALL_CLIENT_TIMEOUT_MS, capUtf8Bytes, defaultPluginText, sanitizeDisplayText } from '@muxr/contract';
 import type { Theme } from '@/theme';
 import { Switch } from '@/components/Switch';
 import { hapticsError, hapticsSelection, hapticsSuccess } from '@/components/haptics';
-import { PierreDiffView } from '@/components/diff/PierreDiffView';
+import { NavigableDiff } from '@/components/diff/NavigableDiff';
 import { SyntaxHighlightedCode } from '@/components/code/SyntaxHighlightedCode';
 import { sync } from '@/sync/sync';
 import { pluginSnapshot } from './pluginStore';
@@ -27,6 +28,7 @@ import { fileIcon, folderIcon, type FileIcon } from './fileIcon';
 import { t } from '@/text';
 import { boundText } from '@/utils/boundedText';
 import { Typography } from '@/constants/Typography';
+import { cardStyle, Meter, SectionLabel, ui, withAlpha } from '@/components/ui';
 
 /** Screen payloads survive a close: reopening renders at once, then refreshes. */
 const screenCache = new Map<string, unknown>();
@@ -38,28 +40,6 @@ registerPluginDataCacheInvalidator((pluginIds) => {
 /** Chart fills: untoned series get the accent, never a per-index rainbow. */
 function chartFill(theme: Theme, tone: PluginScreenTone | undefined): string {
     return tone === undefined ? theme.colors.accent : toneColor(theme, tone);
-}
-
-/**
- * One card recipe for every plugin panel. Sections, lists, charts and trees
- * each carried their own radius and surface, so a single screen stacked three
- * subtly different boxes. Padding stays per-card; the shell does not.
- */
-function cardStyle(theme: Theme): ViewStyle {
-    return {
-        backgroundColor: theme.colors.surfaceHigh,
-        borderRadius: 16,
-        borderWidth: StyleSheet.hairlineWidth,
-        borderColor: theme.colors.divider,
-    };
-}
-
-function withAlpha(color: string, alpha: number): string {
-    const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(color)?.[1];
-    if (hex === undefined) return color;
-    const full = hex.length === 3 ? hex.split('').map((part) => part + part).join('') : hex;
-    const value = Number.parseInt(full, 16);
-    return `rgba(${(value >> 16) & 255}, ${(value >> 8) & 255}, ${value & 255}, ${alpha.toFixed(3)})`;
 }
 
 /**
@@ -113,22 +93,13 @@ function AnimatedColumn({ ratio, color, track, delay }: { ratio: number; color: 
     }, [delay, ratio, reduceMotion, height]);
     // Floored so an idle day stays a visible baseline instead of disappearing.
     const animated = useAnimatedStyle(() => ({ height: `${Math.max(2, Math.min(1, height.value) * 100)}%` }));
+    // No track behind the column: seven filled boxes with lighter boxes inside
+    // read as blocks, not as a shape you can compare across days.
     return (
-        <View style={{ width: '100%', flex: 1, justifyContent: 'flex-end', backgroundColor: track, borderRadius: 5, overflow: 'hidden' }}>
-            <Animated.View style={[{ width: '100%', borderRadius: 5, backgroundColor: color }, animated]} />
+        <View style={{ width: '100%', flex: 1, justifyContent: 'flex-end' }}>
+            <Animated.View style={[{ width: '100%', borderTopLeftRadius: 3, borderTopRightRadius: 3, backgroundColor: color }, animated]} />
         </View>
     );
-}
-
-/** Track fill that sweeps in when its value first arrives; decorative only. */
-function AnimatedBarFill({ ratio, color, delay }: { ratio: number; color: string; delay: number }) {
-    const reduceMotion = useReducedMotion();
-    const width = useSharedValue(reduceMotion ? ratio : 0);
-    React.useEffect(() => {
-        width.value = reduceMotion ? ratio : withDelay(delay, withTiming(ratio, { duration: 400, easing: Easing.bezier(0.23, 1, 0.32, 1) }));
-    }, [delay, ratio, reduceMotion, width]);
-    const animated = useAnimatedStyle(() => ({ width: `${Math.max(0, Math.min(1, width.value)) * 100}%` }));
-    return <Animated.View style={[{ height: '100%', borderRadius: 2.5, backgroundColor: color }, animated]} />;
 }
 
 function chartValue(item: PluginChartItem): string {
@@ -190,11 +161,13 @@ function ScreenRow(props: {
     const body = (
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
             <View style={{ flex: 1, minWidth: 0 }}>
-                <Text style={{ color: theme.colors.text, fontSize: 15 }}>{bind(row.title)}</Text>
-                {row.subtitle !== undefined && <Text style={{ color: theme.colors.textSecondary, fontSize: 12.5, marginTop: 2 }}>{bind(row.subtitle)}</Text>}
+                {/* Two lines is a subject line; past that a list of commits turns
+                    into a wall and you can see four of them on a phone. */}
+                <Text numberOfLines={2} style={{ color: theme.colors.text, fontSize: 15, lineHeight: 20, letterSpacing: -0.1 }}>{bind(row.title)}</Text>
+                {row.subtitle !== undefined && <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 11.5, lineHeight: 15, marginTop: 3, ...Typography.mono('regular') }}>{bind(row.subtitle)}</Text>}
             </View>
-            {value !== undefined && <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 13, maxWidth: '45%', ...Typography.mono('regular') }}>{value}</Text>}
-            {action?.type === 'screen' && <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />}
+            {value !== undefined && <Text numberOfLines={1} style={{ color: theme.colors.text, fontSize: 13, maxWidth: '45%', ...Typography.mono('regular') }}>{value}</Text>}
+            {action?.type === 'screen' && <Ionicons name="chevron-forward" size={13} color={withAlpha(theme.colors.textSecondary, 0.6)} />}
         </View>
     );
     // A row without an action stays non-interactive.
@@ -224,6 +197,14 @@ function treeIcon(item: RuntimeTreeItem, expanded: boolean): FileIcon {
     return item.kind === 'folder' ? folderIcon(expanded) : fileIcon(item.name);
 }
 
+/**
+ * A repo tree on a phone is not an indented tree. Indentation spends the one
+ * axis a phone does not have -- four levels deep leaves a third of the width
+ * for the name -- and "expand all" on 1409 files is a scroll, not navigation.
+ * So the phone does what Files and Working Copy do: one level at a time, a
+ * breadcrumb back up, and the folder you are standing in is the folder you
+ * picked.
+ */
 function ScreenTree(props: {
     node: PluginScreenTreeNode;
     data: unknown;
@@ -234,89 +215,161 @@ function ScreenTree(props: {
     onError: (error: unknown) => void;
 }) {
     const { theme } = useUnistyles();
+    const reduceMotion = useReducedMotion();
     const incoming = React.useMemo(() => asScreenTree(resolvePath(props.data, props.node.path)), [props.data, props.node.path]);
     const [items, setItems] = React.useState(incoming);
-    const [loading, setLoading] = React.useState(new Set<string>());
+    const [stack, setStack] = React.useState<RuntimeTreeItem[]>([]);
+    const [opening, setOpening] = React.useState<string | undefined>(undefined);
+    const [descending, setDescending] = React.useState(true);
+    const stackDepth = React.useRef(0);
+    const trail = React.useRef<ScrollView>(null);
+    const up = React.useCallback((depth: number) => {
+        setDescending(false);
+        setStack((current) => current.slice(0, depth));
+    }, []);
+    // Right-swipe pops a level, the way every pushed screen on this platform
+    // behaves. Vertical intent belongs to the page, so the pan has to lose to it.
+    const swipeBack = React.useMemo(() => Gesture.Pan().activeOffsetX(24).failOffsetY([-14, 14])
+        .onEnd((event) => {
+            if (event.translationX > 60) runOnJS(up)(Math.max(0, stackDepth.current - 1));
+        }), [up]);
     React.useEffect(() => setItems(incoming), [incoming]);
-    const folders = React.useMemo(() => {
-        const found: string[] = [];
-        const walk = (nodes: RuntimeTreeItem[]) => nodes.forEach((item) => {
-            if (item.kind === 'folder') { found.push(item.path); walk(item.children); }
-        });
-        walk(items);
-        return found;
-    }, [items]);
-    const [expanded, setExpanded] = React.useState<Set<string>>(() => new Set());
-    React.useEffect(() => setExpanded(new Set()), [props.node.path]);
-    const rows: Array<{ item: RuntimeTreeItem; depth: number }> = [];
-    const flatten = (nodes: RuntimeTreeItem[], depth: number) => nodes.forEach((item) => {
-        rows.push({ item, depth });
-        if (item.kind === 'folder' && expanded.has(item.path)) flatten(item.children, depth + 1);
-    });
-    flatten(items, 0);
+    React.useEffect(() => setStack([]), [props.node.path]);
+
+    // The stack holds snapshots, so a lazy load has to be re-read from the tree
+    // it landed in or the level you are standing on stays empty.
+    const findByPath = React.useCallback((nodes: RuntimeTreeItem[], path: string): RuntimeTreeItem | undefined => {
+        for (const node of nodes) {
+            if (node.path === path) return node;
+            const found = findByPath(node.children, path);
+            if (found !== undefined) return found;
+        }
+        return undefined;
+    }, []);
+    stackDepth.current = stack.length;
+    const here = stack.length === 0 ? undefined : findByPath(items, stack[stack.length - 1]!.path) ?? stack[stack.length - 1]!;
+    // Folders first, then the given order: every file browser a phone owner has
+    // ever used puts the ways deeper above the leaves.
+    const rows = React.useMemo(() => {
+        const level = here === undefined ? items : here.children;
+        return [...level].sort((left, right) => Number(right.kind === 'folder') - Number(left.kind === 'folder'));
+    }, [here, items]);
     const title = props.node.title === undefined ? undefined : bindText(resolvePluginText(props.node.title), props.data);
+    const enter = reduceMotion ? FadeIn.duration(120) : (descending ? SlideInRight : SlideInLeft).duration(200).easing(Easing.bezier(0.23, 1, 0.32, 1).factory());
+
+    const open = (item: RuntimeTreeItem) => {
+        if (props.node.selectionField !== undefined) props.setField(props.node.selectionField, item.path);
+        const push = () => { setDescending(true); setStack((current) => [...current, item]); };
+        if (item.children.length > 0 || !item.hasChildren || props.loadChildren === undefined) {
+            push();
+            return;
+        }
+        setOpening(item.path);
+        void props.loadChildren(item.path).then((children) => {
+            const replace = (nodes: RuntimeTreeItem[]): RuntimeTreeItem[] => nodes.map((candidate) =>
+                candidate.path === item.path ? { ...candidate, children, hasChildren: children.length > 0 }
+                    : { ...candidate, children: replace(candidate.children) });
+            setItems(replace);
+            push();
+        }).catch(props.onError).finally(() => setOpening(undefined));
+    };
+
     return <View style={{ marginBottom: 14 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
-            {title !== undefined && <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.6, flex: 1 }}>{title}</Text>}
-            {folders.length > 0 && <>
-                <Pressable onPress={() => setExpanded(new Set(folders))} accessibilityRole="button" accessibilityLabel="Expand all folders" hitSlop={8}>
-                    <Text style={{ color: theme.colors.textLink, fontSize: 12, paddingHorizontal: 8 }}>Expand all</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', minHeight: 32, marginBottom: 8 }}>
+            {stack.length > 0 && (
+                <Pressable onPress={() => up(stack.length - 1)}
+                    accessibilityRole="button" accessibilityLabel="Back to parent folder" hitSlop={12}
+                    style={({ pressed }) => ({ paddingRight: 6, opacity: pressed ? 0.6 : 1 })}>
+                    <Ionicons name="chevron-back" size={16} color={theme.colors.textSecondary} />
                 </Pressable>
-                <Pressable onPress={() => setExpanded(new Set())} accessibilityRole="button" accessibilityLabel="Collapse all folders" hitSlop={8}>
-                    <Text style={{ color: theme.colors.textLink, fontSize: 12 }}>Collapse</Text>
-                </Pressable>
-            </>}
+            )}
+            {stack.length === 0
+                ? title !== undefined && <SectionLabel style={{ flex: 1 }}>{title}</SectionLabel>
+                : <ScrollView ref={trail} horizontal showsHorizontalScrollIndicator={false} style={{ flex: 1 }} contentContainerStyle={{ alignItems: 'center' }}
+                    onContentSizeChange={() => trail.current?.scrollToEnd({ animated: true })}>
+                    {/* The root keeps its name in the trail: three folders deep,
+                        "which repo is this" is the question you cannot answer
+                        from a list of leaf names. */}
+                    <Pressable onPress={() => up(0)} hitSlop={10}
+                        accessibilityRole="button" accessibilityLabel={`Go to ${title ?? 'root'}`}>
+                        <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 12, ...Typography.mono('regular') }}>{title ?? 'root'}</Text>
+                    </Pressable>
+                    {stack.map((crumb, index) => (
+                        // The separator is its own element: a slash padded with
+                        // spaces inside the label collapses on web and leaves
+                        // "apps/ mobile", which reads as a typo.
+                        <React.Fragment key={crumb.path}>
+                            <Text style={{ color: withAlpha(theme.colors.textSecondary, 0.45), fontSize: 12, paddingHorizontal: 6, ...Typography.mono('regular') }}>/</Text>
+                            <Pressable onPress={() => up(index + 1)} hitSlop={10} accessibilityRole="button" accessibilityLabel={`Go to ${crumb.name}`}>
+                                <Text numberOfLines={1} style={{ color: index === stack.length - 1 ? theme.colors.text : theme.colors.textSecondary, fontSize: 12, ...Typography.mono('regular') }}>{crumb.name}</Text>
+                            </Pressable>
+                        </React.Fragment>
+                    ))}
+                </ScrollView>}
         </View>
-        <View style={{ ...cardStyle(theme), paddingVertical: 6 }}>
-            {rows.length === 0 ? <Text style={{ color: theme.colors.textSecondary, fontSize: 13, padding: 14 }}>
-                {props.node.emptyText === undefined ? t('plugins.nothingToShow') : bindText(resolvePluginText(props.node.emptyText), props.data)}
-            </Text> : rows.map(({ item, depth }) => {
-                const isFolder = item.kind === 'folder';
-                const open = expanded.has(item.path);
-                const busy = loading.has(item.path);
-                const selected = props.node.selectionField !== undefined && props.fields[props.node.selectionField] === item.path;
-                const icon = treeIcon(item, open);
-                return <Pressable key={item.path} accessibilityRole="button" accessibilityState={{ expanded: isFolder ? open : undefined, selected }}
-                    accessibilityLabel={`${isFolder ? 'Folder' : 'File'} ${item.name}`}
-                    onPress={() => {
-                        if (!isFolder) {
+        <GestureDetector gesture={swipeBack}>
+        <View style={{ ...cardStyle(theme), paddingVertical: 4, overflow: 'hidden' }}>
+            <Animated.View key={here?.path ?? '/'} entering={enter}>
+                {rows.length === 0 ? <Text style={{ color: theme.colors.textSecondary, fontSize: 13, padding: 14 }}>
+                    {props.node.emptyText === undefined ? t('plugins.nothingToShow') : bindText(resolvePluginText(props.node.emptyText), props.data)}
+                </Text> : rows.map((item) => {
+                    const isFolder = item.kind === 'folder';
+                    const busy = opening === item.path;
+                    const selected = props.node.selectionField !== undefined && props.fields[props.node.selectionField] === item.path;
+                    return <Pressable key={item.path} accessibilityRole="button" accessibilityState={{ selected }}
+                        accessibilityLabel={`${isFolder ? 'Folder' : 'File'} ${item.name}`}
+                        onPress={() => {
+                            if (isFolder) { open(item); return; }
                             if (props.node.action !== undefined) props.onRowAction(props.node.action, item);
-                            return;
-                        }
-                        if (props.node.selectionField !== undefined) props.setField(props.node.selectionField, item.path);
-                        if (open) {
-                            setExpanded((current) => { const next = new Set(current); next.delete(item.path); return next; });
-                            return;
-                        }
-                        const reveal = () => setExpanded((current) => new Set(current).add(item.path));
-                        if (item.children.length > 0 || !item.hasChildren || props.loadChildren === undefined) {
-                            reveal();
-                            return;
-                        }
-                        setLoading((current) => new Set(current).add(item.path));
-                        void props.loadChildren(item.path).then((children) => {
-                            const replace = (nodes: RuntimeTreeItem[]): RuntimeTreeItem[] => nodes.map((candidate) =>
-                                candidate.path === item.path ? { ...candidate, children, hasChildren: children.length > 0 }
-                                    : { ...candidate, children: replace(candidate.children) });
-                            setItems(replace);
-                            reveal();
-                        }).catch(props.onError)
-                            .finally(() => setLoading((current) => { const next = new Set(current); next.delete(item.path); return next; }));
-                    }}
-                    style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', minHeight: 34, paddingLeft: 8 + Math.min(depth, 8) * 14, paddingRight: 12, backgroundColor: pressed || selected ? theme.colors.surfaceHighest : 'transparent' })}>
-                    {isFolder && (busy ? <ActivityIndicator size="small" color={theme.colors.textSecondary} style={{ width: 12 }} /> : <Ionicons name={open ? 'chevron-down' : 'chevron-forward'} size={12} color={theme.colors.textSecondary} />)}
-                    {!isFolder && <View style={{ width: 12 }} />}
-                    <MaterialCommunityIcons name={icon.name} size={16} color={selected ? theme.colors.accent : icon.color ?? theme.colors.textSecondary} style={{ marginHorizontal: 6 }} />
-                    <Text numberOfLines={1} style={{ color: selected ? theme.colors.accent : theme.colors.text, fontSize: 13.5, flex: 1 }}>{item.name}</Text>
-                </Pressable>;
-            })}
+                        }}
+                        style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 44, paddingHorizontal: 14, backgroundColor: pressed || selected ? theme.colors.surfaceHighest : 'transparent' })}>
+                        <MaterialCommunityIcons name={treeIcon(item, false).name} size={ui.icon.row} color={selected ? theme.colors.accent : theme.colors.textSecondary} />
+                        <Text numberOfLines={1} style={{ color: selected ? theme.colors.accent : theme.colors.text, fontSize: 15, flex: 1 }}>{item.name}</Text>
+                        {/* A count only appears once it is known: a folder that
+                            has never been opened does not guess at its size. */}
+                        {isFolder && !busy && item.children.length > 0 && (
+                            <Text style={{ color: theme.colors.textSecondary, fontSize: 11.5, ...Typography.mono('regular') }}>{item.children.length}</Text>
+                        )}
+                        {busy && <ActivityIndicator size="small" color={theme.colors.textSecondary} />}
+                        {isFolder && !busy && <Ionicons name="chevron-forward" size={13} color={withAlpha(theme.colors.textSecondary, 0.6)} />}
+                    </Pressable>;
+                })}
+            </Animated.View>
         </View>
+        </GestureDetector>
     </View>;
+}
+
+/**
+ * Label, number, bar, qualifier. A ranked series, a gauge and a ring all reduce
+ * to this, which is why a phone can decline three desktop chart shapes and lose
+ * no information: an arc and a bar encode the same scalar, and a donut's legend
+ * has to reprint every value anyway.
+ */
+function MeterRow({ item, ratio, emphasis, delay, hero }: { item: PluginChartItem; ratio: number; emphasis: number; delay: number; hero?: boolean }) {
+    const { theme } = useUnistyles();
+    return (
+        <View>
+            <View style={{ flexDirection: 'row', alignItems: 'baseline', marginBottom: 5 }}>
+                <Text numberOfLines={1} style={{ color: theme.colors.text, fontSize: 13, flex: 1, marginRight: 12 }}>{item.label}</Text>
+                <Text style={{ color: item.tone === undefined || item.tone === 'secondary' ? theme.colors.text : toneColor(theme, item.tone), fontSize: hero === true ? 20 : 12.5, letterSpacing: hero === true ? -0.4 : 0, ...Typography.mono('semiBold') }}>{chartValue(item)}</Text>
+                {item.detail !== undefined && <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 11.5, marginLeft: 8, ...Typography.mono('regular') }}>{item.detail}</Text>}
+            </View>
+            <Meter ratio={ratio} emphasis={emphasis} delay={delay} />
+        </View>
+    );
 }
 
 function ScreenChart({ node, data, nested }: { node: PluginScreenChartNode; data: unknown; nested: boolean }) {
     const { theme } = useUnistyles();
     const reduceMotion = useReducedMotion();
+    // The plugin declares what the number means; this decides what it can look
+    // like at this width. An arc and a donut are dashboard shapes, and a phone
+    // is not a dashboard.
+    // ponytail: window width, not the card's. Plugin screens own the content
+    // area today; measure the card with onLayout if one ever renders in a
+    // narrow column on a wide screen.
+    const wide = useWindowDimensions().width >= 700;
     const series = asChartSeries(resolvePath(data, node.path));
     const title = node.title === undefined ? undefined : bindText(resolvePluginText(node.title), data);
     const empty = node.emptyText === undefined ? t('plugins.nothingToShow') : bindText(resolvePluginText(node.emptyText), data);
@@ -325,7 +378,7 @@ function ScreenChart({ node, data, nested }: { node: PluginScreenChartNode; data
     // already carries the context, so an empty chart leaves no trace at all.
     if (series.length === 0 && nested && title !== undefined) return null;
     if (series.length === 0) return <View style={{ marginBottom: nested ? 8 : 14 }}>
-        {title !== undefined && <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 4, marginTop: nested ? 10 : 0 }}>{title}</Text>}
+        {title !== undefined && <SectionLabel style={{ marginBottom: 4, marginTop: nested ? 10 : 0 }}>{title}</SectionLabel>}
         <Text style={{ color: theme.colors.textSecondary, fontSize: 13 }}>{empty}</Text>
     </View>;
     const total = series.reduce((sum, item) => sum + item.value, 0);
@@ -334,7 +387,7 @@ function ScreenChart({ node, data, nested }: { node: PluginScreenChartNode; data
         ? { marginBottom: 4 }
         : { ...cardStyle(theme), marginBottom: 14, padding: 16 };
     const heading = title === undefined ? null : (
-        <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 12, marginTop: nested ? 10 : 0 }}>{title}</Text>
+        <SectionLabel style={{ marginBottom: 12, marginTop: nested ? 10 : 0 }}>{title}</SectionLabel>
     );
 
     // One value against its ceiling. A two-slice donut says the same thing with
@@ -345,20 +398,19 @@ function ScreenChart({ node, data, nested }: { node: PluginScreenChartNode; data
         return <View accessible accessibilityRole="progressbar" accessibilityLabel={summary}
             accessibilityValue={{ min: 0, max: 100, now: Math.round(ratio * 100) }} style={card}>
             {heading}
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
-                <View style={{ width: 96, height: 96 }}>
-                    <GaugeArc ratio={ratio} size={96} color={hero.tone === undefined ? theme.colors.accent : chartFill(theme, hero.tone)} track={theme.colors.surfaceHighest} />
-                    <View pointerEvents="none" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center' }}>
-                        <Text style={{ color: theme.colors.text, fontSize: 22, letterSpacing: -0.5, ...Typography.mono('semiBold') }}>{chartValue(hero)}</Text>
-                        <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 10, marginTop: 1 }}>{hero.label}</Text>
-                    </View>
+            {!wide && <MeterRow item={hero} ratio={ratio} emphasis={1} delay={0} hero />}
+            {wide && <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
+                {/* The arc is the picture and the number beside it is the
+                    value; printing it inside the arc as well said it twice. */}
+                <View style={{ width: 84, height: 84 }}>
+                    <GaugeArc ratio={ratio} size={84} color={theme.colors.accent} track={withAlpha(theme.colors.accent, 0.1)} />
                 </View>
                 <View style={{ flex: 1, minWidth: 0 }}>
-                    <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.6 }}>{hero.label}</Text>
+                    <SectionLabel numberOfLines={1}>{hero.label}</SectionLabel>
                     <Text numberOfLines={1} style={{ color: theme.colors.text, fontSize: 28, letterSpacing: -0.8, marginTop: 2, ...Typography.mono('semiBold') }}>{chartValue(hero)}</Text>
                     {hero.detail !== undefined && <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 12, marginTop: 2, ...Typography.mono('regular') }}>{hero.detail}</Text>}
                 </View>
-            </View>
+            </View>}
         </View>;
     }
 
@@ -369,15 +421,16 @@ function ScreenChart({ node, data, nested }: { node: PluginScreenChartNode; data
         const peakIndex = series.findIndex((item) => item.value === peak);
         return <View accessible accessibilityRole="image" accessibilityLabel={summary} style={card}>
             {heading}
-            <View style={{ flexDirection: 'row', alignItems: 'flex-end', height: 108, gap: 6 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'flex-end', height: wide ? 104 : 64, gap: 6 }}>
                 {series.map((item, index) => (
                     <View key={`${item.label}-${index}`} style={{ flex: 1, alignItems: 'center', justifyContent: 'flex-end', height: '100%' }}>
                         {(index === last || index === peakIndex) && <Text numberOfLines={1} style={{ color: index === last ? theme.colors.text : theme.colors.textSecondary, fontSize: 11, marginBottom: 4, ...Typography.mono('semiBold') }}>{chartValue(item)}</Text>}
                         <AnimatedColumn ratio={peak === 0 ? 0 : item.value / peak} delay={index * 45}
-                            color={index === last ? theme.colors.accent : withAlpha(theme.colors.accent, 0.45)} track={theme.colors.surfaceHighest} />
+                            color={index === last ? theme.colors.accent : withAlpha(theme.colors.accent, 0.28)} track="transparent" />
                     </View>
                 ))}
             </View>
+            <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: theme.colors.divider }} />
             <View style={{ flexDirection: 'row', gap: 6, marginTop: 8 }}>
                 {series.map((item, index) => (
                     <Text key={`${item.label}-${index}-label`} numberOfLines={1}
@@ -393,9 +446,23 @@ function ScreenChart({ node, data, nested }: { node: PluginScreenChartNode; data
             ? theme.colors.surfaceHighest
             : item.tone !== undefined ? chartFill(theme, item.tone) : rampFill(theme, index, series.length);
         const slices = series.map((item, index) => ({ label: item.label, value: item.value, color: sliceColor(item, index) }));
+        if (!wide) {
+            // The remainder slice is exactly what the empty part of a meter
+            // already draws, so used/left collapses to a single row.
+            const parts = series.filter((item) => item.tone !== 'secondary');
+            return <View accessible accessibilityRole="image" accessibilityLabel={summary} style={{ ...cardStyle(theme), marginBottom: 14, padding: 16 }}>
+                {title !== undefined && <SectionLabel style={{ marginBottom: 12 }}>{title}</SectionLabel>}
+                <View style={{ gap: 12 }}>
+                    {parts.map((item, index) => (
+                        <MeterRow key={`${item.label}-${index}`} item={item} ratio={total === 0 ? 0 : item.value / total}
+                            emphasis={1 - index * 0.18} delay={index * 45} hero={parts.length === 1} />
+                    ))}
+                </View>
+            </View>;
+        }
         return <View accessible accessibilityRole="image" accessibilityLabel={summary}
             style={{ ...cardStyle(theme), marginBottom: 14, padding: 16 }}>
-            {title !== undefined && <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 12 }}>{title}</Text>}
+            {title !== undefined && <SectionLabel style={{ marginBottom: 12 }}>{title}</SectionLabel>}
             <View style={{ alignItems: 'center' }}>
                 <View style={{ width: 132, height: 132 }}>
                     <PolarChart data={slices} labelKey="label" valueKey="value" colorKey="color" containerStyle={{ width: 132, height: 132 }}>
@@ -410,9 +477,9 @@ function ScreenChart({ node, data, nested }: { node: PluginScreenChartNode; data
                 </View>
             </View>
             {/* Two slices are Left/Used: the centre already names both. */}
-            {series.length >= 3 && <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginTop: 14 }}>
+            {series.length >= 3 && <View style={{ marginTop: 14 }}>
                 {series.map((item, index) => (
-                    <View key={`${item.label}-${index}-legend`} style={{ width: '50%', flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 3, paddingRight: 10 }}>
+                    <View key={`${item.label}-${index}-legend`} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 4 }}>
                         <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: sliceColor(item, index) }} />
                         <Text numberOfLines={1} style={{ flex: 1, color: theme.colors.textSecondary, fontSize: 12 }}>{item.label}</Text>
                         <Text numberOfLines={1} style={{ color: theme.colors.text, fontSize: 12, ...Typography.mono('regular') }}>{chartValue(item)}</Text>
@@ -425,19 +492,10 @@ function ScreenChart({ node, data, nested }: { node: PluginScreenChartNode; data
     return <View style={card} accessible accessibilityRole="image" accessibilityLabel={summary}>
         {heading}
         <View style={{ gap: 12 }}>
-            {series.map((item, index) => <View key={`${item.label}-${index}`}>
-                <View style={{ flexDirection: 'row', alignItems: 'baseline', marginBottom: 5 }}>
-                    <Text numberOfLines={1} style={{ color: index === 0 ? theme.colors.text : theme.colors.textSecondary, fontSize: 13, fontWeight: index === 0 ? '600' : '500', flex: 1, marginRight: 12 }}>{item.label}</Text>
-                    <Text style={{ color: index === 0 ? theme.colors.text : theme.colors.textSecondary, fontSize: 12.5, ...Typography.mono('semiBold') }}>{chartValue(item)}</Text>
-                    {/* The meter row reads label · bar · value · detail, so a limit
-                        can say how much is left and when it comes back. */}
-                    {item.detail !== undefined && <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 11.5, marginLeft: 8, ...Typography.mono('regular') }}>{item.detail}</Text>}
-                </View>
-                <View style={{ height: 5, borderRadius: 2.5, backgroundColor: theme.colors.surfaceHighest, overflow: 'hidden' }}>
-                    <AnimatedBarFill ratio={max === 0 ? 0 : item.value / max}
-                        color={item.tone === undefined ? rampFill(theme, index, series.length) : chartFill(theme, item.tone)} delay={index * 45} />
-                </View>
-            </View>)}
+            {series.map((item, index) => (
+                <MeterRow key={`${item.label}-${index}`} item={item} ratio={max === 0 ? 0 : item.value / max}
+                    emphasis={1 - index * 0.18} delay={index * 45} />
+            ))}
         </View>
     </View>;
 }
@@ -492,8 +550,8 @@ function ScreenButton(props: { node: PluginScreenButtonNode; label: string; runn
                 accessibilityRole="button"
                 accessibilityLabel={props.label}
                 accessibilityState={{ busy: props.running, disabled: props.running }}
-                style={{ borderRadius: 999, paddingVertical: 11, alignItems: 'center', backgroundColor: variantColor, marginVertical: 6, opacity: props.running ? 0.6 : 1 }}>
-                {props.running ? <ActivityIndicator color={labelColor} /> : <Text style={{ color: labelColor, fontSize: 15, fontWeight: '600' }}>{props.label}</Text>}
+                style={{ borderRadius: ui.radius.control, paddingVertical: 10, alignItems: 'center', backgroundColor: variantColor, borderWidth: props.node.variant === undefined || props.node.variant === 'secondary' ? StyleSheet.hairlineWidth : 0, borderColor: theme.colors.divider, marginVertical: 6, opacity: props.running ? 0.6 : 1 }}>
+                {props.running ? <ActivityIndicator color={labelColor} /> : <Text style={{ color: labelColor, fontSize: 14, fontWeight: '600' }}>{props.label}</Text>}
             </Pressable>
         </Animated.View>
     );
@@ -527,7 +585,7 @@ function ScreenNode(props: {
         case 'diff': {
             const patch = resolvePath(data, node.path);
             if (typeof patch !== 'string' || patch === '') return null;
-            return <View style={{ marginBottom: 8 }}><PierreDiffView patch={boundText(patch, 600, 64 * 1024).text} diffStyle="unified" overflow="scroll" /></View>;
+            return <View style={{ marginBottom: 10 }}><NavigableDiff patch={boundText(patch, 600, 64 * 1024).text} /></View>;
         }
         case 'code': {
             const source = resolvePath(data, node.path);
@@ -539,14 +597,15 @@ function ScreenNode(props: {
         case 'metric':
             return (
                 <View style={{ paddingVertical: 10 }}>
-                    <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.6 }}>{bind(node.label)}</Text>
+                    <SectionLabel>{bind(node.label)}</SectionLabel>
                     <Text style={{ color: theme.colors.text, fontSize: 30, letterSpacing: -0.5, marginTop: 2, ...Typography.mono('semiBold') }}>{bind(node.value)}</Text>
                 </View>
             );
         case 'badge':
             return (
-                <View style={{ alignSelf: 'flex-start', borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4, marginBottom: 10, backgroundColor: theme.colors.surfaceHighest }}>
-                    <Text style={{ color: node.tone === undefined ? theme.colors.text : toneColor(theme, node.tone), fontSize: 12, letterSpacing: 0.2, ...Typography.mono('semiBold') }}>{bind(node.label)}</Text>
+                <View style={{ alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 6, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4, marginBottom: 10, backgroundColor: withAlpha(theme.colors.accent, 0.08) }}>
+                    {node.tone !== undefined && <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: toneColor(theme, node.tone) }} />}
+                    <Text style={{ color: theme.colors.text, fontSize: 12, ...Typography.mono('regular') }}>{bind(node.label)}</Text>
                 </View>
             );
         case 'progress': {
@@ -561,11 +620,9 @@ function ScreenNode(props: {
                     accessibilityValue={{ min: 0, max, now: value }}>
                     {(label !== undefined || valueLabel !== undefined) && <View style={{ flexDirection: 'row', marginBottom: 6 }}>
                         {label !== undefined && <Text style={{ color: theme.colors.text, fontSize: 13, flex: 1 }}>{label}</Text>}
-                        {valueLabel !== undefined && <Text style={{ color: theme.colors.textSecondary, fontSize: 13, ...Typography.mono('regular') }}>{valueLabel}</Text>}
+                        {valueLabel !== undefined && <Text style={{ color: node.tone === undefined || node.tone === 'positive' ? theme.colors.textSecondary : toneColor(theme, node.tone), fontSize: 13, ...Typography.mono('regular') }}>{valueLabel}</Text>}
                     </View>}
-                    <View style={{ height: 6, borderRadius: 3, backgroundColor: theme.colors.surfaceHighest, overflow: 'hidden' }}>
-                        <AnimatedBarFill ratio={max === 0 ? 0 : value / max} color={chartFill(theme, node.tone)} delay={0} />
-                    </View>
+                    <Meter ratio={max === 0 ? 0 : value / max} />
                 </View>
             );
         }
@@ -598,7 +655,7 @@ function ScreenNode(props: {
             );
             return (
                 <View style={{ marginBottom: props.nested ? 4 : 14 }}>
-                    {node.title !== undefined && <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 10, marginTop: props.nested ? 10 : 0 }}>{bind(node.title)}</Text>}
+                    {node.title !== undefined && <SectionLabel style={{ marginBottom: 10, marginTop: props.nested ? 10 : 0 }}>{bind(node.title)}</SectionLabel>}
                     {body}
                 </View>
             );
@@ -638,13 +695,13 @@ function ScreenNode(props: {
             const all = [...node.rows.map((row) => ({ row, item: undefined as unknown })), ...repeated];
             return (
                 <View style={{ marginBottom: props.nested ? 4 : 14 }}>
-                    {node.title !== undefined && <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 10, marginTop: props.nested ? 10 : 0 }}>{bind(node.title)}</Text>}
+                    {node.title !== undefined && <SectionLabel style={{ marginBottom: 10, marginTop: props.nested ? 10 : 0 }}>{bind(node.title)}</SectionLabel>}
                     <View style={props.nested ? {} : { ...cardStyle(theme), paddingHorizontal: 16, paddingVertical: 4 }}>
                         {all.length === 0
                             ? <Text style={{ color: theme.colors.textSecondary, fontSize: 13, paddingVertical: 10 }}>{bind(node.emptyText ?? t('plugins.nothingToShow'))}</Text>
                             : all.map(({ row, item }, index) => (
                                 <ScreenRow key={index} row={row} data={data} item={item} onRowAction={props.onRowAction} insideCard
-                                    style={{ paddingVertical: 11, borderTopWidth: index === 0 ? 0 : 1, borderTopColor: theme.colors.divider }} />
+                                    style={{ paddingVertical: 9, borderTopWidth: index === 0 ? 0 : StyleSheet.hairlineWidth, borderTopColor: theme.colors.divider }} />
                             ))}
                     </View>
                 </View>
@@ -671,7 +728,8 @@ function ScreenNode(props: {
                                 const selected = value === optionValue;
                                 return (
                                     <Pressable key={optionValue} onPress={() => { hapticsSelection(); set(optionValue); }} accessibilityRole="button" accessibilityState={{ selected }}
-                                        style={({ pressed }) => ({ borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6, backgroundColor: selected ? theme.colors.accent : pressed ? theme.colors.surfacePressed : theme.colors.surfaceHighest })}>
+                                        hitSlop={8}
+                                        style={({ pressed }) => ({ borderRadius: 999, paddingHorizontal: 14, minHeight: 34, justifyContent: 'center', backgroundColor: selected ? theme.colors.accent : pressed ? theme.colors.surfacePressed : theme.colors.surfaceHighest })}>
                                         <Text style={{ color: selected ? theme.colors.button.primary.tint : theme.colors.text, fontSize: 14 }}>{resolvePluginText(option)}</Text>
                                     </Pressable>
                                 );
