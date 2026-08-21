@@ -39,24 +39,42 @@ listing; the repo carries the 720p cut and the WebP.
 
 ## The film
 
-`reel/src/Stage3D.tsx` is the set: a handset standing on a mirrored floor under
-a painted studio environment, and a camera that moves. Each shot picks a
-framing — `push`, `close`, `orbit`, `tilt`, `flip` — so the film is edited
-rather than templated.
+There is no device in this film. A reference the owner picked — a launch film
+in Spline's house style — turned out to differ structurally from a product
+shot, not cosmetically:
 
-Two rules hold it together:
+- no bezel; pieces of the real UI float in the dark at different depths,
+  tilted, with shallow depth of field
+- the product's own pills are the motion vocabulary
+- type is large enough to crop the frame, and a real UI element sometimes sits
+  inline in the sentence
+- colour arrives in bursts, and it comes from the product's own content
 
-- **Nothing reads the r3f clock.** Frames render concurrently across browser
-  tabs whose clocks start at different instants, so wall-time animation lands
-  somewhere different in every frame and the handset vibrates. Every value comes
-  from `useCurrentFrame()`.
-- **No downloaded assets.** drei's `<Environment preset>` fetches an HDR from a
-  CDN. The environment here is an equirect gradient with three softboxes painted
-  on a canvas and run through `PMREMGenerator`, so the body and the floor have
-  something real to reflect, offline and reproducibly.
+muxr already had the vocabulary: nav chips, `ctrl`/`shift`/`esc` terminal keys,
+the composer, session rows with status dots. `capture/fragments.mjs` cuts them
+out of the captures — declared, so a recapture reproduces them rather than
+being re-cropped by hand — and the chip boundaries are *found* by scanning the
+row rather than hard-coded, so a shifted row still works.
 
-The last shot turns the handset over: dark on the front face, light on the back
-of the same object. That is why every scene is captured in both themes.
+`reel/src/motion.ts` holds the one idea the film is built on: **depth is a
+single number**. How blurred a layer is, how far it recedes into the ground,
+and how much of the beat's drift it takes all come off it, so a layer is placed
+by saying how far away it is.
+
+`reel/src/Beats.tsx` is one component per beat. `reel/src/Layer.tsx` is the
+floating fragment. `reel/src/Type.tsx` is the headline and the mono line.
+
+Two things carry the mark. The title card assembles the wordmark one cell
+column at a time, because the mark is a display matrix — `scripts/genBrand.sh`
+rasterises it from a pixel font and knocks a gap out of every cell. And every
+kicker carries a status dot in the app's own hues, which is the only colour the
+film adds, at dot size, exactly as `components/ui.tsx` says colour should be
+spent.
+
+Nothing reads the wall clock. Frames render concurrently across browser tabs
+whose clocks start at different instants, so any wall-time animation lands
+somewhere different in every frame and the result vibrates. Every value comes
+from `useCurrentFrame()`.
 
 ## Requirements
 

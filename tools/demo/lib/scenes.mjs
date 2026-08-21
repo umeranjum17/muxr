@@ -199,11 +199,14 @@ export const reel = {
     note: 'Open source · Apache-2.0 · self-hosted',
 };
 
-/** Frame budget, at 30fps. */
+/**
+ * Frame budget, at 30fps. Ten beats at 3.5s each plus a title and an end card
+ * lands at about forty seconds, which is the length the reference film runs and
+ * about as long as anyone watches a product film without sound.
+ */
 export const timing = {
-    // Long enough for a two-line headline to arrive and be read before the cut.
-    title: 96,
-    shot: 120,
-    end: 120,
-    transition: 14,
+    title: 92,
+    beat: 105,
+    end: 112,
+    transition: 9,
 };

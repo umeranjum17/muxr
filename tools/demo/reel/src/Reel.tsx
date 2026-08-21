@@ -2,41 +2,49 @@ import React from 'react';
 import { AbsoluteFill } from 'remotion';
 import { TransitionSeries, linearTiming } from '@remotion/transitions';
 import { fade } from '@remotion/transitions/fade';
-import { Shot, ShotSpec } from './Shot';
-import { EndCard, TitleCard } from './Cards';
-import { ink } from './theme';
+import { Away, Authoring, Diff, End, Files, Herd, Plugins, SelfHosted, Same, Spend, Title, Voice } from './Beats';
+import { ink } from './motion';
 
-export type Timing = { title: number; shot: number; end: number; transition: number };
+export type Timing = { title: number; beat: number; end: number; transition: number };
 
-export const reelDuration = (shots: number, t: Timing) =>
-    t.title + shots * t.shot + t.end - (shots + 1) * t.transition;
+/** Order is the argument: what it is, that it is the same pane, then what you
+ *  can do with it, then that it is yours. */
+const BEATS = [Herd, Same, Voice, Diff, Files, Spend, Plugins, Authoring, SelfHosted, Away];
+
+export const reelDuration = (t: Timing, pick?: number[]) => {
+    const n = pick?.length ?? BEATS.length;
+    return t.title + n * t.beat + t.end - (n + 1) * t.transition;
+};
 
 export type ReelProps = {
-    shots: ShotSpec[];
     tagline: string;
     install: string;
     site: string;
     note: string;
     timing: Timing;
+    /** Beat indices, for the shorter cut the README embeds. */
+    pick?: number[];
 };
 
-// Cuts are fades, not slides. A film whose shots already move the camera does
-// not need the edit to move as well; two motions at once reads as a template.
-export const Reel: React.FC<ReelProps> = ({ shots, tagline, install, site, note, timing }) => (
+// Cuts are short fades. Each beat already moves — its layers drift on their own
+// depth — so an edit that moves as well reads as a template.
+export const Reel: React.FC<ReelProps> = ({ install, site, note, timing, pick }) => {
+    const beats = pick === undefined ? BEATS : pick.map((i) => BEATS[i]!);
+    return (
     <AbsoluteFill style={{ backgroundColor: ink }}>
         <TransitionSeries>
             <TransitionSeries.Sequence durationInFrames={timing.title}>
-                <TitleCard tagline={tagline} durationInFrames={timing.title} />
+                <Title total={timing.title} />
             </TransitionSeries.Sequence>
 
-            {shots.flatMap((spec) => [
+            {beats.flatMap((BeatComponent, i) => [
                 <TransitionSeries.Transition
-                    key={`t-${spec.id}`}
+                    key={`t-${i}`}
                     presentation={fade()}
                     timing={linearTiming({ durationInFrames: timing.transition })}
                 />,
-                <TransitionSeries.Sequence key={spec.id} durationInFrames={timing.shot}>
-                    <Shot spec={spec} durationInFrames={timing.shot} />
+                <TransitionSeries.Sequence key={`b-${i}`} durationInFrames={timing.beat}>
+                    <BeatComponent total={timing.beat} />
                 </TransitionSeries.Sequence>,
             ])}
 
@@ -45,8 +53,9 @@ export const Reel: React.FC<ReelProps> = ({ shots, tagline, install, site, note,
                 timing={linearTiming({ durationInFrames: timing.transition })}
             />
             <TransitionSeries.Sequence durationInFrames={timing.end}>
-                <EndCard install={install} site={site} note={note} />
+                <End total={timing.end} install={install} site={site} note={note} />
             </TransitionSeries.Sequence>
         </TransitionSeries>
     </AbsoluteFill>
-);
+    );
+};

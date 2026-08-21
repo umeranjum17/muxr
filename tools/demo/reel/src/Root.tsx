@@ -2,19 +2,17 @@ import React from 'react';
 import { Composition } from 'remotion';
 import { Reel, reelDuration } from './Reel';
 import { StoreFrame } from './StoreFrame';
-import { ShotSpec } from './Shot';
 import { fontsReady } from './theme';
-import { reel, scenes, timing } from '../../lib/scenes.mjs';
+import { reel, timing } from '../../lib/scenes.mjs';
 
 void fontsReady;
 
-const shots: ShotSpec[] = scenes
-    .filter((scene) => scene.reel)
-    .sort((a, b) => a.reel.order - b.reel.order)
-    .map((scene) => ({ id: scene.id, ...scene.reel }));
+/** The README animation runs the three strongest beats at a shorter cadence. */
+const loopTiming = { title: 44, beat: 66, end: 56, transition: 9 };
+/** Herd, voice, away — what it is, what only it does, and why you would leave. */
+const loopPick = [0, 2, 9];
 
 const props = {
-    shots,
     tagline: reel.tagline,
     install: reel.install,
     site: reel.site,
@@ -22,17 +20,13 @@ const props = {
     timing,
 };
 
-// The README animation has to stay small enough to sit in a git repo, so it
-// runs the three strongest shots at roughly half length.
-const loopShots = [shots[0], shots[1], shots[6]].filter(Boolean);
-const loopTiming = { title: 40, shot: 74, end: 56, transition: 10 };
 
 export const RemotionRoot: React.FC = () => (
     <>
         <Composition
             id="Reel"
             component={Reel}
-            durationInFrames={reelDuration(shots.length, timing)}
+            durationInFrames={reelDuration(timing)}
             fps={30}
             width={1920}
             height={1080}
@@ -41,7 +35,7 @@ export const RemotionRoot: React.FC = () => (
         <Composition
             id="ReelVertical"
             component={Reel}
-            durationInFrames={reelDuration(shots.length, timing)}
+            durationInFrames={reelDuration(timing)}
             fps={30}
             width={1080}
             height={1920}
@@ -61,11 +55,11 @@ export const RemotionRoot: React.FC = () => (
         <Composition
             id="ReelLoop"
             component={Reel}
-            durationInFrames={reelDuration(loopShots.length, loopTiming)}
+            durationInFrames={reelDuration(loopTiming, loopPick)}
             fps={24}
             width={1280}
             height={720}
-            defaultProps={{ ...props, shots: loopShots, timing: loopTiming }}
+            defaultProps={{ ...props, timing: loopTiming, pick: loopPick }}
         />
     </>
 );

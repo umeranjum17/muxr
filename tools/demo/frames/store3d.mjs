@@ -1,11 +1,10 @@
 #!/usr/bin/env node
-// Renders the Play Store frames on the film's 3D stage, one still per scene.
+// Renders the Play Store frames in the film's language, one still per scene.
 //
-// The earlier frames laid the capture into a CSS mockup — a rectangle with a
-// border-radius. These put it on the same stage the film is shot on, so the
-// handset has a body that reflects the studio environment and a reflection
-// under it. Straight on, because a Play carousel renders these small and an
-// angle that flatters the object costs the UI its legibility.
+// No bezel: the capture floats in the dark with a shallow tilt and a soft
+// shadow, the same treatment every fragment in the film gets. The tilt stays
+// small because a Play carousel renders these at thumbnail size and the point
+// of a store screenshot is that the UI is readable.
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { copyFile, mkdir } from 'node:fs/promises';
@@ -54,7 +53,7 @@ async function main() {
         ], { cwd: path.join(root, 'reel'), maxBuffer: 1 << 26 });
         console.log(`--> ${path.relative(repo, file)}  (${scene.storeTheme})`);
     }
-    console.log(`\nrendered ${n} store frame(s) on the 3D stage`);
+    console.log(`\nrendered ${n} store frame(s)`);
 }
 
 main().catch((e) => { console.error(e.message); process.exit(1); });
