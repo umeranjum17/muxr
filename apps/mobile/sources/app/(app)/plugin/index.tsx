@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ActivityIndicator, View, Text, Platform, Pressable } from 'react-native';
+import { ActivityIndicator, View, Text, Pressable } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import { PluginSlot } from '@/plugins/PluginSlot';
 import { pluginCatalogLoaded, pluginSnapshot, pluginUnavailableReason } from '@/plugins/pluginStore';
@@ -7,9 +7,9 @@ import { resolvePluginText } from '@/plugins/pluginText';
 import { useSlotContributions } from '@/plugins/useSlotContributions';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
 import { Typography } from '@/constants/Typography';
 import { Header } from '@/components/navigation/Header';
+import { HeaderBackButton } from '@/components/navigation/HeaderBackButton';
 import { parsePluginScreenParams } from '@muxr/contract';
 import { t } from '@/text';
 
@@ -71,22 +71,8 @@ export default function PluginPage() {
         <View style={styles.container}>
             <Header
                 title={<Text style={styles.headerTitle}>{title}</Text>}
-                headerLeft={() => (
-                    <Pressable
-                        onPress={() => router.back()}
-                        accessibilityRole="button"
-                        accessibilityLabel={t('plugins.goBack')}
-                        hitSlop={12}
-                        style={{ width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center' }}
-                    >
-                        <Ionicons
-                            name={Platform.OS === 'ios' ? 'chevron-back' : 'arrow-back'}
-                            size={24}
-                            color={theme.colors.header.tint}
-                        />
-                    </Pressable>
-                )}
-                headerLeftGlass
+                headerLeft={() => <HeaderBackButton onPress={() => router.back()} label={t('plugins.goBack')} />}
+                headerLeftGlass={false}
                 headerShadowVisible={false}
                 headerTransparent
             />

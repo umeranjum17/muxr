@@ -1,8 +1,7 @@
 import * as React from 'react';
-import { Animated, View, Text, Platform, Pressable } from 'react-native';
+import { Animated, View, Text, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackHeaderProps } from '@react-navigation/native-stack';
-import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { layout } from '../layout';
 import { isRunningOnMac } from '@/utils/platform';
@@ -10,6 +9,7 @@ import { useHeaderHeight, useIsTablet } from '@/utils/responsive';
 import { Typography } from '@/constants/Typography';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { MobileGlassSurface } from '../MobileGlass';
+import { HeaderBackButton } from './HeaderBackButton';
 import {
     MOBILE_GLASS_CONTROL_RADIUS,
     MOBILE_GLASS_CONTROL_SIZE,
@@ -167,37 +167,7 @@ interface ExtendedNavigationOptions extends Partial<NativeStackHeaderProps['opti
     headerSubtitleStyle?: any;
 }
 
-// Default back button component
-const DefaultBackButton: React.FC<{ tintColor?: string; onPress: () => void }> = ({ tintColor = '#000', onPress }) => {
-    const styles = stylesheet;
-    if (Platform.OS === 'web' || isRunningOnMac()) {
-        return (
-            <Pressable onPress={onPress} hitSlop={15}>
-                <Ionicons name={Platform.OS === 'ios' ? 'chevron-back' : 'arrow-back'} size={24} color={tintColor} />
-            </Pressable>
-        );
-    }
-
-    return (
-        <Pressable
-            onPress={onPress}
-            hitSlop={10}
-            style={({ pressed }) => [styles.backButton, pressed && styles.controlPressed]}
-        >
-            <MobileGlassSurface
-                interactive
-                intensity={76}
-                style={styles.backButtonGlass}
-            >
-                <Ionicons
-                    name={Platform.OS === 'ios' ? 'chevron-back' : 'arrow-back'}
-                    size={24}
-                    color={tintColor}
-                />
-            </MobileGlassSurface>
-        </Pressable>
-    );
-};
+const DefaultBackButton: React.FC<{ tintColor?: string; onPress: () => void }> = ({ tintColor, onPress }) => <HeaderBackButton onPress={onPress} color={tintColor} />;
 
 // Component wrapper for navigation header
 const NavigationHeaderComponent: React.FC<NativeStackHeaderProps> = React.memo((props) => {
@@ -427,35 +397,5 @@ const stylesheet = StyleSheet.create((theme, runtime) => ({
         shadowRadius: 3,
         elevation: 4,
         boxShadow: '0 1px 3px rgba(0, 0, 0, 0.15)',
-    },
-    backButton: {
-        width: Platform.select({ web: 36, default: MOBILE_GLASS_CONTROL_SIZE }),
-        height: Platform.select({ web: 36, default: MOBILE_GLASS_CONTROL_SIZE }),
-        borderRadius: MOBILE_GLASS_CONTROL_RADIUS,
-    },
-    backButtonGlass: {
-        width: '100%',
-        height: '100%',
-        borderRadius: MOBILE_GLASS_CONTROL_RADIUS,
-        alignItems: 'center',
-        justifyContent: 'center',
-        overflow: 'hidden',
-        backgroundColor: Platform.select({
-            web: 'transparent',
-            ios: 'transparent',
-            android: theme.colors.glass.backgroundStrong,
-            default: 'transparent',
-        }),
-        borderWidth: Platform.select({ web: 0, default: StyleSheet.hairlineWidth }),
-        borderColor: theme.colors.glass.border,
-        shadowColor: theme.colors.glass.shadow,
-        shadowOffset: { width: 0, height: 8 },
-        shadowOpacity: Platform.select({ web: 0, default: 1 }),
-        shadowRadius: 18,
-        elevation: Platform.select({ android: 8, default: 0 }),
-    },
-    controlPressed: {
-        opacity: 0.68,
-        transform: [{ scale: 0.97 }],
     },
 }));

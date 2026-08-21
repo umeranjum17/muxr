@@ -11,6 +11,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useVisibleSessionListViewData } from '@/hooks/useVisibleSessionListViewData';
 import { Typography } from '@/constants/Typography';
 import { StatusDot } from './StatusDot';
+import { isSettledSession, SessionMetaLine } from './SessionRowParts';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useIsTablet } from '@/utils/responsive';
 import { requestReview } from '@/utils/requestReview';
@@ -141,12 +142,7 @@ const stylesheet = StyleSheet.create((theme) => ({
         marginTop: 2,
         marginRight: 4,
     },
-    statusText: {
-        fontSize: 12,
-        fontWeight: '500',
-        lineHeight: 16,
-        ...Typography.default(),
-    },
+
     avatarContainer: {
         position: 'relative',
         width: 48,
@@ -404,10 +400,13 @@ export const SessionItem = React.memo(({ session, selected, isFirst, isLast, isS
         onContextMenu: handleContextMenu,
     } as any : {};
 
+    const settled = isSettledSession(session);
+
     const row = (
         <Pressable
-            style={[
+            style={({ pressed }) => [
                 styles.sessionItem,
+                { opacity: pressed ? 0.55 : settled ? 0.75 : 1 },
                 selected && styles.sessionItemSelected,
                 isSingle ? styles.sessionItemSingle :
                     isFirst ? styles.sessionItemFirst :
@@ -447,7 +446,7 @@ export const SessionItem = React.memo(({ session, selected, isFirst, isLast, isS
 
                 {session.identityLine ? (
                     <View style={styles.sessionSubtitleRow}>
-                        <ProviderIcon kind={session.providerKind} size={13} />
+                        <ProviderIcon kind={session.providerKind} size={13} monochrome />
                         <Text style={styles.sessionSubtitle} numberOfLines={1}>
                             {session.identityLine}
                         </Text>
@@ -468,12 +467,16 @@ export const SessionItem = React.memo(({ session, selected, isFirst, isLast, isS
                     <View style={styles.statusDotContainer}>
                         <StatusDot color={status.dotColor} isPulsing={status.isPulsing} />
                     </View>
-                    <Text style={[
-                        styles.statusText,
-                        { color: status.color }
-                    ]}>
-                        {session.modelName ? `${session.modelName} · ` : ''}{statusText}{session.activitySummary ? ` · ${session.activitySummary}` : ''}
-                    </Text>
+                    {/* Verb first, then context. Settled rows spend no colour,
+                        so the eye lands on the one still working. */}
+                    <SessionMetaLine
+                        style={{ flex: 1 }}
+                        segments={[
+                            { text: statusText, color: settled ? theme.colors.textSecondary : status.color },
+                            { text: session.modelName },
+                            { text: session.activitySummary },
+                        ]}
+                    />
                 </View>
             </View>
         </Pressable>

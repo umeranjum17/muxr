@@ -1,11 +1,13 @@
 import * as React from 'react';
 import { Platform, Text, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { DiffView } from '@/components/diff/DiffView';
 import { Typography } from '@/constants/Typography';
 import { boundText } from '@/utils/boundedText';
 import { SyntaxSpans } from '@/components/SimpleSyntaxHighlighter';
 import { highlightCodeLines, syntaxLanguage } from '@/components/code/syntaxHighlighting';
+import { withAlpha } from '@/components/ui';
 
 export interface PierreDiffViewProps {
     oldFile?: { name: string; contents: string };
@@ -89,6 +91,36 @@ function usePierreBundle(): PierreBundle | null {
 // Web rendering.
 // ────────────────────────────────────────────────────────────────────────────
 
+const COMPACT_WEB_DIFF_CSS = `
+:host {
+  --diffs-gap-inline: 6px;
+  --diffs-gap-block: 2px;
+  --diffs-font-size: 12px;
+  --diffs-line-height: 18px;
+  border: 1px solid var(--diffs-bg-separator);
+  border-radius: 10px;
+  overflow: hidden;
+  margin-block-end: 8px;
+}
+[data-diffs-header='default'] {
+  min-height: 30px;
+  padding-inline: 8px;
+  background: var(--diffs-bg-context);
+  border-bottom: 1px solid var(--diffs-bg-separator);
+}
+[data-change-icon] { display: none; }
+[data-header-content] {
+  gap: 4px;
+  font-family: var(--diffs-font-family, var(--diffs-font-fallback));
+  font-size: 11px;
+}
+[data-diffs-header='default'] [data-metadata] { gap: 6px; font-size: 11px; }
+[data-separator='line-info'],
+[data-separator='line-info-basic'],
+[data-separator='metadata'] { height: 22px; margin-block: 0; }
+[data-separator-content] { padding-inline: 8px; border-radius: 0 !important; font-size: 11px; }
+`;
+
 const PierreDiffViewWeb = React.memo(function PierreDiffViewWeb(props: PierreDiffViewProps) {
     const { theme } = useUnistyles();
     const themeName: 'dark' | 'light' = props.theme ?? (theme.dark ? 'dark' : 'light');
@@ -106,6 +138,9 @@ const PierreDiffViewWeb = React.memo(function PierreDiffViewWeb(props: PierreDif
         disableLineNumbers: props.disableLineNumbers,
         disableFileHeader: props.disableFileHeader,
         expandUnchanged: props.expandUnchanged,
+        hunkSeparators: 'line-info-basic' as const,
+        diffIndicators: 'bars' as const,
+        unsafeCSS: COMPACT_WEB_DIFF_CSS,
     };
 
     if (props.patch) {
@@ -151,7 +186,7 @@ function PatchFilesWeb({
 
     const { FileDiff } = bundle.react;
     if (files.length === 0) {
-        return <PlainPatchView patch={patch} wrapLines={options?.overflow === 'wrap'} omittedLines={omittedLines} totalLines={totalLines} omittedChars={omittedChars} />;
+        return <PlainPatchView patch={patch} wrapLines={options?.overflow === 'wrap'} disableFileHeader={options?.disableFileHeader === true} omittedLines={omittedLines} totalLines={totalLines} omittedChars={omittedChars} />;
     }
     return (
         <View>
@@ -220,6 +255,7 @@ const PierreDiffViewNative = React.memo(function PierreDiffViewNative(props: Pie
                 wrapLines={props.overflow === 'wrap'}
                 fontSize={props.fontSize}
                 onHunkOffsets={props.onHunkOffsets}
+                disableFileHeader={props.disableFileHeader === true}
                 omittedLines={props.omittedLines}
                 totalLines={props.totalLines}
                 omittedChars={props.omittedChars}
@@ -253,6 +289,64 @@ function DiffTruncation({ omittedLines, totalLines, omittedChars }: { omittedLin
     return <Text style={{ color: '#888', padding: 8 }}>showing {Math.max(0, (totalLines ?? 0) - (omittedLines ?? 0))} of {totalLines ?? 0} lines ({omittedLines ?? 0} omitted, {omittedChars ?? 0} chars)</Text>;
 }
 
+type NativePatchRow =
+    | { kind: 'file'; raw: string; name: string }
+    | { kind: 'hunk'; raw: string; oldStart: number; newStart: number }
+    | { kind: 'meta'; raw: string }
+    | { kind: 'code'; raw: string; prefix: ' ' | '+' | '-'; oldLine?: number; newLine?: number; sourceIndex: number };
+
+/** Give a phone the reading aids a terminal gets from its surrounding shell. */
+function nativePatchRows(patch: string, disableFileHeader: boolean): NativePatchRow[] {
+    const lines = patch.split('\n');
+    const rows: NativePatchRow[] = [];
+    let oldLine = 0;
+    let newLine = 0;
+    let inHunk = false;
+    let currentFile: string | undefined;
+    for (let index = 0; index < lines.length; index += 1) {
+        const raw = lines[index]!;
+        if (raw.startsWith('diff --git ')) {
+            inHunk = false;
+            const found = /^diff --git (?:a\/)?\S+ (?:b\/)?(.+)$/.exec(raw)?.[1];
+            currentFile = found;
+            if (!disableFileHeader && found !== undefined) rows.push({ kind: 'file', raw, name: found });
+            continue;
+        }
+        const hunk = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(raw);
+        if (hunk !== null) {
+            oldLine = Number(hunk[1]);
+            newLine = Number(hunk[2]);
+            inHunk = true;
+            rows.push({ kind: 'hunk', raw, oldStart: oldLine, newStart: newLine });
+            continue;
+        }
+        if (raw.startsWith('+++ ')) {
+            const found = /^\+\+\+ (?:b\/)?([^\t]+)/.exec(raw)?.[1];
+            if (!disableFileHeader && currentFile === undefined && found !== undefined && found !== '/dev/null') rows.push({ kind: 'file', raw, name: found });
+            continue;
+        }
+        if (raw.startsWith('--- ') || raw.startsWith('index ') || raw.startsWith('similarity ') || raw.startsWith('dissimilarity ') || raw.startsWith('\\ No newline')) continue;
+        if (raw.startsWith('new file') || raw.startsWith('deleted file') || raw.startsWith('rename ') || raw.startsWith('Binary files')) {
+            rows.push({ kind: 'meta', raw });
+            continue;
+        }
+        if (!inHunk || raw === '' && index === lines.length - 1) continue;
+        const prefix = raw.charAt(0);
+        if (prefix === '+') {
+            rows.push({ kind: 'code', raw, prefix, newLine, sourceIndex: index });
+            newLine += 1;
+        } else if (prefix === '-') {
+            rows.push({ kind: 'code', raw, prefix, oldLine, sourceIndex: index });
+            oldLine += 1;
+        } else {
+            rows.push({ kind: 'code', raw: raw === '' ? ' ' : raw, prefix: ' ', oldLine, newLine, sourceIndex: index });
+            oldLine += 1;
+            newLine += 1;
+        }
+    }
+    return rows;
+}
+
 function patchFileName(patch: string): string | undefined {
     const match = /^\+\+\+\s+(?:b\/)?([^\t\n]+)/m.exec(patch);
     return match?.[1] === '/dev/null' ? undefined : match?.[1];
@@ -269,6 +363,7 @@ function PlainPatchView({
     wrapLines,
     fontSize,
     onHunkOffsets,
+    disableFileHeader = false,
     omittedLines,
     totalLines,
     omittedChars,
@@ -277,6 +372,7 @@ function PlainPatchView({
     wrapLines: boolean;
     fontSize?: number;
     onHunkOffsets?: (offsets: number[]) => void;
+    disableFileHeader?: boolean;
     omittedLines?: number;
     totalLines?: number;
     omittedChars?: number;
@@ -285,6 +381,7 @@ function PlainPatchView({
     const colors = theme.colors.diff;
     const codeFontSize = fontSize ?? 12;
     const lines = React.useMemo(() => patch.split('\n'), [patch]);
+    const rows = React.useMemo(() => nativePatchRows(patch, disableFileHeader), [disableFileHeader, patch]);
     const language = React.useMemo(() => syntaxLanguage(undefined, patchFileName(patch)), [patch]);
     const highlightSource = React.useMemo(() => boundText(lines.map((line) => isPatchCodeLine(line) ? line.slice(1) : '').join('\n'), 600, 64 * 1024).text, [lines]);
     const highlighted = React.useMemo(() => highlightCodeLines(highlightSource, language), [highlightSource, language]);
@@ -293,97 +390,55 @@ function PlainPatchView({
     // Hunk tops, measured as they lay out, so the screen above can offer
     // next/prev jumps without knowing anything about row heights.
     const hunkTops = React.useRef<Map<number, number>>(new Map());
+    React.useEffect(() => {
+        hunkTops.current.clear();
+        onHunkOffsets?.([]);
+    }, [onHunkOffsets, patch]);
     const publishHunkTops = React.useCallback(() => {
         if (onHunkOffsets === undefined) return;
         onHunkOffsets([...hunkTops.current.entries()].sort((a, b) => a[0] - b[0]).map(([, y]) => y));
     }, [onHunkOffsets]);
 
     return (
-        <View style={{ flex: 1, overflow: 'hidden' }}>
-            {lines.map((line, i) => {
-                const first = line.charAt(0);
-                // Plumbing says nothing the surrounding UI does not already say:
-                // the screen names the file, and `index`/`---`/`+++` are for
-                // `git apply`, not for a reader.
-                const isPlumbing =
-                    line.startsWith('+++ ') ||
-                    line.startsWith('--- ') ||
-                    line.startsWith('diff ') ||
-                    line.startsWith('index ') ||
-                    line.startsWith('similarity ') ||
-                    line.startsWith('dissimilarity ') ||
-                    line.startsWith('\\ No newline');
-                if (isPlumbing) return null;
-                // These carry real information; keep them as one quiet line each.
-                const isFileHeader =
-                    line.startsWith('new file') ||
-                    line.startsWith('deleted file') ||
-                    line.startsWith('rename ') ||
-                    line.startsWith('Binary files');
-                const isHunkHeader = line.startsWith('@@');
-
-                if (isHunkHeader) {
-                    return (
-                        <View
-                            key={i}
-                            onLayout={(event) => {
-                                hunkTops.current.set(i, event.nativeEvent.layout.y);
-                                publishHunkTops();
-                            }}
-                            style={{
-                                backgroundColor: colors.hunkHeaderBg,
-                                borderTopWidth: StyleSheet.hairlineWidth,
-                                borderTopColor: colors.outline,
-                                paddingHorizontal: 12,
-                                paddingVertical: 5,
-                            }}
-                        >
-                            <Text
-                                numberOfLines={wrapLines ? undefined : 1}
-                                style={{
-                                    ...Typography.mono(),
-                                    fontSize: codeFontSize - 2,
-                                    lineHeight: Math.round((codeFontSize - 2) * 1.4),
-                                    color: colors.hunkHeaderText,
-                                }}
-                            >
-                                {line}
-                            </Text>
-                        </View>
-                    );
+        <View style={{ flex: 1, overflow: 'hidden', borderRadius: 12, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.outline, backgroundColor: theme.colors.surface }}>
+            {rows.map((row, index) => {
+                if (row.kind === 'file') {
+                    const name = row.name.split('/').pop() ?? row.name;
+                    const folder = row.name.slice(0, Math.max(0, row.name.length - name.length - 1));
+                    return <View key={`${row.raw}:${index}`} style={{ minHeight: 36, paddingHorizontal: 9, flexDirection: 'row', alignItems: 'center', gap: 7, backgroundColor: theme.colors.surfaceHigh, borderTopWidth: index === 0 ? 0 : StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: colors.outline }}>
+                        <Ionicons name="document-text-outline" size={15} color={theme.colors.textSecondary} />
+                        <Text numberOfLines={1} style={{ color: theme.colors.text, fontSize: 11.5, ...Typography.mono('semiBold') }}>{name}</Text>
+                        {folder !== '' && <Text numberOfLines={1} ellipsizeMode="head" style={{ flex: 1, color: theme.colors.textSecondary, fontSize: 10.5, ...Typography.mono() }}>{folder}</Text>}
+                    </View>;
                 }
-
-                let bg: string = 'transparent';
-                let fg: string = colors.contextText;
-                if (isFileHeader) {
-                    fg = colors.hunkHeaderText;
-                } else if (first === '+') {
-                    bg = colors.addedBg;
-                    fg = colors.addedText;
-                } else if (first === '-') {
-                    bg = colors.removedBg;
-                    fg = colors.removedText;
+                if (row.kind === 'meta') {
+                    return <Text key={`${row.raw}:${index}`} numberOfLines={1} style={{ color: colors.hunkHeaderText, fontSize: codeFontSize - 1, lineHeight: Math.round(codeFontSize * 1.5), paddingHorizontal: 11, ...Typography.mono('semiBold') }}>{row.raw}</Text>;
                 }
-
-                return (
-                    <Text
-                        key={i}
-                        numberOfLines={wrapLines ? undefined : 1}
-                        style={{
-                            ...Typography.mono(),
-                            fontSize: codeFontSize,
-                            lineHeight: Math.round(codeFontSize * 1.45),
-                            backgroundColor: bg,
-                            color: fg,
-                            paddingHorizontal: isFileHeader ? 12 : 8,
-                            fontWeight: isFileHeader ? '600' : 'normal',
-                        }}
-                    >
-                        {isPatchCodeLine(line)
-                            ? <><Text style={{ color: first === '+' ? colors.success : first === '-' ? colors.error : fg, fontWeight: '600' }}>{first}</Text><SyntaxSpans spans={i < highlighted.length - 1 ? highlighted[i]! : [{ text: line.slice(1) }]} theme={theme} fallbackColor={fg} /></>
-                            : (line.length === 0 ? ' ' : line)}
+                if (row.kind === 'hunk') {
+                    const context = row.raw.replace(/^@@[^@]*@@\s*/, '');
+                    return <View key={`${row.raw}:${index}`} onLayout={(event) => {
+                        hunkTops.current.set(index, event.nativeEvent.layout.y);
+                        publishHunkTops();
+                    }} style={{ minHeight: 32, paddingHorizontal: 9, flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: colors.hunkHeaderBg, borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: colors.outline }}>
+                        <Text style={{ color: colors.hunkHeaderText, fontSize: codeFontSize - 2, ...Typography.mono('semiBold') }}>−{row.oldStart}  +{row.newStart}</Text>
+                        {context !== '' && <Text numberOfLines={1} style={{ flex: 1, color: colors.hunkHeaderText, opacity: 0.78, fontSize: codeFontSize - 2, ...Typography.mono() }}>{context}</Text>}
+                    </View>;
+                }
+                const added = row.prefix === '+';
+                const removed = row.prefix === '-';
+                const foreground = added ? colors.addedText : removed ? colors.removedText : colors.contextText;
+                const background = added ? withAlpha(colors.success, 0.08) : removed ? withAlpha(colors.error, 0.08) : 'transparent';
+                const spans = highlighted[row.sourceIndex] ?? [{ text: row.raw.slice(1) }];
+                return <View key={`${row.sourceIndex}:${index}`} style={{ flexDirection: 'row', alignItems: 'flex-start', backgroundColor: background, borderLeftWidth: 2, borderLeftColor: added ? colors.success : removed ? colors.error : 'transparent' }}>
+                    <View style={{ width: 54, flexDirection: 'row', paddingTop: 1, paddingRight: 5, opacity: 0.72 }}>
+                        <Text style={{ width: 24, textAlign: 'right', color: colors.lineNumberText, fontSize: codeFontSize - 2, lineHeight: Math.round(codeFontSize * 1.45), ...Typography.mono() }}>{row.oldLine ?? ''}</Text>
+                        <Text style={{ width: 24, textAlign: 'right', color: colors.lineNumberText, fontSize: codeFontSize - 2, lineHeight: Math.round(codeFontSize * 1.45), ...Typography.mono() }}>{row.newLine ?? ''}</Text>
+                    </View>
+                    <Text selectable numberOfLines={wrapLines ? undefined : 1} style={{ flex: wrapLines ? 1 : undefined, color: foreground, fontSize: codeFontSize, lineHeight: Math.round(codeFontSize * 1.45), paddingRight: 9, ...Typography.mono() }}>
+                        <Text style={{ color: added ? colors.success : removed ? colors.error : colors.lineNumberText, fontWeight: added || removed ? '600' : 'normal' }}>{row.prefix}</Text>
+                        <SyntaxSpans spans={spans} theme={theme} fallbackColor={foreground} selectable />
                     </Text>
-                );
+                </View>;
             })}
             {truncation}
         </View>

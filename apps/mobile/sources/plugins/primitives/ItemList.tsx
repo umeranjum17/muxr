@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ActivityIndicator, AppState, Pressable, Text, View } from 'react-native';
+import { ActivityIndicator, AppState, FlatList, Pressable, Text, View, useWindowDimensions, type ViewToken } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useIsFocused } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
@@ -17,39 +17,28 @@ import { dispatchPluginAction, validatePluginAction } from '../pluginActions';
 import { pluginSnapshot } from '../pluginStore';
 import { clearPluginCache, registerPluginDataCacheInvalidator, subscribePluginDataInvalidation } from '../pluginDataInvalidation';
 import { toneColor } from '../pluginTone';
+import { cardStyle, Meter, SectionLabel, ui, withAlpha } from '@/components/ui';
 import { resolvePluginText } from '../pluginText';
 import { t } from '@/text';
+import { AttachmentGallery, AttachmentThumbnail, type GalleryImage } from '@/components/AttachmentGallery';
+import type { AttachmentAction } from '@/utils/attachmentPreview';
 
 const EMPTY_MODEL: PluginItemListModel = { items: [], actions: [] };
+const MAX_ACTIVE_THUMBNAILS = 4;
+
+type SheetListEntry =
+    | { key: string; kind: 'label'; name: string; spaced: boolean }
+    | { key: string; kind: 'images'; images: { image: GalleryImage; galleryIndex: number }[]; spaced: boolean }
+    | { key: string; kind: 'item'; item: PluginItemListItem; index: number; rowIndex: number; rowCount: number; spaced: boolean };
+
+function imageAction(item: PluginItemListItem): AttachmentAction | undefined {
+    return item.action?.type === 'attachment' && item.action.mimeType?.startsWith('image/') ? item.action : undefined;
+}
 const cache = new Map<string, PluginItemListModel>();
 registerPluginDataCacheInvalidator((pluginIds) => {
     if (pluginIds === undefined) cache.clear();
     else for (const pluginId of pluginIds) clearPluginCache(cache, pluginId);
 });
-
-function withAlpha(color: string, alpha: number): string {
-    const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(color)?.[1];
-    if (hex === undefined) return color;
-    const full = hex.length === 3 ? hex.split('').map((part) => part + part).join('') : hex;
-    const value = Number.parseInt(full, 16);
-    return `rgba(${(value >> 16) & 255}, ${(value >> 8) & 255}, ${value & 255}, ${alpha.toFixed(3)})`;
-}
-
-/** Thin fill bar that sweeps in once on mount; decorative, never blocks taps. */
-function RowProgress({ value, color, delay }: { value: number; color: string; delay: number }) {
-    const { theme } = useUnistyles();
-    const reduceMotion = useReducedMotion();
-    const width = useSharedValue(reduceMotion ? value : 0);
-    React.useEffect(() => {
-        width.value = reduceMotion ? value : withDelay(delay, withTiming(value, { duration: 350, easing: Easing.bezier(0.23, 1, 0.32, 1) }));
-    }, [delay, reduceMotion, value, width]);
-    const animated = useAnimatedStyle(() => ({ width: `${width.value * 100}%` }));
-    return (
-        <View style={[styles.progressTrack, { backgroundColor: theme.colors.surfaceHighest }]}>
-            <Animated.View style={[styles.progressFill, { backgroundColor: color }, animated]} />
-        </View>
-    );
-}
 
 function SheetRow({ item, fallbackIcon, busy, index, onPress }: {
     item: PluginItemListItem;
@@ -65,11 +54,6 @@ function SheetRow({ item, fallbackIcon, busy, index, onPress }: {
     // Work that already landed steps back; anything working or in trouble keeps
     // full contrast, so the eye goes to the row that still needs a person.
     const settled = (item.progress?.tone ?? primary?.tone) === 'positive';
-    // Untoned bars step back down the list: a column of identical full-strength
-    // accent reads as decoration rather than ranking.
-    const progressColor = item.progress?.tone === undefined
-        ? withAlpha(theme.colors.accent, Math.max(0.4, 1 - index * 0.14))
-        : toneColor(theme, item.progress.tone);
     const content = <View style={{ opacity: settled ? 0.75 : 1 }}>
         <View style={styles.itemRow}>
             {busy
@@ -97,7 +81,7 @@ function SheetRow({ item, fallbackIcon, busy, index, onPress }: {
                 </Text>}
             </View>}
         </View>
-        {item.progress !== undefined && <RowProgress value={item.progress.value} color={progressColor} delay={index * 50} />}
+        {item.progress !== undefined && <Meter ratio={item.progress.value} emphasis={1 - index * 0.14} delay={index * 50} style={styles.rowMeter} />}
     </View>;
     if (onPress === undefined) return <View accessible accessibilityLabel={label}>{content}</View>;
     return (
@@ -106,9 +90,29 @@ function SheetRow({ item, fallbackIcon, busy, index, onPress }: {
     );
 }
 
+function SheetActions({ actions, busyId, onAction }: {
+    actions: PluginItemListAction[];
+    busyId: string | null;
+    onAction: (action: PluginItemListAction['action'], busyKey: string) => Promise<void>;
+}) {
+    const { theme } = useUnistyles();
+    return <View style={styles.sheetActions}>{actions.map((action) => {
+        const busyKey = `action:${action.id}`;
+        return <Pressable key={action.id} onPress={() => void onAction(action.action, busyKey)} accessibilityRole="button" accessibilityLabel={action.label}
+            accessibilityState={{ busy: busyId === busyKey }}
+            style={({ pressed }) => [styles.sheetAction, { backgroundColor: theme.colors.surfaceHigh, borderColor: theme.colors.divider }, pressed && { backgroundColor: theme.colors.surfaceHighest }]}>
+            {busyId === busyKey
+                ? <ActivityIndicator size="small" color={theme.colors.textSecondary} />
+                : action.icon !== undefined && <Ionicons name={action.icon as never} size={15} color={theme.colors.textSecondary} />}
+            <Text style={{ color: theme.colors.text, fontSize: 13 }}>{action.label}</Text>
+        </Pressable>;
+    })}</View>;
+}
+
 /** Lazy action list: the plugin declares every tap; there are no feature fallbacks. */
 export function ItemList({ context, pluginId, manifestHash, contribution }: PrimitiveProps) {
     const { theme } = useUnistyles();
+    const { width } = useWindowDimensions();
     const router = useRouter();
     const isFocused = useIsFocused();
     const [appActive, setAppActive] = React.useState(AppState.currentState === 'active');
@@ -122,6 +126,7 @@ export function ItemList({ context, pluginId, manifestHash, contribution }: Prim
     const [failed, setFailed] = React.useState(false);
     const [open, setOpen] = React.useState(false);
     const [busyId, setBusyId] = React.useState<string | null>(null);
+    const [galleryIndex, setGalleryIndex] = React.useState<number>();
     const loading = React.useRef(false);
     const requestVersion = React.useRef(0);
     const reloadQueued = React.useRef(false);
@@ -230,6 +235,51 @@ export function ItemList({ context, pluginId, manifestHash, contribution }: Prim
         });
         return found;
     }, [items]);
+    const galleryImages = React.useMemo<GalleryImage[]>(() => items.flatMap((item) => {
+        const action = imageAction(item);
+        return action === undefined ? [] : [{ id: item.id, title: item.title, subtitle: item.subtitle, action }];
+    }), [items]);
+    const galleryById = React.useMemo(() => new Map(galleryImages.map((image, index) => [image.id, index])), [galleryImages]);
+    const galleryWidth = Math.min(220, Math.max(132, (width - 40) / 2));
+    const sheetRows = React.useMemo<SheetListEntry[]>(() => groups.flatMap((group, groupIndex) => {
+        const rows: SheetListEntry[] = [];
+        const spaced = groupIndex > 0 || model.actions.length > 0;
+        if (group.name !== undefined) rows.push({ key: `label:${group.name}`, kind: 'label', name: group.name, spaced });
+        const images = group.items.flatMap(({ item }) => {
+            const galleryIndex = galleryById.get(item.id);
+            return galleryIndex === undefined ? [] : [{ image: galleryImages[galleryIndex]!, galleryIndex }];
+        });
+        for (let index = 0; index < images.length; index += 2) {
+            rows.push({ key: `images:${groupIndex}:${index}`, kind: 'images', images: images.slice(index, index + 2), spaced: rows.length === 0 && spaced });
+        }
+        const plain = group.items.filter(({ item }) => imageAction(item) === undefined);
+        plain.forEach(({ item, index }, rowIndex) => rows.push({
+            key: `item:${item.id}`, kind: 'item', item, index, rowIndex, rowCount: plain.length,
+            spaced: rows.length === 0 && spaced,
+        }));
+        return rows;
+    }), [galleryById, galleryImages, groups, model.actions.length]);
+    const sheetBodyHeight = React.useMemo(() => 12 + (model.actions.length > 0 ? 52 : 0) + sheetRows.reduce((height, row) => height
+        + (row.spaced ? 14 : 0)
+        + (row.kind === 'label' ? 24 : row.kind === 'images' ? galleryWidth / 1.25 + 8 : 53 + (row.rowIndex === row.rowCount - 1 ? 8 : 0)), 0), [galleryWidth, model.actions.length, sheetRows]);
+    const [visibleThumbnailIds, setVisibleThumbnailIds] = React.useState<string[]>([]);
+    const [settledThumbnailIds, setSettledThumbnailIds] = React.useState<Set<string>>(new Set());
+    const thumbnailViewability = React.useRef({ itemVisiblePercentThreshold: 15 }).current;
+    const onThumbnailViewable = React.useCallback(({ viewableItems }: { viewableItems: ViewToken<SheetListEntry>[] }) => {
+        const next = viewableItems.flatMap(({ item }) => item?.kind === 'images' ? item.images.map(({ image }) => image.id) : []);
+        setVisibleThumbnailIds((current) => current.length === next.length && current.every((id, index) => id === next[index]) ? current : next);
+    }, []);
+    const visibleThumbnailSet = React.useMemo(() => new Set(visibleThumbnailIds), [visibleThumbnailIds]);
+    const loadingThumbnailIds = React.useMemo(() => new Set(visibleThumbnailIds.filter((id) => !settledThumbnailIds.has(id)).slice(0, MAX_ACTIVE_THUMBNAILS)), [settledThumbnailIds, visibleThumbnailIds]);
+    const thumbnailSettled = React.useCallback((id: string) => setSettledThumbnailIds((current) => {
+        if (current.has(id)) return current;
+        const next = new Set(current);
+        next.add(id);
+        return next;
+    }), []);
+    React.useEffect(() => {
+        if (!open) { setVisibleThumbnailIds([]); setSettledThumbnailIds(new Set()); }
+    }, [open]);
     const badgeTone = model.badge?.tone;
     const badgeColor = failed ? theme.colors.textDestructive : badgeTone === undefined ? theme.colors.textSecondary : toneColor(theme, badgeTone);
     if (items.length === 0 && model.actions.length === 0) {
@@ -246,37 +296,47 @@ export function ItemList({ context, pluginId, manifestHash, contribution }: Prim
             <Ionicons name={(failed ? 'warning-outline' : icon) as never} size={11} color={badgeColor} />
             <Text style={[styles.count, { color: badgeColor }]}>{model.badge?.value ?? items.length}</Text>
         </Pressable>
-        <OptionSheet visible={open} title={title} options={[]} onSelect={() => {}} onClose={() => setOpen(false)} body={
-            <View style={{ paddingHorizontal: 16, paddingBottom: 12 }}>
-                {model.actions.length > 0 && <View style={styles.sheetActions}>
-                    {model.actions.map((action) => {
-                        const busyKey = `action:${action.id}`;
-                        return <Pressable key={action.id} onPress={() => void onAction(action.action, busyKey)} accessibilityRole="button" accessibilityLabel={action.label}
-                            accessibilityState={{ busy: busyId === busyKey }}
-                            style={({ pressed }) => [styles.sheetAction, { backgroundColor: theme.colors.surfaceHigh, borderColor: theme.colors.divider }, pressed && { backgroundColor: theme.colors.surfaceHighest }]}>
-                            {busyId === busyKey
-                                ? <ActivityIndicator size="small" color={theme.colors.textSecondary} />
-                                : action.icon !== undefined && <Ionicons name={action.icon as never} size={15} color={theme.colors.textSecondary} />}
-                            <Text style={{ color: theme.colors.text, fontSize: 13 }}>{action.label}</Text>
-                        </Pressable>;
-                    })}
-                </View>}
-                {groups.map((group, groupIndex) => (
-                    <View key={group.name ?? `ungrouped-${groupIndex}`} style={{ marginTop: groupIndex === 0 && model.actions.length === 0 ? 0 : 14 }}>
-                        {group.name !== undefined && <Text style={[styles.groupLabel, { color: theme.colors.textSecondary }]}>{group.name}</Text>}
-                        <View style={[styles.groupCard, { backgroundColor: theme.colors.surfaceHigh, borderColor: theme.colors.divider }]}>
-                            {group.items.map(({ item, index }, rowIndex) => (
-                                <React.Fragment key={item.id}>
-                                    {rowIndex > 0 && <View style={[styles.rowDivider, { backgroundColor: theme.colors.divider }]} />}
-                                    <SheetRow item={item} fallbackIcon={icon} busy={busyId === `item:${item.id}`} index={index}
-                                        {...(item.action === undefined ? {} : { onPress: () => void onAction(item.action, `item:${item.id}`) })} />
-                                </React.Fragment>
-                            ))}
+        <OptionSheet visible={open} title={title} options={[]} onSelect={() => {}} onClose={() => setOpen(false)} virtualizedBody={galleryImages.length > 0} virtualizedBodyHeight={sheetBodyHeight} body={
+            galleryImages.length > 0
+                ? <FlatList
+                    data={sheetRows}
+                    keyExtractor={(row) => row.key}
+                    contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 12 }}
+                    initialNumToRender={4}
+                    maxToRenderPerBatch={4}
+                    windowSize={3}
+                    viewabilityConfig={thumbnailViewability}
+                    onViewableItemsChanged={onThumbnailViewable}
+                    ListHeaderComponent={model.actions.length > 0 ? <SheetActions actions={model.actions} busyId={busyId} onAction={onAction} /> : null}
+                    renderItem={({ item: row }) => {
+                        if (row.kind === 'label') return <SectionLabel style={[styles.groupLabel, row.spaced && styles.spacedRow]}>{row.name}</SectionLabel>;
+                        if (row.kind === 'images') return <View style={[styles.imageGrid, row.spaced && styles.spacedRow]}>{row.images.map(({ image, galleryIndex }) => <View key={image.id} style={{ width: galleryWidth }}>
+                            <AttachmentThumbnail sessionId={sessionId!} image={image} enabled={visibleThumbnailSet.has(image.id) && (settledThumbnailIds.has(image.id) || loadingThumbnailIds.has(image.id))} onSettled={thumbnailSettled} onPress={() => setGalleryIndex(galleryIndex)} />
+                        </View>)}</View>;
+                        const first = row.rowIndex === 0;
+                        const last = row.rowIndex === row.rowCount - 1;
+                        return <View style={[styles.virtualRow, { backgroundColor: theme.colors.surfaceHigh, borderColor: theme.colors.divider }, first && styles.virtualRowFirst, last && styles.virtualRowLast, row.spaced && styles.spacedRow]}>
+                            {!first && <View style={[styles.rowDivider, { backgroundColor: theme.colors.divider }]} />}
+                            <SheetRow item={row.item} fallbackIcon={icon} busy={busyId === `item:${row.item.id}`} index={row.index}
+                                {...(row.item.action === undefined ? {} : { onPress: () => void onAction(row.item.action, `item:${row.item.id}`) })} />
+                        </View>;
+                    }}
+                />
+                : <View style={{ paddingHorizontal: 16, paddingBottom: 12 }}>
+                    {model.actions.length > 0 && <SheetActions actions={model.actions} busyId={busyId} onAction={onAction} />}
+                    {groups.map((group, groupIndex) => <View key={group.name ?? `ungrouped-${groupIndex}`} style={{ marginTop: groupIndex === 0 && model.actions.length === 0 ? 0 : 14 }}>
+                        {group.name !== undefined && <SectionLabel style={styles.groupLabel}>{group.name}</SectionLabel>}
+                        <View style={[cardStyle(theme), { overflow: 'hidden' }]}>
+                            {group.items.map(({ item, index }, rowIndex) => <React.Fragment key={item.id}>
+                                {rowIndex > 0 && <View style={[styles.rowDivider, { backgroundColor: theme.colors.divider }]} />}
+                                <SheetRow item={item} fallbackIcon={icon} busy={busyId === `item:${item.id}`} index={index}
+                                    {...(item.action === undefined ? {} : { onPress: () => void onAction(item.action, `item:${item.id}`) })} />
+                            </React.Fragment>)}
                         </View>
-                    </View>
-                ))}
-            </View>
+                    </View>)}
+                </View>
         } />
+        {galleryIndex !== undefined && <AttachmentGallery sessionId={sessionId!} images={galleryImages} initialIndex={galleryIndex} onClose={() => setGalleryIndex(undefined)} />}
     </>;
 }
 
@@ -284,18 +344,18 @@ const styles = StyleSheet.create({
     pill: { flexDirection: 'row', alignItems: 'center', gap: 5, height: 26, borderRadius: 999, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 8 },
     count: { fontSize: 11, ...Typography.mono('semiBold') },
     sheetActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingBottom: 4 },
+    imageGrid: { flexDirection: 'row', gap: 8, marginBottom: 8 },
+    spacedRow: { marginTop: 14 },
+    virtualRow: { borderLeftWidth: StyleSheet.hairlineWidth, borderRightWidth: StyleSheet.hairlineWidth, overflow: 'hidden' },
+    virtualRowFirst: { borderTopWidth: StyleSheet.hairlineWidth, borderTopLeftRadius: ui.radius.card, borderTopRightRadius: ui.radius.card },
+    virtualRowLast: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomLeftRadius: ui.radius.card, borderBottomRightRadius: ui.radius.card, marginBottom: 8 },
     sheetAction: { minHeight: 44, borderRadius: 999, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', gap: 6 },
-    // One label scale across plugin surfaces: 12/600/0.6 is the section voice
-    // on declarative screens, and a sheet that whispers at 11/0.8 reads as a
-    // different app.
-    groupLabel: { fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 8, marginLeft: 4 },
-    groupCard: { borderRadius: 16, borderWidth: StyleSheet.hairlineWidth, overflow: 'hidden' },
+    groupLabel: { marginBottom: 8, marginLeft: 4 },
     rowDivider: { height: StyleSheet.hairlineWidth, marginLeft: 54 },
     itemRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 14, paddingVertical: 11 },
     iconTile: { width: 30, height: 30, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
     metadata: { alignItems: 'flex-end', gap: 2, marginLeft: 8 },
     metadataValue: { fontSize: 13, ...Typography.mono('semiBold') },
-    metadataSecondary: { fontSize: 11 },
-    progressTrack: { height: 4, borderRadius: 2, marginLeft: 54, marginRight: 14, marginTop: -2, marginBottom: 11, overflow: 'hidden' },
-    progressFill: { height: '100%', borderRadius: 2 },
+    metadataSecondary: { fontSize: 11, ...Typography.mono('regular') },
+    rowMeter: { marginLeft: 54, marginRight: 14, marginTop: -2, marginBottom: 11 },
 });

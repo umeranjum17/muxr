@@ -1,4 +1,26 @@
+import { t } from '@/text';
+
 export type ContextUsageLevel = 'normal' | 'warning' | 'critical';
+
+/**
+ * The permission chip only appears when the agent is off default permissions:
+ * a chip on every session that reads "default permissions" is a chip nobody
+ * reads. Modes that hand the agent the keys are the one place this row spends
+ * colour.
+ */
+export function permissionModeChip(mode: string | null | undefined): { label: string; danger: boolean } | null {
+    if (!mode || mode === 'default') return null;
+    const danger = mode === 'bypassPermissions' || mode === 'yolo' || mode === 'safe-yolo';
+    switch (mode) {
+        case 'acceptEdits': return { label: t('agentInput.permissionMode.acceptEdits'), danger };
+        case 'plan': return { label: t('agentInput.permissionMode.plan'), danger };
+        case 'dontAsk': return { label: t('agentInput.permissionMode.dontAsk'), danger };
+        case 'bypassPermissions': return { label: t('agentInput.permissionMode.bypassPermissions'), danger };
+        // A newer CLI can name a mode this build has never heard of; show what
+        // it said rather than nothing.
+        default: return { label: mode.replace(/-/g, ' '), danger };
+    }
+}
 
 export function resolveStatusBarGitBranch(
     gitStatusBranch: string | null | undefined,

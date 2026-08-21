@@ -16,8 +16,12 @@ import { Ionicons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
 import { Modal } from '@/modal';
 import * as Clipboard from 'expo-clipboard';
-import { storage, useSession, useSessions } from '@/sync/storage';
+import { storage, useSession, useSessionGitStatus, useSessions } from '@/sync/storage';
 import { sync } from '@/sync/sync';
+import { resolveMessageModeMeta } from '@/sync/messageMeta';
+import { permissionModeChip, resolveStatusBarGitBranch } from '@/utils/sessionStatusBar';
+import { SessionMetaLine } from '@/components/SessionRowParts';
+import { HeaderBackButton } from '@/components/navigation/HeaderBackButton';
 import type { HerdrTreeTab } from '@muxr/contract';
 import { TerminalView } from '@/terminal/TerminalView';
 import { usePaneGestures } from '@/terminal/usePaneGestures';
@@ -68,6 +72,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const keyboardHeight = useKeyboardState().height;
     const session = useSession(props.id);
     const sessions = useSessions();
+    const gitStatus = useSessionGitStatus(props.id);
     const pluginButtons = useSessionPlugins();
     const [pluginActionBusy, setExtensionActionBusy] = React.useState<string>();
     const [swipeNow, setSwipeNow] = React.useState(Date.now);
@@ -374,6 +379,15 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     // Mirrors sendPrompt's early return: nothing to send, nothing to press.
     const canSend = draft.trim() !== '' || attachedPaths.length > 0;
 
+    // Where this session sits and how it is allowed to act, in one quiet row.
+    // Connection stays out of it: the header dot and the reconnect pill above
+    // the terminal already say it, and saying it twice makes neither read.
+    const branch = resolveStatusBarGitBranch(gitStatus?.branch, session?.metadata?.worktree?.branch, session?.metadata?.path);
+    const permission = permissionModeChip(session === null || session === undefined ? null : resolveMessageModeMeta(session).permissionMode);
+    const linesAdded = gitStatus !== null && gitStatus.linesAdded > 0 ? `+${gitStatus.linesAdded}` : null;
+    const linesRemoved = gitStatus !== null && gitStatus.linesRemoved > 0 ? `−${gitStatus.linesRemoved}` : null;
+    const hasStatusRow = branch !== null || linesAdded !== null || linesRemoved !== null || permission !== null;
+
     // Same shape as KeyboardAvoidingView, minus the animation: that padding
     // moves frame by frame and Ghostty reflows its whole grid on every size
     // change, which is the flicker. One step change, one reflow.
@@ -392,13 +406,13 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                     paddingHorizontal: 10,
                     paddingVertical: 6,
                     backgroundColor: theme.colors.surface,
-                    borderBottomWidth: 1,
+                    // Header and status row are one chrome block: the edge
+                    // belongs at its bottom, not between its two rows.
+                    borderBottomWidth: hasStatusRow ? 0 : 1,
                     borderBottomColor: theme.colors.divider,
                 }}
             >
-                <Pressable onPress={() => router.back()} hitSlop={10} accessibilityRole="button" accessibilityLabel="Back" style={({ pressed }) => ({ padding: 4, opacity: pressed ? 0.6 : 1 })}>
-                    <Ionicons name="chevron-back" size={20} color={theme.colors.text} />
-                </Pressable>
+                <HeaderBackButton onPress={() => router.back()} style={{ marginLeft: -6 }} />
                 {(() => {
                     const currentTab = tabs.find((tab) => tab.tabId === tabId);
                     const currentPane = currentTab?.panes.find((pane) => pane.sessionId === props.id);
@@ -406,27 +420,25 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                     const dot = agentStatusColor(currentTab?.agentStatus ?? 'unknown', theme);
                     const paneIndex = siblings.indexOf(props.id);
                     return (
-                        <Pressable onPress={() => hasOverlay && setTreeOpen(true)} disabled={!hasOverlay} hitSlop={6} accessibilityRole="button" accessibilityLabel={overlayLabel} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 1, paddingVertical: 4 }}>
+                        // The session's name is the one thing this bar exists to
+                        // say, so it takes the width and the actions give way.
+                        <Pressable onPress={() => hasOverlay && setTreeOpen(true)} disabled={!hasOverlay} hitSlop={6} accessibilityRole="button" accessibilityLabel={overlayLabel} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, minWidth: 0, paddingVertical: 4 }}>
                             <StatusDot color={dot.color} isPulsing={dot.pulsing} size={7} />
                             <Text numberOfLines={1} style={{ color: theme.colors.text, fontSize: 13, fontWeight: '600', flexShrink: 1 }}>
                                 {contextTitle}
                             </Text>
                             {paneIndex !== -1 && siblings.length > 1 && (
-                                <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>· {paneIndex + 1}/{siblings.length}</Text>
+                                <Text style={{ color: theme.colors.textSecondary, fontSize: 12, flexShrink: 0 }}>· {paneIndex + 1}/{siblings.length}</Text>
                             )}
                         </Pressable>
                     );
                 })()}
-                <View style={{ flex: 1 }} />
                 {/* Same sheet as the title pressable — hidden from screen readers. */}
                 {hasOverlay && (
-                    <Pressable onPress={() => setTreeOpen(true)} hitSlop={10} accessible={false} accessibilityElementsHidden importantForAccessibility="no" style={({ pressed }) => ({ padding: 4, opacity: pressed ? 0.6 : 1 })}>
-                        <Ionicons name="list" size={19} color={theme.colors.textSecondary} />
+                    <Pressable onPress={() => setTreeOpen(true)} hitSlop={8} accessible={false} accessibilityElementsHidden importantForAccessibility="no" style={({ pressed }) => ({ padding: 6, opacity: pressed ? 0.6 : 1 })}>
+                        <Ionicons name="list-outline" size={20} color={theme.colors.textSecondary} />
                     </Pressable>
                 )}
-                <PluginSlot slot="session.header.trailing" context={{ sessionId: props.id, cwd: session?.metadata?.path }} />
-                <DeclarativeHeaderButtons cwd={session?.metadata?.path} sessionId={props.id} />
-                <DeclarativeChips slot="session.header.trailing" />
                 {(
                     <Pressable
                         onPress={() => {
@@ -478,27 +490,42 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                                     }).catch((error) => Modal.alert(`${button.name} failed`, error instanceof Error ? error.message : String(error)))
                                         .finally(() => setExtensionActionBusy(undefined));
                                 },
-                            }))];
+                            })), ...(Platform.OS === 'web' || stopping ? [] : [{
+                                label: 'Stop agent',
+                                hint: 'Closes this pane in herdr',
+                                destructive: true,
+                                onPress: stopSession,
+                            }])];
                             setMenu({ title: 'Actions', items, ...(items.length === 0 ? { note: 'No actions available' } : {}) });
                         }}
                         disabled={pluginActionBusy !== undefined}
-                        hitSlop={10}
+                        hitSlop={8}
                         accessibilityRole="button"
                         accessibilityLabel="More actions"
                         accessibilityState={{ disabled: pluginActionBusy !== undefined }}
-                        style={({ pressed }) => ({ padding: 4, opacity: pressed ? 0.6 : 1 })}
+                        style={({ pressed }) => ({ padding: 6, opacity: pressed ? 0.6 : 1 })}
                     >
                         {pluginActionBusy === undefined
-                            ? <Ionicons name="ellipsis-vertical" size={19} color={theme.colors.textSecondary} />
+                            ? <Ionicons name="ellipsis-horizontal" size={20} color={theme.colors.textSecondary} />
                             : <ActivityIndicator size="small" color={theme.colors.textSecondary} />}
                     </Pressable>
                 )}
-                {Platform.OS !== 'web' && (
-                    <Pressable onPress={stopSession} hitSlop={10} disabled={stopping} accessibilityRole="button" accessibilityLabel="Stop agent" accessibilityState={{ disabled: stopping }} style={({ pressed }) => ({ padding: 4, opacity: pressed ? 0.6 : 1 })}>
-                        <Ionicons name="stop-circle-outline" size={19} color={theme.colors.textSecondary} />
-                    </Pressable>
-                )}
             </View>
+
+            {hasStatusRow && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, paddingBottom: 7, backgroundColor: theme.colors.surface, borderBottomWidth: 1, borderBottomColor: theme.colors.divider }}>
+                    {branch !== null && <Ionicons name="git-branch-outline" size={12} color={theme.colors.textSecondary} />}
+                    <SessionMetaLine
+                        style={{ flex: 1 }}
+                        segments={[
+                            { text: branch },
+                            { text: linesAdded, color: theme.colors.gitAddedText },
+                            { text: linesRemoved, color: theme.colors.gitRemovedText, attached: linesAdded !== null },
+                            { text: permission?.label, ...(permission?.danger === true ? { color: theme.colors.permission.yolo } : {}) },
+                        ]}
+                    />
+                </View>
+            )}
 
             {Platform.OS === 'web' && (
                 <View style={{ paddingHorizontal: 12, paddingVertical: 7, backgroundColor: theme.colors.surfaceHigh, borderBottomWidth: 1, borderBottomColor: theme.colors.divider }}>
@@ -656,6 +683,12 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                     </Pressable>
                     </Animated.View>
                 )}
+                {/* Plugin chips live here, not in the header: six trailing
+                    buttons left the session's own name truncated to three
+                    characters, and the name is what the bar is for. */}
+                <PluginSlot slot="session.header.trailing" context={{ sessionId: props.id, cwd: session?.metadata?.path }} />
+                <DeclarativeHeaderButtons cwd={session?.metadata?.path} sessionId={props.id} />
+                <DeclarativeChips slot="session.header.trailing" />
                 <PluginSlot slot="session.pills" context={{ sessionId: props.id }} />
                 <DeclarativeChips slot="session.pills" />
                 <DeclarativeTerminalKeySlot channel={channel} />
@@ -760,7 +793,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                                     }}
                                     style={({ pressed }) => ({ paddingHorizontal: 16, paddingVertical: 12, opacity: pressed ? 0.6 : 1 })}
                                 >
-                                    <Text style={{ color: theme.colors.text, fontSize: 15 }}>{item.label}</Text>
+                                    <Text style={{ color: item.destructive === true ? theme.colors.status.error : theme.colors.text, fontSize: 15 }}>{item.label}</Text>
                                     {item.hint !== undefined && (
                                         <Text style={{ color: theme.colors.textSecondary, fontSize: 12, marginTop: 2 }}>{item.hint}</Text>
                                     )}

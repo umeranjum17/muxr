@@ -1,4 +1,5 @@
 import LiveAudioStream from 'react-native-live-audio-stream';
+import { reportEnergy, resetEnergy } from '@/realtime/audioEnergy';
 import {
     clearRealtimePcm,
     playRealtimePcm,
@@ -59,6 +60,7 @@ export function startRealtimeSession(options: {
     const stop = (reason?: string): void => {
         if (stopped) return;
         stopped = true;
+        resetEnergy();
         try { stream?.send({ type: 'realtime.control', action: 'stop' }); } catch { /* closing anyway */ }
         teardown();
         onStatus('disconnected', reason);
@@ -85,6 +87,7 @@ export function startRealtimeSession(options: {
         });
         LiveAudioStream.on('data', (data) => {
             if (!stopped && !muted) {
+                reportEnergy('input', data);
                 stream?.send({ type: 'realtime.audio', data });
                 // The user speaking is activity; without this the idle timer
                 // hangs up mid-sentence when the provider stays quiet.
@@ -135,6 +138,7 @@ export function startRealtimeSession(options: {
                         }
                     }).catch(fail);
                 } else if (frame.type === 'realtime.audio') {
+                    reportEnergy('output', frame.data);
                     playRealtimePcm(frame.data);
                     onStatus('speaking');
                 } else if (frame.type === 'realtime.audio.clear') {
