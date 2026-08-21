@@ -11,14 +11,15 @@
   html, body { width: var(--w); height: var(--h); }
   body {
     --w: 1024px; --h: 500px; --s: 1;
-    background: radial-gradient(120% 90% at 50% 0%, #17171c 0%, #0b0b0d 64%), #0b0b0d;
+    background: radial-gradient(120% 90% at 50% -8%, #141416 0%, #0a0a0b 64%), #0a0a0b;
     overflow: hidden; position: relative;
     font-family: 'Plex', system-ui, sans-serif; -webkit-font-smoothing: antialiased;
-    color: #f2f2f4;
+    color: #f4f4f5;
   }
+  /* One white key, centred. No tint — see frames/frame.html. */
   .glow { position: absolute; border-radius: 50%; filter: blur(120px); pointer-events: none; }
-  .glow.a { width: 700px; height: 700px; left: -190px; top: -230px; background: rgba(96, 211, 184, 0.26); }
-  .glow.b { width: 620px; height: 620px; right: -180px; bottom: -220px; background: rgba(118, 139, 255, 0.22); }
+  .glow.a { width: 820px; height: 820px; left: 50%; margin-left: -410px; top: -280px; background: rgba(255, 255, 255, 0.085); }
+  .glow.b { width: 620px; height: 620px; left: 50%; margin-left: -310px; bottom: -300px; background: rgba(255, 255, 255, 0.04); }
   .grain {
     position: absolute; inset: 0; opacity: 0.4; pointer-events: none;
     background-image: radial-gradient(rgba(255,255,255,0.045) 1px, transparent 1px);
@@ -35,11 +36,11 @@
     font-family: 'Display', system-ui, sans-serif; font-weight: 700;
     font-size: calc(56px * var(--s)); line-height: 1.06; letter-spacing: -0.028em;
   }
-  .rule { height: calc(3px * var(--s)); width: calc(180px * var(--s)); background: #60d3b8; opacity: 0.85; }
+  .rule { height: calc(2px * var(--s)); width: calc(180px * var(--s)); background: rgba(255,255,255,0.24); }
   .states {
     display: flex; gap: calc(34px * var(--s)); align-items: center;
     font-family: 'PlexMono', ui-monospace, monospace; font-size: calc(20px * var(--s));
-    letter-spacing: 0.14em; text-transform: uppercase; color: #9a9a9f;
+    letter-spacing: 0.14em; text-transform: uppercase; color: #8b8b90;
   }
   .states span { display: flex; align-items: center; gap: calc(11px * var(--s)); }
   .dot { width: calc(11px * var(--s)); height: calc(11px * var(--s)); border-radius: 50%; }
@@ -47,7 +48,7 @@
   .dot.working { background: #0A84FF; }
   .dot.blocked { background: #FF453A; }
   .dot.done { background: #30D158; }
-  .foot { font-size: calc(21px * var(--s)); color: #9a9a9f; }
+  .foot { font-size: calc(21px * var(--s)); color: #8b8b90; }
 </style>
 <body>
   <div class="glow a"></div>

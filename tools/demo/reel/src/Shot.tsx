@@ -2,14 +2,15 @@ import React from 'react';
 import { AbsoluteFill, interpolate, spring, staticFile, useCurrentFrame, useVideoConfig } from 'remotion';
 import { Backdrop } from './Backdrop';
 import { Phone3D } from './Phone3D';
-import { DISPLAY, MONO, SANS, muted, tealSolid, text } from './theme';
+import { DISPLAY, MONO, SANS, muted, text } from './theme';
 
 export type ShotSpec = {
     id: string;
     kicker: string;
     headline: string;
     body: string;
-    startFrom?: number;
+    /** Alternated down the reel so consecutive shots do not sweep in lockstep. */
+    mirror?: boolean;
 };
 
 const Words: React.FC<{ children: string; style: React.CSSProperties; delay: number }> = ({
@@ -24,7 +25,7 @@ const Words: React.FC<{ children: string; style: React.CSSProperties; delay: num
         <div style={{ ...style, display: 'flex', flexWrap: 'wrap' }}>
             {words.map((word, i) => {
                 const enter = spring({
-                    frame: frame - delay - i * 2.2,
+                    frame: frame - delay - i * 1.1,
                     fps,
                     config: { damping: 200, mass: 0.6 },
                     durationInFrames: 22,
@@ -36,7 +37,7 @@ const Words: React.FC<{ children: string; style: React.CSSProperties; delay: num
                             display: 'inline-block',
                             marginRight: '0.26em',
                             opacity: enter,
-                            transform: `translateY(${interpolate(enter, [0, 1], [26, 0])}px)`,
+                            transform: `translateY(${interpolate(enter, [0, 1], [20, 0])}px)`,
                         }}
                     >
                         {word}
@@ -73,7 +74,7 @@ export const Shot: React.FC<{ spec: ShotSpec }> = ({ spec }) => {
                     fontSize: portrait ? 28 : 26,
                     letterSpacing: '0.22em',
                     textTransform: 'uppercase',
-                    color: tealSolid,
+                    color: muted,
                     opacity: interpolate(frame, [0, 14], [0, 1], { extrapolateRight: 'clamp' }),
                     marginBottom: 26,
                 }}
@@ -96,10 +97,9 @@ export const Shot: React.FC<{ spec: ShotSpec }> = ({ spec }) => {
             </Words>
             <div
                 style={{
-                    height: 3,
+                    height: 2,
                     width: interpolate(rule, [0, 1], [0, portrait ? 180 : 220]),
-                    background: tealSolid,
-                    opacity: 0.75,
+                    background: 'rgba(255,255,255,0.24)',
                     margin: '34px 0 30px',
                 }}
             />
@@ -124,8 +124,9 @@ export const Shot: React.FC<{ spec: ShotSpec }> = ({ spec }) => {
         ? { width, height: Math.round(height * 0.62) }
         : { width: Math.round(width * 0.54), height };
 
+    // Light the side the handset actually stands on.
     return (
-        <Backdrop>
+        <Backdrop haloAt={portrait ? '50%' : '73%'}>
             <AbsoluteFill
                 style={{
                     flexDirection: portrait ? 'column' : 'row',
@@ -140,6 +141,7 @@ export const Shot: React.FC<{ spec: ShotSpec }> = ({ spec }) => {
                         src={staticFile(`shots/${spec.id}.mp4`)}
                         width={stage.width}
                         height={stage.height}
+                        mirror={spec.mirror}
                     />
                 </div>
             </AbsoluteFill>

@@ -1,7 +1,7 @@
 import React from 'react';
 import { AbsoluteFill, Img, interpolate, spring, staticFile, useCurrentFrame, useVideoConfig } from 'remotion';
 import { Backdrop } from './Backdrop';
-import { DISPLAY, MONO, SANS, muted, tealSolid, text } from './theme';
+import { DISPLAY, MONO, SANS, muted, text } from './theme';
 
 export const TitleCard: React.FC<{ tagline: string }> = ({ tagline }) => {
     const frame = useCurrentFrame();
@@ -50,10 +50,9 @@ export const TitleCard: React.FC<{ tagline: string }> = ({ tagline }) => {
                 <div
                     style={{
                         marginTop: 34,
-                        height: 3,
+                        height: 2,
                         width: interpolate(line, [0, 1], [0, 260]),
-                        background: tealSolid,
-                        opacity: 0.8,
+                        background: 'rgba(255,255,255,0.24)',
                     }}
                 />
             </AbsoluteFill>
@@ -85,12 +84,12 @@ export const EndCard: React.FC<{ install: string; site: string; note: string }> 
                 <div
                     style={{
                         fontFamily: MONO,
-                        fontSize: portrait ? 40 : 46,
+                        fontSize: portrait ? 27 : 40,
                         color: text,
                         background: 'rgba(255,255,255,0.06)',
                         border: '1px solid rgba(255,255,255,0.12)',
                         borderRadius: 18,
-                        padding: '22px 38px',
+                        padding: '20px 32px',
                         marginTop: 52,
                         opacity: b,
                         transform: `translateY(${interpolate(b, [0, 1], [22, 0])}px)`,

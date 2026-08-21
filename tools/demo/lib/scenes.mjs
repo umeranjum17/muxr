@@ -115,7 +115,7 @@ export const scenes = [
 
 export const reel = {
     tagline: 'Every coding agent, on your phone.',
-    install: 'npm i -g @trymuxr/cli',
+    install: 'npm install -g --ignore-scripts @trymuxr/cli',
     site: 'trymuxr.com',
     note: 'Open source · Apache-2.0 · self-hosted',
 };

@@ -15,7 +15,7 @@ const shots: ShotSpec[] = scenes
         kicker: scene.reel.kicker,
         headline: scene.reel.headline,
         body: scene.reel.body,
-        startFrom: scene.reel.startFrom ?? 0,
+        mirror: scene.reel.order % 2 === 0,
     }));
 
 const props = {

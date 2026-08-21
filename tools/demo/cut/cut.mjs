@@ -22,10 +22,10 @@ const OUT = path.join(root, 'reel', 'public', 'shots');
 
 /** One shot slot in the reel, plus a tail so the last frame is never black. */
 const SHOT_SECONDS = 6.4;
-// Just enough compression to keep the motion lively. Faster than this and the
-// window reaches back past the final navigation step into the Herd, so the shot
-// spends its six seconds on a screen it is not about.
-const DEFAULT_SPEED = 1.25;
+// Real time. Speeding a UI up reads as a product demo trying to hide how long
+// something takes, and every multiple above 1 drags the window back through the
+// navigation, so the shot spends its seconds on a screen it is not about.
+const DEFAULT_SPEED = 1;
 
 async function probeDuration(file) {
     const { stdout } = await exec('ffprobe', [

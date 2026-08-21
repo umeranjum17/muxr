@@ -12,11 +12,11 @@
     --w: 1080px; --h: 1920px;
     --cap-h: 340px;
     --ar: 1080 / 2400;
-    --ink: #0b0b0d;
-    --text: #f2f2f4;
-    --muted: #9a9a9f;
+    --ink: #0a0a0b;
+    --text: #f4f4f5;
+    --muted: #8b8b90;
     background:
-      radial-gradient(120% 70% at 50% 0%, #17171c 0%, #0b0b0d 62%),
+      radial-gradient(120% 70% at 50% -8%, #141416 0%, #0a0a0b 62%),
       var(--ink);
     overflow: hidden;
     position: relative;
@@ -24,11 +24,12 @@
     -webkit-font-smoothing: antialiased;
   }
 
-  /* Two soft glows lifted from the app's glass tokens, so the marketing art
-     and the product share a light source. */
+  /* One soft white key behind the handset. No tint: the product spends colour
+     on status dots and nothing else, and a coloured wash reads as a different
+     brand. See apps/mobile/sources/components/ui.tsx. */
   .glow { position: absolute; border-radius: 50%; filter: blur(150px); pointer-events: none; }
-  .glow.a { width: 980px; height: 980px; left: -300px; top: -220px; background: rgba(96, 211, 184, 0.22); }
-  .glow.b { width: 900px; height: 900px; right: -280px; bottom: -180px; background: rgba(118, 139, 255, 0.20); }
+  .glow.a { width: 1100px; height: 1100px; left: 50%; margin-left: -550px; top: 180px; background: rgba(255, 255, 255, 0.075); }
+  .glow.b { width: 760px; height: 760px; left: 50%; margin-left: -380px; bottom: -260px; background: rgba(255, 255, 255, 0.035); }
 
   .grain {
     position: absolute; inset: 0; opacity: 0.45; pointer-events: none;
