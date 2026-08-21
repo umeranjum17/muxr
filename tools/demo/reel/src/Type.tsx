@@ -1,39 +1,44 @@
 import React from 'react';
 import { useCurrentFrame } from 'remotion';
 import { DISPLAY, MONO } from './theme';
-import { dim as dimColour, enter, leave, status } from './motion';
+import { arrive, cadenceOffset, Cadence, depart, dim, status, TYPE } from './system';
 
 /**
- * Type in this film is large enough to crop the frame and arrives by wiping up
- * from behind an edge. It plays 390 CSS px wide on a phone, where anything
- * under about 64px at 1920 is unreadable — so there is no body copy, only a
- * headline and a mono line.
+ * Headlines use the mask reveal: each line sits in an overflow-hidden box and
+ * rises from its own baseline. No blur on text — it costs first-paint
+ * legibility, and this plays small.
+ *
+ * Lines lag each other by four frames rather than arriving together, which is
+ * the follow-through the previous cut had none of.
  */
 export const Head: React.FC<{
     lines: string[];
     total: number;
-    delay?: number;
-    size?: number;
+    cadence: Cadence;
+    align?: 'left' | 'right';
     style?: React.CSSProperties;
-}> = ({ lines, total, delay = 4, size = 146, style }) => {
+}> = ({ lines, total, cadence, align = 'left', style }) => {
     const frame = useCurrentFrame();
-    const out = leave(frame, total);
+    const spec = TYPE.display;
+    const role = 'display' as const;
+    const out = depart(frame, total, role);
+
     return (
-        <div style={{ opacity: out, ...style }}>
+        <div style={{ textAlign: align, opacity: out, ...style }}>
             {lines.map((line, i) => {
-                const arrive = enter(frame, delay + i * 6, 30);
+                const t = arrive(frame, role, i * 4 + cadenceOffset(cadence, role));
                 return (
-                    <div key={line} style={{ overflow: 'hidden', paddingBottom: size * 0.08 }}>
+                    <div key={line} style={{ overflow: 'hidden', paddingBottom: spec.size * 0.07 }}>
                         <div
                             style={{
                                 fontFamily: DISPLAY,
                                 fontWeight: 700,
                                 color: '#ffffff',
-                                fontSize: size,
-                                lineHeight: 0.95,
-                                letterSpacing: '-0.045em',
+                                fontSize: spec.size,
+                                lineHeight: spec.leading,
+                                letterSpacing: spec.tracking,
                                 whiteSpace: 'nowrap',
-                                transform: `translateY(${(1 - arrive) * 112}%)`,
+                                transform: `translateY(${(1 - t) * 112}%)`,
                             }}
                         >
                             {line}
@@ -45,33 +50,35 @@ export const Head: React.FC<{
     );
 };
 
-/** The mono line under a headline, with the one dot of colour the film allows. */
-export const Kicker: React.FC<{
+/** The mono line, and the one dot of colour the film allows. */
+export const Label: React.FC<{
     children: React.ReactNode;
     total: number;
-    delay?: number;
+    cadence: Cadence;
     tone?: keyof typeof status;
+    align?: 'left' | 'right';
     style?: React.CSSProperties;
-}> = ({ children, total, delay = 18, tone = 'working', style }) => {
+}> = ({ children, total, cadence, tone = 'working', align = 'left', style }) => {
     const frame = useCurrentFrame();
-    const arrive = enter(frame, delay, 22);
+    const t = arrive(frame, 'label', cadenceOffset(cadence, 'label'));
     return (
         <div
             style={{
                 display: 'flex',
                 alignItems: 'center',
-                gap: 16,
+                justifyContent: align === 'right' ? 'flex-end' : 'flex-start',
+                gap: 15,
                 fontFamily: MONO,
-                fontSize: 25,
-                letterSpacing: '0.24em',
+                fontSize: TYPE.label.size,
+                letterSpacing: TYPE.label.tracking,
                 textTransform: 'uppercase',
-                color: dimColour,
-                opacity: arrive * leave(frame, total),
-                transform: `translateY(${(1 - arrive) * 10}px)`,
+                color: dim,
+                opacity: t * depart(frame, total, 'label'),
+                transform: `translateY(${(1 - t) * 9}px)`,
                 ...style,
             }}
         >
-            <span style={{ width: 11, height: 11, borderRadius: '50%', background: status[tone], flex: 'none' }} />
+            <span style={{ width: 10, height: 10, borderRadius: '50%', background: status[tone], flex: 'none' }} />
             {children}
         </div>
     );

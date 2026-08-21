@@ -3,7 +3,7 @@ import { AbsoluteFill } from 'remotion';
 import { TransitionSeries, linearTiming } from '@remotion/transitions';
 import { fade } from '@remotion/transitions/fade';
 import { Away, Authoring, Diff, End, Files, Herd, Plugins, SelfHosted, Same, Spend, Title, Voice } from './Beats';
-import { ink } from './motion';
+import { ink } from './system';
 
 export type Timing = { title: number; beat: number; end: number; transition: number };
 
@@ -28,13 +28,13 @@ export type ReelProps = {
 
 // Cuts are short fades. Each beat already moves — its layers drift on their own
 // depth — so an edit that moves as well reads as a template.
-export const Reel: React.FC<ReelProps> = ({ install, site, note, timing, pick }) => {
+export const Reel: React.FC<ReelProps> = ({ tagline, install, site, note, timing, pick }) => {
     const beats = pick === undefined ? BEATS : pick.map((i) => BEATS[i]!);
     return (
     <AbsoluteFill style={{ backgroundColor: ink }}>
         <TransitionSeries>
             <TransitionSeries.Sequence durationInFrames={timing.title}>
-                <Title total={timing.title} />
+                <Title total={timing.title} tagline={tagline} />
             </TransitionSeries.Sequence>
 
             {beats.flatMap((BeatComponent, i) => [
@@ -44,7 +44,7 @@ export const Reel: React.FC<ReelProps> = ({ install, site, note, timing, pick })
                     timing={linearTiming({ durationInFrames: timing.transition })}
                 />,
                 <TransitionSeries.Sequence key={`b-${i}`} durationInFrames={timing.beat}>
-                    <BeatComponent total={timing.beat} />
+                    <BeatComponent total={timing.beat} index={i} />
                 </TransitionSeries.Sequence>,
             ])}
 

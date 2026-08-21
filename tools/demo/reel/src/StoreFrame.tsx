@@ -1,7 +1,7 @@
 import React from 'react';
 import { AbsoluteFill, Img, staticFile } from 'remotion';
 import { DISPLAY, MONO, SANS } from './theme';
-import { dim, ink, status } from './motion';
+import { base, dim, ink, status, TYPE } from './system';
 
 /**
  * One Play Store screenshot, in the film's language.
@@ -28,15 +28,16 @@ export const StoreFrame: React.FC<{
         <AbsoluteFill style={{ flexDirection: 'column', alignItems: 'center' }}>
             <div
                 style={{
-                    height: 340, flex: 'none', padding: '0 74px',
-                    display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 22,
+                    height: base(42), flex: 'none', padding: `0 ${base(9)}px`,
+                    display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: base(3),
                     textAlign: 'center',
                 }}
             >
                 <div
                     style={{
                         fontFamily: DISPLAY, fontWeight: 700, color: '#ffffff',
-                        fontSize: 82, lineHeight: 1.0, letterSpacing: '-0.04em', textWrap: 'balance',
+                        fontSize: TYPE.store.size, lineHeight: TYPE.store.leading,
+                        letterSpacing: TYPE.store.tracking, textWrap: 'balance',
                     }}
                 >
                     {caption}
@@ -44,7 +45,7 @@ export const StoreFrame: React.FC<{
                 {sub === '' ? null : (
                     <div
                         style={{
-                            fontFamily: SANS, color: dim, fontSize: 31, lineHeight: 1.34,
+                            fontFamily: SANS, color: dim, fontSize: TYPE.storeSub.size, lineHeight: TYPE.storeSub.leading,
                             maxWidth: 880, textWrap: 'balance',
                         }}
                     >
@@ -54,7 +55,7 @@ export const StoreFrame: React.FC<{
                 <div
                     style={{
                         display: 'flex', alignItems: 'center', gap: 13, marginTop: 8,
-                        fontFamily: MONO, fontSize: 21, letterSpacing: '0.22em',
+                        fontFamily: MONO, fontSize: TYPE.storeLabel.size, letterSpacing: TYPE.storeLabel.tracking,
                         textTransform: 'uppercase', color: '#6e6e75',
                     }}
                 >
