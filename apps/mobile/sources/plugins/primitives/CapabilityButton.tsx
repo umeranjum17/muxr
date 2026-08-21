@@ -12,7 +12,7 @@ import { pluginSnapshot } from '../pluginStore';
 import { t } from '@/text';
 
 /** Generic icon control for one declared phone capability. */
-export function CapabilityButton({ context, contribution, pluginId, manifestHash }: PrimitiveProps) {
+export function CapabilityButton({ context, contribution, pluginId, manifestHash, onNavigate }: PrimitiveProps & { onNavigate?: () => void }) {
     const { theme } = useUnistyles();
     const realtime = useRealtimeSessionState();
     const capability = contribution.capability!;
@@ -27,7 +27,7 @@ export function CapabilityButton({ context, contribution, pluginId, manifestHash
     const sessionId = 'sessionId' in context ? context.sessionId : '';
     const tint = active ? theme.colors.accent : theme.colors.textSecondary;
     return <Pressable
-        onPress={() => { if (handler !== undefined) void handler({ sessionId, status: '', from: '' }); }}
+        onPress={() => { if (handler !== undefined) { onNavigate?.(); void handler({ sessionId, status: '', from: '' }); } }}
         disabled={!available}
         hitSlop={6}
         accessibilityRole="button"

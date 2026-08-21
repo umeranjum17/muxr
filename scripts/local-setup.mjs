@@ -1997,7 +1997,7 @@ async function runSelfhostPair(state, requestedKind = 'native') {
             recipientId: state.machine.id,
             channel: 'pairing',
             streamId: pending.pairId,
-            keyVersion: pending.generation,
+            keyVersion: pending.generation ?? 1,
         }, newV2ReplayTracker());
         const request = JSON.parse(plaintext);
         if (request.devicePublicKey !== devicePublicKey || request.machineSigningPublicKey !== state.machine.crypto.signingPublicKey) {

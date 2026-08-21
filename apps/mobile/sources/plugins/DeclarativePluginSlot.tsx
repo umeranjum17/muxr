@@ -18,6 +18,7 @@ import { subscribePluginDataInvalidation } from './pluginDataInvalidation';
 import { resolvePluginText } from './pluginText';
 import { t } from '@/text';
 import { ItemList } from './primitives/ItemList';
+import { CapabilityButton } from './primitives/CapabilityButton';
 
 function KeyRow({ contribution, channel }: { contribution: PluginTerminalKeyRow; channel?: TerminalChannel }) {
     const { theme } = useUnistyles();
@@ -173,6 +174,7 @@ function DataActionRow({ contribution, pluginId, manifestHash }: { contribution:
 type DeclarativeSessionAction =
     | { kind: 'screen'; key: string; label: string; icon: string; pluginId: string; contentId: string }
     | { kind: 'list'; key: string; label: string; pluginId: string; manifestHash: string; contribution: PluginNativeContribution }
+    | { kind: 'capability'; key: string; label: string; pluginId: string; manifestHash: string; contribution: PluginNativeContribution }
     | { kind: 'data'; key: string; label: string; pluginId: string; manifestHash: string; contribution: PluginDataCard };
 
 /** Labeled session tools, as rows for the terminal's Actions menu. */
@@ -188,6 +190,10 @@ export function DeclarativeSessionActions({ cwd, sessionId, onNavigate }: { cwd?
         if ('type' in contribution && contribution.type === 'native' && contribution.primitive === 'item-list'
             && (contribution.slot === 'session.header.trailing' || contribution.slot === 'session.pills')) {
             return [{ kind: 'list', key: `${summary.pluginId}:${contribution.id}`, label: contribution.title === undefined ? summary.name : resolvePluginText(contribution.title), pluginId: summary.pluginId, manifestHash: summary.manifestHash, contribution }];
+        }
+        if ('type' in contribution && contribution.type === 'native' && contribution.primitive === 'icon-button'
+            && contribution.slot === 'session.header.trailing') {
+            return [{ kind: 'capability', key: `${summary.pluginId}:${contribution.id}`, label: resolvePluginText(contribution.accessibilityLabel!), pluginId: summary.pluginId, manifestHash: summary.manifestHash, contribution }];
         }
         if ('type' in contribution && contribution.type === 'data-card'
             && (contribution.slot === 'session.header.trailing' || contribution.slot === 'session.pills')) {
@@ -206,6 +212,10 @@ export function DeclarativeSessionActions({ cwd, sessionId, onNavigate }: { cwd?
             <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
         </Pressable>;
         if (action.kind === 'list') return <ItemList key={action.key} context={{ sessionId }} pluginId={action.pluginId} manifestHash={action.manifestHash} contribution={action.contribution} presentation="action-row" />;
+        if (action.kind === 'capability') return <View key={action.key} style={{ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: theme.colors.surfaceHigh }}>
+            <CapabilityButton context={{ sessionId }} pluginId={action.pluginId} manifestHash={action.manifestHash} contribution={action.contribution} onNavigate={onNavigate} />
+            <Text numberOfLines={1} style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>{action.label}</Text>
+        </View>;
         return <DataActionRow key={action.key} contribution={action.contribution} pluginId={action.pluginId} manifestHash={action.manifestHash} />;
     })}</>;
 }
