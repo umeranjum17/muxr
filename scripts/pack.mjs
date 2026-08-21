@@ -158,6 +158,7 @@ if (statSync(join(webDist, 'index.html')).mtimeMs < sourceMtime) {
     throw new Error('web export is stale; run `yarn web:export` before `node scripts/pack.mjs`');
 }
 cpSync(webDist, join(out, 'web'), { recursive: true });
+copyFileSync(join(root, 'install.sh'), join(out, 'web', 'install.sh'));
 const packagedControlUrl = process.env.MUXR_PACKAGE_CONTROL_URL?.trim()
     || process.env.MUXR_PUBLIC_BASE_URL?.trim();
 if (!packagedControlUrl) {

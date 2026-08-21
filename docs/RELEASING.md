@@ -44,9 +44,15 @@ Verify anonymously:
 
 ```bash
 npm view @trymuxr/cli@X.Y.Z version dist.integrity repository.url
-npm install -g @trymuxr/cli@X.Y.Z
+npm install -g --ignore-scripts @trymuxr/cli@X.Y.Z
 muxr version
 muxr setup --help
+
+tmp=$(mktemp)
+curl -fsSL https://raw.githubusercontent.com/umeranjum17/muxr/main/install.sh -o "$tmp"
+sh -n "$tmp"
+cmp install.sh "$tmp"
+rm -f "$tmp"
 ```
 
 The `npm` environment must keep its required reviewer and branch policy. All third-party GitHub Actions remain pinned to commit SHAs.

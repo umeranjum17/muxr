@@ -11,7 +11,7 @@ export const lightTheme = {
         text: '#000000',
         textDestructive: Platform.select({ ios: '#FF3B30', default: '#F44336' }),
         textSecondary: Platform.select({ ios: '#8E8E93', default: '#49454F' }),
-        textLink: '#2BACCC',
+        textLink: '#007AFF',
         accent: '#17171a',
         accentSubtle: 'rgba(23, 23, 26, 0.10)',
         accentFaint: 'rgba(23, 23, 26, 0.04)',
@@ -190,12 +190,6 @@ export const lightTheme = {
             inlineRemovedText: '#5A0A05',
         },
 
-        // Message View colors
-        userMessageBackground: '#f0eee6',
-        userMessageText: '#000000',
-        agentMessageText: '#000000',
-        agentEventText: '#666666',
-
         // Code/Syntax colors
         syntaxKeyword: '#1d4ed8',
         syntaxString: '#059669',
@@ -237,26 +231,26 @@ export const darkTheme = {
         // Main colors
         //
 
-        text: '#eae8ee',
+        text: '#ececec',
         textDestructive: Platform.select({ ios: '#FF453A', default: '#F48FB1' }),
-        textSecondary: '#9399b2',
-        textLink: '#cba6f7',
-        accent: '#eae8ee',
-        accentSubtle: 'rgba(234, 232, 238, 0.12)',
-        accentFaint: 'rgba(234, 232, 238, 0.05)',
+        textSecondary: '#9a9a9f',
+        textLink: '#0A84FF',
+        accent: '#ececec',
+        accentSubtle: 'rgba(236, 236, 236, 0.12)',
+        accentFaint: 'rgba(236, 236, 236, 0.05)',
         deleteAction: '#FF6B6B', // Delete/remove button color (same in both themes)
         warningCritical: '#f38ba8',
-        warning: '#6c7086',
+        warning: '#77777d',
         success: '#94e2d5',
         // herdr ink palette: terminal darkest, app chrome one step up.
-        surface: Platform.select({ web: '#1a1d22', default: '#1a1d22' }),
+        surface: Platform.select({ web: '#1a1a1a', default: '#1a1a1a' }),
         surfaceRipple: Platform.select({ web: 'rgba(255, 255, 255, 0.08)', default: 'rgba(255, 255, 255, 0.07)' }),
-        surfacePressed: '#262b33',
-        surfaceSelected: '#262b33',
-        surfacePressedOverlay: Platform.select({ web: 'transparent', default: '#262b33' }),
-        surfaceHigh: '#20242c',
-        surfaceHighest: '#262b33',
-        divider: '#2b3038',
+        surfacePressed: '#2a2a2a',
+        surfaceSelected: '#2a2a2a',
+        surfacePressedOverlay: Platform.select({ web: 'transparent', default: '#2a2a2a' }),
+        surfaceHigh: '#212121',
+        surfaceHighest: '#2a2a2a',
+        divider: '#2e2e2e',
         scrim: 'rgba(0, 0, 0, 0.67)',
         shadow: {
             color: Platform.select({ default: '#000000', web: 'rgba(0, 0, 0, 0.1)' }),
@@ -319,9 +313,9 @@ export const darkTheme = {
                 // Monochrome chrome: green/amber/cyan/purple all carry meaning in
                 // terminal output, status dots and agent avatars, so the primary
                 // action is plain light-on-dark and lets that colour lead.
-                background: '#eae8ee',
+                background: '#ececec',
                 tint: '#17171a',
-                disabled: '#6c7086',
+                disabled: '#77777d',
             },
             secondary: {
                 tint: '#8E8E93',
@@ -422,12 +416,6 @@ export const darkTheme = {
             inlineRemovedBg: '#5A2A2A',
             inlineRemovedText: '#FF7A7A',
         },
-
-        // Message View colors
-        userMessageBackground: '#2C2C2E',
-        userMessageText: '#FFFFFF',
-        agentMessageText: '#FFFFFF',
-        agentEventText: '#8E8E93',
 
         // Code/Syntax colors (brighter for dark mode)
         syntaxKeyword: '#569CD6',

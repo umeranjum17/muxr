@@ -1,5 +1,8 @@
 import { createRequire } from 'node:module';
 import { spawnSync } from 'node:child_process';
+import { existsSync, realpathSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { daemonIsRunning, daemonMode, restartSelfhostRelayIfRunning, runBootstrap, runDaemon, stopSelfhostRelayIfRunning } from './local-setup.mjs';
 import { select } from './setup-ui.mjs';
 
@@ -16,6 +19,22 @@ function npm(args, stdio = 'pipe') {
         encoding: stdio === 'pipe' ? 'utf8' : undefined,
         stdio,
     });
+}
+
+function activePackageUsesCurrentNpmPrefix() {
+    const packageRoot = dirname(fileURLToPath(import.meta.url));
+    // Source checkouts are not global npm installations.
+    if (!existsSync(join(packageRoot, 'package.json'))) return true;
+    const root = npm(['root', '--global']);
+    if (root.status !== 0) {
+        process.stderr.write(`Could not read npm's global root: ${(root.stderr || root.stdout || 'npm failed').trim()}\n`);
+        return false;
+    }
+    try {
+        if (realpathSync(packageRoot) === realpathSync(join(root.stdout.trim(), '@trymuxr', 'cli'))) return true;
+    } catch { /* mismatch or missing path: report below */ }
+    process.stderr.write('The active muxr belongs to a different npm prefix. Re-enter the Node environment that installed it, then rerun `muxr update`.\n');
+    return false;
 }
 
 export function compareVersions(left, right) {
@@ -100,9 +119,10 @@ export async function runUpdate(args = []) {
         return 0;
     }
 
+    if (!activePackageUsesCurrentNpmPrefix()) return 1;
     const restart = daemonIsRunning();
     const restartMode = installedMode;
-    const install = npm(['install', '-g', `${PACKAGE}@${latest}`], 'inherit');
+    const install = npm(['install', '--global', '--ignore-scripts', `${PACKAGE}@${latest}`], 'inherit');
     if (install.status !== 0) return install.status ?? 1;
 
     if (restartMode !== 'relay' && (await runBootstrap(['--no-install-herdr'])) !== 0) {

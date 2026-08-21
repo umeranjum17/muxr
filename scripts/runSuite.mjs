@@ -41,6 +41,7 @@ const checks = [
     ['e2e: browser preview tunnel', 'node', ['scripts/checkPreviewTunnel.mjs']],
     ['e2e: herdr backend loop (live server)', 'node', ['scripts/checkHerdrE2E.mjs'], 'herdr', 180000],
     ['e2e: worktree session (live stack)', 'node', ['scripts/checkWorktreeE2E.mjs'], 'herdr'],
+    ['package: curl installer wrapper', 'node', ['scripts/checkInstallScript.mjs']],
     ['package: host-only install/setup smoke', 'node', ['scripts/checkPackageSmoke.mjs'], undefined, 300000],
     ['package: full lifecycle smoke', 'node', ['scripts/packageLifecycleSmoke.mjs'], undefined, 300000],
     ['policy: core purity (no cloud refs in OSS)', 'node', ['scripts/checkCorePurity.mjs']],

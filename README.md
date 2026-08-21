@@ -47,10 +47,21 @@
 
 You need [Node.js 22 or newer](https://nodejs.org/) and [Herdr](https://herdr.dev) on Linux, macOS, or WSL. If Herdr is missing, setup offers to install it from herdr.dev — nothing is installed or changed until you approve the plan.
 
+Canonical install (muxr is a Node application, so npm remains the versioned distribution):
+
 ```bash
-npm install -g @trymuxr/cli
+npm install -g --ignore-scripts @trymuxr/cli
 muxr
 ```
+
+Convenience one-liner, backed by that same npm package:
+
+```bash
+( tmp=$(mktemp) && trap 'rm -f "$tmp"' 0 && curl -fsSL https://raw.githubusercontent.com/umeranjum17/muxr/main/install.sh -o "$tmp" && sh "$tmp" )
+muxr
+```
+
+Downloading completely before execution prevents a truncated response from running. The installer never uses `sudo`, never installs Node, and disables npm lifecycle scripts. It exits with a clear message unless Node 22+ and npm are already available.
 
 The setup wizard inspects first and changes nothing until you review the plan and choose **Apply setup**. Pick local network, Tailscale, Cloudflare, your own WSS endpoint, or a shared self-hosted relay. Then scan the one-use QR with the app.
 

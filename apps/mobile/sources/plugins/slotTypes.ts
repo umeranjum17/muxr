@@ -6,6 +6,8 @@ export interface SessionMenuItem {
     label: string;
     /** One line saying what it actually does. Phones have no hover tooltip. */
     hint?: string;
+    /** Reads in the destructive tone, the way an action sheet marks the one that ends something. */
+    destructive?: boolean;
     onPress: () => void;
 }
 

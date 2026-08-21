@@ -11,6 +11,7 @@ env -u EXPO_PUBLIC_MUXR_TOKEN \
     -u EXPO_PUBLIC_MUXR_MACHINE_ID \
     -u EXPO_PUBLIC_MUXR_MODE \
     npm run web:export
+cp "$ROOT/install.sh" apps/mobile/dist/install.sh
 
 mkdir -p "$DOC_ROOT"
 rm -rf "$DOC_ROOT.new"

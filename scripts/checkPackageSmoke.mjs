@@ -235,6 +235,7 @@ try {
     assert.ok(listing.includes('package/plugins/voice-gemini/rpc.mjs') && listing.includes('package/plugins/voice-gemini/stream.mjs'), 'Gemini Live plugin missing from npm artifact');
     assert.ok(listing.includes('package/plugins/voice-openai/rpc.mjs') && listing.includes('package/plugins/voice-openai/stream.mjs'), 'OpenAI Realtime plugin missing from npm artifact');
     assert.ok(listing.includes('package/web/index.html'), 'secure browser client missing from npm artifact');
+    assert.ok(listing.includes('package/web/install.sh'), 'hosted npm installer wrapper missing from web artifact');
     assert.ok(!listing.some((file) => /apps\/relay|commerce|stripe|website|betaCodeAdmin|controlPlane|controlRepository/i.test(file)), 'private control-plane source shipped in npm artifact');
     run(process.execPath, ['scripts/checkNoSecrets.mjs']);
     const hostBundle = run('tar', ['-xOf', tarball, 'package/host.js']).stdout;
@@ -456,16 +457,22 @@ try {
     run(cli, ['daemon', 'restart'], { cwd: installDir, env });
     const updateNpm = join(scratch, 'update-npm');
     const updateLog = join(scratch, 'update.log');
-    writeFileSync(updateNpm, '#!/bin/sh\nif [ "$1" = view ]; then printf \'"%s"\\n\' "${MUXR_UPDATE_LATEST:-9.9.9}"; exit 0; fi\nif [ "$1" = install ]; then printf "%s\\n" "$*" >> "$MUXR_UPDATE_LOG"; exit 0; fi\nexit 1\n', { mode: 0o755 });
-    const updateEnv = { ...env, MUXR_NPM_BIN: updateNpm, MUXR_UPDATE_LOG: updateLog };
+    writeFileSync(updateNpm, '#!/bin/sh\nif [ "$1" = view ]; then printf \'"%s"\\n\' "${MUXR_UPDATE_LATEST:-9.9.9}"; exit 0; fi\nif [ "$1 $2" = "root --global" ]; then printf "%s\\n" "$MUXR_UPDATE_NPM_ROOT"; exit 0; fi\nif [ "$1" = install ]; then printf "%s\\n" "$*" >> "$MUXR_UPDATE_LOG"; exit 0; fi\nexit 1\n', { mode: 0o755 });
+    const updateEnv = { ...env, MUXR_NPM_BIN: updateNpm, MUXR_UPDATE_LOG: updateLog, MUXR_UPDATE_NPM_ROOT: join(installDir, 'node_modules') };
     const cancelledUpdate = await runTty(`${cli} update`, updateEnv, '\r', 20_000, undefined, 'never', 'Apply this update?');
     assert.equal(cancelledUpdate.code, 0, cancelledUpdate.output);
     assert.ok(!existsSync(updateLog), 'pressing Enter applied the update');
     assert.match(run(cli, ['update', '--yes'], { cwd: installDir, env: { ...updateEnv, MUXR_UPDATE_LATEST: '0.0.1' } }).stdout, /newer than npm latest/);
     assert.ok(!existsSync(updateLog), 'updater installed a registry downgrade');
     assert.match(run(cli, ['update', '--check'], { cwd: installDir, env: updateEnv }).stdout, /9\.9\.9 is available/);
+    const prefixMismatch = run(cli, ['update', '--yes'], {
+        cwd: installDir, env: { ...updateEnv, MUXR_UPDATE_NPM_ROOT: join(scratch, 'different-node', 'node_modules') }, allowFailure: true,
+    });
+    assert.notEqual(prefixMismatch.status, 0, 'updater accepted npm from a different global prefix');
+    assert.match(`${prefixMismatch.stdout}${prefixMismatch.stderr}`, /different npm prefix/);
+    assert.ok(!existsSync(updateLog), 'prefix mismatch reached npm install');
     run(cli, ['update', '--yes'], { cwd: installDir, env: updateEnv });
-    assert.match(readFileSync(updateLog, 'utf8'), /install -g @trymuxr\/cli@9\.9\.9/);
+    assert.match(readFileSync(updateLog, 'utf8'), /install --global --ignore-scripts @trymuxr\/cli@9\.9\.9/);
     assert.match(readFileSync(join(home, '.config', 'systemd', 'user', 'muxr.service'), 'utf8'), /MUXR_MODE=.*selfhost/, 'update removed the daemon mode');
     assert.equal(readFileSync(join(home, '.config', 'herdr', 'config.toml'), 'utf8'), configBefore);
     const instructions = readFileSync(instructionPath, 'utf8');
@@ -569,8 +576,8 @@ try {
     if (await fetch(`http://127.0.0.1:${relayServicePort}/health`).then((response) => response.ok).catch(() => false)) throw new Error('relay-only service left its relay child running');
     const relayUpdateLog = join(scratch, 'relay-update.log');
     const herdrBeforeRelayUpdate = existsSync(fakeLog) ? readFileSync(fakeLog, 'utf8') : '';
-    run(cli, ['update', '--yes'], { cwd: installDir, env: { ...relayEnv, MUXR_NPM_BIN: updateNpm, MUXR_UPDATE_LOG: relayUpdateLog } });
-    assert.match(readFileSync(relayUpdateLog, 'utf8'), /install -g @trymuxr\/cli@9\.9\.9/);
+    run(cli, ['update', '--yes'], { cwd: installDir, env: { ...relayEnv, MUXR_NPM_BIN: updateNpm, MUXR_UPDATE_LOG: relayUpdateLog, MUXR_UPDATE_NPM_ROOT: join(installDir, 'node_modules') } });
+    assert.match(readFileSync(relayUpdateLog, 'utf8'), /install --global --ignore-scripts @trymuxr\/cli@9\.9\.9/);
     assert.equal(existsSync(fakeLog) ? readFileSync(fakeLog, 'utf8') : '', herdrBeforeRelayUpdate, 'relay-only update mutated Herdr');
 
     const macHome = join(scratch, 'mac-home');
