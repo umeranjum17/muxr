@@ -1,0 +1,14 @@
+appId: com.trymuxr.app
+---
+- swipe:
+    start: "85%, 12%"
+    end: "20%, 12%"
+    duration: 700
+- waitForAnimationToEnd:
+    timeout: 3000
+- tapOn: "Inbox"
+- extendedWaitUntil:
+    visible: "Inbox"
+    timeout: 20000
+- waitForAnimationToEnd:
+    timeout: 7000

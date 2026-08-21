@@ -1,0 +1,123 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>muxr store frame</title>
+<style>
+  @font-face { font-family: 'Display'; src: url('__FONT_DISPLAY__') format('truetype'); font-weight: 700; font-display: block; }
+  @font-face { font-family: 'Plex'; src: url('__FONT_SANS__') format('truetype'); font-weight: 400; font-display: block; }
+  @font-face { font-family: 'Plex'; src: url('__FONT_SANS_SEMI__') format('truetype'); font-weight: 600; font-display: block; }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: var(--w); height: var(--h); }
+  body {
+    --w: 1080px; --h: 1920px;
+    --cap-h: 340px;
+    --ar: 1080 / 2400;
+    --ink: #0b0b0d;
+    --text: #f2f2f4;
+    --muted: #9a9a9f;
+    background:
+      radial-gradient(120% 70% at 50% 0%, #17171c 0%, #0b0b0d 62%),
+      var(--ink);
+    overflow: hidden;
+    position: relative;
+    font-family: 'Plex', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Two soft glows lifted from the app's glass tokens, so the marketing art
+     and the product share a light source. */
+  .glow { position: absolute; border-radius: 50%; filter: blur(150px); pointer-events: none; }
+  .glow.a { width: 980px; height: 980px; left: -300px; top: -220px; background: rgba(96, 211, 184, 0.22); }
+  .glow.b { width: 900px; height: 900px; right: -280px; bottom: -180px; background: rgba(118, 139, 255, 0.20); }
+
+  .grain {
+    position: absolute; inset: 0; opacity: 0.45; pointer-events: none;
+    background-image: radial-gradient(rgba(255,255,255,0.04) 1px, transparent 1px);
+    background-size: 4px 4px;
+  }
+
+  .stage { position: relative; height: 100%; display: flex; flex-direction: column; }
+
+  .cap {
+    height: var(--cap-h); flex: none;
+    padding: 0 76px; text-align: center;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 24px;
+  }
+  .cap h1 {
+    font-family: 'Display', system-ui, sans-serif; font-weight: 700; color: var(--text);
+    font-size: 76px; line-height: 1.04; letter-spacing: -0.028em; text-wrap: balance;
+  }
+  .cap p {
+    color: var(--muted); font-size: 32px; line-height: 1.34; font-weight: 400;
+    text-wrap: balance; max-width: 880px;
+  }
+
+  .well { flex: 1; min-height: 0; display: flex; align-items: flex-end; justify-content: center; padding-bottom: 84px; }
+
+  .device {
+    position: relative; height: 100%; aspect-ratio: var(--ar);
+    border-radius: 58px; padding: 11px;
+    background: linear-gradient(160deg, #43434a 0%, #17171a 24%, #101013 76%, #3a3a41 100%);
+    box-shadow:
+      0 60px 130px -34px rgba(0,0,0,0.9),
+      0 0 0 1px rgba(255,255,255,0.07),
+      inset 0 0 0 1px rgba(255,255,255,0.05);
+  }
+  .screen { width: 100%; height: 100%; border-radius: 48px; overflow: hidden; background: #000; position: relative; }
+  .screen img { width: 100%; height: 100%; object-fit: cover; object-position: top center; display: block; }
+  /* A single specular streak keeps the glass from reading as flat paper. */
+  .screen::after {
+    content: ''; position: absolute; inset: 0; border-radius: 48px; pointer-events: none;
+    background: linear-gradient(112deg, rgba(255,255,255,0.09) 0%, rgba(255,255,255,0) 32%);
+  }
+
+  .badge {
+    position: absolute; left: 50%; transform: translateX(-50%); bottom: 30px;
+    display: flex; align-items: center; gap: 14px;
+    padding: 12px 24px; border-radius: 999px;
+    background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.10);
+    color: var(--muted); font-size: 24px; font-weight: 600; letter-spacing: 0.02em;
+  }
+  .badge img { width: 28px; height: 28px; border-radius: 8px; }
+  /* A class selector outranks the UA [hidden] rule, so say it again here. */
+  .badge[hidden] { display: none; }
+</style>
+<body>
+  <div class="glow a"></div>
+  <div class="glow b"></div>
+  <div class="grain"></div>
+  <div class="stage">
+    <div class="cap">
+      <h1 id="cap"></h1>
+      <p id="sub"></p>
+    </div>
+    <div class="well">
+      <div class="device" id="device"><div class="screen"><img id="shot" /></div></div>
+    </div>
+  </div>
+  <div class="badge" id="badge" hidden><img id="glyph" /><span id="badgetext"></span></div>
+<script>
+  const data = __DATA__;
+  const body = document.body;
+  body.style.setProperty('--w', data.width + 'px');
+  body.style.setProperty('--h', data.height + 'px');
+  // Layout is fixed rather than measured: the caption owns a constant band and
+  // the device fills the rest at its own aspect, so a font that resolves late
+  // cannot push the phone off the bottom of the frame.
+  body.style.setProperty('--ar', data.arWidth + ' / ' + data.arHeight);
+  if (data.capHeight) body.style.setProperty('--cap-h', data.capHeight + 'px');
+
+  document.getElementById('cap').textContent = data.caption;
+  const sub = document.getElementById('sub');
+  if (data.sub) sub.textContent = data.sub; else sub.remove();
+  document.getElementById('shot').src = data.shot;
+
+  if (data.badge) {
+    const b = document.getElementById('badge');
+    b.hidden = false;
+    document.getElementById('glyph').src = data.glyph;
+    document.getElementById('badgetext').textContent = data.badge;
+  }
+  document.fonts.ready.then(() => { document.title = 'ready'; });
+</script>
+</body>

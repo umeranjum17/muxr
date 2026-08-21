@@ -1,0 +1,23 @@
+appId: com.trymuxr.app
+---
+- tapOn: "Files"
+- extendedWaitUntil:
+    visible: "pockit"
+    timeout: 20000
+- waitForAnimationToEnd:
+    timeout: 2500
+- tapOn: "pockit"
+- extendedWaitUntil:
+    visible: "apps"
+    timeout: 20000
+- waitForAnimationToEnd:
+    timeout: 2000
+- tapOn: "apps"
+- extendedWaitUntil:
+    visible: "mobile"
+    timeout: 20000
+- waitForAnimationToEnd:
+    timeout: 2000
+- tapOn: "mobile"
+- waitForAnimationToEnd:
+    timeout: 5000

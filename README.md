@@ -24,15 +24,17 @@
   <a href="LICENSE"><img alt="Apache 2.0" src="https://img.shields.io/badge/license-Apache--2.0-666?style=flat-square" /></a>
 </p>
 
-[![muxr — every coding agent, on your phone](docs/screenshots/v015/rpg-herd.png)](https://trymuxr.com/#demo)
+[![muxr — every coding agent, on your phone](docs/demo/muxr-loop.webp)](https://trymuxr.com/#demo)
 
 <p align="center">
-  <img src="docs/screenshots/v015/home.png" height="420" alt="muxr home: the herd with live agent terminals" />
-  <img src="docs/screenshots/v015/claude.png" height="420" alt="Claude Code terminal in muxr" />
-  <img src="docs/screenshots/v015/codex.png" height="420" alt="Codex terminal in muxr" />
-  <img src="docs/screenshots/v015/kimi.png" height="420" alt="Kimi Code terminal in muxr" />
+  <img src="docs/screenshots/v0112/herd.png" height="420" alt="muxr home: the herd, with live agent terminals and every session grouped by repo" />
+  <img src="docs/screenshots/v0112/terminal.png" height="420" alt="A real agent terminal in muxr, with the branch, the plugin pill row, and a composer" />
+  <img src="docs/screenshots/v0112/changes.png" height="420" alt="A commit diff in muxr: per-file tab rail, dual line-number gutter, add and remove tints" />
+  <img src="docs/screenshots/v0112/usage.png" height="420" alt="muxr usage: tokens and spend per model, read from local agent logs" />
 </p>
-<p align="center"><em>Real Herdr panes, real agents — captured from the shipping app.</em></p>
+<p align="center">
+  <em>Real Herdr panes, real agents — captured from the shipping build with <a href="tools/demo">tools/demo</a>.</em>
+</p>
 
 ## What it does
 
@@ -65,7 +67,7 @@ Downloading completely before execution prevents a truncated response from runni
 
 The setup wizard inspects first and changes nothing until you review the plan and choose **Apply setup**. Pick local network, Tailscale, Cloudflare, your own WSS endpoint, or a shared self-hosted relay. Then scan the one-use QR with the app.
 
-- **Android:** [signed APK](https://github.com/umeranjum17/muxr/releases/download/v0.1.7/muxr-0.1.7.apk) · [SHA256SUMS](https://github.com/umeranjum17/muxr/releases/download/v0.1.7/SHA256SUMS) · Google Play coming soon
+- **Android:** [signed APK and SHA256SUMS](https://github.com/umeranjum17/muxr/releases/latest) · Google Play coming soon
 - **Web:** choose the eight-hour read-only browser client during setup
 - **iOS:** in development, not yet available
 

@@ -87,9 +87,29 @@ Prepared assets live in `docs/play/store-assets/`:
 
 - `store-icon.png`: 512×512 RGBA PNG.
 - `feature-graphic.png`: 1024×500 opaque PNG, no device imagery.
-- `01-herd.png` through `08-live-update.png`: opaque sRGB 1080×1920 marketing screenshots showing current product UI, realtime voice, and Android Live Update.
+- `01-herd.png` through `07-inbox.png`: opaque sRGB 1080×1920 marketing screenshots.
 
-Upload all eight in this sequence: Herd, Terminal, Plugins, Files, Changes, Runbook, Voice, Live Update. Google accepts up to eight and requires each dimension to be 320–3840 px with the long side no more than twice the short side: [preview asset requirements](https://support.google.com/googleplay/android-developer/answer/9866151).
+Upload all seven in this sequence: Herd, Terminal, Changes, Files, Usage, Plugins, Inbox. Google accepts up to eight and requires each dimension to be 320–3840 px with the long side no more than twice the short side: [preview asset requirements](https://support.google.com/googleplay/android-developer/answer/9866151).
+
+Every one is a real screen from the shipping build, driven on a device by
+`tools/demo` and laid into the frame by Chromium — regenerate the whole set
+with `cd tools/demo && node build.mjs capture frames`. The app has no
+screenshot or fixture mode, so the device must be paired to a live host with
+real sessions before capturing; see `tools/demo/README.md`.
+
+Two slots are deliberately empty rather than filled with something weaker:
+
+- **Voice.** The realtime overlay blanks the app on 0.1.12 (the view tree
+  empties; only a relaunch recovers it), so there is nothing to photograph.
+  `capture/flows/voice.yaml` is written and correct — flip `store` back to
+  `true` in `tools/demo/lib/scenes.mjs` and rerun once that is fixed.
+- **Live Update.** The lock-screen Live Update needs a host-side status change
+  while the app is backgrounded, which Maestro cannot drive; it wants a small
+  scripted `adb` sequence rather than a flow.
+
+Also still required by §4: the public foreground-service video showing start,
+persistent notification, background operation, and stop. That is a separate
+recording from this set.
 
 ## 7. Track sequence
 

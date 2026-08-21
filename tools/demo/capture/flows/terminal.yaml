@@ -1,0 +1,22 @@
+appId: com.trymuxr.app
+---
+# Search rather than scroll: the herd reorders by activity, so a row's position
+# is never the same twice, but its name is.
+- tapOn: "Search"
+- waitForAnimationToEnd:
+    timeout: 3000
+- inputText: "ui-polish"
+- extendedWaitUntil:
+    visible: "Open ui-polish"
+    timeout: 20000
+- hideKeyboard
+- waitForAnimationToEnd:
+    timeout: 4000
+- tapOn: "Open ui-polish"
+- waitForAnimationToEnd:
+    timeout: 3000
+- extendedWaitUntil:
+    visible: "Type a prompt…"
+    timeout: 25000
+- waitForAnimationToEnd:
+    timeout: 6000

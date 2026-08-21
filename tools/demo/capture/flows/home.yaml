@@ -1,0 +1,37 @@
+# Prelude: every scene starts from a cold, settled Herd so captures are
+# reproducible. Runs before the camera rolls.
+appId: com.trymuxr.app
+---
+- launchApp:
+    appId: com.trymuxr.app
+    stopApp: true
+- extendedWaitUntil:
+    visible: "Herd"
+    timeout: 30000
+- waitForAnimationToEnd:
+    timeout: 8000
+# A cold start can restore the last open session a beat after Home paints, and
+# a freshly paired install raises one-time consent dialogs. Clear both so the
+# scene flow always starts on a bare Herd.
+- repeat:
+    times: 3
+    commands:
+      - runFlow:
+          when:
+            visible: "CANCEL"
+          commands:
+            - tapOn: "CANCEL"
+            - waitForAnimationToEnd:
+                timeout: 3000
+      - runFlow:
+          when:
+            notVisible: "SPACES"
+          commands:
+            - pressKey: Back
+            - waitForAnimationToEnd:
+                timeout: 4000
+- extendedWaitUntil:
+    visible: "SPACES"
+    timeout: 20000
+- waitForAnimationToEnd:
+    timeout: 5000

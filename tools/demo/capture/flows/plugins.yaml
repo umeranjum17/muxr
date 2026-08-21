@@ -1,0 +1,14 @@
+appId: com.trymuxr.app
+---
+- tapOn: "Settings"
+- extendedWaitUntil:
+    visible: "Plugins"
+    timeout: 20000
+- waitForAnimationToEnd:
+    timeout: 2500
+- tapOn: "Plugins"
+- extendedWaitUntil:
+    visible: "INSTALLED"
+    timeout: 20000
+- waitForAnimationToEnd:
+    timeout: 6000

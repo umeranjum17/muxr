@@ -1,0 +1,26 @@
+appId: com.trymuxr.app
+---
+- waitForAnimationToEnd:
+    timeout: 2000
+- swipe:
+    start: "50%, 78%"
+    end: "50%, 34%"
+    duration: 900
+- waitForAnimationToEnd:
+    timeout: 2500
+- swipe:
+    start: "50%, 78%"
+    end: "50%, 40%"
+    duration: 900
+- waitForAnimationToEnd:
+    timeout: 2500
+- swipe:
+    start: "50%, 34%"
+    end: "50%, 82%"
+    duration: 800
+- swipe:
+    start: "50%, 34%"
+    end: "50%, 82%"
+    duration: 800
+- waitForAnimationToEnd:
+    timeout: 4000

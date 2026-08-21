@@ -1,0 +1,14 @@
+appId: com.trymuxr.app
+---
+- tapOn: "Usage"
+- extendedWaitUntil:
+    visible: "Models today"
+    timeout: 25000
+- waitForAnimationToEnd:
+    timeout: 4000
+- swipe:
+    start: "50%, 72%"
+    end: "50%, 50%"
+    duration: 900
+- waitForAnimationToEnd:
+    timeout: 4000

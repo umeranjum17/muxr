@@ -1,0 +1,5 @@
+appId: com.trymuxr.app
+---
+- tapOn: "Start or open realtime conversation"
+- waitForAnimationToEnd:
+    timeout: 12000
