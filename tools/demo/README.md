@@ -13,68 +13,62 @@ paired machine. That is the point: the shots are proof, not mockups.
 cd tools/demo
 npm install              # not part of the yarn workspace — install on demand
 npx playwright install chromium
-node build.mjs           # stage → capture → cut → frames → reel
+node capture/take.mjs    # needs a phone and a live agent — see SPEC.md §3
+node build.mjs           # shots → lockup → assemble → sheet → leakcheck
 ```
 
-Individual steps: `node build.mjs capture`, `… cut`, `… frames`, `… reel`.
+`take` is the shoot: it runs the job once and records the desk and the phone
+together. Everything after it works off `raw/take`, so `build.mjs` is a recut
+and does not need the shoot set up again. That is why `take` is not part of the
+default run.
 
 ## What each step does
 
 | step | tool | output |
 |---|---|---|
-| `stage` | — | copies the app's own fonts and marks into `reel/public` |
-| `desk` | herdr | `lib/desk.json`, one pane's real scrollback for the desk shot |
-| `capture` | Maestro + `adb screenrecord` | `raw/<theme>/<scene>.{mp4,png}`, both themes |
-| `cut` | ffmpeg | `reel/public/shots/<theme>/<scene>.mp4`, one shot slot each |
+| `take` | herdr + `adb screenrecord` | `raw/take/desk.cast`, `raw/take/phone.mp4` — one continuous run of the job |
+| `shots` | ffmpeg | `cut/shots/01…10.mp4`, each exactly the length `lib/film.mjs` declares |
+| `lockup` | Playwright | `cut/shots/11.mp4`, the only authored frame in the film |
+| `assemble` | ffmpeg | `raw/muxr-demo-1080.mp4`, `docs/demo/muxr-demo.mp4` (720p), `docs/demo/muxr-loop.webp` |
+| `sheet` | ffmpeg | `review/sheet.png`, one frame per shot side by side |
+| `leakcheck` | tesseract | reads all 1080 shipped frames and fails on anything private |
 | `frames` | Playwright | `docs/play/store-assets/NN-<scene>.png`, 1080×1920 |
-| `reel` | Remotion + React Three Fiber + drei | `docs/demo/muxr-demo.mp4` (720p), `docs/demo/muxr-loop.webp`, and a 1080p master in `raw/` |
 
-`lib/scenes.mjs` is the single source of truth: what to film, the marketing
-copy for each frame, and which scenes make the store set and the reel.
+`lib/film.mjs` is the only thing that decides timing: it self-validates, and
+`cut/assemble.mjs` refuses to join a shot whose length disagrees with it.
+`lib/scenes.mjs` plays the same role for the store screenshots.
 
 The 1080p master lands in `raw/muxr-demo-1080.mp4` and is deliberately not
-tracked — forty seconds of fine terminal text encodes to twenty-odd megabytes,
+tracked — thirty-six seconds of fine terminal text encodes to twenty-odd megabytes,
 which does not belong in every clone. Upload that one to the site and the store
 listing; the repo carries the 720p cut and the WebP.
 
 ## The film
 
-There is no device in this film. A reference the owner picked — a launch film
-in Spline's house style — turned out to differ structurally from a product
-shot, not cosmetically:
+36 seconds, one job, start to finish: Claude Code finds a refresh-token race,
+asks to run the tests, nobody is at the desk, the same question appears on a
+phone, someone taps Yes, and both screens move. `SPEC.md` holds the shot table,
+the hard rules and every place the finished film deviates from them.
 
-- no bezel; pieces of the real UI float in the dark at different depths,
-  tilted, with shallow depth of field
-- the product's own pills are the motion vocabulary
-- type is large enough to crop the frame, and a real UI element sometimes sits
-  inline in the sentence
-- colour arrives in bursts, and it comes from the product's own content
+There is no device in this film and no captions. Every frame except the last is
+the product's own output, cut from one take at real speed — no speed-up, no
+recreation, no drawn UI. The one authored frame is the brand close, and it is
+set in the app's own IBM Plex.
 
-muxr already had the vocabulary: nav chips, `ctrl`/`shift`/`esc` terminal keys,
-the composer, session rows with status dots. `capture/fragments.mjs` cuts them
-out of the captures — declared, so a recapture reproduces them rather than
-being re-cropped by hand — and the chip boundaries are *found* by scanning the
-row rather than hard-coded, so a shifted row still works.
+Two decisions carry the rest of it:
 
-`reel/src/motion.ts` holds the one idea the film is built on: **depth is a
-single number**. How blurred a layer is, how far it recedes into the ground,
-and how much of the beat's drift it takes all come off it, so a layer is placed
-by saying how far away it is.
+**One take, two recorders.** The desk and the phone start together and drift by
+a single frame across ten minutes, so a phone timestamp *is* a desk timestamp.
+That is what lets shot 05 put both screens in one frame across the tap and be
+sure the desk really did react when it looks like it did.
 
-`reel/src/Beats.tsx` is one component per beat. `reel/src/Layer.tsx` is the
-floating fragment. `reel/src/Type.tsx` is the headline and the mono line.
-
-Two things carry the mark. The title card assembles the wordmark one cell
-column at a time, because the mark is a display matrix — `scripts/genBrand.sh`
-rasterises it from a pixel font and knocks a gap out of every cell. And every
-kicker carries a status dot in the app's own hues, which is the only colour the
-film adds, at dot size, exactly as `components/ui.tsx` says colour should be
-spent.
-
-Nothing reads the wall clock. Frames render concurrently across browser tabs
-whose clocks start at different instants, so any wall-time animation lands
-somewhere different in every frame and the result vibrates. Every value comes
-from `useCurrentFrame()`.
+**Poll the pane, don't stream it.** `herdr terminal session observe` is what the
+app's live strip uses and it is deliberately frugal — on a hundred-second take
+it sent thirty repaints and never sent the approval prompt at all. Fine for a
+thumbnail, useless for a recording. `capture/deskpoll.mjs` polls
+`herdr agent read` instead, which returns the whole rendered screen for about
+two milliseconds a call, and writes each change as a cast frame. Same pane, same
+output, sampled rather than streamed.
 
 ## Requirements
 
@@ -86,14 +80,33 @@ from `useCurrentFrame()`.
 
 ## Things that will bite you
 
+- **`agg` draws the cast header's row count, not the screen's.** The pane here
+  is forty-eight rows, the header said twenty-three, and the render came out
+  holding the last twenty-three — so the newest output sits at the *top* of the
+  render and the composer trails off underneath. Anchoring the desk crop to the
+  bottom frames the chrome and misses the work.
+- **`-ss` landing exactly on a frame boundary desynchronises a synthetic
+  `color` source**, and the composite comes back as a silent black frame rather
+  than an error. Build the ground by `pad`ding a real layer instead. There is a
+  size floor in `cut/shots.mjs` that stops the render if a frame comes out
+  empty, because this shipped once already.
+- **`uiautomator dump` and `adb screenrecord` fight over the device** and the
+  dump is killed mid-take. Resolve every tap coordinate before the recorder
+  starts — `capture/tap.mjs --print` does exactly that.
+- **The phone's key row scrolls and does not spring back.** A hard-coded
+  coordinate drifts onto a neighbouring key: a tap meant for `Enter` landed on
+  `Up arrow` and walked the agent's answer from Yes to No, three takes running.
+- **`adb screenrecord --time-limit` is a hard stop.** Three minutes is the
+  default ceiling and it will end mid-job without saying so.
+- **Every muxr surface prints the agent's working directory**, so a repo under
+  `$HOME` puts the machine owner's username on the Herd screen, the session
+  header and the agent's own banner. Film from a path that has no name in it.
+
 - **`screenrecord` writes variable frame rate and only emits a frame when the
   screen changes.** A settled UI leaves seconds of timeline with no packets at
   all, so trimming the recording directly returns the single held frame — one
   clip came out 0.03 seconds long. Rebuild a constant frame rate *before*
   cutting the window (`fps=30,trim=…`, in that order), never after.
-- **Cut no longer than the shot plays.** A window longer than `timing.shot`
-  spends the extra at its start, which is the navigation, and the shot never
-  reaches the screen it is about.
 - **Maestro has no sleep.** To hold on a screen, re-assert something on it in a
   `repeat` block: each iteration costs a hierarchy dump, which is the wait, and
   it touches nothing. Do not swipe to pass time — on the Inbox a swipe lands on

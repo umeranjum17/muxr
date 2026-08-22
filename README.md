@@ -27,8 +27,9 @@
 [![muxr — every coding agent, on your phone](docs/demo/muxr-loop.webp)](https://trymuxr.com/#demo)
 
 <p align="center">
-  <em>The opening of the film. The whole forty seconds is
-  <a href="docs/demo/muxr-demo.mp4">docs/demo/muxr-demo.mp4</a>.</em>
+  <em>The first nine seconds. The whole thirty-six is
+  <a href="docs/demo/muxr-demo.mp4">docs/demo/muxr-demo.mp4</a>:
+  one job, start to finish, answered from a phone.</em>
 </p>
 
 <p align="center">
