@@ -28,6 +28,8 @@ let muted = false;
 let turnId = 0;
 let bound: string | null = null;
 let pendingSpeech: string | null = null;
+let sleepAfterSpeech = false;
+let reportSpeechStarted = false;
 let idleTimer: ReturnType<typeof setTimeout> | null = null;
 /** Local completion watch; unlike `session`, this owns no provider connection. */
 let watching = false;
@@ -121,11 +123,13 @@ export function speak(text: string): void {
 }
 
 /**
- * Say this once a session exists. Waking the agent takes a few seconds, so a
- * report that arrives while it is asleep would otherwise be spoken into a
- * session that is not listening yet, and lost.
+ * Say this once a session exists, then disconnect again after its reply so a
+ * completion report cannot leave a paid provider idling. Waking takes a few
+ * seconds, so a report arriving while asleep must also survive until ready.
  */
 export function speakWhenReady(text: string): void {
+    sleepAfterSpeech = true;
+    reportSpeechStarted = false;
     if (session !== null) return session.speak(text);
     pendingSpeech = text;
 }
@@ -161,6 +165,8 @@ function clearLiveState(): void {
     turns = [];
     muted = false;
     pendingSpeech = null;
+    sleepAfterSpeech = false;
+    reportSpeechStarted = false;
 }
 
 function failRealtimeStart(epoch: number, reason: string): void {
@@ -190,6 +196,8 @@ export function startRealtimeSession(sessionId: string): boolean {
     session = null;
     turns = [];
     muted = false;
+    sleepAfterSpeech = false;
+    reportSpeechStarted = false;
     bound = sessionId;
     starting = true;
     state = 'connecting';
@@ -225,6 +233,11 @@ function startRealtimeAfterService(sessionId: string, epoch: number): void {
                     return;
                 }
                 if (next === 'connected' || next === 'thinking' || next === 'speaking') keepAwake(liveEpoch);
+                if (next === 'speaking' && sleepAfterSpeech) reportSpeechStarted = true;
+                if (next === 'connected' && sleepAfterSpeech && reportSpeechStarted) {
+                    sleepRealtimeSession();
+                    return;
+                }
                 if (next === 'connected' && pendingSpeech !== null) {
                     handle.speak(pendingSpeech);
                     pendingSpeech = null;

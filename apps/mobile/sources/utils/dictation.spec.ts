@@ -164,8 +164,17 @@ describe('on-device dictation flow', () => {
         expect(mocks.callPlugin).toHaveBeenCalledWith('voice.report', { status: 'done', pane: 'finished cleanly' });
         expect(woken.speak).toHaveBeenCalledWith('The agent finished.');
 
-        stopRealtimeSession();
+        const reportProvider = mocks.startRealtimeSession.mock.calls[1]![0] as {
+            onStatus: (status: 'connected' | 'speaking') => void;
+        };
+        reportProvider.onStatus('connected');
+        reportProvider.onStatus('speaking');
+        reportProvider.onStatus('connected');
         expect(woken.stop).toHaveBeenCalledOnce();
+        expect(micOwners()).toEqual([]);
+        expect(realtimeWatchTarget()).toBe('session-a');
+
+        stopRealtimeSession();
         expect(realtimeWatchTarget()).toBeNull();
     });
 
