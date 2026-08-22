@@ -4,7 +4,7 @@ import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
 import android.util.Base64
-import java.util.concurrent.ArrayBlockingQueue
+import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
 
@@ -15,8 +15,10 @@ internal class RealtimePcmPlayer {
     1,
     0L,
     TimeUnit.MILLISECONDS,
-    ArrayBlockingQueue(8),
-    ThreadPoolExecutor.DiscardOldestPolicy(),
+    // Provider audio arrives in bursts. Dropping the oldest queued delta skips
+    // straight into later speech, which sounds like words overlap and get cut.
+    // ponytail: cap by buffered PCM duration only if a provider can outrun playback.
+    LinkedBlockingQueue(),
   )
   @Volatile private var track: AudioTrack? = null
 

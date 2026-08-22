@@ -104,7 +104,7 @@ export const RealtimeConversation = React.memo(function RealtimeConversation({
             </View>
 
             <View style={{ flex: 1, alignItems: 'center', paddingHorizontal: 24, paddingTop: 8, gap: 18 }}>
-                <RealtimeSessionVisual size={200} state={state} muted={muted} />
+                <RealtimeSessionVisual size={240} state={state} muted={muted} />
                 <Text style={{ color: '#f7f8fb', fontSize: 22, lineHeight: 28, textAlign: 'center', ...Typography.default('semiBold') }}>
                     {status}
                 </Text>
