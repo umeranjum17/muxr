@@ -39,3 +39,7 @@ dist-npm/
 # git worktrees for parallel sessions
 .dev/
 .firecrawl/
+
+# demo build artifacts — rendered stills, frames, and footage stay local
+/tools/demo/review/**/*.png
+/tools/demo/raw/
