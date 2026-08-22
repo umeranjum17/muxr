@@ -87,8 +87,9 @@ describe('voice provider selection', () => {
         const providers = () => ['xai', 'gemini', 'openai'].map((id) => ({
             id,
             name: id,
-            available: true,
             selected: id === selected,
+            source: { kind: 'local' as const },
+            hasBackend: true,
         }));
         const source = {
             async voiceProviderList() { return providers(); },
@@ -107,7 +108,7 @@ describe('voice provider selection', () => {
         expect(await dispatch({ type: 'voice.provider.select', requestId: 'select', params: { providerId: 'gemini' } } as never, 'browser-1'))
             .toMatchObject({ ok: false, error: expect.stringContaining('read-only') });
         expect(await dispatch({ type: 'voice.provider.select', requestId: 'select', params: { providerId: 'gemini' } } as never, 'native-1'))
-            .toMatchObject({ ok: true, data: expect.arrayContaining([{ id: 'gemini', selected: true, available: true, name: 'gemini' }]) });
+            .toMatchObject({ ok: true, data: expect.arrayContaining([expect.objectContaining({ id: 'gemini', selected: true, name: 'gemini' })]) });
     });
 });
 

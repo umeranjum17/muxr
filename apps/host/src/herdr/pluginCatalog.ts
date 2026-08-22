@@ -151,11 +151,17 @@ export class PluginCatalog {
         return digests;
     }
 
-    capabilityPlugins(capability: string): Array<{ pluginId: string; name: string; enabled: boolean }> {
+    capabilityPlugins(capability: string): Array<{ pluginId: string; name: string; enabled: boolean; source: PluginSource; hasBackend: boolean }> {
         return [...this.installed].flatMap(([pluginId, { snapshot, enabled }]) =>
             snapshot.manifest.capabilities?.[capability] === undefined
                 ? []
-                : [{ pluginId, name: snapshot.summary.name, enabled }],
+                : [{
+                    pluginId,
+                    name: snapshot.summary.name,
+                    enabled,
+                    source: snapshot.summary.source,
+                    hasBackend: snapshot.summary.hasBackend || snapshot.manifest.contributions.some((item) => item.slot === 'host.rpc' || item.slot === 'host.stream'),
+                }],
         ).sort((left, right) => left.name.localeCompare(right.name));
     }
 

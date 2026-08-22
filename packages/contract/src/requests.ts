@@ -29,7 +29,7 @@ import type {
     SessionSnapshot,
     UnreadCatalog,
 } from './sessionDomain.js';
-import type { PluginManifestV1, PluginSummary } from './plugins.js';
+import type { PluginManifestV1, PluginSource, PluginSummary } from './plugins.js';
 import type { LandWorktreeResult } from './worktree.js';
 import type { AttentionCatalog, HerdrTreeWorkspace, SessionInfo, SessionShellOutcome, SessionStatus } from './sessionState.js';
 
@@ -41,7 +41,7 @@ export interface PromptAttachment {
 }
 
 export type StreamingBehavior = 'steer' | 'followUp';
-export type VoiceProviderOption = { id: string; name: string; available: boolean; selected: boolean };
+export type VoiceProviderOption = { id: string; name: string; selected: boolean; source: PluginSource; hasBackend: boolean };
 
 export interface RequestMap {
     // --- lifecycle ----------------------------------------------------------

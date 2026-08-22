@@ -125,9 +125,9 @@ export function createFakeSessionSource(): SessionSource {
 
         async voiceProviderList() {
             return [
-                { id: 'xai', name: 'Grok', available: true, selected: true },
-                { id: 'gemini', name: 'Gemini Live', available: true, selected: false },
-                { id: 'openai', name: 'OpenAI Realtime', available: true, selected: false },
+                { id: 'xai', name: 'Grok', selected: true, source: { kind: 'local' as const }, hasBackend: true },
+                { id: 'gemini', name: 'Gemini Live', selected: false, source: { kind: 'local' as const }, hasBackend: true },
+                { id: 'openai', name: 'OpenAI Realtime', selected: false, source: { kind: 'local' as const }, hasBackend: true },
             ];
         },
 

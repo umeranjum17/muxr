@@ -358,7 +358,7 @@ export const SettingsView = React.memo(function SettingsView({
                 />
                 <Item
                     title="Realtime voice"
-                    subtitle="Choose Grok, Gemini Live, or OpenAI Realtime"
+                    subtitle="Choose which provider runs on this machine"
                     icon={<Ionicons name="pulse-outline" size={29} color="#34C759" />}
                     onPress={() => router.push('/settings/voice' as any)}
                 />

@@ -968,15 +968,16 @@ export async function createHerdrSessionSource(
     }
 
     function voiceProviderOptions(): VoiceProviderOption[] {
-        return catalog.capabilityPlugins('voice.session').map(({ pluginId, name, enabled }) => ({
+        return catalog.capabilityPlugins('voice.session').map(({ pluginId, name, enabled, source, hasBackend }) => ({
             id: pluginId,
             name,
-            available: true,
             selected: enabled,
+            source,
+            hasBackend,
         }));
     }
 
-    async function selectVoiceProvider(providerId: string): Promise<VoiceProviderOption[]> {
+    async function selectVoiceProviderNow(providerId: string): Promise<VoiceProviderOption[]> {
         await refreshPlugins();
         const providers = catalog.capabilityPlugins('voice.session');
         const target = providers.find((candidate) => candidate.pluginId === providerId);
@@ -1004,6 +1005,13 @@ export async function createHerdrSessionSource(
             await refreshPlugins().catch(() => undefined);
             throw error;
         }
+    }
+
+    let voiceSwitch: Promise<void> = Promise.resolve();
+    function selectVoiceProvider(providerId: string): Promise<VoiceProviderOption[]> {
+        const run = voiceSwitch.then(() => selectVoiceProviderNow(providerId));
+        voiceSwitch = run.then(() => undefined, () => undefined);
+        return run;
     }
 
     void reconcilePlugins().catch(() => undefined);

@@ -64,7 +64,9 @@ describe('plugin catalog flow', () => {
         const catalog = new PluginCatalog();
         await catalog.refresh([{ ...plugin(root), enabled: false }]);
         expect(catalog.list(() => true)).toEqual([]);
-        expect(catalog.capabilityPlugins('voice.session')).toEqual([{ pluginId: 'example.muxr-ui', name: 'Example muxr UI', enabled: false }]);
+        expect(catalog.capabilityPlugins('voice.session')).toEqual([{
+            pluginId: 'example.muxr-ui', name: 'Example muxr UI', enabled: false, source: { kind: 'local' }, hasBackend: true,
+        }]);
 
         await catalog.refresh([plugin(root)]);
         expect(catalog.capabilityPlugins('voice.session')[0]).toMatchObject({ enabled: true });

@@ -7,6 +7,6 @@ platforms = ["linux", "macos"]
 
 [[panes]]
 id = "setup"
-title = "muxr Voice setup"
+title = "Grok setup"
 placement = "overlay"
 command = ["node", "./setup.mjs"]
