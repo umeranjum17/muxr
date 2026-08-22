@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Dimensions, Platform, View } from 'react-native';
+import { Platform, useWindowDimensions, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Text } from '@/components/StyledText';
@@ -23,6 +23,7 @@ import {
     useRealtimeConversationVisible,
     useRealtimeMuted,
     useRealtimeSessionState,
+    useRealtimeWatching,
     stopRealtimeSession,
 } from '@/realtime/realtimeSessionState';
 
@@ -39,8 +40,10 @@ export const RealtimeSessionOverlay = React.memo(function RealtimeSessionOverlay
     React.useEffect(() => mountPrimitive('realtime-session-overlay'), []);
     React.useEffect(() => () => stopRealtimeSession(), []);
     const muted = useRealtimeMuted();
+    const watching = useRealtimeWatching();
     const open = state !== 'disconnected';
     const failed = !open && detail !== undefined;
+    const sleeping = watching && !open && !failed;
     const sessionLabel = state === 'connecting'
         ? t('plugins.realtimeConnecting')
         : state === 'connected'
@@ -49,28 +52,25 @@ export const RealtimeSessionOverlay = React.memo(function RealtimeSessionOverlay
             ? t('plugins.realtimeThinking')
             : state === 'speaking'
               ? t('plugins.realtimeSpeaking')
-            : failed
-              ? t('plugins.realtimeError')
-              : t('plugins.realtimeOff');
+            : sleeping
+              ? 'Watching'
+              : failed
+                ? t('plugins.realtimeError')
+                : t('plugins.realtimeOff');
     const conversationVisible = useRealtimeConversationVisible();
 
-    const window = Dimensions.get('window');
-    const x = useSharedValue(window.width - WIDTH - MARGIN);
-    const y = useSharedValue(window.height * 0.62);
+    const { width, height } = useWindowDimensions();
+    const x = useSharedValue(width - WIDTH - MARGIN);
+    const y = useSharedValue(height * 0.62);
     const startX = useSharedValue(0);
     const startY = useSharedValue(0);
 
     React.useEffect(() => {
-        const clamp = ({ width, height }: { width: number; height: number }) => {
-            const maxX = Math.max(MARGIN, width - WIDTH - MARGIN);
-            const maxY = Math.max(safeArea.top + MARGIN, height - HEIGHT - safeArea.bottom - MARGIN);
-            x.value = withSpring(Math.min(Math.max(x.value, MARGIN), maxX), { damping: 18 });
-            y.value = withSpring(Math.min(Math.max(y.value, safeArea.top + MARGIN), maxY), { damping: 18 });
-        };
-        clamp(Dimensions.get('window'));
-        const subscription = Dimensions.addEventListener('change', ({ window: nextWindow }) => clamp(nextWindow));
-        return () => subscription.remove();
-    }, [safeArea.bottom, safeArea.top, x, y]);
+        const maxX = Math.max(MARGIN, width - WIDTH - MARGIN);
+        const maxY = Math.max(safeArea.top + MARGIN, height - HEIGHT - safeArea.bottom - MARGIN);
+        x.value = withSpring(Math.min(Math.max(x.value, MARGIN), maxX), { damping: 18 });
+        y.value = withSpring(Math.min(Math.max(y.value, safeArea.top + MARGIN), maxY), { damping: 18 });
+    }, [height, safeArea.bottom, safeArea.top, width, x, y]);
 
     const drag = React.useMemo(
         () =>
@@ -84,13 +84,12 @@ export const RealtimeSessionOverlay = React.memo(function RealtimeSessionOverlay
                     y.value = startY.value + event.translationY;
                 })
                 .onEnd(() => {
-                    const { width, height } = Dimensions.get('window');
                     const toLeft = x.value + WIDTH / 2 < width / 2;
                     x.value = withSpring(toLeft ? MARGIN : Math.max(MARGIN, width - WIDTH - MARGIN), { damping: 18 });
                     const maxY = Math.max(safeArea.top + MARGIN, height - HEIGHT - safeArea.bottom - MARGIN);
                     y.value = withSpring(Math.min(Math.max(y.value, safeArea.top + MARGIN), maxY), { damping: 18 });
                 }),
-        [safeArea.bottom, safeArea.top, startX, startY, x, y],
+        [height, safeArea.bottom, safeArea.top, startX, startY, width, x, y],
     );
 
     const press = useSharedValue(1);
@@ -104,11 +103,11 @@ export const RealtimeSessionOverlay = React.memo(function RealtimeSessionOverlay
         transform: [{ translateX: x.value }, { translateY: y.value }, { scale: press.value }],
     }));
 
-    if (!open && !conversationVisible && !failed) return null;
+    if (!open && !conversationVisible && !failed && !watching) return null;
 
     return (
         <>
-            {(open || failed) && (
+            {(open || failed || watching) && (
                 <View pointerEvents="box-none" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}>
                     <GestureDetector gesture={Gesture.Race(drag, tap)}>
                         <Animated.View

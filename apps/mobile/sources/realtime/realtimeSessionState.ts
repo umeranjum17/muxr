@@ -28,7 +28,11 @@ let muted = false;
 let turnId = 0;
 let bound: string | null = null;
 let pendingSpeech: string | null = null;
+let sleepAfterSpeech = false;
+let reportSpeechStarted = false;
 let idleTimer: ReturnType<typeof setTimeout> | null = null;
+/** Local completion watch; unlike `session`, this owns no provider connection. */
+let watching = false;
 /** Last used pane for a notification Talk action. */
 let realtimeTarget: string | null = null;
 /** The one root-owned conversation sheet, shared by Terminal and Home. */
@@ -104,6 +108,10 @@ export function rememberedRealtimeSession(): string | null {
     return realtimeTarget;
 }
 
+export function realtimeWatchTarget(): string | null {
+    return watching ? realtimeTarget : null;
+}
+
 export function acknowledgeRealtimeError(): void {
     detail = undefined;
     notify();
@@ -115,11 +123,13 @@ export function speak(text: string): void {
 }
 
 /**
- * Say this once a session exists. Waking the agent takes a few seconds, so a
- * report that arrives while it is asleep would otherwise be spoken into a
- * session that is not listening yet, and lost.
+ * Say this once a session exists, then disconnect again after its reply so a
+ * completion report cannot leave a paid provider idling. Waking takes a few
+ * seconds, so a report arriving while asleep must also survive until ready.
  */
 export function speakWhenReady(text: string): void {
+    sleepAfterSpeech = true;
+    reportSpeechStarted = false;
     if (session !== null) return session.speak(text);
     pendingSpeech = text;
 }
@@ -142,7 +152,7 @@ function clearIdleTimer(): void {
 function keepAwake(epoch: number): void {
     clearIdleTimer();
     idleTimer = setTimeout(() => {
-        if (epoch === realtimeEpoch && session !== null) stopRealtimeSession();
+        if (epoch === realtimeEpoch && session !== null) sleepRealtimeSession();
     }, IDLE_HANGUP_MS);
 }
 
@@ -155,6 +165,8 @@ function clearLiveState(): void {
     turns = [];
     muted = false;
     pendingSpeech = null;
+    sleepAfterSpeech = false;
+    reportSpeechStarted = false;
 }
 
 function failRealtimeStart(epoch: number, reason: string): void {
@@ -177,12 +189,15 @@ export function startRealtimeSession(sessionId: string): boolean {
     }
     const epoch = ++realtimeEpoch;
     realtimeTarget = sessionId;
+    watching = true;
     clearIdleTimer();
     session?.stop();
     if (session !== null || starting) stopVoiceService();
     session = null;
     turns = [];
     muted = false;
+    sleepAfterSpeech = false;
+    reportSpeechStarted = false;
     bound = sessionId;
     starting = true;
     state = 'connecting';
@@ -213,11 +228,16 @@ function startRealtimeAfterService(sessionId: string, epoch: number): void {
                 if (next === 'disconnected') {
                     clearLiveState();
                     state = 'disconnected';
-                    detail = why;
+                    detail = why === 'ended' ? undefined : why;
                     notify();
                     return;
                 }
                 if (next === 'connected' || next === 'thinking' || next === 'speaking') keepAwake(liveEpoch);
+                if (next === 'speaking' && sleepAfterSpeech) reportSpeechStarted = true;
+                if (next === 'connected' && sleepAfterSpeech && reportSpeechStarted) {
+                    sleepRealtimeSession();
+                    return;
+                }
                 if (next === 'connected' && pendingSpeech !== null) {
                     handle.speak(pendingSpeech);
                     pendingSpeech = null;
@@ -248,7 +268,7 @@ function startRealtimeAfterService(sessionId: string, epoch: number): void {
     starting = false;
 }
 
-export function stopRealtimeSession(): void {
+function sleepRealtimeSession(): void {
     realtimeEpoch++;
     const active = session;
     clearLiveState();
@@ -256,6 +276,11 @@ export function stopRealtimeSession(): void {
     state = 'disconnected';
     detail = undefined;
     notify();
+}
+
+export function stopRealtimeSession(): void {
+    watching = false;
+    sleepRealtimeSession();
 }
 
 export function toggleRealtimeMuted(): void {
@@ -284,6 +309,10 @@ export function useRealtimeTurns(): RealtimeTurn[] {
 
 export function useRealtimeMuted(): boolean {
     return React.useSyncExternalStore(subscribe, () => muted);
+}
+
+export function useRealtimeWatching(): boolean {
+    return React.useSyncExternalStore(subscribe, () => watching);
 }
 
 export function openRealtimeConversation(): void {

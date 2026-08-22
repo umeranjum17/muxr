@@ -17,6 +17,7 @@ import {
     useRealtimeMuted,
     useRealtimeSessionState,
     useRealtimeTurns,
+    useRealtimeWatching,
 } from './realtimeSessionState';
 
 export const RealtimeConversation = React.memo(function RealtimeConversation({
@@ -30,6 +31,7 @@ export const RealtimeConversation = React.memo(function RealtimeConversation({
     const { state, detail } = useRealtimeSessionState();
     const turns = useRealtimeTurns();
     const muted = useRealtimeMuted();
+    const watching = useRealtimeWatching();
     const previousState = React.useRef(state);
     const transcript = React.useRef<ScrollView>(null);
     // The voice is attached to a working session; what that session is doing is
@@ -65,7 +67,7 @@ export const RealtimeConversation = React.memo(function RealtimeConversation({
     // 28pt it wrapped into four lines and took the screen, which is how a
     // hiccup ends up looking like a crash.
     const status = (state === 'disconnected'
-        ? 'Asleep — tap the mic to wake'
+        ? watching ? 'Asleep — watching agent' : 'Asleep — tap the mic to wake'
         : state === 'connecting'
           ? 'Connecting…'
           : state === 'thinking'
@@ -104,7 +106,7 @@ export const RealtimeConversation = React.memo(function RealtimeConversation({
             </View>
 
             <View style={{ flex: 1, alignItems: 'center', paddingHorizontal: 24, paddingTop: 8, gap: 18 }}>
-                <RealtimeSessionVisual size={200} state={state} muted={muted} />
+                <RealtimeSessionVisual size={240} state={state} muted={muted} />
                 <Text style={{ color: '#f7f8fb', fontSize: 22, lineHeight: 28, textAlign: 'center', ...Typography.default('semiBold') }}>
                     {status}
                 </Text>

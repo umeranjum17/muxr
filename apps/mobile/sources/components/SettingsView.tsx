@@ -357,6 +357,12 @@ export const SettingsView = React.memo(function SettingsView({
                     onPress={() => router.push('/settings/connection' as any)}
                 />
                 <Item
+                    title="Realtime voice"
+                    subtitle="Choose which provider runs on this machine"
+                    icon={<Ionicons name="pulse-outline" size={29} color="#34C759" />}
+                    onPress={() => router.push('/settings/voice' as any)}
+                />
+                <Item
                     title="Plugins"
                     subtitle="Native UI and capabilities installed through Herdr"
                     icon={<Ionicons name="extension-puzzle-outline" size={29} color="#5856D6" />}

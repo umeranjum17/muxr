@@ -63,6 +63,8 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         'plugin.invoke': () => { throw new Error('authenticated device context required'); },
         'plugin.call': () => { throw new Error('authenticated device context required'); },
         'plugin.stream': () => { throw new Error('authenticated device context required'); },
+        'voice.provider.list': () => source.voiceProviderList(),
+        'voice.provider.select': (params) => source.voiceProviderSelect(params.providerId),
         'herdr.cli': async (params) => {
             const result = await runHerdrCli(params.args, params.timeoutMs);
             await source.refreshHerdr();
@@ -182,7 +184,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
             const readOnly = options.canMutateDevice?.(deviceId) === false;
             const readOnlyRequests = new Set<RequestType>([
                 'session.list', 'session.open', 'session.status',
-                'herdr.tree', 'herdr.agentKinds', 'herdr.layout', 'pane.read', 'plugin.list', 'plugin.manifest',
+                'herdr.tree', 'herdr.agentKinds', 'herdr.layout', 'pane.read', 'plugin.list', 'plugin.manifest', 'voice.provider.list',
                 'attachment.fetch', 'attachment.read', 'unread.catalog',
                 'attention.catalog', 'machines.list', 'terminal.attach',
             ]);
