@@ -3,7 +3,8 @@ import React from 'react';
 import TestRenderer from 'react-test-renderer';
 import { useDictation } from './dictation';
 import { pcm16ChunksToArrayBuffer } from './transcription';
-import { micOwners, registerRealtimeNotificationStart, releaseDictation, resolveRealtimeTarget, startRealtimeSession, stopRealtimeSession } from '../realtime/realtimeSessionState';
+import { wakeAndReport } from '../voice/wakeAndReport';
+import { micOwners, realtimeWatchTarget, registerRealtimeNotificationStart, releaseDictation, resolveRealtimeTarget, startRealtimeSession, stopRealtimeSession } from '../realtime/realtimeSessionState';
 
 const mocks = vi.hoisted(() => ({
     sessions: {} as Record<string, { id: string; activeAt: number; updatedAt: number }>,
@@ -21,12 +22,14 @@ const mocks = vi.hoisted(() => ({
         return { remove: () => undefined };
     }),
     syncRequest: vi.fn(),
+    callPlugin: vi.fn(),
 }));
 
 vi.mock('react-native', () => ({ Platform: { OS: 'android' } }));
 vi.mock('react-native-live-audio-stream', () => ({ default: mocks.liveAudio }));
 vi.mock('@/utils/localTranscription', () => ({ transcribePcm16: mocks.transcribe }));
 vi.mock('@/sync/sync', () => ({ sync: { request: mocks.syncRequest } }));
+vi.mock('@/plugins/callPlugin', () => ({ callPlugin: mocks.callPlugin }));
 vi.mock('@/modal', () => ({ Modal: { alert: mocks.modalAlert } }));
 vi.mock('@/sync/storage', () => ({ storage: { getState: () => ({ sessions: mocks.sessions }) } }));
 vi.mock('@/utils/microphonePermissions', () => ({
@@ -80,6 +83,7 @@ beforeEach(() => {
         if (target !== null) startRealtimeSession(target);
     });
     mocks.syncRequest.mockResolvedValue({ text: 'unused' });
+    mocks.callPlugin.mockResolvedValue({ say: 'The agent finished.' });
     vi.clearAllMocks();
 });
 
@@ -137,6 +141,32 @@ describe('on-device dictation flow', () => {
 
         mocks.notificationAction?.('mute');
         expect(setMuted).toHaveBeenCalledWith(true);
+    });
+
+    it('disconnects the sleeping provider, keeps watching locally, and wakes once to report completion', async () => {
+        const first = { stop: vi.fn(), setMuted: vi.fn(), speak: vi.fn() };
+        const woken = { stop: vi.fn(), setMuted: vi.fn(), speak: vi.fn() };
+        mocks.startRealtimeSession.mockReturnValueOnce(first).mockReturnValueOnce(woken);
+
+        startRealtimeSession('session-a');
+        expect(realtimeWatchTarget()).toBe('session-a');
+        const provider = mocks.startRealtimeSession.mock.calls[0]![0] as {
+            onStatus: (status: 'disconnected', detail?: string) => void;
+        };
+        provider.onStatus('disconnected', 'ended');
+
+        expect(micOwners()).toEqual([]);
+        expect(mocks.stopVoiceService).toHaveBeenCalledOnce();
+        expect(realtimeWatchTarget()).toBe('session-a');
+
+        await wakeAndReport({ sessionId: 'session-a', status: 'done', pane: 'finished cleanly' });
+        expect(mocks.startRealtimeSession).toHaveBeenCalledTimes(2);
+        expect(mocks.callPlugin).toHaveBeenCalledWith('voice.report', { status: 'done', pane: 'finished cleanly' });
+        expect(woken.speak).toHaveBeenCalledWith('The agent finished.');
+
+        stopRealtimeSession();
+        expect(woken.stop).toHaveBeenCalledOnce();
+        expect(realtimeWatchTarget()).toBeNull();
     });
 
     it('releases ownership when the native recorder cannot start', async () => {

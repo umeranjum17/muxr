@@ -29,6 +29,8 @@ let turnId = 0;
 let bound: string | null = null;
 let pendingSpeech: string | null = null;
 let idleTimer: ReturnType<typeof setTimeout> | null = null;
+/** Local completion watch; unlike `session`, this owns no provider connection. */
+let watching = false;
 /** Last used pane for a notification Talk action. */
 let realtimeTarget: string | null = null;
 /** The one root-owned conversation sheet, shared by Terminal and Home. */
@@ -104,6 +106,10 @@ export function rememberedRealtimeSession(): string | null {
     return realtimeTarget;
 }
 
+export function realtimeWatchTarget(): string | null {
+    return watching ? realtimeTarget : null;
+}
+
 export function acknowledgeRealtimeError(): void {
     detail = undefined;
     notify();
@@ -142,7 +148,7 @@ function clearIdleTimer(): void {
 function keepAwake(epoch: number): void {
     clearIdleTimer();
     idleTimer = setTimeout(() => {
-        if (epoch === realtimeEpoch && session !== null) stopRealtimeSession();
+        if (epoch === realtimeEpoch && session !== null) sleepRealtimeSession();
     }, IDLE_HANGUP_MS);
 }
 
@@ -177,6 +183,7 @@ export function startRealtimeSession(sessionId: string): boolean {
     }
     const epoch = ++realtimeEpoch;
     realtimeTarget = sessionId;
+    watching = true;
     clearIdleTimer();
     session?.stop();
     if (session !== null || starting) stopVoiceService();
@@ -213,7 +220,7 @@ function startRealtimeAfterService(sessionId: string, epoch: number): void {
                 if (next === 'disconnected') {
                     clearLiveState();
                     state = 'disconnected';
-                    detail = why;
+                    detail = why === 'ended' ? undefined : why;
                     notify();
                     return;
                 }
@@ -248,7 +255,7 @@ function startRealtimeAfterService(sessionId: string, epoch: number): void {
     starting = false;
 }
 
-export function stopRealtimeSession(): void {
+function sleepRealtimeSession(): void {
     realtimeEpoch++;
     const active = session;
     clearLiveState();
@@ -256,6 +263,11 @@ export function stopRealtimeSession(): void {
     state = 'disconnected';
     detail = undefined;
     notify();
+}
+
+export function stopRealtimeSession(): void {
+    watching = false;
+    sleepRealtimeSession();
 }
 
 export function toggleRealtimeMuted(): void {
@@ -284,6 +296,10 @@ export function useRealtimeTurns(): RealtimeTurn[] {
 
 export function useRealtimeMuted(): boolean {
     return React.useSyncExternalStore(subscribe, () => muted);
+}
+
+export function useRealtimeWatching(): boolean {
+    return React.useSyncExternalStore(subscribe, () => watching);
 }
 
 export function openRealtimeConversation(): void {
