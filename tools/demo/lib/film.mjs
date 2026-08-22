@@ -35,60 +35,67 @@ export const HERD_HEADER = '4 sessions · 1 machine';
 
 /**
  * @typedef {object} Shot
- * @property {string} id      two-digit, matches the clip and review file names
+ * @property {string} id      matches the clip name in cut/shots/
+ * @property {'card'|'shot'} kind
  * @property {string} name
+ * @property {string} [text]  a card's line — the only authored copy in the film
  * @property {number} start   first frame in the film
- * @property {number} frames  length, always a multiple of 6
- * @property {'desk'|'phone'|'both'|'composite'|'render'} source
- * @property {string} screen  what is on screen
+ * @property {number} frames  length; always a multiple of 6
  */
-
-/** @type {Shot[]} */
-export const SHOTS = [
-    { id: '01', name: 'Full-screen terminal', start: 0, frames: 90, source: 'desk',
-      screen: 'The prompt, the two file reads, the diagnosis, the edit. No chrome.' },
-    { id: '02', name: 'Macro, pending interaction', start: 90, frames: 90, source: 'desk',
-      screen: '`Claude wants to run pnpm test` and its options, scaled ~3x, bleeding off frame.' },
-    { id: '03', name: 'Abandoned', start: 180, frames: 90, source: 'desk',
-      screen: 'Pull back 100% to 20%. Counter reads WAITING FOR INPUT · 00:41.' },
-    { id: '04', name: 'Match cut desktop to phone', start: 270, frames: 120, source: 'phone',
-      screen: 'Same prompt, same size, same position. Phone revealed by status bar, header, key row.' },
-    { id: '05', name: 'HERO', start: 390, frames: 120, source: 'both',
-      screen: 'Both screens edge to edge. Enter on the phone; within 8 frames the desk runs the tests.' },
-    { id: '06', name: 'Desk recedes', start: 510, frames: 72, source: 'composite',
-      screen: 'Desk scales down and blurs, phone rises to centre. Transition only.' },
-    { id: '07', name: 'Work progresses', start: 582, frames: 120, source: 'phone',
-      screen: 'Three states, hard cut, header never moves.' },
-    { id: '08', name: 'Completion', start: 702, frames: 108, source: 'phone',
-      screen: 'Notification, then the finished state large. Hold 1s before the cut.' },
-    { id: '09', name: 'Review the diff', start: 810, frames: 90, source: 'phone',
-      screen: 'muxr Changes, light theme. The one added line in token-store.ts.' },
-    { id: '10', name: 'Herd reveal', start: 900, frames: 90, source: 'phone',
-      screen: 'Four sessions, four agents, three states, all legible.' },
-    { id: '11', name: 'Brand close', start: 990, frames: 90, source: 'render',
-      screen: 'Wordmark, the line typed with a cursor, trymuxr.com.' },
-];
-
-export const TOTAL_FRAMES = SHOTS.reduce((sum, shot) => sum + shot.frames, 0);
-
-/** The README loop is shots 01–03, cut from this same timeline. */
-export const LOOP = { start: 390, frames: 312 };
 
 /**
- * The film's one soft edit: shot 10 dissolves into the end card.
- *
- * Every other cut is hard — that is the film's language, and terminal text
- * wants it. One dissolve, at the close, reads as punctuation instead of a
- * transition style: the film resolves rather than stopping. Shot 10 is cut
- * `frames` longer than the table says and the overlap is consumed by the
- * blend, so the total stays exactly TOTAL_FRAMES.
+ * The film, in order. Caption-led acts: each card states a cause, the footage
+ * after it is the effect. The first cut had no narration and played as random
+ * screens — real footage cannot narrate itself. This structure is the fix,
+ * not a garnish: every screen now arrives as the answer to a sentence the
+ * viewer just read.
  */
-export const DISSOLVE = { from: '10', into: '11', frames: 12 };
+const TABLE = [
+    ['c1', 'card', 'Your agent needs a yes.', 42],
+    ['f1', 'shot', 'Claude Code mid-work', 78],
+    ['f2', 'shot', 'The approval, huge', 60],
+    ['c2', 'card', 'You\u2019re not at your desk.', 42],
+    ['f3', 'shot', 'Abandoned, counter ticking', 90],
+    ['c3', 'card', 'Your phone is.', 36],
+    ['f4', 'shot', 'Same question, on the phone', 90],
+    ['c4', 'card', 'One tap. The desk obeys.', 48],
+    ['f5', 'shot', 'HERO \u2014 the tap, both screens', 120],
+    ['c5', 'card', 'The work finishes without you.', 42],
+    ['f6', 'shot', 'Tests run, 26 passed', 108],
+    ['c6', 'card', 'All your agents. One pocket.', 42],
+    ['f7', 'shot', 'The Herd', 90],
+    ['end', 'shot', 'Brand close', 108],
+];
 
-// A shot table that drifts silently is how a film ends up with a gap in it.
-for (const [index, shot] of SHOTS.entries()) {
-    if (shot.frames % 6 !== 0) throw new Error(`${shot.id}: ${shot.frames} frames is not a multiple of 6`);
-    const expected = index === 0 ? 0 : SHOTS[index - 1].start + SHOTS[index - 1].frames;
-    if (shot.start !== expected) throw new Error(`${shot.id}: starts at ${shot.start}, expected ${expected}`);
+export const SHOTS = [];
+{
+    let at = 0;
+    for (const [id, kind, label, frames] of TABLE) {
+        if (frames % 6 !== 0) throw new Error(`${id}: ${frames} is not a multiple of 6`);
+        SHOTS.push(kind === 'card'
+            ? { id, kind, name: label, text: label, start: at, frames }
+            : { id, kind, name: label, start: at, frames });
+        at += frames;
+    }
 }
-if (TOTAL_FRAMES !== 1080) throw new Error(`film is ${TOTAL_FRAMES} frames, expected 1080`);
+
+export const CARDS = SHOTS.filter((s) => s.kind === 'card');
+export const TOTAL_FRAMES = SHOTS.reduce((sum, s) => sum + s.frames, 0);
+if (TOTAL_FRAMES !== 996) throw new Error(`film is ${TOTAL_FRAMES} frames, expected 996`);
+
+/**
+ * The README loop: "Your phone is." through the hero — context card, phone
+ * reveal, priming card, the tap. The one sequence that is the whole product,
+ * and it carries its own captions so it makes sense with nothing around it.
+ */
+export const LOOP = { start: 312, frames: 294 };
+
+/**
+ * The film's one soft edit: the Herd dissolves into the end card.
+ *
+ * Every other cut is hard — that is the film's language. One dissolve, at the
+ * close, reads as punctuation instead of a transition style. The shot feeding
+ * it is cut `frames` longer and the blend consumes the overlap, so the total
+ * stays exactly TOTAL_FRAMES.
+ */
+export const DISSOLVE = { from: 'f7', into: 'end', frames: 12 };

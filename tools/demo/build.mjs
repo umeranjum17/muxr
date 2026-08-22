@@ -29,6 +29,7 @@ function run(cmd, args) {
 
 const STEPS = {
     take: () => run('node', ['capture/take.mjs']),
+    cards: () => run('node', ['cut/cards.mjs']),
     shots: () => run('node', ['cut/shots.mjs']),
     lockup: () => run('node', ['cut/lockup.mjs']),
     assemble: () => run('node', ['cut/assemble.mjs']),
@@ -42,7 +43,7 @@ async function main() {
     // `take` needs a phone in front of you, so it is never part of the default
     // run: the default is a recut of whatever is already in `raw/take`.
     const order = asked.length ? asked
-        : ['shots', 'lockup', 'assemble', 'sheet', 'leakcheck'];
+        : ['cards', 'shots', 'lockup', 'assemble', 'sheet', 'leakcheck'];
     for (const step of order) {
         console.log(`\n### ${step}`);
         await STEPS[step]();

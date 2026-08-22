@@ -6,21 +6,33 @@ it up.
 
 Timing lives in `lib/film.mjs`, which self-validates. This table mirrors it.
 
-## Shot table — 30fps, every length a multiple of 6 frames
+## The film — caption-led acts, 30fps, 996 frames, 33.2s
 
-| # | Name | Frames | Time | Source | What's on screen |
-|---|------|--------|------|--------|------------------|
-| 01 | Full-screen terminal | 0–90 (90) | 0.0–3.0 | desk | `/var/tmp/muxr-demo`, the task prompt, Claude reads `token-store.ts` and `session.test.ts`, finds the race, starts editing. No chrome. |
-| 02 | Macro, pending interaction | 90–180 (90) | 3.0–6.0 | desk | `Claude wants to run pnpm test` and its options, ~3×, bleeding off frame. Word boundaries only. Exports as the README loop's third second. |
-| 03 | Abandoned | 180–270 (90) | 6.0–9.0 | desk | Pull back 100% → 20%. `WAITING FOR INPUT · 00:41`. No copy. |
-| 04 | Match cut desktop → phone | 270–390 (120) | 9.0–13.0 | phone | Same prompt, same size, same position as 02. Phone revealed by status bar, header `auth-fix · Claude Code`, key row. |
-| 05 | HERO | 390–510 (120) | 13.0–17.0 | desk + phone | Both edge to edge. `↵` on the phone; within 8 frames the desk shows `Running tests…`. Both reach `PASS tests/auth/session.test.ts`. |
-| 06 | Desk recedes | 510–582 (72) | 17.0–19.4 | composite | Desk scales down and blurs, phone rises to centre. Transition only. |
-| 07 | Work progresses | 582–702 (120) | 19.4–23.4 | phone | Three states, hard cut, header never moves. |
-| 08 | Completion | 702–810 (108) | 23.4–27.0 | phone | Notification, then the finished state large. Hold 1s before the cut. |
-| 09 | Review the diff | 810–900 (90) | 27.0–30.0 | phone, light | muxr Changes. The one added line in `token-store.ts`. |
-| 10 | Herd reveal | 900–990 (90) | 30.0–33.0 | phone | `4 sessions · 1 machine`, space `muxr-demo · 4 agents`. |
-| 11 | Brand close | 990–1080 (90) | 33.0–36.0 | render | Wordmark, the line typed with a cursor, `trymuxr.com`. |
+Each card states a cause; the footage after it is the effect. The first cut
+had no narration and the owner watched it cold: "randomly doing random
+things, makes zero sense." Real footage cannot narrate itself; this
+structure is the fix.
+
+| # | Kind | Content | Frames | Time |
+|---|------|---------|--------|------|
+| c1 | card | Your agent needs a yes. | 0–42 (42) | 0.0–1.4 |
+| f1 | shot | Claude Code mid-work, screen full | 42–120 (78) | 1.4–4.0 |
+| f2 | shot | The approval macro, huge, bleeding off frame | 120–180 (60) | 4.0–6.0 |
+| c2 | card | You're not at your desk. | 180–222 (42) | 6.0–7.4 |
+| f3 | shot | Pull-back, `WAITING FOR INPUT · 00:41` | 222–312 (90) | 7.4–10.4 |
+| c3 | card | Your phone is. | 312–348 (36) | 10.4–11.6 |
+| f4 | shot | Same question, revealed to be a phone | 348–438 (90) | 11.6–14.6 |
+| c4 | card | One tap. The desk obeys. | 438–486 (48) | 14.6–16.2 |
+| f5 | shot | HERO: both screens across the tap, touch-dot on Enter | 486–606 (120) | 16.2–20.2 |
+| c5 | card | The work finishes without you. | 606–648 (42) | 20.2–21.6 |
+| f6 | shot | Tests running → `pnpm test: 26 passed` | 648–756 (108) | 21.6–25.2 |
+| c6 | card | All your agents. One pocket. | 756–798 (42) | 25.2–26.6 |
+| f7 | shot | The Herd, four live agents | 798–888 (90) | 26.6–29.6 |
+| end | shot | Wordmark, the typed line, trymuxr.com | 888–996 (108) | 29.6–33.2 |
+
+The Herd dissolves into the end card (12 frames) — the film's one soft edit.
+The light-theme diff shot was cut: the white flash broke the ink grade, and
+`26 passed` is stronger proof than a diff a cold viewer cannot read.
 
 ### Amendments to the original brief
 

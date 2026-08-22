@@ -82,11 +82,12 @@ if (total !== TOTAL_FRAMES) {
 }
 console.log(`raw/muxr-demo-1080.mp4 — ${total} frames, ${(total / FPS).toFixed(1)}s`);
 
-// The shipped cut: 720p for the README and the site.
+// The shipped cut IS the master — stream-copied, not re-encoded. A film of
+// fine terminal text has no fat to trade away: the 720p/CRF-20 version this
+// used to make read as mush the moment anyone looked closely.
 await mkdir(path.join(repo, 'docs/demo'), { recursive: true });
 const shipped = path.join(repo, 'docs/demo/muxr-demo.mp4');
-await exec('ffmpeg', ['-v', 'error', '-i', master, '-vf', 'scale=1280:-2',
-    '-c:v', 'libx264', '-crf', '20', '-preset', 'slow', '-pix_fmt', 'yuv420p',
+await exec('ffmpeg', ['-v', 'error', '-i', master, '-c', 'copy',
     '-movflags', '+faststart', '-an', '-y', shipped]);
 
 // The README loop is cut from this same timeline rather than rendered
@@ -101,12 +102,15 @@ await exec('ffmpeg', ['-v', 'error', '-i', master, '-vf', 'scale=1280:-2',
 // unmarked.
 const loop = path.join(repo, 'docs/demo/muxr-loop.webp');
 const mono = path.join(repo, 'apps/mobile/sources/assets/fonts/IBMPlexMono-Regular.ttf');
+// 960 wide at q82: the README column renders the loop at ~830px, so 720
+// meant upscaling lossy pixels. Quality is spent here deliberately — this is
+// the one moving thing most visitors ever see.
 await exec('ffmpeg', ['-v', 'error', '-ss', String(LOOP.start / FPS), '-i', master,
     '-t', String(LOOP.frames / FPS),
-    '-vf', `fps=16,scale=720:-2,drawtext=fontfile=${mono}:text=muxr`
-        + `:fontsize=22:fontcolor=0xececec@0.75:borderw=1:bordercolor=0x0a0a0b@0.8`
-        + `:x=w-tw-16:y=h-th-14`,
-    '-c:v', 'libwebp', '-lossless', '0', '-q:v', '62', '-loop', '0', '-an', '-y', loop]);
+    '-vf', `fps=20,scale=960:-2:flags=lanczos,drawtext=fontfile=${mono}:text=muxr`
+        + `:fontsize=26:fontcolor=0xececec@0.75:borderw=1:bordercolor=0x0a0a0b@0.8`
+        + `:x=w-tw-20:y=h-th-16`,
+    '-c:v', 'libwebp', '-lossless', '0', '-q:v', '82', '-loop', '0', '-an', '-y', loop]);
 
-console.log(`docs/demo/muxr-demo.mp4  720p`);
+console.log('docs/demo/muxr-demo.mp4  1080p master, stream-copied');
 console.log(`docs/demo/muxr-loop.webp frames ${LOOP.start}-${LOOP.start + LOOP.frames}, ${(LOOP.frames / FPS).toFixed(1)}s`);

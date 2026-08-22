@@ -33,16 +33,16 @@ const face = async (file) =>
 const MONO = await face('IBMPlexMono-Regular.ttf');
 const SANS = await face('IBMPlexSans-SemiBold.ttf');
 
-const FRAMES = 90;
+const FRAMES = 108;
 const LINE = 'Leave the desk. Not the work.';
 /**
  * Typing runs frames 24-58; the URL rises at 66; everything holds from 78.
  * The card is entered through a dissolve from shot 10, so the wordmark's own
  * arrival starts a beat later than it used to and settles rather than pops.
  */
-const TYPE_FROM = 24;
-const TYPE_TO = 58;
-const URL_AT = 66;
+const TYPE_FROM = 28;
+const TYPE_TO = 70;
+const URL_AT = 80;
 
 const page = (frame) => {
     const typed = frame <= TYPE_FROM ? 0
@@ -51,7 +51,7 @@ const page = (frame) => {
     // terminal's own cursor: the card is an exhale, not a prompt.
     const cursor = Math.floor(frame / 18) % 2 === 0 ? 1 : 0;
     const mark = Math.min(1, Math.max(0, (frame - 8) / 22));
-    const url = Math.min(1, Math.max(0, (frame - URL_AT) / 14));
+    const url = Math.min(1, Math.max(0, (frame - URL_AT) / 16));
     const ease = (t) => 1 - Math.pow(1 - t, 3);
     // The wordmark settles from very slightly large, the URL rises as it
     // fades in — both quintic, both small. Restraint is the effect.
@@ -92,8 +92,8 @@ try {
 
     await exec('ffmpeg', ['-v', 'error', '-framerate', '30', '-i', path.join(dir, '%03d.png'),
         '-frames:v', String(FRAMES), '-c:v', 'libx264', '-crf', '16', '-preset', 'slow',
-        '-pix_fmt', 'yuv420p', '-y', path.join(root, 'cut/shots/11.mp4')]);
-    console.log(`cut/shots/11.mp4 — ${FRAMES} frames`);
+        '-pix_fmt', 'yuv420p', '-y', path.join(root, 'cut/shots/end.mp4')]);
+    console.log(`cut/shots/end.mp4 — ${FRAMES} frames`);
 } finally {
     await rm(dir, { recursive: true, force: true });
 }

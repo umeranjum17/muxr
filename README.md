@@ -27,7 +27,7 @@
 [![muxr — every coding agent, on your phone](docs/demo/muxr-loop.webp)](https://trymuxr.com/#demo)
 
 <p align="center">
-  <em>Ten seconds of it. The whole thirty-six is
+  <em>Ten seconds of it. The whole thirty-three is
   <a href="docs/demo/muxr-demo.mp4">docs/demo/muxr-demo.mp4</a>:
   one job, start to finish, answered from a phone.</em>
 </p>

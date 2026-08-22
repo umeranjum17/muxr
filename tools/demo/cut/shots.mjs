@@ -52,8 +52,15 @@ const DESK_CROP = 'crop=1920:1080:14:0';
  * A band at 1.78x puts phone type at roughly the size the desk terminal's type
  * lands at, which is the point of comparison that counts.
  */
+/**
+ * Upscaled with lanczos and then sharpened, because the band is blown up
+ * 1.5-1.8x from a lossy screen recording and sits in the film next to a desk
+ * render that is pixel-for-pixel — soft phone text against crisp terminal
+ * text reads as a quality drop, not a style.
+ */
 const phoneBand = (y, h = 608) =>
-    `crop=1080:${h}:0:${y},scale=-2:1080:flags=bicubic,pad=1920:1080:(ow-iw)/2:0:${INK}`;
+    `crop=1080:${h}:0:${y},scale=-2:1080:flags=lanczos,`
+    + `unsharp=5:5:0.6:5:5:0.0,pad=1920:1080:(ow-iw)/2:0:${INK}`;
 
 /**
  * The take's own clock. The desk recording and the phone recording start
@@ -64,51 +71,34 @@ const TAP = 96.1;
 
 /** The job's moments, on the take's clock. `cut/timeline.mjs` prints them. */
 const RECIPE = {
-    // The fix is in and the tests that prove it are landing line by line. The
-    // approval interrupts at +1.9s — inside the crop the command line appears,
-    // and shot 02 cuts to what the rest of the screen was doing.
-    '01': { src: DESK, at: 49.0, vf: DESK_CROP },
+    // Claude mid-work: the test hunk landing line by line, screen full.
+    'f1': { src: DESK, at: 49.4, vf: DESK_CROP },
 
     // The macro. 900px of source across the frame is 2.1x, which is the widest
-    // that still fits `Do you want to proceed?` — and option 2 runs off the
-    // right edge, which is the shot: a question too big to miss.
-    '02': { src: DESK, at: 52.5, vf: 'crop=900:506:60:1330,scale=1920:1080:flags=neighbor' },
+    // that still fits `Do you want to proceed?` — option 2 runs off the right
+    // edge, which is the shot: a question too big to miss.
+    'f2': { src: DESK, at: 52.5, vf: 'crop=900:506:60:1330,scale=1920:1080:flags=neighbor' },
 
-    // Pull back: nobody answers, so the frame retreats from the macro until the
-    // terminal is a fifth of the picture and the room around it is the subject.
-    // The counter reads the real wait — the prompt stood 45.2s before the tap.
-    '03': { src: DESK, at: 92.0, pullback: true },
+    // Pull back: nobody answers. The counter reads the real wait — the prompt
+    // stood 45.2s before the tap.
+    'f3': { src: DESK, at: 92.0, pullback: true },
 
-    // Match cut. Opens on the phone's own copy of the same question at the same
-    // size, then retreats until the status bar, the header and the key row give
-    // away what it has been on all along.
-    '04': { src: PHONE, at: 91.0, reveal: true },
+    // The same question, revealed to be on a phone.
+    'f4': { src: PHONE, at: 91.0, reveal: true },
 
-    // The hero. Desk and phone in one frame, both edge to edge, across the tap.
-    '05': { src: DESK, at: TAP - 1.2, hero: true },
+    // The hero. Both screens across the tap; an authored touch-dot pulses on
+    // the phone's Enter at the exact tap frame — the card primes where to
+    // look, the dot marks when it happened.
+    'f5': { src: DESK, at: TAP - 1.2, hero: true },
 
-    // The desk recedes and the phone takes the whole frame. Transition only.
-    '06': { src: DESK, at: TAP + 2.8, recede: true },
-
-    // Work carries on without anyone at the desk: three states, hard cut.
-    // State one starts the frame after shot 06 ends (101.3 on the take's
-    // clock), so the seam is invisible and the clock never runs backwards.
-    '07': { band: 1180, states: [
-        { src: PHONE, at: 101.4 },                // the tests still running
-        { src: PHONE, at: 104.4 },                // it asks a second question
-        { src: AFTER, at: 5.0, band: 700 },       // and has written up the cause
+    // The work finishing: tests running, then the write-up with `26 passed`.
+    'f6': { band: 1180, states: [
+        { src: PHONE, at: 101.4 },
+        { src: AFTER, at: 5.0, band: 1150 },
     ] },
 
-    // What it came to. The line the whole film is walking towards sits just
-    // above centre: `pnpm test: 26 passed`.
-    '08': { src: AFTER, at: 5.0, vf: phoneBand(1150) },
-
-    // The diff, in the light the Code panel renders it in: the two removed
-    // lines and the four that replaced them, `this.invalidate(refresh)` green.
-    '09': { src: DIFF, at: 8.0, vf: phoneBand(980) },
-
-    // And the session, green, among the others that are also running.
-    '10': { src: AFTER, at: 35.2, vf: phoneBand(1390, 645) },
+    // The Herd: four agents, live dots, auth-fix green among them.
+    'f7': { src: AFTER, at: 35.2, vf: phoneBand(1390, 645) },
 };
 
 const H264 = ['-c:v', 'libx264', '-crf', '16', '-preset', 'slow',
@@ -264,7 +254,8 @@ async function reveal(shot, plan) {
         // and whatever is narrower stands on ink.
         return {
             inputs: [PHONE],
-            filter: `[0:v]crop=${w}:${h}:${x}:${y},scale=-2:1080:flags=bicubic,`
+            filter: `[0:v]crop=${w}:${h}:${x}:${y},scale=-2:1080:flags=lanczos,`
+                + `unsharp=5:5:0.5:5:5:0.0,`
                 + `crop=min(iw\\,1920):1080,pad=1920:1080:(ow-iw)/2:0:${INK}`,
         };
     });
@@ -279,12 +270,28 @@ async function reveal(shot, plan) {
  * can read both while they do.
  */
 async function hero(shot, plan) {
-    await moving(shot, plan, (p) => ({
-        inputs: [DESK, PHONE],
-        filter: `[0:v]${DESK_LOWER},pad=1920:1080:0:0:${INK}[bg];`
-            + `[1:v]crop=1080:1620:0:780,scale=720:1080:flags=bicubic[p];`
-            + `[bg][p]overlay=1200:0,${pushTo(p, 0.02)}`,
-    }));
+    // Where the phone's Enter key lands in the composed frame: screen (476,
+    // 2112) → crop y-780 → scale 2/3 → column at x1200.
+    // Starts three frames before the desk reacts, so cause precedes effect.
+    const DOT = { x: 1517, y: 888, at: 33, frames: 16 };
+    await moving(shot, plan, (p, n) => {
+        let dot = '';
+        if (n >= DOT.at && n < DOT.at + DOT.frames) {
+            const t = (n - DOT.at) / (DOT.frames - 1);
+            const r = Math.round(30 + 44 * t);
+            const alpha = (0.7 * (1 - t) ** 1.5).toFixed(3);
+            // An ink pulse, because it lands on the light key row — the first
+            // version was white and vanished into the keys it was pointing at.
+            dot = `,drawbox=x=${DOT.x - r}:y=${DOT.y - r}:w=${2 * r}:h=${2 * r}`
+                + `:color=0x0a0a0b@${alpha}:t=6`;
+        }
+        return {
+            inputs: [DESK, PHONE],
+            filter: `[0:v]${DESK_LOWER},pad=1920:1080:0:0:${INK}[bg];`
+                + `[1:v]crop=1080:1620:0:780,scale=720:1080:flags=lanczos[p];`
+                + `[bg][p]overlay=1200:0${dot},${pushTo(p, 0.02)}`,
+        };
+    });
 }
 
 /**
