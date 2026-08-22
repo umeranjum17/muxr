@@ -72,7 +72,18 @@ export const SHOTS = [
 export const TOTAL_FRAMES = SHOTS.reduce((sum, shot) => sum + shot.frames, 0);
 
 /** The README loop is shots 01–03, cut from this same timeline. */
-export const LOOP = { start: 0, frames: 270 };
+export const LOOP = { start: 90, frames: 300 };
+
+/**
+ * The film's one soft edit: shot 10 dissolves into the end card.
+ *
+ * Every other cut is hard — that is the film's language, and terminal text
+ * wants it. One dissolve, at the close, reads as punctuation instead of a
+ * transition style: the film resolves rather than stopping. Shot 10 is cut
+ * `frames` longer than the table says and the overlap is consumed by the
+ * blend, so the total stays exactly TOTAL_FRAMES.
+ */
+export const DISSOLVE = { from: '10', into: '11', frames: 12 };
 
 // A shot table that drifts silently is how a film ends up with a gap in it.
 for (const [index, shot] of SHOTS.entries()) {

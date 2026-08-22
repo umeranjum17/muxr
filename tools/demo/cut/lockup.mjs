@@ -35,19 +35,28 @@ const SANS = await face('IBMPlexSans-SemiBold.ttf');
 
 const FRAMES = 90;
 const LINE = 'Leave the desk. Not the work.';
-/** Typing runs frames 20-56; the URL lands at 64; everything holds after 74. */
-const TYPE_FROM = 20;
-const TYPE_TO = 56;
-const URL_AT = 64;
+/**
+ * Typing runs frames 24-58; the URL rises at 66; everything holds from 78.
+ * The card is entered through a dissolve from shot 10, so the wordmark's own
+ * arrival starts a beat later than it used to and settles rather than pops.
+ */
+const TYPE_FROM = 24;
+const TYPE_TO = 58;
+const URL_AT = 66;
 
 const page = (frame) => {
     const typed = frame <= TYPE_FROM ? 0
         : Math.min(LINE.length, Math.round(((frame - TYPE_FROM) / (TYPE_TO - TYPE_FROM)) * LINE.length));
-    // Frame-derived, so the blink is the same on every render.
-    const cursor = Math.floor(frame / 15) % 2 === 0 ? 1 : 0;
-    const mark = Math.min(1, Math.max(0, (frame - 4) / 14));
-    const url = Math.min(1, Math.max(0, (frame - URL_AT) / 12));
+    // Frame-derived, so the blink is the same on every render. Slower than a
+    // terminal's own cursor: the card is an exhale, not a prompt.
+    const cursor = Math.floor(frame / 18) % 2 === 0 ? 1 : 0;
+    const mark = Math.min(1, Math.max(0, (frame - 8) / 22));
+    const url = Math.min(1, Math.max(0, (frame - URL_AT) / 14));
     const ease = (t) => 1 - Math.pow(1 - t, 3);
+    // The wordmark settles from very slightly large, the URL rises as it
+    // fades in — both quintic, both small. Restraint is the effect.
+    const settle = (1.03 - 0.03 * (1 - Math.pow(1 - mark, 5))).toFixed(5);
+    const rise = (16 * (1 - ease(url))).toFixed(2);
 
     return `<!doctype html><meta charset="utf-8"><style>
         @font-face { font-family: PlexMono; src: url('${MONO}') format('truetype'); }
@@ -59,11 +68,11 @@ const page = (frame) => {
            film has to hold at 390px, where 30px type lands at six pixels and
            the only legible thing on screen would be the wordmark. */
         .mark { font-family: PlexMono; font-size: 132px; color: #ececec; letter-spacing: -4px;
-                opacity: ${ease(mark)}; }
+                opacity: ${ease(mark)}; transform: scale(${settle}); }
         .line { font-family: PlexMono; font-size: 56px; color: #ececec; margin-top: 56px; }
         .cur  { opacity: ${cursor}; }
         .url  { font-family: Plex; font-weight: 600; font-size: 52px; color: #ececec; margin-top: 104px;
-                opacity: ${ease(url)}; }
+                opacity: ${ease(url)}; transform: translateY(${rise}px); }
     </style>
     <div class="mark">muxr</div>
     <div class="line">${LINE.slice(0, typed)}<span class="cur">▊</span></div>

@@ -18,7 +18,7 @@ import { promisify } from 'node:util';
 import { mkdir, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { SHOTS, FPS } from '../lib/film.mjs';
+import { SHOTS, FPS, DISSOLVE } from '../lib/film.mjs';
 
 const exec = promisify(execFile);
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -108,37 +108,43 @@ const RECIPE = {
     '09': { src: DIFF, at: 8.0, vf: phoneBand(980) },
 
     // And the session, green, among the others that are also running.
-    '10': { src: AFTER, at: 35.6, vf: phoneBand(1390, 645) },
+    '10': { src: AFTER, at: 35.2, vf: phoneBand(1390, 645) },
 };
 
 const H264 = ['-c:v', 'libx264', '-crf', '16', '-preset', 'slow',
     '-pix_fmt', 'yuv420p', '-r', String(FPS)];
 
-/** A plain shot: one window of one recording, framed once and held. */
-async function straight(shot, { src, at, vf }) {
-    await exec('ffmpeg', ['-v', 'error', '-ss', String(at), '-i', src,
-        '-frames:v', String(shot.frames), '-vf', `${vf},fps=${FPS}`,
-        '-fps_mode', 'cfr', ...H264, '-y', path.join(OUT, `${shot.id}.mp4`)],
-        { maxBuffer: 1 << 26 });
+/**
+ * A plain shot: one window of one recording, framed once and — since the film
+ * went to Apple pacing — pushed into slowly rather than held dead. `extra`
+ * frames beyond the table's count are cut for the shot that feeds the
+ * dissolve; the blend consumes them.
+ */
+async function straight(shot, { src, at, vf, push = 0.03 }, extra = 0) {
+    const frames = shot.frames + extra;
+    await moving({ ...shot, frames }, { at }, (p) => ({
+        inputs: [src],
+        filter: `[0:v]${vf},${pushTo(p, push)}`,
+    }));
 }
 
-/** Three equal beats of the same recording, hard cut, framed identically. */
+/**
+ * Equal beats of the same recording, hard cut, framed identically — each with
+ * its own small push, restarting on the cut, which is what sells the beats as
+ * separate glances rather than one recording chopped up.
+ */
 async function states(shot, { states: beats, band }) {
     const each = shot.frames / beats.length;
     if (!Number.isInteger(each)) throw new Error(`${shot.id}: ${shot.frames} does not divide by ${beats.length}`);
-    const parts = [];
-    for (const [index, beat] of beats.entries()) {
-        const part = path.join(OUT, `.${shot.id}-${index}.mp4`);
-        await exec('ffmpeg', ['-v', 'error', '-ss', String(beat.at), '-i', beat.src,
-            '-frames:v', String(each), '-vf', `${phoneBand(beat.band ?? band)},fps=${FPS}`,
-            '-fps_mode', 'cfr', ...H264, '-y', part], { maxBuffer: 1 << 26 });
-        parts.push(part);
-    }
-    const list = path.join(OUT, `.${shot.id}.txt`);
-    await writeFile(list, parts.map((f) => `file '${f}'`).join('\n'));
-    await exec('ffmpeg', ['-v', 'error', '-f', 'concat', '-safe', '0', '-i', list,
-        '-c', 'copy', '-y', path.join(OUT, `${shot.id}.mp4`)]);
-    await Promise.all([list, ...parts].map((f) => rm(f, { force: true })));
+    await moving(shot, { at: 0 }, (_, n) => {
+        const beat = beats[Math.floor(n / each)];
+        const local = (n % each) / (each - 1);
+        return {
+            at: beat.at + (n % each) / FPS,
+            inputs: [beat.src],
+            filter: `[0:v]${phoneBand(beat.band ?? band)},${pushTo(local, 0.02)}`,
+        };
+    });
 }
 
 /**
@@ -155,8 +161,9 @@ async function moving(shot, plan, frame) {
     await rm(dir, { recursive: true, force: true });
     await mkdir(dir, { recursive: true });
     for (let n = 0; n < shot.frames; n += 1) {
-        const t = plan.at + n / FPS;
-        const { filter, inputs } = frame(n / (shot.frames - 1), n);
+        const spec = frame(n / (shot.frames - 1), n);
+        const t = spec.at ?? plan.at + n / FPS;
+        const { filter, inputs } = spec;
         const file = path.join(dir, `${String(n).padStart(4, '0')}.png`);
         await exec('ffmpeg', ['-v', 'error', ...inputs.flatMap((i) => ['-ss', String(t), '-i', i]),
             '-frames:v', '1', '-filter_complex', filter, '-y', file], { maxBuffer: 1 << 26 });
@@ -177,6 +184,18 @@ async function moving(shot, plan, frame) {
 const ease = (t) => 1 - (1 - t) ** 3;
 const even = (n) => Math.max(2, Math.round(n / 2) * 2);
 const mix = (a, b, t) => a + (b - a) * t;
+
+/**
+ * A slow push-in: the frame creeps from 100% to 100+z% and is cropped back to
+ * 1920x1080, so a held shot breathes instead of sitting dead. Linear on
+ * purpose — constant velocity reads as calm; an eased push reads as a camera
+ * operator arriving.
+ */
+const pushTo = (p, z) => {
+    const k = 1 + z * p;
+    return `scale=${even(1920 * k)}:${even(1080 * k)}:flags=bicubic,`
+        + `crop=1920:1080:(iw-1920)/2:(ih-1080)/2`;
+};
 
 /** Where shot 02's macro sits inside the desk render, in render pixels. */
 const MACRO = { x: 60, y: 1330, w: 900, h: 506 };
@@ -260,11 +279,11 @@ async function reveal(shot, plan) {
  * can read both while they do.
  */
 async function hero(shot, plan) {
-    await moving(shot, plan, () => ({
+    await moving(shot, plan, (p) => ({
         inputs: [DESK, PHONE],
         filter: `[0:v]${DESK_LOWER},pad=1920:1080:0:0:${INK}[bg];`
             + `[1:v]crop=1080:1620:0:780,scale=720:1080:flags=bicubic[p];`
-            + `[bg][p]overlay=1200:0`,
+            + `[bg][p]overlay=1200:0,${pushTo(p, 0.02)}`,
     }));
 }
 
@@ -309,17 +328,19 @@ for (const shot of SHOTS) {
     const plan = RECIPE[shot.id];
     if (plan === undefined) continue;
 
+    const extra = shot.id === DISSOLVE.from ? DISSOLVE.frames : 0;
     if (plan.states) await states(shot, plan);
     else if (plan.pullback) await pullback(shot, plan);
     else if (plan.reveal) await reveal(shot, plan);
     else if (plan.hero) await hero(shot, plan);
     else if (plan.recede) await recede(shot, plan);
-    else await straight(shot, plan);
+    else await straight(shot, plan, extra);
 
     const { stdout } = await exec('ffprobe', ['-v', 'error', '-select_streams', 'v',
         '-count_frames', '-show_entries', 'stream=nb_read_frames', '-of', 'csv=p=0',
         path.join(OUT, `${shot.id}.mp4`)]);
     const got = Number(stdout.trim());
-    const ok = got === shot.frames ? 'ok' : `WRONG (table says ${shot.frames})`;
+    const want = shot.frames + (shot.id === DISSOLVE.from ? DISSOLVE.frames : 0);
+    const ok = got === want ? 'ok' : `WRONG (want ${want})`;
     console.log(`${shot.id}  ${String(got).padStart(4)} frames  ${(got / FPS).toFixed(1)}s  ${ok}`);
 }

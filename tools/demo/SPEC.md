@@ -58,7 +58,16 @@ Timing lives in `lib/film.mjs`, which self-validates. This table mirrors it.
    the written-up root cause, comes from the phone pass recorded after the job
    finished, framed identically; inside the take that screen only exists
    below the fold.
-8. **Shot 04 does not hold at 390px.** Its last second is the whole phone
+8. **The film breathes.** After the owner asked for Apple pacing, every held
+   shot gained a slow linear push-in (2-4%), the end card settles instead of
+   popping, and the film's one soft edit was added: shot 10 dissolves into
+   the end card over 12 frames. Every other cut stays hard — that is the
+   film's language — and the film stays silent: both shipping surfaces
+   autoplay muted, and a synthesized bed would be the one element that is
+   neither real nor excellent. The README loop moved to frames 90-390
+   (shots 02-04): it now opens on the hook, the full-frame
+   `Do you want to proceed?`, not on scrolling code.
+9. **Shot 04 does not hold at 390px.** Its last second is the whole phone
    standing on ink, which at 390px is ninety-nine pixels across. That is the
    reveal the storyboard asks for and it is silhouette, not text; every other
    shot in the film is legible at 390px.
