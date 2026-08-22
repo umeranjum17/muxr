@@ -4,9 +4,8 @@
 //   node reel/render.mjs               the whole master
 //   node reel/render.mjs 120 480 900   stills of those frames, for review
 //
-// Bundles once, renders with the composition's own duration. The master lands
-// in raw/muxr-demo-1080.mp4 exactly where the old cutter put it, so leakcheck,
-// the loop export and the shipped copy do not care which era produced it.
+// Bundles once, renders with the composition's own duration, and writes the
+// ignored master consumed by the delivery script.
 import { bundle } from '@remotion/bundler';
 import { renderMedia, renderStill, selectComposition } from '@remotion/renderer';
 import path from 'node:path';

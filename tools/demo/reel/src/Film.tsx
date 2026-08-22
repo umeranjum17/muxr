@@ -8,7 +8,7 @@ import { BeatText, Counter, EndCard } from './type';
 
 /**
  * The film. One world, one camera, two screens, and the script beside the
- * picture: every line shares the frame with the footage that proves it.
+ * picture: every line shares the frame with the screen that proves it.
  */
 export const Film: React.FC = () => {
     const frame = useCurrentFrame();

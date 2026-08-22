@@ -1,9 +1,5 @@
-// The film's data: palette, the design tokens fable locked, the beat schedule,
-// and where each beat's footage lives on the take's clock.
-//
-// Everything an editor would want to retime or restyle is here; the components
-// read this and draw. The footage in-points are the same numbers the ffmpeg
-// cut used — the take is unchanged, only the composition is new.
+// The film's data: palette, design tokens, and beat schedule.
+// Everything an editor needs to retime or restyle the composition lives here.
 
 export const FPS = 60;
 export const W = 1920;
@@ -77,8 +73,8 @@ export const TOKENS = {
 };
 
 /**
- * The beats — the script (written by gpt-5.6-sol, implemented verbatim).
- * No card interludes: every line shares the frame with the footage that
+ * The beats — the film's script and timing.
+ * No card interludes: every line shares the frame with the screen that
  * proves it. `anchor` says where the words live: above the desk, beside the
  * phone, under the pair.
  */

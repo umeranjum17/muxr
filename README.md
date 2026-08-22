@@ -43,6 +43,8 @@
   <a href="tools/demo">tools/demo</a> — no mockups, no fixture mode.</em>
 </p>
 
+![muxr as an RPG party command center: Herd, terminal, changes, Inbox, voice, and self-hosted relay](docs/art/rpg-cover.png)
+
 ## What it does
 
 - **One herd:** see every agent and terminal, including who is working, blocked, or done.

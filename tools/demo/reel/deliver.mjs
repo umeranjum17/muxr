@@ -29,12 +29,13 @@ await mkdir(path.join(repo, 'docs/demo'), { recursive: true });
 await exec('ffmpeg', ['-v', 'error', '-i', master, '-c', 'copy',
     '-movflags', '+faststart', '-an', '-y', path.join(repo, 'docs/demo/muxr-demo.mp4')]);
 
-const mono = path.join(repo, 'apps/mobile/sources/assets/fonts/IBMPlexMono-Regular.ttf');
+const wordmark = path.join(repo, 'apps/mobile/sources/assets/images/wordmark@3x.png');
 await exec('ffmpeg', ['-v', 'error',
-    '-ss', String(LOOP.from / FPS), '-i', master, '-t', String(LOOP.frames / FPS),
-    '-vf', `fps=24,scale=960:-2:flags=lanczos,drawtext=fontfile=${mono}:text=muxr`
-        + `:fontsize=26:fontcolor=0xececec@0.75:borderw=1:bordercolor=0x0a0a0b@0.8`
-        + `:x=w-tw-20:y=h-th-16`,
+    '-ss', String(LOOP.from / FPS), '-i', master, '-loop', '1', '-i', wordmark,
+    '-t', String(LOOP.frames / FPS),
+    '-filter_complex', '[0:v]fps=24,scale=960:-2:flags=lanczos[base];'
+        + '[1:v]scale=180:-1:flags=neighbor[mark];'
+        + '[base][mark]overlay=W-w-20:H-h-16',
     '-c:v', 'libwebp', '-lossless', '0', '-q:v', '82', '-loop', '0', '-an', '-y',
     path.join(repo, 'docs/demo/muxr-loop.webp')]);
 

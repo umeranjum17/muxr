@@ -1,6 +1,6 @@
 # muxr demo
 
-The 59-second product film is typeset in Remotion using muxr's real mobile design tokens and components. It does not depend on recorded terminal or phone footage.
+The 59-second product film is typeset in Remotion using muxr's mobile design tokens and component recipes. It does not depend on recorded terminal or phone footage.
 
 ```bash
 cd tools/demo

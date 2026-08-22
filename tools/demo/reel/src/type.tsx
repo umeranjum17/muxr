@@ -1,10 +1,10 @@
 import React from 'react';
-import { AbsoluteFill, Easing, interpolate, spring, useCurrentFrame } from 'remotion';
+import { AbsoluteFill, Easing, Img, interpolate, spring, staticFile, useCurrentFrame } from 'remotion';
 import { FPS, GREEN, MUTED, TOKENS } from './config';
-import { LOGO, MONO, SANS } from './fonts';
+import { MONO, SANS } from './fonts';
 
 /**
- * A beat's words, sharing the frame with the footage. Lines arrive in order,
+ * A beat's words, sharing the frame with the product screen. Lines arrive in order,
  * words on the word spring, the final period of the last line replaced by the
  * status-green dot. Anchors: `top` above the desk, `right` beside the phone,
  * `bottom` under the pair.
@@ -121,7 +121,7 @@ export const Counter: React.FC<{ at: number; frames: number; seconds: (frame: nu
         );
     };
 
-/** The close: the wordmark with the green period, the URL, a terminal cursor. */
+/** The close: the exact app wordmark, the URL, and a terminal cursor. */
 export const EndCard: React.FC<{ at: number }> = ({ at }) => {
     const frame = useCurrentFrame();
     if (frame < at + 24) return null;
@@ -132,15 +132,14 @@ export const EndCard: React.FC<{ at: number }> = ({ at }) => {
     const cursor = Math.floor(frame / 30) % 2 === 0 ? 1 : 0;
     return (
         <AbsoluteFill style={{ justifyContent: 'center', alignItems: 'center', gap: 24 }}>
-            <div style={{
-                fontFamily: LOGO, fontSize: 120, color: TOKENS.caption.color,
-                letterSpacing: '-0.02em', display: 'flex', alignItems: 'baseline', gap: '0.18em',
-                transform: `translateY(${(36 * (1 - rise)).toFixed(2)}px)`,
-                opacity: Math.min(1, local / 10),
-            }}>
-                muxr
-                <Dot at={8} local={local} size={18} />
-            </div>
+            <Img
+                src={staticFile('brand/wordmark.png')}
+                style={{
+                    width: 360, height: 'auto',
+                    transform: `translateY(${(36 * (1 - rise)).toFixed(2)}px)`,
+                    opacity: Math.min(1, local / 10),
+                }}
+            />
             <div style={{
                 fontFamily: SANS, fontWeight: 400, fontSize: 40, color: TOKENS.caption.color,
                 opacity: Math.min(1, Math.max(0, (local - 20) / 18)),
