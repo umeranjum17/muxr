@@ -29,7 +29,7 @@ A non-extractable AES-GCM WebCrypto key stored in IndexedDB wraps the browser de
 
 - Storing credentials, private keys, data keys, or ingress keys in `localStorage` or `sessionStorage`.
 - Treating browser-wrapped IndexedDB storage as equivalent to native SecureStore.
-- Baking `EXPO_PUBLIC_MUXR_TOKEN` or `EXPO_PUBLIC_MUXR_E2EE_KEY` into an Expo export.
+- Baking `EXPO_PUBLIC_MUXR_TOKEN` into an Expo export.
 - Relay-side decryption for browsers.
 - Durable browser grants matching native phone lifetime.
 - A managed-only client capability unavailable to self-hosters.

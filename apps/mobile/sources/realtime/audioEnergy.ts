@@ -11,7 +11,6 @@
  * it fall like a VU needle instead.
  */
 
-import { makeMutable } from 'react-native-reanimated';
 import { decodeBase64 } from '@/encryption/base64';
 
 export type EnergyDirection = 'input' | 'output';
@@ -22,20 +21,14 @@ const FULL_SCALE = 9_000;
 /** One read every few hundred samples: loudness needs a shape, not every sample. */
 const STRIDE = 16;
 
-// Shared values, not module state. The PCM arrives on the JS thread, but the
-// session visual reads the loudness from a frame callback on the UI runtime,
-// and a `let` only exists on the runtime that wrote it. Worse: the worklets
-// plugin captures a plain imported function into the closure without a worklet
-// hash, so on the UI runtime `readEnergy` materialised as a stub that throws —
-// which took down the whole React host, blanking the app the moment any voice
-// control was tapped.
-const input = makeMutable(0);
-const output = makeMutable(0);
-const inputAt = makeMutable(Date.now());
-const outputAt = makeMutable(Date.now());
+let input = 0;
+let output = 0;
+let inputAt = Date.now();
+let outputAt = Date.now();
+type EnergyListener = (direction: EnergyDirection, level: number) => void;
+const listeners = new Set<EnergyListener>();
 
 function decayed(value: number, since: number, now: number): number {
-    'worklet';
     return Math.max(0, value - (now - since) * DECAY_PER_MS);
 }
 
@@ -68,26 +61,29 @@ export function reportEnergy(direction: EnergyDirection, base64: string): void {
     const level = chunkEnergy(base64);
     const now = Date.now();
     if (direction === 'input') {
-        input.value = Math.max(decayed(input.value, inputAt.value, now), level);
-        inputAt.value = now;
+        input = Math.max(decayed(input, inputAt, now), level);
+        inputAt = now;
+        for (const listener of listeners) listener('input', input);
     } else {
-        output.value = Math.max(decayed(output.value, outputAt.value, now), level);
-        outputAt.value = now;
+        output = Math.max(decayed(output, outputAt, now), level);
+        outputAt = now;
+        for (const listener of listeners) listener('output', output);
     }
 }
 
-/** Called from the session visual's frame callback, on the UI runtime. */
-export function readEnergy(direction: EnergyDirection): number {
-    'worklet';
-    const now = Date.now();
-    return direction === 'input'
-        ? decayed(input.value, inputAt.value, now)
-        : decayed(output.value, outputAt.value, now);
+/** PCM arrives on JS; shared values carry only the bounded level to the UI thread. */
+export function subscribeEnergy(listener: EnergyListener): () => void {
+    listeners.add(listener);
+    return () => { listeners.delete(listener); };
 }
 
 export function resetEnergy(): void {
-    input.value = 0;
-    output.value = 0;
-    inputAt.value = Date.now();
-    outputAt.value = Date.now();
+    input = 0;
+    output = 0;
+    inputAt = Date.now();
+    outputAt = Date.now();
+    for (const listener of listeners) {
+        listener('input', 0);
+        listener('output', 0);
+    }
 }

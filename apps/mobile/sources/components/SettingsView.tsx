@@ -155,7 +155,6 @@ export const SettingsView = React.memo(function SettingsView({
             relayUrl: grant.relayUrl,
             machineId,
             token: '',
-            encryptionKey: '',
             selfhost: grant.source === 'selfhost' ? true : undefined,
         });
         await auth.login(grant.credential, grant.deviceKey.secretKey);
@@ -179,7 +178,7 @@ export const SettingsView = React.memo(function SettingsView({
         await saveConnectionSettings({
             ...getCachedConnectionSettings(),
             mode: 'hosted', relayUrl: next.relayUrl, machineId: next.machineId,
-            token: '', encryptionKey: '', selfhost: next.source === 'selfhost' ? true : undefined,
+            token: '', selfhost: next.source === 'selfhost' ? true : undefined,
         });
         await auth.login(next.credential, next.deviceKey.secretKey);
     }, [auth]);

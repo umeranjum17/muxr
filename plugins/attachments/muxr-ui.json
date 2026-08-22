@@ -1,4 +1,4 @@
 { "schemaVersion": 1, "pluginId": "muxr.attachments", "minMuxrVersion": 2, "contributions": [
   { "slot": "host.rpc", "id": "list", "type": "rpc", "method": "list", "entry": "rpc.mjs", "mode": "read" },
-  { "slot": "session.pills", "id": "attachments", "type": "native", "primitive": "item-list", "params": { "title": "Files", "icon": "attach-outline", "accessibilityLabel": "Open attached files", "source": { "type": "plugin.call", "contributionId": "list" } } }
+  { "slot": "session.pills", "id": "attachments", "type": "native", "primitive": "item-list", "params": { "title": "Attachments", "icon": "attach-outline", "accessibilityLabel": "Open attachments", "source": { "type": "plugin.call", "contributionId": "list" } } }
 ] }

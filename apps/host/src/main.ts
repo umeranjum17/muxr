@@ -273,7 +273,6 @@ const relayUrl = env('MUXR_RELAY_URL') ?? hostedAuth?.relayUrl
 const machineId = env('MUXR_MACHINE_ID') ?? hostedAuth?.machine.id ?? selfhostAuth?.machine.id ?? hostname();
 const dataDir = env('MUXR_DATA_DIR') ?? defaultDataDir();
 const stateRoot = dirname(dataDir);
-const sharedKey = env('MUXR_E2EE_SHARED_KEY');
 const useFake = process.argv.includes('--fake');
 const requestedMode = env('MUXR_MODE')?.toLowerCase();
 if (requestedMode !== undefined && requestedMode !== 'hosted' && requestedMode !== 'local' && requestedMode !== 'selfhost') {
@@ -284,7 +283,6 @@ if (mode === undefined) throw new Error('no hosted auth state; set MUXR_MODE=loc
 const token = env('MUXR_RELAY_TOKEN') ?? (mode === 'hosted' ? hostedAuth?.credential : mode === 'selfhost' ? selfhostAuth?.machineCredential ?? selfhostAuth?.mintSecret : undefined);
 if (mode === 'hosted' && hostedAuth === undefined) throw new Error('hosted mode requires muxr setup/login state');
 if (mode === 'selfhost' && selfhostAuth === undefined) throw new Error('selfhost mode requires `muxr self-host` state');
-if ((mode === 'hosted' || mode === 'selfhost') && sharedKey !== undefined) throw new Error('E2EE modes reject MUXR_E2EE_SHARED_KEY; pair devices instead');
 if (mode === 'hosted' && hostedAuth?.machine.crypto === undefined) throw new Error('hosted machine keys are missing; run `muxr setup` and re-pair devices');
 
 async function main(): Promise<void> {
@@ -373,7 +371,6 @@ async function main(): Promise<void> {
 
     const hostVersion = resolveHostVersion();
     startHost({
-        ...(sharedKey ? { sharedKey } : {}),
         ...(hostedE2ee === undefined ? {} : { hostedE2ee }),
         ...(token === undefined ? {} : { token }),
         relayUrl,

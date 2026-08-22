@@ -33,7 +33,7 @@ const child = { current: undefined };
 const machine = 'muxr-revoke-check';
 const signing = generateSigningKeyPair();
 const machineBox = generateKeyPair();
-const dataKeyV1 = randomBytes(32).toString('base64');
+const initialDataKey = randomBytes(32).toString('base64');
 const expiresAt = Date.UTC(9999, 11, 31, 23, 59, 59, 999);
 
 const freePort = await new Promise((resolve, reject) => {
@@ -94,7 +94,7 @@ async function pair(name) {
     });
     if (!claimed.response.ok) throw new Error(`claim failed: ${JSON.stringify(claimed.body)}`);
     const device = { id: claimed.body.device_id, credential: claimed.body.device_credential, keys, name };
-    const grant = createGrant(device, dataKeyV1, 1);
+    const grant = createGrant(device, initialDataKey, 2);
     const uploaded = await json(`/v1/selfhost/pair-sessions/${pairId}/grant`, {
         method: 'POST', headers: bearer(mintSecret), body: JSON.stringify({ grant: JSON.stringify(grant) }),
     });
@@ -212,12 +212,12 @@ try {
     await new Promise((resolve) => setTimeout(resolve, 150));
     if (bClosed) throw new Error('remaining device socket was closed by targeted revocation');
 
-    const dataKeyV2 = randomBytes(32).toString('base64');
-    const grantB = createGrant(b, dataKeyV2, 2);
+    const rotatedDataKey = randomBytes(32).toString('base64');
+    const grantB = createGrant(b, rotatedDataKey, 3);
     const rotationClose = closedSocket(socketB);
     const published = await json(`/v1/selfhost/machines/${machine}/grants`, {
         method: 'POST', headers: bearer(mintSecret),
-        body: JSON.stringify({ key_version: 2, grants: [{ device_id: b.id, grant: JSON.stringify(grantB) }] }),
+        body: JSON.stringify({ key_version: 3, grants: [{ device_id: b.id, grant: JSON.stringify(grantB) }] }),
     });
     if (!published.response.ok) throw new Error(`rotation publish failed: ${JSON.stringify(published.body)}`);
     const rotatedClose = await rotationClose;
@@ -229,7 +229,7 @@ try {
         deviceKey: b.keys,
         deviceId: b.id,
     });
-    if (verifiedB.keyVersion !== 2 || verifiedB.dataKey !== dataKeyV2) throw new Error('remaining device did not receive rotated key');
+    if (verifiedB.keyVersion !== 3 || verifiedB.dataKey !== rotatedDataKey) throw new Error('remaining device did not receive rotated key');
     const fetchedA = await json(`/v1/machines/${machine}/grant`, { headers: bearer(a.credential) });
     if (fetchedA.response.status !== 403) throw new Error('revoked device fetched a rotated grant');
 

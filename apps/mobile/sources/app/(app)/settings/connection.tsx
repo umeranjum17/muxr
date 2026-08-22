@@ -113,7 +113,6 @@ export default function ConnectionSettingsScreen() {
     const [relayUrl, setRelayUrl] = React.useState(initial.relayUrl);
     const [machineId, setMachineId] = React.useState(initial.machineId);
     const [token, setToken] = React.useState(initial.token);
-    const [encryptionKey, setEncryptionKey] = React.useState(initial.encryptionKey);
     const [error, setError] = React.useState<string | undefined>(undefined);
     const [saving, setSaving] = React.useState(false);
     const machine = useMachine(initial.machineId);
@@ -129,7 +128,6 @@ export default function ConnectionSettingsScreen() {
             setRelayUrl(loaded.relayUrl);
             setMachineId(loaded.machineId);
             setToken(loaded.token);
-            setEncryptionKey(loaded.encryptionKey);
         });
         return () => { cancelled = true; };
     }, []);
@@ -215,7 +213,6 @@ export default function ConnectionSettingsScreen() {
                 relayUrl: url,
                 machineId: machineId.trim(),
                 token: token.trim(),
-                encryptionKey: encryptionKey.trim(),
             });
             await syncReconnect();
         } catch (e) {
@@ -241,7 +238,6 @@ export default function ConnectionSettingsScreen() {
                 <Field label="Relay URL" value={relayUrl} onChange={setRelayUrl} placeholder="ws://192.168.1.20:8792" />
                 <Field label="Machine name" value={machineId} onChange={setMachineId} placeholder="devbox" />
                 <Field label="Token" value={token} onChange={setToken} placeholder="required off loopback" secure />
-                <Field label="Shared key" value={encryptionKey} onChange={setEncryptionKey} placeholder="only if E2EE is on" secure />
                 {error !== undefined && <Text style={styles.error}>{error}</Text>}
                 <View style={styles.actions}>
                     <RoundButton

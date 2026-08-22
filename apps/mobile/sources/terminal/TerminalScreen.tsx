@@ -7,10 +7,11 @@
  */
 
 import * as React from 'react';
-import { ActivityIndicator, AppState, BackHandler, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, AppState, BackHandler, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useKeyboardState } from 'react-native-keyboard-controller';
-import Animated, { FadeIn, FadeOut, ReduceMotion } from 'react-native-reanimated';
+import Animated, { FadeIn, FadeOut, ReduceMotion, useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
@@ -26,6 +27,7 @@ import type { HerdrTreeTab } from '@muxr/contract';
 import { TerminalView } from '@/terminal/TerminalView';
 import { usePaneGestures } from '@/terminal/usePaneGestures';
 import { StatusDot } from '@/components/StatusDot';
+import { AnimatedPopup } from '@/components/AnimatedOverlay';
 import { agentStatusColor } from '@/utils/sessionUtils';
 import type { TerminalChannel } from '@/terminal/openTerminal';
 import { useImagePicker } from '@/hooks/useImagePicker';
@@ -34,13 +36,29 @@ import { encodeBase64 } from '@/encryption/base64';
 import { nextWorkingAgentId, workingAgentSwipeIds } from '@/utils/liveTerminalOrder';
 import { useSessionPlugins } from '@/plugins/useSessionPlugins';
 import { PluginSlot } from '@/plugins/PluginSlot';
-import { DeclarativeChips, DeclarativeHeaderButtons, DeclarativeTerminalKeySlot } from '@/plugins/DeclarativePluginSlot';
+import { DeclarativeSessionActions, DeclarativeTerminalKeySlot } from '@/plugins/DeclarativePluginSlot';
 import { useSlotContributions } from '@/plugins/useSlotContributions';
 import type { SessionMenu } from '@/plugins/slotTypes';
 import { recentTerminalLinks, subscribeTerminalLinks, viewportTerminalLinks } from '@/terminal/recentOutput';
 import { openExternalUrl } from '@/utils/openExternalUrl';
 import { resolvePluginText } from '@/plugins/pluginText';
 import { randomUUID } from 'expo-crypto';
+
+/**
+ * The floating tools trigger: a small icon inside a target big enough to hit and
+ * to drag. The circle is what you see, the box around it is what you press.
+ *
+ * It rests a jump button's height above the key row because the jump-to-bottom
+ * control and the link chip already own that corner, and a default that lands on
+ * top of them is a default nobody chose.
+ */
+const TOOLS_TARGET = 44;
+const TOOLS_BASE = 60;
+/** The gap between the trigger and the menu that hangs off it. */
+const TOOLS_MENU_GAP = 6;
+/** Room for roughly five rows: the least a menu can be and still be worth
+ *  opening. The trigger stops climbing when the menu would fall below it. */
+const TOOLS_MENU_MIN = 260;
 
 function displayLink(url: string, maxLength: number): string {
     const parsed = new URL(url);
@@ -89,6 +107,18 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     // Modal.alert lays buttons out in a row: past three it collapses into
     // overlapping mush on a phone. Anything with more options uses this sheet.
     const [menu, setMenu] = React.useState<SessionMenu | null>(null);
+    const [actionsOpen, setActionsOpen] = React.useState(false);
+    // The actions menu hangs above the keys, attachments and composer, and that
+    // block changes height as attachments come and go.
+    const [bottomBlockHeight, setBottomBlockHeight] = React.useState(0);
+    // How far the tools trigger has been dragged up its edge, and how far it may
+    // go: the terminal band only, never the header above or the keys below.
+    const toolsLift = useSharedValue(0);
+    const toolsLiftStart = useSharedValue(0);
+    const toolsMaxLift = useSharedValue(0);
+    // The menu reads that offset once, when it opens: nothing can drag the
+    // trigger while the menu covering the screen is up.
+    const [openLift, setOpenLift] = React.useState(0);
     const [attachedPaths, setAttachedPaths] = React.useState<string[]>([]);
     // Other openable panes in this session's tab, in layout order. A pane only
     // gets a sessionId once herdr detects an agent in it, so bare shells are
@@ -255,6 +285,22 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
         void openExternalUrl(chipLink);
     }, [chipLink, chipKind, props.id]);
 
+    const showRecentLinks = React.useCallback((action: 'open' | 'copy') => {
+        const links = recentTerminalLinks(props.id);
+        if (links.length === 0) return;
+        setActionsOpen(false);
+        setMenu({
+            title: action === 'open' ? 'Open link' : 'Copy link',
+            note: 'From the recent terminal output',
+            items: links.map((url) => ({
+                label: displayLink(url, 72),
+                onPress: action === 'open'
+                    ? () => { void openExternalUrl(url); }
+                    : () => { void Clipboard.setStringAsync(url).then(() => Modal.alert('Link copied', url)); },
+            })),
+        });
+    }, [props.id]);
+
     // Coming back to a screen whose socket died while it was backgrounded used
     // to leave a dead terminal until the user navigated away and back. Retry on
     // both edges: screen focus and app foreground. The preview poll rides the
@@ -278,13 +324,14 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     // The action menu is a plain absolute View, not a modal, so Android's
     // hardware back would leave the screen instead of dismissing it.
     React.useEffect(() => {
-        if (menu === null || Platform.OS !== 'android') return;
+        if ((menu === null && !actionsOpen) || Platform.OS !== 'android') return;
         const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
             setMenu(null);
+            setActionsOpen(false);
             return true;
         });
         return () => subscription.remove();
-    }, [menu]);
+    }, [actionsOpen, menu]);
 
     // The agent is a TUI: it can only reach a file by having the path in its
     // prompt. But splicing that path into the draft the moment you attach
@@ -388,6 +435,20 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const linesRemoved = gitStatus !== null && gitStatus.linesRemoved > 0 ? `−${gitStatus.linesRemoved}` : null;
     const hasStatusRow = branch !== null || linesAdded !== null || linesRemoved !== null || permission !== null;
 
+    // Vertical drag only, clamped on the UI thread, so the trigger can be walked
+    // off whatever output it covers without ever landing on the composer or
+    // under the keyboard. The threshold is what keeps a tap a tap: below it the
+    // pan never activates and the Pressable underneath gets its press, above it
+    // gesture-handler takes the touch and the press is cancelled.
+    const toolsPan = React.useMemo(() => Gesture.Pan()
+        .enabled(!actionsOpen)
+        .activeOffsetY([-8, 8])
+        .onStart(() => { toolsLiftStart.set(toolsLift.get()); })
+        .onUpdate((event) => {
+            toolsLift.set(Math.min(Math.max(toolsLiftStart.get() - event.translationY, 0), toolsMaxLift.get()));
+        }), [actionsOpen, toolsLift, toolsLiftStart, toolsMaxLift]);
+    const toolsStyle = useAnimatedStyle(() => ({ transform: [{ translateY: -toolsLift.get() }] }));
+
     // Same shape as KeyboardAvoidingView, minus the animation: that padding
     // moves frame by frame and Ghostty reflows its whole grid on every size
     // change, which is the flicker. One step change, one reflow.
@@ -439,77 +500,6 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                         <Ionicons name="list-outline" size={20} color={theme.colors.textSecondary} />
                     </Pressable>
                 )}
-                {(
-                    <Pressable
-                        onPress={() => {
-                            const links = recentTerminalLinks(props.id);
-                            const linkItems: SessionMenu['items'] = links.length === 0 ? [] : [{
-                                label: 'Open link',
-                                hint: links[0] === undefined ? undefined : displayLink(links[0], 60),
-                                onPress: () => {
-                                    setMenu({
-                                        title: 'Open link',
-                                        note: 'From the recent terminal output',
-                                        items: links.map((url) => ({
-                                            label: displayLink(url, 72),
-                                            onPress: () => {
-                                                void openExternalUrl(url);
-                                            },
-                                        })),
-                                    });
-                                },
-                            }, {
-                                label: 'Copy link',
-                                hint: links[0] === undefined ? undefined : displayLink(links[0], 60),
-                                onPress: () => {
-                                    setMenu({
-                                        title: 'Copy link',
-                                        note: 'From the recent terminal output',
-                                        items: links.map((url) => ({
-                                            label: displayLink(url, 72),
-                                            onPress: () => {
-                                                void Clipboard.setStringAsync(url).then(() => Modal.alert('Link copied', url));
-                                            },
-                                        })),
-                                    });
-                                },
-                            }];
-                            const items: SessionMenu['items'] = [...linkItems, ...pluginButtons.map((button) => ({
-                                label: resolvePluginText(button.label),
-                                hint: button.name,
-                                onPress: () => {
-                                    const key = `${button.pluginId}:${button.id}`;
-                                    if (pluginActionBusy !== undefined) return;
-                                    setExtensionActionBusy(key);
-                                    void sync.request('plugin.invoke', {
-                                        pluginId: button.pluginId,
-                                        manifestHash: button.manifestHash,
-                                        contributionId: button.id,
-                                        sessionId: props.id,
-                                        idempotencyKey: randomUUID(),
-                                    }).catch((error) => Modal.alert(`${button.name} failed`, error instanceof Error ? error.message : String(error)))
-                                        .finally(() => setExtensionActionBusy(undefined));
-                                },
-                            })), ...(Platform.OS === 'web' || stopping ? [] : [{
-                                label: 'Stop agent',
-                                hint: 'Closes this pane in herdr',
-                                destructive: true,
-                                onPress: stopSession,
-                            }])];
-                            setMenu({ title: 'Actions', items, ...(items.length === 0 ? { note: 'No actions available' } : {}) });
-                        }}
-                        disabled={pluginActionBusy !== undefined}
-                        hitSlop={8}
-                        accessibilityRole="button"
-                        accessibilityLabel="More actions"
-                        accessibilityState={{ disabled: pluginActionBusy !== undefined }}
-                        style={({ pressed }) => ({ padding: 6, opacity: pressed ? 0.6 : 1 })}
-                    >
-                        {pluginActionBusy === undefined
-                            ? <Ionicons name="ellipsis-horizontal" size={20} color={theme.colors.textSecondary} />
-                            : <ActivityIndicator size="small" color={theme.colors.textSecondary} />}
-                    </Pressable>
-                )}
             </View>
 
             {hasStatusRow && (
@@ -540,6 +530,19 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                 onTouchStart={paneGestures.onTouchStart}
                 onTouchMove={paneGestures.onTouchMove}
                 onTouchEnd={paneGestures.onTouchEnd}
+                onLayout={(event) => {
+                    // The menu hangs above the trigger, so the trigger's ceiling
+                    // is really the menu's floor: it may climb only while a menu
+                    // worth opening still fits over it. 12 is the popup's own top
+                    // margin; the header it may also cover is not counted, so a
+                    // short band gives up its travel rather than its menu.
+                    //
+                    // A keyboard or a row of attachments shrinks the band, so
+                    // anything dragged past the new ceiling comes down with it.
+                    const max = Math.max(0, event.nativeEvent.layout.height - TOOLS_BASE - TOOLS_TARGET - TOOLS_MENU_GAP - 12 - TOOLS_MENU_MIN);
+                    toolsMaxLift.set(max);
+                    if (toolsLift.get() > max) toolsLift.set(max);
+                }}
                 style={{ flex: 1 }}
             >
                 <TerminalView sessionId={props.id} onStatus={onStatus} onChannel={onChannel} />
@@ -636,63 +639,55 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                         <Ionicons name="arrow-down" size={18} color={theme.colors.text} />
                     </Pressable>
                 )}
-            </View>
-
-            {Platform.OS !== 'web' && <>
-            <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                keyboardShouldPersistTaps="always"
-                style={{ maxHeight: 56, backgroundColor: theme.colors.surface }}
-                contentContainerStyle={{ alignItems: 'center', gap: 6, paddingHorizontal: 8, paddingVertical: 6 }}
-            >
-                {/* Pills lead: the key toolbar is wider than a phone, so anything
-                    after it is scrolled off-screen and effectively invisible. */}
-                {/* The chip appears and disappears on its own as you scroll past
-                    a link, so a hard pop reads as a glitch rather than a state
-                    change. Opacity only: it is the one property that survives
-                    reduced motion, and the row would reflow if we moved it. */}
-                {chipLink !== undefined && chipKind !== undefined && (
+                {Platform.OS !== 'web' && chipLink !== undefined && chipKind !== undefined && (
                     <Animated.View
                         entering={FadeIn.duration(180).reduceMotion(ReduceMotion.System)}
                         exiting={FadeOut.duration(120).reduceMotion(ReduceMotion.System)}
+                        style={{ position: 'absolute', left: 12, right: showJump ? 64 : 12, bottom: 8, alignItems: 'flex-start' }}
                     >
-                    <Pressable
-                        onPress={openChipLink}
-                        onLongPress={() => void Clipboard.setStringAsync(chipLink).then(() => showGestureHint('Link copied'))}
-                        accessibilityRole="button"
-                        accessibilityLabel={`${chipKind === 'preview' ? 'Preview' : 'Open'} ${chipLink}`}
-                        style={({ pressed }) => ({
-                            flexDirection: 'row',
-                            alignItems: 'center',
-                            gap: 4,
-                            paddingHorizontal: 8,
-                            paddingVertical: 4,
-                            borderRadius: 12,
-                            backgroundColor: theme.colors.surfaceHigh,
-                            opacity: pressed ? 0.6 : 1,
-                        })}
-                    >
-                        <Ionicons name={chipKind === 'preview' ? 'globe-outline' : 'open-outline'} size={12} color={theme.colors.textSecondary} />
-                        <Text style={{ color: theme.colors.text, fontSize: 12, fontWeight: '600' }}>
-                            {chipKind === 'preview' ? 'Preview' : 'Open'}
-                        </Text>
-                        <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 12 }}>
-                            {displayLink(chipLink, 40)}
-                        </Text>
-                    </Pressable>
+                        <Pressable
+                            onPress={openChipLink}
+                            onLongPress={() => void Clipboard.setStringAsync(chipLink).then(() => showGestureHint('Link copied'))}
+                            accessibilityRole="button"
+                            accessibilityLabel={`${chipKind === 'preview' ? 'Preview' : 'Open'} ${chipLink}`}
+                            style={({ pressed }) => ({
+                                maxWidth: '100%',
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                gap: 4,
+                                paddingHorizontal: 9,
+                                paddingVertical: 6,
+                                borderRadius: 14,
+                                backgroundColor: theme.colors.surfaceHigh,
+                                borderWidth: 1,
+                                borderColor: theme.colors.divider,
+                                opacity: pressed ? 0.6 : 1,
+                            })}
+                        >
+                            <Ionicons name={chipKind === 'preview' ? 'globe-outline' : 'open-outline'} size={12} color={theme.colors.textSecondary} />
+                            <Text style={{ color: theme.colors.text, fontSize: 12, fontWeight: '600' }}>
+                                {chipKind === 'preview' ? 'Preview' : 'Open'}
+                            </Text>
+                            <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 12, flexShrink: 1 }}>
+                                {displayLink(chipLink, 80)}
+                            </Text>
+                        </Pressable>
                     </Animated.View>
                 )}
-                {/* Plugin chips live here, not in the header: six trailing
-                    buttons left the session's own name truncated to three
-                    characters, and the name is what the bar is for. */}
-                <PluginSlot slot="session.header.trailing" context={{ sessionId: props.id, cwd: session?.metadata?.path }} />
-                <DeclarativeHeaderButtons cwd={session?.metadata?.path} sessionId={props.id} />
-                <DeclarativeChips slot="session.header.trailing" />
-                <PluginSlot slot="session.pills" context={{ sessionId: props.id }} />
-                <DeclarativeChips slot="session.pills" />
-                <DeclarativeTerminalKeySlot channel={channel} />
-            </ScrollView>
+            </View>
+
+            {Platform.OS !== 'web' && <View onLayout={(event) => setBottomBlockHeight(event.nativeEvent.layout.height)}>
+            <View style={{ minHeight: 52, flexDirection: 'row', alignItems: 'center', backgroundColor: theme.colors.surface }}>
+                <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    keyboardShouldPersistTaps="always"
+                    style={{ flex: 1, maxHeight: 52 }}
+                    contentContainerStyle={{ alignItems: 'center', gap: 6, paddingLeft: 8, paddingRight: 6, paddingVertical: 6 }}
+                >
+                    <DeclarativeTerminalKeySlot channel={channel} />
+                </ScrollView>
+            </View>
 
             {attachedPaths.length > 0 && (
                 <ScrollView
@@ -764,17 +759,140 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                     <Ionicons name="arrow-up-circle" size={30} color={theme.colors.text} />
                 </Pressable>
             </View>
-            </>}
+            </View>}
 
             <PluginSlot
                 slot="session.overlay"
                 context={{ sessionId: props.id, visible: treeOpen, onClose: () => setTreeOpen(false), openMenu: setMenu, showHint: showGestureHint }}
             />
 
+            {/* An actions menu, not a sheet: it belongs to the button that opened
+                it, so it hangs off that corner, stays only as tall as it needs,
+                and leaves the terminal visible behind it. The corner moves with
+                the trigger -- a menu that stayed at the bottom while its button
+                sat halfway up the screen would belong to nothing. */}
+            {actionsOpen && (
+                <Animated.View
+                    exiting={FadeOut.duration(160).reduceMotion(ReduceMotion.System)}
+                    accessibilityViewIsModal
+                    style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 20, alignItems: 'flex-end', justifyContent: 'flex-end' }}
+                >
+                    <Animated.View pointerEvents="none" entering={FadeIn.duration(140).reduceMotion(ReduceMotion.System)} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0, 0, 0, 0.28)' }} />
+                    <Pressable onPress={() => setActionsOpen(false)} accessibilityLabel="Close session actions" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} />
+                    <AnimatedPopup style={{
+                        flexShrink: 1,
+                        minWidth: 236,
+                        maxWidth: 320,
+                        marginRight: 8,
+                        marginLeft: 16,
+                        marginTop: 12,
+                        marginBottom: bottomBlockHeight + TOOLS_BASE + TOOLS_TARGET + TOOLS_MENU_GAP + openLift,
+                        borderRadius: 14,
+                        overflow: 'hidden',
+                        // Rows carry the lighter fill; the surface behind them is
+                        // only ever seen through the gap above the stop control.
+                        backgroundColor: theme.colors.surface,
+                        borderWidth: StyleSheet.hairlineWidth,
+                        borderColor: theme.colors.divider,
+                        transformOrigin: 'bottom right',
+                        elevation: 12,
+                    }}>
+                        <ScrollView style={{ flexGrow: 0, flexShrink: 1 }} keyboardShouldPersistTaps="always">
+                            <DeclarativeSessionActions cwd={session?.metadata?.path} sessionId={props.id} onNavigate={() => setActionsOpen(false)} />
+                            {recentTerminalLinks(props.id).length > 0 && <>
+                                <Pressable onPress={() => showRecentLinks('open')} accessibilityRole="button" accessibilityLabel="Open recent terminal link"
+                                    style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
+                                    <Ionicons name="open-outline" size={18} color={theme.colors.textSecondary} />
+                                    <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Open link</Text>
+                                    <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
+                                </Pressable>
+                                <Pressable onPress={() => showRecentLinks('copy')} accessibilityRole="button" accessibilityLabel="Copy recent terminal link"
+                                    style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
+                                    <Ionicons name="copy-outline" size={18} color={theme.colors.textSecondary} />
+                                    <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Copy link</Text>
+                                    <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
+                                </Pressable>
+                            </>}
+                            {pluginButtons.map((button) => {
+                                const key = `${button.pluginId}:${button.id}`;
+                                return <Pressable key={key} onPress={() => {
+                                    if (pluginActionBusy !== undefined) return;
+                                    setActionsOpen(false);
+                                    setExtensionActionBusy(key);
+                                    void sync.request('plugin.invoke', {
+                                        pluginId: button.pluginId,
+                                        manifestHash: button.manifestHash,
+                                        contributionId: button.id,
+                                        sessionId: props.id,
+                                        idempotencyKey: randomUUID(),
+                                    }).catch((error) => Modal.alert(`${button.name} failed`, error instanceof Error ? error.message : String(error)))
+                                        .finally(() => setExtensionActionBusy(undefined));
+                                }} disabled={pluginActionBusy !== undefined} accessibilityRole="button" accessibilityLabel={resolvePluginText(button.label)} accessibilityState={{ busy: pluginActionBusy === key, disabled: pluginActionBusy !== undefined }}
+                                    style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
+                                    {pluginActionBusy === key ? <ActivityIndicator size="small" color={theme.colors.textSecondary} /> : <Ionicons name="extension-puzzle-outline" size={18} color={theme.colors.textSecondary} />}
+                                    <Text numberOfLines={1} style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>{resolvePluginText(button.label)}</Text>
+                                </Pressable>;
+                            })}
+                        </ScrollView>
+                        {/* Stopping the agent is the one row here that destroys
+                            something, so it never scrolls away and never sits in
+                            the run of things you were only going to look at. */}
+                        {!stopping && (
+                            <Pressable onPress={() => { setActionsOpen(false); stopSession(); }} accessibilityRole="button" accessibilityLabel="Stop agent"
+                                style={({ pressed }) => ({ minHeight: 44, marginTop: 5, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
+                                <Ionicons name="stop-circle-outline" size={18} color={theme.colors.status.error} />
+                                <Text style={{ flex: 1, color: theme.colors.status.error, fontSize: 15 }}>Stop agent</Text>
+                            </Pressable>
+                        )}
+                    </AnimatedPopup>
+                </Animated.View>
+            )}
+
+            {/* Session tools: a small icon that floats over the terminal's right
+                edge rather than sitting in the key row, where it was one more
+                key cap. It starts above the keys and can be walked up the edge
+                and left there, because the one place a fixed control is always
+                wrong is on top of the line you are trying to read.
+
+                It sits above its own menu's backdrop, so it stays lit as the
+                thing the menu hangs off and a second press closes it, and below
+                the option sheet, which is a sheet and owns the screen. */}
+            {Platform.OS !== 'web' && (
+                <GestureDetector gesture={toolsPan}>
+                    <Animated.View style={[{ position: 'absolute', right: 10, bottom: bottomBlockHeight + TOOLS_BASE, zIndex: 30 }, toolsStyle]}>
+                        <Pressable
+                            onPress={() => { setOpenLift(toolsLift.get()); setActionsOpen((open) => !open); }}
+                            accessibilityRole="button"
+                            accessibilityLabel="Session actions"
+                            accessibilityState={{ expanded: actionsOpen }}
+                            style={({ pressed }) => ({ width: TOOLS_TARGET, height: TOOLS_TARGET, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.75 : 1 })}
+                        >
+                            <View style={{
+                                width: 34,
+                                height: 34,
+                                borderRadius: 17,
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                backgroundColor: actionsOpen ? theme.colors.surfaceHighest : theme.colors.surfaceHigh,
+                                borderWidth: StyleSheet.hairlineWidth,
+                                borderColor: theme.colors.divider,
+                                shadowColor: theme.colors.shadow.color,
+                                shadowOffset: { width: 0, height: 2 },
+                                shadowRadius: 6,
+                                shadowOpacity: theme.colors.shadow.opacity,
+                                elevation: 3,
+                            }}>
+                                <Ionicons name={actionsOpen ? 'construct' : 'construct-outline'} size={18} color={actionsOpen ? theme.colors.text : theme.colors.textSecondary} />
+                            </View>
+                        </Pressable>
+                    </Animated.View>
+                </GestureDetector>
+            )}
+
             {menu !== null && (
                 <Pressable
                     onPress={() => setMenu(null)}
-                    style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: theme.colors.scrim, justifyContent: 'flex-end' }}
+                    style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 40, backgroundColor: theme.colors.scrim, justifyContent: 'flex-end' }}
                 >
                     <View style={{ backgroundColor: theme.colors.surface, paddingBottom: insets.bottom + 8, borderTopLeftRadius: 14, borderTopRightRadius: 14 }}>
                         <View style={{ paddingHorizontal: 16, paddingTop: 14, paddingBottom: 8 }}>

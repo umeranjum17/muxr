@@ -21,12 +21,27 @@ type TailState = {
     scanTimer: ReturnType<typeof setTimeout> | undefined;
     tailTimer: ReturnType<typeof setTimeout> | undefined;
     viewportLinks: string[];
+    columns: number;
 };
 const tails = new Map<string, TailState>();
 
-const URL_PATTERN = /https?:\/\/[^\s"'`<>[\]{}()\\^|]+/g;
-const TRAILING = /[.,;:!?)\]]+$/;
+const URL_PATTERN = /https?:\/\/[^\s"'`<>]+/g;
+const MAX_URL_CHARS = 8 * 1024;
 const UNSAFE_URL_CHARS = /[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/;
+
+function trimTrailingPunctuation(value: string): string {
+    let end = value.length;
+    while (end > 0 && '.,;:!?'.includes(value[end - 1]!)) end--;
+    for (const [open, close] of [['(', ')'], ['[', ']'], ['{', '}']] as const) {
+        let balance = 0;
+        for (let index = 0; index < end; index++) {
+            if (value[index] === open) balance++;
+            else if (value[index] === close) balance--;
+        }
+        while (balance < 0 && value[end - 1] === close) { end--; balance++; }
+    }
+    return value.slice(0, end);
+}
 
 type LinksListener = (sessionId: string) => void;
 const linksListeners = new Set<LinksListener>();
@@ -52,6 +67,7 @@ function newState(): TailState {
         scanTimer: undefined,
         tailTimer: undefined,
         viewportLinks: [],
+        columns: 0,
     };
 }
 
@@ -134,12 +150,14 @@ export function recordTerminalOutput(sessionId: string, base64: string): void {
         state.scanTimer = setTimeout(() => scanViewport(sessionId), SCROLL_SCAN_DEBOUNCE_MS);
         return;
     }
-    // Not scrolling: the frame path is one boolean check. A chunk carrying a
-    // URL (a dev server just announced itself, and at the live edge that URL
-    // is on screen) schedules a single debounced chip refresh.
-    if (visible.includes('http') && state.tailTimer === undefined) {
+    // At the live edge, rescan once per output burst. Do not gate this on one
+    // socket chunk containing "http": the scheme itself can cross chunks.
+    if (visible !== '' && state.tailTimer === undefined) {
         state.tailTimer = setTimeout(() => {
             state.tailTimer = undefined;
+            const links = extractLinks(unwrapTerminalLinks(state.chunks.join(''), state.columns));
+            if (links.length === state.viewportLinks.length && links.every((link, index) => link === state.viewportLinks[index])) return;
+            state.viewportLinks = links;
             notifyLinks(sessionId);
         }, TAIL_NOTIFY_DEBOUNCE_MS);
     }
@@ -170,7 +188,7 @@ function scanViewport(sessionId: string): void {
     if (state === undefined) return;
     state.capturing = false;
     state.scanTimer = undefined;
-    const links = extractLinks(state.screen.replace(/\r/g, ''));
+    const links = extractLinks(unwrapTerminalLinks(state.screen, state.columns));
     state.screen = '';
     if (links.length === state.viewportLinks.length && links.every((link, index) => link === state.viewportLinks[index])) return;
     state.viewportLinks = links;
@@ -181,6 +199,26 @@ export function clearTerminalOutput(sessionId: string): void {
     drop(sessionId);
 }
 
+export function setTerminalColumns(sessionId: string, columns: number): void {
+    touch(sessionId).columns = Number.isFinite(columns) ? Math.max(0, Math.floor(columns)) : 0;
+}
+
+// A visual wrap fills the terminal row; a hard newline usually does not. Join
+// only full-width rows while already inside a URL, never arbitrary lines.
+function unwrapTerminalLinks(text: string, columns: number): string {
+    const lines = text.replace(/\r/g, '').split('\n');
+    if (columns === 0 || lines.length === 1) return lines.join('\n');
+    let result = lines[0] ?? '';
+    for (let index = 1; index < lines.length; index++) {
+        const previous = lines[index - 1] ?? '';
+        const next = lines[index] ?? '';
+        const insideUrl = /https?:\/\/[^\s"'`<>]*$/.test(result);
+        const softWrap = insideUrl && previous.length === columns && /^[^\s"'`<>]/.test(next);
+        result += `${softWrap ? '' : '\n'}${next}`;
+    }
+    return result;
+}
+
 /** Latest-first, deduped and canonical URLs from the given text. */
 function extractLinks(text: string): string[] {
     if (!text.includes('http')) return [];
@@ -188,8 +226,8 @@ function extractLinks(text: string): string[] {
     const seen = new Set<string>();
     const matches = [...text.matchAll(URL_PATTERN)];
     for (let index = matches.length - 1; index >= 0 && found.length < MAX_LINKS; index--) {
-        const candidate = matches[index]![0].replace(TRAILING, '');
-        if (candidate.length <= 12 || candidate.length > 2048 || UNSAFE_URL_CHARS.test(candidate)) continue;
+        const candidate = trimTrailingPunctuation(matches[index]![0]);
+        if (candidate.length <= 12 || candidate.length > MAX_URL_CHARS || UNSAFE_URL_CHARS.test(candidate)) continue;
         try {
             const parsed = new URL(candidate);
             if ((parsed.protocol !== 'http:' && parsed.protocol !== 'https:') || parsed.username !== '' || parsed.password !== '' || seen.has(parsed.href)) continue;
@@ -205,7 +243,7 @@ export function recentTerminalLinks(sessionId: string): string[] {
     const state = tails.get(sessionId);
     if (state === undefined) return [];
     touch(sessionId, state);
-    return extractLinks(state.chunks.join('').replace(/\r/g, ''));
+    return extractLinks(unwrapTerminalLinks(state.chunks.join(''), state.columns));
 }
 
 /** Links on screen after the last scroll gesture, latest first. */

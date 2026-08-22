@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 import { spawn } from 'node:child_process';
-import { constants, accessSync, chmodSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { constants, accessSync, chmodSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 
 import { createRequire } from 'node:module';
+import { homedir } from 'node:os';
 import { delimiter, join } from 'node:path';
 
 const require = createRequire(import.meta.url);
@@ -94,11 +95,52 @@ async function ccusageRange() {
   return result;
 }
 
-async function claudeBlock() {
-  const binary = ccusageBinary();
-  if (!binary) return undefined;
-  const result = await runJson(binary, ['blocks', '--active', '--json', '--offline'], 15_000);
-  return Array.isArray(result?.blocks) ? result.blocks.find((block) => block?.isActive) : undefined;
+function parseClaudeLimits(value) {
+  const source = value?.rate_limits ?? value;
+  return [
+    ['five_hour', '5-hour limit'],
+    ['seven_day', '7-day limit'],
+  ].flatMap(([id, label]) => {
+    const raw = source?.[id];
+    const utilization = raw?.utilization ?? raw?.used_percentage;
+    if (!Number.isFinite(utilization) || utilization < 0 || utilization > 100) return [];
+    const resetAt = typeof raw?.resets_at === 'number' ? raw.resets_at : Date.parse(raw?.resets_at) / 1000;
+    const reset = relativeReset(resetAt);
+    return [{ id, label, used: Math.round(utilization), reset }];
+  });
+}
+
+function readJson(path, maxBytes) {
+  try {
+    const stat = statSync(path);
+    if (!stat.isFile() || stat.size <= 0 || stat.size > maxBytes) return undefined;
+    return { value: JSON.parse(readFileSync(path, 'utf8')), modified: stat.mtimeMs };
+  } catch { return undefined; }
+}
+
+async function claudePlanLimits() {
+  const config = process.env.CLAUDE_CONFIG_DIR?.trim() || join(process.env.HOME?.trim() || homedir(), '.claude');
+  const snapshot = readJson(join(config, 'last-statusline-input.json'), 64 * 1024);
+  const snapshotAge = snapshot === undefined ? undefined : Date.now() - snapshot.modified;
+  if (snapshotAge !== undefined && snapshotAge >= 0 && snapshotAge < 5 * 60_000) {
+    const limits = parseClaudeLimits(snapshot.value);
+    if (limits.length > 0) return limits;
+  }
+  const credentials = readJson(join(config, '.credentials.json'), 64 * 1024)?.value?.claudeAiOauth;
+  const token = typeof credentials?.accessToken === 'string' && credentials.accessToken.length <= 16 * 1024 ? credentials.accessToken : undefined;
+  if (token === undefined || Number.isFinite(credentials?.expiresAt) && credentials.expiresAt <= Date.now()) return [];
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 8_000);
+  try {
+    const response = await fetch('https://api.anthropic.com/api/oauth/usage', {
+      headers: { accept: 'application/json', authorization: `Bearer ${token}` },
+      signal: controller.signal,
+    });
+    if (!response.ok) return [];
+    const body = await response.text();
+    return body.length <= 64 * 1024 ? parseClaudeLimits(JSON.parse(body)) : [];
+  } catch { return []; }
+  finally { clearTimeout(timer); }
 }
 
 function money(value) {
@@ -188,7 +230,8 @@ function cachedOutput() {
   try {
     const saved = JSON.parse(readFileSync(join(state, cacheName()), 'utf8'));
     const age = Date.now() - saved.at;
-    if (age >= 0 && age < 60_000 && Array.isArray(saved.output?.items) && JSON.stringify(saved.output).length <= 16_384) return saved.output;
+    const maxAge = selected === 'claude' ? 15_000 : 60_000;
+    if (age >= 0 && age < maxAge && Array.isArray(saved.output?.items) && JSON.stringify(saved.output).length <= 16_384) return saved.output;
   } catch {}
   return undefined;
 }
@@ -318,9 +361,9 @@ if (cached !== undefined) {
   const today = days[days.length - 1]?.row;
   const weekTokens = days.reduce((sum, day) => sum + (day.row?.totalTokens ?? 0), 0);
   const weekCost = days.reduce((sum, day) => sum + (day.row?.totalCost ?? 0), 0);
-  const block = provider === 'claude' ? await claudeBlock() : undefined;
-  const blockRemaining = block === undefined ? undefined
-    : Math.max(0, Math.min(100, Math.round(100 - (Date.now() - Date.parse(block.startTime)) / (Date.parse(block.endTime) - Date.parse(block.startTime)) * 100)));
+  const claudeLimits = provider === 'claude' ? await claudePlanLimits() : [];
+  const fiveHour = claudeLimits.find((limit) => limit.id === 'five_hour');
+  const sevenDay = claudeLimits.find((limit) => limit.id === 'seven_day');
   const items = [];
   if (ccusageFailure && activity.items.length === 0) items.push({
     id: 'ccusage-unavailable', title: 'Local activity unavailable', subtitle: ccusageFailure, icon: 'warning-outline', metadata: [],
@@ -363,14 +406,17 @@ if (cached !== undefined) {
       label: dayLabel(period), value: row?.totalTokens ?? 0, valueLabel: tokens(row?.totalTokens ?? 0) ?? '0',
     })),
     limitSeries: provider === 'codex' ? codex.series : [],
-    limitRing: blockRemaining !== undefined
-      ? [
-          { label: 'Left', value: blockRemaining, valueLabel: `${blockRemaining}%`, tone: limitTone(blockRemaining) },
-          { label: 'Used', value: 100 - blockRemaining, valueLabel: `${100 - blockRemaining}%`, tone: 'secondary' },
-        ]
-      : provider === 'codex' ? codex.ring : [],
-    limitLabel: block !== undefined
-      ? `5-hour window · ${relativeReset(Date.parse(block.endTime) / 1000)} left · ${tokens(Math.round(block.burnRate?.tokensPerMinute ?? 0)) ?? '0'} tokens/min`
+    limitRing: provider === 'codex' ? codex.ring : [],
+    ...(fiveHour === undefined ? {} : {
+      fiveHourUsed: fiveHour.used,
+      fiveHourLabel: `${fiveHour.used}% used${fiveHour.reset ? ` · resets in ${fiveHour.reset}` : ''}`,
+    }),
+    ...(sevenDay === undefined ? {} : {
+      sevenDayUsed: sevenDay.used,
+      sevenDayLabel: `${sevenDay.used}% used${sevenDay.reset ? ` · resets in ${sevenDay.reset}` : ''}`,
+    }),
+    limitLabel: claudeLimits.length > 0
+      ? 'Claude plan usage'
       : provider === 'codex' ? codex.remainingLabel : '',
     codexRemaining: codex.remaining,
     codexRemainingLabel: codex.remainingLabel,

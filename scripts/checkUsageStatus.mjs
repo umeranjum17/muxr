@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -35,26 +35,26 @@ const report = {
     ],
     totals: { totalTokens: 1_253_300, totalCost: 132.95 },
 };
-const activeBlock = {
-    blocks: [{
-        isActive: true,
-        startTime: new Date(today.getTime() - 3_600_000).toISOString(),
-        endTime: new Date(today.getTime() + 3 * 3_600_000).toISOString(),
-        burnRate: { tokensPerMinute: 12_000 },
-    }],
+const claudeLimits = {
+    rate_limits: {
+        five_hour: { used_percentage: 21, resets_at: Math.floor((today.getTime() + 3 * 3_600_000) / 1000) },
+        seven_day: { used_percentage: 42, resets_at: Math.floor((today.getTime() + 3 * 86_400_000) / 1000) },
+    },
 };
 
 const run = (input, environment = {}) => spawnSync(process.execPath, ['plugins/status/usage.mjs'], {
     cwd: process.cwd(),
     encoding: 'utf8',
     input: JSON.stringify(input),
-    env: { ...process.env, PATH: `${scratch}:${process.env.PATH}`, MUXR_CCUSAGE_BIN: ccusage, MUXR_PLUGIN_STATE_DIR: scratch, ...environment },
+    env: { ...process.env, HOME: scratch, PATH: `${scratch}:${process.env.PATH}`, MUXR_CCUSAGE_BIN: ccusage, MUXR_PLUGIN_STATE_DIR: scratch, ...environment },
     timeout: 20_000,
 });
 
 try {
     writeFileSync(join(scratch, 'pi'), `#!/bin/sh\ntouch "${piMarker}"\nexit 99\n`, { mode: 0o755 });
-    writeFileSync(ccusage, `#!/bin/sh\ncase "$1 $2" in\n"daily --by-agent") printf x >> "${ccusageMarker}"; printf '%s' '${JSON.stringify(report)}';;\n"blocks --active") printf '%s' '${JSON.stringify(activeBlock)}';;\n*) exit 77;;\nesac\n`, { mode: 0o755 });
+    writeFileSync(ccusage, `#!/bin/sh\ncase "$1 $2" in\n"daily --by-agent") printf x >> "${ccusageMarker}"; printf '%s' '${JSON.stringify(report)}';;\n*) exit 77;;\nesac\n`, { mode: 0o755 });
+    mkdirSync(join(scratch, '.claude'));
+    writeFileSync(join(scratch, '.claude', 'last-statusline-input.json'), JSON.stringify(claudeLimits));
     writeFileSync(join(scratch, 'codex'), `#!/usr/bin/env node\nrequire('fs').appendFileSync(${JSON.stringify(codexMarker)}, 'x');let b='';process.stdin.setEncoding('utf8');process.stdin.on('data',d=>{b+=d;for(;;){const i=b.indexOf('\\n');if(i<0)break;const line=b.slice(0,i);b=b.slice(i+1);const m=JSON.parse(line);if(m.id===1)console.log(JSON.stringify({id:1,result:{}}));if(m.id===2)console.log(JSON.stringify({id:2,result:{rateLimitsByLimitId:{codex:{limitId:'codex',primary:{usedPercent:25,resetsAt:Math.floor(Date.now()/1000)+3600}}}}}));}});\n`, { mode: 0o755 });
     for (const command of ['claude', 'kimi', 'opencode', 'hermes', 'copilot', 'cursor-agent', 'omp', 'gemini', 'grok']) writeFileSync(join(scratch, command), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
 
@@ -73,14 +73,18 @@ try {
     const tabs = output.providers.map((tab) => tab.id);
     for (const expected of ['claude', 'kimi', 'pi', 'codex', 'cursor']) assert.ok(tabs.includes(expected), `missing ${expected} tab`);
 
-    // Claude's tab carries today, its models, the week, and the live 5-hour window.
+    // Claude's tab carries today, its models, the week, and the real plan windows.
     assert.equal(output.todayTokens, '1.3M');
     assert.equal(output.todayCost, '$123');
     assert.equal(output.modelSeries[0]?.label, 'claude-opus-5');
     assert.equal(output.weekSeries.length, 2);
     assert.equal(output.weekSeries[1]?.valueLabel, '1.3M');
-    assert.match(output.limitLabel, /5-hour window/);
-    assert.equal(output.limitRing[0]?.label, 'Left');
+    assert.equal(output.limitLabel, 'Claude plan usage');
+    assert.equal(output.fiveHourUsed, 21);
+    assert.match(output.fiveHourLabel, /^21% used · resets in /);
+    assert.equal(output.sevenDayUsed, 42);
+    assert.match(output.sevenDayLabel, /^42% used · resets in /);
+    assert.deepEqual(output.limitRing, []);
 
     // A quiet provider reports zero today rather than its last active day.
     const kimi = JSON.parse(run({ provider: 'kimi' }).stdout);

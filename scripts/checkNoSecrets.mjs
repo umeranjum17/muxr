@@ -27,10 +27,8 @@ const patterns = [
     ['credentialed Mongo URI', /mongodb(?:\+srv)?:\/\/[^\s:'"/]+:[^\s@'"/]+@/g],
     ['Stripe live key', /\b(?:sk|rk)_live_[A-Za-z0-9]{24,}\b/g],
 ];
-const forbiddenWebLiterals = [
-    process.env.EXPO_PUBLIC_MUXR_TOKEN,
-    process.env.EXPO_PUBLIC_MUXR_E2EE_KEY,
-].filter((value) => typeof value === 'string' && value.length >= 12);
+const forbiddenWebLiterals = [process.env.EXPO_PUBLIC_MUXR_TOKEN]
+    .filter((value) => typeof value === 'string' && value.length >= 12);
 const findings = [];
 for (const relativePath of files) {
     const path = join(root, relativePath);

@@ -16,7 +16,7 @@ import { View } from 'react-native';
 import { TerminalView as GhosttyView, type TerminalViewRef } from 'expo-libghostty';
 import { decodeBase64, encodeBase64 } from '@/encryption/base64';
 import { openTerminal, type TerminalChannel } from './openTerminal';
-import { beginViewportCapture, recordTerminalOutput } from './recentOutput';
+import { beginViewportCapture, recordTerminalOutput, setTerminalColumns } from './recentOutput';
 
 /**
  * One scroll message costs herdr one full-screen repaint whatever the line
@@ -128,6 +128,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
 
     const attach = React.useCallback(
         (cols: number, rows: number) => {
+            setTerminalColumns(sessionId, cols);
             const last = lastSizeRef.current;
             if (last !== null && last.cols === cols && last.rows === rows) return;
             lastSizeRef.current = { cols, rows };

@@ -611,8 +611,8 @@ function ScreenNode(props: {
         case 'progress': {
             const max = node.max ?? 100;
             const resolved = node.path === undefined ? node.value : resolvePath(data, node.path);
-            const raw = typeof resolved === 'number' && Number.isFinite(resolved) ? resolved : 0;
-            const value = Math.max(0, Math.min(max, raw));
+            if (typeof resolved !== 'number' || !Number.isFinite(resolved)) return null;
+            const value = Math.max(0, Math.min(max, resolved));
             const label = node.label === undefined ? undefined : bind(node.label);
             const valueLabel = node.valueLabel === undefined ? undefined : bind(node.valueLabel);
             return (

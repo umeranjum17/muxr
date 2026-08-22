@@ -10,7 +10,7 @@ import { WebglAddon } from '@xterm/addon-webgl';
 import { Terminal } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
 import { openTerminal, type TerminalChannel } from './openTerminal';
-import { beginViewportCapture, recordTerminalOutput } from './recentOutput';
+import { beginViewportCapture, recordTerminalOutput, setTerminalColumns } from './recentOutput';
 
 export interface TerminalViewProps {
     sessionId: string;
@@ -47,6 +47,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
         term.loadAddon(new WebLinksAddon());
         term.open(element);
         fit.fit();
+        setTerminalColumns(sessionId, term.cols);
         // WebGL renderer: xterm.js rates it ~900% faster frame rendering than
         // canvas (it's VS Code's default). Canvas stays as the fallback where
         // WebGL is unavailable (old WebViews, blocked GPUs).
@@ -119,6 +120,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
 
         const resize = (): void => {
             fit.fit();
+            setTerminalColumns(sessionId, term.cols);
             channel?.resize(term.cols, term.rows);
         };
         window.addEventListener('resize', resize);

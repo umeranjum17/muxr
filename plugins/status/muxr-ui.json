@@ -64,11 +64,18 @@
               ]
             },
             {
-              "type": "chart",
-              "variant": "gauge",
-              "path": "data.limitRing",
-              "title": "Current limit",
-              "emptyText": "No published limit for this provider"
+              "type": "progress",
+              "path": "data.fiveHourUsed",
+              "max": 100,
+              "label": "5-hour limit",
+              "valueLabel": "{{data.fiveHourLabel}}"
+            },
+            {
+              "type": "progress",
+              "path": "data.sevenDayUsed",
+              "max": 100,
+              "label": "7-day limit",
+              "valueLabel": "{{data.sevenDayLabel}}"
             },
             {
               "type": "text",
