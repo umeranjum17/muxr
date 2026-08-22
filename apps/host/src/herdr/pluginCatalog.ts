@@ -160,7 +160,7 @@ export class PluginCatalog {
                     name: snapshot.summary.name,
                     enabled,
                     source: snapshot.summary.source,
-                    hasBackend: snapshot.summary.hasBackend || snapshot.manifest.contributions.some((item) => item.slot === 'host.rpc' || item.slot === 'host.stream'),
+                    hasBackend: snapshot.summary.hasBackend,
                 }],
         ).sort((left, right) => left.name.localeCompare(right.name));
     }
@@ -296,7 +296,7 @@ async function loadPlugin(
         const authority = stableJson(authorityInput);
         const source = sourceOf(plugin.source, plugin, pluginRoot);
         const manifestHash = digest(`${APPROVAL_DOMAIN}\0${plugin.plugin_id}\0${sourceIdentity(source, pluginRoot)}\0${authority}\0${canonical}`);
-        return { pluginRoot, manifest, actions, calls, streams, summary: summaryOf(plugin, manifestHash, manifest.capabilities ?? {}, source) };
+        return { pluginRoot, manifest, actions, calls, streams, summary: summaryOf(plugin, manifestHash, manifest.capabilities ?? {}, source, manifest) };
     } finally {
         await handle.close();
     }
@@ -314,7 +314,7 @@ function backendOnly(plugin: HerdrPlugin, warning?: string, pluginRoot = plugin.
     };
 }
 
-function summaryOf(plugin: HerdrPlugin, manifestHash: string | undefined, capabilities: Record<string, string>, source = sourceOf(plugin.source, plugin)): Omit<PluginSummary, 'approved'> {
+function summaryOf(plugin: HerdrPlugin, manifestHash: string | undefined, capabilities: Record<string, string>, source = sourceOf(plugin.source, plugin), manifest?: PluginManifestV1): Omit<PluginSummary, 'approved'> {
     return {
         pluginId: plugin.plugin_id,
         name: safeText(plugin.name, 80)[0] ?? plugin.plugin_id,
@@ -323,7 +323,8 @@ function summaryOf(plugin: HerdrPlugin, manifestHash: string | undefined, capabi
         source,
         ...(manifestHash === undefined ? {} : { manifestHash }),
         capabilities,
-        hasBackend: [plugin.build, plugin.startup, plugin.actions, plugin.events, plugin.panes, plugin.link_handlers].some((value) => (value?.length ?? 0) > 0),
+        hasBackend: [plugin.build, plugin.startup, plugin.actions, plugin.events, plugin.panes, plugin.link_handlers].some((value) => (value?.length ?? 0) > 0)
+            || manifest?.contributions.some((item) => item.slot === 'host.rpc' || item.slot === 'host.stream') === true,
         warnings: (plugin.warnings ?? []).filter((warning): warning is string => typeof warning === 'string').slice(0, 4).flatMap((warning) => safeText(warning, MAX_TEXT)),
     };
 }

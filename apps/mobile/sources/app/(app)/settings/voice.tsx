@@ -84,7 +84,7 @@ export default function VoiceProviderScreen() {
         try {
             const plugin = await approveProvider(selected.id);
             const settings = plugin?.manifest?.contributions.find((contribution) => contribution.slot === 'settings.items' && contribution.type === 'settings-item');
-            if (settings?.action.type !== 'screen') throw new Error('Open Settings → Plugins and enable this provider, then try again.');
+            if (settings?.action.type !== 'screen') throw new Error('This provider has no configuration screen.');
             router.push(pluginHref(selected.id, settings.action.contributionId) as any);
         } catch (cause) {
             Modal.alert('Provider settings unavailable', cause instanceof Error ? cause.message : String(cause));

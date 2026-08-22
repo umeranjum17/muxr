@@ -996,6 +996,18 @@ export async function createHerdrSessionSource(
                 enabledTarget = true;
             }
             await refreshPlugins();
+            const latest = catalog.capabilityPlugins('voice.session');
+            let converged = false;
+            if (!latest.some((candidate) => candidate.pluginId === target.pluginId && candidate.enabled)) {
+                await client.call('plugin.enable', { plugin_id: target.pluginId });
+                converged = true;
+            }
+            for (const current of latest) {
+                if (!current.enabled || current.pluginId === target.pluginId) continue;
+                await client.call('plugin.disable', { plugin_id: current.pluginId });
+                converged = true;
+            }
+            if (converged) await refreshPlugins();
             return voiceProviderOptions();
         } catch (error) {
             if (enabledTarget) await client.call('plugin.disable', { plugin_id: target.pluginId }).catch(() => undefined);
