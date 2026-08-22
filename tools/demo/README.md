@@ -14,8 +14,8 @@ cd tools/demo
 npm install              # not part of the yarn workspace — install on demand
 npx playwright install chromium
 node capture/take.mjs        # the shoot — needs a phone and a live agent
-node capture/phone-after.mjs # the after pass: finished state, diff, herd
-node build.mjs           # shots → lockup → assemble → sheet → leakcheck
+node capture/phone-after.mjs # the after pass: finished state, herd
+node build.mjs               # reel → deliver → leakcheck
 ```
 
 `take` is the shoot: it runs the job once and records the desk and the phone
@@ -27,17 +27,15 @@ default run.
 
 | step | tool | output |
 |---|---|---|
-| `take` | herdr + `adb screenrecord` | `raw/take/desk.cast`, `raw/take/phone.mp4` — one continuous run of the job |
-| `shots` | ffmpeg | `cut/shots/01…10.mp4`, each exactly the length `lib/film.mjs` declares |
-| `lockup` | Playwright | `cut/shots/11.mp4`, the only authored frame in the film |
-| `assemble` | ffmpeg | `raw/muxr-demo-1080.mp4`, `docs/demo/muxr-demo.mp4` (720p), `docs/demo/muxr-loop.webp` |
-| `sheet` | ffmpeg | `review/sheet.png`, one frame per shot side by side |
-| `leakcheck` | tesseract | reads all 1080 shipped frames and fails on anything private |
+| `take` | herdr + `adb screenrecord` | `raw/take/*.mp4`, `raw/take/desk.cast` — one continuous run of the job |
+| `reel` | Remotion | `raw/muxr-demo-1080.mp4` — the composed film, 1080p60 |
+| `deliver` | ffmpeg | `docs/demo/muxr-demo.mp4` (the master, stream-copied), `docs/demo/muxr-loop.webp` |
+| `leakcheck` | tesseract | reads every shipped frame and fails on anything private |
 | `frames` | Playwright | `docs/play/store-assets/NN-<scene>.png`, 1080×1920 |
 
-`lib/film.mjs` is the only thing that decides timing: it self-validates, and
-`cut/assemble.mjs` refuses to join a shot whose length disagrees with it.
-`lib/scenes.mjs` plays the same role for the store screenshots.
+`reel/src/config.ts` is the single source of truth: the palette, the design
+tokens, the act table, and where each beat's footage lives on the take's
+clock. `lib/scenes.mjs` plays the same role for the store screenshots.
 
 The 1080p master lands in `raw/muxr-demo-1080.mp4` and is deliberately not
 tracked — thirty-six seconds of fine terminal text encodes to twenty-odd megabytes,
@@ -46,30 +44,30 @@ listing; the repo carries the 720p cut and the WebP.
 
 ## The film
 
-36 seconds, one job, start to finish: Claude Code finds a refresh-token race,
-asks to run the tests, nobody is at the desk, the same question appears on a
-phone, someone taps Yes, and both screens move. `SPEC.md` holds the shot table,
-the hard rules and every place the finished film deviates from them.
+35 seconds, seven caption-led acts, one real job: Claude Code finds a race,
+asks to run the tests, nobody is at the desk for 45 seconds, the phone answers,
+the desk obeys. Every frame of footage is the product's own output from a
+single take — the *composition* is where the craft lives:
 
-There is no device in this film and no captions. Every frame except the last is
-the product's own output, cut from one take at real speed — no speed-up, no
-recreation, no drawn UI. The one authored frame is the brand close, and it is
-set in the app's own IBM Plex.
+- **One world, one camera.** The footage floats in designed panels (titled
+  terminal, naked phone) on a lit ink ground with grain. A single
+  critically-damped camera glides between beats — it dives onto the approval
+  prompt, pulls back for the abandonment, widens for the hero. It never cuts;
+  only the screens are allowed to skip time.
+- **Springs only on objects.** Panels and words arrive with one small
+  overshoot; the camera never bounces.
+- **Green is the desk saying yes.** The status-green is the film's only
+  accent: the caption periods, the tap's answer — the desk's border pulses
+  green twelve frames after the phone's ripple — and the wordmark's period.
+- **The captions are the grammar.** Seven sentences, each proved by the
+  footage after it. The first cut had no narration and played as random
+  screens; real footage cannot narrate itself.
 
-Two decisions carry the rest of it:
-
-**One take, two recorders.** The desk and the phone start together and drift by
-a single frame across ten minutes, so a phone timestamp *is* a desk timestamp.
-That is what lets shot 05 put both screens in one frame across the tap and be
-sure the desk really did react when it looks like it did.
-
-**Poll the pane, don't stream it.** `herdr terminal session observe` is what the
-app's live strip uses and it is deliberately frugal — on a hundred-second take
-it sent thirty repaints and never sent the approval prompt at all. Fine for a
-thumbnail, useless for a recording. `capture/deskpoll.mjs` polls
-`herdr agent read` instead, which returns the whole rendered screen for about
-two milliseconds a call, and writes each change as a cast frame. Same pane, same
-output, sampled rather than streamed.
+The desk was recorded by polling `herdr agent read` (`capture/deskpoll.mjs`)
+— the observe stream is a thumbnail feed and misses the approval prompt
+entirely. Desk and phone record together and drift one frame in ten minutes,
+so the hero's tap-and-response is real simultaneity, marked by an authored
+ripple and answered by the pulse.
 
 ## Requirements
 

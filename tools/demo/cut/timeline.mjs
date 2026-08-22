@@ -13,7 +13,7 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { FPS } from '../lib/film.mjs';
+const FPS = 30; // the capture's rate — the take is recorded at 30
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const cast = path.join(root, 'raw/take/desk.cast');

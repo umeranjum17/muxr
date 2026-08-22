@@ -6,7 +6,12 @@ it up.
 
 Timing lives in `lib/film.mjs`, which self-validates. This table mirrors it.
 
-## The film — caption-led acts, 30fps, 996 frames, 33.2s
+## The film — caption-led acts, composed, 1080p60, 2100 frames, 35.0s
+
+Composed in Remotion (`reel/`): panels on a lit ground, one unbroken camera,
+kinetic captions, the tap ripple and the desk's green acknowledgment. The act
+table below is the story; `reel/src/config.ts` holds the frame-exact timing.
+
 
 Each card states a cause; the footage after it is the effect. The first cut
 had no narration and the owner watched it cold: "randomly doing random

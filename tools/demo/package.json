@@ -6,16 +6,20 @@
   "type": "module",
   "scripts": {
     "take": "node capture/take.mjs",
-    "shots": "node cut/shots.mjs",
-    "lockup": "node cut/lockup.mjs",
-    "assemble": "node cut/assemble.mjs",
-    "sheet": "node review/sheet.mjs",
+    "reel": "node reel/render.mjs",
+    "deliver": "node reel/deliver.mjs",
     "leakcheck": "node review/leakcheck.mjs raw/muxr-demo-1080.mp4",
     "frames": "node frames/render.mjs",
     "all": "node build.mjs"
   },
   "dependencies": {
-    "playwright": "^1.62.0"
+    "@remotion/bundler": "^4.0.514",
+    "@remotion/fonts": "^4.0.514",
+    "@remotion/renderer": "^4.0.514",
+    "playwright": "^1.62.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "remotion": "^4.0.514"
   },
   "devDependencies": {
     "typescript": "^5.7.2"
