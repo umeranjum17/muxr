@@ -76,65 +76,41 @@ export const TOKENS = {
     },
 };
 
-/** Where the real footage lives, on the take's own clock (seconds). */
-export const SRC = {
-    desk: 'take/desk-cfr.mp4',       // 1948x1948, 30fps
-    phone: 'take/phone-cfr.mp4',     // 1080x2400, 30fps
-    after: 'take/phone-after-cfr.mp4',
-    // The herd, captured with the other workspace groups collapsed: their
-    // rows print machine paths that have no business in the film, and the
-    // collapsed headers are clean.
-    herd: 'take/phone-herd-cfr.mp4',
-};
-
-/** Moments in the take (seconds), measured by cut/timeline.mjs. */
-export const AT = {
-    work: 49.4,
-    approvalUp: 50.94,
-    waiting: 92.0,
-    phoneApproval: 91.0,
-    tap: 96.1,
-    testsRunning: 101.4,
-    writeup: 5.0,       // on the after pass
-    herd: 2.0,          // on the dedicated collapsed-herd clip
-};
-
 /**
- * The prompt box inside the 1948x1948 desk render, in render pixels.
- * The camera dives to it for the macro beat.
+ * The beats — the script (written by gpt-5.6-sol, implemented verbatim).
+ * No card interludes: every line shares the frame with the footage that
+ * proves it. `anchor` says where the words live: above the desk, beside the
+ * phone, under the pair.
  */
-export const PROMPT = { x: 60, y: 1330, w: 900, h: 506 };
-
-/** The Enter key on the phone screen (1080x2400), in screen pixels. */
-export const ENTER = { x: 476, y: 2112 };
-
-/**
- * The acts. `frames` are at 60fps. Each caption is a sentence; the beat after
- * it is that sentence's proof. Total is derived; the renderer trusts this
- * table the way the old cutter trusted lib/film.mjs.
- */
-export const ACTS = [
-    { id: 'c1', kind: 'card' as const, text: 'Your agent needs a yes.', frames: 96 },
-    { id: 'work', kind: 'beat' as const, frames: 168 },   // desk enters, working
-    { id: 'macro', kind: 'beat' as const, frames: 156 },  // camera dives to the prompt
-    { id: 'c2', kind: 'card' as const, text: 'You’re not at your desk.', frames: 90 },
-    { id: 'waiting', kind: 'beat' as const, frames: 180 }, // pull back + counter
-    { id: 'c3', kind: 'card' as const, text: 'Your phone is.', frames: 78 },
-    { id: 'reveal', kind: 'beat' as const, frames: 168 }, // phone slides in, same question
-    { id: 'c4', kind: 'card' as const, text: 'One tap. The desk obeys.', frames: 96 },
-    { id: 'hero', kind: 'beat' as const, frames: 264 },   // both panels, the tap, the flip
-    { id: 'c5', kind: 'card' as const, text: 'The work finishes without you.', frames: 90 },
-    { id: 'finish', kind: 'beat' as const, frames: 216 }, // tests run -> 26 passed
-    { id: 'c6', kind: 'card' as const, text: 'All your agents. One pocket.', frames: 90 },
-    { id: 'herd', kind: 'beat' as const, frames: 168 },   // the herd, live dots
-    { id: 'end', kind: 'beat' as const, frames: 240 },    // wordmark, line, url
+export type Anchor = 'top' | 'right' | 'bottom';
+export const BEATS: Array<{
+    id: string; frames: number; lines: string[]; anchor: Anchor; small?: string;
+}> = [
+    { id: 'bug', frames: 240, anchor: 'top',
+      lines: ['Claude Code finds a refresh-token race.'] },
+    { id: 'fix', frames: 240, anchor: 'top',
+      lines: ['It writes the fix.', 'It adds three tests.'] },
+    { id: 'wall', frames: 300, anchor: 'bottom',
+      lines: ['Then pnpm test needs your approval.'] },
+    { id: 'moves', frames: 240, anchor: 'right',
+      lines: ['Away from your desk,', 'muxr shows the same prompt', 'on your phone.'] },
+    { id: 'approval', frames: 240, anchor: 'bottom',
+      lines: ['Your tap approves pnpm test.', 'Claude continues on your computer.'] },
+    { id: 'run', frames: 300, anchor: 'bottom',
+      lines: ['The tests run on your computer.', 'Every result appears live in muxr.'] },
+    { id: 'result', frames: 240, anchor: 'right',
+      lines: ['26 passed.', 'The refresh-token race is fixed.'] },
+    { id: 'herd', frames: 300, anchor: 'right',
+      lines: ['Claude. Codex. Gemini. Cursor.', 'Four live sessions on your phone.'],
+      small: 'SELF-HOSTED RELAY \u00b7 END-TO-END ENCRYPTED' },
+    { id: 'end', frames: 240, anchor: 'bottom', lines: [] },
 ];
 
 export const starts = (() => {
     const map: Record<string, number> = {};
     let at = 0;
-    for (const act of ACTS) { map[act.id] = at; at += act.frames; }
+    for (const beat of BEATS) { map[beat.id] = at; at += beat.frames; }
     return map;
 })();
 
-export const TOTAL = ACTS.reduce((sum, act) => sum + act.frames, 0);
+export const TOTAL = BEATS.reduce((sum, beat) => sum + beat.frames, 0);

@@ -11,23 +11,24 @@ export type Pose = { cx: number; cy: number; s: number };
  * rule: the world is continuous, only the screens skip time.
  */
 export const POSES: Array<{ at: number; pose: Pose }> = [
-    { at: 0, pose: { cx: 960, cy: 540, s: 1 } },
-    // The dive onto the prompt. The desk render is 1948px square drawn at 962,
-    // so the prompt box lands at world (731, 859); 3.2x fills the frame with it.
-    { at: starts.macro, pose: { cx: 731, cy: 859, s: 3.2 } },
-    // Nobody answers: pull back until the terminal is small in the dark.
-    { at: starts.c2, pose: { cx: 960, cy: 510, s: 0.62 } },
-    // To the phone. It rises into (425, 540) while the desk parks right.
-    { at: starts.c3, pose: { cx: 425, cy: 540, s: 1.15 } },
-    // Widen for the hero: both screens, one frame.
-    { at: starts.c4, pose: { cx: 960, cy: 540, s: 0.96 } },
-    // Back to the phone for the finish,
-    { at: starts.c5, pose: { cx: 425, cy: 540, s: 1.15 } },
-    // a breath out for the herd card, a slow push back in on the herd,
-    { at: starts.c6, pose: { cx: 425, cy: 540, s: 1.08 } },
-    { at: starts.herd, pose: { cx: 425, cy: 540, s: 1.18 } },
-    // and past the panels into the dark where the wordmark lives.
-    { at: starts.end, pose: { cx: 425, cy: 540, s: 1.4 } },
+    // The bug: a mild dive toward the fix hunk in the upper terminal.
+    { at: 0, pose: { cx: 960, cy: 420, s: 1.35 } },
+    // The tests: a fresh screen, content at the top, a gentle push.
+    { at: starts.fix, pose: { cx: 960, cy: 340, s: 1.4 } },
+    // The wall: the prompt large, motion stopped.
+    { at: starts.wall, pose: { cx: 771, cy: 622, s: 1.6 } },
+    // To the phone: it rises into (425, 540) while the desk parks right.
+    { at: starts.moves, pose: { cx: 425, cy: 540, s: 1.15 } },
+    // Widen for the approval: both screens, room for the words below.
+    { at: starts.approval, pose: { cx: 960, cy: 575, s: 0.88 } },
+    // The run: a slow drift toward the phone's half of the pair.
+    { at: starts.run, pose: { cx: 860, cy: 575, s: 0.9 } },
+    // The result, on the phone — seated left so the words own the right.
+    { at: starts.result, pose: { cx: 550, cy: 540, s: 1.15 } },
+    // The herd: hold.
+    { at: starts.herd, pose: { cx: 550, cy: 540, s: 1.15 } },
+    // Past the panels into the close.
+    { at: starts.end, pose: { cx: 550, cy: 540, s: 1.4 } },
 ];
 
 /**
