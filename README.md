@@ -27,9 +27,9 @@
 [![muxr — every coding agent, on your phone](docs/demo/muxr-loop.webp)](https://trymuxr.com/#demo)
 
 <p align="center">
-  <em>Ten seconds of it. The whole thirty-five is
+  <em>Nine seconds of it. The whole fifty-nine is
   <a href="docs/demo/muxr-demo.mp4">docs/demo/muxr-demo.mp4</a>:
-  one job, start to finish, answered from a phone.</em>
+  one job start to finish, then diffs, inbox, voice, the herd, and your own relay.</em>
 </p>
 
 <p align="center">
@@ -56,27 +56,33 @@
 
 You need [Node.js 22 or newer](https://nodejs.org/) and [Herdr](https://herdr.dev) on Linux, macOS, or WSL. If Herdr is missing, setup offers to install it from herdr.dev — nothing is installed or changed until you approve the plan.
 
-Canonical install (muxr is a Node application, so npm remains the versioned distribution):
+Install from npm:
 
 ```bash
 npm install -g --ignore-scripts @trymuxr/cli
 muxr
 ```
 
-Convenience one-liner, backed by that same npm package:
+Or the one-liner, backed by the same npm package:
 
 ```bash
 ( tmp=$(mktemp) && trap 'rm -f "$tmp"' 0 && curl -fsSL https://raw.githubusercontent.com/umeranjum17/muxr/main/install.sh -o "$tmp" && sh "$tmp" )
 muxr
 ```
 
-Downloading completely before execution prevents a truncated response from running. The installer never uses `sudo`, never installs Node, and disables npm lifecycle scripts. It exits with a clear message unless Node 22+ and npm are already available.
+The installer downloads fully before it runs, never uses `sudo`, never installs Node, and disables npm lifecycle scripts.
 
-The setup wizard inspects first and changes nothing until you review the plan and choose **Apply setup**. Pick local network, Tailscale, Cloudflare, your own WSS endpoint, or a shared self-hosted relay. Then scan the one-use QR with the app.
+Then, in order:
 
-- **Android:** [signed APK and SHA256SUMS](https://github.com/umeranjum17/muxr/releases/latest) · Google Play coming soon
+1. Run `muxr`. The wizard inspects first and changes nothing until you choose **Apply setup**.
+2. Pick a transport: local network, Tailscale, Cloudflare, your own WSS endpoint, or a shared self-hosted relay.
+3. Install the app and scan the one-use QR. Your agents are in your pocket.
+
+- **Android:** internal testing on Google Play · [signed APK and SHA256SUMS](https://github.com/umeranjum17/muxr/releases/latest)
+- **iOS:** internal testing on TestFlight
 - **Web:** choose the eight-hour read-only browser client during setup
-- **iOS:** in development, not yet available
+
+Both apps are in internal testing — [open an issue](https://github.com/umeranjum17/muxr/issues) to get on the list.
 
 Read the [step-by-step quickstart](https://trymuxr.com/docs/quickstart).
 
