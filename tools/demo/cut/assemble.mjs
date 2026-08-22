@@ -90,11 +90,22 @@ await exec('ffmpeg', ['-v', 'error', '-i', master, '-vf', 'scale=1280:-2',
     '-movflags', '+faststart', '-an', '-y', shipped]);
 
 // The README loop is cut from this same timeline rather than rendered
-// separately, so the two can never drift apart. It opens on the hook — the
-// full-frame `Do you want to proceed?` — not on scrolling code.
+// separately, so the two can never drift apart. It opens on the thesis image —
+// desk and phone side by side, the tap, the desk reacting — because the loop
+// is most visitors' entire impression and "phone controls the desk" has to be
+// legible in frame one.
+//
+// The loop alone carries a quiet corner wordmark. These frames get
+// screenshotted and reposted stripped of the README around them; the bug is
+// the only branding that travels with the pixels. The film itself stays
+// unmarked.
 const loop = path.join(repo, 'docs/demo/muxr-loop.webp');
+const mono = path.join(repo, 'apps/mobile/sources/assets/fonts/IBMPlexMono-Regular.ttf');
 await exec('ffmpeg', ['-v', 'error', '-ss', String(LOOP.start / FPS), '-i', master,
-    '-t', String(LOOP.frames / FPS), '-vf', 'fps=16,scale=720:-2',
+    '-t', String(LOOP.frames / FPS),
+    '-vf', `fps=16,scale=720:-2,drawtext=fontfile=${mono}:text=muxr`
+        + `:fontsize=22:fontcolor=0xececec@0.75:borderw=1:bordercolor=0x0a0a0b@0.8`
+        + `:x=w-tw-16:y=h-th-14`,
     '-c:v', 'libwebp', '-lossless', '0', '-q:v', '62', '-loop', '0', '-an', '-y', loop]);
 
 console.log(`docs/demo/muxr-demo.mp4  720p`);

@@ -72,7 +72,7 @@ export const SHOTS = [
 export const TOTAL_FRAMES = SHOTS.reduce((sum, shot) => sum + shot.frames, 0);
 
 /** The README loop is shots 01–03, cut from this same timeline. */
-export const LOOP = { start: 90, frames: 300 };
+export const LOOP = { start: 390, frames: 312 };
 
 /**
  * The film's one soft edit: shot 10 dissolves into the end card.

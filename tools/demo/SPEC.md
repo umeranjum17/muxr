@@ -64,9 +64,12 @@ Timing lives in `lib/film.mjs`, which self-validates. This table mirrors it.
    the end card over 12 frames. Every other cut stays hard — that is the
    film's language — and the film stays silent: both shipping surfaces
    autoplay muted, and a synthesized bed would be the one element that is
-   neither real nor excellent. The README loop moved to frames 90-390
-   (shots 02-04): it now opens on the hook, the full-frame
-   `Do you want to proceed?`, not on scrolling code.
+   neither real nor excellent. The README loop is frames 390-702
+   (shots 05-07): it opens on the thesis image — desk and phone side by
+   side, the tap, the desk reacting — because the loop is most visitors'
+   entire impression and the product has to be legible in frame one. The
+   loop alone carries a quiet corner wordmark; these frames travel without
+   the README around them, and the film itself stays unmarked.
 9. **Shot 04 does not hold at 390px.** Its last second is the whole phone
    standing on ink, which at 390px is ninety-nine pixels across. That is the
    reveal the storyboard asks for and it is silhouette, not text; every other
