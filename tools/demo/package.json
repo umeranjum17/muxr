@@ -6,8 +6,7 @@
   "type": "module",
   "scripts": {
     "reel": "node reel/render.mjs",
-    "deliver": "node reel/deliver.mjs",
-    "aso": "node aso/compose.mjs && node aso/validate.mjs"
+    "deliver": "node reel/deliver.mjs"
   },
   "dependencies": {
     "@remotion/bundler": "^4.0.514",
