@@ -20,14 +20,20 @@ const bundled = await bundle({
     entryPoint: path.join(here, 'src/index.ts'),
     publicDir: path.join(here, 'public'),
 });
-const composition = await selectComposition({ serveUrl: bundled, id: 'film' });
+const composition = await selectComposition({
+    serveUrl: bundled,
+    id: process.env.COMPOSITION ?? 'film',
+});
 
 const stills = process.argv.slice(2).map(Number).filter((n) => !Number.isNaN(n));
 if (stills.length > 0) {
     await mkdir(path.join(root, 'review/stills'), { recursive: true });
     for (const frame of stills) {
         const output = path.join(root, 'review/stills', `f${String(frame).padStart(4, '0')}.png`);
-        await renderStill({ composition, serveUrl: bundled, output, frame });
+        await renderStill({
+            composition, serveUrl: bundled, output, frame,
+            scale: Number(process.env.RENDER_SCALE ?? 1),
+        });
         console.log(output);
     }
     process.exit(0);

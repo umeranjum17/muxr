@@ -1,0 +1,14 @@
+Create a premium 9:16 ASO screenshot BACKGROUND SYSTEM for muxr, a remote control app for coding agents.
+
+REFERENCE RULES:
+- Image 1 is the real muxr app capture. Use it only to understand the product's near-black, emerald, cobalt, and neutral-gray palette.
+- Image 2 is visual-direction inspiration only: restrained black studio lighting, subtle emerald/cobalt atmosphere, premium Apple/Linear/Cursor clarity.
+- Do NOT reproduce, redraw, alter, crop, or place either reference image.
+
+OUTPUT:
+- Background only. Absolutely no phone, device, UI, text, letters, logo, watermark, hands, desk, circles, rings, arcs, grids, or objects.
+- Near-black matte field with a restrained deep emerald glow entering softly from lower right and a very subtle cobalt lift from lower left.
+- Top 32% almost pure black and calm for a large white headline.
+- Middle/lower area supports a large centered phone screenshot without competing with it.
+- Elegant soft studio falloff, faint dimensional depth, no obvious AI texture, no busy gradients, no bright regions.
+- One coherent premium developer-tool campaign, minimal and conversion-focused.
