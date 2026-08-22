@@ -1000,6 +1000,7 @@ export async function createHerdrSessionSource(
             let converged = false;
             if (!latest.some((candidate) => candidate.pluginId === target.pluginId && candidate.enabled)) {
                 await client.call('plugin.enable', { plugin_id: target.pluginId });
+                enabledTarget = true;
                 converged = true;
             }
             for (const current of latest) {
