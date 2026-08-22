@@ -15,7 +15,7 @@
 // render, so cutting between them does not shift the type.
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { mkdir, stat } from 'node:fs/promises';
+import { mkdir, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SHOTS, FPS } from '../lib/film.mjs';
@@ -26,8 +26,8 @@ const OUT = path.join(root, 'cut/shots');
 
 const DESK = path.join(root, 'raw/take/desk-cfr.mp4');    // 1948x1948
 const PHONE = path.join(root, 'raw/take/phone-cfr.mp4');  // 1080x2400
-const AFTER = path.join(root, 'raw/take/phone-b-cfr.mp4'); // 1080x2400
-const REST = path.join(root, 'raw/take/phone-c-cfr.mp4');  // 1080x2400
+const AFTER = path.join(root, 'raw/take/phone-after-cfr.mp4'); // 1080x2400
+const DIFF = path.join(root, 'raw/take/phone-diff-cfr.mp4');   // 1080x2400
 
 const INK = '0x0a0a0b';
 
@@ -60,27 +60,29 @@ const phoneBand = (y, h = 608) =>
  * together and drift by a single frame across ten minutes, so phone times are
  * desk times: one number describes both.
  */
-const TAP = 46.667;
+const TAP = 96.1;
 
-/** Ten seconds of the job, and what is on the screen for each of them. */
+/** The job's moments, on the take's clock. `cut/timeline.mjs` prints them. */
 const RECIPE = {
-    // The fix being written. The screen is full of it: the task at the top, the
-    // finding under it, the hunk landing line by line.
-    '01': { src: DESK, at: 30.4, vf: DESK_CROP },
+    // The fix is in and the tests that prove it are landing line by line. The
+    // approval interrupts at +1.9s — inside the crop the command line appears,
+    // and shot 02 cuts to what the rest of the screen was doing.
+    '01': { src: DESK, at: 49.0, vf: DESK_CROP },
 
     // The macro. 900px of source across the frame is 2.1x, which is the widest
     // that still fits `Do you want to proceed?` — and option 2 runs off the
     // right edge, which is the shot: a question too big to miss.
-    '02': { src: DESK, at: 39.0, vf: 'crop=900:506:60:1330,scale=1920:1080:flags=neighbor' },
+    '02': { src: DESK, at: 52.5, vf: 'crop=900:506:60:1330,scale=1920:1080:flags=neighbor' },
 
     // Pull back: nobody answers, so the frame retreats from the macro until the
     // terminal is a fifth of the picture and the room around it is the subject.
-    '03': { src: DESK, at: 42.1, pullback: true },
+    // The counter reads the real wait — the prompt stood 45.2s before the tap.
+    '03': { src: DESK, at: 92.0, pullback: true },
 
     // Match cut. Opens on the phone's own copy of the same question at the same
     // size, then retreats until the status bar, the header and the key row give
     // away what it has been on all along.
-    '04': { src: PHONE, at: 39.0, reveal: true },
+    '04': { src: PHONE, at: 91.0, reveal: true },
 
     // The hero. Desk and phone in one frame, both edge to edge, across the tap.
     '05': { src: DESK, at: TAP - 1.2, hero: true },
@@ -89,28 +91,24 @@ const RECIPE = {
     '06': { src: DESK, at: TAP + 2.8, recede: true },
 
     // Work carries on without anyone at the desk: three states, hard cut.
-    //
-    // Three moments that are actually different. The obvious picks — 61s and
-    // 96s — are the same screen twice: the agent asked its second question and
-    // then sat there, so nothing moved between them. Progress you can see has
-    // to be looked for, not assumed from the clock.
+    // State one starts the frame after shot 06 ends (101.3 on the take's
+    // clock), so the seam is invisible and the clock never runs backwards.
     '07': { band: 1180, states: [
-        { src: PHONE, at: 47.6 },                 // the tests running
-        { src: PHONE, at: 53.6 },                 // it asks a second question
-        { src: AFTER, at: 10.5, band: 900 },      // and has written up the cause
+        { src: PHONE, at: 101.4 },                // the tests still running
+        { src: PHONE, at: 104.4 },                // it asks a second question
+        { src: AFTER, at: 5.0, band: 700 },       // and has written up the cause
     ] },
 
-    // What it came to. The line the whole film is walking towards sits in the
-    // middle of the frame: `pnpm test: 25 passed`.
-    '08': { src: REST, at: 2.0, vf: phoneBand(620) },
+    // What it came to. The line the whole film is walking towards sits just
+    // above centre: `pnpm test: 26 passed`.
+    '08': { src: AFTER, at: 5.0, vf: phoneBand(1150) },
 
-    // The diff, in the light the Code panel renders it in.
-    '09': { src: AFTER, at: 23.8, vf: phoneBand(380) },
+    // The diff, in the light the Code panel renders it in: the two removed
+    // lines and the four that replaced them, `this.invalidate(refresh)` green.
+    '09': { src: DIFF, at: 8.0, vf: phoneBand(980) },
 
     // And the session, green, among the others that are also running.
-    // A little wider than the others: the group and its four rows come to 645px
-    // and cropping to the standard band would cut the header off the top.
-    '10': { src: AFTER, at: 40.6, vf: phoneBand(1385, 645) },
+    '10': { src: AFTER, at: 35.6, vf: phoneBand(1390, 645) },
 };
 
 const H264 = ['-c:v', 'libx264', '-crf', '16', '-preset', 'slow',
@@ -137,10 +135,10 @@ async function states(shot, { states: beats, band }) {
         parts.push(part);
     }
     const list = path.join(OUT, `.${shot.id}.txt`);
-    await exec('sh', ['-c', `printf "file '%s'\\n" ${parts.join(' ')} > ${list}`]);
+    await writeFile(list, parts.map((f) => `file '${f}'`).join('\n'));
     await exec('ffmpeg', ['-v', 'error', '-f', 'concat', '-safe', '0', '-i', list,
         '-c', 'copy', '-y', path.join(OUT, `${shot.id}.mp4`)]);
-    await exec('rm', ['-f', list, ...parts]);
+    await Promise.all([list, ...parts].map((f) => rm(f, { force: true })));
 }
 
 /**
@@ -154,7 +152,7 @@ async function states(shot, { states: beats, band }) {
  */
 async function moving(shot, plan, frame) {
     const dir = path.join(OUT, `.${shot.id}-frames`);
-    await exec('rm', ['-rf', dir]);
+    await rm(dir, { recursive: true, force: true });
     await mkdir(dir, { recursive: true });
     for (let n = 0; n < shot.frames; n += 1) {
         const t = plan.at + n / FPS;
@@ -172,7 +170,7 @@ async function moving(shot, plan, frame) {
     await exec('ffmpeg', ['-v', 'error', '-framerate', String(FPS),
         '-i', path.join(dir, '%04d.png'), '-frames:v', String(shot.frames),
         ...H264, '-y', path.join(OUT, `${shot.id}.mp4`)], { maxBuffer: 1 << 26 });
-    await exec('rm', ['-rf', dir]);
+    await rm(dir, { recursive: true, force: true });
 }
 
 /** Ease-out: the move is quick to leave and slow to settle. */
@@ -200,7 +198,7 @@ const DESK_LOWER = 'crop=1200:1080:14:720';
 async function pullback(shot, plan) {
     // The prompt went up at 37.4s and was answered at 46.7s. The counter shows
     // the real number of seconds it had been standing there, not a rounder one.
-    const APPEARED = 37.4;
+    const APPEARED = 50.94;
     const FONT = path.join(root, '../../apps/mobile/sources/assets/fonts/IBMPlexMono-Regular.ttf');
     // Start: 900px of render across the frame, centred on the question.
     // End: the whole render at a fifth of the frame's width, centred.
@@ -235,7 +233,7 @@ async function pullback(shot, plan) {
  * you are looking at.
  */
 async function reveal(shot, plan) {
-    const FROM = { w: 620, h: 349, x: 0, y: 1760 };
+    const FROM = { w: 620, h: 349, x: 0, y: 1795 };
     const TO = { w: 1080, h: 2400, x: 0, y: 0 };
     await moving(shot, plan, (p) => {
         const t = ease(p);

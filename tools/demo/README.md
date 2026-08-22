@@ -13,7 +13,8 @@ paired machine. That is the point: the shots are proof, not mockups.
 cd tools/demo
 npm install              # not part of the yarn workspace — install on demand
 npx playwright install chromium
-node capture/take.mjs    # needs a phone and a live agent — see SPEC.md §3
+node capture/take.mjs        # the shoot — needs a phone and a live agent
+node capture/phone-after.mjs # the after pass: finished state, diff, herd
 node build.mjs           # shots → lockup → assemble → sheet → leakcheck
 ```
 

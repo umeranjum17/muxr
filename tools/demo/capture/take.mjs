@@ -69,9 +69,14 @@ await until('the approval prompt',
     (t) => /Do you want|wants to run|1\. Yes/.test(t), 240);
 console.log(`${at()} BLOCKED`);
 
-// Nobody is at the desk. The pause is the point of the film, so it is held
-// long enough for shots 02 and 03 to have somewhere to sit.
-await wait(9000);
+// Nobody is at the desk.
+//
+// Forty-five seconds, and deliberately not longer. Shot 03 shows the wait as a
+// counter, and that number is read two ways at once: how long the desk failed,
+// and how fast the phone caught it. Under about half a minute it reads as
+// someone briefly looking away; past a minute the second reading turns against
+// the product, which starts to look slow at its own job.
+await wait(45000);
 await adb(['shell', 'input', 'tap', String(ENTER[0]), String(ENTER[1])]);
 console.log(`${at()} answered from the phone`);
 

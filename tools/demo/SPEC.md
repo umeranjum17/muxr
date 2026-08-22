@@ -42,18 +42,22 @@ Timing lives in `lib/film.mjs`, which self-validates. This table mirrors it.
    reacts to the tap within one frame and both screens show the command
    running; the result itself lands in shot 08, in Claude's own words —
    `pnpm test: 25 passed` — which is the same fact from the same run.
-5. **Shot 03 counts the real wait.** The storyboard says `00:41`; the prompt
-   actually stood unanswered for nine seconds, so the counter reads `00:06`
-   through `00:09`. Inventing a longer number would be the one fabricated
-   thing in the film.
+5. **Shot 03's wait was directed, not invented.** The storyboard says `00:41`,
+   and the counter reads `00:41` through `00:44` — because the take left the
+   prompt deliberately unanswered for 45 seconds before the phone answered.
+   Directing the pause is staging, the same staging as walking away from the
+   desk; the counter itself counts the take's real wall clock. Forty-five
+   seconds and not longer, because the number is read two ways at once: how
+   long the desk failed, and how fast the phone caught it.
 6. **Shot 08 has no notification.** muxr posts a single ongoing notification
    for the session you are connected to, not a per-agent completion, so there
    was no `auth-fix is done` notification to film. The shot is the finished
    state alone.
-7. **Shot 07's three states are 47.6s, 53.6s and a later pass.** The obvious
-   picks inside the take are the same screen twice — the agent asked a second
-   question and then waited — so the third state comes from the phone pass
-   recorded after the job finished, framed identically.
+7. **Shot 07's third state comes from the after pass.** The first two are the
+   take itself — the tests running, the agent's second question. The third,
+   the written-up root cause, comes from the phone pass recorded after the job
+   finished, framed identically; inside the take that screen only exists
+   below the fold.
 8. **Shot 04 does not hold at 390px.** Its last second is the whole phone
    standing on ink, which at 390px is ninety-nine pixels across. That is the
    reveal the storyboard asks for and it is silhouette, not text; every other
@@ -77,14 +81,14 @@ The fix Claude actually wrote, and the whole of shot 09:
          if (subject === undefined) throw new Error('refresh token is not valid');
 -        const next = await this.issue(subject);
 -        return next;
-+        // Retire in the same tick as the check that authorised it. Anything
-+        // after the await is a gap a second redemption slips through.
++        // Retire before the first await: the check and the retirement have to
++        // land in one tick, or a concurrent redemption passes the same check.
 +        this.invalidate(refresh);
 +        return this.issue(subject);
      }
 ```
 
-23 tests before, 25 after — the two it added fail against the old code.
+23 tests before, 26 after — the three it added fail against the old code.
 
 ## The herd at 30s
 

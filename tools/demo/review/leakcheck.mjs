@@ -19,10 +19,15 @@ import path from 'node:path';
 
 const exec = promisify(execFile);
 
-/** The placeholder a masked capture is allowed to show. */
-// Matched on the tail, because OCR routinely drops the leading label: the
-// placeholder reads as 'host.ts.net' about as often as 'your-host.ts.net'.
-const PLACEHOLDER = 'host.ts.net';
+/**
+ * The placeholders a masked capture is allowed to show, in full.
+ *
+ * Both spellings are listed because OCR routinely drops the leading label, so
+ * `your-host.ts.net` reads as `host.ts.net` about half the time. Compared whole
+ * rather than by substring: `evil-host.ts.net` contains `host.ts.net`, and a
+ * check that lets that through is worse than no check.
+ */
+const PLACEHOLDERS = new Set(['host.ts.net', 'your-host.ts.net']);
 /**
  * Any tailnet-looking host that is not the placeholder. Matching a bare
  * `.ts.net` flags the placeholder itself, which is the one string that is
@@ -99,7 +104,7 @@ for (const file of files) {
         continue;
     }
     const lower = text.toLowerCase();
-    const hosts = [...lower.matchAll(HOSTS)].map((m) => m[0]).filter((h) => !h.includes(PLACEHOLDER));
+    const hosts = [...lower.matchAll(HOSTS)].map((m) => m[0]).filter((h) => !PLACEHOLDERS.has(h));
     // Terminal output wraps, so a URL arrives as `claude.ai/code/se` +
     // newline + `ssion_01JLY…`. Matching the raw OCR misses exactly the leak
     // this exists to catch, so whitespace is squeezed out first.
