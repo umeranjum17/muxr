@@ -1,5 +1,5 @@
 import { callPlugin } from '@/plugins/callPlugin';
-import { boundRealtimeSession, realtimeConversationVisible, rememberedRealtimeSession, speak, speakWhenReady, startRealtimeSession, realtimeSessionSnapshot } from '@/realtime/realtimeSessionState';
+import { realtimeWatchTarget, speak, speakWhenReady, startRealtimeSession, realtimeSessionSnapshot } from '@/realtime/realtimeSessionState';
 
 /**
  * Voice's `speech.wake` capability: speaking needs the WebRTC session this app
@@ -8,11 +8,9 @@ import { boundRealtimeSession, realtimeConversationVisible, rememberedRealtimeSe
  */
 export async function wakeAndReport(input: { sessionId: string; status: string; pane?: string }): Promise<void> {
     const live = realtimeSessionSnapshot().state !== 'disconnected';
-    // Only the pane this conversation is about, and only where the user can see
-    // it wake: a phone that starts talking from a background screen is a bug.
-    const mine = boundRealtimeSession() ?? (realtimeConversationVisible() ? rememberedRealtimeSession() : null);
-    if (mine !== input.sessionId) return;
-    if (!live && !realtimeConversationVisible()) return;
+    // “Go to sleep” closes the paid provider stream but leaves this local watch
+    // attached to one pane until the user explicitly ends the realtime UI.
+    if (realtimeWatchTarget() !== input.sessionId) return;
     if (!live && !startRealtimeSession(input.sessionId)) return;
 
     const report = await callPlugin<{ say: string }>('voice.report', { status: input.status, pane: input.pane ?? '' });

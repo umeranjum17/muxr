@@ -23,6 +23,7 @@ import {
     useRealtimeConversationVisible,
     useRealtimeMuted,
     useRealtimeSessionState,
+    useRealtimeWatching,
     stopRealtimeSession,
 } from '@/realtime/realtimeSessionState';
 
@@ -39,8 +40,10 @@ export const RealtimeSessionOverlay = React.memo(function RealtimeSessionOverlay
     React.useEffect(() => mountPrimitive('realtime-session-overlay'), []);
     React.useEffect(() => () => stopRealtimeSession(), []);
     const muted = useRealtimeMuted();
+    const watching = useRealtimeWatching();
     const open = state !== 'disconnected';
     const failed = !open && detail !== undefined;
+    const sleeping = watching && !open && !failed;
     const sessionLabel = state === 'connecting'
         ? t('plugins.realtimeConnecting')
         : state === 'connected'
@@ -49,9 +52,11 @@ export const RealtimeSessionOverlay = React.memo(function RealtimeSessionOverlay
             ? t('plugins.realtimeThinking')
             : state === 'speaking'
               ? t('plugins.realtimeSpeaking')
-            : failed
-              ? t('plugins.realtimeError')
-              : t('plugins.realtimeOff');
+            : sleeping
+              ? 'Watching'
+              : failed
+                ? t('plugins.realtimeError')
+                : t('plugins.realtimeOff');
     const conversationVisible = useRealtimeConversationVisible();
 
     const { width, height } = useWindowDimensions();
@@ -98,11 +103,11 @@ export const RealtimeSessionOverlay = React.memo(function RealtimeSessionOverlay
         transform: [{ translateX: x.value }, { translateY: y.value }, { scale: press.value }],
     }));
 
-    if (!open && !conversationVisible && !failed) return null;
+    if (!open && !conversationVisible && !failed && !watching) return null;
 
     return (
         <>
-            {(open || failed) && (
+            {(open || failed || watching) && (
                 <View pointerEvents="box-none" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}>
                     <GestureDetector gesture={Gesture.Race(drag, tap)}>
                         <Animated.View
