@@ -4,5 +4,5 @@ A bundled, default-off OpenAI Realtime speech-to-speech provider. It claims the 
 
 - **Host:** `rpc.mjs` owns `~/.muxr/openai.key` (owner-only). `stream.mjs` owns the OpenAI WebSocket, model, prompt, tools, and translation to muxr's generic realtime NDJSON frames.
 - **Phone:** only provider-neutral capture, playback, transcript, controls, and native plugin primitives. No OpenAI URL, model, key, or event vocabulary reaches mobile code.
-- **Enable:** disable the current `voice.session` provider, then run `herdr plugin enable muxr.voice-openai`. Configure its key from Settings → Plugins.
-- **Disable:** `herdr plugin disable muxr.voice-openai`. The key remains until cleared from the plugin settings screen.
+- **Enable:** choose OpenAI Realtime under Settings → Realtime voice, then open Configure to set its key.
+- **Disable:** choose another provider there. The OpenAI key remains until cleared from its configuration screen.

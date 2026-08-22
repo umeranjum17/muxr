@@ -29,7 +29,7 @@ import type {
     SessionSnapshot,
     UnreadCatalog,
 } from './sessionDomain.js';
-import type { PluginManifestV1, PluginSummary } from './plugins.js';
+import type { PluginManifestV1, PluginSource, PluginSummary } from './plugins.js';
 import type { LandWorktreeResult } from './worktree.js';
 import type { AttentionCatalog, HerdrTreeWorkspace, SessionInfo, SessionShellOutcome, SessionStatus } from './sessionState.js';
 
@@ -41,6 +41,7 @@ export interface PromptAttachment {
 }
 
 export type StreamingBehavior = 'steer' | 'followUp';
+export type VoiceProviderOption = { id: string; name: string; selected: boolean; source: PluginSource; hasBackend: boolean };
 
 export interface RequestMap {
     // --- lifecycle ----------------------------------------------------------
@@ -100,6 +101,16 @@ export interface RequestMap {
     'plugin.stream': {
         params: { pluginId: string; manifestHash: string; contributionId: string; channel: string; sessionId?: string };
         result: null;
+    };
+    /** Installed realtime providers and the one currently active on this machine. */
+    'voice.provider.list': {
+        params: Record<string, never>;
+        result: VoiceProviderOption[];
+    };
+    /** Switch the machine to exactly one installed realtime provider. */
+    'voice.provider.select': {
+        params: { providerId: string };
+        result: VoiceProviderOption[];
     };
     /**
      * Full herdr CLI for trusted clients such as the realtime voice agent.
@@ -367,7 +378,7 @@ export const MISSING_CWD_ERROR_PREFIX = 'cwd-does-not-exist:';
 
 /** Normalize both old-host crashes and current structured result errors. */
 export function requestRequiresE2ee(type: string): boolean {
-    return type === 'plugin.approve' || type === 'plugin.invoke' || type === 'plugin.call' || type === 'plugin.stream' || type === 'herdr.cli';
+    return type === 'plugin.approve' || type === 'plugin.invoke' || type === 'plugin.call' || type === 'plugin.stream' || type === 'voice.provider.select' || type === 'herdr.cli';
 }
 
 export function normalizeRequestFailure(

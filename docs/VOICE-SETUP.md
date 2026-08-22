@@ -12,14 +12,9 @@ All three adapters ship with `@trymuxr/cli`:
 | `muxr.voice-gemini` | Gemini Live | disabled | `~/.muxr/gemini.key` |
 | `muxr.voice-openai` | OpenAI Realtime | disabled | `~/.muxr/openai.key` |
 
-Exactly one provider may be enabled because all three claim `voice.session`. To switch, disable the current plugin before enabling another:
+Exactly one provider may be enabled because all three claim `voice.session`. In the app, open **Settings → Realtime voice**, choose Grok, Gemini Live, or OpenAI Realtime, then open **Configure** to paste that provider's API key. The host serializes each switch so concurrent devices still converge on one provider.
 
-```bash
-herdr plugin disable muxr.voice
-herdr plugin enable muxr.voice-gemini # or muxr.voice-openai
-```
-
-Open the enabled provider under **Settings → Plugins** and paste its API key. The attributed secure prompt sends the value once through authenticated E2EE to that plugin's write RPC; declarative UI never stores or displays it. Explicit enable/disable choices survive `npm` upgrades and subsequent `muxr setup` runs.
+The attributed secure prompt sends the value once through authenticated E2EE to that plugin's write RPC; declarative UI never stores or displays it. Provider and key choices survive `npm` upgrades and subsequent `muxr setup` runs.
 
 `MUXR_HOME` relocates the key directory. It is owner-only (`0700`); each key is owner-only (`0600`), written through a unique temporary file and atomic rename. Reads reject symlinks, non-regular files, and unsafe permissions.
 

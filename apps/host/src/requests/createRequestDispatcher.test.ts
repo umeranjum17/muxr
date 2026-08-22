@@ -81,6 +81,37 @@ describe('plugin device authority', () => {
     });
 });
 
+describe('voice provider selection', () => {
+    it('lists every provider but only lets a native device switch the active one', async () => {
+        let selected = 'xai';
+        const providers = () => ['xai', 'gemini', 'openai'].map((id) => ({
+            id,
+            name: id,
+            selected: id === selected,
+            source: { kind: 'local' as const },
+            hasBackend: true,
+        }));
+        const source = {
+            async voiceProviderList() { return providers(); },
+            async voiceProviderSelect(provider: string) { selected = provider; return providers(); },
+        } as unknown as SessionSource;
+        const { dispatch } = createRequestDispatcher({
+            source,
+            domain: {} as never,
+            machineId: 'm1',
+            hostVersion: '0.0.0',
+            canMutateDevice: (deviceId) => deviceId !== 'browser-1',
+        });
+
+        expect(await dispatch({ type: 'voice.provider.list', requestId: 'list', params: {} } as never, 'browser-1'))
+            .toMatchObject({ ok: true, data: [{ id: 'xai', selected: true }, { id: 'gemini' }, { id: 'openai' }] });
+        expect(await dispatch({ type: 'voice.provider.select', requestId: 'select', params: { providerId: 'gemini' } } as never, 'browser-1'))
+            .toMatchObject({ ok: false, error: expect.stringContaining('read-only') });
+        expect(await dispatch({ type: 'voice.provider.select', requestId: 'select', params: { providerId: 'gemini' } } as never, 'native-1'))
+            .toMatchObject({ ok: true, data: expect.arrayContaining([expect.objectContaining({ id: 'gemini', selected: true, name: 'gemini' })]) });
+    });
+});
+
 describe('unknown request type guard', () => {
     it('answers a stable host-contract-mismatch result instead of throwing', async () => {
         const { dispatch } = dispatcherWithSpy();
