@@ -104,25 +104,24 @@ export function pluginInvalidationFrame(previous: PluginDigestSnapshot, next: Pl
 export class PluginCatalog {
     private snapshots = new Map<string, Snapshot>();
     private active = new Map<string, string>();
+    private installed = new Map<string, { snapshot: Snapshot; enabled: boolean }>();
     private parsedProjections = new Map<string, ParsedProjection>();
 
     /** Refresh from authoritative plugin.list and return stable per-plugin digests. */
     async refresh(plugins: HerdrPlugin[]): Promise<Map<string, string>> {
         const active = new Map<string, string>();
         const snapshots = new Map<string, Snapshot>();
+        const installed = new Map<string, { snapshot: Snapshot; enabled: boolean }>();
         const digests = new Map<string, string>();
         const usedProjectionKeys = new Set<string>();
         for (const plugin of plugins) {
-            // Disabled plugins still contribute visible/trust-relevant registry
-            // fields, but their UI file is not parsed on every bounded poll.
-            const loaded = plugin.enabled
-                ? await loadPlugin(plugin, this.parsedProjections, usedProjectionKeys).catch((error) => backendOnly(
-                    plugin,
-                    `muxr UI rejected: ${error instanceof Error ? error.message : String(error)}`,
-                ))
-                : undefined;
-            // loadPlugin already resolves source/provenance for enabled plugins.
-            const summary = loaded?.summary ?? summaryOf(plugin, undefined, {});
+            // Disabled manifests stay inert, but parsing their cached projection
+            // lets generic capability pickers show installed alternatives.
+            const loaded = await loadPlugin(plugin, this.parsedProjections, usedProjectionKeys).catch((error) => backendOnly(
+                plugin,
+                `muxr UI rejected: ${error instanceof Error ? error.message : String(error)}`,
+            ));
+            const summary = loaded.summary;
             digests.set(plugin.plugin_id, digest(stableJson({
                 pluginId: plugin.plugin_id,
                 name: summary.name,
@@ -138,7 +137,8 @@ export class PluginCatalog {
                 warnings: summary.warnings,
                 manifestHash: summary.manifestHash ?? null,
             })));
-            if (!plugin.enabled || loaded === undefined) continue;
+            installed.set(plugin.plugin_id, { snapshot: loaded, enabled: plugin.enabled });
+            if (!plugin.enabled) continue;
             snapshots.set(plugin.plugin_id, loaded);
             active.set(plugin.plugin_id, loaded.summary.manifestHash ?? '');
         }
@@ -147,7 +147,16 @@ export class PluginCatalog {
         }
         this.snapshots = snapshots;
         this.active = active;
+        this.installed = installed;
         return digests;
+    }
+
+    capabilityPlugins(capability: string): Array<{ pluginId: string; name: string; enabled: boolean }> {
+        return [...this.installed].flatMap(([pluginId, { snapshot, enabled }]) =>
+            snapshot.manifest.capabilities?.[capability] === undefined
+                ? []
+                : [{ pluginId, name: snapshot.summary.name, enabled }],
+        ).sort((left, right) => left.name.localeCompare(right.name));
     }
 
     list(isApproved: (pluginId: string, hash: string) => boolean): PluginSummary[] {

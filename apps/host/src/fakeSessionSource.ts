@@ -123,7 +123,17 @@ export function createFakeSessionSource(): SessionSource {
             throw new Error('fake source has no plugins');
         },
 
+        async voiceProviderList() {
+            return [
+                { id: 'xai', name: 'Grok', available: true, selected: true },
+                { id: 'gemini', name: 'Gemini Live', available: true, selected: false },
+                { id: 'openai', name: 'OpenAI Realtime', available: true, selected: false },
+            ];
+        },
 
+        async voiceProviderSelect(provider) {
+            return (await this.voiceProviderList()).map((candidate) => ({ ...candidate, selected: candidate.id === provider }));
+        },
 
         async herdrLayout() {
             throw new Error('fake source has no panes');

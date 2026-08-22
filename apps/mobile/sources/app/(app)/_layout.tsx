@@ -130,6 +130,12 @@ export default function RootLayout() {
                 }}
             />
             <Stack.Screen
+                name="settings/voice"
+                options={{
+                    headerTitle: 'Realtime voice',
+                }}
+            />
+            <Stack.Screen
                 name="restore/index"
                 options={{
                     headerShown: true,

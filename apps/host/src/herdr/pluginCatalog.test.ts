@@ -53,6 +53,23 @@ describe('plugin catalog flow', () => {
         expect(pluginInvalidationFrame(baseline, many)).toMatchObject({ reason: 'linked', pluginIds: [] });
     });
 
+    it('discovers a disabled capability provider and tracks when it becomes active', async () => {
+        const root = await mkdtemp(join(tmpdir(), 'muxr-plugin-provider-'));
+        await writeFile(join(root, 'muxr-ui.json'), JSON.stringify({
+            schemaVersion: 1,
+            pluginId: 'example.muxr-ui',
+            capabilities: { 'voice.session': 'session' },
+            contributions: [{ slot: 'host.stream', id: 'session', type: 'stream', entry: 'stream.mjs' }],
+        }));
+        const catalog = new PluginCatalog();
+        await catalog.refresh([{ ...plugin(root), enabled: false }]);
+        expect(catalog.list(() => true)).toEqual([]);
+        expect(catalog.capabilityPlugins('voice.session')).toEqual([{ pluginId: 'example.muxr-ui', name: 'Example muxr UI', enabled: false }]);
+
+        await catalog.refresh([plugin(root)]);
+        expect(catalog.capabilityPlugins('voice.session')[0]).toMatchObject({ enabled: true });
+    });
+
     it('allow-lists and bounds public RPC context without internal ids', async () => {
         const root = await mkdtemp(join(tmpdir(), 'muxr-plugin-context-'));
         const manifestPath = join(root, 'muxr-ui.json');

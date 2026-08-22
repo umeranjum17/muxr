@@ -23,6 +23,7 @@ import type {
     SessionInfo,
     SessionSnapshot,
     SessionStatus,
+    VoiceProviderOption,
 } from '@muxr/contract';
 import { ATTENTION_REASONS, relayControlUrl } from '@muxr/contract';
 import { AttachmentWatcher } from './attachmentWatcher.js';
@@ -966,6 +967,45 @@ export async function createHerdrSessionSource(
         await reconcilePlugins(true);
     }
 
+    function voiceProviderOptions(): VoiceProviderOption[] {
+        return catalog.capabilityPlugins('voice.session').map(({ pluginId, name, enabled }) => ({
+            id: pluginId,
+            name,
+            available: true,
+            selected: enabled,
+        }));
+    }
+
+    async function selectVoiceProvider(providerId: string): Promise<VoiceProviderOption[]> {
+        await refreshPlugins();
+        const providers = catalog.capabilityPlugins('voice.session');
+        const target = providers.find((candidate) => candidate.pluginId === providerId);
+        if (target === undefined) throw new Error('realtime voice provider is not installed on this machine; update muxr first');
+        const previouslyEnabled = providers.filter(({ enabled }) => enabled);
+        const disabled: typeof previouslyEnabled = [];
+        let enabledTarget = false;
+        try {
+            for (const current of previouslyEnabled) {
+                if (current.pluginId === target.pluginId) continue;
+                await client.call('plugin.disable', { plugin_id: current.pluginId });
+                disabled.push(current);
+            }
+            if (!target.enabled) {
+                await client.call('plugin.enable', { plugin_id: target.pluginId });
+                enabledTarget = true;
+            }
+            await refreshPlugins();
+            return voiceProviderOptions();
+        } catch (error) {
+            if (enabledTarget) await client.call('plugin.disable', { plugin_id: target.pluginId }).catch(() => undefined);
+            for (const current of disabled.reverse()) {
+                await client.call('plugin.enable', { plugin_id: current.pluginId }).catch(() => undefined);
+            }
+            await refreshPlugins().catch(() => undefined);
+            throw error;
+        }
+    }
+
     void reconcilePlugins().catch(() => undefined);
     pluginPollTimer = setInterval(() => {
         if (machineListeners.size > 0) void reconcilePlugins().catch(() => undefined);
@@ -1100,6 +1140,15 @@ export async function createHerdrSessionSource(
             await refreshPlugins();
             if (approved) catalog.manifest(pluginId, manifestHash);
             await pluginApprovals.set(deviceId, pluginId, approved);
+        },
+
+        async voiceProviderList() {
+            await refreshPlugins();
+            return voiceProviderOptions();
+        },
+
+        async voiceProviderSelect(provider) {
+            return selectVoiceProvider(provider);
         },
 
         async pluginInvoke({ deviceId, pluginId, manifestHash, contributionId, sessionId, idempotencyKey }) {
