@@ -35,9 +35,9 @@ import { setupEmptyState } from '@/commercialization';
 import type { HerdrTreePane, HerdrTreeWorkspace } from '@muxr/contract';
 import { agentStatusColor } from '@/utils/sessionUtils';
 import { StatusDot } from './StatusDot';
+import { Avatar } from './Avatar';
 import { RoundButton } from './RoundButton';
 import { ActionButton } from './ActionButton';
-import { AgentGlyph } from './AgentGlyph';
 import { LiveTerminalsRow } from './LiveTerminalsRow';
 import { buildSpaceRows, hasAgent, lifecycleTree, middleTruncate, workspaceName, type HerdRow } from '@/utils/herdTree';
 import { Typography } from '@/constants/Typography';
@@ -297,7 +297,7 @@ const AgentRow = React.memo(({ pane, first, onClose }: { pane: HerdrTreePane; fi
                 accessibilityRole="button"
                 accessibilityLabel={`Open ${name}`}
             >
-                <AgentGlyph name={name} size={32} />
+                <Avatar id={pane.paneId} size={32} flavor={null} />
                 <View style={styles.agentText}>
                     <Text numberOfLines={1} style={styles.agentName}>{name}</Text>
                     <Text numberOfLines={1} style={styles.agentSubtitle}>{subtitle}</Text>

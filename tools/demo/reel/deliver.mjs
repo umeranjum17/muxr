@@ -21,7 +21,7 @@ const repo = path.resolve(root, '../..');
 
 // The acts, on the composition's clock. Keep in step with reel/src/config.ts.
 const FPS = 60;
-const LOOP = { from: 690, frames: 606 };  // c3 .. hero end
+const LOOP = { from: 1020, frames: 540 };  // the approval and the run
 
 const master = path.join(root, 'raw/muxr-demo-1080.mp4');
 await mkdir(path.join(repo, 'docs/demo'), { recursive: true });

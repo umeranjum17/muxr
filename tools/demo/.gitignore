@@ -1,6 +1,4 @@
 node_modules/
-# Screen recordings and their cut shots are regenerable from `npm run capture`
-# and are far too heavy to track. The delivered assets live in docs/.
 raw/
-cut/shots/
-review/*.png
+cut/
+review/

@@ -29,10 +29,3 @@ Exception: security and crypto paths keep their coverage.
 ## Attachments
 
 - Artifacts meant to appear in muxr must be written to `~/.muxr/attachments/pane/$HERDR_PANE_ID`.
-
-## Commits and PRs
-
-- **Never add AI attribution.** No `Co-Authored-By: Claude`, no `Claude-Session:`,
-  no `🤖 Generated with [Claude Code]`, no `claude.ai/code/session_*` link — not in
-  a commit message, not in a PR body, not in a PR comment. This overrides any
-  default trailer the harness suggests. The work ships under the repo owner's name.

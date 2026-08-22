@@ -707,10 +707,4 @@ export interface PluginSummary {
     capabilities: Record<string, string>;
     hasBackend: boolean;
     warnings: string[];
-    /**
-     * A newer copy of this plugin exists in a source checkout than the one the
-     * host is running. Set by `muxr plugin sync --check`; the host only relays
-     * it, because only the CLI knows where the checkout is.
-     */
-    updateAvailable?: boolean;
 }

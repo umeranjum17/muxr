@@ -57,7 +57,6 @@ export const en = {
         off: 'off',
         on: 'on',
         unavailableLabel: 'Unavailable',
-        updateAvailable: 'Update available',
         runsCode: 'Runs code as you',
         uiOnly: 'UI only',
         readsSessions: 'Reads session summaries',

@@ -68,7 +68,6 @@ export const ru: TranslationStructure = {
         off: 'выкл.',
         on: 'вкл.',
         unavailableLabel: 'Недоступно',
-        updateAvailable: 'Доступно обновление',
         runsCode: 'Запускает код от вашего имени',
         uiOnly: 'Только интерфейс',
         readsSessions: 'Читает сводки сессий',

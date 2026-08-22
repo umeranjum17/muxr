@@ -21,9 +21,6 @@ import {
 
 const MANIFEST_NAME = 'muxr-ui.json';
 const MAX_MANIFEST_BYTES = 64 * 1024;
-const RELOAD_FILE = 'plugin-reload.json';
-const SYNC_FILE = 'plugin-sync.json';
-const MAX_RELOAD_BYTES = 8 * 1024;
 const MAX_TEXT = 200;
 export type HerdrPlugin = {
     plugin_id: string;
@@ -109,12 +106,9 @@ export class PluginCatalog {
     private active = new Map<string, string>();
     private installed = new Map<string, { snapshot: Snapshot; enabled: boolean }>();
     private parsedProjections = new Map<string, ParsedProjection>();
-    private pendingUpdates: ReadonlySet<string> = new Set();
 
     /** Refresh from authoritative plugin.list and return stable per-plugin digests. */
     async refresh(plugins: HerdrPlugin[]): Promise<Map<string, string>> {
-        const reload = readReloadTokens();
-        this.pendingUpdates = readPendingUpdates();
         const active = new Map<string, string>();
         const snapshots = new Map<string, Snapshot>();
         const installed = new Map<string, { snapshot: Snapshot; enabled: boolean }>();
@@ -142,13 +136,6 @@ export class PluginCatalog {
                 },
                 warnings: summary.warnings,
                 manifestHash: summary.manifestHash ?? null,
-                // `muxr plugin reload` bumps a token here. Editing a backend
-                // entry file changes nothing else in this digest — the manifest
-                // hash covers muxr-ui.json only — so without the token an edited
-                // rpc.mjs or stream.mjs would never reach the device and no
-                // error would say why.
-                reload: reload.get(plugin.plugin_id) ?? reload.get('*') ?? null,
-                updateAvailable: this.pendingUpdates.has(plugin.plugin_id),
             })));
             installed.set(plugin.plugin_id, { snapshot: loaded, enabled: plugin.enabled });
             if (!plugin.enabled) continue;
@@ -182,11 +169,7 @@ export class PluginCatalog {
         return [...this.active]
             .map(([pluginId, hash]) => {
                 const summary = this.snapshots.get(pluginId)!.summary;
-                return {
-                    ...summary,
-                    approved: hash !== '' && isApproved(pluginId, hash),
-                    ...(this.pendingUpdates.has(pluginId) ? { updateAvailable: true } : {}),
-                };
+                return { ...summary, approved: hash !== '' && isApproved(pluginId, hash) };
             })
             .sort((a, b) => a.pluginId.localeCompare(b.pluginId));
     }
@@ -425,54 +408,6 @@ function stableJson(value: unknown): string {
 const APPROVAL_DOMAIN = 'muxr-plugin-approval-v1';
 
 function digest(value: string): string { return createHash('sha256').update(value).digest('hex'); }
-
-/**
- * Reload tokens written by `muxr plugin reload`, keyed by plugin id with `*`
- * meaning every plugin. Folding these into the digest reuses the poll and
- * invalidation path that already exists rather than adding a control channel:
- * a changed token looks exactly like a changed plugin, so the device refetches
- * and the stream providers are torn down and restarted on the new code.
- *
- * Unreadable or malformed means "no reload pending" — a broken file must not
- * stop the catalog from refreshing.
- */
-function readMuxrJson(name: string, maxBytes: number): unknown {
-    try {
-        const raw = readFileSync(join(process.env.MUXR_HOME?.trim() || join(homedir(), '.muxr'), name), 'utf8');
-        return raw.length > maxBytes ? undefined : JSON.parse(raw);
-    } catch {
-        return undefined;
-    }
-}
-
-/**
- * Plugins whose checkout is newer than the copy the host runs, as last recorded
- * by `muxr plugin sync --check`. Surfaced so the phone can say an update is
- * waiting instead of the drift being invisible until something misbehaves.
- */
-function readPendingUpdates(): ReadonlySet<string> {
-    const parsed = readMuxrJson(SYNC_FILE, MAX_RELOAD_BYTES);
-    const pending = (parsed as { pending?: unknown } | undefined)?.pending;
-    if (!Array.isArray(pending)) return new Set();
-    return new Set(pending.filter((id): id is string => typeof id === 'string' && isValidPluginId(id)));
-}
-
-function readReloadTokens(): Map<string, string> {
-    const path = join(process.env.MUXR_HOME?.trim() || join(homedir(), '.muxr'), RELOAD_FILE);
-    try {
-        const raw = readFileSync(path, 'utf8');
-        if (raw.length > MAX_RELOAD_BYTES) return new Map();
-        const parsed: unknown = JSON.parse(raw);
-        if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return new Map();
-        const out = new Map<string, string>();
-        for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
-            if (typeof value === 'string' && value.length <= 128 && (key === '*' || isValidPluginId(key))) out.set(key, value);
-        }
-        return out;
-    } catch {
-        return new Map();
-    }
-}
 function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === 'object' && value !== null && !Array.isArray(value); }
 function text(value: unknown, max: number): string {
     if (typeof value !== 'string') throw new Error('invalid plugin text');

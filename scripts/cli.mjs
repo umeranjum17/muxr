@@ -33,7 +33,7 @@ Run and maintain
   muxr integrations sync|uninstall
 
 Build plugins
-  muxr plugin docs|create|clone|check|dev|call|list|sync|reload|install|update|remove
+  muxr plugin docs|create|clone|check|dev|call|list|install|update|remove
 
 Use “muxr help <command>” for command options.
 `;
@@ -44,10 +44,8 @@ const COMMAND_HELP = {
     daemon: `muxr daemon install|uninstall|start|stop|restart|status|logs\n`,
     devices: `muxr devices list\nmuxr devices revoke <number|name>\n`,
     integrations: `muxr integrations sync [--all] [--dry-run]\nmuxr integrations uninstall [--dry-run]\n`,
-    plugin: `muxr plugin docs\nmuxr plugin sync [<plugin-id>...] [--check] [--yes]\nmuxr plugin reload <plugin-id>... | --all\nmuxr plugin create <name>\nmuxr plugin clone <bundled-plugin-id> [destination]\nmuxr plugin check|dev <path> [--web]\nmuxr plugin call <path> <contribution-id> [--input '<json>'] [--context '<json>']\nmuxr plugin list\nmuxr plugin install|update <local-path|owner/repo[/subdir][@ref]|npm:<name>@<exact-version>> [--yes]\nmuxr plugin remove <plugin-id> [--yes]\n`,
+    plugin: `muxr plugin docs\nmuxr plugin create <name>\nmuxr plugin clone <bundled-plugin-id> [destination]\nmuxr plugin check|dev <path> [--web]\nmuxr plugin call <path> <contribution-id> [--input '<json>'] [--context '<json>']\nmuxr plugin list\nmuxr plugin install|update <local-path|owner/repo[/subdir][@ref]|npm:<name>@<exact-version>> [--yes]\nmuxr plugin remove <plugin-id> [--yes]\n`,
     'plugin docs': `muxr plugin docs\n\nPrint absolute paths to the installed authoring guide and agent skill.\n`,
-    'plugin sync': `muxr plugin sync [<plugin-id>...] [--check] [--yes]\n\nCopy bundled plugins from this checkout over the installed copies and reload them.\nBundled plugins run from the installed npm package, so editing plugins/ in a\ncheckout otherwise changes nothing the host can see. Reports what differs;\n--check reports without writing. An installed copy that was edited after the\nlast sync is never overwritten without asking.\n`,
-    'plugin reload': `muxr plugin reload <plugin-id>... | --all\n\nMake connected devices refetch a plugin and restart its stream providers.\nEditing a backend entry file (rpc.mjs, stream.mjs) changes nothing the host\nhashes, so the edit would otherwise never reach the phone.\n`,
     'plugin create': `muxr plugin create <name>\n\nCreate a minimal three-file settings-screen plugin with a collision-resistant local id.\n`,
     'plugin clone': `muxr plugin clone <bundled-plugin-id> [destination]\n\nCopy a package-owned plugin to a user-owned folder, assign a new local id, and print the safe replace workflow.\n`,
     'plugin check': `muxr plugin check <path>\n\nValidate Herdr identity, muxr manifest, slots, primitives, actions, RPCs, and streams without linking.\n`,

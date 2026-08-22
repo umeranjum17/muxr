@@ -2,21 +2,16 @@
   "name": "@muxr/demo-studio",
   "private": true,
   "version": "0.0.0",
-  "description": "Capture -> cut pipeline for muxr store screenshots and the demo film. Not part of the yarn workspace; install on demand.",
+  "description": "Remotion source for the muxr product film. Not part of the yarn workspace; install on demand.",
   "type": "module",
   "scripts": {
-    "take": "node capture/take.mjs",
     "reel": "node reel/render.mjs",
-    "deliver": "node reel/deliver.mjs",
-    "leakcheck": "node review/leakcheck.mjs raw/muxr-demo-1080.mp4",
-    "frames": "node frames/render.mjs",
-    "all": "node build.mjs"
+    "deliver": "node reel/deliver.mjs"
   },
   "dependencies": {
     "@remotion/bundler": "^4.0.514",
     "@remotion/fonts": "^4.0.514",
     "@remotion/renderer": "^4.0.514",
-    "playwright": "^1.62.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "remotion": "^4.0.514"

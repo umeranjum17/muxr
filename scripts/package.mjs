@@ -1,11 +1,10 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { constants, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync, writeSync, closeSync } from 'node:fs';
+import { constants, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync, writeSync, closeSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { gunzipSync } from 'node:zlib';
 import { createInterface } from 'node:readline';
-import { fileURLToPath } from 'node:url';
 import { checkPlugin } from './plugin.mjs';
 
 export const MAX_COMPRESSED_BYTES = 16 * 1024 * 1024;
@@ -426,169 +425,8 @@ async function gitInstall(github, yes) {
     });
 }
 
-
-// ---------------------------------------------------------------- reload / sync
-
-const RELOAD_FILE = 'plugin-reload.json';
-const SYNC_BASELINE = 'plugin-sync.json';
-
-function muxrHomeDir() { return process.env.MUXR_HOME?.trim() || join(homedir(), '.muxr'); }
-
-/** Every file under a plugin root, hashed, so "has this been edited" is a fact. */
-function treeDigest(root) {
-    const files = [];
-    const walk = (dir, prefix) => {
-        for (const entry of readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
-            if (entry.name === 'node_modules' || entry.name.startsWith('.git')) continue;
-            const full = join(dir, entry.name);
-            const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
-            if (entry.isDirectory()) walk(full, rel);
-            else if (entry.isFile()) files.push([rel, createHash('sha256').update(readFileSync(full)).digest('hex')]);
-        }
-    };
-    try { walk(root, ''); } catch { return undefined; }
-    return { digest: createHash('sha256').update(stableJson(files)).digest('hex'), files: files.map(([name]) => name), byFile: new Map(files) };
-}
-
-function readJsonFile(path, fallback) {
-    try { return JSON.parse(readFileSync(path, 'utf8')); } catch { return fallback; }
-}
-
-/**
- * `muxr plugin reload [<plugin-id>] [--all]`
- *
- * Editing a backend entry file (rpc.mjs, stream.mjs) changes nothing the host
- * hashes — the manifest hash covers muxr-ui.json only — so the edit never
- * reaches the phone and nothing reports an error. This bumps a token the host
- * folds into each plugin's digest, which makes an edited backend look exactly
- * like a changed plugin: the device refetches and the stream providers are torn
- * down so they restart on the new code.
- */
-function runReload(args) {
-    const all = args.includes('--all');
-    const ids = args.filter((arg) => !arg.startsWith('--'));
-    if (all && ids.length) fail('muxr plugin reload takes plugin ids or --all, not both');
-    if (!all && ids.length === 0) fail('muxr plugin reload requires a plugin id or --all');
-    for (const id of ids) if (!ID_RE.test(id)) fail(`plugin id must match [a-z0-9][a-z0-9._-]{0,63}: ${id}`);
-
-    const installed = herdrPlugins();
-    for (const id of ids) if (!pluginFor(installed, id)) fail(`plugin is not installed: ${id}`);
-
-    const path = join(muxrHomeDir(), RELOAD_FILE);
-    const token = randomUUID();
-    const next = all ? { '*': token } : { ...readJsonFile(path, {}), ...Object.fromEntries(ids.map((id) => [id, token])) };
-    mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 });
-    process.stdout.write(`${all ? 'every plugin' : ids.join(', ')} marked for reload; connected devices refetch within ~2s\n`);
-    return 0;
-}
-
-/** The plugins/ directory of a source checkout, if this CLI is running from one. */
-function sourcePluginsDir() {
-    const here = fileURLToPath(new URL('.', import.meta.url));
-    const candidate = resolve(here, '../plugins');
-    return existsSync(join(here, 'PLUGINS.md')) || !existsSync(candidate) ? undefined : candidate;
-}
-
-/**
- * `muxr plugin sync [<plugin-id>...] [--check] [--yes]`
- *
- * Bundled plugins run from the installed npm package, not from a checkout, so
- * editing plugins/ in the repo changes nothing the host can see and says so
- * nowhere. This copies the checkout over the installed copy and reloads.
- *
- * It will not silently discard work. After each sync the installed tree's hash
- * is recorded; if the installed copy no longer matches that record, someone
- * edited it in place, and overwriting is a question rather than a default.
- */
-async function runSync(args) {
-    const check = args.includes('--check');
-    const yes = args.includes('--yes');
-    const only = new Set(args.filter((arg) => !arg.startsWith('--')));
-
-    const source = sourcePluginsDir();
-    if (!source) fail('muxr plugin sync needs a source checkout; run it from the repository');
-
-    const installed = herdrPlugins();
-    const byRoot = new Map(installed.map((plugin) => [resolve(plugin.plugin_root ?? ''), plugin]));
-    const baselinePath = join(muxrHomeDir(), SYNC_BASELINE);
-    const stored = readJsonFile(baselinePath, {});
-    const baseline = stored.baseline ?? {};
-
-    const rows = [];
-    for (const name of readdirSync(source, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name)) {
-        const from = join(source, name);
-        if (!existsSync(join(from, 'herdr-plugin.toml'))) continue;
-        const manifest = readJsonFile(join(from, 'muxr-ui.json'), undefined);
-        const pluginId = manifest?.pluginId ?? readFileSync(join(from, 'herdr-plugin.toml'), 'utf8').match(/^id\s*=\s*"([^"]+)"/m)?.[1];
-        if (!pluginId) continue;
-        if (only.size && !only.has(pluginId) && !only.has(name)) continue;
-
-        const plugin = pluginFor(installed, pluginId);
-        const to = plugin?.plugin_root ? resolve(plugin.plugin_root) : undefined;
-        const src = treeDigest(from);
-        const dst = to ? treeDigest(to) : undefined;
-        rows.push({
-            name, pluginId, from, to,
-            state: !to ? 'not installed'
-                : dst === undefined ? 'installed copy unreadable'
-                : src.digest === dst.digest ? 'up to date'
-                : baseline[pluginId] && baseline[pluginId] !== dst.digest ? 'edited in place'
-                : 'update available',
-            changed: to && dst ? src.files.filter((f) => src.byFile.get(f) !== dst.byFile.get(f)).concat(dst.files.filter((f) => !src.byFile.has(f)).map((f) => `${f} (removed)`)) : [],
-            src, dst, byRoot,
-        });
-    }
-    if (!rows.length) fail('no bundled plugins found to sync');
-
-    for (const row of rows) {
-        const detail = row.changed.length ? `  ${row.changed.slice(0, 6).join(', ')}${row.changed.length > 6 ? `, +${row.changed.length - 6} more` : ''}` : '';
-        process.stdout.write(`${row.state === 'up to date' ? ' ' : '!'} ${row.pluginId.padEnd(28)} ${row.state}${detail}\n`);
-    }
-    const pending = rows.filter((row) => row.state === 'update available' || row.state === 'edited in place' || row.state === 'not installed');
-    // Recorded so the host can tell the phone an update is waiting. Only the
-    // CLI knows where the checkout is, so only the CLI can work this out.
-    writePending(baselinePath, baseline, pending.filter((row) => row.state !== 'not installed').map((row) => row.pluginId));
-    if (check) { process.stdout.write(`\n${pending.length} of ${rows.length} need attention\n`); return pending.length ? 1 : 0; }
-    if (!pending.length) { process.stdout.write('\neverything is already in sync\n'); return 0; }
-
-    const reloaded = [];
-    for (const row of pending) {
-        if (row.state === 'not installed') {
-            process.stdout.write(`\n${row.pluginId} is not installed. Install it with:\n  muxr plugin install ${row.from}\n`);
-            continue;
-        }
-        if (row.state === 'edited in place'
-            && !await confirm(yes, `\n${row.pluginId}: the installed copy was edited after the last sync. Overwrite those edits with the checkout?`)) {
-            process.stdout.write(`skipped ${row.pluginId}\n`);
-            continue;
-        }
-        if (row.state === 'update available' && !await confirm(yes, `\nOverwrite installed ${row.pluginId} with the checkout?`)) {
-            process.stdout.write(`skipped ${row.pluginId}\n`);
-            continue;
-        }
-        rmSync(row.to, { recursive: true, force: true });
-        cpSync(row.from, row.to, { recursive: true });
-        baseline[row.pluginId] = treeDigest(row.to)?.digest;
-        reloaded.push(row.pluginId);
-        process.stdout.write(`synced ${row.pluginId}\n`);
-    }
-    if (reloaded.length) {
-        writePending(baselinePath, baseline, pending.filter((row) => !reloaded.includes(row.pluginId) && row.state !== 'not installed').map((row) => row.pluginId));
-        runReload(reloaded);
-    }
-    return 0;
-}
-
-function writePending(path, baseline, pending) {
-    mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, `${JSON.stringify({ baseline, pending }, null, 2)}\n`, { mode: 0o600 });
-}
-
 export async function runPackage(command, args = []) {
     if (command === 'list') { if (args.length) fail('muxr plugin list takes no arguments'); for (const plugin of herdrPlugins()) process.stdout.write(`${plugin.plugin_id}\t${plugin.version ?? '0.0.0'}\t${plugin.enabled ? 'enabled' : 'disabled'}\t${JSON.stringify(sourceFor(plugin))}\t${plugin.plugin_root ?? ''}\n`); return 0; }
-    if (command === 'reload') return runReload(args);
-    if (command === 'sync') return runSync(args);
     if (!['install', 'update', 'remove'].includes(command)) fail(`unknown package command: ${command}`);
     if (command === 'remove') {
         const { spec: requested, yes } = requireArgs(args, command); if (!ID_RE.test(requested)) fail('plugin id must match [a-z0-9][a-z0-9._-]{0,63}');
