@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Dimensions, Platform, View } from 'react-native';
+import { Platform, useWindowDimensions, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Text } from '@/components/StyledText';
@@ -54,23 +54,18 @@ export const RealtimeSessionOverlay = React.memo(function RealtimeSessionOverlay
               : t('plugins.realtimeOff');
     const conversationVisible = useRealtimeConversationVisible();
 
-    const window = Dimensions.get('window');
-    const x = useSharedValue(window.width - WIDTH - MARGIN);
-    const y = useSharedValue(window.height * 0.62);
+    const { width, height } = useWindowDimensions();
+    const x = useSharedValue(width - WIDTH - MARGIN);
+    const y = useSharedValue(height * 0.62);
     const startX = useSharedValue(0);
     const startY = useSharedValue(0);
 
     React.useEffect(() => {
-        const clamp = ({ width, height }: { width: number; height: number }) => {
-            const maxX = Math.max(MARGIN, width - WIDTH - MARGIN);
-            const maxY = Math.max(safeArea.top + MARGIN, height - HEIGHT - safeArea.bottom - MARGIN);
-            x.value = withSpring(Math.min(Math.max(x.value, MARGIN), maxX), { damping: 18 });
-            y.value = withSpring(Math.min(Math.max(y.value, safeArea.top + MARGIN), maxY), { damping: 18 });
-        };
-        clamp(Dimensions.get('window'));
-        const subscription = Dimensions.addEventListener('change', ({ window: nextWindow }) => clamp(nextWindow));
-        return () => subscription.remove();
-    }, [safeArea.bottom, safeArea.top, x, y]);
+        const maxX = Math.max(MARGIN, width - WIDTH - MARGIN);
+        const maxY = Math.max(safeArea.top + MARGIN, height - HEIGHT - safeArea.bottom - MARGIN);
+        x.value = withSpring(Math.min(Math.max(x.value, MARGIN), maxX), { damping: 18 });
+        y.value = withSpring(Math.min(Math.max(y.value, safeArea.top + MARGIN), maxY), { damping: 18 });
+    }, [height, safeArea.bottom, safeArea.top, width, x, y]);
 
     const drag = React.useMemo(
         () =>
@@ -84,13 +79,12 @@ export const RealtimeSessionOverlay = React.memo(function RealtimeSessionOverlay
                     y.value = startY.value + event.translationY;
                 })
                 .onEnd(() => {
-                    const { width, height } = Dimensions.get('window');
                     const toLeft = x.value + WIDTH / 2 < width / 2;
                     x.value = withSpring(toLeft ? MARGIN : Math.max(MARGIN, width - WIDTH - MARGIN), { damping: 18 });
                     const maxY = Math.max(safeArea.top + MARGIN, height - HEIGHT - safeArea.bottom - MARGIN);
                     y.value = withSpring(Math.min(Math.max(y.value, safeArea.top + MARGIN), maxY), { damping: 18 });
                 }),
-        [safeArea.bottom, safeArea.top, startX, startY, x, y],
+        [height, safeArea.bottom, safeArea.top, startX, startY, width, x, y],
     );
 
     const press = useSharedValue(1);
