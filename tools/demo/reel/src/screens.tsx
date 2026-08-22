@@ -1,16 +1,45 @@
 import React from 'react';
 import { interpolate, spring, useCurrentFrame } from 'remotion';
-import { FPS, GREEN, MUTED, TOKENS, starts } from './config';
+import { FPS, GREEN, TOKENS, starts } from './config';
 import { MONO, SANS } from './fonts';
 
 // The screens, typeset. Same job, same diff, same numbers as the take —
 // but drawn, not filmed: no wraps, no banners, no cut letters.
+//
+// The phone half is set in the app's own design system, lifted from
+// apps/mobile/sources/theme.ts and the shipping components — the film's
+// pixels are the product's pixels.
 
 const TXT = '#d6d6d8';
 const DIM = '#87878c';
 const FAINT = '#5a5a5f';
 const RED = '#ff6b60';
 const BLU = '#6cb2ff';
+
+// The app's dark theme, verbatim.
+const APP = {
+    bg: '#000000',          // groupped/header background
+    surface: '#1a1a1a',
+    high: '#212121',
+    divider: '#2e2e2e',
+    text: '#ececec',
+    sub: '#9a9a9f',
+    section: '#8E8E93',
+    chevron: '#505050',
+    termBg: '#1E1E1E',
+    working: '#0A84FF',
+    done: '#30D158',
+    blocked: '#FF453A',
+    idle: '#8E8E93',
+    waiting: '#f38ba8',
+    success: '#94e2d5',
+};
+const DIFF = {
+    outline: '#30363D', header: '#161B22', hunkText: '#58A6FF',
+    addedBg: '#12331F', addedText: '#7EE787',
+    removedBg: '#3A1D22', removedText: '#FFA198',
+    lineNo: '#6E7681', context: '#8B949E',
+};
 
 const clamp = { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' } as const;
 
@@ -20,6 +49,19 @@ const Line: React.FC<{ at: number; children?: React.ReactNode }> = ({ at, childr
     const o = interpolate(frame, [at, at + 5], [0, 1], clamp);
     return <div style={{ opacity: o, whiteSpace: 'pre' }}>{children ?? '\u00a0'}</div>;
 };
+
+/** A block arriving on the object spring: fade plus a small rise. */
+const Rise: React.FC<{ at: number; children: React.ReactNode; style?: React.CSSProperties }> =
+    ({ at, children, style }) => {
+        const frame = useCurrentFrame();
+        const p = frame < at ? 0 : spring({ frame: frame - at, fps: FPS, config: TOKENS.motion.object });
+        return (
+            <div style={{
+                ...style, opacity: Math.min(1, p * 1.4),
+                transform: `translateY(${(10 * (1 - p)).toFixed(2)}px)`,
+            }}>{children}</div>
+        );
+    };
 
 const S: React.FC<{ c?: string; children: React.ReactNode }> = ({ c, children }) => (
     <span style={{ color: c ?? TXT }}>{children}</span>
@@ -174,6 +216,8 @@ export const DeskScreen: React.FC = () => (
 );
 
 // ----------------------------------------------------------------- phone
+// Set in the app's design system: black chrome, #1a1a1a surfaces, #212121
+// chips and cards, hairline #2e2e2e dividers, IBM Plex, neutral agent tiles.
 
 const Mic: React.FC<{ c: string }> = ({ c }) => (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round">
@@ -182,43 +226,74 @@ const Mic: React.FC<{ c: string }> = ({ c }) => (
     </svg>
 );
 
+const HomeBar: React.FC = () => (
+    <div style={{ alignSelf: 'center', width: 132, height: 4, borderRadius: 2, background: '#3a3a3e', margin: '0 0 8px' }} />
+);
+
+const Glyph: React.FC<{ letter: string; size?: number }> = ({ letter, size = 32 }) => (
+    <div style={{
+        width: size, height: size, borderRadius: Math.max(6, size * 0.28), flexShrink: 0,
+        background: APP.high, border: `1px solid ${APP.divider}`,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        fontFamily: SANS, fontWeight: 600, fontSize: size * 0.42, color: APP.sub,
+    }}>{letter}</div>
+);
+
+const SectionTitle: React.FC<{ children: string }> = ({ children }) => (
+    <div style={{
+        fontFamily: SANS, fontSize: 13, fontWeight: 600, letterSpacing: '0.02em',
+        textTransform: 'uppercase', color: APP.section, padding: '18px 16px 6px',
+    }}>{children}</div>
+);
+
+const Card: React.FC<{ children: React.ReactNode; style?: React.CSSProperties }> = ({ children, style }) => (
+    <div style={{
+        margin: '10px 12px 0', background: APP.high, borderRadius: 14,
+        border: `1px solid ${APP.divider}`, overflow: 'hidden', ...style,
+    }}>{children}</div>
+);
+
 const PhoneChrome: React.FC<{ children: React.ReactNode; input: string }> = ({ children, input }) => (
-    <div style={{ position: 'absolute', inset: 0, background: '#0b0b0c', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ position: 'absolute', inset: 0, background: APP.bg, display: 'flex', flexDirection: 'column' }}>
         <div style={{
-            height: 56, display: 'flex', alignItems: 'center', gap: 10, padding: '0 16px', flexShrink: 0,
+            height: 52, display: 'flex', alignItems: 'center', gap: 10, padding: '0 16px',
+            flexShrink: 0, background: APP.surface,
         }}>
-            <span style={{ color: TXT, fontSize: 22, lineHeight: '22px' }}>‹</span>
+            <span style={{ color: APP.text, fontSize: 22, lineHeight: '22px' }}>‹</span>
             <span style={{ width: 8, height: 8, borderRadius: 4, background: GREEN }} />
-            <span style={{ fontFamily: SANS, fontWeight: 600, fontSize: 17, color: '#f2f2f4' }}>auth-fix</span>
-            <span style={{ marginLeft: 'auto', color: DIM, fontSize: 18, letterSpacing: 2 }}>⋯</span>
+            <span style={{ fontFamily: SANS, fontWeight: 600, fontSize: 15, color: APP.text }}>auth-fix</span>
+            <span style={{ marginLeft: 'auto', color: APP.sub, fontSize: 18, letterSpacing: 2 }}>⋯</span>
         </div>
-        <div style={{ padding: '0 16px 10px', flexShrink: 0 }}>
+        <div style={{
+            padding: '0 14px 8px', flexShrink: 0, background: APP.surface,
+            borderBottom: `1px solid ${APP.divider}`, display: 'flex',
+        }}>
             <span style={{
-                fontFamily: MONO, fontSize: 12, color: DIM, background: '#1a1a1c',
-                borderRadius: 8, padding: '4px 10px',
+                fontFamily: MONO, fontSize: 12, color: APP.sub, background: APP.high,
+                borderRadius: 999, padding: '4px 12px',
             }}>⎇ /var/tmp/muxr-demo</span>
         </div>
-        <div style={{ flex: 1, position: 'relative', background: '#0d0d0e', margin: '0 0 8px' }}>
+        <div style={{ flex: 1, position: 'relative', background: APP.termBg, marginBottom: 8 }}>
             {children}
         </div>
         <div style={{ display: 'flex', gap: 6, padding: '0 12px 8px', flexShrink: 0 }}>
             {['tab', 'esc', '^C', '↵', '←', '↑', '↓', '→'].map((k) => (
                 <span key={k} style={{
-                    fontFamily: MONO, fontSize: 12, color: '#c8c8cc', background: '#1f1f22',
-                    borderRadius: 8, padding: '7px 0', flex: 1, textAlign: 'center',
+                    fontFamily: MONO, fontSize: 12, color: APP.text, background: APP.high,
+                    borderRadius: 12, padding: '7px 0', flex: 1, textAlign: 'center',
                 }}>{k}</span>
             ))}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0 12px 10px', flexShrink: 0 }}>
             <div style={{
-                flex: 1, height: 46, borderRadius: 23, background: '#f2f2f4',
-                display: 'flex', alignItems: 'center', padding: '0 8px 0 18px', gap: 8,
+                flex: 1, height: 46, borderRadius: 23, background: APP.high,
+                display: 'flex', alignItems: 'center', padding: '0 14px 0 18px', gap: 8,
             }}>
-                <span style={{ fontFamily: SANS, fontSize: 15, color: '#8e8e93', flex: 1 }}>{input}</span>
-                <Mic c="#3a3a3e" />
+                <span style={{ fontFamily: SANS, fontSize: 15, color: '#8E8E93', flex: 1 }}>{input}</span>
+                <Mic c="#8E8E93" />
             </div>
         </div>
-        <div style={{ alignSelf: 'center', width: 132, height: 4, borderRadius: 2, background: '#3a3a3e', marginBottom: 8 }} />
+        <HomeBar />
     </div>
 );
 
@@ -226,7 +301,7 @@ const PTerm: React.FC<{ children: React.ReactNode }> = ({ children }) => (
     <div style={{
         position: 'absolute', inset: 0, padding: '14px 16px',
         display: 'flex', flexDirection: 'column', justifyContent: 'flex-end',
-        fontFamily: MONO, fontSize: 16, lineHeight: '24px', color: TXT,
+        fontFamily: MONO, fontSize: 16, lineHeight: '24px', color: '#E0E0E0',
     }}>{children}</div>
 );
 
@@ -286,77 +361,75 @@ const PhoneRun: React.FC = () => {
     );
 };
 
-const AGENTS = [
-    { name: 'billing-refactor', agent: 'codex', live: true, hue: ['#af52de', '#5e5ce6'] },
-    { name: 'landing-copy', agent: 'gemini', live: false, hue: ['#ffd60a', '#ff9f0a'] },
-    { name: 'flaky-e2e', agent: 'cursor', live: false, hue: ['#64d2ff', '#0a84ff'] },
-    { name: 'auth-fix', agent: 'claude', live: true, hue: ['#ff6482', '#ff375f'] },
+// ------------------------------------------------------------ phone: herd
+
+const AGENTS: Array<{ name: string; agent: string; dot: string }> = [
+    { name: 'auth-fix', agent: 'claude', dot: APP.done },
+    { name: 'billing-refactor', agent: 'codex', dot: APP.working },
+    { name: 'flaky-e2e', agent: 'cursor', dot: APP.blocked },
+    { name: 'landing-copy', agent: 'gemini', dot: APP.idle },
 ];
 
+const AgentRow: React.FC<{ name: string; sub: string; dot: string; first?: boolean }> =
+    ({ name, sub, dot, first }) => (
+        <div style={{ padding: '0 16px' }}>
+            {first === true ? null : <div style={{ height: 1, background: APP.divider, marginLeft: 42 }} />}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, minHeight: 56 }}>
+                <Glyph letter={name.charAt(0).toUpperCase()} />
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0, flex: 1 }}>
+                    <span style={{ fontFamily: SANS, fontWeight: 600, fontSize: 14, color: APP.text }}>{name}</span>
+                    <span style={{ fontFamily: SANS, fontSize: 12, color: APP.sub }}>{sub}</span>
+                </div>
+                <span style={{ width: 7, height: 7, borderRadius: 4, background: dot, flexShrink: 0 }} />
+            </div>
+        </div>
+    );
+
 const PhoneHerd: React.FC = () => {
-    const frame = useCurrentFrame();
     const a = starts.herd;
     return (
-        <div style={{ position: 'absolute', inset: 0, background: '#0b0b0c', display: 'flex', flexDirection: 'column' }}>
-            <div style={{ height: 64, display: 'flex', alignItems: 'center', gap: 10, padding: '0 20px', flexShrink: 0 }}>
-                <span style={{ fontFamily: SANS, fontWeight: 600, fontSize: 21, color: '#f2f2f4' }}>Herd</span>
+        <div style={{ position: 'absolute', inset: 0, background: APP.bg, display: 'flex', flexDirection: 'column' }}>
+            <div style={{ height: 60, display: 'flex', alignItems: 'center', gap: 10, padding: '0 16px', flexShrink: 0 }}>
+                <span style={{ fontFamily: SANS, fontWeight: 600, fontSize: 21, color: APP.text }}>Herd</span>
                 <span style={{ width: 7, height: 7, borderRadius: 4, background: GREEN, marginLeft: 4 }} />
                 <span style={{ fontFamily: SANS, fontSize: 13, color: GREEN }}>connected</span>
             </div>
-            <div style={{
-                fontFamily: SANS, fontSize: 12, fontWeight: 600, letterSpacing: '0.1em',
-                color: DIM, padding: '8px 20px 10px',
-            }}>SPACES</div>
-            <div style={{ margin: '0 12px', background: '#151517', borderRadius: 20, padding: '4px 0' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px' }}>
-                    <span style={{ color: DIM, fontSize: 12 }}>▾</span>
-                    <span style={{ width: 7, height: 7, borderRadius: 4, background: GREEN }} />
-                    <span style={{ fontFamily: SANS, fontWeight: 600, fontSize: 16, color: '#f2f2f4' }}>muxr-demo</span>
-                    <span style={{ marginLeft: 'auto', fontFamily: SANS, fontSize: 13, color: DIM }}>4 agents</span>
+            <SectionTitle>Spaces</SectionTitle>
+            <Rise at={a + 6}>
+            <Card style={{ marginTop: 0 }}>
+                <div style={{
+                    display: 'flex', alignItems: 'center', gap: 8, padding: '0 16px',
+                    minHeight: 48, borderBottom: `1px solid ${APP.divider}`,
+                }}>
+                    <span style={{ color: APP.chevron, fontSize: 12, width: 16 }}>▾</span>
+                    <span style={{ width: 8, height: 8, borderRadius: 4, background: APP.working }} />
+                    <span style={{ fontFamily: SANS, fontWeight: 600, fontSize: 15, color: APP.text }}>muxr-demo</span>
+                    <span style={{
+                        fontFamily: SANS, fontSize: 10, color: APP.sub, background: APP.surface,
+                        borderRadius: 5, padding: '2px 6px',
+                    }}>feat/auth-fix</span>
+                    <span style={{ marginLeft: 'auto', fontFamily: SANS, fontWeight: 600, fontSize: 12, color: APP.sub }}>4 agents</span>
                 </div>
-                {AGENTS.map((row, i) => {
-                    const at = a + 8 + i * 7;
-                    const p = frame < at ? 0 : spring({ frame: frame - at, fps: FPS, config: TOKENS.motion.object });
-                    return (
-                        <div key={row.name} style={{
-                            display: 'flex', alignItems: 'center', gap: 12, padding: '11px 16px',
-                            borderTop: `1px solid ${i === 0 ? 'transparent' : '#232326'}`,
-                            opacity: Math.min(1, p * 1.4),
-                            transform: `translateY(${(10 * (1 - p)).toFixed(2)}px)`,
-                        }}>
-                            <div style={{
-                                width: 40, height: 40, borderRadius: 20,
-                                background: `radial-gradient(circle at 30% 30%, ${row.hue[0]}, ${row.hue[1]})`,
-                            }} />
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                                <span style={{ fontFamily: SANS, fontWeight: 600, fontSize: 16, color: '#f2f2f4' }}>{row.name}</span>
-                                <span style={{ fontFamily: SANS, fontSize: 13, color: DIM }}>/var/tmp/muxr-demo · {row.agent}</span>
-                            </div>
-                            <span style={{
-                                marginLeft: 'auto', width: 8, height: 8, borderRadius: 4,
-                                background: row.live ? GREEN : '#3f3f43',
-                            }} />
+                {AGENTS.map((row, i) => (
+                    <Rise key={row.name} at={a + 12 + i * 7}>
+                        <AgentRow name={row.name} sub={`/var/tmp/muxr-demo · ${row.agent}`}
+                            dot={row.dot} first={i === 0} />
+                    </Rise>
+                ))}
+            </Card>
+            </Rise>
+            {[['landing-site', '1 agent'], ['release-notes', '1 agent']].map(([name, n], i) => (
+                <Rise key={name} at={a + 46 + i * 6}>
+                    <Card>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 16px', minHeight: 48 }}>
+                            <span style={{ color: APP.chevron, fontSize: 12, width: 16 }}>▸</span>
+                            <span style={{ width: 8, height: 8, borderRadius: 4, background: APP.idle }} />
+                            <span style={{ fontFamily: SANS, fontWeight: 600, fontSize: 15, color: APP.text }}>{name}</span>
+                            <span style={{ marginLeft: 'auto', fontFamily: SANS, fontWeight: 600, fontSize: 12, color: APP.sub }}>{n}</span>
                         </div>
-                    );
-                })}
-            </div>
-            {[['landing-site', '1 agent'], ['release-notes', '1 agent']].map(([name, n], i) => {
-                const at = a + 40 + i * 6;
-                const p = frame < at ? 0 : spring({ frame: frame - at, fps: FPS, config: TOKENS.motion.object });
-                return (
-                    <div key={name} style={{
-                        margin: '10px 12px 0', background: '#131315', borderRadius: 16,
-                        display: 'flex', alignItems: 'center', gap: 10, padding: '13px 16px',
-                        opacity: Math.min(1, p * 1.4) * 0.7,
-                        transform: `translateY(${(10 * (1 - p)).toFixed(2)}px)`,
-                    }}>
-                        <span style={{ color: DIM, fontSize: 12 }}>▸</span>
-                        <span style={{ width: 7, height: 7, borderRadius: 4, background: '#3f3f43' }} />
-                        <span style={{ fontFamily: SANS, fontWeight: 600, fontSize: 15, color: '#c8c8cc' }}>{name}</span>
-                        <span style={{ marginLeft: 'auto', fontFamily: SANS, fontSize: 13, color: DIM }}>{n}</span>
-                    </div>
-                );
-            })}
+                    </Card>
+                </Rise>
+            ))}
             <div style={{ marginTop: 'auto', display: 'flex', alignItems: 'center', gap: 10, padding: '0 12px 10px' }}>
                 <div style={{
                     flex: 1, height: 48, borderRadius: 24, background: '#f2f2f4',
@@ -371,7 +444,302 @@ const PhoneHerd: React.FC = () => {
                     }}>↑</div>
                 </div>
             </div>
-            <div style={{ alignSelf: 'center', width: 132, height: 4, borderRadius: 2, background: '#3a3a3e', marginBottom: 8 }} />
+            <HomeBar />
+        </div>
+    );
+};
+
+// ---------------------------------------------------------- phone: diffs
+
+const DiffRow: React.FC<{ no: string; kind?: 'add' | 'del'; children: string }> = ({ no, kind, children }) => (
+    <div style={{
+        display: 'flex', fontFamily: MONO, fontSize: 12, lineHeight: '22px',
+        background: kind === 'add' ? DIFF.addedBg : kind === 'del' ? DIFF.removedBg : 'transparent',
+    }}>
+        <span style={{ width: 34, flexShrink: 0, textAlign: 'right', paddingRight: 8, color: DIFF.lineNo }}>{no}</span>
+        <span style={{
+            whiteSpace: 'pre',
+            color: kind === 'add' ? DIFF.addedText : kind === 'del' ? DIFF.removedText : DIFF.context,
+        }}>{children}</span>
+    </div>
+);
+
+const PhoneChanges: React.FC = () => {
+    const a = starts.diffs;
+    return (
+        <div style={{ position: 'absolute', inset: 0, background: APP.bg, display: 'flex', flexDirection: 'column' }}>
+            <div style={{
+                height: 52, display: 'flex', alignItems: 'center', gap: 10, padding: '0 16px',
+                flexShrink: 0, background: APP.surface, borderBottom: `1px solid ${APP.divider}`,
+            }}>
+                <span style={{ color: APP.text, fontSize: 22, lineHeight: '22px' }}>‹</span>
+                <span style={{ fontFamily: SANS, fontWeight: 600, fontSize: 15, color: APP.text }}>Code</span>
+            </div>
+            <Rise at={a + 4} style={{ padding: '16px 16px 0' }}>
+                <div style={{ fontFamily: SANS, fontWeight: 600, fontSize: 20, color: APP.text, lineHeight: '26px' }}>
+                    Fix the refresh-token race
+                </div>
+                <div style={{ fontFamily: SANS, fontSize: 12, color: APP.sub, marginTop: 4 }}>
+                    auth-fix · claude · just now
+                </div>
+            </Rise>
+            <Rise at={a + 10} style={{ display: 'flex', gap: 6, padding: '12px 16px 0' }}>
+                {['All', 'token-store.ts', 'session.test.ts'].map((tab, i) => (
+                    <span key={tab} style={{
+                        fontFamily: SANS, fontWeight: 600, fontSize: 12, borderRadius: 10,
+                        padding: '5px 12px',
+                        background: i === 0 ? APP.text : APP.high,
+                        color: i === 0 ? '#17171a' : APP.sub,
+                    }}>{tab}</span>
+                ))}
+            </Rise>
+            <Rise at={a + 18} style={{ margin: '12px 12px 0' }}>
+                <div style={{ borderRadius: 12, border: `1px solid ${DIFF.outline}`, overflow: 'hidden' }}>
+                    <div style={{
+                        display: 'flex', alignItems: 'baseline', gap: 8, padding: '9px 12px',
+                        background: DIFF.header, borderBottom: `1px solid ${DIFF.outline}`,
+                    }}>
+                        <span style={{ fontFamily: MONO, fontWeight: 600, fontSize: 12, color: APP.text }}>token-store.ts</span>
+                        <span style={{ fontFamily: MONO, fontSize: 11, color: DIFF.lineNo }}>src/auth</span>
+                        <span style={{ marginLeft: 'auto', fontFamily: MONO, fontSize: 11 }}>
+                            <span style={{ color: DIFF.removedText }}>−2</span>
+                            <span style={{ color: DIFF.addedText }}> +4</span>
+                        </span>
+                    </div>
+                    <div style={{
+                        fontFamily: MONO, fontSize: 11, color: DIFF.hunkText,
+                        background: DIFF.header, padding: '4px 12px',
+                    }}>@@ -81,4 +83,6 @@ rotate()</div>
+                    <div style={{ padding: '4px 0', background: '#111418' }}>
+                        <DiffRow no="81">{'async rotate(refresh) {'}</DiffRow>
+                        <DiffRow no="82">{'  const subject = this.subjectOf(refresh);'}</DiffRow>
+                        <DiffRow no="83" kind="del">{'- const next = await this.issue(subject);'}</DiffRow>
+                        <DiffRow no="84" kind="del">{'- return next;'}</DiffRow>
+                        <DiffRow no="83" kind="add">{'+ this.invalidate(refresh);'}</DiffRow>
+                        <DiffRow no="84" kind="add">{'+ return this.issue(subject);'}</DiffRow>
+                        <DiffRow no="85">{'}'}</DiffRow>
+                    </div>
+                </div>
+            </Rise>
+            <Rise at={a + 30} style={{ margin: '10px 12px 0' }}>
+                <div style={{ borderRadius: 12, border: `1px solid ${DIFF.outline}`, overflow: 'hidden' }}>
+                    <div style={{
+                        display: 'flex', alignItems: 'baseline', gap: 8, padding: '9px 12px',
+                        background: DIFF.header, borderBottom: `1px solid ${DIFF.outline}`,
+                    }}>
+                        <span style={{ fontFamily: MONO, fontWeight: 600, fontSize: 12, color: APP.text }}>session.test.ts</span>
+                        <span style={{ fontFamily: MONO, fontSize: 11, color: DIFF.lineNo }}>tests/auth</span>
+                        <span style={{ marginLeft: 'auto', fontFamily: MONO, fontSize: 11, color: DIFF.addedText }}>+46</span>
+                    </div>
+                    <div style={{
+                        fontFamily: MONO, fontSize: 11, color: DIFF.hunkText,
+                        background: DIFF.header, padding: '4px 12px',
+                    }}>@@ -204,0 +205,46 @@ describe('rotate')</div>
+                    <div style={{ padding: '4px 0', background: '#111418' }}>
+                        <DiffRow no="205" kind="add">{"+ it('refuses a second redemption"}</DiffRow>
+                        <DiffRow no="" kind="add">{"+    of the same token')"}</DiffRow>
+                        <DiffRow no="219" kind="add">{"+ it('lets only one concurrent"}</DiffRow>
+                        <DiffRow no="" kind="add">{"+    redemption win')"}</DiffRow>
+                        <DiffRow no="236" kind="add">{"+ it('retires the token in the"}</DiffRow>
+                        <DiffRow no="" kind="add">{"+    same tick')"}</DiffRow>
+                    </div>
+                </div>
+            </Rise>
+            <Rise at={a + 44} style={{ margin: '12px 16px 0', display: 'flex', gap: 10 }}>
+                <div style={{
+                    flex: 1, height: 44, borderRadius: 12, background: '#32D74B',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontFamily: SANS, fontWeight: 600, fontSize: 15, color: '#fff',
+                }}>Approve</div>
+                <div style={{
+                    flex: 1, height: 44, borderRadius: 12, background: '#2C2C2E',
+                    border: '1px solid #38383A',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontFamily: SANS, fontWeight: 600, fontSize: 15, color: '#8E8E93',
+                }}>Request changes</div>
+            </Rise>
+            <div style={{ marginTop: 'auto' }}><HomeBar /></div>
+        </div>
+    );
+};
+
+// ---------------------------------------------------------- phone: inbox
+
+const INBOX: Array<{ name: string; reason: string; color: string; when: string }> = [
+    { name: 'auth-fix', reason: 'Waiting · pnpm test needs approval', color: APP.waiting, when: 'now' },
+    { name: 'flaky-e2e', reason: 'Blocked · needs a decision', color: '#F48FB1', when: '4m' },
+    { name: 'billing-refactor', reason: 'Done · 214 tests passed', color: APP.success, when: '12m' },
+];
+
+const InboxRow: React.FC<{ row: typeof INBOX[number]; first?: boolean }> = ({ row, first }) => (
+    <div style={{ padding: '0 16px' }}>
+        {first === true ? null : <div style={{ height: 1, background: APP.divider, marginLeft: 42 }} />}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minHeight: 60 }}>
+            <Glyph letter={row.name.charAt(0).toUpperCase()} />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0, flex: 1 }}>
+                <span style={{ fontFamily: SANS, fontWeight: 600, fontSize: 14, color: APP.text }}>{row.name}</span>
+                <span style={{ fontFamily: SANS, fontSize: 12, color: row.color }}>● {row.reason}</span>
+            </div>
+            <span style={{ fontFamily: SANS, fontSize: 12, color: APP.sub, flexShrink: 0 }}>{row.when}</span>
+        </div>
+    </div>
+);
+
+const PhoneInbox: React.FC = () => {
+    const a = starts.inbox;
+    return (
+        <div style={{ position: 'absolute', inset: 0, background: APP.bg, display: 'flex', flexDirection: 'column' }}>
+            <div style={{ height: 60, display: 'flex', alignItems: 'center', padding: '0 16px', flexShrink: 0 }}>
+                <span style={{ fontFamily: SANS, fontWeight: 600, fontSize: 21, color: APP.text }}>Inbox</span>
+                <span style={{
+                    marginLeft: 8, fontFamily: SANS, fontWeight: 600, fontSize: 12, color: '#fff',
+                    background: APP.working, borderRadius: 9, padding: '1px 7px',
+                }}>2</span>
+            </div>
+            <SectionTitle>Needs you</SectionTitle>
+            <Rise at={a + 6}>
+            <Card style={{ marginTop: 0 }}>
+                {INBOX.slice(0, 2).map((row, i) => (
+                    <Rise key={row.name} at={a + 8 + i * 7}>
+                        <InboxRow row={row} first={i === 0} />
+                    </Rise>
+                ))}
+            </Card>
+            </Rise>
+            <SectionTitle>Earlier</SectionTitle>
+            <Rise at={a + 26}>
+            <Card style={{ marginTop: 0 }}>
+                <InboxRow row={INBOX[2]} first />
+            </Card>
+            </Rise>
+            <div style={{ marginTop: 'auto' }}><HomeBar /></div>
+        </div>
+    );
+};
+
+// ---------------------------------------------------------- phone: voice
+
+/** Deterministic pseudo-random in [0,1). */
+const rnd = (i: number, salt: number) => {
+    const x = Math.sin(i * 127.1 + salt * 311.7) * 43758.5453;
+    return x - Math.floor(x);
+};
+
+const PhoneVoice: React.FC = () => {
+    const frame = useCurrentFrame();
+    const a = starts.voice;
+    const cx = 201, cy = 300;
+    const dots: React.ReactNode[] = [];
+    for (let i = 0; i < 130; i += 1) {
+        const angle = rnd(i, 1) * Math.PI * 2 + frame * 0.0015;
+        const radius = ((rnd(i, 2) + rnd(i, 3)) / 2) * 120;
+        const x = cx + Math.cos(angle) * radius * 1.3;
+        const y = cy + Math.sin(angle) * radius * 0.85;
+        const size = 1.5 + rnd(i, 4) * 3;
+        const twinkle = 0.55 + 0.45 * Math.sin(frame / 14 + i * 1.7);
+        dots.push(<div key={i} style={{
+            position: 'absolute', left: x, top: y, width: size, height: size,
+            borderRadius: size, background: '#fff',
+            opacity: (0.2 + 0.6 * rnd(i, 5)) * twinkle,
+        }} />);
+    }
+    const turns: Array<{ role: string; text: string; at: number }> = [
+        { role: 'you', text: 'What changed while I was out?', at: a + 30 },
+        { role: 'muxr', text: 'billing-refactor finished — 214 passed. auth-fix wants to run pnpm test.', at: a + 60 },
+        { role: 'you', text: 'Approve it, and have Codex open the PR.', at: a + 130 },
+    ];
+    return (
+        <div style={{ position: 'absolute', inset: 0, background: '#050608', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ height: 64, display: 'flex', alignItems: 'center', padding: '0 16px', flexShrink: 0, position: 'relative' }}>
+                <div style={{
+                    width: 40, height: 40, borderRadius: 20, background: '#202329',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    color: '#f3f4f7', fontSize: 16,
+                }}>⌄</div>
+                <span style={{
+                    position: 'absolute', left: 0, right: 0, textAlign: 'center',
+                    fontFamily: SANS, fontWeight: 600, fontSize: 16, color: '#f3f4f7',
+                }}>Realtime</span>
+            </div>
+            <div style={{ position: 'relative', height: 560, flexShrink: 0 }}>
+                <div style={{
+                    position: 'absolute', left: cx - 70, top: cy - 70, width: 140, height: 140,
+                    borderRadius: 70,
+                    background: 'radial-gradient(circle, rgba(255,255,255,0.85) 0%, rgba(255,255,255,0.12) 34%, transparent 62%)',
+                    filter: 'blur(2px)',
+                }} />
+                {dots}
+                <div style={{
+                    position: 'absolute', left: 0, right: 0, top: cy + 190, textAlign: 'center',
+                    fontFamily: SANS, fontWeight: 600, fontSize: 22, color: '#f7f8fb',
+                    opacity: 0.7 + 0.3 * Math.sin(frame / 24),
+                }}>Listening</div>
+            </div>
+            <div style={{ padding: '0 20px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {turns.map((turn) => (
+                    <Rise key={turn.at} at={turn.at} style={{ display: 'flex', gap: 8 }}>
+                        <span style={{
+                            fontFamily: MONO, fontSize: 11, lineHeight: '21px', width: 40, flexShrink: 0,
+                            color: turn.role === 'muxr' ? '#7f8794' : '#5d636e',
+                        }}>{turn.role}</span>
+                        <span style={{
+                            fontFamily: SANS, fontSize: 15, lineHeight: '21px',
+                            color: turn.role === 'muxr' ? '#e9ebf0' : '#9aa1ad',
+                        }}>{turn.text}</span>
+                    </Rise>
+                ))}
+            </div>
+            <div style={{ marginTop: 'auto' }}><HomeBar /></div>
+        </div>
+    );
+};
+
+// ---------------------------------------------------------- phone: relay
+
+const PhoneRelay: React.FC = () => {
+    const a = starts.relay;
+    return (
+        <div style={{ position: 'absolute', inset: 0, background: APP.bg, display: 'flex', flexDirection: 'column' }}>
+            <div style={{
+                height: 52, display: 'flex', alignItems: 'center', gap: 10, padding: '0 16px',
+                flexShrink: 0, background: APP.surface, borderBottom: `1px solid ${APP.divider}`,
+            }}>
+                <span style={{ color: APP.text, fontSize: 22, lineHeight: '22px' }}>‹</span>
+                <span style={{ fontFamily: SANS, fontWeight: 600, fontSize: 15, color: APP.text }}>Connection</span>
+                <span style={{ marginLeft: 'auto', width: 8, height: 8, borderRadius: 4, background: GREEN }} />
+            </div>
+            <Rise at={a + 4}>
+            <Card style={{ background: APP.surface }}>
+                <div style={{ padding: '14px 16px' }}>
+                    <div style={{ fontFamily: SANS, fontWeight: 600, fontSize: 16, color: APP.text }}>Relay</div>
+                    <div style={{ fontFamily: MONO, fontSize: 13, color: APP.sub, marginTop: 4 }}>wss://your-host.ts.net</div>
+                    <div style={{ height: 1, background: APP.divider, margin: '12px 0' }} />
+                    <div style={{ fontFamily: SANS, fontWeight: 600, fontSize: 16, color: APP.text }}>Versions</div>
+                    <div style={{ fontFamily: SANS, fontSize: 13, color: APP.sub, marginTop: 4 }}>app 0.1.12 · host 0.1.12</div>
+                </div>
+            </Card>
+            </Rise>
+            <SectionTitle>You run the relay</SectionTitle>
+            <Rise at={a + 14}>
+            <Card style={{ marginTop: 0, background: APP.surface }}>
+                <div style={{ padding: '14px 16px' }}>
+                    <div style={{ fontFamily: SANS, fontWeight: 600, fontSize: 16, color: APP.text }}>End-to-end encrypted</div>
+                    <div style={{ fontFamily: SANS, fontSize: 13, lineHeight: '19px', color: APP.sub, marginTop: 4 }}>
+                        Terminal output, keystrokes and approvals are sealed to your machine key before they leave this phone.
+                    </div>
+                    <div style={{ fontFamily: SANS, fontWeight: 600, fontSize: 16, color: APP.text, marginTop: 14 }}>Pairing holds the credentials</div>
+                    <div style={{ fontFamily: SANS, fontSize: 13, lineHeight: '19px', color: APP.sub, marginTop: 4 }}>
+                        Keys and tokens come from the QR grant. There is no shared-key fallback.
+                    </div>
+                </div>
+            </Card>
+            </Rise>
+            <Rise at={a + 26} style={{ padding: '14px 18px 0' }}>
+                <div style={{ fontFamily: SANS, fontSize: 13, lineHeight: '19px', color: APP.sub }}>
+                    Use your local network, Tailscale, or your own secure tunnel. Every feature stays available in the open-source self-hosted stack.
+                </div>
+            </Rise>
+            <div style={{ marginTop: 'auto' }}><HomeBar /></div>
         </div>
     );
 };
@@ -380,7 +748,10 @@ export const PhoneScreen: React.FC<{ tapAt: number }> = ({ tapAt }) => (
     <Cross states={[
         { at: starts.moves, el: <PhoneChrome input="Type a prompt…"><PhonePrompt tapAt={tapAt} /></PhoneChrome> },
         { at: deskAck + 4, el: <PhoneChrome input="Type a prompt…"><PhoneRun /></PhoneChrome> },
+        { at: starts.diffs, el: <PhoneChanges /> },
+        { at: starts.inbox, el: <PhoneInbox /> },
+        { at: starts.voice, el: <PhoneVoice /> },
         { at: starts.herd, el: <PhoneHerd /> },
+        { at: starts.relay, el: <PhoneRelay /> },
     ]} />
 );
-

@@ -82,7 +82,7 @@ export const PhonePanel: React.FC<{ dim: number }> = ({ dim }) => {
     const frame = useCurrentFrame();
 
     const enter = arrive(frame, starts.moves);
-    const drift = arrive(frame, starts.end);
+    const drift = arrive(frame, starts.forget);
     const x = PHONE.center - PHONE.w / 2 - 60 * drift;
     const y = PHONE.y + (1180 - PHONE.y) * (1 - enter);
 

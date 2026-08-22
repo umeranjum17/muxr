@@ -25,10 +25,16 @@ export const POSES: Array<{ at: number; pose: Pose }> = [
     { at: starts.run, pose: { cx: 860, cy: 575, s: 0.9 } },
     // The result, on the phone — seated left so the words own the right.
     { at: starts.result, pose: { cx: 550, cy: 540, s: 1.15 } },
-    // The herd: hold.
+    // The capability run: the phone holds its seat; the lens breathes.
+    { at: starts.diffs, pose: { cx: 550, cy: 540, s: 1.18 } },
+    { at: starts.inbox, pose: { cx: 550, cy: 540, s: 1.14 } },
+    { at: starts.voice, pose: { cx: 550, cy: 520, s: 1.2 } },
     { at: starts.herd, pose: { cx: 550, cy: 540, s: 1.15 } },
+    { at: starts.relay, pose: { cx: 550, cy: 540, s: 1.18 } },
+    // The phone bows out; one line owns the dark.
+    { at: starts.forget, pose: { cx: 550, cy: 540, s: 1.3 } },
     // Past the panels into the close.
-    { at: starts.end, pose: { cx: 550, cy: 540, s: 1.4 } },
+    { at: starts.end, pose: { cx: 550, cy: 540, s: 1.45 } },
 ];
 
 /**

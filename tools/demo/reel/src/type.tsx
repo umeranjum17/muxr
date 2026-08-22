@@ -1,7 +1,7 @@
 import React from 'react';
 import { AbsoluteFill, Easing, interpolate, spring, useCurrentFrame } from 'remotion';
 import { FPS, GREEN, MUTED, TOKENS } from './config';
-import { MONO, SANS } from './fonts';
+import { LOGO, MONO, SANS } from './fonts';
 
 /**
  * A beat's words, sharing the frame with the footage. Lines arrive in order,
@@ -10,7 +10,7 @@ import { MONO, SANS } from './fonts';
  * `bottom` under the pair.
  */
 export const BeatText: React.FC<{
-    beat: { lines: string[]; anchor: 'top' | 'right' | 'bottom'; small?: string; frames: number };
+    beat: { lines: string[]; anchor: 'top' | 'right' | 'bottom' | 'center'; small?: string; frames: number };
     at: number;
 }> = ({ beat, at }) => {
     const frame = useCurrentFrame();
@@ -25,7 +25,9 @@ export const BeatText: React.FC<{
         ? { top: 44, left: 0, right: 0, alignItems: 'center' }
         : beat.anchor === 'right'
             ? { top: 0, bottom: 0, left: 1100, right: 80, justifyContent: 'center', alignItems: 'flex-start' }
-            : { bottom: 34, left: 0, right: 0, alignItems: 'center' };
+            : beat.anchor === 'center'
+                ? { top: 0, bottom: 0, left: 0, right: 0, justifyContent: 'center', alignItems: 'center' }
+                : { bottom: 34, left: 0, right: 0, alignItems: 'center' };
 
     let cursor = 0;
     const perWord = TOKENS.caption.wordStagger;
@@ -131,7 +133,7 @@ export const EndCard: React.FC<{ at: number }> = ({ at }) => {
     return (
         <AbsoluteFill style={{ justifyContent: 'center', alignItems: 'center', gap: 24 }}>
             <div style={{
-                fontFamily: SANS, fontWeight: 600, fontSize: 120, color: TOKENS.caption.color,
+                fontFamily: LOGO, fontSize: 120, color: TOKENS.caption.color,
                 letterSpacing: '-0.02em', display: 'flex', alignItems: 'baseline', gap: '0.18em',
                 transform: `translateY(${(36 * (1 - rise)).toFixed(2)}px)`,
                 opacity: Math.min(1, local / 10),

@@ -82,7 +82,7 @@ export const TOKENS = {
  * proves it. `anchor` says where the words live: above the desk, beside the
  * phone, under the pair.
  */
-export type Anchor = 'top' | 'right' | 'bottom';
+export type Anchor = 'top' | 'right' | 'bottom' | 'center';
 export const BEATS: Array<{
     id: string; frames: number; lines: string[]; anchor: Anchor; small?: string;
 }> = [
@@ -100,9 +100,19 @@ export const BEATS: Array<{
       lines: ['The tests run on your computer.', 'Every result appears live in muxr.'] },
     { id: 'result', frames: 240, anchor: 'right',
       lines: ['26 passed.', 'The refresh-token race is fixed.'] },
+    { id: 'diffs', frames: 240, anchor: 'right',
+      lines: ['See every diff.', 'Ship from your pocket.'] },
+    { id: 'inbox', frames: 240, anchor: 'right',
+      lines: ['An agent blocks?', 'muxr pings you.'] },
+    { id: 'voice', frames: 270, anchor: 'right',
+      lines: ['\u201cWhat changed while I was out?\u201d', 'Voice prompts on your behalf.'] },
     { id: 'herd', frames: 300, anchor: 'right',
-      lines: ['Claude. Codex. Gemini. Cursor.', 'Four live sessions on your phone.'],
-      small: 'SELF-HOSTED RELAY \u00b7 END-TO-END ENCRYPTED' },
+      lines: ['Claude. Codex. Gemini. Cursor.', '22+ agents. One herd.'] },
+    { id: 'relay', frames: 270, anchor: 'right',
+      lines: ['Your Wi-Fi. Tailscale.', 'Or your own relay.'],
+      small: 'END-TO-END ENCRYPTED \u00b7 OPEN-SOURCE SELF-HOSTED STACK' },
+    { id: 'forget', frames: 180, anchor: 'center',
+      lines: ['Forget the laptop.'] },
     { id: 'end', frames: 240, anchor: 'bottom', lines: [] },
 ];
 

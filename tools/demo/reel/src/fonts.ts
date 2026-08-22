@@ -7,6 +7,9 @@ import { loadFont } from '@remotion/fonts';
 loadFont({ family: 'PlexSans', url: staticFile('fonts/IBMPlexSans-Regular.ttf'), weight: '400' });
 loadFont({ family: 'PlexSans', url: staticFile('fonts/IBMPlexSans-SemiBold.ttf'), weight: '600' });
 loadFont({ family: 'PlexMono', url: staticFile('fonts/IBMPlexMono-Regular.ttf'), weight: '400' });
+loadFont({ family: 'Bricolage', url: staticFile('fonts/BricolageGrotesque-Bold.ttf'), weight: '700' });
 
 export const SANS = 'PlexSans, sans-serif';
 export const MONO = 'PlexMono, monospace';
+// The wordmark face the app ships (Typography.logo) — already bold, no weight.
+export const LOGO = 'Bricolage, sans-serif';
