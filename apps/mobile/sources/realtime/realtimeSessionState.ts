@@ -8,6 +8,13 @@ import {
 } from '@/../modules/voice-overlay';
 import { startRealtimeSession as openRealtimeTransport, type RealtimeHandle, type RealtimeStatus } from '@/voice/realtimeSession';
 import { voiceDiagnostic } from '@/voice/voiceDiagnostics';
+import {
+    cancelVadStandbyStart,
+    rearmVadStandby,
+    startVadStandby,
+    stopVadStandby,
+    vadStandbyOwnsMicrophone,
+} from '@/voice/vadStandby';
 
 export type RealtimeSessionState = RealtimeStatus;
 export interface RealtimeTurn {
@@ -31,6 +38,8 @@ let pendingSpeech: string | null = null;
 let sleepAfterSpeech = false;
 let reportSpeechStarted = false;
 let idleTimer: ReturnType<typeof setTimeout> | null = null;
+let vadArming: Promise<boolean> | null = null;
+let vadEpoch = 0;
 /** Local completion watch; unlike `session`, this owns no provider connection. */
 let watching = false;
 /** Last used pane for a notification Talk action. */
@@ -87,20 +96,26 @@ addVoiceNotificationActionListener((action) => {
 export async function claimDictation(): Promise<'granted' | 'busy' | 'already'> {
     if (dictating) return 'already';
     if (session !== null || starting) return 'busy';
+    vadEpoch += 1;
+    const pendingVad = vadArming;
+    stopVadStandby();
     dictating = true;
+    if (pendingVad !== null) await pendingVad.catch(() => false);
     return 'granted';
 }
 
 /** Hand the mic ownership back; dictation must have stopped its recorder first. */
 export function releaseDictation(): void {
     dictating = false;
+    if (storage.getState().localSettings?.vadStandbyEnabled === true) void armVadStandby();
 }
 
-/** Testable single-owner invariant for Realtime and dictation. */
-export function micOwners(): Array<'realtime' | 'dictation'> {
-    const owners: Array<'realtime' | 'dictation'> = [];
+/** Testable single-owner invariant for every microphone consumer. */
+export function micOwners(): Array<'realtime' | 'dictation' | 'vad'> {
+    const owners: Array<'realtime' | 'dictation' | 'vad'> = [];
     if (dictating) owners.push('dictation');
     if (session !== null || starting) owners.push('realtime');
+    if (vadStandbyOwnsMicrophone()) owners.push('vad');
     return owners;
 }
 
@@ -158,7 +173,7 @@ function keepAwake(epoch: number): void {
 
 function clearLiveState(): void {
     clearIdleTimer();
-    stopVoiceService();
+    if (!vadStandbyOwnsMicrophone()) stopVoiceService();
     session = null;
     starting = false;
     bound = null;
@@ -172,6 +187,7 @@ function clearLiveState(): void {
 function failRealtimeStart(epoch: number, reason: string): void {
     if (epoch !== realtimeEpoch) return;
     clearLiveState();
+    rearmVadStandby();
     state = 'disconnected';
     detail = reason;
     notify();
@@ -187,6 +203,9 @@ export function startRealtimeSession(sessionId: string): boolean {
         voiceDiagnostic('startVoice.guard:duplicate');
         return false;
     }
+    vadEpoch += 1;
+    const pendingVad = vadArming;
+    cancelVadStandbyStart();
     const epoch = ++realtimeEpoch;
     realtimeTarget = sessionId;
     watching = true;
@@ -203,11 +222,15 @@ export function startRealtimeSession(sessionId: string): boolean {
     state = 'connecting';
     detail = undefined;
     notify();
-    startRealtimeAfterService(sessionId, epoch);
+    if (pendingVad === null) startRealtimeAfterService(sessionId, epoch);
+    else void pendingVad.then(
+        () => startRealtimeAfterService(sessionId, epoch),
+        () => startRealtimeAfterService(sessionId, epoch),
+    );
     return true;
 }
 
-/** The service must be foreground before WebRTC opens the microphone. */
+/** The service must be foreground before native PCM capture opens the microphone. */
 function startRealtimeAfterService(sessionId: string, epoch: number): void {
     if (epoch !== realtimeEpoch) return;
     if (!startVoiceService()) {
@@ -230,6 +253,8 @@ function startRealtimeAfterService(sessionId: string, epoch: number): void {
                     state = 'disconnected';
                     detail = why === 'ended' ? undefined : why;
                     notify();
+                    rearmVadStandby();
+                    if (watching && !vadStandbyOwnsMicrophone()) void armVadStandby();
                     return;
                 }
                 if (next === 'connected' || next === 'thinking' || next === 'speaking') keepAwake(liveEpoch);
@@ -257,6 +282,8 @@ function startRealtimeAfterService(sessionId: string, epoch: number): void {
             state = 'disconnected';
             detail = error instanceof Error ? error.message : String(error);
             notify();
+            rearmVadStandby();
+            if (watching && !vadStandbyOwnsMicrophone()) void armVadStandby();
         }
         return;
     }
@@ -268,6 +295,54 @@ function startRealtimeAfterService(sessionId: string, epoch: number): void {
     starting = false;
 }
 
+async function armVadStandby(): Promise<boolean> {
+    if (storage.getState().localSettings?.vadStandbyEnabled !== true || dictating || session !== null || starting) return false;
+    if (vadArming !== null) return vadArming;
+    const epoch = vadEpoch;
+    const task = (async () => {
+        const target = realtimeTarget ?? await resolveRealtimeTarget();
+        if (target === null || epoch !== vadEpoch || storage.getState().localSettings?.vadStandbyEnabled !== true
+            || dictating || session !== null || starting) return false;
+        realtimeTarget = target;
+        watching = true;
+        const armed = await startVadStandby(
+            () => {
+                const wakeTarget = realtimeTarget;
+                if (wakeTarget !== null && session === null && !starting && !dictating) startRealtimeSession(wakeTarget);
+            },
+            () => {
+                storage.getState().applyLocalSettings({ vadStandbyEnabled: false });
+                notify();
+            },
+        );
+        if (epoch !== vadEpoch) {
+            stopVadStandby();
+            return false;
+        }
+        return armed;
+    })();
+    vadArming = task;
+    try {
+        return await task;
+    } finally {
+        if (vadArming === task) vadArming = null;
+    }
+}
+
+export async function configureVadStandby(enabled: boolean): Promise<boolean> {
+    storage.getState().applyLocalSettings({ vadStandbyEnabled: enabled });
+    if (!enabled) {
+        vadEpoch += 1;
+        stopVadStandby();
+        notify();
+        return true;
+    }
+    const armed = await armVadStandby();
+    if (!armed) storage.getState().applyLocalSettings({ vadStandbyEnabled: false });
+    notify();
+    return armed;
+}
+
 function sleepRealtimeSession(): void {
     realtimeEpoch++;
     const active = session;
@@ -276,10 +351,14 @@ function sleepRealtimeSession(): void {
     state = 'disconnected';
     detail = undefined;
     notify();
+    if (watching) void armVadStandby();
 }
 
 export function stopRealtimeSession(): void {
     watching = false;
+    vadEpoch += 1;
+    storage.getState().applyLocalSettings({ vadStandbyEnabled: false });
+    stopVadStandby();
     sleepRealtimeSession();
 }
 

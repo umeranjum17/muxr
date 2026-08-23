@@ -21,7 +21,7 @@ import {
 import { authenticateWebSocket, extractBearerToken, secureEqual, type PeerIdentity, type Ticket } from './auth.js';
 import { OfflineBuffer } from './buffer.js';
 import { type RelayConfig, clientIp, isLoopbackAddress, loadRelayConfig } from './config.js';
-import { handleHttpRequest, readJsonBody, writeJson, type PushActionOutcome } from './httpHandlers.js';
+import { handleHttpRequest, isExpoPushToken, readJsonBody, writeJson, type PushActionOutcome } from './httpHandlers.js';
 import { PairingRequests } from './pairing.js';
 import { parseLastSeq, PeerTable, peerMayRoute, sendEnvelope, type ConnectedPeer } from './peers.js';
 import { PreviewChannels } from './preview.js';
@@ -442,7 +442,10 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
                 const slug = decodeURIComponent(revokeMachineMatch[1]);
                 const revoked = await machineAuthority.revokeMachine(slug);
                 if (revoked === undefined) { writeJsonError(res, 404, 'machine_not_found'); return; }
-                for (const device of await localPairing.listDevices(slug)) await localPairing.revokeDevice(device.deviceId, slug);
+                for (const device of await localPairing.listDevices(slug)) {
+                    await localPairing.revokeDevice(device.deviceId, slug);
+                    await push.removeExpoDevice(`local:${slug}`, device.deviceId);
+                }
                 closePeers({ accountId: `local:${slug}`, machineSlug: slug }, 'machine revoked');
                 writeJson(res, 200, { ok: true });
                 return;
@@ -709,7 +712,43 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
                     return;
                 }
                 revokePeers({ accountId: `local:${revoked.machineSlug}`, deviceId });
+                await push.removeExpoDevice(`local:${revoked.machineSlug}`, deviceId);
                 writeJson(res, 200, { ok: true });
+                return;
+            }
+            if (config.localAuthority && localPairing !== undefined && (req.method === 'POST' || req.method === 'DELETE')
+                && url.pathname === '/v1/push/expo-subscribe') {
+                const presented = extractBearerToken(req);
+                const device = presented === undefined ? undefined : await localPairing.resolveDeviceCredential(presented);
+                if (device === undefined) { writeJsonError(res, 403, 'invalid device credential'); return; }
+                if (req.method === 'POST') {
+                    const body = (await readJsonBody(req).catch(() => undefined)) as { token?: unknown } | undefined;
+                    if (!isExpoPushToken(body?.token)) { writeJsonError(res, 400, 'invalid Expo push token'); return; }
+                    await push.subscribeExpo(`local:${device.machineSlug}`, body.token, device.deviceId);
+                } else {
+                    await push.removeExpoDevice(`local:${device.machineSlug}`, device.deviceId);
+                }
+                writeJson(res, 200, { ok: true });
+                return;
+            }
+            if (config.localAuthority && machineAuthority !== undefined && req.method === 'POST'
+                && url.pathname === '/v1/push/notify') {
+                const presented = extractBearerToken(req);
+                const machine = presented === undefined ? undefined : await machineAuthority.resolveCredential(presented);
+                const body = (await readJsonBody(req).catch(() => undefined)) as Record<string, unknown> | undefined;
+                if (machine === undefined) { writeJsonError(res, 403, 'invalid machine credential'); return; }
+                if (body?.machineId !== machine.slug || typeof body.sessionId !== 'string' || body.sessionId === ''
+                    || typeof body.detail !== 'string' || body.detail === '') {
+                    writeJsonError(res, 400, 'invalid push payload');
+                    return;
+                }
+                const { sent } = await push.notify(`local:${machine.slug}`, {
+                    title: body.detail,
+                    body: body.detail,
+                    sessionId: body.sessionId,
+                    machineId: machine.slug,
+                });
+                writeJson(res, 200, { ok: true, sent });
                 return;
             }
             for (const handler of options.httpHandlers ?? []) {

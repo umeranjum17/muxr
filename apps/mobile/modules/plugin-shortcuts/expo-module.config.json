@@ -1,5 +1,9 @@
 {
-  "platforms": ["android"],
+  "platforms": ["apple", "android"],
+  "apple": {
+    "modules": ["PluginShortcutsModule"],
+    "appDelegateSubscribers": ["PluginShortcutAppDelegateSubscriber"]
+  },
   "android": {
     "modules": ["expo.modules.pluginshortcuts.PluginShortcutsModule"]
   }

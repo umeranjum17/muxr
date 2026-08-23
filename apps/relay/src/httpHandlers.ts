@@ -82,6 +82,10 @@ export function writeJson(res: ServerResponse, status: number, body: unknown): v
     res.end(JSON.stringify(body));
 }
 
+export function isExpoPushToken(value: unknown): value is string {
+    return typeof value === 'string' && /^(?:Exponent|Expo)PushToken\[[A-Za-z0-9_-]+\]$/.test(value);
+}
+
 function isPushSubscription(
     value: unknown,
 ): value is { endpoint: string; keys: { p256dh: string; auth: string } } {
@@ -363,6 +367,34 @@ export async function handleHttpRequest(
             return;
         }
         await ctx.push.subscribe(account.accountId, body.subscription);
+        writeJson(res, 200, { ok: true });
+        return;
+    }
+
+    if ((req.method === 'POST' || req.method === 'DELETE') && path === '/v1/push/expo-subscribe') {
+        const token = extractAccountToken(req, url);
+        if (!token) {
+            writeJson(res, 401, { error: 'account token required' });
+            return;
+        }
+        const account = ctx.registry.findAccountByToken(token);
+        if (!account) {
+            writeJson(res, 403, { error: 'invalid account token' });
+            return;
+        }
+        let body: { token?: unknown };
+        try {
+            body = (await readJsonBody(req)) as { token?: unknown };
+        } catch {
+            writeJson(res, 400, { error: 'invalid json body' });
+            return;
+        }
+        if (!isExpoPushToken(body.token)) {
+            writeJson(res, 400, { error: 'invalid Expo push token' });
+            return;
+        }
+        if (req.method === 'POST') await ctx.push.subscribeExpo(account.accountId, body.token);
+        else await ctx.push.removeExpoToken(account.accountId, body.token);
         writeJson(res, 200, { ok: true });
         return;
     }

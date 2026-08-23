@@ -8,6 +8,7 @@ import { takeLegacyRealtimeApiKey } from '@/sync/persistence';
 import { openRealtimeConversation, realtimeSessionSnapshot, startRealtimeSession } from './realtimeSessionState';
 import { voiceDiagnostic } from '@/voice/voiceDiagnostics';
 import { callPlugin } from '@/plugins/callPlugin';
+import { registerNativePushNotifications } from '@/utils/nativePushNotifications';
 
 export async function requestRealtimePermission(): Promise<boolean> {
     voiceDiagnostic('permission.begin');
@@ -24,6 +25,7 @@ export async function requestRealtimePermission(): Promise<boolean> {
     // Realtime still works if the user declines, but Android otherwise hides the
     // foreground-service tray and promoted ongoing status chip completely.
     await requestNotificationPermission();
+    void registerNativePushNotifications();
     return true;
 }
 

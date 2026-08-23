@@ -2,7 +2,7 @@ import * as React from 'react';
 import { AppState, Platform } from 'react-native';
 import type { AgentLifecycle } from '@muxr/contract';
 import { useAuth } from '@/auth/AuthContext';
-import { useHerdrTree, useLocalSettingMutable, useSessions, useSocketStatus } from '@/sync/storage';
+import { useHerdrTree, useLocalSetting, useLocalSettingMutable, useSessions, useSocketStatus } from '@/sync/storage';
 import {
     canPostPromotedNotifications,
     clearVoiceNotification,
@@ -16,8 +16,9 @@ import {
 import { requestNotificationPermission } from '@/utils/microphonePermissions';
 import { completionAlerts, completionNotificationState, herdNotificationState, sortHerd } from '@/utils/herd';
 import { lifecycleTree } from '@/utils/herdTree';
-import { boundRealtimeSession, useRealtimeMuted, useRealtimeSessionState } from '@/realtime/realtimeSessionState';
+import { boundRealtimeSession, configureVadStandby, useRealtimeMuted, useRealtimeSessionState } from '@/realtime/realtimeSessionState';
 import { Modal } from '@/modal';
+import { registerNativePushNotifications } from '@/utils/nativePushNotifications';
 
 /**
  * Unconditional kernel owner for Android's foreground service and baseline
@@ -26,6 +27,7 @@ import { Modal } from '@/modal';
  */
 export function KernelNotifications() {
     const sessions = useSessions();
+    const sessionCount = Object.keys(sessions).length;
     const { workspaces } = useHerdrTree();
     const { status } = useSocketStatus();
     const { isAuthenticated } = useAuth();
@@ -39,6 +41,7 @@ export function KernelNotifications() {
     const [appActive, setAppActive] = React.useState(AppState.currentState === 'active');
     const [promotionPrompted, setPromotionPrompted] = useLocalSettingMutable('promotedNotificationsPrompted');
     const [backgroundPrompted, setBackgroundPrompted] = useLocalSettingMutable('backgroundConnectionPrompted');
+    const vadStandbyEnabled = useLocalSetting('vadStandbyEnabled');
     const promotionPrompting = React.useRef(false);
     const backgroundPrompting = React.useRef(false);
     const keepalive = React.useRef(false);
@@ -86,6 +89,18 @@ export function KernelNotifications() {
         });
         return () => subscription.remove();
     }, [herdActive, isAuthenticated]);
+
+    React.useEffect(() => {
+        if (Platform.OS === 'ios' && isAuthenticated && appActive) {
+            void registerNativePushNotifications();
+        }
+    }, [appActive, isAuthenticated]);
+
+    React.useEffect(() => {
+        if (isAuthenticated && appActive && vadStandbyEnabled && sessionCount > 0) {
+            void configureVadStandby(true);
+        }
+    }, [appActive, isAuthenticated, sessionCount, vadStandbyEnabled]);
 
     React.useEffect(() => {
         if (
