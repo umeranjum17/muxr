@@ -320,7 +320,7 @@ export async function createHerdrSessionSource(
     const attachments = new AttachmentWatcher(attachmentsDir, () => {
         // Bytes stay pull-only, but the phone must discard its cached count
         // when the directory changes or a newly written file stays at 0 until reconnect.
-        const frame: PluginsInvalidatedFrame = { type: 'plugins.invalidated', reason: 'changed', pluginIds: ['muxr.attachments'] };
+        const frame: PluginsInvalidatedFrame = { type: 'plugins.invalidated', reason: 'changed', pluginIds: [] };
         for (const listener of machineListeners) listener(frame);
     });
     attachments.start();
