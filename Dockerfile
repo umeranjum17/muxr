@@ -20,6 +20,10 @@ COPY --from=build /app/packages ./packages
 COPY --from=build /app/apps/relay ./apps/relay
 VOLUME /data
 EXPOSE 8792
-RUN mkdir -p /data && chown node:node /data
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /data \
+    && chown node:node /data
 USER node
 CMD ["node", "apps/relay/dist/main.js"]
