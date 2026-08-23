@@ -44,7 +44,7 @@
 
 ## Install
 
-You need [Node.js 22 or newer](https://nodejs.org/) and [Herdr](https://herdr.dev) on Linux, macOS, or WSL.
+You need [Node.js 22 or newer](https://nodejs.org/) on Linux, macOS, or WSL. muxr installs [Herdr](https://herdr.dev) automatically during setup if it is missing.
 
 ```bash
 npm install -g --ignore-scripts @trymuxr/cli
@@ -53,9 +53,9 @@ muxr
 
 Then:
 
-1. Review the detected setup and choose **Apply setup**.
-2. Pick a transport: local network, Tailscale, Cloudflare, your own WSS endpoint, or a shared self-hosted relay.
-3. Install the app and scan the one-use QR.
+1. Install muxr on your phone from TestFlight, Google Play internal testing, or the signed Android APK below.
+2. Run `muxr`. It checks the computer, installs Herdr if needed, and asks how your phone should connect. Start with LAN if both devices are on the same wifi.
+3. Choose **Apply setup**, open the phone app, and scan the one-use QR.
 
 - **Android:** internal testing on Google Play · [signed APK and SHA256SUMS](https://github.com/umeranjum17/muxr/releases/latest)
 - **iOS:** internal testing on TestFlight

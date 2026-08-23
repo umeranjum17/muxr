@@ -385,36 +385,21 @@ try {
 
     const refusalHome = join(scratch, 'refusal-home');
     mkdirSync(refusalHome, { recursive: true });
-    const refusal = run(cli, ['setup', '--no-agent-config'], {
+    const refusal = run(cli, ['setup', '--no-agent-config', '--no-install-herdr'], {
         cwd: installDir,
         env: cliEnvWithoutHerdr(refusalHome),
         allowFailure: true,
     });
-    assert.notEqual(refusal.status, 0, 'non-TTY setup installed missing Herdr without explicit approval');
-    assert.match(`${refusal.stdout}${refusal.stderr}`, /rerun with --install-herdr/);
-    assert.ok(!existsSync(fakeInstallerLog), 'safe refusal executed an installer');
-
-    const ttyRefusalHome = join(scratch, 'tty-refusal-home');
-    mkdirSync(ttyRefusalHome, { recursive: true });
-    const ttyRefusal = await runTty(
-        `${cli} setup --no-agent-config`,
-        cliEnvWithoutHerdr(ttyRefusalHome),
-        '\n',
-        20_000,
-        undefined,
-        'never',
-        'Herdr is missing.',
-    );
-    assert.notEqual(ttyRefusal.code, 0, ttyRefusal.output);
-    assert.match(ttyRefusal.output, /\[y\/N\]/);
-    assert.ok(!existsSync(fakeInstallerLog), 'No-default interactive refusal executed an installer');
+    assert.notEqual(refusal.status, 0, '--no-install-herdr accepted a missing Herdr installation');
+    assert.match(`${refusal.stdout}${refusal.stderr}`, /herdr is missing/);
+    assert.ok(!existsSync(fakeInstallerLog), '--no-install-herdr executed an installer');
 
     const installerHome = join(scratch, 'installer-home');
     mkdirSync(installerHome, { recursive: true });
     const installerPort = 18_000 + (process.pid % 10_000);
     try {
         run(cli, [
-            'setup', '--install-herdr', '--no-agent-config', '--relay-only',
+            'setup', '--no-agent-config', '--relay-only',
             '--port', String(installerPort), '--advertise', `ws://127.0.0.1:${installerPort}`,
         ], {
             cwd: installDir,
@@ -435,7 +420,7 @@ try {
     const setupArgs = ['--relay-only', '--port', String(setupPort), '--advertise', `ws://127.0.0.1:${setupPort}`];
     assert.equal(run(cli, ['version'], { cwd: installDir, env }).stdout.trim(), packageJson.version);
     const beforeHelp = filesSnapshot(home);
-    assert.match(run(cli, ['setup', '--help'], { cwd: installDir, env }).stdout, /Interactive setup lets you choose networking/);
+    assert.match(run(cli, ['setup', '--help'], { cwd: installDir, env }).stdout, /Interactive setup installs Herdr when missing/);
     assert.match(run(cli, ['update', '--help'], { cwd: installDir, env }).stdout, /Check npm for a newer/);
     assert.match(run(cli, ['connect', '--help'], { cwd: installDir, env }).stdout, /--enrollment/);
     assert.match(run(cli, ['machines', '--help'], { cwd: installDir, env }).stdout, /machines enroll/);

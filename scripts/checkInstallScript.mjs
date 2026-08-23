@@ -27,7 +27,7 @@ if [ "$1" = install ]; then
   mkdir -p "$FAKE_PREFIX/bin"
   cat > "$FAKE_PREFIX/bin/muxr" <<'EOF'
 #!/bin/sh
-[ "$1" = version ] && printf '%s\\n' "0.1.12"
+[ "$1" = version ] && printf '%s\\n' "0.1.13"
 EOF
   chmod 755 "$FAKE_PREFIX/bin/muxr"
   exit 0
@@ -47,7 +47,7 @@ assert.equal(syntax.status, 0, syntax.stderr);
 const installed = spawnSync('sh', [script, '1.2.3'], { env, encoding: 'utf8' });
 assert.equal(installed.status, 0, installed.stderr);
 assert.match(installed.stdout, /Installing @trymuxr\/cli@1\.2\.3/);
-assert.match(installed.stdout, /Installed muxr 0\.1\.12/);
+assert.match(installed.stdout, /Installed muxr 0\.1\.13/);
 assert.doesNotMatch(installed.stdout, /stale 9\.9\.9/);
 assert.match(installed.stdout, new RegExp(`PATH currently resolves muxr to ${join(bin, 'muxr')}`));
 assert.match(installed.stdout, /Put .*prefix with spaces\/bin first in PATH/);

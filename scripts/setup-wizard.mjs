@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { networkInterfaces, userInfo } from 'node:os';
 import { intro, heading, status, note, outro, prompt, select, withSpinner, BACK } from './setup-ui.mjs';
-import { runDaemon, runDoctor, runLocalPrerequisites, runMachines, runPair, runRemoteConnect, runSelfHost, selfhostPublicSummary, sharedMachineCount } from './local-setup.mjs';
+import { runDaemon, runDoctor, runLocalPrerequisites, runMachines, runPair, runRemoteConnect, runSelfHost, runTailscale, selfhostPublicSummary, sharedMachineCount, tailscaleBin } from './local-setup.mjs';
 
 function command(name, args = []) {
     const result = spawnSync(name, args, { encoding: 'utf8', timeout: 120_000 });
@@ -42,14 +42,20 @@ function integrationSummary(output) {
 }
 
 const TAILSCALE_INSTALL_URL = 'https://tailscale.com/download';
-const TAILSCALE_UP_HINT = 'sudo tailscale up --operator=$USER';
+const TAILSCALE_UP_HINT = process.platform === 'darwin' ? 'open Tailscale and sign in' : 'sudo tailscale up --operator=$USER';
 const CLOUDFLARED_INSTALL_URL = 'https://github.com/cloudflare/cloudflared/releases';
 
 // One probe: `tailscale status --json` carries the IP, DNS name, and backend
 // state, so a logged-out or stopped node is reported as such instead of the
 // blanket "installed, not connected".
 function probeTailscale() {
-    const result = command('tailscale', ['status', '--json']);
+    const probe = runTailscale(['status', '--json'], { encoding: 'utf8' });
+    const result = {
+        ok: probe.status === 0,
+        output: (probe.stdout || probe.stderr || '').trim(),
+        missing: probe.error?.code === 'ENOENT',
+        errorCode: probe.error?.code,
+    };
     if (result.missing) return { installed: false, connected: false, detail: `not installed — ${TAILSCALE_INSTALL_URL}` };
     let parsed;
     try { parsed = JSON.parse(result.output); } catch { parsed = undefined; }
@@ -96,7 +102,7 @@ export function inspectSetup() {
 
 function renderInspection(found) {
     heading('Checking this machine');
-    status('Herdr', found.herdr.installed ? found.herdr.version : 'not installed', found.herdr.installed ? 'ok' : 'warn');
+    status('Herdr', found.herdr.installed ? found.herdr.version : 'not installed — will be installed during setup', found.herdr.installed ? 'ok' : 'warn');
     status('Herdr server', found.herdr.running ? 'running' : 'will be started', found.herdr.running ? 'ok' : 'warn');
     status('Agent integrations', `${found.agents.current.length} ready${found.agents.current.length ? ` — ${found.agents.current.slice(0, 5).join(', ')}${found.agents.current.length > 5 ? '…' : ''}` : ''}`, found.agents.current.length ? 'ok' : 'warn');
     status('Tailscale', found.tailscale.connected ? `connected — ${found.tailscale.ip}` : found.tailscale.detail, found.tailscale.connected ? 'ok' : 'off');
@@ -190,7 +196,7 @@ function choices(found) {
     // reason and remedy attached, so the user sees what is standing in the way.
     const options = [];
     if (found.tailscale.connected) {
-        options.push({ value: 'tailscale', title: 'Tailscale', description: 'private relay · works from anywhere · nothing exposed publicly' });
+        options.push({ value: 'tailscale', title: 'Tailscale · recommended', description: 'private connection · works from anywhere · nothing exposed publicly' });
     } else {
         options.push({ value: 'tailscale', title: 'Tailscale', description: found.tailscale.detail, disabled: true });
     }
@@ -200,7 +206,7 @@ function choices(found) {
         options.push({ value: 'cloudflare', title: 'Cloudflare tunnel', description: found.cloudflared.detail, disabled: true });
     }
     if (found.lan) {
-        options.push({ value: 'lan', title: 'LAN', description: 'same wifi only · phone and computer on one network' });
+        options.push({ value: 'lan', title: found.tailscale.connected ? 'LAN' : 'LAN · recommended', description: 'works now · phone and computer must use the same wifi' });
     } else {
         options.push({ value: 'lan', title: 'LAN', description: 'no usable LAN address found on this machine', disabled: true });
     }
@@ -225,24 +231,30 @@ function cancelled() {
 }
 
 // The remedy for a disconnected Tailscale is runnable, so offer it
-// (ensureHerdr-style, behind an explicit choice) instead of only printing it.
+// behind an explicit choice instead of only printing it.
 async function offerTailscaleConnect(found) {
     if (found.tailscale.connected || !found.tailscale.installed) return;
     const attempt = await select(`Tailscale is installed but not connected (${found.tailscale.detail}). Connect it now?`, [
         { value: false, title: 'Not now', description: 'continue without Tailscale' },
-        { value: true, title: 'Run sudo tailscale up', description: 'bring the node up and grant this user operator access' },
+        { value: true, title: process.platform === 'darwin' ? 'Connect Tailscale' : 'Run sudo tailscale up', description: process.platform === 'darwin' ? 'ask the installed Mac app to bring this node up' : 'bring the node up and grant this user operator access' },
     ]);
     if (attempt !== true) return;
-    // USER can be unset (sudo, cron, containers); an empty --operator makes the
-    // one offered remedy fail with a usage error.
-    let operator = process.env.USER?.trim();
-    if (!operator) {
-        try { operator = userInfo().username; } catch { operator = undefined; }
+    let up;
+    if (process.platform === 'darwin') {
+        up = spawnSync('open', ['-a', 'Tailscale'], { stdio: 'inherit' });
+        if (up.status === 0 && await prompt('Approve the Tailscale system extension and sign in, then press Enter') === undefined) return;
+    } else {
+        // USER can be unset (sudo, cron, containers); an empty --operator makes
+        // the offered remedy fail with a usage error.
+        let operator = process.env.USER?.trim();
+        if (!operator) {
+            try { operator = userInfo().username; } catch { operator = undefined; }
+        }
+        up = spawnSync('sudo', [tailscaleBin() || 'tailscale', 'up', ...(operator ? [`--operator=${operator}`] : [])], { stdio: 'inherit' });
     }
-    const up = spawnSync('sudo', ['tailscale', 'up', ...(operator ? [`--operator=${operator}`] : [])], { stdio: 'inherit' });
     found.tailscale = probeTailscale();
     if (found.tailscale.connected) status('Tailscale', `connected — ${found.tailscale.ip}`, 'ok');
-    else status('Tailscale', `${found.tailscale.detail ?? 'still not connected'}${up.status ? ` (sudo exited ${up.status})` : ''}`, 'warn');
+    else status('Tailscale', `${found.tailscale.detail ?? 'still not connected'}${up.status ? ` (connect command exited ${up.status})` : ''}`, 'warn');
 }
 
 export async function runSetup(args = []) {
@@ -278,16 +290,12 @@ export async function runSetup(args = []) {
     let mode = requestedMode;
     if (mode === 'selfhost') mode = undefined;
     if (!mode) {
-        // Two questions, in order: the host always runs here (a statement,
-        // not a question), then the only real choice — the relay.
-        heading('This machine runs the host');
-        status('host', 'runs on this computer — nothing to choose', 'ok');
-        process.stdout.write('\n');
+        heading('muxr runs on this computer');
         const connectionChoices = choices(found).map((choice) => choice.value === current?.connectionMode
             ? { ...choice, title: `${choice.title} · current` }
             : choice);
         const initial = Math.max(0, connectionChoices.findIndex((choice) => choice.value === current?.connectionMode));
-        mode = await select('How should your phone reach the host? (this is the relay choice)', connectionChoices, initial);
+        mode = await select('How should your phone connect?', connectionChoices, initial);
     }
     if (aborted(mode)) return cancelled();
     if (!['tailscale', 'tailscale-direct', 'lan', 'external', 'cloudflare'].includes(mode)) {
@@ -307,9 +315,9 @@ export async function runSetup(args = []) {
         return 1;
     }
 
-    let port;
+    let port = current === undefined && value(args, '--port') === undefined ? 8792 : undefined;
     while (port === undefined) {
-        const portText = await prompt('Local relay port', value(args, '--port') ?? String(current?.relayPort ?? 8792));
+        const portText = await prompt('Local connection port', value(args, '--port') ?? String(current.relayPort));
         if (portText === undefined) return cancelled();
         const parsed = Number(portText);
         if (Number.isInteger(parsed) && parsed >= 1024 && parsed <= 65535) port = parsed;
@@ -365,31 +373,25 @@ export async function runSetup(args = []) {
             { value: 'both', title: 'Phone, then browser', description: 'complete both pairing steps' },
         ] : []),
     ];
-    const pairing = await select(connectionChanged && current !== undefined
-        ? 'The endpoint changed. Keep existing grants or pair another client?'
-        : 'Pair another client?', pairingChoices);
+    const pairing = pairingChoices.length === 1 ? pairingChoices[0].value : await select(connectionChanged && current !== undefined
+        ? 'The connection changed. Keep existing devices or pair another one?'
+        : 'Pair a client?', pairingChoices);
     if (aborted(pairing)) return cancelled();
 
-    const installHerdr = found.herdr.installed ? false : await select('Herdr is required. Install it during setup?', [
-        { value: false, title: 'Cancel setup', description: 'leave this machine unchanged' },
-        { value: true, title: 'Install Herdr', description: 'download the public installer, then verify the installation' },
-    ]);
-    if (!found.herdr.installed && installHerdr !== true) return cancelled();
-
-    const syncIntegrations = await select('Sync the detected coding-agent integrations?', [
-        { value: true, title: 'Sync detected integrations', description: `${found.agents.available.length} available · keeps lifecycle status current` },
+    const syncIntegrations = await select(`Connect your coding agents (${found.agents.available.length} detected)?`, [
+        { value: true, title: 'Connect coding agents', description: 'keeps their status current' },
         { value: false, title: 'Leave integrations unchanged', description: 'do not install or alter coding-agent hooks' },
     ]);
     if (aborted(syncIntegrations)) return cancelled();
 
-    heading('Optional Herdr add-ons');
-    const plugins = await choosePlugins();
+    if (current !== undefined) heading('Optional Herdr add-ons');
+    const plugins = current === undefined ? [] : await choosePlugins();
     if (plugins === undefined) return cancelled();
 
     heading('Review setup');
     note([
         `Connection: ${connectionLabel(mode, endpoint, port)}`,
-        `Herdr: ${found.herdr.installed ? 'adopt existing installation and ensure its server is running' : 'download, install, and start after your explicit selection'}`,
+        `Herdr: ${found.herdr.installed ? 'adopt existing installation and ensure its server is running' : 'download, install, and start during setup'}`,
         'Bundled plugins: link the public muxr plugins into Herdr',
         `Agent integrations: ${syncIntegrations ? 'sync detected providers and managed instruction blocks' : 'leave hooks and instruction files unchanged'}`,
         `Optional add-ons: ${plugins.length ? plugins.map((plugin) => plugin.title).join(', ') : 'none'}`,
@@ -403,7 +405,7 @@ export async function runSetup(args = []) {
     const apply = await select('Apply this setup?', [
         { value: false, title: 'Cancel', description: 'leave this machine unchanged' },
         { value: true, title: 'Apply setup', description: 'make the reviewed changes, verify health, then show the pairing QR' },
-    ]);
+    ], 1);
     if (apply !== true) {
         outro('Cancelled. Nothing changed.');
         return 0;
@@ -454,6 +456,10 @@ export async function runSetup(args = []) {
 }
 
 export async function runSharedRelaySetup() {
+    if (!process.stdin.isTTY || !process.stdout.isTTY) {
+        process.stderr.write('muxr shared-relay is interactive; run it in a terminal\n');
+        return 1;
+    }
     intro();
     const found = await withSpinner('Inspecting secure networking on this server', async () => inspectSetup());
     renderInspection(found);
@@ -517,7 +523,7 @@ export async function runSharedRelaySetup() {
     const apply = await select('Apply this shared relay?', [
         { value: false, title: 'Cancel', description: 'leave this server unchanged' },
         { value: true, title: 'Apply shared relay', description: 'configure ingress, relay, web, and its service' },
-    ]);
+    ], 1);
     if (apply !== true) return cancelled();
     const servicePrepared = await runDaemon(['install', '--mode', 'relay']);
     if (servicePrepared !== 0) return servicePrepared;
@@ -573,11 +579,6 @@ export async function runRemoteRelaySetup() {
     const found = await withSpinner('Inspecting Herdr and coding agents', async () => inspectSetup());
     renderInspection(found);
     const current = await selfhostPublicSummary();
-    const installHerdr = found.herdr.installed ? false : await select('Herdr is required. Install it during setup?', [
-        { value: false, title: 'Cancel setup', description: 'leave this machine and enrollment unused' },
-        { value: true, title: 'Install Herdr', description: 'download the public installer and verify it' },
-    ]);
-    if (!found.herdr.installed && installHerdr !== true) return cancelled();
     const syncIntegrations = await select('Sync detected coding-agent integrations?', [
         { value: true, title: 'Sync integrations', description: `${found.agents.available.length} available` },
         { value: false, title: 'Leave unchanged', description: 'do not alter coding-agent hooks or instruction files' },
@@ -593,9 +594,7 @@ export async function runRemoteRelaySetup() {
     ];
     const pairing = await select('Which client should pair?', pairingChoices);
     if (aborted(pairing)) return cancelled();
-    heading('Optional Herdr add-ons');
-    const plugins = await choosePlugins();
-    if (plugins === undefined) return cancelled();
+    const plugins = [];
     heading('Review remote connection');
     note([
         'Relay location: shared remote server',
@@ -603,7 +602,7 @@ export async function runRemoteRelaySetup() {
         `Web URL: ${enrollment.web ?? 'off'}`,
         'Machine keys: generated locally; private keys never leave this machine',
         'Credential: scoped to this machine; relay-owner authority is never copied here',
-        `Herdr: ${found.herdr.installed ? 'adopt and start existing installation' : 'install after your explicit selection'}`,
+        `Herdr: ${found.herdr.installed ? 'adopt and start existing installation' : 'download, install, and start during setup'}`,
         `Integrations: ${syncIntegrations ? 'sync detected providers' : 'leave unchanged'}`,
         `Plugins: ${plugins.length ? plugins.map((plugin) => plugin.title).join(', ') : 'bundled only'}`,
         `Pairing: ${pairing === 'none' ? 'not now' : pairing === 'both' ? 'phone, then browser' : pairing}`,
@@ -613,7 +612,7 @@ export async function runRemoteRelaySetup() {
     const apply = await select('Apply this remote connection?', [
         { value: false, title: 'Cancel', description: 'leave this machine unchanged; enrollment remains usable until it expires' },
         { value: true, title: 'Apply connection', description: 'claim enrollment, configure Herdr and host, then pair' },
-    ]);
+    ], 1);
     if (apply !== true) return cancelled();
     const prerequisites = await runLocalPrerequisites([
         ...(found.herdr.installed ? [] : ['--install-herdr']),
