@@ -7,7 +7,7 @@
 <p align="center"><strong>Every coding agent, on your phone.</strong></p>
 
 <p align="center">
-  Start on your desktop, step away with your phone, and come back without a handoff. Watch terminals, answer prompts, send instructions, move files, and talk to the same agents while your machine stays the source of truth.
+  muxr shows you which agents need attention and lets you answer from your phone. The work stays on your computer; you do not have to.
 </p>
 
 <p align="center">
@@ -24,13 +24,7 @@
   <a href="LICENSE"><img alt="Apache 2.0" src="https://img.shields.io/badge/license-Apache--2.0-666?style=flat-square" /></a>
 </p>
 
-[![muxr — every coding agent, on your phone](docs/demo/muxr-loop.webp)](https://trymuxr.com/#demo)
-
-<p align="center">
-  <em>Nine seconds of it. The whole fifty-nine is
-  <a href="docs/demo/muxr-demo.mp4">docs/demo/muxr-demo.mp4</a>:
-  one job start to finish, then diffs, inbox, voice, the herd, and your own relay.</em>
-</p>
+[![See muxr in action](docs/demo/muxr-loop.webp)](https://trymuxr.com/#demo)
 
 <p align="center">
   <img src="docs/screenshots/v0112/dark/herd.png" height="380" alt="muxr home in dark: the herd, with live agent terminals and every session grouped by repo" />
@@ -38,59 +32,38 @@
   <img src="docs/screenshots/v0112/light/changes.png" height="380" alt="A commit diff in muxr: per-file tab rail, dual line-number gutter, add and remove tints" />
   <img src="docs/screenshots/v0112/dark/connection.png" height="380" alt="muxr connection: self-hosted transport over Tailscale, end-to-end encrypted, you run the relay" />
 </p>
-<p align="center">
-  <em>Light and dark, both captured from the shipping build against a live host with
-  <a href="tools/demo">tools/demo</a> — no mockups, no fixture mode.</em>
-</p>
 
-![muxr as an RPG party command center: Herd, terminal, changes, Inbox, voice, and self-hosted relay](docs/art/rpg-cover.png)
+## Why muxr
 
-## What it does
-
-- **One herd:** see every agent and terminal, including who is working, blocked, or done.
-- **Seamless continuity:** switch between desktop and phone without moving sessions or losing context — the same machines, panes, and agents stay live.
-- **Real terminal control:** read output, type, prompt, interrupt, and manage sessions remotely.
-- **Phone-native tools:** Files, Changes, attachments, Runbook, Usage, Voice, and notifications.
-- **End-to-end encrypted:** relays route encrypted envelopes; your code and terminal output stay between your devices.
-- **Open extension platform:** bundled and third-party extensions use the same bounded public contract. No plugin HTML or arbitrary WebViews.
+- **Know when you are needed.** See every agent in one place and spot the ones waiting for input.
+- **Unblock the work from anywhere.** Answer prompts, use the terminal, review changes, move files, or talk to an agent from your phone.
+- **Keep one continuous session.** Step away and come back to the same agents, terminals, and context.
+- **Keep control of your work.** Your agents run on your computers. Connections are end-to-end encrypted, and the host and relay are open source.
 
 ## Install
 
-You need [Node.js 22 or newer](https://nodejs.org/) and [Herdr](https://herdr.dev) on Linux, macOS, or WSL. If Herdr is missing, setup offers to install it from herdr.dev — nothing is installed or changed until you approve the plan.
-
-Install from npm:
+You need [Node.js 22 or newer](https://nodejs.org/) and [Herdr](https://herdr.dev) on Linux, macOS, or WSL.
 
 ```bash
 npm install -g --ignore-scripts @trymuxr/cli
 muxr
 ```
 
-Or the one-liner, backed by the same npm package:
+Then:
 
-```bash
-( tmp=$(mktemp) && trap 'rm -f "$tmp"' 0 && curl -fsSL https://raw.githubusercontent.com/umeranjum17/muxr/main/install.sh -o "$tmp" && sh "$tmp" )
-muxr
-```
-
-The installer downloads fully before it runs, never uses `sudo`, never installs Node, and disables npm lifecycle scripts.
-
-Then, in order:
-
-1. Run `muxr`. The wizard inspects first and changes nothing until you choose **Apply setup**.
+1. Review the detected setup and choose **Apply setup**.
 2. Pick a transport: local network, Tailscale, Cloudflare, your own WSS endpoint, or a shared self-hosted relay.
-3. Install the app and scan the one-use QR. Your agents are in your pocket.
+3. Install the app and scan the one-use QR.
 
 - **Android:** internal testing on Google Play · [signed APK and SHA256SUMS](https://github.com/umeranjum17/muxr/releases/latest)
 - **iOS:** internal testing on TestFlight
 - **Web:** choose the eight-hour read-only browser client during setup
 
-Both apps are in internal testing — [open an issue](https://github.com/umeranjum17/muxr/issues) to get on the list.
+[Request mobile access](https://github.com/umeranjum17/muxr/issues), or read the [step-by-step quickstart](https://trymuxr.com/docs/quickstart).
 
-Read the [step-by-step quickstart](https://trymuxr.com/docs/quickstart).
+## Use the agents you already have
 
-## Agents
-
-muxr reads the agent catalog from [Herdr](https://github.com/herdrdev/herdr) and works with what is installed on your machine:
+muxr connects to the sessions [Herdr](https://github.com/herdrdev/herdr) already runs. Your CLIs, subscriptions, configuration, skills, and MCP servers stay as they are.
 
 <p>
   <img src="docs/agents/icons/pi.svg" width="28" alt="Pi" title="Pi" />
@@ -116,19 +89,15 @@ muxr reads the agent catalog from [Herdr](https://github.com/herdrdev/herdr) and
   <img src="docs/agents/icons/maki.svg" width="28" alt="Maki" title="Maki" />
 </p>
 
-Pi, Claude Code, Codex, Gemini CLI, Cursor, OpenCode, GitHub Copilot CLI, Kimi Code, Grok, Hermes, Amp, Droid, Devin, Cline, Kiro, Kilo Code, Qwen, OMP, Qoder, Maki, MastraCode, and custom Herdr agent kinds.
-
-muxr does not replace or wrap them. Herdr owns their real terminal sessions; muxr gives you a secure remote surface.
-
 ## Extensions
 
-Extensions can add native controls, screens, files, diffs, trees, metrics, charts, shortcuts, events, and backend streams through a versioned public API. The app renders compiled, theme-aware components; extensions never download executable UI.
+Add phone-native controls, screens, files, diffs, metrics, shortcuts, and realtime streams through the public extension API.
 
 Start with the [extension guide](https://trymuxr.com/docs/plugins) and the [bundled examples](plugins/).
 
 ## Self-hosting
 
-The host and relay are open source. Run everything on one computer, expose it with Tailscale or Cloudflare, connect to your own WSS endpoint, or enroll machines into a relay you operate.
+Run muxr on one computer or connect several through a relay you operate. Use your local network, Tailscale, Cloudflare, or your own WSS endpoint.
 
 - [Quickstart](https://trymuxr.com/docs/quickstart)
 - [Self-hosting](docs/SELF-HOSTING.md)
