@@ -318,8 +318,10 @@ export async function createHerdrSessionSource(
     /** Agent-dropped artifacts in the pane's dump dir. Listed on demand through the attachments plugin. */
     const attachmentsDir = options.attachmentsDir ?? join(homedir(), '.muxr', 'attachments', 'pane');
     const attachments = new AttachmentWatcher(attachmentsDir, () => {
-        // Listed on demand through the attachments plugin RPC. Pushing the
-        // catalog onto the phone froze the JS thread on large files.
+        // Bytes stay pull-only, but the phone must discard its cached count
+        // when the directory changes or a newly written file stays at 0 until reconnect.
+        const frame: PluginsInvalidatedFrame = { type: 'plugins.invalidated', reason: 'changed', pluginIds: ['muxr.attachments'] };
+        for (const listener of machineListeners) listener(frame);
     });
     attachments.start();
 
