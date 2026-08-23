@@ -1,7 +1,7 @@
 import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import type { Envelope } from '@muxr/contract';
 import { OfflineBuffer } from './buffer.js';
 import { loadRelayConfig } from './config.js';
@@ -67,6 +67,23 @@ it('hardens every relay state path in a custom data directory', async () => {
             endpoint: 'https://push.test/subscription',
             keys: { p256dh: 'fixture-p256dh', auth: 'fixture-auth' },
         });
+        await push.subscribeExpo(account.accountId, 'ExpoPushToken[fixture-token]');
+        const expoAccount = await registry.createAccount();
+        await push.subscribeExpo(expoAccount.accountId, 'ExpoPushToken[delivery-token]', 'device-1');
+        const fetchMock = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) => new Response(JSON.stringify({ data: [{ status: 'ok' }] }), { status: 200 }));
+        vi.stubGlobal('fetch', fetchMock);
+        await expect(push.notify(expoAccount.accountId, {
+            title: 'Agent finished', body: 'Agent finished', sessionId: 'session-1', machineId: 'machine-a',
+        })).resolves.toEqual({ sent: 1 });
+        expect(fetchMock).toHaveBeenCalledWith('https://exp.host/--/api/v2/push/send', expect.objectContaining({ method: 'POST' }));
+        const expoRequest = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as Array<{ title: string; body: string }>;
+        expect(expoRequest).toEqual([expect.objectContaining({ title: 'muxr', body: 'An agent needs your attention.' })]);
+        await push.removeExpoDevice(expoAccount.accountId, 'device-1');
+        await expect(push.notify(expoAccount.accountId, {
+            title: 'Should not send', body: 'Should not send', sessionId: 'session-1', machineId: 'machine-a',
+        })).resolves.toEqual({ sent: 0 });
+        expect(fetchMock).toHaveBeenCalledOnce();
+        vi.unstubAllGlobals();
         await awaitPersistChain();
 
         expect((await stat(dataDir)).mode & 0o777).toBe(0o700);

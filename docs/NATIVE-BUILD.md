@@ -5,12 +5,13 @@ credits. Phone artifacts default to `arm64-v8a`; build `x86_64` only when an
 emulator explicitly needs it.
 
 **Expo Go will not work.** The app ships custom native modules
-(`voice-overlay`, `ssh-tunnel`) and `patch-package` patches. Use a locally built
-APK or `expo run:android` after a prebuild.
+(`voice-overlay`, `plugin-shortcuts`) and `patch-package` patches. Use a native
+build or platform run command after a prebuild.
 
-**iOS compiles but is incomplete.** Both local native modules are Android-only
-Kotlin. An iOS build will lack the voice overlay microphone foreground service
-and in-app SSH forwarding.
+The iOS voice bridge owns PCM playback and `AVAudioSession` routing; terminal
+scroll gestures and plugin quick actions also have native iOS paths. Audio
+routing, Bluetooth, interruptions, background standby, and push still require a
+physical-iPhone smoke check for every release that changes them.
 
 `apps/mobile/android/` is the committed production prebuild for
 `com.trymuxr.app`. Do not change that permanent store identity. Regenerate the
@@ -23,9 +24,6 @@ The first `eas build --local` creates a keystore through your Expo account
 commit it. Android launcher shortcuts from bundled plugins are baked into
 `res/xml/shortcuts.xml` at prebuild, so changing `plugins/*/muxr-ui.json`
 shortcuts requires a new APK.
-
-In-app SSH (Settings → SSH) is TOFU host-key pinning via
-`apps/mobile/modules/ssh-tunnel`. It is Android-only.
 
 ## Toolchain
 

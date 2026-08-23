@@ -7,6 +7,7 @@ import { setAccountCredentialRejectedHandler, syncCreate } from '@/sync/sync';
 import { clearPersistence } from '@/sync/persistence';
 import { getCachedConnectionSettings } from '@/state/connectionSettings';
 import { clearHostedE2ee } from '@/state/hostedE2ee';
+import { unregisterNativePushNotifications } from '@/utils/nativePushNotifications';
 
 interface AuthContextType {
     isAuthenticated: boolean;
@@ -51,6 +52,7 @@ export function AuthProvider({ children, initialCredentials }: { children: React
 
     const logout = useCallback(async () => {
         const connection = getCachedConnectionSettings();
+        if (credentials !== null) await unregisterNativePushNotifications(credentials);
         if (connection.mode === 'hosted' && credentials?.token) {
             try {
                 await fetch(relayControlUrl(connection.relayUrl, '/v1/session'), {

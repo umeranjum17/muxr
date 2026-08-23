@@ -3,18 +3,24 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
     openStream: vi.fn(),
     liveAudio: { init: vi.fn(async () => true), start: vi.fn(async () => true), stop: vi.fn(async () => true), on: vi.fn() },
+    vad: { claimVadCapture: vi.fn(() => null as string[] | null) },
     pcm: {
         startRealtimePcm: vi.fn(() => true),
         playRealtimePcm: vi.fn(),
         clearRealtimePcm: vi.fn(),
         stopRealtimePcm: vi.fn(),
-        routeVoiceAudio: vi.fn(),
+        routeVoiceAudio: vi.fn(() => true),
+        releaseVoiceAudio: vi.fn(),
+        startVoiceService: vi.fn(() => true),
+        stopVoiceService: vi.fn(),
     },
 }));
 
+vi.mock('react-native', () => ({ AppState: { addEventListener: vi.fn() } }));
 vi.mock('@/plugins/openPluginStream', () => ({ openPluginStream: mocks.openStream }));
 vi.mock('react-native-live-audio-stream', () => ({ default: mocks.liveAudio }));
 vi.mock('@/../modules/voice-overlay', () => mocks.pcm);
+vi.mock('@/voice/vadStandby', () => mocks.vad);
 
 import { startRealtimeSession } from './realtimeSession';
 
@@ -50,7 +56,10 @@ const asPluginStream = (stream: FakeStream) => ({
 
 const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.vad.claimVadCapture.mockReturnValue(null);
+});
 afterEach(() => vi.unstubAllGlobals());
 
 describe('generic realtime stream session', () => {
@@ -111,6 +120,48 @@ describe('generic realtime stream session', () => {
         reconnected.closes.forEach((listener) => listener('late'));
         await tick();
         expect(mocks.pcm.stopRealtimePcm).toHaveBeenCalledTimes(2);
+    });
+
+    it('arms locally after two speech-energy chunks and keeps silence off the provider path', async () => {
+        const vad = await vi.importActual<typeof import('./vadStandby')>('./vadStandby');
+        const wake = vi.fn();
+        await expect(vad.startVadStandby(wake, vi.fn())).resolves.toBe(true);
+        const inspect = mocks.liveAudio.on.mock.calls.at(-1)![1] as (data: string) => void;
+        inspect(Buffer.alloc(4_800).toString('base64'));
+        expect(wake).not.toHaveBeenCalled();
+        const speech = Buffer.alloc(4_800);
+        for (let offset = 0; offset < speech.length; offset += 2) speech.writeInt16LE(7_000, offset);
+        inspect(speech.toString('base64'));
+        expect(wake).not.toHaveBeenCalled();
+        inspect(speech.toString('base64'));
+        expect(wake).toHaveBeenCalledOnce();
+        vad.stopVadStandby();
+
+        let finishInit!: () => void;
+        mocks.liveAudio.init.mockImplementationOnce(() => new Promise<boolean>((resolve) => {
+            finishInit = () => resolve(true);
+        }));
+        const startsBeforeCancellation = mocks.liveAudio.start.mock.calls.length;
+        const arming = vad.startVadStandby(vi.fn(), vi.fn());
+        await vi.waitFor(() => expect(finishInit).toBeTypeOf('function'));
+        vad.cancelVadStandbyStart();
+        finishInit();
+        await expect(arming).resolves.toBe(false);
+        expect(mocks.liveAudio.start).toHaveBeenCalledTimes(startsBeforeCancellation);
+    });
+
+    it('hands an armed local VAD recording to realtime without losing its buffered opening', async () => {
+        const stream = fakeStream();
+        mocks.openStream.mockResolvedValue(asPluginStream(stream));
+        mocks.vad.claimVadCapture.mockReturnValue(['cHJlcm9sbA==', 'c3BlZWNo']);
+        const handle = startRealtimeSession({ sessionId: 's1', onStatus: vi.fn(), onTurn: vi.fn() });
+        await vi.waitFor(() => expect(mocks.openStream).toHaveBeenCalledOnce());
+        stream.frames.forEach((listener) => listener({ type: 'realtime.ready', inputRate: 24_000, outputRate: 24_000 }));
+        await vi.waitFor(() => expect(stream.send).toHaveBeenCalledWith({ type: 'realtime.audio', data: 'c3BlZWNo' }));
+        expect(stream.send).toHaveBeenCalledWith({ type: 'realtime.audio', data: 'cHJlcm9sbA==' });
+        expect(mocks.liveAudio.init).not.toHaveBeenCalled();
+        expect(mocks.liveAudio.start).not.toHaveBeenCalled();
+        handle.stop();
     });
 
     it('does not reconnect an intentional provider hang-up', async () => {

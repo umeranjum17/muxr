@@ -321,7 +321,7 @@ class MuxrSync {
         storage.getState().applyAttentionCatalog([...entries]);
         if (AppState.currentState === 'active') return;
         for (const entry of entries) {
-            if (previous.has(entry.sessionId) || entry.reason === 'done') continue;
+            if (previous.has(entry.sessionId) || Platform.OS === 'ios' || (Platform.OS === 'android' && entry.reason === 'done')) continue;
             void this.scheduleSessionNotification(entry.sessionId, entry.detail);
         }
     }

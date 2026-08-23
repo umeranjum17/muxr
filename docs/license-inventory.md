@@ -41,7 +41,7 @@ ships:
 |---|---|---|
 | Inter, JetBrains Mono, IBM Plex, Space Mono, Bricolage Grotesque | SIL OFL 1.1 | `apps/mobile/**/assets/fonts/`, `LICENSES/OFL-1.1.txt`, `NOTICE` |
 | Whisper Base English (`ggml-base.en-q5_1.bin`) | MIT | `NOTICE` (OpenAI / whisper.cpp / whisper.rn) |
-| xterm.js (+ webgl addon) | MIT | vendored in `sources/terminal/terminalAssets.ts`, `NOTICE` |
+| xterm.js (+ addons) | MIT | packaged web terminal dependency, `NOTICE` |
 
 This inventory does not replace a store-release audit of native binaries.
 

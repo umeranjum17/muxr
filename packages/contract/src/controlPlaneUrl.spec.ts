@@ -22,6 +22,7 @@ describe('relay-derived control-plane flow', () => {
             '/v1/account/deletion/confirm',
             '/v1/push/notify',
             '/v1/push/subscribe',
+            '/v1/push/expo-subscribe',
             '/v1/attachment-download',
         ];
         expect(routes.map((path) => relayControlUrl(relayUrl, path))).toEqual(

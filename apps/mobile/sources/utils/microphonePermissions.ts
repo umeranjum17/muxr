@@ -1,6 +1,7 @@
 import { Platform, Linking, PermissionsAndroid } from 'react-native';
 import { Modal } from '@/modal';
 import { AudioModule, setAudioModeAsync } from 'expo-audio';
+import * as Notifications from 'expo-notifications';
 
 export interface MicrophonePermissionResult {
   granted: boolean;
@@ -66,12 +67,18 @@ async function requestMicrophonePermissionOnce(): Promise<MicrophonePermissionRe
   }
 }
 
-/** Android 13+ hides the herd tray and foreground-service notification until granted. */
+/** Request the platform notification permission only from an explicit user action. */
 export function requestNotificationPermission(userInitiated = true): Promise<boolean> {
-  if (Platform.OS !== 'android' || Platform.Version < 33) return Promise.resolve(true);
+  if (Platform.OS === 'web' || (Platform.OS === 'android' && Platform.Version < 33)) return Promise.resolve(true);
   if (pendingNotificationPermission !== null) return pendingNotificationPermission;
   pendingNotificationPermission = (async () => {
     if (pendingMicrophonePermission !== null) await pendingMicrophonePermission;
+    if (Platform.OS === 'ios') {
+      const current = await Notifications.getPermissionsAsync();
+      if (current.granted) return true;
+      if (!userInitiated || !current.canAskAgain) return false;
+      return (await Notifications.requestPermissionsAsync()).granted;
+    }
     const permission = PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS;
     if (await PermissionsAndroid.check(permission)) return true;
     if (!userInitiated && initialNotificationPromptAttempted) return false;
