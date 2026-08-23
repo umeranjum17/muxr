@@ -142,7 +142,9 @@ export default function ConnectionSettingsScreen() {
         const reportedHost = machine?.metadata?.muxrCliVersion;
         const hostVersion = knownHostVersion(reportedHost);
         const mismatch = versionsMismatch(appVersion, reportedHost);
-        const browserExpiresAt = Platform.OS === 'web' ? getCachedHostedGrant(initial.machineId)?.expiresAt : undefined;
+        const browserGrant = Platform.OS === 'web' ? getCachedHostedGrant(initial.machineId) : undefined;
+        const browserExpiresAt = browserGrant?.expiresAt;
+        const browserRole = browserGrant?.authority === 'control' ? 'Control' : 'View only';
         const browserMinutes = browserExpiresAt === undefined ? undefined : Math.max(0, Math.ceil((browserExpiresAt - clock) / 60_000));
         return (
             <ItemList>
@@ -161,8 +163,8 @@ export default function ConnectionSettingsScreen() {
                         {...(mismatch ? { detail: '⚠ mismatch', detailStyle: styles.detailMismatch } : {})}
                     />
                     {Platform.OS === 'web' && <Item title="Browser access" subtitle={browserExpiresAt === undefined || browserMinutes === undefined
-                        ? 'Read-only · pair again every eight hours'
-                        : `Read-only · expires in ${Math.floor(browserMinutes / 60)}h ${browserMinutes % 60}m · ${new Date(browserExpiresAt).toLocaleString()}`} />}
+                        ? `${browserRole} · pair again every eight hours`
+                        : `${browserRole} · expires in ${Math.floor(browserMinutes / 60)}h ${browserMinutes % 60}m · ${new Date(browserExpiresAt).toLocaleString()}`} />}
                 </ItemGroup>
 
                 <ItemGroup
@@ -183,7 +185,7 @@ export default function ConnectionSettingsScreen() {
 
                 <ItemGroup title="Advanced">
                     <Item title="Reconnect now" subtitle="Drops the socket and dials again" onPress={() => void syncReconnect()} />
-                    <Item title="Pair another machine" subtitle="Scan the QR or enter the short string from `muxr pair`" onPress={() => router.push('/pair')} />
+                    <Item title="Pair another machine" subtitle="Scan the QR or enter the short string from `muxr pair`" onPress={() => router.push('/pair?source=settings')} />
                     <Text style={styles.hint}>
                         To stop this device reaching a machine, revoke it from the interactive muxr menu.
                     </Text>

@@ -59,7 +59,7 @@ Then:
 
 - **Android:** internal testing on Google Play · [signed APK and SHA256SUMS](https://github.com/umeranjum17/muxr/releases/latest)
 - **iOS:** internal testing on TestFlight
-- **Web:** choose the eight-hour read-only browser client during setup
+- **Web:** pair an eight-hour control browser by default, or explicitly choose view-only access
 
 [Request mobile access](https://github.com/umeranjum17/muxr/issues), or read the [step-by-step quickstart](https://trymuxr.com/docs/quickstart).
 

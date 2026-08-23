@@ -10,7 +10,7 @@ export function relayControlUrl(relayUrl: string, path = ''): string {
         throw new TypeError('relay URL must use ws:// or wss://');
     }
     if (relay.username !== '' || relay.password !== '') {
-        throw new TypeError('relay URL must not contain credentials');
+        throw new TypeError('Unsafe relay URL: text before “@” is treated as login information, not as part of the computer name. muxr did not connect.');
     }
     if (path !== '' && !path.startsWith('/')) {
         throw new TypeError('control path must start with /');

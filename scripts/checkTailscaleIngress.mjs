@@ -33,6 +33,9 @@ try {
     configure({ Self: { TailscaleIPs: ['100.64.0.1'] } });
     assert.throws(() => tailscaleIngress([]), /MagicDNS/);
 
+    configure({ Self: { DNSName: 'umers-macbook-air.tail@de54.ts.net.', TailscaleIPs: ['100.64.0.1'] } });
+    assert.throws(() => tailscaleIngress([]), /invalid MagicDNS name/);
+
     configure({ Self: { DNSName: 'dev.tailnet.ts.net.', TailscaleIPs: ['100.64.0.1'] } });
     assert.equal(tailscaleIngress(['--tailscale-direct']), undefined);
     const direct = await resolveAdvertise(['--tailscale-direct'], 8792, undefined);

@@ -51,7 +51,7 @@ const DEFAULT_MODE: ConnectionSettings['mode'] = buildEnv('MODE') === 'local' ? 
 export const DEFAULT_CONNECTION: ConnectionSettings = {
     mode: DEFAULT_MODE,
     relayUrl: buildEnv('RELAY_URL') ?? 'ws://127.0.0.1:8792',
-    machineId: buildEnv('MACHINE_ID') ?? 'devbox',
+    machineId: buildEnv('MACHINE_ID') ?? (DEFAULT_MODE === 'local' ? 'devbox' : ''),
     token: DEFAULT_MODE === 'local' ? (buildEnv('TOKEN') ?? '') : '',
     lastSessionCwd: '',
     recentSessionCwds: [],
@@ -134,12 +134,8 @@ export async function loadConnectionSettingsAsync(): Promise<ConnectionSettings>
 }
 
 export async function saveConnectionSettings(settings: ConnectionSettings): Promise<void> {
+    await writeRaw(JSON.stringify(settings));
     memoryCache = settings;
-    try {
-        await writeRaw(JSON.stringify(settings));
-    } catch {
-        // ponytail: in-memory cache still holds latest edits if disk write fails
-    }
 }
 
 export function rememberSessionCwd(settings: ConnectionSettings, cwd: string): ConnectionSettings {

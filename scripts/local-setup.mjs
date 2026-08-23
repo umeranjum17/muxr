@@ -729,9 +729,10 @@ export async function runRemoteConnect(args = []) {
         print(`  ✓ connected this machine to ${enrollment.relay}`);
         print(`  ✓ machine credential expires ${new Date(state.credentialExpiresAt).toLocaleDateString()}`);
         if (args.includes('--no-pair')) return 0;
-        const kind = args.includes('--pair-browser') ? 'browser' : 'native';
+        const kind = args.includes('--pair-browser') || args.includes('--pair-browser-view') ? 'browser' : 'native';
+        const authority = args.includes('--pair-browser-view') ? 'observe' : 'control';
         if ((kind === 'browser' || args.includes('--pair-both')) && !state.webEnabled) throw new Error('this shared relay does not host the browser client; pair the native app instead');
-        const paired = await withSelfhostRotationLock(() => runSelfhostPair(state, kind));
+        const paired = await withSelfhostRotationLock(() => runSelfhostPair(state, kind, authority));
         if (paired !== 0) return paired;
         return args.includes('--pair-both') ? runPair(['--browser']) : 0;
     } catch (cause) {
@@ -755,7 +756,7 @@ export async function runIntegrations(args = []) {
     try {
         if (uninstall) {
             let incomplete = false;
-            print('muxr managed integration uninstall:');
+            if (!args.includes('--quiet')) print('muxr managed integration uninstall:');
             for (const [path, entry] of Object.entries(manifest.entries)) {
                 if (entry.scope === 'daemon') continue;
                 removeManaged(path, entry, manifest, { dryRun, force });
@@ -767,21 +768,26 @@ export async function runIntegrations(args = []) {
                     incomplete = true;
                     continue;
                 }
-                print(`  ${dryRun ? 'would run' : 'run'} herdr integration uninstall ${target}`);
+                if (!args.includes('--quiet')) print(`  ${dryRun ? 'would run' : 'run'} herdr integration uninstall ${target}`);
                 if (!dryRun) {
                     const result = run(binary, ['integration', 'uninstall', target]);
-                    if (!result.ok) throw new Error(result.stderr || result.stdout || `failed to uninstall ${target}`);
+                    if (!result.ok) {
+                        print(`  warn: could not remove the ${target} Herdr integration while Herdr is unavailable`);
+                        incomplete = true;
+                        continue;
+                    }
                     manifest.herdrInstalled = manifest.herdrInstalled.filter((installed) => installed !== target);
                     saveManifest(manifest, false);
                 }
             }
             if (binary) {
                 for (const { id } of bundledPlugins()) {
-                    print(`  ${dryRun ? 'would run' : 'run'} herdr plugin unlink ${id}`);
+                    if (!args.includes('--quiet')) print(`  ${dryRun ? 'would run' : 'run'} herdr plugin unlink ${id}`);
                     if (!dryRun) {
                         const result = run(binary, ['plugin', 'unlink', id]);
                         if (!result.ok && !/not (?:found|installed)|unknown plugin/i.test(result.stderr || result.stdout)) {
-                            throw new Error(result.stderr || result.stdout || `failed to unlink ${id}`);
+                            print(`  warn: could not unlink ${id} while Herdr is unavailable`);
+                            incomplete = true;
                         }
                     }
                 }
@@ -846,6 +852,110 @@ export async function runIntegrations(args = []) {
     }
 }
 
+const FULL_UNINSTALL_ENTRIES = [
+    'auth.json',
+    'selfhost.json',
+    'selfhost.pending.json',
+    'selfhost.previous.json',
+    'selfhost-rotation.lock',
+    'pairing-link.txt',
+    'pairing-string.txt',
+    'enrollment-link.txt',
+    'relay',
+    'logs',
+    'integrations',
+    'extensions',
+    'plugin-state',
+    'plugin-sync.json',
+    'operations',
+    'xai.key',
+    'gemini.key',
+    'openai.key',
+];
+
+function validateUninstallRoot() {
+    const root = resolve(stateDir());
+    if (root === resolve('/') || root === resolve(home()) || dirname(root) === root) {
+        throw new Error(`refusing unsafe muxr state root: ${root}`);
+    }
+    if (existsSync(root) && lstatSync(root).isSymbolicLink()) {
+        throw new Error(`refusing symlinked muxr state root: ${root}`);
+    }
+    return root;
+}
+
+async function revokeRemoteMachineForUninstall(state) {
+    if (state?.relayLocation !== 'remote' || typeof state.machineCredential !== 'string') return true;
+    try {
+        const revoked = await api(selfhostControlBase(state), '/v1/selfhost/machine-status', {
+            method: 'DELETE',
+            headers: { authorization: `Bearer ${state.machineCredential}` },
+        });
+        return revoked.response.ok;
+    } catch { return false; }
+}
+
+/** Fully remove muxr-owned runtime authority while preserving Herdr and user artifacts. */
+export async function runFullUninstall(args = []) {
+    const root = validateUninstallRoot();
+    const failures = [];
+    const state = readSelfhostState();
+    print('Stopping muxr services…');
+    if (!(await revokeRemoteMachineForUninstall(state))) {
+        failures.push('The shared relay could not revoke this computer. Ask its owner to remove this machine.');
+    }
+    const runtimeStopped = (await runDaemon(['uninstall', '--force', '--quiet'])) === 0;
+    if (!runtimeStopped) failures.push('The muxr background service or owned ingress could not be fully removed. Runtime state was kept so a running service is never stranded without its keys.');
+
+    print('Removing muxr integrations from Herdr…');
+    const integrationsRemoved = (await runIntegrations(['uninstall', '--force', '--quiet'])) === 0;
+    if (!integrationsRemoved) failures.push('Some muxr-managed Herdr registrations remain. Start Herdr, then run `muxr uninstall --resume`.');
+
+    if (runtimeStopped) {
+        print('Deleting muxr pairing, relay, plugin, and runtime state…');
+        for (const entry of FULL_UNINSTALL_ENTRIES) {
+            const path = join(root, entry);
+            try { rmSync(path, { recursive: true, force: true }); }
+            catch { failures.push(`Could not remove ${entry}.`); }
+        }
+        const hostRoot = join(root, 'host');
+        if (existsSync(hostRoot)) {
+            try {
+                if (lstatSync(hostRoot).isSymbolicLink()) rmSync(hostRoot, { force: true });
+                else {
+                    for (const name of readdirSync(hostRoot)) {
+                        if (name !== 'attachments') rmSync(join(hostRoot, name), { recursive: true, force: true });
+                    }
+                    if (readdirSync(hostRoot).length === 0) rmSync(hostRoot, { recursive: true, force: true });
+                }
+            } catch { failures.push('Could not remove muxr host runtime state.'); }
+        }
+        if (integrationsRemoved) {
+            try { rmSync(manifestPath(), { force: true }); }
+            catch { failures.push('Could not remove the muxr ownership manifest.'); }
+        }
+
+        const remainingRuntime = FULL_UNINSTALL_ENTRIES.filter((entry) => existsSync(join(root, entry)));
+        if (remainingRuntime.length > 0) failures.push(`Runtime entries remain: ${remainingRuntime.join(', ')}.`);
+    }
+    if (existsSync(root) && readdirSync(root).length === 0) rmSync(root, { recursive: true, force: true });
+
+    if (failures.length > 0) {
+        error('\nmuxr cleanup is incomplete');
+        failures.forEach((failure) => error(`  • ${failure}`));
+        error('\nHerdr sessions and repositories were not changed.');
+        return 1;
+    }
+
+    print('\nmuxr was fully removed from this computer.');
+    print('  ✓ Services and owned ingress');
+    print('  ✓ Machine identity, pairings, grants, and relay authority');
+    print('  ✓ muxr-managed integrations, plugins, provider keys, logs, and caches');
+    print('  ✓ Herdr sessions, repositories, worktrees, received attachments, exports, and unrecognized files were kept');
+    print('\nPhones and browsers may still show this computer offline. Forget it there to remove their local entry.');
+    return 0;
+}
+
 function xml(text) {
     return text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;');
 }
@@ -891,9 +1001,18 @@ function serviceCommand(action) {
         const service = `${domain}/${label}`;
         const plist = join(home(), 'Library', 'LaunchAgents', 'com.muxr.host.plist');
         if (action === 'reload') return { ok: true, stdout: '', stderr: '' };
-        if (action === 'start' || action === 'restart') {
+        if (action === 'start') {
             const loaded = run('launchctl', ['print', service]);
             if (loaded.ok) return run('launchctl', ['kickstart', '-k', service]);
+            const bootstrapped = run('launchctl', ['bootstrap', domain, plist]);
+            return bootstrapped.ok ? run('launchctl', ['kickstart', '-k', service]) : bootstrapped;
+        }
+        if (action === 'restart') {
+            const loaded = run('launchctl', ['print', service]);
+            if (loaded.ok) {
+                const unloaded = run('launchctl', ['bootout', service]);
+                if (!unloaded.ok) return unloaded;
+            }
             const bootstrapped = run('launchctl', ['bootstrap', domain, plist]);
             return bootstrapped.ok ? run('launchctl', ['kickstart', '-k', service]) : bootstrapped;
         }
@@ -935,7 +1054,9 @@ function publicRelayUrl(value) {
     if (typeof value !== 'string') return undefined;
     try {
         const parsed = new URL(value);
-        return ['ws:', 'wss:'].includes(parsed.protocol) ? parsed.origin : undefined;
+        return ['ws:', 'wss:'].includes(parsed.protocol) && parsed.username === '' && parsed.password === ''
+            ? parsed.origin
+            : undefined;
     } catch { return undefined; }
 }
 
@@ -1002,16 +1123,20 @@ export async function runDaemon(args = []) {
     try {
         if (action === 'install') {
             const definition = daemonDefinition(mode);
+            const existed = existsSync(definition.path);
+            const previousContent = existed ? readFileSync(definition.path, 'utf8') : undefined;
+            const wasRunning = daemonIsRunning();
             let content = definition.content;
-            if (existsSync(definition.path)) {
+            if (previousContent !== undefined) {
                 // Preserve Environment lines this generator did not author —
                 // e.g. MUXR_HOME pinned by an earlier install would otherwise
                 // be silently dropped by a re-install.
                 const authored = new Set([...content.matchAll(/^Environment="?(\w+)=/gm)].map((match) => match[1]));
-                const foreign = (readFileSync(definition.path, 'utf8').match(/^Environment=.*$/gm) ?? [])
+                const foreign = (previousContent.match(/^Environment=.*$/gm) ?? [])
                     .filter((line) => !authored.has(line.match(/^Environment="?(\w+)=/)?.[1]));
                 if (foreign.length > 0) content = content.replace('[Service]\n', `[Service]\n${foreign.join('\n')}\n`);
             }
+            const changed = previousContent !== content;
             if (!dryRun) ensurePrivateDir(join(stateDir(), 'logs'));
             writeOwned(definition.path, content, manifest, { dryRun, force, mode: definition.mode });
             if (!dryRun) manifest.entries[definition.path].scope = 'daemon';
@@ -1031,20 +1156,34 @@ export async function runDaemon(args = []) {
                     }
                 }
             }
-            print(`Daemon registered. Start it with: muxr daemon start`);
+            if (!args.includes('--quiet')) {
+                if (dryRun) print(`  would ${existed ? 'update' : 'install'} the muxr background service without starting it`);
+                else if (!existed) print('  ✓ muxr background service installed. It was not started.');
+                else if (!changed) print(`  ✓ muxr background service already installed (${wasRunning ? 'running' : 'stopped'}).`);
+                else if (wasRunning) print('  ✓ muxr background-service definition updated. Restart required to apply it.');
+                else print('  ✓ muxr background-service definition updated. It was not started.');
+            }
             return 0;
         }
         if (action === 'uninstall') {
             const entries = Object.entries(manifest.entries).filter(([, entry]) => entry.scope === 'daemon');
+            const state = readSelfhostState();
+            if (!dryRun) {
+                const unloaded = serviceCommand('unload');
+                const alreadyAbsent = entries.length === 0 && !existsSync(daemonDefinition().path);
+                if (!unloaded.ok && !alreadyAbsent) throw new Error(unloaded.stderr || unloaded.stdout || 'could not stop and unload the muxr service');
+                await stopOwnedSelfhostRelay();
+                cleanupManagedIngress(state);
+            }
             for (const [path, entry] of entries) removeManaged(path, entry, manifest, { dryRun, force });
             saveManifest(manifest, dryRun);
             if (!dryRun) {
-                serviceCommand('unload');
-                await stopOwnedSelfhostRelay();
-                cleanupManagedIngress(readSelfhostState());
-                serviceCommand('reload');
+                const reloaded = serviceCommand('reload');
+                if (!reloaded.ok) throw new Error(reloaded.stderr || reloaded.stdout || 'service reload failed');
             }
-            print('Daemon registration and muxr-owned ingress removed; muxr data and unrelated services were left intact.');
+            if (!args.includes('--quiet')) print(dryRun
+                ? '  would stop muxr and remove its background-service definition and owned ingress'
+                : '  ✓ muxr service stopped; background-service definition and owned ingress removed');
             return 0;
         }
         if (action === 'logs') {
@@ -1059,8 +1198,18 @@ export async function runDaemon(args = []) {
         }
         if (!['start', 'stop', 'restart', 'status'].includes(action)) throw new Error('usage: muxr daemon install|uninstall|start|stop|restart|status|logs');
         const result = serviceCommand(action);
-        print(result.stdout || result.stderr || `daemon ${action}: ok`);
-        return result.ok || action === 'status' ? 0 : 1;
+        if (!result.ok) {
+            if (action === 'status') print('muxr service is stopped or unavailable.');
+            else error(result.stderr || result.stdout || `muxr service ${action} failed`);
+            return 1;
+        }
+        if (!args.includes('--quiet')) {
+            if (action === 'start') print('  ✓ muxr service started and enabled for login');
+            else if (action === 'restart') print('  ✓ muxr services restarted');
+            else if (action === 'stop') print('  ✓ muxr service stopped. It remains installed and may start at the next login.');
+            else print('muxr service is running.');
+        }
+        return 0;
     } catch (cause) {
         error(cause instanceof Error ? cause.message : String(cause));
         return 1;
@@ -1262,6 +1411,39 @@ export function selfhostStateUnreadable() {
     }
 }
 
+/** Enable the bundled web client without reopening unrelated setup choices. */
+export async function enableBrowserHosting() {
+    const state = readSelfhostState();
+    if (state === undefined) return 1;
+    if (state.webEnabled === true && publicRelayUrl(state.relayUrl)?.startsWith('wss://') === true) return 0;
+    if (state.relayLocation === 'remote') {
+        error('Browser hosting must be enabled by the shared-relay owner, then this computer must reconnect with a fresh enrollment.');
+        return 1;
+    }
+    if (state.connectionMode === 'cloudflare') {
+        error('The current quick Cloudflare URL is temporary. Change setup to Tailscale Serve or your own stable WSS endpoint before enabling browser access.');
+        return 1;
+    }
+    if (!publicRelayUrl(state.relayUrl)?.startsWith('wss://')) {
+        error('Browser access needs a secure HTTPS connection. Change this setup to Tailscale Serve or your own WSS endpoint first.');
+        return 1;
+    }
+    print('Enabling browser access on the current secure connection…');
+    const args = [
+        '--reconfigure', '--web', '--yes', '--no-pair',
+        '--port', String(state.relayPort),
+    ];
+    if (typeof state.connectionMode === 'string') args.push('--connection-mode', state.connectionMode);
+    if (state.connectionMode === 'external' || state.connectionMode === 'cloudflare') args.push('--advertise', state.relayUrl);
+    return runSelfHost(args);
+}
+
+export function browserHostingCanEnable() {
+    const state = readSelfhostState();
+    return state?.relayLocation !== 'remote' && state?.connectionMode !== 'cloudflare'
+        && publicRelayUrl(state?.relayUrl)?.startsWith('wss://') === true;
+}
+
 /** Menu-only summary used by cli.mjs to guide browser pairing. */
 export function browserHostingReady() {
     const state = readSelfhostState();
@@ -1310,6 +1492,13 @@ function lanAddress() {
     return undefined;
 }
 
+export function tailscaleDnsName(value) {
+    if (typeof value !== 'string') return undefined;
+    const name = value.replace(/\.$/, '').toLowerCase();
+    if (name.length === 0 || name.length > 253) return undefined;
+    return name.split('.').every((label) => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label)) ? name : undefined;
+}
+
 export function tailscaleIngress(args) {
     if (args.includes('--tunnel') || flagValue(args, '--advertise') || args.includes('--tailscale-direct')) return undefined;
     const status = runTailscale(['status', '--json'], { encoding: 'utf8' });
@@ -1321,8 +1510,14 @@ export function tailscaleIngress(args) {
     }
     try {
         const parsed = JSON.parse(status.stdout);
-        const dnsName = parsed?.Self?.DNSName?.replace(/\.$/, '');
-        if (!dnsName) throw new Error('Tailscale MagicDNS name is unavailable; enable MagicDNS or use --tailscale-direct');
+        const reportedName = parsed?.Self?.DNSName;
+        const dnsName = tailscaleDnsName(reportedName);
+        if (!dnsName) {
+            if (typeof reportedName !== 'string' || reportedName === '') {
+                throw new Error('Tailscale MagicDNS name is unavailable. Enable MagicDNS, then retry, or explicitly choose direct Tailscale under Advanced.');
+            }
+            throw new Error('Tailscale reported an invalid MagicDNS name, so muxr did not create a pairing code or guess another address. Open Tailscale, verify this computer’s DNS name, then retry or choose another connection under Advanced.');
+        }
         return { dnsName };
     } catch (cause) {
         if (cause instanceof SyntaxError) throw new Error('Tailscale returned invalid status JSON');
@@ -1549,8 +1744,9 @@ function flagValue(args, name) {
 
 async function startMuxrDaemon(mode, args = [], restartRunning = true) {
     const dryRun = args.includes('--dry-run');
+    const wasRunning = daemonIsRunning();
     const common = [...(dryRun ? ['--dry-run'] : []), ...(args.includes('--force') ? ['--force'] : [])];
-    if ((await runDaemon(['install', '--mode', mode, ...common])) !== 0) throw new Error('daemon registration failed');
+    if ((await runDaemon(['install', '--mode', mode, '--quiet', ...common])) !== 0) throw new Error('daemon registration failed');
     if (dryRun) {
         print(`  would start muxr services in ${mode} mode`);
         return;
@@ -1558,7 +1754,7 @@ async function startMuxrDaemon(mode, args = [], restartRunning = true) {
     const running = daemonIsRunning();
     if (!running || restartRunning) {
         const action = running ? 'restart' : 'start';
-        if ((await runDaemon([action])) !== 0) throw new Error(`muxr host did not ${action}`);
+        if ((await runDaemon([action, '--quiet'])) !== 0) throw new Error(`muxr host did not ${action}`);
     }
     for (let attempt = 0; attempt < 40; attempt += 1) {
         if (serviceCommand('status').ok) {
@@ -1567,7 +1763,9 @@ async function startMuxrDaemon(mode, args = [], restartRunning = true) {
                 return selfhostRelayHealthy(state);
             })();
             if (relayReady) {
-                print(`  ✓ muxr services running in ${mode} mode`);
+                print(wasRunning
+                    ? `  ✓ muxr background service ${restartRunning ? 'updated, restarted, and' : 'already running and'} verified in ${mode} mode`
+                    : `  ✓ muxr background service installed, started, and verified in ${mode} mode`);
                 return;
             }
         }
@@ -1584,7 +1782,8 @@ export async function runSelfHost(args = []) {
     const hostOnly = args.includes('--host-only');
     const dryRun = args.includes('--dry-run');
     const web = args.includes('--web');
-    const pairKind = args.includes('--pair-browser') ? 'browser' : 'native';
+    const pairKind = args.includes('--pair-browser') || args.includes('--pair-browser-view') ? 'browser' : 'native';
+    const pairAuthority = args.includes('--pair-browser-view') ? 'observe' : 'control';
     const noPair = args.includes('--no-pair');
     const connectionMode = flagValue(args, '--connection-mode');
     const reconfigure = args.includes('--reconfigure');
@@ -1601,7 +1800,7 @@ export async function runSelfHost(args = []) {
             throw new Error(`${selfhostPath()} exists but is unreadable (truncated or corrupt); refusing to reconfigure over it. Move it aside when you are sure — \`mv ${selfhostPath()} ${selfhostPath()}.broken\` — then rerun`);
         }
         if (web && process.stdout.isTTY && !args.includes('--yes')) {
-            print('Web access creates an 8-hour read-only browser device. Secret material is WebCrypto-wrapped in IndexedDB; close shared browsers and revoke them from `muxr devices`.');
+            print('Web access supports 8-hour control or view-only browser grants. Secret material is WebCrypto-wrapped in IndexedDB; close shared browsers and revoke them from `muxr devices`.');
             const approved = await askVisible('Continue with browser access? [y/N] ');
             if (!approved) return 0;
         }
@@ -1634,14 +1833,9 @@ export async function runSelfHost(args = []) {
         }
         state.relayPort = port;
         if (web && !existsSync(join(webRoot, 'index.html'))) throw new Error(`web client missing at ${webRoot}; install a package with the web client or pass --web-root`);
-        // Missing Tailscale is fine; BROKEN Tailscale (daemon down, MagicDNS
-        // off) must not abort setup — the direct/LAN fallbacks still work.
-        let tailscale;
-        try {
-            tailscale = tailscaleIngress(args);
-        } catch (cause) {
-            print(`  warn: ${cause instanceof Error ? cause.message : String(cause)}`);
-        }
+        // Missing Tailscale is fine. Broken/unsafe Tailscale status must fail
+        // closed; another transport is chosen explicitly, never as a guess.
+        const tailscale = tailscaleIngress(args);
         const advertise = sameConfiguration && connectionMode === 'cloudflare' && typeof state.relayUrl === 'string' && cloudflaredAlive(state.ingress)
             ? { url: state.relayUrl, note: 'existing Cloudflare quick tunnel', ingress: state.ingress }
             : await resolveAdvertise(args, port, tailscale);
@@ -1698,7 +1892,7 @@ export async function runSelfHost(args = []) {
             print('Ready — existing paired devices will reconnect automatically.');
             return 0;
         }
-        return await withSelfhostRotationLock(() => runSelfhostPair(state, pairKind));
+        return await withSelfhostRotationLock(() => runSelfhostPair(state, pairKind, pairAuthority));
     } catch (cause) {
         if (pendingIngress && cloudflaredAlive(pendingIngress)) process.kill(Number(pendingIngress.pid), 'SIGTERM');
         error(cause instanceof Error ? cause.message : String(cause));
@@ -1811,6 +2005,7 @@ export async function runDevices(command = 'list', args = []) {
                         ingressKey: device.ingressKey,
                         keyVersion,
                         expiresAt: Date.parse(device.expiresAt),
+                        authority: device.authority ?? (device.kind === 'browser' ? 'observe' : 'control'),
                     })),
                 }));
                 pending = {
@@ -1871,7 +2066,7 @@ export async function runDevices(command = 'list', args = []) {
     }
 }
 
-async function runSelfhostPair(state, requestedKind = 'native') {
+async function runSelfhostPair(state, requestedKind = 'native', requestedAuthority = 'control') {
     const base = selfhostControlBase(state);
     const authHeaders = { authorization: `Bearer ${selfhostCredential(state)}` };
     let pending = state.machine.crypto.pendingPair;
@@ -1893,7 +2088,8 @@ async function runSelfhostPair(state, requestedKind = 'native') {
         }
     }
     if (pending !== undefined && ((pending.deviceKind ?? 'native') !== requestedKind
-        || requestedKind === 'native' && typeof pending.pairString !== 'string') && recoveredPoll === undefined) {
+        || (pending.authority ?? (pending.deviceKind === 'browser' ? 'observe' : 'control')) !== requestedAuthority
+        || typeof pending.pairString !== 'string') && recoveredPoll === undefined) {
         delete state.machine.crypto.pendingPair;
         writeSelfhostState(state);
         pending = undefined;
@@ -1904,7 +2100,7 @@ async function runSelfhostPair(state, requestedKind = 'native') {
         const created = await api(base, '/v1/selfhost/pair-sessions', {
             method: 'POST',
             headers: authHeaders,
-            body: JSON.stringify({ claim, machineSlug: state.machine.id, deviceKind: requestedKind }),
+            body: JSON.stringify({ claim, machineSlug: state.machine.id, deviceKind: requestedKind, authority: requestedAuthority }),
         });
         if (!created.response.ok) throw new Error(created.body.error || `pair session failed (${created.response.status})`);
         const payload = Buffer.from(JSON.stringify({
@@ -1917,44 +2113,63 @@ async function runSelfhostPair(state, requestedKind = 'native') {
             name: state.machine.name ?? 'self-host',
             machinePk: state.machine.crypto.signingPublicKey,
             r: state.relayUrl,
+            authority: requestedAuthority,
         })).toString('base64url');
-        const pairUrl = `muxr://pair?payload=${payload}`;
-        let pairString;
-        if (requestedKind === 'native') {
-            const code = newPairingCode();
-            const published = await api(base, `/v1/selfhost/pair-sessions/${encodeURIComponent(created.body.pair_id)}/code`, {
-                method: 'POST',
-                headers: authHeaders,
-                body: JSON.stringify({ code_hash: pairingCodeHash(code), payload: sealPairingCodePayload(payload, code) }),
-            });
-            if (!published.response.ok) throw new Error(published.body.error || 'pairing code publication failed');
-            const locator = new URL(state.relayUrl);
-            locator.searchParams.set('pair', code);
-            pairString = locator.toString();
+        const code = newPairingCode();
+        const published = await api(base, `/v1/selfhost/pair-sessions/${encodeURIComponent(created.body.pair_id)}/code`, {
+            method: 'POST',
+            headers: authHeaders,
+            body: JSON.stringify({ code_hash: pairingCodeHash(code), payload: sealPairingCodePayload(payload, code) }),
+        });
+        if (!published.response.ok) throw new Error(published.body.error || 'pairing code publication failed');
+        const locator = new URL(state.relayUrl);
+        locator.searchParams.set('pair', code);
+        if (requestedKind === 'browser') {
+            locator.protocol = 'https:';
+            locator.pathname = '/pair';
+            locator.searchParams.set('role', requestedAuthority);
         }
+        const pairString = locator.toString();
         pending = {
             pairId: created.body.pair_id,
             pairSecret,
             generation: state.machine.crypto.keyVersion,
-            ...(pairString === undefined ? { pairUrl } : { pairString }),
+            pairString,
             expiresAt: Date.now() + Number(created.body.expires_in ?? 120) * 1000,
             deviceKind: requestedKind,
+            authority: requestedAuthority,
         };
         state.machine.crypto.pendingPair = pending;
         writeSelfhostState(state);
     }
     if (pending.grant !== undefined && pending.device !== undefined) {
-        const uploaded = await api(base, `/v1/selfhost/pair-sessions/${encodeURIComponent(pending.pairId)}/grant`, {
-            method: 'POST', headers: authHeaders, body: JSON.stringify({ grant: pending.grant }),
-        });
-        if (!uploaded.response.ok) throw new Error(uploaded.body.error || 'grant upload recovery failed');
+        if (pending.grantUploaded !== true) {
+            const uploaded = await api(base, `/v1/selfhost/pair-sessions/${encodeURIComponent(pending.pairId)}/grant`, {
+                method: 'POST', headers: authHeaders, body: JSON.stringify({ grant: pending.grant }),
+            });
+            if (!uploaded.response.ok) throw new Error(uploaded.body.error || 'grant upload recovery failed');
+            pending.grantUploaded = true;
+            state.machine.crypto.pendingPair = pending;
+            writeSelfhostState(state);
+        }
+        if (pending.deviceKind === 'browser') {
+            const deadline = Date.now() + 2 * 60_000;
+            let acknowledged = false;
+            while (Date.now() < deadline) {
+                const polled = await api(base, `/v1/selfhost/pair-sessions/${encodeURIComponent(pending.pairId)}`, { headers: authHeaders });
+                if (!polled.response.ok) throw new Error(polled.body.error || 'pairing acknowledgement failed');
+                if (polled.body.acknowledged === true) { acknowledged = true; break; }
+                await new Promise((resolve) => setTimeout(resolve, 1000));
+            }
+            if (!acknowledged) throw new Error('the browser claimed the pairing but did not save it; reload the browser to recover, then rerun `muxr pair --browser` if needed');
+        }
         state.machine.crypto.devices = [
             ...state.machine.crypto.devices.filter((entry) => entry.deviceId !== pending.device.deviceId),
             pending.device,
         ];
         delete state.machine.crypto.pendingPair;
         writeSelfhostState(state);
-        print(`  ✓ paired ${pending.deviceName || 'phone'}`);
+        print(`  ✓ paired and verified ${pending.deviceName || 'device'}`);
         return 0;
     }
 
@@ -1968,19 +2183,12 @@ async function runSelfhostPair(state, requestedKind = 'native') {
             print('Not ready? Press Ctrl-C and run `muxr pair` later.');
             print('');
         }
-        const pairValue = browser ? pending.pairUrl : pending.pairString;
-        const payload = browser && typeof pairValue === 'string' ? new URL(pairValue).searchParams.get('payload') : undefined;
-        const browserOrigin = publicRelayUrl(state.relayUrl)?.replace(/^wss/, 'https');
-        if (browser && browserOrigin && payload) {
-            print('Open this secure browser pairing link within two minutes:');
-            print(`${browserOrigin}/pair#payload=${payload}`);
-            print('The resulting browser access is read-only and expires after eight hours.');
-        } else if (process.stdout.isTTY && typeof pairValue === 'string') {
-            print(await QRCode.toString(pairValue, { type: 'terminal', small: true }));
-        }
+        const pairValue = pending.pairString;
         if (typeof pairValue !== 'string') throw new Error('pairing string is unavailable');
-        print(browser ? 'Browser pairing string:' : 'Pairing string (expires in two minutes):');
+        if (!browser && process.stdout.isTTY) print(await QRCode.toString(pairValue, { type: 'terminal', small: true }));
+        print(browser ? `Open this ${pending.authority === 'observe' ? 'view-only' : 'control'} browser link within two minutes:` : 'Pairing string (expires in two minutes):');
         print(pairValue);
+        if (browser) print('Browser access expires after eight hours.');
         const pairFile = join(stateDir(), 'pairing-string.txt');
         writeFileSync(pairFile, `${pairValue}\n`, { mode: 0o600 });
         // wl-copy/xclip stay alive as clipboard owners and can freeze setup in a
@@ -1988,8 +2196,8 @@ async function runSelfhostPair(state, requestedKind = 'native') {
         const clipboard = hostPlatform() === 'darwin'
             ? spawnSync('pbcopy', [], { input: pairValue, timeout: 2_000 })
             : undefined;
-        print(clipboard?.status === 0 ? '  ✓ copied pairing string to clipboard' : `  saved pairing string to ${pairFile}`);
-        print('Waiting for the device to claim this single-use pairing session…');
+        print(clipboard?.status === 0 ? '  ✓ copied link to clipboard' : `  saved exact link to ${pairFile}`);
+        print(`Waiting for the ${browser ? 'browser' : 'device'} to finish pairing…`);
     }
     while (true) {
         let polled = recoveredPoll;
@@ -2033,12 +2241,15 @@ async function runSelfhostPair(state, requestedKind = 'native') {
         }
         const ingressKey = base64(nacl.randomBytes(32));
         const browser = pending.deviceKind === 'browser';
+        const authority = pending.authority ?? (browser ? 'observe' : 'control');
+        if (polled.body.authority !== undefined && polled.body.authority !== authority) throw new Error('pairing authority substitution rejected');
         const expiresAt = browser ? Date.now() + BROWSER_GRANT_TTL_MS : DURABLE_GRANT_EXPIRES_AT;
         pending.device = {
             deviceId,
             devicePublicKey,
             ingressKey,
             expiresAt: new Date(expiresAt).toISOString(),
+            authority,
             ...(browser ? { kind: 'browser' } : {}),
         };
         pending.deviceName = typeof request.deviceName === 'string' && request.deviceName.trim() !== '' ? request.deviceName.trim() : 'phone';
@@ -2052,10 +2263,11 @@ async function runSelfhostPair(state, requestedKind = 'native') {
             ingressKey,
             keyVersion: state.machine.crypto.keyVersion,
             expiresAt,
+            authority,
         }));
         state.machine.crypto.pendingPair = pending;
         writeSelfhostState(state);
-        return runSelfhostPair(state, pending.deviceKind ?? 'native');
+        return runSelfhostPair(state, pending.deviceKind ?? 'native', authority);
     }
 }
 
@@ -2065,8 +2277,9 @@ export async function runPair(args = []) {
         if (state?.machine?.crypto === undefined || typeof selfhostCredential(state) !== 'string') {
             throw new Error('muxr is not set up yet; run `muxr setup` first');
         }
-        const browser = args.includes('--browser');
-        if (browser && !browserHostingReady()) throw new Error('browser hosting is off. Run `muxr`, choose Set up this machine, and pick Tailscale Serve, Cloudflare, or your own WSS endpoint with browser hosting enabled');
+        const browser = args.includes('--browser') || args.includes('--browser-view');
+        const authority = args.includes('--browser-view') ? 'observe' : 'control';
+        if (browser && !browserHostingReady()) throw new Error('browser hosting is off. Run `muxr`, choose Pair or manage devices, then Pair a control browser — muxr can enable browser access on your current secure connection.');
         let healthy = await selfhostRelayHealthy(state);
         if (!healthy) {
             const definition = daemonDefinition('selfhost');
@@ -2075,7 +2288,7 @@ export async function runPair(args = []) {
             healthy = await selfhostRelayHealthy(state);
         }
         if (!healthy) throw new Error('the relay could not restart; run `muxr doctor` for the exact failing check');
-        return await withSelfhostRotationLock(() => runSelfhostPair(state, browser ? 'browser' : 'native'));
+        return await withSelfhostRotationLock(() => runSelfhostPair(state, browser ? 'browser' : 'native', authority));
     } catch (cause) {
         error(cause instanceof Error ? cause.message : String(cause));
         return 1;
@@ -2156,7 +2369,8 @@ export async function runAccount(command, args = []) {
             return 0;
         }
         if (command === 'pair') {
-            const expectedBrowser = args.includes('--browser');
+            const expectedBrowser = args.includes('--browser') || args.includes('--browser-view');
+            const expectedAuthority = args.includes('--browser-view') ? 'observe' : 'control';
             if (!auth.machine?.crypto) throw new Error('machine keys are missing; run `muxr login` to register a new machine identity');
             const controlClaim = randomBytes(32).toString('base64url');
             const controlClaimHash = createHash('sha256').update(controlClaim).digest('base64url');
@@ -2178,6 +2392,7 @@ export async function runAccount(command, args = []) {
                 name: auth.machine.name,
                 machinePk: auth.machine.crypto.signingPublicKey,
                 generation: String(auth.machine.crypto.keyVersion),
+                authority: expectedAuthority,
             });
             const pairUrl = `${result.body.verification_uri}#${fragment}`;
             print(`Open: ${pairUrl}`);
@@ -2225,6 +2440,7 @@ export async function runAccount(command, args = []) {
                     ingressKey,
                     keyVersion: auth.machine.crypto.keyVersion,
                     expiresAt: expires,
+                    authority: expectedAuthority,
                 });
                 const uploaded = await api(auth.controlUrl, `/v1/pair-sessions/${encodeURIComponent(result.body.pair_id)}/grant`, {
                     method: 'POST',
@@ -2239,6 +2455,7 @@ export async function runAccount(command, args = []) {
                         devicePublicKey: device.public_key,
                         ingressKey,
                         expiresAt: new Date(expires).toISOString(),
+                        authority: expectedAuthority,
                         ...(browser ? { kind: 'browser' } : {}),
                     },
                 ];
@@ -2414,7 +2631,7 @@ export async function runDoctor() {
                 : `${days} day${days === 1 ? '' : 's'} remaining · create a fresh enrollment before expiry`);
         }
         if (selfhost.webEnabled === true) add(ingressReady ? 'ok' : 'warn', 'web client', ingressReady
-            ? `${publicRelayUrl(selfhost.relayUrl)?.replace(/^ws/, 'http') ?? 'configured'} · read-only browser grants expire after eight hours`
+            ? `${publicRelayUrl(selfhost.relayUrl)?.replace(/^ws/, 'http') ?? 'configured'} · control and view-only browser grants expire after eight hours`
             : 'configured but unreachable until the tunnel is restored');
     }
     if (hasPendingRemoteConnect()) add('fail', 'pending enrollment', 'run `muxr` and choose Resume remote connection');

@@ -99,6 +99,10 @@ export function createFakeSessionSource(): SessionSource {
             return ['pi', 'claude', 'codex'];
         },
 
+        async installedAgentKinds(kinds) {
+            return kinds.filter((kind) => kind === 'pi');
+        },
+
         async pluginList() {
             return [];
         },

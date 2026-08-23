@@ -18,6 +18,7 @@ import { isTauri } from '@/utils/isTauri';
 import { useVisibleSessionListViewData } from '@/hooks/useVisibleSessionListViewData';
 import { getSessionShortcutIdsInDisplayOrder } from '@/utils/sessionDisplayOrder';
 import { t } from '@/text';
+import { currentDeviceAuthority } from '@/state/hostedE2ee';
 
 const EMPTY_SESSION_IDS: readonly string[] = [];
 
@@ -29,6 +30,7 @@ export function CommandPaletteProvider({ children }: { children: React.ReactNode
     const sessionListViewData = useVisibleSessionListViewData();
     const machines = useAllMachines();
     const navigateToSession = useNavigateToSession();
+    const canControl = currentDeviceAuthority() === 'control';
     const preferredModifier = useMemo(() => getPreferredShortcutModifier(
         typeof navigator === 'undefined' ? undefined : navigator
     ), []);
@@ -132,8 +134,8 @@ export function CommandPaletteProvider({ children }: { children: React.ReactNode
             });
         }
 
-        return cmds;
-    }, [browserSafeShortcuts, router, logout, sessions, navigateToSession, preferredModifier]);
+        return canControl ? cmds : cmds.filter((command) => command.id !== 'new-session');
+    }, [browserSafeShortcuts, canControl, router, logout, sessions, navigateToSession, preferredModifier]);
 
     const showCommandPalette = useCallback(() => {
         if (Platform.OS !== 'web' || !isAuthenticated || !commandPaletteEnabled) return;
@@ -166,7 +168,7 @@ export function CommandPaletteProvider({ children }: { children: React.ReactNode
     const visibleModifier = useGlobalKeyboard(
         {
             commandPalette: isAuthenticated && commandPaletteEnabled ? showCommandPalette : undefined,
-            newSession: isAuthenticated ? openNewSession : undefined,
+            newSession: isAuthenticated && canControl ? openNewSession : undefined,
             settings: isAuthenticated ? openSettings : undefined,
             recentSession: isAuthenticated ? openRecentSession : undefined,
         },

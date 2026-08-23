@@ -36,6 +36,7 @@ import { MOBILE_GLASS_HEADER_HEIGHT } from './navigation/headerMetrics';
 import { MobileGlassSurface } from './MobileGlass';
 import { useNewSessionDraft } from '@/hooks/useNewSessionDraft';
 import { useStartSessionFromDraft } from '@/hooks/useStartSessionFromDraft';
+import { currentDeviceAuthority } from '@/state/hostedE2ee';
 
 interface MainViewProps {
     variant: 'phone' | 'sidebar';
@@ -325,7 +326,7 @@ const HeaderRight = React.memo(({
                 </View>
             );
         }
-        return (
+        return currentDeviceAuthority() === 'control' ? (
             <View style={styles.headerActions}>
                 <Pressable
                     onPress={() => router.navigate('/new-agent')}
@@ -335,7 +336,7 @@ const HeaderRight = React.memo(({
                     <Ionicons name="add-outline" size={28} color={theme.colors.header.tint} />
                 </Pressable>
             </View>
-        );
+        ) : null;
     }
 
     if (activeTab === 'settings') {

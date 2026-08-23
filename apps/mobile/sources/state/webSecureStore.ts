@@ -24,19 +24,27 @@ async function transact<T>(mode: IDBTransactionMode, operation: (store: IDBObjec
     return new Promise((resolve, reject) => {
         const transaction = database.transaction(STORE_NAME, mode);
         const request = operation(transaction.objectStore(STORE_NAME));
-        request.onsuccess = () => resolve(request.result);
+        let result!: T;
+        request.onsuccess = () => { result = request.result; };
         request.onerror = () => reject(request.error ?? new Error('Browser secure store failed'));
-        transaction.oncomplete = () => database.close();
-        transaction.onerror = () => reject(transaction.error ?? new Error('Browser secure store transaction failed'));
+        transaction.oncomplete = () => { database.close(); resolve(result); };
+        transaction.onerror = () => { database.close(); reject(transaction.error ?? new Error('Browser secure store transaction failed')); };
+        transaction.onabort = () => { database.close(); reject(transaction.error ?? new Error('Browser secure store transaction aborted')); };
     });
 }
 
+let wrapKeyPending: Promise<CryptoKey> | undefined;
+
 async function wrapKey(): Promise<CryptoKey> {
-    const stored = await transact<CryptoKey | undefined>('readonly', (store) => store.get(WRAP_KEY));
-    if (stored !== undefined) return stored;
-    const created = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
-    await transact('readwrite', (store) => store.put(created, WRAP_KEY));
-    return created;
+    wrapKeyPending ??= (async () => {
+        const stored = await transact<CryptoKey | undefined>('readonly', (store) => store.get(WRAP_KEY));
+        if (stored !== undefined) return stored;
+        const created = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+        await transact('readwrite', (store) => store.put(created, WRAP_KEY));
+        return created;
+    })();
+    try { return await wrapKeyPending; }
+    catch (cause) { wrapKeyPending = undefined; throw cause; }
 }
 
 const bytes = (value: string): ArrayBuffer => new TextEncoder().encode(value).buffer as ArrayBuffer;
@@ -56,4 +64,20 @@ export async function setWebSecret(name: string, value: string): Promise<void> {
 
 export async function deleteWebSecret(name: string): Promise<void> {
     await transact('readwrite', (store) => store.delete(`${ITEM_PREFIX}${name}`));
+}
+
+export async function listWebSecretNames(): Promise<string[]> {
+    const keys = await transact<IDBValidKey[]>('readonly', (store) => store.getAllKeys());
+    return keys.filter((key): key is string => typeof key === 'string' && key.startsWith(ITEM_PREFIX))
+        .map((key) => key.slice(ITEM_PREFIX.length));
+}
+
+export function resetWebSecureStore(): Promise<void> {
+    wrapKeyPending = undefined;
+    return new Promise((resolve, reject) => {
+        const request = indexedDB.deleteDatabase(DB_NAME);
+        request.onsuccess = () => resolve();
+        request.onerror = () => reject(request.error ?? new Error('Cannot reset browser secure store'));
+        request.onblocked = () => reject(new Error('Close other muxr tabs, then reset this browser again.'));
+    });
 }

@@ -7,6 +7,7 @@ import { useAllMachines } from '@/sync/storage';
 import { isMachineOnline } from '@/utils/machineUtils';
 import { useRouter } from 'expo-router';
 import { t } from '@/text';
+import { currentDeviceAuthority } from '@/state/hostedE2ee';
 
 const stylesheet = StyleSheet.create((theme) => ({
     container: {
@@ -60,6 +61,7 @@ export function EmptySessionsTablet() {
     const styles = stylesheet;
     const router = useRouter();
     const machines = useAllMachines();
+    const canControl = currentDeviceAuthority() === 'control';
     
     const hasOnlineMachines = React.useMemo(() => {
         return machines.some(machine => isMachineOnline(machine));
@@ -82,7 +84,7 @@ export function EmptySessionsTablet() {
                 {t('emptySessions.noActiveSessions')}
             </Text>
 
-            {hasOnlineMachines ? (
+            {hasOnlineMachines && canControl ? (
                 <>
                     <Text style={styles.descriptionText}>
                         {t('emptySessions.startDescription')}
@@ -104,7 +106,7 @@ export function EmptySessionsTablet() {
                 </>
             ) : (
                 <Text style={styles.descriptionText}>
-                    {t('emptySessions.noMachinesDescription')}
+                    {hasOnlineMachines ? 'This browser has view-only access. Active agents will appear here.' : t('emptySessions.noMachinesDescription')}
                 </Text>
             )}
         </View>

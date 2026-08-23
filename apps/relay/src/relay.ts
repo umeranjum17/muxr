@@ -321,7 +321,7 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
             res.writeHead(200, {
                 'content-type': webMime[extname(path).toLowerCase()] ?? 'application/octet-stream',
                 'cache-control': path.endsWith('index.html') ? 'no-store' : 'public, max-age=31536000, immutable',
-                'content-security-policy': "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ws: wss:; media-src 'self' blob:; frame-src 'none'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
+                'content-security-policy': "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ws: wss:; media-src 'self' blob:; frame-src 'none'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
                 'x-content-type-options': 'nosniff',
                 'referrer-policy': 'no-referrer',
             });
@@ -427,6 +427,20 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
                 const authority = await resolveAuthority(req);
                 if (authority.machine === undefined) { writeJsonError(res, 403, 'machine status requires machine authority'); return; }
                 writeJson(res, 200, { online: peers.onlineMachineIds().has(authority.machine.slug) });
+                return;
+            }
+            if (config.localAuthority && machineAuthority !== undefined && localPairing !== undefined
+                && req.method === 'DELETE' && url.pathname === '/v1/selfhost/machine-status') {
+                const authority = await resolveAuthority(req);
+                if (authority.machine === undefined) { writeJsonError(res, 403, 'machine revocation requires machine authority'); return; }
+                const slug = authority.machine.slug;
+                await machineAuthority.revokeMachine(slug);
+                for (const device of await localPairing.listDevices(slug)) {
+                    await localPairing.revokeDevice(device.deviceId, slug);
+                    await push.removeExpoDevice(`local:${slug}`, device.deviceId);
+                }
+                closePeers({ accountId: `local:${slug}`, machineSlug: slug }, 'machine uninstalled');
+                writeJson(res, 200, { ok: true });
                 return;
             }
             if (config.localAuthority && machineAuthority !== undefined && req.method === 'GET' && url.pathname === '/v1/selfhost/machines') {
@@ -536,6 +550,7 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
                 const claimMatch = /^\/v1\/selfhost\/pair-sessions\/([^/]+)\/claim$/.exec(url.pathname);
                 const codeMatch = /^\/v1\/selfhost\/pair-sessions\/([^/]+)\/code$/.exec(url.pathname);
                 const grantMatch = /^\/v1\/selfhost\/pair-sessions\/([^/]+)\/grant$/.exec(url.pathname);
+                const completeMatch = /^\/v1\/selfhost\/pair-sessions\/([^/]+)\/complete$/.exec(url.pathname);
                 const pollMatch = /^\/v1\/selfhost\/pair-sessions\/([^/]+)$/.exec(url.pathname);
                 if (req.method === 'POST' && url.pathname === '/v1/selfhost/pair-sessions') {
                     const authority = await resolveAuthority(req);
@@ -546,12 +561,18 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
                     if (authority.machine !== undefined && requestedSlug !== authority.machine.slug) { writeJsonError(res, 403, 'machine credential cannot pair another machine'); return; }
                     const machineSlug = authority.machine?.slug ?? requestedSlug;
                     const deviceKind = body?.deviceKind === 'browser' ? 'browser' : body?.deviceKind === 'native' ? 'native' : undefined;
+                    const requestedAuthority = body?.authority;
+                    if (requestedAuthority !== undefined && requestedAuthority !== 'control' && requestedAuthority !== 'observe') {
+                        writeJsonError(res, 400, 'authority must be control or observe');
+                        return;
+                    }
+                    const deviceAuthority = deviceKind === 'browser' && requestedAuthority === 'observe' ? 'observe' : 'control';
                     if (claim.length < 43 || !/^[a-z0-9][a-z0-9-]{0,62}$/.test(machineSlug) || deviceKind === undefined) {
                         writeJsonError(res, 400, 'claim, machineSlug and deviceKind are required');
                         return;
                     }
                     if (!(await machineAuthority?.isMachineAllowed(machineSlug))) { writeJsonError(res, 403, 'machine is revoked or expired'); return; }
-                    const session = await localPairing.createSession({ claim, machineSlug, deviceKind });
+                    const session = await localPairing.createSession({ claim, machineSlug, deviceKind, authority: deviceAuthority });
                     writeJson(res, 201, { pair_id: session.pairId, expires_in: session.expiresIn });
                     return;
                 }
@@ -606,6 +627,14 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
                     const sessionSlug = await localPairing.sessionMachineSlug(pollMatch[1]);
                     if (sessionSlug !== undefined && !(await machineAuthority?.isMachineAllowed(sessionSlug))) { writeJsonError(res, 403, 'machine is revoked or expired'); return; }
                     writeJson(res, 200, await localPairing.poll(pollMatch[1], authority.machine?.slug));
+                    return;
+                }
+                if (req.method === 'POST' && completeMatch?.[1] !== undefined) {
+                    const presented = extractBearerToken(req);
+                    const device = presented === undefined ? undefined : await localPairing.resolveDeviceCredential(presented);
+                    if (device === undefined) { writeJsonError(res, 403, 'pairing completion requires a paired device credential'); return; }
+                    if (!(await localPairing.acknowledgeGrant(completeMatch[1], device.deviceId))) { writeJsonError(res, 409, 'pairing_not_durable'); return; }
+                    writeJson(res, 200, { ok: true });
                     return;
                 }
                 if (grantMatch?.[1] !== undefined) {

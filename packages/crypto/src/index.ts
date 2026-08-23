@@ -433,6 +433,8 @@ export interface SigningKeyPair {
     secretKey: string;
 }
 
+export type DeviceAuthority = 'control' | 'observe';
+
 export interface DeviceGrant {
     machineId: string;
     /** Machine ed25519 signing public key, base64; cross-checked against the pinned key. */
@@ -443,6 +445,8 @@ export interface DeviceGrant {
     keyVersion: number;
     /** Durable grants remain valid until explicit revocation. */
     expiresAt: number;
+    /** Host-enforced device role. Legacy grants omit it and are interpreted by device kind. */
+    authority?: DeviceAuthority;
     /** 32-byte root for host->device data, base64. */
     dataKey: string;
     /** 32-byte root for device->host ingress, base64. */
@@ -498,6 +502,7 @@ export function createDeviceGrant(params: {
     keyVersion: number;
     /** Durable native grants use a parser-safe far-future timestamp. */
     expiresAt: number;
+    authority?: DeviceAuthority;
 }): SealedDeviceGrant {
     const { machineId, deviceId, devicePublicKey, keyVersion, expiresAt } = params;
     if (typeof machineId !== 'string' || machineId === '') throw new Error('grant: machineId required');
@@ -519,6 +524,7 @@ export function createDeviceGrant(params: {
         devicePublicKey,
         keyVersion,
         expiresAt,
+        authority: params.authority ?? 'control',
         dataKey: toBase64(toKeyBytes(params.dataKey, 'grant dataKey')),
         ingressKey: toBase64(toKeyBytes(params.ingressKey, 'grant ingressKey')),
     };
@@ -578,6 +584,7 @@ export function verifyDeviceGrant(
     if (opts.deviceId !== undefined && parsed.deviceId !== opts.deviceId) throw new Error('grant: device id mismatch');
     if (typeof parsed.expiresAt !== 'number' || !Number.isFinite(parsed.expiresAt)) throw new Error('grant: invalid expiry');
     if (parsed.expiresAt <= Date.now()) throw new Error('grant: expired');
+    if (parsed.authority !== undefined && parsed.authority !== 'control' && parsed.authority !== 'observe') throw new Error('grant: invalid authority');
     if (!Number.isInteger(parsed.keyVersion) || parsed.keyVersion < 1) throw new Error('grant: invalid key generation');
     if (typeof parsed.dataKey !== 'string' || toKeyBytes(parsed.dataKey, 'grant dataKey').length !== 32) throw new Error('grant: invalid dataKey');
     if (typeof parsed.ingressKey !== 'string' || toKeyBytes(parsed.ingressKey, 'grant ingressKey').length !== 32) throw new Error('grant: invalid ingressKey');

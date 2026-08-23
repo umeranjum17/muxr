@@ -43,6 +43,8 @@ import { recentTerminalLinks, subscribeTerminalLinks, viewportTerminalLinks } fr
 import { openExternalUrl } from '@/utils/openExternalUrl';
 import { resolvePluginText } from '@/plugins/pluginText';
 import { randomUUID } from 'expo-crypto';
+import { getCachedConnectionSettings } from '@/state/connectionSettings';
+import { getCachedHostedGrant } from '@/state/hostedE2ee';
 
 /**
  * The floating tools trigger: a small icon inside a target big enough to hit and
@@ -83,6 +85,8 @@ function loopbackPort(url: string): number | undefined {
 
 export const TerminalScreen = React.memo((props: { id: string }) => {
     const { theme } = useUnistyles();
+    const activeGrant = Platform.OS === 'web' ? getCachedHostedGrant(getCachedConnectionSettings().machineId) : undefined;
+    const canControl = Platform.OS !== 'web' || activeGrant?.authority === 'control';
     const insets = useSafeAreaInsets();
     // Keyboard height already covers the home indicator, so keeping the bottom
     // inset while it is up double-pads the composer.
@@ -517,10 +521,10 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                 </View>
             )}
 
-            {Platform.OS === 'web' && (
+            {Platform.OS === 'web' && !canControl && (
                 <View style={{ paddingHorizontal: 12, paddingVertical: 7, backgroundColor: theme.colors.surfaceHigh, borderBottomWidth: 1, borderBottomColor: theme.colors.divider }}>
                     <Text style={{ color: theme.colors.textSecondary, fontSize: 12, textAlign: 'center' }}>
-                        Read-only browser · terminal input and agent controls are disabled · access expires eight hours after pairing
+                        View-only browser · terminal input and agent controls are disabled · access expires eight hours after pairing
                     </Text>
                 </View>
             )}
@@ -639,7 +643,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                         <Ionicons name="arrow-down" size={18} color={theme.colors.text} />
                     </Pressable>
                 )}
-                {Platform.OS !== 'web' && chipLink !== undefined && chipKind !== undefined && (
+                {canControl && chipLink !== undefined && chipKind !== undefined && (
                     <Animated.View
                         entering={FadeIn.duration(180).reduceMotion(ReduceMotion.System)}
                         exiting={FadeOut.duration(120).reduceMotion(ReduceMotion.System)}
@@ -676,7 +680,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                 )}
             </View>
 
-            {Platform.OS !== 'web' && <View onLayout={(event) => setBottomBlockHeight(event.nativeEvent.layout.height)}>
+            {canControl && <View onLayout={(event) => setBottomBlockHeight(event.nativeEvent.layout.height)}>
             <View style={{ minHeight: 52, flexDirection: 'row', alignItems: 'center', backgroundColor: theme.colors.surface }}>
                 <ScrollView
                     horizontal
@@ -859,7 +863,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                 It sits above its own menu's backdrop, so it stays lit as the
                 thing the menu hangs off and a second press closes it, and below
                 the option sheet, which is a sheet and owns the screen. */}
-            {Platform.OS !== 'web' && (
+            {canControl && (
                 <GestureDetector gesture={toolsPan}>
                     <Animated.View style={[{ position: 'absolute', right: 10, bottom: bottomBlockHeight + TOOLS_BASE, zIndex: 30 }, toolsStyle]}>
                         <Pressable

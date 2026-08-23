@@ -566,6 +566,27 @@ try {
     assert.ok(await fetch(`http://127.0.0.1:${failedServicePort}/health`).then((response) => response.ok).catch(() => false), 'relay service failure did not restore the temporary relay');
     stopRelayFor(join(failedServiceHome, '.muxr', 'relay'));
 
+    const browserHome = join(scratch, 'browser-home');
+    const browserPort = setupPort + 3;
+    const browserEnv = cliEnv(browserHome);
+    mkdirSync(browserHome, { recursive: true });
+    run(cli, ['self-host', '--port', String(browserPort), '--advertise', 'wss://browser.example.test', '--connection-mode', 'external', '--web', '--yes', '--no-pair'], { cwd: installDir, env: browserEnv });
+    const browserPair = spawn(cli, ['pair', '--browser'], { cwd: installDir, env: browserEnv, stdio: ['ignore', 'pipe', 'pipe'] });
+    let browserPairOutput = '';
+    browserPair.stdout.on('data', (chunk) => { browserPairOutput += chunk; });
+    browserPair.stderr.on('data', (chunk) => { browserPairOutput += chunk; });
+    await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error(`browser pairing did not print a short link\n${browserPairOutput}`)), 10_000);
+        const poll = setInterval(() => {
+            if (!/https:\/\/browser\.example\.test\/pair\?pair=[^\s&]+&role=control/.test(browserPairOutput)) return;
+            clearTimeout(timer); clearInterval(poll); resolve();
+        }, 50);
+    });
+    assert.doesNotMatch(browserPairOutput, /muxr:\/\/pair|[?&#]payload=/, 'browser pairing printed the giant payload');
+    browserPair.kill('SIGTERM');
+    await new Promise((resolve) => browserPair.once('exit', resolve));
+    stopRelayFor(join(browserHome, '.muxr', 'relay'));
+
     const relayHome = join(scratch, 'relay-home');
     mkdirSync(relayHome, { recursive: true });
     const relayEnv = cliEnv(relayHome);
@@ -607,7 +628,7 @@ try {
     const macHome = join(scratch, 'mac-home');
     const launchctlLog = join(scratch, 'launchctl.log');
     const launchctlState = join(scratch, 'launchctl.state');
-    writeFileSync(join(binDir, 'launchctl'), `#!/bin/sh\necho "$*" >> "${launchctlLog}"\ncase "$1" in\n  print) [ -f "${launchctlState}" ] && cat "${launchctlState}" || exit 1 ;;\n  bootstrap) echo 'state = waiting' > "${launchctlState}" ;;\n  kickstart) echo 'state = running' > "${launchctlState}" ;;\n  bootout) rm -f "${launchctlState}" ;;\nesac\n`, { mode: 0o755 });
+    writeFileSync(join(binDir, 'launchctl'), `#!/bin/sh\necho "$*" >> "${launchctlLog}"\ncase "$1" in\n  print) [ -f "${launchctlState}" ] && /bin/cat "${launchctlState}" || exit 1 ;;\n  bootstrap) echo 'state = waiting' > "${launchctlState}" ;;\n  kickstart) echo 'state = running' > "${launchctlState}" ;;\n  bootout) /bin/rm -f "${launchctlState}" ;;\nesac\n`, { mode: 0o755 });
     mkdirSync(macHome, { recursive: true });
     const macEnv = cliEnv(macHome, { MUXR_PLATFORM: 'darwin', MUXR_NO_SERVICE_COMMANDS: '' });
     run(cli, ['daemon', 'install'], { cwd: installDir, env: macEnv });
@@ -622,7 +643,33 @@ try {
     run(cli, ['integrations', 'uninstall'], { cwd: installDir, env });
     assert.match(readFileSync(instructionPath, 'utf8'), /Keep this line\./);
     assert.ok(!readFileSync(instructionPath, 'utf8').includes('muxr:herdr-skill'));
-    assert.ok(existsSync(join(home, '.muxr', 'xai.key')), 'integration uninstall removed user data');
+    assert.ok(existsSync(join(home, '.muxr', 'xai.key')), 'narrow integration uninstall removed provider data');
+
+    mkdirSync(join(home, '.muxr', 'dist'), { recursive: true });
+    mkdirSync(join(home, '.muxr', 'keys'), { recursive: true });
+    mkdirSync(join(home, '.muxr', 'host', 'attachments'), { recursive: true });
+    writeFileSync(join(home, '.muxr', 'dist', 'user-export.apk'), 'keep-export\n');
+    writeFileSync(join(home, '.muxr', 'keys', 'signing-key'), 'keep-signing-key\n', { mode: 0o600 });
+    writeFileSync(join(home, '.muxr', 'host', 'attachments', 'received.png'), 'keep-attachment\n');
+    writeFileSync(join(home, '.muxr', 'host', 'runtime.json'), 'remove-runtime\n');
+    run(cli, ['uninstall', '--yes'], { cwd: installDir, env });
+    assert.ok(!existsSync(join(home, '.muxr', 'xai.key')), 'full uninstall retained a muxr provider key');
+    assert.ok(existsSync(join(home, '.muxr', 'dist', 'user-export.apk')), 'full uninstall removed a user export');
+    assert.ok(existsSync(join(home, '.muxr', 'keys', 'signing-key')), 'full uninstall removed a signing key');
+    assert.ok(existsSync(join(home, '.muxr', 'host', 'attachments', 'received.png')), 'full uninstall removed a received attachment');
+    assert.ok(!existsSync(join(home, '.muxr', 'host', 'runtime.json')), 'full uninstall retained host runtime state');
+    assert.ok(existsSync(join(binDir, 'herdr')), 'full uninstall removed Herdr');
+    assert.match(readFileSync(instructionPath, 'utf8'), /Keep this line\./);
+
+    const stoppedHerdr = join(binDir, 'herdr-stopped');
+    writeFileSync(stoppedHerdr, '#!/bin/sh\necho \'{"id":"cli:plugin","error":{"code":"server_not_running"}}\' >&2\nexit 1\n', { mode: 0o755 });
+    mkdirSync(join(home, '.muxr'), { recursive: true });
+    writeFileSync(join(home, '.muxr', 'setup-manifest.json'), `${JSON.stringify({ version: 1, entries: {}, herdrInstalled: ['pi'] })}\n`, { mode: 0o600 });
+    const partial = run(cli, ['uninstall', '--yes'], { cwd: installDir, env: { ...env, HERDR_BIN: stoppedHerdr }, allowFailure: true });
+    assert.equal(partial.status, 1, 'Herdr-down uninstall falsely reported complete success');
+    assert.doesNotMatch(`${partial.stdout}${partial.stderr}`, /server_not_running|"error"\s*:/, 'Herdr-down uninstall leaked a raw server response');
+    assert.match(`${partial.stdout}${partial.stderr}`, /cleanup is incomplete/);
+
     run('npm', ['uninstall', 'muxr', '--ignore-scripts', '--no-audit', '--no-fund'], {
         cwd: installDir,
         env: { ...process.env, npm_config_cache: join(scratch, 'npm-cache') },

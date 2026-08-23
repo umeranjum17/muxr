@@ -17,6 +17,7 @@ export interface HostedMachineKeys {
     dataKey: string;
     ingressKeys: Readonly<Record<string, string>>;
     deviceKinds?: Readonly<Record<string, 'native' | 'browser'>>;
+    deviceAuthorities?: Readonly<Record<string, 'control' | 'observe'>>;
     deviceExpiresAt?: Readonly<Record<string, number>>;
     replaySnapshots?: Record<string, V2ReplaySnapshot>;
     onReplayChange?: (snapshots: Record<string, V2ReplaySnapshot>) => void;

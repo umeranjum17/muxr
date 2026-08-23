@@ -4,11 +4,13 @@ import * as React from 'react';
 import * as SplashScreen from 'expo-splash-screen';
 import * as Fonts from 'expo-font';
 import * as Notifications from 'expo-notifications';
+import * as Updates from 'expo-updates';
 import { FontAwesome } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { AuthCredentials, TokenStorage } from '@/auth/tokenStorage';
 import { AuthProvider } from '@/auth/AuthContext';
 import { restoreHostedConnection } from '@/state/hostedE2ee';
+import { resetWebSecureStore } from '@/state/webSecureStore';
 import { RelayDiscoveryReconnect } from '@/discovery/useRelayDiscovery';
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
@@ -18,7 +20,7 @@ import { PluginSlot } from '@/plugins/PluginSlot';
 import { usePluginEvents } from '@/plugins/usePluginEvents';
 import { SidebarNavigator } from '@/components/SidebarNavigator';
 import sodium from '@/encryption/libsodium.lib';
-import { View, Platform, AppState } from 'react-native';
+import { View, Platform, AppState, Pressable, Text } from 'react-native';
 import { ModalProvider } from '@/modal';
 import { syncRestore } from '@/sync/sync';
 import { FaviconPermissionIndicator } from '@/components/web/FaviconPermissionIndicator';
@@ -236,7 +238,7 @@ export default function RootLayout() {
     //
     // Init sequence
     //
-    const [initState, setInitState] = React.useState<{ credentials: AuthCredentials | null } | null>(null);
+    const [initState, setInitState] = React.useState<{ credentials: AuthCredentials | null; error?: string } | null>(null);
     React.useEffect(() => {
         (async () => {
             let credentials: AuthCredentials | null = null;
@@ -252,12 +254,20 @@ export default function RootLayout() {
                     await LoadSkiaWeb({ locateFile: (file: string) => `/${file}` });
                 }
 
-                credentials = await TokenStorage.getCredentials();
-                const restoredGrant = await restoreHostedConnection();
-                if (restoredGrant !== undefined && (credentials?.token !== restoredGrant.credential
-                    || credentials?.secret !== restoredGrant.deviceKey.secretKey)) {
-                    credentials = { token: restoredGrant.credential, secret: restoredGrant.deviceKey.secretKey };
-                    await TokenStorage.setCredentials(credentials);
+                try {
+                    credentials = await TokenStorage.getCredentials();
+                    const restoredGrant = await restoreHostedConnection();
+                    if (restoredGrant !== undefined && (credentials?.token !== restoredGrant.credential
+                        || credentials?.secret !== restoredGrant.deviceKey.secretKey)) {
+                        credentials = { token: restoredGrant.credential, secret: restoredGrant.deviceKey.secretKey };
+                        await TokenStorage.setCredentials(credentials);
+                    }
+                } catch (error) {
+                    setInitState({
+                        credentials,
+                        error: error instanceof Error ? error.message : String(error),
+                    });
+                    return;
                 }
                 const devCredentials = getDevWebQueryCredentials() ?? getDevEnvironmentCredentials();
 
@@ -289,6 +299,8 @@ export default function RootLayout() {
 
                 setInitState({ credentials });
             } catch (error) {
+                // Font/Skia/sync bootstrap failures are not evidence that the
+                // encrypted pairing store is corrupt and must never offer reset.
                 console.error('Error initializing:', error);
                 setInitState({ credentials });
             }
@@ -397,6 +409,35 @@ export default function RootLayout() {
 
     if (!initState) {
         return null;
+    }
+    if (initState.error !== undefined) {
+        return (
+            <SafeAreaProvider initialMetrics={initialWindowMetrics}>
+                <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 16, padding: 24, backgroundColor: theme.colors.groupped.background }}>
+                    <Text accessibilityRole="header" style={{ color: theme.colors.text, fontSize: 22, fontWeight: '700' }}>muxr could not start safely</Text>
+                    <Text accessibilityRole="alert" style={{ color: theme.colors.textSecondary, textAlign: 'center', maxWidth: 480 }}>
+                        {Platform.OS === 'web'
+                            ? 'muxr could not restore this browser safely. Nothing was silently reset. Retry first; reset local pairing storage only if recovery keeps failing.'
+                            : 'muxr could not restore this device safely. Nothing was silently reset. Retry before pairing again.'}
+                    </Text>
+                    <Text style={{ color: theme.colors.textSecondary, textAlign: 'center', maxWidth: 480 }}>{initState.error}</Text>
+                    <Pressable accessibilityRole="button" onPress={() => {
+                        if (Platform.OS === 'web') window.location.reload();
+                        else void Updates.reloadAsync();
+                    }} style={{ paddingHorizontal: 20, paddingVertical: 12, borderRadius: 10, backgroundColor: theme.colors.button.primary.background }}>
+                        <Text style={{ color: theme.colors.button.primary.tint, fontWeight: '700' }}>Retry restore</Text>
+                    </Pressable>
+                    {Platform.OS === 'web' && <>
+                        <Pressable accessibilityRole="button" onPress={() => {
+                            if (!window.confirm('Reset this browser? Its local muxr pairings will be permanently removed.')) return;
+                            void resetWebSecureStore().then(() => window.location.reload());
+                        }} style={{ paddingHorizontal: 20, paddingVertical: 12 }}>
+                            <Text style={{ color: theme.colors.deleteAction }}>Reset this browser</Text>
+                        </Pressable>
+                    </>}
+                </View>
+            </SafeAreaProvider>
+        );
     }
 
     //

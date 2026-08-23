@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 import { createRequire } from 'node:module';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { realpathSync, readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { join, relative } from 'node:path';
 import { homedir } from 'node:os';
-import { browserHostingReady, daemonIsRunning, hasPendingRemoteConnect, runDaemon, runDevices, runDoctor, runIntegrations, runMachines, runPair, runRemoteConnect, runSelfHost } from './local-setup.mjs';
+import { browserHostingCanEnable, browserHostingReady, daemonIsRunning, enableBrowserHosting, hasPendingRemoteConnect, runDaemon, runDevices, runDoctor, runFullUninstall, runIntegrations, runMachines, runPair, runRemoteConnect, runSelfHost } from './local-setup.mjs';
 import { runMachineManagement, runRemoteRelaySetup, runSetup, runSharedRelaySetup } from './setup-wizard.mjs';
 import { runPlugin } from './plugin.mjs';
 import { runPackage } from './package.mjs';
@@ -17,7 +18,7 @@ Run muxr with no arguments for the interactive menu.
 Get started
   muxr setup                     install, connect, and pair this machine
   muxr doctor                    check the complete local setup
-  muxr pair [--browser]          pair another phone or read-only browser
+  muxr pair [--browser|--browser-view] pair a phone or control/view-only browser
   muxr connect --enrollment ...  connect this agent machine to a shared relay
   muxr shared-relay              host an always-on relay for other machines
 
@@ -25,7 +26,7 @@ Run and maintain
   muxr status                    check this setup (same as muxr doctor)
   muxr restart                   restart the supervised relay and host
   muxr update [--check|--yes]    check for or install the latest npm release
-  muxr uninstall                 remove muxr services and managed files
+  muxr uninstall [--yes]         fully remove muxr; keep Herdr and repositories
   muxr self-host [options]       run the relay, host, and pairing flow
   muxr daemon <command>          install, start, stop, restart, or inspect muxr services
   muxr devices list|revoke       list or revoke paired devices
@@ -41,7 +42,7 @@ Use “muxr help <command>” for command options.
 const COMMAND_HELP = {
     setup: `muxr setup [--inspect] [--dry-run] [--no-agent-config]\n           [--no-install-herdr] [--port <n>]\n\nInteractive setup installs Herdr when missing, lets you choose networking, integrations, plugins, and services, shows a final plan, then applies it and displays a short-lived pairing QR.\n`,
     'self-host': `muxr self-host [--advertise <ws-url>] [--tunnel] [--tailscale-direct]\n               [--port <n>] [--relay-only|--host-only] [--web] [--yes]\n`,
-    daemon: `muxr daemon install|uninstall|start|stop|restart|status|logs\n`,
+    daemon: `muxr daemon install|uninstall|start|stop|restart|status|logs\n\n\`install\` writes or updates the background-service definition without starting it. Normal \`muxr setup\` installs, starts, and verifies the service for you.\n`,
     devices: `muxr devices list\nmuxr devices revoke <number|name>\n`,
     integrations: `muxr integrations sync [--all] [--dry-run]\nmuxr integrations uninstall [--dry-run]\n`,
     plugin: `muxr plugin docs\nmuxr plugin create <name>\nmuxr plugin clone <bundled-plugin-id> [destination]\nmuxr plugin check|dev <path> [--web]\nmuxr plugin call <path> <contribution-id> [--input '<json>'] [--context '<json>']\nmuxr plugin list\nmuxr plugin install|update <local-path|owner/repo[/subdir][@ref]|npm:<name>@<exact-version>> [--yes]\nmuxr plugin remove <plugin-id> [--yes]\n`,
@@ -55,13 +56,13 @@ const COMMAND_HELP = {
     'plugin install': `muxr plugin install <local-path|owner/repo[/subdir][@ref]|npm:<name>@<exact-version>> [--yes]\n\nMaterialize, validate, confirm, and enable a plugin.\n`,
     'plugin update': `muxr plugin update <local-path|owner/repo[/subdir][@ref]|npm:<name>@<exact-version>> [--yes]\n\nReplace plugin files transactionally while preserving its enabled state.\n`,
     'plugin remove': `muxr plugin remove <plugin-id> [--yes]\n\nDisable, unlink, and remove muxr-managed plugin files.\n`,
-    pair: `muxr pair [--browser]\n\nCreate a two-minute QR and short pairing string for a native device, or an 8-hour read-only browser grant.\n`,
+    pair: `muxr pair [--browser|--browser-view]\n\nCreate a two-minute native QR/string, an eight-hour control-browser link (--browser), or an eight-hour view-only browser link (--browser-view).\n`,
     doctor: `muxr doctor\n\nCheck Node, Herdr, integrations, managed files, and the self-host relay without printing secrets.\n`,
     status: `muxr status\n\nAlias for muxr doctor.\n`,
     restart: `muxr restart\n\nRestart the supervised relay and host (same as muxr daemon restart).\n`,
-    uninstall: `muxr uninstall\n\nRemove muxr services and managed integration files after a confirmation. Herdr, your sessions, and your data stay.\n`,
+    uninstall: `muxr uninstall [--yes|--resume]\n\nRemove all muxr-owned services, ingress, identity, pairings, grants, relay/plugin state, provider keys, logs, caches, and managed integrations. Herdr, its sessions, repositories, worktrees, exports, signing keys, and unrecognized files stay. The globally installed CLI can be removed last.\n`,
     update: `muxr update [--check|--yes]\n\nCheck npm for a newer @trymuxr/cli release. Interactive terminals ask before installing; --yes updates without prompting.\n`,
-    connect: `muxr connect --enrollment <muxr://enroll?...> [--no-pair|--pair-browser|--pair-both]\nmuxr connect --resume\n`,
+    connect: `muxr connect --enrollment <muxr://enroll?...> [--no-pair|--pair-browser|--pair-browser-view|--pair-both]\nmuxr connect --resume\n`,
     machines: `muxr machines enroll\nmuxr machines list\nmuxr machines revoke <number|name>\n`,
     'shared-relay': `muxr shared-relay\n\nInteractively configure a supervised VPS relay, optional browser client, and machine enrollments.\n`,
 };
@@ -131,19 +132,46 @@ const thisIsSharedRelay = () => {
     return state?.relayRole === 'shared' && typeof state.mintSecret === 'string';
 };
 
-async function runUninstall() {
-    const confirmed = await select(
-        'Uninstall muxr from this machine? This removes muxr services and managed integration files. Herdr, your sessions, and your data stay.',
-        [
-            { value: 'cancel', title: 'Cancel', description: 'keep everything as it is' },
-            { value: 'yes', title: 'Uninstall', description: 'remove services and managed files' },
-        ],
-    );
-    if (confirmed !== 'yes') return 0;
-    let code = await runDaemon(['uninstall']);
-    if (code === 0) code = await runIntegrations(['uninstall']);
-    if (code === 0) process.stdout.write('\nmuxr services are removed. Finish with: npm uninstall -g @trymuxr/cli\n');
-    return code;
+function globalCliPrefix() {
+    const npm = process.env.MUXR_NPM_BIN?.trim() || 'npm';
+    const result = spawnSync(npm, ['prefix', '--global'], { encoding: 'utf8' });
+    if (result.status !== 0) return undefined;
+    const prefix = result.stdout.trim();
+    const cli = realpathSync(process.argv[1]);
+    const packageRoot = join(prefix, 'lib', 'node_modules', '@trymuxr', 'cli');
+    return relative(packageRoot, cli).startsWith('..') ? undefined : { npm, prefix };
+}
+
+async function runUninstall(args = []) {
+    const assumeYes = args.includes('--yes') || args.includes('--resume');
+    if (!assumeYes) {
+        const confirmed = await select(
+            'Fully uninstall muxr from this computer? Machine identity, pairings, grants, provider keys, runtime state, services, ingress, and muxr-managed plugins will be permanently removed. Herdr, its sessions, repositories, worktrees, received attachments, exports, signing keys, and unrecognized files stay.',
+            [
+                { value: 'cancel', title: 'Cancel', description: 'leave this computer unchanged' },
+                { value: 'yes', title: 'Fully uninstall muxr', description: 'remove every muxr-owned operational component' },
+            ],
+        );
+        if (confirmed !== 'yes') return 0;
+    }
+
+    const code = await runFullUninstall(args);
+    if (code !== 0) return code;
+    const global = globalCliPrefix();
+    if (global === undefined) return 0;
+    const removePackage = assumeYes || await select('Remove the muxr CLI package too?', [
+        { value: true, title: 'Remove @trymuxr/cli', description: 'finish the full uninstall' },
+        { value: false, title: 'Keep the command installed', description: 'the next muxr run starts fresh setup' },
+    ]);
+    if (removePackage !== true) return 0;
+    process.stdout.write('\nRemoving @trymuxr/cli…\n');
+    const removed = spawnSync(global.npm, ['uninstall', '--global', '--ignore-scripts', '@trymuxr/cli'], { stdio: 'inherit' });
+    if (removed.status !== 0) {
+        process.stderr.write('Runtime state was removed, but npm could not remove @trymuxr/cli. Run `npm uninstall -g @trymuxr/cli`.\n');
+        return 1;
+    }
+    process.stdout.write('@trymuxr/cli was removed. Reinstall later with `npm install -g --ignore-scripts @trymuxr/cli`.\n');
+    return 0;
 }
 
 async function dispatch(command, args = []) {
@@ -178,7 +206,7 @@ async function dispatch(command, args = []) {
     if (command === 'update') return runUpdate(args);
     if (command === 'daemon') return runDaemon(args);
     if (command === 'restart') return runDaemon(['restart']);
-    if (command === 'uninstall') return runUninstall();
+    if (command === 'uninstall') return runUninstall(args);
     if (command === 'integrations') return runIntegrations(args);
     if (command === 'plugin') {
         const [pluginCommand = 'list', ...pluginArgs] = args;
@@ -202,22 +230,26 @@ async function dispatch(command, args = []) {
 }
 
 // Ctrl-c returns "quit" to the main loop; back/esc returns one menu level.
-async function repairMenu() {
+async function advancedMenu() {
     for (;;) {
-        const needsSetup = readMenuState() === undefined;
-        const choice = await select(needsSetup ? 'Set up this machine' : 'Repair this machine', [
-            ...(hasPendingRemoteConnect() ? [{ value: 'resume', title: 'Resume remote connection', description: 'finish an enrollment saved before an interrupted setup' }] : []),
-            { value: 'setup', title: needsSetup ? 'Set up this machine' : 'Change setup', description: needsSetup ? 'install Herdr if needed, choose a connection, and pair your phone' : 'change networking, integrations, plugins, or pairing' },
-            { value: 'doctor', title: 'Check for problems', description: 'run safe diagnostics without printing secrets' },
-            { value: 'restart', title: 'Restart services', description: 'restart the supervised relay and host' },
-            { value: 'update', title: 'Update muxr', description: 'check npm and install the latest release' },
-            { value: 'uninstall', title: 'Uninstall muxr', description: 'remove muxr services and managed files; keep Herdr and your data' },
+        const choice = await select('Advanced', [
+            { value: 'restart', title: 'Restart muxr services', description: 'briefly disconnect devices; keep pairings, keys, settings, and integrations' },
+            { value: 'relay', title: 'Shared relay and other computers', description: 'advanced multi-computer hosting, enrollment, and revocation' },
+            { value: 'help', title: 'Show commands', description: 'print the non-interactive command reference' },
+            { value: 'uninstall', title: 'Fully uninstall muxr', description: 'remove muxr runtime, identity, keys, and managed files; keep Herdr and user files' },
             { value: 'back', title: 'Back', description: 'return to the main menu' },
         ]);
         if (choice === undefined) return 'quit';
         if (choice === BACK || choice === 'back') return;
-        const code = choice === 'resume' ? await dispatch('connect', ['--resume']) : await dispatch(choice, []);
+        if (choice === 'help') { printHelp(); continue; }
+        if (choice === 'relay') {
+            const result = await relayMenu();
+            if (result === 'quit') return 'quit';
+            continue;
+        }
+        const code = await dispatch(choice, []);
         if (code !== 0) process.exitCode = code;
+        if (choice === 'uninstall' && code === 0) return 'quit';
     }
 }
 
@@ -225,7 +257,8 @@ async function devicesMenu() {
     for (;;) {
         const choice = await select('Phones and browsers', [
             { value: 'pair', title: 'Pair a phone', description: 'show a two-minute QR and short pairing string' },
-            { value: 'pair-browser', title: 'Pair a browser', description: 'create an eight-hour read-only browser grant' },
+            { value: 'pair-browser', title: 'Pair a control browser', description: 'full terminal and agent control for eight hours' },
+            { value: 'pair-browser-view', title: 'Pair a view-only browser', description: 'observe agents without control for eight hours' },
             { value: 'list', title: 'List paired devices', description: 'names and pairing dates' },
             { value: 'revoke', title: 'Revoke a device', description: 'disconnect a phone or browser' },
             { value: 'back', title: 'Back', description: 'return to the main menu' },
@@ -234,19 +267,27 @@ async function devicesMenu() {
         if (choice === BACK || choice === 'back') return;
         let code = 0;
         if (choice === 'pair') code = await runPair([]);
-        else if (choice === 'pair-browser') {
+        else if (choice === 'pair-browser' || choice === 'pair-browser-view') {
             if (!browserHostingReady()) {
+                const targeted = browserHostingCanEnable();
                 const enable = await select(
-                    'Browser hosting is off. It needs a secure HTTPS endpoint (Tailscale Serve, Cloudflare, or your own WSS) and is turned on during setup.',
-                    [
-                        { value: 'setup', title: 'Open setup', description: 'enable browser hosting with a reviewed plan' },
-                        { value: 'back', title: 'Back', description: 'return without changing anything' },
+                    targeted
+                        ? 'Enable browser access on the current secure connection? muxr keeps the relay URL, port, phone pairings, integrations, and plugins; it enables the web client and restarts once.'
+                        : 'Browser access needs a secure HTTPS connection. Change setup to Tailscale Serve or your own WSS endpoint, then pair the browser.',
+                    targeted ? [
+                        { value: 'enable', title: 'Enable and pair browser', description: 'keep current settings; enable web, restart once, verify, then create the link' },
+                        { value: 'back', title: 'Back', description: 'leave this computer unchanged' },
+                    ] : [
+                        { value: 'setup', title: 'Change connection', description: 'review a secure connection before enabling browser access' },
+                        { value: 'back', title: 'Back', description: 'leave this computer unchanged' },
                     ],
-                    1,
                 );
                 if (enable === undefined) return 'quit';
-                if (enable === 'setup') code = await dispatch('setup', []);
-            } else code = await runPair(['--browser']);
+                if (enable === 'enable') {
+                    code = await enableBrowserHosting();
+                    if (code === 0) code = await runPair([choice === 'pair-browser-view' ? '--browser-view' : '--browser']);
+                } else if (enable === 'setup') code = await dispatch('setup', []);
+            } else code = await runPair([choice === 'pair-browser-view' ? '--browser-view' : '--browser']);
         } else if (choice === 'list') code = await runDevices('list');
         else if (choice === 'revoke') {
             code = await runDevices('list');
@@ -298,22 +339,36 @@ const input = process.argv.slice(2);
 if (input[0] === undefined && process.stdin.isTTY && process.stdout.isTTY) {
     for (;;) {
         const state = await printState();
-        const selected = await select('What would you like to do?', [
-            { value: 'repair', title: hasPendingRemoteConnect() ? 'Resume interrupted setup' : state === undefined ? 'Set up this machine' : 'Repair or change setup', description: state === undefined ? 'install prerequisites, connect this computer, and pair your phone' : 'networking, services, diagnostics, and updates' },
-            ...(state !== undefined ? [{ value: 'devices', title: 'Phones and browsers', description: 'pair a new one, or see and revoke what is paired' }] : []),
-            ...(state !== undefined ? [{ value: 'relay', title: 'Shared relay and other computers', description: 'advanced multi-computer setup' }] : []),
+        const sharedRelay = state?.relayRole === 'shared';
+        const serviceStopped = state !== undefined && !daemonIsRunning();
+        const selected = await select('What would you like to do?', state === undefined ? [
+            ...(hasPendingRemoteConnect() ? [{ value: 'resume', title: 'Resume interrupted setup', description: 'finish the saved remote-relay enrollment' }] : []),
+            { value: 'setup', title: 'Set up this computer', description: 'install prerequisites, choose a connection, and pair your phone' },
+            { value: 'relay', title: 'Advanced setup', description: 'host a shared relay or connect this computer to one running elsewhere' },
             { value: 'help', title: 'Show commands', description: 'print the non-interactive command reference' },
+            { value: 'quit', title: 'Quit' },
+        ] : [
+            ...(serviceStopped ? [{ value: 'start', title: 'Start muxr services', description: sharedRelay ? 'start the shared relay and keep it running after login' : 'start the relay and agent host, then keep them running after login' }] : []),
+            ...(!sharedRelay ? [{ value: 'devices', title: 'Pair or manage devices', description: 'pair a phone or browser, list devices, or revoke access' }] : []),
+            ...(sharedRelay ? [{ value: 'machines', title: 'Manage agent computers', description: 'create enrollment, list computers, or revoke one' }] : []),
+            { value: 'doctor', title: 'Check setup', description: 'run read-only diagnostics; nothing is changed' },
+            { value: 'change', title: sharedRelay ? 'Change shared relay' : 'Change connection and integrations', description: sharedRelay ? 'review public connection, browser hosting, and relay service changes' : 'review networking, browser hosting, coding-agent hooks, and plugins' },
+            { value: 'update', title: 'Update muxr', description: 'check npm first; install only after confirmation' },
+            { value: 'advanced', title: 'Advanced', description: 'restart, shared relays, command reference, and full uninstall' },
             { value: 'quit', title: 'Quit' },
         ]);
         if (selected === undefined || selected === BACK || selected === 'quit') break;
-        if (selected === 'help') {
-            printHelp();
-            continue;
-        }
-        const result = selected === 'repair'
-            ? state === undefined && !hasPendingRemoteConnect() ? await dispatch('setup', []) : await repairMenu()
-            : selected === 'devices' ? await devicesMenu()
-                : await relayMenu();
+        let result;
+        if (selected === 'resume') result = await dispatch('connect', ['--resume']);
+        else if (selected === 'setup') result = await dispatch('setup', []);
+        else if (selected === 'start') result = await runDaemon(['start']);
+        else if (selected === 'devices') result = await devicesMenu();
+        else if (selected === 'relay') result = await relayMenu();
+        else if (selected === 'machines') result = await runMachineManagement();
+        else if (selected === 'doctor' || selected === 'update') result = await dispatch(selected, []);
+        else if (selected === 'change') result = sharedRelay ? await runSharedRelaySetup() : await dispatch('setup', []);
+        else if (selected === 'advanced') result = await advancedMenu();
+        else { printHelp(); continue; }
         if (result === 'quit') break;
         if (typeof result === 'number' && result !== 0) process.exitCode = result;
     }

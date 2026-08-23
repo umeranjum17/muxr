@@ -16,6 +16,7 @@ export interface SelfhostPairSession {
     claimHash: string;
     machineSlug: string;
     deviceKind: 'native' | 'browser';
+    authority?: 'control' | 'observe';
     createdAt: number;
     expiresAt: number;
     usedAt?: number;
@@ -24,6 +25,8 @@ export interface SelfhostPairSession {
     deviceName?: string;
     mailbox?: string;
     grant?: string;
+    grantFetchedAt?: number;
+    acknowledgedAt?: number;
     codeHash?: string;
     codePayload?: string;
     codeExpiresAt?: number;
@@ -37,6 +40,7 @@ export interface SelfhostDevice {
     machineSlug: string;
     createdAt: number;
     expiresAt?: number;
+    authority?: 'control' | 'observe';
     currentGrant?: string;
     keyVersion?: number;
     revokedAt?: number;
@@ -111,7 +115,7 @@ export class SelfhostPairing {
     }
 
     /** CLI side (owner/machine authed at the route): open a two-minute pairing window. */
-    createSession(input: { claim: string; machineSlug: string; deviceKind: 'native' | 'browser' }, now = Date.now()): Promise<{ pairId: string; expiresIn: number }> {
+    createSession(input: { claim: string; machineSlug: string; deviceKind: 'native' | 'browser'; authority?: 'control' | 'observe' }, now = Date.now()): Promise<{ pairId: string; expiresIn: number }> {
         return this.serialized(async () => {
             await this.load();
             this.state.sessions = this.state.sessions
@@ -123,6 +127,7 @@ export class SelfhostPairing {
                 claimHash: hash(input.claim),
                 machineSlug: input.machineSlug,
                 deviceKind: input.deviceKind,
+                authority: input.deviceKind === 'browser' ? input.authority ?? 'control' : 'control',
                 createdAt: now,
                 expiresAt: now + PAIR_TTL_MS,
             });
@@ -205,6 +210,7 @@ export class SelfhostPairing {
                 machineSlug: session.machineSlug,
                 createdAt: now,
                 ...(input.expiresAt === undefined ? {} : { expiresAt: input.expiresAt }),
+                authority: session.authority ?? (session.deviceKind === 'browser' ? 'observe' : 'control'),
             });
             await this.persist();
             return { state: 'issued', deviceId, credential };
@@ -212,7 +218,7 @@ export class SelfhostPairing {
     }
 
     /** CLI polls for the phone's mailbox. */
-    poll(pairId: string, machineSlug: string | undefined, now = Date.now()): Promise<{ state: 'pending' | 'expired' | 'claimed'; mailbox?: string; deviceId?: string; devicePublicKey?: string; grantPresent?: boolean }> {
+    poll(pairId: string, machineSlug: string | undefined, now = Date.now()): Promise<{ state: 'pending' | 'expired' | 'claimed'; mailbox?: string; deviceId?: string; devicePublicKey?: string; authority?: 'control' | 'observe'; grantPresent?: boolean; acknowledged?: boolean }> {
         return this.serialized(async () => {
             await this.load();
             const session = this.state.sessions.find((s) => s.pairId === pairId);
@@ -223,11 +229,13 @@ export class SelfhostPairing {
                 return { state: 'expired' };
             }
             if (session.usedAt === undefined) return { state: 'pending' };
-            const result: { state: 'claimed'; mailbox?: string; deviceId?: string; devicePublicKey?: string; grantPresent?: boolean } = { state: 'claimed' };
+            const result: { state: 'claimed'; mailbox?: string; deviceId?: string; devicePublicKey?: string; authority?: 'control' | 'observe'; grantPresent?: boolean; acknowledged?: boolean } = { state: 'claimed' };
             if (session.mailbox !== undefined) result.mailbox = session.mailbox;
             if (session.deviceId !== undefined) result.deviceId = session.deviceId;
             if (session.devicePublicKey !== undefined) result.devicePublicKey = session.devicePublicKey;
+            result.authority = session.authority ?? (session.deviceKind === 'browser' ? 'observe' : 'control');
             result.grantPresent = session.grant !== undefined;
+            result.acknowledged = session.acknowledgedAt !== undefined;
             return result;
         });
     }
@@ -247,16 +255,28 @@ export class SelfhostPairing {
         });
     }
 
-    /** Phone fetches the grant with its device credential. */
-    fetchGrant(pairId: string, deviceId: string): Promise<string | undefined> {
+    /** Browser grants remain recoverable until durable acknowledgement; native clients complete on fetch. */
+    fetchGrant(pairId: string, deviceId: string, now = Date.now()): Promise<string | undefined> {
         return this.serialized(async () => {
             await this.load();
             const session = this.state.sessions.find((s) => s.pairId === pairId);
             if (session === undefined || session.deviceId !== deviceId || session.grant === undefined) return undefined;
             const grant = session.grant;
-            this.state.sessions = this.state.sessions.filter((entry) => entry !== session);
+            if (session.deviceKind === 'native') this.state.sessions = this.state.sessions.filter((entry) => entry !== session);
+            else session.grantFetchedAt = now;
             await this.persist();
             return grant;
+        });
+    }
+
+    acknowledgeGrant(pairId: string, deviceId: string, now = Date.now()): Promise<boolean> {
+        return this.serialized(async () => {
+            await this.load();
+            const session = this.state.sessions.find((entry) => entry.pairId === pairId && entry.deviceId === deviceId && entry.grantFetchedAt !== undefined);
+            if (session === undefined) return false;
+            session.acknowledgedAt = now;
+            await this.persist();
+            return true;
         });
     }
 

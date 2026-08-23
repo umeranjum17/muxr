@@ -13,7 +13,7 @@ muxr
 ```
 
 The interactive onboarding inspects the machine without changing it. You choose
-the connection method, local port or external URL, whether to host the read-only
+the connection method, local port or external URL, whether to host the control/view-only
 web client, agent integrations, optional plugins, and managed services. After a
 final **Apply setup** confirmation, muxr starts the selected relay and host, then:
 
@@ -28,9 +28,7 @@ return after login or reboot and `muxr update` restarts them as one managed unit
 Unchanged setup choices keep existing devices paired; changing the endpoint
 requires and displays a fresh pairing step.
 
-In the native app: **Scan QR code** or enter the short relay-qualified pairing string. For the
-read-only browser, setup prints a clickable HTTPS pairing link; the browser
-grant expires after eight hours and the UI then asks you to pair again.
+In the native app: **Scan QR code** or enter the short relay-qualified pairing string. Browser pairing prints one short two-minute HTTPS link. `muxr pair --browser` grants full terminal and agent control; `muxr pair --browser-view` grants explicit view-only access. Both browser grants expire after eight hours, survive refresh/restart, and are reported as paired only after durable browser storage acknowledges the grant.
 
 For automation use `muxr daemon status|logs|start|stop|restart`. Shared relay
 automation uses `muxr shared-relay`, `muxr machines enroll|list|revoke`, and
@@ -105,7 +103,7 @@ path.
 
 Run interactive `muxr` on the VPS and choose **Host or change a shared relay**.
 Choose Tailscale Serve, Cloudflare, or your external `wss://` reverse proxy,
-optionally host the read-only web client, review the plan, and Apply. The VPS
+optionally host the control/view-only web client, review the plan, and Apply. The VPS
 runs only the supervised relay; it does not need Herdr or an agent host.
 
 Choose **Manage shared relay machines → Create enrollment**. The resulting
@@ -116,7 +114,7 @@ On each agent machine, run interactive `muxr`, choose **Connect to a shared
 relay**, and paste that string. Machine keys are created locally. The relay
 derives the machine identity from its signing key and returns only a credential
 scoped to that machine. The local Herdr host connects outbound, then setup offers
-native and read-only browser pairing.
+native, control-browser, and view-only browser pairing.
 
 Use **Manage shared relay machines** on the VPS to list or revoke machines by
 friendly name or list number. Revocation immediately invalidates unused tickets,

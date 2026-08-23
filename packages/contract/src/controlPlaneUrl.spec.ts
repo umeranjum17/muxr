@@ -46,9 +46,11 @@ describe('relay-derived control-plane flow', () => {
             body: JSON.stringify({ machineSlug: 'machine-1', role: 'client', transport: 'relay' }),
         }));
 
-        for (const invalid of ['not a URL', 'http://10.0.2.2:18787/relay', 'ftp://relay.example/relay', 'ws://user:secret@relay.example/relay']) {
+        for (const invalid of ['not a URL', 'http://10.0.2.2:18787/relay', 'ftp://relay.example/relay']) {
             expect(() => relayControlUrl(invalid, '/v1/session')).toThrow();
         }
+        expect(() => relayControlUrl('wss://umers-macbook-air.tail@de54.ts.net/?pair=ZKPCA-JNU4T', '/v1/session'))
+            .toThrow('text before “@” is treated as login information');
         expect(() => relayControlUrl(relayUrl, 'v1/session')).toThrow('control path must start with /');
         await expect(issueWsTicket({
             relayUrl: 'http://10.0.2.2:18787/relay',

@@ -10,6 +10,7 @@
 import * as React from 'react';
 import {
     ActivityIndicator,
+    Platform,
     Pressable,
     ScrollView,
     View,
@@ -34,9 +35,12 @@ import {
 } from '@/state/connectionSettings';
 
 import { FALLBACK_AGENT_KINDS } from '@/sync/agentKinds';
+import { getCachedHostedGrant } from '@/state/hostedE2ee';
 
 const MAX_SQUAD = 4;
 const MAX_RECENT_CHIPS = 6;
+type AgentAvailability = 'installed' | 'unavailable' | 'unknown';
+type AgentOption = { kind: string; availability: AgentAvailability };
 const MAX_WORKSPACE_ROWS = 6;
 
 function basename(path: string): string {
@@ -113,6 +117,11 @@ const stylesheet = StyleSheet.create((theme) => ({
     agentName: {
         color: theme.colors.text,
         fontSize: 13,
+        fontWeight: '600',
+    },
+    agentAvailability: {
+        color: theme.colors.textSecondary,
+        fontSize: 10,
         fontWeight: '600',
     },
     squadHint: {
@@ -206,10 +215,13 @@ export default function NewAgentScreen() {
     const { theme } = useUnistyles();
     const insets = useSafeAreaInsets();
     const settings = getCachedConnectionSettings();
+    const canControl = Platform.OS !== 'web' || getCachedHostedGrant(settings.machineId)?.authority === 'control';
 
-    const [catalog, setCatalog] = React.useState<readonly string[]>(FALLBACK_AGENT_KINDS);
+    const [catalog, setCatalog] = React.useState<readonly AgentOption[]>(
+        FALLBACK_AGENT_KINDS.map((kind) => ({ kind, availability: 'unknown' })),
+    );
     const [catalogSource, setCatalogSource] = React.useState<'loading' | 'host' | 'fallback'>('loading');
-    const [selected, setSelected] = React.useState<ReadonlySet<string>>(new Set(['pi']));
+    const [selected, setSelected] = React.useState<ReadonlySet<string>>(new Set());
     const [cwd, setCwd] = React.useState(settings.lastSessionCwd ?? '');
     const [worktree, setWorktree] = React.useState(false);
     const [workspaces, setWorkspaces] = React.useState<HerdrTreeWorkspace[]>([]);
@@ -217,6 +229,7 @@ export default function NewAgentScreen() {
     const [error, setError] = React.useState<string | undefined>(undefined);
 
     React.useEffect(() => {
+        if (!canControl) return undefined;
         let live = true;
         void sync
             .request('herdr.tree', {})
@@ -230,21 +243,30 @@ export default function NewAgentScreen() {
                 if (!live) return;
                 const kinds = [...new Set((result.kinds ?? []).filter((kind) => /^[a-z][a-z0-9_-]{0,31}$/.test(kind)))].slice(0, 64);
                 if (kinds.length === 0) { setCatalogSource('fallback'); return; }
-                setCatalog(kinds);
+                if (!Array.isArray(result.installed)) {
+                    setCatalog(kinds.map((kind) => ({ kind, availability: 'unknown' })));
+                    setCatalogSource('fallback');
+                    return;
+                }
+                const installed = new Set(result.installed.filter((kind) => kinds.includes(kind)));
+                const options = kinds.map((kind): AgentOption => ({
+                    kind,
+                    availability: installed.has(kind) ? 'installed' : 'unavailable',
+                })).sort((left, right) => Number(right.availability === 'installed') - Number(left.availability === 'installed')
+                    || left.kind.localeCompare(right.kind));
+                setCatalog(options);
                 setCatalogSource('host');
-                setSelected((previous) => {
-                    const supported = new Set([...previous].filter((kind) => kinds.includes(kind)));
-                    if (supported.size === 0) supported.add(kinds[0]!);
-                    return supported;
-                });
+                setSelected((previous) => new Set([...previous].filter((kind) => installed.has(kind))));
             })
             .catch(() => { if (live) setCatalogSource('fallback'); });
         return () => {
             live = false;
         };
-    }, []);
+    }, [canControl]);
 
-    const toggleKind = React.useCallback((kind: string) => {
+    const toggleKind = React.useCallback((option: AgentOption) => {
+        if (option.availability === 'unavailable') return;
+        const kind = option.kind;
         setSelected((previous) => {
             const next = new Set(previous);
             if (next.has(kind)) {
@@ -263,6 +285,10 @@ export default function NewAgentScreen() {
     const directory = cwd.trim();
 
     const start = React.useCallback(async () => {
+        if (kinds.length === 0) {
+            setError('Select an installed agent first.');
+            return;
+        }
         if (directory === '') {
             setError('Pick a directory first.');
             return;
@@ -313,6 +339,22 @@ export default function NewAgentScreen() {
     const styles = stylesheet;
     const recent = (settings.recentSessionCwds ?? []).slice(0, MAX_RECENT_CHIPS);
 
+    if (!canControl) {
+        return (
+            <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+                <View style={styles.header}>
+                    <Text style={styles.headerTitle}>New agent</Text>
+                    <Pressable onPress={() => router.back()} hitSlop={12} accessibilityRole="button" accessibilityLabel="Close">
+                        <Ionicons name="close" size={24} color={theme.colors.text} />
+                    </Pressable>
+                </View>
+                <View style={styles.content}>
+                    <Text style={styles.emptyHint}>This browser has view-only access. Run “muxr pair --browser” on the computer to pair a control browser that can start agents, create worktrees, and type into terminals.</Text>
+                </View>
+            </View>
+        );
+    }
+
     return (
         <View style={[styles.container, { paddingTop: insets.top }]}>
             <View style={styles.header}>
@@ -341,13 +383,19 @@ export default function NewAgentScreen() {
                     </View>
                     <View style={styles.grid}>
                         {catalog.map((option) => {
-                            const isSelected = selected.has(option);
+                            const isSelected = selected.has(option.kind);
+                            const available = option.availability !== 'unavailable';
                             return (
                                 <Pressable
-                                    key={option}
+                                    key={option.kind}
                                     onPress={() => toggleKind(option)}
+                                    disabled={!available}
+                                    accessibilityRole="button"
+                                    accessibilityLabel={`${option.kind}, ${option.availability === 'installed' ? 'installed' : option.availability === 'unavailable' ? 'not installed' : catalogSource === 'loading' ? 'checking installation' : 'installation status unknown'}`}
+                                    accessibilityState={{ disabled: !available, selected: isSelected }}
                                     style={[
                                         styles.agentCard,
+                                        !available && { opacity: 0.45 },
                                         isSelected && {
                                             borderColor: theme.colors.accent,
                                             borderWidth: 1,
@@ -355,10 +403,15 @@ export default function NewAgentScreen() {
                                         },
                                     ]}
                                 >
-                                    <AgentGlyph name={option} size={40} selected={isSelected} dim={!isSelected} />
+                                    <AgentGlyph name={option.kind} size={40} selected={isSelected} dim={!available} />
                                     <Text numberOfLines={1} style={styles.agentName}>
-                                        {option}
+                                        {option.kind}
                                     </Text>
+                                    {(option.availability !== 'unknown' || catalogSource === 'loading') && (
+                                        <Text numberOfLines={1} style={styles.agentAvailability}>
+                                            {option.availability === 'installed' ? 'Installed' : option.availability === 'unavailable' ? 'Not installed' : 'Checking host'}
+                                        </Text>
+                                    )}
                                 </Pressable>
                             );
                         })}
@@ -450,14 +503,14 @@ export default function NewAgentScreen() {
 
                 <Pressable
                     onPress={start}
-                    disabled={busy || directory === ''}
-                    style={[styles.startButton, (busy || directory === '') && styles.startButtonDisabled]}
+                    disabled={busy || directory === '' || kinds.length === 0}
+                    style={[styles.startButton, (busy || directory === '' || kinds.length === 0) && styles.startButtonDisabled]}
                 >
                     {busy ? (
                         <ActivityIndicator color={theme.colors.button.primary.tint} />
                     ) : (
                         <Text style={styles.startButtonText}>
-                            {squad ? `Start squad (${kinds.length})` : `Start ${kinds[0]}`}
+                            {kinds.length === 0 ? 'Select an installed agent' : squad ? `Start squad (${kinds.length})` : `Start ${kinds[0]}`}
                         </Text>
                     )}
                 </Pressable>

@@ -64,11 +64,11 @@ interface MachineCrypto {
     boxSecretKey: string;
     dataKey: string;
     keyVersion: number;
-    devices: Array<{ deviceId: string; devicePublicKey: string; ingressKey: string; expiresAt: string; kind?: 'browser' }>;
+    devices: Array<{ deviceId: string; devicePublicKey: string; ingressKey: string; expiresAt: string; kind?: 'browser'; authority?: 'control' | 'observe' }>;
     pendingRotation?: {
         keyVersion: number;
         dataKey: string;
-        devices: Array<{ deviceId: string; devicePublicKey: string; ingressKey: string; expiresAt: string; kind?: 'browser' }>;
+        devices: Array<{ deviceId: string; devicePublicKey: string; ingressKey: string; expiresAt: string; kind?: 'browser'; authority?: 'control' | 'observe' }>;
         grants: Array<{ device_public_key: string; grant: string }>;
     };
 }
@@ -228,6 +228,7 @@ async function reconcileHostedKeys(auth: HostedAuthState): Promise<void> {
                 devicePublicKey: device.device_public_key,
                 ingressKey,
                 expiresAt: new Date(expiresAt).toISOString(),
+                authority: existing === undefined ? 'observe' : existing.authority ?? (existing.kind === 'browser' ? 'observe' : 'control'),
                 ...(existing?.kind === 'browser' ? { kind: 'browser' as const } : {}),
             },
             upload: {
@@ -242,6 +243,7 @@ async function reconcileHostedKeys(auth: HostedAuthState): Promise<void> {
                     ingressKey,
                     keyVersion: nextVersion,
                     expiresAt,
+                    authority: existing === undefined ? 'observe' : existing.authority ?? (existing.kind === 'browser' ? 'observe' : 'control'),
                 })),
             },
         };
@@ -304,6 +306,9 @@ async function main(): Promise<void> {
         deviceKinds: Object.fromEntries(
             machineCrypto.devices.map((device) => [device.deviceId, device.kind === 'browser' ? 'browser' as const : 'native' as const]),
         ),
+        deviceAuthorities: Object.fromEntries(
+            machineCrypto.devices.map((device) => [device.deviceId, device.authority ?? (device.kind === 'browser' ? 'observe' as const : 'control' as const)]),
+        ),
         deviceExpiresAt: Object.fromEntries(
             machineCrypto.devices.map((device) => [device.deviceId, Date.parse(device.expiresAt)]),
         ),
@@ -336,6 +341,9 @@ async function main(): Promise<void> {
                 );
                 keys.deviceKinds = Object.fromEntries(
                     crypto.devices.map((device) => [device.deviceId, device.kind === 'browser' ? 'browser' as const : 'native' as const]),
+                );
+                keys.deviceAuthorities = Object.fromEntries(
+                    crypto.devices.map((device) => [device.deviceId, device.authority ?? (device.kind === 'browser' ? 'observe' as const : 'control' as const)]),
                 );
                 keys.deviceExpiresAt = Object.fromEntries(
                     crypto.devices.map((device) => [device.deviceId, Date.parse(device.expiresAt)]),

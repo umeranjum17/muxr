@@ -19,6 +19,7 @@ import { useRouter } from 'expo-router';
 import { SessionShortcutHintBadge } from './ShortcutHints';
 import { buildActiveSessionDisplayGroups } from '@/utils/sessionDisplayOrder';
 import { ProviderIcon } from './ProviderIcon';
+import { currentDeviceAuthority } from '@/state/hostedE2ee';
 
 interface ActiveSessionsGroupProps {
     sessions: SessionRowData[];
@@ -84,13 +85,13 @@ const SectionHeader = React.memo(({ session, displayPath }: { session: SessionRo
             </View>
 
             {/* + button — vertically centered, large hit area; desktop: hover-only */}
-            <Pressable
+            {currentDeviceAuthority() === 'control' && <Pressable
                 onPress={handleAdd}
                 hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
                 style={[styles.addButton, { opacity: Platform.OS !== 'web' || isHovered ? 1 : 0 }]}
             >
                 <Ionicons name="add-outline" size={14} color={theme.colors.textSecondary} />
-            </Pressable>
+            </Pressable>}
         </View>
     );
 });

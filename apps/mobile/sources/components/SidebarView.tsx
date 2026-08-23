@@ -9,6 +9,7 @@ import { t } from '@/text';
 import { Ionicons } from '@expo/vector-icons';
 import { Typography } from '@/constants/Typography';
 import { ShortcutHintBadge, useShortcutHints } from './ShortcutHints';
+import { currentDeviceAuthority } from '@/state/hostedE2ee';
 
 const stylesheet = StyleSheet.create((theme) => ({
     container: {
@@ -84,7 +85,7 @@ export const SidebarView = React.memo(() => {
     return (
         <View style={[styles.container, { paddingTop: safeArea.top + headerHeight }]}>
             {/* New Session button */}
-            <View style={styles.headerRow}>
+            {currentDeviceAuthority() === 'control' && <View style={styles.headerRow}>
                 <Pressable
                     onPress={handleNewSession}
                     style={({ pressed }) => [
@@ -97,7 +98,7 @@ export const SidebarView = React.memo(() => {
                     <Text style={styles.newSessionText}>{t('sidebar.newSession')}</Text>
                     <ShortcutHintBadge shortcutKey="N" style={styles.shortcutBadgeInline} />
                 </Pressable>
-            </View>
+            </View>}
 
             {/* Sessions list */}
             <MainView variant="sidebar" />
