@@ -255,15 +255,17 @@ export class SelfhostPairing {
         });
     }
 
-    /** Device fetches the grant; it remains recoverable until durable client acknowledgement. */
+    /** Browser grants remain recoverable until durable acknowledgement; native clients complete on fetch. */
     fetchGrant(pairId: string, deviceId: string, now = Date.now()): Promise<string | undefined> {
         return this.serialized(async () => {
             await this.load();
             const session = this.state.sessions.find((s) => s.pairId === pairId);
             if (session === undefined || session.deviceId !== deviceId || session.grant === undefined) return undefined;
-            session.grantFetchedAt = now;
+            const grant = session.grant;
+            if (session.deviceKind === 'native') this.state.sessions = this.state.sessions.filter((entry) => entry !== session);
+            else session.grantFetchedAt = now;
             await this.persist();
-            return session.grant;
+            return grant;
         });
     }
 
