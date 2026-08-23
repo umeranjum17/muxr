@@ -24,7 +24,7 @@
 </p>
 
 <p align="center">
-  <a href="https://trymuxr.com/#demo"><img src="docs/demo/muxr-loop.webp" alt="The muxr herd, an agent's exact live terminal, and a prompt continuing on the computer" width="960" /></a>
+  <img src="docs/demo/muxr-loop.webp" alt="The muxr herd, an agent's exact live terminal, and a prompt continuing on the computer" width="960" />
 </p>
 
 ## Why muxr exists
@@ -42,8 +42,6 @@ muxr is the control surface built natively for the phone: the full agent lifecyc
 ### A real terminal, built for thumbs
 
 Open the same live terminal the agent owns on your computer — native Ghostty rendering, scrollback, modifier keys, attachments, dictation, and a prompt box designed for a phone.
-
-[Watch the full demo →](https://trymuxr.com/#demo)
 
 </td>
 <td width="55%">
@@ -100,20 +98,6 @@ Use native realtime speech-to-speech when typing is the slow part. Ask what chan
   <picture><source srcset="docs/assets/readme/voice.webp" type="image/webp"><img src="docs/assets/readme/voice.jpg" alt="A native realtime voice session in muxr" width="100%" /></picture>
 </td>
 </tr>
-<tr>
-<td width="45%" valign="middle">
-
-### Your relay or ours. Never our eyes.
-
-Connect over Wi-Fi, Tailscale, a relay you run, or muxr Cloud's optional managed relay. Either way, terminal output, keystrokes, and approvals are end-to-end encrypted before they leave your devices. The relay routes ciphertext it cannot read.
-
-[Self-hosting →](docs/SELF-HOSTING.md) · [Privacy →](https://trymuxr.com/docs/privacy) · [Architecture →](docs/ARCHITECTURE.md) · [Security →](SECURITY.md)
-
-</td>
-<td width="55%">
-  <picture><source srcset="docs/assets/readme/self-host.webp" type="image/webp"><img src="docs/assets/readme/self-host.jpg" alt="muxr's connection screen showing its end-to-end encrypted self-hosted relay" width="100%" /></picture>
-</td>
-</tr>
 </table>
 
 **Also on your phone:**
@@ -126,15 +110,15 @@ The [release history](https://github.com/umeranjum17/muxr/releases) is the real 
 
 ## The whole party, in one place
 
-Parallel agents work like a party: each has a job, a state, and moments when it needs you. muxr keeps the real terminals, diffs, inbox, voice, and relay controls together without hiding what is happening.
+Parallel agents work like a party: each has a job, a state, and moments when it needs you. muxr keeps the real terminals, diffs, inbox, and voice together without hiding what is happening.
 
-![muxr as an RPG party command center: Herd, terminal, changes, Inbox, voice, and self-hosted relay](docs/art/rpg-cover.png)
+![muxr as an RPG party command center with the Herd, terminal, changes, Inbox, and voice](docs/art/rpg-cover.png)
 
 ## Cloud without a cloud computer
 
-Your phone and computer need a way to find each other across networks. They do not need us to run your agents.
+Your phone and computer need a secure way to stay connected across networks. They do not need us to run your agents.
 
-**muxr Cloud** is the optional managed relay. Your computer connects outbound; your phone connects to the same relay. It moves end-to-end-encrypted frames and wakes the phone when an agent needs attention. It cannot read terminal text, prompts, responses, keystrokes, files, or pairing secrets. Agents, repositories, credentials, and encryption keys stay on your computer.
+**muxr Cloud** helps paired devices reach each other and wakes your phone when an agent needs attention. Terminal text, prompts, responses, keystrokes, files, pairing secrets, and credentials remain end-to-end encrypted. Agents, repositories, model subscriptions, and encryption keys stay on your computer.
 
 muxr Cloud is rolling out to testers now. Self-hosting is available to everyone today over Wi-Fi, Tailscale, or a VPS. The app and features are the same either way.
 

@@ -19,7 +19,6 @@ const clips = [
     { id: 'readme-inbox', name: 'inbox', poster: 90, fps: 8 },
     { id: 'readme-changes', name: 'changes', poster: 150, fps: 8 },
     { id: 'readme-voice', name: 'voice', poster: 90, fps: 10 },
-    { id: 'readme-self-host', name: 'self-host', poster: 90, fps: 8 },
 ];
 
 await mkdir(raw, { recursive: true });

@@ -4,7 +4,6 @@ import { Film } from './Film';
 import { FPS, H, TOTAL, W } from './config';
 import {
     ChangesStory,
-    ConnectionStory,
     HerdStory,
     HeroStory,
     InboxStory,
@@ -27,8 +26,6 @@ export const Root: React.FC = () => (
         <Composition id="readme-changes" component={ChangesStory} durationInFrames={360}
             fps={FPS} width={W} height={H} />
         <Composition id="readme-voice" component={VoiceStory} durationInFrames={360}
-            fps={FPS} width={W} height={H} />
-        <Composition id="readme-self-host" component={ConnectionStory} durationInFrames={360}
             fps={FPS} width={W} height={H} />
     </>
 );

@@ -1,6 +1,6 @@
 import React from 'react';
 import { AbsoluteFill, Img, interpolate, staticFile, useCurrentFrame, useVideoConfig } from 'remotion';
-import { ChangesScreen, ConnectionScreen, HerdScreen, InboxScreen, Phone, TerminalScreen, VoiceScreen } from './AppUI';
+import { ChangesScreen, HerdScreen, InboxScreen, Phone, TerminalScreen, VoiceScreen } from './AppUI';
 import { SANS } from './fonts';
 
 const clamp = { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' } as const;
@@ -77,5 +77,3 @@ export const ChangesStory = () => {
 };
 
 export const VoiceStory = () => <Canvas dark><Phone dark style={{ left: 132, top: 62 }}><VoiceScreen /></Phone><Crop dark top={-520} scale={2.2}><VoiceScreen /></Crop><Caption dark eyebrow="Native realtime voice" lines={['Talk to the herd.', 'Keep the same context.']} /></Canvas>;
-
-export const ConnectionStory = () => <Canvas><AppPhone><ConnectionScreen /></AppPhone><Crop top={-260}><ConnectionScreen /></Crop><Caption eyebrow="Your relay or ours" lines={['End-to-end encrypted.', 'Your machines keep the keys.']} /></Canvas>;
