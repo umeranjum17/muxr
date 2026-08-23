@@ -1,3 +1,0 @@
-# Minified xterm bundles trip generic-api-key; they contain no secrets.
-[allowlist]
-paths = ["apps/mobile/sources/terminal/terminalAssets.ts"]

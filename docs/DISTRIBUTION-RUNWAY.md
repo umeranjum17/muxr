@@ -62,15 +62,12 @@ that. Budget ~3 weeks, almost all of it waiting.
 
 ### Agent can do (in order, once 1–2 exist)
 
-**Done already (2026-08-18):** the production iOS project is generated and committed at `apps/mobile/ios` — `com.trymuxr.app`, audio + remote-notification background modes, `applinks:trymuxr.com`, camera/mic usage descriptions. The Android-only modules degrade gracefully in JS. What remains needs the account and a build machine:
+**Current iOS state:** the production project and EAS/TestFlight lane are committed. The app-owned voice and plugin-shortcut modules have iOS implementations, and native push registration uses the same relay notification event as Web Push. Remaining release work is operational and physical-device validation:
 
-1. First compile on the chosen path (Xcode/EAS/macOS runner); fix whatever surfaces.
-2. Stub or port the three Android-only native modules: `voice-overlay`,
-   `ssh-tunnel`, `plugin-shortcuts`. Minimum viable: compile-time stubs so the
-   app ships without voice/SSH/shortcuts; full ports later.
-3. Fix the live AASA file: set `MUXR_APPLE_TEAM_ID` on the site service to the real Team ID from developer.apple.com → Membership (it currently still answers `STAGING000`).
-4. TestFlight external beta (light review, no full App Store launch required).
-5. App Store listing: privacy nutrition labels, iPhone screenshots, review.
+1. Run the voice, Bluetooth, interruption, terminal-scrollback, background-push, and wake-on-speech smoke flow on a physical iPhone.
+2. Fix the live AASA file: set `MUXR_APPLE_TEAM_ID` on the site service to the real Team ID from developer.apple.com → Membership (it currently still answers `STAGING000`).
+3. TestFlight external beta (light review, no full App Store launch required).
+4. App Store listing: privacy nutrition labels, iPhone screenshots, review.
 
 **Honest scope:** iOS native is a week-plus of focused work after the accounts
 exist, not an afternoon. The read-only web client is the iOS answer until then

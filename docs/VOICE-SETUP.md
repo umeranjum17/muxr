@@ -1,6 +1,6 @@
 # muxr realtime provider plugins
 
-Realtime voice is ordinary plugin composition: generic capability buttons, a provider-neutral realtime overlay, and a declarative Settings destination. The app kernel owns microphone permission, foreground-service startup, audio routing, and generic PCM/WebRTC capabilities. Each backend plugin owns its provider authentication, model, prompt, tools, codecs, and event translation.
+Realtime voice is ordinary plugin composition: generic capability buttons, a provider-neutral realtime overlay, and a declarative Settings destination. The app kernel owns microphone permission, foreground-service startup, audio routing, and generic PCM capture/playback. Each backend plugin owns its provider authentication, model, prompt, tools, codecs, and event translation.
 
 ## Setup
 
@@ -27,6 +27,6 @@ Core has no vendor-specific host handler. The generic plugin bridge resolves:
 - `voice.session` — a persistent provider-neutral `host.stream`;
 - `voice.report` — supplies plugin-owned wake wording.
 
-The phone sends and receives only bounded audio, state, transcript, and control frames. The bundled adapters translate those frames to xAI `grok-voice-think-fast-2.0`, Gemini `gemini-3.1-flash-live-preview`, or OpenAI `gpt-realtime-2.1`. Another plugin can implement a different speech-to-speech provider without adding a provider branch to React Native. A backend may select a compiled generic WebRTC capability when that gives a better media path; provider endpoints and credentials still remain behind muxr signaling.
+The phone sends and receives only bounded audio, state, transcript, and control frames. The bundled adapters translate those frames to xAI `grok-voice-think-fast-2.0`, Gemini `gemini-3.1-flash-live-preview`, or OpenAI `gpt-realtime-2.1`. Another plugin can implement a different speech-to-speech provider without adding a provider branch to React Native.
 
 Local Whisper dictation is separate, on-device, and does not require this provider plugin.

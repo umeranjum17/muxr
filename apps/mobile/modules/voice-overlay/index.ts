@@ -36,7 +36,7 @@ interface VoiceNative {
 }
 
 const native =
-    Platform.OS === 'android' ? requireOptionalNativeModule<VoiceNative>('VoiceOverlay') : null;
+    Platform.OS === 'web' ? null : requireOptionalNativeModule<VoiceNative>('VoiceOverlay');
 
 /** Start before capture; Android rejects a late microphone FGS start. */
 export function startVoiceService(): boolean {

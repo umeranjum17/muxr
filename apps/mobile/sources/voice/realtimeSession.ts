@@ -3,11 +3,13 @@ import { reportEnergy, resetEnergy } from '@/realtime/audioEnergy';
 import {
     clearRealtimePcm,
     playRealtimePcm,
+    releaseVoiceAudio,
     routeVoiceAudio,
     startRealtimePcm,
     stopRealtimePcm,
 } from '@/../modules/voice-overlay';
 import { openPluginStream, type PluginStream } from '@/plugins/openPluginStream';
+import { claimVadCapture } from '@/voice/vadStandby';
 
 export type RealtimeStatus = 'connecting' | 'connected' | 'thinking' | 'speaking' | 'disconnected';
 
@@ -44,7 +46,7 @@ export function startRealtimeSession(options: {
     const stopCapture = (): void => {
         if (!microphoneStarted) return;
         microphoneStarted = false;
-        void LiveAudioStream.stop().catch(() => undefined);
+        void Promise.resolve(LiveAudioStream.stop()).catch(() => undefined);
     };
     const teardown = (): void => {
         if (reconnectTimer !== undefined) clearTimeout(reconnectTimer);
@@ -53,6 +55,7 @@ export function startRealtimeSession(options: {
         stableTimer = undefined;
         stopCapture();
         stopRealtimePcm();
+        releaseVoiceAudio();
         const current = stream;
         stream = undefined;
         current?.close();
@@ -71,12 +74,25 @@ export function startRealtimeSession(options: {
 
     function restartPlayback(outputRate: number): void {
         stopRealtimePcm();
-        if (!startRealtimePcm(outputRate)) throw new Error('This device has no realtime PCM playback bridge.');
-        routeVoiceAudio();
+        if (!routeVoiceAudio() || !startRealtimePcm(outputRate)) throw new Error('This device could not start realtime audio.');
     }
     async function startAudio(inputRate: number, outputRate: number): Promise<void> {
-        if (!startRealtimePcm(outputRate)) throw new Error('This device has no realtime PCM playback bridge.');
-        routeVoiceAudio();
+        if (!routeVoiceAudio() || !startRealtimePcm(outputRate)) throw new Error('This device could not start realtime audio.');
+        const onData = (data: string) => {
+            if (!stopped && !muted) {
+                reportEnergy('input', data);
+                stream?.send({ type: 'realtime.audio', data });
+                // The user speaking is activity; without this the idle timer
+                // hangs up mid-sentence when the provider stays quiet.
+                onActivity?.();
+            }
+        };
+        const pending = claimVadCapture(inputRate, onData);
+        if (pending !== null) {
+            microphoneStarted = true;
+            for (const data of pending) onData(data);
+            return;
+        }
         await LiveAudioStream.init({
             sampleRate: inputRate,
             channels: 1,
@@ -85,18 +101,13 @@ export function startRealtimeSession(options: {
             bufferSize: 4_800,
             wavFile: '',
         });
-        LiveAudioStream.on('data', (data) => {
-            if (!stopped && !muted) {
-                reportEnergy('input', data);
-                stream?.send({ type: 'realtime.audio', data });
-                // The user speaking is activity; without this the idle timer
-                // hangs up mid-sentence when the provider stays quiet.
-                onActivity?.();
-            }
-        });
+        LiveAudioStream.on('data', onData);
         await LiveAudioStream.start();
         if (stopped) stopCapture();
-        else microphoneStarted = true;
+        else {
+            if (!routeVoiceAudio()) throw new Error('This device could not route realtime audio.');
+            microphoneStarted = true;
+        }
     }
 
     const connect = async (): Promise<void> => {

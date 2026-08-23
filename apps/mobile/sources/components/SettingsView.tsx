@@ -1,5 +1,5 @@
 import { Wordmark } from '@/components/Wordmark';
-import { AppState, NativeScrollEvent, NativeSyntheticEvent, View, ScrollView, Pressable, Platform, Text } from 'react-native';
+import { AppState, Linking, NativeScrollEvent, NativeSyntheticEvent, View, ScrollView, Pressable, Platform, Text } from 'react-native';
 import { openExternalUrl } from '@/utils/openExternalUrl';
 import * as React from 'react';
 import { useRouter } from 'expo-router';
@@ -22,6 +22,8 @@ import { t } from '@/text';
 import { requestPermissionAndSubscribe, refreshPushState, type PushState } from '@/utils/pushNotifications';
 import { loadAppConfig } from '@/sync/appConfig';
 import { knownHostVersion } from '@/utils/versionStatus';
+import { requestNotificationPermission } from '@/utils/microphonePermissions';
+import { registerNativePushNotifications } from '@/utils/nativePushNotifications';
 import { DeclarativeSettingsItems } from '@/plugins/DeclarativePluginSlot';
 import {
     canPostPromotedNotifications,
@@ -129,6 +131,7 @@ export const SettingsView = React.memo(function SettingsView({
     const [promotedNotificationsEnabled, setPromotedNotificationsEnabled] = React.useState(
         !promotedNotificationsSupported || canPostPromotedNotifications(),
     );
+    const [iosNotificationsEnabled, setIosNotificationsEnabled] = React.useState(false);
     const auth = useAuth();
     const activeMachineId = getCachedConnectionSettings().machineId;
 
@@ -199,16 +202,28 @@ export const SettingsView = React.memo(function SettingsView({
             if (!cancelled) setPushState(state);
         });
         if (promotedNotificationsSupported) setPromotedNotificationsEnabled(canPostPromotedNotifications());
+        if (Platform.OS === 'ios') void requestNotificationPermission(false).then(setIosNotificationsEnabled);
         const subscription = AppState.addEventListener('change', (state) => {
-            if (state === 'active' && promotedNotificationsSupported) {
-                setPromotedNotificationsEnabled(canPostPromotedNotifications());
-            }
+            if (state !== 'active') return;
+            if (promotedNotificationsSupported) setPromotedNotificationsEnabled(canPostPromotedNotifications());
+            if (Platform.OS === 'ios') void requestNotificationPermission(false).then(setIosNotificationsEnabled);
         });
         return () => {
             cancelled = true;
             subscription.remove();
         };
     }, [promotedNotificationsSupported]);
+
+    const handleIosNotifications = async () => {
+        const granted = await requestNotificationPermission();
+        setIosNotificationsEnabled(granted);
+        if (granted) void registerNativePushNotifications();
+        if (!granted && await Modal.confirm(
+            'Enable notifications?',
+            'Open iOS Settings to allow agent completion and attention alerts.',
+            { confirmText: 'Open settings' },
+        )) await Linking.openSettings();
+    };
 
     const handlePushToggle = async () => {
         if (pushBusy) return;
@@ -398,6 +413,15 @@ export const SettingsView = React.memo(function SettingsView({
                         detail={promotedNotificationsEnabled ? t('plugins.on') : t('plugins.off')}
                         icon={<Ionicons name="pulse-outline" size={29} color="#34C759" />}
                         onPress={openPromotedNotificationSettings}
+                    />
+                )}
+                {Platform.OS === 'ios' && (
+                    <Item
+                        title="Notifications"
+                        subtitle="Agent completion and attention alerts"
+                        detail={iosNotificationsEnabled ? t('plugins.on') : t('plugins.off')}
+                        icon={<Ionicons name="notifications-outline" size={29} color="#FF9500" />}
+                        onPress={() => void handleIosNotifications()}
                     />
                 )}
                 {Platform.OS === 'web' && (

@@ -6,6 +6,9 @@ const root = join(import.meta.dirname, '../../../..');
 const patch = join(root, 'patches/expo-libghostty+0.8.1.patch');
 const view = join(root, 'node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/ExpoLibghosttyView.kt');
 const terminal = join(root, 'node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/GhosttyTerminalView.kt');
+const iosModule = join(root, 'node_modules/expo-libghostty/ios/ExpoLibghosttyModule.swift');
+const iosView = join(root, 'node_modules/expo-libghostty/ios/ExpoLibghosttyView.swift');
+const iosTerminalView = join(root, 'node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView.swift');
 
 /**
  * These invariants have silently vanished before: regenerating the patch for
@@ -30,9 +33,12 @@ describe('expo-libghostty patch', () => {
         expect(applied).not.toContain('imeBottom');
     });
 
-    it('forwards scrolling, since herdr owns the scrollback', () => {
+    it('forwards scrolling on both native platforms, since herdr owns the scrollback', () => {
         expect(contents).toContain('onScrollRows');
         expect(readFileSync(terminal, 'utf8')).toContain('onScrollRows');
         expect(readFileSync(view, 'utf8')).toContain('onScroll');
+        expect(readFileSync(iosModule, 'utf8')).toContain('Events("onInput", "onResize", "onScroll")');
+        expect(readFileSync(iosView, 'utf8')).toContain('terminalView.hostScrollHandler');
+        expect(readFileSync(iosTerminalView, 'utf8')).toContain('hostScrollHandler');
     });
 });

@@ -123,6 +123,7 @@ export default {
                 NSMicrophoneUsageDescription: "Allow $(PRODUCT_NAME) to access your microphone for voice conversations with AI.",
                 NSLocalNetworkUsageDescription: "Allow $(PRODUCT_NAME) to find and connect to local devices on your network.",
                 NSBonjourServices: ["_http._tcp", "_https._tcp"],
+                UIBackgroundModes: ["audio"],
                 // ATS:
                 // - NSAllowsLocalNetworking: lets HTTP fetches reach LAN
                 //   addresses (e.g. self-hosted server at 192.168.x.y) without
@@ -195,7 +196,6 @@ export default {
             "expo-secure-store",
             "expo-web-browser",
             "@more-tech/react-native-libsodium",
-            "@config-plugins/react-native-webrtc",
             [
                 "expo-audio",
                 {

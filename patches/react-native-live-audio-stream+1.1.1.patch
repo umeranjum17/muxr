@@ -180,7 +180,7 @@ diff --git a/node_modules/react-native-live-audio-stream/index.d.ts b/node_modul
 index b846438..35490e3 100644
 --- a/node_modules/react-native-live-audio-stream/index.d.ts
 +++ b/node_modules/react-native-live-audio-stream/index.d.ts
-@@ -1,7 +1,7 @@
+@@ -1,8 +1,8 @@
  declare module "react-native-live-audio-stream" {
    export interface IAudioRecord {
 -    init: (options: Options) => void
@@ -191,3 +191,127 @@ index b846438..35490e3 100644
 +    stop: () => Promise<boolean>
      on: (event: "data", callback: (data: string) => void) => void
    }
+
+diff --git a/node_modules/react-native-live-audio-stream/ios/RNLiveAudioStream.m b/node_modules/react-native-live-audio-stream/ios/RNLiveAudioStream.m
+index a6f2317..e129074 100644
+--- a/node_modules/react-native-live-audio-stream/ios/RNLiveAudioStream.m
++++ b/node_modules/react-native-live-audio-stream/ios/RNLiveAudioStream.m
+@@ -4,7 +4,10 @@
+
+ RCT_EXPORT_MODULE();
+
+-RCT_EXPORT_METHOD(init:(NSDictionary *) options) {
++RCT_REMAP_METHOD(init,
++                 init:(NSDictionary *) options
++                 resolver:(RCTPromiseResolveBlock) resolve
++                 rejecter:(RCTPromiseRejectBlock) reject) {
+     RCTLogInfo(@"[RNLiveAudioStream] init");
+     _recordState.mDataFormat.mSampleRate        = options[@"sampleRate"] == nil ? 44100 : [options[@"sampleRate"] doubleValue];
+     _recordState.mDataFormat.mBitsPerChannel    = options[@"bitsPerSample"] == nil ? 16 : [options[@"bitsPerSample"] unsignedIntValue];
+@@ -17,57 +20,80 @@ RCT_EXPORT_METHOD(init:(NSDictionary *) options) {
+     _recordState.mDataFormat.mFormatFlags       = _recordState.mDataFormat.mBitsPerChannel == 8 ? kLinearPCMFormatFlagIsPacked : (kLinearPCMFormatFlagIsSignedInteger | kLinearPCMFormatFlagIsPacked);
+     _recordState.bufferByteSize                 = options[@"bufferSize"] == nil ? 2048 : [options[@"bufferSize"] unsignedIntValue];
+     _recordState.mSelf = self;
++    resolve(@YES);
+ }
+
+-RCT_EXPORT_METHOD(start) {
++RCT_REMAP_METHOD(start,
++                 startWithResolver:(RCTPromiseResolveBlock) resolve
++                 rejecter:(RCTPromiseRejectBlock) reject) {
+     RCTLogInfo(@"[RNLiveAudioStream] start");
++    if (_recordState.mIsRunning) {
++        resolve(@YES);
++        return;
++    }
+     AVAudioSession *audioSession = [AVAudioSession sharedInstance];
+     NSError *error = nil;
+     BOOL success;
+
+-    // Apple recommended:
+-    // Instead of setting your category and mode properties independently, set them at the same time
+     if (@available(iOS 10.0, *)) {
+         success = [audioSession setCategory: AVAudioSessionCategoryPlayAndRecord
+                                        mode: AVAudioSessionModeVoiceChat
+-                                    options: AVAudioSessionCategoryOptionDuckOthers |
+-                                             AVAudioSessionCategoryOptionAllowBluetooth |
+-                                             AVAudioSessionCategoryOptionAllowAirPlay
++                                    options: AVAudioSessionCategoryOptionAllowBluetooth |
++                                             AVAudioSessionCategoryOptionAllowBluetoothA2DP |
++                                             AVAudioSessionCategoryOptionDefaultToSpeaker
+                                       error: &error];
+     } else {
+         success = [audioSession setCategory: AVAudioSessionCategoryPlayAndRecord withOptions: AVAudioSessionCategoryOptionDuckOthers error: &error];
+         success = [audioSession setMode: AVAudioSessionModeVoiceChat error: &error] && success;
+     }
+     if (!success || error != nil) {
+-        RCTLog(@"[RNLiveAudioStream] Problem setting up AVAudioSession category and mode. Error: %@", error);
++        reject(@"E_AUDIO_SESSION", @"Could not configure the iOS audio session", error);
+         return;
+     }
+
+-    _recordState.mIsRunning = true;
+-
+     OSStatus status = AudioQueueNewInput(&_recordState.mDataFormat, HandleInputBuffer, &_recordState, NULL, NULL, 0, &_recordState.mQueue);
+-    if (status != 0) {
+-        RCTLog(@"[RNLiveAudioStream] Record Failed. Cannot initialize AudioQueueNewInput. status: %i", (int) status);
++    if (status != noErr) {
++        reject(@"E_AUDIO_QUEUE", @"Could not create the iOS audio input queue", [NSError errorWithDomain:NSOSStatusErrorDomain code:status userInfo:nil]);
+         return;
+     }
+
+     for (int i = 0; i < kNumberBuffers; i++) {
+-        AudioQueueAllocateBuffer(_recordState.mQueue, _recordState.bufferByteSize, &_recordState.mBuffers[i]);
+-        AudioQueueEnqueueBuffer(_recordState.mQueue, _recordState.mBuffers[i], 0, NULL);
++        status = AudioQueueAllocateBuffer(_recordState.mQueue, _recordState.bufferByteSize, &_recordState.mBuffers[i]);
++        if (status == noErr) status = AudioQueueEnqueueBuffer(_recordState.mQueue, _recordState.mBuffers[i], 0, NULL);
++        if (status != noErr) {
++            AudioQueueDispose(_recordState.mQueue, true);
++            _recordState.mQueue = NULL;
++            reject(@"E_AUDIO_BUFFER", @"Could not prepare the iOS audio input buffers", [NSError errorWithDomain:NSOSStatusErrorDomain code:status userInfo:nil]);
++            return;
++        }
+     }
+-    AudioQueueStart(_recordState.mQueue, NULL);
++    _recordState.mIsRunning = true;
++    status = AudioQueueStart(_recordState.mQueue, NULL);
++    if (status != noErr) {
++        _recordState.mIsRunning = false;
++        AudioQueueDispose(_recordState.mQueue, true);
++        _recordState.mQueue = NULL;
++        reject(@"E_AUDIO_START", @"Could not start the iOS audio input queue", [NSError errorWithDomain:NSOSStatusErrorDomain code:status userInfo:nil]);
++        return;
++    }
++    resolve(@YES);
+ }
+
+-RCT_EXPORT_METHOD(stop) {
++RCT_REMAP_METHOD(stop,
++                 stopWithResolver:(RCTPromiseResolveBlock) resolve
++                 rejecter:(RCTPromiseRejectBlock) reject) {
+     RCTLogInfo(@"[RNLiveAudioStream] stop");
+-    if (_recordState.mIsRunning) {
++    if (_recordState.mQueue != NULL) {
+         _recordState.mIsRunning = false;
+         AudioQueueStop(_recordState.mQueue, true);
+         for (int i = 0; i < kNumberBuffers; i++) {
+-            AudioQueueFreeBuffer(_recordState.mQueue, _recordState.mBuffers[i]);
++            if (_recordState.mBuffers[i] != NULL) AudioQueueFreeBuffer(_recordState.mQueue, _recordState.mBuffers[i]);
++            _recordState.mBuffers[i] = NULL;
+         }
+         AudioQueueDispose(_recordState.mQueue, true);
++        _recordState.mQueue = NULL;
+     }
++    resolve(@YES);
+ }
+
+ void HandleInputBuffer(void *inUserData,
+@@ -97,7 +123,7 @@ void HandleInputBuffer(void *inUserData,
+
+ - (void)dealloc {
+     RCTLogInfo(@"[RNLiveAudioStream] dealloc");
+-    AudioQueueDispose(_recordState.mQueue, true);
++    if (_recordState.mQueue != NULL) AudioQueueDispose(_recordState.mQueue, true);
+ }
+
+ @end

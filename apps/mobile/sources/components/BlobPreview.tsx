@@ -4,7 +4,7 @@
  * The shipped target today is the web export (see BlobPreview.web.tsx: HTML5
  * video + pdf.js). Native isn't cut yet; when it is, video plays in the system
  * WebView player and iOS renders PDFs natively. Android PDF needs the pdf.js
- * WebView treatment (same vendored pattern as terminalHtml) — add when the
+ * WebView treatment — add when the
  * first native build lands.
  */
 import * as React from 'react';

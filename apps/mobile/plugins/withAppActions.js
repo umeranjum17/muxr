@@ -5,7 +5,7 @@
 // the same contribution through ShortcutManagerCompat.
 const { readdirSync, readFileSync, mkdirSync, writeFileSync, existsSync, unlinkSync } = require('fs');
 const { join } = require('path');
-const { withAndroidManifest, withDangerousMod, AndroidConfig } = require('expo/config-plugins');
+const { withAndroidManifest, withDangerousMod, withInfoPlist, AndroidConfig } = require('expo/config-plugins');
 
 const PLUGINS_DIR = join(__dirname, '..', '..', '..', 'plugins');
 const BAKED_JS = join(__dirname, '..', 'sources', 'plugins', 'bundledShortcuts.json');
@@ -167,6 +167,16 @@ module.exports = function withAppActions(config) {
         ].join('\n'));
         return c;
     }]);
+
+    config = withInfoPlist(config, (c) => {
+        c.modResults.UIApplicationShortcutItems = bundledShortcuts().slice(0, 4).map((shortcut) => ({
+            UIApplicationShortcutItemType: shortcut.shortcutId,
+            UIApplicationShortcutItemTitle: shortcut.label,
+            UIApplicationShortcutItemSubtitle: shortcut.longLabel,
+            UIApplicationShortcutItemIconType: 'UIApplicationShortcutIconTypePlay',
+        }));
+        return c;
+    });
 
     return withAndroidManifest(config, (c) => {
         const activity = AndroidConfig.Manifest.getMainActivityOrThrow(c.modResults);

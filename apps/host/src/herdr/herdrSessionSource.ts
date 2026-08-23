@@ -395,9 +395,9 @@ export async function createHerdrSessionSource(
         } catch {}
     }
 
-    function notifyBlocked(sessionId: string, detail: string): void {
+    function notifyAttention(sessionId: string, kind: 'blocked' | 'done', detail: string): void {
         if (pushNotifyUrl === undefined || options.machineId === undefined) return;
-        const body = JSON.stringify({ machineId: options.machineId, sessionId, kind: 'blocked', detail });
+        const body = JSON.stringify({ machineId: options.machineId, sessionId, kind, detail });
         void fetch(pushNotifyUrl, {
             method: 'POST',
             headers: {
@@ -419,12 +419,15 @@ export async function createHerdrSessionSource(
                 // Push only on the transition INTO waiting, not on every publish.
                 if (attention.set(sessionId, 'waiting', `${label} needs an answer`)) {
                     changed = true;
-                    notifyBlocked(sessionId, `${label} needs an answer`);
+                    notifyAttention(sessionId, 'blocked', `${label} needs an answer`);
                 }
                 break;
             case 'done':
                 changed = attention.clear(sessionId, 'waiting') || changed;
-                changed = attention.set(sessionId, 'done', `${label} finished`) || changed;
+                if (attention.set(sessionId, 'done', `${label} finished`)) {
+                    changed = true;
+                    notifyAttention(sessionId, 'done', `${label} finished`);
+                }
                 break;
             case 'working':
             case 'idle':

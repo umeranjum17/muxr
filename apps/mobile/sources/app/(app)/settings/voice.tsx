@@ -5,14 +5,17 @@ import type { VoiceProviderOption } from '@muxr/contract';
 import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
 import { ItemList } from '@/components/ItemList';
+import { Switch } from '@/components/Switch';
 import { Modal } from '@/modal';
 import { sourceLabel } from '@/plugins/pluginActions';
 import { pluginHref } from '@/plugins/pluginHref';
 import { pluginCatalogSnapshot, refreshPlugins } from '@/plugins/pluginStore';
 import { sync } from '@/sync/sync';
-import { useSocketStatus } from '@/sync/storage';
+import { useLocalSetting, useSocketStatus } from '@/sync/storage';
 import { useRouter } from 'expo-router';
 import { useUnistyles } from 'react-native-unistyles';
+import { configureVadStandby } from '@/realtime/realtimeSessionState';
+import { ensureRealtimeProviderConfigured, requestRealtimePermission } from '@/realtime/realtimeActions';
 
 export default function VoiceProviderScreen() {
     const router = useRouter();
@@ -23,6 +26,7 @@ export default function VoiceProviderScreen() {
     const [loaded, setLoaded] = React.useState(false);
     const [error, setError] = React.useState<string>();
     const busyRef = React.useRef(false);
+    const vadStandbyEnabled = useLocalSetting('vadStandbyEnabled');
 
     const load = React.useCallback(async () => {
         if (status !== 'connected') { setLoaded(true); return; }
@@ -94,6 +98,14 @@ export default function VoiceProviderScreen() {
         }
     }, [approveProvider, router, selected]);
 
+    const setVadStandby = React.useCallback(async (enabled: boolean) => {
+        if (!enabled) return void configureVadStandby(false);
+        if (!(await requestRealtimePermission()) || !(await ensureRealtimeProviderConfigured())) return;
+        if (!(await configureVadStandby(true))) {
+            Modal.alert('Wake on speech unavailable', 'Start or connect an agent first, then try again.');
+        }
+    }, []);
+
     if (status === 'connected' && !loaded) return <ActivityIndicator style={{ flex: 1 }} />;
 
     return (
@@ -124,6 +136,15 @@ export default function VoiceProviderScreen() {
                     />
                 </ItemGroup>
             )}
+            <ItemGroup title="Hands-free" footer="Audio stays on this phone until speech is detected. Standby turns itself off after 30 minutes.">
+                <Item
+                    title="Wake on speech"
+                    subtitle="Reconnect realtime voice when someone starts talking"
+                    icon={<Ionicons name="ear-outline" size={28} color={theme.colors.textSecondary} />}
+                    showChevron={false}
+                    rightElement={<Switch value={vadStandbyEnabled} onValueChange={(value) => void setVadStandby(value)} />}
+                />
+            </ItemGroup>
         </ItemList>
     );
 }

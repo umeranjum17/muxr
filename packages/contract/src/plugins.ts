@@ -585,8 +585,8 @@ export type PluginEventAction =
     };
 
 /**
- * An Android launcher shortcut. Packaged contributions are baked into the app;
- * runtime-installed contributions become dynamic shortcuts. Both run the same
+ * A native launcher quick action. Packaged contributions are baked into the app;
+ * runtime-installed contributions become dynamic shortcuts where supported. Both run the same
  * closed action union events use.
  */
 export interface PluginShortcut {

@@ -99,6 +99,19 @@
       <string>remote-notification</string>
       <string>audio</string>
     </array>
+    <key>UIApplicationShortcutItems</key>
+    <array>
+      <dict>
+        <key>UIApplicationShortcutItemIconType</key>
+        <string>UIApplicationShortcutIconTypePlay</string>
+        <key>UIApplicationShortcutItemSubtitle</key>
+        <string>Talk to the muxr realtime agent</string>
+        <key>UIApplicationShortcutItemTitle</key>
+        <string>Jarvis</string>
+        <key>UIApplicationShortcutItemType</key>
+        <string>muxr.voice.jarvis</string>
+      </dict>
+    </array>
     <key>UILaunchStoryboardName</key>
     <string>SplashScreen</string>
     <key>UIRequiredDeviceCapabilities</key>

@@ -8,6 +8,7 @@ import { micOwners, realtimeWatchTarget, registerRealtimeNotificationStart, rele
 
 const mocks = vi.hoisted(() => ({
     sessions: {} as Record<string, { id: string; activeAt: number; updatedAt: number }>,
+    applyLocalSettings: vi.fn(),
     modalAlert: vi.fn(),
     permission: vi.fn(),
     showDenied: vi.fn(),
@@ -25,13 +26,17 @@ const mocks = vi.hoisted(() => ({
     callPlugin: vi.fn(),
 }));
 
-vi.mock('react-native', () => ({ Platform: { OS: 'android' } }));
+vi.mock('react-native', () => ({ Platform: { OS: 'android' }, AppState: { addEventListener: vi.fn() } }));
 vi.mock('react-native-live-audio-stream', () => ({ default: mocks.liveAudio }));
 vi.mock('@/utils/localTranscription', () => ({ transcribePcm16: mocks.transcribe }));
 vi.mock('@/sync/sync', () => ({ sync: { request: mocks.syncRequest } }));
 vi.mock('@/plugins/callPlugin', () => ({ callPlugin: mocks.callPlugin }));
 vi.mock('@/modal', () => ({ Modal: { alert: mocks.modalAlert } }));
-vi.mock('@/sync/storage', () => ({ storage: { getState: () => ({ sessions: mocks.sessions }) } }));
+vi.mock('@/sync/storage', () => ({ storage: { getState: () => ({
+    sessions: mocks.sessions,
+    localSettings: { vadStandbyEnabled: false },
+    applyLocalSettings: mocks.applyLocalSettings,
+}) } }));
 vi.mock('@/utils/microphonePermissions', () => ({
     requestMicrophonePermission: mocks.permission,
     showMicrophonePermissionDeniedAlert: mocks.showDenied,
