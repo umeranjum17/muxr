@@ -1,4 +1,4 @@
-import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, open, readFile, readdir, rm, stat, symlink, writeFile, type FileHandle } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it, vi } from 'vitest';
@@ -31,6 +31,7 @@ it('hardens every relay state path in a custom data directory', async () => {
         'push-subscriptions.json': '{"accounts":{}}',
     };
     const previousUmask = process.umask(0o000);
+    const originalHandles: FileHandle[] = [];
 
     try {
         expect(dataDir).toBe(customDataDir);
@@ -41,10 +42,13 @@ it('hardens every relay state path in a custom data directory', async () => {
             await writeFile(filePath, initial[name]!, { mode: 0o644 });
             await chmod(filePath, 0o644);
         }
-        const originalInodes = new Map(await Promise.all(stateFiles.map(async (name) => [
-            name,
-            (await stat(join(dataDir, name))).ino,
-        ] as const)));
+        const originalInodes = new Map(await Promise.all(stateFiles.map(async (name) => {
+            // Keep the old inode referenced until the assertion. Otherwise a
+            // fast filesystem may legally recycle it after the atomic rename.
+            const handle = await open(join(dataDir, name), 'r');
+            originalHandles.push(handle);
+            return [name, (await handle.stat()).ino] as const;
+        })));
 
         const registry = new MachineRegistry(dataDir);
         const offline = new OfflineBuffer(dataDir, 10, 60_000);
@@ -117,6 +121,7 @@ it('hardens every relay state path in a custom data directory', async () => {
         process.umask(previousUmask);
         if (previousDataDir === undefined) delete process.env.MUXR_RELAY_DATA_DIR;
         else process.env.MUXR_RELAY_DATA_DIR = previousDataDir;
+        await Promise.all(originalHandles.map((handle) => handle.close()));
         await rm(root, { recursive: true, force: true });
     }
 });
