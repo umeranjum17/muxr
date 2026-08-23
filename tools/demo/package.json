@@ -1,0 +1,22 @@
+{
+  "name": "@muxr/demo-studio",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Remotion source for the muxr product film. Not part of the yarn workspace; install on demand.",
+  "type": "module",
+  "scripts": {
+    "reel": "node reel/render.mjs",
+    "deliver": "node reel/deliver.mjs"
+  },
+  "dependencies": {
+    "@remotion/bundler": "^4.0.514",
+    "@remotion/fonts": "^4.0.514",
+    "@remotion/renderer": "^4.0.514",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "remotion": "^4.0.514"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2"
+  }
+}
