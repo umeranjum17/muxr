@@ -32,12 +32,13 @@ muxr update                    # check, confirm, update, and restart
 muxr update --check            # check without changing anything
 muxr doctor                    # redacted setup diagnostics
 muxr pair                      # pair another phone
-muxr pair --browser            # pair an 8-hour read-only browser
+muxr pair --browser            # pair an 8-hour control browser
+muxr pair --browser-view       # pair an 8-hour view-only browser
 muxr devices list
 muxr devices revoke <number>
 ```
 
-muxr state lives under `~/.muxr` unless `MUXR_HOME` is set. Use `muxr setup --dry-run` to preview managed-file changes. `muxr daemon uninstall` removes only the host registration; `muxr integrations uninstall` removes only muxr-managed integrations. Neither command deletes Herdr work or user repositories.
+muxr state lives under `~/.muxr` unless `MUXR_HOME` is set. Use `muxr setup --dry-run` to preview managed-file changes. `muxr uninstall` removes every muxr-owned operational component—including machine identity, pairings, grants, provider keys, runtime state, services, ingress, and managed integrations—then optionally removes the global CLI. It keeps Herdr, Herdr sessions, repositories, worktrees, received attachments, exports, signing keys, and unrecognized files. The narrower `muxr daemon uninstall` and `muxr integrations uninstall` commands remain available for advanced maintenance.
 
 ## Self-host options
 

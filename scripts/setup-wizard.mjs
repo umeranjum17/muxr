@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { networkInterfaces, userInfo } from 'node:os';
 import { intro, heading, status, note, outro, prompt, select, withSpinner, BACK } from './setup-ui.mjs';
-import { runDaemon, runDoctor, runLocalPrerequisites, runMachines, runPair, runRemoteConnect, runSelfHost, runTailscale, selfhostPublicSummary, sharedMachineCount, tailscaleBin } from './local-setup.mjs';
+import { runDoctor, runLocalPrerequisites, runMachines, runPair, runRemoteConnect, runSelfHost, runTailscale, selfhostPublicSummary, sharedMachineCount, tailscaleBin } from './local-setup.mjs';
 
 function command(name, args = []) {
     const result = spawnSync(name, args, { encoding: 'utf8', timeout: 120_000 });
@@ -340,7 +340,7 @@ export async function runSetup(args = []) {
 
     const secureWebMode = ['tailscale', 'external', 'cloudflare'].includes(mode);
     const web = secureWebMode
-        ? await select('Host the read-only browser client too?', [
+        ? await select('Host the browser client too?', [
             { value: false, title: 'Native app only', description: 'do not expose the browser client' },
             { value: true, title: 'Host the browser client', description: 'serve it over the selected HTTPS/WSS connection' },
         ], current?.webEnabled ? 1 : 0)
@@ -369,8 +369,9 @@ export async function runSetup(args = []) {
         }] : []),
         { value: 'phone', title: 'Phone', description: 'pair the native app first' },
         ...(web ? [
-            { value: 'browser', title: 'Browser', description: 'pair one read-only browser for eight hours' },
-            { value: 'both', title: 'Phone, then browser', description: 'complete both pairing steps' },
+            { value: 'browser', title: 'Control browser', description: 'full terminal and agent control for eight hours' },
+            { value: 'browser-view', title: 'View-only browser', description: 'observe agents without control for eight hours' },
+            { value: 'both', title: 'Phone, then control browser', description: 'complete both pairing steps' },
         ] : []),
     ];
     const pairing = pairingChoices.length === 1 ? pairingChoices[0].value : await select(connectionChanged && current !== undefined
@@ -395,8 +396,8 @@ export async function runSetup(args = []) {
         'Bundled plugins: link the public muxr plugins into Herdr',
         `Agent integrations: ${syncIntegrations ? 'sync detected providers and managed instruction blocks' : 'leave hooks and instruction files unchanged'}`,
         `Optional add-ons: ${plugins.length ? plugins.map((plugin) => plugin.title).join(', ') : 'none'}`,
-        `Browser client: ${web ? 'host read-only web app; browser keys stay WebCrypto-wrapped on this device' : 'off'}`,
-        `Pairing: ${pairing === 'none' ? 'keep existing devices; no new pairing' : pairing === 'both' ? 'phone, then browser' : pairing}${pairing === 'browser' || pairing === 'both' ? ' · browser access is read-only for eight hours' : ''}`,
+        `Browser client: ${web ? 'host the web app; browser keys stay WebCrypto-wrapped on this device' : 'off'}`,
+        `Pairing: ${pairing === 'none' ? 'keep existing devices; no new pairing' : pairing === 'both' ? 'phone, then control browser' : pairing}${pairing === 'browser' || pairing === 'browser-view' || pairing === 'both' ? ' · browser access expires after eight hours' : ''}`,
         `Ingress: ${mode === 'tailscale' ? 'persist a muxr-owned Tailscale Serve route' : mode === 'cloudflare' ? 'start a tracked temporary Cloudflare tunnel' : mode === 'external' ? 'bind loopback for your external reverse proxy' : 'no proxy or public tunnel changes'}`,
         'Services: register or restart the relay and host with systemd/launchd',
         `Existing connections: ${connectionChanged ? 'stored grants stay authoritative and adopt the advertised endpoint automatically' : 'keep working; restart only if a reviewed runtime setting changed'}`,
@@ -426,6 +427,7 @@ export async function runSetup(args = []) {
     if (mode === 'tailscale-direct') selfhostArgs.push('--tailscale-direct');
     if (web) selfhostArgs.push('--web', '--yes');
     if (pairing === 'browser') selfhostArgs.push('--pair-browser');
+    if (pairing === 'browser-view') selfhostArgs.push('--pair-browser-view');
     if (pairing === 'none') selfhostArgs.push('--no-pair');
     const result = await runSelfHost(selfhostArgs);
     if (result !== 0) return result;
@@ -444,7 +446,7 @@ export async function runSetup(args = []) {
         `Host service: ${summary?.hostRunning ? 'running' : 'check required'}`,
         `Herdr: ${found.herdr.running ? 'running' : 'started during setup'}`,
         `Integrations: ${syncIntegrations ? 'selected providers synced' : 'unchanged'}`,
-        `Pairing: ${pairing === 'none' ? 'existing devices kept' : browserPairFailed ? 'phone paired; browser pairing failed' : pairing === 'both' ? 'phone and browser paired' : `${pairing} paired`}${!browserPairFailed && (pairing === 'browser' || pairing === 'both') ? ' · browser expires in eight hours' : ''}`,
+        `Pairing: ${pairing === 'none' ? 'existing devices kept' : browserPairFailed ? 'phone paired; browser pairing failed' : pairing === 'both' ? 'phone and control browser paired' : `${pairing} paired`}${!browserPairFailed && (pairing === 'browser' || pairing === 'browser-view' || pairing === 'both') ? ' · browser expires in eight hours' : ''}`,
         `Plugins: bundled${pluginResult.installed.length ? ` + ${pluginResult.installed.map((plugin) => plugin.title).join(', ')}` : ''}`,
         ...(pluginResult.failed.length ? [`Plugin install failed: ${pluginResult.failed.map((plugin) => plugin.title).join(', ')}`] : []),
         'Configuration: ~/.muxr (owner-only)',
@@ -505,15 +507,15 @@ export async function runSharedRelaySetup() {
         process.stderr.write('Revoke the enrolled machines before changing the shared relay endpoint. Their credentials and devices pin the current URL.\n');
         return 1;
     }
-    const web = await select('Host the read-only browser client?', [
+    const web = await select('Host the browser client?', [
         { value: false, title: 'Relay only', description: 'route encrypted native-app traffic only' },
-        { value: true, title: 'Relay + browser', description: 'serve the read-only web client over the same HTTPS origin' },
+        { value: true, title: 'Relay + browser', description: 'serve control or view-only browser clients over the same HTTPS origin' },
     ], current?.webEnabled ? 1 : 0);
     if (aborted(web)) return cancelled();
     heading('Review shared relay');
     note([
         `Public connection: ${connectionLabel(mode, endpoint, port)}`,
-        `Browser client: ${web ? 'read-only web app over HTTPS; grants expire after eight hours' : 'off'}`,
+        `Browser client: ${web ? 'web app over HTTPS; control and view-only grants expire after eight hours' : 'off'}`,
         `Ingress: ${mode === 'tailscale' ? 'muxr-owned Tailscale Serve route' : 'your stable external reverse proxy or named Cloudflare tunnel'}`,
         'Service: supervised relay-only systemd/launchd service with Linux boot persistence; no Herdr or agent host on this server',
         'Authority: owner state remains on this server; enrolled machines receive scoped credentials only',
@@ -525,8 +527,6 @@ export async function runSharedRelaySetup() {
         { value: true, title: 'Apply shared relay', description: 'configure ingress, relay, web, and its service' },
     ], 1);
     if (apply !== true) return cancelled();
-    const servicePrepared = await runDaemon(['install', '--mode', 'relay']);
-    if (servicePrepared !== 0) return servicePrepared;
     const relayArgs = ['--relay-only', '--managed-relay', '--reconfigure', '--port', String(port), '--connection-mode', mode];
     if (mode === 'external') relayArgs.push('--advertise', endpoint);
     if (web) relayArgs.push('--web', '--yes');
@@ -587,8 +587,9 @@ export async function runRemoteRelaySetup() {
     const pairingChoices = [
         { value: 'phone', title: 'Phone', description: 'pair the native app after the host connects' },
         ...(enrollment.web ? [
-            { value: 'browser', title: 'Browser', description: 'pair one read-only browser for eight hours' },
-            { value: 'both', title: 'Phone, then browser', description: 'complete both pairing steps' },
+            { value: 'browser', title: 'Control browser', description: 'full terminal and agent control for eight hours' },
+            { value: 'browser-view', title: 'View-only browser', description: 'observe agents without control for eight hours' },
+            { value: 'both', title: 'Phone, then control browser', description: 'complete both pairing steps' },
         ] : []),
         { value: 'none', title: 'Not now', description: 'connect the host without pairing a client yet' },
     ];
@@ -605,7 +606,7 @@ export async function runRemoteRelaySetup() {
         `Herdr: ${found.herdr.installed ? 'adopt and start existing installation' : 'download, install, and start during setup'}`,
         `Integrations: ${syncIntegrations ? 'sync detected providers' : 'leave unchanged'}`,
         `Plugins: ${plugins.length ? plugins.map((plugin) => plugin.title).join(', ') : 'bundled only'}`,
-        `Pairing: ${pairing === 'none' ? 'not now' : pairing === 'both' ? 'phone, then browser' : pairing}`,
+        `Pairing: ${pairing === 'none' ? 'not now' : pairing === 'both' ? 'phone, then control browser' : pairing}`,
         ...(current === undefined ? [] : [`Existing setup: replace ${current.relayLocation} relay ${current.relayUrl ?? ''}; every existing device needs a fresh pairing`]),
         'No local or remote state changes until you choose Apply connection.',
     ]);
@@ -623,6 +624,7 @@ export async function runRemoteRelaySetup() {
     const connectArgs = ['--enrollment', raw, '--force',
         ...(pairing === 'none' ? ['--no-pair'] : []),
         ...(pairing === 'browser' ? ['--pair-browser'] : []),
+        ...(pairing === 'browser-view' ? ['--pair-browser-view'] : []),
         ...(pairing === 'both' ? ['--pair-both'] : []),
     ];
     const connected = await runRemoteConnect(connectArgs);

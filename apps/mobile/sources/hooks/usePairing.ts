@@ -3,7 +3,7 @@ import { Platform } from 'react-native';
 import { CameraView } from 'expo-camera';
 import { useAuth } from '@/auth/AuthContext';
 import { Modal } from '@/modal';
-import { claimHostedPairing, hostedPairingDisplayName } from '@/state/hostedE2ee';
+import { claimHostedPairing, hostedPairingAuthority, hostedPairingDisplayName } from '@/state/hostedE2ee';
 import { getCachedConnectionSettings, saveConnectionSettings } from '@/state/connectionSettings';
 import { useCheckScannerPermissions } from '@/hooks/useCheckCameraPermissions';
 
@@ -23,10 +23,11 @@ export function useHostedPairing() {
         pairing.current = true;
         try {
             const switching = getCachedConnectionSettings().machineId !== '';
+            const browserAuthority = hostedPairingAuthority(url);
             const approved = await Modal.confirm(
                 `Pair with ${hostedPairingDisplayName(url)}?`,
                 (Platform.OS === 'web'
-                    ? 'This browser receives read-only access for eight hours. Machine keys stay end-to-end encrypted with WebCrypto in this browser.\n\nOnly continue if you just ran `muxr pair --browser` there.'
+                    ? `This browser receives ${browserAuthority === 'control' ? 'full terminal and agent control' : 'view-only access'} for eight hours. Machine keys stay end-to-end encrypted with WebCrypto in this browser.\n\nOnly continue if you just ran \`${browserAuthority === 'control' ? 'muxr pair --browser' : 'muxr pair --browser-view'}\` there.`
                     : 'This phone will be able to read and type into every agent terminal on that computer, answer approvals, and start or stop agents as the user who launched muxr.\n\nOnly continue if you just ran `muxr setup` or `muxr pair` there.')
                 + (switching
                     ? '\n\nThis device is already paired to another machine — pairing switches the active connection to this one. The previous pairing stays saved and you can switch back from Settings.'
@@ -104,6 +105,11 @@ export function usePairQrScanner(onScanned: (url: string) => void, enabled: bool
             return;
         }
         pendingScan = stableHandler;
-        CameraView.launchScanner({ barcodeTypes: ['qr'] });
+        try {
+            await CameraView.launchScanner({ barcodeTypes: ['qr'] });
+        } catch {
+            if (pendingScan === stableHandler) pendingScan = null;
+            Modal.alert('Camera scanner unavailable', 'The system QR scanner could not open. Enter the short pairing string instead, or try again on a device with a working camera scanner.');
+        }
     }, [checkScannerPermissions, stableHandler]);
 }

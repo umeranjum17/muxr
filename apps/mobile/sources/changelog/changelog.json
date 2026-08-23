@@ -1,6 +1,11 @@
 {
   "entries": [
     {
+      "title": "Pairing that stays paired",
+      "summary": "Settings gains QR scanning, browser links become short, and refresh no longer loses access.",
+      "markdown": "- Scan the computer QR directly from Settings → Pair another machine, with manual entry beside it.\n- Pair browsers from one short two-minute HTTPS link instead of copying an enormous payload.\n- Choose full browser control or explicit view-only access; both remain host-enforced and expire after eight hours.\n- Wait for browser storage to commit before setup reports success, recover interrupted grant indexes, and show an explicit recovery screen instead of silently appearing unpaired."
+    },
+    {
       "title": "One tap, one destination",
       "summary": "Pairing, Usage, machine details, and Preview lose their duplicate steps.",
       "markdown": "- Keep Scan QR and manual pairing separate; the manual screen now contains only the string field and Connect.\n- Open the provider-tab Usage screen from one plain pill beside Machine.\n- See the active transport, relay URL, and muxr CLI version in machine details.\n- Preview only detected HTML frontends by page title and carry the paired relay through the tunnel."
@@ -36,5 +41,5 @@
       "markdown": "- Watch sessions, terminals, changes, and attention state from your phone.\n- Send keys, inspect attachments, and start agents in a selected workspace.\n- Use provider-neutral realtime voice or fully local Whisper dictation."
     }
   ],
-  "latestTitle": "One tap, one destination"
+  "latestTitle": "Pairing that stays paired"
 }

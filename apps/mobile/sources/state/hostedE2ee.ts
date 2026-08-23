@@ -21,7 +21,7 @@ import {
     type V2SenderState,
 } from '@muxr/crypto';
 import { relayControlUrl } from '@muxr/contract';
-import { deleteWebSecret, getWebSecret, setWebSecret } from './webSecureStore';
+import { deleteWebSecret, getWebSecret, listWebSecretNames, setWebSecret } from './webSecureStore';
 import { getCachedConnectionSettings, loadConnectionSettingsAsync, saveConnectionSettings } from './connectionSettings';
 import { decodeBase64 } from '@/encryption/base64';
 
@@ -42,6 +42,7 @@ export interface StoredHostedGrant extends DeviceGrant {
 }
 
 let deviceCache: KeyPair | undefined;
+let devicePending: Promise<KeyPair> | undefined;
 let grantsCache: Record<string, StoredHostedGrant> | undefined;
 let replayCache: Record<string, V2ReplaySnapshot> | undefined;
 let replayWrite = Promise.resolve();
@@ -52,19 +53,22 @@ const secretDelete = (key: string): Promise<void> => Platform.OS === 'web' ? del
 
 export async function getOrCreateHostedDeviceKey(): Promise<KeyPair> {
     if (deviceCache !== undefined) return deviceCache;
-    const stored = await secretGet(DEVICE_KEY);
-    if (stored !== null) {
-        const parsed = JSON.parse(stored) as KeyPair;
-        if (typeof parsed.publicKey === 'string' && typeof parsed.secretKey === 'string') {
-            await secretSet(DEVICE_KEY, stored);
-            deviceCache = parsed;
-            return parsed;
+    devicePending ??= (async () => {
+        const stored = await secretGet(DEVICE_KEY);
+        if (stored !== null) {
+            const parsed = JSON.parse(stored) as KeyPair;
+            if (typeof parsed.publicKey === 'string' && typeof parsed.secretKey === 'string') {
+                deviceCache = parsed;
+                return parsed;
+            }
         }
-    }
-    const created = generateKeyPair();
-    await secretSet(DEVICE_KEY, JSON.stringify(created));
-    deviceCache = created;
-    return created;
+        const created = generateKeyPair();
+        await secretSet(DEVICE_KEY, JSON.stringify(created));
+        deviceCache = created;
+        return created;
+    })();
+    try { return await devicePending; }
+    catch (cause) { devicePending = undefined; throw cause; }
 }
 
 const grantKey = (machineId: string): string => `muxr.grant.${machineId}`;
@@ -73,40 +77,41 @@ const GRANTS_INDEX = 'muxr.grants.index';
 async function grants(): Promise<Record<string, StoredHostedGrant>> {
     if (grantsCache !== undefined) return grantsCache;
     // One SecureStore value per machine (~2 KB Android value limit), plus an index.
+    let ids: string[] = [];
     const indexRaw = await secretGet(GRANTS_INDEX);
     if (indexRaw !== null) {
-        let ids: string[] = [];
         try {
             const parsed = JSON.parse(indexRaw) as unknown;
-            if (Array.isArray(parsed)) ids = parsed.filter((e): e is string => typeof e === 'string');
-        } catch {
-            ids = [];
-        }
+            if (Array.isArray(parsed)) ids = parsed.filter((entry): entry is string => typeof entry === 'string');
+        } catch { ids = []; }
+    }
+    if (Platform.OS === 'web') {
+        // Merge committed grant records on every cold load, including an index
+        // that exists but missed the final write before a tab/process died.
+        const storedIds = (await listWebSecretNames())
+            .filter((key) => key.startsWith('muxr.grant.'))
+            .map((key) => key.slice('muxr.grant.'.length));
+        ids = [...new Set([...ids, ...storedIds])];
+    }
+    if (ids.length > 0) {
         const entries = await Promise.all(ids.map(async (id) => {
             try {
                 const raw = await secretGet(grantKey(id));
-                if (raw === null) return undefined;
-                const grant = JSON.parse(raw) as StoredHostedGrant;
-                return [id, grant] as const;
-            } catch {
-                return undefined;
-            }
+                return raw === null ? undefined : [id, JSON.parse(raw) as StoredHostedGrant] as const;
+            } catch { return undefined; }
         }));
-        const live = entries.filter((e) => e !== undefined);
-        // Rewrite the index from what actually loaded: corrupt/orphaned entries self-heal.
-        if (live.length !== ids.length) {
-            await secretSet(GRANTS_INDEX, JSON.stringify(live.map(([id]) => id)));
-        }
+        const live = entries.filter((entry) => entry !== undefined);
+        await secretSet(GRANTS_INDEX, JSON.stringify(live.map(([id]) => id)));
         grantsCache = Object.fromEntries(live);
         return grantsCache;
     }
     // Legacy single-blob migration: split, store per-machine, build the index.
     const stored = await secretGet(GRANTS_KEY);
     const combined = stored === null ? {} : JSON.parse(stored) as Record<string, StoredHostedGrant>;
-    const ids = Object.keys(combined);
-    if (ids.length > 0) {
-        await Promise.all(ids.map((id) => secretSet(grantKey(id), JSON.stringify(combined[id]))));
-        await secretSet(GRANTS_INDEX, JSON.stringify(ids));
+    const legacyIds = Object.keys(combined);
+    if (legacyIds.length > 0) {
+        await Promise.all(legacyIds.map((id) => secretSet(grantKey(id), JSON.stringify(combined[id]))));
+        await secretSet(GRANTS_INDEX, JSON.stringify(legacyIds));
         await secretDelete(GRANTS_KEY);
     }
     grantsCache = combined;
@@ -135,6 +140,12 @@ export async function loadHostedGrant(machineId: string): Promise<StoredHostedGr
 
 export function getCachedHostedGrant(machineId: string): StoredHostedGrant | undefined {
     return grantsCache?.[machineId];
+}
+
+export function currentDeviceAuthority(): 'control' | 'observe' {
+    if (Platform.OS !== 'web') return 'control';
+    const machineId = getCachedConnectionSettings().machineId;
+    return grantsCache?.[machineId]?.authority ?? 'observe';
 }
 
 /** Every machine this device is paired to, for the Settings machine picker. */
@@ -278,6 +289,70 @@ async function json(base: string, path: string, options: RequestInit = {}): Prom
     }
 }
 
+const UNSAFE_PAIRING_TEXT = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f\u200e\u200f\u202a-\u202e\u2066-\u2069]/u;
+
+/** Validate pairing input before confirmation or network access. */
+export function prepareHostedPairingInput(value: string): string {
+    // Terminal-wrapped legacy payloads contain only ordinary ASCII whitespace;
+    // remove that while still rejecting control and bidi spoofing characters.
+    const input = value.trim().replace(/[ \t\r\n]+/g, '');
+    if (input.length === 0) throw new Error('Enter a pairing string from `muxr setup` or `muxr pair`.');
+    if (input.length > 65_536) throw new Error('This pairing string is too large. Create a fresh one on the computer.');
+    if (UNSAFE_PAIRING_TEXT.test(input)) throw new Error('This pairing string contains hidden control characters. Create a fresh one and scan or paste it exactly.');
+
+    let parsed: URL;
+    try { parsed = new URL(input); }
+    catch { throw new Error('This pairing string is not a valid URL. Create a fresh one on the computer.'); }
+    if (parsed.username !== '' || parsed.password !== '') {
+        throw new Error('Unsafe pairing string: text before “@” is treated as login information, not as part of the computer name. muxr did not connect. Create a fresh pairing code and scan or paste it exactly.');
+    }
+    if (parsed.hostname === '') throw new Error('This pairing string has no relay address. Create a fresh one on the computer.');
+
+    if (parsed.protocol === 'ws:' || parsed.protocol === 'wss:') {
+        const codes = parsed.searchParams.getAll('pair');
+        if ((parsed.pathname !== '' && parsed.pathname !== '/') || parsed.hash !== '' || codes.length !== 1
+            || codes[0] === '' || [...parsed.searchParams.keys()].some((key) => key !== 'pair')) {
+            throw new Error('This short pairing string is malformed. Create a fresh one on the computer.');
+        }
+        return input;
+    }
+    const developmentLoopback = typeof __DEV__ !== 'undefined' && __DEV__
+        && parsed.protocol === 'http:' && ['127.0.0.1', 'localhost'].includes(parsed.hostname);
+    if (parsed.protocol === 'muxr:' && parsed.hostname === 'pair') return input;
+    if ((parsed.protocol === 'https:' || developmentLoopback) && parsed.pathname === '/pair') {
+        const codes = parsed.searchParams.getAll('pair');
+        if (codes.length > 0) {
+            const role = parsed.searchParams.get('role');
+            if (codes.length !== 1 || codes[0] === '' || (role !== 'control' && role !== 'observe')
+                || [...parsed.searchParams.keys()].some((key) => key !== 'pair' && key !== 'role') || parsed.hash !== '') {
+                throw new Error('This short browser pairing link is malformed. Create a fresh one on the computer.');
+            }
+            return input;
+        }
+        const fragment = new URLSearchParams(parsed.hash.replace(/^#/, ''));
+        if (parsed.searchParams.has('payload') || parsed.searchParams.get('v') === '2'
+            || fragment.has('payload') || fragment.get('v') === '2') return input;
+        throw new Error('This browser pairing link has no pairing code. Create a fresh one with `muxr pair --browser`.');
+    }
+    throw new Error('This is not a muxr pairing string. Create a fresh one with `muxr setup` or `muxr pair`.');
+}
+
+export function hostedPairingAuthority(url: string): 'control' | 'observe' {
+    const paramsStart = url.search(/[?#]/);
+    const fragment = new URLSearchParams(paramsStart >= 0 ? url.slice(paramsStart + 1) : '');
+    const direct = fragment.get('role') ?? fragment.get('authority');
+    if (direct === 'control' || direct === 'observe') return direct;
+    const compact = fragment.get('payload');
+    if (compact) {
+        try {
+            const authority = JSON.parse(new TextDecoder().decode(decodeBase64(compact, 'base64url'))).authority;
+            if (authority === 'control' || authority === 'observe') return authority;
+        } catch { /* claim reports malformed payloads */ }
+    }
+    // Unknown or legacy consent copy must never understate authority.
+    return 'control';
+}
+
 export function hostedPairingDisplayName(url: string): string {
     const paramsStart = url.search(/[?#]/);
     const fragment = new URLSearchParams(paramsStart >= 0 ? url.slice(paramsStart + 1) : '');
@@ -293,12 +368,14 @@ export function hostedPairingDisplayName(url: string): string {
 interface PendingHostedPair {
     controlBase: string;
     grantPath: string;
+    completePath?: string;
     deviceCredential: string;
     deviceId: string;
     machineId: string;
     machineSigningPublicKey: string;
     relayUrl: string;
     machineName: string;
+    expectedAuthority?: 'control' | 'observe';
     source?: 'selfhost';
 }
 
@@ -340,8 +417,11 @@ async function completePendingHostedPair(pending: PendingHostedPair, wait: boole
         deviceId: pending.deviceId,
     });
     if (verified.machineId !== pending.machineId) throw new Error('pairing machine substitution rejected');
+    const authority = verified.authority ?? (Platform.OS === 'web' ? 'observe' : 'control');
+    if (pending.expectedAuthority !== undefined && authority !== pending.expectedAuthority) throw new Error('pairing authority substitution rejected');
     const stored: StoredHostedGrant = {
         ...verified,
+        authority,
         deviceKey: keys,
         machineBoxPublicKey: sealed.sender,
         credential: pending.deviceCredential,
@@ -350,6 +430,22 @@ async function completePendingHostedPair(pending: PendingHostedPair, wait: boole
         ...(pending.source === undefined ? {} : { source: pending.source }),
     };
     await saveHostedGrant(stored);
+    const [persisted, persistedIndex] = await Promise.all([
+        secretGet(grantKey(stored.machineId)),
+        secretGet(GRANTS_INDEX),
+    ]);
+    let indexed = false;
+    try { indexed = persistedIndex !== null && (JSON.parse(persistedIndex) as unknown[]).includes(stored.machineId); }
+    catch { indexed = false; }
+    if (persisted === null || (JSON.parse(persisted) as StoredHostedGrant).deviceId !== stored.deviceId || !indexed) {
+        throw new Error('browser pairing could not be verified in durable storage; reload to recover or pair again');
+    }
+    if (pending.completePath !== undefined) {
+        await json(pending.controlBase, pending.completePath, {
+            method: 'POST',
+            headers: { authorization: `Bearer ${pending.deviceCredential}` },
+        });
+    }
     await secretDelete(PENDING_PAIR_KEY);
     return stored;
 }
@@ -375,10 +471,20 @@ async function resolvePairingCode(value: string): Promise<string> {
 
 /** Consume a QR/code claim and store the verified machine grant in the platform secret store. */
 export async function claimHostedPairing(url: string): Promise<StoredHostedGrant> {
-    url = url.trim();
-    if (/^wss?:\/\//i.test(url)) url = await resolvePairingCode(url);
-    // Deep-link copy can wrap long browser payloads. URLs contain no meaningful whitespace.
-    url = url.replace(/\s+/g, '');
+    url = prepareHostedPairingInput(url);
+    const initial = new URL(url);
+    let expectedAuthority = initial.searchParams.get('role');
+    if (expectedAuthority !== null && expectedAuthority !== 'control' && expectedAuthority !== 'observe') {
+        throw new Error('pairing link has an invalid browser role');
+    }
+    if ((initial.protocol === 'https:' || initial.protocol === 'http:') && initial.pathname === '/pair' && initial.searchParams.has('pair')) {
+        const locator = new URL(initial.origin);
+        locator.protocol = initial.protocol === 'https:' ? 'wss:' : 'ws:';
+        locator.searchParams.set('pair', initial.searchParams.get('pair')!);
+        url = prepareHostedPairingInput(await resolvePairingCode(locator.toString()));
+    } else if (/^wss?:\/\//i.test(url)) {
+        url = prepareHostedPairingInput(await resolvePairingCode(url));
+    }
     const isSelfhostLink = url.startsWith('muxr://pair?') || url.startsWith('muxr://pair#');
     const parsed = new URL(url);
     const developmentLoopback = typeof __DEV__ !== 'undefined' && __DEV__
@@ -399,6 +505,8 @@ export async function claimHostedPairing(url: string): Promise<StoredHostedGrant
             if (typeof value === 'string') fragment.set(key, value);
         }
     }
+    const payloadAuthority = fragment.get('authority');
+    if (expectedAuthority === null && (payloadAuthority === 'control' || payloadAuthority === 'observe')) expectedAuthority = payloadAuthority;
     if (fragment.get('v') !== '2') throw new Error('unknown pairing link version');
     const rawGeneration = fragment.get('generation');
     const generation = rawGeneration === null ? 1 : Number(rawGeneration);
@@ -412,8 +520,9 @@ export async function claimHostedPairing(url: string): Promise<StoredHostedGrant
     if (![pairId, claim, pairSecret, machineId, machineSigningPublicKey].every((value) => typeof value === 'string' && value.length > 20)) {
         throw new Error('pairing link is incomplete');
     }
-    if (selfhostRelayParam !== null && !/^wss?:\/\/[^/]+/.test(selfhostRelayParam)) {
-        throw new Error('pairing link has an invalid relay URL');
+    if (selfhostRelayParam !== null) {
+        try { relayControlUrl(selfhostRelayParam); }
+        catch (cause) { throw new Error(cause instanceof Error ? cause.message : 'pairing link has an invalid relay URL'); }
     }
     const selfhostRelay = selfhostRelayParam;
     // Self-host links carry the relay in `r`; the control base derives via the canonical helper.
@@ -455,12 +564,14 @@ export async function claimHostedPairing(url: string): Promise<StoredHostedGrant
         grantPath: selfhostRelay !== null
             ? `/v1/selfhost/pair-sessions/${encodeURIComponent(pairId!)}/grant`
             : `/v1/pair-sessions/${encodeURIComponent(pairId!)}/grant`,
+        ...(selfhostRelay !== null && Platform.OS === 'web' ? { completePath: `/v1/selfhost/pair-sessions/${encodeURIComponent(pairId!)}/complete` } : {}),
         deviceCredential,
         deviceId,
         machineId: machineId!,
         machineSigningPublicKey: machineSigningPublicKey!,
         relayUrl: selfhostRelay ?? parsed.origin.replace(/^http/i, 'ws'),
         machineName: hostedPairingDisplayName(url),
+        ...((expectedAuthority === 'control' || expectedAuthority === 'observe') ? { expectedAuthority } : {}),
         ...(selfhostRelay !== null ? { source: 'selfhost' as const } : {}),
     };
     // Claim is one-shot. Persist its credential and binding before waiting so
@@ -528,6 +639,7 @@ export async function clearHostedE2ee(): Promise<void> {
         AsyncStorage.removeItem(REPLAY_KEY),
     ]);
     deviceCache = undefined;
+    devicePending = undefined;
     grantsCache = undefined;
     replayCache = undefined;
 }

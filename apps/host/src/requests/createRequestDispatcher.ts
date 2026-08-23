@@ -56,7 +56,10 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         },
         'session.open': (params) => source.open(params),
         'herdr.tree': async () => source.herdrTree(),
-        'herdr.agentKinds': async () => ({ kinds: await source.agentKinds() }),
+        'herdr.agentKinds': async () => {
+            const kinds = await source.agentKinds();
+            return { kinds, installed: await source.installedAgentKinds(kinds) };
+        },
         'plugin.list': () => { throw new Error('authenticated device context required'); },
         'plugin.manifest': (params) => source.pluginManifest(params),
         'plugin.approve': () => { throw new Error('authenticated device context required'); },
@@ -193,7 +196,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
             const readOnlyPluginRead = readOnly && request.type === 'plugin.call'
                 && source.pluginRpcMode?.(request.params) === 'read';
             if (readOnly && !readOnlyRequests.has(request.type) && !readOnlyPluginRead) {
-                return { type: 'result', requestId: request.requestId, ok: false, error: 'browser grant is read-only; use the native app for control' };
+                return { type: 'result', requestId: request.requestId, ok: false, error: 'this device grant is view-only; pair a control browser or use the native app' };
             }
             if (readOnly && request.type === 'terminal.attach') {
                 request = { ...request, params: { ...request.params, mode: 'observe' } } as ClientRequest;

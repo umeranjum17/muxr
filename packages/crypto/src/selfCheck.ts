@@ -162,6 +162,7 @@ const openedGrant = verifyDeviceGrant(grant, {
 assert.equal(openedGrant.machineId, 'm1');
 assert.equal(openedGrant.devicePublicKey, deviceX.publicKey);
 assert.equal(openedGrant.keyVersion, 2);
+assert.equal(openedGrant.authority, 'control');
 assert.equal(openedGrant.dataKey, Buffer.from(dataRoot).toString('base64'));
 assert.equal(openedGrant.ingressKey, Buffer.from(ingressRoot).toString('base64'));
 

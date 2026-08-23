@@ -626,7 +626,7 @@ export const HerdView = React.memo(({
                     </View>
                     <View style={styles.emptyAction}>
                         {Platform.OS === 'web' ? (
-                            <ActionButton title="Paste browser pairing string" icon="clipboard-outline" onPress={() => router.push('/pair')} />
+                            <ActionButton title="Paste browser pairing link" icon="clipboard-outline" onPress={() => router.push('/pair')} />
                         ) : (
                             <>
                                 <ActionButton title="Scan pairing QR" icon="qr-code-outline" onPress={() => void scanPairQr()} />

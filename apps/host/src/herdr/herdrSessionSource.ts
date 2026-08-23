@@ -8,10 +8,10 @@
  */
 
 import { execFile } from 'node:child_process';
-import { existsSync, mkdirSync, realpathSync } from 'node:fs';
+import { accessSync, constants, existsSync, mkdirSync, realpathSync } from 'node:fs';
 import { mkdir, open, readFile, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { delimiter, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type {
     AgentLifecycle,
@@ -55,6 +55,33 @@ const MAX_PLUGIN_INVOCATIONS_TOTAL = 1_024;
 const moduleRoot = dirname(fileURLToPath(import.meta.url));
 const bundledPluginsRoot = [join(moduleRoot, 'plugins'), join(moduleRoot, '../../../../plugins')].find(existsSync);
 const BROWSER_RPC_PLUGINS_ROOT = bundledPluginsRoot === undefined ? undefined : realpathSync(bundledPluginsRoot);
+
+function executableOnPath(command: string): boolean {
+    const candidates = command === 'qodercli' ? ['qodercli', 'qoder']
+        : command === 'mastracode' ? ['mastracode', 'mastra']
+            : command === 'agy' || command === 'antigravity-cli' ? [command, 'antigravity']
+                : command === 'kilo' ? ['kilo', 'kilocode']
+                    : [command];
+    const home = homedir();
+    const directories = new Set([
+        ...(process.env.PATH ?? '').split(delimiter),
+        join(home, '.local', 'bin'),
+        join(home, '.local', 'share', 'mise', 'shims'),
+        join(home, '.npm-global', 'bin'),
+        '/opt/homebrew/bin',
+        '/usr/local/bin',
+        '/usr/bin',
+        '/bin',
+    ]);
+    for (const directory of directories) {
+        if (directory === '') continue;
+        for (const candidate of candidates) {
+            try { accessSync(join(directory, candidate), constants.X_OK); return true; }
+            catch { /* keep looking */ }
+        }
+    }
+    return false;
+}
 
 function decrement(map: Map<string, number>, key: string): void {
     const next = (map.get(key) ?? 1) - 1;
@@ -1400,6 +1427,10 @@ export async function createHerdrSessionSource(
                 .map((manifest) => manifest.agent?.trim())
                 .filter((agent): agent is string => agent !== undefined && /^[a-z][a-z0-9_-]{0,31}$/.test(agent)))]
                 .slice(0, 64);
+        },
+
+        async installedAgentKinds(kinds: readonly string[]): Promise<string[]> {
+            return kinds.filter(executableOnPath);
         },
 
         async herdrTree(): Promise<{ workspaces: HerdrTreeWorkspace[]; connected: boolean }> {

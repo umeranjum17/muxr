@@ -45,6 +45,23 @@ describe('session.start cwd guard', () => {
     });
 });
 
+describe('agent availability catalog', () => {
+    it('keeps the full Herdr catalog while reporting only launchable executables', async () => {
+        const source = {
+            async agentKinds() { return ['pi', 'claude', 'codex']; },
+            async installedAgentKinds() { return ['claude']; },
+        } as unknown as SessionSource;
+        const { dispatch } = createRequestDispatcher({
+            source,
+            domain: {} as never,
+            machineId: 'm1',
+            hostVersion: '0.0.0',
+        });
+        await expect(dispatch({ type: 'herdr.agentKinds', requestId: 'catalog', params: {} } as never, 'device-1'))
+            .resolves.toMatchObject({ ok: true, data: { kinds: ['pi', 'claude', 'codex'], installed: ['claude'] } });
+    });
+});
+
 describe('plugin device authority', () => {
     it('binds approvals and calls to the authenticated sender and blocks browser mutation', async () => {
         const calls: unknown[] = [];
@@ -64,14 +81,14 @@ describe('plugin device authority', () => {
         const request = { type: 'plugin.approve', requestId: 'approve', params: { pluginId: 'example.ui', manifestHash: 'hash', approved: true } } as never;
         expect(await dispatch(request, 'native-1')).toMatchObject({ ok: true });
         expect(calls).toEqual([{ pluginId: 'example.ui', manifestHash: 'hash', approved: true, deviceId: 'native-1' }]);
-        expect(await dispatch(request, 'browser-1')).toMatchObject({ ok: false, error: expect.stringContaining('read-only') });
+        expect(await dispatch(request, 'browser-1')).toMatchObject({ ok: false, error: expect.stringContaining('view-only') });
         expect(calls).toHaveLength(1);
         const call = { type: 'plugin.call', requestId: 'call', params: { pluginId: 'example.ui', manifestHash: 'hash', contributionId: 'rpc', input: { value: 1 } } } as never;
         expect(await dispatch(call, 'native-1')).toMatchObject({ ok: true, data: { ok: true } });
         expect(calls[1]).toMatchObject({ deviceId: 'native-1', contributionId: 'rpc' });
         expect(await dispatch(call, 'browser-1')).toMatchObject({ ok: true, data: { ok: true } });
         const writeCall = { type: 'plugin.call', requestId: 'call-2', params: { pluginId: 'example.ui', manifestHash: 'hash', contributionId: 'write-rpc' } } as never;
-        expect(await dispatch(writeCall, 'browser-1')).toMatchObject({ ok: false, error: expect.stringContaining('read-only') });
+        expect(await dispatch(writeCall, 'browser-1')).toMatchObject({ ok: false, error: expect.stringContaining('view-only') });
 
         const open = { type: 'session.open', requestId: 'open', params: { sessionId: 'session-1' } } as never;
         expect(await dispatch(open, 'browser-1')).toMatchObject({ ok: true });
@@ -106,7 +123,7 @@ describe('voice provider selection', () => {
         expect(await dispatch({ type: 'voice.provider.list', requestId: 'list', params: {} } as never, 'browser-1'))
             .toMatchObject({ ok: true, data: [{ id: 'xai', selected: true }, { id: 'gemini' }, { id: 'openai' }] });
         expect(await dispatch({ type: 'voice.provider.select', requestId: 'select', params: { providerId: 'gemini' } } as never, 'browser-1'))
-            .toMatchObject({ ok: false, error: expect.stringContaining('read-only') });
+            .toMatchObject({ ok: false, error: expect.stringContaining('view-only') });
         expect(await dispatch({ type: 'voice.provider.select', requestId: 'select', params: { providerId: 'gemini' } } as never, 'native-1'))
             .toMatchObject({ ok: true, data: expect.arrayContaining([expect.objectContaining({ id: 'gemini', selected: true, name: 'gemini' })]) });
     });

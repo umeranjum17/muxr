@@ -9,6 +9,38 @@ import { awaitPersistChain } from './persist.js';
 import { PushService } from './push.js';
 import { MachineRegistry } from './registry.js';
 import { ReplayLog } from './replay.js';
+import { SelfhostPairing } from './selfhostPairing.js';
+
+it('keeps a browser grant recoverable until its role and durable client acknowledgement are confirmed', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'muxr-browser-pairing-'));
+    try {
+        const pairing = new SelfhostPairing(root);
+        const session = await pairing.createSession({
+            claim: 'c'.repeat(43),
+            machineSlug: 'machine-a',
+            deviceKind: 'browser',
+            authority: 'control',
+        });
+        const claimed = await pairing.claim(session.pairId, {
+            claim: 'c'.repeat(43),
+            devicePublicKey: 'device-public-key',
+            deviceName: 'Browser',
+            deviceKind: 'browser',
+            mailbox: 'sealed-mailbox',
+            expiresAt: Date.now() + 60_000,
+        });
+        expect(claimed.state).toBe('issued');
+        if (claimed.state !== 'issued') return;
+        expect(await pairing.poll(session.pairId, 'machine-a')).toMatchObject({ state: 'claimed', authority: 'control', acknowledged: false });
+        await expect(pairing.uploadGrant(session.pairId, 'machine-a', 'sealed-grant')).resolves.toBe(true);
+        await expect(pairing.fetchGrant(session.pairId, claimed.deviceId)).resolves.toBe('sealed-grant');
+        await expect(pairing.fetchGrant(session.pairId, claimed.deviceId)).resolves.toBe('sealed-grant');
+        await expect(pairing.acknowledgeGrant(session.pairId, claimed.deviceId)).resolves.toBe(true);
+        expect(await pairing.poll(session.pairId, 'machine-a')).toMatchObject({ acknowledged: true });
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
 
 it('hardens every relay state path in a custom data directory', async () => {
     const root = await mkdtemp(join(tmpdir(), 'muxr-relay-state-'));

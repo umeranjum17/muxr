@@ -6,10 +6,11 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StyleSheet } from 'react-native-unistyles';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/auth/AuthContext';
-import { claimHostedPairing, hostedPairingDisplayName } from '@/state/hostedE2ee';
+import { claimHostedPairing, hostedPairingAuthority, hostedPairingDisplayName, prepareHostedPairingInput } from '@/state/hostedE2ee';
 import { getCachedConnectionSettings, saveConnectionSettings } from '@/state/connectionSettings';
 import { ActionButton } from '@/components/ActionButton';
 import { Typography } from '@/constants/Typography';
+import { usePairQrScanner } from '@/hooks/usePairing';
 
 /**
  * What pairing actually authorises. The previous copy described only the
@@ -22,15 +23,17 @@ const PHONE_PAIRING_GRANTS = [
     'Start, stop and restart agents — running as the user who launched muxr.',
 ] as const;
 
-const BROWSER_PAIRING_GRANTS = [
-    'Read agent status and terminal output from this browser.',
-    'Keep the machine keys end-to-end encrypted in this browser.',
-    'Use this read-only grant for eight hours, then pair again.',
+const BROWSER_CONTROL_GRANTS = [
+    'Read and type into every agent terminal on that computer.',
+    'Answer approvals and start or stop agents as the user running muxr.',
+    'Keep machine keys end-to-end encrypted in this browser for eight hours.',
 ] as const;
 
-const SHORT_PAIRING_STRING = /^wss?:\/\/[^?\s]+\?[^#\s]*\bpair=[23456789ABCDEFGHJKMNPQRSTUVWXYZ-]+$/i;
-const isPairingValue = (value: string): boolean => SHORT_PAIRING_STRING.test(value)
-    || value.includes('/pair?') || value.includes('/pair#');
+const BROWSER_OBSERVE_GRANTS = [
+    'Read agent status and terminal output from this browser.',
+    'Keep the machine keys end-to-end encrypted in this browser.',
+    'Use this view-only grant for eight hours, then pair again.',
+] as const;
 
 const PAIRING_STEPS = [
     'This phone claims the one-time code from the QR or pairing string.',
@@ -53,7 +56,20 @@ export default function PairScreen() {
     // from getInitialURL, so the raw URL is only a fallback).
     const routeParams = useLocalSearchParams();
     const browser = Platform.OS === 'web';
-    const grants = browser ? BROWSER_PAIRING_GRANTS : PHONE_PAIRING_GRANTS;
+    const openedFromSettings = routeParams.source === 'settings';
+    const reviewPairing = React.useCallback((raw: string) => {
+        try {
+            const url = prepareHostedPairingInput(raw);
+            setState({ phase: 'confirm', url, machineName: hostedPairingDisplayName(url) });
+        } catch (cause) {
+            setState({ phase: 'error', message: cause instanceof Error ? cause.message : String(cause) });
+        }
+    }, []);
+    const scanPairQr = usePairQrScanner(reviewPairing, !browser && openedFromSettings);
+    const browserAuthority = browser && state?.url ? hostedPairingAuthority(state.url) : 'observe';
+    const grants = browser
+        ? browserAuthority === 'control' ? BROWSER_CONTROL_GRANTS : BROWSER_OBSERVE_GRANTS
+        : PHONE_PAIRING_GRANTS;
     const pairingSteps = browser
         ? ['This browser claims the one-time code from the link.', ...PAIRING_STEPS.slice(1)]
         : PAIRING_STEPS;
@@ -63,7 +79,7 @@ export default function PairScreen() {
         if (typeof v !== 'string' || v === '') return undefined;
         const query = new URLSearchParams();
         for (const [key, value] of Object.entries(routeParams)) {
-            if (typeof value !== 'string') continue;
+            if (key === 'source' || typeof value !== 'string') continue;
             // Expo's deep-link parser form-decodes, so the `%2B` in a
             // standard-base64 machinePk arrives as a space and the rebuilt
             // mailbox no longer matches the machine's signing key. base64
@@ -76,12 +92,17 @@ export default function PairScreen() {
 
     React.useEffect(() => {
         let cancelled = false;
-        const receive = (url: string | null) => {
-            if (cancelled || !url || !isPairingValue(url)) return false;
-            setState((current) => current?.url === url
-                ? current
-                : { phase: 'confirm', url, machineName: hostedPairingDisplayName(url) });
-            return true;
+        const receive = (raw: string | null) => {
+            if (cancelled || !raw) return false;
+            try {
+                const url = prepareHostedPairingInput(raw);
+                setState((current) => current?.url === url
+                    ? current
+                    : { phase: 'confirm', url, machineName: hostedPairingDisplayName(url) });
+                return true;
+            } catch {
+                return false;
+            }
         };
         if (routePairUrl !== undefined) {
             receive(routePairUrl);
@@ -130,16 +151,12 @@ export default function PairScreen() {
         });
     }, [state, pair]);
 
-    const connectManual = React.useCallback(() => {
-        const value = pairingValue.trim();
-        if (!isPairingValue(value)) {
-            setState({ phase: 'error', message: 'Enter the short relay and pairing code shown by `muxr pair`.' });
-            return;
-        }
-        setState({ phase: 'confirm', url: value, machineName: hostedPairingDisplayName(value) });
-    }, [pairingValue]);
+    const connectManual = React.useCallback(() => reviewPairing(pairingValue), [pairingValue, reviewPairing]);
 
-    const cancel = React.useCallback(() => router.replace('/'), [router]);
+    const cancel = React.useCallback(() => {
+        if (openedFromSettings) router.back();
+        else router.replace('/');
+    }, [openedFromSettings, router]);
 
     return (
         <View style={[styles.screen, { paddingBottom: insets.bottom + 24 }]}>
@@ -174,7 +191,7 @@ export default function PairScreen() {
                 ) : state?.phase === 'confirm' ? (
                     <>
                         <View style={styles.stepGroup}>
-                            <Text style={styles.stepHeading}>{browser ? 'This browser will be able to' : 'This phone will be able to'}</Text>
+                            <Text style={styles.stepHeading}>{browser ? `This ${browserAuthority === 'control' ? 'control' : 'view-only'} browser will be able to` : 'This phone will be able to'}</Text>
                             {grants.map((grant) => (
                                 <View key={grant} style={styles.stepRow}>
                                     <Ionicons name="ellipse" size={6} color={styles.grantDot.color} style={styles.grantBullet} />
@@ -216,18 +233,20 @@ export default function PairScreen() {
                         <ActionButton title="Back" variant="secondary" onPress={cancel} />
                     </>
                 ) : (
-                    // Manual entry stays separate from the QR action on onboarding.
                     <>
                         {state?.phase === 'error' && (
-                            <Text style={styles.stepText}>{state.message}</Text>
+                            <Text accessibilityRole="alert" style={styles.errorText}>{state.message}</Text>
                         )}
-                        <Text style={styles.inputLabel}>Enter pairing string manually</Text>
+                        {!browser && openedFromSettings && (
+                            <ActionButton title="Scan pairing QR" icon="qr-code-outline" onPress={() => void scanPairQr()} />
+                        )}
+                        <Text style={styles.inputLabel}>{browser ? 'Paste browser pairing string' : openedFromSettings ? 'Or paste the pairing string' : 'Enter pairing string manually'}</Text>
                         <TextInput
                             accessibilityLabel="Pairing string"
                             autoCapitalize="none"
                             autoCorrect={false}
                             keyboardType="url"
-                            placeholder={browser ? 'https://trymuxr.com/pair#…' : 'wss://your-relay?pair=7KDM4-QXP7N'}
+                            placeholder={browser ? 'https://your-relay/pair?pair=7KDM4-QXP7N' : 'wss://your-relay?pair=7KDM4-QXP7N'}
                             placeholderTextColor={styles.inputPlaceholder.color}
                             returnKeyType="go"
                             style={styles.input}

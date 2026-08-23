@@ -86,7 +86,7 @@ export class TerminalManager {
         const record = this.options.identity.get(params.sessionId);
         if (record === undefined) throw new Error(`unknown session: ${params.sessionId}`);
         const mode = this.hosted !== undefined && params.deviceId !== undefined
-            && this.options.hostedE2ee?.deviceKinds?.[params.deviceId] === 'browser'
+            && this.options.hostedE2ee?.deviceAuthorities?.[params.deviceId] === 'observe'
             ? 'observe'
             : params.mode ?? 'control';
         if (mode === 'control' && this.hosted !== undefined) {
