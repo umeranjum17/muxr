@@ -39,15 +39,39 @@ muxr is the control surface built natively for the phone: the full agent lifecyc
 <tr>
 <td width="45%" valign="middle">
 
-### The whole herd, then the exact terminal
+### A real terminal, built for thumbs
 
-Every agent on every machine, grouped by repo, with live status: working, needs you, done. Tap the one that needs you and you are in its real terminal — same scrollback, same session — not a summary of it. Type or dictate the next prompt and the agent continues on your computer.
+Open the same live terminal the agent owns on your computer — native Ghostty rendering, scrollback, modifier keys, attachments, dictation, and a prompt box designed for a phone.
 
 [Watch the full demo →](https://trymuxr.com/#demo)
 
 </td>
 <td width="55%">
-  <a href="https://trymuxr.com/#demo"><picture><source srcset="docs/assets/readme/herd.webp" type="image/webp"><img src="docs/assets/readme/herd.jpg" alt="The muxr herd showing agent lifecycles, then the same agent's live terminal prompted from the phone" width="100%" /></picture></a>
+  <a href="https://trymuxr.com/#demo"><picture><source srcset="docs/assets/readme/terminal.webp" type="image/webp"><img src="docs/assets/readme/terminal.jpg" alt="muxr's native mobile terminal with modifier keys and prompt composer" width="100%" /></picture></a>
+</td>
+</tr>
+<tr>
+<td width="45%" valign="middle">
+
+### Every agent, every machine
+
+The Herd groups agents by repository and shows their real terminal thumbnails and lifecycle: working, needs you, done. Tap any one and you are back in the same session.
+
+</td>
+<td width="55%">
+  <picture><source srcset="docs/assets/readme/herd.webp" type="image/webp"><img src="docs/assets/readme/herd.jpg" alt="The muxr Herd with live terminal thumbnails, repository spaces, and agent lifecycle states" width="100%" /></picture>
+</td>
+</tr>
+<tr>
+<td width="45%" valign="middle">
+
+### Know who needs you
+
+Inbox collects attention across every repository. Open the waiting agent directly instead of hunting through terminals or notification history.
+
+</td>
+<td width="55%">
+  <picture><source srcset="docs/assets/readme/inbox.webp" type="image/webp"><img src="docs/assets/readme/inbox.jpg" alt="muxr Inbox sorting agents that need attention from agents that finished" width="100%" /></picture>
 </td>
 </tr>
 <tr>
@@ -65,7 +89,7 @@ Open the real diff, inspect every changed line, then accept or reject it without
 <tr>
 <td width="45%" valign="middle">
 
-### Talk to the work
+### Talk to the herd
 
 Use native realtime speech-to-speech when typing is the slow part. Ask what changed, give a follow-up, and keep the same agent context.
 
@@ -73,7 +97,7 @@ Use native realtime speech-to-speech when typing is the slow part. Ask what chan
 
 </td>
 <td width="55%">
-  <picture><source srcset="docs/assets/readme/voice.webp" type="image/webp"><img src="docs/assets/readme/voice.jpg" alt="A realtime voice session in muxr" width="100%" /></picture>
+  <picture><source srcset="docs/assets/readme/voice.webp" type="image/webp"><img src="docs/assets/readme/voice.jpg" alt="A native realtime voice session in muxr" width="100%" /></picture>
 </td>
 </tr>
 <tr>
@@ -87,16 +111,16 @@ Connect over Wi-Fi, Tailscale, a relay you run, or muxr Cloud's optional managed
 
 </td>
 <td width="55%">
-  <picture><source srcset="docs/assets/readme/self-host.webp" type="image/webp"><img src="docs/assets/readme/self-host.jpg" alt="muxr connected through an end-to-end encrypted self-hosted relay" width="100%" /></picture>
+  <picture><source srcset="docs/assets/readme/self-host.webp" type="image/webp"><img src="docs/assets/readme/self-host.jpg" alt="muxr's connection screen showing its end-to-end encrypted self-hosted relay" width="100%" /></picture>
 </td>
 </tr>
 </table>
 
 **Also on your phone:**
 
-- **Live terminals and notifications** — see every running session and know the moment one needs you.
-- **Files, attachments, ports, usage, and runbooks** — inspect the machine without squeezing a desktop UI onto a phone.
-- **[Extensions](https://trymuxr.com/docs/plugins)** — add phone-native controls and screens without forking the app.
+- **New agents and worktrees** — choose the machine, repository, worktree, and one of 20+ agent CLIs from the home composer.
+- **Files, attachments, ports, and previews** — inspect outputs or open the dev server an agent just started.
+- **Usage, runbooks, and [extensions](https://trymuxr.com/docs/plugins)** — add phone-native controls and screens without forking the app.
 
 The [release history](https://github.com/umeranjum17/muxr/releases) is the real feature list.
 

@@ -14,10 +14,12 @@ const repo = path.resolve(root, '../..');
 const raw = path.join(root, 'raw/readme');
 const features = path.join(repo, 'docs/assets/readme');
 const clips = [
-    { id: 'readme-herd', name: 'herd', poster: 80 },
-    { id: 'readme-changes', name: 'changes', poster: 120 },
-    { id: 'readme-voice', name: 'voice', poster: 100 },
-    { id: 'readme-self-host', name: 'self-host', poster: 100 },
+    { id: 'readme-terminal', name: 'terminal', poster: 120, fps: 8 },
+    { id: 'readme-herd', name: 'herd', poster: 90, fps: 7 },
+    { id: 'readme-inbox', name: 'inbox', poster: 90, fps: 8 },
+    { id: 'readme-changes', name: 'changes', poster: 150, fps: 8 },
+    { id: 'readme-voice', name: 'voice', poster: 90, fps: 10 },
+    { id: 'readme-self-host', name: 'self-host', poster: 90, fps: 8 },
 ];
 
 await mkdir(raw, { recursive: true });
@@ -42,11 +44,11 @@ for (const clip of clips) {
         frame: clip.poster,
         scale: 0.5,
         imageFormat: 'jpeg',
-        jpegQuality: 90,
+        jpegQuality: 80,
         output: path.join(features, `${clip.name}.jpg`),
     });
-    await exec('ffmpeg', ['-v', 'error', '-i', mp4, '-vf', 'fps=12',
-        '-c:v', 'libwebp', '-lossless', '0', '-compression_level', '6', '-q:v', '54',
+    await exec('ffmpeg', ['-v', 'error', '-i', mp4, '-vf', `fps=${clip.fps}`,
+        '-c:v', 'libwebp', '-lossless', '0', '-compression_level', '6', '-q:v', '50',
         '-loop', '0', '-an', '-y', path.join(features, `${clip.name}.webp`)]);
     await rm(mp4);
     console.log(`${clip.id} -> docs/assets/readme/${clip.name}.{webp,jpg}`);
@@ -55,8 +57,8 @@ for (const clip of clips) {
 const { mp4: hero } = await render('readme-hero', 'muxr-loop');
 const wordmark = path.join(repo, 'apps/mobile/sources/assets/images/wordmark@3x.png');
 await exec('ffmpeg', ['-v', 'error', '-i', hero, '-loop', '1', '-i', wordmark,
-    '-filter_complex', '[0:v]fps=18[base];[1:v]scale=180:-1:flags=neighbor[mark];[base][mark]overlay=W-w-20:H-h-16',
-    '-t', '10', '-c:v', 'libwebp', '-lossless', '0', '-q:v', '78', '-loop', '0', '-an', '-y',
+    '-filter_complex', '[0:v]fps=15[base];[1:v]scale=180:-1:flags=neighbor[mark];[base][mark]overlay=W-w-20:H-h-16',
+    '-t', '10', '-c:v', 'libwebp', '-lossless', '0', '-q:v', '72', '-loop', '0', '-an', '-y',
     path.join(repo, 'docs/demo/muxr-loop.webp')]);
 await rm(hero);
 console.log('readme-hero -> docs/demo/muxr-loop.webp');
