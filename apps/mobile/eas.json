@@ -25,7 +25,7 @@
                 "MUXR_PUBLIC_BASE_URL": "https://trymuxr.com",
                 "MUXR_DISTRIBUTION": "store",
                 "EXPO_PUBLIC_MUXR_MODE": "hosted",
-                "EXPO_PUBLIC_MUXR_RELAY_URL": "wss://trymuxr.com",
+                "EXPO_PUBLIC_MUXR_RELAY_URL": "wss://relay.trymuxr.com",
                 "ORG_GRADLE_PROJECT_reactNativeArchitectures": "arm64-v8a"
             }
         },
