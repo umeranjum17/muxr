@@ -33,6 +33,8 @@
   <img src="docs/screenshots/v0112/dark/connection.png" height="380" alt="muxr connection: self-hosted transport over Tailscale, end-to-end encrypted, you run the relay" />
 </p>
 
+![muxr as an RPG party command center: Herd, terminal, changes, Inbox, voice, and self-hosted relay](docs/art/rpg-cover.png)
+
 ## Why muxr
 
 - **Know when you are needed.** See every agent in one place and spot the ones waiting for input.
