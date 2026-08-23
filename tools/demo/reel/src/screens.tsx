@@ -715,7 +715,7 @@ const PhoneRelay: React.FC = () => {
                     <div style={{ fontFamily: MONO, fontSize: 13, color: APP.sub, marginTop: 4 }}>wss://your-host.ts.net</div>
                     <div style={{ height: 1, background: APP.divider, margin: '12px 0' }} />
                     <div style={{ fontFamily: SANS, fontWeight: 600, fontSize: 16, color: APP.text }}>Versions</div>
-                    <div style={{ fontFamily: SANS, fontSize: 13, color: APP.sub, marginTop: 4 }}>app 0.1.12 · host 0.1.12</div>
+                    <div style={{ fontFamily: SANS, fontSize: 13, color: APP.sub, marginTop: 4 }}>app 0.1.13 · host 0.1.13</div>
                 </div>
             </Card>
             </Rise>

@@ -103,7 +103,7 @@ export const BEATS: Array<{
     { id: 'voice', frames: 270, anchor: 'right',
       lines: ['\u201cWhat changed while I was out?\u201d', 'Voice prompts on your behalf.'] },
     { id: 'herd', frames: 300, anchor: 'right',
-      lines: ['Claude. Codex. Gemini. Cursor.', '22+ agents. One herd.'] },
+      lines: ['Claude. Codex. Gemini. Cursor.', '20+ agents. One herd.'] },
     { id: 'relay', frames: 270, anchor: 'right',
       lines: ['Your Wi-Fi. Tailscale.', 'Or your own relay.'],
       small: 'END-TO-END ENCRYPTED \u00b7 OPEN-SOURCE SELF-HOSTED STACK' },

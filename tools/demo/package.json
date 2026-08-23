@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "reel": "node reel/render.mjs",
+    "readme": "node reel/readme.mjs",
     "deliver": "node reel/deliver.mjs"
   },
   "dependencies": {

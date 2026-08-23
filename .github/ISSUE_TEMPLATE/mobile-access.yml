@@ -1,0 +1,21 @@
+name: TestFlight access
+description: Ask for access to the muxr iOS beta
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Request access here, but **do not post your Apple ID email in this public issue**. A maintainer will share the public TestFlight link or a private next step when a seat is available.
+  - type: input
+    id: device
+    attributes:
+      label: Device and iOS version
+      placeholder: iPhone 15 Pro, iOS 18.6
+    validations:
+      required: true
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy check
+      options:
+        - label: I have not included an email address, pairing string, token, or other credential.
+          required: true
