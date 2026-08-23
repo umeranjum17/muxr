@@ -93,6 +93,12 @@
         <data android:scheme="muxr"/>
         <data android:scheme="exp+muxr"/>
       </intent-filter>
+      <intent-filter android:autoVerify="true">
+        <action android:name="android.intent.action.VIEW"/>
+        <category android:name="android.intent.category.DEFAULT"/>
+        <category android:name="android.intent.category.BROWSABLE"/>
+        <data android:scheme="https" android:host="trymuxr.com" android:pathPrefix="/pair"/>
+      </intent-filter>
       <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts"/>
     </activity>
   </application>
