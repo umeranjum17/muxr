@@ -14,7 +14,7 @@ const repo = path.resolve(root, '../..');
 const raw = path.join(root, 'raw/readme');
 const features = path.join(repo, 'docs/assets/readme');
 const clips = [
-    { id: 'readme-unblock', name: 'unblock', poster: 120 },
+    { id: 'readme-herd', name: 'herd', poster: 80 },
     { id: 'readme-changes', name: 'changes', poster: 120 },
     { id: 'readme-voice', name: 'voice', poster: 100 },
     { id: 'readme-self-host', name: 'self-host', poster: 100 },
@@ -55,8 +55,8 @@ for (const clip of clips) {
 const { mp4: hero } = await render('readme-hero', 'muxr-loop');
 const wordmark = path.join(repo, 'apps/mobile/sources/assets/images/wordmark@3x.png');
 await exec('ffmpeg', ['-v', 'error', '-i', hero, '-loop', '1', '-i', wordmark,
-    '-filter_complex', '[0:v]fps=24[base];[1:v]scale=180:-1:flags=neighbor[mark];[base][mark]overlay=W-w-20:H-h-16',
-    '-t', '9', '-c:v', 'libwebp', '-lossless', '0', '-q:v', '82', '-loop', '0', '-an', '-y',
+    '-filter_complex', '[0:v]fps=18[base];[1:v]scale=180:-1:flags=neighbor[mark];[base][mark]overlay=W-w-20:H-h-16',
+    '-t', '10', '-c:v', 'libwebp', '-lossless', '0', '-q:v', '78', '-loop', '0', '-an', '-y',
     path.join(repo, 'docs/demo/muxr-loop.webp')]);
 await rm(hero);
 console.log('readme-hero -> docs/demo/muxr-loop.webp');

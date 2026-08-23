@@ -10,8 +10,8 @@
 </p>
 
 <p align="center">
-  <strong>Leave your desk. Keep every coding agent moving.</strong><br/>
-  muxr puts the coding agents already running on your computers in your pocket. See which one needs you, answer the approval, review the diff, or just talk to the work. Your code, credentials, and model subscriptions never leave your machines.
+  <strong>Every agent. The real terminal. In your pocket.</strong><br/>
+  muxr is a mobile-first client for the coding agents running on your computers. See the whole herd at a glance — who's working, who needs you, who's done. Open any agent's exact live terminal, prompt it like you're at the desk, and watch it keep executing on your machine. Not a dashboard about your agents — the same session, built for a thumb.
 </p>
 
 <h3 align="center"><a href="https://trymuxr.com/docs/quickstart"><ins>Get muxr</ins></a></h3>
@@ -24,14 +24,14 @@
 </p>
 
 <p align="center">
-  <a href="https://trymuxr.com/#demo"><img src="docs/demo/muxr-loop.webp" alt="A coding agent asks for approval and muxr answers from a phone" width="960" /></a>
+  <a href="https://trymuxr.com/#demo"><img src="docs/demo/muxr-loop.webp" alt="The muxr herd, an agent's exact live terminal, and a prompt continuing on the computer" width="960" /></a>
 </p>
 
 ## Why muxr exists
 
-Coding agents are asynchronous. They run for minutes or hours, then stop for one answer. A desktop-only control plane turns every wait into dead time.
+Coding agents made programming asynchronous: they work for minutes or hours, then stop and wait for you. Your phone is where you already are during those waits — but a terminal squeezed into a phone browser is unusable, and a notification app cannot actually answer.
 
-muxr moves the control surface to your phone. Execution stays where your repositories, tools, credentials, and agent subscriptions already live: on your computers.
+muxr is the control surface built natively for the phone: the full agent lifecycle on one screen, the exact terminal when you tap in, and a prompt box that talks to the same session. Execution, code, credentials, and model subscriptions stay on your computers.
 
 ## See it in action
 
@@ -39,15 +39,15 @@ muxr moves the control surface to your phone. Execution stays where your reposit
 <tr>
 <td width="45%" valign="middle">
 
-### Unblock work from anywhere
+### The whole herd, then the exact terminal
 
-See the exact prompt holding an agent up, answer it from your phone, and watch the same session continue on your computer.
+Every agent on every machine, grouped by repo, with live status: working, needs you, done. Tap the one that needs you and you are in its real terminal — same scrollback, same session — not a summary of it. Type or dictate the next prompt and the agent continues on your computer.
 
 [Watch the full demo →](https://trymuxr.com/#demo)
 
 </td>
 <td width="55%">
-  <a href="https://trymuxr.com/#demo"><picture><source srcset="docs/assets/readme/unblock.webp" type="image/webp"><img src="docs/assets/readme/unblock.jpg" alt="Approving an agent prompt from muxr on a phone" width="100%" /></picture></a>
+  <a href="https://trymuxr.com/#demo"><picture><source srcset="docs/assets/readme/herd.webp" type="image/webp"><img src="docs/assets/readme/herd.jpg" alt="The muxr herd showing agent lifecycles, then the same agent's live terminal prompted from the phone" width="100%" /></picture></a>
 </td>
 </tr>
 <tr>
