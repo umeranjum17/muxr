@@ -6,7 +6,7 @@ The `@trymuxr/cli` package installs the complete self-hosted CLI, relay, host br
 
 ## Quickstart
 
-Requires Node 22+ and [Herdr](https://herdr.dev). If Herdr is missing, setup asks before installing it.
+Requires Node 22+. If [Herdr](https://herdr.dev) is missing, setup installs and verifies it automatically.
 
 ```bash
 npm install -g --ignore-scripts @trymuxr/cli
@@ -15,7 +15,13 @@ muxr
 
 The convenience installer at `https://raw.githubusercontent.com/umeranjum17/muxr/main/install.sh` performs that same npm install without `sudo`; it requires Node 22+ and does not install Node itself.
 
-The interactive onboarding inspects the machine, then asks you to choose the connection method, Herdr and coding-agent integrations, optional plugins, managed services, browser hosting, and phone/browser pairing. Nothing changes until you review and apply the plan. It then verifies the supervised relay and host and reports the selected relay URL, web URL when enabled, and service health without printing credentials. Native setup displays a QR and the same two-minute relay-qualified pairing string for manual entry; browser setup displays a clickable HTTPS pairing link for an eight-hour read-only grant.
+First run:
+
+1. Install muxr on your phone from TestFlight, Google Play internal testing, or the signed Android APK on GitHub Releases.
+2. Run `muxr`. It checks the computer, installs Herdr if needed, and asks how the phone should connect. Start with LAN when both devices use the same wifi.
+3. Review the short plan, choose **Apply setup**, then scan the one-use QR from the phone app.
+
+Nothing changes before **Apply setup**. Setup then verifies the connection and managed services without printing credentials. Run `muxr pair` anytime for a fresh QR.
 
 Run `muxr` with no arguments for the interactive setup and maintenance menu. The same menu can host a supervised shared relay on a VPS, create one-use machine enrollments, or connect a local Herdr host using only a machine-scoped credential.
 

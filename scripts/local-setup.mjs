@@ -26,7 +26,7 @@ const MIN_HERDR = [0, 8, 0];
 const DURABLE_GRANT_EXPIRES_AT = Date.UTC(9999, 11, 31, 23, 59, 59, 999);
 const BROWSER_GRANT_TTL_MS = 8 * 60 * 60_000;
 const HERDR_INSTALL_URL = 'https://herdr.dev/install.sh';
-const HERDR_INSTALL_HINT = 'install herdr >= 0.8.0 from https://herdr.dev';
+const HERDR_INSTALL_HINT = 'run `muxr setup` to install Herdr automatically';
 const START = '<!-- muxr:herdr-skill:start -->';
 const END = '<!-- muxr:herdr-skill:end -->';
 const PACKAGED_CONTROL_URL = '__MUXR_PACKAGED_CONTROL_URL__';
@@ -165,7 +165,31 @@ function run(command, args, options = {}) {
 }
 
 function herdrBin() {
-    return process.env.HERDR_BIN?.trim() || executable('herdr');
+    const configured = env('HERDR_BIN');
+    if (configured) return configured;
+    return executable('herdr') || [
+        join(env('HERDR_INSTALL_DIR') || join(home(), '.local', 'bin'), 'herdr'),
+        '/usr/local/bin/herdr',
+    ].find((candidate) => executable(candidate));
+}
+
+export function tailscaleBin() {
+    const configured = env('MUXR_TAILSCALE_BIN');
+    if (configured) return configured;
+    const onPath = executable('tailscale');
+    if (onPath || platform() !== 'darwin') return onPath;
+    return [
+        join(home(), 'Applications', 'Tailscale.app', 'Contents', 'MacOS', 'Tailscale'),
+        '/Applications/Tailscale.app/Contents/MacOS/Tailscale',
+    ].find((candidate) => executable(candidate));
+}
+
+export function runTailscale(args, options = {}) {
+    const { env: childEnv, ...rest } = options;
+    return spawnSync(tailscaleBin() || 'tailscale', args, {
+        ...rest,
+        env: { ...process.env, TAILSCALE_BE_CLI: '1', ...childEnv },
+    });
 }
 
 function parseVersion(text) {
@@ -318,7 +342,7 @@ function runHerdrInstaller() {
     const scratch = mkdtempSync(join(tmpdir(), 'muxr-herdr-install-'));
     const installer = join(scratch, 'install.sh');
     try {
-        print(`  download Herdr installer for this approved run: ${HERDR_INSTALL_URL}`);
+        print(`  download Herdr installer: ${HERDR_INSTALL_URL}`);
         const downloaded = spawnSync('curl', ['-fsSL', HERDR_INSTALL_URL, '-o', installer], { stdio: 'inherit' });
         if (downloaded.status !== 0) throw new Error('Herdr installer download failed');
         const installed = spawnSync('sh', [installer], { stdio: 'inherit' });
@@ -333,18 +357,6 @@ async function ensureHerdr({ dryRun, noInstall, installRequested }) {
     if (!binary) {
         if (noInstall && installRequested) throw new Error('choose only one of --install-herdr or --no-install-herdr');
         if (noInstall) throw new Error(`herdr is missing; ${HERDR_INSTALL_HINT}`);
-        let approved = installRequested;
-        if (!approved) {
-            if (dryRun) {
-                print('  would ask before installing Herdr [y/N] (default No)');
-                return undefined;
-            }
-            if (!process.stdin.isTTY || !process.stdout.isTTY) {
-                throw new Error(`herdr is missing; ${HERDR_INSTALL_HINT}, or rerun with --install-herdr`);
-            }
-            approved = await askVisible(`Herdr is missing. Download and run ${HERDR_INSTALL_URL}? [y/N] `);
-        }
-        if (!approved) throw new Error(`Herdr installation declined; ${HERDR_INSTALL_HINT}`);
         if (dryRun) {
             print(`  would install Herdr from ${process.env.MUXR_HERDR_INSTALLER?.trim() || HERDR_INSTALL_URL}`);
             return undefined;
@@ -1300,7 +1312,7 @@ function lanAddress() {
 
 export function tailscaleIngress(args) {
     if (args.includes('--tunnel') || flagValue(args, '--advertise') || args.includes('--tailscale-direct')) return undefined;
-    const status = spawnSync('tailscale', ['status', '--json'], { encoding: 'utf8' });
+    const status = runTailscale(['status', '--json'], { encoding: 'utf8' });
     if (status.error?.code === 'ENOENT') return undefined;
     if (status.status !== 0) {
         // A spawn error (EACCES, …) gives status:null and no stderr stream.
@@ -1345,7 +1357,7 @@ function cleanupManagedIngress(state) {
         return;
     }
     if (ingress?.kind !== 'tailscale-serve') return;
-    const current = spawnSync('tailscale', ['serve', 'status', '--json'], { encoding: 'utf8' });
+    const current = runTailscale(['serve', 'status', '--json'], { encoding: 'utf8' });
     if (current.error?.code === 'ENOENT') return;
     if (current.status !== 0) throw new Error('cannot inspect the previous muxr Tailscale Serve route; leaving it unchanged');
     let parsed;
@@ -1355,7 +1367,7 @@ function cleanupManagedIngress(state) {
     const rootProxy = tailscaleRootProxy(parsed, ingress.dnsName);
     if (rootProxy === undefined) return;
     if (rootProxy !== expected) throw new Error('the previous Tailscale Serve route changed outside muxr; leaving it unchanged');
-    const disabled = spawnSync('tailscale', ['serve', '--https=443', 'off'], { encoding: 'utf8' });
+    const disabled = runTailscale(['serve', '--https=443', 'off'], { encoding: 'utf8' });
     if (disabled.status !== 0) throw new Error(`could not remove the previous muxr Tailscale Serve route: ${disabled.stderr.trim() || disabled.stdout.trim()}`);
 }
 
@@ -1396,7 +1408,7 @@ export async function resolveAdvertise(args, port, tailscale) {
         };
     }
     if (tailscale) {
-        const current = spawnSync('tailscale', ['serve', 'status', '--json'], { encoding: 'utf8' });
+        const current = runTailscale(['serve', 'status', '--json'], { encoding: 'utf8' });
         if (current.status !== 0) throw new Error(`cannot inspect Tailscale Serve ownership: ${current.stderr.trim() || 'status failed'}`);
         let rootProxy;
         try { rootProxy = tailscaleRootProxy(JSON.parse(current.stdout || '{}'), tailscale.dnsName); }
@@ -1405,7 +1417,7 @@ export async function resolveAdvertise(args, port, tailscale) {
         if (rootProxy !== undefined && rootProxy !== expected) throw new Error('Tailscale Serve root is already owned by another service; use --tailscale-direct or remove it yourself');
         const serve = rootProxy === expected
             ? { status: 0, stdout: '', stderr: '' }
-            : spawnSync('tailscale', ['serve', '--yes', '--bg', '--https=443', expected], { encoding: 'utf8' });
+            : runTailscale(['serve', '--yes', '--bg', '--https=443', expected], { encoding: 'utf8' });
         if (serve.status !== 0) throw new Error(`tailscale serve failed: ${serve.stderr.trim() || serve.stdout.trim() || 'check operator permissions'}; use --tailscale-direct for direct tailnet mode`);
         return {
             url: `wss://${tailscale.dnsName}`,
@@ -1413,7 +1425,7 @@ export async function resolveAdvertise(args, port, tailscale) {
             ingress: { kind: 'tailscale-serve', port, dnsName: tailscale.dnsName },
         };
     }
-    const status = spawnSync('tailscale', ['status', '--json'], { encoding: 'utf8' });
+    const status = runTailscale(['status', '--json'], { encoding: 'utf8' });
     if (status.status === 0) {
         try {
             const ip = JSON.parse(status.stdout)?.Self?.TailscaleIPs?.find((value) => /^100\./.test(value));
@@ -1949,6 +1961,13 @@ async function runSelfhostPair(state, requestedKind = 'native') {
     if (recoveredPoll === undefined) {
         print('');
         const browser = pending.deviceKind === 'browser';
+        if (!browser) {
+            print('Open the muxr app on your phone before scanning.');
+            print('  Android: https://github.com/umeranjum17/muxr/releases/latest');
+            print('  iPhone: install muxr from your TestFlight invitation');
+            print('Not ready? Press Ctrl-C and run `muxr pair` later.');
+            print('');
+        }
         const pairValue = browser ? pending.pairUrl : pending.pairString;
         const payload = browser && typeof pairValue === 'string' ? new URL(pairValue).searchParams.get('payload') : undefined;
         const browserOrigin = publicRelayUrl(state.relayUrl)?.replace(/^wss/, 'https');
@@ -1984,7 +2003,12 @@ async function runSelfhostPair(state, requestedKind = 'native') {
         if (polled.body.state === 'expired') {
             delete state.machine.crypto.pendingPair;
             writeSelfhostState(state);
-            throw new Error('pairing session expired; run the command again for a fresh QR');
+            if (requestedKind === 'native') {
+                print('Pairing QR expired — creating a fresh one…');
+                // ponytail: one promise frame per renewal; use an outer loop if unattended pairing lasts hours.
+                return runSelfhostPair(state, requestedKind);
+            }
+            throw new Error('browser pairing session expired; run `muxr pair --browser` for a fresh link');
         }
         if (polled.body.state !== 'claimed') throw new Error(`pairing session ${polled.body.state}`);
         const mailbox = polled.body.mailbox;
@@ -2262,7 +2286,13 @@ export async function runDoctor() {
     if (managedMode === 'relay') {
         add('ok', 'profile', 'shared relay only · Herdr and agent integrations not required');
     } else if (!binary) {
-        add('fail', 'herdr', `missing — ${HERDR_INSTALL_HINT}`);
+        add('fail', 'herdr', `missing — ${HERDR_INSTALL_HINT}`, {
+            label: 'install and start Herdr',
+            run: async () => {
+                const installed = await ensureHerdr({ dryRun: false, noInstall: false, installRequested: true });
+                await ensureHerdrServer(installed);
+            },
+        });
     } else {
         const versionResult = run(binary, ['--version']);
         const version = parseVersion(versionResult.stdout);

@@ -39,7 +39,7 @@ Use “muxr help <command>” for command options.
 `;
 
 const COMMAND_HELP = {
-    setup: `muxr setup [--inspect] [--dry-run] [--no-agent-config]\n           [--install-herdr|--no-install-herdr] [--port <n>]\n\nInteractive setup lets you choose networking, integrations, plugins, and services, shows a final plan, then applies it and displays a short-lived pairing QR.\n`,
+    setup: `muxr setup [--inspect] [--dry-run] [--no-agent-config]\n           [--no-install-herdr] [--port <n>]\n\nInteractive setup installs Herdr when missing, lets you choose networking, integrations, plugins, and services, shows a final plan, then applies it and displays a short-lived pairing QR.\n`,
     'self-host': `muxr self-host [--advertise <ws-url>] [--tunnel] [--tailscale-direct]\n               [--port <n>] [--relay-only|--host-only] [--web] [--yes]\n`,
     daemon: `muxr daemon install|uninstall|start|stop|restart|status|logs\n`,
     devices: `muxr devices list\nmuxr devices revoke <number|name>\n`,
@@ -100,7 +100,7 @@ async function printState() {
     heading(`muxr ${versionString()}`);
     const state = readMenuState();
     if (state === undefined) {
-        status('this machine', 'is not set up yet — start with Set up or repair this machine', 'warn');
+        status('this machine', 'is not set up yet — choose Set up this machine', 'warn');
         process.stdout.write('\n');
         return undefined;
     }
@@ -120,7 +120,7 @@ async function printState() {
         const devices = Array.isArray(state.machine?.crypto?.devices) ? state.machine.crypto.devices.length : 0;
         status('host', running
             ? `running · ${devices} paired device${devices === 1 ? '' : 's'}`
-            : 'stopped · start it from Set up or repair this machine', running ? 'ok' : 'warn');
+            : 'stopped · start it from Repair or change setup', running ? 'ok' : 'warn');
     }
     process.stdout.write('\n');
     return state;
@@ -204,10 +204,11 @@ async function dispatch(command, args = []) {
 // Ctrl-c returns "quit" to the main loop; back/esc returns one menu level.
 async function repairMenu() {
     for (;;) {
-        const choice = await select('Set up or repair this machine', [
+        const needsSetup = readMenuState() === undefined;
+        const choice = await select(needsSetup ? 'Set up this machine' : 'Repair this machine', [
             ...(hasPendingRemoteConnect() ? [{ value: 'resume', title: 'Resume remote connection', description: 'finish an enrollment saved before an interrupted setup' }] : []),
-            { value: 'doctor', title: 'Check this setup', description: 'run safe diagnostics without printing secrets' },
-            { value: 'setup', title: 'Change networking and integrations', description: 'inspect, review the plan, then apply' },
+            { value: 'setup', title: needsSetup ? 'Set up this machine' : 'Change setup', description: needsSetup ? 'install Herdr if needed, choose a connection, and pair your phone' : 'change networking, integrations, plugins, or pairing' },
+            { value: 'doctor', title: 'Check for problems', description: 'run safe diagnostics without printing secrets' },
             { value: 'restart', title: 'Restart services', description: 'restart the supervised relay and host' },
             { value: 'update', title: 'Update muxr', description: 'check npm and install the latest release' },
             { value: 'uninstall', title: 'Uninstall muxr', description: 'remove muxr services and managed files; keep Herdr and your data' },
@@ -298,9 +299,9 @@ if (input[0] === undefined && process.stdin.isTTY && process.stdout.isTTY) {
     for (;;) {
         const state = await printState();
         const selected = await select('What would you like to do?', [
-            { value: 'repair', title: hasPendingRemoteConnect() ? 'Resume interrupted setup' : 'Set up or repair this machine', description: 'networking, services, diagnostics, updates' },
+            { value: 'repair', title: hasPendingRemoteConnect() ? 'Resume interrupted setup' : state === undefined ? 'Set up this machine' : 'Repair or change setup', description: state === undefined ? 'install prerequisites, connect this computer, and pair your phone' : 'networking, services, diagnostics, and updates' },
             ...(state !== undefined ? [{ value: 'devices', title: 'Phones and browsers', description: 'pair a new one, or see and revoke what is paired' }] : []),
-            { value: 'relay', title: 'Other machines and shared relay', description: 'this box becomes the relay, or its host dials out to one elsewhere' },
+            ...(state !== undefined ? [{ value: 'relay', title: 'Shared relay and other computers', description: 'advanced multi-computer setup' }] : []),
             { value: 'help', title: 'Show commands', description: 'print the non-interactive command reference' },
             { value: 'quit', title: 'Quit' },
         ]);
@@ -309,10 +310,12 @@ if (input[0] === undefined && process.stdin.isTTY && process.stdout.isTTY) {
             printHelp();
             continue;
         }
-        const result = selected === 'repair' ? await repairMenu()
+        const result = selected === 'repair'
+            ? state === undefined && !hasPendingRemoteConnect() ? await dispatch('setup', []) : await repairMenu()
             : selected === 'devices' ? await devicesMenu()
                 : await relayMenu();
         if (result === 'quit') break;
+        if (typeof result === 'number' && result !== 0) process.exitCode = result;
     }
 } else {
     // argv-supplied commands run once and keep their own exit code.
