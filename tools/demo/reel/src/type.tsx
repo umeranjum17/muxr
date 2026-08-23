@@ -74,7 +74,7 @@ export const BeatText: React.FC<{
                         })}
                         {endsWithPeriod && isLast
                             ? <Dot at={lineStart + words.length * perWord} local={local} size={10} />
-                            : endsWithPeriod ? <span>.</span> : null}
+                            : endsWithPeriod ? <span style={{ marginLeft: '-0.20em' }}>.</span> : null}
                     </div>
                 );
             })}
@@ -97,7 +97,7 @@ export const Dot: React.FC<{ at: number; local: number; size: number }> = ({ at,
     return (
         <span style={{
             display: 'inline-block', width: size, height: size, borderRadius: size / 2,
-            background: GREEN, transform: `scale(${p.toFixed(3)})`,
+            background: GREEN, transform: `scale(${p.toFixed(3)})`, marginLeft: '-0.20em',
         }} />
     );
 };
