@@ -100,6 +100,12 @@ Connect over Wi-Fi, Tailscale, a relay you run, or muxr Cloud's optional managed
 
 The [release history](https://github.com/umeranjum17/muxr/releases) is the real feature list.
 
+## The whole party, in one place
+
+Parallel agents work like a party: each has a job, a state, and moments when it needs you. muxr keeps the real terminals, diffs, inbox, voice, and relay controls together without hiding what is happening.
+
+![muxr as an RPG party command center: Herd, terminal, changes, Inbox, voice, and self-hosted relay](docs/art/rpg-cover.png)
+
 ## Cloud without a cloud computer
 
 Your phone and computer need a way to find each other across networks. They do not need us to run your agents.
