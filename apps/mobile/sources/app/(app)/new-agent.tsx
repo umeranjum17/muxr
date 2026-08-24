@@ -245,7 +245,9 @@ export default function NewAgentScreen() {
                 setCatalogSource(resolved.authoritative ? 'host' : 'fallback');
                 if (resolved.authoritative) {
                     const installed = new Set(resolved.options.filter((option) => option.availability === 'installed').map((option) => option.kind));
-                    setSelected((previous) => new Set([...previous].filter((kind) => installed.has(kind))));
+                    // An empty host probe is usually a broken service environment,
+                    // not proof that the user's saved squad should be erased.
+                    if (installed.size > 0) setSelected((previous) => new Set([...previous].filter((kind) => installed.has(kind))));
                 }
             })
             .catch(() => { if (live) setCatalogSource('fallback'); });

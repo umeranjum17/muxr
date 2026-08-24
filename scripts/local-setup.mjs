@@ -441,7 +441,7 @@ async function ensureBundledPlugins(binary, dryRun) {
     }
 }
 
-/** Absolute paths referenced by a service file's exec line that no longer exist. */
+/** Absolute executable paths pinned by a service file that no longer exist. */
 function staleUnitPaths(unitPath) {
     const content = readFileSync(unitPath, 'utf8');
     // systemd allows -@!:+ prefixes on the executable; strip them before
@@ -451,9 +451,13 @@ function staleUnitPaths(unitPath) {
         ? [...execStart.matchAll(/"([^"]+)"|(\S+)/g)].map((match) => match[1] ?? match[2])
         : [...(content.match(/<key>ProgramArguments<\/key>\s*<array>([\s\S]*?)<\/array>/)?.[1] ?? '')
             .matchAll(/<string>([^<]+)<\/string>/g)].map((match) => match[1]);
-    return tokens
+    const systemdHerdr = content.match(/^Environment=HERDR_BIN=(?:"([^"]+)"|(\S+))$/m);
+    const plistHerdr = content.match(/<key>HERDR_BIN<\/key><string>([^<]+)<\/string>/)?.[1]
+        ?.replaceAll('&quot;', '"').replaceAll('&gt;', '>').replaceAll('&lt;', '<').replaceAll('&amp;', '&');
+    return [...tokens, systemdHerdr?.[1] ?? systemdHerdr?.[2], plistHerdr]
+        .filter((token) => typeof token === 'string')
         // Undo systemd %% escaping so a path containing % is not a false FAIL.
-        .map((token) => token.replaceAll('%%', '%'))
+        .map((token) => token.replaceAll('%%', '%').replaceAll('\\"', '"').replaceAll('\\\\', '\\'))
         .filter((token) => token.startsWith('/') && !existsSync(token));
 }
 
@@ -840,13 +844,20 @@ export async function runIntegrations(args = []) {
             if (status === 'unknown') {
                 print(`  warn: ${id} is not reported by this herdr build; lifecycle integration skipped`);
             } else if (status !== 'current') {
-                print(`  ${dryRun ? 'would run' : 'run'} herdr integration install ${id} (${status})`);
+                print(`  ${dryRun ? 'would install' : 'installing'} ${id} lifecycle integration${status === 'not installed' ? '' : ` (was ${status})`}`);
                 if (!dryRun) {
                     const result = run(binary, ['integration', 'install', id]);
                     if (!result.ok) {
                         print(`  warn: ${id} lifecycle integration skipped (${result.stderr || result.stdout || 'install failed'})`);
                         continue;
                     }
+                    const verified = run(binary, ['integration', 'status']);
+                    const verifiedStatus = verified.ok ? parseIntegrationStatus(verified.stdout).get(id) : undefined;
+                    if (verifiedStatus !== 'current') {
+                        print(`  warn: ${id} lifecycle integration did not verify (${verifiedStatus ?? (verified.stderr || 'status unavailable')})`);
+                        continue;
+                    }
+                    print(`  ✓ ${id} lifecycle integration installed and verified`);
                     if (status === 'not installed' && !manifest.herdrInstalled.includes(id)) manifest.herdrInstalled.push(id);
                 }
             } else {
@@ -977,19 +988,44 @@ function daemonDefinition(mode) {
     if (mode !== undefined && mode !== 'hosted' && mode !== 'selfhost' && mode !== 'relay') throw new Error('--mode must be hosted, selfhost, or relay');
     const cli = realpathSync(process.argv[1]);
     const logs = join(stateDir(), 'logs');
+    const serviceHerdr = herdrBin();
+    const servicePath = [...new Set([
+        ...(process.env.PATH ?? '').split(delimiter),
+        dirname(process.execPath),
+        ...(serviceHerdr === undefined ? [] : [dirname(serviceHerdr)]),
+        join(home(), '.local', 'bin'),
+        join(home(), '.local', 'share', 'mise', 'shims'),
+        join(home(), '.npm-global', 'bin'),
+        join(home(), '.bun', 'bin'),
+        join(home(), '.volta', 'bin'),
+        join(home(), '.deno', 'bin'),
+        join(home(), '.cargo', 'bin'),
+        join(home(), 'Library', 'pnpm'),
+        join(home(), '.yarn', 'bin'),
+        join(home(), '.nix-profile', 'bin'),
+        '/opt/homebrew/bin',
+        '/opt/homebrew/sbin',
+        '/usr/local/bin',
+        '/usr/bin',
+        '/bin',
+    ].filter(Boolean))].join(delimiter);
     if (platform() === 'darwin') {
         const path = join(home(), 'Library', 'LaunchAgents', 'com.muxr.host.plist');
         const environment = [
+            ['PATH', servicePath],
+            ...(serviceHerdr === undefined ? [] : [['HERDR_BIN', serviceHerdr]]),
             ...(mode === undefined ? [] : [['MUXR_MODE', mode]]),
             ...(process.env.MUXR_HOME?.trim() ? [['MUXR_HOME', stateDir()]] : []),
         ];
         const modeEnv = environment.length === 0 ? '' : `\n<key>EnvironmentVariables</key><dict>${environment.map(([key, value]) => `<key>${key}</key><string>${xml(value)}</string>`).join('')}</dict>`;
-        const content = `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict>\n<key>Label</key><string>com.muxr.host</string>\n<key>ProgramArguments</key><array><string>${xml(process.execPath)}</string><string>${xml(cli)}</string><string>up</string></array>${modeEnv}\n<key>RunAtLoad</key><false/>\n<key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>\n<key>StandardOutPath</key><string>${xml(join(logs, 'daemon.log'))}</string>\n<key>StandardErrorPath</key><string>${xml(join(logs, 'daemon.log'))}</string>\n</dict></plist>\n`;
+        const content = `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict>\n<key>Label</key><string>com.muxr.host</string>\n<key>ProgramArguments</key><array><string>${xml(process.execPath)}</string><string>${xml(cli)}</string><string>up</string></array>${modeEnv}\n<key>RunAtLoad</key><true/>\n<key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>\n<key>StandardOutPath</key><string>${xml(join(logs, 'daemon.log'))}</string>\n<key>StandardErrorPath</key><string>${xml(join(logs, 'daemon.log'))}</string>\n</dict></plist>\n`;
         return { path, content, mode: 0o600 };
     }
     if (platform() === 'linux') {
         const path = join(home(), '.config', 'systemd', 'user', 'muxr.service');
         const modeEnv = [
+            `Environment=PATH=${systemdArg(servicePath)}`,
+            ...(serviceHerdr === undefined ? [] : [`Environment=HERDR_BIN=${systemdArg(serviceHerdr)}`]),
             ...(mode === undefined ? [] : [`Environment=MUXR_MODE=${systemdArg(mode)}`]),
             ...(process.env.MUXR_HOME?.trim() ? [`Environment=MUXR_HOME=${systemdArg(stateDir())}`] : []),
         ].join('\n');
@@ -1012,7 +1048,10 @@ function serviceCommand(action) {
         if (action === 'reload') return { ok: true, stdout: '', stderr: '' };
         if (action === 'start') {
             const loaded = run('launchctl', ['print', service]);
-            if (loaded.ok) return run('launchctl', ['kickstart', '-k', service]);
+            if (loaded.ok) {
+                const unloaded = run('launchctl', ['bootout', service]);
+                if (!unloaded.ok) return unloaded;
+            }
             const bootstrapped = run('launchctl', ['bootstrap', domain, plist]);
             return bootstrapped.ok ? run('launchctl', ['kickstart', '-k', service]) : bootstrapped;
         }
@@ -1772,9 +1811,10 @@ async function startMuxrDaemon(mode, args = [], restartRunning = true) {
                 return selfhostRelayHealthy(state);
             })();
             if (relayReady) {
+                const relayDetail = mode === 'selfhost' || mode === 'relay' ? '; relay reachable' : '';
                 print(wasRunning
-                    ? `  ✓ muxr background service ${restartRunning ? 'updated, restarted, and' : 'already running and'} verified in ${mode} mode`
-                    : `  ✓ muxr background service installed, started, and verified in ${mode} mode`);
+                    ? `  ✓ muxr background service ${restartRunning ? 'updated and restarted' : 'already running'} in ${mode} mode${relayDetail}`
+                    : `  ✓ muxr background service installed and running in ${mode} mode${relayDetail}`);
                 return;
             }
         }
@@ -2534,7 +2574,7 @@ export async function runDoctor() {
         const integrations = run(binary, ['integration', 'status']);
         if (integrations.ok) {
             const statuses = parseIntegrationStatus(integrations.stdout);
-            const detected = detectedTargets().map((target) => `${target.id}:${statuses.get(target.id) ?? 'unknown'}`);
+            const detected = detectedLifecycleTargets(statuses).map(([id, status]) => `${id}:${status}`);
             const needsSync = detected.some((status) => !status.endsWith(':current'));
             add(needsSync ? 'warn' : 'ok', 'integrations', needsSync
                 ? `${detected.join(', ')} — run \`muxr integrations sync\``

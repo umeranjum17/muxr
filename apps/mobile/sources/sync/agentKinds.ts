@@ -26,6 +26,14 @@ export function resolveAgentCatalog(result: { kinds?: string[]; installed?: stri
         return { options: kinds.map((kind) => ({ kind, availability: 'unknown' })), authoritative: false };
     }
     const installed = new Set(result.installed.filter((kind) => kinds.includes(kind)));
+    // A non-empty manifest catalog with zero executable hits is usually a
+    // stripped daemon PATH, not authoritative proof that every agent vanished.
+    // Preserve the host's bounded catalog as unknown until at least one probe
+    // succeeds instead of collapsing the composer to Shell and overwriting the
+    // user's saved choice.
+    if (installed.size === 0) {
+        return { options: kinds.map((kind) => ({ kind, availability: 'unknown' })), authoritative: false };
+    }
     return {
         options: kinds.map((kind): AgentCatalogOption => ({
             kind,

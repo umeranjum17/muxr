@@ -494,7 +494,10 @@ try {
     assert.ok(!existsSync(updateLog), 'prefix mismatch reached npm install');
     run(cli, ['update', '--yes'], { cwd: installDir, env: updateEnv });
     assert.match(readFileSync(updateLog, 'utf8'), /install --global --ignore-scripts @trymuxr\/cli@9\.9\.9/);
-    assert.match(readFileSync(join(home, '.config', 'systemd', 'user', 'muxr.service'), 'utf8'), /MUXR_MODE=.*selfhost/, 'update removed the daemon mode');
+    const linuxUnit = readFileSync(join(home, '.config', 'systemd', 'user', 'muxr.service'), 'utf8');
+    assert.match(linuxUnit, /MUXR_MODE=.*selfhost/, 'update removed the daemon mode');
+    assert.ok(linuxUnit.includes(`Environment=PATH="${env.PATH}:`), 'Linux daemon dropped the interactive executable path');
+    assert.ok(linuxUnit.includes(`Environment=HERDR_BIN="${env.HERDR_BIN}"`), 'Linux daemon did not pin the Herdr binary');
     assert.equal(readFileSync(join(home, '.config', 'herdr', 'config.toml'), 'utf8'), configBefore);
     const instructions = readFileSync(instructionPath, 'utf8');
     assert.equal(instructions.match(/muxr:herdr-skill:start/g)?.length, 1);
@@ -632,9 +635,15 @@ try {
     mkdirSync(macHome, { recursive: true });
     const macEnv = cliEnv(macHome, { MUXR_PLATFORM: 'darwin', MUXR_NO_SERVICE_COMMANDS: '' });
     run(cli, ['daemon', 'install'], { cwd: installDir, env: macEnv });
-    assert.match(readFileSync(join(macHome, 'Library', 'LaunchAgents', 'com.muxr.host.plist'), 'utf8'), /com\.muxr\.host/);
+    const macPlist = readFileSync(join(macHome, 'Library', 'LaunchAgents', 'com.muxr.host.plist'), 'utf8');
+    assert.match(macPlist, /com\.muxr\.host/);
+    assert.match(macPlist, /<key>RunAtLoad<\/key><true\/>/, 'macOS daemon will not start automatically after login');
+    assert.ok(macPlist.includes(`<key>PATH</key><string>${macEnv.PATH}:`), 'macOS daemon dropped the interactive executable path');
+    assert.ok(macPlist.includes(`<key>HERDR_BIN</key><string>${macEnv.HERDR_BIN}</string>`), 'macOS daemon did not pin the Herdr binary');
     run(cli, ['daemon', 'start'], { cwd: installDir, env: macEnv });
     assert.match(readFileSync(launchctlLog, 'utf8'), /bootstrap[\s\S]*kickstart/, 'first macOS start did not kickstart after bootstrap');
+    run(cli, ['daemon', 'start'], { cwd: installDir, env: macEnv });
+    assert.match(readFileSync(launchctlLog, 'utf8'), /bootstrap[\s\S]*kickstart[\s\S]*bootout[\s\S]*bootstrap[\s\S]*kickstart/, 'macOS start reused a stale loaded plist');
     run(cli, ['daemon', 'status'], { cwd: installDir, env: macEnv });
     run(cli, ['daemon', 'uninstall'], { cwd: installDir, env: macEnv });
 

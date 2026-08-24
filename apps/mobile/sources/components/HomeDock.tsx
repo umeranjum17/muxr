@@ -641,8 +641,8 @@ export const HomeDock = React.memo(({
     const availableAgents = AGENTS.filter((agent) => visibleAgentKeys.has(agent.key));
     const currentAgent = availableAgents.find((agent) => agent.key === agentType) ?? availableAgents[0] ?? AGENTS[0];
     React.useEffect(() => {
-        if (hostAgentKinds !== null && !hostAgentKinds.includes(agentType)) {
-            setAgentType((hostAgentKinds.find((kind) => kind !== 'shell') ?? 'shell') as NewSessionAgentType);
+        if (hostAgentKinds !== null && hostAgentKinds.some((kind) => kind !== 'shell') && !hostAgentKinds.includes(agentType)) {
+            setAgentType(hostAgentKinds.find((kind) => kind !== 'shell') as NewSessionAgentType);
         }
     }, [agentType, hostAgentKinds, setAgentType]);
     const canSubmit = !isSubmitting && (prompt.trim().length > 0 || selectedImages.length > 0);
@@ -781,8 +781,8 @@ export const HomeDock = React.memo(({
     }, [setAgentType]);
 
     React.useEffect(() => {
-        if (availableAgents.length > 0 && !availableAgents.some((agent) => agent.key === agentType)) {
-            selectAgent(availableAgents[0].key);
+        if (availableAgents.some((agent) => agent.key !== 'shell') && !availableAgents.some((agent) => agent.key === agentType)) {
+            selectAgent(availableAgents.find((agent) => agent.key !== 'shell')!.key);
         }
     }, [agentType, availableAgents, selectAgent]);
 

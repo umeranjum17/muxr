@@ -28,6 +28,7 @@ interface FakeSocket extends EventEmitter {
 const fakes = vi.hoisted(() => ({
     children: [] as FakeChild[],
     sockets: [] as FakeSocket[],
+    failSpawn: false,
 }));
 
 vi.mock('node:child_process', async (importOriginal) => {
@@ -53,6 +54,7 @@ vi.mock('node:child_process', async (importOriginal) => {
             child.stdout = new Emitter();
             child.kill = vi.fn(() => true);
             fakes.children.push(child);
+            queueMicrotask(() => child.emit(fakes.failSpawn ? 'error' : 'spawn', new Error('spawn herdr ENOENT')));
             return child;
         }),
     };
@@ -88,6 +90,7 @@ describe('TerminalManager stream exit', () => {
     beforeEach(() => {
         fakes.children.length = 0;
         fakes.sockets.length = 0;
+        fakes.failSpawn = false;
     });
 
     it('moves same-pane control to the newest device without dropping observers or stealing back', async () => {
@@ -140,6 +143,22 @@ describe('TerminalManager stream exit', () => {
         phoneB!.emit('message', Buffer.from(JSON.stringify(envelope)));
         expect(childA!.stdin.write).not.toHaveBeenCalledWith(expect.stringContaining('stale'));
         expect(childB!.stdin.write).toHaveBeenCalledWith(`${plaintext}\n`);
+    });
+
+    it('rejects attach when Herdr cannot start instead of leaving the phone reconnecting', async () => {
+        const identity = {
+            get: vi.fn(() => ({ paneId: 'workspace:pane' })),
+        } as unknown as IdentityStore;
+        const manager = new TerminalManager({
+            relayUrl: 'ws://relay.test',
+            machineId: 'machine',
+            identity,
+        });
+        fakes.failSpawn = true;
+
+        await expect(manager.attach({ sessionId: 'session', channel: 'channel', cols: 100, rows: 30 }))
+            .rejects.toThrow('could not start Herdr');
+        expect(fakes.sockets[0]?.close).toHaveBeenCalledOnce();
     });
 
     it('does not write a late client frame into a cleanly exited stream', async () => {
