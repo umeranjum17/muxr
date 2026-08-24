@@ -4812,10 +4812,10 @@ expo-constants@55.0.9, expo-constants@~55.0.0, expo-constants@~55.0.8, expo-cons
     "@expo/config" "~55.0.10"
     "@expo/env" "~2.1.1"
 
-expo-crypto@55.0.10, expo-crypto@~55.0.0:
-  version "55.0.10"
-  resolved "https://registry.yarnpkg.com/expo-crypto/-/expo-crypto-55.0.10.tgz#edf64a9d75fa1757fcae466b26fce9b93031b293"
-  integrity sha512-3emt67pWch07F7DPQutn7CUpaiCJI8OOFxCGiwmzeSqSjuWP9upGOXkLQNVWf+29KZQRTVgf88LhDC2GFshMNA==
+expo-crypto@57.0.1, expo-crypto@~57.0.1:
+  version "57.0.1"
+  resolved "https://registry.yarnpkg.com/expo-crypto/-/expo-crypto-57.0.1.tgz#78aef14f4e2bf8ce067f7f6dfd54549805e35551"
+  integrity sha512-xwegXQw3ATgeL1ZuqbSNrGzOeG+zNeh6Z6DSJk825Qpa3TEQQ1kG3ioE1p3g/SNF373BAVz2iBKUTSytlIbBRA==
 
 expo-dev-client@55.0.18, expo-dev-client@~55.0.0:
   version "55.0.18"

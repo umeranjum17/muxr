@@ -51,7 +51,7 @@
     "expo-camera": "~55.0.0",
     "expo-clipboard": "~55.0.0",
     "expo-constants": "~55.0.0",
-    "expo-crypto": "~55.0.0",
+    "expo-crypto": "~57.0.1",
     "expo-dev-client": "~55.0.0",
     "expo-device": "~55.0.0",
     "expo-file-system": "~55.0.0",
