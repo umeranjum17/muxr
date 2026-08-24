@@ -2,8 +2,8 @@
   "entries": [
     {
       "title": "Pairing that stays paired",
-      "summary": "Settings gains QR scanning, browser links become short, and refresh no longer loses access.",
-      "markdown": "- Scan the computer QR directly from Settings → Pair another machine, with manual entry beside it.\n- Pair browsers from one short two-minute HTTPS link instead of copying an enormous payload.\n- Choose full browser control or explicit view-only access; both remain host-enforced and expire after eight hours.\n- Wait for browser storage to commit before setup reports success, recover interrupted grant indexes, and show an explicit recovery screen instead of silently appearing unpaired."
+      "summary": "QRs scan reliably, saved machines switch cleanly, and browser access survives refresh.",
+      "markdown": "- Scan a four-margin terminal QR directly from Settings → Pair another machine, with manual entry beside it.\n- See the active computer on Home and switch saved machines there; stale sessions and forgotten computers disappear immediately.\n- Show the host's real platform and only launchable agents in the Home composer.\n- Pair browsers from one short two-minute HTTPS link with host-enforced control or explicit view-only access.\n- Wait for browser storage to commit before setup reports success, recover interrupted grant indexes, and show an explicit recovery screen instead of silently appearing unpaired."
     },
     {
       "title": "One tap, one destination",

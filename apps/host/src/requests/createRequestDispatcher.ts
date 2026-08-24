@@ -149,7 +149,13 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         'unread.acknowledge': async (params) => domain.unread.acknowledge(params.sessionId, params.throughSeq),
         'attention.catalog': async () => domain.attention.catalog(),
         'machines.list': async () => [
-            { machineId, online: true, hostVersion, lastSeenAt: new Date().toISOString() },
+            {
+                machineId,
+                online: true,
+                hostVersion,
+                platform: process.platform === 'darwin' ? 'macOS' : process.platform === 'win32' ? 'Windows' : process.platform === 'linux' ? 'Linux' : process.platform,
+                lastSeenAt: new Date().toISOString(),
+            },
         ],
         'machine.shell': (params) => runMachineShell(params.command, params.cwd),
         'machine.listDir': (params) => listDir(params.path),

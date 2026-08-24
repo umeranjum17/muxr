@@ -185,7 +185,7 @@ interface StorageState {
     currentViewingSessionId: string | null;
     unreadSessionIds: Set<string>;
     attentionEntries: AttentionEntry[];
-    applySessions: (sessions: (Omit<Session, 'presence'> & { presence?: 'online' | number })[]) => void;
+    applySessions: (sessions: (Omit<Session, 'presence'> & { presence?: 'online' | number })[], replace?: boolean) => void;
     applyHerdrTree: (workspaces: HerdrTreeWorkspace[]) => void;
     applyMachines: (machines: Machine[], replace?: boolean) => void;
     deleteMachine: (machineId: string) => void;
@@ -266,14 +266,15 @@ export const storage = create<StorageState>()((set, get) => ({
     currentViewingSessionId: null,
     unreadSessionIds: new Set<string>(),
     attentionEntries: [],
-    applySessions: (sessions) => set((state) => {
-        const merged = { ...state.sessions };
+    applySessions: (sessions, replace = false) => set((state) => {
+        const merged = replace ? {} as Record<string, Session> : { ...state.sessions };
         for (const session of sessions) {
             // metadata is replaced wholesale, and session.list carries neither a
             // title nor live model/lifecycle state. Carry those over or a catalog
             // refresh briefly turns working/blocked panes into done panes, fires
             // false completion notifications and re-arms the recent-agent buffer.
-            const known = merged[session.id]?.metadata;
+            const previous = replace ? state.sessions[session.id] : merged[session.id];
+            const known = previous?.metadata;
             const metadata = session.metadata === null
                 ? session.metadata
                 : {
@@ -293,7 +294,7 @@ export const storage = create<StorageState>()((set, get) => ({
                           }),
                     ...session.metadata,
                 };
-            const existing = merged[session.id];
+            const existing = previous;
             const catalogHasLifecycle = session.metadata?.agentStatus !== undefined;
             merged[session.id] = {
                 ...existing,

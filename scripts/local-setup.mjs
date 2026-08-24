@@ -43,6 +43,15 @@ const INTEGRATION_COMMANDS = {
 
 const print = (text = '') => process.stdout.write(`${text}\n`);
 const error = (text) => process.stderr.write(`${text}\n`);
+async function printTerminalQr(value) {
+    const qr = await QRCode.toString(value, { type: 'utf8', margin: 4, errorCorrectionLevel: 'M' });
+    const width = Math.max(...qr.split('\n').map((line) => [...line].length));
+    if (process.stdout.columns !== undefined && width > process.stdout.columns) {
+        print(`QR omitted because this terminal is ${process.stdout.columns} columns wide; use the exact string below.`);
+        return;
+    }
+    print(qr.split('\n').map((line) => `\x1b[47m\x1b[30m${line}\x1b[0m`).join('\n'));
+}
 function env(name) {
     return process.env[name]?.trim() || undefined;
 }
@@ -631,7 +640,7 @@ export async function runMachines(command = 'list', args = []) {
                 ...(typeof created.body.web_url === 'string' ? { web: created.body.web_url } : {}) })).toString('base64url');
             const link = `muxr://enroll?payload=${payload}`;
             print('');
-            if (process.stdout.isTTY) print(await QRCode.toString(link, { type: 'terminal', small: true }));
+            if (process.stdout.isTTY) await printTerminalQr(link);
             print('Machine enrollment string (single-use, expires in five minutes):');
             print(link);
             const path = join(stateDir(), 'enrollment-link.txt');
@@ -2185,7 +2194,7 @@ async function runSelfhostPair(state, requestedKind = 'native', requestedAuthori
         }
         const pairValue = pending.pairString;
         if (typeof pairValue !== 'string') throw new Error('pairing string is unavailable');
-        if (!browser && process.stdout.isTTY) print(await QRCode.toString(pairValue, { type: 'terminal', small: true }));
+        if (!browser && process.stdout.isTTY) await printTerminalQr(pairValue);
         print(browser ? `Open this ${pending.authority === 'observe' ? 'view-only' : 'control'} browser link within two minutes:` : 'Pairing string (expires in two minutes):');
         print(pairValue);
         if (browser) print('Browser access expires after eight hours.');
@@ -2396,7 +2405,7 @@ export async function runAccount(command, args = []) {
             });
             const pairUrl = `${result.body.verification_uri}#${fragment}`;
             print(`Open: ${pairUrl}`);
-            if (process.stdout.isTTY) print(await QRCode.toString(pairUrl, { type: 'terminal', small: true }));
+            if (process.stdout.isTTY) await printTerminalQr(pairUrl);
             print('Waiting for the device to claim this single-use pairing session…');
             const expiresAt = Date.now() + Number(result.body.expires_in ?? 300) * 1000;
             while (Date.now() < expiresAt) {

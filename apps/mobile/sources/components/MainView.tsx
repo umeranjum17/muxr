@@ -36,7 +36,11 @@ import { MOBILE_GLASS_HEADER_HEIGHT } from './navigation/headerMetrics';
 import { MobileGlassSurface } from './MobileGlass';
 import { useNewSessionDraft } from '@/hooks/useNewSessionDraft';
 import { useStartSessionFromDraft } from '@/hooks/useStartSessionFromDraft';
-import { currentDeviceAuthority } from '@/state/hostedE2ee';
+import { currentDeviceAuthority, listPairedGrants, type StoredHostedGrant } from '@/state/hostedE2ee';
+import { getCachedConnectionSettings, pairingTransport, saveConnectionSettings } from '@/state/connectionSettings';
+import { useAuth } from '@/auth/AuthContext';
+import { OptionSheet, type ModelMode } from './OptionSheet';
+import { Modal } from '@/modal';
 
 interface MainViewProps {
     variant: 'phone' | 'sidebar';
@@ -124,6 +128,12 @@ const styles = StyleSheet.create((theme) => ({
         fontWeight: '600',
         ...Typography.default('semiBold'),
     },
+    machineTitleButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 3,
+        maxWidth: '100%',
+    },
     statusContainer: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -188,67 +198,116 @@ const TAB_TITLES = {
 // Active tabs
 type ActiveTabType = TabType;
 
-// Header title component with connection status
+// Header title component with connection status and the active saved pairing.
 const HeaderTitle = React.memo(({ activeTab, pluginTitle }: { activeTab: ActiveTabType; pluginTitle?: string }) => {
     const { theme } = useUnistyles();
     const socketStatus = useSocketStatus();
+    const auth = useAuth();
+    const [pairedGrants, setPairedGrants] = React.useState<StoredHostedGrant[]>([]);
+    const [activeMachineId, setActiveMachineId] = React.useState(getCachedConnectionSettings().machineId);
+    const [machinePickerOpen, setMachinePickerOpen] = React.useState(false);
+
+    React.useEffect(() => {
+        let cancelled = false;
+        void listPairedGrants().then((grants) => {
+            if (cancelled) return;
+            setPairedGrants(grants);
+            setActiveMachineId(getCachedConnectionSettings().machineId);
+        });
+        return () => { cancelled = true; };
+    }, [socketStatus.status]);
+
+    const activeGrant = pairedGrants.find((grant) => grant.machineId === activeMachineId);
+    const homeTitle = activeGrant?.machineName || 'Paired computer';
+    const machineOptions = React.useMemo<ModelMode[]>(() => pairedGrants.map((grant) => ({
+        key: grant.machineId,
+        name: grant.machineName || 'Paired computer',
+        description: grant.machineId === activeMachineId ? 'Active' : pairingTransport(grant.relayUrl),
+    })), [activeMachineId, pairedGrants]);
+
+    const openMachinePicker = React.useCallback(async () => {
+        try {
+            const grants = await listPairedGrants();
+            setPairedGrants(grants);
+            setActiveMachineId(getCachedConnectionSettings().machineId);
+            setMachinePickerOpen(true);
+        } catch (cause) {
+            Modal.alert('Could not load machines', cause instanceof Error ? cause.message : String(cause));
+        }
+    }, []);
+
+    const switchMachine = React.useCallback(async (option: ModelMode) => {
+        if (option.key === activeMachineId) return;
+        const grant = pairedGrants.find((entry) => entry.machineId === option.key);
+        if (grant === undefined) return;
+        try {
+            await saveConnectionSettings({
+                ...getCachedConnectionSettings(),
+                mode: 'hosted',
+                relayUrl: grant.relayUrl,
+                machineId: grant.machineId,
+                token: '',
+                selfhost: grant.source === 'selfhost' ? true : undefined,
+            });
+            await auth.login(grant.credential, grant.deviceKey.secretKey);
+            setActiveMachineId(grant.machineId);
+        } catch (cause) {
+            Modal.alert('Could not switch machine', cause instanceof Error ? cause.message : String(cause));
+        }
+    }, [activeMachineId, auth, pairedGrants]);
 
     const connectionStatus = React.useMemo(() => {
         const { status } = socketStatus;
         switch (status) {
             case 'connected':
-                return {
-                    color: theme.colors.status.connected,
-                    isPulsing: false,
-                    text: t('status.connected'),
-                };
+                return { color: theme.colors.status.connected, isPulsing: false, text: t('status.connected') };
             case 'connecting':
-                return {
-                    color: theme.colors.status.connecting,
-                    isPulsing: true,
-                    text: t('status.connecting'),
-                };
+                return { color: theme.colors.status.connecting, isPulsing: true, text: t('status.connecting') };
             case 'disconnected':
-                return {
-                    color: theme.colors.status.disconnected,
-                    isPulsing: false,
-                    text: t('status.disconnected'),
-                };
+                return { color: theme.colors.status.disconnected, isPulsing: false, text: t('status.disconnected') };
             case 'error':
                 return {
                     color: theme.colors.status.error,
                     isPulsing: false,
-                    // socketError is only ever a permanent pairing failure — the
-                    // nav header gets the short label, connection.tsx the sentence.
                     text: socketStatus.error !== null ? t('status.pairingIssue') : t('status.error'),
                 };
             default:
-                return {
-                    color: theme.colors.status.default,
-                    isPulsing: false,
-                    text: '',
-                };
+                return { color: theme.colors.status.default, isPulsing: false, text: '' };
         }
     }, [socketStatus, theme]);
 
+    const isHome = activeTab === 'sessions';
+    const title = activeTab === 'plugin' ? pluginTitle : isHome && activeGrant ? homeTitle : t(TAB_TITLES[activeTab]);
+
     return (
         <View style={styles.titleContainer}>
-            <Text style={styles.titleText}>
-                {activeTab === 'plugin' ? pluginTitle : t(TAB_TITLES[activeTab])}
-            </Text>
+            {isHome && pairedGrants.length > 1 ? (
+                <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`Switch machine, current ${homeTitle}`}
+                    onPress={() => { void openMachinePicker(); }}
+                    style={styles.machineTitleButton}
+                >
+                    <Text style={styles.titleText} numberOfLines={1}>{title}</Text>
+                    <Ionicons name="chevron-down" size={13} color={theme.colors.header.tint} />
+                </Pressable>
+            ) : (
+                <Text style={styles.titleText} numberOfLines={1}>{title}</Text>
+            )}
             {connectionStatus.text && (
                 <View style={styles.statusContainer}>
-                    <StatusDot
-                        color={connectionStatus.color}
-                        isPulsing={connectionStatus.isPulsing}
-                        size={6}
-                        style={{ marginRight: 4 }}
-                    />
-                    <Text numberOfLines={1} style={[styles.statusText, { color: connectionStatus.color }]}>
-                        {connectionStatus.text}
-                    </Text>
+                    <StatusDot color={connectionStatus.color} isPulsing={connectionStatus.isPulsing} size={6} style={{ marginRight: 4 }} />
+                    <Text numberOfLines={1} style={[styles.statusText, { color: connectionStatus.color }]}>{connectionStatus.text}</Text>
                 </View>
             )}
+            <OptionSheet
+                visible={machinePickerOpen}
+                title="Switch machine"
+                options={machineOptions}
+                selectedKey={activeMachineId}
+                onSelect={(option) => { void switchMachine(option); }}
+                onClose={() => setMachinePickerOpen(false)}
+            />
         </View>
     );
 });

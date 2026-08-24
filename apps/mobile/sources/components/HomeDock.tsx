@@ -24,7 +24,7 @@ import { layout } from './layout';
 import { t } from '@/text';
 import { useNewSessionDraft } from '@/hooks/useNewSessionDraft';
 import { PluginSlot } from '@/plugins/PluginSlot';
-import { useAllMachines, useSessions } from '@/sync/storage';
+import { useAllMachines, useSessions, useSocketStatus } from '@/sync/storage';
 import { formatLastSeen, formatPathRelativeToHome } from '@/utils/sessionUtils';
 import { isMachineOnline } from '@/utils/machineUtils';
 import { resolveAbsolutePath } from '@/utils/pathUtils';
@@ -35,10 +35,13 @@ interface ModeOption {
     key: string;
     name: string;
     description?: string;
+    agentKind?: string;
 }
 import { AGENT_TYPES, type NewSessionAgentType } from '@/sync/persistence';
 import { useImagePicker } from '@/hooks/useImagePicker';
 import { Modal } from '@/modal';
+import { sync } from '@/sync/sync';
+import { resolveAgentCatalog } from '@/sync/agentKinds';
 
 export const MOBILE_HOME_DOCK_CONTENT_INSET = 108;
 
@@ -60,6 +63,7 @@ const AGENT_NAMES: Partial<Record<NewSessionAgentType, string>> = {
 const AGENTS = AGENT_TYPES.map((key) => ({
     key,
     name: AGENT_NAMES[key] ?? key.replace(/(^|[-_])(\w)/g, (_, prefix, letter) => `${prefix ? ' ' : ''}${letter.toUpperCase()}`),
+    ...(key === 'shell' ? {} : { agentKind: key }),
 }));
 
 const styles = StyleSheet.create((theme) => ({
@@ -510,6 +514,8 @@ export const HomeDock = React.memo(({
     const setPath = useNewSessionDraft((state) => state.setPath);
     const setSessionType = useNewSessionDraft((state) => state.setSessionType);
     const setWorktreeKey = useNewSessionDraft((state) => state.setWorktreeKey);
+    const socketStatus = useSocketStatus();
+    const [hostAgentKinds, setHostAgentKinds] = React.useState<string[] | null>(null);
     const machines = useAllMachines({ includeOffline: true });
     const sessions = useSessions();
     const selectedMachine = React.useMemo(
@@ -617,8 +623,28 @@ export const HomeDock = React.memo(({
         return options;
     }, [agentType, existingWorktrees, supportsWorktree, worktreeKey]);
     const currentWorktree = resolveOption(worktreeOptions, [selectedWorktreeKey]);
-    const availableAgents = AGENTS;
-    const currentAgent = availableAgents.find((agent) => agent.key === agentType) ?? availableAgents[0];
+    React.useEffect(() => {
+        let cancelled = false;
+        setHostAgentKinds(null);
+        if (socketStatus.status !== 'connected') return () => { cancelled = true; };
+        void sync.request('herdr.agentKinds', {}).then((result) => {
+            if (cancelled) return;
+            const resolved = resolveAgentCatalog(result);
+            const launchable = resolved.options
+                .filter((option) => option.availability !== 'unavailable')
+                .map((option) => option.kind);
+            setHostAgentKinds([...new Set(['shell', ...launchable])]);
+        }).catch(() => { if (!cancelled) setHostAgentKinds(null); });
+        return () => { cancelled = true; };
+    }, [socketStatus.status]);
+    const visibleAgentKeys = new Set(hostAgentKinds ?? ['shell', agentType]);
+    const availableAgents = AGENTS.filter((agent) => visibleAgentKeys.has(agent.key));
+    const currentAgent = availableAgents.find((agent) => agent.key === agentType) ?? availableAgents[0] ?? AGENTS[0];
+    React.useEffect(() => {
+        if (hostAgentKinds !== null && !hostAgentKinds.includes(agentType)) {
+            setAgentType((hostAgentKinds.find((kind) => kind !== 'shell') ?? 'shell') as NewSessionAgentType);
+        }
+    }, [agentType, hostAgentKinds, setAgentType]);
     const canSubmit = !isSubmitting && (prompt.trim().length > 0 || selectedImages.length > 0);
     const focusedComposerHeight = selectedImages.length > 0 ? 206 : 126;
     const keyboardStyle = useAnimatedStyle(() => ({

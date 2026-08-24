@@ -157,6 +157,7 @@ class MuxrSync {
     private pendingShell = new Map<string, (outcome: ShellOutcome) => void>();
     private openedSessions = new Set<string>();
     private opening = new Map<string, Promise<void>>();
+    private activeMachineId: string | undefined;
     private herdrTreeRequest = 0;
     encryption!: Encryption;
     anonID = 'muxr-local';
@@ -397,6 +398,7 @@ class MuxrSync {
         if (!this.hasTransport()) {
             storage.getState().setSocketStatus('disconnected');
             storage.getState().applyMachines([], true);
+            storage.getState().applySessions([], true);
             storage.getState().applyHerdrTree([]);
             storage.getState().markSessionsLoaded();
             await this.refreshAccountSession();
@@ -421,8 +423,8 @@ class MuxrSync {
             client.request('attention.catalog', {}).catch(() => ({ revision: 0, entries: [] })),
             this.refreshHerdTree().catch(() => undefined),
         ]);
-        storage.getState().applyMachines(machines.map(machineInfoToMachine));
-        storage.getState().applySessions(sessions.map((info) => sessionInfoToSession(info)));
+        storage.getState().applyMachines(machines.map(machineInfoToMachine), true);
+        storage.getState().applySessions(sessions.map((info) => sessionInfoToSession(info)), true);
         storage.getState().markSessionsLoaded();
         storage.getState().applyAttentionCatalog(attention.entries);
     }
@@ -482,6 +484,16 @@ class MuxrSync {
         this.credentials = credentials;
         await this.initEncryption(credentials);
         const settings = await loadConnectionSettingsAsync();
+        const switchedMachine = this.activeMachineId !== undefined && this.activeMachineId !== settings.machineId;
+        this.activeMachineId = settings.machineId;
+        if (switchedMachine) {
+            this.openedSessions.clear();
+            this.opening.clear();
+            this.herdrTreeRequest += 1;
+            storage.getState().applyMachines([], true);
+            storage.getState().applySessions([], true);
+            storage.getState().applyHerdrTree([]);
+        }
         if (settings.mode === 'hosted' && settings.machineId !== '') {
             await loadHostedGrant(settings.machineId);
             await refreshHostedGrant(settings.machineId);

@@ -34,13 +34,12 @@ import {
     saveConnectionSettings,
 } from '@/state/connectionSettings';
 
-import { FALLBACK_AGENT_KINDS } from '@/sync/agentKinds';
+import { FALLBACK_AGENT_KINDS, resolveAgentCatalog, type AgentCatalogOption } from '@/sync/agentKinds';
 import { getCachedHostedGrant } from '@/state/hostedE2ee';
 
 const MAX_SQUAD = 4;
 const MAX_RECENT_CHIPS = 6;
-type AgentAvailability = 'installed' | 'unavailable' | 'unknown';
-type AgentOption = { kind: string; availability: AgentAvailability };
+type AgentOption = AgentCatalogOption;
 const MAX_WORKSPACE_ROWS = 6;
 
 function basename(path: string): string {
@@ -241,22 +240,13 @@ export default function NewAgentScreen() {
             .request('herdr.agentKinds', {})
             .then((result) => {
                 if (!live) return;
-                const kinds = [...new Set((result.kinds ?? []).filter((kind) => /^[a-z][a-z0-9_-]{0,31}$/.test(kind)))].slice(0, 64);
-                if (kinds.length === 0) { setCatalogSource('fallback'); return; }
-                if (!Array.isArray(result.installed)) {
-                    setCatalog(kinds.map((kind) => ({ kind, availability: 'unknown' })));
-                    setCatalogSource('fallback');
-                    return;
+                const resolved = resolveAgentCatalog(result);
+                setCatalog(resolved.options);
+                setCatalogSource(resolved.authoritative ? 'host' : 'fallback');
+                if (resolved.authoritative) {
+                    const installed = new Set(resolved.options.filter((option) => option.availability === 'installed').map((option) => option.kind));
+                    setSelected((previous) => new Set([...previous].filter((kind) => installed.has(kind))));
                 }
-                const installed = new Set(result.installed.filter((kind) => kinds.includes(kind)));
-                const options = kinds.map((kind): AgentOption => ({
-                    kind,
-                    availability: installed.has(kind) ? 'installed' : 'unavailable',
-                })).sort((left, right) => Number(right.availability === 'installed') - Number(left.availability === 'installed')
-                    || left.kind.localeCompare(right.kind));
-                setCatalog(options);
-                setCatalogSource('host');
-                setSelected((previous) => new Set([...previous].filter((kind) => installed.has(kind))));
             })
             .catch(() => { if (live) setCatalogSource('fallback'); });
         return () => {

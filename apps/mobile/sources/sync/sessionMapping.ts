@@ -131,7 +131,7 @@ export function machineInfoToMachine(info: MachineInfo): Machine {
         activeAt: parseTime(info.lastSeenAt),
         metadata: {
             host: '',
-            platform: 'linux',
+            platform: info.platform ?? '',
             muxrCliVersion: info.hostVersion ?? 'muxr',
             muxrHomeDir: '',
             homeDir: '',
