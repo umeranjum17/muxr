@@ -19,7 +19,7 @@ import {
     writeFileSync,
 } from 'node:fs';
 import { homedir, hostname, networkInterfaces, platform as hostPlatform, tmpdir, userInfo } from 'node:os';
-import { basename, delimiter, dirname, join, resolve } from 'node:path';
+import { basename, delimiter, dirname, isAbsolute, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 
 const MIN_HERDR = [0, 8, 0];
@@ -44,10 +44,20 @@ const INTEGRATION_COMMANDS = {
 const print = (text = '') => process.stdout.write(`${text}\n`);
 const error = (text) => process.stderr.write(`${text}\n`);
 async function printTerminalQr(value) {
+    if (!process.stdout.isTTY || process.env.TERM === 'dumb' || process.env.NO_COLOR !== undefined
+        || process.env.MUXR_NO_TUI === '1' || process.env.SSH_CONNECTION) {
+        print('QR omitted in append-only/plain output; use the exact pairing string below.');
+        return;
+    }
     const qr = await QRCode.toString(value, { type: 'utf8', margin: 4, errorCorrectionLevel: 'M' });
-    const width = Math.max(...qr.split('\n').map((line) => [...line].length));
-    if (process.stdout.columns !== undefined && width > process.stdout.columns) {
-        print(`QR omitted because this terminal is ${process.stdout.columns} columns wide; use the exact string below.`);
+    const lines = qr.split('\n');
+    const width = Math.max(...lines.map((line) => [...line].length));
+    const tooWide = process.stdout.columns !== undefined && width > process.stdout.columns;
+    // Pairing prints the exact string, save location, and waiting state after
+    // the QR. Keep those rows plus the complete quiet zone visible together.
+    const tooTall = process.stdout.rows !== undefined && lines.length + 5 > process.stdout.rows;
+    if (tooWide || tooTall) {
+        print(`QR omitted because this terminal is ${process.stdout.columns ?? 'too few'} columns × ${process.stdout.rows ?? 'too few'} rows; use the exact pairing string below.`);
         return;
     }
     print(qr.split('\n').map((line) => `\x1b[47m\x1b[30m${line}\x1b[0m`).join('\n'));
@@ -175,11 +185,12 @@ function run(command, args, options = {}) {
 
 function herdrBin() {
     const configured = env('HERDR_BIN');
-    if (configured) return configured;
-    return executable('herdr') || [
+    const selected = configured ? executable(configured) : executable('herdr') || [
         join(env('HERDR_INSTALL_DIR') || join(home(), '.local', 'bin'), 'herdr'),
         '/usr/local/bin/herdr',
     ].find((candidate) => executable(candidate));
+    if (configured && selected === undefined) throw new Error(`HERDR_BIN does not resolve to an executable: ${configured}`);
+    return selected === undefined ? undefined : realpathSync(resolve(selected));
 }
 
 export function tailscaleBin() {
@@ -484,6 +495,7 @@ function herdrServiceUnitPaths() {
  * genuinely stale pinned path; never touch a unit whose exec still resolves.
  */
 function repairHerdrServiceUnits(binary, dryRun) {
+    const repaired = [];
     for (const unitPath of herdrServiceUnitPaths()) {
         const pinned = staleUnitPaths(unitPath).find((path) => basename(path) === 'herdr');
         if (pinned === undefined || pinned === binary) continue;
@@ -501,18 +513,27 @@ function repairHerdrServiceUnits(binary, dryRun) {
         const backupPath = backup(unitPath);
         atomicWrite(unitPath, updated, statSync(unitPath).mode & 0o777);
         print(`  repaired ${unitPath}: was \`${execLine}\`, now runs ${binary} (backup: ${backupPath})`);
+        repaired.push(unitPath);
         if (env('MUXR_NO_SERVICE_COMMANDS') !== '1' && platform() === 'linux') run('systemctl', ['--user', 'daemon-reload']);
     }
+    return repaired;
 }
 
 /** Start herdr through its own service manager so it stays managed. */
 function startHerdrServiceUnits(unitPaths) {
     for (const unitPath of unitPaths) {
         if (platform() === 'darwin') {
-            const service = `gui/${process.getuid()}/${basename(unitPath, '.plist')}`;
+            const domain = `gui/${process.getuid()}`;
+            const service = `${domain}/${basename(unitPath, '.plist')}`;
             const loaded = run('launchctl', ['print', service]);
-            if (loaded.ok) run('launchctl', ['kickstart', '-k', service]);
-            else run('launchctl', ['bootstrap', `gui/${process.getuid()}`, unitPath]);
+            if (loaded.ok) {
+                const unloaded = run('launchctl', ['bootout', service]);
+                if (!unloaded.ok) throw new Error(unloaded.stderr || unloaded.stdout || `could not unload ${service}`);
+            }
+            const bootstrapped = run('launchctl', ['bootstrap', domain, unitPath]);
+            if (!bootstrapped.ok) throw new Error(bootstrapped.stderr || bootstrapped.stdout || `could not load ${service}`);
+            const started = run('launchctl', ['kickstart', '-k', service]);
+            if (!started.ok) throw new Error(started.stderr || started.stdout || `could not start ${service}`);
         } else {
             run('systemctl', ['--user', 'start', basename(unitPath)]);
         }
@@ -525,7 +546,10 @@ function startHerdrServiceUnits(unitPaths) {
  */
 export async function ensureHerdrServer(binary = herdrBin(), dryRun = false) {
     if (!binary) throw new Error(`herdr is missing; ${HERDR_INSTALL_HINT}`);
-    repairHerdrServiceUnits(binary, dryRun);
+    const repaired = repairHerdrServiceUnits(binary, dryRun);
+    if (!dryRun && repaired.length > 0 && env('MUXR_NO_SERVICE_COMMANDS') !== '1' && platform() === 'darwin') {
+        startHerdrServiceUnits(repaired);
+    }
     let status = run(binary, ['status']);
     if (!status.ok) {
         if (dryRun) {
@@ -537,7 +561,7 @@ export async function ensureHerdrServer(binary = herdrBin(), dryRun = false) {
                 // Start the managed unit, not a stray process: a direct spawn
                 // lands in muxr.service's cgroup (`muxr daemon stop` kills
                 // herdr) and races the systemd-started server at boot.
-                startHerdrServiceUnits(units);
+                if (repaired.length === 0 || platform() !== 'darwin') startHerdrServiceUnits(units);
             } else {
                 logPath = join(stateDir(), 'logs', 'herdr.log');
                 ensurePrivateDir(dirname(logPath));
@@ -1008,7 +1032,7 @@ function daemonDefinition(mode) {
         '/usr/local/bin',
         '/usr/bin',
         '/bin',
-    ].filter(Boolean))].join(delimiter);
+    ].filter((directory) => typeof directory === 'string' && isAbsolute(directory)))].join(delimiter);
     if (platform() === 'darwin') {
         const path = join(home(), 'Library', 'LaunchAgents', 'com.muxr.host.plist');
         const environment = [
@@ -1287,11 +1311,75 @@ function loadAuthState() {
             throw new Error(`${authPath()} must be a regular owner-only file`);
         }
         const parsed = JSON.parse(readFileSync(authPath(), 'utf8'));
-        return parsed.version === 1 ? parsed : undefined;
+        if (parsed.version !== 1) throw new Error(`${authPath()} has an unsupported schema`);
+        return parsed;
     } catch (cause) {
         if (cause?.code === 'ENOENT') return undefined;
         throw cause;
     }
+}
+
+function validMachineCrypto(value, expected) {
+    if (typeof value !== 'object' || value === null) return false;
+    const validBase64 = (text, bytes) => {
+        if (typeof text !== 'string' || text.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(text)) return false;
+        try { return Buffer.from(text, 'base64').length === bytes; } catch { return false; }
+    };
+    const keys = validBase64(value.signingPublicKey, 32)
+        && validBase64(value.signingSecretKey, 64)
+        && validBase64(value.boxPublicKey, 32)
+        && validBase64(value.boxSecretKey, 32)
+        && validBase64(value.dataKey, 32);
+    const parseGrant = (text) => {
+        if (typeof text !== 'string' || text.length === 0) return undefined;
+        try {
+            const grant = JSON.parse(text);
+            return grant.v === 1
+                && validBase64(grant.sender, 32)
+                && validBase64(grant.signer, 32)
+                && validBase64(grant.sig, 64)
+                && typeof grant.box === 'string'
+                && /^[A-Za-z0-9+/]+={0,2}$/.test(grant.box)
+                && Buffer.from(grant.box, 'base64').length > 40
+                ? grant : undefined;
+        } catch { return undefined; }
+    };
+    const validDevice = (device) => typeof device === 'object' && device !== null
+        && typeof device.deviceId === 'string' && device.deviceId.length > 0
+        && validBase64(device.devicePublicKey, 32)
+        && validBase64(device.ingressKey, 32)
+        && typeof device.expiresAt === 'string' && Number.isFinite(Date.parse(device.expiresAt))
+        && (device.kind === undefined || device.kind === 'browser')
+        && (device.authority === undefined || device.authority === 'control' || device.authority === 'observe');
+    if (!keys || !Number.isInteger(value.keyVersion) || value.keyVersion < 1
+        || !Array.isArray(value.devices) || !value.devices.every(validDevice)
+        || new Set(value.devices.map((device) => device.deviceId)).size !== value.devices.length) return false;
+    const pending = value.pendingRotation;
+    if (pending === undefined) return true;
+    if (!validBase64(pending.dataKey, 32) || !Array.isArray(pending.devices) || !pending.devices.every(validDevice)
+        || new Set(pending.devices.map((device) => device.deviceId)).size !== pending.devices.length
+        || !Array.isArray(pending.grants) || pending.grants.length !== pending.devices.length) return false;
+    const selfhost = pending.kind === 'selfhost-revoke-v1';
+    if (expected === 'hosted' ? selfhost : !selfhost) return false;
+    const versionValid = selfhost
+        ? Number.isInteger(pending.previousKeyVersion) && Number.isInteger(pending.keyVersion)
+            && pending.keyVersion === pending.previousKeyVersion + 1
+            && (value.keyVersion === pending.previousKeyVersion || value.keyVersion === pending.keyVersion)
+            && typeof pending.revokedDeviceId === 'string' && typeof pending.revokedDeviceName === 'string'
+        : pending.kind === undefined && Number.isInteger(pending.keyVersion) && pending.keyVersion === value.keyVersion + 1;
+    if (!versionValid) return false;
+    const byId = new Map(pending.devices.map((device) => [device.deviceId, device]));
+    const expectedKeys = new Set(pending.devices.map((device) => device.devicePublicKey));
+    const seen = new Set();
+    return pending.grants.every((entry) => {
+        if (typeof entry !== 'object' || entry === null) return false;
+        const deviceKey = selfhost ? byId.get(entry.deviceId)?.devicePublicKey : entry.device_public_key;
+        const grant = parseGrant(entry.grant);
+        if (typeof deviceKey !== 'string' || !expectedKeys.has(deviceKey) || seen.has(deviceKey) || grant === undefined
+            || grant.sender !== value.boxPublicKey || grant.signer !== value.signingPublicKey) return false;
+        seen.add(deviceKey);
+        return true;
+    }) && seen.size === expectedKeys.size;
 }
 
 function machineIdentity(existing) {
@@ -2365,10 +2453,13 @@ export async function runSetup(args = []) {
         }
         if (dryRun) print('  would start/resume hosted device authorization and single-use QR pairing');
         else if ((await runHostedLogin(args)) !== 0) throw new Error('hosted login failed');
+        // Bring the host online before showing a device QR. The old order let
+        // the phone claim a grant and begin connecting to a host that did not
+        // exist yet on a clean machine.
+        await startMuxrDaemon('hosted', args);
         if (!dryRun && process.env.MUXR_SKIP_HOSTED_AUTH !== '1' && (await runAccount('pair')) !== 0) {
             throw new Error('secure device pairing failed');
         }
-        await startMuxrDaemon('hosted', args);
         print('  Live Voice is optional; configure it from the muxr Voice plugin pane.');
         print('Ready — open muxr.');
         return 0;
@@ -2548,17 +2639,59 @@ export async function runDoctor() {
     add(runtime ? 'ok' : 'fail', managedMode === 'relay' ? 'relay' : 'host', runtime
         ? `${managedMode === 'relay' ? 'relay' : 'host'} runtime present`
         : `missing ${managedMode === 'relay' ? 'relay' : 'host'} runtime; rebuild or reinstall muxr`);
-    const binary = managedMode === 'relay' ? undefined : herdrBin();
+    if (existsSync(authPath()) || managedMode === 'hosted') {
+        try {
+            const auth = loadAuthState();
+            const complete = auth !== undefined
+                && typeof auth.controlUrl === 'string'
+                && typeof auth.relayUrl === 'string'
+                && typeof auth.credential === 'string'
+                && typeof auth.credentialExpiresAt === 'string'
+                && typeof auth.machine?.id === 'string'
+                && validMachineCrypto(auth.machine?.crypto, 'hosted');
+            const expires = complete ? Date.parse(auth.credentialExpiresAt) : NaN;
+            const pending = auth?.pending;
+            const pendingValid = !complete
+                && auth?.version === 1
+                && typeof auth.machine?.id === 'string'
+                && validMachineCrypto(auth.machine?.crypto, 'hosted')
+                && typeof pending?.controlUrl === 'string'
+                && typeof pending?.deviceCode === 'string'
+                && typeof pending?.userCode === 'string'
+                && typeof pending?.verificationUri === 'string'
+                && typeof pending?.expiresAt === 'string'
+                && Number.isFinite(Date.parse(pending.expiresAt))
+                && Date.parse(pending.expiresAt) > Date.now();
+            add(complete && Number.isFinite(expires) && expires > Date.now() ? 'ok' : pendingValid ? 'warn' : 'fail', 'hosted auth', complete
+                ? Number.isFinite(expires) && expires > Date.now()
+                    ? 'owner-only auth state valid'
+                    : 'credential expired — run `muxr login`'
+                : pendingValid
+                    ? 'authorization is incomplete — rerun `muxr setup` to resume it'
+                    : `~/.muxr/auth.json is incomplete — back it up before moving it aside, then run \`muxr login\``);
+        } catch (cause) {
+            add('fail', 'hosted auth', `${cause instanceof Error ? cause.message : String(cause)} — back up ~/.muxr/auth.json before moving it aside, then run \`muxr login\``);
+        }
+    }
+    let binary;
+    let binaryIssue;
+    try { binary = managedMode === 'relay' ? undefined : herdrBin(); }
+    catch (cause) {
+        binaryIssue = cause instanceof Error ? cause.message : String(cause);
+        add('fail', 'herdr', binaryIssue);
+    }
     if (managedMode === 'relay') {
         add('ok', 'profile', 'shared relay only · Herdr and agent integrations not required');
     } else if (!binary) {
-        add('fail', 'herdr', `missing — ${HERDR_INSTALL_HINT}`, {
-            label: 'install and start Herdr',
-            run: async () => {
-                const installed = await ensureHerdr({ dryRun: false, noInstall: false, installRequested: true });
-                await ensureHerdrServer(installed);
-            },
-        });
+        if (binaryIssue === undefined) {
+            add('fail', 'herdr', `missing — ${HERDR_INSTALL_HINT}`, {
+                label: 'install and start Herdr',
+                run: async () => {
+                    const installed = await ensureHerdr({ dryRun: false, noInstall: false, installRequested: true });
+                    await ensureHerdrServer(installed);
+                },
+            });
+        }
     } else {
         const versionResult = run(binary, ['--version']);
         const version = parseVersion(versionResult.stdout);
@@ -2626,9 +2759,28 @@ export async function runDoctor() {
             : `muxr.service is ${enabled.stdout || 'not enabled'} — it will not survive a reboot; enable it with \`muxr daemon start\``,
             isEnabled ? undefined : { label: 'enable and start the muxr service', run: () => runDaemon(['start']) });
     }
-    const selfhost = readSelfhostState();
+    if (platform() === 'darwin' && existsSync(muxrServicePath) && env('MUXR_NO_SERVICE_COMMANDS') !== '1') {
+        const definition = readFileSync(muxrServicePath, 'utf8');
+        const loaded = serviceCommand('status');
+        const startsAtLogin = /<key>RunAtLoad<\/key><true\/>/.test(definition);
+        add(loaded.ok && startsAtLogin ? 'ok' : 'fail', 'service loaded', loaded.ok && startsAtLogin
+            ? 'com.muxr.host is loaded and starts at login'
+            : `${loaded.ok ? 'service is loaded but RunAtLoad is off' : 'com.muxr.host is not loaded'} — run \`muxr daemon start\``,
+            loaded.ok && startsAtLogin ? undefined : { label: 'load the muxr service for login', run: () => runDaemon(['start']) });
+    }
+    let selfhost = readSelfhostState();
     if (selfhostStateUnreadable()) {
         add('fail', 'self-host state', `${selfhostPath()} exists but is unreadable (truncated or corrupt) — move it aside with \`mv ${selfhostPath()} ${selfhostPath()}.broken\` only after pairings are backed up; setup refuses to mint a new identity over it`);
+    } else if (managedMode === 'selfhost' && selfhost !== undefined) {
+        const expires = selfhost.credentialExpiresAt === undefined ? undefined : Date.parse(selfhost.credentialExpiresAt);
+        const valid = typeof selfhost.machine?.id === 'string' && validMachineCrypto(selfhost.machine?.crypto, 'selfhost')
+            && (typeof selfhost.mintSecret === 'string' || typeof selfhost.machineCredential === 'string')
+            && (selfhost.relayLocation === 'remote' ? typeof selfhost.relayUrl === 'string' : typeof selfhost.relayPort === 'number')
+            && (expires === undefined || Number.isFinite(expires) && expires > Date.now());
+        if (!valid) {
+            add('fail', 'self-host state', `${selfhostPath()} has an incomplete machine, crypto, or credential schema — back it up before moving it aside; setup will not overwrite it`);
+            selfhost = undefined;
+        }
     }
     const relayReady = await selfhostRelayHealthy(selfhost);
     const relayDetail = selfhost?.relayLocation === 'remote'

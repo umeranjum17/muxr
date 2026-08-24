@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { networkInterfaces, userInfo } from 'node:os';
-import { intro, heading, status, note, outro, prompt, select, withSpinner, BACK } from './setup-ui.mjs';
+import { intro, heading, status, note, outro, prompt, select, withSpinner, withFullscreen, setupStep, completeFullscreen, BACK } from './setup-ui.mjs';
 import { runDoctor, runLocalPrerequisites, runMachines, runPair, runRemoteConnect, runSelfHost, runTailscale, selfhostPublicSummary, sharedMachineCount, tailscaleBin } from './local-setup.mjs';
 
 function command(name, args = []) {
@@ -34,11 +34,11 @@ function lanAddress() {
     return undefined;
 }
 
-function integrationSummary(output) {
-    const lines = output.split('\n').map((line) => line.trim()).filter(Boolean);
+function integrationSummary(result) {
+    const lines = result.output.split('\n').map((line) => line.trim()).filter(Boolean);
     const current = lines.filter((line) => /:\s+current\b/.test(line)).map((line) => line.split(':', 1)[0]);
     const available = lines.filter((line) => !/:\s+not installed\b/.test(line)).map((line) => line.split(':', 1)[0]);
-    return { current, available };
+    return { current, available, checked: result.ok, error: result.ok ? undefined : lines[0] || 'herdr integration status failed' };
 }
 
 const TAILSCALE_INSTALL_URL = 'https://tailscale.com/download';
@@ -90,7 +90,7 @@ export function inspectSetup() {
     const herdrVersion = command(herdr(), ['--version']);
     const herdrStatus = herdrVersion.ok ? command(herdr(), ['status']) : { ok: false, output: '' };
     const integration = herdrVersion.ok ? command(herdr(), ['integration', 'status']) : { ok: false, output: '' };
-    const agents = integrationSummary(integration.output);
+    const agents = integrationSummary(integration);
     return {
         herdr: { installed: herdrVersion.ok, version: herdrVersion.output.split('\n')[0], running: herdrStatus.ok },
         agents,
@@ -104,7 +104,9 @@ function renderInspection(found) {
     heading('Checking this machine');
     status('Herdr', found.herdr.installed ? found.herdr.version : 'not installed — will be installed during setup', found.herdr.installed ? 'ok' : 'warn');
     status('Herdr server', found.herdr.running ? 'running' : 'will be started', found.herdr.running ? 'ok' : 'warn');
-    status('Agent integrations', `${found.agents.current.length} ready${found.agents.current.length ? ` — ${found.agents.current.slice(0, 5).join(', ')}${found.agents.current.length > 5 ? '…' : ''}` : ''}`, found.agents.current.length ? 'ok' : 'warn');
+    status('Agent integrations', found.agents.checked
+        ? `${found.agents.current.length} ready${found.agents.current.length ? ` — ${found.agents.current.slice(0, 5).join(', ')}${found.agents.current.length > 5 ? '…' : ''}` : ''}`
+        : `availability check failed — ${found.agents.error}; run \`muxr doctor\``, found.agents.checked && found.agents.current.length ? 'ok' : 'warn');
     status('Tailscale', found.tailscale.connected ? `connected — ${found.tailscale.ip}` : found.tailscale.detail, found.tailscale.connected ? 'ok' : 'off');
     status('Cloudflare Tunnel', found.cloudflared.ok ? 'available' : found.cloudflared.detail, found.cloudflared.ok ? 'ok' : 'off');
     process.stdout.write('\n');
@@ -153,6 +155,7 @@ async function choosePlugins() {
             status(plugin.title, 'already installed', 'ok');
             continue;
         }
+        setupStep(3, 5, 'Optional Herdr add-ons');
         const choice = await select(`Add ${plugin.title.toLowerCase()}?`, [
             { value: 'skip', title: 'No', description: 'leave Herdr unchanged' },
             { value: 'install', title: 'Yes', description: `${plugin.description} · ${plugin.repo}` },
@@ -225,24 +228,28 @@ function connectionLabel(mode, endpoint, port) {
 const aborted = (value) => value === undefined || value === BACK;
 
 // Any abort before Apply must say so; a silent exit reads as "something ran".
-function cancelled() {
-    outro('Cancelled. Nothing changed.');
+function cancelled(prerequisiteChanged = false) {
+    outro(prerequisiteChanged
+        ? 'Setup cancelled. The Tailscale connection you approved may remain active.'
+        : 'Cancelled. Nothing changed.');
+    completeFullscreen();
     return 0;
 }
 
 // The remedy for a disconnected Tailscale is runnable, so offer it
 // behind an explicit choice instead of only printing it.
 async function offerTailscaleConnect(found) {
-    if (found.tailscale.connected || !found.tailscale.installed) return;
+    if (found.tailscale.connected || !found.tailscale.installed) return false;
     const attempt = await select(`Tailscale is installed but not connected (${found.tailscale.detail}). Connect it now?`, [
         { value: false, title: 'Not now', description: 'continue without Tailscale' },
         { value: true, title: process.platform === 'darwin' ? 'Connect Tailscale' : 'Run sudo tailscale up', description: process.platform === 'darwin' ? 'ask the installed Mac app to bring this node up' : 'bring the node up and grant this user operator access' },
     ]);
-    if (attempt !== true) return;
+    if (aborted(attempt)) return BACK;
+    if (attempt !== true) return false;
     let up;
     if (process.platform === 'darwin') {
         up = spawnSync('open', ['-a', 'Tailscale'], { stdio: 'inherit' });
-        if (up.status === 0 && await prompt('Approve the Tailscale system extension and sign in, then press Enter') === undefined) return;
+        if (up.status === 0 && await prompt('Approve the Tailscale system extension and sign in, then press Enter') === undefined) return true;
     } else {
         // USER can be unset (sudo, cron, containers); an empty --operator makes
         // the offered remedy fail with a usage error.
@@ -255,6 +262,7 @@ async function offerTailscaleConnect(found) {
     found.tailscale = probeTailscale();
     if (found.tailscale.connected) status('Tailscale', `connected — ${found.tailscale.ip}`, 'ok');
     else status('Tailscale', `${found.tailscale.detail ?? 'still not connected'}${up.status ? ` (connect command exited ${up.status})` : ''}`, 'warn');
+    return up.error === undefined;
 }
 
 export async function runSetup(args = []) {
@@ -281,12 +289,17 @@ export async function runSetup(args = []) {
         return runSelfHost(args);
     }
 
-    intro();
+    return withFullscreen(async () => {
+    setupStep(1, 5, 'Check this machine');
     const found = await withSpinner('Inspecting Herdr, agents, and networking', async () => inspectSetup());
     renderInspection(found);
-    await offerTailscaleConnect(found);
+    const tailscaleResult = await offerTailscaleConnect(found);
+    if (aborted(tailscaleResult)) return cancelled();
+    const prerequisiteChanged = tailscaleResult === true;
+    const cancelSetup = () => cancelled(prerequisiteChanged);
     const current = await selfhostPublicSummary();
 
+    setupStep(2, 5, 'Choose how your phone connects');
     let mode = requestedMode;
     if (mode === 'selfhost') mode = undefined;
     if (!mode) {
@@ -297,7 +310,7 @@ export async function runSetup(args = []) {
         const initial = Math.max(0, connectionChoices.findIndex((choice) => choice.value === current?.connectionMode));
         mode = await select('How should your phone connect?', connectionChoices, initial);
     }
-    if (aborted(mode)) return cancelled();
+    if (aborted(mode)) return cancelSetup();
     if (!['tailscale', 'tailscale-direct', 'lan', 'external', 'cloudflare'].includes(mode)) {
         process.stderr.write(`unknown setup mode: ${mode}\n`);
         return 1;
@@ -317,8 +330,9 @@ export async function runSetup(args = []) {
 
     let port = current === undefined && value(args, '--port') === undefined ? 8792 : undefined;
     while (port === undefined) {
+        setupStep(2, 5, 'Choose connection port');
         const portText = await prompt('Local connection port', value(args, '--port') ?? String(current.relayPort));
-        if (portText === undefined) return cancelled();
+        if (portText === undefined) return cancelSetup();
         const parsed = Number(portText);
         if (Number.isInteger(parsed) && parsed >= 1024 && parsed <= 65535) port = parsed;
         else status('Relay port', 'enter an integer from 1024 to 65535', 'warn');
@@ -326,8 +340,9 @@ export async function runSetup(args = []) {
     let endpoint;
     if (mode === 'external') {
         while (endpoint === undefined) {
+            setupStep(2, 5, 'Enter your server address');
             const entered = await prompt('External relay URL (wss://...)', current?.connectionMode === 'external' ? current.relayUrl : '');
-            if (entered === undefined) return cancelled();
+            if (entered === undefined) return cancelSetup();
             try {
                 const parsed = new URL(entered);
                 if (parsed.protocol === 'wss:' && parsed.hostname && !parsed.username && !parsed.password && parsed.pathname === '/' && !parsed.search && !parsed.hash) endpoint = parsed.toString().replace(/\/$/, '');
@@ -339,13 +354,14 @@ export async function runSetup(args = []) {
     }
 
     const secureWebMode = ['tailscale', 'external', 'cloudflare'].includes(mode);
+    setupStep(2, 5, 'Choose app access');
     const web = secureWebMode
         ? await select('Host the browser client too?', [
             { value: false, title: 'Native app only', description: 'do not expose the browser client' },
             { value: true, title: 'Host the browser client', description: 'serve it over the selected HTTPS/WSS connection' },
         ], current?.webEnabled ? 1 : 0)
         : false;
-    if (aborted(web)) return cancelled();
+    if (aborted(web)) return cancelSetup();
     if (!secureWebMode) status('Browser client', 'requires Tailscale Serve, External WSS, or Cloudflare; native app only', 'off');
     const desiredUrl = mode === 'lan' ? `ws://${found.lan}:${port}`
         : mode === 'external' ? endpoint
@@ -374,22 +390,25 @@ export async function runSetup(args = []) {
             { value: 'both', title: 'Phone, then control browser', description: 'complete both pairing steps' },
         ] : []),
     ];
+    setupStep(2, 5, 'Choose what to pair');
     const pairing = pairingChoices.length === 1 ? pairingChoices[0].value : await select(connectionChanged && current !== undefined
         ? 'The connection changed. Keep existing devices or pair another one?'
         : 'Pair a client?', pairingChoices);
-    if (aborted(pairing)) return cancelled();
+    if (aborted(pairing)) return cancelSetup();
 
-    const syncIntegrations = await select(`Connect your coding agents (${found.agents.available.length} detected)?`, [
+    setupStep(3, 5, 'Connect agents and add-ons');
+    const syncIntegrations = await select(found.agents.checked
+        ? `Connect your coding agents (${found.agents.available.length} detected)?`
+        : 'Agent availability could not be checked. Retry integration setup anyway?', [
         { value: true, title: 'Connect coding agents', description: 'keeps their status current' },
         { value: false, title: 'Leave integrations unchanged', description: 'do not install or alter coding-agent hooks' },
     ]);
-    if (aborted(syncIntegrations)) return cancelled();
+    if (aborted(syncIntegrations)) return cancelSetup();
 
-    if (current !== undefined) heading('Optional Herdr add-ons');
     const plugins = current === undefined ? [] : await choosePlugins();
-    if (plugins === undefined) return cancelled();
+    if (plugins === undefined) return cancelSetup();
 
-    heading('Review setup');
+    setupStep(4, 5, 'Review setup');
     note([
         `Connection: ${connectionLabel(mode, endpoint, port)}`,
         `Herdr: ${found.herdr.installed ? 'adopt existing installation and ensure its server is running' : 'download, install, and start during setup'}`,
@@ -407,11 +426,9 @@ export async function runSetup(args = []) {
         { value: false, title: 'Cancel', description: 'leave this machine unchanged' },
         { value: true, title: 'Apply setup', description: 'make the reviewed changes, verify health, then show the pairing QR' },
     ], 1);
-    if (apply !== true) {
-        outro('Cancelled. Nothing changed.');
-        return 0;
-    }
+    if (apply !== true) return cancelSetup();
 
+    setupStep(5, 5, 'Install, start, and pair');
     const prerequisiteArgs = [
         ...args.filter((arg) => arg !== '--from-plugin'),
         ...(found.herdr.installed ? [] : ['--install-herdr']),
@@ -435,7 +452,7 @@ export async function runSetup(args = []) {
     const doctor = await runDoctor();
     if (doctor !== 0) return doctor;
     const summary = await selfhostPublicSummary();
-    heading('Setup complete');
+    setupStep(5, 5, 'Setup complete');
     note([
         `Your host runs here. Phones reach it over ${relayKind(mode)}.${pairing === 'none' ? ' Pair with `muxr pair` when ready.' : ''}`,
         `Connection: ${connectionLabel(mode, endpoint, port)}`,
@@ -448,13 +465,21 @@ export async function runSetup(args = []) {
         `Integrations: ${syncIntegrations ? 'selected providers synced' : 'unchanged'}`,
         `Pairing: ${pairing === 'none' ? 'existing devices kept' : browserPairFailed ? 'phone paired; browser pairing failed' : pairing === 'both' ? 'phone and control browser paired' : `${pairing} paired`}${!browserPairFailed && (pairing === 'browser' || pairing === 'browser-view' || pairing === 'both') ? ' · browser expires in eight hours' : ''}`,
         `Plugins: bundled${pluginResult.installed.length ? ` + ${pluginResult.installed.map((plugin) => plugin.title).join(', ')}` : ''}`,
-        ...(pluginResult.failed.length ? [`Plugin install failed: ${pluginResult.failed.map((plugin) => plugin.title).join(', ')}`] : []),
+        ...(pluginResult.failed.length ? [
+            `Add-ons needing attention: ${pluginResult.failed.map((plugin) => plugin.title).join(', ')}`,
+            'Retry add-ons by rerunning `muxr setup`; core pairing remains active.',
+        ] : []),
         'Configuration: ~/.muxr (owner-only)',
     ]);
-    outro(pairing === 'none'
-        ? 'Setup updated. Existing devices will reconnect automatically.'
-        : 'Paired. Open muxr on your phone, or run `muxr` anytime to change these choices.');
-    return browserPairFailed ? 1 : 0;
+    const partial = browserPairFailed || pluginResult.failed.length > 0;
+    outro(partial
+        ? 'Core setup is ready, but one or more optional steps need attention.'
+        : pairing === 'none'
+            ? 'Setup updated. Existing devices will reconnect automatically.'
+            : 'Paired. Open muxr on your phone, or run `muxr` anytime to change these choices.', partial ? 'warn' : 'ok');
+    completeFullscreen();
+    return partial ? 1 : 0;
+    });
 }
 
 export async function runSharedRelaySetup() {
@@ -465,7 +490,9 @@ export async function runSharedRelaySetup() {
     intro();
     const found = await withSpinner('Inspecting secure networking on this server', async () => inspectSetup());
     renderInspection(found);
-    await offerTailscaleConnect(found);
+    const tailscaleResult = await offerTailscaleConnect(found);
+    if (aborted(tailscaleResult)) return cancelled();
+    const cancelRelaySetup = () => cancelled(tailscaleResult === true);
     const current = await selfhostPublicSummary();
     if (current !== undefined && current.relayRole !== 'shared') {
         process.stderr.write('This machine already runs an agent host. Use a dedicated VPS for a shared relay, or remove the existing setup first.\n');
@@ -479,11 +506,11 @@ export async function runSharedRelaySetup() {
     status('relay', 'agent hosts dial out to it — the only choice is how they reach it', 'ok');
     process.stdout.write('\n');
     let mode = await select('How should machines reach this shared relay?', options, initial);
-    if (aborted(mode)) return cancelled();
+    if (aborted(mode)) return cancelRelaySetup();
     let port;
     while (port === undefined) {
         const entered = await prompt('Relay port', String(current?.relayPort ?? 8792));
-        if (entered === undefined) return cancelled();
+        if (entered === undefined) return cancelRelaySetup();
         const parsed = Number(entered);
         if (Number.isInteger(parsed) && parsed >= 1024 && parsed <= 65535) port = parsed;
         else status('Relay port', 'enter an integer from 1024 to 65535', 'warn');
@@ -492,7 +519,7 @@ export async function runSharedRelaySetup() {
     if (mode === 'external') {
         while (endpoint === undefined) {
             const entered = await prompt('Public relay URL (wss://...)', current?.connectionMode === 'external' ? current.relayUrl : '');
-            if (entered === undefined) return cancelled();
+            if (entered === undefined) return cancelRelaySetup();
             try {
                 const parsed = new URL(entered);
                 if (parsed.protocol === 'wss:' && parsed.hostname && !parsed.username && !parsed.password
@@ -511,7 +538,7 @@ export async function runSharedRelaySetup() {
         { value: false, title: 'Relay only', description: 'route encrypted native-app traffic only' },
         { value: true, title: 'Relay + browser', description: 'serve control or view-only browser clients over the same HTTPS origin' },
     ], current?.webEnabled ? 1 : 0);
-    if (aborted(web)) return cancelled();
+    if (aborted(web)) return cancelRelaySetup();
     heading('Review shared relay');
     note([
         `Public connection: ${connectionLabel(mode, endpoint, port)}`,
@@ -526,7 +553,7 @@ export async function runSharedRelaySetup() {
         { value: false, title: 'Cancel', description: 'leave this server unchanged' },
         { value: true, title: 'Apply shared relay', description: 'configure ingress, relay, web, and its service' },
     ], 1);
-    if (apply !== true) return cancelled();
+    if (apply !== true) return cancelRelaySetup();
     const relayArgs = ['--relay-only', '--managed-relay', '--reconfigure', '--port', String(port), '--connection-mode', mode];
     if (mode === 'external') relayArgs.push('--advertise', endpoint);
     if (web) relayArgs.push('--web', '--yes');

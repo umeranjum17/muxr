@@ -43,7 +43,8 @@ function resolveHostVersion(): string | undefined {
     return undefined;
 }
 
-class HostedAuthExpiredError extends Error {}
+class NonRecoverableAuthError extends Error {}
+class HostedAuthExpiredError extends NonRecoverableAuthError {}
 
 interface HostedAuthState {
     version: 1;
@@ -73,6 +74,83 @@ interface MachineCrypto {
     };
 }
 
+function validBase64(value: unknown, bytes: number): boolean {
+    if (typeof value !== 'string' || value.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(value)) return false;
+    try { return Buffer.from(value, 'base64').length === bytes; }
+    catch { return false; }
+}
+
+function parseSealedGrant(value: unknown): Record<string, unknown> | undefined {
+    if (typeof value !== 'string' || value.length === 0) return undefined;
+    try {
+        const grant = JSON.parse(value) as Record<string, unknown>;
+        return grant.v === 1
+            && validBase64(grant.sender, 32)
+            && validBase64(grant.signer, 32)
+            && validBase64(grant.sig, 64)
+            && typeof grant.box === 'string'
+            && /^[A-Za-z0-9+/]+={0,2}$/.test(grant.box)
+            && Buffer.from(grant.box, 'base64').length > 40
+            ? grant : undefined;
+    } catch { return undefined; }
+}
+
+function validDevice(value: unknown): boolean {
+    if (typeof value !== 'object' || value === null) return false;
+    const device = value as Record<string, unknown>;
+    return typeof device.deviceId === 'string' && device.deviceId.length > 0
+        && validBase64(device.devicePublicKey, 32)
+        && validBase64(device.ingressKey, 32)
+        && typeof device.expiresAt === 'string' && Number.isFinite(Date.parse(device.expiresAt))
+        && (device.kind === undefined || device.kind === 'browser')
+        && (device.authority === undefined || device.authority === 'control' || device.authority === 'observe');
+}
+
+function validMachineCrypto(value: unknown, expected: 'hosted' | 'selfhost'): value is MachineCrypto {
+    if (typeof value !== 'object' || value === null) return false;
+    const crypto = value as Partial<MachineCrypto>;
+    const keys = validBase64(crypto.signingPublicKey, 32)
+        && validBase64(crypto.signingSecretKey, 64)
+        && validBase64(crypto.boxPublicKey, 32)
+        && validBase64(crypto.boxSecretKey, 32)
+        && validBase64(crypto.dataKey, 32);
+    if (!keys || !Number.isInteger(crypto.keyVersion) || crypto.keyVersion! < 1
+        || !Array.isArray(crypto.devices) || !crypto.devices.every(validDevice)
+        || new Set(crypto.devices.map((device) => device.deviceId)).size !== crypto.devices.length) return false;
+    const pending = crypto.pendingRotation as unknown as Record<string, unknown> | undefined;
+    if (pending === undefined) return true;
+    const devices = pending.devices;
+    const grants = pending.grants;
+    if (!validBase64(pending.dataKey, 32) || !Array.isArray(devices) || !devices.every(validDevice)
+        || new Set(devices.map((device) => device.deviceId)).size !== devices.length || !Array.isArray(grants)
+        || grants.length !== devices.length) return false;
+    const selfhost = pending.kind === 'selfhost-revoke-v1';
+    if (expected === 'hosted' ? selfhost : !selfhost) return false;
+    const version = pending.keyVersion;
+    const previous = pending.previousKeyVersion;
+    const versionValid = selfhost
+        ? Number.isInteger(previous) && Number.isInteger(version) && version === (previous as number) + 1
+            && (crypto.keyVersion === previous || crypto.keyVersion === version)
+            && typeof pending.revokedDeviceId === 'string' && typeof pending.revokedDeviceName === 'string'
+        : pending.kind === undefined && Number.isInteger(version) && version === crypto.keyVersion! + 1;
+    if (!versionValid) return false;
+    const byId = new Map(devices.map((device) => [device.deviceId, device]));
+    const expectedKeys = new Set(devices.map((device) => device.devicePublicKey));
+    const seen = new Set<string>();
+    return grants.every((entry) => {
+        if (typeof entry !== 'object' || entry === null) return false;
+        const candidate = entry as Record<string, unknown>;
+        const deviceKey = selfhost
+            ? byId.get(candidate.deviceId)?.devicePublicKey
+            : candidate.device_public_key;
+        const sealed = parseSealedGrant(candidate.grant);
+        if (typeof deviceKey !== 'string' || !expectedKeys.has(deviceKey) || seen.has(deviceKey) || sealed === undefined
+            || sealed.sender !== crypto.boxPublicKey || sealed.signer !== crypto.signingPublicKey) return false;
+        seen.add(deviceKey);
+        return true;
+    }) && seen.size === expectedKeys.size;
+}
+
 interface SelfhostState {
     version: 1;
     relayPort?: number;
@@ -93,15 +171,27 @@ function readSelfhostAuth(): SelfhostState | undefined {
     if (!existsSync(path)) return undefined;
     const info = lstatSync(path);
     if (!info.isFile() || info.isSymbolicLink() || (info.mode & 0o077) !== 0) {
-        throw new Error(`${path} must be a regular owner-only file`);
+        throw new NonRecoverableAuthError(`${path} must be a regular owner-only file`);
     }
-    const parsed = JSON.parse(readFileSync(path, 'utf8')) as Partial<SelfhostState>;
-    if (parsed.version !== 1 || typeof parsed.machine?.id !== 'string' || parsed.machine.crypto === undefined
+    let parsed: Partial<SelfhostState>;
+    try { parsed = JSON.parse(readFileSync(path, 'utf8')) as Partial<SelfhostState>; }
+    catch (error) {
+        if (error instanceof SyntaxError) throw new NonRecoverableAuthError(`${path} contains malformed JSON`);
+        if ((error as NodeJS.ErrnoException)?.code === 'EACCES' || (error as NodeJS.ErrnoException)?.code === 'EPERM') {
+            throw new NonRecoverableAuthError(`${path} cannot be read; restore owner read permission and run \`muxr doctor\``);
+        }
+        throw error;
+    }
+    if (parsed.version !== 1 || typeof parsed.machine?.id !== 'string' || !validMachineCrypto(parsed.machine.crypto, 'selfhost')
         || typeof parsed.mintSecret !== 'string' && typeof parsed.machineCredential !== 'string'
         || parsed.relayLocation === 'remote' && typeof parsed.relayUrl !== 'string'
-        || parsed.relayLocation !== 'remote' && typeof parsed.relayPort !== 'number') return undefined;
-    if (parsed.credentialExpiresAt !== undefined && Date.parse(parsed.credentialExpiresAt) <= Date.now()) {
-        throw new HostedAuthExpiredError('remote relay machine credential expired; create a fresh enrollment from the relay owner');
+        || parsed.relayLocation !== 'remote' && typeof parsed.relayPort !== 'number') {
+        throw new NonRecoverableAuthError(`${path} has an unsupported or incomplete schema`);
+    }
+    if (parsed.credentialExpiresAt !== undefined) {
+        const expires = Date.parse(parsed.credentialExpiresAt);
+        if (!Number.isFinite(expires)) throw new NonRecoverableAuthError(`${path} has an invalid credential expiry`);
+        if (expires <= Date.now()) throw new HostedAuthExpiredError('remote relay machine credential expired; create a fresh enrollment from the relay owner');
     }
     return parsed as SelfhostState;
 }
@@ -115,11 +205,22 @@ function readHostedAuth(): HostedAuthState | undefined {
     if (!existsSync(path)) return undefined;
     const info = lstatSync(path);
     if (!info.isFile() || info.isSymbolicLink() || (info.mode & 0o077) !== 0) {
-        throw new Error(`${path} must be a regular owner-only file`);
+        throw new NonRecoverableAuthError(`${path} must be a regular owner-only file`);
     }
-    const parsed = JSON.parse(readFileSync(path, 'utf8')) as Partial<HostedAuthState>;
+    let parsed: Partial<HostedAuthState>;
+    try { parsed = JSON.parse(readFileSync(path, 'utf8')) as Partial<HostedAuthState>; }
+    catch (error) {
+        if (error instanceof SyntaxError) throw new NonRecoverableAuthError(`${path} contains malformed JSON`);
+        if ((error as NodeJS.ErrnoException)?.code === 'EACCES' || (error as NodeJS.ErrnoException)?.code === 'EPERM') {
+            throw new NonRecoverableAuthError(`${path} cannot be read; restore owner read permission and run \`muxr doctor\``);
+        }
+        throw error;
+    }
     if (parsed.version !== 1 || typeof parsed.controlUrl !== 'string' || typeof parsed.relayUrl !== 'string' || typeof parsed.credential !== 'string'
-        || typeof parsed.credentialExpiresAt !== 'string' || typeof parsed.machine?.id !== 'string') return undefined;
+        || typeof parsed.credentialExpiresAt !== 'string' || !Number.isFinite(Date.parse(parsed.credentialExpiresAt))
+        || typeof parsed.machine?.id !== 'string' || !validMachineCrypto(parsed.machine.crypto, 'hosted')) {
+        throw new NonRecoverableAuthError(`${path} has an unsupported or incomplete schema`);
+    }
     if (Date.parse(parsed.credentialExpiresAt) <= Date.now()) throw new HostedAuthExpiredError('hosted machine credential expired; run `muxr login`');
     return parsed as HostedAuthState;
 }
@@ -264,7 +365,10 @@ function readAuthStates() {
     try { return { hostedAuth: readHostedAuth(), selfhostAuth: readSelfhostAuth() }; }
     catch (error) {
         process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
-        process.exit(error instanceof HostedAuthExpiredError ? 0 : 1);
+        // Deterministic auth faults cannot heal by restarting. Transient I/O
+        // errors remain failures so the service manager may retry.
+        const code = (error as NodeJS.ErrnoException)?.code;
+        process.exit(error instanceof NonRecoverableAuthError || code === 'EACCES' || code === 'EPERM' ? 0 : 1);
     }
 }
 const { hostedAuth, selfhostAuth } = readAuthStates();
@@ -283,9 +387,14 @@ if (requestedMode !== undefined && requestedMode !== 'hosted' && requestedMode !
 const mode = requestedMode ?? (hostedAuth !== undefined ? 'hosted' : selfhostAuth !== undefined ? 'selfhost' : useFake ? 'local' : undefined);
 if (mode === undefined) throw new Error('no hosted auth state; set MUXR_MODE=local explicitly for development');
 const token = env('MUXR_RELAY_TOKEN') ?? (mode === 'hosted' ? hostedAuth?.credential : mode === 'selfhost' ? selfhostAuth?.machineCredential ?? selfhostAuth?.mintSecret : undefined);
-if (mode === 'hosted' && hostedAuth === undefined) throw new Error('hosted mode requires muxr setup/login state');
-if (mode === 'selfhost' && selfhostAuth === undefined) throw new Error('selfhost mode requires `muxr self-host` state');
-if (mode === 'hosted' && hostedAuth?.machine.crypto === undefined) throw new Error('hosted machine keys are missing; run `muxr setup` and re-pair devices');
+if (mode === 'hosted' && hostedAuth === undefined) {
+    process.stderr.write('hosted mode requires muxr setup/login state; run `muxr doctor`\n');
+    process.exit(0);
+}
+if (mode === 'selfhost' && selfhostAuth === undefined) {
+    process.stderr.write('selfhost mode requires muxr setup state; run `muxr doctor`\n');
+    process.exit(0);
+}
 
 async function main(): Promise<void> {
     if (mode === 'hosted') await reconcileHostedKeys(hostedAuth!);

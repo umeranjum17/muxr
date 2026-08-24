@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import {
+    chmodSync,
     existsSync,
     mkdirSync,
     mkdtempSync,
@@ -272,6 +273,30 @@ try {
     const cli = join(installDir, 'node_modules', '.bin', 'muxr');
     const installedPackage = join(installDir, 'node_modules', '@trymuxr', 'cli');
     const installedPlugins = join(installedPackage, 'plugins');
+    if (existsSync('/usr/bin/script')) {
+        const uiFlow = join(scratch, 'setup-ui-flow.mjs');
+        writeFileSync(uiFlow, `import {withFullscreen, setupStep, outro, select} from ${JSON.stringify(`file://${join(installedPackage, 'setup-ui.mjs')}`)};\nif (process.argv[2] === 'full') await withFullscreen(async () => { setupStep(1, 5, 'Check this machine'); outro('Setup receipt'); return 0; });\nelse await withFullscreen(async () => { await select('Choose connection', [{value:'lan',title:'LAN',description:'same network'}]); return 0; });\n`);
+        const fullUiEnv = { ...process.env, TERM: 'xterm-256color' };
+        delete fullUiEnv.CI;
+        delete fullUiEnv.SSH_CONNECTION;
+        delete fullUiEnv.MUXR_NO_TUI;
+        const fullUi = run('/usr/bin/script', ['-qfec', `stty cols 106 rows 43; ${process.execPath} ${uiFlow} full`, '/dev/null'], {
+            input: '\n', env: fullUiEnv,
+        }).stdout;
+        assert.match(fullUi, /\x1b\[\?1049h/);
+        assert.match(fullUi, /\x1b\[\?1049l/);
+        assert.match(fullUi, /◆ Setup receipt/, 'fullscreen success left no durable receipt');
+        const appendUi = run('/usr/bin/script', ['-qfec', `${process.execPath} ${uiFlow} append`, '/dev/null'], {
+            input: '1\n', env: { ...process.env, TERM: 'dumb', SSH_CONNECTION: 'test' },
+        }).stdout;
+        assert.doesNotMatch(appendUi, /\x1b\[/, 'SSH/dumb setup emitted cursor or style control sequences');
+        assert.match(appendUi, /1\. LAN[\s\S]*Choose 1-1/, 'SSH setup did not use the append-only numbered selector');
+        const smallUi = run('/usr/bin/script', ['-qfec', `stty cols 70 rows 24; ${process.execPath} ${uiFlow} append`, '/dev/null'], {
+            input: '1\n', env: fullUiEnv,
+        }).stdout;
+        assert.doesNotMatch(smallUi, /\x1b\[\?1049h|\x1b\[[0-9]+A/, 'small local setup used fullscreen or cursor redraw');
+        assert.match(smallUi, /1\. LAN[\s\S]*Choose 1-1/, 'small local setup did not use the append-only selector');
+    }
     const docsOutput = run(cli, ['plugin', 'docs'], { cwd: installDir }).stdout;
     assert.match(docsOutput, new RegExp(`Plugin guide: ${join(installedPackage, 'PLUGINS.md').replaceAll('\\', '\\\\')}`));
     assert.match(docsOutput, new RegExp(`Agent skill: ${join(installedPackage, 'skills', 'muxr-plugin-authoring', 'SKILL.md').replaceAll('\\', '\\\\')}`));
@@ -374,7 +399,7 @@ try {
     assert.equal(promptSmoke.code, 0, promptSmoke.output);
     assert.doesNotMatch(promptSmoke.output, /unsettled top-level await|SyntaxError/);
     const menuCancel = await runTty(cli, cliEnv(), '\u0003', 20_000, undefined, 'never', 'What would you like to do?');
-    assert.equal(menuCancel.code, 0, menuCancel.output);
+    assert.ok(menuCancel.code === 0 || menuCancel.code === 130, menuCancel.output);
     assert.doesNotMatch(menuCancel.output, /Get started\s+ muxr setup/, 'cancelling the menu printed command help');
     const inspectHome = join(scratch, 'inspect-home');
     mkdirSync(inspectHome, { recursive: true });
@@ -521,6 +546,34 @@ try {
     assert.notEqual(stoppedDoctor.status, 0, 'doctor accepted a configured relay that was not running');
     assert.match(`${stoppedDoctor.stdout}${stoppedDoctor.stderr}`, /not reachable/);
 
+    const hostedAuthPath = join(home, '.muxr', 'auth.json');
+    const key32 = Buffer.alloc(32).toString('base64');
+    const key64 = Buffer.alloc(64).toString('base64');
+    writeFileSync(hostedAuthPath, `${JSON.stringify({
+        version: 1,
+        controlUrl: 'https://control.test',
+        relayUrl: 'wss://relay.test',
+        credential: 'machine-credential',
+        credentialExpiresAt: '9999-12-31T23:59:59.999Z',
+        machine: { id: 'machine', crypto: {
+            signingPublicKey: key32, signingSecretKey: key64, boxPublicKey: key32, boxSecretKey: key32, dataKey: key32,
+            keyVersion: 1, devices: [],
+            pendingRotation: { keyVersion: 2, dataKey: key32, devices: [], grants: [{ device_public_key: key32, grant: '' }] },
+        } },
+    })}\n`, { mode: 0o600 });
+    const authDoctor = run(cli, ['doctor'], { cwd: installDir, env, allowFailure: true });
+    assert.notEqual(authDoctor.status, 0, 'doctor accepted incomplete hosted auth');
+    assert.match(`${authDoctor.stdout}${authDoctor.stderr}`, /hosted auth.*incomplete/s);
+    const corruptHost = run(cli, ['up'], { cwd: installDir, env: { ...env, MUXR_MODE: 'hosted' }, allowFailure: true });
+    assert.equal(corruptHost.status, 0, 'deterministic hosted auth corruption would restart-loop');
+    assert.match(`${corruptHost.stdout}${corruptHost.stderr}`, /unsupported or incomplete schema/);
+    chmodSync(hostedAuthPath, 0o000);
+    const unreadableHost = run(cli, ['up'], { cwd: installDir, env: { ...env, MUXR_MODE: 'hosted' }, allowFailure: true });
+    assert.equal(unreadableHost.status, 0, 'unreadable hosted auth would restart-loop');
+    assert.match(`${unreadableHost.stdout}${unreadableHost.stderr}`, /cannot be read|EACCES|EPERM/);
+    chmodSync(hostedAuthPath, 0o600);
+    rmSync(hostedAuthPath, { force: true });
+
     const host = spawn(cli, ['up', '--fake'], { cwd: installDir, env: { ...env, MUXR_MODE: 'selfhost' }, stdio: ['ignore', 'pipe', 'pipe'] });
     let hostOutput = '';
     host.stdout.on('data', (chunk) => { hostOutput += chunk; });
@@ -644,6 +697,17 @@ try {
     assert.match(readFileSync(launchctlLog, 'utf8'), /bootstrap[\s\S]*kickstart/, 'first macOS start did not kickstart after bootstrap');
     run(cli, ['daemon', 'start'], { cwd: installDir, env: macEnv });
     assert.match(readFileSync(launchctlLog, 'utf8'), /bootstrap[\s\S]*kickstart[\s\S]*bootout[\s\S]*bootstrap[\s\S]*kickstart/, 'macOS start reused a stale loaded plist');
+
+    const staleHerdr = join(macHome, 'Library', 'LaunchAgents', 'herdr-server.plist');
+    const repairHerdr = join(binDir, 'herdr-repair');
+    writeFileSync(staleHerdr, '<plist><dict><key>ProgramArguments</key><array><string>/missing/herdr</string><string>server</string></array></dict></plist>\n');
+    writeFileSync(repairHerdr, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+    const localSetupUrl = `file://${join(installDir, 'node_modules', '@trymuxr', 'cli', 'local-setup.mjs')}`;
+    run(process.execPath, ['--input-type=module', '-e', `import {ensureHerdrServer} from ${JSON.stringify(localSetupUrl)}; await ensureHerdrServer(${JSON.stringify(repairHerdr)})`], {
+        cwd: installDir, env: macEnv, allowFailure: true,
+    });
+    assert.match(readFileSync(staleHerdr, 'utf8'), new RegExp(repairHerdr.replaceAll('/', '\\/')), 'stale Herdr plist was not repaired');
+    assert.match(readFileSync(launchctlLog, 'utf8'), /bootout gui\/\d+\/herdr-server[\s\S]*bootstrap gui\/\d+ .*herdr-server\.plist[\s\S]*kickstart -k gui\/\d+\/herdr-server/, 'loaded repaired Herdr plist was not reloaded');
     run(cli, ['daemon', 'status'], { cwd: installDir, env: macEnv });
     run(cli, ['daemon', 'uninstall'], { cwd: installDir, env: macEnv });
 
