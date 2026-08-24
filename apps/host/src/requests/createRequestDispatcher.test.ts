@@ -45,8 +45,8 @@ describe('session.start cwd guard', () => {
     });
 });
 
-describe('agent availability catalog', () => {
-    it('keeps the full Herdr catalog while reporting only launchable executables', async () => {
+describe('host capability catalog', () => {
+    it('reports launchable agents and the actual host platform', async () => {
         const source = {
             async agentKinds() { return ['pi', 'claude', 'codex']; },
             async installedAgentKinds() { return ['claude']; },
@@ -59,6 +59,11 @@ describe('agent availability catalog', () => {
         });
         await expect(dispatch({ type: 'herdr.agentKinds', requestId: 'catalog', params: {} } as never, 'device-1'))
             .resolves.toMatchObject({ ok: true, data: { kinds: ['pi', 'claude', 'codex'], installed: ['claude'] } });
+        await expect(dispatch({ type: 'machines.list', requestId: 'machines', params: {} } as never, 'device-1'))
+            .resolves.toMatchObject({
+                ok: true,
+                data: [{ platform: process.platform === 'darwin' ? 'macOS' : process.platform === 'win32' ? 'Windows' : process.platform === 'linux' ? 'Linux' : process.platform }],
+            });
     });
 });
 

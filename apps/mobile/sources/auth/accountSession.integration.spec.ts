@@ -15,6 +15,8 @@ const harness = vi.hoisted(() => ({
     socketStatus: 'disconnected',
     socketError: null as string | null,
     ready: false,
+    machineReplaceFlags: [] as boolean[],
+    sessionReplaceFlags: [] as boolean[],
 }));
 
 vi.mock('expo-crypto', () => ({ randomUUID: () => 'login-device' }));
@@ -75,8 +77,8 @@ vi.mock('../sync/storage', () => ({
             sessionsLoaded: false,
             setSocketStatus: (status: string) => { harness.socketStatus = status; },
             setSocketError: (message: string | null) => { harness.socketError = message; },
-            applyMachines: vi.fn(),
-            applySessions: vi.fn(),
+            applyMachines: (_machines: unknown[], replace = false) => { harness.machineReplaceFlags.push(replace); },
+            applySessions: (_sessions: unknown[], replace = false) => { harness.sessionReplaceFlags.push(replace); },
             applyHerdrTree: vi.fn(),
             markSessionsLoaded: vi.fn(),
             applyAttentionCatalog: vi.fn(),
@@ -111,6 +113,8 @@ describe('hosted account-only lifecycle', () => {
         harness.clientConnects = 0;
         harness.socketStatus = 'disconnected';
         harness.ready = false;
+        harness.machineReplaceFlags.length = 0;
+        harness.sessionReplaceFlags.length = 0;
     });
 
     afterEach(() => {
@@ -151,10 +155,16 @@ describe('hosted account-only lifecycle', () => {
         expect(authenticated).toBe(true);
         expect(harness.clientOptions).toHaveLength(0);
 
+        const machineReplacementsBeforePairing = harness.machineReplaceFlags.length;
+        const sessionReplacementsBeforePairing = harness.sessionReplaceFlags.length;
         harness.connection.machineId = 'machine-a';
         harness.grant = { machineId: 'machine-a', relayUrl: 'ws://relay.test', credential: 'stored-grant' };
         await syncCreate({ ...credentials, token: 'stale-login-token' });
         await vi.waitFor(() => expect(harness.clientConnects).toBe(1));
+        expect(harness.machineReplaceFlags.length).toBeGreaterThan(machineReplacementsBeforePairing);
+        expect(harness.sessionReplaceFlags.length).toBeGreaterThan(sessionReplacementsBeforePairing);
+        expect(harness.machineReplaceFlags.at(-1)).toBe(true);
+        expect(harness.sessionReplaceFlags.at(-1)).toBe(true);
         expect(harness.clientOptions).toHaveLength(1);
         expect(harness.clientOptions[0].token).toBe('stored-grant');
 

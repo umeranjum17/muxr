@@ -47,4 +47,5 @@ export interface MachineInfo {
     online: boolean;
     lastSeenAt?: string;
     hostVersion?: string;
+    platform?: string;
 }

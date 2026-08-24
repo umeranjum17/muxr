@@ -16,6 +16,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
 import { ProviderIcon } from './ProviderIcon';
+import { AgentGlyph } from './AgentGlyph';
 import { hapticsLight } from './haptics';
 import { t } from '@/text';
 export interface ModelMode {
@@ -26,6 +27,7 @@ export interface ModelMode {
     contextWindow?: number;
     providerName?: string;
     providerKind?: string;
+    agentKind?: string;
 }
 import { ALL_PROVIDERS, filterModels, groupByProvider } from '@/utils/optionSheet';
 
@@ -122,11 +124,15 @@ export function OptionSheet({
                     model.disabled && { opacity: 0.45 },
                 ]}
             >
-                <Ionicons
-                    name={isSelected ? 'checkmark-circle' : 'ellipse-outline'}
-                    size={20}
-                    color={isSelected ? theme.colors.textLink : theme.colors.textSecondary}
-                />
+                {model.agentKind ? (
+                    <AgentGlyph name={model.agentKind} size={26} selected={isSelected} />
+                ) : (
+                    <Ionicons
+                        name={isSelected ? 'checkmark-circle' : 'ellipse-outline'}
+                        size={20}
+                        color={isSelected ? theme.colors.textLink : theme.colors.textSecondary}
+                    />
+                )}
                 <View style={styles.rowCopy}>
                     <Text style={styles.rowTitle} numberOfLines={1}>{model.name}</Text>
                     {!!model.description && (
@@ -134,6 +140,7 @@ export function OptionSheet({
                     )}
                 </View>
                 {context && <Text style={styles.contextChip}>{context}</Text>}
+                {model.agentKind && isSelected && <Ionicons name="checkmark-circle" size={20} color={theme.colors.textLink} />}
             </Pressable>
         );
     };

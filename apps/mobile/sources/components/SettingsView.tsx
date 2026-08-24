@@ -115,8 +115,10 @@ export const SettingsView = React.memo(function SettingsView({
     const machineRows = React.useMemo(() => {
         const rows: { id: string; live?: (typeof allMachinesWithOffline)[number] }[] = [];
         const listedIds = new Set<string>();
+        const pairedIds = new Set(pairedGrants.map((grant) => grant.machineId));
+        const hosted = getCachedConnectionSettings().mode === 'hosted';
         for (const machine of allMachinesWithOffline) {
-            if (!showOfflineMachines && !isMachineOnline(machine)) continue;
+            if ((hosted && !pairedIds.has(machine.id)) || (!showOfflineMachines && !isMachineOnline(machine))) continue;
             listedIds.add(machine.id);
             rows.push({ id: machine.id, live: machine });
         }
@@ -289,9 +291,8 @@ export const SettingsView = React.memo(function SettingsView({
                 </View>
             </View>
 
-            {/* Machines: union of the live list and the persisted pairing
-                grants. The live list alone is empty whenever the host is down —
-                exactly when switching and pairing must stay reachable. */}
+            {/* Hosted machines require a persisted grant; live transport rows
+                cannot resurrect a pairing the user just forgot. */}
             <ItemGroup title={t('settings.machines')}>
                 {machineRows.map(({ id, live: machine }) => {
                     const isOnline = machine !== undefined && isMachineOnline(machine);
