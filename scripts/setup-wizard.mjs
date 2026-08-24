@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { networkInterfaces, userInfo } from 'node:os';
 import { intro, heading, status, note, outro, prompt, select, withSpinner, withFullscreen, setupStep, completeFullscreen, BACK } from './setup-ui.mjs';
-import { runDoctor, runLocalPrerequisites, runMachines, runPair, runRemoteConnect, runSelfHost, runTailscale, selfhostPublicSummary, sharedMachineCount, tailscaleBin } from './local-setup.mjs';
+import { herdrServerIsReady, runDoctor, runLocalPrerequisites, runMachines, runPair, runRemoteConnect, runSelfHost, runTailscale, selfhostPublicSummary, sharedMachineCount, tailscaleBin } from './local-setup.mjs';
 
 function command(name, args = []) {
     const result = spawnSync(name, args, { encoding: 'utf8', timeout: 120_000 });
@@ -87,12 +87,12 @@ function probeCloudflared() {
 }
 
 export function inspectSetup() {
-    const herdrVersion = command(herdr(), ['--version']);
-    const herdrStatus = herdrVersion.ok ? command(herdr(), ['status']) : { ok: false, output: '' };
-    const integration = herdrVersion.ok ? command(herdr(), ['integration', 'status']) : { ok: false, output: '' };
+    const binary = herdr();
+    const herdrVersion = command(binary, ['--version']);
+    const integration = herdrVersion.ok ? command(binary, ['integration', 'status']) : { ok: false, output: '' };
     const agents = integrationSummary(integration);
     return {
-        herdr: { installed: herdrVersion.ok, version: herdrVersion.output.split('\n')[0], running: herdrStatus.ok },
+        herdr: { installed: herdrVersion.ok, version: herdrVersion.output.split('\n')[0], running: herdrVersion.ok && herdrServerIsReady(binary) },
         agents,
         tailscale: probeTailscale(),
         cloudflared: probeCloudflared(),

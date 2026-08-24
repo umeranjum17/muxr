@@ -180,6 +180,7 @@ function run(command, args, options = {}) {
         status: result.status ?? 1,
         stdout: result.stdout?.trim() ?? '',
         stderr: result.stderr?.trim() ?? '',
+        errorCode: result.error?.code,
     };
 }
 
@@ -519,12 +520,17 @@ function repairHerdrServiceUnits(binary, dryRun) {
     return repaired;
 }
 
+function launchdLabel(unitPath) {
+    return readFileSync(unitPath, 'utf8').match(/<key>Label<\/key>\s*<string>([^<]+)<\/string>/)?.[1]
+        ?? basename(unitPath, '.plist');
+}
+
 /** Start herdr through its own service manager so it stays managed. */
 function startHerdrServiceUnits(unitPaths) {
     for (const unitPath of unitPaths) {
         if (platform() === 'darwin') {
             const domain = `gui/${process.getuid()}`;
-            const service = `${domain}/${basename(unitPath, '.plist')}`;
+            const service = `${domain}/${launchdLabel(unitPath)}`;
             const loaded = run('launchctl', ['print', service]);
             if (loaded.ok) {
                 const unloaded = run('launchctl', ['bootout', service]);
@@ -535,28 +541,43 @@ function startHerdrServiceUnits(unitPaths) {
             const started = run('launchctl', ['kickstart', '-k', service]);
             if (!started.ok) throw new Error(started.stderr || started.stdout || `could not start ${service}`);
         } else {
-            run('systemctl', ['--user', 'start', basename(unitPath)]);
+            const started = run('systemctl', ['--user', 'start', basename(unitPath)]);
+            if (!started.ok) throw new Error(started.stderr || started.stdout || `could not start ${basename(unitPath)}`);
         }
     }
+}
+
+export function herdrServerIsReady(binary) {
+    const scoped = run(binary, ['status', 'server', '--json'], { timeout: 500 });
+    if (scoped.ok) {
+        try {
+            const running = JSON.parse(scoped.stdout).running;
+            if (typeof running === 'boolean') return running;
+        } catch {}
+    }
+    if (scoped.errorCode === 'ETIMEDOUT') return false;
+    const legacy = run(binary, ['status'], { timeout: 500 });
+    return legacy.ok && /\bserver:\s*(?:\n\s*status:\s*)?running\b/i.test(legacy.stdout);
 }
 
 /**
  * Make sure the herdr server is running: repair a stale service path first,
  * then start it. Idempotent — host-up calls this on every service start.
  */
-export async function ensureHerdrServer(binary = herdrBin(), dryRun = false) {
+export async function ensureHerdrServer(binary = herdrBin(), dryRun = false, quiet = false) {
     if (!binary) throw new Error(`herdr is missing; ${HERDR_INSTALL_HINT}`);
     const repaired = repairHerdrServiceUnits(binary, dryRun);
     if (!dryRun && repaired.length > 0 && env('MUXR_NO_SERVICE_COMMANDS') !== '1' && platform() === 'darwin') {
         startHerdrServiceUnits(repaired);
     }
-    let status = run(binary, ['status']);
-    if (!status.ok) {
+    let ready = herdrServerIsReady(binary);
+    if (!ready) {
         if (dryRun) {
             print('  would start the herdr server');
         } else {
             const units = env('MUXR_NO_SERVICE_COMMANDS') === '1' ? [] : herdrServiceUnitPaths();
             let logPath;
+            let spawnError;
             if (units.length > 0) {
                 // Start the managed unit, not a stray process: a direct spawn
                 // lands in muxr.service's cgroup (`muxr daemon stop` kills
@@ -567,20 +588,22 @@ export async function ensureHerdrServer(binary = herdrBin(), dryRun = false) {
                 ensurePrivateDir(dirname(logPath));
                 const out = openSync(logPath, 'a', 0o600);
                 const server = spawn(binary, ['server'], { detached: true, stdio: ['ignore', out, out] });
+                server.once('error', (cause) => { spawnError = cause; });
                 server.unref();
             }
-            for (let attempt = 0; attempt < 30 && !status.ok; attempt += 1) {
-                await new Promise((resolve) => setTimeout(resolve, 300));
-                status = run(binary, ['status']);
+            for (let attempt = 0; attempt < 12 && !ready && spawnError === undefined; attempt += 1) {
+                await new Promise((resolve) => setTimeout(resolve, 250));
+                ready = herdrServerIsReady(binary);
             }
-            if (!status.ok) {
+            if (!ready) {
+                if (spawnError !== undefined) throw spawnError;
                 throw new Error(units.length > 0
-                    ? `herdr server did not start; check \`journalctl --user -u ${units.map((unit) => basename(unit)).join(' ')}\``
+                    ? `herdr server did not start; check its service logs and \`muxr doctor\``
                     : `herdr server did not start; see ${logPath}`);
             }
         }
     }
-    print(`  ✓ herdr server ${dryRun && !status.ok ? 'would be started' : 'ready'}`);
+    if (!quiet) print(`  ✓ herdr server ${dryRun && !ready ? 'would be started' : 'ready'}`);
     return binary;
 }
 
@@ -1269,11 +1292,20 @@ export async function runDaemon(args = []) {
             return result.ok ? 0 : 1;
         }
         if (!['start', 'stop', 'restart', 'status'].includes(action)) throw new Error('usage: muxr daemon install|uninstall|start|stop|restart|status|logs');
+        let herdrFailure;
+        if ((action === 'start' || action === 'restart') && daemonMode() !== 'relay') {
+            try { await ensureHerdrServer(undefined, false, args.includes('--quiet')); }
+            catch (cause) { herdrFailure = cause; }
+        }
         const result = serviceCommand(action);
         if (!result.ok) {
             if (action === 'status') print('muxr service is stopped or unavailable.');
             else error(result.stderr || result.stdout || `muxr service ${action} failed`);
             return 1;
+        }
+        if (herdrFailure !== undefined) {
+            error(`  warn: muxr service ${action === 'restart' ? 'restarted' : 'started'}, but Herdr did not recover: ${herdrFailure instanceof Error ? herdrFailure.message : String(herdrFailure)}`);
+            return 0;
         }
         if (!args.includes('--quiet')) {
             if (action === 'start') print('  ✓ muxr service started and enabled for login');
@@ -2443,8 +2475,7 @@ export async function runSetup(args = []) {
             installRequested: args.includes('--install-herdr'),
         });
         if (binary) {
-            const status = run(binary, ['status']);
-            print(`  ${status.ok ? '✓' : 'warn:'} herdr status${status.stdout ? ` — ${status.stdout.split('\n')[0]}` : ''}`);
+            await ensureHerdrServer(binary, dryRun);
             await ensureBundledPlugins(binary, dryRun);
             const integrationArgs = ['sync', ...(dryRun ? ['--dry-run'] : []), ...(args.includes('--force') ? ['--force'] : [])];
             if (args.includes('--all')) integrationArgs.push('--all');
@@ -2699,11 +2730,11 @@ export async function runDoctor() {
         add(versionOk ? 'ok' : 'fail', 'herdr', versionOk
             ? versionResult.stdout
             : `${versionResult.stdout || versionResult.stderr || 'unreadable version'} — needs >= ${MIN_HERDR.join('.')}; run \`herdr update\` after reviewing the upgrade`);
-        const status = run(binary, ['status']);
-        add(status.ok ? 'ok' : 'fail', 'herdr server', status.ok
-            ? status.stdout.split('\n')[0] || 'running'
-            : `${status.stdout.split('\n')[0] || status.stderr || 'not running'} — start it with \`herdr server\``,
-            status.ok ? undefined : { label: 'start the herdr server', run: async () => { await ensureHerdrServer(binary); } });
+        const serverReady = herdrServerIsReady(binary);
+        add(serverReady ? 'ok' : 'fail', 'herdr server', serverReady
+            ? 'running'
+            : 'not running — start it with `herdr server`',
+            serverReady ? undefined : { label: 'start the herdr server', run: async () => { await ensureHerdrServer(binary); } });
         const integrations = run(binary, ['integration', 'status']);
         if (integrations.ok) {
             const statuses = parseIntegrationStatus(integrations.stdout);
