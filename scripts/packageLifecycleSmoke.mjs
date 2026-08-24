@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { gzipSync } from 'node:zlib';
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 import { homedir, tmpdir } from 'node:os';
@@ -246,12 +246,12 @@ try {
     const outside = join(scratch, 'outside'); mkdirSync(outside);
     rmSync(extensionRoot, { recursive: true, force: true }); symlinkSync(outside, extensionRoot, 'dir');
     await assert.rejects(runPackage('install', ['npm:pkg@1.0.0', '--yes']), /extensions.*directory/);
-    rmSync(extensionRoot, { force: true }); writeFileSync(extensionRoot, 'not a directory');
+    unlinkSync(extensionRoot); writeFileSync(extensionRoot, 'not a directory');
     await assert.rejects(runPackage('install', ['npm:pkg@1.0.0', '--yes']), /extensions.*directory/);
     rmSync(extensionRoot, { force: true }); mkdirSync(extensionRoot);
     symlinkSync(outside, join(extensionRoot, '.provenance'), 'dir');
     await assert.rejects(runPackage('install', ['npm:pkg@1.0.0', '--yes']), /provenance.*directory/);
-    rmSync(join(extensionRoot, '.provenance'), { force: true }); mkdirSync(join(extensionRoot, '.provenance'));
+    unlinkSync(join(extensionRoot, '.provenance')); mkdirSync(join(extensionRoot, '.provenance'));
     rmSync(join(extensionRoot, '.locks'), { recursive: true, force: true });
     symlinkSync(outside, join(extensionRoot, '.locks'), 'dir');
     await assert.rejects(runPackage('install', ['npm:pkg@1.0.0', '--yes']), /locks.*directory/);
