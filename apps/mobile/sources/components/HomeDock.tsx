@@ -516,6 +516,7 @@ export const HomeDock = React.memo(({
     const setWorktreeKey = useNewSessionDraft((state) => state.setWorktreeKey);
     const socketStatus = useSocketStatus();
     const [hostAgentKinds, setHostAgentKinds] = React.useState<string[] | null>(null);
+    const [hostAgentKindsAuthoritative, setHostAgentKindsAuthoritative] = React.useState(false);
     const machines = useAllMachines({ includeOffline: true });
     const sessions = useSessions();
     const selectedMachine = React.useMemo(
@@ -626,6 +627,7 @@ export const HomeDock = React.memo(({
     React.useEffect(() => {
         let cancelled = false;
         setHostAgentKinds(null);
+        setHostAgentKindsAuthoritative(false);
         if (socketStatus.status !== 'connected') return () => { cancelled = true; };
         void sync.request('herdr.agentKinds', {}).then((result) => {
             if (cancelled) return;
@@ -634,17 +636,24 @@ export const HomeDock = React.memo(({
                 .filter((option) => option.availability !== 'unavailable')
                 .map((option) => option.kind);
             setHostAgentKinds([...new Set(['shell', ...launchable])]);
-        }).catch(() => { if (!cancelled) setHostAgentKinds(null); });
+            setHostAgentKindsAuthoritative(resolved.authoritative);
+        }).catch(() => {
+            if (!cancelled) {
+                setHostAgentKinds(null);
+                setHostAgentKindsAuthoritative(false);
+            }
+        });
         return () => { cancelled = true; };
     }, [socketStatus.status]);
     const visibleAgentKeys = new Set(hostAgentKinds ?? ['shell', agentType]);
+    if (!hostAgentKindsAuthoritative) visibleAgentKeys.add(agentType);
     const availableAgents = AGENTS.filter((agent) => visibleAgentKeys.has(agent.key));
     const currentAgent = availableAgents.find((agent) => agent.key === agentType) ?? availableAgents[0] ?? AGENTS[0];
     React.useEffect(() => {
-        if (hostAgentKinds !== null && !hostAgentKinds.includes(agentType)) {
-            setAgentType((hostAgentKinds.find((kind) => kind !== 'shell') ?? 'shell') as NewSessionAgentType);
+        if (hostAgentKindsAuthoritative && hostAgentKinds !== null && hostAgentKinds.some((kind) => kind !== 'shell') && !hostAgentKinds.includes(agentType)) {
+            setAgentType(hostAgentKinds.find((kind) => kind !== 'shell') as NewSessionAgentType);
         }
-    }, [agentType, hostAgentKinds, setAgentType]);
+    }, [agentType, hostAgentKinds, hostAgentKindsAuthoritative, setAgentType]);
     const canSubmit = !isSubmitting && (prompt.trim().length > 0 || selectedImages.length > 0);
     const focusedComposerHeight = selectedImages.length > 0 ? 206 : 126;
     const keyboardStyle = useAnimatedStyle(() => ({
@@ -781,10 +790,10 @@ export const HomeDock = React.memo(({
     }, [setAgentType]);
 
     React.useEffect(() => {
-        if (availableAgents.length > 0 && !availableAgents.some((agent) => agent.key === agentType)) {
-            selectAgent(availableAgents[0].key);
+        if (hostAgentKindsAuthoritative && availableAgents.some((agent) => agent.key !== 'shell') && !availableAgents.some((agent) => agent.key === agentType)) {
+            selectAgent(availableAgents.find((agent) => agent.key !== 'shell')!.key);
         }
-    }, [agentType, availableAgents, selectAgent]);
+    }, [agentType, availableAgents, hostAgentKindsAuthoritative, selectAgent]);
 
     type SettingsRow = {
         page: string;

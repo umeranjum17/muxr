@@ -219,7 +219,7 @@ export default function NewAgentScreen() {
     const [catalog, setCatalog] = React.useState<readonly AgentOption[]>(
         FALLBACK_AGENT_KINDS.map((kind) => ({ kind, availability: 'unknown' })),
     );
-    const [catalogSource, setCatalogSource] = React.useState<'loading' | 'host' | 'fallback'>('loading');
+    const [catalogSource, setCatalogSource] = React.useState<'loading' | 'host' | 'unknown' | 'fallback'>('loading');
     const [selected, setSelected] = React.useState<ReadonlySet<string>>(new Set());
     const [cwd, setCwd] = React.useState(settings.lastSessionCwd ?? '');
     const [worktree, setWorktree] = React.useState(false);
@@ -242,10 +242,12 @@ export default function NewAgentScreen() {
                 if (!live) return;
                 const resolved = resolveAgentCatalog(result);
                 setCatalog(resolved.options);
-                setCatalogSource(resolved.authoritative ? 'host' : 'fallback');
+                setCatalogSource(resolved.authoritative ? 'host' : 'unknown');
                 if (resolved.authoritative) {
                     const installed = new Set(resolved.options.filter((option) => option.availability === 'installed').map((option) => option.kind));
-                    setSelected((previous) => new Set([...previous].filter((kind) => installed.has(kind))));
+                    // An empty host probe is usually a broken service environment,
+                    // not proof that the user's saved squad should be erased.
+                    if (installed.size > 0) setSelected((previous) => new Set([...previous].filter((kind) => installed.has(kind))));
                 }
             })
             .catch(() => { if (live) setCatalogSource('fallback'); });
@@ -361,7 +363,7 @@ export default function NewAgentScreen() {
                         <Text style={styles.sectionLabel}>AGENT</Text>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                             <Text style={styles.squadBadgeText}>
-                                {catalogSource === 'host' ? 'FROM HERDR' : catalogSource === 'loading' ? 'CHECKING HOST' : 'OFFLINE FALLBACK'}
+                                {catalogSource === 'host' ? 'FROM HERDR' : catalogSource === 'loading' ? 'CHECKING HOST' : catalogSource === 'unknown' ? 'HOST AVAILABILITY UNKNOWN' : 'OFFLINE FALLBACK'}
                             </Text>
                             {squad && (
                                 <View style={styles.squadBadge}>

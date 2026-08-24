@@ -148,6 +148,25 @@ export class TerminalManager {
             ],
             { stdio: ['pipe', 'pipe', 'inherit'] },
         );
+        // spawn() reports ENOENT asynchronously. Do not acknowledge the attach
+        // request until Herdr actually starts: otherwise the reason is lost
+        // before the phone joins and a permanent PATH fault looks like endless
+        // network reconnecting.
+        await new Promise<void>((resolve, reject) => {
+            const cleanup = (): void => {
+                child.off('spawn', onSpawn);
+                child.off('error', onError);
+            };
+            const onSpawn = (): void => { cleanup(); resolve(); };
+            const onError = (error: Error): void => {
+                cleanup();
+                socket.close();
+                process.stderr.write(`terminal: could not start ${herdr}: ${error.message}\n`);
+                reject(new Error(`terminal: could not start Herdr: ${error.message}`));
+            };
+            child.once('spawn', onSpawn);
+            child.once('error', onError);
+        });
 
         const attachment: Attachment = {
             sessionId: params.sessionId,
@@ -301,6 +320,7 @@ export class TerminalManager {
         // An unspawnable herdr binary (PATH drift, upgrade window) must not take
         // the whole host down with an unhandled 'error' event.
         child.on('error', (error) => {
+            process.stderr.write(`terminal: could not start ${herdr}: ${error.message}\n`);
             finish(`herdr stream failed: ${error.message}`);
         });
         socket.on('close', () => {
