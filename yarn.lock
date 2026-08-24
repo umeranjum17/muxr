@@ -4782,10 +4782,10 @@ expo-asset@55.0.10, expo-asset@~55.0.0, expo-asset@~55.0.10:
     "@expo/image-utils" "^0.8.12"
     expo-constants "~55.0.9"
 
-expo-audio@55.0.9, expo-audio@~55.0.0:
-  version "55.0.9"
-  resolved "https://registry.yarnpkg.com/expo-audio/-/expo-audio-55.0.9.tgz#b580e26f5f50c9872fa751b0e4ebd57e135353ef"
-  integrity sha512-3SsyjwrupXRBbOoDjD5rcqgGnQ5RiB8z4KF1eel88q4z8yue7NKik2o9e3QBMDKLX7xnbJo673ah14BKnF9OVA==
+expo-audio@57.0.4, expo-audio@~57.0.4:
+  version "57.0.4"
+  resolved "https://registry.yarnpkg.com/expo-audio/-/expo-audio-57.0.4.tgz#fe0e38e53346215329057dba854d8fbbb73938c4"
+  integrity sha512-TLP8rt1UvUDzgxGnyQ0TR9hV6tNP/UJQdDu7mSK+dgEydMFoptq55D3hcUoB1gF39f3/3AUuWfOtpGM+4N4X1A==
 
 expo-blur@55.0.10, expo-blur@~55.0.0:
   version "55.0.10"
