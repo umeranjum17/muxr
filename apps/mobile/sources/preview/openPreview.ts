@@ -9,6 +9,8 @@
  * a listener -- is the only caller left on that path.
  */
 
+import * as Device from 'expo-device';
+import { Platform } from 'react-native';
 import { newPreviewKey } from '@muxr/crypto';
 import { issueWsTicket, newPreviewChannel, previewSocketUrl, ticketSocketUrl } from '@muxr/contract';
 import { getCachedConnectionSettings } from '@/state/connectionSettings';
@@ -130,6 +132,12 @@ export async function attachPreviewTunnel(port: number): Promise<PreviewTunnel> 
 }
 
 export async function openPreview(port: number): Promise<OpenPreview> {
+    // The iOS simulator shares the Mac's loopback. Bypass the native TCP bridge:
+    // react-native-tcp-socket's accept callback crashes under recent simulators,
+    // while direct loopback is both simpler and equivalent for this environment.
+    if (Platform.OS === 'ios' && Device.isDevice === false) {
+        return { url: `http://127.0.0.1:${port}/`, close: () => undefined };
+    }
     const tunnel = await attachPreviewTunnel(port);
     return {
         url: `http://${tunnel.hostname}:${tunnel.port}/`,

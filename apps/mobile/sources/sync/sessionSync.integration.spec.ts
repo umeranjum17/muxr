@@ -7,12 +7,13 @@ import { buildSpaceRows, lifecycleTree } from '../utils/herdTree';
 import { selectLiveTerminalCards } from '../utils/liveTerminalOrder';
 
 const request = vi.fn();
+const refreshSessions = vi.fn();
 const sessions = {} as Record<string, unknown>;
 
 vi.mock('../state/connectionSettings', () => ({
     getCachedConnectionSettings: () => ({ machineId: 'machine' }),
 }));
-vi.mock('./sync', () => ({ sync: { request, refreshSessions: vi.fn() } }));
+vi.mock('./sync', () => ({ sync: { request, refreshSessions } }));
 vi.mock('./storage', () => ({ storage: { getState: () => ({ sessions, updateSession: vi.fn() }) } }));
 import { applyStatusToSession, sessionInfoToSession } from './sessionMapping';
 
@@ -24,6 +25,7 @@ async function spawn(options: { modelMode?: string; effortLevel?: string }) {
 describe('session sync flow', () => {
     beforeEach(() => {
         vi.restoreAllMocks();
+        refreshSessions.mockReset();
         request.mockReset();
         for (const key of Object.keys(sessions)) delete sessions[key];
     });
@@ -70,6 +72,19 @@ describe('session sync flow', () => {
             sessionId: 's1',
         });
         expect(request.mock.calls).toEqual([['session.start', { cwd: '/tmp' }]]);
+    });
+
+    it('waits for a newly started session to become visible before routing', async () => {
+        request.mockResolvedValue({
+            info: { id: 'delayed' },
+            status: { sessionId: 'delayed', isStreaming: false, tokens: { input: 0, output: 0, cacheWrite: 0, cacheRead: 0, total: 0 } },
+        });
+        refreshSessions.mockImplementation(async () => {
+            if (refreshSessions.mock.calls.length === 3) sessions.delayed = {};
+        });
+
+        await expect(spawn({})).resolves.toEqual({ type: 'success', sessionId: 'delayed' });
+        expect(refreshSessions).toHaveBeenCalledTimes(3);
     });
 
     it('keeps Spaces, Live Terminals and completion on one canonical pane lifecycle', () => {
