@@ -110,7 +110,7 @@
     "react-textarea-autosize": "^8.5.9",
     "rn-encryption": "^2.5.0",
     "thumbhash": "^0.1.1",
-    "uuid": "^11.1.0",
+    "uuid": "^14.0.2",
     "victory-native": "^41.26.0",
     "vitest": "^3.2.4",
     "whisper.rn": "0.7.2",
