@@ -1,4 +1,4 @@
-import type { MarkdownBlock, MarkdownSpan } from "./parseMarkdown";
+import type { MarkdownBlock, MarkdownSpan } from "./markdownTypes";
 import { parseMarkdownSpans } from "./parseMarkdownSpans";
 
 // Split a pipe-delimited table row into cells, stripping only the leading/trailing
