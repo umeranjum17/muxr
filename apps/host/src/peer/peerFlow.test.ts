@@ -95,7 +95,7 @@ async function call<T extends PeerRequestType>(
     return runtime.handle({ type, requestId: `phone-${Math.random()}`, params } as PeerClientRequest, 'phone-control') as Promise<PeerRequestResult<T>>;
 }
 
-async function brokerCall(socketPath: string, capability: string, request: unknown): Promise<unknown> {
+async function brokerCall(socketPath: string, capability: string, request: unknown, acknowledge: boolean | 'invalid' = true): Promise<unknown> {
     return new Promise((resolve, reject) => {
         const socket = createConnection(socketPath);
         let input = '';
@@ -111,8 +111,13 @@ async function brokerCall(socketPath: string, capability: string, request: unkno
             input += chunk.toString('utf8');
             const newline = input.indexOf('\n');
             if (newline === -1) return;
-            const response = JSON.parse(input.slice(0, newline)) as { ok: boolean; data?: unknown; error?: string };
-            if (response.ok) finish(undefined, response.data); else finish(new Error(response.error));
+            const response = JSON.parse(input.slice(0, newline)) as { id: string; ok: boolean; data?: unknown; error?: string; ackId?: string };
+            if (!response.ok) return finish(new Error(response.error));
+            if (response.ackId === undefined || !acknowledge) return finish(undefined, response.data);
+            const ack = acknowledge === 'invalid' ? `${response.ackId}-wrong-request` : response.ackId;
+            socket.write(`${JSON.stringify({ id: response.id, capability, ack })}\n`, (error) => {
+                if (error) finish(error); else finish(undefined, response.data);
+            });
         });
         socket.on('error', (error) => finish(error));
         socket.on('close', () => finish(new Error('Peer broker closed before replying.')));
@@ -155,6 +160,7 @@ describe('host peer collaboration flow', () => {
             },
         } as unknown as SessionSource;
         let targetDispatch: ReturnType<typeof createRequestDispatcher>['dispatch'];
+        let forcedRemoteError: Error | undefined;
         const sourceRuntime = new PeerRuntime({
             dataDir: join(root, 'source'),
             machineId: 'source-machine',
@@ -166,6 +172,11 @@ describe('host peer collaboration flow', () => {
             clientFactory: (relationship) => new class implements PeerClientTransport {
                 async connect(): Promise<void> {}
                 async request<T extends PeerClientRequestType>(type: T, params: RequestParams<T>, signal?: AbortSignal): Promise<RequestResult<T>> {
+                    if (forcedRemoteError !== undefined) {
+                        const error = forcedRemoteError;
+                        forcedRemoteError = undefined;
+                        throw error;
+                    }
                     const dispatched = targetDispatch({ type, requestId: `peer-${Math.random()}`, params } as ClientRequest, relationship.peerDeviceId)
                         .then((response) => {
                             if (!response.ok) throw Object.assign(new Error(response.error), { code: response.code, fromHost: true });
@@ -319,13 +330,41 @@ describe('host peer collaboration flow', () => {
         expect(sourceRuntime.store.semanticMutations().find((entry) => entry.type === 'peer.remote.prompt' && 'text' in entry.params && entry.params.text === 'Run the iOS build')?.operationId)
             .toBe(promptMutation.operationId);
 
+        forcedRemoteError = Object.assign(new Error('confirmed rejection'), { code: 'peer-forbidden' });
+        await expect(call(sourceRuntime, 'peer.remote.prompt', {
+            relationshipId: installed.relationshipId,
+            sessionId: 'muxr-session-ios',
+            text: 'Safe failure can retry',
+            mutation: fresh('safe-failure'),
+        })).rejects.toMatchObject({ code: 'peer-forbidden' });
+        await expect(call(sourceRuntime, 'peer.remote.prompt', {
+            relationshipId: installed.relationshipId,
+            sessionId: 'muxr-session-ios',
+            text: 'Safe failure can retry',
+            mutation: fresh('safe-failure-new-id'),
+        })).resolves.toMatchObject({ delivered: true });
+
+        forcedRemoteError = Object.assign(new Error('outcome unresolved'), { code: 'peer-mutation-unresolved' });
+        await expect(call(sourceRuntime, 'peer.remote.prompt', {
+            relationshipId: installed.relationshipId,
+            sessionId: 'muxr-session-ios',
+            text: 'Ambiguous failure remains blocked',
+            mutation: fresh('ambiguous-failure'),
+        })).rejects.toMatchObject({ code: 'peer-mutation-unresolved' });
+        await expect(call(sourceRuntime, 'peer.remote.prompt', {
+            relationshipId: installed.relationshipId,
+            sessionId: 'muxr-session-ios',
+            text: 'Ambiguous failure remains blocked',
+            mutation: fresh('ambiguous-failure-new-id'),
+        })).rejects.toMatchObject({ code: 'peer-mutation-unresolved' });
+
         await expect(call(sourceRuntime, 'peer.remote.prompt', {
             relationshipId: installed.relationshipId,
             sessionId: 'muxr-session-ios',
             text: 'Too late',
             mutation: { operationId: 'expired', notValidAfter: Date.now() - 1 },
         })).rejects.toMatchObject({ code: 'peer-mutation-expired' });
-        expect(prompts).toBe(1);
+        expect(prompts).toBe(2);
 
         await expect(targetDispatch({
             type: 'machine.shell', requestId: 'forbidden', params: { command: 'echo unsafe', cwd: '/tmp' },
@@ -345,11 +384,30 @@ describe('host peer collaboration flow', () => {
         expect(spokenRead).toMatchObject({ machine: 'Build Mac', agent: 'iOS builder', truncated: false });
         expect(JSON.stringify(spokenRead)).toContain('build complete');
         expect(JSON.stringify(spokenRead)).not.toMatch(/Users|pp_secret|remote-secret-value/);
-        await expect(brokerCall(broker.socketPath, access.capability, { method: 'prompt', machine: 'Build Mac', agent: 'iOS builder', text: 'Report build status' }))
+        const causalPrompt = { method: 'prompt', machine: 'Build Mac', agent: 'iOS builder', text: 'Report build status' };
+        await expect(brokerCall(broker.socketPath, access.capability, causalPrompt, false))
             .resolves.toEqual({ machine: 'Build Mac', agent: 'iOS builder', delivered: true });
-        expect(prompts).toBe(2);
+        expect(prompts).toBe(3);
+        const awaitingPluginAck = sourceRuntime.store.semanticMutations().find((entry) => entry.type === 'peer.remote.prompt'
+            && 'text' in entry.params && entry.params.text === causalPrompt.text)!;
+        expect(awaitingPluginAck.state).toBe('completed');
+        await expect(brokerCall(broker.socketPath, access.capability, causalPrompt, 'invalid'))
+            .resolves.toEqual({ machine: 'Build Mac', agent: 'iOS builder', delivered: true });
+        expect(prompts).toBe(3);
+        expect(sourceRuntime.store.semanticMutations().find((entry) => entry.operationId === awaitingPluginAck.operationId)).toMatchObject({ state: 'completed' });
+        await expect(brokerCall(broker.socketPath, access.capability, causalPrompt))
+            .resolves.toEqual({ machine: 'Build Mac', agent: 'iOS builder', delivered: true });
+        expect(prompts).toBe(3);
+        for (let attempt = 0; attempt < 20 && sourceRuntime.store.semanticMutations().find((entry) => entry.operationId === awaitingPluginAck.operationId)?.state !== 'delivered'; attempt += 1) {
+            await new Promise((resolve) => setTimeout(resolve, 0));
+        }
+        expect(sourceRuntime.store.semanticMutations().find((entry) => entry.operationId === awaitingPluginAck.operationId)).toMatchObject({ state: 'delivered' });
         await expect(brokerCall(broker.socketPath, access.capability, { method: 'watch', machine: 'Build Mac', agent: 'iOS builder', timeoutMs: 5_000 }))
             .resolves.toMatchObject({ settlement: { status: 'done', detail: 'Agent is done' } });
+        for (let attempt = 0; attempt < 20 && !sourceRuntime.store.semanticMutations().some((entry) => entry.type === 'peer.remote.watch' && entry.state === 'delivered'); attempt += 1) {
+            await new Promise((resolve) => setTimeout(resolve, 0));
+        }
+        expect(sourceRuntime.store.semanticMutations()).toContainEqual(expect.objectContaining({ type: 'peer.remote.watch', state: 'delivered' }));
         remoteSessions = [session, { ...session, id: 'another-internal-session' }];
         const qualified = await brokerCall(broker.socketPath, access.capability, { method: 'list', machine: 'Build Mac' }) as { machines: Array<{ agents: Array<{ agent: string }> }> };
         expect(qualified.machines[0]!.agents.map((entry) => entry.agent).sort()).toEqual(['iOS builder', 'iOS builder (pi)']);
@@ -406,20 +464,51 @@ describe('host peer collaboration flow', () => {
         expect((capacityError as Error).message).toMatch(/this device/);
 
         const inboundRelationshipId = restartedTarget.store.list().peers[0]!.relationshipId;
-        targetAuthority.failRevokes = 1;
+        const putRelationship = restartedTarget.store.putRelationship.bind(restartedTarget.store);
+        let crashAtRelationshipWrite = true;
+        restartedTarget.store.putRelationship = async (relationship) => {
+            if (crashAtRelationshipWrite && relationship.relationshipId === inboundRelationshipId && relationship.state === 'disconnecting') {
+                crashAtRelationshipWrite = false;
+                throw new Error('simulated crash after local crypto fence');
+            }
+            await putRelationship(relationship);
+        };
         await expect(call(restartedTarget, 'peer.revoke', {
             relationshipId: inboundRelationshipId,
             peerDeviceId: authorized.peerDeviceId,
             mutation: fresh('revoke-target'),
-        })).rejects.toThrow('simulated authority revocation outage');
-        expect(targetKeys.current().devices).toEqual([]);
-        expect(restartedTarget.store.relationship(inboundRelationshipId)).toMatchObject({ state: 'disconnecting' });
-        restartedTarget.retryRecovery();
-        for (let attempt = 0; attempt < 50 && restartedTarget.store.relationship(inboundRelationshipId)?.state !== 'revoked'; attempt += 1) {
+        })).rejects.toThrow('simulated crash after local crypto fence');
+        expect(targetKeys.current()).toMatchObject({
+            devices: [],
+            pendingRotation: { kind: 'peer-revoke-v1', revokedDeviceId: authorized.peerDeviceId },
+        });
+        expect(restartedTarget.store.relationship(inboundRelationshipId)).toMatchObject({ state: 'connected' });
+        restartedTarget.close();
+
+        const crashedTarget = new PeerRuntime({
+            dataDir: join(root, 'target'),
+            machineId: 'target-machine',
+            machineName: 'Build Mac',
+            platform: 'macOS',
+            relayUrl: 'ws://relay.test',
+            crypto: targetKeys.adapter,
+            authority: targetAuthority,
+        });
+        await expect(call(crashedTarget, 'peer.prepare', {
+            targetMachineId: 'another-target',
+            targetMachineSigningPublicKey: sourceKeys.current().signingPublicKey,
+            mutation: fresh('fenced-after-revocation-crash'),
+        })).rejects.toMatchObject({ code: 'peer-recovery-pending' });
+        targetAuthority.failRevokes = 1;
+        await expect(crashedTarget.recover()).rejects.toThrow('simulated authority revocation outage');
+        expect(targetKeys.current().pendingRotation).toMatchObject({ revokedDeviceId: authorized.peerDeviceId });
+        expect(crashedTarget.store.relationship(inboundRelationshipId)).toMatchObject({ state: 'connected' });
+        crashedTarget.retryRecovery();
+        for (let attempt = 0; attempt < 50 && crashedTarget.store.relationship(inboundRelationshipId)?.state !== 'revoked'; attempt += 1) {
             await new Promise((resolve) => setTimeout(resolve, 10));
         }
         expect(targetAuthority.revoked.has(authorized.peerDeviceId)).toBe(true);
-        expect(restartedTarget.store.relationship(inboundRelationshipId)).toMatchObject({ state: 'revoked' });
+        expect(crashedTarget.store.relationship(inboundRelationshipId)).toMatchObject({ state: 'revoked' });
         expect(targetAuthority.rotations).toHaveLength(1);
 
         await call(sourceRuntime, 'peer.revoke', {
