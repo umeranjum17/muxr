@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, realpathSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { daemonIsRunning, daemonMode, restartSelfhostRelayIfRunning, runBootstrap, runDaemon, runIntegrations, stopSelfhostRelayIfRunning } from './local-setup.mjs';
+import { daemonIsRunning, daemonMode, restartSelfhostRelayIfRunning, runBootstrap, runDaemon, stopSelfhostRelayIfRunning } from './local-setup.mjs';
 import { select } from './setup-ui.mjs';
 
 const PACKAGE = '@trymuxr/cli';
@@ -105,7 +105,7 @@ export async function runUpdate(args = []) {
             `  • install ${PACKAGE}@${latest}`,
             installedMode === 'relay'
                 ? '  • leave Herdr and agent integrations unchanged on this relay-only server'
-                : '  • refresh Herdr, bundled plugins, and managed agent instructions',
+                : '  • ensure the Herdr server is running and relink bundled plugins',
             '  • restart the muxr relay and host if they are running',
             '',
         ].join('\n'));
@@ -125,16 +125,9 @@ export async function runUpdate(args = []) {
     const install = npm(['install', '--global', '--ignore-scripts', `${PACKAGE}@${latest}`], 'inherit');
     if (install.status !== 0) return install.status ?? 1;
 
-    let integrationRefreshFailed = false;
-    if (restartMode !== 'relay') {
-        if ((await runBootstrap(['--no-install-herdr'])) !== 0) {
-            process.stderr.write('The package updated, but the Herdr/plugin refresh failed. Run `muxr doctor`.\n');
-            return 1;
-        }
-        integrationRefreshFailed = (await runIntegrations(['sync'])) !== 0;
-        if (integrationRefreshFailed) {
-            process.stderr.write('The package updated, but managed agent instructions need attention. Restarting services; run `muxr integrations sync` after resolving drift.\n');
-        }
+    if (restartMode !== 'relay' && (await runBootstrap(['--no-install-herdr'])) !== 0) {
+        process.stderr.write('The package updated, but the Herdr/plugin refresh failed. Run `muxr doctor`.\n');
+        return 1;
     }
     let relayRestarted = false;
     try {
@@ -159,6 +152,6 @@ export async function runUpdate(args = []) {
         return 1;
     }
     const restarted = [relayRestarted ? 'relay' : '', restart ? 'host' : ''].filter(Boolean).join(' and ');
-    process.stdout.write(`Updated muxr to ${latest}${restarted ? ` and restarted the ${restarted}` : ''}${integrationRefreshFailed ? '; integration reconciliation remains incomplete' : ''}.\n`);
-    return integrationRefreshFailed ? 1 : 0;
+    process.stdout.write(`Updated muxr to ${latest}${restarted ? ` and restarted the ${restarted}` : ''}.\n`);
+    return 0;
 }

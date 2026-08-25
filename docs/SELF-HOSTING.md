@@ -23,6 +23,11 @@ final **Apply setup** confirmation, muxr starts the selected relay and host, the
    pairing result, integrations, and plugins. Credentials and internal IDs are
    never included in this final summary.
 
+muxr never installs skills or edits AGENTS/CLAUDE instruction files. Agents use
+muxr guidance only when you explicitly load the self-contained output of
+`muxr --skill` (or `muxr skill`). Agent integrations are lifecycle/process
+reporting only.
+
 The registered user service supervises the relay and host together, so both
 return after login or reboot and `muxr update` restarts them as one managed unit.
 Unchanged setup choices keep existing devices paired; changing the endpoint

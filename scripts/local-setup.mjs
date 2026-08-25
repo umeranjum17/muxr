@@ -5,7 +5,6 @@ import { fileURLToPath } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
 import {
     chmodSync,
-    cpSync,
     existsSync,
     lstatSync,
     mkdirSync,
@@ -16,7 +15,6 @@ import {
     realpathSync,
     renameSync,
     rmSync,
-    rmdirSync,
     statSync,
     writeFileSync,
 } from 'node:fs';
@@ -29,14 +27,9 @@ const DURABLE_GRANT_EXPIRES_AT = Date.UTC(9999, 11, 31, 23, 59, 59, 999);
 const BROWSER_GRANT_TTL_MS = 8 * 60 * 60_000;
 const HERDR_INSTALL_URL = 'https://herdr.dev/install.sh';
 const HERDR_INSTALL_HINT = 'run `muxr setup` to install Herdr automatically';
-const START = '<!-- muxr:herdr-skill:start -->';
-const END = '<!-- muxr:herdr-skill:end -->';
 const PACKAGED_CONTROL_URL = '__MUXR_PACKAGED_CONTROL_URL__';
-// Only tools with a stable instruction-file contract belong here. Lifecycle
-// integrations are discovered dynamically from `herdr integration status`.
-const TARGETS = [
-    ['pi', ['pi'], ['.pi', 'agent', 'AGENTS.md']],
-].map(([id, commands, instructionParts]) => ({ id, commands, instructionParts }));
+// Lifecycle integrations are discovered dynamically from `herdr integration status`.
+// Agent prompt files are never installed or rewritten.
 const INTEGRATION_COMMANDS = {
     'antigravity-cli': ['antigravity', 'antigravity-cli'],
     qodercli: ['qoder', 'qodercli'],
@@ -76,9 +69,6 @@ const authPath = () => join(stateDir(), 'auth.json');
 const bundledPluginPath = (name) => existsSync(fileURLToPath(new URL(`./plugins/${name}/herdr-plugin.toml`, import.meta.url)))
     ? fileURLToPath(new URL(`./plugins/${name}`, import.meta.url))
     : fileURLToPath(new URL(`../plugins/${name}`, import.meta.url));
-const muxrSkillDir = () => existsSync(fileURLToPath(new URL('./skills/muxr/SKILL.md', import.meta.url)))
-    ? fileURLToPath(new URL('./skills/muxr', import.meta.url))
-    : fileURLToPath(new URL('../skills/muxr', import.meta.url));
 function bundledPlugins() {
     const packaged = fileURLToPath(new URL('./plugins', import.meta.url));
     const fromRepo = fileURLToPath(new URL('../plugins', import.meta.url));
@@ -142,11 +132,9 @@ function atomicWrite(path, text, mode = 0o600) {
 function loadManifest() {
     try {
         const parsed = JSON.parse(readFileSync(manifestPath(), 'utf8'));
-        if ([1, 2].includes(parsed.version) && parsed.entries && parsed.herdrInstalled) {
-            return { ...parsed, version: 2 };
-        }
+        if (parsed.version === 1 && parsed.entries && parsed.herdrInstalled) return parsed;
     } catch {}
-    return { version: 2, entries: {}, herdrInstalled: [] };
+    return { version: 1, entries: {}, herdrInstalled: [] };
 }
 
 function saveManifest(manifest, dryRun) {
@@ -239,26 +227,12 @@ function parseIntegrationStatus(text) {
     return statuses;
 }
 
-function detectedTargets(all = false) {
-    return TARGETS.filter((target) => all || target.commands.some(executable));
-}
-
 function detectedLifecycleTargets(statuses, all = false) {
     return [...statuses.entries()].filter(([id, status]) => {
         if (all) return true;
         if (status === 'current') return true;
         return (INTEGRATION_COMMANDS[id] ?? [id]).some(executable);
     });
-}
-
-function managedBlock(muxrSkillPath) {
-    return `${START}\n## muxr\nFor muxr or Herdr setup, orchestration, pairing, pane attachments, computer collaboration, or plugins, read \`${muxrSkillPath}\` before acting.\n${END}`;
-}
-
-function blockFrom(text) {
-    const start = text.indexOf(START);
-    const end = text.indexOf(END, start < 0 ? 0 : start);
-    return start >= 0 && end >= 0 ? text.slice(start, end + END.length) : undefined;
 }
 
 function writeOwned(path, content, manifest, { dryRun, force, mode = 0o600 }) {
@@ -281,264 +255,20 @@ function writeOwned(path, content, manifest, { dryRun, force, mode = 0o600 }) {
     return true;
 }
 
-function writeBlock(path, block, manifest, { dryRun, force }) {
-    const fileExisted = existsSync(path);
-    const current = fileExisted ? readFileSync(path, 'utf8') : '';
-    const existingBlock = blockFrom(current);
-    const entry = manifest.entries[path];
-    if (entry && entry.kind !== 'block') throw new Error(`manifest kind mismatch for ${path}`);
-    if (entry && (existingBlock === undefined || hash(existingBlock) !== entry.hash) && !force) {
-        throw new Error(`drift: managed block in ${path} was edited or removed; rerun with --force to replace it`);
-    }
-    if (!entry && existingBlock !== undefined && existingBlock !== block && !force) {
-        throw new Error(`drift: unmanaged muxr markers already exist in ${path}; rerun with --force to adopt them`);
-    }
-    if (existingBlock === block) {
-        if (!entry && !dryRun) manifest.entries[path] = { kind: 'block', hash: hash(block), created: false };
-        return false;
-    }
-    const next = existingBlock === undefined
-        ? `${current.replace(/\s*$/, '')}${current.trim() ? '\n\n' : ''}${block}\n`
-        : current.replace(existingBlock, block);
-    print(`  ${dryRun ? 'would update' : 'update'} managed block in ${path}`);
-    if (dryRun) return true;
-    let backupPath = entry?.backup;
-    if (existsSync(path) && backupPath === undefined) backupPath = backup(path);
-    atomicWrite(path, next, fileExisted ? statSync(path).mode & 0o777 : 0o600);
-    manifest.entries[path] = {
-        kind: 'block',
-        hash: hash(block),
-        created: entry?.created ?? !fileExisted,
-        ...(backupPath ? { backup: backupPath } : {}),
-    };
-    return true;
-}
-
 function removeManaged(path, entry, manifest, { dryRun, force }) {
+    if (entry.kind !== 'owned') throw new Error(`manifest kind mismatch for ${path}`);
     if (!existsSync(path)) {
         delete manifest.entries[path];
         return false;
     }
     const current = readFileSync(path, 'utf8');
-    if (entry.kind === 'owned') {
-        if (hash(current) !== entry.hash && !force) throw new Error(`drift: ${path} was edited; refusing managed uninstall`);
-        print(`  ${dryRun ? 'would remove' : 'remove'} ${path}`);
-        if (!dryRun) rmSync(path);
-    } else {
-        const block = blockFrom(current);
-        if (block === undefined) {
-            if (!force) throw new Error(`drift: managed block markers are missing from ${path}`);
-        } else {
-            if (hash(block) !== entry.hash && !force) throw new Error(`drift: managed block in ${path} was edited; refusing uninstall`);
-            const next = current.replace(block, '').replace(/\n{3,}/g, '\n\n').trimEnd();
-            print(`  ${dryRun ? 'would remove' : 'remove'} managed block from ${path}`);
-            if (!dryRun) {
-                if (entry.created && !next) rmSync(path);
-                else atomicWrite(path, next ? `${next}\n` : '', statSync(path).mode & 0o777);
-            }
-        }
+    if (hash(current) !== entry.hash && !force) throw new Error(`drift: ${path} was edited; refusing managed uninstall`);
+    print(`  ${dryRun ? 'would remove' : 'remove'} ${path}`);
+    if (!dryRun) {
+        rmSync(path);
+        delete manifest.entries[path];
     }
-    if (!dryRun) delete manifest.entries[path];
     return true;
-}
-
-function preflightSkillPath(root, relativePath) {
-    let current = root;
-    for (const part of relativePath.split('/').slice(0, -1)) {
-        current = join(current, part);
-        if (!existsSync(current)) return;
-        const info = lstatSync(current);
-        if (info.isSymbolicLink() || !info.isDirectory()) throw new Error(`drift: ${current} is not a regular directory`);
-    }
-}
-
-function preflightOwned(path, content, manifest, force) {
-    const entry = manifest.entries[path];
-    if (entry && entry.kind !== 'owned') throw new Error(`manifest kind mismatch for ${path}`);
-    if (!existsSync(path)) {
-        if (entry && !force) throw new Error(`drift: ${path} was removed; rerun with --force to replace it`);
-        return;
-    }
-    if (lstatSync(path).isSymbolicLink() || !lstatSync(path).isFile()) throw new Error(`drift: ${path} is not a regular file`);
-    const current = readFileSync(path, 'utf8');
-    if (entry && hash(current) !== entry.hash && !force) throw new Error(`drift: ${path} was edited; rerun with --force to replace it`);
-    if (!entry && current !== content && !force) throw new Error(`drift: unrecognized file exists at ${path}; rerun with --force to back it up and adopt the path`);
-}
-
-function preflightBlock(path, block, manifest, force) {
-    const entry = manifest.entries[path];
-    if (entry && entry.kind !== 'block') throw new Error(`manifest kind mismatch for ${path}`);
-    const existing = existsSync(path) ? blockFrom(readFileSync(path, 'utf8')) : undefined;
-    if (entry && (existing === undefined || hash(existing) !== entry.hash) && !force) {
-        throw new Error(`drift: managed block in ${path} was edited or removed; rerun with --force to replace it`);
-    }
-    if (!entry && existing !== undefined && existing !== block && !force) {
-        throw new Error(`drift: unmanaged muxr markers already exist in ${path}; rerun with --force to adopt them`);
-    }
-}
-
-function preflightRemoval(path, entry, force) {
-    if (!existsSync(path)) return;
-    if (entry.kind === 'owned') {
-        if (lstatSync(path).isSymbolicLink() || !lstatSync(path).isFile()) throw new Error(`drift: ${path} is not a regular managed file`);
-        if (hash(readFileSync(path, 'utf8')) !== entry.hash && !force) throw new Error(`drift: ${path} was edited; refusing managed removal`);
-        return;
-    }
-    const block = blockFrom(readFileSync(path, 'utf8'));
-    if ((block === undefined || hash(block) !== entry.hash) && !force) throw new Error(`drift: managed block in ${path} was edited or removed; refusing managed removal`);
-}
-
-function treeMatches(root, desired) {
-    return Object.entries(desired).every(([relativePath, expected]) => {
-        const path = join(root, relativePath);
-        return existsSync(path) && !lstatSync(path).isSymbolicLink() && lstatSync(path).isFile()
-            && hash(readFileSync(path, 'utf8')) === expected;
-    });
-}
-
-function recoverSkillTransition(manifest) {
-    const transition = manifest.integrationTransition;
-    if (!transition) return;
-    const { root, stage, previous, desired, backups = {}, obsolete = [], legacy = [], blocks = {} } = transition;
-    if (!treeMatches(root, desired) && treeMatches(stage, desired)) {
-        if (existsSync(root) && !existsSync(previous)) renameSync(root, previous);
-        if (!existsSync(root)) renameSync(stage, root);
-    }
-    if (!treeMatches(root, desired)) {
-        if (!existsSync(root) && existsSync(previous)) renameSync(previous, root);
-        rmSync(stage, { recursive: true, force: true });
-        delete manifest.integrationTransition;
-        saveManifest(manifest, false);
-        return;
-    }
-    for (const [relativePath, expected] of Object.entries(desired)) {
-        const path = join(root, relativePath);
-        manifest.entries[path] = { kind: 'owned', hash: expected, ...(backups[path] ? { backup: backups[path] } : {}) };
-    }
-    for (const path of obsolete) delete manifest.entries[path];
-    for (const path of legacy) if (!existsSync(path)) delete manifest.entries[path];
-    for (const [path, expected] of Object.entries(blocks)) {
-        const current = existsSync(path) ? blockFrom(readFileSync(path, 'utf8')) : undefined;
-        if (current !== undefined && hash(current) === expected) {
-            manifest.entries[path] = { ...manifest.entries[path], kind: 'block', hash: expected, created: manifest.entries[path]?.created ?? false };
-        }
-    }
-    rmSync(stage, { recursive: true, force: true });
-    rmSync(previous, { recursive: true, force: true });
-    delete manifest.integrationTransition;
-    saveManifest(manifest, false);
-}
-
-function desiredMuxrSkill(binary) {
-    const herdrSkill = run(binary, ['--skill']);
-    const herdrVersion = run(binary, ['--version']);
-    const generated = herdrSkill.ok && herdrSkill.stdout.startsWith('---')
-        ? herdrSkill.stdout.replace(/^---\n[\s\S]*?\n---\n?/, '').trim()
-        : undefined;
-    if (generated === undefined) print('  warn: herdr --skill unavailable; installed the runtime loader reference instead');
-    const source = muxrSkillDir();
-    const desired = new Map([['SKILL.md', readFileSync(join(source, 'SKILL.md'), 'utf8')]]);
-    for (const name of readdirSync(join(source, 'references')).sort()) {
-        const packaged = readFileSync(join(source, 'references', name), 'utf8');
-        desired.set(join('references', name), name === 'herdr.md' && generated !== undefined
-            ? `${packaged.trimEnd()}\n\n## Installed Herdr CLI reference\n\nGenerated by \`herdr --skill\` from \`${herdrVersion.stdout || 'the installed herdr binary'}\`.\n\n${generated}\n`
-            : packaged);
-    }
-    return desired;
-}
-
-function syncMuxrSkill(binary, targets, manifest, { dryRun, force }) {
-    if (dryRun && manifest.integrationTransition) throw new Error('an interrupted skill sync needs recovery; rerun without --dry-run');
-    if (!dryRun) recoverSkillTransition(manifest);
-    const root = join(stateDir(), 'integrations', 'muxr');
-    if (existsSync(root) && (lstatSync(root).isSymbolicLink() || !lstatSync(root).isDirectory())) {
-        throw new Error(`drift: ${root} is not a regular directory`);
-    }
-    const desired = desiredMuxrSkill(binary);
-    const desiredPaths = new Set([...desired.keys()].map((relativePath) => join(root, relativePath)));
-    const obsolete = Object.keys(manifest.entries).filter((path) => path.startsWith(`${root}/`) && !desiredPaths.has(path));
-    const legacy = [
-        join(stateDir(), 'integrations', 'herdr', 'SKILL.md'),
-        join(stateDir(), 'integrations', 'muxr-plugin-authoring', 'SKILL.md'),
-    ].filter((path) => manifest.entries[path]);
-    const blocks = new Map(targets.map((target) => [join(home(), ...target.instructionParts), managedBlock(join(root, 'SKILL.md'))]));
-
-    for (const [relativePath, content] of desired) {
-        preflightSkillPath(root, relativePath);
-        preflightOwned(join(root, relativePath), content, manifest, force);
-    }
-    for (const path of [...obsolete, ...legacy]) preflightRemoval(path, manifest.entries[path], force);
-    for (const [path, block] of blocks) preflightBlock(path, block, manifest, force);
-
-    const changed = [...desired].some(([relativePath, content]) => !existsSync(join(root, relativePath)) || readFileSync(join(root, relativePath), 'utf8') !== content)
-        || obsolete.some(existsSync) || legacy.some(existsSync);
-    if (dryRun) {
-        if (changed) print(`  would replace managed skill tree ${root}`);
-        for (const path of legacy) if (existsSync(path)) print(`  would remove ${path}`);
-        for (const [path, block] of blocks) writeBlock(path, block, manifest, { dryRun: true, force });
-        return;
-    }
-    if (!changed) {
-        for (const [relativePath, content] of desired) {
-            const path = join(root, relativePath);
-            const existingBackup = manifest.entries[path]?.backup;
-            manifest.entries[path] = { kind: 'owned', hash: hash(content), ...(existingBackup ? { backup: existingBackup } : {}) };
-        }
-        for (const path of [...obsolete, ...legacy]) delete manifest.entries[path];
-        for (const [path, block] of blocks) writeBlock(path, block, manifest, { dryRun: false, force });
-        saveManifest(manifest, false);
-        return;
-    }
-
-    const parent = dirname(root);
-    ensurePrivateDir(parent);
-    const backups = {};
-    for (const [relativePath, content] of desired) {
-        const path = join(root, relativePath);
-        const entry = manifest.entries[path];
-        if (entry?.backup) backups[path] = entry.backup;
-        else if (existsSync(path) && readFileSync(path, 'utf8') !== content) backups[path] = backup(path);
-    }
-    const nonce = `${process.pid}-${randomBytes(8).toString('hex')}`;
-    const stage = join(parent, `.muxr-stage-${nonce}`);
-    const previous = join(parent, `.muxr-previous-${nonce}`);
-    manifest.integrationTransition = {
-        version: 1,
-        root,
-        stage,
-        previous,
-        desired: Object.fromEntries([...desired].map(([relativePath, content]) => [relativePath, hash(content)])),
-        backups,
-        obsolete,
-        legacy,
-        blocks: Object.fromEntries([...blocks].map(([path, block]) => [path, hash(block)])),
-    };
-    saveManifest(manifest, false);
-
-    if (existsSync(root)) cpSync(root, stage, { recursive: true, errorOnExist: true, force: false });
-    else ensurePrivateDir(stage);
-    for (const path of obsolete) rmSync(join(stage, path.slice(root.length + 1)), { force: true });
-    for (const [relativePath, content] of desired) atomicWrite(join(stage, relativePath), content);
-    if (existsSync(root)) renameSync(root, previous);
-    try { renameSync(stage, root); }
-    catch (cause) {
-        if (!existsSync(root) && existsSync(previous)) renameSync(previous, root);
-        throw cause;
-    }
-
-    for (const [relativePath, content] of desired) {
-        const path = join(root, relativePath);
-        manifest.entries[path] = { kind: 'owned', hash: hash(content), ...(backups[path] ? { backup: backups[path] } : {}) };
-    }
-    for (const path of obsolete) delete manifest.entries[path];
-    for (const path of legacy) {
-        removeManaged(path, manifest.entries[path], manifest, { dryRun: false, force });
-        try { rmdirSync(dirname(path)); } catch {}
-    }
-    for (const [path, block] of blocks) writeBlock(path, block, manifest, { dryRun: false, force });
-    rmSync(previous, { recursive: true, force: true });
-    delete manifest.integrationTransition;
-    saveManifest(manifest, false);
 }
 
 async function askVisible(question) {
@@ -843,7 +573,6 @@ export async function runLocalPrerequisites(args = []) {
         }
         const integrationArgs = ['sync', ...(args.includes('--dry-run') ? ['--dry-run'] : []), ...(args.includes('--force') ? ['--force'] : [])];
         if (args.includes('--all')) integrationArgs.push('--all');
-        if (args.includes('--no-agent-config')) integrationArgs.push('--no-agent-config');
         return await runIntegrations(integrationArgs);
     } catch (cause) {
         error(cause instanceof Error ? cause.message : String(cause));
@@ -1008,7 +737,6 @@ export async function runIntegrations(args = []) {
     const dryRun = args.includes('--dry-run');
     const force = args.includes('--force');
     const all = args.includes('--all');
-    const noAgentConfig = args.includes('--no-agent-config');
     const uninstall = args[0] === 'uninstall';
     const binary = herdrBin();
     if (!binary && !uninstall) {
@@ -1065,14 +793,8 @@ export async function runIntegrations(args = []) {
         const statusResult = run(binary, ['integration', 'status']);
         if (!statusResult.ok) throw new Error(statusResult.stderr || 'herdr integration status failed');
         const statuses = parseIntegrationStatus(statusResult.stdout);
-        const targets = detectedTargets(all);
         const lifecycleTargets = detectedLifecycleTargets(statuses, all);
         print(`muxr integration sync (${lifecycleTargets.length} ${all ? 'known' : 'detected'} agent providers):`);
-        if (noAgentConfig) {
-            print('  agent skills/instructions skipped (--no-agent-config)');
-        } else {
-            syncMuxrSkill(binary, targets, manifest, { dryRun, force });
-        }
         saveManifest(manifest, dryRun);
 
         if (!dryRun) {
@@ -2660,7 +2382,6 @@ export async function runPair(args = []) {
 
 export async function runSetup(args = []) {
     const dryRun = args.includes('--dry-run');
-    const noAgentConfig = args.includes('--no-agent-config');
     print(`muxr setup${dryRun ? ' (dry run)' : ''}:`);
     try {
         const binary = await ensureHerdr({
@@ -2673,7 +2394,6 @@ export async function runSetup(args = []) {
             await ensureBundledPlugins(binary, dryRun);
             const integrationArgs = ['sync', ...(dryRun ? ['--dry-run'] : []), ...(args.includes('--force') ? ['--force'] : [])];
             if (args.includes('--all')) integrationArgs.push('--all');
-            if (noAgentConfig) integrationArgs.push('--no-agent-config');
             if ((await runIntegrations(integrationArgs)) !== 0) throw new Error('integration sync failed');
         }
         if (dryRun) print('  would start/resume hosted device authorization and single-use QR pairing');
@@ -2844,10 +2564,7 @@ export async function runAccount(command, args = []) {
 
 function entryStatus(path, entry) {
     if (!existsSync(path)) return 'missing';
-    const current = readFileSync(path, 'utf8');
-    if (entry.kind === 'owned') return hash(current) === entry.hash ? 'current' : 'drifted';
-    const block = blockFrom(current);
-    return block !== undefined && hash(block) === entry.hash ? 'current' : 'drifted';
+    return entry.kind === 'owned' && hash(readFileSync(path, 'utf8')) === entry.hash ? 'current' : 'drifted';
 }
 
 export async function runDoctor() {

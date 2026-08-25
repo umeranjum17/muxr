@@ -33,6 +33,11 @@ then starts the selected relay and host, runs the pairing flow (scan the
 one-use QR from the phone app), and verifies the connection and managed
 services without printing credentials.
 
+Setup never installs skills or edits agent instruction files. Run `muxr --skill`
+(or `muxr skill`) and explicitly load its self-contained output when you want an
+agent to use muxr guidance. Lifecycle integrations only report agent process
+status.
+
 The registered user service supervises the relay and host together, so both
 return after login or reboot. Preview managed-file changes anytime with
 `muxr setup --dry-run`.

@@ -39,6 +39,9 @@ muxr devices list
 muxr devices revoke <number>
 ```
 
+muxr never installs skills or edits agent instruction files. Run `muxr --skill`
+(or `muxr skill`) and explicitly load its self-contained output in your agent.
+
 muxr state lives under `~/.muxr` unless `MUXR_HOME` is set. Use `muxr setup --dry-run` to preview managed-file changes. `muxr uninstall` removes every muxr-owned operational component—including machine identity, pairings, grants, provider keys, runtime state, services, ingress, and managed integrations—then optionally removes the global CLI. It keeps Herdr, Herdr sessions, repositories, worktrees, received attachments, exports, signing keys, and unrecognized files. The narrower `muxr daemon uninstall` and `muxr integrations uninstall` commands remain available for advanced maintenance.
 
 ## Self-host options
