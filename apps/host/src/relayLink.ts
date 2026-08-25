@@ -37,7 +37,7 @@ export interface RelayLinkOptions {
 }
 
 export interface RelayLink {
-    send: (frame: HostFrame, sessionId?: string, channel?: 'session' | 'attachment') => void;
+    send: (frame: HostFrame, sessionId?: string, channel?: 'session' | 'attachment', recipientId?: string) => void;
     close: () => void;
 }
 
@@ -50,24 +50,24 @@ export function connectToRelay(options: RelayLinkOptions): RelayLink {
     let reconnectAttempt = 0;
     const retryDelay = (): number => Math.min(reconnectDelayMs * 2 ** reconnectAttempt++, 30_000);
     /** Frames that arrived while the socket was down. Hello still goes first. */
-    const outbound: Array<{ frame: HostFrame; sessionId?: string; channel: 'session' | 'attachment' }> = [];
+    const outbound: Array<{ frame: HostFrame; sessionId?: string; channel: 'session' | 'attachment'; recipientId?: string }> = [];
     const MAX_OUTBOUND = 64;
 
-    function transmit(frame: HostFrame, sessionId: string | undefined, channel: 'session' | 'attachment'): void {
+    function transmit(frame: HostFrame, sessionId: string | undefined, channel: 'session' | 'attachment', recipientId?: string): void {
         if (socket?.readyState !== WebSocket.OPEN) return;
         seq += 1;
         const plaintext = encodePayload(frame);
         const streamId = sessionId ?? 'machine';
         // Local development is cleartext. User-operated and hosted connections
         // always use the strict encrypted envelope.
-        const payload = hosted === undefined ? plaintext : hosted.seal(channel, streamId, plaintext);
+        const payload = hosted === undefined ? plaintext : hosted.seal(channel, streamId, plaintext, recipientId);
         const envelope: Envelope = {
             header: {
                 machineId: options.machineId,
                 ...(sessionId === undefined ? {} : { sessionId }),
                 ...(hosted === undefined ? {} : {
                     senderId: options.machineId,
-                    recipientId: '*',
+                    recipientId: recipientId ?? '*',
                     channel,
                     streamId,
                     keyVersion: options.hostedE2ee!.keyVersion,
@@ -83,7 +83,13 @@ export function connectToRelay(options: RelayLinkOptions): RelayLink {
     function flush(): void {
         if (socket?.readyState !== WebSocket.OPEN) return;
         const queued = outbound.splice(0);
-        for (const item of queued) transmit(item.frame, item.sessionId, item.channel);
+        for (const item of queued) {
+            try { transmit(item.frame, item.sessionId, item.channel, item.recipientId); }
+            catch (error) {
+                if (item.recipientId === undefined) throw error;
+                // A revoked directed recipient no longer has an egress key.
+            }
+        }
     }
 
     async function open(): Promise<void> {
@@ -172,14 +178,18 @@ export function connectToRelay(options: RelayLinkOptions): RelayLink {
     void open();
 
     return {
-        send(frame, sessionId, channel = 'session') {
+        send(frame, sessionId, channel = 'session', recipientId) {
             if (socket?.readyState === WebSocket.OPEN) {
-                transmit(frame, sessionId, channel);
+                try { transmit(frame, sessionId, channel, recipientId); }
+                catch (error) {
+                    if (recipientId === undefined) throw error;
+                    // A revoked directed recipient no longer has an egress key.
+                }
                 return;
             }
             if (closed) return;
             if (outbound.length >= MAX_OUTBOUND) outbound.shift();
-            outbound.push(sessionId === undefined ? { frame, channel } : { frame, sessionId, channel });
+            outbound.push({ frame, channel, ...(sessionId === undefined ? {} : { sessionId }), ...(recipientId === undefined ? {} : { recipientId }) });
         },
         close() {
             closed = true;
