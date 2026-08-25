@@ -79,7 +79,7 @@ let exitCode = 0;
 
 function killChildren(signal = 'SIGTERM') {
     for (const child of children) {
-        if (child.exitCode === null && !child.killed) child.kill(signal);
+        if (child.exitCode === null) child.kill(signal);
     }
 }
 

@@ -1,18 +1,10 @@
 import * as React from "react";
 import { View } from "react-native";
+import { avatarHash, type GeneratedAvatarProps } from './generatedAvatar';
 
 const ELEMENTS = 64;
 const GRID_SIZE = 8; // 8x8 grid
 
-function hashCode(str: string): number {
-    let hash = 0;
-    for (let i = 0; i < str.length; i++) {
-        const char = str.charCodeAt(i);
-        hash = ((hash << 5) - hash) + char;
-        hash = hash & hash;
-    }
-    return Math.abs(hash);
-}
 
 function getRandomColor(number: number, colors?: string[], range?: number): string {
     if (colors && range) {
@@ -32,7 +24,7 @@ function hslToGrayscale(hslColor: string): string {
 }
 
 function generateColors(name: string, colors?: string[], monochrome?: boolean): string[] {
-    const numFromName = hashCode(name);
+    const numFromName = avatarHash(name);
     const range = colors?.length;
 
     const colorList = Array.from({ length: ELEMENTS }, (_, i) => {
@@ -43,18 +35,11 @@ function generateColors(name: string, colors?: string[], monochrome?: boolean): 
     return colorList;
 }
 
-interface AvatarProps {
-    id: string;
-    title?: boolean;
-    square?: boolean;
-    size?: number;
-    monochrome?: boolean;
-}
 
 const colors = ['#0a0310', '#49007e', '#ff005b', '#ff7d10', '#ffb238'];
 const grayscaleColors = ['#070707', '#242424', '#575757', '#979797', '#bbbbbb'];
 
-export const AvatarSkia = React.memo((props: AvatarProps) => {
+export const AvatarSkia = React.memo((props: GeneratedAvatarProps) => {
     const { id, square, size = 48, monochrome } = props;
     const defaultColors = monochrome ? grayscaleColors : colors;
     const pixelColors = React.useMemo(() => generateColors(id, defaultColors, monochrome), [id, defaultColors]);

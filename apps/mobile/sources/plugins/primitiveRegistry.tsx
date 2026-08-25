@@ -1,6 +1,6 @@
 import * as React from 'react';
-import { PRIMITIVE_SPECS, type PluginNativeContribution, type PluginNativeSlot, type PluginPrimitive } from '@muxr/contract';
-import type { PluginSlotContexts } from './slotTypes';
+import { PRIMITIVE_SPECS, type PluginPrimitive } from '@muxr/contract';
+import type { PrimitiveProps } from './primitiveTypes';
 import { CapabilityButton } from './primitives/CapabilityButton';
 import { CollectionView } from './primitives/CollectionView';
 import { RealtimeSessionOverlay } from './primitives/RealtimeSessionOverlay';
@@ -8,12 +8,6 @@ import { DictateButton } from './primitives/DictateButton';
 import { TreeSheet } from './primitives/TreeSheet';
 import { ItemList } from './primitives/ItemList';
 
-export type PrimitiveProps = {
-    pluginId: string;
-    manifestHash: string;
-    contribution: PluginNativeContribution;
-    context: PluginSlotContexts[PluginNativeSlot];
-};
 
 type PrimitiveRenderer = (props: PrimitiveProps) => React.ReactNode;
 
