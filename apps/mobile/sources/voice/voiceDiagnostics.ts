@@ -11,7 +11,8 @@ type VoiceDiagnosticMarker =
     | 'manual-live.tap'
     | 'startVoice.enter'
     | 'startVoice.guard:dictating'
-    | 'startVoice.guard:duplicate';
+    | 'startVoice.guard:duplicate'
+    | 'startVoice.guard:pinned';
 
 /** Fixed, non-sensitive stage markers; disabled in release builds. */
 export function voiceDiagnostic(marker: VoiceDiagnosticMarker): void {

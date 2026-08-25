@@ -1256,7 +1256,14 @@ export async function createHerdrSessionSource(
             const approval = await pluginApprovals.track(deviceId, pluginId, () => pluginStreams.detach(channel, 'plugin revoked'));
             try {
                 await pluginStreams.attach({
-                    target: { pluginId, pluginRoot: target.pluginRoot, entry: target.entry },
+                    target: {
+                        pluginId,
+                        pluginRoot: target.pluginRoot,
+                        entry: target.entry,
+                        ...(catalog.streamClaimsCapability(pluginId, manifestHash, contributionId, 'voice.session')
+                            ? { peerBroker: true }
+                            : {}),
+                    },
                     channel,
                     stateDir,
                     ...(record === undefined ? {} : {

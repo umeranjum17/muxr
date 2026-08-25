@@ -206,6 +206,11 @@ export class PluginCatalog {
         return { ...stream, pluginRoot: snapshot.pluginRoot };
     }
 
+    streamClaimsCapability(pluginId: string, manifestHash: string, contributionId: string, capability: string): boolean {
+        this.assertActive(pluginId, manifestHash);
+        return this.snapshots.get(pluginId)!.manifest.capabilities?.[capability] === contributionId;
+    }
+
     private assertActive(pluginId: string, manifestHash: string): void {
         if (manifestHash === '' || this.active.get(pluginId) !== manifestHash || !this.snapshots.has(pluginId)) {
             throw new Error('plugin manifest unavailable or changed');
