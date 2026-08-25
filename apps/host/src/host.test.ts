@@ -47,6 +47,8 @@ describe('host machine plugin invalidation flow', () => {
         expect(relay.send).toHaveBeenCalledWith(frame);
         relay.options?.onStateChange('open');
         expect(relay.send).toHaveBeenCalledWith(reconnectFrame);
+        expect(() => relay.options?.onClientFrame(null as never)).not.toThrow();
+        await new Promise((resolve) => setTimeout(resolve, 0));
         await host.close();
         expect(unsubscribe).toHaveBeenCalledOnce();
         expect(relay.close).toHaveBeenCalledOnce();

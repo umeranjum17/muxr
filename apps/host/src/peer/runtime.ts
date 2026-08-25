@@ -27,11 +27,11 @@ import {
 } from '@muxr/crypto';
 import type { PeerAuthority } from './authority.js';
 import { NodePeerClient, type PeerClientTransport } from './client.js';
-import { PeerStore, type StoredPeerRelationship, type StoredPeerReceipt } from './store.js';
+import { PeerStore, type StoredPendingAuthorization, type StoredPeerRelationship, type StoredPeerReceipt } from './store.js';
 import type { MachineCryptoAdapter, MachineCryptoState, MachineDeviceRecord, MachinePendingRotation } from './types.js';
 
 const PEER_CREDENTIAL_EXPIRES_AT = Date.UTC(9999, 11, 31, 23, 59, 59, 999);
-const PEER_MUTATION_MAX_TTL_MS = 24 * 60 * 60_000;
+const PEER_MUTATION_MAX_TTL_MS = 5 * 60_000;
 
 export interface PeerDeviceContext {
     kind: 'native' | 'browser' | 'peer';
@@ -93,23 +93,31 @@ export class PeerRuntime {
     }
 
     async recover(): Promise<void> {
-        const pending = this.options.crypto.get().pendingRotation;
-        if (pending?.kind === 'peer-revoke-v1') await this.withCryptoLock(() => this.finishPeerRevocation(pending));
+        const rotation = this.options.crypto.get().pendingRotation;
+        if (rotation?.kind === 'peer-revoke-v1') await this.withCryptoLock(() => this.finishPeerRevocation(rotation));
+        const authorization = this.store.pendingAuthorization();
+        if (authorization !== undefined) {
+            try { await this.withCryptoLock(() => this.finishAuthorization(authorization)); }
+            catch { return; }
+        }
+        await this.withCryptoLock(() => this.repairOrphanDevices()).catch(() => undefined);
     }
 
     async handle(request: PeerClientRequest, authenticatedDeviceId: string): Promise<unknown> {
         if (request.type === 'peer.list') return this.store.list();
         if (isRemotePeerRequest(request)) return this.handleRemote(request);
+        if (request.type === 'peer.authorize') return this.withCryptoLock(() => this.authorize(request.params));
+        // Revocation is authenticated, destructive only to access, and idempotent. It must never
+        // compete with attacker-controlled mutation receipts for admission.
+        if (request.type === 'peer.revoke') return this.withCryptoLock(() => this.revoke(request.params));
         const mutation = request.params.mutation;
         return this.executeOnce(`control:${authenticatedDeviceId}`, request.type, mutation, request.params, async () => {
             switch (request.type) {
                 case 'peer.prepare': return this.prepare(request.params);
-                case 'peer.authorize': return this.withCryptoLock(() => this.authorize(request.params));
                 case 'peer.install': return this.install(request.params);
-                case 'peer.revoke': return this.withCryptoLock(() => this.revoke(request.params));
                 default: throw operationError('unknown peer request', 'host-contract-mismatch');
             }
-        }, request.type !== 'peer.revoke');
+        });
     }
 
     async dispatchIncoming(
@@ -183,6 +191,25 @@ export class PeerRuntime {
     }
 
     private async authorize(params: Extract<PeerClientRequest, { type: 'peer.authorize' }>['params']): Promise<PeerRequestResult<'peer.authorize'>> {
+        const descriptorHash = createHash('sha256').update(JSON.stringify(params.descriptor)).digest('base64url');
+        const completed = this.store.authorization(descriptorHash);
+        if (completed !== undefined) {
+            if (params.relationshipId !== undefined && params.relationshipId !== completed.relationshipId) {
+                throw operationError('peer descriptor was reused with a different relationship', 'peer-operation-conflict');
+            }
+            const pending = this.store.pendingAuthorization();
+            if (completed.state === 'connected') {
+                if (pending?.descriptorHash === descriptorHash) await this.store.putPendingAuthorization(undefined);
+                return this.authorizationResult(completed);
+            }
+            if (pending === undefined) throw operationError('peer authorization recovery journal is missing', 'peer-operation-uncertain');
+            return this.finishAuthorization(pending);
+        }
+        const pending = this.store.pendingAuthorization();
+        if (pending !== undefined) {
+            if (pending.descriptorHash === descriptorHash) return this.finishAuthorization(pending);
+            await this.finishAuthorization(pending);
+        }
         const crypto = this.readyCrypto();
         const claims = verifySignedPeerDescriptor(params.descriptor, {
             targetMachineId: this.options.machineId,
@@ -192,58 +219,96 @@ export class PeerRuntime {
         if (!isPeerCapabilities(params.capabilities)) throw operationError('invalid peer capabilities', 'peer-invalid-capabilities');
         const allowedCwds = this.validateStartDirectories(params.capabilities, params.allowedCwds);
         if (crypto.devices.some((device) => device.devicePublicKey === claims.peerPublicKey)) {
+            await this.repairOrphanDevices();
+        }
+        const current = this.readyCrypto();
+        if (current.devices.some((device) => device.devicePublicKey === claims.peerPublicKey)) {
             throw operationError('peer key is already authorized', 'peer-already-authorized');
         }
-        if (crypto.devices.filter((device) => device.kind === 'peer').length >= 16) {
+        if (current.devices.filter((device) => device.kind === 'peer').length >= 16) {
             throw operationError('peer limit reached for this personal fleet', 'peer-limit');
         }
-        const relationshipId = params.relationshipId ?? `rel_${randomUUID()}`;
+        const relationshipId = params.relationshipId ?? `rel_${descriptorHash.slice(0, 32)}`;
         if (this.store.relationship(relationshipId) !== undefined) {
             throw operationError('peer relationship id is already in use', 'peer-operation-conflict');
         }
-        const credentialExpiresAt = PEER_CREDENTIAL_EXPIRES_AT;
-        const refreshAfter = PEER_CREDENTIAL_EXPIRES_AT;
-        const issued = await this.options.authority.issuePeer({
-            peerPublicKey: claims.peerPublicKey,
+        const authorization: StoredPendingAuthorization = {
+            version: 1,
+            relationshipId,
+            descriptor: params.descriptor,
+            descriptorHash,
             sourceMachineId: claims.sourceMachineId,
-            sourceName: claims.sourceName?.trim().slice(0, 120) || 'Peer computer',
-            capabilities: [...params.capabilities],
-            credentialExpiresAt,
-            refreshAfter,
-        });
-        const ingressKey = randomBytes(32).toString('base64');
-        const peerDataKey = randomBytes(32).toString('base64');
-        const record: MachineDeviceRecord = {
-            deviceId: issued.peerDeviceId,
-            devicePublicKey: claims.peerPublicKey,
-            ingressKey,
-            dataKey: peerDataKey,
-            expiresAt: new Date(credentialExpiresAt).toISOString(),
-            kind: 'peer',
+            ...(claims.sourceName === undefined ? {} : { sourceName: claims.sourceName.trim().slice(0, 120) }),
+            ...(claims.sourcePlatform === undefined ? {} : { sourcePlatform: claims.sourcePlatform }),
+            peerPublicKey: claims.peerPublicKey,
             capabilities: [...params.capabilities],
             ...(allowedCwds === undefined ? {} : { allowedCwds }),
+            createdAt: this.now(),
         };
+        await this.store.putPendingAuthorization(authorization);
+        return this.finishAuthorization(authorization);
+    }
+
+    private async finishAuthorization(initial: StoredPendingAuthorization): Promise<PeerRequestResult<'peer.authorize'>> {
+        let pending = this.store.pendingAuthorization() ?? initial;
+        if (pending.descriptorHash !== initial.descriptorHash) throw operationError('another peer authorization is pending', 'peer-operation-conflict');
+        const crypto = this.readyCrypto();
+        if (pending.issued === undefined) {
+            const issued = await this.options.authority.issuePeer({
+                peerPublicKey: pending.peerPublicKey,
+                sourceMachineId: pending.sourceMachineId,
+                sourceName: pending.sourceName || 'Peer computer',
+                capabilities: [...pending.capabilities],
+                credentialExpiresAt: PEER_CREDENTIAL_EXPIRES_AT,
+                refreshAfter: PEER_CREDENTIAL_EXPIRES_AT,
+            }, {
+                ...(pending.authorityRecovery === undefined ? {} : { recovery: pending.authorityRecovery }),
+                checkpoint: async (authorityRecovery) => {
+                    pending = { ...pending, authorityRecovery };
+                    await this.store.putPendingAuthorization(pending);
+                },
+            });
+            pending = {
+                ...pending,
+                ...(issued.recovery === undefined ? {} : { authorityRecovery: issued.recovery }),
+                issued: {
+                    peerDeviceId: issued.peerDeviceId,
+                    credential: issued.credential,
+                    authority: issued.authority,
+                    ...(issued.recovery === undefined ? {} : { recovery: issued.recovery }),
+                    ...(issued.grantPath === undefined ? {} : { grantPath: issued.grantPath }),
+                },
+            };
+            await this.store.putPendingAuthorization(pending);
+        }
+        if (pending.ingressKey === undefined || pending.peerDataKey === undefined) {
+            pending = {
+                ...pending,
+                ingressKey: pending.ingressKey ?? randomBytes(32).toString('base64'),
+                peerDataKey: pending.peerDataKey ?? randomBytes(32).toString('base64'),
+            };
+            await this.store.putPendingAuthorization(pending);
+        }
+        const issued = pending.issued!;
         const grant = createDeviceGrant({
             machineId: this.options.machineId,
             machineSigningSecretKey: crypto.signingSecretKey,
             machineKey: { publicKey: crypto.boxPublicKey, secretKey: crypto.boxSecretKey },
             deviceId: issued.peerDeviceId,
-            devicePublicKey: claims.peerPublicKey,
-            dataKey: peerDataKey,
-            ingressKey,
+            devicePublicKey: pending.peerPublicKey,
+            dataKey: pending.peerDataKey!,
+            ingressKey: pending.ingressKey!,
             keyVersion: crypto.keyVersion,
-            expiresAt: credentialExpiresAt,
+            expiresAt: PEER_CREDENTIAL_EXPIRES_AT,
             deviceKind: 'peer',
-            capabilities: params.capabilities,
-            ...(allowedCwds === undefined ? {} : { allowedCwds }),
+            capabilities: pending.capabilities,
+            ...(pending.allowedCwds === undefined ? {} : { allowedCwds: pending.allowedCwds }),
         });
-        const nextCrypto = { ...crypto, devices: [...crypto.devices, record] };
-        try {
-            await this.options.crypto.commit(nextCrypto);
-            await this.options.authority.uploadGrant(issued.peerDeviceId, JSON.stringify(grant), crypto.keyVersion);
+        await this.options.authority.uploadGrant(issued.peerDeviceId, JSON.stringify(grant), crypto.keyVersion, issued.recovery);
+        if (pending.sealedBundle === undefined) {
             const payload: PeerInstallBundlePayload = {
                 v: 1,
-                relationshipId,
+                relationshipId: pending.relationshipId,
                 targetMachineId: this.options.machineId,
                 targetMachineName: this.options.machineName,
                 targetPlatform: this.options.platform,
@@ -251,48 +316,74 @@ export class PeerRuntime {
                 relayUrl: this.options.relayUrl,
                 peerDeviceId: issued.peerDeviceId,
                 credential: issued.credential,
+                ...(issued.grantPath === undefined ? {} : { grantPath: issued.grantPath }),
                 grant,
-                capabilities: [...params.capabilities],
+                capabilities: [...pending.capabilities],
                 issuedAt: this.now(),
                 authority: issued.authority,
             };
-            const sealedBundle = sealPeerInstallBundle({
-                payload,
-                targetMachineSigningSecretKey: crypto.signingSecretKey,
-                targetMachineKey: { publicKey: crypto.boxPublicKey, secretKey: crypto.boxSecretKey },
-                peerPublicKey: claims.peerPublicKey,
-            });
-            await this.store.putRelationship({
-                relationshipId,
-                direction: 'inbound',
-                machineId: claims.sourceMachineId,
-                ...(claims.sourceName === undefined ? {} : { machineName: claims.sourceName.trim().slice(0, 120) }),
-                ...(claims.sourcePlatform === undefined ? {} : { platform: claims.sourcePlatform }),
-                state: 'connected',
-                capabilities: [...params.capabilities],
-                peerDeviceId: issued.peerDeviceId,
-                createdAt: this.now(),
-                updatedAt: this.now(),
-                keyVersion: crypto.keyVersion,
-                authority: issued.authority,
-                ...(allowedCwds === undefined ? {} : { allowedCwds }),
-            });
-            return {
-                peerDeviceId: issued.peerDeviceId,
-                sealedBundle,
-                capabilities: [...params.capabilities],
-                keyVersion: crypto.keyVersion,
-                authority: issued.authority,
+            pending = {
+                ...pending,
+                sealedBundle: sealPeerInstallBundle({
+                    payload,
+                    targetMachineSigningSecretKey: crypto.signingSecretKey,
+                    targetMachineKey: { publicKey: crypto.boxPublicKey, secretKey: crypto.boxSecretKey },
+                    peerPublicKey: pending.peerPublicKey,
+                }),
             };
-        } catch (error) {
-            await this.options.authority.revokePeer(issued.peerDeviceId).catch(() => undefined);
-            const latest = this.options.crypto.get();
-            await this.options.crypto.commit({
-                ...latest,
-                devices: latest.devices.filter((device) => device.deviceId !== issued.peerDeviceId),
-            });
-            throw error;
+            await this.store.putPendingAuthorization(pending);
         }
+        const relationship: StoredPeerRelationship = {
+            relationshipId: pending.relationshipId,
+            direction: 'inbound',
+            machineId: pending.sourceMachineId,
+            ...(pending.sourceName === undefined ? {} : { machineName: pending.sourceName }),
+            ...(pending.sourcePlatform === undefined ? {} : { platform: pending.sourcePlatform }),
+            state: 'pending',
+            capabilities: [...pending.capabilities],
+            peerDeviceId: issued.peerDeviceId,
+            createdAt: pending.createdAt,
+            updatedAt: this.now(),
+            keyVersion: crypto.keyVersion,
+            authority: issued.authority,
+            ...(pending.allowedCwds === undefined ? {} : { allowedCwds: pending.allowedCwds }),
+            authorizationDescriptorHash: pending.descriptorHash,
+            sealedInstallBundle: pending.sealedBundle!,
+        };
+        await this.store.putRelationship(relationship);
+        const record: MachineDeviceRecord = {
+            deviceId: issued.peerDeviceId,
+            devicePublicKey: pending.peerPublicKey,
+            ingressKey: pending.ingressKey!,
+            dataKey: pending.peerDataKey!,
+            expiresAt: new Date(PEER_CREDENTIAL_EXPIRES_AT).toISOString(),
+            kind: 'peer',
+            capabilities: [...pending.capabilities],
+            ...(pending.allowedCwds === undefined ? {} : { allowedCwds: pending.allowedCwds }),
+        };
+        const latest = this.readyCrypto();
+        const existing = latest.devices.find((device) => device.deviceId === issued.peerDeviceId);
+        if (existing === undefined) await this.options.crypto.commit({ ...latest, devices: [...latest.devices, record] });
+        else if (existing.devicePublicKey !== record.devicePublicKey || existing.ingressKey !== record.ingressKey || existing.dataKey !== record.dataKey) {
+            throw operationError('pending peer crypto record changed', 'peer-operation-conflict');
+        }
+        const connected = { ...relationship, state: 'connected' as const, updatedAt: this.now() };
+        await this.store.putRelationship(connected);
+        await this.store.putPendingAuthorization(undefined);
+        return this.authorizationResult(connected);
+    }
+
+    private authorizationResult(relationship: StoredPeerRelationship): PeerRequestResult<'peer.authorize'> {
+        if (relationship.peerDeviceId === undefined || relationship.sealedInstallBundle === undefined || relationship.keyVersion === undefined) {
+            throw operationError('peer authorization recovery record is incomplete', 'peer-operation-uncertain');
+        }
+        return {
+            peerDeviceId: relationship.peerDeviceId,
+            sealedBundle: relationship.sealedInstallBundle,
+            capabilities: [...relationship.capabilities],
+            keyVersion: relationship.keyVersion,
+            ...(relationship.authority === undefined ? {} : { authority: relationship.authority }),
+        };
     }
 
     private async install(params: Extract<PeerClientRequest, { type: 'peer.install' }>['params']): Promise<PeerRequestResult<'peer.install'>> {
@@ -346,6 +437,7 @@ export class PeerRuntime {
             relayUrl: opened.relayUrl,
             credential: opened.credential,
             sealedGrant: opened.grant,
+            ...(opened.grantPath === undefined ? {} : { grantPath: opened.grantPath }),
             ...(grant.allowedCwds === undefined ? {} : { allowedCwds: grant.allowedCwds }),
             agentAliases: {},
         };
@@ -355,6 +447,10 @@ export class PeerRuntime {
     }
 
     private async revoke(params: Extract<PeerClientRequest, { type: 'peer.revoke' }>['params']): Promise<PeerRequestResult<'peer.revoke'>> {
+        const authorization = this.store.pendingAuthorization();
+        if (authorization?.relationshipId === params.relationshipId) {
+            return this.cancelPendingAuthorization(authorization);
+        }
         const relationship = this.store.relationship(params.relationshipId);
         if (relationship === undefined || relationship.state === 'revoked') {
             return { state: 'already-revoked', revokedAt: this.now() };
@@ -381,6 +477,93 @@ export class PeerRuntime {
         await this.finishPeerRevocation(pending);
         await this.store.putRelationship({ ...relationship, state: 'revoked', updatedAt: this.now() });
         return { state: 'revoked', revokedAt: this.now(), ...(relationship.authority === undefined ? {} : { authority: relationship.authority }) };
+    }
+
+    private async cancelPendingAuthorization(initial: StoredPendingAuthorization): Promise<PeerRequestResult<'peer.revoke'>> {
+        let pending = this.store.pendingAuthorization() ?? initial;
+        if (pending.issued === undefined) {
+            const issued = await this.options.authority.issuePeer({
+                peerPublicKey: pending.peerPublicKey,
+                sourceMachineId: pending.sourceMachineId,
+                sourceName: pending.sourceName || 'Peer computer',
+                capabilities: [...pending.capabilities],
+                credentialExpiresAt: PEER_CREDENTIAL_EXPIRES_AT,
+                refreshAfter: PEER_CREDENTIAL_EXPIRES_AT,
+            }, {
+                ...(pending.authorityRecovery === undefined ? {} : { recovery: pending.authorityRecovery }),
+                checkpoint: async (authorityRecovery) => {
+                    pending = { ...pending, authorityRecovery };
+                    await this.store.putPendingAuthorization(pending);
+                },
+            });
+            pending = {
+                ...pending,
+                issued: {
+                    peerDeviceId: issued.peerDeviceId,
+                    credential: issued.credential,
+                    authority: issued.authority,
+                    ...(issued.recovery === undefined ? {} : { recovery: issued.recovery }),
+                    ...(issued.grantPath === undefined ? {} : { grantPath: issued.grantPath }),
+                },
+            };
+            await this.store.putPendingAuthorization(pending);
+        }
+        const issued = pending.issued!;
+        const existing = this.store.relationship(pending.relationshipId);
+        const relationship: StoredPeerRelationship = existing ?? {
+            relationshipId: pending.relationshipId,
+            direction: 'inbound',
+            machineId: pending.sourceMachineId,
+            ...(pending.sourceName === undefined ? {} : { machineName: pending.sourceName }),
+            ...(pending.sourcePlatform === undefined ? {} : { platform: pending.sourcePlatform }),
+            state: 'repair-needed',
+            capabilities: [...pending.capabilities],
+            peerDeviceId: issued.peerDeviceId,
+            createdAt: pending.createdAt,
+            updatedAt: this.now(),
+            authority: issued.authority,
+            authorizationDescriptorHash: pending.descriptorHash,
+            ...(pending.sealedBundle === undefined ? {} : { sealedInstallBundle: pending.sealedBundle }),
+        };
+        await this.store.putRelationship(relationship);
+        if (this.options.crypto.get().devices.some((device) => device.deviceId === issued.peerDeviceId)) {
+            const rotation = this.buildPeerRevocation(relationship);
+            await this.options.crypto.commit({ ...this.options.crypto.get(), pendingRotation: rotation });
+            await this.finishPeerRevocation(rotation);
+        } else {
+            await this.options.authority.revokePeer(issued.peerDeviceId);
+            await this.store.putRelationship({ ...relationship, state: 'revoked', updatedAt: this.now() });
+        }
+        await this.store.putPendingAuthorization(undefined);
+        return { state: 'revoked', revokedAt: this.now(), authority: issued.authority };
+    }
+
+    private async repairOrphanDevices(): Promise<void> {
+        const relationships = this.store.list().peers;
+        const bound = new Set(relationships
+            .filter((relationship) => relationship.direction === 'inbound' && relationship.state !== 'revoked'
+                && relationship.machineId !== 'unfinished-peer-authorization')
+            .map((relationship) => relationship.peerDeviceId));
+        const pendingDeviceId = this.store.pendingAuthorization()?.issued?.peerDeviceId;
+        if (pendingDeviceId !== undefined) bound.add(pendingDeviceId);
+        for (const device of this.readyCrypto().devices.filter((candidate) => candidate.kind === 'peer' && !bound.has(candidate.deviceId))) {
+            const relationship: StoredPeerRelationship = {
+                relationshipId: `repair_${createHash('sha256').update(device.deviceId).digest('base64url').slice(0, 24)}`,
+                direction: 'inbound',
+                machineId: 'unfinished-peer-authorization',
+                machineName: 'Peer computer',
+                state: 'repair-needed',
+                capabilities: [...(device.capabilities ?? DEFAULT_PEER_CAPABILITIES)],
+                peerDeviceId: device.deviceId,
+                createdAt: this.now(),
+                updatedAt: this.now(),
+                ...(device.allowedCwds === undefined ? {} : { allowedCwds: [...device.allowedCwds] }),
+            };
+            await this.store.putRelationship(relationship);
+            const rotation = this.buildPeerRevocation(relationship);
+            await this.options.crypto.commit({ ...this.options.crypto.get(), pendingRotation: rotation });
+            await this.finishPeerRevocation(rotation);
+        }
     }
 
     private async finishPeerRevocation(pending: MachinePendingRotation): Promise<void> {
@@ -542,6 +725,7 @@ export class PeerRuntime {
             peerKey: relationship.peerKey!,
             pinnedMachineSigningPublicKey: relationship.targetMachineSigningPublicKey!,
             sealedGrant: relationship.sealedGrant!,
+            ...(relationship.grantPath === undefined ? {} : { grantPath: relationship.grantPath }),
         });
         this.clients.set(relationship.relationshipId, created);
         return created;
@@ -606,7 +790,6 @@ export class PeerRuntime {
         mutation: PeerMutationMetadata,
         request: unknown,
         execute: () => Promise<T>,
-        cacheFailure = true,
     ): Promise<T> {
         const now = this.now();
         if (mutation === null || typeof mutation !== 'object' || typeof mutation.operationId !== 'string'
@@ -648,14 +831,10 @@ export class PeerRuntime {
                     error: error instanceof Error ? error.message : String(error),
                     ...(typeof code === 'string' ? { code } : {}),
                 };
-                if (cacheFailure) {
-                    await this.store.putReceipt({
-                        deviceId, operationId: mutation.operationId, requestHash,
-                        notValidAfter: mutation.notValidAfter, state: 'completed', outcome,
-                    });
-                } else {
-                    await this.store.removeReceipt(deviceId, mutation.operationId);
-                }
+                await this.store.putReceipt({
+                    deviceId, operationId: mutation.operationId, requestHash,
+                    notValidAfter: mutation.notValidAfter, state: 'completed', outcome,
+                });
                 throw operationError(outcome.error, outcome.code ?? 'peer-operation-failed');
             } finally {
                 this.inFlight.delete(key);

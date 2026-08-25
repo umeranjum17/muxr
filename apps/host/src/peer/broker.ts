@@ -25,6 +25,18 @@ function aliasKey(value: string): string {
     return value.trim().toLocaleLowerCase();
 }
 
+function safeVoiceOutput(value: unknown): string {
+    return String(value ?? '')
+        .replace(/\u001B\[[0-?]*[ -/]*[@-~]/g, '')
+        .replace(/-----BEGIN [^-]{1,40}-----[\s\S]*?-----END [^-]{1,40}-----/g, '[credential redacted]')
+        .replace(/\b(Bearer)\s+[A-Za-z0-9._~+/-]{12,}/gi, '$1 [redacted]')
+        .replace(/\b(api[_-]?key|token|secret|password)\s*[:=]\s*[^\s,;]+/gi, '$1=[redacted]')
+        .replace(/\b(?:pph?_[a-z0-9]+|(?:w\d+[A-Za-z]?):(?:p|t)\d+|(?:machine|device|session|pane|rel|peer)[-_][a-z0-9_-]{6,})\b/gi, '[internal id]')
+        .replace(/(^|[\s("'])\/(?:[^\s/]+\/)+[^\s]*/gm, '$1[path hidden]')
+        .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, ' ')
+        .slice(-8_000);
+}
+
 export class PeerBroker {
     private server: Server | undefined;
 
@@ -99,7 +111,7 @@ export class PeerBroker {
                     sessionId: target.sessionId,
                     ...(lines === undefined ? {} : { lines }),
                 });
-                return { machine: cleanAlias(result.machineAlias), agent: cleanAlias(result.agentAlias), text: result.text, truncated: result.truncated };
+                return { machine: cleanAlias(result.machineAlias), agent: cleanAlias(result.agentAlias), text: safeVoiceOutput(result.text), truncated: result.truncated };
             }
             if (request.method === 'status') {
                 const result = await this.remote<'peer.remote.status'>(relationship, 'peer.remote.status', { sessionId: target.sessionId });

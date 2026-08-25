@@ -751,6 +751,8 @@ export interface PeerInstallBundlePayload {
     relayUrl: string;
     peerDeviceId: string;
     credential: string;
+    /** Hosted generic pairing grant refresh path, bound inside the signed bundle. */
+    grantPath?: string;
     grant: SealedDeviceGrant;
     capabilities: PeerCapability[];
     issuedAt: number;
@@ -777,6 +779,9 @@ function validatePeerInstallBundle(payload: PeerInstallBundlePayload): void {
         if (typeof value !== 'string' || value === '') throw new Error(`peer bundle: ${name} required`);
     }
     if (!validUrl(payload.relayUrl)) throw new Error('peer bundle: relayUrl must use ws or wss');
+    if (payload.grantPath !== undefined && !/^\/v1\/pair-sessions\/[^/]+\/grant$/.test(payload.grantPath)) {
+        throw new Error('peer bundle: invalid grant refresh path');
+    }
     if (fromBase64(payload.targetMachineSigningPublicKey).length !== nacl.sign.publicKeyLength) {
         throw new Error('peer bundle: invalid target signing key');
     }

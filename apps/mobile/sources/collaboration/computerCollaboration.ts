@@ -244,12 +244,8 @@ async function reconcileIntent(intent: CollaborationIntent, lists: Map<string, P
         if (edge.disconnect === undefined && isActive(outbound) && isActive(inbound)) edge.setup = undefined;
         if (edge.disconnect === undefined && sourceList !== undefined && targetList !== undefined) {
             const partialRelationship = isActive(outbound) !== isActive(inbound);
-            const partialInbound = isActive(inbound) && !isActive(outbound);
-            const lostAuthorizeReceipt = partialInbound && edge.setup?.sealedBundle === undefined
-                && (edge.setup?.authorizeMutation?.notValidAfter ?? 0) <= Date.now();
-            const lostPreparation = partialInbound && (edge.setup?.descriptor?.claims.expiresAt ?? 0) <= Date.now();
             if ((edge.setup === undefined && (!isActive(outbound) || !isActive(inbound)))
-                || isActive(outbound) && !isActive(inbound) || lostAuthorizeReceipt || lostPreparation) {
+                || isActive(outbound) && !isActive(inbound)) {
                 edge.setup = { repairNeeded: true, peerDeviceId: outbound?.peerDeviceId ?? inbound?.peerDeviceId };
             } else if (partialRelationship && edge.setup !== undefined) {
                 edge.setup.peerDeviceId ??= outbound?.peerDeviceId ?? inbound?.peerDeviceId;
@@ -374,7 +370,8 @@ export async function applyCollaboration(
             const target = byId.get(edge.targetMachineId);
             if (source === undefined || target === undefined || lists.get(source.machineId) === undefined || lists.get(target.machineId) === undefined) continue;
             const setup = edge.setup ??= {};
-            if (setup.descriptor === undefined || setup.descriptor.claims.expiresAt <= now()) {
+            const recoverableInbound = isActive(relationship(lists, edge.targetMachineId, edge.relationshipId, 'inbound'));
+            if (setup.descriptor === undefined || setup.descriptor.claims.expiresAt <= now() && !recoverableInbound) {
                 if (setup.descriptor?.claims.expiresAt !== undefined && setup.descriptor.claims.expiresAt <= now()) setup.prepareMutation = undefined;
                 const reusePrepare = setup.prepareMutation !== undefined && setup.prepareMutation.notValidAfter > now();
                 if (!reusePrepare) {

@@ -34,8 +34,6 @@ const TOOLS = [
     { type: 'function', name: 'prompt_agent', description: 'Send the user’s instruction to a coding agent.', parameters: { type: 'object', properties: { ...paneProperty, text: { type: 'string' } }, required: ['text'], additionalProperties: false } },
     ...peerOnlyTools,
     { type: 'function', name: 'focus_pane', description: 'Bring a local pane to the front.', parameters: { type: 'object', properties: localPaneProperty, additionalProperties: false } },
-    { type: 'function', name: 'herdr_cli', description: 'Run the herdr CLI. Destructive commands require confirmed=true.', parameters: { type: 'object', properties: { args: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 32 }, timeoutMs: { type: 'number' }, confirmed: { type: 'boolean' } }, required: ['args'], additionalProperties: false } },
-    { type: 'function', name: 'close_pane', description: 'Close a named pane only after explicit user confirmation.', parameters: { type: 'object', properties: { pane: { type: 'string' }, confirmed: { type: 'boolean' } }, required: ['pane', 'confirmed'], additionalProperties: false } },
     { type: 'function', name: 'end_conversation', description: 'Hang up after the user clearly says goodbye or stop listening.', parameters: { type: 'object', properties: {}, additionalProperties: false } },
 ];
 
@@ -173,19 +171,6 @@ async function runTool(name, input, signal) {
         await command(['pane', 'focus', pane]);
         activePane = pane;
         return 'Brought it to the front.';
-    }
-    if (name === 'herdr_cli') {
-        const cliArgs = Array.isArray(args.args) ? args.args.filter((entry) => typeof entry === 'string' && entry.length <= 500) : [];
-        if (cliArgs.length === 0 || cliArgs.length !== args.args?.length) return 'Nothing ran: invalid herdr arguments.';
-        const destructive = cliArgs.some((entry) => /^(close|delete|remove|reset|discard|stop)$/.test(entry));
-        if (destructive && args.confirmed !== true) return 'Ask the user to confirm the exact destructive action first.';
-        return untrusted(await command(cliArgs, args.timeoutMs));
-    }
-    if (name === 'close_pane') {
-        if (!pane || args.confirmed !== true) return 'Ask the user to confirm the exact pane before closing it.';
-        await command(['pane', 'close', pane]);
-        if (activePane === pane) activePane = '';
-        return 'Closed.';
     }
     if (name === 'end_conversation') {
         endAfterResponse = true;

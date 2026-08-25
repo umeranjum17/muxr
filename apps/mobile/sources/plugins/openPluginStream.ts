@@ -80,6 +80,20 @@ export async function capturePluginStreamSnapshot(capability: string, machineId:
     };
 }
 
+/** Refresh only the pinned machine's grant generation; never re-read the active machine or provider. */
+export async function refreshPluginStreamSnapshot(snapshot: PluginStreamSnapshot): Promise<PluginStreamSnapshot> {
+    if (snapshot.grant === undefined) return snapshot;
+    const refreshed = await refreshHostedGrant(snapshot.machineId, snapshot.token, snapshot.relayUrl);
+    if (refreshed === undefined || refreshed.machineId !== snapshot.machineId || refreshed.deviceId !== snapshot.grant.deviceId) {
+        throw new Error('stream: pinned machine grant could not be refreshed');
+    }
+    return {
+        ...snapshot,
+        token: refreshed.credential,
+        grant: JSON.parse(JSON.stringify(refreshed)) as StoredHostedGrant,
+    };
+}
+
 /** One pinned control request; it never consults or refreshes global machine state. */
 async function requestPinnedStream(snapshot: PluginStreamSnapshot, channel: string, sessionId?: string): Promise<void> {
     const hosted = snapshot.grant === undefined ? undefined : new DeviceV2Crypto(snapshot.grant);

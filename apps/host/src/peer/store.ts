@@ -1,8 +1,9 @@
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { isPeerCapabilities, type PeerRelationship, type SignedPeerDescriptor } from '@muxr/contract';
+import { isPeerCapabilities, type PeerAuthorityMetadata, type PeerCapability, type PeerRelationship, type SignedPeerDescriptor } from '@muxr/contract';
 import type { KeyPair, SealedDeviceGrant } from '@muxr/crypto';
 import { atomicWriteJson } from '../domain/atomicWriteJson.js';
+import type { PeerAuthorityIssueRecovery } from './authority.js';
 
 export interface StoredPreparation {
     preparationId: string;
@@ -20,8 +21,36 @@ export interface StoredPeerRelationship extends PeerRelationship {
     relayUrl?: string;
     credential?: string;
     sealedGrant?: SealedDeviceGrant;
+    grantPath?: string;
     allowedCwds?: string[];
     agentAliases?: Record<string, string>;
+    authorizationDescriptorHash?: string;
+    sealedInstallBundle?: string;
+}
+
+export interface StoredPendingAuthorization {
+    version: 1;
+    relationshipId: string;
+    descriptor: SignedPeerDescriptor;
+    descriptorHash: string;
+    sourceMachineId: string;
+    sourceName?: string;
+    sourcePlatform?: string;
+    peerPublicKey: string;
+    capabilities: PeerCapability[];
+    allowedCwds?: string[];
+    createdAt: number;
+    authorityRecovery?: PeerAuthorityIssueRecovery;
+    issued?: {
+        peerDeviceId: string;
+        credential: string;
+        authority: PeerAuthorityMetadata;
+        recovery?: PeerAuthorityIssueRecovery;
+        grantPath?: string;
+    };
+    ingressKey?: string;
+    peerDataKey?: string;
+    sealedBundle?: string;
 }
 
 export interface StoredPeerReceipt {
@@ -39,6 +68,7 @@ interface PeerState {
     preparations: StoredPreparation[];
     relationships: StoredPeerRelationship[];
     receipts: StoredPeerReceipt[];
+    pendingAuthorization?: StoredPendingAuthorization;
 }
 
 function validState(value: unknown): value is PeerState {
@@ -58,7 +88,15 @@ function validState(value: unknown): value is PeerState {
         && state.receipts.every((entry) => typeof entry?.deviceId === 'string' && typeof entry?.operationId === 'string'
             && typeof entry?.requestHash === 'string' && Number.isFinite(entry?.notValidAfter)
             && (entry.state === 'started' || entry.state === 'completed')
-            && (entry.state === 'started' ? entry.outcome === undefined : entry.outcome !== undefined));
+            && (entry.state === 'started' ? entry.outcome === undefined : entry.outcome !== undefined))
+        && (state.pendingAuthorization === undefined
+            || state.pendingAuthorization.version === 1
+                && typeof state.pendingAuthorization.relationshipId === 'string'
+                && typeof state.pendingAuthorization.descriptorHash === 'string'
+                && typeof state.pendingAuthorization.sourceMachineId === 'string'
+                && typeof state.pendingAuthorization.peerPublicKey === 'string'
+                && isPeerCapabilities(state.pendingAuthorization.capabilities)
+                && Number.isFinite(state.pendingAuthorization.createdAt));
 }
 
 export class PeerStore {
@@ -87,8 +125,23 @@ export class PeerStore {
     }
 
     list(): { peers: PeerRelationship[]; revision: number } {
+        const pending = this.state.pendingAuthorization;
         return {
-            peers: this.state.relationships.map((entry) => ({
+            peers: [
+                ...this.state.relationships,
+                ...(pending === undefined || this.state.relationships.some((entry) => entry.relationshipId === pending.relationshipId) ? [] : [{
+                    relationshipId: pending.relationshipId,
+                    direction: 'inbound' as const,
+                    machineId: pending.sourceMachineId,
+                    ...(pending.sourceName === undefined ? {} : { machineName: pending.sourceName }),
+                    ...(pending.sourcePlatform === undefined ? {} : { platform: pending.sourcePlatform }),
+                    state: 'repair-needed' as const,
+                    capabilities: [...pending.capabilities],
+                    ...(pending.issued === undefined ? {} : { peerDeviceId: pending.issued.peerDeviceId }),
+                    createdAt: pending.createdAt,
+                    updatedAt: pending.createdAt,
+                }]),
+            ].map((entry) => ({
                 relationshipId: entry.relationshipId,
                 direction: entry.direction,
                 machineId: entry.machineId,
@@ -118,6 +171,14 @@ export class PeerStore {
         return this.state.relationships.find((entry) => entry.relationshipId === id);
     }
 
+    authorization(descriptorHash: string): StoredPeerRelationship | undefined {
+        return this.state.relationships.find((entry) => entry.authorizationDescriptorHash === descriptorHash);
+    }
+
+    pendingAuthorization(): StoredPendingAuthorization | undefined {
+        return this.state.pendingAuthorization;
+    }
+
     receipt(deviceId: string, operationId: string): StoredPeerReceipt | undefined {
         return this.state.receipts.find((entry) => entry.deviceId === deviceId && entry.operationId === operationId);
     }
@@ -142,11 +203,21 @@ export class PeerStore {
         });
     }
 
+    async putPendingAuthorization(pending: StoredPendingAuthorization | undefined): Promise<void> {
+        await this.mutate((state) => {
+            if (pending === undefined) delete state.pendingAuthorization;
+            else state.pendingAuthorization = pending;
+        });
+    }
+
     async putReceipt(receipt: StoredPeerReceipt): Promise<void> {
         await this.mutate((state) => {
             this.prune(state, Date.now());
             state.receipts = state.receipts.filter((entry) =>
                 entry.deviceId !== receipt.deviceId || entry.operationId !== receipt.operationId);
+            if (state.receipts.filter((entry) => entry.deviceId === receipt.deviceId).length >= 64) {
+                throw new Error('peer receipt capacity is full for this device until active mutations expire');
+            }
             if (state.receipts.length >= 2048) throw new Error('peer receipt capacity is full until active mutations expire');
             state.receipts.push(receipt);
         });

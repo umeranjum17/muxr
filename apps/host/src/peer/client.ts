@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import WebSocket from 'ws';
 import {
     decodePayload,
@@ -46,6 +47,7 @@ export interface NodePeerClientOptions {
     peerKey: KeyPair;
     pinnedMachineSigningPublicKey: string;
     sealedGrant: SealedDeviceGrant;
+    grantPath?: string;
     requestTimeoutMs?: number;
     fetch?: typeof fetch;
 }
@@ -68,6 +70,7 @@ export class NodePeerClient implements PeerClientTransport {
     private resolveConnect: (() => void) | undefined;
     private rejectConnect: ((error: Error) => void) | undefined;
     private connectTimer?: ReturnType<typeof setTimeout>;
+    private livenessRequestId: string | undefined;
 
     constructor(private readonly options: NodePeerClientOptions) {
         this.grant = this.verify(options.sealedGrant);
@@ -93,7 +96,11 @@ export class NodePeerClient implements PeerClientTransport {
             const socket = new WebSocket(ticketSocketUrl(this.options.relayUrl, ticket, 'relay'));
             this.socket = socket;
             this.connectTimer = setTimeout(() => this.fail(new Error('peer target did not prove it was live')), this.options.requestTimeoutMs ?? 20_000);
-            socket.on('open', () => this.send({ type: 'client.hello', clientId: nextRequestId('peer') }));
+            socket.on('open', () => {
+                this.livenessRequestId = `peer-live_${randomBytes(24).toString('base64url')}`;
+                this.send({ type: 'client.hello', clientId: nextRequestId('peer') });
+                this.send({ type: 'machines.list', requestId: this.livenessRequestId, params: {} });
+            });
             socket.on('message', (raw) => this.onMessage(String(raw)));
             socket.on('error', () => socket.close());
             socket.on('close', () => {
@@ -143,7 +150,7 @@ export class NodePeerClient implements PeerClientTransport {
     private async refreshGrant(): Promise<void> {
         const response = await (this.options.fetch ?? fetch)(relayControlUrl(
             this.options.relayUrl,
-            `/v1/machines/${encodeURIComponent(this.options.machineId)}/grant`,
+            this.options.grantPath ?? `/v1/machines/${encodeURIComponent(this.options.machineId)}/grant`,
         ), {
             headers: { authorization: `Bearer ${this.options.credential}` },
             signal: AbortSignal.timeout(15_000),
@@ -214,19 +221,24 @@ export class NodePeerClient implements PeerClientTransport {
                 streamId: envelope.header.streamId,
                 keyVersion: this.grant.keyVersion,
             }, replay);
-            const frame = decodePayload<HostFrame>(plaintext);
+            const decoded = decodePayload<HostFrame>(plaintext) as unknown;
+            if (typeof decoded !== 'object' || decoded === null) return;
+            const frame = decoded as HostFrame;
             if (!this.authenticated) {
+                if (frame.type !== 'result' || frame.requestId !== this.livenessRequestId || frame.ok !== true) return;
                 this.authenticated = true;
+                this.livenessRequestId = undefined;
                 if (this.connectTimer !== undefined) clearTimeout(this.connectTimer);
                 this.resolveConnect?.();
             }
-            if (frame.type !== 'result') return;
+            if (frame.type !== 'result' || typeof frame.requestId !== 'string' || typeof frame.ok !== 'boolean') return;
             const pending = this.pending.get(frame.requestId);
             if (pending === undefined) return;
             clearTimeout(pending.timer);
             this.pending.delete(frame.requestId);
             if (frame.ok) pending.resolve(frame.data);
-            else pending.reject(Object.assign(new Error(frame.error), { code: frame.code }));
+            else if (typeof frame.error === 'string') pending.reject(Object.assign(new Error(frame.error), { code: frame.code }));
+            else pending.reject(new Error('peer returned a malformed error response'));
         } catch {
             // Undecryptable or misrouted peer data is ignored; the request timer remains authoritative.
         }
@@ -236,6 +248,7 @@ export class NodePeerClient implements PeerClientTransport {
         if (this.connectTimer !== undefined) clearTimeout(this.connectTimer);
         if (!this.authenticated) this.rejectConnect?.(error);
         this.connectPromise = undefined;
+        this.livenessRequestId = undefined;
         this.resolveConnect = undefined;
         this.rejectConnect = undefined;
         for (const pending of this.pending.values()) {

@@ -213,15 +213,18 @@ export const SettingsView = React.memo(function SettingsView({
     }, [auth, collaborationIntent]);
 
     const confirmLogout = React.useCallback(async () => {
+        const collaborationWarning = collaborationIntent.selectedMachineIds.length > 0 || collaborationIntent.edges.length > 0
+            ? '\n\nComputer collaboration stays active after logout. Disconnect collaboration first if you want computer-to-computer access revoked.'
+            : '';
         const confirmed = await Modal.confirm(
             t('settingsAccount.logout'),
-            'This signs out and removes this device\u2019s pairing with every machine it has ever paired with. To reconnect, pair each machine again from `muxr pair`.',
+            `This signs out and removes this device’s pairing with every machine it has ever paired with. To reconnect, pair each machine again from \`muxr pair\`.${collaborationWarning}`,
             { confirmText: t('settingsAccount.logout'), destructive: true },
         );
         if (!confirmed) return;
         stopRealtimeSession();
         await auth.logout();
-    }, [auth]);
+    }, [auth, collaborationIntent]);
 
     React.useEffect(() => {
         let cancelled = false;

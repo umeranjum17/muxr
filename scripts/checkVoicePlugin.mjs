@@ -41,4 +41,8 @@ assert.equal(audioChunks.join(''), oversizedAudio);
 assert.ok(audioChunks.length > 1 && audioChunks.every((chunk) => chunk.length <= 96 * 1024 && chunk.length % 4 === 0), 'provider audio must fit public realtime frame bounds');
 const mobileRealtime = readFileSync(join(root, 'apps/mobile/sources/voice/realtimeSession.ts'), 'utf8');
 assert.doesNotMatch(mobileRealtime, /OpenAI|xAI|Grok|Gemini|api\.[a-z]+\.ai|gpt-|grok-/i, 'mobile realtime transport must stay provider-blind');
+for (const adapter of ['plugins/voice/stream.mjs', 'plugins/voice-openai/stream.mjs', 'plugins/voice-gemini/stream.mjs']) {
+    const source = readFileSync(join(root, adapter), 'utf8');
+    assert.doesNotMatch(source, /name:\s*['"](?:herdr_cli|close_pane)['"]|args\.confirmed/, `${adapter} must not let model arguments authorize destructive local tools`);
+}
 process.stdout.write('voice plugin rpc lifecycle passed\n');
