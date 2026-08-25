@@ -118,12 +118,20 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                 onStatus?.(error instanceof Error ? error.message : String(error));
             });
 
+        let resizeFrame: number | undefined;
         const resize = (): void => {
-            fit.fit();
-            setTerminalColumns(sessionId, term.cols);
-            channel?.resize(term.cols, term.rows);
+            cancelAnimationFrame(resizeFrame ?? 0);
+            resizeFrame = requestAnimationFrame(() => {
+                if (disposed) return;
+                fit.fit();
+                setTerminalColumns(sessionId, term.cols);
+                channel?.resize(term.cols, term.rows);
+            });
         };
+        const resizeObserver = new ResizeObserver(resize);
+        resizeObserver.observe(element);
         window.addEventListener('resize', resize);
+        resize();
 
         // herdr owns the pane's scrollback and repaints the viewport, so xterm's
         // local buffer holds frames rather than history -- scrolling xterm here
@@ -224,6 +232,8 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
         return () => {
             disposed = true;
             window.removeEventListener('resize', resize);
+            resizeObserver.disconnect();
+            cancelAnimationFrame(resizeFrame ?? 0);
             element.removeEventListener('wheel', onWheel, { capture: true });
             element.removeEventListener('touchstart', onTouchStart, { capture: true });
             element.removeEventListener('touchmove', onTouchMove, { capture: true });

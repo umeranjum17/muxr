@@ -1,7 +1,6 @@
 import * as React from 'react';
 import {
     View,
-    ActivityIndicator,
     Text,
     Pressable,
     Platform,
@@ -9,15 +8,13 @@ import {
     TextInput,
     NativeScrollEvent,
     NativeSyntheticEvent,
+    ScrollView,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useSocketStatus } from '@/sync/storage';
-import { useVisibleSessionListViewData } from '@/hooks/useVisibleSessionListViewData';
 import { useSplitViewLayout } from '@/utils/responsive';
 import { useRouter } from 'expo-router';
-import { EmptySessionsTablet } from './EmptySessionsTablet';
-import { SessionsList } from './SessionsList';
 import { TabBar, TabType } from './TabBar';
 import { PluginSlot } from '@/plugins/PluginSlot';
 import { DeclarativeHomeCards, DeclarativeNavigationItems, DeclarativePhoneNavRow } from '@/plugins/DeclarativePluginSlot';
@@ -25,6 +22,8 @@ import { pluginHref } from '@/plugins/pluginHref';
 import { HomeDock, MOBILE_HOME_DOCK_CONTENT_INSET } from './HomeDock';
 import { SettingsViewWrapper } from './SettingsViewWrapper';
 import { HerdView } from './HerdView';
+import { LiveTerminalsRow } from './LiveTerminalsRow';
+import { SessionItem } from './SessionsList';
 import { Header } from './navigation/Header';
 import { HeaderLogo } from './HeaderLogo';
 import { StatusDot } from './StatusDot';
@@ -36,20 +35,16 @@ import { MOBILE_GLASS_HEADER_HEIGHT } from './navigation/headerMetrics';
 import { MobileGlassSurface } from './MobileGlass';
 import { useNewSessionDraft } from '@/hooks/useNewSessionDraft';
 import { useStartSessionFromDraft } from '@/hooks/useStartSessionFromDraft';
-import { currentDeviceAuthority, listPairedGrants, type StoredHostedGrant } from '@/state/hostedE2ee';
+import { listPairedGrants, type StoredHostedGrant } from '@/state/hostedE2ee';
 import { getCachedConnectionSettings, pairingTransport, saveConnectionSettings } from '@/state/connectionSettings';
+import { useDeviceAuthority } from '@/hooks/useDeviceAuthority';
 import { useAuth } from '@/auth/AuthContext';
+import { useVisibleSessionListViewData } from '@/hooks/useVisibleSessionListViewData';
 import { OptionSheet, type ModelMode } from './OptionSheet';
 import { Modal } from '@/modal';
 
-interface MainViewProps {
-    variant: 'phone' | 'sidebar';
-}
 
 const styles = StyleSheet.create((theme) => ({
-    container: {
-        flex: 1,
-    },
     phoneContainer: {
         flex: 1,
         backgroundColor: Platform.OS === 'web' ? 'transparent' : theme.colors.groupped.background,
@@ -81,52 +76,23 @@ const styles = StyleSheet.create((theme) => ({
         bottom: 0,
         zIndex: 30,
     },
-    sidebarContentContainer: {
-        flex: 1,
-        flexBasis: 0,
-        flexGrow: 1,
-    },
-    loadingContainerWrapper: {
-        flex: 1,
-        flexBasis: 0,
-        flexGrow: 1,
-        backgroundColor: theme.colors.groupped.background,
-    },
-    loadingContainer: {
-        flex: 1,
-        alignItems: 'center',
-        justifyContent: 'center',
-        paddingBottom: 32,
-    },
-    tabletLoadingContainer: {
-        flex: 1,
-        flexBasis: 0,
-        flexGrow: 1,
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    emptyStateContainer: {
-        flex: 1,
-        flexBasis: 0,
-        flexGrow: 1,
-        flexDirection: 'column',
-        backgroundColor: theme.colors.groupped.background,
-    },
-    emptyStateContentContainer: {
-        flex: 1,
-        flexBasis: 0,
-        flexGrow: 1,
-    },
     tabletDashboard: {
         flex: 1,
         backgroundColor: theme.colors.groupped.background,
     },
+    tabletDashboardContent: {
+        flexGrow: 1,
+        width: '100%',
+        maxWidth: 1600,
+        alignSelf: 'stretch',
+        paddingBottom: 32,
+    },
     tabletDashboardHeader: {
         flexDirection: 'row',
-        alignItems: 'center',
-        minHeight: 88,
-        paddingHorizontal: 24,
-        paddingBottom: 16,
+        alignItems: 'flex-end',
+        minHeight: 64,
+        paddingHorizontal: 16,
+        paddingBottom: 12,
     },
     tabletDashboardIdentity: {
         flex: 1,
@@ -140,6 +106,10 @@ const styles = StyleSheet.create((theme) => ({
         alignItems: Platform.OS === 'web' ? 'center' : 'flex-start',
         justifyContent: Platform.OS === 'web' ? 'flex-start' : 'center',
     },
+    tabletTitleContainer: {
+        alignItems: 'flex-start',
+        justifyContent: 'flex-end',
+    },
     titleText: {
         fontSize: Platform.OS === 'web' ? 17 : 16,
         color: theme.colors.header.tint,
@@ -149,6 +119,22 @@ const styles = StyleSheet.create((theme) => ({
     tabletTitleText: {
         fontSize: 26,
         lineHeight: 31,
+    },
+    recentSection: {
+        width: '100%',
+        maxWidth: 800,
+        alignSelf: 'center',
+        paddingTop: 12,
+    },
+    recentTitle: {
+        paddingHorizontal: 16,
+        paddingBottom: 6,
+        fontSize: 11,
+        fontWeight: '700',
+        letterSpacing: 1.5,
+        textTransform: 'uppercase',
+        color: theme.colors.textSecondary,
+        ...Typography.default('semiBold'),
     },
     machineTitleButton: {
         flexDirection: 'row',
@@ -306,7 +292,7 @@ const HeaderTitle = React.memo(({ activeTab, pluginTitle, large = false }: { act
     const title = activeTab === 'plugin' ? pluginTitle : isHome && activeGrant ? homeTitle : t(TAB_TITLES[activeTab]);
 
     return (
-        <View style={styles.titleContainer}>
+        <View style={[styles.titleContainer, large && styles.tabletTitleContainer]}>
             {isHome && pairedGrants.length > 1 ? (
                 <Pressable
                     accessibilityRole="button"
@@ -377,6 +363,7 @@ const HeaderRight = React.memo(({
 }) => {
     const router = useRouter();
     const { theme } = useUnistyles();
+    const { authority, loading: authorityLoading } = useDeviceAuthority();
 
     if (activeTab === 'sessions') {
         if (Platform.OS !== 'web') {
@@ -411,7 +398,7 @@ const HeaderRight = React.memo(({
                 </View>
             );
         }
-        return currentDeviceAuthority() === 'control' ? (
+        return authority === 'control' && !authorityLoading ? (
             <View style={styles.headerActions}>
                 <Pressable
                     onPress={() => router.navigate('/new-agent')}
@@ -431,13 +418,19 @@ const HeaderRight = React.memo(({
     return null;
 });
 
-export const MainView = React.memo(({ variant }: MainViewProps) => {
-    const { theme } = useUnistyles();
-    const sessionListViewData = useVisibleSessionListViewData();
+export const MainView = React.memo(() => {
+    useUnistyles();
     const useSplitView = useSplitViewLayout();
     const router = useRouter();
     const safeArea = useSafeAreaInsets();
     const { isStarting: isStartingHomeSession, startSession: startHomeSession } = useStartSessionFromDraft();
+    const sessionListViewData = useVisibleSessionListViewData(true);
+    const recentSessions = React.useMemo(
+        () => (sessionListViewData ?? [])
+            .flatMap((item) => item.type === 'session' ? [item.session] : [])
+            .slice(0, 3),
+        [sessionListViewData],
+    );
 
     // Tab state management
     // NOTE: Zen tab removed - the feature never got to a useful state
@@ -511,63 +504,48 @@ export const MainView = React.memo(({ variant }: MainViewProps) => {
         }
     };
 
-    // Sidebar variant
-    if (variant === 'sidebar') {
-        // Loading state
-        if (sessionListViewData === null) {
-            return (
-                <View style={styles.sidebarContentContainer}>
-                    <View style={styles.tabletLoadingContainer}>
-                        <ActivityIndicator size="small" color={theme.colors.textSecondary} />
-                    </View>
-                </View>
-            );
-        }
 
-        // Empty state
-        if (sessionListViewData.length === 0) {
-            return (
-                <View style={styles.sidebarContentContainer}>
-                    <View style={styles.emptyStateContainer}>
-                        <EmptySessionsTablet />
-                    </View>
-                </View>
-            );
-        }
-
-        // Sessions list
-        return (
-            <View style={styles.sidebarContentContainer}>
-                <SessionsList showLiveTerminals={false} />
-            </View>
-        );
-    }
-
-    // Tablet landing surface. The sidebar is the compact navigator; the detail
-    // pane is a live dashboard rather than an intentionally blank canvas.
+    // In split view, the sidebar is the only navigator. The landing pane is
+    // content: identity, live previews, and home cards. Spaces never duplicate
+    // here because selecting them belongs to the permanent sidebar.
     if (useSplitView) {
         return (
             <View style={styles.tabletDashboard}>
-                <HerdView
-                    topContentInset={topContentInset}
-                    bottomContentInset={safeArea.bottom + 32}
-                    maxContentWidth={Platform.OS === 'web' ? 1200 : 800}
-                    header={(
-                        <>
-                            <View style={styles.tabletDashboardHeader}>
-                                <View style={styles.tabletDashboardIdentity}>
-                                    <HeaderLogo />
-                                    <HeaderTitle activeTab="sessions" large />
-                                </View>
-                            </View>
-                            <PluginSlot slot="home.cards" context={{}} />
-                            <DeclarativeHomeCards />
-                            <DeclarativePhoneNavRow onSelect={(pluginId, contentId) => router.push(pluginHref(pluginId, contentId))} />
-                        </>
-                    )}
+                <ScrollView
                     onScroll={handleContentScroll}
-                    searchQuery={searchQuery}
-                />
+                    scrollEventThrottle={16}
+                    contentContainerStyle={[
+                        styles.tabletDashboardContent,
+                        {
+                            paddingTop: topContentInset,
+                            paddingBottom: safeArea.bottom + 32,
+                        },
+                    ]}
+                >
+                    <View style={styles.tabletDashboardHeader}>
+                        <View style={styles.tabletDashboardIdentity}>
+                            <HeaderLogo />
+                            <HeaderTitle activeTab="sessions" large />
+                        </View>
+                    </View>
+                    <LiveTerminalsRow layout="grid" />
+                    <PluginSlot slot="home.cards" context={{}} />
+                    <DeclarativeHomeCards />
+                    {recentSessions.length > 0 && (
+                        <View style={styles.recentSection}>
+                            <Text style={styles.recentTitle}>Recent</Text>
+                            {recentSessions.map((session, index) => (
+                                <SessionItem
+                                    key={session.id}
+                                    session={session}
+                                    isFirst={index === 0}
+                                    isLast={index === recentSessions.length - 1}
+                                    isSingle={recentSessions.length === 1}
+                                />
+                            ))}
+                        </View>
+                    )}
+                </ScrollView>
             </View>
         );
     }

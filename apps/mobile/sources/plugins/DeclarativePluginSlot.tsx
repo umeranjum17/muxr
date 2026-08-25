@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Item } from '@/components/Item';
@@ -122,7 +122,7 @@ function DataCard({ contribution, pluginId, manifestHash, pluginName }: { contri
     const body = <><Text style={{ color: theme.colors.textSecondary, fontSize: 11 }}>{pluginName}</Text><View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 }}>{data.failed && <Ionicons name="warning-outline" size={14} color={theme.colors.textDestructive} />}<Text style={{ flex: 1, color: data.failed ? theme.colors.textDestructive : theme.colors.textSecondary }}>{shown}</Text></View></>;
     if (contribution.presentation === 'sheet') {
         return <View>
-            <Pressable onPress={() => { if (data.failed) data.retry(); setOpen(true); }} accessibilityRole="button" accessibilityLabel={data.failed ? failureLabel : resolvePluginText(contribution.title)}
+            <Pressable hitSlop={8} onPress={() => { if (data.failed) data.retry(); setOpen(true); }} accessibilityRole="button" accessibilityLabel={data.failed ? failureLabel : resolvePluginText(contribution.title)}
                 style={{ flexDirection: 'row', alignItems: 'center', gap: 6, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 7, backgroundColor: theme.colors.surfaceHigh }}>
                 <Ionicons name="stats-chart-outline" size={15} color={theme.colors.text} />
                 <Text style={{ color: theme.colors.text, fontSize: 13, fontWeight: '600' }}>{resolvePluginText(contribution.title)}</Text>
@@ -220,11 +220,12 @@ export function DeclarativeSessionActions({ cwd, sessionId, onNavigate }: { cwd?
     })}</>;
 }
 
-export function DeclarativeNavigationItems({ activeKey, onSelect }: { activeKey?: string; onSelect: (key: string, pluginId: string, contentId: string, label: string) => void }) {
+export function DeclarativeNavigationItems({ activeKey, onSelect, compact = false }: { activeKey?: string; compact?: boolean; onSelect: (key: string, pluginId: string, contentId: string, label: string) => void }) {
     useSlotContributions('navigation.primary');
     return <>{pluginSnapshot().flatMap(({ summary, manifest }) => manifest.contributions.flatMap((contribution) => 'type' in contribution && contribution.type === 'navigation-item' ? [
         <NavigationItemButton key={`${summary.pluginId}:${contribution.id}`} contribution={contribution} pluginId={summary.pluginId} manifestHash={summary.manifestHash}
             active={activeKey === `${summary.pluginId}:${contribution.id}`}
+            compact={compact}
             onPress={() => onSelect(`${summary.pluginId}:${contribution.id}`, summary.pluginId, contribution.contentContributionId, resolvePluginText(contribution.label))} />,
     ] : []))}</>;
 }
@@ -235,7 +236,7 @@ export function DeclarativeNavigationItems({ activeKey, onSelect }: { activeKey?
  * with the selected plugin/content id.
  */
 export function DeclarativePhoneNavRow({ onSelect }: { onSelect: (pluginId: string, contentId: string) => void }) {
-    const { theme } = useUnistyles();
+    const { width } = useWindowDimensions();
     useSlotContributions('navigation.primary');
     const plugins = pluginSnapshot();
     const chipPluginIds = new Set(plugins.flatMap(({ summary, manifest }) => manifest.contributions.some((contribution) => 'type' in contribution && contribution.type === 'data-card' && contribution.slot === 'home.cards' && contribution.presentation === 'sheet') ? [summary.pluginId] : []));
@@ -250,14 +251,23 @@ export function DeclarativePhoneNavRow({ onSelect }: { onSelect: (pluginId: stri
         manifestHash: summary.manifestHash,
         contentId: contribution.contentContributionId,
     }] : [])).sort((left, right) => Number(chipPluginIds.has(right.pluginId)) - Number(chipPluginIds.has(left.pluginId)));
-    if (chips.length === 0 && items.length === 0) return null;
+    const content = <>
+        {chips}
+        {items.map((item) => (
+            <NavigationItemButton key={item.key} contribution={item.contribution} pluginId={item.pluginId} manifestHash={item.manifestHash}
+                compact onPress={() => onSelect(item.pluginId, item.contentId)} />
+        ))}
+    </>;
+    if (width >= 560) {
+        return (
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingVertical: 10 }}>
+                {content}
+            </View>
+        );
+    }
     return (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }} contentContainerStyle={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingVertical: 10 }}>
-            {chips}
-            {items.map((item) => (
-                <NavigationItemButton key={item.key} contribution={item.contribution} pluginId={item.pluginId} manifestHash={item.manifestHash}
-                    compact onPress={() => onSelect(item.pluginId, item.contentId)} />
-            ))}
+            {content}
         </ScrollView>
     );
 }

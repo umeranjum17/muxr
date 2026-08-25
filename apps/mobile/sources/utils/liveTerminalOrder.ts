@@ -9,6 +9,7 @@ export const RECENTLY_DONE_SWIPE_MS = 2 * 60_000;
 export interface LiveTerminalOrderCard {
     session: Session;
     status: AgentLifecycle;
+    title?: string;
 }
 
 export interface LiveTerminalOrderState {
@@ -24,16 +25,19 @@ export function selectLiveTerminalCards(
     const sessionsById = new Map(sessions.map((session) => [session.id, session]));
     return panes.flatMap((pane) => {
         const session = sessionsById.get(pane.id);
-        return session === undefined ? [] : [{ session, status: pane.status }];
+        return session === undefined ? [] : [{ session, status: pane.status, title: pane.name }];
     });
 }
 
 function compareIds(left: string, right: string): number {
     return left < right ? -1 : left > right ? 1 : 0;
 }
-
 function compareCards(left: LiveTerminalOrderCard, right: LiveTerminalOrderCard): number {
+    const titleOrder = left.title !== undefined && right.title !== undefined
+        ? left.title.localeCompare(right.title)
+        : 0;
     return HERD_ORDER[left.status] - HERD_ORDER[right.status]
+        || titleOrder
         || right.session.updatedAt - left.session.updatedAt
         || compareIds(left.session.id, right.session.id);
 }

@@ -9,20 +9,20 @@ struct StoreShot {
 }
 
 let iphoneShots = [
-    StoreShot(name: "01-herd", headline: "Every coding agent.\nOn your phone."),
-    StoreShot(name: "02-usage", headline: "Know your usage.\nKeep prompts private."),
+    StoreShot(name: "01-new-agent", headline: "One agent.\nOr a whole squad."),
+    StoreShot(name: "02-files", headline: "Browse every file.\nFrom anywhere."),
     StoreShot(name: "03-terminal", headline: "Approve the work.\nNot the laptop."),
-    StoreShot(name: "04-files", headline: "Browse the repo.\nFrom anywhere."),
-    StoreShot(name: "05-runbooks", headline: "Your commands.\nOne tap away."),
-    StoreShot(name: "06-settings", headline: "Your relay.\nYour rules."),
+    StoreShot(name: "04-runbook", headline: "Your commands.\nOne tap away."),
+    StoreShot(name: "05-settings", headline: "Everything connected.\nEverything under control."),
+    StoreShot(name: "06-appearance", headline: "Make it yours.\nEverywhere."),
 ]
 
 let ipadShots = [
-    StoreShot(name: "01-herd", headline: "Every agent.\nOne command center."),
-    StoreShot(name: "02-terminal", headline: "Live terminals.\nRoom to work."),
-    StoreShot(name: "03-new-agent", headline: "One agent.\nOr a whole squad."),
-    StoreShot(name: "04-files", headline: "Browse the repo.\nWithout leaving the session."),
-    StoreShot(name: "05-runbook", headline: "Your commands.\nOne tap away."),
+    StoreShot(name: "01-new-agent", headline: "One agent.\nOr a whole squad."),
+    StoreShot(name: "02-files", headline: "Browse every file.\nFrom anywhere."),
+    StoreShot(name: "03-terminal", headline: "Live terminals.\nRoom to work."),
+    StoreShot(name: "04-runbook", headline: "Your commands.\nOne tap away."),
+    StoreShot(name: "05-settings", headline: "Everything connected.\nEverything under control."),
     StoreShot(name: "06-appearance", headline: "Make it yours.\nEverywhere."),
 ]
 
@@ -116,7 +116,7 @@ func render(
         width: screenshotWidth,
         height: screenshotHeight
     )
-    let cornerRadius = CGFloat(width) * 0.055
+    let cornerRadius = CGFloat(width) * (width > 1600 ? 0.025 : 0.055)
     let rounded = NSBezierPath(roundedRect: screenshotRect, xRadius: cornerRadius, yRadius: cornerRadius)
 
     NSGraphicsContext.saveGraphicsState()
@@ -170,8 +170,8 @@ for shot in ipadShots {
         outputDirectory: base.appendingPathComponent("en-US/ipad-13"),
         width: 2064,
         height: 2752,
-        screenshotWidth: 1650,
-        screenshotBottom: 35
+        screenshotWidth: 1720,
+        screenshotBottom: -250
     )
 }
 

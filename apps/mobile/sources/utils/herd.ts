@@ -71,7 +71,7 @@ export function sortHerd(sessions: Session[], workspaces: readonly HerdrTreeWork
             const kind = pane.agentKind ?? 'shell';
             return [{
                 id: pane.sessionId,
-                name: nameOf(session, pane.label ?? pane.agentName ?? (kind === 'shell' ? 'Shell' : 'Agent')),
+                name: pane.label ?? nameOf(session, pane.agentName ?? (kind === 'shell' ? 'Shell' : 'Agent')),
                 status: pane.agentStatus,
                 doing: pane.terminalTitle?.trim() ?? '',
             }];

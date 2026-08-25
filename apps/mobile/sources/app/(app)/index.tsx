@@ -30,17 +30,18 @@ export default function Home() {
 }
 
 function Authenticated() {
-    return <MainView variant="phone" />;
+    return <MainView />;
 }
 
 function NotAuthenticated() {
     const auth = useAuth();
     const isLandscape = useIsLandscape();
     const insets = useSafeAreaInsets();
-    const hosted = Platform.OS === 'web' || getCachedConnectionSettings().mode === 'hosted';
+    const hosted = getCachedConnectionSettings().mode === 'hosted';
     const pairing = React.useRef(false);
 
     React.useEffect(() => {
+        if (!hosted) return;
         if (pairing.current) return;
         pairing.current = true;
         void resumePendingHostedPairing().then(async (grant) => {
@@ -57,7 +58,7 @@ function NotAuthenticated() {
         }).catch((error) => {
             Modal.alert('Pairing paused', error instanceof Error ? error.message : String(error));
         }).finally(() => { pairing.current = false; });
-    }, [auth]);
+    }, [auth, hosted]);
 
     const processPairLink = useHostedPairing();
     const scanHostedQr = usePairQrScanner((url) => void processPairLink(url), hosted);

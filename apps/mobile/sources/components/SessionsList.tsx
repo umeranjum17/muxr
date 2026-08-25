@@ -172,13 +172,11 @@ export function SessionsList({
     bottomContentInset = 128,
     onScroll,
     searchQuery = '',
-    showLiveTerminals = true,
 }: {
     topContentInset?: number;
     bottomContentInset?: number;
     onScroll?: (event: NativeSyntheticEvent<NativeScrollEvent>) => void;
     searchQuery?: string;
-    showLiveTerminals?: boolean;
 } = {}) {
     const styles = stylesheet;
     const safeArea = useSafeAreaInsets();
@@ -270,12 +268,12 @@ export function SessionsList({
                 );
 
             case 'active-sessions':
-                return showLiveTerminals ? (
+                return (
                     <ActiveSessionsGroupCompact
                         sessions={item.sessions}
                         selectedSessionId={selectedSessionId}
                     />
-                ) : null;
+                );
 
             case 'session':
                 // Determine card styling based on position within date group
@@ -297,7 +295,7 @@ export function SessionsList({
                     />
                 );
         }
-    }, [selectedSessionId, data, showLiveTerminals]);
+    }, [selectedSessionId, data]);
 
 
     // Remove this section as we'll use FlatList for all items now
@@ -306,11 +304,11 @@ export function SessionsList({
     const HeaderComponent = React.useCallback(() => {
         return (
             <>
-                {showLiveTerminals && <LiveTerminalsRow />}
+                <LiveTerminalsRow />
                 <UpdateBanner />
             </>
         );
-    }, [showLiveTerminals]);
+    }, []);
 
     // Footer removed - all sessions now shown inline
 

@@ -7,6 +7,15 @@ import { isRunningOnMac } from './platform';
 // Re-export calculation functions for use in other components
 export { calculateDeviceDimensions, determineDeviceType, calculateHeaderHeight };
 export const SPLIT_VIEW_MIN_WIDTH = 900;
+export const SIDEBAR_MIN_WIDTH = 280;
+export const SIDEBAR_MAX_WIDTH = 360;
+
+export function sidebarWidth(windowWidth: number): number {
+    return Math.min(
+        Math.max(Math.floor(windowWidth * 0.26), SIDEBAR_MIN_WIDTH),
+        SIDEBAR_MAX_WIDTH,
+    );
+}
 
 export interface SplitViewLayoutInput {
     width: number;

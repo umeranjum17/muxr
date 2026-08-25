@@ -36,7 +36,15 @@ export function PluginSlot<S extends PluginNativeSlot>({ slot, context }: { slot
             ? `${contribution.pluginId}:${contribution.id}`
             : `${contribution.pluginId}:${contribution.manifestHash}:${contribution.id}`;
         if (contribution.type === 'screen') {
-            return <DeclarativeScreen key={key} contribution={contribution} pluginId={contribution.pluginId} params={'params' in context ? context.params : undefined} />;
+            return <DeclarativeScreen
+                key={key}
+                contribution={contribution}
+                pluginId={contribution.pluginId}
+                params={'params' in context ? context.params : undefined}
+                topContentInset={'topContentInset' in context ? context.topContentInset : undefined}
+                bottomContentInset={'bottomContentInset' in context ? context.bottomContentInset : undefined}
+                onScroll={'onScroll' in context ? context.onScroll : undefined}
+            />;
         }
         return <React.Fragment key={key}>{renderPrimitive({
             context,

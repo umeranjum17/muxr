@@ -283,7 +283,7 @@ export function ItemList({ context, pluginId, manifestHash, contribution, presen
     const badgeTone = model.badge?.tone;
     const badgeColor = failed ? theme.colors.textDestructive : badgeTone === undefined ? theme.colors.textSecondary : toneColor(theme, badgeTone);
     if (items.length === 0 && model.actions.length === 0) {
-        if (!failed && presentation === 'pill') return null;
+        if (!failed && (presentation === 'pill' || presentation === 'action-row')) return null;
         return <Pressable onPress={failed ? () => load(true) : undefined} disabled={!failed} accessibilityRole="button" accessibilityLabel={failed ? `${accessibilityLabel} ${t('plugins.unavailableSuffix')}. ${t('plugins.retry')}` : `${accessibilityLabel}, no items`} hitSlop={11}
             style={({ pressed }) => [presentation === 'action-row' ? styles.actionRow : styles.pill, { backgroundColor: theme.colors.surfaceHigh, borderColor: theme.colors.divider, opacity: failed || presentation === 'pill' ? 1 : 0.55 }, pressed && { backgroundColor: theme.colors.surfacePressed }]}>
             <Ionicons name={(failed ? 'warning-outline' : icon) as never} size={presentation === 'action-row' ? 18 : 11} color={failed ? theme.colors.textDestructive : theme.colors.textSecondary} />

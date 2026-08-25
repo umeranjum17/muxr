@@ -7,7 +7,7 @@ vi.mock('react-native', () => ({
 }));
 vi.mock('./platform', () => ({ isRunningOnMac: () => false }));
 
-import { shouldUseSplitViewLayout, SPLIT_VIEW_MIN_WIDTH } from './responsive';
+import { shouldUseSplitViewLayout, sidebarWidth, SPLIT_VIEW_MIN_WIDTH } from './responsive';
 
 describe('shouldUseSplitViewLayout', () => {
     it('uses master-detail on a full-width iPad but not a narrow Stage Manager window', () => {
@@ -76,5 +76,17 @@ describe('shouldUseSplitViewLayout', () => {
             isMac: false,
             deviceType: 'phone',
         })).toBe(false);
+    });
+});
+
+describe('sidebarWidth', () => {
+    it.each([
+        [900, 280],
+        [1024, 280],
+        [1200, 312],
+        [1440, 360],
+        [2560, 360],
+    ])('clamps a %ipx window to a usable sidebar width', (windowWidth, expected) => {
+        expect(sidebarWidth(windowWidth)).toBe(expected);
     });
 });

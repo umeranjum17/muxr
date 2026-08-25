@@ -129,9 +129,9 @@ export function TreeSheet({ context, pluginId, manifestHash, contribution }: Pri
                         flexDirection: 'row',
                         alignItems: 'center',
                         gap: 8,
-                        paddingLeft: 18 + depth * 22,
+                        paddingLeft: 18 + Math.min(depth, 3) * 18,
                         paddingRight: 18,
-                        paddingVertical: depth === 0 ? 11 : 9,
+                        paddingVertical: 11,
                         backgroundColor: pressed ? theme.colors.surfaceHighest : 'transparent',
                         opacity: disabled ? 0.45 : 1,
                     })}
