@@ -50,6 +50,12 @@ export interface PromptAttachment {
 export type StreamingBehavior = 'steer' | 'followUp';
 export type VoiceProviderOption = { id: string; name: string; selected: boolean; source: PluginSource; hasBackend: boolean };
 
+export interface WatchSettlement {
+    status: string;
+    detail: string;
+    timedOut?: boolean;
+}
+
 /** Host-owned collaboration ceremony and constrained outbound broker requests. */
 export interface PeerRequestMap {
     'peer.prepare': {
@@ -124,7 +130,7 @@ export interface PeerRequestMap {
             timeoutMs?: number;
             mutation: PeerMutationMetadata;
         };
-        result: { machineAlias: string; agentAlias: string; watching: boolean };
+        result: { machineAlias: string; agentAlias: string; settlement: WatchSettlement };
     };
     'peer.remote.prompt': {
         params: {
@@ -281,7 +287,7 @@ export interface RequestMap extends PeerRequestMap {
             /** Required by the peer dispatcher; ordinary trusted clients omit it. */
             peerMutation?: PeerMutationMetadata;
         };
-        result: { watching: boolean };
+        result: { watching: boolean; settlement?: WatchSettlement };
     };
     /**
      * Capture this session's whole tab as a reusable snapshot: the split tree

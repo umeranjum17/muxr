@@ -8,12 +8,9 @@ import {
     type ClientRequest,
     type PeerCapability,
     type PeerClientRequest,
-    type PeerMutationMetadata,
     type PeerRelationship,
     type PeerRequestResult,
-    type PeerRequestType,
     type RequestResponse,
-    type SessionInfo,
 } from '@muxr/contract';
 import {
     createDeviceGrant,
@@ -26,12 +23,13 @@ import {
     type PeerInstallBundlePayload,
 } from '@muxr/crypto';
 import type { PeerAuthority } from './authority.js';
-import { NodePeerClient, type PeerClientTransport } from './client.js';
-import { PeerStore, type StoredPendingAuthorization, type StoredPeerRelationship, type StoredPeerReceipt } from './store.js';
+import type { PeerClientTransport } from './client.js';
+import { OutboundPeerService } from './outboundPeerService.js';
+import { PeerReceiptExecutor } from './receiptExecutor.js';
+import { PeerStore, type StoredPendingAuthorization, type StoredPeerRelationship } from './store.js';
 import type { MachineCryptoAdapter, MachineCryptoState, MachineDeviceRecord, MachinePendingRotation } from './types.js';
 
 const PEER_CREDENTIAL_EXPIRES_AT = Date.UTC(9999, 11, 31, 23, 59, 59, 999);
-const PEER_MUTATION_MAX_TTL_MS = 5 * 60_000;
 
 export interface PeerDeviceContext {
     kind: 'native' | 'browser' | 'peer';
@@ -82,42 +80,88 @@ function publicRelationship(entry: StoredPeerRelationship): PeerRelationship {
 
 export class PeerRuntime {
     readonly store: PeerStore;
-    private readonly clients = new Map<string, PeerClientTransport>();
-    private readonly inFlight = new Map<string, { requestHash: string; promise: Promise<unknown> }>();
+    private readonly outboundService: OutboundPeerService;
+    private readonly receipts: PeerReceiptExecutor;
     private cryptoQueue = Promise.resolve();
     private readonly now: () => number;
+    private recoveryPending: boolean;
+    private recoveryPromise: Promise<void> | undefined;
+    private recoveryTimer: ReturnType<typeof setTimeout> | undefined;
+    private recoveryAttempts = 0;
 
     constructor(private readonly options: PeerRuntimeOptions) {
         this.store = new PeerStore(options.dataDir);
         this.now = options.now ?? Date.now;
+        this.receipts = new PeerReceiptExecutor(this.store, this.now);
+        this.outboundService = new OutboundPeerService({
+            store: this.store,
+            now: this.now,
+            ...(options.clientFactory === undefined ? {} : { clientFactory: options.clientFactory }),
+        });
+        this.recoveryPending = this.hasRecoveryWork();
     }
 
     async recover(): Promise<void> {
-        const rotation = this.options.crypto.get().pendingRotation;
-        if (rotation?.kind === 'peer-revoke-v1') await this.withCryptoLock(() => this.finishPeerRevocation(rotation));
-        const authorization = this.store.pendingAuthorization();
-        if (authorization !== undefined) {
-            try { await this.withCryptoLock(() => this.finishAuthorization(authorization)); }
-            catch { return; }
+        if (this.recoveryPromise !== undefined) return this.recoveryPromise;
+        if (this.recoveryTimer !== undefined) clearTimeout(this.recoveryTimer);
+        this.recoveryTimer = undefined;
+        this.recoveryPending = this.hasRecoveryWork();
+        const recovery = (async () => {
+            const rotation = this.options.crypto.get().pendingRotation;
+            if (rotation?.kind === 'peer-revoke-v1') await this.withCryptoLock(() => this.finishPeerRevocation(rotation));
+            const authorization = this.store.pendingAuthorization();
+            if (authorization !== undefined) await this.withCryptoLock(() => this.finishAuthorization(authorization));
+            await this.withCryptoLock(() => this.repairOrphanDevices());
+            this.recoveryPending = false;
+            this.recoveryAttempts = 0;
+        })();
+        this.recoveryPromise = recovery;
+        try { await recovery; }
+        catch (error) {
+            this.recoveryPending = this.hasRecoveryWork();
+            if (this.recoveryPending) this.scheduleRecovery();
+            throw error;
+        } finally {
+            if (this.recoveryPromise === recovery) this.recoveryPromise = undefined;
         }
-        await this.withCryptoLock(() => this.repairOrphanDevices()).catch(() => undefined);
+    }
+
+    retryRecovery(): void {
+        this.recoveryAttempts = 0;
+        if (this.recoveryTimer !== undefined) clearTimeout(this.recoveryTimer);
+        this.recoveryTimer = undefined;
+        void this.recover().catch(() => undefined);
+    }
+
+    close(): void {
+        if (this.recoveryTimer !== undefined) clearTimeout(this.recoveryTimer);
+        this.outboundService.close();
     }
 
     async handle(request: PeerClientRequest, authenticatedDeviceId: string): Promise<unknown> {
         if (request.type === 'peer.list') return this.store.list();
-        if (isRemotePeerRequest(request)) return this.handleRemote(request);
-        if (request.type === 'peer.authorize') return this.withCryptoLock(() => this.authorize(request.params));
-        // Revocation is authenticated, destructive only to access, and idempotent. It must never
-        // compete with attacker-controlled mutation receipts for admission.
-        if (request.type === 'peer.revoke') return this.withCryptoLock(() => this.revoke(request.params));
-        const mutation = request.params.mutation;
-        return this.executeOnce(`control:${authenticatedDeviceId}`, request.type, mutation, request.params, async () => {
-            switch (request.type) {
-                case 'peer.prepare': return this.prepare(request.params);
-                case 'peer.install': return this.install(request.params);
-                default: throw operationError('unknown peer request', 'host-contract-mismatch');
-            }
-        });
+        const mutates = request.type === 'peer.prepare' || request.type === 'peer.authorize' || request.type === 'peer.install'
+            || request.type === 'peer.revoke' || request.type === 'peer.remote.watch' || request.type === 'peer.remote.prompt'
+            || request.type === 'peer.remote.start';
+        if (mutates) this.assertRecoveryReady();
+        try {
+            if (isRemotePeerRequest(request)) return await this.outboundService.handle(request);
+            if (request.type === 'peer.authorize') return await this.withCryptoLock(() => this.authorize(request.params));
+            // Revocation is authenticated, destructive only to access, and idempotent. It must never
+            // compete with attacker-controlled mutation receipts for admission.
+            if (request.type === 'peer.revoke') return await this.withCryptoLock(() => this.revoke(request.params));
+            const mutation = request.params.mutation;
+            return await this.receipts.execute(`control:${authenticatedDeviceId}`, request.type, mutation, request.params, async () => {
+                switch (request.type) {
+                    case 'peer.prepare': return this.prepare(request.params);
+                    case 'peer.install': return this.install(request.params);
+                    default: throw operationError('unknown peer request', 'host-contract-mismatch');
+                }
+            });
+        } catch (error) {
+            this.noteRecoveryWork();
+            throw error;
+        }
     }
 
     async dispatchIncoming(
@@ -143,7 +187,8 @@ export class PeerRuntime {
             return { type: 'result', requestId: request.requestId, ok: false, error: 'peer mutation metadata is required', code: 'peer-mutation-required' };
         }
         try {
-            const outcome = await this.executeOnce(deviceId, request.type, mutation, request.params, async () => {
+            this.assertRecoveryReady();
+            const outcome = await this.receipts.execute(deviceId, request.type, mutation, request.params, async () => {
                 const response = await execute();
                 return response.ok
                     ? { ok: true as const, data: response.data }
@@ -153,6 +198,7 @@ export class PeerRuntime {
                 ? { type: 'result', requestId: request.requestId, ok: true, data: outcome.data }
                 : { type: 'result', requestId: request.requestId, ok: false, error: outcome.error, ...(outcome.code === undefined ? {} : { code: outcome.code }) };
         } catch (error) {
+            this.noteRecoveryWork();
             return {
                 type: 'result', requestId: request.requestId, ok: false,
                 error: error instanceof Error ? error.message : String(error),
@@ -465,8 +511,7 @@ export class PeerRuntime {
             if (params.peerDeviceId !== relationship.peerDeviceId) {
                 throw operationError('target revocation must be confirmed before deleting the outbound bundle', 'peer-revoke-unconfirmed');
             }
-            this.clients.get(relationship.relationshipId)?.close();
-            this.clients.delete(relationship.relationshipId);
+            this.outboundService.closeRelationship(relationship.relationshipId);
             const { credential: _credential, peerKey: _peerKey, sealedGrant: _sealedGrant, ...revoked } = relationship;
             await this.store.putRelationship({ ...revoked, state: 'revoked', updatedAt: this.now() });
             return { state: 'revoked', revokedAt: this.now(), ...(relationship.authority === undefined ? {} : { authority: relationship.authority }) };
@@ -651,96 +696,6 @@ export class PeerRuntime {
         };
     }
 
-    private async handleRemote(request: RemotePeerRequest): Promise<unknown> {
-        const relationship = this.outbound(request.params.relationshipId);
-        const client = this.client(relationship);
-        switch (request.type) {
-            case 'peer.remote.list': {
-                const sessions = await client.request('session.list', {});
-                const aliases = Object.fromEntries(sessions.map((session) => [session.id, this.agentAlias(session)]));
-                const counts = new Map<string, number>();
-                for (const alias of Object.values(aliases)) counts.set(alias, (counts.get(alias) ?? 0) + 1);
-                await this.store.putRelationship({ ...relationship, agentAliases: aliases, updatedAt: this.now() });
-                return {
-                    machineAlias: this.machineAlias(relationship),
-                    sessions: sessions.map((session) => ({
-                        sessionId: session.id,
-                        agentAlias: aliases[session.id]!,
-                        ...(counts.get(aliases[session.id]!)! > 1 ? { ambiguous: true } : {}),
-                    })),
-                };
-            }
-            case 'peer.remote.read': {
-                const result = await client.request('pane.read', { sessionId: request.params.sessionId, ...(request.params.lines === undefined ? {} : { lines: request.params.lines }), source: 'recent' });
-                return { machineAlias: this.machineAlias(relationship), agentAlias: this.knownAgentAlias(relationship, request.params.sessionId), ...result };
-            }
-            case 'peer.remote.status': {
-                const status = await client.request('session.status', { sessionId: request.params.sessionId });
-                return { machineAlias: this.machineAlias(relationship), agentAlias: this.knownAgentAlias(relationship, request.params.sessionId), status };
-            }
-            case 'peer.remote.watch': {
-                const result = await client.request('agent.watch', {
-                    sessionId: request.params.sessionId,
-                    ...(request.params.until === undefined ? {} : { until: request.params.until }),
-                    ...(request.params.timeoutMs === undefined ? {} : { timeoutMs: request.params.timeoutMs }),
-                    peerMutation: request.params.mutation,
-                });
-                return { machineAlias: this.machineAlias(relationship), agentAlias: this.knownAgentAlias(relationship, request.params.sessionId), watching: result.watching };
-            }
-            case 'peer.remote.prompt': {
-                await client.request('session.prompt', {
-                    sessionId: request.params.sessionId,
-                    text: request.params.text,
-                    ...(request.params.streamingBehavior === undefined ? {} : { streamingBehavior: request.params.streamingBehavior }),
-                    peerMutation: request.params.mutation,
-                });
-                return { machineAlias: this.machineAlias(relationship), agentAlias: this.knownAgentAlias(relationship, request.params.sessionId), delivered: true };
-            }
-            case 'peer.remote.start': {
-                const snapshot = await client.request('session.start', {
-                    cwd: request.params.cwd,
-                    ...(request.params.kind === undefined ? {} : { kind: request.params.kind }),
-                    ...(request.params.label === undefined ? {} : { label: request.params.label }),
-                    peerMutation: request.params.mutation,
-                });
-                const alias = this.agentAlias(snapshot.info);
-                await this.store.putRelationship({
-                    ...relationship,
-                    updatedAt: this.now(),
-                    agentAliases: { ...(relationship.agentAliases ?? {}), [snapshot.info.id]: alias },
-                });
-                return { machineAlias: this.machineAlias(relationship), sessionId: snapshot.info.id, agentAlias: alias };
-            }
-        }
-    }
-
-    private client(relationship: StoredPeerRelationship): PeerClientTransport {
-        const existing = this.clients.get(relationship.relationshipId);
-        if (existing !== undefined) return existing;
-        const created = this.options.clientFactory?.(relationship) ?? new NodePeerClient({
-            relayUrl: relationship.relayUrl!,
-            machineId: relationship.machineId,
-            credential: relationship.credential!,
-            peerDeviceId: relationship.peerDeviceId!,
-            peerKey: relationship.peerKey!,
-            pinnedMachineSigningPublicKey: relationship.targetMachineSigningPublicKey!,
-            sealedGrant: relationship.sealedGrant!,
-            ...(relationship.grantPath === undefined ? {} : { grantPath: relationship.grantPath }),
-        });
-        this.clients.set(relationship.relationshipId, created);
-        return created;
-    }
-
-    private outbound(id: string): StoredPeerRelationship {
-        const relationship = this.store.relationship(id);
-        if (relationship === undefined || relationship.direction !== 'outbound' || relationship.state !== 'connected'
-            || relationship.credential === undefined || relationship.peerKey === undefined || relationship.sealedGrant === undefined
-            || relationship.relayUrl === undefined || relationship.targetMachineSigningPublicKey === undefined) {
-            throw operationError('peer relationship is not connected', 'peer-not-connected');
-        }
-        return relationship;
-    }
-
     private readyCrypto(): MachineCryptoState {
         const crypto = this.options.crypto.get();
         if (crypto.pendingRotation !== undefined) throw operationError('machine key rotation is incomplete', 'peer-rotation-pending');
@@ -772,90 +727,45 @@ export class PeerRuntime {
         });
     }
 
-    private machineAlias(relationship: StoredPeerRelationship): string {
-        return relationship.machineName?.trim() || 'Peer computer';
+    async outboundRelationships(): Promise<StoredPeerRelationship[]> {
+        return this.outboundService.relationships();
     }
 
-    private agentAlias(session: SessionInfo): string {
-        return session.name?.trim() || session.tabLabel?.trim() || session.agentKind?.trim() || 'Agent';
+    async resolveOutboundMachine(alias: string): Promise<StoredPeerRelationship> {
+        return this.outboundService.resolveMachine(alias);
     }
 
-    private knownAgentAlias(relationship: StoredPeerRelationship, sessionId: string): string {
-        return relationship.agentAliases?.[sessionId] ?? 'Agent';
+    private assertRecoveryReady(): void {
+        if (this.recoveryPending) throw operationError('peer recovery is pending; retry after connectivity returns', 'peer-recovery-pending');
     }
 
-    private async executeOnce<T>(
-        deviceId: string,
-        type: string,
-        mutation: PeerMutationMetadata,
-        request: unknown,
-        execute: () => Promise<T>,
-    ): Promise<T> {
-        const now = this.now();
-        if (mutation === null || typeof mutation !== 'object' || typeof mutation.operationId !== 'string'
-            || mutation.operationId === '' || mutation.operationId.length > 160 || !Number.isFinite(mutation.notValidAfter)) {
-            throw operationError('peer mutation metadata is invalid', 'peer-mutation-invalid');
-        }
-        if (mutation.notValidAfter <= now) throw operationError('peer mutation expired before dispatch', 'peer-mutation-expired');
-        if (mutation.notValidAfter > now + PEER_MUTATION_MAX_TTL_MS) {
-            throw operationError('peer mutation validity window is too long', 'peer-mutation-invalid');
-        }
-        const requestHash = createHash('sha256').update(JSON.stringify({ type, request })).digest('base64url');
-        const key = `${deviceId}\0${mutation.operationId}`;
-        const running = this.inFlight.get(key);
-        if (running !== undefined) {
-            if (running.requestHash !== requestHash) throw operationError('peer operation id was reused with different input', 'peer-operation-conflict');
-            return running.promise as Promise<T>;
-        }
-        const receipt = this.store.receipt(deviceId, mutation.operationId);
-        if (receipt !== undefined) return this.receiptResult<T>(receipt, requestHash);
-        const promise = (async () => {
-            await this.store.putReceipt({
-                deviceId,
-                operationId: mutation.operationId,
-                requestHash,
-                notValidAfter: mutation.notValidAfter,
-                state: 'started',
-            });
-            try {
-                const data = await execute();
-                await this.store.putReceipt({
-                    deviceId, operationId: mutation.operationId, requestHash,
-                    notValidAfter: mutation.notValidAfter, state: 'completed', outcome: { ok: true, data },
-                });
-                return data;
-            } catch (error) {
-                const code = (error as { code?: unknown }).code;
-                const outcome = {
-                    ok: false as const,
-                    error: error instanceof Error ? error.message : String(error),
-                    ...(typeof code === 'string' ? { code } : {}),
-                };
-                await this.store.putReceipt({
-                    deviceId, operationId: mutation.operationId, requestHash,
-                    notValidAfter: mutation.notValidAfter, state: 'completed', outcome,
-                });
-                throw operationError(outcome.error, outcome.code ?? 'peer-operation-failed');
-            } finally {
-                this.inFlight.delete(key);
-            }
-        })();
-        this.inFlight.set(key, { requestHash, promise });
-        return promise;
+    private hasRecoveryWork(): boolean {
+        if (this.options.crypto.get().pendingRotation?.kind === 'peer-revoke-v1' || this.store.pendingAuthorization() !== undefined) return true;
+        const bound = new Set(this.store.list().peers
+            .filter((entry) => entry.direction === 'inbound' && entry.state !== 'revoked')
+            .map((entry) => entry.peerDeviceId));
+        return this.options.crypto.get().devices.some((device) => device.kind === 'peer' && !bound.has(device.deviceId));
+    }
+
+    private noteRecoveryWork(): void {
+        if (!this.hasRecoveryWork()) return;
+        this.recoveryPending = true;
+        this.scheduleRecovery();
+    }
+
+    private scheduleRecovery(): void {
+        if (this.recoveryTimer !== undefined) return;
+        const delay = Math.min(1_000 * 2 ** this.recoveryAttempts++, 30_000);
+        this.recoveryTimer = setTimeout(() => {
+            this.recoveryTimer = undefined;
+            void this.recover().catch(() => undefined);
+        }, delay);
+        this.recoveryTimer.unref?.();
     }
 
     private withCryptoLock<T>(operation: () => Promise<T>): Promise<T> {
         const run = this.cryptoQueue.then(operation);
         this.cryptoQueue = run.then(() => undefined, () => undefined);
         return run;
-    }
-
-    private receiptResult<T>(receipt: StoredPeerReceipt, requestHash: string): T {
-        if (receipt.requestHash !== requestHash) throw operationError('peer operation id was reused with different input', 'peer-operation-conflict');
-        if (receipt.state !== 'completed' || receipt.outcome === undefined) {
-            throw operationError('peer operation may have executed; it will not be retried', 'peer-operation-uncertain');
-        }
-        if (receipt.outcome.ok) return receipt.outcome.data as T;
-        throw operationError(receipt.outcome.error, receipt.outcome.code ?? 'peer-operation-failed');
     }
 }

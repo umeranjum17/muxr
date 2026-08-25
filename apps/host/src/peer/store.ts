@@ -23,6 +23,9 @@ export interface StoredPeerRelationship extends PeerRelationship {
     sealedGrant?: SealedDeviceGrant;
     grantPath?: string;
     allowedCwds?: string[];
+    /** Stable, non-secret selector exposed to voice/tool callers. */
+    machineAlias?: string;
+    /** Session ids stay private; only these human aliases leave the host. */
     agentAliases?: Record<string, string>;
     authorizationDescriptorHash?: string;
     sealedInstallBundle?: string;
@@ -84,6 +87,9 @@ function validState(value: unknown): value is PeerState {
             && (entry.direction === 'inbound' || entry.direction === 'outbound')
             && (entry.state === 'pending' || entry.state === 'connected' || entry.state === 'repair-needed'
                 || entry.state === 'disconnecting' || entry.state === 'revoked')
+            && (entry.machineAlias === undefined || typeof entry.machineAlias === 'string' && entry.machineAlias !== '')
+            && (entry.agentAliases === undefined || typeof entry.agentAliases === 'object' && entry.agentAliases !== null
+                && Object.values(entry.agentAliases).every((alias) => typeof alias === 'string' && alias !== ''))
             && typeof entry.createdAt === 'number' && typeof entry.updatedAt === 'number')
         && state.receipts.every((entry) => typeof entry?.deviceId === 'string' && typeof entry?.operationId === 'string'
             && typeof entry?.requestHash === 'string' && Number.isFinite(entry?.notValidAfter)

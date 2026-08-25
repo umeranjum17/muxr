@@ -46,6 +46,7 @@ import { pluginInvalidationFrame, PluginCatalog, PluginRefreshGate, WriteReplayF
 import { PluginApprovals } from './pluginApprovals.js';
 import { PluginStreamManager } from './pluginStreamManager.js';
 import type { HostedMachineKeys } from '../hostedE2ee.js';
+import type { PeerBroker } from '../peer/broker.js';
 import { MAX_RPC_CONCURRENCY, MAX_RPC_INPUT_BYTES, MAX_RPC_PER_DEVICE, MAX_RPC_PER_PLUGIN, type PluginContextRequest } from '@muxr/contract';
 import { buildPluginPublicContext, type PublicContextSource } from './pluginPublicContext.js';
 
@@ -103,6 +104,8 @@ export interface CreateHerdrSessionSourceOptions {
     token?: string;
     /** Strict hosted keys for provider-neutral plugin stream channels. */
     hostedE2ee?: HostedMachineKeys;
+    /** Issues one revocable capability only to an approved voice.session child. */
+    peerBroker?: PeerBroker;
 }
 
 /** herdr agent record (agent.list / snapshot.agents / agent.start result). */
@@ -267,6 +270,7 @@ export async function createHerdrSessionSource(
             machineId: options.machineId,
             ...(options.token === undefined ? {} : { token: options.token }),
             ...(options.hostedE2ee === undefined ? {} : { hostedE2ee: options.hostedE2ee }),
+            ...(options.peerBroker === undefined ? {} : { peerBroker: options.peerBroker }),
         });
     /** Write-mode RPC replay fence: successful outcomes retained five minutes; rejections dropped; pending writes never evicted. */
     const writeReplayFence = new WriteReplayFence();

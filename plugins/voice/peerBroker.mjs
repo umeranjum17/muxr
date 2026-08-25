@@ -16,7 +16,8 @@ const untrusted = (value) => `<untrusted-machine-output>\n${value.slice(-20_000)
 
 async function requestPeer(request, signal) {
     const socketPath = process.env.MUXR_PEER_BROKER_SOCKET;
-    if (!socketPath) throw new Error('Cross-machine agent access is not available on this computer.');
+    const capability = process.env.MUXR_PEER_BROKER_CAPABILITY;
+    if (!socketPath || !capability) throw new Error('Cross-machine agent access is not available on this computer.');
     const id = randomUUID();
     return new Promise((resolve, reject) => {
         const socket = createConnection(socketPath);
@@ -31,8 +32,11 @@ async function requestPeer(request, signal) {
         };
         const onAbort = () => finish(Object.assign(new Error('Peer request cancelled.'), { name: 'AbortError' }));
         signal?.addEventListener('abort', onAbort, { once: true });
-        socket.setTimeout(65_000, () => finish(new Error('Peer request timed out.')));
-        socket.on('connect', () => socket.write(`${JSON.stringify({ id, request })}\n`));
+        const timeoutMs = request?.method === 'watch'
+            ? Math.min(Math.max(Math.trunc(Number(request.timeoutMs) || 30_000), 1_000), 290_000) + 25_000
+            : 65_000;
+        socket.setTimeout(timeoutMs, () => finish(new Error('Peer request timed out.')));
+        socket.on('connect', () => socket.write(`${JSON.stringify({ id, capability, request })}\n`));
         socket.on('data', (chunk) => {
             input += chunk.toString('utf8');
             const newline = input.indexOf('\n');

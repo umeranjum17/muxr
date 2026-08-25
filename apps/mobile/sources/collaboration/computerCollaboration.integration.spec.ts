@@ -8,6 +8,7 @@ vi.mock('expo-crypto', () => ({ randomUUID: () => 'unused-random-id' }));
 
 import {
     applyCollaboration,
+    reconcileCollaboration,
     selectCollaborationMachines,
     type CollaborationMachine,
     type PeerRequester,
@@ -172,6 +173,23 @@ describe('computer collaboration flow', () => {
         ]);
         expect([...fleet.values()].flatMap((client) => client.peers.filter((peer) => peer.state === 'connected'))).toHaveLength(4);
 
+        const recovered = await reconcileCollaboration({ version: 1, selectedMachineIds: [], machines: [], edges: [] }, machines, request);
+        expect(recovered.intent.selectedMachineIds.sort()).toEqual(['linux-internal', 'mac-internal']);
+        expect(recovered.intent.edges.map((edge) => edge.relationshipId).sort()).toEqual([...relationshipIds].sort());
+        const selectedAgain = selectCollaborationMachines(recovered.intent, machines, newId);
+        expect(selectedAgain.edges.map((edge) => edge.relationshipId).sort()).toEqual([...relationshipIds].sort());
+
+        const orphan: PeerRelationship = {
+            relationshipId: 'orphan-live-authority', direction: 'outbound', machineId: 'mac-internal', machineName: 'Build Mac',
+            state: 'connected', capabilities: ['list', 'read', 'status', 'watch', 'prompt'], peerDeviceId: 'orphan-device', createdAt: 1_000, updatedAt: 1_000,
+        };
+        fleet.get('linux-internal')!.peers.push(orphan);
+        const repair = await reconcileCollaboration({ version: 1, selectedMachineIds: [], machines: [], edges: [] }, machines, request);
+        expect(repair.intent.edges).toContainEqual(expect.objectContaining({ relationshipId: 'orphan-live-authority', setup: expect.objectContaining({ repairNeeded: true }) }));
+        expect(Object.values(repair.states)).toEqual(['Repair needed', 'Repair needed']);
+        fleet.get('linux-internal')!.peers = fleet.get('linux-internal')!.peers.filter((peer) => peer !== orphan);
+
+        report = recovered;
         intent = selectCollaborationMachines(report.intent, [], newId);
         fleet.get('mac-internal')!.online = false;
         report = await applyCollaboration(intent, machines, request, save, now, newId);
