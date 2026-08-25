@@ -1,16 +1,7 @@
 import * as React from "react";
 import { Image } from "expo-image";
+import { avatarHash, type GeneratedAvatarProps } from './generatedAvatar';
 
-// Copy hashCode function for consistency with Avatar.tsx
-function hashCode(str: string): number {
-    let hash = 0;
-    for (let i = 0; i < str.length; i++) {
-        const char = str.charCodeAt(i);
-        hash = ((hash << 5) - hash) + char;
-        hash = hash & hash;
-    }
-    return Math.abs(hash);
-}
 
 // Array of all 100 gradient images
 const gradientImages = [
@@ -116,19 +107,12 @@ const gradientImages = [
     require('@/assets/images/gradients/100.png'),
 ];
 
-interface AvatarGradientProps {
-    id: string;
-    title?: boolean;
-    square?: boolean;
-    size?: number;
-    monochrome?: boolean;
-}
 
-export const AvatarGradient = React.memo((props: AvatarGradientProps) => {
+export const AvatarGradient = React.memo((props: GeneratedAvatarProps) => {
     const { id, square, size = 48, monochrome } = props;
     
     // Use hashCode to get consistent gradient index
-    const imageIndex = hashCode(id) % 100;
+    const imageIndex = avatarHash(id) % 100;
     const gradientImage = gradientImages[imageIndex];
     
     return (

@@ -1,5 +1,5 @@
-import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
+import { deleteNativeSecret, getNativeSecret, setNativeSecret } from '@/state/nativeSecretStore';
 import { deleteWebSecret, getWebSecret, setWebSecret } from '@/state/webSecureStore';
 
 const AUTH_KEY = 'auth_credentials';
@@ -21,7 +21,7 @@ export const TokenStorage = {
             return stored === null ? null : JSON.parse(stored) as AuthCredentials;
         }
         try {
-            const stored = await SecureStore.getItemAsync(AUTH_KEY);
+            const stored = await getNativeSecret(AUTH_KEY);
             if (!stored) return null;
             credentialsCache = stored; // Update cache
             return JSON.parse(stored) as AuthCredentials;
@@ -38,7 +38,7 @@ export const TokenStorage = {
         }
         try {
             const json = JSON.stringify(credentials);
-            await SecureStore.setItemAsync(AUTH_KEY, json);
+            await setNativeSecret(AUTH_KEY, json);
             credentialsCache = json; // Update cache
             return true;
         } catch (error) {
@@ -53,7 +53,7 @@ export const TokenStorage = {
             return true;
         }
         try {
-            await SecureStore.deleteItemAsync(AUTH_KEY);
+            await deleteNativeSecret(AUTH_KEY);
             credentialsCache = null; // Clear cache
             return true;
         } catch (error) {

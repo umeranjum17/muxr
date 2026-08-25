@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { homedir, tmpdir } from 'node:os';
 
-import { MAX_PLUGIN_CONTEXT_BYTES, MAX_RPC_ARRAY_ENTRIES, MAX_RPC_DISPLAY_DEPTH, MAX_RPC_INPUT_BYTES, MAX_RPC_RESULT_STRING_BYTES, MAX_RPC_STDOUT_BYTES, capUtf8Bytes, parseManifest, sanitizeDisplayText } from '@muxr/contract';
+import { MAX_PLUGIN_CONTEXT_BYTES, MAX_RPC_INPUT_BYTES, MAX_RPC_STDOUT_BYTES, boundRpcDisplay, parseManifest } from '@muxr/contract';
 
 const id = (value) => typeof value === 'string' && /^[a-z0-9][a-z0-9._-]{0,63}$/.test(value);
 const fail = (message) => { throw new Error(message); };
@@ -165,19 +165,6 @@ function boundedJson(value, fallback, maxBytes, label) {
     return serialized;
 }
 
-function boundRpcDisplay(value, depth = 0) {
-    if (typeof value === 'string') return capUtf8Bytes(sanitizeDisplayText(value), MAX_RPC_RESULT_STRING_BYTES);
-    if (value === null) return null;
-    if (depth >= MAX_RPC_DISPLAY_DEPTH) return undefined;
-    if (Array.isArray(value)) return value.slice(0, MAX_RPC_ARRAY_ENTRIES).map((entry) => boundRpcDisplay(entry, depth + 1));
-    if (typeof value !== 'object') return value;
-    const out = Object.create(null);
-    for (const [key, entry] of Object.entries(value)) {
-        const bounded = boundRpcDisplay(entry, depth + 1);
-        if (bounded !== undefined) out[key] = bounded;
-    }
-    return out;
-}
 
 function runRpcCall(checked, contributionId, inputJson, contextJson) {
     const rpcs = checked.manifest.contributions.filter((entry) => 'type' in entry && entry.type === 'rpc');

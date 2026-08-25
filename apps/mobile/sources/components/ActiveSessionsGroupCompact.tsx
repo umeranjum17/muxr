@@ -19,7 +19,7 @@ import { useRouter } from 'expo-router';
 import { SessionShortcutHintBadge } from './ShortcutHints';
 import { buildActiveSessionDisplayGroups } from '@/utils/sessionDisplayOrder';
 import { ProviderIcon } from './ProviderIcon';
-import { currentDeviceAuthority } from '@/state/hostedE2ee';
+import { useDeviceAuthority } from '@/hooks/useDeviceAuthority';
 
 interface ActiveSessionsGroupProps {
     sessions: SessionRowData[];
@@ -32,6 +32,7 @@ const SectionHeader = React.memo(({ session, displayPath }: { session: SessionRo
     const { theme } = useUnistyles();
     const router = useRouter();
     const draft = useNewSessionDraft();
+    const { authority, loading: authorityLoading } = useDeviceAuthority();
 
     const sessionPath = session.path || '';
     const isWorktree = isWorktreePath(sessionPath);
@@ -85,13 +86,18 @@ const SectionHeader = React.memo(({ session, displayPath }: { session: SessionRo
             </View>
 
             {/* + button — vertically centered, large hit area; desktop: hover-only */}
-            {currentDeviceAuthority() === 'control' && <Pressable
+            <Pressable
                 onPress={handleAdd}
+                disabled={authorityLoading || authority !== 'control'}
                 hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
-                style={[styles.addButton, { opacity: Platform.OS !== 'web' || isHovered ? 1 : 0 }]}
+                style={[styles.addButton, {
+                    opacity: authorityLoading || authority !== 'control'
+                        ? 0.35
+                        : Platform.OS !== 'web' || isHovered ? 1 : 0,
+                }]}
             >
                 <Ionicons name="add-outline" size={14} color={theme.colors.textSecondary} />
-            </Pressable>}
+            </Pressable>
         </View>
     );
 });

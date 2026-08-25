@@ -212,6 +212,16 @@ export async function machineBash(
     return { ...result, success: result.exitCode === 0 };
 }
 
+export async function refreshUntilSessionVisible(sessionId: string): Promise<void> {
+    // session.start can return before the host lists the session. Polling keeps
+    // every launch surface from opening a terminal that immediately looks deleted.
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+        await sync.refreshSessions();
+        if (storage.getState().sessions[sessionId] !== undefined) return;
+        await new Promise((resolve) => setTimeout(resolve, 300));
+    }
+}
+
 export async function machineSpawnNewSession(options: SpawnSessionOptions): Promise<SpawnSessionResult> {
     try {
         const snapshot = await sync.request('session.start', {
@@ -221,13 +231,7 @@ export async function machineSpawnNewSession(options: SpawnSessionOptions): Prom
             ...(options.agent === undefined ? {} : { kind: options.agent }),
         });
         const sessionId = snapshot.info.id;
-        // session.start can return before the host lists the session, which would
-        // render the new route as "deleted". Poll until the store knows about it.
-        for (let attempt = 0; attempt < 10; attempt += 1) {
-            await sync.refreshSessions();
-            if (storage.getState().sessions[sessionId] !== undefined) break;
-            await new Promise((resolve) => setTimeout(resolve, 300));
-        }
+        await refreshUntilSessionVisible(sessionId);
         return { type: 'success', sessionId };
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error);

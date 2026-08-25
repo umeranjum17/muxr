@@ -266,6 +266,9 @@ const styles = StyleSheet.create((theme) => ({
         backgroundColor: 'rgba(0, 0, 0, 0.45)',
     },
     sheet: {
+        width: '100%',
+        maxWidth: 560,
+        alignSelf: 'center',
         backgroundColor: theme.colors.groupped.background,
         borderTopLeftRadius: 24,
         borderTopRightRadius: 24,

@@ -9,6 +9,8 @@
  * a listener -- is the only caller left on that path.
  */
 
+import * as Device from 'expo-device';
+import { Platform } from 'react-native';
 import { newPreviewKey } from '@muxr/crypto';
 import { issueWsTicket, newPreviewChannel, previewSocketUrl, ticketSocketUrl } from '@muxr/contract';
 import { getCachedConnectionSettings } from '@/state/connectionSettings';
@@ -30,8 +32,9 @@ export interface PreviewTunnel {
 
 /** Regex, not `new URL`: React Native's URL is partial and this is one field. */
 function relayHostname(relayUrl: string): string | undefined {
-    return /^wss?:\/\/([^/:?#]+)/i.exec(relayUrl)?.[1];
+    return /^wss?:\/\/(\[[^\]]+\]|[^/:?#]+)/i.exec(relayUrl)?.[1]?.toLowerCase();
 }
+
 
 function waitForRelay(socket: WebSocket, type: string): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -130,6 +133,23 @@ export async function attachPreviewTunnel(port: number): Promise<PreviewTunnel> 
 }
 
 export async function openPreview(port: number): Promise<OpenPreview> {
+    // The iOS simulator shares the Mac's loopback. Bypass the native TCP bridge
+    // only for an explicit local-development connection to that same loopback:
+    // a paired remote machine may expose the same port on a different host.
+    if (Platform.OS === 'ios' && Device.isDevice === false) {
+        const settings = getCachedConnectionSettings();
+        const hostname = relayHostname(settings.relayUrl);
+        if (
+            settings.mode === 'local'
+            && (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]')
+        ) {
+            return { url: `http://127.0.0.1:${port}/`, close: () => undefined };
+        }
+        throw new Error(
+            'Preview from a remote machine is unavailable in the iOS Simulator. '
+            + 'Use a physical device, or connect the simulator to a host running on this Mac through a loopback relay.',
+        );
+    }
     const tunnel = await attachPreviewTunnel(port);
     return {
         url: `http://${tunnel.hostname}:${tunnel.port}/`,

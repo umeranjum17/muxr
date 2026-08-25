@@ -61,6 +61,12 @@ export default function RootLayout() {
                 }}
             />
             <Stack.Screen
+                name="new-agent"
+                options={{
+                    headerShown: false,
+                }}
+            />
+            <Stack.Screen
                 name="shortcut/[id]"
                 options={{
                     headerShown: false,
@@ -173,67 +179,6 @@ export default function RootLayout() {
                     headerShown: true,
                     headerTitle: '',
                     headerBackTitle: t('common.back'),
-                }}
-            />
-            <Stack.Screen
-                name="dev/index"
-                options={{
-                    headerTitle: 'Developer Tools',
-                }}
-            />
-
-            <Stack.Screen
-                name="dev/list-demo"
-                options={{
-                    headerTitle: 'List Components Demo',
-                }}
-            />
-            <Stack.Screen
-                name="dev/typography"
-                options={{
-                    headerTitle: 'Typography',
-                }}
-            />
-            <Stack.Screen
-                name="dev/colors"
-                options={{
-                    headerTitle: 'Colors',
-                }}
-            />
-            <Stack.Screen
-                name="dev/tools2"
-                options={{
-                    headerTitle: 'Tool Views Demo',
-                }}
-            />
-            <Stack.Screen
-                name="dev/masked-progress"
-                options={{
-                    headerTitle: 'Masked Progress',
-                }}
-            />
-            <Stack.Screen
-                name="dev/shimmer-demo"
-                options={{
-                    headerTitle: 'Shimmer View Demo',
-                }}
-            />
-            <Stack.Screen
-                name="dev/multi-text-input"
-                options={{
-                    headerTitle: 'Multi Text Input',
-                }}
-            />
-            <Stack.Screen
-                name="dev/session-composer"
-                options={{
-                    headerTitle: 'Session Composer',
-                }}
-            />
-            <Stack.Screen
-                name="dev/rig-preview"
-                options={{
-                    headerTitle: 'Rig Preview',
                 }}
             />
             <Stack.Screen

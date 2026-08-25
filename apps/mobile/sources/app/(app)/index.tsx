@@ -30,7 +30,7 @@ export default function Home() {
 }
 
 function Authenticated() {
-    return <MainView variant="phone" />;
+    return <MainView />;
 }
 
 function NotAuthenticated() {
@@ -41,6 +41,7 @@ function NotAuthenticated() {
     const pairing = React.useRef(false);
 
     React.useEffect(() => {
+        if (!hosted) return;
         if (pairing.current) return;
         pairing.current = true;
         void resumePendingHostedPairing().then(async (grant) => {
@@ -57,7 +58,7 @@ function NotAuthenticated() {
         }).catch((error) => {
             Modal.alert('Pairing paused', error instanceof Error ? error.message : String(error));
         }).finally(() => { pairing.current = false; });
-    }, [auth]);
+    }, [auth, hosted]);
 
     const processPairLink = useHostedPairing();
     const scanHostedQr = usePairQrScanner((url) => void processPairLink(url), hosted);
@@ -90,12 +91,12 @@ function NotAuthenticated() {
             <View style={styles.screen}>
                 <View style={styles.hero}>
                     {heroMark}
-                    <Text style={styles.title}>Run your agents from your phone.</Text>
+                    <Text style={styles.title}>{Platform.OS === 'web' ? 'Run your agents from this browser.' : 'Run your agents from your phone.'}</Text>
                     <Text style={styles.subtitle}>Pair once. Every agent session on your computer, end-to-end encrypted.</Text>
                 </View>
                 <View style={[styles.actions, { paddingBottom: insets.bottom + 24 }]}>
                     {Platform.OS === 'web' ? (
-                        <ActionButton title="Pair this browser" icon="link-outline" action={() => promptForPairingString('Pair this browser')} />
+                        <ActionButton title="Enter pairing string" icon="keypad-outline" action={() => promptForPairingString('Enter pairing string')} />
                     ) : (
                         <>
                             <ActionButton title="Scan QR to pair" icon="qr-code-outline" action={scanHostedQr} />
