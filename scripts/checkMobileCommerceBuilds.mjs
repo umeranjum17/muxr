@@ -33,9 +33,14 @@ const eas = JSON.parse(readFileSync(join(mobile, 'eas.json'), 'utf8'));
 assert.equal(eas.build.production.env.ORG_GRADLE_PROJECT_reactNativeArchitectures, 'arm64-v8a');
 const podProperties = JSON.parse(readFileSync(join(mobile, 'ios', 'Podfile.properties.json'), 'utf8'));
 assert.equal(podProperties['ios.deploymentTarget'], '16.4', 'iOS target must satisfy expo-libghostty');
-const xcodeTargets = [...readFileSync(join(mobile, 'ios', 'muxr.xcodeproj', 'project.pbxproj'), 'utf8').matchAll(/IPHONEOS_DEPLOYMENT_TARGET = ([0-9.]+);/g)].map((match) => Number(match[1]));
+const xcodeProject = readFileSync(join(mobile, 'ios', 'muxr.xcodeproj', 'project.pbxproj'), 'utf8');
+const xcodeTargets = [...xcodeProject.matchAll(/IPHONEOS_DEPLOYMENT_TARGET = ([0-9.]+);/g)].map((match) => Number(match[1]));
 assert.equal(xcodeTargets.length, 4, 'expected four Xcode deployment-target settings');
 assert.ok(xcodeTargets.every((target) => target >= 16.4), 'Xcode target is below expo-libghostty minimum');
+assert.ok(
+    xcodeProject.includes('export PROJECT_ROOT=\\\"$(cd \\\"$PROJECT_DIR/..\\\" && pwd -P)\\\"'),
+    'Xcode bundle phase does not canonicalize the workspace path before resolving the entry file',
+);
 assert.match(readFileSync(join(mobile, 'android', 'app', 'build.gradle'), 'utf8'), /applicationId 'com\.trymuxr\.app'/);
 const androidManifest = readFileSync(join(mobile, 'android', 'app', 'src', 'main', 'AndroidManifest.xml'), 'utf8');
 assert.match(androidManifest, /<intent-filter android:autoVerify="true">[\s\S]*?<data android:scheme="https" android:host="trymuxr\.com" android:pathPrefix="\/pair"\/>[\s\S]*?<\/intent-filter>/, 'production manifest lost verified pairing links');

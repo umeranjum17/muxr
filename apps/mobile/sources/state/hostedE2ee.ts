@@ -1,4 +1,3 @@
-import * as SecureStore from 'expo-secure-store';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 import {
@@ -22,6 +21,7 @@ import {
 } from '@muxr/crypto';
 import { relayControlUrl } from '@muxr/contract';
 import { deleteWebSecret, getWebSecret, listWebSecretNames, setWebSecret } from './webSecureStore';
+import { deleteNativeSecret, getNativeSecret, setNativeSecret } from './nativeSecretStore';
 import { getCachedConnectionSettings, loadConnectionSettingsAsync, saveConnectionSettings } from './connectionSettings';
 import { decodeBase64 } from '@/encryption/base64';
 
@@ -47,9 +47,9 @@ let grantsCache: Record<string, StoredHostedGrant> | undefined;
 let replayCache: Record<string, V2ReplaySnapshot> | undefined;
 let replayWrite = Promise.resolve();
 
-const secretGet = (key: string): Promise<string | null> => Platform.OS === 'web' ? getWebSecret(key) : SecureStore.getItemAsync(key);
-const secretSet = (key: string, value: string): Promise<void> => Platform.OS === 'web' ? setWebSecret(key, value) : SecureStore.setItemAsync(key, value);
-const secretDelete = (key: string): Promise<void> => Platform.OS === 'web' ? deleteWebSecret(key) : SecureStore.deleteItemAsync(key);
+const secretGet = (key: string): Promise<string | null> => Platform.OS === 'web' ? getWebSecret(key) : getNativeSecret(key);
+const secretSet = (key: string, value: string): Promise<void> => Platform.OS === 'web' ? setWebSecret(key, value) : setNativeSecret(key, value);
+const secretDelete = (key: string): Promise<void> => Platform.OS === 'web' ? deleteWebSecret(key) : deleteNativeSecret(key);
 
 export async function getOrCreateHostedDeviceKey(): Promise<KeyPair> {
     if (deviceCache !== undefined) return deviceCache;
