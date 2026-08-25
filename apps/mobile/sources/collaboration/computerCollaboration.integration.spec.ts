@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { PeerRelationship, PeerRequestMap, PeerRequestType, SignedPeerDescriptor } from '@muxr/contract';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 vi.mock('@react-native-async-storage/async-storage', () => ({
     default: { getItem: vi.fn(), setItem: vi.fn() },
@@ -8,6 +9,7 @@ vi.mock('expo-crypto', () => ({ randomUUID: () => 'unused-random-id' }));
 
 import {
     applyCollaboration,
+    loadCollaborationIntent,
     reconcileCollaboration,
     selectCollaborationMachines,
     type CollaborationMachine,
@@ -126,7 +128,27 @@ class FakeMachineClient {
 }
 
 describe('computer collaboration flow', () => {
-    it('sets up both directions, resumes offline work, and revokes inbound access before outbound cleanup', async () => {
+    it('normalizes stored authority, sets up both directions, resumes offline work, and revokes inbound access before outbound cleanup', async () => {
+        vi.mocked(AsyncStorage.getItem).mockResolvedValueOnce(JSON.stringify({
+            version: 1,
+            selectedMachineIds: ['linux-internal', 'linux-internal', 42],
+            machines: [
+                { machineId: 'linux-internal', name: 'Linux workstation', machineSigningPublicKey: 'linux-signing-key' },
+                { machineId: 'mac-internal', name: 'Build Mac', machineSigningPublicKey: 'mac-signing-key' },
+            ],
+            edges: [
+                { sourceMachineId: 'linux-internal', targetMachineId: 'mac-internal', relationshipId: 'duplicate-edge', setup: { prepareMutation: { operationId: 7 } } },
+                { sourceMachineId: 'linux-internal', targetMachineId: 'mac-internal', relationshipId: 'duplicate-edge', disconnect: 'corrupt' },
+                { sourceMachineId: 'linux-internal', targetMachineId: 'linux-internal', relationshipId: 'self-edge' },
+            ],
+        }));
+        const normalizedStored = await loadCollaborationIntent();
+        expect(normalizedStored.selectedMachineIds).toEqual(['linux-internal']);
+        expect(normalizedStored.edges).toEqual([expect.objectContaining({
+            relationshipId: 'duplicate-edge',
+            disconnect: { repair: true },
+        })]);
+
         const machines: CollaborationMachine[] = [
             { machineId: 'linux-internal', name: 'Linux workstation', platform: 'Linux', machineSigningPublicKey: 'linux-signing-key' },
             { machineId: 'mac-internal', name: 'Build Mac', platform: 'macOS', machineSigningPublicKey: 'mac-signing-key' },

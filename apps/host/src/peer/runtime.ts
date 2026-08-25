@@ -112,6 +112,7 @@ export class PeerRuntime {
             const authorization = this.store.pendingAuthorization();
             if (authorization !== undefined) await this.withCryptoLock(() => this.finishAuthorization(authorization));
             await this.withCryptoLock(() => this.repairOrphanDevices());
+            this.outboundService.recoverOutstanding();
             this.recoveryPending = false;
             this.recoveryAttempts = 0;
         })();
@@ -138,14 +139,14 @@ export class PeerRuntime {
         this.outboundService.close();
     }
 
-    async handle(request: PeerClientRequest, authenticatedDeviceId: string): Promise<unknown> {
+    async handle(request: PeerClientRequest, authenticatedDeviceId: string, signal?: AbortSignal): Promise<unknown> {
         if (request.type === 'peer.list') return this.store.list();
         const mutates = request.type === 'peer.prepare' || request.type === 'peer.authorize' || request.type === 'peer.install'
-            || request.type === 'peer.revoke' || request.type === 'peer.remote.watch' || request.type === 'peer.remote.prompt'
+            || request.type === 'peer.remote.watch' || request.type === 'peer.remote.prompt'
             || request.type === 'peer.remote.start';
         if (mutates) this.assertRecoveryReady();
         try {
-            if (isRemotePeerRequest(request)) return await this.outboundService.handle(request);
+            if (isRemotePeerRequest(request)) return await this.outboundService.handle(request, signal);
             if (request.type === 'peer.authorize') return await this.withCryptoLock(() => this.authorize(request.params));
             // Revocation is authenticated, destructive only to access, and idempotent. It must never
             // compete with attacker-controlled mutation receipts for admission.
@@ -518,7 +519,8 @@ export class PeerRuntime {
         }
         if (relationship.peerDeviceId === undefined) throw operationError('peer relationship has no device binding', 'peer-revoke-invalid');
         const pending = this.buildPeerRevocation(relationship);
-        await this.options.crypto.commit({ ...this.options.crypto.get(), pendingRotation: pending });
+        await this.store.putRelationship({ ...relationship, state: 'disconnecting', updatedAt: this.now() });
+        await this.fencePeerRevocation(pending);
         await this.finishPeerRevocation(pending);
         await this.store.putRelationship({ ...relationship, state: 'revoked', updatedAt: this.now() });
         return { state: 'revoked', revokedAt: this.now(), ...(relationship.authority === undefined ? {} : { authority: relationship.authority }) };
@@ -573,7 +575,8 @@ export class PeerRuntime {
         await this.store.putRelationship(relationship);
         if (this.options.crypto.get().devices.some((device) => device.deviceId === issued.peerDeviceId)) {
             const rotation = this.buildPeerRevocation(relationship);
-            await this.options.crypto.commit({ ...this.options.crypto.get(), pendingRotation: rotation });
+            await this.store.putRelationship({ ...relationship, state: 'disconnecting', updatedAt: this.now() });
+            await this.fencePeerRevocation(rotation);
             await this.finishPeerRevocation(rotation);
         } else {
             await this.options.authority.revokePeer(issued.peerDeviceId);
@@ -606,7 +609,8 @@ export class PeerRuntime {
             };
             await this.store.putRelationship(relationship);
             const rotation = this.buildPeerRevocation(relationship);
-            await this.options.crypto.commit({ ...this.options.crypto.get(), pendingRotation: rotation });
+            await this.store.putRelationship({ ...relationship, state: 'disconnecting', updatedAt: this.now() });
+            await this.fencePeerRevocation(rotation);
             await this.finishPeerRevocation(rotation);
         }
     }
@@ -616,10 +620,21 @@ export class PeerRuntime {
             || pending.previousKeyVersion === undefined || pending.authorityKind !== this.options.authority.kind) {
             throw new Error('peer revocation recovery state is invalid');
         }
+        await this.fencePeerRevocation(pending);
+        await this.options.authority.revokePeer(pending.revokedDeviceId);
+        await this.options.authority.publishRotation(pending.keyVersion, pending.grants);
+        const { pendingRotation: _pendingRotation, ...completed } = this.options.crypto.get();
+        await this.options.crypto.commit(completed);
+        const relationship = this.store.list().peers.find((entry) => entry.peerDeviceId === pending.revokedDeviceId && entry.direction === 'inbound');
+        if (relationship !== undefined) {
+            const stored = this.store.relationship(relationship.relationshipId)!;
+            await this.store.putRelationship({ ...stored, state: 'revoked', updatedAt: this.now() });
+        }
+    }
+
+    private async fencePeerRevocation(pending: MachinePendingRotation): Promise<void> {
         let current = this.options.crypto.get();
         if (current.keyVersion === pending.previousKeyVersion) {
-            await this.options.authority.revokePeer(pending.revokedDeviceId);
-            await this.options.authority.publishRotation(pending.keyVersion, pending.grants);
             current = {
                 ...current,
                 dataKey: pending.dataKey,
@@ -628,18 +643,15 @@ export class PeerRuntime {
                 pendingRotation: pending,
             };
             await this.options.crypto.commit(current);
-        } else if (current.keyVersion !== pending.keyVersion) {
+            return;
+        }
+        if (current.keyVersion !== pending.keyVersion) {
             throw new Error('peer revocation key version changed; refusing to overwrite it');
-        } else if (current.dataKey !== pending.dataKey || JSON.stringify(current.devices) !== JSON.stringify(pending.devices)) {
+        }
+        if (current.dataKey !== pending.dataKey || JSON.stringify(current.devices) !== JSON.stringify(pending.devices)) {
             throw new Error('peer revocation recovery candidate changed; refusing to publish mismatched grants');
         }
-        const { pendingRotation: _pendingRotation, ...completed } = this.options.crypto.get();
-        await this.options.crypto.commit(completed);
-        const relationship = this.store.list().peers.find((entry) => entry.peerDeviceId === pending.revokedDeviceId && entry.direction === 'inbound');
-        if (relationship !== undefined) {
-            const stored = this.store.relationship(relationship.relationshipId)!;
-            await this.store.putRelationship({ ...stored, state: 'revoked', updatedAt: this.now() });
-        }
+        if (current.pendingRotation === undefined) await this.options.crypto.commit({ ...current, pendingRotation: pending });
     }
 
     private buildPeerRevocation(relationship: StoredPeerRelationship): MachinePendingRotation {
@@ -725,6 +737,10 @@ export class PeerRuntime {
                 return child === '' || child !== '..' && !child.startsWith(`..${process.platform === 'win32' ? '\\' : '/'}`) && !isAbsolute(child);
             } catch { return false; }
         });
+    }
+
+    async acknowledgeSemantic(request: Extract<PeerClientRequest, { type: 'peer.remote.watch' | 'peer.remote.prompt' | 'peer.remote.start' }>): Promise<void> {
+        await this.outboundService.acknowledgeSemantic(request);
     }
 
     async outboundRelationships(): Promise<StoredPeerRelationship[]> {

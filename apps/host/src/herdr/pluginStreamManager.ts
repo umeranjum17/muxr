@@ -1,8 +1,8 @@
 /**
  * Persistent plugin stream runtime.
  *
- * A manifest-declared `host.stream` contribution becomes one sandboxed plugin
- * process behind a relay channel. The relay and phone see only the generic
+ * A manifest-declared `host.stream` contribution becomes one trusted local plugin
+ * process behind a relay channel. Backend code is not OS-sandboxed. The relay and phone see only the generic
  * realtime NDJSON contract; provider auth and event translation stay inside
  * the plugin process.
  */
@@ -120,6 +120,9 @@ export class PluginStreamManager {
         }
 
         const processGroup = process.platform !== 'win32';
+        // Least-ambient routing only: unapproved/non-voice children do not receive
+        // this token. Enabled backends still run as the host user and are trusted
+        // local code; the token is not isolation from a malicious enabled plugin.
         const peerAccess = params.target.peerBroker === true ? this.options.peerBroker?.issueCapability() : undefined;
         let child: ChildProcessWithoutNullStreams;
         try {

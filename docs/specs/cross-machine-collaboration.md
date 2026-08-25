@@ -128,7 +128,7 @@ Voice state changes from a session-only target to `{ machineId, sessionId }`. St
 - The call stays on the host/session where it started.
 - Switching the app's active computer during a call requires **End voice and switch**.
 - Cross-machine requests use a host-owned constrained peer broker with tools for listing machines and agents, prompting, reading output, and watching completion.
-- Provider plugins receive neither peer credentials nor unrestricted remote CLI access.
+- Provider plugins receive neither peer credentials nor unrestricted remote CLI access. An approved `voice.session` child receives one revocable per-stream broker token as least-ambient routing; enabled backends remain trusted unsandboxed local code, so this token is not a hostile same-user isolation boundary.
 - Peer pane output stays untrusted data and cannot authorize actions.
 - Ambiguous spoken machine or agent names trigger a short clarification.
 - The overlay may say `Voice on Linux · working with Mac / iOS builder`, never internal ids.
@@ -187,6 +187,7 @@ The work lands as one cohesive feature PR with reviewable internal commits.
 
 - 2026-08-25: hardened the release after hostile review: receipt admission and security-first revoke, crash-recoverable authorization, correlated liveness, strict frame validation, deployed hosted generic pairing APIs, immutable voice grant refresh, pairing guards, destructive voice-tool removal, and remote-output redaction.
 - 2026-08-25: reopened after owner review to add directed watch settlement, per-stream voice broker capabilities and strict parsing, retryable recovery fencing, canonical mobile authority reconciliation, stable human aliases, and focused PeerRuntime responsibility extraction.
+- 2026-08-25: reopened after independent Sol review for active capability abort, exact private watch settlement, reconnect-safe semantic mutations, security-first local revocation, alias churn, deep mobile intent normalization, and precise trusted-local-plugin documentation.
 
 ## Verification
 
@@ -209,5 +210,7 @@ The work lands as one cohesive feature PR with reviewable internal commits.
 - 2026-08-25: directed peer watch, broker capability/closed-union rejection, recovery retry/fencing, stable aliases, and canonical mobile reconciliation passed in the two existing flow suites (5 flow tests across 2 files).
 - 2026-08-25: voice/provider checks passed (29 assertions across realtime session, provider refusal, and plugin catalog flows; bundled plugin policy and voice RPC lifecycle also passed).
 - 2026-08-25: strict workspace typecheck passed. `scripts/runSuite.mjs` passed 30/30 once; a final rerun passed 29/30 with only the live Herdr check timing out while scanning 95 sessions, and that exact check passed immediately when rerun alone.
+- 2026-08-25: independent-review repairs passed the existing peer/mobile flow suites (5 flow tests): concurrent private watch correlation, watch and prompt reconnect with the same operation id, active broker-call revocation, local-first revocation recovery, alias churn, and malformed/duplicate intent normalization.
+- 2026-08-25: the latest strict typecheck, voice/provider checks, bundled-plugin policy, voice RPC lifecycle, and `scripts/runSuite.mjs` all passed; the full suite finished 30/30 including live Herdr and package smoke checks.
 - 2026-08-25: `git diff --check` passed.
 - Not yet verified: the hosted two-machine ceremony for grant refresh/rotation, reconnect, and immediate socket revocation. The spec remains `implemented`, not `tested`.

@@ -382,6 +382,8 @@ Plugins do not own OS permission or foreground-service lifetime. A future notifi
 
 A Herdr backend runs unsandboxed as your computer user. Installing one is equivalent to trusting local code. muxr's declarative UI limits what reaches the phone; it does not sandbox the backend.
 
+Approved `voice.session` children receive one short-lived broker token for that stream. The token is least-ambient routing: unapproved and non-voice plugins do not receive direct broker access, active calls are aborted when the stream exits, and peer credentials never enter the provider protocol or environment. It is not isolation from malicious code explicitly enabled as the same host user, which can read user files and inspect other same-user processes. Hostile-local-plugin isolation requires a separate OS sandbox architecture.
+
 Enabling or linking a Herdr plugin is the user's trust decision. Every enabled plugin is available to connected phones by default; a phone can explicitly disable it, and disable/revoke remains authoritative. Manifest or authority changes refresh the immutable snapshot and hash but do not trigger per-device reapproval.
 
 The Plugins screen shows the trusted Herdr name, source, requested contribution surfaces, warnings, and whether the package has executable backend hooks. Declarative screens render host-owned attribution above plugin content; the manifest cannot override it. The manifest hash still binds the complete parsed manifest, source identity, and Herdr authority so calls target one stable snapshot even though hash changes do not change the default-on policy.

@@ -155,6 +155,10 @@ export function createFakeSessionSource(): SessionSource {
             throw new Error('fake source has no panes');
         },
 
+        async agentWait() {
+            throw new Error('fake source has no panes');
+        },
+
         async layoutExport() {
             throw new Error('fake source has no panes');
         },

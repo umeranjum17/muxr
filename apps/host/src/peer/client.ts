@@ -35,7 +35,7 @@ export type PeerClientRequestType = 'machines.list' | 'session.list' | 'herdr.tr
 
 export interface PeerClientTransport {
     connect(): Promise<void>;
-    request<T extends PeerClientRequestType>(type: T, params: RequestParams<T>): Promise<RequestResult<T>>;
+    request<T extends PeerClientRequestType>(type: T, params: RequestParams<T>, signal?: AbortSignal): Promise<RequestResult<T>>;
     close(): void;
 }
 
@@ -56,6 +56,7 @@ interface Pending {
     resolve(value: unknown): void;
     reject(error: Error): void;
     timer: ReturnType<typeof setTimeout>;
+    removeAbort?: () => void;
 }
 
 /** Headless role=client transport. It never exposes arbitrary request types. */
@@ -114,22 +115,60 @@ export class NodePeerClient implements PeerClientTransport {
         return connecting;
     }
 
-    async request<T extends PeerClientRequestType>(type: T, params: RequestParams<T>): Promise<RequestResult<T>> {
+    async request<T extends PeerClientRequestType>(type: T, params: RequestParams<T>, signal?: AbortSignal): Promise<RequestResult<T>> {
+        const mutation = typeof params === 'object' && params !== null && 'peerMutation' in params
+            ? (params as { peerMutation?: { notValidAfter: number } }).peerMutation : undefined;
+        let retryMs = 100;
+        for (;;) {
+            if (signal?.aborted) throw Object.assign(new Error('peer request cancelled'), { name: 'AbortError' });
+            try { return await this.requestOnce(type, params, signal); }
+            catch (error) {
+                if (signal?.aborted || (error as { name?: unknown }).name === 'AbortError') throw error;
+                const fromHost = (error as { fromHost?: unknown }).fromHost === true;
+                const uncertain = (error as { code?: unknown }).code === 'peer-operation-uncertain';
+                if (mutation === undefined || fromHost && !uncertain || Date.now() >= mutation.notValidAfter) {
+                    if (mutation !== undefined && (!fromHost || uncertain) && Date.now() >= mutation.notValidAfter) {
+                        throw Object.assign(new Error('peer mutation outcome is unresolved after its validity window; do not retry with a new operation id'), { code: 'peer-mutation-unresolved' });
+                    }
+                    throw error;
+                }
+                await this.wait(Math.min(retryMs, Math.max(1, mutation.notValidAfter - Date.now())), signal);
+                retryMs = Math.min(retryMs * 2, 2_000);
+            }
+        }
+    }
+
+    private async requestOnce<T extends PeerClientRequestType>(type: T, params: RequestParams<T>, signal?: AbortSignal): Promise<RequestResult<T>> {
         await this.connect();
+        if (signal?.aborted) throw Object.assign(new Error('peer request cancelled'), { name: 'AbortError', dispatched: false });
         if (!this.authenticated || this.socket?.readyState !== WebSocket.OPEN) throw new Error('peer is not connected');
         return new Promise<RequestResult<T>>((resolve, reject) => {
             const requestId = nextRequestId('peer');
+            let dispatched = false;
             const timeoutMs = type === 'agent.watch'
                 ? Math.min(Math.max(Math.trunc((params as RequestParams<'agent.watch'>).timeoutMs ?? 30 * 60_000), 1_000), 60 * 60_000) + 20_000
                 : this.options.requestTimeoutMs ?? 20_000;
-            const timer = setTimeout(() => {
+            const finish = (error?: Error, value?: unknown): void => {
+                const pending = this.pending.get(requestId);
+                if (pending === undefined) return;
+                clearTimeout(pending.timer);
+                pending.removeAbort?.();
                 this.pending.delete(requestId);
-                reject(new Error(`peer request timed out: ${type}`));
-            }, timeoutMs);
-            this.pending.set(requestId, { resolve, reject, timer });
+                if (error !== undefined) reject(error);
+                else resolve(value as RequestResult<T>);
+            };
+            const timer = setTimeout(() => finish(Object.assign(new Error(`peer request timed out: ${type}`), { dispatched })), timeoutMs);
+            const onAbort = (): void => finish(Object.assign(new Error('peer request cancelled'), { name: 'AbortError', dispatched }));
+            signal?.addEventListener('abort', onAbort, { once: true });
+            this.pending.set(requestId, {
+                resolve: (value) => finish(undefined, value),
+                reject: (error) => finish(Object.assign(error, { dispatched })),
+                timer,
+                ...(signal === undefined ? {} : { removeAbort: () => signal.removeEventListener('abort', onAbort) }),
+            });
             const sessionId = typeof params === 'object' && params !== null && 'sessionId' in params
                 ? String((params as { sessionId: unknown }).sessionId) : undefined;
-            this.send({ type, requestId, params } as ClientRequest, sessionId);
+            dispatched = this.send({ type, requestId, params } as ClientRequest, sessionId);
         });
     }
 
@@ -175,8 +214,8 @@ export class NodePeerClient implements PeerClientTransport {
         }
     }
 
-    private send(frame: ClientFrame, sessionId?: string): void {
-        if (this.socket?.readyState !== WebSocket.OPEN) return;
+    private send(frame: ClientFrame, sessionId?: string): boolean {
+        if (this.socket?.readyState !== WebSocket.OPEN) return false;
         const channel = 'session';
         const streamId = sessionId ?? 'machine';
         const state = this.senders.get(channel) ?? newV2SenderState();
@@ -204,6 +243,7 @@ export class NodePeerClient implements PeerClientTransport {
             payload,
         };
         this.socket.send(JSON.stringify(envelope));
+        return true;
     }
 
     private onMessage(raw: string): void {
@@ -237,14 +277,25 @@ export class NodePeerClient implements PeerClientTransport {
             if (frame.type !== 'result' || typeof frame.requestId !== 'string' || typeof frame.ok !== 'boolean') return;
             const pending = this.pending.get(frame.requestId);
             if (pending === undefined) return;
-            clearTimeout(pending.timer);
-            this.pending.delete(frame.requestId);
             if (frame.ok) pending.resolve(frame.data);
-            else if (typeof frame.error === 'string') pending.reject(Object.assign(new Error(frame.error), { code: frame.code }));
-            else pending.reject(new Error('peer returned a malformed error response'));
+            else if (typeof frame.error === 'string') pending.reject(Object.assign(new Error(frame.error), { code: frame.code, fromHost: true }));
+            else pending.reject(Object.assign(new Error('peer returned a malformed error response'), { fromHost: true }));
         } catch {
             // Undecryptable or misrouted peer data is ignored; the request timer remains authoritative.
         }
+    }
+
+    private wait(ms: number, signal?: AbortSignal): Promise<void> {
+        return new Promise((resolve, reject) => {
+            const timer = setTimeout(done, ms);
+            const onAbort = (): void => done(Object.assign(new Error('peer request cancelled'), { name: 'AbortError' }));
+            function done(error?: Error): void {
+                clearTimeout(timer);
+                signal?.removeEventListener('abort', onAbort);
+                if (error === undefined) resolve(); else reject(error);
+            }
+            signal?.addEventListener('abort', onAbort, { once: true });
+        });
     }
 
     private fail(error: Error): void {
