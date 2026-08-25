@@ -24,6 +24,7 @@ const installDir = join(scratch, 'install');
 const home = join(scratch, 'home');
 const binDir = join(scratch, 'bin');
 const fakeState = join(scratch, 'herdr-installed');
+const fakeServerState = join(scratch, 'herdr-server-running');
 const fakeLog = join(scratch, 'herdr.log');
 mkdirSync(tarDir, { recursive: true });
 mkdirSync(installDir, { recursive: true });
@@ -33,11 +34,19 @@ mkdirSync(join(home, '.config', 'herdr'), { recursive: true });
 const instructionPath = join(home, '.pi', 'agent', 'AGENTS.md');
 writeFileSync(instructionPath, '# Existing user instructions\n\nKeep this line.\n');
 writeFileSync(join(home, '.config', 'herdr', 'config.toml'), '# user herdr config\nchannel = "stable"\n');
+writeFileSync(fakeServerState, 'running\n');
 
 const fakeHerdr = `#!/bin/sh
 case "$*" in
   "--version") echo "herdr 0.8.0" ;;
-  "status") echo "server: running" ;;
+  "status server --json")
+    if [ "$FAKE_HERDR_HANG" = 1 ]; then exec /bin/sleep 5; fi
+    if [ -f "$FAKE_HERDR_SERVER_STATE" ]; then echo '{"running":true}';
+    else echo '{"running":false}'; fi ;;
+  "status")
+    if [ -f "$FAKE_HERDR_SERVER_STATE" ]; then printf 'server:\n  status: running\n';
+    else printf 'server:\n  status: not running\n'; fi ;;
+  "server") printf '%s\n' server-start >> "$FAKE_HERDR_LOG"; : > "$FAKE_HERDR_SERVER_STATE" ;;
   "plugin list --json")
     if [ -n "$FAKE_PLUGIN_LIST" ]; then printf '%s\n' "$FAKE_PLUGIN_LIST";
     else echo '{"result":{"plugins":[]}}'; fi ;;
@@ -98,6 +107,7 @@ function cliEnv(targetHome = home, extra = {}) {
         MUXR_PLATFORM: 'linux',
         HERDR_BIN: join(binDir, 'herdr'),
         FAKE_HERDR_STATE: fakeState,
+        FAKE_HERDR_SERVER_STATE: fakeServerState,
         FAKE_HERDR_LOG: fakeLog,
         MUXR_NO_SERVICE_COMMANDS: '1',
         MUXR_SKIP_HOSTED_AUTH: '1',
@@ -569,7 +579,20 @@ try {
         assert.ok(!await fetch(`http://127.0.0.1:${setupPort}/health`).then((response) => response.ok).catch(() => false), 'Darwin smoke relay did not stop');
     }
     run(cli, ['daemon', 'install', '--mode', 'selfhost'], { cwd: installDir, env });
-    run(cli, ['daemon', 'restart'], { cwd: installDir, env });
+    rmSync(fakeServerState, { force: true });
+    const deadDoctor = run(cli, ['doctor'], { cwd: installDir, env, allowFailure: true });
+    assert.notEqual(deadDoctor.status, 0, 'doctor accepted a stopped Herdr server');
+    assert.match(`${deadDoctor.stdout}${deadDoctor.stderr}`, /FAIL\s+herdr server\s+not running/);
+    const hungProbeStarted = Date.now();
+    const hungDoctor = run(cli, ['doctor'], { cwd: installDir, env: { ...env, FAKE_HERDR_HANG: '1' }, allowFailure: true });
+    assert.notEqual(hungDoctor.status, 0, 'doctor accepted an unresponsive Herdr server');
+    assert.ok(Date.now() - hungProbeStarted < 3_000, 'unresponsive Herdr blocked doctor');
+    const wizardUrl = `file://${join(installDir, 'node_modules', '@trymuxr', 'cli', 'setup-wizard.mjs')}`;
+    const deadInspection = run(process.execPath, ['--input-type=module', '-e', `import {inspectSetup} from ${JSON.stringify(wizardUrl)}; console.log(JSON.stringify(inspectSetup().herdr))`], { cwd: installDir, env });
+    assert.equal(JSON.parse(deadInspection.stdout).running, false, 'onboarding accepted a stopped Herdr server');
+    const restarted = run(cli, ['daemon', 'restart'], { cwd: installDir, env });
+    assert.ok(existsSync(fakeServerState), 'daemon restart did not recover a stopped Herdr server');
+    assert.match(restarted.stdout, /herdr server ready[\s\S]*muxr services restarted/);
     const updateNpm = join(scratch, 'update-npm');
     const updateLog = join(scratch, 'update.log');
     writeFileSync(updateNpm, '#!/bin/sh\nif [ "$1" = view ]; then printf \'"%s"\\n\' "${MUXR_UPDATE_LATEST:-9.9.9}"; exit 0; fi\nif [ "$1 $2" = "root --global" ]; then printf "%s\\n" "$MUXR_UPDATE_NPM_ROOT"; exit 0; fi\nif [ "$1" = install ]; then printf "%s\\n" "$*" >> "$MUXR_UPDATE_LOG"; exit 0; fi\nexit 1\n', { mode: 0o755 });
@@ -769,14 +792,14 @@ try {
 
     const staleHerdr = join(macHome, 'Library', 'LaunchAgents', 'herdr-server.plist');
     const repairHerdr = join(binDir, 'herdr-repair');
-    writeFileSync(staleHerdr, '<plist><dict><key>ProgramArguments</key><array><string>/missing/herdr</string><string>server</string></array></dict></plist>\n');
-    writeFileSync(repairHerdr, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+    writeFileSync(staleHerdr, '<plist><dict><key>Label</key><string>dev.herdr.server</string><key>ProgramArguments</key><array><string>/missing/herdr</string><string>server</string></array></dict></plist>\n');
+    writeFileSync(repairHerdr, '#!/bin/sh\n[ "$*" = "status server --json" ] && echo \'{"running":true}\'\nexit 0\n', { mode: 0o755 });
     const localSetupUrl = `file://${join(installDir, 'node_modules', '@trymuxr', 'cli', 'local-setup.mjs')}`;
     run(process.execPath, ['--input-type=module', '-e', `import {ensureHerdrServer} from ${JSON.stringify(localSetupUrl)}; await ensureHerdrServer(${JSON.stringify(repairHerdr)})`], {
         cwd: installDir, env: macEnv, allowFailure: true,
     });
     assert.match(readFileSync(staleHerdr, 'utf8'), new RegExp(repairHerdr.replaceAll('/', '\\/')), 'stale Herdr plist was not repaired');
-    assert.match(readFileSync(launchctlLog, 'utf8'), /bootout gui\/\d+\/herdr-server[\s\S]*bootstrap gui\/\d+ .*herdr-server\.plist[\s\S]*kickstart -k gui\/\d+\/herdr-server/, 'loaded repaired Herdr plist was not reloaded');
+    assert.match(readFileSync(launchctlLog, 'utf8'), /bootout gui\/\d+\/dev\.herdr\.server[\s\S]*bootstrap gui\/\d+ .*herdr-server\.plist[\s\S]*kickstart -k gui\/\d+\/dev\.herdr\.server/, 'loaded repaired Herdr plist was not reloaded by its declared label');
     run(cli, ['daemon', 'status'], { cwd: installDir, env: macEnv });
     run(cli, ['daemon', 'uninstall'], { cwd: installDir, env: macEnv });
 
