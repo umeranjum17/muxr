@@ -20,6 +20,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { sync } from '@/sync/sync';
+import { refreshUntilSessionVisible } from '@/sync/ops';
 import { MISSING_CWD_ERROR_PREFIX, type HerdrTreeWorkspace } from '@muxr/contract';
 import { Modal } from '@/modal';
 import { Text } from '@/components/StyledText';
@@ -298,7 +299,7 @@ export default function NewAgentScreen() {
                         ...(worktree ? { worktree: {} } : {}),
                     });
                     await saveConnectionSettings(rememberSessionCwd(getCachedConnectionSettings(), directory));
-                    await sync.refreshSessions();
+                    await refreshUntilSessionVisible(snapshot.info.id);
                     router.replace(`/session/${snapshot.info.id}`);
                     return;
                 } catch (caught: unknown) {

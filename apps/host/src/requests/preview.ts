@@ -132,7 +132,8 @@ export async function attachPreview(options: AttachPreviewOptions): Promise<null
                 connections.delete(frame.connId);
                 send(frame.connId, PREVIEW_CLOSE);
             });
-            upstream.on('error', () => {
+            upstream.on('error', (error) => {
+                process.stderr.write(`preview: upstream ${options.port} failed: ${error.message}\n`);
                 connections.delete(frame.connId);
                 send(frame.connId, PREVIEW_CLOSE);
             });
@@ -142,7 +143,8 @@ export async function attachPreview(options: AttachPreviewOptions): Promise<null
                 upstream.write(clientToHostKey === undefined
                     ? frame.payload
                     : openPreviewPayload(frame.payload, clientToHostKey));
-            } catch {
+            } catch (error) {
+                process.stderr.write(`preview: rejected client frame: ${error instanceof Error ? error.message : String(error)}\n`);
                 drop(frame.connId);
                 send(frame.connId, PREVIEW_CLOSE);
             }
