@@ -21,9 +21,9 @@ let ipadShots = [
     StoreShot(name: "01-new-agent", headline: "One agent.\nOr a whole squad."),
     StoreShot(name: "02-files", headline: "Browse every file.\nFrom anywhere."),
     StoreShot(name: "03-terminal", headline: "Live terminals.\nRoom to work."),
-    StoreShot(name: "04-runbook", headline: "Your commands.\nOne tap away."),
+    StoreShot(name: "04-runbook", headline: "Your agents.\nAll in one place."),
     StoreShot(name: "05-settings", headline: "Everything connected.\nEverything under control."),
-    StoreShot(name: "06-appearance", headline: "Make it yours.\nEverywhere."),
+    StoreShot(name: "06-appearance", headline: "Speak naturally.\nStay in the flow."),
 ]
 
 let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
@@ -100,7 +100,7 @@ func render(
     NSString(string: shot.headline).draw(
         with: NSRect(
             x: horizontalMargin,
-            y: CGFloat(height) - CGFloat(width) * (width > 1600 ? 0.39 : 0.48),
+            y: CGFloat(height) - CGFloat(width) * (width > 1600 ? 0.405 : 0.48),
             width: CGFloat(width) - horizontalMargin * 2,
             height: CGFloat(width) * 0.28
         ),
@@ -171,7 +171,7 @@ for shot in ipadShots {
         width: 2064,
         height: 2752,
         screenshotWidth: 1720,
-        screenshotBottom: -250
+        screenshotBottom: -290
     )
 }
 
