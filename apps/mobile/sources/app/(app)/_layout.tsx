@@ -142,6 +142,12 @@ export default function RootLayout() {
                 }}
             />
             <Stack.Screen
+                name="settings/collaboration"
+                options={{
+                    headerTitle: 'Computer collaboration',
+                }}
+            />
+            <Stack.Screen
                 name="restore/index"
                 options={{
                     headerShown: true,

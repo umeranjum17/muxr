@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useCallback, useRef } from 'react';
 import { View, Text, ScrollView, RefreshControl, Platform, Pressable, TextInput } from 'react-native';
-import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
 import { ItemList } from '@/components/ItemList';
@@ -20,6 +20,12 @@ import { resolveAbsolutePath } from '@/utils/pathUtils';
 import { MultiTextInput, type MultiTextInputHandle } from '@/components/MultiTextInput';
 import { getCachedHostedGrant } from '@/state/hostedE2ee';
 import { getCachedConnectionSettings, pairingTransport } from '@/state/connectionSettings';
+import { loadCollaborationIntent } from '@/collaboration/computerCollaboration';
+
+function formatNames(names: string[]): string {
+    if (names.length < 2) return names[0] ?? '';
+    return `${names.slice(0, -1).join(', ')}${names.length > 2 ? ',' : ''} and ${names[names.length - 1]}`;
+}
 
 const styles = StyleSheet.create((theme) => ({
     pathInputContainer: {
@@ -79,6 +85,19 @@ export default function MachineDetailScreen() {
     const [isSpawning, setIsSpawning] = useState(false);
     const inputRef = useRef<MultiTextInputHandle>(null);
     const [showAllPaths, setShowAllPaths] = useState(false);
+    const [collaborators, setCollaborators] = useState<string[]>([]);
+    useFocusEffect(useCallback(() => {
+        let cancelled = false;
+        void loadCollaborationIntent().then((intent) => {
+            if (cancelled || !machineId || !intent.selectedMachineIds.includes(machineId)) {
+                if (!cancelled) setCollaborators([]);
+                return;
+            }
+            const selected = new Set(intent.selectedMachineIds.filter((id) => id !== machineId));
+            setCollaborators(intent.machines.filter((entry) => selected.has(entry.machineId)).map((entry) => entry.name));
+        });
+        return () => { cancelled = true; };
+    }, [machineId]));
     // Variant D only
 
     const machineSessions = useMemo(() => {
@@ -339,6 +358,17 @@ export default function MachineDetailScreen() {
                         </View>
                         </ItemGroup>
                     </>
+                )}
+
+                {collaborators.length > 0 && (
+                    <ItemGroup title="Computer collaboration">
+                        <Item
+                            title={`Collaborates with ${formatNames(collaborators)}`}
+                            subtitle="Computers connect directly; the phone is not required afterward"
+                            icon={<Ionicons name="git-network-outline" size={28} color="#5856D6" />}
+                            onPress={() => router.push('/settings/collaboration' as any)}
+                        />
+                    </ItemGroup>
                 )}
 
                 {/* Daemon */}

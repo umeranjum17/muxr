@@ -2,7 +2,7 @@ import { Wordmark } from '@/components/Wordmark';
 import { AppState, Linking, NativeScrollEvent, NativeSyntheticEvent, View, ScrollView, Pressable, Platform, Text } from 'react-native';
 import { openExternalUrl } from '@/utils/openExternalUrl';
 import * as React from 'react';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
 import { Item } from '@/components/Item';
@@ -31,6 +31,12 @@ import {
     openPromotedNotificationSettings,
     supportsPromotedNotifications,
 } from '@/../modules/voice-overlay';
+import {
+    collaborationSummary,
+    hasMachineCollaboration,
+    loadCollaborationIntent,
+    type CollaborationIntent,
+} from '@/collaboration/computerCollaboration';
 
 type BuildConfig = {
     buildCommitSha?: unknown;
@@ -105,13 +111,19 @@ export const SettingsView = React.memo(function SettingsView({
     // and pairing must stay reachable exactly then. Grants load on mount —
     // this view remounts every time the Settings tab is opened.
     const [pairedGrants, setPairedGrants] = React.useState<Awaited<ReturnType<typeof listPairedGrants>>>([]);
-    React.useEffect(() => {
+    const [collaborationIntent, setCollaborationIntent] = React.useState<CollaborationIntent>({
+        version: 1, selectedMachineIds: [], machines: [], edges: [],
+    });
+    useFocusEffect(React.useCallback(() => {
         let cancelled = false;
-        void listPairedGrants().then((grants) => {
-            if (!cancelled) setPairedGrants(grants);
+        void Promise.all([listPairedGrants(), loadCollaborationIntent()]).then(([grants, collaboration]) => {
+            if (!cancelled) {
+                setPairedGrants(grants);
+                setCollaborationIntent(collaboration);
+            }
         });
         return () => { cancelled = true; };
-    }, []);
+    }, []));
     const machineRows = React.useMemo(() => {
         const rows: { id: string; live?: (typeof allMachinesWithOffline)[number] }[] = [];
         const listedIds = new Set<string>();
@@ -166,9 +178,12 @@ export const SettingsView = React.memo(function SettingsView({
     }, [auth, router]);
 
     const forgetMachine = React.useCallback(async (machineId: string, name: string) => {
+        const collaborationWarning = hasMachineCollaboration(collaborationIntent, machineId)
+            ? '\n\nComputer collaboration still exists. Forgetting this phone pairing does not revoke computer-to-computer access; disconnect collaboration first if you want that access removed.'
+            : '';
         const confirmed = await Modal.confirm(
             `Forget ${name}?`,
-            'This removes the pairing from this phone. The machine keeps running, and you can pair it again later.',
+            `This removes the pairing from this phone. The machine keeps running, and you can pair it again later.${collaborationWarning}`,
             { confirmText: 'Forget', destructive: true },
         );
         if (!confirmed) return;
@@ -186,7 +201,7 @@ export const SettingsView = React.memo(function SettingsView({
             token: '', selfhost: next.source === 'selfhost' ? true : undefined,
         });
         await auth.login(next.credential, next.deviceKey.secretKey);
-    }, [auth]);
+    }, [auth, collaborationIntent]);
 
     const confirmLogout = React.useCallback(async () => {
         const confirmed = await Modal.confirm(
@@ -369,6 +384,13 @@ export const SettingsView = React.memo(function SettingsView({
                     subtitle="Scan the QR or enter the short string from `muxr pair`"
                     icon={<Ionicons name="qr-code-outline" size={29} color="#007AFF" />}
                     onPress={() => router.push('/pair?source=settings')}
+                />
+                <Item
+                    title="Computer collaboration"
+                    subtitle="Let selected computers read agent output and send prompts"
+                    detail={collaborationSummary(collaborationIntent)}
+                    icon={<Ionicons name="git-network-outline" size={29} color="#5856D6" />}
+                    onPress={() => router.push('/settings/collaboration' as any)}
                 />
             </ItemGroup>
 
