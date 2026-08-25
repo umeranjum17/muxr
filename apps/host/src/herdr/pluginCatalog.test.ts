@@ -1,10 +1,10 @@
-import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { pluginInvalidationFrame, PluginCatalog, PluginRefreshGate, WriteReplayFence, Semaphore, boundRpcDisplay, rpcReplayKey, runPluginProcess, type HerdrPlugin } from './pluginCatalog.js';
+import { pluginInvalidationFrame, PluginCatalog, PluginRefreshGate, WriteReplayFence, Semaphore, rpcReplayKey, runPluginProcess, type HerdrPlugin } from './pluginCatalog.js';
 import { buildPluginPublicContext } from './pluginPublicContext.js';
-import { MAX_RPC_RESULT_STRING_BYTES, parseManifest, parsePluginAction, pluginCompatibilityError } from '@muxr/contract';
+import { MAX_RPC_RESULT_STRING_BYTES, boundRpcDisplay, parseManifest, parsePluginAction, pluginCompatibilityError } from '@muxr/contract';
 
 function plugin(root: string, actions: HerdrPlugin['actions'] = []): HerdrPlugin {
     return {
@@ -280,7 +280,7 @@ describe('plugin catalog flow', () => {
         expect(section.children.map((node) => node.type)).toEqual(['field', 'field', 'field', 'button']);
         expect(catalog.call(loaded.pluginId, loaded.manifestHash!, 'save-rpc')).toEqual({ method: 'save', entry: 'rpc.mjs', mode: 'write', modeDeclared: true });
         expect(catalog.call(loaded.pluginId, loaded.manifestHash!, 'list-rpc')).toEqual({ method: 'list', entry: 'rpc.mjs', mode: 'read', modeDeclared: true });
-        expect(catalog.callTarget(loaded.pluginId, loaded.manifestHash!, 'list-rpc')).toEqual({ method: 'list', entry: 'rpc.mjs', mode: 'read', modeDeclared: true, pluginRoot: root });
+        expect(catalog.callTarget(loaded.pluginId, loaded.manifestHash!, 'list-rpc')).toEqual({ method: 'list', entry: 'rpc.mjs', mode: 'read', modeDeclared: true, pluginRoot: await realpath(root) });
 
         // Unknown fields in the raw manifest rotate the approval hash even when
         // the validated projection is byte-identical.
@@ -562,13 +562,13 @@ describe('plugin catalog flow', () => {
 
         await rm(linkRoot);
         await symlink(secondRoot, linkRoot, 'dir');
-        expect(catalog.callTarget('example.muxr-ui', firstHash, 'read').pluginRoot).toBe(firstRoot);
+        expect(catalog.callTarget('example.muxr-ui', firstHash, 'read').pluginRoot).toBe(await realpath(firstRoot));
 
         await catalog.refresh([plugin(linkRoot)]);
         const second = catalog.list((_, hash) => approved.has(hash))[0]!;
         expect(second.manifestHash).not.toBe(firstHash);
         expect(second.approved).toBe(false);
-        expect(catalog.callTarget('example.muxr-ui', second.manifestHash!, 'read').pluginRoot).toBe(secondRoot);
+        expect(catalog.callTarget('example.muxr-ui', second.manifestHash!, 'read').pluginRoot).toBe(await realpath(secondRoot));
     });
 
     it('binds RPC target root to the validated hash snapshot', async () => {
@@ -583,12 +583,12 @@ describe('plugin catalog flow', () => {
         const catalog = new PluginCatalog();
         await catalog.refresh([plugin(oldRoot)]);
         const oldHash = catalog.list(() => true)[0]!.manifestHash!;
-        expect(catalog.callTarget('example.muxr-ui', oldHash, 'read').pluginRoot).toBe(oldRoot);
+        expect(catalog.callTarget('example.muxr-ui', oldHash, 'read').pluginRoot).toBe(await realpath(oldRoot));
         await catalog.refresh([plugin(newRoot)]);
         const newHash = catalog.list(() => true)[0]!.manifestHash!;
         expect(newHash).not.toBe(oldHash);
         expect(() => catalog.callTarget('example.muxr-ui', oldHash, 'read')).toThrow('unavailable or changed');
-        expect(catalog.callTarget('example.muxr-ui', newHash, 'read').pluginRoot).toBe(newRoot);
+        expect(catalog.callTarget('example.muxr-ui', newHash, 'read').pluginRoot).toBe(await realpath(newRoot));
     });
 
     it('passes RPC input on stdin, never through the child environment', async () => {

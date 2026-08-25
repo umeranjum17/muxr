@@ -4,7 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useUnistyles } from 'react-native-unistyles';
 import { BubblePressable } from '@/components/BubblePressable';
 import { useDictation } from '@/utils/dictation';
-import type { PrimitiveProps } from '../primitiveRegistry';
+import type { PrimitiveProps } from '../primitiveTypes'
 import { t } from '@/text';
 
 export function DictateButton({ context }: PrimitiveProps) {

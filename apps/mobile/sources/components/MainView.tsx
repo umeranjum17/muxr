@@ -36,11 +36,12 @@ import { MOBILE_GLASS_HEADER_HEIGHT } from './navigation/headerMetrics';
 import { MobileGlassSurface } from './MobileGlass';
 import { useNewSessionDraft } from '@/hooks/useNewSessionDraft';
 import { useStartSessionFromDraft } from '@/hooks/useStartSessionFromDraft';
-import { currentDeviceAuthority, listPairedGrants, type StoredHostedGrant } from '@/state/hostedE2ee';
+import { listPairedGrants, type StoredHostedGrant } from '@/state/hostedE2ee';
 import { getCachedConnectionSettings, pairingTransport, saveConnectionSettings } from '@/state/connectionSettings';
 import { useAuth } from '@/auth/AuthContext';
 import { OptionSheet, type ModelMode } from './OptionSheet';
 import { Modal } from '@/modal';
+import { useDeviceAuthority } from '@/hooks/useDeviceAuthority';
 
 interface MainViewProps {
     variant: 'phone' | 'sidebar';
@@ -351,6 +352,8 @@ const HeaderRight = React.memo(({
 }) => {
     const router = useRouter();
     const { theme } = useUnistyles();
+    const { authority, loading: authorityLoading } = useDeviceAuthority();
+    const canControl = authority === 'control' && !authorityLoading;
 
     if (activeTab === 'sessions') {
         if (Platform.OS !== 'web') {
@@ -385,7 +388,7 @@ const HeaderRight = React.memo(({
                 </View>
             );
         }
-        return currentDeviceAuthority() === 'control' ? (
+        return canControl ? (
             <View style={styles.headerActions}>
                 <Pressable
                     onPress={() => router.navigate('/new-agent')}

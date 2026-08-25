@@ -17,54 +17,24 @@ import Animated, {
 import { MobileGlassSurface } from './MobileGlass';
 import { OptionSheet } from './OptionSheet';
 import { BubblePressable } from './BubblePressable';
-import { NativeSettingsMenu, type NativeSettingsMenuGroup } from './NativeSettingsMenu';
+import { NativeSettingsMenu } from './NativeSettingsMenu';
+import type { NativeSettingsMenuGroup } from './NativeSettingsMenu.types';
 import { AgentInputAttachmentStrip } from './AgentInputAttachmentStrip';
 import { Typography } from '@/constants/Typography';
 import { layout } from './layout';
 import { t } from '@/text';
 import { useNewSessionDraft } from '@/hooks/useNewSessionDraft';
 import { PluginSlot } from '@/plugins/PluginSlot';
-import { useAllMachines, useSessions, useSocketStatus } from '@/sync/storage';
-import { formatLastSeen, formatPathRelativeToHome } from '@/utils/sessionUtils';
-import { isMachineOnline } from '@/utils/machineUtils';
-import { resolveAbsolutePath } from '@/utils/pathUtils';
-import { listWorktrees } from '@/utils/worktree';
-import type { Machine, Session } from '@/sync/storageTypes';
 
-interface ModeOption {
-    key: string;
-    name: string;
-    description?: string;
-    agentKind?: string;
-}
-import { AGENT_TYPES, type NewSessionAgentType } from '@/sync/persistence';
+import type { NewSessionAgentType } from '@/sync/persistence';
 import { useImagePicker } from '@/hooks/useImagePicker';
 import { Modal } from '@/modal';
-import { sync } from '@/sync/sync';
-import { resolveAgentCatalog } from '@/sync/agentKinds';
+import { useHomeDockEnvironment } from '@/hooks/useHomeDockEnvironment';
 
 export const MOBILE_HOME_DOCK_CONTENT_INSET = 108;
 
 type EnvironmentSetting = 'machine' | 'project' | 'worktree' | 'agent';
-type AgentSetting = 'agent';
 
-
-const AGENT_NAMES: Partial<Record<NewSessionAgentType, string>> = {
-    shell: 'Shell (no agent)',
-    pi: 'Pi',
-    claude: 'Claude Code',
-    codex: 'Codex',
-    omp: 'OMP',
-    opencode: 'OpenCode',
-    droid: 'Factory Droid',
-    qodercli: 'Qoder CLI',
-};
-
-const AGENTS = AGENT_TYPES.map((key) => ({
-    key,
-    name: AGENT_NAMES[key] ?? key.replace(/(^|[-_])(\w)/g, (_, prefix, letter) => `${prefix ? ' ' : ''}${letter.toUpperCase()}`),
-    ...(key === 'shell' ? {} : { agentKind: key }),
-}));
 
 const styles = StyleSheet.create((theme) => ({
     keyboardFollower: {
@@ -430,17 +400,6 @@ const styles = StyleSheet.create((theme) => ({
 }));
 
 
-function resolveOption(options: ModeOption[], preferred: Array<string | null | undefined>): ModeOption | null {
-    for (const key of preferred) {
-        const option = options.find((candidate) => candidate.key === key);
-        if (option) return option;
-    }
-    return options[0] ?? null;
-}
-
-function getMachineName(machine: Machine): string {
-    return machine.metadata?.displayName || machine.metadata?.host || 'Unknown machine';
-}
 
 function FocusConfigRevealRow({
     progress,
@@ -501,159 +460,24 @@ export const HomeDock = React.memo(({
         setText: onPromptChange,
     }), [onPromptChange]);
     const { selectedImages, pickImages, removeImage, clearImages } = useImagePicker();
-    const agentType = useNewSessionDraft((state) => state.agentType);
-    const selectedMachineId = useNewSessionDraft((state) => state.selectedMachineId);
-    const selectedPath = useNewSessionDraft((state) => state.selectedPath);
-    const sessionType = useNewSessionDraft((state) => state.sessionType);
-    const worktreeKey = useNewSessionDraft((state) => state.worktreeKey);
-    const permissionMode = useNewSessionDraft((state) => state.permissionMode);
-    const modelMode = useNewSessionDraft((state) => state.modelMode);
-    const effortLevel = useNewSessionDraft((state) => state.effortLevel);
-    const setMachineId = useNewSessionDraft((state) => state.setMachineId);
-    const setAgentType = useNewSessionDraft((state) => state.setAgentType);
-    const setPath = useNewSessionDraft((state) => state.setPath);
-    const setSessionType = useNewSessionDraft((state) => state.setSessionType);
-    const setWorktreeKey = useNewSessionDraft((state) => state.setWorktreeKey);
-    const socketStatus = useSocketStatus();
-    const [hostAgentKinds, setHostAgentKinds] = React.useState<string[] | null>(null);
-    const [hostAgentKindsAuthoritative, setHostAgentKindsAuthoritative] = React.useState(false);
-    const machines = useAllMachines({ includeOffline: true });
-    const sessions = useSessions();
-    const selectedMachine = React.useMemo(
-        () => machines.find((machine) => machine.id === selectedMachineId) ?? null,
-        [machines, selectedMachineId],
-    );
-    const machineOptions = React.useMemo<ModeOption[]>(() => (
-        [...machines]
-            .sort((left, right) => Number(isMachineOnline(right)) - Number(isMachineOnline(left)))
-            .map((machine) => ({
-                key: machine.id,
-                name: getMachineName(machine),
-                description: isMachineOnline(machine)
-                    ? t('status.online')
-                    : t('status.lastSeen', { time: formatLastSeen(machine.activeAt, false) }),
-            }))
-    ), [machines]);
-    const currentMachine = resolveOption(machineOptions, [selectedMachineId]);
-
-    React.useEffect(() => {
-        if (!selectedMachineId && machineOptions[0]) {
-            setMachineId(machineOptions[0].key);
-        }
-    }, [machineOptions, selectedMachineId, setMachineId]);
-
-    const projectOptions = React.useMemo<ModeOption[]>(() => {
-        const paths = new Set<string>();
-        paths.add(selectedPath ?? '~');
-
-        if (selectedMachineId && sessions) {
-            for (const item of sessions) {
-                if (typeof item === 'string') continue;
-                const session = item as Session;
-                if (session.metadata?.machineId === selectedMachineId && session.metadata.path) {
-                    paths.add(session.metadata.path);
-                }
-            }
-        }
-
-        const homeDir = selectedMachine?.metadata?.homeDir;
-        return Array.from(paths).map((path) => {
-            const name = formatPathRelativeToHome(path, homeDir);
-            return {
-                key: path,
-                name,
-                description: name === path ? undefined : path,
-            };
-        });
-    }, [selectedMachine, selectedMachineId, selectedPath, sessions]);
-    const currentProject = resolveOption(projectOptions, [selectedPath, '~']);
-    // herdr creates worktrees for any agent kind in a git repo.
-    const supportsWorktree = true;
-    const selectedWorktreeKey = sessionType === 'worktree'
-        ? worktreeKey ?? '__new__'
-        : '__none__';
-    const [existingWorktrees, setExistingWorktrees] = React.useState<ModeOption[]>([]);
-
-    React.useEffect(() => {
-        const path = resolveAbsolutePath(selectedPath ?? '~', selectedMachine?.metadata?.homeDir);
-        if (!supportsWorktree || !selectedMachineId || !selectedMachine || !isMachineOnline(selectedMachine) || !path) {
-            setExistingWorktrees([]);
-            return;
-        }
-
-        let cancelled = false;
-        listWorktrees(selectedMachineId, path).then((worktrees) => {
-            if (cancelled) return;
-            setExistingWorktrees(worktrees.map((worktree) => ({
-                key: worktree.path,
-                name: worktree.branch,
-                description: worktree.path,
-            })));
-        });
-        return () => {
-            cancelled = true;
-        };
-    }, [selectedMachine, selectedMachineId, selectedPath, supportsWorktree]);
-
-    React.useEffect(() => {
-        if (!supportsWorktree && sessionType === 'worktree') {
-            setSessionType('simple');
-            setWorktreeKey(null);
-        }
-    }, [sessionType, setSessionType, setWorktreeKey, supportsWorktree]);
-
-    const worktreeOptions = React.useMemo<ModeOption[]>(() => {
-        if (!supportsWorktree) {
-            return [{
-                key: '__none__',
-                name: 'No worktree',
-                description: `Not supported by ${AGENTS.find((agent) => agent.key === agentType)?.name ?? agentType}`,
-            }];
-        }
-        const options: ModeOption[] = [
-            { key: '__none__', name: 'No worktree' },
-            { key: '__new__', name: 'Create new worktree' },
-            ...existingWorktrees,
-        ];
-        if (
-            worktreeKey
-            && !options.some((option) => option.key === worktreeKey)
-        ) {
-            options.push({ key: worktreeKey, name: worktreeKey });
-        }
-        return options;
-    }, [agentType, existingWorktrees, supportsWorktree, worktreeKey]);
-    const currentWorktree = resolveOption(worktreeOptions, [selectedWorktreeKey]);
-    React.useEffect(() => {
-        let cancelled = false;
-        setHostAgentKinds(null);
-        setHostAgentKindsAuthoritative(false);
-        if (socketStatus.status !== 'connected') return () => { cancelled = true; };
-        void sync.request('herdr.agentKinds', {}).then((result) => {
-            if (cancelled) return;
-            const resolved = resolveAgentCatalog(result);
-            const launchable = resolved.options
-                .filter((option) => option.availability !== 'unavailable')
-                .map((option) => option.kind);
-            setHostAgentKinds([...new Set(['shell', ...launchable])]);
-            setHostAgentKindsAuthoritative(resolved.authoritative);
-        }).catch(() => {
-            if (!cancelled) {
-                setHostAgentKinds(null);
-                setHostAgentKindsAuthoritative(false);
-            }
-        });
-        return () => { cancelled = true; };
-    }, [socketStatus.status]);
-    const visibleAgentKeys = new Set(hostAgentKinds ?? ['shell', agentType]);
-    if (!hostAgentKindsAuthoritative) visibleAgentKeys.add(agentType);
-    const availableAgents = AGENTS.filter((agent) => visibleAgentKeys.has(agent.key));
-    const currentAgent = availableAgents.find((agent) => agent.key === agentType) ?? availableAgents[0] ?? AGENTS[0];
-    React.useEffect(() => {
-        if (hostAgentKindsAuthoritative && hostAgentKinds !== null && hostAgentKinds.some((kind) => kind !== 'shell') && !hostAgentKinds.includes(agentType)) {
-            setAgentType(hostAgentKinds.find((kind) => kind !== 'shell') as NewSessionAgentType);
-        }
-    }, [agentType, hostAgentKinds, hostAgentKindsAuthoritative, setAgentType]);
+    const {
+        agentType,
+        availableAgents,
+        currentAgent,
+        currentMachine,
+        currentProject,
+        currentWorktree,
+        machineOptions,
+        projectOptions,
+        selectedMachineId,
+        selectedWorktreeKey,
+        selectAgent,
+        setMachineId,
+        setPath,
+        setSessionType,
+        setWorktreeKey,
+        worktreeOptions,
+    } = useHomeDockEnvironment();
     const canSubmit = !isSubmitting && (prompt.trim().length > 0 || selectedImages.length > 0);
     const focusedComposerHeight = selectedImages.length > 0 ? 206 : 126;
     const keyboardStyle = useAnimatedStyle(() => ({
@@ -785,18 +609,9 @@ export const HomeDock = React.memo(({
         });
     }, [finishCloseFocusMode, focusPresentation]);
 
-    const selectAgent = React.useCallback((agent: NewSessionAgentType) => {
-        setAgentType(agent);
-    }, [setAgentType]);
-
-    React.useEffect(() => {
-        if (hostAgentKindsAuthoritative && availableAgents.some((agent) => agent.key !== 'shell') && !availableAgents.some((agent) => agent.key === agentType)) {
-            selectAgent(availableAgents.find((agent) => agent.key !== 'shell')!.key);
-        }
-    }, [agentType, availableAgents, hostAgentKindsAuthoritative, selectAgent]);
 
     type SettingsRow = {
-        page: string;
+        page: EnvironmentSetting;
         label: string;
         value: string;
         icon: React.ComponentProps<typeof Ionicons>['name'];
@@ -808,41 +623,14 @@ export const HomeDock = React.memo(({
         { page: 'project', label: 'PROJECT', value: currentProject?.name ?? '~', icon: 'folder-outline' },
         { page: 'worktree', label: 'WORKTREE', value: currentWorktree?.name ?? 'No worktree', icon: 'git-branch-outline' },
     ];
-    const agentRows: SettingsRow[] = [
-        { page: 'agent', label: 'AGENT', value: currentAgent.name, icon: 'hardware-chip-outline' },
-    ];
-
-    type PickerConfig = {
-        title: string;
-        options: ModeOption[];
-        selectedKey: string | null | undefined;
-        onSelect: (key: string) => void;
-    };
-
-    const getAgentPickerConfig = (setting: AgentSetting): PickerConfig => {
-        if (setting === 'agent') {
-            return { title: 'Agent', options: availableAgents, selectedKey: agentType, onSelect: (key) => selectAgent(key as NewSessionAgentType) };
-        }
-        return { title: 'Agent', options: [], selectedKey: undefined, onSelect: () => undefined };
-    };
-
-    const agentSettingsGroups: NativeSettingsMenuGroup[] = agentRows.map((row) => {
-        const config = getAgentPickerConfig(row.page as AgentSetting);
-        return {
-            key: row.page,
-            label: row.value || config.title,
-            systemImage: {
-                agent: 'cpu',
-                model: 'cube',
-                permission: 'shield',
-                effort: 'bolt',
-            }[row.page],
-            options: config.options.map((option) => ({ key: option.key, label: option.name })),
-            selectedKey: config.selectedKey,
-            onSelect: config.onSelect,
-        };
-    });
-    const gearSettingsGroups = agentSettingsGroups.filter((group) => group.key === 'agent');
+    const gearSettingsGroups: NativeSettingsMenuGroup[] = [{
+        key: 'agent',
+        label: currentAgent.name,
+        systemImage: 'cpu',
+        options: availableAgents.map((option) => ({ key: option.key, label: option.name })),
+        selectedKey: agentType,
+        onSelect: (key) => selectAgent(key as NewSessionAgentType),
+    }];
 
     const renderEnvironmentPickers = () => environmentRows.map((row, index) => (
         <FocusConfigRevealRow
@@ -851,7 +639,7 @@ export const HomeDock = React.memo(({
             index={index}
         >
             <BubblePressable
-                onPress={() => setOpenSheet(row.page as EnvironmentSetting)}
+                onPress={() => setOpenSheet(row.page)}
                 style={styles.focusConfigRow}
                 accessibilityRole="button"
                 accessibilityLabel={row.label}

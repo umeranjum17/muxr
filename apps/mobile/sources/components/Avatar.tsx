@@ -6,13 +6,9 @@ import { AvatarGradient } from "./AvatarGradient";
 import { AvatarBrutalist } from "./AvatarBrutalist";
 import { useSetting } from '@/sync/storage';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
+import type { GeneratedAvatarProps } from './generatedAvatar';
 
-interface AvatarProps {
-    id: string;
-    title?: boolean;
-    square?: boolean;
-    size?: number;
-    monochrome?: boolean;
+interface AvatarProps extends GeneratedAvatarProps {
     flavor?: string | null;
     clientId?: string | null;
     imageUrl?: string | null;
@@ -93,7 +89,7 @@ export const Avatar = React.memo((props: AvatarProps) => {
 
     // Original generated avatar logic
     // Determine which avatar variant to render
-    let AvatarComponent: React.ComponentType<any>;
+    let AvatarComponent: React.ComponentType<GeneratedAvatarProps>;
     if (avatarStyle === 'pixelated') {
         AvatarComponent = AvatarSkia;
     } else if (avatarStyle === 'brutalist') {

@@ -7,6 +7,7 @@ import {
     mkdtempSync,
     readFileSync,
     readdirSync,
+    realpathSync,
     rmSync,
     statSync,
     symlinkSync,
@@ -17,11 +18,13 @@ import { dirname, join } from 'node:path';
 import { packageInfoFromPath, packagePathFromInput } from './packageAudit.mjs';
 
 const root = process.cwd();
-const scratch = mkdtempSync(join(tmpdir(), 'muxr-package-smoke-'));
+const scratch = realpathSync(mkdtempSync(join(tmpdir(), 'muxr-package-smoke-')));
 const tarDir = join(scratch, 'tar');
 const installDir = join(scratch, 'install');
 const home = join(scratch, 'home');
 const binDir = join(scratch, 'bin');
+const psBin = existsSync('/usr/bin/ps') ? '/usr/bin/ps' : '/bin/ps';
+const canRunLinuxTtySmoke = process.platform === 'linux' && existsSync('/usr/bin/script');
 const fakeState = join(scratch, 'herdr-installed');
 const fakeServerState = join(scratch, 'herdr-server-running');
 const fakeLog = join(scratch, 'herdr.log');
@@ -102,10 +105,11 @@ function cliEnv(targetHome = home, extra = {}) {
         ...inherited,
         HOME: targetHome,
         PATH: `${binDir}:${dirname(process.execPath)}`,
-        MUXR_PS_BIN: '/usr/bin/ps',
+        MUXR_PS_BIN: psBin,
         HERDR_BIN: join(binDir, 'herdr'),
         FAKE_HERDR_STATE: fakeState,
         FAKE_HERDR_SERVER_STATE: fakeServerState,
+        MUXR_PLATFORM: 'linux',
         FAKE_HERDR_LOG: fakeLog,
         MUXR_NO_SERVICE_COMMANDS: '1',
         MUXR_SKIP_HOSTED_AUTH: '1',
@@ -121,18 +125,15 @@ function cliEnvWithoutHerdr(targetHome, extra = {}) {
 }
 
 function stopRelayFor(dataDir) {
-    const marker = `MUXR_RELAY_DATA_DIR=${dataDir}`;
-    for (const name of readdirSync('/proc')) {
-        if (!/^\d+$/.test(name)) continue;
-        try {
-            if (!readFileSync(`/proc/${name}/environ`).toString().split('\0').includes(marker)) continue;
-            process.kill(Number(name), 'SIGTERM');
-        } catch {}
-    }
+    const pidPath = join(dataDir, 'relay.pid');
+    if (!existsSync(pidPath)) return;
+    const pid = Number(readFileSync(pidPath, 'utf8').trim());
+    if (!Number.isSafeInteger(pid) || pid <= 1) return;
+    try { process.kill(pid, 'SIGTERM'); } catch {}
 }
 
 function signalNodeDescendant(parentPid) {
-    const rows = run('/usr/bin/ps', ['-eo', 'pid=,ppid=,comm=']).stdout.trim().split('\n').map((line) => {
+    const rows = run(psBin, ['-eo', 'pid=,ppid=,comm=']).stdout.trim().split('\n').map((line) => {
         const match = line.trim().match(/^(\d+)\s+(\d+)\s+(.+)$/);
         return match ? { pid: Number(match[1]), parent: Number(match[2]), command: match[3] } : undefined;
     }).filter(Boolean);
@@ -151,6 +152,7 @@ function signalNodeDescendant(parentPid) {
     assert.ok(node, 'could not find the CLI node process under the test PTY');
     process.kill(node.pid, 'SIGINT');
 }
+
 
 async function runTty(command, env, inputAfter, timeoutMs = 20_000, completionMarker, scriptEcho = 'never', inputMarker = 'OpenAI API key for Live Voice') {
     assert.ok(existsSync('/usr/bin/script'), 'util-linux script is required for the Linux TTY smoke');
@@ -281,9 +283,9 @@ try {
         env: { ...process.env, npm_config_cache: join(scratch, 'npm-cache') },
     });
     const cli = join(installDir, 'node_modules', '.bin', 'muxr');
-    const installedPackage = join(installDir, 'node_modules', '@trymuxr', 'cli');
+    const installedPackage = realpathSync(join(installDir, 'node_modules', '@trymuxr', 'cli'));
     const installedPlugins = join(installedPackage, 'plugins');
-    if (existsSync('/usr/bin/script')) {
+    if (canRunLinuxTtySmoke) {
         const uiFlow = join(scratch, 'setup-ui-flow.mjs');
         writeFileSync(uiFlow, `import {withFullscreen, setupStep, outro, select} from ${JSON.stringify(`file://${join(installedPackage, 'setup-ui.mjs')}`)};\nif (process.argv[2] === 'full') await withFullscreen(async () => { setupStep(1, 5, 'Check this machine'); outro('Setup receipt'); return 0; });\nelse await withFullscreen(async () => { await select('Choose connection', [{value:'lan',title:'LAN',description:'same network'}]); return 0; });\n`);
         const fullUiEnv = { ...process.env, TERM: 'xterm-256color' };
@@ -402,15 +404,17 @@ try {
     assert.ok(installedUpdate.compareVersions('1.0.0-beta.10', '1.0.0-beta.9') > 0);
     assert.ok(installedUpdate.compareVersions('1.0.0-beta.9', '1.0.0-beta.10') < 0);
     assert.ok(installedUpdate.compareVersions('1.0.0', '1.0.0-rc.1') > 0);
-    const promptSmokePath = join(scratch, 'prompt-smoke.mjs');
-    const setupUiUrl = new URL(`file://${join(installDir, 'node_modules', '@trymuxr', 'cli', 'setup-ui.mjs')}`).href;
-    writeFileSync(promptSmokePath, `import { prompt } from ${JSON.stringify(setupUiUrl)};\nconst answer = await prompt('Cancel prompt');\nif (answer !== undefined) process.exitCode = 1;\n`);
-    const promptSmoke = await runTty(`${process.execPath} ${promptSmokePath}`, cliEnv(), '\u0003', 20_000, undefined, 'never', 'Cancel prompt');
-    assert.equal(promptSmoke.code, 0, promptSmoke.output);
-    assert.doesNotMatch(promptSmoke.output, /unsettled top-level await|SyntaxError/);
-    const menuCancel = await runTty(cli, cliEnv(), '\u0003', 20_000, undefined, 'never', 'What would you like to do?');
-    assert.ok(menuCancel.code === 0 || menuCancel.code === 130, menuCancel.output);
-    assert.doesNotMatch(menuCancel.output, /Get started\s+ muxr setup/, 'cancelling the menu printed command help');
+    if (canRunLinuxTtySmoke) {
+        const promptSmokePath = join(scratch, 'prompt-smoke.mjs');
+        const setupUiUrl = new URL(`file://${join(installDir, 'node_modules', '@trymuxr', 'cli', 'setup-ui.mjs')}`).href;
+        writeFileSync(promptSmokePath, `import { prompt } from ${JSON.stringify(setupUiUrl)};\nconst answer = await prompt('Cancel prompt');\nif (answer !== undefined) process.exitCode = 1;\n`);
+        const promptSmoke = await runTty(`${process.execPath} ${promptSmokePath}`, cliEnv(), '\u0003', 20_000, undefined, 'never', 'Cancel prompt');
+        assert.equal(promptSmoke.code, 0, promptSmoke.output);
+        assert.doesNotMatch(promptSmoke.output, /unsettled top-level await|SyntaxError/);
+        const menuCancel = await runTty(cli, cliEnv(), '\u0003', 20_000, undefined, 'never', 'What would you like to do?');
+        assert.ok(menuCancel.code === 0 || menuCancel.code === 130, menuCancel.output);
+        assert.doesNotMatch(menuCancel.output, /Get started\s+ muxr setup/, 'cancelling the menu printed command help');
+    }
     const inspectHome = join(scratch, 'inspect-home');
     mkdirSync(inspectHome, { recursive: true });
     const inspectBefore = filesSnapshot(inspectHome);
@@ -528,9 +532,11 @@ try {
     const updateLog = join(scratch, 'update.log');
     writeFileSync(updateNpm, '#!/bin/sh\nif [ "$1" = view ]; then printf \'"%s"\\n\' "${MUXR_UPDATE_LATEST:-9.9.9}"; exit 0; fi\nif [ "$1 $2" = "root --global" ]; then printf "%s\\n" "$MUXR_UPDATE_NPM_ROOT"; exit 0; fi\nif [ "$1" = install ]; then printf "%s\\n" "$*" >> "$MUXR_UPDATE_LOG"; exit 0; fi\nexit 1\n', { mode: 0o755 });
     const updateEnv = { ...env, MUXR_NPM_BIN: updateNpm, MUXR_UPDATE_LOG: updateLog, MUXR_UPDATE_NPM_ROOT: join(installDir, 'node_modules') };
-    const cancelledUpdate = await runTty(`${cli} update`, updateEnv, '\r', 20_000, undefined, 'never', 'Apply this update?');
-    assert.equal(cancelledUpdate.code, 0, cancelledUpdate.output);
-    assert.ok(!existsSync(updateLog), 'pressing Enter applied the update');
+    if (canRunLinuxTtySmoke) {
+        const cancelledUpdate = await runTty(`${cli} update`, updateEnv, '\r', 20_000, undefined, 'never', 'Apply this update?');
+        assert.equal(cancelledUpdate.code, 0, cancelledUpdate.output);
+        assert.ok(!existsSync(updateLog), 'pressing Enter applied the update');
+    }
     assert.match(run(cli, ['update', '--yes'], { cwd: installDir, env: { ...updateEnv, MUXR_UPDATE_LATEST: '0.0.1' } }).stdout, /newer than npm latest/);
     assert.ok(!existsSync(updateLog), 'updater installed a registry downgrade');
     assert.match(run(cli, ['update', '--check'], { cwd: installDir, env: updateEnv }).stdout, /9\.9\.9 is available/);
@@ -697,6 +703,9 @@ try {
     assert.equal(readFileSync(join(relayHome, '.config', 'systemd', 'user', 'muxr.service'), 'utf8'), relayUnitBeforeList, 'machine listing rewrote the relay service');
     relayService.kill('SIGTERM');
     await new Promise((resolve) => relayService.once('exit', resolve));
+    for (let attempt = 0; attempt < 30 && await fetch(`http://127.0.0.1:${relayServicePort}/health`).then((response) => response.ok).catch(() => false); attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+    }
     if (await fetch(`http://127.0.0.1:${relayServicePort}/health`).then((response) => response.ok).catch(() => false)) throw new Error('relay-only service left its relay child running');
     const relayUpdateLog = join(scratch, 'relay-update.log');
     const herdrBeforeRelayUpdate = existsSync(fakeLog) ? readFileSync(fakeLog, 'utf8') : '';

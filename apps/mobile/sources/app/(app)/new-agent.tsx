@@ -10,7 +10,6 @@
 import * as React from 'react';
 import {
     ActivityIndicator,
-    Platform,
     Pressable,
     ScrollView,
     View,
@@ -35,7 +34,7 @@ import {
 } from '@/state/connectionSettings';
 
 import { FALLBACK_AGENT_KINDS, resolveAgentCatalog, type AgentCatalogOption } from '@/sync/agentKinds';
-import { getCachedHostedGrant } from '@/state/hostedE2ee';
+import { useDeviceAuthority } from '@/hooks/useDeviceAuthority';
 
 const MAX_SQUAD = 4;
 const MAX_RECENT_CHIPS = 6;
@@ -214,7 +213,8 @@ export default function NewAgentScreen() {
     const { theme } = useUnistyles();
     const insets = useSafeAreaInsets();
     const settings = getCachedConnectionSettings();
-    const canControl = Platform.OS !== 'web' || getCachedHostedGrant(settings.machineId)?.authority === 'control';
+    const { authority, loading: authorityLoading } = useDeviceAuthority();
+    const canControl = authority === 'control' && !authorityLoading;
 
     const [catalog, setCatalog] = React.useState<readonly AgentOption[]>(
         FALLBACK_AGENT_KINDS.map((kind) => ({ kind, availability: 'unknown' })),

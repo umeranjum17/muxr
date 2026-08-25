@@ -7,7 +7,7 @@ import { useAllMachines } from '@/sync/storage';
 import { isMachineOnline } from '@/utils/machineUtils';
 import { useRouter } from 'expo-router';
 import { t } from '@/text';
-import { currentDeviceAuthority } from '@/state/hostedE2ee';
+import { useDeviceAuthority } from '@/hooks/useDeviceAuthority';
 
 const stylesheet = StyleSheet.create((theme) => ({
     container: {
@@ -61,7 +61,8 @@ export function EmptySessionsTablet() {
     const styles = stylesheet;
     const router = useRouter();
     const machines = useAllMachines();
-    const canControl = currentDeviceAuthority() === 'control';
+    const { authority, loading: authorityLoading } = useDeviceAuthority();
+    const canControl = authority === 'control' && !authorityLoading;
     
     const hasOnlineMachines = React.useMemo(() => {
         return machines.some(machine => isMachineOnline(machine));

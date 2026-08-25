@@ -5,7 +5,7 @@ import { useUnistyles } from 'react-native-unistyles';
 import { useRealtimeSessionState } from '@/realtime/realtimeSessionState';
 import { RealtimeGlyph } from '@/realtime/RealtimeGlyph';
 import { withAlpha } from '@/components/ui';
-import type { PrimitiveProps } from '../primitiveRegistry';
+import type { PrimitiveProps } from '../primitiveTypes'
 import { capabilityFor } from '../capabilityRegistry';
 import { resolvePluginText } from '../pluginText';
 import { pluginSnapshot } from '../pluginStore';

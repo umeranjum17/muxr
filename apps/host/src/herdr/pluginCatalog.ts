@@ -6,14 +6,11 @@ import { homedir } from 'node:os';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import type { PluginsInvalidatedFrame, PluginContextRequest, PluginManifestV1, PluginRpcMode, PluginSource, PluginSummary } from '@muxr/contract';
 import {
-    MAX_RPC_ARRAY_ENTRIES,
-    MAX_RPC_DISPLAY_DEPTH,
-    MAX_RPC_RESULT_STRING_BYTES,
     MAX_RPC_STDERR_BYTES,
     MAX_RPC_STDOUT_BYTES,
     PLUGIN_CALL_DEADLINE_MS,
     PLUGIN_CALL_KILL_GRACE_MS,
-    capUtf8Bytes,
+    boundRpcDisplay,
     isValidPluginId,
     parseManifest,
     sanitizeDisplayText,
@@ -350,14 +347,16 @@ function sourceIdentity(source: PluginSource, pluginRoot: string): string {
 
 type NpmProvenance = { schemaVersion: 1; pluginId: string; root: string; name: string; version: string; integrity: string };
 function npmProvenance(plugin: HerdrPlugin, pluginRoot?: string): PluginSource | undefined {
-    let root;
-    try { root = pluginRoot ?? realpathSync(plugin.plugin_root); } catch { return undefined; }
-    const expectedRoot = resolve(process.env.MUXR_HOME?.trim() || join(homedir(), '.muxr'), 'extensions');
+    const expectedRootPath = resolve(process.env.MUXR_HOME?.trim() || join(homedir(), '.muxr'), 'extensions');
+    let root: string;
+    let expectedRoot: string;
     try {
-        const extensionStat = lstatSync(expectedRoot);
+        root = realpathSync(pluginRoot ?? plugin.plugin_root);
+        const extensionStat = lstatSync(expectedRootPath);
         if (extensionStat.isSymbolicLink() || !extensionStat.isDirectory()) return undefined;
-        const provenanceStat = lstatSync(join(expectedRoot, '.provenance'));
+        const provenanceStat = lstatSync(join(expectedRootPath, '.provenance'));
         if (provenanceStat.isSymbolicLink() || !provenanceStat.isDirectory()) return undefined;
+        expectedRoot = realpathSync(expectedRootPath);
     } catch { return undefined; }
     const rel = relative(expectedRoot, root);
     if (rel === '' || rel.startsWith('..') || isAbsolute(rel) || rel.includes('\\') || rel.split(/[\\/]/).length !== 1 || rel !== plugin.plugin_id) return undefined;
@@ -369,7 +368,10 @@ function npmProvenance(plugin: HerdrPlugin, pluginRoot?: string): PluginSource |
         let raw;
         try { raw = readFileSync(fd, 'utf8'); } finally { closeSync(fd); }
         const parsed = JSON.parse(raw) as Partial<NpmProvenance>;
-        if (parsed.schemaVersion !== 1 || parsed.pluginId !== plugin.plugin_id || parsed.root !== root
+        let declaredRoot: string;
+        try { declaredRoot = typeof parsed.root === 'string' ? realpathSync(parsed.root) : ''; }
+        catch { return undefined; }
+        if (parsed.schemaVersion !== 1 || parsed.pluginId !== plugin.plugin_id || declaredRoot !== root
             || typeof parsed.name !== 'string' || !/^@[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$|^[A-Za-z0-9._-]+$/.test(parsed.name)
             || typeof parsed.version !== 'string' || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(parsed.version)
             || typeof parsed.integrity !== 'string' || parsed.name.length > 200 || parsed.version.length > 80 || parsed.integrity.length > 200 || !/^(?:sha256|sha512)-[A-Za-z0-9+/=]+$/.test(parsed.integrity)) return undefined;
@@ -420,29 +422,6 @@ function safeText(value: string, max: number): string[] {
     catch { return []; }
 }
 
-/**
- * Cap every string in an RPC result before it reaches mobile. The 64 KiB stdout
- * limit bounds total transport; this bounds each transported string to the same
- * 64 KiB ceiling (never splitting a code point) and strips
- * controls/bidi/zero-width. JSON null is preserved (a null result stays a
- * successful null, and nulls survive inside arrays/objects). Subtrees past the
- * depth cap are dropped, never returned raw. Output objects are null-prototype
- * so plugin-chosen keys like `__proto__` become plain data instead of prototype
- * assignments.
- */
-export function boundRpcDisplay(value: unknown, depth = 0): unknown {
-    if (typeof value === 'string') return capUtf8Bytes(sanitizeDisplayText(value), MAX_RPC_RESULT_STRING_BYTES);
-    if (value === null) return null;
-    if (depth >= MAX_RPC_DISPLAY_DEPTH) return undefined;
-    if (Array.isArray(value)) return value.slice(0, MAX_RPC_ARRAY_ENTRIES).map((entry) => boundRpcDisplay(entry, depth + 1));
-    if (typeof value !== 'object') return value;
-    const out: Record<string, unknown> = Object.create(null);
-    for (const [key, entry] of Object.entries(value)) {
-        const bounded = boundRpcDisplay(entry, depth + 1);
-        if (bounded !== undefined) out[key] = bounded;
-    }
-    return out;
-}
 
 export interface RunPluginProcessOptions {
     pluginId: string;

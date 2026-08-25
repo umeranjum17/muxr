@@ -32,7 +32,9 @@ const forbiddenWebLiterals = [process.env.EXPO_PUBLIC_MUXR_TOKEN]
 const findings = [];
 for (const relativePath of files) {
     const path = join(root, relativePath);
-    if (!existsSync(path) || statSync(path).size > 20 * 1024 * 1024) continue;
+    if (!existsSync(path)) continue;
+    const info = statSync(path);
+    if (!info.isFile() || info.size > 20 * 1024 * 1024) continue;
     if (/\.(?:png|jpe?g|gif|webp|wasm|lock|ico|ttf|woff2)$/.test(relativePath)) continue;
     const text = readFileSync(path, 'utf8');
     for (const [name, pattern] of patterns) {

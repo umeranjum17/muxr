@@ -12,7 +12,7 @@ import { StatusDot } from '@/components/StatusDot';
 import { Typography } from '@/constants/Typography';
 import { layout } from '@/components/layout';
 import { PLUGIN_CALL_CLIENT_TIMEOUT_MS } from '@muxr/contract';
-import type { PrimitiveProps } from '../primitiveRegistry';
+import type { PrimitiveProps } from '../primitiveTypes'
 import { asPluginCollection, type PluginCollectionGroup, type PluginCollectionItem } from '../collectionModel';
 import { dispatchPluginAction, validatePluginAction } from '../pluginActions';
 import { pluginSnapshot } from '../pluginStore';

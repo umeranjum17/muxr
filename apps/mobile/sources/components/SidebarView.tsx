@@ -9,7 +9,7 @@ import { t } from '@/text';
 import { Ionicons } from '@expo/vector-icons';
 import { Typography } from '@/constants/Typography';
 import { ShortcutHintBadge, useShortcutHints } from './ShortcutHints';
-import { currentDeviceAuthority } from '@/state/hostedE2ee';
+import { useDeviceAuthority } from '@/hooks/useDeviceAuthority';
 
 const stylesheet = StyleSheet.create((theme) => ({
     container: {
@@ -77,6 +77,8 @@ export const SidebarView = React.memo(() => {
     const router = useRouter();
     const headerHeight = useHeaderHeight();
     const { visible: shortcutHintsVisible } = useShortcutHints();
+    const { authority, loading: authorityLoading } = useDeviceAuthority();
+    const canControl = authority === 'control' && !authorityLoading;
 
     const handleNewSession = React.useCallback(() => {
         router.navigate('/new-agent');
@@ -85,7 +87,7 @@ export const SidebarView = React.memo(() => {
     return (
         <View style={[styles.container, { paddingTop: safeArea.top + headerHeight }]}>
             {/* New Session button */}
-            {currentDeviceAuthority() === 'control' && <View style={styles.headerRow}>
+            {canControl && <View style={styles.headerRow}>
                 <Pressable
                     onPress={handleNewSession}
                     style={({ pressed }) => [
