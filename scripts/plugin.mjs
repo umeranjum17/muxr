@@ -42,7 +42,8 @@ function packagePath(packedRelative, sourceRelative) {
 
 function printPluginDocs() {
     process.stdout.write(`Plugin guide: ${packagePath('PLUGINS.md', '../docs/PLUGINS.md')}\n`);
-    process.stdout.write(`Agent skill: ${packagePath('skills/muxr-plugin-authoring/SKILL.md', '../skills/muxr-plugin-authoring/SKILL.md')}\n`);
+    process.stdout.write(`Agent skill: ${packagePath('skills/muxr/SKILL.md', '../skills/muxr/SKILL.md')}\n`);
+    process.stdout.write(`Plugin reference: ${packagePath('skills/muxr/references/plugins.md', '../skills/muxr/references/plugins.md')}\n`);
     return 0;
 }
 

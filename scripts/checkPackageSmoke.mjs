@@ -307,7 +307,9 @@ try {
     assert.ok(listing.includes('package/plugins/voice/rpc.mjs'), 'xAI Voice plugin missing from npm artifact');
     assert.ok(listing.includes('package/plugins/voice-gemini/rpc.mjs') && listing.includes('package/plugins/voice-gemini/stream.mjs'), 'Gemini Live plugin missing from npm artifact');
     assert.ok(listing.includes('package/plugins/voice-openai/rpc.mjs') && listing.includes('package/plugins/voice-openai/stream.mjs'), 'OpenAI Realtime plugin missing from npm artifact');
-    assert.ok(listing.includes('package/skills/muxr-plugin-authoring/SKILL.md'), 'plugin authoring skill missing from npm artifact');
+    assert.ok(listing.includes('package/skills/muxr/SKILL.md'), 'muxr skill missing from npm artifact');
+    assert.ok(listing.includes('package/skills/muxr/references/plugins.md'), 'muxr skill references missing from npm artifact');
+    assert.ok(listing.includes('package/skills/muxr/references/browser-takeover.md'), 'browser takeover reference missing from npm artifact');
     assert.ok(listing.includes('package/web/index.html'), 'secure browser client missing from npm artifact');
     assert.ok(listing.includes('package/web/install.sh'), 'hosted npm installer wrapper missing from web artifact');
     assert.ok(!listing.some((file) => /apps\/relay|commerce|stripe|website|betaCodeAdmin|controlPlane|controlRepository/i.test(file)), 'private control-plane source shipped in npm artifact');
@@ -371,7 +373,8 @@ try {
     }
     const docsOutput = run(cli, ['plugin', 'docs'], { cwd: installDir }).stdout;
     assert.match(docsOutput, new RegExp(`Plugin guide: ${join(installedPackage, 'PLUGINS.md').replaceAll('\\', '\\\\')}`));
-    assert.match(docsOutput, new RegExp(`Agent skill: ${join(installedPackage, 'skills', 'muxr-plugin-authoring', 'SKILL.md').replaceAll('\\', '\\\\')}`));
+    assert.match(docsOutput, new RegExp(`Agent skill: ${join(installedPackage, 'skills', 'muxr', 'SKILL.md').replaceAll('\\', '\\\\')}`));
+    assert.match(docsOutput, new RegExp(`Plugin reference: ${join(installedPackage, 'skills', 'muxr', 'references', 'plugins.md').replaceAll('\\', '\\\\')}`));
     assert.match(run(cli, ['help', 'plugin', 'create'], { cwd: installDir }).stdout, /minimal three-file/);
     assert.match(run(cli, ['help', 'plugin', 'clone'], { cwd: installDir }).stdout, /package-owned plugin/);
     assert.match(run(cli, ['plugin', '--help'], { cwd: installDir }).stdout, /plugin docs/);
@@ -619,14 +622,17 @@ try {
     const instructions = readFileSync(instructionPath, 'utf8');
     assert.equal(instructions.match(/muxr:herdr-skill:start/g)?.length, 1);
     assert.match(instructions, /Keep this line\./);
-    const pluginSkillPath = join(home, '.muxr', 'integrations', 'muxr-plugin-authoring', 'SKILL.md');
-    assert.match(readFileSync(pluginSkillPath, 'utf8'), /^---\nname: muxr-plugin-authoring\n/);
-    assert.match(instructions, new RegExp(pluginSkillPath.replaceAll('\\', '\\\\')));
+    const muxrSkillPath = join(home, '.muxr', 'integrations', 'muxr', 'SKILL.md');
+    assert.match(readFileSync(muxrSkillPath, 'utf8'), /^---\nname: muxr\n/);
+    assert.ok(existsSync(join(home, '.muxr', 'integrations', 'muxr', 'references', 'plugins.md')), 'muxr skill references not installed');
+    assert.ok(existsSync(join(home, '.muxr', 'integrations', 'muxr', 'references', 'browser-takeover.md')), 'browser takeover reference not installed');
+    assert.ok(!existsSync(join(home, '.muxr', 'integrations', 'herdr', 'SKILL.md')), 'separate Herdr skill should not be installed');
+    assert.match(instructions, new RegExp(muxrSkillPath.replaceAll('\\', '\\\\')));
     assert.ok(readdirSync(join(home, '.pi', 'agent')).some((name) => name.startsWith('AGENTS.md.muxr-backup-')));
     assert.equal(statSync(join(home, '.muxr', 'setup-manifest.json')).mode & 0o777, 0o600);
     assert.ok(existsSync(join(home, '.config', 'systemd', 'user', 'muxr.service')));
 
-    writeFileSync(instructionPath, readFileSync(instructionPath, 'utf8').replace('When the user explicitly asks', 'When someone asks'));
+    writeFileSync(instructionPath, readFileSync(instructionPath, 'utf8').replace('For muxr or Herdr setup', 'For muxr setup'));
     const mutationsBeforeDrift = existsSync(fakeLog) ? readFileSync(fakeLog, 'utf8') : '';
     const drift = run(cli, ['integrations', 'sync'], { cwd: installDir, env, allowFailure: true });
     assert.notEqual(drift.status, 0);
