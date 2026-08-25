@@ -218,9 +218,7 @@ export async function refreshUntilSessionVisible(sessionId: string): Promise<voi
     for (let attempt = 0; attempt < 10; attempt += 1) {
         await sync.refreshSessions();
         if (storage.getState().sessions[sessionId] !== undefined) return;
-        const { promise, resolve } = Promise.withResolvers<void>();
-        setTimeout(resolve, 300);
-        await promise;
+        await new Promise((resolve) => setTimeout(resolve, 300));
     }
 }
 
