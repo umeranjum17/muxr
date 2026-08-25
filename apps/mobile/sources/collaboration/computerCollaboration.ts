@@ -175,6 +175,7 @@ function normalizeIntent(value: unknown): CollaborationIntent | undefined {
         const edge = record(value);
         if (typeof edge?.sourceMachineId !== 'string' || edge.sourceMachineId === ''
             || typeof edge.targetMachineId !== 'string' || edge.targetMachineId === '' || edge.sourceMachineId === edge.targetMachineId
+            || !machines.has(edge.sourceMachineId) || !machines.has(edge.targetMachineId)
             || typeof edge.relationshipId !== 'string' || edge.relationshipId === '') continue;
         const setup = normalizedSetup(edge.setup);
         const disconnect = normalizedDisconnect(edge.disconnect);
@@ -347,6 +348,10 @@ async function reconcileIntent(intent: CollaborationIntent, lists: Map<string, P
         if (edge === undefined) {
             edge = { sourceMachineId: entry.sourceMachineId, targetMachineId: entry.targetMachineId, relationshipId };
             next.edges.push(edge);
+        }
+        if (edge.disconnect !== undefined && isActive(entry.inbound)) {
+            delete edge.disconnect.targetRevoked;
+            delete edge.disconnect.targetMutation;
         }
         if (edge.disconnect === undefined) {
             selected.add(entry.sourceMachineId);

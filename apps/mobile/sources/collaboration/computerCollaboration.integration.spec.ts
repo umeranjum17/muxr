@@ -139,6 +139,7 @@ describe('computer collaboration flow', () => {
             edges: [
                 { sourceMachineId: 'linux-internal', targetMachineId: 'mac-internal', relationshipId: 'duplicate-edge', setup: { prepareMutation: { operationId: 7 } } },
                 { sourceMachineId: 'linux-internal', targetMachineId: 'mac-internal', relationshipId: 'duplicate-edge', disconnect: 'corrupt' },
+                { sourceMachineId: 'linux-internal', targetMachineId: 'missing-machine', relationshipId: 'missing-endpoint' },
                 { sourceMachineId: 'linux-internal', targetMachineId: 'linux-internal', relationshipId: 'self-edge' },
             ],
         }));
@@ -218,6 +219,7 @@ describe('computer collaboration flow', () => {
         expect(Object.values(report.states)).toEqual(['Disconnecting', 'Disconnecting']);
         expect(fleet.get('linux-internal')!.peers.some((peer) => peer.direction === 'outbound' && peer.state === 'connected')).toBe(true);
         expect(report.intent.edges.every((edge) => edge.disconnect !== undefined)).toBe(true);
+        for (const edge of report.intent.edges) edge.disconnect!.targetRevoked = true;
 
         fleet.get('mac-internal')!.online = true;
         report = await applyCollaboration(report.intent, machines, request, save, now, newId);

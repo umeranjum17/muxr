@@ -140,7 +140,7 @@ export class OutboundPeerService {
             } else if (aborted) {
                 await this.options.store.putSemanticMutation({
                     ...stored,
-                    state: 'completed',
+                    state: 'delivered',
                     outcome: { ok: false, error: 'peer operation cancelled', code: 'peer-operation-cancelled' },
                     updatedAt: this.options.now(),
                 });
@@ -174,7 +174,10 @@ export class OutboundPeerService {
                     ...(typeof code === 'string' ? { code } : {}),
                 };
                 await this.options.store.putSemanticMutation({
-                    ...stored, state: 'completed', outcome, updatedAt: this.options.now(),
+                    ...stored,
+                    state: outcome.code === 'peer-mutation-unresolved' ? 'completed' : 'delivered',
+                    outcome,
+                    updatedAt: this.options.now(),
                 });
                 throw operationError(outcome.error, outcome.code ?? 'peer-operation-failed');
             } finally {

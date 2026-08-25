@@ -6,7 +6,9 @@ import type { PeerRuntime } from './runtime.js';
 import type { StoredPeerRelationship } from './store.js';
 
 const MAX_REQUEST_BYTES = 32 * 1024;
+const MAX_ACK_BYTES = 4 * 1024;
 const MUTATION_TTL_MS = 5 * 60_000;
+const PLUGIN_ACK_TIMEOUT_MS = 5_000;
 
 export type PeerBrokerRequest =
     | { method: 'list'; machine?: string }
@@ -93,6 +95,8 @@ export function parsePeerBrokerRequest(value: unknown): PeerBrokerRequest {
     }
 }
 
+type SemanticBrokerRequest = Extract<import('@muxr/contract').PeerClientRequest, { type: 'peer.remote.watch' | 'peer.remote.prompt' }>;
+
 interface CapabilityState {
     sockets: Set<Socket>;
     controllers: Set<AbortController>;
@@ -146,7 +150,11 @@ export class PeerBroker {
         if (existsSync(this.socketPath) && lstatSync(this.socketPath).isSocket()) unlinkSync(this.socketPath);
     }
 
-    async invoke(value: unknown, access?: { capability: string; signal: AbortSignal }): Promise<unknown> {
+    async invoke(value: unknown, access?: {
+        capability: string;
+        signal: AbortSignal;
+        onSemanticResult?: (request: SemanticBrokerRequest) => void;
+    }): Promise<unknown> {
         const request = parsePeerBrokerRequest(value);
         const assertAccess = (): void => {
             if (access !== undefined && (access.signal.aborted || !this.capabilities.has(access.capability))) {
@@ -198,7 +206,7 @@ export class PeerBroker {
                 const timeoutMs = Math.min(Math.max(Math.trunc(request.timeoutMs ?? 30_000), 1_000), 290_000);
                 const params = { sessionId: target.sessionId, timeoutMs, mutation };
                 const result = await this.remote<'peer.remote.watch'>(relationship, 'peer.remote.watch', params, access?.signal);
-                this.acknowledge('peer.remote.watch', relationship, params);
+                access?.onSemanticResult?.(this.semanticRequest('peer.remote.watch', relationship, params));
                 return {
                     machine: cleanAlias(result.machineAlias),
                     agent: cleanAlias(result.agentAlias),
@@ -213,7 +221,7 @@ export class PeerBroker {
             assertAccess();
             const params = { sessionId: target.sessionId, text, mutation };
             const result = await this.remote<'peer.remote.prompt'>(relationship, 'peer.remote.prompt', params, access?.signal);
-            this.acknowledge('peer.remote.prompt', relationship, params);
+            access?.onSemanticResult?.(this.semanticRequest('peer.remote.prompt', relationship, params));
             return { machine: cleanAlias(result.machineAlias), agent: cleanAlias(result.agentAlias), delivered: result.delivered };
         } catch (error) {
             if (error instanceof Error && (/^(No |Use one|The selected)/.test(error.message)
@@ -223,18 +231,16 @@ export class PeerBroker {
         }
     }
 
-    private acknowledge<T extends 'peer.remote.watch' | 'peer.remote.prompt'>(
+    private semanticRequest<T extends 'peer.remote.watch' | 'peer.remote.prompt'>(
         type: T,
         relationship: StoredPeerRelationship,
         params: Omit<Extract<import('@muxr/contract').PeerClientRequest, { type: T }>['params'], 'relationshipId'>,
-    ): void {
-        setImmediate(() => {
-            void this.runtime.acknowledgeSemantic({
-                type,
-                requestId: `broker-ack-${randomUUID()}`,
-                params: { relationshipId: relationship.relationshipId, ...params },
-            } as Extract<import('@muxr/contract').PeerClientRequest, { type: T }>).catch(() => undefined);
-        });
+    ): Extract<SemanticBrokerRequest, { type: T }> {
+        return {
+            type,
+            requestId: `broker-ack-${randomUUID()}`,
+            params: { relationshipId: relationship.relationshipId, ...params },
+        } as unknown as Extract<SemanticBrokerRequest, { type: T }>;
     }
 
     private remote<T extends 'peer.remote.list' | 'peer.remote.read' | 'peer.remote.status' | 'peer.remote.watch' | 'peer.remote.prompt'>(
@@ -254,7 +260,9 @@ export class PeerBroker {
     private accept(socket: Socket): void {
         let input = '';
         let id = '';
-        const reply = (value: unknown): void => { socket.end(`${JSON.stringify({ id, ...object(value, 'peer broker response') })}\n`); };
+        const reply = (value: unknown): void => {
+            if (!socket.destroyed) socket.end(`${JSON.stringify({ id, ...object(value, 'peer broker response') })}\n`);
+        };
         socket.setTimeout(5_000, () => socket.destroy());
         socket.on('data', (chunk) => {
             input += chunk.toString('utf8');
@@ -287,8 +295,15 @@ export class PeerBroker {
                         : request.method === 'prompt' ? MUTATION_TTL_MS + 25_000 : 45_000;
                     socket.setTimeout(requestTimeout, () => socket.destroy());
                     try {
-                        const data = await this.invoke(request, { capability, signal: controller.signal });
-                        if (!controller.signal.aborted) reply({ ok: true, data });
+                        let semantic: SemanticBrokerRequest | undefined;
+                        const data = await this.invoke(request, {
+                            capability,
+                            signal: controller.signal,
+                            onSemanticResult: (value) => { semantic = value; },
+                        });
+                        if (controller.signal.aborted) return;
+                        if (semantic === undefined) reply({ ok: true, data });
+                        else await this.awaitPluginAck(socket, id, capability, semantic, data);
                     } finally {
                         cleanup();
                     }
@@ -296,6 +311,57 @@ export class PeerBroker {
                     reply({ ok: false, error: error instanceof Error ? error.message : 'peer broker request failed' });
                 }
             })();
+        });
+    }
+
+    private awaitPluginAck(
+        socket: Socket,
+        id: string,
+        capability: string,
+        request: SemanticBrokerRequest,
+        data: unknown,
+    ): Promise<void> {
+        const ackId = randomBytes(24).toString('base64url');
+        return new Promise<void>((resolve, reject) => {
+            let input = '';
+            let accepted = false;
+            const stop = (): void => {
+                socket.removeListener('data', onData);
+                socket.removeListener('close', onClose);
+                socket.setTimeout(0);
+            };
+            const fail = (error: Error): void => {
+                if (accepted) return;
+                accepted = true;
+                stop();
+                socket.destroy();
+                reject(error);
+            };
+            const onClose = (): void => fail(new Error('peer broker plugin closed before acknowledging the result'));
+            const onData = (chunk: Buffer): void => {
+                input += chunk.toString('utf8');
+                if (Buffer.byteLength(input) > MAX_ACK_BYTES) return fail(new Error('peer broker acknowledgement is too large'));
+                const newline = input.indexOf('\n');
+                if (newline === -1) return;
+                try {
+                    const message = object(JSON.parse(input.slice(0, newline)), 'peer broker acknowledgement');
+                    only(message, ['id', 'capability', 'ack']);
+                    if (message.id !== id || message.capability !== capability || message.ack !== ackId
+                        || !this.capabilities.has(capability)) throw new Error('peer broker acknowledgement rejected');
+                    accepted = true;
+                    stop();
+                    void this.runtime.acknowledgeSemantic(request).then(() => {
+                        if (!socket.destroyed) socket.end();
+                        resolve();
+                    }, reject);
+                } catch (error) {
+                    fail(error instanceof Error ? error : new Error('peer broker acknowledgement rejected'));
+                }
+            };
+            socket.on('data', onData);
+            socket.once('close', onClose);
+            socket.setTimeout(PLUGIN_ACK_TIMEOUT_MS, () => fail(new Error('peer broker acknowledgement timed out')));
+            socket.write(`${JSON.stringify({ id, ok: true, data, ackId })}\n`);
         });
     }
 }

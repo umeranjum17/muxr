@@ -44,7 +44,19 @@ async function requestPeer(request, signal) {
             try {
                 const response = JSON.parse(input.slice(0, newline));
                 if (response.id !== id || response.ok !== true) throw new Error(text(response.error) || 'Peer request failed.');
-                finish(undefined, response.data);
+                const semantic = request?.method === 'prompt' || request?.method === 'watch';
+                if (!semantic) {
+                    if (response.ackId !== undefined) throw new Error('Peer broker returned an unexpected acknowledgement.');
+                    finish(undefined, response.data);
+                    return;
+                }
+                if (typeof response.ackId !== 'string' || !/^[A-Za-z0-9_-]{32}$/.test(response.ackId)) {
+                    throw new Error('Peer broker returned an invalid acknowledgement.');
+                }
+                socket.write(`${JSON.stringify({ id, capability, ack: response.ackId })}\n`, (error) => {
+                    if (error) finish(new Error('Peer broker acknowledgement failed.'));
+                    else finish(undefined, response.data);
+                });
             } catch (error) { finish(error); }
         });
         socket.on('error', () => finish(new Error('Peer broker is unavailable.')));

@@ -519,8 +519,8 @@ export class PeerRuntime {
         }
         if (relationship.peerDeviceId === undefined) throw operationError('peer relationship has no device binding', 'peer-revoke-invalid');
         const pending = this.buildPeerRevocation(relationship);
-        await this.store.putRelationship({ ...relationship, state: 'disconnecting', updatedAt: this.now() });
         await this.fencePeerRevocation(pending);
+        await this.store.putRelationship({ ...relationship, state: 'disconnecting', updatedAt: this.now() });
         await this.finishPeerRevocation(pending);
         await this.store.putRelationship({ ...relationship, state: 'revoked', updatedAt: this.now() });
         return { state: 'revoked', revokedAt: this.now(), ...(relationship.authority === undefined ? {} : { authority: relationship.authority }) };
@@ -575,8 +575,8 @@ export class PeerRuntime {
         await this.store.putRelationship(relationship);
         if (this.options.crypto.get().devices.some((device) => device.deviceId === issued.peerDeviceId)) {
             const rotation = this.buildPeerRevocation(relationship);
-            await this.store.putRelationship({ ...relationship, state: 'disconnecting', updatedAt: this.now() });
             await this.fencePeerRevocation(rotation);
+            await this.store.putRelationship({ ...relationship, state: 'disconnecting', updatedAt: this.now() });
             await this.finishPeerRevocation(rotation);
         } else {
             await this.options.authority.revokePeer(issued.peerDeviceId);
@@ -609,8 +609,8 @@ export class PeerRuntime {
             };
             await this.store.putRelationship(relationship);
             const rotation = this.buildPeerRevocation(relationship);
-            await this.store.putRelationship({ ...relationship, state: 'disconnecting', updatedAt: this.now() });
             await this.fencePeerRevocation(rotation);
+            await this.store.putRelationship({ ...relationship, state: 'disconnecting', updatedAt: this.now() });
             await this.finishPeerRevocation(rotation);
         }
     }
