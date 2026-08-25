@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 import { createRequire } from 'node:module';
-import { realpathSync, readFileSync } from 'node:fs';
+import { existsSync, realpathSync, readdirSync, readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
-import { join, relative } from 'node:path';
+import { dirname, join, relative } from 'node:path';
 import { homedir } from 'node:os';
+import { fileURLToPath } from 'node:url';
 import { browserHostingCanEnable, browserHostingReady, daemonIsRunning, enableBrowserHosting, hasPendingRemoteConnect, runDaemon, runDevices, runDoctor, runFullUninstall, runIntegrations, runMachines, runPair, runRemoteConnect, runSelfHost } from './local-setup.mjs';
 import { runMachineManagement, runRemoteRelaySetup, runSetup, runSharedRelaySetup } from './setup-wizard.mjs';
 import { runPlugin } from './plugin.mjs';
@@ -32,6 +33,9 @@ Run and maintain
   muxr devices list|revoke       list or revoke paired devices
   muxr machines enroll|list|revoke manage machines on a shared relay
   muxr integrations sync|uninstall
+
+Agent instructions
+  muxr --skill                    print the complete muxr agent skill and references
 
 Build plugins
   muxr plugin docs|create|clone|check|dev|call|list|install|update|remove
@@ -62,6 +66,7 @@ const COMMAND_HELP = {
     restart: `muxr restart\n\nRestart the supervised relay and host (same as muxr daemon restart).\n`,
     uninstall: `muxr uninstall [--yes|--resume]\n\nRemove all muxr-owned services, ingress, identity, pairings, grants, relay/plugin state, provider keys, logs, caches, and managed integrations. Herdr, its sessions, repositories, worktrees, exports, signing keys, and unrecognized files stay. The globally installed CLI can be removed last.\n`,
     update: `muxr update [--check|--yes]\n\nCheck npm for a newer @trymuxr/cli release. Interactive terminals ask before installing; --yes updates without prompting.\n`,
+    skill: `muxr --skill\nmuxr skill\n\nPrint the complete canonical muxr agent skill followed by every progressive-disclosure reference in deterministic order. Setup and integration sync materialize version-matched Herdr guidance in their managed copy.\n`,
     connect: `muxr connect --enrollment <muxr://enroll?...> [--no-pair|--pair-browser|--pair-browser-view|--pair-both]\nmuxr connect --resume\n`,
     machines: `muxr machines enroll\nmuxr machines list\nmuxr machines revoke <number|name>\n`,
     'shared-relay': `muxr shared-relay\n\nInteractively configure a supervised VPS relay, optional browser client, and machine enrollments.\n`,
@@ -74,6 +79,25 @@ function printHelp(command) {
 function versionString() {
     const require = createRequire(import.meta.url);
     try { return require('./package.json').version; } catch { return require('../package.json').version; }
+}
+
+function muxrSkillDirectory() {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const packaged = join(here, 'skills', 'muxr');
+    return existsSync(join(packaged, 'SKILL.md')) ? packaged : join(here, '..', 'skills', 'muxr');
+}
+
+function printSkill() {
+    const root = muxrSkillDirectory();
+    const references = readdirSync(join(root, 'references'), { withFileTypes: true })
+        .filter((entry) => entry.isFile() && entry.name.endsWith('.md'))
+        .map((entry) => entry.name)
+        .sort();
+    let output = readFileSync(join(root, 'SKILL.md'), 'utf8').trimEnd();
+    for (const name of references) {
+        output += `\n\n<!-- muxr-skill-reference: references/${name} -->\n\n${readFileSync(join(root, 'references', name), 'utf8').trimEnd()}`;
+    }
+    process.stdout.write(`${output}\n`);
 }
 
 // Cheap local read for the menu only. selfhostPublicSummary() would also probe
@@ -182,6 +206,10 @@ async function dispatch(command, args = []) {
     if (args.includes('--help') || args.includes('-h')) {
         const pluginSubcommand = command === 'plugin' && args[0] && !args[0].startsWith('-') ? args[0] : undefined;
         printHelp(pluginSubcommand ? `plugin ${pluginSubcommand}` : command);
+        return 0;
+    }
+    if (command === '--skill' || command === 'skill') {
+        printSkill();
         return 0;
     }
     if (command === 'up') {

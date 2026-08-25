@@ -30,6 +30,7 @@ The bundled Usage item sheet runs the exact pinned [ccusage](https://github.com/
 ```bash
 muxr update                    # check, confirm, update, and restart
 muxr update --check            # check without changing anything
+muxr --skill                   # print the complete agent skill and references
 muxr doctor                    # redacted setup diagnostics
 muxr pair                      # pair another phone
 muxr pair --browser            # pair an 8-hour control browser

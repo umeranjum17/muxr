@@ -84,6 +84,28 @@ function run(command, args, options = {}) {
 
 const sha256 = (text) => createHash('sha256').update(text).digest('hex');
 
+function assertUnifiedSkillOutput(output) {
+    assert.match(output, /^---\nname: muxr\ndescription: /);
+    assert.match(output, /## Task router/);
+    const references = ['browser-takeover.md', 'collaboration.md', 'herdr.md', 'onboarding.md', 'plugins.md'];
+    let previous = -1;
+    for (const name of references) {
+        const index = output.indexOf(`<!-- muxr-skill-reference: references/${name} -->`);
+        assert.ok(index > previous, `${name} missing or out of deterministic order`);
+        previous = index;
+    }
+    for (const heading of [
+        '# Onboarding: install, pair, self-host, maintain',
+        '# Herdr orchestration',
+        '# Cross-machine agent collaboration',
+        '# Browser takeover for login, 2FA, and CAPTCHA',
+        '# muxr plugins: author, install, debug, override',
+    ]) assert.match(output, new RegExp(`^${heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'm'));
+    assert.match(output, /installed binary is the only command\s+contract/);
+    assert.match(output, /## Packaged-reference behavior/);
+    assert.doesNotMatch(output, /## Installed Herdr CLI reference/, 'packaged CLI unexpectedly exposed runtime-materialized Herdr guidance');
+}
+
 function filesSnapshot(path) {
     const out = [];
     function walk(current) {
@@ -250,6 +272,12 @@ ${expectWaitForExit}`],
 }
 
 try {
+    const sourceHelp = run(process.execPath, ['scripts/cli.mjs', '--help']).stdout;
+    assert.match(sourceHelp, /muxr --skill\s+print the complete muxr agent skill and references/);
+    const sourceSkill = run(process.execPath, ['scripts/cli.mjs', '--skill']).stdout;
+    assertUnifiedSkillOutput(sourceSkill);
+    assert.equal(run(process.execPath, ['scripts/cli.mjs', 'skill']).stdout, sourceSkill, 'source skill alias diverged from --skill');
+
     run('npm', ['run', 'web:export']);
     const auditFixture = join(scratch, 'audit-fixture');
     for (const [directory, version] of [
@@ -351,6 +379,12 @@ try {
     const cli = join(installDir, 'node_modules', '.bin', 'muxr');
     const installedPackage = join(installDir, 'node_modules', '@trymuxr', 'cli');
     const installedPlugins = join(installedPackage, 'plugins');
+    assert.match(readFileSync(join(installedPackage, 'README.md'), 'utf8'), /muxr --skill\s+# print the complete agent skill and references/);
+    const rootHelp = run(cli, ['--help'], { cwd: installDir }).stdout;
+    assert.match(rootHelp, /muxr --skill\s+print the complete muxr agent skill and references/);
+    const installedSkill = run(cli, ['--skill'], { cwd: installDir }).stdout;
+    assertUnifiedSkillOutput(installedSkill);
+    assert.equal(run(cli, ['skill'], { cwd: installDir }).stdout, installedSkill, 'packed skill alias diverged from --skill');
     const wizardSource = readFileSync(join(installedPackage, 'setup-wizard.mjs'), 'utf8');
     const applyGuard = wizardSource.indexOf("if (apply !== true) return cancelSetup();");
     const tailscaleMutation = wizardSource.indexOf('await applyTailscaleConnect(found)', applyGuard);
