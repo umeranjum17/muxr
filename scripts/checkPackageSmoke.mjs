@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import {
     chmodSync,
     existsSync,
@@ -80,6 +81,8 @@ function run(command, args, options = {}) {
     }
     return result;
 }
+
+const sha256 = (text) => createHash('sha256').update(text).digest('hex');
 
 function filesSnapshot(path) {
     const out = [];
@@ -308,6 +311,7 @@ try {
     assert.ok(listing.includes('package/plugins/voice-gemini/rpc.mjs') && listing.includes('package/plugins/voice-gemini/stream.mjs'), 'Gemini Live plugin missing from npm artifact');
     assert.ok(listing.includes('package/plugins/voice-openai/rpc.mjs') && listing.includes('package/plugins/voice-openai/stream.mjs'), 'OpenAI Realtime plugin missing from npm artifact');
     assert.ok(listing.includes('package/skills/muxr/SKILL.md'), 'muxr skill missing from npm artifact');
+    assert.deepEqual(listing.filter((file) => /^package\/skills\/.*\/SKILL\.md$/.test(file)), ['package/skills/muxr/SKILL.md'], 'npm artifact must ship exactly one public skill');
     assert.ok(listing.includes('package/skills/muxr/references/plugins.md'), 'muxr skill references missing from npm artifact');
     assert.ok(listing.includes('package/skills/muxr/references/browser-takeover.md'), 'browser takeover reference missing from npm artifact');
     assert.ok(listing.includes('package/web/index.html'), 'secure browser client missing from npm artifact');
@@ -347,6 +351,11 @@ try {
     const cli = join(installDir, 'node_modules', '.bin', 'muxr');
     const installedPackage = join(installDir, 'node_modules', '@trymuxr', 'cli');
     const installedPlugins = join(installedPackage, 'plugins');
+    const wizardSource = readFileSync(join(installedPackage, 'setup-wizard.mjs'), 'utf8');
+    const applyGuard = wizardSource.indexOf("if (apply !== true) return cancelSetup();");
+    const tailscaleMutation = wizardSource.indexOf('await applyTailscaleConnect(found)', applyGuard);
+    assert.ok(applyGuard >= 0 && tailscaleMutation > applyGuard, 'interactive setup may mutate Tailscale before Apply setup');
+    assert.doesNotMatch(wizardSource.slice(wizardSource.indexOf('async function offerTailscaleConnect'), wizardSource.indexOf('async function applyTailscaleConnect')), /spawnSync\(/, 'Tailscale preflight executes a machine mutation');
     if (existsSync(ttyProcess('').command)) {
         const uiFlow = join(scratch, 'setup-ui-flow.mjs');
         writeFileSync(uiFlow, `import {withFullscreen, setupStep, outro, select} from ${JSON.stringify(`file://${join(installedPackage, 'setup-ui.mjs')}`)};\nif (process.argv[2] === 'full') await withFullscreen(async () => { setupStep(1, 5, 'Check this machine'); outro('Setup receipt'); return 0; });\nelse await withFullscreen(async () => { await select('Choose connection', [{value:'lan',title:'LAN',description:'same network'}]); return 0; });\n`);
@@ -612,6 +621,30 @@ try {
     assert.notEqual(prefixMismatch.status, 0, 'updater accepted npm from a different global prefix');
     assert.match(`${prefixMismatch.stdout}${prefixMismatch.stderr}`, /different npm prefix/);
     assert.ok(!existsSync(updateLog), 'prefix mismatch reached npm install');
+
+    // Model an actual old-package installation before the new package's update
+    // reconciliation runs: two legacy skills, the old instruction block, and a
+    // v1 ownership manifest, with no unified tree yet.
+    const muxrIntegrationRoot = join(home, '.muxr', 'integrations');
+    const legacyHerdrSkill = join(muxrIntegrationRoot, 'herdr', 'SKILL.md');
+    const legacyPluginSkill = join(muxrIntegrationRoot, 'muxr-plugin-authoring', 'SKILL.md');
+    const legacyHerdrContent = '---\nname: herdr\ndescription: old binary skill\n---\n\n# Old Herdr\n';
+    const legacyPluginContent = '---\nname: muxr-plugin-authoring\ndescription: old plugin skill\n---\n\n# Old plugins\n';
+    mkdirSync(dirname(legacyHerdrSkill), { recursive: true });
+    mkdirSync(dirname(legacyPluginSkill), { recursive: true });
+    writeFileSync(legacyHerdrSkill, legacyHerdrContent);
+    writeFileSync(legacyPluginSkill, legacyPluginContent);
+    rmSync(join(muxrIntegrationRoot, 'muxr'), { recursive: true, force: true });
+    const oldBlock = `<!-- muxr:herdr-skill:start -->\n## Herdr\nWhen the user explicitly asks to use Herdr, read \`${legacyHerdrSkill}\` before acting.\n\n## muxr plugins\nWhen the user asks to create, modify, install, or replace a muxr plugin, read \`${legacyPluginSkill}\` before acting.\n<!-- muxr:herdr-skill:end -->`;
+    writeFileSync(instructionPath, readFileSync(instructionPath, 'utf8').replace(/<!-- muxr:herdr-skill:start -->[\s\S]*?<!-- muxr:herdr-skill:end -->/, oldBlock));
+    const oldManifest = JSON.parse(readFileSync(join(home, '.muxr', 'setup-manifest.json'), 'utf8'));
+    oldManifest.version = 1;
+    oldManifest.entries = Object.fromEntries(Object.entries(oldManifest.entries).filter(([path, entry]) => entry.scope === 'daemon'));
+    oldManifest.entries[legacyHerdrSkill] = { kind: 'owned', hash: sha256(legacyHerdrContent) };
+    oldManifest.entries[legacyPluginSkill] = { kind: 'owned', hash: sha256(legacyPluginContent) };
+    oldManifest.entries[instructionPath] = { kind: 'block', hash: sha256(oldBlock), created: false };
+    writeFileSync(join(home, '.muxr', 'setup-manifest.json'), `${JSON.stringify(oldManifest, null, 2)}\n`);
+
     run(cli, ['update', '--yes'], { cwd: installDir, env: updateEnv });
     assert.match(readFileSync(updateLog, 'utf8'), /install --global --ignore-scripts @trymuxr\/cli@9\.9\.9/);
     const linuxUnit = readFileSync(join(home, '.config', 'systemd', 'user', 'muxr.service'), 'utf8');
@@ -626,20 +659,44 @@ try {
     assert.match(readFileSync(muxrSkillPath, 'utf8'), /^---\nname: muxr\n/);
     assert.ok(existsSync(join(home, '.muxr', 'integrations', 'muxr', 'references', 'plugins.md')), 'muxr skill references not installed');
     assert.ok(existsSync(join(home, '.muxr', 'integrations', 'muxr', 'references', 'browser-takeover.md')), 'browser takeover reference not installed');
+    assert.match(readFileSync(join(home, '.muxr', 'integrations', 'muxr', 'references', 'herdr.md'), 'utf8'), /Installed Herdr CLI reference[\s\S]*Generated by `herdr --skill` from `herdr 0\.8\.0`[\s\S]*# Herdr smoke skill/);
     assert.ok(!existsSync(join(home, '.muxr', 'integrations', 'herdr', 'SKILL.md')), 'separate Herdr skill should not be installed');
+    assert.ok(!existsSync(join(home, '.muxr', 'integrations', 'muxr-plugin-authoring', 'SKILL.md')), 'legacy plugin skill should not be installed');
     assert.match(instructions, new RegExp(muxrSkillPath.replaceAll('\\', '\\\\')));
+    assert.doesNotMatch(instructions, /integrations[/\\](?:herdr|muxr-plugin-authoring)[/\\]SKILL\.md/);
+    const migratedManifest = JSON.parse(readFileSync(join(home, '.muxr', 'setup-manifest.json'), 'utf8'));
+    assert.equal(migratedManifest.version, 2, 'ownership manifest did not transition to v2');
+    assert.equal(Object.keys(migratedManifest.entries).some((path) => /integrations[/\\](?:herdr|muxr-plugin-authoring)[/\\]SKILL\.md$/.test(path)), false, 'legacy skill ownership survived migration');
     assert.ok(readdirSync(join(home, '.pi', 'agent')).some((name) => name.startsWith('AGENTS.md.muxr-backup-')));
     assert.equal(statSync(join(home, '.muxr', 'setup-manifest.json')).mode & 0o777, 0o600);
     assert.ok(existsSync(join(home, '.config', 'systemd', 'user', 'muxr.service')));
 
+    const installedOnboarding = join(installedPackage, 'skills', 'muxr', 'references', 'onboarding.md');
+    writeFileSync(installedOnboarding, `${readFileSync(installedOnboarding, 'utf8').trimEnd()}\n\nPackage upgrade marker.\n`);
+    const removedReference = join(home, '.muxr', 'integrations', 'muxr', 'references', 'removed.md');
+    const userReference = join(home, '.muxr', 'integrations', 'muxr', 'references', 'user-notes.md');
+    writeFileSync(removedReference, 'old managed reference\n');
+    writeFileSync(userReference, 'keep this user file\n');
+    const manifestWithRemoved = JSON.parse(readFileSync(join(home, '.muxr', 'setup-manifest.json'), 'utf8'));
+    manifestWithRemoved.entries[removedReference] = { kind: 'owned', hash: sha256('old managed reference\n') };
+    writeFileSync(join(home, '.muxr', 'setup-manifest.json'), `${JSON.stringify(manifestWithRemoved, null, 2)}\n`);
     writeFileSync(instructionPath, readFileSync(instructionPath, 'utf8').replace('For muxr or Herdr setup', 'For muxr setup'));
+    const beforeDrift = filesSnapshot(home);
     const mutationsBeforeDrift = existsSync(fakeLog) ? readFileSync(fakeLog, 'utf8') : '';
     const drift = run(cli, ['integrations', 'sync'], { cwd: installDir, env, allowFailure: true });
     assert.notEqual(drift.status, 0);
     assert.match(`${drift.stdout}${drift.stderr}`, /drift:/);
+    assert.equal(filesSnapshot(home), beforeDrift, 'drift preflight partially changed managed files');
     assert.equal(readFileSync(fakeLog, 'utf8'), mutationsBeforeDrift, 'drift preflight invoked mutating herdr commands');
     run(cli, ['integrations', 'sync', '--force'], { cwd: installDir, env });
     assert.match(readFileSync(instructionPath, 'utf8'), /Keep this line\./);
+    assert.match(readFileSync(join(home, '.muxr', 'integrations', 'muxr', 'references', 'onboarding.md'), 'utf8'), /Package upgrade marker/);
+    assert.equal(existsSync(removedReference), false, 'removed managed reference survived reconciliation');
+    assert.equal(readFileSync(userReference, 'utf8'), 'keep this user file\n', 'unrecognized user reference was not preserved');
+    const afterConvergedSync = filesSnapshot(home);
+    const repeatedSync = run(cli, ['integrations', 'sync'], { cwd: installDir, env });
+    assert.equal(filesSnapshot(home), afterConvergedSync, 'repeated integration sync changed managed files');
+    assert.doesNotMatch(repeatedSync.stdout, /would |write |remove |replace managed skill tree|update managed block/, 'repeated integration sync was not idempotent');
     const stoppedDoctor = run(cli, ['doctor'], { cwd: installDir, env, allowFailure: true });
     assert.notEqual(stoppedDoctor.status, 0, 'doctor accepted a configured relay that was not running');
     assert.match(`${stoppedDoctor.stdout}${stoppedDoctor.stderr}`, /not reachable/);
