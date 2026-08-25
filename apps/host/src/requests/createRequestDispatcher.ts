@@ -9,6 +9,7 @@ import type {
     RequestResponse,
     RequestResult,
     RequestType,
+    WatchSettlement,
 } from '@muxr/contract';
 import type { DomainStores } from '../domain/index.js';
 import type { TerminalManager } from '../herdr/terminalManager.js';
@@ -275,6 +276,34 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         }
     }
 
+    async function dispatchPeerWatch(request: Extract<ClientRequest, { type: 'agent.watch' }>, authenticatedSenderId: string): Promise<RequestResponse> {
+        let settle!: (value: WatchSettlement) => void;
+        const settlement = new Promise<WatchSettlement>((resolve) => { settle = resolve; });
+        const unsubscribe = source.subscribe((sessionId, event) => {
+            if (sessionId === request.params.sessionId && event.type === 'watch.settled') {
+                const status = event.status.replace(/[^a-z -]/gi, '').trim().slice(0, 40) || 'unknown';
+                settle({
+                    status,
+                    detail: event.timedOut === true ? 'Watch timed out' : `Agent is ${status}`,
+                    ...(event.timedOut === true ? { timedOut: true } : {}),
+                });
+            }
+        });
+        const timeoutMs = Math.min(Math.max(Math.trunc(request.params.timeoutMs ?? 30 * 60_000), 1_000), 60 * 60_000);
+        const timer = setTimeout(() => settle({ status: 'unknown', detail: 'Watch timed out', timedOut: true }), timeoutMs + 15_000);
+        try {
+            const registered = await dispatchCore(request, authenticatedSenderId);
+            if (!registered.ok) return registered;
+            return {
+                type: 'result', requestId: request.requestId, ok: true,
+                data: { watching: true, settlement: await settlement },
+            };
+        } finally {
+            clearTimeout(timer);
+            unsubscribe();
+        }
+    }
+
     return {
         async dispatch(request, authenticatedSenderId): Promise<RequestResponse> {
             const deviceId = authenticatedSenderId ?? 'local';
@@ -305,7 +334,14 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
                 if (options.peerRuntime === undefined || authenticatedSenderId === undefined) {
                     return { type: 'result', requestId: request.requestId, ok: false, code: 'peer-forbidden', error: 'peer runtime is unavailable on this host' };
                 }
-                return options.peerRuntime.dispatchIncoming(request, authenticatedSenderId, context, () => dispatchCore(request, authenticatedSenderId));
+                return options.peerRuntime.dispatchIncoming(
+                    request,
+                    authenticatedSenderId,
+                    context,
+                    () => request.type === 'agent.watch'
+                        ? dispatchPeerWatch(request, authenticatedSenderId)
+                        : dispatchCore(request, authenticatedSenderId),
+                );
             }
             return dispatchCore(request, authenticatedSenderId);
         },

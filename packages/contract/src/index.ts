@@ -45,6 +45,7 @@ export type {
     RequestType,
     StreamingBehavior,
     VoiceProviderOption,
+    WatchSettlement,
 } from './requests.js';
 export { MISSING_CWD_ERROR_PREFIX, normalizeRequestFailure, requestRequiresE2ee } from './requests.js';
 export type { LayoutSnapshot } from './requests.js';

@@ -235,6 +235,37 @@ function ensureMachineStates(intent: CollaborationIntent, lists: Map<string, Pee
 
 async function reconcileIntent(intent: CollaborationIntent, lists: Map<string, PeerRelationship[] | undefined>): Promise<CollaborationIntent> {
     const next = cloneIntent(intent);
+    const knownMachines = new Set(next.machines.map((machine) => machine.machineId));
+    const canonical = new Map<string, { sourceMachineId: string; targetMachineId: string; outbound?: PeerRelationship; inbound?: PeerRelationship }>();
+    for (const [hostMachineId, peers] of lists) {
+        for (const peer of peers ?? []) {
+            if (peer.state === 'revoked') continue;
+            const sourceMachineId = peer.direction === 'outbound' ? hostMachineId : peer.machineId;
+            const targetMachineId = peer.direction === 'outbound' ? peer.machineId : hostMachineId;
+            if (!knownMachines.has(sourceMachineId) || !knownMachines.has(targetMachineId)) continue;
+            const key = `${peer.relationshipId}\0${sourceMachineId}\0${targetMachineId}`;
+            const entry = canonical.get(key) ?? { sourceMachineId, targetMachineId };
+            entry[peer.direction] = peer;
+            canonical.set(key, entry);
+        }
+    }
+    const selected = new Set(next.selectedMachineIds);
+    for (const [key, entry] of canonical) {
+        const [relationshipId] = key.split('\0');
+        let edge = next.edges.find((candidate) => candidate.relationshipId === relationshipId
+            && candidate.sourceMachineId === entry.sourceMachineId && candidate.targetMachineId === entry.targetMachineId);
+        if (edge === undefined) {
+            edge = { sourceMachineId: entry.sourceMachineId, targetMachineId: entry.targetMachineId, relationshipId };
+            next.edges.push(edge);
+        }
+        if (edge.disconnect === undefined) {
+            selected.add(entry.sourceMachineId);
+            selected.add(entry.targetMachineId);
+            if (isActive(entry.outbound) && isActive(entry.inbound)) edge.setup = undefined;
+            else edge.setup = { repairNeeded: true, peerDeviceId: entry.outbound?.peerDeviceId ?? entry.inbound?.peerDeviceId };
+        }
+    }
+    next.selectedMachineIds = [...selected];
     next.edges = next.edges.filter((edge) => {
         const sourceList = lists.get(edge.sourceMachineId);
         const targetList = lists.get(edge.targetMachineId);
@@ -265,7 +296,7 @@ export async function reconcileCollaboration(
 ): Promise<CollaborationReport> {
     const catalog = mergeMachines(intent, machines);
     const lists = await listPeers(catalog, request);
-    const next = await reconcileIntent(intent, lists);
+    const next = await reconcileIntent({ ...intent, machines: catalog }, lists);
     return {
         intent: next,
         states: ensureMachineStates(next, lists),
@@ -292,7 +323,7 @@ export async function applyCollaboration(
     const byId = new Map(catalog.map((machine) => [machine.machineId, machine]));
     const errors: Record<string, string> = {};
     let lists = await listPeers(catalog, request);
-    let next = await reconcileIntent(intent, lists);
+    let next = await reconcileIntent({ ...intent, machines: catalog }, lists);
     await onProgress(next);
 
     const revokeEdge = async (edge: CollaborationEdge): Promise<boolean> => {

@@ -503,7 +503,6 @@ async function main(): Promise<void> {
     let peerRuntime: PeerRuntime | undefined;
     let peerBroker: PeerBroker | undefined;
     if ((mode === 'selfhost' || mode === 'hosted') && hostedE2ee !== undefined && token !== undefined) {
-        try {
         const cryptoAdapter = {
             get: (): MachineCryptoState => (mode === 'hosted' ? hostedAuth!.machine.crypto! : selfhostAuth!.machine.crypto),
             commit: async (next: MachineCryptoState): Promise<void> => {
@@ -535,30 +534,36 @@ async function main(): Promise<void> {
                 hostedE2ee.deviceExpiresAt = Object.fromEntries(next.devices.map((device) => [device.deviceId, Date.parse(device.expiresAt)]));
             },
         };
-        peerRuntime = new PeerRuntime({
-            dataDir: join(dataDir, 'peer'),
-            machineId,
-            machineName,
-            platform: process.platform === 'darwin' ? 'macOS' : process.platform === 'win32' ? 'Windows' : process.platform === 'linux' ? 'Linux' : process.platform,
-            relayUrl,
-            crypto: cryptoAdapter,
-            authority: new HttpPeerAuthority({
-                kind: mode,
-                controlUrl: mode === 'hosted' ? hostedAuth!.controlUrl : relayControlUrl(relayUrl),
+        try {
+            peerRuntime = new PeerRuntime({
+                dataDir: join(dataDir, 'peer'),
                 machineId,
-                credential: token,
-            }),
-        });
-        await peerRuntime.recover();
-        peerBroker = new PeerBroker(join(dataDir, 'peer', 'voice.sock'), peerRuntime);
-        await peerBroker.start();
-        process.env.MUXR_PEER_BROKER_SOCKET = peerBroker.socketPath;
+                machineName,
+                platform: process.platform === 'darwin' ? 'macOS' : process.platform === 'win32' ? 'Windows' : process.platform === 'linux' ? 'Linux' : process.platform,
+                relayUrl,
+                crypto: cryptoAdapter,
+                authority: new HttpPeerAuthority({
+                    kind: mode,
+                    controlUrl: mode === 'hosted' ? hostedAuth!.controlUrl : relayControlUrl(relayUrl),
+                    machineId,
+                    credential: token,
+                }),
+            });
         } catch (error) {
-            await peerBroker?.close().catch(() => undefined);
-            peerBroker = undefined;
-            peerRuntime = undefined;
-            delete process.env.MUXR_PEER_BROKER_SOCKET;
             process.stderr.write(`peer runtime unavailable: ${error instanceof Error ? error.message : String(error)}\n`);
+        }
+        if (peerRuntime !== undefined) {
+            void peerRuntime.recover().catch((error) => {
+                process.stderr.write(`peer recovery pending: ${error instanceof Error ? error.message : String(error)}\n`);
+            });
+            try {
+                peerBroker = new PeerBroker(join(dataDir, 'peer', 'voice.sock'), peerRuntime);
+                await peerBroker.start();
+            } catch (error) {
+                await peerBroker?.close().catch(() => undefined);
+                peerBroker = undefined;
+                process.stderr.write(`peer voice broker unavailable: ${error instanceof Error ? error.message : String(error)}\n`);
+            }
         }
     }
     const domain = createDomainStores({ dataDir });
@@ -583,6 +588,7 @@ async function main(): Promise<void> {
               hostHttpPort: Number(env('MUXR_HOST_HTTP_PORT') ?? 8793),
               ...(token === undefined ? {} : { token }),
               ...(hostedE2ee === undefined ? {} : { hostedE2ee }),
+              ...(peerBroker === undefined ? {} : { peerBroker }),
           });
 
     const hostVersion = resolveHostVersion();
@@ -599,6 +605,7 @@ async function main(): Promise<void> {
         ...(hostVersion === undefined ? {} : { hostVersion }),
         onStateChange: (state) => {
             process.stdout.write(`relay link: ${state}\n`);
+            if (state === 'open') peerRuntime?.retryRecovery();
             if (state === 'replaced') {
                 terminals.closeAll();
                 process.exit(0);
@@ -609,6 +616,7 @@ async function main(): Promise<void> {
     // A dead host must never leave --takeover streams holding the desk's panes.
     const shutdown = (): void => {
         terminals.closeAll();
+        peerRuntime?.close();
         void peerBroker?.close();
         void source.dispose();
         process.exit(0);

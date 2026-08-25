@@ -186,6 +186,7 @@ The work lands as one cohesive feature PR with reviewable internal commits.
 ## Revisions
 
 - 2026-08-25: hardened the release after hostile review: receipt admission and security-first revoke, crash-recoverable authorization, correlated liveness, strict frame validation, deployed hosted generic pairing APIs, immutable voice grant refresh, pairing guards, destructive voice-tool removal, and remote-output redaction.
+- 2026-08-25: reopened after owner review to add directed watch settlement, per-stream voice broker capabilities and strict parsing, retryable recovery fencing, canonical mobile authority reconciliation, stable human aliases, and focused PeerRuntime responsibility extraction.
 
 ## Verification
 
@@ -202,3 +203,11 @@ The work lands as one cohesive feature PR with reviewable internal commits.
 - [ ] Switching computers during voice requires explicit call termination.
 - [ ] Internal ids, raw terminal output, credentials, and private paths are never displayed or spoken.
 - [ ] Existing local Herdr, pairing, plugin, voice, Android, iOS, and relay isolation flows remain green.
+
+## Review evidence
+
+- 2026-08-25: directed peer watch, broker capability/closed-union rejection, recovery retry/fencing, stable aliases, and canonical mobile reconciliation passed in the two existing flow suites (5 flow tests across 2 files).
+- 2026-08-25: voice/provider checks passed (29 assertions across realtime session, provider refusal, and plugin catalog flows; bundled plugin policy and voice RPC lifecycle also passed).
+- 2026-08-25: strict workspace typecheck passed. `scripts/runSuite.mjs` passed 30/30 once; a final rerun passed 29/30 with only the live Herdr check timing out while scanning 95 sessions, and that exact check passed immediately when rerun alone.
+- 2026-08-25: `git diff --check` passed.
+- Not yet verified: the hosted two-machine ceremony for grant refresh/rotation, reconnect, and immediate socket revocation. The spec remains `implemented`, not `tested`.

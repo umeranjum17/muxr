@@ -7,7 +7,7 @@
  * the plugin process.
  */
 
-import { spawn, type ChildProcess } from 'node:child_process';
+import { spawn, type ChildProcess, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import WebSocket from 'ws';
@@ -23,6 +23,7 @@ import {
 } from '@muxr/contract';
 import { v2EnvelopeSequence } from '@muxr/crypto';
 import { HostV2Crypto, type HostedMachineKeys } from '../hostedE2ee.js';
+import type { PeerBroker } from '../peer/broker.js';
 
 const ATTACH_TIMEOUT_MS = 10_000;
 const STREAM_IDLE_TIMEOUT_MS = 10 * 60_000;
@@ -43,6 +44,7 @@ interface StreamOptions {
     machineId: string;
     token?: string;
     hostedE2ee?: HostedMachineKeys;
+    peerBroker?: PeerBroker;
 }
 
 interface Attachment {
@@ -118,21 +120,30 @@ export class PluginStreamManager {
         }
 
         const processGroup = process.platform !== 'win32';
-        const child = spawn(process.execPath, [join(params.target.pluginRoot, params.target.entry)], {
-            cwd: process.cwd(),
-            detached: processGroup,
-            env: {
-                PATH: process.env.PATH,
-                HOME: process.env.HOME,
-                ...(process.env.MUXR_HOME ? { MUXR_HOME: process.env.MUXR_HOME } : {}),
-                MUXR_PLUGIN_ID: params.target.pluginId,
-                MUXR_PLUGIN_STATE_DIR: params.stateDir,
-                ...(params.target.peerBroker === true && process.env.MUXR_PEER_BROKER_SOCKET
-                    ? { MUXR_PEER_BROKER_SOCKET: process.env.MUXR_PEER_BROKER_SOCKET }
-                    : {}),
-            },
-            stdio: ['pipe', 'pipe', 'pipe'],
-        });
+        const peerAccess = params.target.peerBroker === true ? this.options.peerBroker?.issueCapability() : undefined;
+        let child: ChildProcessWithoutNullStreams;
+        try {
+            child = spawn(process.execPath, [join(params.target.pluginRoot, params.target.entry)], {
+                cwd: process.cwd(),
+                detached: processGroup,
+                env: {
+                    PATH: process.env.PATH,
+                    HOME: process.env.HOME,
+                    ...(process.env.MUXR_HOME ? { MUXR_HOME: process.env.MUXR_HOME } : {}),
+                    MUXR_PLUGIN_ID: params.target.pluginId,
+                    MUXR_PLUGIN_STATE_DIR: params.stateDir,
+                    ...(peerAccess === undefined ? {} : {
+                        MUXR_PEER_BROKER_SOCKET: peerAccess.socketPath,
+                        MUXR_PEER_BROKER_CAPABILITY: peerAccess.capability,
+                    }),
+                },
+                stdio: ['pipe', 'pipe', 'pipe'],
+            });
+        } catch (error) {
+            if (peerAccess !== undefined) this.options.peerBroker?.revokeCapability(peerAccess.capability);
+            socket.close();
+            throw error;
+        }
 
         let finished = false;
         let gracefulCloseSent = false;
@@ -181,6 +192,7 @@ export class PluginStreamManager {
             }
             if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) socket.close();
             if (this.attachments.get(params.channel) === attachment) this.attachments.delete(params.channel);
+            if (peerAccess !== undefined) this.options.peerBroker?.revokeCapability(peerAccess.capability);
             attachment.onClosed();
         };
         const killChild = (): void => {

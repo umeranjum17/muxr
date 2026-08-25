@@ -32,7 +32,7 @@ import { createRequestDispatcher } from '../requests/createRequestDispatcher.js'
 import type { SessionSource } from '../sessionSource.js';
 import { HttpPeerAuthority, type PeerAuthority } from './authority.js';
 import { NodePeerClient, type PeerClientRequestType, type PeerClientTransport } from './client.js';
-import { PeerBroker, type PeerBrokerRequest } from './broker.js';
+import { PeerBroker } from './broker.js';
 import { PeerRuntime } from './runtime.js';
 import type { MachineCryptoAdapter, MachineCryptoState, MachineRotationGrant } from './types.js';
 
@@ -91,11 +91,11 @@ async function call<T extends PeerRequestType>(
     return runtime.handle({ type, requestId: `phone-${Math.random()}`, params } as PeerClientRequest, 'phone-control') as Promise<PeerRequestResult<T>>;
 }
 
-async function brokerCall(socketPath: string, request: PeerBrokerRequest): Promise<unknown> {
+async function brokerCall(socketPath: string, capability: string, request: unknown): Promise<unknown> {
     return new Promise((resolve, reject) => {
         const socket = createConnection(socketPath);
         let input = '';
-        socket.on('connect', () => socket.write(`${JSON.stringify({ id: 'voice-flow', request })}\n`));
+        socket.on('connect', () => socket.write(`${JSON.stringify({ id: 'voice-flow', capability, request })}\n`));
         socket.on('data', (chunk) => {
             input += chunk.toString('utf8');
             const newline = input.indexOf('\n');
@@ -128,6 +128,7 @@ describe('host peer collaboration flow', () => {
             agentKind: 'pi',
         };
         let remoteSessions = [session];
+        const targetListeners = new Set<(sessionId: string, event: { type: 'watch.settled'; status: string; detail: string }) => void>();
         const targetSource = {
             async list() { return remoteSessions; },
             async prompt() { prompts += 1; },
@@ -135,7 +136,16 @@ describe('host peer collaboration flow', () => {
             async status(sessionId: string) {
                 return { sessionId, agentStatus: 'idle', isStreaming: false, tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }, cost: 0, usageLimits: { capturedAt: new Date().toISOString(), windows: [] } };
             },
-            async agentWatch() { return { watching: true }; },
+            async agentWatch(options: { sessionId: string }) {
+                queueMicrotask(() => {
+                    for (const listener of targetListeners) listener(options.sessionId, { type: 'watch.settled', status: 'done', detail: 'pi is done' });
+                });
+                return { watching: true };
+            },
+            subscribe(listener: (sessionId: string, event: { type: 'watch.settled'; status: string; detail: string }) => void) {
+                targetListeners.add(listener);
+                return () => targetListeners.delete(listener);
+            },
         } as unknown as SessionSource;
         let targetDispatch: ReturnType<typeof createRequestDispatcher>['dispatch'];
         const sourceRuntime = new PeerRuntime({
@@ -238,6 +248,12 @@ describe('host peer collaboration flow', () => {
             mutation: promptMutation,
         });
         expect(prompts).toBe(1);
+        await expect(call(sourceRuntime, 'peer.remote.watch', {
+            relationshipId: installed.relationshipId,
+            sessionId: 'muxr-session-ios',
+            timeoutMs: 5_000,
+            mutation: fresh('watch-settlement'),
+        })).resolves.toMatchObject({ settlement: { status: 'done', detail: 'Agent is done' } });
 
         // Recreate the target runtime to prove the operation receipt, not memory, owns retry safety.
         const restartedTarget = new PeerRuntime({
@@ -272,25 +288,47 @@ describe('host peer collaboration flow', () => {
 
         const broker = new PeerBroker(join(root, 'source', 'voice.sock'), sourceRuntime);
         await broker.start();
+        const access = broker.issueCapability();
         expect(statSync(broker.socketPath).mode & 0o077).toBe(0);
-        const brokerList = await brokerCall(broker.socketPath, { method: 'list', machine: 'Build Mac' });
+        await expect(brokerCall(broker.socketPath, 'not-a-capability', { method: 'list' })).rejects.toThrow('capability rejected');
+        await expect(brokerCall(broker.socketPath, access.capability, { method: 'unknown', text: 'must not become a prompt' })).rejects.toThrow('unknown peer broker method');
+        const brokerList = await brokerCall(broker.socketPath, access.capability, { method: 'list', machine: 'Build Mac' });
         expect(brokerList).toEqual({ machines: [{ machine: 'Build Mac', agents: [{ agent: 'iOS builder' }] }] });
-        await expect(brokerCall(broker.socketPath, { method: 'list' })).resolves.toEqual(brokerList);
+        await expect(brokerCall(broker.socketPath, access.capability, { method: 'list' })).resolves.toEqual(brokerList);
         expect(JSON.stringify(brokerList)).not.toMatch(/target-machine|muxr-session|internal-pane-path/);
-        const spokenRead = await brokerCall(broker.socketPath, { method: 'read', machine: 'Build Mac', agent: 'iOS builder' });
+        const spokenRead = await brokerCall(broker.socketPath, access.capability, { method: 'read', machine: 'Build Mac', agent: 'iOS builder' });
         expect(spokenRead).toMatchObject({ machine: 'Build Mac', agent: 'iOS builder', truncated: false });
         expect(JSON.stringify(spokenRead)).toContain('build complete');
         expect(JSON.stringify(spokenRead)).not.toMatch(/Users|pp_secret|remote-secret-value/);
-        await expect(brokerCall(broker.socketPath, { method: 'prompt', machine: 'Build Mac', agent: 'iOS builder', text: 'Report build status' }))
+        await expect(brokerCall(broker.socketPath, access.capability, { method: 'prompt', machine: 'Build Mac', agent: 'iOS builder', text: 'Report build status' }))
             .resolves.toEqual({ machine: 'Build Mac', agent: 'iOS builder', delivered: true });
         expect(prompts).toBe(2);
+        await expect(brokerCall(broker.socketPath, access.capability, { method: 'watch', machine: 'Build Mac', agent: 'iOS builder', timeoutMs: 5_000 }))
+            .resolves.toMatchObject({ settlement: { status: 'done', detail: 'Agent is done' } });
         remoteSessions = [session, { ...session, id: 'another-internal-session' }];
-        await expect(brokerCall(broker.socketPath, { method: 'read', machine: 'Build Mac', agent: 'iOS builder' }))
-            .rejects.toThrow('More than one agent on the selected computer has that name');
+        const qualified = await brokerCall(broker.socketPath, access.capability, { method: 'list', machine: 'Build Mac' }) as { machines: Array<{ agents: Array<{ agent: string }> }> };
+        expect(qualified.machines[0]!.agents.map((entry) => entry.agent).sort()).toEqual(['iOS builder (pi) 1', 'iOS builder (pi) 2']);
+        await expect(brokerCall(broker.socketPath, access.capability, { method: 'read', machine: 'Build Mac', agent: qualified.machines[0]!.agents[0]!.agent }))
+            .resolves.toMatchObject({ agent: qualified.machines[0]!.agents[0]!.agent });
+        const { machineAlias: _machineAlias, agentAliases: _agentAliases, ...outboundCopy } = sourceRuntime.store.relationship(installed.relationshipId)!;
+        const duplicateMachine = {
+            ...outboundCopy,
+            relationshipId: 'second-build-mac',
+            machineId: 'another-target-machine',
+        };
+        await sourceRuntime.store.putRelationship(duplicateMachine);
+        const qualifiedMachines = await brokerCall(broker.socketPath, access.capability, { method: 'list' }) as { machines: Array<{ machine: string }> };
+        expect(qualifiedMachines.machines.map((entry) => entry.machine).sort()).toEqual(['Build Mac', 'Build Mac (macOS)']);
+        expect(JSON.stringify(qualifiedMachines)).not.toMatch(/another-target-machine|second-build-mac/);
+        await expect(brokerCall(broker.socketPath, access.capability, { method: 'list', machine: 'Build Mac (macOS)' }))
+            .resolves.toMatchObject({ machines: [expect.objectContaining({ machine: 'Build Mac (macOS)' })] });
+        await sourceRuntime.store.putRelationship({ ...duplicateMachine, state: 'revoked' });
+        broker.revokeCapability(access.capability);
+        await expect(brokerCall(broker.socketPath, access.capability, { method: 'list' })).rejects.toThrow('capability rejected');
         await broker.close();
 
         // One peer cannot consume the global receipt store, and revocation bypasses receipts entirely.
-        for (let index = 0; index < 62; index += 1) {
+        for (let index = 0; index < 60; index += 1) {
             await restartedTarget.store.putReceipt({
                 deviceId: authorized.peerDeviceId,
                 operationId: `exhaust-${index}`,
@@ -323,10 +361,10 @@ describe('host peer collaboration flow', () => {
             peerDeviceId: authorized.peerDeviceId,
             mutation: fresh('revoke-source'),
         });
-        expect(sourceRuntime.store.list().peers).toEqual([expect.objectContaining({ state: 'revoked', machineName: 'Build Mac' })]);
+        expect(sourceRuntime.store.list().peers).toContainEqual(expect.objectContaining({ relationshipId: installed.relationshipId, state: 'revoked', machineName: 'Build Mac' }));
     });
 
-    it('resumes an interrupted authorization journal without stranding a device or slot', async () => {
+    it('keeps administration attached, fences mutations, and retries interrupted recovery on connectivity return', async () => {
         const root = mkdtempSync(join(tmpdir(), 'muxr-peer-recovery-'));
         const sourceKeys = machineCrypto();
         const targetKeys = machineCrypto();
@@ -355,15 +393,24 @@ describe('host peer collaboration flow', () => {
             mutation: { operationId: 'authorize-recovery', notValidAfter: now + 60_000 },
         };
         await expect(call(target, 'peer.authorize', authorize)).rejects.toThrow('simulated grant upload interruption');
-        expect(target.store.list().peers).toEqual([expect.objectContaining({ relationshipId: 'rel_recovery', state: 'repair-needed' })]);
+        expect(await call(target, 'peer.list', {})).toEqual({
+            peers: [expect.objectContaining({ relationshipId: 'rel_recovery', state: 'repair-needed' })],
+            revision: expect.any(Number),
+        });
         expect(targetKeys.current().devices).toEqual([]);
+        await expect(call(target, 'peer.prepare', {
+            targetMachineId: 'another-target',
+            targetMachineSigningPublicKey: targetKeys.current().signingPublicKey,
+            mutation: { operationId: 'fenced', notValidAfter: now + 60_000 },
+        })).rejects.toMatchObject({ code: 'peer-recovery-pending' });
 
-        now += 2_000;
-        const restarted = new PeerRuntime(options);
-        await restarted.recover();
-        expect(restarted.store.list().peers).toEqual([expect.objectContaining({ relationshipId: 'rel_recovery', state: 'connected' })]);
+        target.retryRecovery();
+        for (let attempt = 0; attempt < 50 && target.store.list().peers[0]?.state !== 'connected'; attempt += 1) {
+            await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+        expect(target.store.list().peers).toEqual([expect.objectContaining({ relationshipId: 'rel_recovery', state: 'connected' })]);
         expect(targetKeys.current().devices).toHaveLength(1);
-        const recovered = await call(restarted, 'peer.authorize', authorize);
+        const recovered = await call(target, 'peer.authorize', authorize);
         expect(recovered.peerDeviceId).toBe(targetKeys.current().devices[0]!.deviceId);
         expect(targetKeys.current().devices).toHaveLength(1);
     });
@@ -396,6 +443,10 @@ describe('host peer collaboration flow', () => {
         const challengeGate = new Promise<void>((resolve) => { releaseChallenge = resolve; });
         let sawChallenge!: () => void;
         const challengeSeen = new Promise<void>((resolve) => { sawChallenge = resolve; });
+        let sawWatch!: () => void;
+        const watchSeen = new Promise<void>((resolve) => { sawWatch = resolve; });
+        let releaseWatch!: () => void;
+        const watchGate = new Promise<void>((resolve) => { releaseWatch = resolve; });
         const hostCrypto = new HostV2Crypto({
             machineId: 'target-live', keyVersion: 1, dataKey: machine.dataKey,
             ingressKeys: { [deviceId]: ingressKey }, deviceDataKeys: { [deviceId]: peerDataKey },
@@ -421,9 +472,16 @@ describe('host peer collaboration flow', () => {
                     channel: 'session', streamId: envelope.header.streamId!, keyVersion: 1,
                 }, replay);
                 const frame = decodePayload<ClientRequest>(plaintext);
-                if (frame.type !== 'machines.list') return;
-                sawChallenge();
-                void challengeGate.then(() => send({ type: 'result', requestId: frame.requestId, ok: true, data: [] }));
+                if (frame.type === 'machines.list') {
+                    sawChallenge();
+                    void challengeGate.then(() => send({ type: 'result', requestId: frame.requestId, ok: true, data: [] }));
+                } else if (frame.type === 'agent.watch') {
+                    sawWatch();
+                    void watchGate.then(() => send({
+                        type: 'result', requestId: frame.requestId, ok: true,
+                        data: { watching: true, settlement: { status: 'done', detail: 'directed completion' } },
+                    }));
+                }
             });
         });
         const fakeFetch = (async (input: string | URL | Request) => {
@@ -453,6 +511,16 @@ describe('host peer collaboration flow', () => {
             releaseChallenge();
             await connecting;
             expect(connected).toBe(true);
+            let watchSettled = false;
+            const watching = client.request('agent.watch', {
+                sessionId: 'private-session',
+                timeoutMs: 1_000,
+                peerMutation: { operationId: 'directed-watch', notValidAfter: Date.now() + 60_000 },
+            }).then((result) => { watchSettled = true; return result; });
+            await watchSeen;
+            expect(watchSettled).toBe(false);
+            releaseWatch();
+            await expect(watching).resolves.toMatchObject({ settlement: { detail: 'directed completion' } });
         } finally {
             client.close();
             globalThis.fetch = originalFetch;

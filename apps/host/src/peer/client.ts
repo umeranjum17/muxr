@@ -119,10 +119,13 @@ export class NodePeerClient implements PeerClientTransport {
         if (!this.authenticated || this.socket?.readyState !== WebSocket.OPEN) throw new Error('peer is not connected');
         return new Promise<RequestResult<T>>((resolve, reject) => {
             const requestId = nextRequestId('peer');
+            const timeoutMs = type === 'agent.watch'
+                ? Math.min(Math.max(Math.trunc((params as RequestParams<'agent.watch'>).timeoutMs ?? 30 * 60_000), 1_000), 60 * 60_000) + 20_000
+                : this.options.requestTimeoutMs ?? 20_000;
             const timer = setTimeout(() => {
                 this.pending.delete(requestId);
                 reject(new Error(`peer request timed out: ${type}`));
-            }, this.options.requestTimeoutMs ?? 20_000);
+            }, timeoutMs);
             this.pending.set(requestId, { resolve, reject, timer });
             const sessionId = typeof params === 'object' && params !== null && 'sessionId' in params
                 ? String((params as { sessionId: unknown }).sessionId) : undefined;
