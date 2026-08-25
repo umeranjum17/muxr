@@ -1,3 +1,4 @@
+import type { PeerCapability } from '@muxr/contract';
 import {
     deriveV2Key,
     newV2ReplayTracker,
@@ -16,8 +17,12 @@ export interface HostedMachineKeys {
     keyVersion: number;
     dataKey: string;
     ingressKeys: Readonly<Record<string, string>>;
-    deviceKinds?: Readonly<Record<string, 'native' | 'browser'>>;
+    deviceKinds?: Readonly<Record<string, 'native' | 'browser' | 'peer'>>;
     deviceAuthorities?: Readonly<Record<string, 'control' | 'observe'>>;
+    /** Peer-only egress roots keep peers off the native/browser broadcast stream. */
+    deviceDataKeys?: Readonly<Record<string, string>>;
+    deviceCapabilities?: Readonly<Record<string, readonly PeerCapability[]>>;
+    deviceAllowedCwds?: Readonly<Record<string, readonly string[]>>;
     deviceExpiresAt?: Readonly<Record<string, number>>;
     replaySnapshots?: Record<string, V2ReplaySnapshot>;
     onReplayChange?: (snapshots: Record<string, V2ReplaySnapshot>) => void;
@@ -52,15 +57,17 @@ export class HostV2Crypto {
         this.replays.clear();
     }
 
-    seal(channel: 'session' | 'terminal' | 'attachment' | 'stream', streamId: string, plaintext: string): string {
+    seal(channel: 'session' | 'terminal' | 'attachment' | 'stream', streamId: string, plaintext: string, recipientId = '*'): string {
         this.syncGeneration();
-        const stateKey = channel;
+        const peerRoot = recipientId === '*' ? undefined : this.keys.deviceDataKeys?.[recipientId];
+        if (recipientId !== '*' && peerRoot === undefined) throw new Error('hosted e2ee: directed recipient has no egress key');
+        const stateKey = `${recipientId}\0${channel}`;
         const state = this.senders.get(stateKey) ?? newV2SenderState();
         this.senders.set(stateKey, state);
-        return sealV2(plaintext, this.outputKey, {
+        return sealV2(plaintext, peerRoot === undefined ? this.outputKey : deriveV2Key(peerRoot, 'host->client'), {
             machineId: this.keys.machineId,
             senderId: this.keys.machineId,
-            recipientId: '*',
+            recipientId,
             channel,
             streamId,
             keyVersion: this.keys.keyVersion,

@@ -13,6 +13,7 @@ import type { DomainStores } from './domain/index.js';
 import type { TerminalManager } from './herdr/terminalManager.js';
 import type { SessionSource } from './sessionSource.js';
 import type { HostedMachineKeys } from './hostedE2ee.js';
+import type { PeerRuntime } from './peer/runtime.js';
 
 export interface HostOptions {
     relayUrl: string;
@@ -26,6 +27,7 @@ export interface HostOptions {
     /** Mandatory strict v2 endpoint keys for hosted mode. */
     hostedE2ee?: HostedMachineKeys;
     token?: string;
+    peerRuntime?: PeerRuntime;
 }
 
 export interface Host {
@@ -47,9 +49,18 @@ export function startHost(options: HostOptions): Host {
         relayUrl: options.relayUrl,
         ...(options.terminals === undefined ? {} : { terminals: options.terminals }),
         ...(options.token === undefined ? {} : { token: options.token }),
+        ...(options.peerRuntime === undefined ? {} : { peerRuntime: options.peerRuntime }),
         ...(options.hostedE2ee === undefined ? {} : {
             requirePreviewEncryption: true,
             canMutateDevice: (deviceId: string) => options.hostedE2ee!.deviceAuthorities?.[deviceId] !== 'observe',
+            getDeviceContext: (deviceId: string) => {
+                const kind = options.hostedE2ee!.deviceKinds?.[deviceId];
+                return kind === undefined ? undefined : {
+                    kind,
+                    ...(options.hostedE2ee!.deviceCapabilities?.[deviceId] === undefined ? {} : { capabilities: options.hostedE2ee!.deviceCapabilities![deviceId] }),
+                    ...(options.hostedE2ee!.deviceAllowedCwds?.[deviceId] === undefined ? {} : { allowedCwds: options.hostedE2ee!.deviceAllowedCwds![deviceId] }),
+                };
+            },
         }),
     });
 
@@ -60,12 +71,14 @@ export function startHost(options: HostOptions): Host {
     }
 
     async function handleClientFrame(frame: ClientFrame, authenticatedSenderId?: string): Promise<void> {
+        const peerRecipient = authenticatedSenderId !== undefined
+            && options.hostedE2ee?.deviceKinds?.[authenticatedSenderId] === 'peer' ? authenticatedSenderId : undefined;
         if (options.hostedE2ee !== undefined && frame.type === 'terminal.attach'
             && frame.params.deviceId !== authenticatedSenderId) {
             throw new Error('terminal: device grant does not match the authenticated client');
         }
         if (frame.type === 'client.hello') {
-            link?.send({ type: 'session.list', sessions: await source.list({}) });
+            link?.send({ type: 'session.list', sessions: await source.list({}) }, undefined, 'session', peerRecipient);
             source.resendCumulativeState?.();
             return;
         }
@@ -75,7 +88,7 @@ export function startHost(options: HostOptions): Host {
         if (frame.type === 'attachment.prepare') {
             console.log(`[attachment-download] host answering req=${frame.requestId} ok=${response.ok}`);
         }
-        link?.send(response, sessionId, frame.type === 'attachment.read' ? 'attachment' : 'session');
+        link?.send(response, sessionId, frame.type === 'attachment.read' ? 'attachment' : 'session', peerRecipient);
     }
 
     link = connectToRelay({
@@ -107,10 +120,13 @@ export function startHost(options: HostOptions): Host {
                 if ('requestId' in frame && typeof frame.requestId === 'string') {
                     const errorSessionId = 'params' in frame && typeof frame.params === 'object' && frame.params !== null
                         && 'sessionId' in frame.params && typeof frame.params.sessionId === 'string' ? frame.params.sessionId : undefined;
+                    const peerRecipient = authenticatedSenderId !== undefined
+                        && options.hostedE2ee?.deviceKinds?.[authenticatedSenderId] === 'peer' ? authenticatedSenderId : undefined;
                     link?.send(
                         { type: 'result', requestId: frame.requestId, ok: false, error: message },
                         errorSessionId,
                         frame.type === 'attachment.read' ? 'attachment' : 'session',
+                        peerRecipient,
                     );
                     return;
                 }

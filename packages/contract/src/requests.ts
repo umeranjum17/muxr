@@ -50,7 +50,7 @@ export interface PromptAttachment {
 export type StreamingBehavior = 'steer' | 'followUp';
 export type VoiceProviderOption = { id: string; name: string; selected: boolean; source: PluginSource; hasBackend: boolean };
 
-/** Peer ceremony requests are separate until the host peer dispatcher lands. */
+/** Host-owned collaboration ceremony and constrained outbound broker requests. */
 export interface PeerRequestMap {
     'peer.prepare': {
         params: {
@@ -67,6 +67,8 @@ export interface PeerRequestMap {
         params: {
             descriptor: SignedPeerDescriptor;
             capabilities: PeerCapability[];
+            /** Required when the optional start capability is granted. */
+            allowedCwds?: string[];
             mutation: PeerMutationMetadata;
             relationshipId?: string;
         };
@@ -99,6 +101,51 @@ export interface PeerRequestMap {
         };
         result: { state: 'revoked' | 'already-revoked'; revokedAt: number; authority?: PeerAuthorityMetadata };
     };
+    'peer.remote.list': {
+        params: { relationshipId: string };
+        result: {
+            machineAlias: string;
+            sessions: Array<{ sessionId: string; agentAlias: string; ambiguous?: true }>;
+        };
+    };
+    'peer.remote.read': {
+        params: { relationshipId: string; sessionId: string; lines?: number };
+        result: { machineAlias: string; agentAlias: string; text: string; truncated: boolean };
+    };
+    'peer.remote.status': {
+        params: { relationshipId: string; sessionId: string };
+        result: { machineAlias: string; agentAlias: string; status: SessionStatus };
+    };
+    'peer.remote.watch': {
+        params: {
+            relationshipId: string;
+            sessionId: string;
+            until?: ('idle' | 'done' | 'blocked' | 'unknown')[];
+            timeoutMs?: number;
+            mutation: PeerMutationMetadata;
+        };
+        result: { machineAlias: string; agentAlias: string; watching: boolean };
+    };
+    'peer.remote.prompt': {
+        params: {
+            relationshipId: string;
+            sessionId: string;
+            text: string;
+            streamingBehavior?: StreamingBehavior;
+            mutation: PeerMutationMetadata;
+        };
+        result: { machineAlias: string; agentAlias: string; delivered: true };
+    };
+    'peer.remote.start': {
+        params: {
+            relationshipId: string;
+            cwd: string;
+            kind?: string;
+            label?: string;
+            mutation: PeerMutationMetadata;
+        };
+        result: { machineAlias: string; sessionId: string; agentAlias: string };
+    };
 }
 
 export type PeerRequestType = keyof PeerRequestMap;
@@ -108,7 +155,7 @@ export type PeerClientRequest = {
     [K in PeerRequestType]: { type: K; requestId: string; params: PeerRequestParams<K> };
 }[PeerRequestType];
 
-export interface RequestMap {
+export interface RequestMap extends PeerRequestMap {
     // --- lifecycle ----------------------------------------------------------
     /**
      * Herdr panes with agents are the only sessions; there is no transcript tree.

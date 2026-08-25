@@ -3,6 +3,8 @@ import { mkdir } from 'node:fs/promises';
 import { MISSING_CWD_ERROR_PREFIX } from '@muxr/contract';
 import type {
     ClientRequest,
+    PeerClientRequest,
+    PeerRequestType,
     RequestMap,
     RequestResponse,
     RequestResult,
@@ -11,6 +13,7 @@ import type {
 import type { DomainStores } from '../domain/index.js';
 import type { TerminalManager } from '../herdr/terminalManager.js';
 import type { SessionSource } from '../sessionSource.js';
+import type { PeerDeviceContext, PeerRuntime } from '../peer/runtime.js';
 import { attachPreview, probePreviewPort } from './preview.js';
 import { landWorktree } from './landWorktree.js';
 import { listDir } from './listDir.js';
@@ -31,29 +34,33 @@ export interface RequestDispatcherOptions {
     token?: string;
     /** Browser grants can observe but cannot mutate terminal/machine state. */
     canMutateDevice?: (deviceId: string) => boolean;
+    peerRuntime?: PeerRuntime;
+    getDeviceContext?: (deviceId: string) => PeerDeviceContext | undefined;
 }
 
 type Handler<T extends RequestType> = (params: RequestMap[T]['params']) => Promise<RequestResult<T>>;
+type NonPeerRequestType = Exclude<RequestType, PeerRequestType>;
 
 export function createRequestDispatcher(options: RequestDispatcherOptions): {
     dispatch(request: ClientRequest, authenticatedSenderId?: string): Promise<RequestResponse>;
 } {
     const { source, domain, machineId, hostVersion } = options;
 
-    const handlers: { [K in RequestType]: Handler<K> } = {
+    const handlers: { [K in NonPeerRequestType]: Handler<K> } = {
         'session.list': (params) =>
             source.list(params.cwd === undefined ? {} : { cwd: params.cwd }),
         'session.start': async (params) => {
+            const { peerMutation: _peerMutation, ...start } = params;
             // Pi journals a new session under the requested cwd's slug and only
             // later refuses to run in a directory that never existed, leaving an
             // orphan session file behind. Settle the directory before starting.
-            if (!existsSync(params.cwd)) {
-                if (params.createCwd !== true) {
-                    throw new Error(`${MISSING_CWD_ERROR_PREFIX}${params.cwd}`);
+            if (!existsSync(start.cwd)) {
+                if (start.createCwd !== true) {
+                    throw new Error(`${MISSING_CWD_ERROR_PREFIX}${start.cwd}`);
                 }
-                await mkdir(params.cwd, { recursive: true });
+                await mkdir(start.cwd, { recursive: true });
             }
-            return source.start(params);
+            return source.start(start);
         },
         'session.open': (params) => source.open(params),
         'herdr.tree': async () => source.herdrTree(),
@@ -78,7 +85,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         'herdr.layout': async (params) => ({ layout: await source.herdrLayout(params.tabId) }),
         'pane.split': (params) => source.paneSplit(params),
         'pane.read': (params) => source.paneRead(params),
-        'agent.watch': (params) => source.agentWatch(params),
+        'agent.watch': ({ peerMutation: _peerMutation, ...params }) => source.agentWatch(params),
         'layout.export': (params) => source.layoutExport(params.sessionId),
         'layout.apply': (params) => source.layoutApply(params),
         'pane.focus': async (params) => {
@@ -132,7 +139,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
             await source.reload(params.sessionId);
             return null;
         },
-        'session.prompt': async (params) => {
+        'session.prompt': async ({ peerMutation: _peerMutation, ...params }) => {
             await source.prompt(params);
             return null;
         },
@@ -189,10 +196,10 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         },
     };
 
-    return {
-        async dispatch(request, authenticatedSenderId): Promise<RequestResponse> {
+    async function dispatchCore(request: ClientRequest, authenticatedSenderId?: string): Promise<RequestResponse> {
             const deviceId = authenticatedSenderId ?? 'local';
-            const readOnly = options.canMutateDevice?.(deviceId) === false;
+            const readOnly = options.getDeviceContext?.(deviceId)?.kind !== 'peer'
+                && options.canMutateDevice?.(deviceId) === false;
             const readOnlyRequests = new Set<RequestType>([
                 'session.list', 'session.open', 'session.status',
                 'herdr.tree', 'herdr.agentKinds', 'herdr.layout', 'pane.read', 'plugin.list', 'plugin.manifest', 'voice.provider.list',
@@ -244,7 +251,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
             // release). Indexing the object yields undefined and the old code turned
             // that into `handler is not a function` -- a message that says nothing
             // actionable. Answer with a stable, parseable mismatch result instead.
-            const handler = handlers[request.type] as Handler<typeof request.type> | undefined;
+            const handler = handlers[request.type as NonPeerRequestType] as Handler<typeof request.type> | undefined;
             if (handler === undefined) {
                 return {
                     type: 'result',
@@ -254,18 +261,53 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
                     error: `host/APK contract mismatch: host has no handler for request type '${String(request.type)}'`,
                 };
             }
-            try {
-                const data = await handler(request.params);
-                return { type: 'result', requestId: request.requestId, ok: true, data };
-            } catch (error: unknown) {
-                const message = error instanceof Error ? error.message : String(error);
-                // Structured rejection codes (deprecated-field, ...) ride the
-                // result so a legacy client can tell the difference between
-                // "this param is gone" and a plain runtime failure.
-                const withCode = error as { code?: unknown };
-                const code = typeof withCode.code === 'string' ? withCode.code : undefined;
-                return { type: 'result', requestId: request.requestId, ok: false, error: message, ...(code === undefined ? {} : { code }) };
+        try {
+            const data = await handler(request.params);
+            return { type: 'result', requestId: request.requestId, ok: true, data };
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : String(error);
+            // Structured rejection codes (deprecated-field, ...) ride the
+            // result so a legacy client can tell the difference between
+            // "this param is gone" and a plain runtime failure.
+            const withCode = error as { code?: unknown };
+            const code = typeof withCode.code === 'string' ? withCode.code : undefined;
+            return { type: 'result', requestId: request.requestId, ok: false, error: message, ...(code === undefined ? {} : { code }) };
+        }
+    }
+
+    return {
+        async dispatch(request, authenticatedSenderId): Promise<RequestResponse> {
+            const deviceId = authenticatedSenderId ?? 'local';
+            const context = options.getDeviceContext?.(deviceId);
+            if (request.type.startsWith('peer.')) {
+                if (options.peerRuntime === undefined) {
+                    return { type: 'result', requestId: request.requestId, ok: false, code: 'host-contract-mismatch', error: 'peer runtime is unavailable on this host' };
+                }
+                if (context?.kind === 'peer') {
+                    return { type: 'result', requestId: request.requestId, ok: false, code: 'peer-forbidden', error: 'peer grants cannot administer peer relationships' };
+                }
+                if (options.canMutateDevice?.(deviceId) === false) {
+                    return { type: 'result', requestId: request.requestId, ok: false, error: 'this device grant is view-only; pair a control browser or use the native app' };
+                }
+                try {
+                    const data = await options.peerRuntime.handle(request as PeerClientRequest, deviceId);
+                    return { type: 'result', requestId: request.requestId, ok: true, data };
+                } catch (error) {
+                    const code = (error as { code?: unknown }).code;
+                    return {
+                        type: 'result', requestId: request.requestId, ok: false,
+                        error: error instanceof Error ? error.message : String(error),
+                        ...(typeof code === 'string' ? { code } : {}),
+                    };
+                }
             }
+            if (context?.kind === 'peer') {
+                if (options.peerRuntime === undefined || authenticatedSenderId === undefined) {
+                    return { type: 'result', requestId: request.requestId, ok: false, code: 'peer-forbidden', error: 'peer runtime is unavailable on this host' };
+                }
+                return options.peerRuntime.dispatchIncoming(request, authenticatedSenderId, context, () => dispatchCore(request, authenticatedSenderId));
+            }
+            return dispatchCore(request, authenticatedSenderId);
         },
     };
 }

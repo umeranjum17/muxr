@@ -17,6 +17,7 @@ import nacl from 'tweetnacl';
 import {
     isPeerCapabilities,
     type DeviceKind,
+    type PeerAuthorityMetadata,
     type PeerCapability,
     type PeerDescriptorClaims,
     type SignedPeerDescriptor,
@@ -458,6 +459,8 @@ export interface DeviceGrant {
     deviceKind?: DeviceKind;
     /** Signed, host-enforced peer allowlist. Present only when deviceKind is peer. */
     capabilities?: PeerCapability[];
+    /** Signed start roots. Required only when a peer has the advanced start capability. */
+    allowedCwds?: string[];
     /** 32-byte root for host->device data, base64. */
     dataKey: string;
     /** 32-byte root for device->host ingress, base64. */
@@ -615,6 +618,7 @@ export function createDeviceGrant(params: {
     authority?: DeviceAuthority;
     deviceKind?: DeviceKind;
     capabilities?: readonly PeerCapability[];
+    allowedCwds?: readonly string[];
 }): SealedDeviceGrant {
     const { machineId, deviceId, devicePublicKey, keyVersion, expiresAt } = params;
     if (typeof machineId !== 'string' || machineId === '') throw new Error('grant: machineId required');
@@ -628,11 +632,20 @@ export function createDeviceGrant(params: {
         throw new Error('grant: machineSigningSecretKey must be a 64-byte ed25519 secret key');
     }
     const capabilities = params.capabilities === undefined ? undefined : [...params.capabilities];
+    const allowedCwds = params.allowedCwds === undefined ? undefined : [...params.allowedCwds];
     if (params.deviceKind === 'peer') {
         if (!isPeerCapabilities(capabilities)) throw new Error('grant: peer capabilities required');
         if (params.authority !== undefined) throw new Error('grant: peer devices cannot carry broad authority');
-    } else if (capabilities !== undefined) {
-        throw new Error('grant: capabilities are valid only for peer devices');
+        if (capabilities.includes('start')) {
+            if (allowedCwds === undefined || allowedCwds.length === 0
+                || allowedCwds.some((cwd) => typeof cwd !== 'string' || cwd.trim() === '')) {
+                throw new Error('grant: peer start requires allowed directories');
+            }
+        } else if (allowedCwds !== undefined) {
+            throw new Error('grant: allowed directories require peer start');
+        }
+    } else if (capabilities !== undefined || allowedCwds !== undefined) {
+        throw new Error('grant: peer constraints are valid only for peer devices');
     }
     // tweetnacl ed25519 secret keys append the public key in the last 32 bytes.
     const machineSigningPublicKey = toBase64(signingSecret.subarray(nacl.sign.publicKeyLength));
@@ -645,6 +658,7 @@ export function createDeviceGrant(params: {
         expiresAt,
         ...(params.deviceKind === undefined ? {} : { deviceKind: params.deviceKind }),
         ...(capabilities === undefined ? {} : { capabilities }),
+        ...(allowedCwds === undefined ? {} : { allowedCwds }),
         ...(params.deviceKind === 'peer' ? {} : { authority: params.authority ?? 'control' }),
         dataKey: toBase64(toKeyBytes(params.dataKey, 'grant dataKey')),
         ingressKey: toBase64(toKeyBytes(params.ingressKey, 'grant ingressKey')),
@@ -710,11 +724,135 @@ export function verifyDeviceGrant(
     if (parsed.deviceKind === 'peer') {
         if (parsed.authority !== undefined) throw new Error('grant: peer devices cannot carry broad authority');
         if (!isPeerCapabilities(parsed.capabilities)) throw new Error('grant: invalid peer capabilities');
-    } else if (parsed.capabilities !== undefined) {
-        throw new Error('grant: capabilities are valid only for peer devices');
+        if (parsed.capabilities.includes('start')) {
+            if (!Array.isArray(parsed.allowedCwds) || parsed.allowedCwds.length === 0
+                || parsed.allowedCwds.some((cwd) => typeof cwd !== 'string' || cwd.trim() === '')) {
+                throw new Error('grant: invalid peer start directories');
+            }
+        } else if (parsed.allowedCwds !== undefined) {
+            throw new Error('grant: allowed directories require peer start');
+        }
+    } else if (parsed.capabilities !== undefined || parsed.allowedCwds !== undefined) {
+        throw new Error('grant: peer constraints are valid only for peer devices');
     }
     if (!Number.isInteger(parsed.keyVersion) || parsed.keyVersion < 1) throw new Error('grant: invalid key generation');
     if (typeof parsed.dataKey !== 'string' || toKeyBytes(parsed.dataKey, 'grant dataKey').length !== 32) throw new Error('grant: invalid dataKey');
     if (typeof parsed.ingressKey !== 'string' || toKeyBytes(parsed.ingressKey, 'grant ingressKey').length !== 32) throw new Error('grant: invalid ingressKey');
     return parsed;
+}
+
+export interface PeerInstallBundlePayload {
+    v: 1;
+    relationshipId: string;
+    targetMachineId: string;
+    targetMachineName?: string;
+    targetPlatform?: string;
+    targetMachineSigningPublicKey: string;
+    relayUrl: string;
+    peerDeviceId: string;
+    credential: string;
+    grant: SealedDeviceGrant;
+    capabilities: PeerCapability[];
+    issuedAt: number;
+    authority?: PeerAuthorityMetadata;
+}
+
+interface SealedPeerInstallBundle {
+    v: 1;
+    sender: string;
+    box: string;
+    signer: string;
+    sig: string;
+}
+
+function validatePeerInstallBundle(payload: PeerInstallBundlePayload): void {
+    if (payload === null || typeof payload !== 'object' || payload.v !== 1) throw new Error('peer bundle: unknown version');
+    for (const [name, value] of [
+        ['relationshipId', payload.relationshipId],
+        ['targetMachineId', payload.targetMachineId],
+        ['relayUrl', payload.relayUrl],
+        ['peerDeviceId', payload.peerDeviceId],
+        ['credential', payload.credential],
+    ] as const) {
+        if (typeof value !== 'string' || value === '') throw new Error(`peer bundle: ${name} required`);
+    }
+    if (!validUrl(payload.relayUrl)) throw new Error('peer bundle: relayUrl must use ws or wss');
+    if (fromBase64(payload.targetMachineSigningPublicKey).length !== nacl.sign.publicKeyLength) {
+        throw new Error('peer bundle: invalid target signing key');
+    }
+    if (!isPeerCapabilities(payload.capabilities)) throw new Error('peer bundle: invalid capabilities');
+    if (!Number.isFinite(payload.issuedAt)) throw new Error('peer bundle: invalid issue time');
+    if (payload.grant === null || typeof payload.grant !== 'object' || payload.grant.v !== 1) throw new Error('peer bundle: malformed grant');
+}
+
+function validUrl(value: string): boolean {
+    try {
+        const protocol = new URL(value).protocol;
+        return protocol === 'ws:' || protocol === 'wss:';
+    } catch {
+        return false;
+    }
+}
+
+/** Target-sign and box the credential + signed grant so the phone only forwards opaque bytes. */
+export function sealPeerInstallBundle(params: {
+    payload: PeerInstallBundlePayload;
+    targetMachineSigningSecretKey: string;
+    targetMachineKey: KeyPair;
+    peerPublicKey: string;
+}): string {
+    validatePeerInstallBundle(params.payload);
+    const signingSecret = fromBase64(params.targetMachineSigningSecretKey);
+    if (signingSecret.length !== nacl.sign.secretKeyLength) throw new Error('peer bundle: invalid signing secret');
+    toKeyBytes(params.targetMachineKey.secretKey, 'peer bundle target secret key');
+    toKeyBytes(params.peerPublicKey, 'peer bundle recipient key');
+    const plaintext = encodeUtf8(JSON.stringify(params.payload));
+    const nonce = nacl.randomBytes(nacl.box.nonceLength);
+    const ciphertext = nacl.box(
+        plaintext,
+        nonce,
+        fromBase64(params.peerPublicKey),
+        fromBase64(params.targetMachineKey.secretKey),
+    );
+    const sealed: SealedPeerInstallBundle = {
+        v: 1,
+        sender: params.targetMachineKey.publicKey,
+        box: toBase64(concatBytes(nonce, ciphertext)),
+        signer: toBase64(signingSecret.subarray(nacl.sign.publicKeyLength)),
+        sig: signDetached(plaintext, params.targetMachineSigningSecretKey),
+    };
+    return JSON.stringify(sealed);
+}
+
+/** Open an opaque install bundle and verify the target signature before exposing its credential. */
+export function openPeerInstallBundle(
+    value: string,
+    opts: { peerKey: KeyPair; pinnedTargetMachineSigningPublicKey: string },
+): PeerInstallBundlePayload {
+    let sealed: SealedPeerInstallBundle;
+    try { sealed = JSON.parse(value) as SealedPeerInstallBundle; }
+    catch { throw new Error('peer bundle: malformed seal'); }
+    if (sealed === null || typeof sealed !== 'object' || sealed.v !== 1) throw new Error('peer bundle: unknown version');
+    if (sealed.signer !== opts.pinnedTargetMachineSigningPublicKey) throw new Error('peer bundle: signer is not the pinned target key');
+    toKeyBytes(opts.peerKey.secretKey, 'peer bundle recipient secret key');
+    const box = fromBase64(sealed.box);
+    if (box.length <= nacl.box.nonceLength) throw new Error('peer bundle: malformed box');
+    const opened = nacl.box.open(
+        box.subarray(nacl.box.nonceLength),
+        box.subarray(0, nacl.box.nonceLength),
+        fromBase64(sealed.sender),
+        fromBase64(opts.peerKey.secretKey),
+    );
+    if (opened === null) throw new Error('peer bundle: decryption failed');
+    if (!verifyDetached(opened, sealed.sig, opts.pinnedTargetMachineSigningPublicKey)) {
+        throw new Error('peer bundle: signature verification failed');
+    }
+    let payload: PeerInstallBundlePayload;
+    try { payload = JSON.parse(decodeUtf8(opened)) as PeerInstallBundlePayload; }
+    catch { throw new Error('peer bundle: malformed payload'); }
+    validatePeerInstallBundle(payload);
+    if (payload.targetMachineSigningPublicKey !== opts.pinnedTargetMachineSigningPublicKey) {
+        throw new Error('peer bundle: target signing key mismatch');
+    }
+    return payload;
 }
