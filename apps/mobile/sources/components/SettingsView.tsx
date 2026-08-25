@@ -37,6 +37,7 @@ import {
     loadCollaborationIntent,
     type CollaborationIntent,
 } from '@/collaboration/computerCollaboration';
+import { realtimeMachineSwitchGuard, stopRealtimeSession } from '@/realtime/realtimeSessionState';
 
 type BuildConfig = {
     buildCommitSha?: unknown;
@@ -160,12 +161,16 @@ export const SettingsView = React.memo(function SettingsView({
             router.push(`/machine/${machineId}`);
             return;
         }
+        const voiceActive = !realtimeMachineSwitchGuard(machineId).allowed;
         const confirmed = await Modal.confirm(
-            'Switch to this machine?',
-            'The app reconnects to it with the stored pairing. You can switch back the same way.',
-            { confirmText: 'Switch' },
+            voiceActive ? 'End voice and switch?' : 'Switch to this machine?',
+            voiceActive
+                ? 'Realtime voice stays pinned to the computer where it started.'
+                : 'The app reconnects to it with the stored pairing. You can switch back the same way.',
+            { confirmText: voiceActive ? 'End voice and switch' : 'Switch', destructive: voiceActive },
         );
         if (!confirmed) return;
+        if (voiceActive) stopRealtimeSession();
         await saveConnectionSettings({
             ...getCachedConnectionSettings(),
             mode: 'hosted',
@@ -181,12 +186,16 @@ export const SettingsView = React.memo(function SettingsView({
         const collaborationWarning = hasMachineCollaboration(collaborationIntent, machineId)
             ? '\n\nComputer collaboration still exists. Forgetting this phone pairing does not revoke computer-to-computer access; disconnect collaboration first if you want that access removed.'
             : '';
+        const voiceActive = machineId === getCachedConnectionSettings().machineId
+            && !realtimeMachineSwitchGuard('').allowed;
+        const voiceWarning = voiceActive ? '\n\nRealtime voice on this computer will end.' : '';
         const confirmed = await Modal.confirm(
             `Forget ${name}?`,
-            `This removes the pairing from this phone. The machine keeps running, and you can pair it again later.${collaborationWarning}`,
+            `This removes the pairing from this phone. The machine keeps running, and you can pair it again later.${collaborationWarning}${voiceWarning}`,
             { confirmText: 'Forget', destructive: true },
         );
         if (!confirmed) return;
+        if (voiceActive) stopRealtimeSession();
         const remaining = await removeHostedGrant(machineId);
         setPairedGrants(remaining);
         if (machineId !== getCachedConnectionSettings().machineId) return;
@@ -210,6 +219,7 @@ export const SettingsView = React.memo(function SettingsView({
             { confirmText: t('settingsAccount.logout'), destructive: true },
         );
         if (!confirmed) return;
+        stopRealtimeSession();
         await auth.logout();
     }, [auth]);
 
