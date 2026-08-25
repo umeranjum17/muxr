@@ -42,6 +42,56 @@ it('keeps a browser grant recoverable until its role and durable client acknowle
     }
 });
 
+it('issues a constrained peer credential, carries its metadata through rotation, then fails closed after revoke', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'muxr-peer-authority-'));
+    try {
+        const pairing = new SelfhostPairing(root);
+        const issued = await pairing.issuePeer({
+            machineSlug: 'machine-target',
+            publicKey: Buffer.alloc(32, 7).toString('base64'),
+            name: 'Linux builder',
+            peerMachineId: 'machine-source',
+            capabilities: ['list', 'read', 'status', 'watch', 'prompt'],
+            authorityId: 'selfhost:test',
+        });
+        expect(issued).toBeDefined();
+        if (issued === undefined) return;
+
+        await expect(pairing.storePeerGrant(issued.deviceId, 'machine-target', 'opaque-signed-grant', 3)).resolves.toBe(true);
+        await expect(pairing.resolveDeviceCredential(issued.credential)).resolves.toEqual({
+            deviceId: issued.deviceId,
+            machineSlug: 'machine-target',
+            deviceKind: 'peer',
+            capabilities: ['list', 'read', 'status', 'watch', 'prompt'],
+            credentialVersion: 1,
+        });
+        await expect(pairing.listPeers('machine-target')).resolves.toEqual([
+            expect.objectContaining({
+                deviceId: issued.deviceId,
+                peerMachineId: 'machine-source',
+                capabilities: ['list', 'read', 'status', 'watch', 'prompt'],
+                keyVersion: 3,
+                authorityId: 'selfhost:test',
+            }),
+        ]);
+
+        const rotated = await pairing.rotatePeerCredential(issued.deviceId, 'machine-target');
+        expect(rotated).toBeDefined();
+        if (rotated === undefined) return;
+        await expect(pairing.resolveDeviceCredential(issued.credential)).resolves.toBeUndefined();
+        await expect(pairing.isDeviceActive(issued.deviceId, 1)).resolves.toBe(false);
+        await expect(pairing.resolveDeviceCredential(rotated.credential)).resolves.toMatchObject({
+            deviceKind: 'peer', credentialVersion: 2,
+        });
+
+        await expect(pairing.revokeDevice(issued.deviceId, 'machine-target')).resolves.toEqual({ machineSlug: 'machine-target' });
+        await expect(pairing.resolveDeviceCredential(rotated.credential)).resolves.toBeUndefined();
+        await expect(pairing.fetchCurrentGrant(issued.deviceId, 'machine-target')).resolves.toBeUndefined();
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
 it('hardens every relay state path in a custom data directory', async () => {
     const root = await mkdtemp(join(tmpdir(), 'muxr-relay-state-'));
     const customDataDir = join(root, 'custom-data');

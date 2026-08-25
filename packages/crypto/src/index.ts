@@ -14,6 +14,13 @@
  */
 
 import nacl from 'tweetnacl';
+import {
+    isPeerCapabilities,
+    type DeviceKind,
+    type PeerCapability,
+    type PeerDescriptorClaims,
+    type SignedPeerDescriptor,
+} from '@muxr/contract';
 
 export interface KeyPair {
     /** base64 */
@@ -447,6 +454,10 @@ export interface DeviceGrant {
     expiresAt: number;
     /** Host-enforced device role. Legacy grants omit it and are interpreted by device kind. */
     authority?: DeviceAuthority;
+    /** Distinguishes constrained peers from native and browser clients. Legacy grants omit it. */
+    deviceKind?: DeviceKind;
+    /** Signed, host-enforced peer allowlist. Present only when deviceKind is peer. */
+    capabilities?: PeerCapability[];
     /** 32-byte root for host->device data, base64. */
     dataKey: string;
     /** 32-byte root for device->host ingress, base64. */
@@ -481,6 +492,105 @@ export function verifyDetached(bytes: Uint8Array, signatureBase64: string, publi
     return nacl.sign.detached.verify(bytes, fromBase64(signatureBase64), fromBase64(publicKeyBase64));
 }
 
+const PEER_DESCRIPTOR_DOMAIN = 'muxr.peer-descriptor.v1\n';
+export const PEER_DESCRIPTOR_MAX_TTL_MS = 5 * 60_000;
+
+function peerDescriptorBytes(claims: PeerDescriptorClaims): Uint8Array {
+    return encodeUtf8(PEER_DESCRIPTOR_DOMAIN + JSON.stringify({
+        v: 1,
+        sourceMachineId: claims.sourceMachineId,
+        sourceMachineSigningPublicKey: claims.sourceMachineSigningPublicKey,
+        targetMachineId: claims.targetMachineId,
+        targetMachineSigningPublicKey: claims.targetMachineSigningPublicKey,
+        peerPublicKey: claims.peerPublicKey,
+        preparedAt: claims.preparedAt,
+        expiresAt: claims.expiresAt,
+        nonce: claims.nonce,
+        ...(claims.sourceName === undefined ? {} : { sourceName: claims.sourceName }),
+        ...(claims.sourcePlatform === undefined ? {} : { sourcePlatform: claims.sourcePlatform }),
+    }));
+}
+
+function validatePeerDescriptorClaims(claims: PeerDescriptorClaims): void {
+    if (claims === null || typeof claims !== 'object' || claims.v !== 1) throw new Error('peer descriptor: unknown version');
+    for (const [name, value] of [
+        ['sourceMachineId', claims.sourceMachineId],
+        ['targetMachineId', claims.targetMachineId],
+        ['nonce', claims.nonce],
+    ] as const) {
+        if (typeof value !== 'string' || value === '') throw new Error(`peer descriptor: ${name} required`);
+    }
+    if (claims.sourceMachineId === claims.targetMachineId) throw new Error('peer descriptor: source and target must differ');
+    if (fromBase64(claims.sourceMachineSigningPublicKey).length !== nacl.sign.publicKeyLength
+        || fromBase64(claims.targetMachineSigningPublicKey).length !== nacl.sign.publicKeyLength) {
+        throw new Error('peer descriptor: signing keys must be 32-byte ed25519 keys');
+    }
+    toKeyBytes(claims.peerPublicKey, 'peer descriptor public key');
+    if (!Number.isFinite(claims.preparedAt) || !Number.isFinite(claims.expiresAt) || claims.expiresAt <= claims.preparedAt) {
+        throw new Error('peer descriptor: invalid validity window');
+    }
+    if (claims.sourceName !== undefined && typeof claims.sourceName !== 'string') throw new Error('peer descriptor: invalid sourceName');
+    if (claims.sourcePlatform !== undefined && typeof claims.sourcePlatform !== 'string') throw new Error('peer descriptor: invalid sourcePlatform');
+}
+
+/** Machine-sign the target-bound public half of a prepared peer key. */
+export function createSignedPeerDescriptor(params: {
+    sourceMachineId: string;
+    sourceMachineSigningSecretKey: string;
+    targetMachineId: string;
+    targetMachineSigningPublicKey: string;
+    peerPublicKey: string;
+    preparedAt: number;
+    expiresAt: number;
+    nonce: string;
+    sourceName?: string;
+    sourcePlatform?: string;
+}): SignedPeerDescriptor {
+    const secret = fromBase64(params.sourceMachineSigningSecretKey);
+    if (secret.length !== nacl.sign.secretKeyLength) throw new Error('peer descriptor: signing secret must be a 64-byte ed25519 key');
+    const claims: PeerDescriptorClaims = {
+        v: 1,
+        sourceMachineId: params.sourceMachineId,
+        sourceMachineSigningPublicKey: toBase64(secret.subarray(nacl.sign.publicKeyLength)),
+        targetMachineId: params.targetMachineId,
+        targetMachineSigningPublicKey: params.targetMachineSigningPublicKey,
+        peerPublicKey: params.peerPublicKey,
+        preparedAt: params.preparedAt,
+        expiresAt: params.expiresAt,
+        nonce: params.nonce,
+        ...(params.sourceName === undefined ? {} : { sourceName: params.sourceName }),
+        ...(params.sourcePlatform === undefined ? {} : { sourcePlatform: params.sourcePlatform }),
+    };
+    validatePeerDescriptorClaims(claims);
+    if (claims.expiresAt - claims.preparedAt > PEER_DESCRIPTOR_MAX_TTL_MS) throw new Error('peer descriptor: validity window too long');
+    return { v: 1, claims, signature: signDetached(peerDescriptorBytes(claims), params.sourceMachineSigningSecretKey) };
+}
+
+/** Verify the source signature and the target binding before authorizing a peer. */
+export function verifySignedPeerDescriptor(
+    descriptor: SignedPeerDescriptor,
+    opts: { targetMachineId: string; targetMachineSigningPublicKey: string; now?: number },
+): PeerDescriptorClaims {
+    if (descriptor === null || typeof descriptor !== 'object' || descriptor.v !== 1) throw new Error('peer descriptor: unknown version');
+    validatePeerDescriptorClaims(descriptor.claims);
+    if (descriptor.claims.targetMachineId !== opts.targetMachineId
+        || descriptor.claims.targetMachineSigningPublicKey !== opts.targetMachineSigningPublicKey) {
+        throw new Error('peer descriptor: target binding mismatch');
+    }
+    const now = opts.now ?? Date.now();
+    if (descriptor.claims.expiresAt <= now) throw new Error('peer descriptor: expired');
+    if (descriptor.claims.preparedAt > now + 60_000
+        || descriptor.claims.expiresAt - descriptor.claims.preparedAt > PEER_DESCRIPTOR_MAX_TTL_MS) {
+        throw new Error('peer descriptor: invalid validity window');
+    }
+    const signature = fromBase64(descriptor.signature);
+    if (signature.length !== nacl.sign.signatureLength
+        || !verifyDetached(peerDescriptorBytes(descriptor.claims), descriptor.signature, descriptor.claims.sourceMachineSigningPublicKey)) {
+        throw new Error('peer descriptor: signature verification failed');
+    }
+    return descriptor.claims;
+}
+
 /**
  * Create a device grant: signed by the machine's ed25519 key, encrypted to the
  * device's X25519 public key. Carries the machine data key and per-device
@@ -503,6 +613,8 @@ export function createDeviceGrant(params: {
     /** Durable native grants use a parser-safe far-future timestamp. */
     expiresAt: number;
     authority?: DeviceAuthority;
+    deviceKind?: DeviceKind;
+    capabilities?: readonly PeerCapability[];
 }): SealedDeviceGrant {
     const { machineId, deviceId, devicePublicKey, keyVersion, expiresAt } = params;
     if (typeof machineId !== 'string' || machineId === '') throw new Error('grant: machineId required');
@@ -515,6 +627,13 @@ export function createDeviceGrant(params: {
     if (signingSecret.length !== nacl.sign.secretKeyLength) {
         throw new Error('grant: machineSigningSecretKey must be a 64-byte ed25519 secret key');
     }
+    const capabilities = params.capabilities === undefined ? undefined : [...params.capabilities];
+    if (params.deviceKind === 'peer') {
+        if (!isPeerCapabilities(capabilities)) throw new Error('grant: peer capabilities required');
+        if (params.authority !== undefined) throw new Error('grant: peer devices cannot carry broad authority');
+    } else if (capabilities !== undefined) {
+        throw new Error('grant: capabilities are valid only for peer devices');
+    }
     // tweetnacl ed25519 secret keys append the public key in the last 32 bytes.
     const machineSigningPublicKey = toBase64(signingSecret.subarray(nacl.sign.publicKeyLength));
     const grant: DeviceGrant = {
@@ -524,7 +643,9 @@ export function createDeviceGrant(params: {
         devicePublicKey,
         keyVersion,
         expiresAt,
-        authority: params.authority ?? 'control',
+        ...(params.deviceKind === undefined ? {} : { deviceKind: params.deviceKind }),
+        ...(capabilities === undefined ? {} : { capabilities }),
+        ...(params.deviceKind === 'peer' ? {} : { authority: params.authority ?? 'control' }),
         dataKey: toBase64(toKeyBytes(params.dataKey, 'grant dataKey')),
         ingressKey: toBase64(toKeyBytes(params.ingressKey, 'grant ingressKey')),
     };
@@ -585,6 +706,13 @@ export function verifyDeviceGrant(
     if (typeof parsed.expiresAt !== 'number' || !Number.isFinite(parsed.expiresAt)) throw new Error('grant: invalid expiry');
     if (parsed.expiresAt <= Date.now()) throw new Error('grant: expired');
     if (parsed.authority !== undefined && parsed.authority !== 'control' && parsed.authority !== 'observe') throw new Error('grant: invalid authority');
+    if (parsed.deviceKind !== undefined && parsed.deviceKind !== 'native' && parsed.deviceKind !== 'browser' && parsed.deviceKind !== 'peer') throw new Error('grant: invalid device kind');
+    if (parsed.deviceKind === 'peer') {
+        if (parsed.authority !== undefined) throw new Error('grant: peer devices cannot carry broad authority');
+        if (!isPeerCapabilities(parsed.capabilities)) throw new Error('grant: invalid peer capabilities');
+    } else if (parsed.capabilities !== undefined) {
+        throw new Error('grant: capabilities are valid only for peer devices');
+    }
     if (!Number.isInteger(parsed.keyVersion) || parsed.keyVersion < 1) throw new Error('grant: invalid key generation');
     if (typeof parsed.dataKey !== 'string' || toKeyBytes(parsed.dataKey, 'grant dataKey').length !== 32) throw new Error('grant: invalid dataKey');
     if (typeof parsed.ingressKey !== 'string' || toKeyBytes(parsed.ingressKey, 'grant ingressKey').length !== 32) throw new Error('grant: invalid ingressKey');

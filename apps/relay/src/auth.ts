@@ -1,5 +1,6 @@
 import { timingSafeEqual } from 'node:crypto';
 import type { IncomingMessage } from 'node:http';
+import type { DeviceKind, PeerCapability } from '@muxr/contract';
 import { isLoopbackAddress } from './config.js';
 
 /** Narrow core ticket shape — everything WS auth needs, no persistence bookkeeping. */
@@ -8,6 +9,9 @@ export interface Ticket {
     machineSlug: string;
     accountId: string;
     deviceId?: string;
+    deviceKind?: DeviceKind;
+    capabilities?: PeerCapability[];
+    credentialVersion?: number;
     machineCredentialId?: string;
     transport: 'relay' | 'terminal' | 'preview' | 'stream';
     channel?: string;
@@ -39,6 +43,9 @@ export interface TicketPeerIdentity {
     machineIds: ReadonlySet<string>;
     accountId: string;
     deviceId?: string;
+    deviceKind?: DeviceKind;
+    capabilities?: PeerCapability[];
+    credentialVersion?: number;
     machineCredentialId?: string;
     transport: 'relay' | 'terminal' | 'preview' | 'stream';
     channel?: string;
@@ -75,6 +82,9 @@ export async function authenticateWebSocket(input: AuthInput): Promise<PeerIdent
             machineIds: new Set([ticket.machineSlug]),
             accountId: ticket.accountId,
             ...(ticket.deviceId === undefined ? {} : { deviceId: ticket.deviceId }),
+            ...(ticket.deviceKind === undefined ? {} : { deviceKind: ticket.deviceKind }),
+            ...(ticket.capabilities === undefined ? {} : { capabilities: ticket.capabilities }),
+            ...(ticket.credentialVersion === undefined ? {} : { credentialVersion: ticket.credentialVersion }),
             ...(ticket.machineCredentialId === undefined ? {} : { machineCredentialId: ticket.machineCredentialId }),
             transport: ticket.transport,
             ...(ticket.channel === undefined ? {} : { channel: ticket.channel }),

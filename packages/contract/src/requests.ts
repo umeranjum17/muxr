@@ -32,6 +32,13 @@ import type {
 import type { PluginManifestV1, PluginSource, PluginSummary } from './plugins.js';
 import type { LandWorktreeResult } from './worktree.js';
 import type { AttentionCatalog, HerdrTreeWorkspace, SessionInfo, SessionShellOutcome, SessionStatus } from './sessionState.js';
+import type {
+    PeerAuthorityMetadata,
+    PeerCapability,
+    PeerMutationMetadata,
+    PeerRelationship,
+    SignedPeerDescriptor,
+} from './peer.js';
 
 export interface PromptAttachment {
     name: string;
@@ -42,6 +49,64 @@ export interface PromptAttachment {
 
 export type StreamingBehavior = 'steer' | 'followUp';
 export type VoiceProviderOption = { id: string; name: string; selected: boolean; source: PluginSource; hasBackend: boolean };
+
+/** Peer ceremony requests are separate until the host peer dispatcher lands. */
+export interface PeerRequestMap {
+    'peer.prepare': {
+        params: {
+            targetMachineId: string;
+            targetMachineSigningPublicKey: string;
+            sourceName?: string;
+            sourcePlatform?: string;
+            descriptorExpiresAt?: number;
+            mutation: PeerMutationMetadata;
+        };
+        result: { preparationId: string; descriptor: SignedPeerDescriptor; expiresAt: number };
+    };
+    'peer.authorize': {
+        params: {
+            descriptor: SignedPeerDescriptor;
+            capabilities: PeerCapability[];
+            mutation: PeerMutationMetadata;
+            relationshipId?: string;
+        };
+        result: {
+            peerDeviceId: string;
+            sealedBundle: string;
+            capabilities: PeerCapability[];
+            keyVersion: number;
+            authority?: PeerAuthorityMetadata;
+        };
+    };
+    'peer.install': {
+        params: {
+            targetMachineId: string;
+            sealedBundle: string;
+            mutation: PeerMutationMetadata;
+            relationshipId?: string;
+        };
+        result: PeerRelationship;
+    };
+    'peer.list': {
+        params: Record<string, never>;
+        result: { peers: PeerRelationship[]; revision?: number };
+    };
+    'peer.revoke': {
+        params: {
+            relationshipId: string;
+            peerDeviceId?: string;
+            mutation: PeerMutationMetadata;
+        };
+        result: { state: 'revoked' | 'already-revoked'; revokedAt: number; authority?: PeerAuthorityMetadata };
+    };
+}
+
+export type PeerRequestType = keyof PeerRequestMap;
+export type PeerRequestParams<T extends PeerRequestType> = PeerRequestMap[T]['params'];
+export type PeerRequestResult<T extends PeerRequestType> = PeerRequestMap[T]['result'];
+export type PeerClientRequest = {
+    [K in PeerRequestType]: { type: K; requestId: string; params: PeerRequestParams<K> };
+}[PeerRequestType];
 
 export interface RequestMap {
     // --- lifecycle ----------------------------------------------------------
@@ -66,6 +131,8 @@ export interface RequestMap {
             worktree?: { branch?: string; base?: string };
             /** Squad mode: one workspace, one tab per kind (max 4). Ignores kind. */
             kinds?: string[];
+            /** Required by the peer dispatcher; ordinary trusted clients omit it. */
+            peerMutation?: PeerMutationMetadata;
         };
         result: SessionSnapshot;
     };
@@ -164,6 +231,8 @@ export interface RequestMap {
             sessionId: string;
             until?: ('idle' | 'done' | 'blocked' | 'unknown')[];
             timeoutMs?: number;
+            /** Required by the peer dispatcher; ordinary trusted clients omit it. */
+            peerMutation?: PeerMutationMetadata;
         };
         result: { watching: boolean };
     };
@@ -231,6 +300,8 @@ export interface RequestMap {
             text: string;
             attachments?: PromptAttachment[];
             streamingBehavior?: StreamingBehavior;
+            /** Required by the peer dispatcher; ordinary trusted clients omit it. */
+            peerMutation?: PeerMutationMetadata;
         };
         result: null;
     };
@@ -378,7 +449,7 @@ export const MISSING_CWD_ERROR_PREFIX = 'cwd-does-not-exist:';
 
 /** Normalize both old-host crashes and current structured result errors. */
 export function requestRequiresE2ee(type: string): boolean {
-    return type === 'plugin.approve' || type === 'plugin.invoke' || type === 'plugin.call' || type === 'plugin.stream' || type === 'voice.provider.select' || type === 'herdr.cli';
+    return type.startsWith('peer.') || type === 'plugin.approve' || type === 'plugin.invoke' || type === 'plugin.call' || type === 'plugin.stream' || type === 'voice.provider.select' || type === 'herdr.cli';
 }
 
 export function normalizeRequestFailure(

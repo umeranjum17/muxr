@@ -4,6 +4,7 @@
  */
 import { decodePayload, encodePayload, isPluginsInvalidatedFrame } from './wire.js';
 import { SESSION_EVENT_TYPES, type SessionEventBody } from './sessionEvent.js';
+import { isPeerCapabilities, peerCapabilityForRequest } from './peer.js';
 import type { SessionInfo, SessionStatus } from './sessionState.js';
 
 function assert(condition: boolean, message: string): asserts condition {
@@ -69,7 +70,12 @@ function demo(): void {
     assert(isPluginsInvalidatedFrame({ ...invalidated, pluginIds: [] }), 'empty informational plugin frame validates');
     assert(!isPluginsInvalidatedFrame({ ...invalidated, pluginIds: ['bad id'] }), 'invalid plugin id is rejected');
     assert(!isPluginsInvalidatedFrame({ ...invalidated, pluginIds: Array.from({ length: 33 }, () => 'example.muxr-ui') }), 'oversized plugin frame is rejected');
-    process.stdout.write(`PASS: contract selfCheck (${events.length} event types and plugin invalidation round-trip)\n`);
+    assert(isPeerCapabilities(['list', 'read', 'status', 'watch', 'prompt']), 'default peer capabilities validate');
+    assert(peerCapabilityForRequest('session.prompt') === 'prompt', 'safe peer requests map to their signed capability');
+    assert(peerCapabilityForRequest('session.start') === 'start', 'advanced peer start stays separate');
+    assert(peerCapabilityForRequest('session.shell') === undefined && peerCapabilityForRequest('herdr.cli') === undefined,
+        'shell and raw herdr stay outside the peer surface');
+    process.stdout.write(`PASS: contract selfCheck (${events.length} event types, plugin frames, peer allowlist)\n`);
 }
 
 demo();
