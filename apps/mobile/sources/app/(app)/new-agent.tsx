@@ -10,7 +10,6 @@
 import * as React from 'react';
 import {
     ActivityIndicator,
-    Platform,
     Pressable,
     ScrollView,
     View,
@@ -36,7 +35,7 @@ import {
 } from '@/state/connectionSettings';
 
 import { FALLBACK_AGENT_KINDS, resolveAgentCatalog, type AgentCatalogOption } from '@/sync/agentKinds';
-import { getCachedHostedGrant } from '@/state/hostedE2ee';
+import { useDeviceAuthority } from '@/hooks/useDeviceAuthority';
 
 const MAX_SQUAD = 4;
 const MAX_RECENT_CHIPS = 6;
@@ -68,6 +67,9 @@ const stylesheet = StyleSheet.create((theme) => ({
         padding: 16,
         paddingBottom: 32,
         gap: 22,
+        width: '100%',
+        maxWidth: 800,
+        alignSelf: 'center',
     },
     sectionLabelRow: {
         flexDirection: 'row',
@@ -128,6 +130,19 @@ const stylesheet = StyleSheet.create((theme) => ({
         color: theme.colors.textSecondary,
         fontSize: 12,
         paddingHorizontal: 2,
+    },
+    moreAgentsButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 6,
+        minHeight: 44,
+        marginTop: 8,
+    },
+    moreAgentsText: {
+        color: theme.colors.textLink,
+        fontSize: 13,
+        fontWeight: '600',
     },
     workspaceRow: {
         flexDirection: 'row',
@@ -215,13 +230,15 @@ export default function NewAgentScreen() {
     const { theme } = useUnistyles();
     const insets = useSafeAreaInsets();
     const settings = getCachedConnectionSettings();
-    const canControl = Platform.OS !== 'web' || getCachedHostedGrant(settings.machineId)?.authority === 'control';
+    const { authority, loading: authorityLoading } = useDeviceAuthority();
+    const canControl = authority === 'control';
 
     const [catalog, setCatalog] = React.useState<readonly AgentOption[]>(
         FALLBACK_AGENT_KINDS.map((kind) => ({ kind, availability: 'unknown' })),
     );
     const [catalogSource, setCatalogSource] = React.useState<'loading' | 'host' | 'unknown' | 'fallback'>('loading');
     const [selected, setSelected] = React.useState<ReadonlySet<string>>(new Set());
+    const [showUnavailableAgents, setShowUnavailableAgents] = React.useState(false);
     const [cwd, setCwd] = React.useState(settings.lastSessionCwd ?? '');
     const [worktree, setWorktree] = React.useState(false);
     const [workspaces, setWorkspaces] = React.useState<HerdrTreeWorkspace[]>([]);
@@ -275,6 +292,10 @@ export default function NewAgentScreen() {
 
     const kinds = [...selected];
     const squad = kinds.length > 1;
+    const unavailableCount = catalog.filter((option) => option.availability === 'unavailable').length;
+    const visibleCatalog = showUnavailableAgents
+        ? catalog
+        : catalog.filter((option) => option.availability !== 'unavailable');
     const directory = cwd.trim();
 
     const start = React.useCallback(async () => {
@@ -332,6 +353,14 @@ export default function NewAgentScreen() {
     const styles = stylesheet;
     const recent = (settings.recentSessionCwds ?? []).slice(0, MAX_RECENT_CHIPS);
 
+    if (authorityLoading) {
+        return (
+            <View style={[styles.container, { alignItems: 'center', justifyContent: 'center' }]}>
+                <ActivityIndicator color={theme.colors.textSecondary} />
+            </View>
+        );
+    }
+
     if (!canControl) {
         return (
             <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
@@ -375,7 +404,7 @@ export default function NewAgentScreen() {
                         </View>
                     </View>
                     <View style={styles.grid}>
-                        {catalog.map((option) => {
+                        {visibleCatalog.map((option) => {
                             const isSelected = selected.has(option.kind);
                             const available = option.availability !== 'unavailable';
                             return (
@@ -409,6 +438,22 @@ export default function NewAgentScreen() {
                             );
                         })}
                     </View>
+                    {unavailableCount > 0 && (
+                        <Pressable
+                            accessibilityRole="button"
+                            onPress={() => setShowUnavailableAgents((visible) => !visible)}
+                            style={({ pressed }) => [styles.moreAgentsButton, pressed && { opacity: 0.7 }]}
+                        >
+                            <Text style={styles.moreAgentsText}>
+                                {showUnavailableAgents ? 'Show installed agents only' : `Show ${unavailableCount} more agents`}
+                            </Text>
+                            <Ionicons
+                                name={showUnavailableAgents ? 'chevron-up' : 'chevron-down'}
+                                size={16}
+                                color={theme.colors.textLink}
+                            />
+                        </Pressable>
+                    )}
                     <Text style={[styles.squadHint, { marginTop: 10 }]}>
                         {squad
                             ? `Squad: ${kinds.join(' · ')}. One tab each, same workspace.`

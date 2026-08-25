@@ -18,7 +18,7 @@ import { isTauri } from '@/utils/isTauri';
 import { useVisibleSessionListViewData } from '@/hooks/useVisibleSessionListViewData';
 import { getSessionShortcutIdsInDisplayOrder } from '@/utils/sessionDisplayOrder';
 import { t } from '@/text';
-import { currentDeviceAuthority } from '@/state/hostedE2ee';
+import { useDeviceAuthority } from '@/hooks/useDeviceAuthority';
 
 const EMPTY_SESSION_IDS: readonly string[] = [];
 
@@ -30,7 +30,8 @@ export function CommandPaletteProvider({ children }: { children: React.ReactNode
     const sessionListViewData = useVisibleSessionListViewData();
     const machines = useAllMachines();
     const navigateToSession = useNavigateToSession();
-    const canControl = currentDeviceAuthority() === 'control';
+    const { authority, loading: authorityLoading } = useDeviceAuthority();
+    const canControl = authority === 'control' && !authorityLoading;
     const preferredModifier = useMemo(() => getPreferredShortcutModifier(
         typeof navigator === 'undefined' ? undefined : navigator
     ), []);
@@ -63,7 +64,7 @@ export function CommandPaletteProvider({ children }: { children: React.ReactNode
                 icon: 'chatbubbles-outline',
                 category: 'Sessions',
                 action: () => {
-                    router.push('/');
+                    router.push('/session/recent');
                 }
             },
             {

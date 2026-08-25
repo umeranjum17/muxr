@@ -61,6 +61,12 @@ export default function RootLayout() {
                 }}
             />
             <Stack.Screen
+                name="new-agent"
+                options={{
+                    headerShown: false,
+                }}
+            />
+            <Stack.Screen
                 name="shortcut/[id]"
                 options={{
                     headerShown: false,

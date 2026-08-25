@@ -6,7 +6,7 @@
  */
 
 import * as React from 'react';
-import { Pressable, ScrollView, View } from 'react-native';
+import { Pressable, ScrollView, View, type LayoutChangeEvent } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Text } from '@/components/StyledText';
 import { useHerdrTree, useSessions, useSocketStatus } from '@/sync/storage';
@@ -20,9 +20,11 @@ import { TerminalPreview } from '@/terminal/TerminalPreview';
 import { useNavigateToSession } from '@/hooks/useNavigateToSession';
 import { t } from '@/text';
 
-const MAX_CARDS = 5;
-const CARD_WIDTH = 300;
-const CARD_HEIGHT = 200;
+const MAX_CARDS = 6;
+const COMPACT_CARD_WIDTH = 300;
+const COMPACT_CARD_HEIGHT = 200;
+const CARD_GAP = 12;
+const STRIP_GUTTER = 16;
 
 function footerTitle(session: Session): string {
     const metadata = session.metadata;
@@ -38,6 +40,34 @@ const stylesheet = StyleSheet.create((theme) => ({
     strip: {
         paddingVertical: 8,
     },
+    grid: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: CARD_GAP,
+        paddingHorizontal: STRIP_GUTTER,
+    },
+    zeroState: {
+        height: COMPACT_CARD_HEIGHT,
+        marginHorizontal: STRIP_GUTTER,
+        paddingHorizontal: 24,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: theme.colors.divider,
+        backgroundColor: theme.colors.surfaceHigh,
+    },
+    zeroTitle: {
+        color: theme.colors.text,
+        fontSize: 17,
+        fontWeight: '600',
+    },
+    zeroText: {
+        marginTop: 6,
+        color: theme.colors.textSecondary,
+        fontSize: 13,
+        textAlign: 'center',
+    },
     label: {
         color: theme.colors.textSecondary,
         fontSize: 11,
@@ -47,8 +77,8 @@ const stylesheet = StyleSheet.create((theme) => ({
         paddingBottom: 8,
     },
     card: {
-        width: CARD_WIDTH,
-        height: CARD_HEIGHT,
+        width: COMPACT_CARD_WIDTH,
+        height: COMPACT_CARD_HEIGHT,
         borderRadius: 12,
         backgroundColor: theme.colors.surfaceHigh,
         overflow: 'hidden',
@@ -99,9 +129,11 @@ interface LiveTerminalCardProps {
     status: LiveTerminalOrderCard['status'];
     kindName: string;
     branch?: string;
+    width: number;
+    height: number;
 }
 
-const LiveTerminalCard = React.memo(({ id, title, status, kindName, branch }: LiveTerminalCardProps) => {
+const LiveTerminalCard = React.memo(({ id, title, status, kindName, branch, width, height }: LiveTerminalCardProps) => {
     const { theme } = useUnistyles();
     const navigateToSession = useNavigateToSession();
     const styles = stylesheet;
@@ -112,7 +144,10 @@ const LiveTerminalCard = React.memo(({ id, title, status, kindName, branch }: Li
             onPress={() => navigateToSession(id)}
             accessibilityRole="button"
             accessibilityLabel={`${title}, ${HERD_STATUS_LABELS[status]}`}
-            style={({ pressed }) => [styles.card, { opacity: pressed ? 0.85 : 1 }]}
+            style={({ pressed }) => [
+                styles.card,
+                { width, height, opacity: pressed ? 0.85 : 1 },
+            ]}
         >
             <View style={styles.cardBody}>
                 <TerminalPreview sessionId={id} />
@@ -141,42 +176,80 @@ const LiveTerminalCard = React.memo(({ id, title, status, kindName, branch }: Li
     );
 });
 
-export const LiveTerminalsRow = React.memo(() => {
+export const LiveTerminalsRow = React.memo(({ layout = 'strip' }: { layout?: 'strip' | 'grid' }) => {
     useUnistyles();
     const sessions = useSessions();
     const { workspaces } = useHerdrTree();
     const { status: socketStatus } = useSocketStatus();
     const styles = stylesheet;
+    const [stripWidth, setStripWidth] = React.useState(0);
+    const handleLayout = React.useCallback((event: LayoutChangeEvent) => {
+        setStripWidth(event.nativeEvent.layout.width);
+    }, []);
+    const stripCardSize = React.useMemo(() => {
+        const width = Math.min(COMPACT_CARD_WIDTH, Math.max(240, stripWidth - STRIP_GUTTER - 24));
+        return { width, height: COMPACT_CARD_HEIGHT };
+    }, [stripWidth]);
     const panes = React.useMemo(
         () => sortHerd(sessions, lifecycleTree(workspaces, socketStatus === 'connected')),
         [sessions, socketStatus, workspaces],
     );
     const cards = React.useMemo(() => selectLiveTerminalCards(sessions, panes), [panes, sessions]);
     const orderedCards = useLiveTerminalOrder(cards).slice(0, MAX_CARDS);
+    const gridCardSize = React.useMemo(() => {
+        const contentWidth = Math.max(0, stripWidth - STRIP_GUTTER * 2);
+        const count = orderedCards.length;
+        if (count <= 1) {
+            const width = Math.min(contentWidth, 760);
+            return { width, height: Math.min(460, Math.max(240, Math.round(width * 0.6))) };
+        }
+        if (count === 2) {
+            const width = Math.floor((contentWidth - CARD_GAP) / 2);
+            return { width, height: Math.min(420, Math.max(200, Math.round(width * 0.58))) };
+        }
+        const columns = Math.max(1, Math.min(4, Math.floor((contentWidth + CARD_GAP) / (320 + CARD_GAP))));
+        const width = Math.floor((contentWidth - CARD_GAP * (columns - 1)) / columns);
+        return { width, height: Math.min(320, Math.max(180, Math.round(width * 0.62))) };
+    }, [orderedCards.length, stripWidth]);
 
-    if (orderedCards.length === 0) return null;
+    const cardSize = layout === 'grid' ? gridCardSize : stripCardSize;
+    const renderedCards = orderedCards.map(({ session: item, status, title }) => (
+        <LiveTerminalCard
+            key={item.id}
+            id={item.id}
+            title={title || footerTitle(item)}
+            status={status}
+            kindName={item.metadata?.provider?.name ?? 'agent'}
+            branch={item.metadata?.worktree?.branch}
+            width={cardSize.width}
+            height={cardSize.height}
+        />
+    ));
 
     return (
-        <View style={styles.strip}>
+        <View style={styles.strip} onLayout={handleLayout}>
             <Text style={styles.label}>{t('liveTerminals.title')}</Text>
+            {orderedCards.length === 0 ? (
+                <View style={styles.zeroState}>
+                    <Text style={styles.zeroTitle}>No agents running</Text>
+                    <Text style={styles.zeroText}>Start one from New session, or resume a recent session below.</Text>
+                </View>
+            ) : null}
             {/* .map, not FlatList: virtualization unmounts previews on scroll,
                 and each mount spawns a herdr observe subprocess. */}
-            <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={{ gap: 10, paddingHorizontal: 16 }}
-            >
-                {orderedCards.map(({ session: item, status }) => (
-                    <LiveTerminalCard
-                        key={item.id}
-                        id={item.id}
-                        title={footerTitle(item)}
-                        status={status}
-                        kindName={item.metadata?.provider?.name ?? 'agent'}
-                        branch={item.metadata?.worktree?.branch}
-                    />
-                ))}
-            </ScrollView>
+            {orderedCards.length > 0 && (layout === 'grid' ? (
+                <View style={styles.grid}>{renderedCards}</View>
+            ) : (
+                <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    snapToInterval={stripCardSize.width + CARD_GAP}
+                    decelerationRate="fast"
+                    contentContainerStyle={{ gap: CARD_GAP, paddingHorizontal: STRIP_GUTTER }}
+                >
+                    {renderedCards}
+                </ScrollView>
+            ))}
         </View>
     );
 });

@@ -144,8 +144,9 @@ export function getCachedHostedGrant(machineId: string): StoredHostedGrant | und
 
 export function currentDeviceAuthority(): 'control' | 'observe' {
     if (Platform.OS !== 'web') return 'control';
-    const machineId = getCachedConnectionSettings().machineId;
-    return grantsCache?.[machineId]?.authority ?? 'observe';
+    const connection = getCachedConnectionSettings();
+    if (connection.mode === 'local') return 'control';
+    return grantsCache?.[connection.machineId]?.authority ?? 'observe';
 }
 
 /** Every machine this device is paired to, for the Settings machine picker. */

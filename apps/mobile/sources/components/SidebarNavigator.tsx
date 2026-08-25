@@ -1,7 +1,7 @@
 import { useAuth } from '@/auth/AuthContext';
 import * as React from 'react';
 import { Drawer } from 'expo-router/drawer';
-import { useIsTablet, useHeaderHeight } from '@/utils/responsive';
+import { sidebarWidth, useSplitViewLayout, useHeaderHeight } from '@/utils/responsive';
 import { SidebarView } from './SidebarView';
 import { useWindowDimensions, View, Pressable, Platform } from 'react-native';
 import { useLocalSetting, useLocalSettingMutable } from '@/sync/storage';
@@ -20,17 +20,15 @@ const TAURI_HEADER_CONTROL_LEFT = Math.ceil(92 / DEFAULT_APP_ZOOM);
 
 export const SidebarNavigator = React.memo(() => {
     const auth = useAuth();
-    const isTablet = useIsTablet();
+    const { theme } = useUnistyles();
+    const splitViewLayout = useSplitViewLayout();
     const zenMode = useLocalSetting('zenMode');
-    const isDesktopLayout = auth.isAuthenticated && isTablet;
+    const isDesktopLayout = auth.isAuthenticated && splitViewLayout;
     const showSidebar = isDesktopLayout && !zenMode;
     const { width: windowWidth } = useWindowDimensions();
 
     // Calculate target drawer width
-    const fullDrawerWidth = React.useMemo(() => {
-        if (!isDesktopLayout) return 280;
-        return Math.min(Math.max(Math.floor(windowWidth * 0.3), 250), 360);
-    }, [windowWidth, isDesktopLayout]);
+    const fullDrawerWidth = isDesktopLayout ? sidebarWidth(windowWidth) : 280;
     const drawerWidth = showSidebar ? fullDrawerWidth : 0;
 
     const drawerNavigationOptions = React.useMemo(() => {
@@ -60,8 +58,9 @@ export const SidebarNavigator = React.memo(() => {
             headerShown: false,
             drawerType: 'permanent' as const,
             drawerStyle: {
-                backgroundColor: 'white',
-                borderRightWidth: 0,
+                backgroundColor: theme.colors.groupped.background,
+                borderRightWidth: 1,
+                borderRightColor: theme.colors.divider,
                 width: drawerWidth,
                 overflow: 'hidden' as const,
             } as any,
@@ -71,7 +70,7 @@ export const SidebarNavigator = React.memo(() => {
             drawerItemStyle: { display: 'none' as const },
             drawerLabelStyle: { display: 'none' as const },
         };
-    }, [isDesktopLayout, drawerWidth]);
+    }, [isDesktopLayout, drawerWidth, theme.colors.divider, theme.colors.groupped.background]);
 
     const drawerContent = React.useCallback(
         () => <SidebarView />,
@@ -173,14 +172,16 @@ const PersistentHeader = React.memo(() => {
                         color={zenMode ? theme.colors.textLink : theme.colors.header.tint}
                     />
                 </Pressable>
-                <Pressable onPress={handleBack} disabled={!canGoBackEffective} hitSlop={10} accessibilityRole="button" accessibilityLabel={t('common.back')} accessibilityState={{ disabled: !canGoBackEffective }} style={{ width: 28, height: 28, alignItems: 'center', justifyContent: 'center', opacity: canGoBackEffective ? 1 : 0.3 }}>
-                    <Ionicons name="chevron-back" size={20} color={theme.colors.header.tint} />
-                </Pressable>
-                {Platform.OS === 'web' && (
-                    <Pressable onPress={handleForward} disabled={!canGoForwardEffective} hitSlop={10} accessibilityRole="button" accessibilityLabel="Forward" accessibilityState={{ disabled: !canGoForwardEffective }} style={{ width: 28, height: 28, alignItems: 'center', justifyContent: 'center', opacity: canGoForwardEffective ? 1 : 0.3 }}>
-                        <Ionicons name="chevron-forward" size={20} color={theme.colors.header.tint} />
+                <>
+                    <Pressable onPress={handleBack} disabled={!canGoBackEffective} hitSlop={10} accessibilityRole="button" accessibilityLabel={t('common.back')} accessibilityState={{ disabled: !canGoBackEffective }} style={{ width: 28, height: 28, alignItems: 'center', justifyContent: 'center', opacity: canGoBackEffective ? 1 : 0.3 }}>
+                        <Ionicons name="chevron-back" size={20} color={theme.colors.header.tint} />
                     </Pressable>
-                )}
+                    {Platform.OS === 'web' && (
+                        <Pressable onPress={handleForward} disabled={!canGoForwardEffective} hitSlop={10} accessibilityRole="button" accessibilityLabel="Forward" accessibilityState={{ disabled: !canGoForwardEffective }} style={{ width: 28, height: 28, alignItems: 'center', justifyContent: 'center', opacity: canGoForwardEffective ? 1 : 0.3 }}>
+                            <Ionicons name="chevron-forward" size={20} color={theme.colors.header.tint} />
+                        </Pressable>
+                    )}
+                </>
             </View>
         </View>
     );
