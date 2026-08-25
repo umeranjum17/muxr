@@ -402,8 +402,8 @@ export async function runSetup(args = []) {
     const syncIntegrations = await select(found.agents.checked
         ? `Connect your coding agents (${found.agents.available.length} detected)?`
         : 'Agent availability could not be checked. Retry integration setup anyway?', [
-        { value: true, title: 'Connect coding agents', description: 'keeps their status current' },
-        { value: false, title: 'Leave integrations unchanged', description: 'do not install or alter coding-agent hooks' },
+        { value: true, title: 'Connect coding agents', description: 'install lifecycle detection so their status stays current' },
+        { value: false, title: 'Leave integrations unchanged', description: 'do not change coding-agent lifecycle integrations' },
     ]);
     if (aborted(syncIntegrations)) return cancelSetup();
 
@@ -415,7 +415,7 @@ export async function runSetup(args = []) {
         `Connection: ${connectionLabel(mode, endpoint, port)}`,
         `Herdr: ${found.herdr.installed ? 'adopt existing installation and ensure its server is running' : 'download, install, and start during setup'}`,
         'Bundled plugins: link the public muxr plugins into Herdr',
-        `Agent integrations: ${syncIntegrations ? 'sync detected providers and managed instruction blocks' : 'leave hooks and instruction files unchanged'}`,
+        `Agent integrations: ${syncIntegrations ? 'sync detected lifecycle providers; leave agent prompt files unchanged' : 'leave lifecycle integrations unchanged'}`,
         `Optional add-ons: ${plugins.length ? plugins.map((plugin) => plugin.title).join(', ') : 'none'}`,
         `Browser client: ${web ? 'host the web app; browser keys stay WebCrypto-wrapped on this device' : 'off'}`,
         `Pairing: ${pairing === 'none' ? 'keep existing devices; no new pairing' : pairing === 'both' ? 'phone, then control browser' : pairing}${pairing === 'browser' || pairing === 'browser-view' || pairing === 'both' ? ' · browser access expires after eight hours' : ''}`,
@@ -621,8 +621,8 @@ export async function runRemoteRelaySetup() {
     renderInspection(found);
     const current = await selfhostPublicSummary();
     const syncIntegrations = await select('Sync detected coding-agent integrations?', [
-        { value: true, title: 'Sync integrations', description: `${found.agents.available.length} available` },
-        { value: false, title: 'Leave unchanged', description: 'do not alter coding-agent hooks or instruction files' },
+        { value: true, title: 'Sync integrations', description: `${found.agents.available.length} lifecycle providers available` },
+        { value: false, title: 'Leave unchanged', description: 'do not change coding-agent lifecycle integrations' },
     ]);
     if (aborted(syncIntegrations)) return cancelled();
     const pairingChoices = [

@@ -21,8 +21,7 @@ If that section is missing, run `herdr --skill` and follow its output.
 
 ## Packaged-reference behavior
 
-This source page intentionally contains no vendored Herdr command list. During
-`muxr setup`, `muxr integrations sync`, and ordinary non-relay `muxr update`,
-muxr appends the installed binary's `herdr --skill` output below. That keeps the
-single public muxr skill version-matched without installing a second Herdr
-`SKILL.md`.
+This source page intentionally contains no vendored Herdr command list.
+`muxr --skill` appends the installed binary's `herdr --skill` output at command
+time. Setup, integration sync, and update never install skills or change agent
+prompt files.
