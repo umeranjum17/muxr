@@ -34,7 +34,7 @@ async function requestPeer(request, signal) {
         signal?.addEventListener('abort', onAbort, { once: true });
         const timeoutMs = request?.method === 'watch'
             ? Math.min(Math.max(Math.trunc(Number(request.timeoutMs) || 30_000), 1_000), 290_000) + 25_000
-            : 65_000;
+            : request?.method === 'prompt' ? 5 * 60_000 + 25_000 : 65_000;
         socket.setTimeout(timeoutMs, () => finish(new Error('Peer request timed out.')));
         socket.on('connect', () => socket.write(`${JSON.stringify({ id, capability, request })}\n`));
         socket.on('data', (chunk) => {

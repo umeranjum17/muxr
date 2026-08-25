@@ -38,7 +38,13 @@ export class PeerReceiptExecutor {
             return running.promise as Promise<T>;
         }
         const receipt = this.store.receipt(deviceId, mutation.operationId);
-        if (receipt !== undefined) return this.result<T>(receipt, requestHash);
+        if (receipt !== undefined) {
+            if (receipt.requestHash !== requestHash) throw operationError('peer operation id was reused with different input', 'peer-operation-conflict');
+            // A watch is a resumable wait, not a side effect. After target restart,
+            // re-arm the exact durable operation instead of cross-settling or
+            // returning an uncertainty that can never resolve.
+            if (receipt.state !== 'started' || type !== 'agent.watch') return this.result<T>(receipt, requestHash);
+        }
         const promise = (async () => {
             await this.store.putReceipt({
                 deviceId,

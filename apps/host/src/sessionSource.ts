@@ -18,6 +18,7 @@ import type {
     StreamingBehavior,
     PluginsInvalidatedFrame,
     VoiceProviderOption,
+    WatchSettlement,
 } from '@muxr/contract';
 
 export interface SessionListOptions {
@@ -128,6 +129,12 @@ export interface SessionSource {
         until?: ('idle' | 'done' | 'blocked' | 'unknown')[];
         timeoutMs?: number;
     }): Promise<{ watching: boolean }>;
+    /** Private correlated wait for peer calls; never consumes the shared session event bus. */
+    agentWait(options: {
+        sessionId: string;
+        until?: ('idle' | 'done' | 'blocked' | 'unknown')[];
+        timeoutMs?: number;
+    }): Promise<WatchSettlement>;
     layoutExport(sessionId: string): Promise<{ snapshot: LayoutSnapshot }>;
     layoutApply(options: { sessionId: string; snapshot: LayoutSnapshot; label?: string }): Promise<{
         tabId: string;

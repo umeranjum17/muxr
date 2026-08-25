@@ -1615,6 +1615,27 @@ export async function createHerdrSessionSource(
             return { watching: true };
         },
 
+        async agentWait(waitOptions: {
+            sessionId: string;
+            until?: ('idle' | 'done' | 'blocked' | 'unknown')[];
+            timeoutMs?: number;
+        }) {
+            const record = await resolvePane(waitOptions.sessionId);
+            const timeoutMs = Math.min(waitOptions.timeoutMs ?? DEFAULT_WATCH_MS, MAX_WATCH_MS);
+            try {
+                const result = await client.call<{ agent?: { agent_status?: string } }>(
+                    'agent.wait',
+                    { target: record.paneId, until: waitOptions.until ?? ['idle', 'done', 'blocked'], timeout_ms: timeoutMs },
+                    timeoutMs + 10_000,
+                );
+                const status = result.agent?.agent_status ?? 'settled';
+                return { status, detail: `Agent is ${status}` };
+            } catch (error) {
+                const timedOut = (error instanceof Error ? error.message : String(error)).includes('timed out');
+                return { status: 'unknown', detail: timedOut ? 'Watch timed out' : 'Watch ended before completion', ...(timedOut ? { timedOut: true } : {}) };
+            }
+        },
+
         async layoutExport(sessionId: string): Promise<{ snapshot: LayoutSnapshot }> {
 
             const record = await resolvePane(sessionId);

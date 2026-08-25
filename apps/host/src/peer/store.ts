@@ -1,6 +1,6 @@
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { isPeerCapabilities, type PeerAuthorityMetadata, type PeerCapability, type PeerRelationship, type SignedPeerDescriptor } from '@muxr/contract';
+import { isPeerCapabilities, type PeerAuthorityMetadata, type PeerCapability, type PeerClientRequest, type PeerRelationship, type SignedPeerDescriptor } from '@muxr/contract';
 import type { KeyPair, SealedDeviceGrant } from '@muxr/crypto';
 import { atomicWriteJson } from '../domain/atomicWriteJson.js';
 import type { PeerAuthorityIssueRecovery } from './authority.js';
@@ -65,12 +65,27 @@ export interface StoredPeerReceipt {
     outcome?: { ok: true; data: unknown } | { ok: false; error: string; code?: string };
 }
 
+type SemanticPeerRequest = Extract<PeerClientRequest, { type: 'peer.remote.watch' | 'peer.remote.prompt' | 'peer.remote.start' }>;
+
+export interface StoredSemanticMutation {
+    relationshipId: string;
+    type: SemanticPeerRequest['type'];
+    semanticHash: string;
+    operationId: string;
+    notValidAfter: number;
+    params: SemanticPeerRequest['params'];
+    state: 'pending' | 'completed' | 'delivered';
+    outcome?: { ok: true; data: unknown } | { ok: false; error: string; code?: string };
+    updatedAt: number;
+}
+
 interface PeerState {
     version: 1;
     revision: number;
     preparations: StoredPreparation[];
     relationships: StoredPeerRelationship[];
     receipts: StoredPeerReceipt[];
+    semanticMutations?: StoredSemanticMutation[];
     pendingAuthorization?: StoredPendingAuthorization;
 }
 
@@ -95,6 +110,13 @@ function validState(value: unknown): value is PeerState {
             && typeof entry?.requestHash === 'string' && Number.isFinite(entry?.notValidAfter)
             && (entry.state === 'started' || entry.state === 'completed')
             && (entry.state === 'started' ? entry.outcome === undefined : entry.outcome !== undefined))
+        && (state.semanticMutations === undefined || Array.isArray(state.semanticMutations)
+            && state.semanticMutations.every((entry) => typeof entry?.relationshipId === 'string' && typeof entry?.semanticHash === 'string'
+                && typeof entry?.operationId === 'string' && Number.isFinite(entry?.notValidAfter) && Number.isFinite(entry?.updatedAt)
+                && (entry.type === 'peer.remote.watch' || entry.type === 'peer.remote.prompt' || entry.type === 'peer.remote.start')
+                && typeof entry.params === 'object' && entry.params !== null
+                && (entry.state === 'pending' || entry.state === 'completed' || entry.state === 'delivered')
+                && (entry.state === 'pending' ? entry.outcome === undefined : entry.outcome !== undefined)))
         && (state.pendingAuthorization === undefined
             || state.pendingAuthorization.version === 1
                 && typeof state.pendingAuthorization.relationshipId === 'string'
@@ -189,6 +211,18 @@ export class PeerStore {
         return this.state.receipts.find((entry) => entry.deviceId === deviceId && entry.operationId === operationId);
     }
 
+    semanticMutations(): StoredSemanticMutation[] {
+        return structuredClone(this.state.semanticMutations ?? []);
+    }
+
+    async putSemanticMutation(mutation: StoredSemanticMutation): Promise<void> {
+        await this.mutate((state) => {
+            state.semanticMutations = (state.semanticMutations ?? []).filter((entry) => entry.operationId !== mutation.operationId);
+            if (state.semanticMutations.length >= 128) throw new Error('peer semantic mutation capacity is full until active operations expire');
+            state.semanticMutations.push(mutation);
+        });
+    }
+
     async putPreparation(preparation: StoredPreparation): Promise<void> {
         await this.mutate((state) => {
             state.preparations = state.preparations.filter((entry) => entry.preparationId !== preparation.preparationId);
@@ -238,6 +272,7 @@ export class PeerStore {
     private prune(state: PeerState, now: number): void {
         state.preparations = state.preparations.filter((entry) => entry.expiresAt > now);
         state.receipts = state.receipts.filter((entry) => entry.notValidAfter > now);
+        state.semanticMutations = (state.semanticMutations ?? []).filter((entry) => entry.notValidAfter > now);
     }
 
     private mutate(change: (state: PeerState) => void): Promise<void> {

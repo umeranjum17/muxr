@@ -93,9 +93,14 @@ export function parsePeerBrokerRequest(value: unknown): PeerBrokerRequest {
     }
 }
 
+interface CapabilityState {
+    sockets: Set<Socket>;
+    controllers: Set<AbortController>;
+}
+
 export class PeerBroker {
     private server: Server | undefined;
-    private readonly capabilities = new Set<string>();
+    private readonly capabilities = new Map<string, CapabilityState>();
 
     constructor(readonly socketPath: string, private readonly runtime: PeerRuntime) {}
 
@@ -121,24 +126,34 @@ export class PeerBroker {
     issueCapability(): PeerBrokerAccess {
         if (this.server === undefined) throw new Error('peer broker is unavailable');
         const capability = randomBytes(32).toString('base64url');
-        this.capabilities.add(capability);
+        this.capabilities.set(capability, { sockets: new Set(), controllers: new Set() });
         return { socketPath: this.socketPath, capability };
     }
 
     revokeCapability(capability: string): void {
+        const state = this.capabilities.get(capability);
         this.capabilities.delete(capability);
+        if (state === undefined) return;
+        for (const controller of state.controllers) controller.abort();
+        for (const socket of state.sockets) socket.destroy();
     }
 
     async close(): Promise<void> {
         const server = this.server;
         this.server = undefined;
-        this.capabilities.clear();
+        for (const capability of [...this.capabilities.keys()]) this.revokeCapability(capability);
         if (server !== undefined) await new Promise<void>((resolve) => server.close(() => resolve()));
         if (existsSync(this.socketPath) && lstatSync(this.socketPath).isSocket()) unlinkSync(this.socketPath);
     }
 
-    async invoke(value: unknown): Promise<unknown> {
+    async invoke(value: unknown, access?: { capability: string; signal: AbortSignal }): Promise<unknown> {
         const request = parsePeerBrokerRequest(value);
+        const assertAccess = (): void => {
+            if (access !== undefined && (access.signal.aborted || !this.capabilities.has(access.capability))) {
+                throw Object.assign(new Error('peer broker capability revoked'), { name: 'AbortError' });
+            }
+        };
+        assertAccess();
         if (request.method === 'list') {
             const machine = cleanAlias(request.machine);
             const relationships = machine === '' ? await this.runtime.outboundRelationships() : [await this.runtime.resolveOutboundMachine(machine)];
@@ -146,7 +161,7 @@ export class PeerBroker {
                 machines: await Promise.all(relationships.map(async (relationship) => {
                     const alias = relationship.machineAlias ?? (cleanAlias(relationship.machineName) || 'Peer computer');
                     try {
-                        const listed = await this.remote<'peer.remote.list'>(relationship, 'peer.remote.list', {});
+                        const listed = await this.remote<'peer.remote.list'>(relationship, 'peer.remote.list', {}, access?.signal);
                         return { machine: alias, agents: listed.sessions.map(({ agentAlias }) => ({ agent: cleanAlias(agentAlias) })) };
                     } catch {
                         return { machine: alias, unavailable: true, agents: [] };
@@ -157,7 +172,7 @@ export class PeerBroker {
 
         const relationship = await this.runtime.resolveOutboundMachine(cleanAlias(request.machine));
         let listed: PeerRequestResult<'peer.remote.list'>;
-        try { listed = await this.remote<'peer.remote.list'>(relationship, 'peer.remote.list', {}); }
+        try { listed = await this.remote<'peer.remote.list'>(relationship, 'peer.remote.list', {}, access?.signal); }
         catch { throw new Error('The selected peer computer is unavailable.'); }
         const agent = cleanAlias(request.agent);
         const matches = agent === '' ? listed.sessions : listed.sessions.filter((entry) => aliasKey(entry.agentAlias) === aliasKey(agent));
@@ -170,21 +185,20 @@ export class PeerBroker {
                 const result = await this.remote<'peer.remote.read'>(relationship, 'peer.remote.read', {
                     sessionId: target.sessionId,
                     ...(lines === undefined ? {} : { lines }),
-                });
+                }, access?.signal);
                 return { machine: cleanAlias(result.machineAlias), agent: cleanAlias(result.agentAlias), text: safeVoiceOutput(result.text), truncated: result.truncated };
             }
             if (request.method === 'status') {
-                const result = await this.remote<'peer.remote.status'>(relationship, 'peer.remote.status', { sessionId: target.sessionId });
+                const result = await this.remote<'peer.remote.status'>(relationship, 'peer.remote.status', { sessionId: target.sessionId }, access?.signal);
                 return { machine: cleanAlias(result.machineAlias), agent: cleanAlias(result.agentAlias), status: { agentStatus: result.status.agentStatus, isStreaming: result.status.isStreaming } };
             }
+            assertAccess();
             const mutation = { operationId: `voice_${randomUUID()}`, notValidAfter: Date.now() + MUTATION_TTL_MS };
             if (request.method === 'watch') {
                 const timeoutMs = Math.min(Math.max(Math.trunc(request.timeoutMs ?? 30_000), 1_000), 290_000);
-                const result = await this.remote<'peer.remote.watch'>(relationship, 'peer.remote.watch', {
-                    sessionId: target.sessionId,
-                    timeoutMs,
-                    mutation,
-                });
+                const params = { sessionId: target.sessionId, timeoutMs, mutation };
+                const result = await this.remote<'peer.remote.watch'>(relationship, 'peer.remote.watch', params, access?.signal);
+                this.acknowledge('peer.remote.watch', relationship, params);
                 return {
                     machine: cleanAlias(result.machineAlias),
                     agent: cleanAlias(result.agentAlias),
@@ -196,24 +210,45 @@ export class PeerBroker {
                 };
             }
             const text = request.text.trim().slice(0, 20_000);
-            const result = await this.remote<'peer.remote.prompt'>(relationship, 'peer.remote.prompt', { sessionId: target.sessionId, text, mutation });
+            assertAccess();
+            const params = { sessionId: target.sessionId, text, mutation };
+            const result = await this.remote<'peer.remote.prompt'>(relationship, 'peer.remote.prompt', params, access?.signal);
+            this.acknowledge('peer.remote.prompt', relationship, params);
             return { machine: cleanAlias(result.machineAlias), agent: cleanAlias(result.agentAlias), delivered: result.delivered };
         } catch (error) {
-            if (error instanceof Error && /^(No |Use one|The selected)/.test(error.message)) throw error;
+            if (error instanceof Error && (/^(No |Use one|The selected)/.test(error.message)
+                || (error as { name?: unknown }).name === 'AbortError'
+                || (error as { code?: unknown }).code === 'peer-mutation-unresolved')) throw error;
             throw new Error('The peer request failed on the selected computer.');
         }
+    }
+
+    private acknowledge<T extends 'peer.remote.watch' | 'peer.remote.prompt'>(
+        type: T,
+        relationship: StoredPeerRelationship,
+        params: Omit<Extract<import('@muxr/contract').PeerClientRequest, { type: T }>['params'], 'relationshipId'>,
+    ): void {
+        setImmediate(() => {
+            void this.runtime.acknowledgeSemantic({
+                type,
+                requestId: `broker-ack-${randomUUID()}`,
+                params: { relationshipId: relationship.relationshipId, ...params },
+            } as Extract<import('@muxr/contract').PeerClientRequest, { type: T }>).catch(() => undefined);
+        });
     }
 
     private remote<T extends 'peer.remote.list' | 'peer.remote.read' | 'peer.remote.status' | 'peer.remote.watch' | 'peer.remote.prompt'>(
         relationship: StoredPeerRelationship,
         type: T,
         params: Omit<Extract<import('@muxr/contract').PeerClientRequest, { type: T }>['params'], 'relationshipId'>,
+        signal?: AbortSignal,
     ): Promise<PeerRequestResult<T>> {
+        if (signal?.aborted) return Promise.reject(Object.assign(new Error('peer broker capability revoked'), { name: 'AbortError' }));
         return this.runtime.handle({
             type,
             requestId: `broker-${randomUUID()}`,
             params: { relationshipId: relationship.relationshipId, ...params },
-        } as Extract<import('@muxr/contract').PeerClientRequest, { type: T }>, 'voice-broker') as Promise<PeerRequestResult<T>>;
+        } as Extract<import('@muxr/contract').PeerClientRequest, { type: T }>, 'voice-broker', signal) as Promise<PeerRequestResult<T>>;
     }
 
     private accept(socket: Socket): void {
@@ -233,11 +268,30 @@ export class PeerBroker {
                     only(message, ['id', 'capability', 'request']);
                     id = requiredString(message.id, 'id').slice(0, 120);
                     const capability = requiredString(message.capability, 'capability');
-                    if (!this.capabilities.has(capability)) throw new Error('peer broker capability rejected');
+                    const state = this.capabilities.get(capability);
+                    if (state === undefined) throw new Error('peer broker capability rejected');
+                    const controller = new AbortController();
+                    state.sockets.add(socket);
+                    state.controllers.add(controller);
+                    const cleanup = (): void => {
+                        state.sockets.delete(socket);
+                        state.controllers.delete(controller);
+                    };
+                    socket.once('close', () => {
+                        if (!controller.signal.aborted) controller.abort();
+                        cleanup();
+                    });
                     const request = parsePeerBrokerRequest(message.request);
-                    const watchTimeout = request.method === 'watch' ? Math.min(Math.max(Math.trunc(request.timeoutMs ?? 30_000), 1_000), 290_000) : 45_000;
-                    socket.setTimeout(watchTimeout + 25_000, () => socket.destroy());
-                    reply({ ok: true, data: await this.invoke(request) });
+                    const requestTimeout = request.method === 'watch'
+                        ? Math.min(Math.max(Math.trunc(request.timeoutMs ?? 30_000), 1_000), 290_000) + 25_000
+                        : request.method === 'prompt' ? MUTATION_TTL_MS + 25_000 : 45_000;
+                    socket.setTimeout(requestTimeout, () => socket.destroy());
+                    try {
+                        const data = await this.invoke(request, { capability, signal: controller.signal });
+                        if (!controller.signal.aborted) reply({ ok: true, data });
+                    } finally {
+                        cleanup();
+                    }
                 } catch (error) {
                     reply({ ok: false, error: error instanceof Error ? error.message : 'peer broker request failed' });
                 }

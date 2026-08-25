@@ -42,6 +42,7 @@ class FakeAuthority implements PeerAuthority {
     readonly revoked = new Set<string>();
     rotations: MachineRotationGrant[][] = [];
     failGrantUploads = 0;
+    failRevokes = 0;
     private next = 0;
 
     async issuePeer(input: Parameters<PeerAuthority['issuePeer']>[0]) {
@@ -61,7 +62,10 @@ class FakeAuthority implements PeerAuthority {
         if (this.failGrantUploads-- > 0) throw new Error('simulated grant upload interruption');
         this.grants.set(peerDeviceId, grant);
     }
-    async revokePeer(peerDeviceId: string): Promise<void> { this.revoked.add(peerDeviceId); }
+    async revokePeer(peerDeviceId: string): Promise<void> {
+        if (this.failRevokes-- > 0) throw new Error('simulated authority revocation outage');
+        this.revoked.add(peerDeviceId);
+    }
     async publishRotation(_keyVersion: number, grants: MachineRotationGrant[]): Promise<void> { this.rotations.push(grants); }
 }
 
@@ -95,16 +99,23 @@ async function brokerCall(socketPath: string, capability: string, request: unkno
     return new Promise((resolve, reject) => {
         const socket = createConnection(socketPath);
         let input = '';
+        let settled = false;
+        const finish = (error?: Error, value?: unknown): void => {
+            if (settled) return;
+            settled = true;
+            socket.destroy();
+            if (error === undefined) resolve(value); else reject(error);
+        };
         socket.on('connect', () => socket.write(`${JSON.stringify({ id: 'voice-flow', capability, request })}\n`));
         socket.on('data', (chunk) => {
             input += chunk.toString('utf8');
             const newline = input.indexOf('\n');
             if (newline === -1) return;
             const response = JSON.parse(input.slice(0, newline)) as { ok: boolean; data?: unknown; error?: string };
-            socket.destroy();
-            if (response.ok) resolve(response.data); else reject(new Error(response.error));
+            if (response.ok) finish(undefined, response.data); else finish(new Error(response.error));
         });
-        socket.on('error', reject);
+        socket.on('error', (error) => finish(error));
+        socket.on('close', () => finish(new Error('Peer broker closed before replying.')));
     });
 }
 
@@ -128,7 +139,8 @@ describe('host peer collaboration flow', () => {
             agentKind: 'pi',
         };
         let remoteSessions = [session];
-        const targetListeners = new Set<(sessionId: string, event: { type: 'watch.settled'; status: string; detail: string }) => void>();
+        let controlWaits = false;
+        const pendingWaits: Array<(value: { status: string; detail: string }) => void> = [];
         const targetSource = {
             async list() { return remoteSessions; },
             async prompt() { prompts += 1; },
@@ -136,15 +148,10 @@ describe('host peer collaboration flow', () => {
             async status(sessionId: string) {
                 return { sessionId, agentStatus: 'idle', isStreaming: false, tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }, cost: 0, usageLimits: { capturedAt: new Date().toISOString(), windows: [] } };
             },
-            async agentWatch(options: { sessionId: string }) {
-                queueMicrotask(() => {
-                    for (const listener of targetListeners) listener(options.sessionId, { type: 'watch.settled', status: 'done', detail: 'pi is done' });
-                });
-                return { watching: true };
-            },
-            subscribe(listener: (sessionId: string, event: { type: 'watch.settled'; status: string; detail: string }) => void) {
-                targetListeners.add(listener);
-                return () => targetListeners.delete(listener);
+            async agentWatch() { return { watching: true }; },
+            async agentWait() {
+                if (!controlWaits) return { status: 'done', detail: 'Agent is done' };
+                return new Promise<{ status: string; detail: string }>((resolve) => pendingWaits.push(resolve));
             },
         } as unknown as SessionSource;
         let targetDispatch: ReturnType<typeof createRequestDispatcher>['dispatch'];
@@ -158,10 +165,17 @@ describe('host peer collaboration flow', () => {
             authority: sourceAuthority,
             clientFactory: (relationship) => new class implements PeerClientTransport {
                 async connect(): Promise<void> {}
-                async request<T extends PeerClientRequestType>(type: T, params: RequestParams<T>): Promise<RequestResult<T>> {
-                    const response = await targetDispatch({ type, requestId: `peer-${Math.random()}`, params } as ClientRequest, relationship.peerDeviceId);
-                    if (!response.ok) throw Object.assign(new Error(response.error), { code: response.code });
-                    return response.data as RequestResult<T>;
+                async request<T extends PeerClientRequestType>(type: T, params: RequestParams<T>, signal?: AbortSignal): Promise<RequestResult<T>> {
+                    const dispatched = targetDispatch({ type, requestId: `peer-${Math.random()}`, params } as ClientRequest, relationship.peerDeviceId)
+                        .then((response) => {
+                            if (!response.ok) throw Object.assign(new Error(response.error), { code: response.code, fromHost: true });
+                            return response.data as RequestResult<T>;
+                        });
+                    if (signal === undefined) return dispatched;
+                    return Promise.race([
+                        dispatched,
+                        new Promise<RequestResult<T>>((_, reject) => signal.addEventListener('abort', () => reject(Object.assign(new Error('cancelled'), { name: 'AbortError', dispatched: true })), { once: true })),
+                    ]);
                 }
                 close(): void {}
             }(),
@@ -255,6 +269,30 @@ describe('host peer collaboration flow', () => {
             mutation: fresh('watch-settlement'),
         })).resolves.toMatchObject({ settlement: { status: 'done', detail: 'Agent is done' } });
 
+        controlWaits = true;
+        let firstWatchSettled = false;
+        const firstWatch = call(sourceRuntime, 'peer.remote.watch', {
+            relationshipId: installed.relationshipId,
+            sessionId: 'muxr-session-ios',
+            until: ['done'],
+            timeoutMs: 5_000,
+            mutation: fresh('watch-first'),
+        }).then((result) => { firstWatchSettled = true; return result; });
+        const secondWatch = call(sourceRuntime, 'peer.remote.watch', {
+            relationshipId: installed.relationshipId,
+            sessionId: 'muxr-session-ios',
+            until: ['blocked'],
+            timeoutMs: 5_000,
+            mutation: fresh('watch-second'),
+        });
+        for (let attempt = 0; attempt < 20 && pendingWaits.length < 2; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 0));
+        pendingWaits[1]!({ status: 'blocked', detail: 'Second watch settled' });
+        await expect(secondWatch).resolves.toMatchObject({ settlement: { status: 'blocked' } });
+        expect(firstWatchSettled).toBe(false);
+        pendingWaits[0]!({ status: 'done', detail: 'First watch settled' });
+        await expect(firstWatch).resolves.toMatchObject({ settlement: { status: 'done' } });
+        controlWaits = false;
+
         // Recreate the target runtime to prove the operation receipt, not memory, owns retry safety.
         const restartedTarget = new PeerRuntime({
             dataDir: join(root, 'target'),
@@ -266,13 +304,20 @@ describe('host peer collaboration flow', () => {
             authority: targetAuthority,
         });
         targetDispatch = makeTargetDispatcher(restartedTarget).dispatch;
+        await expect(targetDispatch({
+            type: 'session.prompt', requestId: 'target-receipt-retry',
+            params: { sessionId: 'muxr-session-ios', text: 'Run the iOS build', peerMutation: promptMutation },
+        }, authorized.peerDeviceId)).resolves.toMatchObject({ ok: true });
+        expect(prompts).toBe(1);
         await call(sourceRuntime, 'peer.remote.prompt', {
             relationshipId: installed.relationshipId,
             sessionId: 'muxr-session-ios',
             text: 'Run the iOS build',
-            mutation: promptMutation,
+            mutation: fresh('prompt-retried-with-new-id'),
         });
         expect(prompts).toBe(1);
+        expect(sourceRuntime.store.semanticMutations().find((entry) => entry.type === 'peer.remote.prompt' && 'text' in entry.params && entry.params.text === 'Run the iOS build')?.operationId)
+            .toBe(promptMutation.operationId);
 
         await expect(call(sourceRuntime, 'peer.remote.prompt', {
             relationshipId: installed.relationshipId,
@@ -307,9 +352,15 @@ describe('host peer collaboration flow', () => {
             .resolves.toMatchObject({ settlement: { status: 'done', detail: 'Agent is done' } });
         remoteSessions = [session, { ...session, id: 'another-internal-session' }];
         const qualified = await brokerCall(broker.socketPath, access.capability, { method: 'list', machine: 'Build Mac' }) as { machines: Array<{ agents: Array<{ agent: string }> }> };
-        expect(qualified.machines[0]!.agents.map((entry) => entry.agent).sort()).toEqual(['iOS builder (pi) 1', 'iOS builder (pi) 2']);
+        expect(qualified.machines[0]!.agents.map((entry) => entry.agent).sort()).toEqual(['iOS builder', 'iOS builder (pi)']);
         await expect(brokerCall(broker.socketPath, access.capability, { method: 'read', machine: 'Build Mac', agent: qualified.machines[0]!.agents[0]!.agent }))
             .resolves.toMatchObject({ agent: qualified.machines[0]!.agents[0]!.agent });
+        remoteSessions = [session];
+        const afterRemoval = await brokerCall(broker.socketPath, access.capability, { method: 'list', machine: 'Build Mac' }) as { machines: Array<{ agents: Array<{ agent: string }> }> };
+        expect(afterRemoval.machines[0]!.agents).toEqual([{ agent: 'iOS builder' }]);
+        remoteSessions = [session, { ...session, id: 'another-internal-session' }];
+        const afterReadd = await brokerCall(broker.socketPath, access.capability, { method: 'list', machine: 'Build Mac' }) as { machines: Array<{ agents: Array<{ agent: string }> }> };
+        expect(afterReadd.machines[0]!.agents.map((entry) => entry.agent).sort()).toEqual(['iOS builder', 'iOS builder (pi)']);
         const { machineAlias: _machineAlias, agentAliases: _agentAliases, ...outboundCopy } = sourceRuntime.store.relationship(installed.relationshipId)!;
         const duplicateMachine = {
             ...outboundCopy,
@@ -323,37 +374,52 @@ describe('host peer collaboration flow', () => {
         await expect(brokerCall(broker.socketPath, access.capability, { method: 'list', machine: 'Build Mac (macOS)' }))
             .resolves.toMatchObject({ machines: [expect.objectContaining({ machine: 'Build Mac (macOS)' })] });
         await sourceRuntime.store.putRelationship({ ...duplicateMachine, state: 'revoked' });
+        controlWaits = true;
+        const activeWaitIndex = pendingWaits.length;
+        const activeWatch = brokerCall(broker.socketPath, access.capability, { method: 'watch', machine: 'Build Mac', agent: 'iOS builder', timeoutMs: 5_000 });
+        for (let attempt = 0; attempt < 20 && pendingWaits.length === activeWaitIndex; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 0));
         broker.revokeCapability(access.capability);
+        pendingWaits[activeWaitIndex]?.({ status: 'done', detail: 'cancelled wait cleanup' });
+        await expect(activeWatch).rejects.toThrow(/closed|revoked|cancelled/i);
+        controlWaits = false;
         await expect(brokerCall(broker.socketPath, access.capability, { method: 'list' })).rejects.toThrow('capability rejected');
         await broker.close();
 
         // One peer cannot consume the global receipt store, and revocation bypasses receipts entirely.
-        for (let index = 0; index < 60; index += 1) {
-            await restartedTarget.store.putReceipt({
-                deviceId: authorized.peerDeviceId,
-                operationId: `exhaust-${index}`,
-                requestHash: `hash-${index}`,
-                notValidAfter: Date.now() + 60_000,
-                state: 'completed',
-                outcome: { ok: true, data: null },
-            });
+        let capacityError: unknown;
+        for (let index = 0; index < 64; index += 1) {
+            try {
+                await restartedTarget.store.putReceipt({
+                    deviceId: authorized.peerDeviceId,
+                    operationId: `exhaust-${index}`,
+                    requestHash: `hash-${index}`,
+                    notValidAfter: Date.now() + 60_000,
+                    state: 'completed',
+                    outcome: { ok: true, data: null },
+                });
+            } catch (error) {
+                capacityError = error;
+                break;
+            }
         }
-        await expect(restartedTarget.store.putReceipt({
-            deviceId: authorized.peerDeviceId,
-            operationId: 'exhaust-rejected',
-            requestHash: 'hash-rejected',
-            notValidAfter: Date.now() + 60_000,
-            state: 'completed',
-            outcome: { ok: true, data: null },
-        })).rejects.toThrow(/this device/);
+        expect(capacityError).toBeInstanceOf(Error);
+        expect((capacityError as Error).message).toMatch(/this device/);
 
-        await call(restartedTarget, 'peer.revoke', {
-            relationshipId: restartedTarget.store.list().peers[0]!.relationshipId,
+        const inboundRelationshipId = restartedTarget.store.list().peers[0]!.relationshipId;
+        targetAuthority.failRevokes = 1;
+        await expect(call(restartedTarget, 'peer.revoke', {
+            relationshipId: inboundRelationshipId,
             peerDeviceId: authorized.peerDeviceId,
             mutation: fresh('revoke-target'),
-        });
-        expect(targetAuthority.revoked.has(authorized.peerDeviceId)).toBe(true);
+        })).rejects.toThrow('simulated authority revocation outage');
         expect(targetKeys.current().devices).toEqual([]);
+        expect(restartedTarget.store.relationship(inboundRelationshipId)).toMatchObject({ state: 'disconnecting' });
+        restartedTarget.retryRecovery();
+        for (let attempt = 0; attempt < 50 && restartedTarget.store.relationship(inboundRelationshipId)?.state !== 'revoked'; attempt += 1) {
+            await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+        expect(targetAuthority.revoked.has(authorized.peerDeviceId)).toBe(true);
+        expect(restartedTarget.store.relationship(inboundRelationshipId)).toMatchObject({ state: 'revoked' });
         expect(targetAuthority.rotations).toHaveLength(1);
 
         await call(sourceRuntime, 'peer.revoke', {
@@ -398,6 +464,10 @@ describe('host peer collaboration flow', () => {
             revision: expect.any(Number),
         });
         expect(targetKeys.current().devices).toEqual([]);
+        await expect(call(target, 'peer.revoke', {
+            relationshipId: 'unrelated-missing-peer',
+            mutation: { operationId: 'security-bypass', notValidAfter: now + 60_000 },
+        })).resolves.toMatchObject({ state: 'already-revoked' });
         await expect(call(target, 'peer.prepare', {
             targetMachineId: 'another-target',
             targetMachineSigningPublicKey: targetKeys.current().signingPublicKey,
@@ -447,6 +517,10 @@ describe('host peer collaboration flow', () => {
         const watchSeen = new Promise<void>((resolve) => { sawWatch = resolve; });
         let releaseWatch!: () => void;
         const watchGate = new Promise<void>((resolve) => { releaseWatch = resolve; });
+        const watchOperationIds: string[] = [];
+        const promptOperationIds: string[] = [];
+        const executedPrompts = new Set<string>();
+        let promptExecutions = 0;
         const hostCrypto = new HostV2Crypto({
             machineId: 'target-live', keyVersion: 1, dataKey: machine.dataKey,
             ingressKeys: { [deviceId]: ingressKey }, deviceDataKeys: { [deviceId]: peerDataKey },
@@ -476,11 +550,24 @@ describe('host peer collaboration flow', () => {
                     sawChallenge();
                     void challengeGate.then(() => send({ type: 'result', requestId: frame.requestId, ok: true, data: [] }));
                 } else if (frame.type === 'agent.watch') {
+                    watchOperationIds.push(frame.params.peerMutation!.operationId);
                     sawWatch();
-                    void watchGate.then(() => send({
-                        type: 'result', requestId: frame.requestId, ok: true,
-                        data: { watching: true, settlement: { status: 'done', detail: 'directed completion' } },
-                    }));
+                    void watchGate.then(() => {
+                        if (watchOperationIds.length === 1) socket.close();
+                        else send({
+                            type: 'result', requestId: frame.requestId, ok: true,
+                            data: { watching: true, settlement: { status: 'done', detail: 'directed completion' } },
+                        });
+                    });
+                } else if (frame.type === 'session.prompt') {
+                    const operationId = frame.params.peerMutation!.operationId;
+                    promptOperationIds.push(operationId);
+                    if (!executedPrompts.has(operationId)) {
+                        executedPrompts.add(operationId);
+                        promptExecutions += 1;
+                    }
+                    if (promptOperationIds.length === 1) socket.close();
+                    else send({ type: 'result', requestId: frame.requestId, ok: true, data: null });
                 }
             });
         });
@@ -521,6 +608,14 @@ describe('host peer collaboration flow', () => {
             expect(watchSettled).toBe(false);
             releaseWatch();
             await expect(watching).resolves.toMatchObject({ settlement: { detail: 'directed completion' } });
+            expect(watchOperationIds).toEqual(['directed-watch', 'directed-watch']);
+            await expect(client.request('session.prompt', {
+                sessionId: 'private-session',
+                text: 'retry this exact semantic prompt',
+                peerMutation: { operationId: 'durable-buffered-prompt', notValidAfter: Date.now() + 5_000 },
+            })).resolves.toBeNull();
+            expect(promptOperationIds).toEqual(['durable-buffered-prompt', 'durable-buffered-prompt']);
+            expect(promptExecutions).toBe(1);
         } finally {
             client.close();
             globalThis.fetch = originalFetch;
