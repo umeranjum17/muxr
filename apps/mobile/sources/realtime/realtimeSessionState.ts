@@ -90,8 +90,9 @@ export async function resolveRealtimeTarget(): Promise<RealtimeTarget | null> {
 
     if (getCachedConnectionSettings().machineId !== machineId) return null;
     const sessions = Object.values(storage.getState().sessions);
-    if (realtimeTarget?.machineId === machineId
-        && sessions.some((candidate) => candidate.id === realtimeTarget.sessionId)) return { ...realtimeTarget };
+    const remembered = realtimeTarget;
+    if (remembered?.machineId === machineId
+        && sessions.some((candidate) => candidate.id === remembered.sessionId)) return { ...remembered };
     const sessionId = [...sessions]
         .sort((left, right) => (right.activeAt || right.updatedAt) - (left.activeAt || left.updatedAt))[0]
         ?.id ?? focused?.sessionId;
@@ -231,8 +232,6 @@ export function startRealtimeSession(input: RealtimeTarget | string): boolean {
     realtimeTarget = target;
     watching = true;
     clearIdleTimer();
-    session?.stop();
-    if (session !== null || starting) stopVoiceService();
     session = null;
     turns = [];
     muted = false;

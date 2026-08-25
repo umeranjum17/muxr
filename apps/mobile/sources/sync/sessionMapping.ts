@@ -1,7 +1,6 @@
 import { isSessionIdle, type MachineInfo, type SessionInfo, type SessionStatus } from '@muxr/contract';
 import type { Machine, Session } from './storageTypes';
 import { getCachedConnectionSettings } from '../state/connectionSettings';
-import { getCachedHostedGrant } from '../state/hostedE2ee';
 
 function parseTime(value: string | undefined): number {
     if (value === undefined) return Date.now();
@@ -121,9 +120,9 @@ export function sessionDisplayName(info: SessionInfo): string | undefined {
     return undefined;
 }
 
-export function machineInfoToMachine(info: MachineInfo): Machine {
+export function machineInfoToMachine(info: MachineInfo, pairedName?: string): Machine {
     const now = Date.now();
-    const displayName = info.name?.trim() || getCachedHostedGrant(info.machineId)?.machineName?.trim();
+    const displayName = info.name?.trim() || pairedName?.trim();
     return {
         id: info.machineId,
         seq: 0,

@@ -423,7 +423,9 @@ class MuxrSync {
             client.request('attention.catalog', {}).catch(() => ({ revision: 0, entries: [] })),
             this.refreshHerdTree().catch(() => undefined),
         ]);
-        storage.getState().applyMachines(machines.map(machineInfoToMachine), true);
+        storage.getState().applyMachines(machines.map((machine) =>
+            machineInfoToMachine(machine, getCachedHostedGrant(machine.machineId)?.machineName)
+        ), true);
         storage.getState().applySessions(sessions.map((info) => sessionInfoToSession(info)), true);
         storage.getState().markSessionsLoaded();
         storage.getState().applyAttentionCatalog(attention.entries);
