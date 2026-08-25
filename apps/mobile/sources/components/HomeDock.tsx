@@ -17,7 +17,8 @@ import Animated, {
 import { MobileGlassSurface } from './MobileGlass';
 import { OptionSheet } from './OptionSheet';
 import { BubblePressable } from './BubblePressable';
-import { NativeSettingsMenu, type NativeSettingsMenuGroup } from './NativeSettingsMenu';
+import { NativeSettingsMenu } from './NativeSettingsMenu';
+import type { NativeSettingsMenuGroup } from './NativeSettingsMenu.types';
 import { AgentInputAttachmentStrip } from './AgentInputAttachmentStrip';
 import { Typography } from '@/constants/Typography';
 import { layout } from './layout';

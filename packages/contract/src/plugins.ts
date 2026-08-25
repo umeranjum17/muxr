@@ -677,6 +677,21 @@ export function sanitizeDisplayText(text: string): string {
     return text.replace(DISPLAY_CONTROL, '');
 }
 
+/** Bound and sanitize untrusted plugin results before they cross a UI boundary. */
+export function boundRpcDisplay(value: unknown, depth = 0): unknown {
+    if (typeof value === 'string') return capUtf8Bytes(sanitizeDisplayText(value), MAX_RPC_RESULT_STRING_BYTES);
+    if (value === null) return null;
+    if (depth >= MAX_RPC_DISPLAY_DEPTH) return undefined;
+    if (Array.isArray(value)) return value.slice(0, MAX_RPC_ARRAY_ENTRIES).map((entry) => boundRpcDisplay(entry, depth + 1));
+    if (typeof value !== 'object') return value;
+    const out: Record<string, unknown> = Object.create(null);
+    for (const [key, entry] of Object.entries(value)) {
+        const bounded = boundRpcDisplay(entry, depth + 1);
+        if (bounded !== undefined) out[key] = bounded;
+    }
+    return out;
+}
+
 /** v1 is deliberately tiny: one static surface and one context-bound action. */
 export interface PluginManifestV1 {
     schemaVersion: 1;

@@ -1,27 +1,7 @@
 import * as React from 'react';
-import { Platform, type StyleProp, type ViewStyle } from 'react-native';
+import { Platform } from 'react-native';
+import type { NativeSettingsMenuProps } from './NativeSettingsMenu.types';
 
-export type NativeSettingsMenuOption = {
-    key: string;
-    label: string;
-};
-
-export type NativeSettingsMenuGroup = {
-    key: string;
-    label: string;
-    systemImage?: string;
-    options: NativeSettingsMenuOption[];
-    selectedKey: string | null | undefined;
-    onSelect: (key: string) => void;
-};
-
-export type NativeSettingsMenuProps = {
-    groups: NativeSettingsMenuGroup[];
-    children: React.ReactNode;
-    style?: StyleProp<ViewStyle>;
-    /** Render all options directly in the root menu instead of nesting by group. */
-    flat?: boolean;
-};
 
 const NativeSettingsMenuImpl = Platform.select<React.ComponentType<NativeSettingsMenuProps>>({
     ios: require('./NativeSettingsMenu.ios').NativeSettingsMenu,

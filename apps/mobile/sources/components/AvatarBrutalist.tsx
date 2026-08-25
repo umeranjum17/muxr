@@ -1,14 +1,8 @@
 import * as React from "react";
 import { View } from "react-native";
 import { Image } from "expo-image";
+import { avatarHash, type GeneratedAvatarProps } from './generatedAvatar';
 
-interface AvatarBrutalistProps {
-    id: string;
-    title?: boolean;
-    square?: boolean;
-    size?: number;
-    monochrome?: boolean;
-}
 
 const abstractImages = [
     require('@/assets/images/brutalist/Abstract-1.png'),
@@ -450,28 +444,19 @@ const colorPairs = [
     { tint: '#84E600', background: '#C026D3' }  // Lime → Magenta
 ];
 
-function hashCode(str: string): number {
-    let hash = 0;
-    for (let i = 0; i < str.length; i++) {
-        const char = str.charCodeAt(i);
-        hash = ((hash << 5) - hash) + char;
-        hash = hash & hash;
-    }
-    return Math.abs(hash);
-}
 
-export const AvatarBrutalist = React.memo((props: AvatarBrutalistProps) => {
+export const AvatarBrutalist = React.memo((props: GeneratedAvatarProps) => {
     const { id, size = 32, square = false, monochrome = false } = props;
 
-    const imageIndex = hashCode(id) % allImages.length;
-    const colorIndex = hashCode(id + 'color') % colorPairs.length;
+    const imageIndex = avatarHash(id) % allImages.length;
+    const colorIndex = avatarHash(`${id}color`) % colorPairs.length;
 
     const imageSource = allImages[imageIndex];
     const colorPair = colorPairs[colorIndex];
     const tintColor = monochrome ? '#999999' : colorPair.tint;
     const backgroundColor = monochrome ? '#F0F0F0' : colorPair.background;
 
-    const dimension = square ? size : size;
+    const dimension = size;
     const borderRadius = square ? 0 : size / 2;
 
     return (

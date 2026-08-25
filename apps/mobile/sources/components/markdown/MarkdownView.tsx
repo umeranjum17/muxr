@@ -1,4 +1,5 @@
-import { MarkdownSpan, parseMarkdown } from './parseMarkdown';
+import { parseMarkdown } from './parseMarkdown';
+import type { MarkdownSpan } from './markdownTypes';
 import * as React from 'react';
 import { Image, Pressable, View, Platform } from 'react-native';
 import { HorizontalScrollView } from '../HorizontalScrollView';
