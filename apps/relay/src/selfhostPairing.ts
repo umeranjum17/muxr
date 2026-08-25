@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { join } from 'node:path';
+import { isPeerCapabilities, type DeviceKind, type PeerCapability } from '@muxr/contract';
 import { readPrivateFile, writeJsonFileAtomic } from './persist.js';
 
 /**
@@ -15,7 +16,7 @@ export interface SelfhostPairSession {
     pairId: string;
     claimHash: string;
     machineSlug: string;
-    deviceKind: 'native' | 'browser';
+    deviceKind: Exclude<DeviceKind, 'peer'>;
     authority?: 'control' | 'observe';
     createdAt: number;
     expiresAt: number;
@@ -44,6 +45,12 @@ export interface SelfhostDevice {
     currentGrant?: string;
     keyVersion?: number;
     revokedAt?: number;
+    deviceKind?: DeviceKind;
+    capabilities?: PeerCapability[];
+    peerMachineId?: string;
+    credentialVersion?: number;
+    refreshAfter?: number;
+    authorityId?: string;
 }
 
 const hash = (value: string): string => createHash('sha256').update(value).digest('base64url');
@@ -115,7 +122,7 @@ export class SelfhostPairing {
     }
 
     /** CLI side (owner/machine authed at the route): open a two-minute pairing window. */
-    createSession(input: { claim: string; machineSlug: string; deviceKind: 'native' | 'browser'; authority?: 'control' | 'observe' }, now = Date.now()): Promise<{ pairId: string; expiresIn: number }> {
+    createSession(input: { claim: string; machineSlug: string; deviceKind: Exclude<DeviceKind, 'peer'>; authority?: 'control' | 'observe' }, now = Date.now()): Promise<{ pairId: string; expiresIn: number }> {
         return this.serialized(async () => {
             await this.load();
             this.state.sessions = this.state.sessions
@@ -181,7 +188,7 @@ export class SelfhostPairing {
     /** Phone side: single-use claim. Returns the device credential on success. */
     claim(
         pairId: string,
-        input: { claim: string; devicePublicKey: string; deviceName: string; deviceKind: 'native' | 'browser'; mailbox: string; expiresAt?: number },
+        input: { claim: string; devicePublicKey: string; deviceName: string; deviceKind: Exclude<DeviceKind, 'peer'>; mailbox: string; expiresAt?: number },
         now = Date.now(),
     ): Promise<{ state: 'issued'; deviceId: string; credential: string } | { state: 'already_claimed' | 'expired' | 'invalid_claim' | 'wrong_device_kind' }> {
         return this.serialized(async () => {
@@ -211,6 +218,8 @@ export class SelfhostPairing {
                 createdAt: now,
                 ...(input.expiresAt === undefined ? {} : { expiresAt: input.expiresAt }),
                 authority: session.authority ?? (session.deviceKind === 'browser' ? 'observe' : 'control'),
+                deviceKind: session.deviceKind,
+                credentialVersion: 1,
             });
             await this.persist();
             return { state: 'issued', deviceId, credential };
@@ -280,31 +289,155 @@ export class SelfhostPairing {
         });
     }
 
-    /** Resolve a device credential to its device id + bound machine (for ticket minting). */
-    resolveDeviceCredential(credential: string): Promise<{ deviceId: string; machineSlug: string } | undefined> {
-        if (!credential.startsWith('muxr_dc_')) return Promise.resolve(undefined);
+    /** Target-machine authority issues a constrained peer credential without opening phone/browser pairing. */
+    issuePeer(input: {
+        machineSlug: string;
+        publicKey: string;
+        name: string;
+        capabilities: PeerCapability[];
+        peerMachineId?: string;
+        expiresAt?: number;
+        refreshAfter?: number;
+        authorityId?: string;
+    }, now = Date.now()): Promise<{ deviceId: string; credential: string; credentialVersion: number } | undefined> {
+        return this.serialized(async () => {
+            await this.load();
+            if (!isPeerCapabilities(input.capabilities) || input.publicKey === '' || input.name.trim() === ''
+                || this.state.devices.some((device) => device.machineSlug === input.machineSlug
+                    && device.deviceKind === 'peer' && device.publicKey === input.publicKey && device.revokedAt === undefined)) return undefined;
+            const deviceId = opaque('peer');
+            const credential = opaque('muxr_pc');
+            this.state.devices.push({
+                deviceId,
+                credentialHash: hash(credential),
+                publicKey: input.publicKey,
+                name: input.name.trim().slice(0, 120),
+                machineSlug: input.machineSlug,
+                createdAt: now,
+                deviceKind: 'peer',
+                capabilities: [...input.capabilities],
+                credentialVersion: 1,
+                ...(input.peerMachineId === undefined ? {} : { peerMachineId: input.peerMachineId }),
+                ...(input.expiresAt === undefined ? {} : { expiresAt: input.expiresAt }),
+                ...(input.refreshAfter === undefined ? {} : { refreshAfter: input.refreshAfter }),
+                ...(input.authorityId === undefined ? {} : { authorityId: input.authorityId }),
+            });
+            await this.persist();
+            return { deviceId, credential, credentialVersion: 1 };
+        });
+    }
+
+    /** Replace a peer credential in place; old credentials and their versioned tickets fail immediately. */
+    rotatePeerCredential(deviceId: string, machineSlug: string, input: {
+        expiresAt?: number;
+        refreshAfter?: number;
+        authorityId?: string;
+    } = {}, now = Date.now()): Promise<{ credential: string; credentialVersion: number } | undefined> {
+        return this.serialized(async () => {
+            await this.load();
+            const device = this.state.devices.find((entry) => entry.deviceId === deviceId && entry.machineSlug === machineSlug
+                && entry.deviceKind === 'peer' && entry.revokedAt === undefined);
+            if (device === undefined) return undefined;
+            const credential = opaque('muxr_pc');
+            device.credentialHash = hash(credential);
+            device.credentialVersion = (device.credentialVersion ?? 1) + 1;
+            if (input.expiresAt !== undefined) device.expiresAt = input.expiresAt;
+            if (input.refreshAfter !== undefined) device.refreshAfter = input.refreshAfter;
+            if (input.authorityId !== undefined) device.authorityId = input.authorityId;
+            await this.persist();
+            return { credential, credentialVersion: device.credentialVersion };
+        });
+    }
+
+    storePeerGrant(deviceId: string, machineSlug: string, grant: string, keyVersion: number): Promise<boolean> {
+        return this.serialized(async () => {
+            await this.load();
+            const device = this.state.devices.find((entry) => entry.deviceId === deviceId && entry.machineSlug === machineSlug
+                && entry.deviceKind === 'peer' && entry.revokedAt === undefined);
+            if (device === undefined || grant === '' || !Number.isInteger(keyVersion) || keyVersion < (device.keyVersion ?? 0)) return false;
+            device.currentGrant = grant;
+            device.keyVersion = keyVersion;
+            await this.persist();
+            return true;
+        });
+    }
+
+    /** Resolve a device credential to its bound machine and constrained metadata. */
+    resolveDeviceCredential(credential: string): Promise<{
+        deviceId: string;
+        machineSlug: string;
+        deviceKind: DeviceKind;
+        capabilities?: PeerCapability[];
+        credentialVersion: number;
+    } | undefined> {
+        if (!credential.startsWith('muxr_dc_') && !credential.startsWith('muxr_pc_')) return Promise.resolve(undefined);
         return this.serialized(async () => {
             await this.load();
             const credentialHash = hash(credential);
             const device = this.state.devices.find((d) => d.credentialHash === credentialHash && d.revokedAt === undefined
                 && (d.expiresAt === undefined || d.expiresAt > Date.now()));
-            return device === undefined ? undefined : { deviceId: device.deviceId, machineSlug: device.machineSlug };
+            return device === undefined ? undefined : {
+                deviceId: device.deviceId,
+                machineSlug: device.machineSlug,
+                deviceKind: device.deviceKind ?? 'native',
+                ...(device.capabilities === undefined ? {} : { capabilities: [...device.capabilities] }),
+                credentialVersion: device.credentialVersion ?? 1,
+            };
         });
     }
 
-    listDevices(machineSlug: string): Promise<Array<{ deviceId: string; name: string; publicKey: string; createdAt: number }>> {
+    listDevices(machineSlug: string): Promise<Array<{ deviceId: string; name: string; publicKey: string; createdAt: number; deviceKind?: DeviceKind; capabilities?: PeerCapability[] }>> {
         return this.serialized(async () => {
             await this.load();
             return this.state.devices
                 .filter((device) => device.machineSlug === machineSlug && device.revokedAt === undefined)
-                .map(({ deviceId, name, publicKey, createdAt }) => ({ deviceId, name, publicKey, createdAt }));
+                .map(({ deviceId, name, publicKey, createdAt, deviceKind, capabilities }) => ({
+                    deviceId, name, publicKey, createdAt,
+                    ...(deviceKind === undefined ? {} : { deviceKind }),
+                    ...(capabilities === undefined ? {} : { capabilities: [...capabilities] }),
+                }));
         });
     }
 
-    isDeviceActive(deviceId: string): Promise<boolean> {
+    listPeers(machineSlug: string): Promise<Array<{
+        deviceId: string;
+        name: string;
+        publicKey: string;
+        capabilities: PeerCapability[];
+        peerMachineId?: string;
+        createdAt: number;
+        revokedAt?: number;
+        credentialVersion: number;
+        keyVersion?: number;
+        expiresAt?: number;
+        refreshAfter?: number;
+        authorityId?: string;
+    }>> {
+        return this.serialized(async () => {
+            await this.load();
+            return this.state.devices.filter((device) => device.machineSlug === machineSlug && device.deviceKind === 'peer')
+                .map((device) => ({
+                    deviceId: device.deviceId,
+                    name: device.name,
+                    publicKey: device.publicKey,
+                    capabilities: [...(device.capabilities ?? [])],
+                    createdAt: device.createdAt,
+                    credentialVersion: device.credentialVersion ?? 1,
+                    ...(device.peerMachineId === undefined ? {} : { peerMachineId: device.peerMachineId }),
+                    ...(device.revokedAt === undefined ? {} : { revokedAt: device.revokedAt }),
+                    ...(device.keyVersion === undefined ? {} : { keyVersion: device.keyVersion }),
+                    ...(device.expiresAt === undefined ? {} : { expiresAt: device.expiresAt }),
+                    ...(device.refreshAfter === undefined ? {} : { refreshAfter: device.refreshAfter }),
+                    ...(device.authorityId === undefined ? {} : { authorityId: device.authorityId }),
+                }));
+        });
+    }
+
+    isDeviceActive(deviceId: string, credentialVersion?: number): Promise<boolean> {
         return this.serialized(async () => {
             await this.load();
             return this.state.devices.some((device) => device.deviceId === deviceId && device.revokedAt === undefined
+                && (credentialVersion === undefined || (device.credentialVersion ?? 1) === credentialVersion)
                 && (device.expiresAt === undefined || device.expiresAt > Date.now()));
         });
     }
@@ -336,10 +469,13 @@ export class SelfhostPairing {
     }
 
     /** Revoke a paired device: credential dies immediately, grants stop being served. */
-    revokeDevice(deviceId: string, machineSlug?: string): Promise<{ machineSlug: string } | undefined> {
+    revokeDevice(deviceId: string, machineSlug?: string, deviceKind?: DeviceKind): Promise<{ machineSlug: string } | undefined> {
         return this.serialized(async () => {
             await this.load();
-            const device = this.state.devices.find((d) => d.deviceId === deviceId && (machineSlug === undefined || d.machineSlug === machineSlug) && d.revokedAt === undefined);
+            const device = this.state.devices.find((d) => d.deviceId === deviceId
+                && (machineSlug === undefined || d.machineSlug === machineSlug)
+                && (deviceKind === undefined || d.deviceKind === deviceKind)
+                && d.revokedAt === undefined);
             if (device === undefined) return undefined;
             device.revokedAt = Date.now();
             delete device.currentGrant;

@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import nacl from 'tweetnacl';
 import {
     createDeviceGrant,
+    createSignedPeerDescriptor,
     deriveV2Key,
     generateKeyPair,
     generateSigningKeyPair,
@@ -24,6 +25,7 @@ import {
     v2SenderToSnapshot,
     verifyDetached,
     verifyDeviceGrant,
+    verifySignedPeerDescriptor,
     type V2Context,
 } from './index.js';
 
@@ -131,6 +133,30 @@ const machineSigning = generateSigningKeyPair();
 const machineX = generateKeyPair();
 const deviceX = generateKeyPair();
 const ingressRoot = nacl.randomBytes(32);
+const targetSigning = generateSigningKeyPair();
+const preparedPeer = generateKeyPair();
+const peerDescriptor = createSignedPeerDescriptor({
+    sourceMachineId: 'm1',
+    sourceMachineSigningSecretKey: machineSigning.secretKey,
+    targetMachineId: 'm2',
+    targetMachineSigningPublicKey: targetSigning.publicKey,
+    peerPublicKey: preparedPeer.publicKey,
+    preparedAt: Date.now(),
+    expiresAt: Date.now() + 60_000,
+    nonce: 'prepare-1',
+});
+assert.equal(verifySignedPeerDescriptor(peerDescriptor, {
+    targetMachineId: 'm2', targetMachineSigningPublicKey: targetSigning.publicKey,
+}).peerPublicKey, preparedPeer.publicKey, 'target verifies the machine-signed prepared peer key');
+assert.throws(() => verifySignedPeerDescriptor(peerDescriptor, {
+    targetMachineId: 'm3', targetMachineSigningPublicKey: targetSigning.publicKey,
+}), /target binding/, 'prepared descriptors cannot be redirected');
+assert.throws(() => createSignedPeerDescriptor({
+    sourceMachineId: 'm1', sourceMachineSigningSecretKey: machineSigning.secretKey,
+    targetMachineId: 'm2', targetMachineSigningPublicKey: targetSigning.publicKey,
+    peerPublicKey: preparedPeer.publicKey, preparedAt: Date.now(), expiresAt: Date.now() + 10 * 60_000, nonce: 'too-long',
+}), /too long/, 'prepared peer descriptors have a bounded replay window');
+
 const grant = createDeviceGrant({
     machineId: 'm1',
     machineSigningSecretKey: machineSigning.secretKey,
@@ -165,6 +191,25 @@ assert.equal(openedGrant.keyVersion, 2);
 assert.equal(openedGrant.authority, 'control');
 assert.equal(openedGrant.dataKey, Buffer.from(dataRoot).toString('base64'));
 assert.equal(openedGrant.ingressKey, Buffer.from(ingressRoot).toString('base64'));
+
+const peerGrant = createDeviceGrant({
+    machineId: 'm2', machineSigningSecretKey: targetSigning.secretKey, machineKey: machineX,
+    deviceId: 'peer-1', devicePublicKey: preparedPeer.publicKey, dataKey: dataRoot, ingressKey: ingressRoot,
+    keyVersion: 1, expiresAt: Date.now() + 60_000, deviceKind: 'peer',
+    capabilities: ['list', 'read', 'status', 'watch', 'prompt'],
+});
+const openedPeerGrant = verifyDeviceGrant(peerGrant, {
+    pinnedMachineSigningPublicKey: targetSigning.publicKey, deviceKey: preparedPeer, deviceId: 'peer-1',
+});
+assert.equal(openedPeerGrant.deviceKind, 'peer');
+assert.deepEqual(openedPeerGrant.capabilities, ['list', 'read', 'status', 'watch', 'prompt']);
+assert.equal(openedPeerGrant.authority, undefined, 'peer grants never carry broad control authority');
+assert.throws(() => createDeviceGrant({
+    machineId: 'm2', machineSigningSecretKey: targetSigning.secretKey, machineKey: machineX,
+    deviceId: 'peer-1', devicePublicKey: preparedPeer.publicKey, dataKey: dataRoot, ingressKey: ingressRoot,
+    keyVersion: 1, expiresAt: Date.now() + 60_000, deviceKind: 'peer', authority: 'control',
+    capabilities: ['list', 'read', 'status', 'watch', 'prompt'],
+}), /broad authority/, 'peer grants reject control authority');
 
 // The grant's ingress root drives device->host frames; the device derives the
 // direction key from the base64 root it received in the grant.

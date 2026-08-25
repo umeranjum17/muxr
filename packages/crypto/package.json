@@ -13,6 +13,7 @@
         }
     },
     "dependencies": {
+        "@muxr/contract": "0.0.0",
         "tweetnacl": "^1.0.3"
     }
 }

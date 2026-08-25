@@ -32,6 +32,11 @@ export type {
 
 export type {
     ClientRequest,
+    PeerClientRequest,
+    PeerRequestMap,
+    PeerRequestParams,
+    PeerRequestResult,
+    PeerRequestType,
     PromptAttachment,
     RequestMap,
     RequestParams,
@@ -43,6 +48,18 @@ export type {
 } from './requests.js';
 export { MISSING_CWD_ERROR_PREFIX, normalizeRequestFailure, requestRequiresE2ee } from './requests.js';
 export type { LayoutSnapshot } from './requests.js';
+
+export type {
+    DeviceKind,
+    PeerAuthorityMetadata,
+    PeerCapability,
+    PeerDescriptorClaims,
+    PeerMutationMetadata,
+    PeerRelationship,
+    PeerRelationshipState,
+    SignedPeerDescriptor,
+} from './peer.js';
+export { DEFAULT_PEER_CAPABILITIES, isPeerCapabilities, PEER_CAPABILITIES, peerCapabilityForRequest } from './peer.js';
 
 export type { PreviewFrame } from './preview.js';
 export {
