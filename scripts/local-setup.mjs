@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
 import {
     chmodSync,
+    cpSync,
     existsSync,
     lstatSync,
     mkdirSync,
@@ -15,6 +16,7 @@ import {
     realpathSync,
     renameSync,
     rmSync,
+    rmdirSync,
     statSync,
     writeFileSync,
 } from 'node:fs';
@@ -140,9 +142,11 @@ function atomicWrite(path, text, mode = 0o600) {
 function loadManifest() {
     try {
         const parsed = JSON.parse(readFileSync(manifestPath(), 'utf8'));
-        if (parsed.version === 1 && parsed.entries && parsed.herdrInstalled) return parsed;
+        if ([1, 2].includes(parsed.version) && parsed.entries && parsed.herdrInstalled) {
+            return { ...parsed, version: 2 };
+        }
     } catch {}
-    return { version: 1, entries: {}, herdrInstalled: [] };
+    return { version: 2, entries: {}, herdrInstalled: [] };
 }
 
 function saveManifest(manifest, dryRun) {
@@ -336,6 +340,205 @@ function removeManaged(path, entry, manifest, { dryRun, force }) {
     }
     if (!dryRun) delete manifest.entries[path];
     return true;
+}
+
+function preflightSkillPath(root, relativePath) {
+    let current = root;
+    for (const part of relativePath.split('/').slice(0, -1)) {
+        current = join(current, part);
+        if (!existsSync(current)) return;
+        const info = lstatSync(current);
+        if (info.isSymbolicLink() || !info.isDirectory()) throw new Error(`drift: ${current} is not a regular directory`);
+    }
+}
+
+function preflightOwned(path, content, manifest, force) {
+    const entry = manifest.entries[path];
+    if (entry && entry.kind !== 'owned') throw new Error(`manifest kind mismatch for ${path}`);
+    if (!existsSync(path)) {
+        if (entry && !force) throw new Error(`drift: ${path} was removed; rerun with --force to replace it`);
+        return;
+    }
+    if (lstatSync(path).isSymbolicLink() || !lstatSync(path).isFile()) throw new Error(`drift: ${path} is not a regular file`);
+    const current = readFileSync(path, 'utf8');
+    if (entry && hash(current) !== entry.hash && !force) throw new Error(`drift: ${path} was edited; rerun with --force to replace it`);
+    if (!entry && current !== content && !force) throw new Error(`drift: unrecognized file exists at ${path}; rerun with --force to back it up and adopt the path`);
+}
+
+function preflightBlock(path, block, manifest, force) {
+    const entry = manifest.entries[path];
+    if (entry && entry.kind !== 'block') throw new Error(`manifest kind mismatch for ${path}`);
+    const existing = existsSync(path) ? blockFrom(readFileSync(path, 'utf8')) : undefined;
+    if (entry && (existing === undefined || hash(existing) !== entry.hash) && !force) {
+        throw new Error(`drift: managed block in ${path} was edited or removed; rerun with --force to replace it`);
+    }
+    if (!entry && existing !== undefined && existing !== block && !force) {
+        throw new Error(`drift: unmanaged muxr markers already exist in ${path}; rerun with --force to adopt them`);
+    }
+}
+
+function preflightRemoval(path, entry, force) {
+    if (!existsSync(path)) return;
+    if (entry.kind === 'owned') {
+        if (lstatSync(path).isSymbolicLink() || !lstatSync(path).isFile()) throw new Error(`drift: ${path} is not a regular managed file`);
+        if (hash(readFileSync(path, 'utf8')) !== entry.hash && !force) throw new Error(`drift: ${path} was edited; refusing managed removal`);
+        return;
+    }
+    const block = blockFrom(readFileSync(path, 'utf8'));
+    if ((block === undefined || hash(block) !== entry.hash) && !force) throw new Error(`drift: managed block in ${path} was edited or removed; refusing managed removal`);
+}
+
+function treeMatches(root, desired) {
+    return Object.entries(desired).every(([relativePath, expected]) => {
+        const path = join(root, relativePath);
+        return existsSync(path) && !lstatSync(path).isSymbolicLink() && lstatSync(path).isFile()
+            && hash(readFileSync(path, 'utf8')) === expected;
+    });
+}
+
+function recoverSkillTransition(manifest) {
+    const transition = manifest.integrationTransition;
+    if (!transition) return;
+    const { root, stage, previous, desired, backups = {}, obsolete = [], legacy = [], blocks = {} } = transition;
+    if (!treeMatches(root, desired) && treeMatches(stage, desired)) {
+        if (existsSync(root) && !existsSync(previous)) renameSync(root, previous);
+        if (!existsSync(root)) renameSync(stage, root);
+    }
+    if (!treeMatches(root, desired)) {
+        if (!existsSync(root) && existsSync(previous)) renameSync(previous, root);
+        rmSync(stage, { recursive: true, force: true });
+        delete manifest.integrationTransition;
+        saveManifest(manifest, false);
+        return;
+    }
+    for (const [relativePath, expected] of Object.entries(desired)) {
+        const path = join(root, relativePath);
+        manifest.entries[path] = { kind: 'owned', hash: expected, ...(backups[path] ? { backup: backups[path] } : {}) };
+    }
+    for (const path of obsolete) delete manifest.entries[path];
+    for (const path of legacy) if (!existsSync(path)) delete manifest.entries[path];
+    for (const [path, expected] of Object.entries(blocks)) {
+        const current = existsSync(path) ? blockFrom(readFileSync(path, 'utf8')) : undefined;
+        if (current !== undefined && hash(current) === expected) {
+            manifest.entries[path] = { ...manifest.entries[path], kind: 'block', hash: expected, created: manifest.entries[path]?.created ?? false };
+        }
+    }
+    rmSync(stage, { recursive: true, force: true });
+    rmSync(previous, { recursive: true, force: true });
+    delete manifest.integrationTransition;
+    saveManifest(manifest, false);
+}
+
+function desiredMuxrSkill(binary) {
+    const herdrSkill = run(binary, ['--skill']);
+    const herdrVersion = run(binary, ['--version']);
+    const generated = herdrSkill.ok && herdrSkill.stdout.startsWith('---')
+        ? herdrSkill.stdout.replace(/^---\n[\s\S]*?\n---\n?/, '').trim()
+        : undefined;
+    if (generated === undefined) print('  warn: herdr --skill unavailable; installed the runtime loader reference instead');
+    const source = muxrSkillDir();
+    const desired = new Map([['SKILL.md', readFileSync(join(source, 'SKILL.md'), 'utf8')]]);
+    for (const name of readdirSync(join(source, 'references')).sort()) {
+        const packaged = readFileSync(join(source, 'references', name), 'utf8');
+        desired.set(join('references', name), name === 'herdr.md' && generated !== undefined
+            ? `${packaged.trimEnd()}\n\n## Installed Herdr CLI reference\n\nGenerated by \`herdr --skill\` from \`${herdrVersion.stdout || 'the installed herdr binary'}\`.\n\n${generated}\n`
+            : packaged);
+    }
+    return desired;
+}
+
+function syncMuxrSkill(binary, targets, manifest, { dryRun, force }) {
+    if (dryRun && manifest.integrationTransition) throw new Error('an interrupted skill sync needs recovery; rerun without --dry-run');
+    if (!dryRun) recoverSkillTransition(manifest);
+    const root = join(stateDir(), 'integrations', 'muxr');
+    if (existsSync(root) && (lstatSync(root).isSymbolicLink() || !lstatSync(root).isDirectory())) {
+        throw new Error(`drift: ${root} is not a regular directory`);
+    }
+    const desired = desiredMuxrSkill(binary);
+    const desiredPaths = new Set([...desired.keys()].map((relativePath) => join(root, relativePath)));
+    const obsolete = Object.keys(manifest.entries).filter((path) => path.startsWith(`${root}/`) && !desiredPaths.has(path));
+    const legacy = [
+        join(stateDir(), 'integrations', 'herdr', 'SKILL.md'),
+        join(stateDir(), 'integrations', 'muxr-plugin-authoring', 'SKILL.md'),
+    ].filter((path) => manifest.entries[path]);
+    const blocks = new Map(targets.map((target) => [join(home(), ...target.instructionParts), managedBlock(join(root, 'SKILL.md'))]));
+
+    for (const [relativePath, content] of desired) {
+        preflightSkillPath(root, relativePath);
+        preflightOwned(join(root, relativePath), content, manifest, force);
+    }
+    for (const path of [...obsolete, ...legacy]) preflightRemoval(path, manifest.entries[path], force);
+    for (const [path, block] of blocks) preflightBlock(path, block, manifest, force);
+
+    const changed = [...desired].some(([relativePath, content]) => !existsSync(join(root, relativePath)) || readFileSync(join(root, relativePath), 'utf8') !== content)
+        || obsolete.some(existsSync) || legacy.some(existsSync);
+    if (dryRun) {
+        if (changed) print(`  would replace managed skill tree ${root}`);
+        for (const path of legacy) if (existsSync(path)) print(`  would remove ${path}`);
+        for (const [path, block] of blocks) writeBlock(path, block, manifest, { dryRun: true, force });
+        return;
+    }
+    if (!changed) {
+        for (const [relativePath, content] of desired) {
+            const path = join(root, relativePath);
+            const existingBackup = manifest.entries[path]?.backup;
+            manifest.entries[path] = { kind: 'owned', hash: hash(content), ...(existingBackup ? { backup: existingBackup } : {}) };
+        }
+        for (const path of [...obsolete, ...legacy]) delete manifest.entries[path];
+        for (const [path, block] of blocks) writeBlock(path, block, manifest, { dryRun: false, force });
+        saveManifest(manifest, false);
+        return;
+    }
+
+    const parent = dirname(root);
+    ensurePrivateDir(parent);
+    const backups = {};
+    for (const [relativePath, content] of desired) {
+        const path = join(root, relativePath);
+        const entry = manifest.entries[path];
+        if (entry?.backup) backups[path] = entry.backup;
+        else if (existsSync(path) && readFileSync(path, 'utf8') !== content) backups[path] = backup(path);
+    }
+    const nonce = `${process.pid}-${randomBytes(8).toString('hex')}`;
+    const stage = join(parent, `.muxr-stage-${nonce}`);
+    const previous = join(parent, `.muxr-previous-${nonce}`);
+    manifest.integrationTransition = {
+        version: 1,
+        root,
+        stage,
+        previous,
+        desired: Object.fromEntries([...desired].map(([relativePath, content]) => [relativePath, hash(content)])),
+        backups,
+        obsolete,
+        legacy,
+        blocks: Object.fromEntries([...blocks].map(([path, block]) => [path, hash(block)])),
+    };
+    saveManifest(manifest, false);
+
+    if (existsSync(root)) cpSync(root, stage, { recursive: true, errorOnExist: true, force: false });
+    else ensurePrivateDir(stage);
+    for (const path of obsolete) rmSync(join(stage, path.slice(root.length + 1)), { force: true });
+    for (const [relativePath, content] of desired) atomicWrite(join(stage, relativePath), content);
+    if (existsSync(root)) renameSync(root, previous);
+    try { renameSync(stage, root); }
+    catch (cause) {
+        if (!existsSync(root) && existsSync(previous)) renameSync(previous, root);
+        throw cause;
+    }
+
+    for (const [relativePath, content] of desired) {
+        const path = join(root, relativePath);
+        manifest.entries[path] = { kind: 'owned', hash: hash(content), ...(backups[path] ? { backup: backups[path] } : {}) };
+    }
+    for (const path of obsolete) delete manifest.entries[path];
+    for (const path of legacy) {
+        removeManaged(path, manifest.entries[path], manifest, { dryRun: false, force });
+        try { rmdirSync(dirname(path)); } catch {}
+    }
+    for (const [path, block] of blocks) writeBlock(path, block, manifest, { dryRun: false, force });
+    rmSync(previous, { recursive: true, force: true });
+    delete manifest.integrationTransition;
+    saveManifest(manifest, false);
 }
 
 async function askVisible(question) {
@@ -868,21 +1071,7 @@ export async function runIntegrations(args = []) {
         if (noAgentConfig) {
             print('  agent skills/instructions skipped (--no-agent-config)');
         } else {
-            const muxrSkillPath = join(stateDir(), 'integrations', 'muxr', 'SKILL.md');
-            writeOwned(muxrSkillPath, readFileSync(join(muxrSkillDir(), 'SKILL.md'), 'utf8'), manifest, { dryRun, force });
-            for (const name of readdirSync(join(muxrSkillDir(), 'references'))) {
-                writeOwned(join(stateDir(), 'integrations', 'muxr', 'references', name), readFileSync(join(muxrSkillDir(), 'references', name), 'utf8'), manifest, { dryRun, force });
-            }
-            for (const legacySkillPath of [
-                join(stateDir(), 'integrations', 'herdr', 'SKILL.md'),
-                join(stateDir(), 'integrations', 'muxr-plugin-authoring', 'SKILL.md'),
-            ]) {
-                if (manifest.entries[legacySkillPath]) removeManaged(legacySkillPath, manifest.entries[legacySkillPath], manifest, { dryRun, force });
-            }
-            for (const target of targets) {
-                const instructionPath = join(home(), ...target.instructionParts);
-                writeBlock(instructionPath, managedBlock(muxrSkillPath), manifest, { dryRun, force });
-            }
+            syncMuxrSkill(binary, targets, manifest, { dryRun, force });
         }
         saveManifest(manifest, dryRun);
 

@@ -193,13 +193,13 @@ const RELAY_KIND = {
 };
 const relayKind = (mode) => RELAY_KIND[mode] ?? mode;
 
-function choices(found) {
+function choices(found, tailscalePlanned = false) {
     // The relay is the one real choice in setup: it is how the phone reaches
     // the host. Never delete an option silently — show it disabled with the
     // reason and remedy attached, so the user sees what is standing in the way.
     const options = [];
-    if (found.tailscale.connected) {
-        options.push({ value: 'tailscale', title: 'Tailscale · recommended', description: 'private connection · works from anywhere · nothing exposed publicly' });
+    if (found.tailscale.connected || tailscalePlanned) {
+        options.push({ value: 'tailscale', title: 'Tailscale · recommended', description: tailscalePlanned ? 'connect during Apply · private access from anywhere' : 'private connection · works from anywhere · nothing exposed publicly' });
     } else {
         options.push({ value: 'tailscale', title: 'Tailscale', description: found.tailscale.detail, disabled: true });
     }
@@ -209,7 +209,7 @@ function choices(found) {
         options.push({ value: 'cloudflare', title: 'Cloudflare tunnel', description: found.cloudflared.detail, disabled: true });
     }
     if (found.lan) {
-        options.push({ value: 'lan', title: found.tailscale.connected ? 'LAN' : 'LAN · recommended', description: 'works now · phone and computer must use the same wifi' });
+        options.push({ value: 'lan', title: found.tailscale.connected || tailscalePlanned ? 'LAN' : 'LAN · recommended', description: 'works now · phone and computer must use the same wifi' });
     } else {
         options.push({ value: 'lan', title: 'LAN', description: 'no usable LAN address found on this machine', disabled: true });
     }
@@ -228,28 +228,28 @@ function connectionLabel(mode, endpoint, port) {
 const aborted = (value) => value === undefined || value === BACK;
 
 // Any abort before Apply must say so; a silent exit reads as "something ran".
-function cancelled(prerequisiteChanged = false) {
-    outro(prerequisiteChanged
-        ? 'Setup cancelled. The Tailscale connection you approved may remain active.'
-        : 'Cancelled. Nothing changed.');
+function cancelled() {
+    outro('Cancelled. Nothing changed.');
     completeFullscreen();
     return 0;
 }
 
-// The remedy for a disconnected Tailscale is runnable, so offer it
-// behind an explicit choice instead of only printing it.
+// Choosing this only adds Tailscale to the reviewed plan. The command itself
+// stays behind Apply so every preflight and cancellation remains mutation-free.
 async function offerTailscaleConnect(found) {
     if (found.tailscale.connected || !found.tailscale.installed) return false;
-    const attempt = await select(`Tailscale is installed but not connected (${found.tailscale.detail}). Connect it now?`, [
+    const attempt = await select(`Tailscale is installed but not connected (${found.tailscale.detail}). Make it available during setup?`, [
         { value: false, title: 'Not now', description: 'continue without Tailscale' },
-        { value: true, title: process.platform === 'darwin' ? 'Connect Tailscale' : 'Run sudo tailscale up', description: process.platform === 'darwin' ? 'ask the installed Mac app to bring this node up' : 'bring the node up and grant this user operator access' },
+        { value: true, title: 'Connect during Apply', description: process.platform === 'darwin' ? 'open the Mac app after you approve the plan' : 'run sudo tailscale up after you approve the plan' },
     ]);
-    if (aborted(attempt)) return BACK;
-    if (attempt !== true) return false;
+    return aborted(attempt) ? BACK : attempt === true;
+}
+
+async function applyTailscaleConnect(found) {
     let up;
     if (process.platform === 'darwin') {
         up = spawnSync('open', ['-a', 'Tailscale'], { stdio: 'inherit' });
-        if (up.status === 0 && await prompt('Approve the Tailscale system extension and sign in, then press Enter') === undefined) return true;
+        if (up.status === 0 && await prompt('Approve the Tailscale system extension and sign in, then press Enter') === undefined) return false;
     } else {
         // USER can be unset (sudo, cron, containers); an empty --operator makes
         // the offered remedy fail with a usage error.
@@ -262,7 +262,7 @@ async function offerTailscaleConnect(found) {
     found.tailscale = probeTailscale();
     if (found.tailscale.connected) status('Tailscale', `connected — ${found.tailscale.ip}`, 'ok');
     else status('Tailscale', `${found.tailscale.detail ?? 'still not connected'}${up.status ? ` (connect command exited ${up.status})` : ''}`, 'warn');
-    return up.error === undefined;
+    return found.tailscale.connected;
 }
 
 export async function runSetup(args = []) {
@@ -295,8 +295,8 @@ export async function runSetup(args = []) {
     renderInspection(found);
     const tailscaleResult = await offerTailscaleConnect(found);
     if (aborted(tailscaleResult)) return cancelled();
-    const prerequisiteChanged = tailscaleResult === true;
-    const cancelSetup = () => cancelled(prerequisiteChanged);
+    const tailscalePlanned = tailscaleResult === true;
+    const cancelSetup = () => cancelled();
     const current = await selfhostPublicSummary();
 
     setupStep(2, 5, 'Choose how your phone connects');
@@ -304,7 +304,7 @@ export async function runSetup(args = []) {
     if (mode === 'selfhost') mode = undefined;
     if (!mode) {
         heading('muxr runs on this computer');
-        const connectionChoices = choices(found).map((choice) => choice.value === current?.connectionMode
+        const connectionChoices = choices(found, tailscalePlanned).map((choice) => choice.value === current?.connectionMode
             ? { ...choice, title: `${choice.title} · current` }
             : choice);
         const initial = Math.max(0, connectionChoices.findIndex((choice) => choice.value === current?.connectionMode));
@@ -315,7 +315,7 @@ export async function runSetup(args = []) {
         process.stderr.write(`unknown setup mode: ${mode}\n`);
         return 1;
     }
-    if ((mode === 'tailscale' || mode === 'tailscale-direct') && !found.tailscale.connected) {
+    if ((mode === 'tailscale' || mode === 'tailscale-direct') && !found.tailscale.connected && !tailscalePlanned) {
         process.stderr.write(`Tailscale is unavailable: ${found.tailscale.detail}; or pick a different relay\n`);
         return 1;
     }
@@ -365,8 +365,10 @@ export async function runSetup(args = []) {
     if (!secureWebMode) status('Browser client', 'requires Tailscale Serve, External WSS, or Cloudflare; native app only', 'off');
     const desiredUrl = mode === 'lan' ? `ws://${found.lan}:${port}`
         : mode === 'external' ? endpoint
-            : mode === 'tailscale-direct' ? `ws://${found.tailscale.ip}:${port}`
-                : mode === 'tailscale' && found.tailscale.dnsName ? `wss://${found.tailscale.dnsName}`
+            : mode === 'tailscale-direct' && found.tailscale.ip ? `ws://${found.tailscale.ip}:${port}`
+                : mode === 'tailscale-direct' && tailscalePlanned && current?.connectionMode === mode ? current.relayUrl
+                    : mode === 'tailscale' && found.tailscale.dnsName ? `wss://${found.tailscale.dnsName}`
+                        : mode === 'tailscale' && tailscalePlanned && current?.connectionMode === mode ? current.relayUrl
                     : mode === 'cloudflare'
                         && current?.connectionMode === 'cloudflare'
                         && current.relayPort === port
@@ -417,7 +419,7 @@ export async function runSetup(args = []) {
         `Optional add-ons: ${plugins.length ? plugins.map((plugin) => plugin.title).join(', ') : 'none'}`,
         `Browser client: ${web ? 'host the web app; browser keys stay WebCrypto-wrapped on this device' : 'off'}`,
         `Pairing: ${pairing === 'none' ? 'keep existing devices; no new pairing' : pairing === 'both' ? 'phone, then control browser' : pairing}${pairing === 'browser' || pairing === 'browser-view' || pairing === 'both' ? ' · browser access expires after eight hours' : ''}`,
-        `Ingress: ${mode === 'tailscale' ? 'persist a muxr-owned Tailscale Serve route' : mode === 'cloudflare' ? 'start a tracked temporary Cloudflare tunnel' : mode === 'external' ? 'bind loopback for your external reverse proxy' : 'no proxy or public tunnel changes'}`,
+        `Ingress: ${mode === 'tailscale' ? `${tailscalePlanned ? 'connect Tailscale, then ' : ''}persist a muxr-owned Tailscale Serve route` : mode === 'cloudflare' ? 'start a tracked temporary Cloudflare tunnel' : mode === 'external' ? 'bind loopback for your external reverse proxy' : 'no proxy or public tunnel changes'}`,
         'Services: register or restart the relay and host with systemd/launchd',
         `Existing connections: ${connectionChanged ? 'stored grants stay authoritative and adopt the advertised endpoint automatically' : 'keep working; restart only if a reviewed runtime setting changed'}`,
         'No change is made until you choose Apply setup.',
@@ -429,6 +431,10 @@ export async function runSetup(args = []) {
     if (apply !== true) return cancelSetup();
 
     setupStep(5, 5, 'Install, start, and pair');
+    if ((mode === 'tailscale' || mode === 'tailscale-direct') && tailscalePlanned && !(await applyTailscaleConnect(found))) {
+        process.stderr.write('Tailscale did not connect; fix the reported issue, then rerun setup\n');
+        return 1;
+    }
     const prerequisiteArgs = [
         ...args.filter((arg) => arg !== '--from-plugin'),
         ...(found.herdr.installed ? [] : ['--install-herdr']),
@@ -492,13 +498,14 @@ export async function runSharedRelaySetup() {
     renderInspection(found);
     const tailscaleResult = await offerTailscaleConnect(found);
     if (aborted(tailscaleResult)) return cancelled();
-    const cancelRelaySetup = () => cancelled(tailscaleResult === true);
+    const tailscalePlanned = tailscaleResult === true;
+    const cancelRelaySetup = () => cancelled();
     const current = await selfhostPublicSummary();
     if (current !== undefined && current.relayRole !== 'shared') {
         process.stderr.write('This machine already runs an agent host. Use a dedicated VPS for a shared relay, or remove the existing setup first.\n');
         return 1;
     }
-    const options = choices(found).filter((choice) => ['tailscale', 'external'].includes(choice.value)).map((choice) => choice.value === current?.connectionMode
+    const options = choices(found, tailscalePlanned).filter((choice) => ['tailscale', 'external'].includes(choice.value)).map((choice) => choice.value === current?.connectionMode
         ? { ...choice, title: `${choice.title} · current` }
         : choice);
     const initial = Math.max(0, options.findIndex((choice) => choice.value === current?.connectionMode));
@@ -528,7 +535,10 @@ export async function runSharedRelaySetup() {
             } catch { status('Public relay URL', 'use a valid wss:// URL', 'warn'); }
         }
     }
-    const desiredUrl = mode === 'external' ? endpoint : found.tailscale.dnsName ? `wss://${found.tailscale.dnsName}` : undefined;
+    const desiredUrl = mode === 'external' ? endpoint
+        : found.tailscale.dnsName ? `wss://${found.tailscale.dnsName}`
+            : tailscalePlanned && current?.connectionMode === 'tailscale' ? current.relayUrl
+                : undefined;
     const endpointChanged = current !== undefined && (desiredUrl === undefined || desiredUrl !== current.relayUrl);
     if (endpointChanged && await sharedMachineCount() > 0) {
         process.stderr.write('Revoke the enrolled machines before changing the shared relay endpoint. Their credentials and devices pin the current URL.\n');
@@ -543,7 +553,7 @@ export async function runSharedRelaySetup() {
     note([
         `Public connection: ${connectionLabel(mode, endpoint, port)}`,
         `Browser client: ${web ? 'web app over HTTPS; control and view-only grants expire after eight hours' : 'off'}`,
-        `Ingress: ${mode === 'tailscale' ? 'muxr-owned Tailscale Serve route' : 'your stable external reverse proxy or named Cloudflare tunnel'}`,
+        `Ingress: ${mode === 'tailscale' ? `${tailscalePlanned ? 'connect Tailscale, then create a ' : ''}muxr-owned Tailscale Serve route` : 'your stable external reverse proxy or named Cloudflare tunnel'}`,
         'Service: supervised relay-only systemd/launchd service with Linux boot persistence; no Herdr or agent host on this server',
         'Authority: owner state remains on this server; enrolled machines receive scoped credentials only',
         ...(endpointChanged ? ['Endpoint change: create fresh enrollments and pair every machine again'] : []),
@@ -554,6 +564,10 @@ export async function runSharedRelaySetup() {
         { value: true, title: 'Apply shared relay', description: 'configure ingress, relay, web, and its service' },
     ], 1);
     if (apply !== true) return cancelRelaySetup();
+    if (mode === 'tailscale' && tailscalePlanned && !(await applyTailscaleConnect(found))) {
+        process.stderr.write('Tailscale did not connect; fix the reported issue, then rerun setup\n');
+        return 1;
+    }
     const relayArgs = ['--relay-only', '--managed-relay', '--reconfigure', '--port', String(port), '--connection-mode', mode];
     if (mode === 'external') relayArgs.push('--advertise', endpoint);
     if (web) relayArgs.push('--web', '--yes');
