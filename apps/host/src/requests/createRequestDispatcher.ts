@@ -21,6 +21,7 @@ export interface RequestDispatcherOptions {
     source: SessionSource;
     domain: DomainStores;
     machineId: string;
+    machineName?: string;
     hostVersion: string;
     /** Where to join preview channels. Absent means preview is unavailable. */
     relayUrl?: string;
@@ -151,6 +152,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         'machines.list': async () => [
             {
                 machineId,
+                ...(options.machineName?.trim() ? { name: options.machineName.trim() } : {}),
                 online: true,
                 hostVersion,
                 platform: process.platform === 'darwin' ? 'macOS' : process.platform === 'win32' ? 'Windows' : process.platform === 'linux' ? 'Linux' : process.platform,

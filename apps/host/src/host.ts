@@ -17,6 +17,7 @@ import type { HostedMachineKeys } from './hostedE2ee.js';
 export interface HostOptions {
     relayUrl: string;
     machineId: string;
+    machineName?: string;
     source: SessionSource;
     domain: DomainStores;
     terminals?: TerminalManager;
@@ -41,6 +42,7 @@ export function startHost(options: HostOptions): Host {
         source,
         domain,
         machineId: options.machineId,
+        ...(options.machineName === undefined ? {} : { machineName: options.machineName }),
         hostVersion,
         relayUrl: options.relayUrl,
         ...(options.terminals === undefined ? {} : { terminals: options.terminals }),

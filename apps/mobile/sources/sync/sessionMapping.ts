@@ -1,6 +1,7 @@
 import { isSessionIdle, type MachineInfo, type SessionInfo, type SessionStatus } from '@muxr/contract';
 import type { Machine, Session } from './storageTypes';
 import { getCachedConnectionSettings } from '../state/connectionSettings';
+import { getCachedHostedGrant } from '../state/hostedE2ee';
 
 function parseTime(value: string | undefined): number {
     if (value === undefined) return Date.now();
@@ -122,6 +123,7 @@ export function sessionDisplayName(info: SessionInfo): string | undefined {
 
 export function machineInfoToMachine(info: MachineInfo): Machine {
     const now = Date.now();
+    const displayName = info.name?.trim() || getCachedHostedGrant(info.machineId)?.machineName?.trim();
     return {
         id: info.machineId,
         seq: 0,
@@ -135,7 +137,7 @@ export function machineInfoToMachine(info: MachineInfo): Machine {
             muxrCliVersion: info.hostVersion ?? 'muxr',
             muxrHomeDir: '',
             homeDir: '',
-            ...(info.name?.trim() ? { displayName: info.name.trim() } : {}),
+            ...(displayName ? { displayName } : {}),
         },
         metadataVersion: 1,
         daemonState: null,
