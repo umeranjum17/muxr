@@ -15,6 +15,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
+import { machineProperty, peerOnlyTools, runPeerTool } from '../voice/peerBroker.mjs';
 
 const MODEL = 'gpt-realtime-2.1';
 const RATE = 24_000;
@@ -24,12 +25,14 @@ const runFile = promisify(execFile);
 let activePane = '';
 let endAfterResponse = false;
 
-const paneProperty = { pane: { type: 'string', description: 'Pane name or id. Omit for the current voice pane.' } };
+const localPaneProperty = { pane: { type: 'string', description: 'Local pane name. Omit for the current voice pane.' } };
+const paneProperty = { ...machineProperty, ...localPaneProperty };
 const TOOLS = [
-    { type: 'function', name: 'list_panes', description: 'List running panes and agent states.', parameters: { type: 'object', properties: {}, additionalProperties: false } },
+    { type: 'function', name: 'list_panes', description: 'List running agents on this or an allowed computer.', parameters: { type: 'object', properties: machineProperty, additionalProperties: false } },
     { type: 'function', name: 'read_agent_output', description: 'Read fresh recent output from a pane.', parameters: { type: 'object', properties: paneProperty, additionalProperties: false } },
     { type: 'function', name: 'prompt_agent', description: 'Send the user’s instruction to a coding agent.', parameters: { type: 'object', properties: { ...paneProperty, text: { type: 'string' } }, required: ['text'], additionalProperties: false } },
-    { type: 'function', name: 'focus_pane', description: 'Bring a pane to the front.', parameters: { type: 'object', properties: paneProperty, additionalProperties: false } },
+    ...peerOnlyTools,
+    { type: 'function', name: 'focus_pane', description: 'Bring a local pane to the front.', parameters: { type: 'object', properties: localPaneProperty, additionalProperties: false } },
     { type: 'function', name: 'herdr_cli', description: 'Run the herdr CLI. Destructive commands require confirmed=true.', parameters: { type: 'object', properties: { args: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 32 }, timeoutMs: { type: 'number' }, confirmed: { type: 'boolean' } }, required: ['args'], additionalProperties: false } },
     { type: 'function', name: 'close_pane', description: 'Close a named pane only after explicit user confirmation.', parameters: { type: 'object', properties: { pane: { type: 'string' }, confirmed: { type: 'boolean' } }, required: ['pane', 'confirmed'], additionalProperties: false } },
     { type: 'function', name: 'end_conversation', description: 'Hang up after the user clearly says goodbye or stop listening.', parameters: { type: 'object', properties: {}, additionalProperties: false } },
@@ -56,6 +59,7 @@ const PROMPT = `You are the voice interface to a herd of coding agents, each wor
 <important>
 - Answer in one short sentence unless asked to elaborate. The user understands this work better than you do.
 - Never say identifiers, paths or raw terminal output aloud. Speak in plain language.
+- Omit machine to use this computer. Use only the human computer and agent names returned by tools. If either name is ambiguous, ask one short clarifying question.
 - You do not do the work. The coding agent does. You carry instructions to it and report back what it did.
 - Assume the user is thinking out loud until they clearly ask for something.
 - Let them finish. A pause is thinking, not an invitation to speak: wait through it rather than filling it.
@@ -114,6 +118,8 @@ async function herdr(args, timeoutMs = 30_000) {
 
 async function runTool(name, input) {
     const args = input && typeof input === 'object' ? input : {};
+    const peer = await runPeerTool(name, args);
+    if (peer.handled) return peer.output;
     const pane = text(args.pane) || activePane;
     if (name === 'list_panes') return untrusted(await herdr(['pane', 'list']));
     if (name === 'read_agent_output') {
@@ -127,6 +133,15 @@ async function runTool(name, input) {
         await herdr(['agent', 'prompt', pane, instruction]);
         activePane = pane;
         return 'Sent. The agent is working on it.';
+    }
+    if (name === 'agent_status') {
+        if (!pane) return 'No agent is active for this conversation.';
+        return untrusted(await herdr(['agent', 'get', pane]));
+    }
+    if (name === 'watch_agent') {
+        if (!pane) return 'No agent is active for this conversation.';
+        const timeoutMs = Math.min(Math.max(Number(args.timeoutMs) || 30_000, 1_000), 290_000);
+        return untrusted(await herdr(['agent', 'wait', pane, '--timeout', String(timeoutMs)], timeoutMs + 1_000));
     }
     if (name === 'focus_pane') {
         if (!pane) return 'No pane is active for this conversation.';

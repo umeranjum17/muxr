@@ -2,6 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
     openStream: vi.fn(),
+    captureStream: vi.fn(async (_capability: string, machineId: string) => ({
+        capability: 'voice.session', machineId, relayUrl: 'wss://relay-a', mode: 'hosted', token: 'grant-a',
+        pluginId: 'voice-a', manifestHash: 'manifest-a', contributionId: 'session',
+    })),
     liveAudio: { init: vi.fn(async () => true), start: vi.fn(async () => true), stop: vi.fn(async () => true), on: vi.fn() },
     vad: { claimVadCapture: vi.fn(() => null as string[] | null) },
     pcm: {
@@ -17,7 +21,10 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('react-native', () => ({ AppState: { addEventListener: vi.fn() } }));
-vi.mock('@/plugins/openPluginStream', () => ({ openPluginStream: mocks.openStream }));
+vi.mock('@/plugins/openPluginStream', () => ({
+    capturePluginStreamSnapshot: mocks.captureStream,
+    openPluginStream: mocks.openStream,
+}));
 vi.mock('react-native-live-audio-stream', () => ({ default: mocks.liveAudio }));
 vi.mock('@/../modules/voice-overlay', () => mocks.pcm);
 vi.mock('@/voice/vadStandby', () => mocks.vad);
@@ -58,6 +65,10 @@ const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
 beforeEach(() => {
     vi.clearAllMocks();
+    mocks.captureStream.mockImplementation(async (_capability: string, machineId: string) => ({
+        capability: 'voice.session', machineId, relayUrl: 'wss://relay-a', mode: 'hosted', token: 'grant-a',
+        pluginId: 'voice-a', manifestHash: 'manifest-a', contributionId: 'session',
+    }));
     mocks.vad.claimVadCapture.mockReturnValue(null);
 });
 afterEach(() => vi.unstubAllGlobals());
@@ -72,12 +83,15 @@ describe('generic realtime stream session', () => {
         const statuses: Array<[string, string | undefined]> = [];
         const turns: Array<[string, string]> = [];
         const handle = startRealtimeSession({
-            sessionId: 's1',
+            target: { machineId: 'machine-a', sessionId: 's1' },
             onStatus: (status, detail) => { statuses.push([status, detail]); },
             onTurn: (role, text) => { turns.push([role, text]); },
         });
         expect(statuses).toEqual([['connecting', undefined]]);
-        await vi.waitFor(() => expect(mocks.openStream).toHaveBeenCalledWith('voice.session', { sessionId: 's1' }));
+        await vi.waitFor(() => expect(mocks.openStream).toHaveBeenCalledWith('voice.session', {
+            sessionId: 's1',
+            snapshot: expect.objectContaining({ machineId: 'machine-a', relayUrl: 'wss://relay-a', pluginId: 'voice-a' }),
+        }));
 
         handle.speak('agent finished');
         stream.frames.forEach((listener) => listener({ type: 'realtime.ready', inputRate: 24_000, outputRate: 24_000 }));
@@ -102,9 +116,18 @@ describe('generic realtime stream session', () => {
         stream.frames.forEach((listener) => listener({ type: 'realtime.transcript', role: 'agent', text: 'done' }));
         expect(turns).toEqual([['agent', 'done']]);
 
-        // A transient mid-reply transport close reconnects without reopening the microphone.
+        // A global machine switch cannot change the call's captured host/provider on reconnect.
+        mocks.captureStream.mockImplementation(async () => ({
+            capability: 'voice.session', machineId: 'machine-b', relayUrl: 'wss://relay-b', mode: 'hosted', token: 'grant-b',
+            pluginId: 'voice-b', manifestHash: 'manifest-b', contributionId: 'session',
+        }));
         stream.closes.forEach((listener) => listener('stream disconnected'));
         await vi.waitFor(() => expect(mocks.openStream).toHaveBeenCalledTimes(2));
+        expect(mocks.captureStream).toHaveBeenCalledOnce();
+        expect(mocks.openStream.mock.calls[1]?.[1]).toEqual(expect.objectContaining({
+            sessionId: 's1',
+            snapshot: expect.objectContaining({ machineId: 'machine-a', relayUrl: 'wss://relay-a', pluginId: 'voice-a' }),
+        }));
         reconnected.frames.forEach((listener) => listener({ type: 'realtime.ready', inputRate: 24_000, outputRate: 24_000 }));
         await vi.waitFor(() => expect(statuses.at(-1)).toEqual(['connected', 'Voice stream reconnected']));
         expect(mocks.liveAudio.start).toHaveBeenCalledOnce();
@@ -154,7 +177,7 @@ describe('generic realtime stream session', () => {
         const stream = fakeStream();
         mocks.openStream.mockResolvedValue(asPluginStream(stream));
         mocks.vad.claimVadCapture.mockReturnValue(['cHJlcm9sbA==', 'c3BlZWNo']);
-        const handle = startRealtimeSession({ sessionId: 's1', onStatus: vi.fn(), onTurn: vi.fn() });
+        const handle = startRealtimeSession({ target: { machineId: 'machine-a', sessionId: 's1' }, onStatus: vi.fn(), onTurn: vi.fn() });
         await vi.waitFor(() => expect(mocks.openStream).toHaveBeenCalledOnce());
         stream.frames.forEach((listener) => listener({ type: 'realtime.ready', inputRate: 24_000, outputRate: 24_000 }));
         await vi.waitFor(() => expect(stream.send).toHaveBeenCalledWith({ type: 'realtime.audio', data: 'c3BlZWNo' }));
@@ -168,7 +191,7 @@ describe('generic realtime stream session', () => {
         const stream = fakeStream();
         mocks.openStream.mockResolvedValue(asPluginStream(stream));
         const statuses: Array<[string, string | undefined]> = [];
-        startRealtimeSession({ sessionId: 's1', onStatus: (s, d) => { statuses.push([s, d]); }, onTurn: vi.fn() });
+        startRealtimeSession({ target: { machineId: 'machine-a', sessionId: 's1' }, onStatus: (s, d) => { statuses.push([s, d]); }, onTurn: vi.fn() });
         await vi.waitFor(() => expect(mocks.openStream).toHaveBeenCalledOnce());
         stream.frames.forEach((listener) => listener({ type: 'realtime.ready', inputRate: 24_000, outputRate: 24_000 }));
         await vi.waitFor(() => expect(mocks.liveAudio.start).toHaveBeenCalled());
@@ -181,7 +204,7 @@ describe('generic realtime stream session', () => {
     it('fails cleanly when the stream cannot open', async () => {
         mocks.openStream.mockRejectedValue(new Error('voice.session plugin is unavailable or not approved'));
         const statuses: Array<[string, string | undefined]> = [];
-        startRealtimeSession({ sessionId: 's1', onStatus: (s, d) => { statuses.push([s, d]); }, onTurn: vi.fn() });
+        startRealtimeSession({ target: { machineId: 'machine-a', sessionId: 's1' }, onStatus: (s, d) => { statuses.push([s, d]); }, onTurn: vi.fn() });
         await vi.waitFor(() => expect(statuses.at(-1)?.[0]).toBe('disconnected'));
         expect(statuses.at(-1)?.[1]).toContain('unavailable');
         expect(mocks.liveAudio.start).not.toHaveBeenCalled();

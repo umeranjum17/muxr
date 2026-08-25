@@ -5,7 +5,12 @@ import {
 } from '@/utils/microphonePermissions';
 import { Modal } from '@/modal';
 import { takeLegacyRealtimeApiKey } from '@/sync/persistence';
-import { openRealtimeConversation, realtimeSessionSnapshot, startRealtimeSession } from './realtimeSessionState';
+import {
+    openRealtimeConversation,
+    realtimeSessionSnapshot,
+    startRealtimeSession,
+    type RealtimeTarget,
+} from './realtimeSessionState';
 import { voiceDiagnostic } from '@/voice/voiceDiagnostics';
 import { callPlugin } from '@/plugins/callPlugin';
 import { registerNativePushNotifications } from '@/utils/nativePushNotifications';
@@ -61,15 +66,15 @@ export async function ensureRealtimeProviderConfigured(): Promise<boolean> {
 }
 
 /** Start the singleton realtime session and reveal its root-owned sheet. */
-export function beginRealtimeConversation(sessionId: string): boolean {
-    startRealtimeSession(sessionId);
+export function beginRealtimeConversation(target: RealtimeTarget): boolean {
+    startRealtimeSession(target);
     if (realtimeSessionSnapshot().state === 'disconnected') return false;
     openRealtimeConversation();
     return true;
 }
 
-export async function startRealtimeWithPermission(sessionId: string): Promise<boolean> {
+export async function startRealtimeWithPermission(target: RealtimeTarget): Promise<boolean> {
     if (!(await requestRealtimePermission())) return false;
     if (!(await ensureRealtimeProviderConfigured())) return false;
-    return beginRealtimeConversation(sessionId);
+    return beginRealtimeConversation(target);
 }

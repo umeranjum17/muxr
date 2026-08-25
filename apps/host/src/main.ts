@@ -13,6 +13,7 @@ import { TerminalManager } from './herdr/terminalManager.js';
 import { createDomainStores } from './domain/index.js';
 import { createPersistQueue } from './domain/persistedJson.js';
 import { HttpPeerAuthority } from './peer/authority.js';
+import { PeerBroker } from './peer/broker.js';
 import { PeerRuntime } from './peer/runtime.js';
 import type { MachineCryptoState } from './peer/types.js';
 
@@ -500,6 +501,7 @@ async function main(): Promise<void> {
         });
     }
     let peerRuntime: PeerRuntime | undefined;
+    let peerBroker: PeerBroker | undefined;
     if ((mode === 'selfhost' || mode === 'hosted') && hostedE2ee !== undefined && token !== undefined) {
         try {
         const cryptoAdapter = {
@@ -548,8 +550,14 @@ async function main(): Promise<void> {
             }),
         });
         await peerRuntime.recover();
+        peerBroker = new PeerBroker(join(dataDir, 'peer', 'voice.sock'), peerRuntime);
+        await peerBroker.start();
+        process.env.MUXR_PEER_BROKER_SOCKET = peerBroker.socketPath;
         } catch (error) {
+            await peerBroker?.close().catch(() => undefined);
+            peerBroker = undefined;
             peerRuntime = undefined;
+            delete process.env.MUXR_PEER_BROKER_SOCKET;
             process.stderr.write(`peer runtime unavailable: ${error instanceof Error ? error.message : String(error)}\n`);
         }
     }
@@ -601,6 +609,7 @@ async function main(): Promise<void> {
     // A dead host must never leave --takeover streams holding the desk's panes.
     const shutdown = (): void => {
         terminals.closeAll();
+        void peerBroker?.close();
         void source.dispose();
         process.exit(0);
     };

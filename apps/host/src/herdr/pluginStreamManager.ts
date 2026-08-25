@@ -126,6 +126,10 @@ export class PluginStreamManager {
                 ...(process.env.MUXR_HOME ? { MUXR_HOME: process.env.MUXR_HOME } : {}),
                 MUXR_PLUGIN_ID: params.target.pluginId,
                 MUXR_PLUGIN_STATE_DIR: params.stateDir,
+                ...(['muxr.voice', 'muxr.voice-gemini', 'muxr.voice-openai'].includes(params.target.pluginId)
+                    && process.env.MUXR_PEER_BROKER_SOCKET
+                    ? { MUXR_PEER_BROKER_SOCKET: process.env.MUXR_PEER_BROKER_SOCKET }
+                    : {}),
             },
             stdio: ['pipe', 'pipe', 'pipe'],
         });

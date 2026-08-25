@@ -1,18 +1,28 @@
 import {
+    decodePayload,
+    encodePayload,
     issueWsTicket,
     newRealtimeChannel,
+    nextRequestId,
     parseRealtimeClientFrame,
     parseRealtimeHostFrame,
     realtimeSocketUrl,
     ticketSocketUrl,
+    type ClientFrame,
+    type ClientRequest,
     type Envelope,
+    type HostFrame,
     type PluginStreamCapability,
     type RealtimeClientFrame,
     type RealtimeHostFrame,
 } from '@muxr/contract';
 import { getCachedConnectionSettings } from '@/state/connectionSettings';
-import { DeviceV2Crypto, getCachedHostedGrant, refreshHostedGrant } from '@/state/hostedE2ee';
-import { sync } from '@/sync/sync';
+import {
+    DeviceV2Crypto,
+    getCachedHostedGrant,
+    refreshHostedGrant,
+    type StoredHostedGrant,
+} from '@/state/hostedE2ee';
 import { pluginSnapshot, refreshPlugins } from './pluginStore';
 
 export interface PluginStream {
@@ -22,12 +32,33 @@ export interface PluginStream {
     close: (reason?: string) => void;
 }
 
-/** Resolve a semantic stream capability without ever naming a provider/plugin id. */
-export async function openPluginStream(
-    capability: string,
-    options: { sessionId?: string } = {},
-): Promise<PluginStream> {
+/** Everything reconnect may use, captured once before the call opens. */
+export interface PluginStreamSnapshot {
+    capability: string;
+    machineId: string;
+    relayUrl: string;
+    mode: 'hosted' | 'local';
+    token: string;
+    pluginId: string;
+    manifestHash: string;
+    contributionId: string;
+    grant?: StoredHostedGrant;
+}
+
+export async function capturePluginStreamSnapshot(capability: string, machineId: string): Promise<PluginStreamSnapshot> {
+    const settings = { ...getCachedConnectionSettings() };
+    if (settings.machineId !== machineId) throw new Error('End voice before switching computers.');
+    const cachedGrant = settings.mode === 'hosted' ? getCachedHostedGrant(machineId) : undefined;
+    if (settings.mode === 'hosted' && cachedGrant === undefined) throw new Error('stream: hosted machine grant is missing');
+    const latestGrant = cachedGrant === undefined
+        ? undefined
+        : await refreshHostedGrant(machineId, cachedGrant.credential, cachedGrant.relayUrl) ?? cachedGrant;
+    if (getCachedConnectionSettings().machineId !== machineId) throw new Error('End voice before switching computers.');
+    const grant = latestGrant === undefined ? undefined : JSON.parse(JSON.stringify(latestGrant)) as StoredHostedGrant;
+    if (grant !== undefined && grant.expiresAt <= Date.now()) throw new Error('stream: device grant expired; pair again');
+
     await refreshPlugins();
+    if (getCachedConnectionSettings().machineId !== machineId) throw new Error('End voice before switching computers.');
     const matches = pluginSnapshot().filter(({ summary }) => summary.capabilities[capability] !== undefined);
     if (matches.length === 0) throw new Error(`${capability} plugin is unavailable or not approved`);
     if (matches.length > 1) throw new Error(`${capability} is claimed by multiple enabled plugins; disable all but one`);
@@ -36,49 +67,143 @@ export async function openPluginStream(
     const contribution = manifest.contributions.find((candidate): candidate is PluginStreamCapability =>
         candidate.slot === 'host.stream' && candidate.id === contributionId);
     if (contribution === undefined) throw new Error(`${capability} capability is not a host.stream contribution`);
+    return {
+        capability,
+        machineId,
+        relayUrl: grant?.relayUrl ?? settings.relayUrl,
+        mode: settings.mode,
+        token: grant?.credential ?? settings.token,
+        pluginId: summary.pluginId,
+        manifestHash: summary.manifestHash,
+        contributionId,
+        ...(grant === undefined ? {} : { grant }),
+    };
+}
 
-    const settings = getCachedConnectionSettings();
-    let grant = settings.mode === 'hosted' ? getCachedHostedGrant(settings.machineId) : undefined;
-    if (settings.mode === 'hosted' && grant === undefined) throw new Error('stream: hosted machine grant is missing');
-    if (grant !== undefined && grant.expiresAt <= Date.now()) throw new Error('stream: device grant expired; pair again');
-    if (grant !== undefined) {
-        const latest = await refreshHostedGrant(settings.machineId, grant.credential);
-        if (latest !== undefined && latest.keyVersion >= grant.keyVersion) {
-            if (latest.expiresAt <= Date.now()) throw new Error('stream: device grant expired; pair again');
-            grant = latest;
-        }
-    }
+/** One pinned control request; it never consults or refreshes global machine state. */
+async function requestPinnedStream(snapshot: PluginStreamSnapshot, channel: string, sessionId?: string): Promise<void> {
+    const hosted = snapshot.grant === undefined ? undefined : new DeviceV2Crypto(snapshot.grant);
+    const legacyToken = snapshot.mode === 'local' && snapshot.token.startsWith('acctok_');
+    const url = snapshot.token === '' || legacyToken
+        ? `${snapshot.relayUrl}?role=client&machineId=${encodeURIComponent(snapshot.machineId)}${snapshot.token === '' ? '' : `&token=${encodeURIComponent(snapshot.token)}`}`
+        : ticketSocketUrl(snapshot.relayUrl, await issueWsTicket({
+            relayUrl: snapshot.relayUrl,
+            credential: snapshot.token,
+            machineId: snapshot.machineId,
+            role: 'client',
+            transport: 'relay',
+        }), 'relay');
+    const requestId = nextRequestId('voice');
+    await new Promise<void>((resolve, reject) => {
+        const socket = new WebSocket(url);
+        let seq = 0;
+        let done = false;
+        const finish = (error?: Error): void => {
+            if (done) return;
+            done = true;
+            clearTimeout(timer);
+            socket.onopen = null;
+            socket.onmessage = null;
+            socket.onerror = null;
+            socket.onclose = null;
+            socket.close();
+            if (error === undefined) resolve(); else reject(error);
+        };
+        const send = (frame: ClientFrame, streamId = 'machine'): void => {
+            seq += 1;
+            const sealed = hosted?.seal('session', streamId, encodePayload(frame));
+            socket.send(JSON.stringify({
+                header: {
+                    machineId: snapshot.machineId,
+                    ...(streamId === 'machine' ? {} : { sessionId: streamId }),
+                    ...(sealed === undefined ? {} : {
+                        senderId: hosted!.grant.deviceId,
+                        recipientId: snapshot.machineId,
+                        channel: 'session' as const,
+                        streamId,
+                        keyVersion: hosted!.grant.keyVersion,
+                    }),
+                    seq: sealed?.sequence ?? seq,
+                    at: Date.now(),
+                },
+                payload: sealed?.payload ?? encodePayload(frame),
+            } satisfies Envelope));
+        };
+        const timer = setTimeout(() => finish(new Error('stream control request timed out')), 20_000);
+        socket.onopen = () => {
+            send({ type: 'client.hello', clientId: nextRequestId('voice-client') });
+            send({
+                type: 'plugin.stream',
+                requestId,
+                params: {
+                    pluginId: snapshot.pluginId,
+                    manifestHash: snapshot.manifestHash,
+                    contributionId: snapshot.contributionId,
+                    channel,
+                    ...(sessionId === undefined ? {} : { sessionId }),
+                },
+            } as ClientRequest, sessionId);
+        };
+        socket.onerror = () => finish(new Error('stream control connection failed'));
+        socket.onclose = () => finish(new Error('stream control connection closed'));
+        socket.onmessage = (event) => {
+            void (async () => {
+                try {
+                    const envelope = JSON.parse(String(event.data)) as Envelope;
+                    if (envelope.header.machineId !== snapshot.machineId) return;
+                    const streamId = envelope.header.streamId ?? envelope.header.sessionId ?? 'machine';
+                    const plaintext = hosted === undefined ? envelope.payload : (() => {
+                        if (envelope.header.senderId !== snapshot.machineId || envelope.header.recipientId !== '*'
+                            || envelope.header.channel !== 'session' || envelope.header.streamId !== streamId
+                            || envelope.header.keyVersion !== hosted.grant.keyVersion) throw new Error('stream: invalid hosted control context');
+                        return hosted.open('session', streamId, envelope.payload, envelope.header.seq);
+                    })();
+                    const frame = decodePayload<HostFrame>(await plaintext);
+                    if (frame.type !== 'result' || frame.requestId !== requestId) return;
+                    if (frame.ok) finish();
+                    else finish(new Error(frame.error));
+                } catch { finish(new Error('stream control frame rejected')); }
+            })();
+        };
+    });
+}
+
+/** Resolve a semantic stream capability without ever naming a provider/plugin id. */
+export async function openPluginStream(
+    capability: string,
+    options: { sessionId?: string; machineId?: string; snapshot?: PluginStreamSnapshot } = {},
+): Promise<PluginStream> {
+    const snapshot = options.snapshot ?? await capturePluginStreamSnapshot(
+        capability,
+        options.machineId ?? getCachedConnectionSettings().machineId,
+    );
+    if (snapshot.capability !== capability) throw new Error('stream capability snapshot mismatch');
+    const grant = snapshot.grant;
     const hosted = grant === undefined ? undefined : new DeviceV2Crypto(grant);
     const channel = newRealtimeChannel();
-    await sync.request('plugin.stream', {
-        pluginId: summary.pluginId,
-        manifestHash: summary.manifestHash!,
-        contributionId,
-        channel,
-        ...(options.sessionId === undefined ? {} : { sessionId: options.sessionId }),
-    });
+    await requestPinnedStream(snapshot, channel, options.sessionId);
 
-    const relayUrl = grant?.relayUrl ?? settings.relayUrl;
+    const relayUrl = snapshot.relayUrl;
     const url = grant !== undefined
         ? ticketSocketUrl(relayUrl, await issueWsTicket({
             relayUrl,
             credential: grant.credential,
-            machineId: settings.machineId,
+            machineId: snapshot.machineId,
             role: 'client',
             transport: 'stream',
             channel,
         }), 'stream')
-        : settings.token === '' || settings.token.startsWith('acctok_')
+        : snapshot.token === '' || snapshot.token.startsWith('acctok_')
           ? realtimeSocketUrl(relayUrl, {
-              machineId: settings.machineId,
+              machineId: snapshot.machineId,
               channel,
               role: 'client',
-              ...(settings.token === '' ? {} : { token: settings.token }),
+              ...(snapshot.token === '' ? {} : { token: snapshot.token }),
           })
           : ticketSocketUrl(relayUrl, await issueWsTicket({
               relayUrl,
-              credential: settings.token,
-              machineId: settings.machineId,
+              credential: snapshot.token,
+              machineId: snapshot.machineId,
               role: 'client',
               transport: 'stream',
               channel,
@@ -147,8 +272,8 @@ export async function openPluginStream(
                     let text = String(event.data);
                     if (hosted !== undefined) {
                         const envelope = JSON.parse(text) as Envelope;
-                        if (envelope.header.machineId !== settings.machineId
-                            || envelope.header.senderId !== settings.machineId
+                        if (envelope.header.machineId !== snapshot.machineId
+                            || envelope.header.senderId !== snapshot.machineId
                             || envelope.header.recipientId !== '*'
                             || envelope.header.channel !== 'stream'
                             || envelope.header.streamId !== channel
@@ -187,9 +312,9 @@ export async function openPluginStream(
             const sealed = hosted?.seal('stream', channel, plaintext);
             socket.send(sealed === undefined ? plaintext : JSON.stringify({
                 header: {
-                    machineId: settings.machineId,
+                    machineId: snapshot.machineId,
                     senderId: grant!.deviceId,
-                    recipientId: settings.machineId,
+                    recipientId: snapshot.machineId,
                     channel: 'stream',
                     streamId: channel,
                     keyVersion: grant!.keyVersion,
