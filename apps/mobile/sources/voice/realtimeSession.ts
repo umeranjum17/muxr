@@ -8,7 +8,11 @@ import {
     startRealtimePcm,
     stopRealtimePcm,
 } from '@/../modules/voice-overlay';
-import { openPluginStream, type PluginStream } from '@/plugins/openPluginStream';
+import {
+    capturePluginStreamSnapshot,
+    openPluginStream,
+    type PluginStream,
+} from '@/plugins/openPluginStream';
 import { claimVadCapture } from '@/voice/vadStandby';
 
 export type RealtimeStatus = 'connecting' | 'connected' | 'thinking' | 'speaking' | 'disconnected';
@@ -26,12 +30,13 @@ export interface RealtimeHandle {
  * model selection, prompts, tools and provider event names never leave the host.
  */
 export function startRealtimeSession(options: {
-    sessionId: string;
+    target: { machineId: string; sessionId: string };
     onStatus: (status: RealtimeStatus, detail?: string) => void;
     onTurn: (role: 'user' | 'agent', text: string) => void;
     onActivity?: () => void;
 }): RealtimeHandle {
-    const { sessionId, onStatus, onTurn, onActivity } = options;
+    const { target, onStatus, onTurn, onActivity } = options;
+    const streamSnapshot = capturePluginStreamSnapshot('voice.session', target.machineId);
     let stream: PluginStream | undefined;
     let stopped = false;
     let muted = false;
@@ -113,7 +118,10 @@ export function startRealtimeSession(options: {
     const connect = async (): Promise<void> => {
         onStatus('connecting', reconnects === 0 ? undefined : 'Reconnecting voice stream');
         try {
-            const next = await openPluginStream('voice.session', { sessionId });
+            const next = await openPluginStream('voice.session', {
+                sessionId: target.sessionId,
+                snapshot: await streamSnapshot,
+            });
             if (stopped) {
                 next.close();
                 return;

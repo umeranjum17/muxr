@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { storage } from '@/sync/storage';
 import { sync } from '@/sync/sync';
+import { getCachedConnectionSettings } from '@/state/connectionSettings';
 import {
     addVoiceNotificationActionListener,
     startVoiceService,
@@ -17,6 +18,10 @@ import {
 } from '@/voice/vadStandby';
 
 export type RealtimeSessionState = RealtimeStatus;
+export interface RealtimeTarget { machineId: string; sessionId: string }
+export type RealtimeMachineSwitchGuard =
+    | { allowed: true }
+    | { allowed: false; reason: 'voice-active'; action: 'end-voice-and-switch' };
 export interface RealtimeTurn {
     id: number;
     role: 'user' | 'agent';
@@ -33,7 +38,7 @@ let detail: string | undefined;
 let turns: RealtimeTurn[] = [];
 let muted = false;
 let turnId = 0;
-let bound: string | null = null;
+let bound: RealtimeTarget | null = null;
 let pendingSpeech: string | null = null;
 let sleepAfterSpeech = false;
 let reportSpeechStarted = false;
@@ -43,7 +48,7 @@ let vadEpoch = 0;
 /** Local completion watch; unlike `session`, this owns no provider connection. */
 let watching = false;
 /** Last used pane for a notification Talk action. */
-let realtimeTarget: string | null = null;
+let realtimeTarget: RealtimeTarget | null = null;
 /** The one root-owned conversation sheet, shared by Terminal and Home. */
 let realtimeConversationVisibleState = false;
 /** Dictation and Realtime never own the microphone together. */
@@ -57,11 +62,19 @@ const notify = () => {
 };
 
 export function boundRealtimeSession(): string | null {
-    return bound;
+    return bound?.sessionId ?? null;
+}
+
+/** Settings and machine pickers call this before changing global connection state. */
+export function realtimeMachineSwitchGuard(machineId: string): RealtimeMachineSwitchGuard {
+    return bound !== null && bound.machineId !== machineId
+        ? { allowed: false, reason: 'voice-active', action: 'end-voice-and-switch' }
+        : { allowed: true };
 }
 
 /** Desk focus only if that agent is busy; otherwise the phone's last session. */
-export async function resolveRealtimeTarget(): Promise<string | null> {
+export async function resolveRealtimeTarget(): Promise<RealtimeTarget | null> {
+    const machineId = getCachedConnectionSettings().machineId;
     const tree = await sync.request('herdr.tree', {}).catch(() => undefined);
     const focused = tree?.workspaces
         .filter((workspace) => workspace.focused)
@@ -72,14 +85,17 @@ export async function resolveRealtimeTarget(): Promise<string | null> {
         focused?.sessionId !== undefined
         && (focused.agentStatus === 'working' || focused.agentStatus === 'blocked')
     ) {
-        return focused.sessionId;
+        return { machineId, sessionId: focused.sessionId };
     }
 
+    if (getCachedConnectionSettings().machineId !== machineId) return null;
     const sessions = Object.values(storage.getState().sessions);
-    if (realtimeTarget !== null && sessions.some((candidate) => candidate.id === realtimeTarget)) return realtimeTarget;
-    return [...sessions]
+    if (realtimeTarget?.machineId === machineId
+        && sessions.some((candidate) => candidate.id === realtimeTarget.sessionId)) return { ...realtimeTarget };
+    const sessionId = [...sessions]
         .sort((left, right) => (right.activeAt || right.updatedAt) - (left.activeAt || left.updatedAt))[0]
-        ?.id ?? focused?.sessionId ?? null;
+        ?.id ?? focused?.sessionId;
+    return sessionId === undefined ? null : { machineId, sessionId };
 }
 
 export function registerRealtimeNotificationStart(handler: () => void | Promise<void>): () => void {
@@ -120,11 +136,11 @@ export function micOwners(): Array<'realtime' | 'dictation' | 'vad'> {
 }
 
 export function rememberedRealtimeSession(): string | null {
-    return realtimeTarget;
+    return realtimeTarget?.sessionId ?? null;
 }
 
 export function realtimeWatchTarget(): string | null {
-    return watching ? realtimeTarget : null;
+    return watching ? realtimeTarget?.sessionId ?? null : null;
 }
 
 export function acknowledgeRealtimeError(): void {
@@ -193,21 +209,26 @@ function failRealtimeStart(epoch: number, reason: string): void {
     notify();
 }
 
-export function startRealtimeSession(sessionId: string): boolean {
+export function startRealtimeSession(input: RealtimeTarget | string): boolean {
+    const target = typeof input === 'string'
+        ? { machineId: getCachedConnectionSettings().machineId, sessionId: input }
+        : { ...input };
     voiceDiagnostic('startVoice.enter');
     if (dictating) {
         voiceDiagnostic('startVoice.guard:dictating');
         return false;
     }
-    if ((starting || session !== null) && bound === sessionId) {
-        voiceDiagnostic('startVoice.guard:duplicate');
+    if (starting || session !== null) {
+        voiceDiagnostic(bound?.machineId === target.machineId && bound.sessionId === target.sessionId
+            ? 'startVoice.guard:duplicate'
+            : 'startVoice.guard:pinned');
         return false;
     }
     vadEpoch += 1;
     const pendingVad = vadArming;
     cancelVadStandbyStart();
     const epoch = ++realtimeEpoch;
-    realtimeTarget = sessionId;
+    realtimeTarget = target;
     watching = true;
     clearIdleTimer();
     session?.stop();
@@ -217,21 +238,21 @@ export function startRealtimeSession(sessionId: string): boolean {
     muted = false;
     sleepAfterSpeech = false;
     reportSpeechStarted = false;
-    bound = sessionId;
+    bound = target;
     starting = true;
     state = 'connecting';
     detail = undefined;
     notify();
-    if (pendingVad === null) startRealtimeAfterService(sessionId, epoch);
+    if (pendingVad === null) startRealtimeAfterService(target, epoch);
     else void pendingVad.then(
-        () => startRealtimeAfterService(sessionId, epoch),
-        () => startRealtimeAfterService(sessionId, epoch),
+        () => startRealtimeAfterService(target, epoch),
+        () => startRealtimeAfterService(target, epoch),
     );
     return true;
 }
 
 /** The service must be foreground before native PCM capture opens the microphone. */
-function startRealtimeAfterService(sessionId: string, epoch: number): void {
+function startRealtimeAfterService(target: RealtimeTarget, epoch: number): void {
     if (epoch !== realtimeEpoch) return;
     if (!startVoiceService()) {
         failRealtimeStart(epoch, 'Microphone capture could not start.');
@@ -245,7 +266,7 @@ function startRealtimeAfterService(sessionId: string, epoch: number): void {
     let handle!: RealtimeHandle;
     try {
         handle = openRealtimeTransport({
-            sessionId,
+            target,
             onStatus: (next, why) => {
                 if (liveEpoch !== realtimeEpoch || session !== handle) return;
                 if (next === 'disconnected') {
@@ -300,7 +321,9 @@ async function armVadStandby(): Promise<boolean> {
     if (vadArming !== null) return vadArming;
     const epoch = vadEpoch;
     const task = (async () => {
-        const target = realtimeTarget ?? await resolveRealtimeTarget();
+        const target = realtimeTarget?.machineId === getCachedConnectionSettings().machineId
+            ? realtimeTarget
+            : await resolveRealtimeTarget();
         if (target === null || epoch !== vadEpoch || storage.getState().localSettings?.vadStandbyEnabled !== true
             || dictating || session !== null || starting) return false;
         realtimeTarget = target;

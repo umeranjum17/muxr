@@ -137,7 +137,7 @@ describe('on-device dictation flow', () => {
         });
         const setMuted = vi.fn();
         mocks.startRealtimeSession.mockReturnValue({ stop: vi.fn(), setMuted, speak: vi.fn() });
-        await expect(resolveRealtimeTarget()).resolves.toBe('session-b');
+        await expect(resolveRealtimeTarget()).resolves.toEqual({ machineId: '', sessionId: 'session-b' });
 
         mocks.notificationAction?.('start');
         await vi.advanceTimersByTimeAsync(0);

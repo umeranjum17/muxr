@@ -1,5 +1,6 @@
 import { router } from 'expo-router';
 import { storage } from '@/sync/storage';
+import { getCachedConnectionSettings } from '@/state/connectionSettings';
 import { useNewSessionDraft } from '@/hooks/useNewSessionDraft';
 import { startSessionFromDraft } from '@/hooks/startSessionFromDraft';
 import { isMachineOnline } from '@/utils/machineUtils';
@@ -47,15 +48,20 @@ export async function startRealtimeCapability(input: { sessionId?: string } = {}
     starting = true;
     try {
         const explicit = input.sessionId?.trim();
-        const target = explicit || await resolveRealtimeTarget();
-        if (target !== null && target !== '') {
+        const target = explicit
+            ? { machineId: getCachedConnectionSettings().machineId, sessionId: explicit }
+            : await resolveRealtimeTarget();
+        if (target !== null && target.sessionId !== '') {
             await startRealtimeWithPermission(target);
             return;
         }
         if (!(await requestRealtimePermission())) return;
         if (!(await ensureRealtimeProviderConfigured())) return;
         const sessionId = await startConfiguredBlankSession();
-        if (sessionId !== null) beginRealtimeConversation(sessionId);
+        if (sessionId !== null) beginRealtimeConversation({
+            machineId: getCachedConnectionSettings().machineId,
+            sessionId,
+        });
     } catch (error) {
         Modal.alert('Realtime conversation', error instanceof Error ? error.message : String(error));
     } finally {

@@ -1,7 +1,8 @@
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, statSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createConnection } from 'node:net';
 import { describe, expect, it } from 'vitest';
 import {
     DEFAULT_PEER_CAPABILITIES,
@@ -26,6 +27,7 @@ import { createRequestDispatcher } from '../requests/createRequestDispatcher.js'
 import type { SessionSource } from '../sessionSource.js';
 import type { PeerAuthority } from './authority.js';
 import type { PeerClientRequestType, PeerClientTransport } from './client.js';
+import { PeerBroker, type PeerBrokerRequest } from './broker.js';
 import { PeerRuntime } from './runtime.js';
 import type { MachineCryptoAdapter, MachineCryptoState, MachineRotationGrant } from './types.js';
 
@@ -80,6 +82,23 @@ async function call<T extends PeerRequestType>(
     return runtime.handle({ type, requestId: `phone-${Math.random()}`, params } as PeerClientRequest, 'phone-control') as Promise<PeerRequestResult<T>>;
 }
 
+async function brokerCall(socketPath: string, request: PeerBrokerRequest): Promise<unknown> {
+    return new Promise((resolve, reject) => {
+        const socket = createConnection(socketPath);
+        let input = '';
+        socket.on('connect', () => socket.write(`${JSON.stringify({ id: 'voice-flow', request })}\n`));
+        socket.on('data', (chunk) => {
+            input += chunk.toString('utf8');
+            const newline = input.indexOf('\n');
+            if (newline === -1) return;
+            const response = JSON.parse(input.slice(0, newline)) as { ok: boolean; data?: unknown; error?: string };
+            socket.destroy();
+            if (response.ok) resolve(response.data); else reject(new Error(response.error));
+        });
+        socket.on('error', reject);
+    });
+}
+
 describe('host peer collaboration flow', () => {
     it('prepares, authorizes, installs, executes one fresh prompt, rejects unsafe work, and revokes', async () => {
         const root = mkdtempSync(join(tmpdir(), 'muxr-peer-flow-'));
@@ -99,8 +118,9 @@ describe('host peer collaboration flow', () => {
             firstMessage: '',
             agentKind: 'pi',
         };
+        let remoteSessions = [session];
         const targetSource = {
-            async list() { return [session]; },
+            async list() { return remoteSessions; },
             async prompt() { prompts += 1; },
             async paneRead() { return { text: 'build complete', truncated: false }; },
             async status(sessionId: string) {
@@ -240,6 +260,23 @@ describe('host peer collaboration flow', () => {
         await expect(targetDispatch({
             type: 'machine.shell', requestId: 'forbidden', params: { command: 'echo unsafe', cwd: '/tmp' },
         }, authorized.peerDeviceId)).resolves.toMatchObject({ ok: false, code: 'peer-forbidden' });
+
+        const broker = new PeerBroker(join(root, 'source', 'voice.sock'), sourceRuntime);
+        await broker.start();
+        expect(statSync(broker.socketPath).mode & 0o077).toBe(0);
+        const brokerList = await brokerCall(broker.socketPath, { method: 'list', machine: 'Build Mac' });
+        expect(brokerList).toEqual({ machines: [{ machine: 'Build Mac', agents: [{ agent: 'iOS builder' }] }] });
+        await expect(brokerCall(broker.socketPath, { method: 'list' })).resolves.toEqual(brokerList);
+        expect(JSON.stringify(brokerList)).not.toMatch(/target-machine|muxr-session|internal-pane-path/);
+        await expect(brokerCall(broker.socketPath, { method: 'read', machine: 'Build Mac', agent: 'iOS builder' }))
+            .resolves.toEqual({ machine: 'Build Mac', agent: 'iOS builder', text: 'build complete', truncated: false });
+        await expect(brokerCall(broker.socketPath, { method: 'prompt', machine: 'Build Mac', agent: 'iOS builder', text: 'Report build status' }))
+            .resolves.toEqual({ machine: 'Build Mac', agent: 'iOS builder', delivered: true });
+        expect(prompts).toBe(2);
+        remoteSessions = [session, { ...session, id: 'another-internal-session' }];
+        await expect(brokerCall(broker.socketPath, { method: 'read', machine: 'Build Mac', agent: 'iOS builder' }))
+            .rejects.toThrow('More than one agent on the selected computer has that name');
+        await broker.close();
 
         await call(restartedTarget, 'peer.revoke', {
             relationshipId: restartedTarget.store.list().peers[0]!.relationshipId,
