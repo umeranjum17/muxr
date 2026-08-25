@@ -31,7 +31,7 @@ carried data for the new file only.
 
 Convention note: attachments are **per-pane** (Umer, 2026-08-06): the dump dir
 is keyed by HERDR_PANE_ID, not cwd — splits sharing a cwd get separate pills.
-Agents learn the convention from the global `muxr-attachments` skill.
+Agents learn the convention from the attachments section of the unified `skills/muxr` skill.
 (The 2026-08-06 live demo line was the polling-era pill showing its own edit
 as it happened; the completion-only model emits nothing until the run settles,
 so that live demonstration no longer applies and has not been re-run on the

@@ -1,11 +1,6 @@
----
-name: "browser-takeover"
-description: "Hand a stuck browser session to the user's phone when agent-browser automation hits a login / 2FA / CAPTCHA wall — enable the stream, report blocked with the port, then STOP and wait for the human instead of clicking."
-version: 1
-created: "2026-08-19"
-updated: "2026-08-19"
----
-## When to Use
+# Browser takeover for login, 2FA, and CAPTCHA
+
+## When to use
 Use the moment browser automation (agent-browser) hits a wall only a human can clear: a login form, a 2FA/OTP prompt, a CAPTCHA, an SSO redirect, a "verify it's you" interstitial. You know you are stuck — announce it; do not wait for anyone to notice, and do not try to detect the wall with heuristics. Not for ordinary errors you can retry your way out of.
 
 ## Procedure

@@ -142,7 +142,7 @@ const extensionSource = readFileSync(join(root, 'scripts', 'plugin.mjs'), 'utf8'
 if (!extensionSource.includes("from '@muxr/contract'")) throw new Error('plugin validator import changed; update the package rewrite');
 writeFileSync(join(out, 'plugin.mjs'), extensionSource.replace("from '@muxr/contract'", "from './contract.mjs'"));
 cpSync(join(root, 'plugins'), join(out, 'plugins'), { recursive: true });
-cpSync(join(root, 'skills', 'muxr-plugin-authoring'), join(out, 'skills', 'muxr-plugin-authoring'), { recursive: true });
+cpSync(join(root, 'skills', 'muxr'), join(out, 'skills', 'muxr'), { recursive: true });
 const webDist = join(root, 'apps', 'mobile', 'dist');
 if (!existsSync(join(webDist, 'index.html'))) {
     throw new Error('web export missing; run `yarn web:export` before `node scripts/pack.mjs`');
