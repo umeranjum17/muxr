@@ -300,6 +300,9 @@ export const SettingsView = React.memo(function SettingsView({
                     const displayName = machine?.metadata?.displayName;
                     const grant = getCachedHostedGrant(id) ?? pairedGrants.find((entry) => entry.machineId === id);
                     const pairedName = grant?.machineName;
+                    const status = machine === undefined && grant !== undefined
+                        ? 'paired'
+                        : isOnline ? t('status.online') : t('status.offline');
                     const safeHost = host && !/^machine[-_]/i.test(host) ? host : undefined;
                     const platform = machine?.metadata?.platform || '';
                     const hostVersion = knownHostVersion(machine?.metadata?.muxrCliVersion);
@@ -312,7 +315,7 @@ export const SettingsView = React.memo(function SettingsView({
                         platform || undefined,
                         pairingTransport(grant?.relayUrl),
                         hostVersion === undefined ? undefined : `host ${hostVersion}`,
-                        isOnline ? t('status.online') : t('status.offline'),
+                        status,
                     ].filter(Boolean).join(' • ');
 
                     return (
@@ -337,7 +340,11 @@ export const SettingsView = React.memo(function SettingsView({
                                 <Ionicons
                                     name="desktop-outline"
                                     size={29}
-                                    color={isOnline ? theme.colors.status.connected : theme.colors.status.disconnected}
+                                    color={isOnline
+                                        ? theme.colors.status.connected
+                                        : machine === undefined && grant !== undefined
+                                          ? theme.colors.textSecondary
+                                          : theme.colors.status.disconnected}
                                 />
                             }
                             onPress={() => void openMachine(id)}
