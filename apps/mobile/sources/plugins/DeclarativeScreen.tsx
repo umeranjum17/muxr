@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions, type StyleProp, type ViewStyle } from 'react-native';
+import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions, type LayoutChangeEvent, type NativeScrollEvent, type NativeSyntheticEvent, type StyleProp, type ViewStyle } from 'react-native';
 import { randomUUID } from 'expo-crypto';
 import { useRouter } from 'expo-router';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
@@ -29,6 +29,16 @@ import { t } from '@/text';
 import { boundText } from '@/utils/boundedText';
 import { Typography } from '@/constants/Typography';
 import { cardStyle, Meter, SectionLabel, ui, withAlpha } from '@/components/ui';
+import { layout } from '@/components/layout';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+const ScreenWidthContext = React.createContext<number | undefined>(undefined);
+
+function useScreenContentWidth(): number {
+    const measured = React.useContext(ScreenWidthContext);
+    const { width } = useWindowDimensions();
+    return measured ?? width;
+}
 
 /** Screen payloads survive a close: reopening renders at once, then refreshes. */
 const screenCache = new Map<string, unknown>();
@@ -110,7 +120,7 @@ function chartValue(item: PluginChartItem): string {
 function LoadingHairline({ active }: { active: boolean }) {
     const { theme } = useUnistyles();
     const reduceMotion = useReducedMotion();
-    const { width } = useWindowDimensions();
+    const width = useScreenContentWidth();
     const progress = useSharedValue(0);
     React.useEffect(() => {
         if (!active || reduceMotion) {
@@ -369,7 +379,7 @@ function ScreenChart({ node, data, nested }: { node: PluginScreenChartNode; data
     // ponytail: window width, not the card's. Plugin screens own the content
     // area today; measure the card with onLayout if one ever renders in a
     // narrow column on a wide screen.
-    const wide = useWindowDimensions().width >= 700;
+    const wide = useScreenContentWidth() >= 680;
     const series = asChartSeries(resolvePath(data, node.path));
     const title = node.title === undefined ? undefined : bindText(resolvePluginText(node.title), data);
     const empty = node.emptyText === undefined ? t('plugins.nothingToShow') : bindText(resolvePluginText(node.emptyText), data);
@@ -574,7 +584,7 @@ function ScreenNode(props: {
     nested?: boolean;
 }) {
     const { theme } = useUnistyles();
-    const { width } = useWindowDimensions();
+    const width = useScreenContentWidth();
     const { node, data, fields } = props;
     const bind = (value: PluginText) => bindText(resolvePluginText(value), data);
     switch (node.type) {
@@ -638,7 +648,9 @@ function ScreenNode(props: {
                 </View>
             );
         case 'section': {
-            const columns = node.columns === 3 && width < 480 ? 2 : node.columns;
+            const columns = node.columns === undefined
+                ? undefined
+                : Math.max(1, Math.min(node.columns, Math.floor((width + 10) / 160)));
             // A section inside a section is a group, not a second card: stacking
             // panels inside panels is what turns a screen into a wall of boxes.
             const body = (
@@ -770,8 +782,16 @@ function ScreenBody(props: {
     source: PluginSource;
     /** Params passed by a row action; they become the data RPC input. */
     params?: Record<string, string>;
+    topContentInset?: number;
+    bottomContentInset?: number;
+    onScroll?: (event: NativeSyntheticEvent<NativeScrollEvent>) => void;
 }) {
     const { screen } = props;
+    const safeArea = useSafeAreaInsets();
+    const [contentWidth, setContentWidth] = React.useState<number>();
+    const handleContentLayout = React.useCallback((event: LayoutChangeEvent) => {
+        setContentWidth(Math.max(0, event.nativeEvent.layout.width - 28));
+    }, []);
     const router = useRouter();
     const dataContributionId = screen.data?.contributionId;
     // A pressed tab is just another screen param, so one payload per tab keeps
@@ -897,48 +917,88 @@ function ScreenBody(props: {
     // reader their place and re-runs the entrance on every tab tap.
     const hasContent = dataContributionId === undefined || data !== undefined || dataError !== undefined;
     return (
-        <ScrollView style={{ flex: 1, backgroundColor: theme.colors.surface }} contentContainerStyle={{ padding: 14, paddingTop: 10, paddingBottom: 40 }}
+        <ScrollView
+            style={{ flex: 1, backgroundColor: theme.colors.surface }}
+            contentContainerStyle={{
+                paddingTop: props.topContentInset ?? 0,
+                paddingBottom: safeArea.bottom + (props.bottomContentInset ?? 0),
+            }}
+            onScroll={props.onScroll}
+            scrollEventThrottle={16}
             refreshControl={dataContributionId === undefined ? undefined : (
                 <RefreshControl refreshing={refreshing} tintColor={theme.colors.textSecondary}
                     onRefresh={() => { setRefreshing(true); setRefreshNonce((value) => value + 1); }} />
-            )}>
-            <LoadingHairline active={loading} />
-            {screen.title !== undefined && <Text style={{ color: theme.colors.text, fontSize: 21, fontWeight: '700', marginBottom: 8 }}>{bindText(resolvePluginText(screen.title), data)}</Text>}
-            {/* Show why, not just that: a plugin author debugging a screen has
-                nothing to go on otherwise. The host already bounds this text. */}
-            {dataError !== undefined && <Pressable onPress={() => setRefreshNonce((value) => value + 1)} accessibilityRole="button" accessibilityLabel={`${capUtf8Bytes(sanitizeDisplayText(dataError), 300)}. ${t('plugins.retry')}`} style={{ marginBottom: 8, paddingVertical: 10 }}>
-                <Text style={{ color: theme.colors.box.error.text, fontSize: 13 }}>{capUtf8Bytes(sanitizeDisplayText(dataError), 300)}</Text>
-                <Text style={{ color: theme.colors.textLink, fontSize: 13, marginTop: 4 }}>{t('plugins.retry')}</Text>
-            </Pressable>}
-            {hasContent
-                ? <View style={{ opacity: loading ? 0.55 : 1 }}>
-                    {screen.children.map((node, index) => (
-                        <Animated.View key={index} entering={reduceMotion ? undefined : FadeInDown.duration(280).delay(Math.min(index, 8) * 40).easing(Easing.bezier(0.23, 1, 0.32, 1))}>
-                            <ScreenNode node={node} data={data} fields={fields} setField={setField} running={running} onButton={onButton} onRowAction={onRowAction} onTreeLoad={onTreeLoad}
-                                tabOverrides={tabParams}
-                                onSelectTab={(param, value) => setTabParams((current) => ({ ...current, [param]: value }))}
-                                onTreeError={(error) => setStatus({ ok: false, text: error instanceof Error ? error.message : String(error) })} />
-                        </Animated.View>
-                    ))}
-                </View>
-                : <ScreenSkeleton />}
-            {status !== undefined && (
-                <Text accessibilityLiveRegion="polite" accessibilityRole="alert"
-                    style={{ color: status.ok ? theme.colors.success : theme.colors.box.error.text, fontSize: 13, marginTop: 10 }}>
-                    {status.text}
-                </Text>
             )}
-            {/* Provenance is a footnote, not a headline: the screen's own title
-                leads, and where the plugin came from waits at the bottom. */}
-            {props.source.kind !== 'local' && <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 11, marginTop: 20 }}>{`${props.pluginName} · ${sourceLabel(props.source)}`}</Text>}
+        >
+            <View
+                onLayout={handleContentLayout}
+                style={{ width: '100%', maxWidth: layout.maxWidth, alignSelf: 'center', padding: 14, paddingTop: 10, paddingBottom: 40 }}
+            >
+                <ScreenWidthContext.Provider value={contentWidth}>
+                    <LoadingHairline active={loading} />
+                    {screen.title !== undefined && <Text style={{ color: theme.colors.text, fontSize: 21, fontWeight: '700', marginBottom: 8 }}>{bindText(resolvePluginText(screen.title), data)}</Text>}
+                    {dataError !== undefined && <Pressable onPress={() => setRefreshNonce((value) => value + 1)} accessibilityRole="button" accessibilityLabel={`${capUtf8Bytes(sanitizeDisplayText(dataError), 300)}. ${t('plugins.retry')}`} style={{ marginBottom: 8, paddingVertical: 10 }}>
+                        <Text style={{ color: theme.colors.box.error.text, fontSize: 13 }}>{capUtf8Bytes(sanitizeDisplayText(dataError), 300)}</Text>
+                        <Text style={{ color: theme.colors.textLink, fontSize: 13, marginTop: 4 }}>{t('plugins.retry')}</Text>
+                    </Pressable>}
+                    {hasContent
+                        ? <View style={{ opacity: loading ? 0.55 : 1 }}>
+                            {screen.children.map((node, index) => (
+                                <Animated.View key={index} entering={reduceMotion ? undefined : FadeInDown.duration(280).delay(Math.min(index, 8) * 40).easing(Easing.bezier(0.23, 1, 0.32, 1))}>
+                                    <ScreenNode node={node} data={data} fields={fields} setField={setField} running={running} onButton={onButton} onRowAction={onRowAction} onTreeLoad={onTreeLoad}
+                                        tabOverrides={tabParams}
+                                        onSelectTab={(param, value) => setTabParams((current) => ({ ...current, [param]: value }))}
+                                        onTreeError={(error) => setStatus({ ok: false, text: error instanceof Error ? error.message : String(error) })} />
+                                </Animated.View>
+                            ))}
+                        </View>
+                        : <ScreenSkeleton />}
+                    {status !== undefined && (
+                        <Text accessibilityLiveRegion="polite" accessibilityRole="alert"
+                            style={{ color: status.ok ? theme.colors.success : theme.colors.box.error.text, fontSize: 13, marginTop: 10 }}>
+                            {status.text}
+                        </Text>
+                    )}
+                    {props.source.kind !== 'local' && (
+                        <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 11, marginTop: 20 }}>
+                            {`${props.pluginName} · ${sourceLabel(props.source)}`}
+                        </Text>
+                    )}
+                </ScreenWidthContext.Provider>
+            </View>
         </ScrollView>
     );
 }
 
-export function DeclarativeScreen({ contribution, pluginId, params }: { contribution: PluginScreenContribution; pluginId: string; params?: Record<string, string> }) {
+export function DeclarativeScreen({
+    contribution,
+    pluginId,
+    params,
+    topContentInset,
+    bottomContentInset,
+    onScroll,
+}: {
+    contribution: PluginScreenContribution;
+    pluginId: string;
+    params?: Record<string, string>;
+    topContentInset?: number;
+    bottomContentInset?: number;
+    onScroll?: (event: NativeSyntheticEvent<NativeScrollEvent>) => void;
+}) {
     const entry = pluginSnapshot().find((candidate) => candidate.summary.pluginId === pluginId);
     if (entry === undefined) return null;
-    return <ScreenBody screen={contribution} manifest={entry.manifest} pluginId={pluginId} manifestHash={entry.summary.manifestHash} pluginName={entry.summary.name} source={entry.summary.source} params={params} />;
+    return <ScreenBody
+        screen={contribution}
+        manifest={entry.manifest}
+        pluginId={pluginId}
+        manifestHash={entry.summary.manifestHash}
+        pluginName={entry.summary.name}
+        source={entry.summary.source}
+        params={params}
+        topContentInset={topContentInset}
+        bottomContentInset={bottomContentInset}
+        onScroll={onScroll}
+    />;
 }
 
 export function newIdempotencyKey(): string {

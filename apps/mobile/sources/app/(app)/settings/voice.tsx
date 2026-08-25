@@ -136,7 +136,7 @@ export default function VoiceProviderScreen() {
                     />
                 </ItemGroup>
             )}
-            <ItemGroup title="Hands-free" footer="Audio stays on this phone until speech is detected. Standby turns itself off after 30 minutes.">
+            <ItemGroup title="Hands-free" footer="Audio stays on this device until speech is detected. Standby turns itself off after 30 minutes.">
                 <Item
                     title="Wake on speech"
                     subtitle="Reconnect realtime voice when someone starts talking"

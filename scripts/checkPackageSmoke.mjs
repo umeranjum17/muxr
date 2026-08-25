@@ -6,6 +6,7 @@ import {
     mkdirSync,
     mkdtempSync,
     readFileSync,
+    realpathSync,
     readdirSync,
     rmSync,
     statSync,
@@ -17,7 +18,7 @@ import { dirname, join } from 'node:path';
 import { packageInfoFromPath, packagePathFromInput } from './packageAudit.mjs';
 
 const root = process.cwd();
-const scratch = mkdtempSync(join(tmpdir(), 'muxr-package-smoke-'));
+const scratch = realpathSync(mkdtempSync(join(tmpdir(), 'muxr-package-smoke-')));
 const tarDir = join(scratch, 'tar');
 const installDir = join(scratch, 'install');
 const home = join(scratch, 'home');
@@ -103,6 +104,7 @@ function cliEnv(targetHome = home, extra = {}) {
         HOME: targetHome,
         PATH: `${binDir}:${dirname(process.execPath)}`,
         MUXR_PS_BIN: '/usr/bin/ps',
+        MUXR_PLATFORM: 'linux',
         HERDR_BIN: join(binDir, 'herdr'),
         FAKE_HERDR_STATE: fakeState,
         FAKE_HERDR_SERVER_STATE: fakeServerState,
@@ -121,6 +123,17 @@ function cliEnvWithoutHerdr(targetHome, extra = {}) {
 }
 
 function stopRelayFor(dataDir) {
+    const pidPath = join(dataDir, 'relay.pid');
+    if (existsSync(pidPath)) {
+        const pid = Number(readFileSync(pidPath, 'utf8').trim());
+        if (Number.isSafeInteger(pid) && pid > 0) {
+            try {
+                process.kill(pid, 'SIGTERM');
+                return;
+            } catch {}
+        }
+    }
+    if (!existsSync('/proc')) return;
     const marker = `MUXR_RELAY_DATA_DIR=${dataDir}`;
     for (const name of readdirSync('/proc')) {
         if (!/^\d+$/.test(name)) continue;
@@ -152,14 +165,63 @@ function signalNodeDescendant(parentPid) {
     process.kill(node.pid, 'SIGINT');
 }
 
+const expectWaitForExit = 'expect eof\nset result [wait]\nexit [lindex $result 3]';
+
+function ttyProcess(command, scriptEcho = 'never') {
+    if (process.platform === 'darwin') {
+        return {
+            command: '/usr/bin/expect',
+            args: ['-c', `log_user 1
+set timeout -1
+spawn -noecho /bin/sh -c $env(MUXR_TTY_COMMAND)
+send -- $env(MUXR_TTY_INPUT)
+${expectWaitForExit}`],
+            env: { MUXR_TTY_COMMAND: command },
+        };
+    }
+    return {
+        command: '/usr/bin/script',
+        args: ['-qE', scriptEcho, '-ec', command, '/dev/null'],
+        env: {},
+    };
+}
+
+function runTtySync(command, options) {
+    const pty = ttyProcess(command);
+    assert.ok(existsSync(pty.command), 'a PTY utility is required for the TTY smoke');
+    const input = typeof options.input === 'string' ? options.input : '';
+    return run(pty.command, pty.args, {
+        ...options,
+        ...(process.platform === 'darwin' ? { input: undefined } : {}),
+        env: { ...options.env, ...pty.env, ...(process.platform === 'darwin' ? { MUXR_TTY_INPUT: input } : {}) },
+    });
+}
+
 async function runTty(command, env, inputAfter, timeoutMs = 20_000, completionMarker, scriptEcho = 'never', inputMarker = 'OpenAI API key for Live Voice') {
-    assert.ok(existsSync('/usr/bin/script'), 'util-linux script is required for the Linux TTY smoke');
-    const child = spawn('/usr/bin/script', ['-qE', scriptEcho, '-ec', command, '/dev/null'], {
-        env,
+    const darwin = process.platform === 'darwin';
+    const pty = darwin
+        ? {
+            command: '/usr/bin/expect',
+            args: ['-c', `log_user 1
+set timeout -1
+spawn -noecho /bin/sh -c $env(MUXR_TTY_COMMAND)
+expect -exact $env(MUXR_TTY_MARKER)
+send -- $env(MUXR_TTY_INPUT)
+${expectWaitForExit}`],
+            env: {
+                MUXR_TTY_COMMAND: command,
+                MUXR_TTY_MARKER: inputMarker,
+                MUXR_TTY_INPUT: inputAfter === '__SIGINT__' ? '\u0003' : inputAfter ?? '',
+            },
+        }
+        : ttyProcess(command, scriptEcho);
+    assert.ok(existsSync(pty.command), 'a PTY utility is required for the TTY smoke');
+    const child = spawn(pty.command, pty.args, {
+        env: { ...env, ...pty.env },
         stdio: ['pipe', 'pipe', 'pipe'],
     });
     let output = '';
-    let sent = false;
+    let sent = darwin;
     const collect = (chunk) => {
         output += chunk.toString();
         if (!sent && output.includes(inputMarker)) {
@@ -167,7 +229,7 @@ async function runTty(command, env, inputAfter, timeoutMs = 20_000, completionMa
             if (inputAfter === '__SIGINT__') signalNodeDescendant(child.pid);
             else if (inputAfter !== null) child.stdin.end(inputAfter);
         }
-        if (completionMarker && output.includes(completionMarker) && !child.stdin.destroyed) child.stdin.end();
+        if (!darwin && completionMarker && output.includes(completionMarker) && !child.stdin.destroyed) child.stdin.end();
     };
     child.stdout.on('data', collect);
     child.stderr.on('data', collect);
@@ -283,25 +345,25 @@ try {
     const cli = join(installDir, 'node_modules', '.bin', 'muxr');
     const installedPackage = join(installDir, 'node_modules', '@trymuxr', 'cli');
     const installedPlugins = join(installedPackage, 'plugins');
-    if (existsSync('/usr/bin/script')) {
+    if (existsSync(ttyProcess('').command)) {
         const uiFlow = join(scratch, 'setup-ui-flow.mjs');
         writeFileSync(uiFlow, `import {withFullscreen, setupStep, outro, select} from ${JSON.stringify(`file://${join(installedPackage, 'setup-ui.mjs')}`)};\nif (process.argv[2] === 'full') await withFullscreen(async () => { setupStep(1, 5, 'Check this machine'); outro('Setup receipt'); return 0; });\nelse await withFullscreen(async () => { await select('Choose connection', [{value:'lan',title:'LAN',description:'same network'}]); return 0; });\n`);
         const fullUiEnv = { ...process.env, TERM: 'xterm-256color' };
         delete fullUiEnv.CI;
         delete fullUiEnv.SSH_CONNECTION;
         delete fullUiEnv.MUXR_NO_TUI;
-        const fullUi = run('/usr/bin/script', ['-qfec', `stty cols 106 rows 43; ${process.execPath} ${uiFlow} full`, '/dev/null'], {
+        const fullUi = runTtySync(`stty cols 106 rows 43; ${process.execPath} ${uiFlow} full`, {
             input: '\n', env: fullUiEnv,
         }).stdout;
         assert.match(fullUi, /\x1b\[\?1049h/);
         assert.match(fullUi, /\x1b\[\?1049l/);
         assert.match(fullUi, /◆ Setup receipt/, 'fullscreen success left no durable receipt');
-        const appendUi = run('/usr/bin/script', ['-qfec', `${process.execPath} ${uiFlow} append`, '/dev/null'], {
+        const appendUi = runTtySync(`${process.execPath} ${uiFlow} append`, {
             input: '1\n', env: { ...process.env, TERM: 'dumb', SSH_CONNECTION: 'test' },
         }).stdout;
         assert.doesNotMatch(appendUi, /\x1b\[/, 'SSH/dumb setup emitted cursor or style control sequences');
         assert.match(appendUi, /1\. LAN[\s\S]*Choose 1-1/, 'SSH setup did not use the append-only numbered selector');
-        const smallUi = run('/usr/bin/script', ['-qfec', `stty cols 70 rows 24; ${process.execPath} ${uiFlow} append`, '/dev/null'], {
+        const smallUi = runTtySync(`stty cols 70 rows 24; ${process.execPath} ${uiFlow} append`, {
             input: '1\n', env: fullUiEnv,
         }).stdout;
         assert.doesNotMatch(smallUi, /\x1b\[\?1049h|\x1b\[[0-9]+A/, 'small local setup used fullscreen or cursor redraw');
@@ -509,6 +571,13 @@ try {
     assert.match(movedSetupLinks, new RegExp(`plugin link ${join(pluginRoot, 'voice-gemini').replaceAll('\\', '\\\\')} --disabled`));
     assert.match(movedSetupLinks, new RegExp(`plugin link ${join(pluginRoot, 'voice-openai').replaceAll('\\', '\\\\')} --enabled`));
     assert.equal(readFileSync(join(home, '.muxr', 'setup-manifest.json'), 'utf8'), manifestAfterFirst);
+    if (process.platform === 'darwin') {
+        stopRelayFor(join(home, '.muxr', 'relay'));
+        for (let attempt = 0; attempt < 30 && await fetch(`http://127.0.0.1:${setupPort}/health`).then((response) => response.ok).catch(() => false); attempt += 1) {
+            await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+        assert.ok(!await fetch(`http://127.0.0.1:${setupPort}/health`).then((response) => response.ok).catch(() => false), 'Darwin smoke relay did not stop');
+    }
     run(cli, ['daemon', 'install', '--mode', 'selfhost'], { cwd: installDir, env });
     rmSync(fakeServerState, { force: true });
     const deadDoctor = run(cli, ['doctor'], { cwd: installDir, env, allowFailure: true });

@@ -5,7 +5,7 @@ import type { NativeStackHeaderProps } from '@react-navigation/native-stack';
 import { BlurView } from 'expo-blur';
 import { layout } from '../layout';
 import { isRunningOnMac } from '@/utils/platform';
-import { useHeaderHeight, useIsTablet } from '@/utils/responsive';
+import { useHeaderHeight, useIsTablet, useSplitViewLayout } from '@/utils/responsive';
 import { Typography } from '@/constants/Typography';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { MobileGlassSurface } from '../MobileGlass';
@@ -173,11 +173,11 @@ const DefaultBackButton: React.FC<{ tintColor?: string; onPress: () => void }> =
 const NavigationHeaderComponent: React.FC<NativeStackHeaderProps> = React.memo((props) => {
     const { options, route, back, navigation } = props;
     const extendedOptions = options as ExtendedNavigationOptions;
-    const isTablet = useIsTablet();
+    const splitViewLayout = useSplitViewLayout();
     const isDesktop = Platform.OS === 'web' || isRunningOnMac();
 
-    // Hide back button on tablet — navigation is handled via sidebar and persistent header
-    const shouldHideBackButton = isTablet;
+    // The permanent split-view header owns Back only while the drawer is present.
+    const shouldHideBackButton = splitViewLayout;
 
     // Extract title - handle both string and function types
     let title: React.ReactNode | null = null;

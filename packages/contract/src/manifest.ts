@@ -14,7 +14,6 @@ import type {
     PluginScreenButtonNode,
     PluginScreenContribution,
     PluginScreenNode,
-    PluginScreenRowAction,
     PluginScreenRowNode,
     PluginScreenTone,
 } from './plugins.js';
@@ -306,7 +305,7 @@ function parseScreenNode(item: Record<string, unknown>, depth: number, budget: {
                         ? { type: 'plugin.call' as const, contributionId: id(item.source.contributionId) }
                         : (() => { throw new Error('invalid plugin screen tree source'); })(),
                 }),
-                ...(item.action === undefined ? {} : { action: parseScreenRowAction(item.action) }),
+                ...(item.action === undefined ? {} : { action: parsePluginAction(item.action) }),
             };
         case 'list': {
             if (!Array.isArray(item.rows) || item.rows.length > MAX_ROWS) throw new Error('invalid plugin screen list rows');
@@ -340,13 +339,10 @@ function parseScreenRow(row: Record<string, unknown>): PluginScreenRowNode {
         title: pluginText(row.title, 80),
         ...(row.subtitle === undefined ? {} : { subtitle: pluginText(row.subtitle, MAX_TEXT) }),
         ...(row.value === undefined ? {} : { value: pluginText(row.value, MAX_TEXT) }),
-        ...(row.action === undefined ? {} : { action: parseScreenRowAction(row.action) }),
+        ...(row.action === undefined ? {} : { action: parsePluginAction(row.action) }),
     };
 }
 
-function parseScreenRowAction(value: unknown): PluginScreenRowAction {
-    return parsePluginAction(value);
-}
 
 function actionString(value: unknown, max: number, label: string): string {
     if (typeof value !== 'string') throw new Error(`invalid plugin action ${label}`);

@@ -1,10 +1,10 @@
-import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { pluginInvalidationFrame, PluginCatalog, PluginRefreshGate, WriteReplayFence, Semaphore, boundRpcDisplay, rpcReplayKey, runPluginProcess, type HerdrPlugin } from './pluginCatalog.js';
+import { pluginInvalidationFrame, PluginCatalog, PluginRefreshGate, WriteReplayFence, Semaphore, rpcReplayKey, runPluginProcess, type HerdrPlugin } from './pluginCatalog.js';
 import { buildPluginPublicContext } from './pluginPublicContext.js';
-import { MAX_RPC_RESULT_STRING_BYTES, parseManifest, parsePluginAction, pluginCompatibilityError } from '@muxr/contract';
+import { MAX_RPC_RESULT_STRING_BYTES, boundRpcDisplay, parseManifest, parsePluginAction, pluginCompatibilityError } from '@muxr/contract';
 
 function plugin(root: string, actions: HerdrPlugin['actions'] = []): HerdrPlugin {
     return {
@@ -199,7 +199,7 @@ describe('plugin catalog flow', () => {
     });
 
     it('binds complete action authority and npm provenance into the host hash', async () => {
-        const root = await mkdtemp(join(tmpdir(), 'muxr-plugin-'));
+        const root = await realpath(await mkdtemp(join(tmpdir(), 'muxr-plugin-')));
         await writeFile(join(root, 'muxr-ui.json'), JSON.stringify({ schemaVersion: 1, pluginId: 'example.muxr-ui', contributions: [] }));
         const action = { id: 'start', command: ['node', 'start.mjs'], contexts: ['pane'], platforms: ['linux'], futureField: { v: 1 } };
         const catalog = new PluginCatalog();
@@ -213,18 +213,25 @@ describe('plugin catalog flow', () => {
         expect(changed.manifestHash).not.toBe(firstHash);
         expect(() => catalog.action(changed.pluginId, changed.manifestHash!, 'missing')).toThrow('unavailable or changed');
 
-        const muxrHome = await mkdtemp(join(tmpdir(), 'muxr-home-'));
+        const muxrHome = await realpath(await mkdtemp(join(tmpdir(), 'muxr-home-')));
+        const aliasParent = await realpath(await mkdtemp(join(tmpdir(), 'muxr-home-alias-')));
+        const muxrHomeAlias = join(aliasParent, 'home');
+        await symlink(muxrHome, muxrHomeAlias, 'dir');
         const extensionRoot = join(muxrHome, 'extensions');
         const managedRoot = join(extensionRoot, 'example.muxr-ui');
         await mkdir(managedRoot, { recursive: true });
         await writeFile(join(managedRoot, 'muxr-ui.json'), JSON.stringify({ schemaVersion: 1, pluginId: 'example.muxr-ui', contributions: [] }));
         await mkdir(join(extensionRoot, '.provenance'));
         await writeFile(join(extensionRoot, '.provenance', 'example.muxr-ui.json'), JSON.stringify({ schemaVersion: 1, pluginId: 'example.muxr-ui', root: managedRoot, name: 'pkg', version: '1.0.0', integrity: 'sha512-abc' }));
-        const previousHome = process.env.MUXR_HOME; process.env.MUXR_HOME = muxrHome;
+        const previousHome = process.env.MUXR_HOME;
+        process.env.MUXR_HOME = muxrHomeAlias;
         try {
             await catalog.refresh([plugin(managedRoot, [action])]);
             const npm = catalog.list(() => true)[0]!;
             expect(npm.source).toEqual({ kind: 'npm', name: 'pkg', version: '1.0.0', integrity: 'sha512-abc' });
+            await writeFile(join(extensionRoot, '.provenance', 'example.muxr-ui.json'), JSON.stringify({ schemaVersion: 1, pluginId: 'example.muxr-ui', root: `${managedRoot}/.`, name: 'pkg', version: '1.0.0', integrity: 'sha512-abc' }));
+            await catalog.refresh([plugin(managedRoot, [action])]);
+            expect(catalog.list(() => true)[0]!.source).toEqual({ kind: 'local' });
             await writeFile(join(extensionRoot, '.provenance', 'example.muxr-ui.json'), JSON.stringify({ schemaVersion: 1, pluginId: 'example.muxr-ui', root: managedRoot, name: 'pkg', version: '2.0.0', integrity: 'sha512-def' }));
             await catalog.refresh([plugin(managedRoot, [action])]);
             const rotated = catalog.list(() => true)[0]!;
@@ -235,7 +242,7 @@ describe('plugin catalog flow', () => {
     });
 
     it('parses declarative screens, enforces node/depth/reference limits, and rotates the hash on raw unknown fields', async () => {
-        const root = await mkdtemp(join(tmpdir(), 'muxr-plugin-'));
+        const root = await realpath(await mkdtemp(join(tmpdir(), 'muxr-plugin-')));
         const manifestPath = join(root, 'muxr-ui.json');
         const manifest = (screen: unknown, rpcMode = 'read') => ({
             schemaVersion: 1, pluginId: 'example.muxr-ui',
@@ -544,7 +551,7 @@ describe('plugin catalog flow', () => {
     });
 
     it('pins a symlink-root snapshot across retargeting and rotates approval on refresh', async () => {
-        const parent = await mkdtemp(join(tmpdir(), 'muxr-plugin-symlink-root-'));
+        const parent = await realpath(await mkdtemp(join(tmpdir(), 'muxr-plugin-symlink-root-')));
         const firstRoot = join(parent, 'first');
         const secondRoot = join(parent, 'second');
         const linkRoot = join(parent, 'current');
@@ -572,7 +579,7 @@ describe('plugin catalog flow', () => {
     });
 
     it('binds RPC target root to the validated hash snapshot', async () => {
-        const parent = await mkdtemp(join(tmpdir(), 'muxr-plugin-target-'));
+        const parent = await realpath(await mkdtemp(join(tmpdir(), 'muxr-plugin-target-')));
         const oldRoot = join(parent, 'old');
         const newRoot = join(parent, 'new');
         await mkdir(oldRoot);

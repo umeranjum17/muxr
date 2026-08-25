@@ -1,11 +1,11 @@
 import * as React from 'react';
-import { 
-    ScrollView, 
-    View, 
-    StyleProp, 
+import {
+    ScrollView,
+    View,
+    StyleProp,
     ViewStyle,
     Platform,
-    ScrollViewProps
+    ScrollViewProps,
 } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 
@@ -24,6 +24,13 @@ const stylesheet = StyleSheet.create((theme, runtime) => ({
     contentContainer: {
         paddingBottom: Platform.select({ ios: 34, default: 16 }),
         paddingTop: 0,
+    },
+    wideContentContainer: {
+        alignItems: 'center',
+    },
+    wideContent: {
+        width: '100%',
+        maxWidth: 800,
     },
 }));
 
@@ -53,6 +60,7 @@ export const ItemList = React.memo<ItemListProps>((props) => {
             ]}
             contentContainerStyle={[
                 styles.contentContainer,
+                styles.wideContentContainer,
                 containerStyle
             ]}
             showsVerticalScrollIndicator={scrollViewProps.showsVerticalScrollIndicator !== undefined 
@@ -61,7 +69,7 @@ export const ItemList = React.memo<ItemListProps>((props) => {
             contentInsetAdjustmentBehavior={(isIOS && !isWeb) ? 'automatic' : undefined}
             {...scrollViewProps}
         >
-            {children}
+            <View style={styles.wideContent}>{children}</View>
         </ScrollView>
     );
 });

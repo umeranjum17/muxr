@@ -11,26 +11,24 @@
  * ├─ consoleOutputEnabled = true? (default for dev/preview, or toggled on)
  * │  ├─ call original console method ✅
  * │  ├─ capture to in-app buffer ✅
- * │  └─ send to remote log server (if configured) ✅
  * │
  * └─ console.error / console.warn (always, regardless of flag)
  *    ├─ call original console method ✅
  *    ├─ capture to in-app buffer ✅
- *    └─ send to remote log server (if configured) ✅
  */
 
 import { log } from '@/log';
 import { MAX_APP_LOG_ENTRIES } from '@/log';
-import { getLogServerUrl } from '@/sync/serverConfig';
 import { loadLocalSettings } from '@/sync/persistence';
 import { loadAppConfig } from '@/sync/appConfig';
-import { Platform } from 'react-native';
 import { serializeForLogs } from '@/utils/truncateForLogs';
 
-let logBuffer: any[] = []
+type ConsoleLevel = 'log' | 'info' | 'warn' | 'error' | 'debug';
+type ConsoleLogEntry = { timestamp: string; level: ConsoleLevel; message: string };
+
+let logBuffer: ConsoleLogEntry[] = []
 const MAX_BUFFER_SIZE = MAX_APP_LOG_ENTRIES
 let isConsolePatched = false
-let remoteLogServerUrl: string | null = null
 let consoleOutputEnabled = false
 let originalConsole: {
   log: typeof console.log,
@@ -52,7 +50,6 @@ export function initConsoleLogging() {
     return
   }
 
-  remoteLogServerUrl = getLogServerUrl();
 
   // Determine initial state: user setting > build variant default > off
   try {
@@ -73,7 +70,7 @@ export function initConsoleLogging() {
 
   log.setConsoleCaptureEnabled(true)
 
-  function formatArgs(args: any[]): string {
+  function formatArgs(args: unknown[]): string {
     return args.map(a => {
       if (a === null || a === undefined) return String(a)
       if (typeof a !== 'object') return serializeForLogs(a)
@@ -81,29 +78,12 @@ export function initConsoleLogging() {
     }).join(' ')
   }
 
-  function sendLog(level: string, formatted: string) {
-    if (!remoteLogServerUrl) {
-      return
-    }
-
-    void fetch(remoteLogServerUrl + '/logs', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        timestamp: new Date().toISOString(),
-        level,
-        message: formatted,
-        source: 'mobile',
-        platform: Platform.OS,
-      })
-    }).catch(() => {})
-  }
 
   // Patch console methods
   ;(['log', 'info', 'warn', 'error', 'debug'] as const).forEach(level => {
     const alwaysPassThrough = level === 'error' || level === 'warn'
 
-    console[level] = (...args: any[]) => {
+    console[level] = (...args: unknown[]) => {
       // Full short-circuit: when off, skip everything for log/info/debug
       if (!consoleOutputEnabled && !alwaysPassThrough) {
         return
@@ -126,7 +106,6 @@ export function initConsoleLogging() {
         logBuffer.shift()
       }
 
-      sendLog(level, formatted)
     }
   })
 

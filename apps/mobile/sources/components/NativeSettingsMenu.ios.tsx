@@ -2,7 +2,7 @@ import * as React from 'react';
 import { StyleSheet, View } from 'react-native';
 import { Button, Host, HStack, Menu, Spacer } from '@expo/ui/swift-ui';
 import { contentShape, frame, opacity, shapes, tint } from '@expo/ui/swift-ui/modifiers';
-import type { NativeSettingsMenuProps } from './NativeSettingsMenu';
+import type { NativeSettingsMenuProps } from './NativeSettingsMenu.types';
 
 const systemImage = (name: string) => (
     name as React.ComponentProps<typeof Button>['systemImage']
