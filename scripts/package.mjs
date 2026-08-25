@@ -80,9 +80,11 @@ function ensureManagedDirectory(path, label) {
 }
 function validRoot(root, base = extensionHome()) {
     if (!isManagedDirectory(base)) return undefined;
-    let real;
-    try { real = realpathSync(root); } catch { return undefined; }
-    const expected = resolve(base);
+    let real, expected;
+    try {
+        real = realpathSync(root);
+        expected = realpathSync(base);
+    } catch { return undefined; }
     const rel = relative(expected, real);
     if (rel === '' || rel.startsWith('..') || isAbsolute(rel) || rel.includes('\\') || rel.split('/').length !== 1) return undefined;
     return real;
@@ -97,7 +99,9 @@ function nofollowJson(path, maxBytes = 8192) {
 }
 function validNpmProvenance(plugin) {
     const root = validRoot(plugin.plugin_root);
-    if (!root || !isManagedDirectory(provenanceHome()) || !plugin.plugin_id || !ID_RE.test(plugin.plugin_id) || root !== join(resolve(extensionHome()), plugin.plugin_id)) return undefined;
+    let expectedRoot;
+    try { expectedRoot = join(realpathSync(extensionHome()), plugin.plugin_id); } catch { return undefined; }
+    if (!root || !isManagedDirectory(provenanceHome()) || !plugin.plugin_id || !ID_RE.test(plugin.plugin_id) || root !== expectedRoot) return undefined;
     const value = nofollowJson(join(provenanceHome(), `${plugin.plugin_id}.json`));
     if (!value || value.schemaVersion !== 1 || value.pluginId !== plugin.plugin_id || value.root !== root || typeof value.name !== 'string' || typeof value.version !== 'string' || typeof value.integrity !== 'string' || value.name.length > 200 || value.version.length > 80 || value.integrity.length > 200 || !NPM_NAME_RE.test(value.name) || !VERSION_RE.test(value.version) || !INTEGRITY_RE.test(value.integrity)) return undefined;
     return value;
@@ -106,7 +110,12 @@ function sourceFor(plugin) {
     const npm = validNpmProvenance(plugin);
     return npm ? { kind: 'npm', name: npm.name, version: npm.version, integrity: npm.integrity } : plugin.source ?? { kind: 'local' };
 }
-function isNpmRoot(plugin) { return validRoot(plugin?.plugin_root) !== undefined && resolve(plugin.plugin_root) === join(resolve(extensionHome()), plugin.plugin_id); }
+function isNpmRoot(plugin) {
+    const root = validRoot(plugin?.plugin_root);
+    if (root === undefined || typeof plugin?.plugin_id !== 'string') return false;
+    try { return root === join(realpathSync(extensionHome()), plugin.plugin_id); }
+    catch { return false; }
+}
 
 function lockPath(id) { return join(extensionHome(), '.locks', `${id}.lock`); }
 function ownerIsLive(path) {
@@ -436,7 +445,7 @@ export async function runPackage(command, args = []) {
         return withRegistryLock(id, async () => {
             const plugin = pluginFor(herdrPlugins(), id); if (!plugin) fail(`plugin is not installed: ${requested}`); const npm = validNpmProvenance(plugin); const action = npm ? 'unlink then remove managed npm materialization' : plugin.source?.kind === 'github' ? 'uninstall' : 'unlink';
             if (!await confirm(yes, `Remove ${id} (${action})?`)) return 0;
-            if (npm) { runHerdr(['plugin', 'unlink', id]); const root = validRoot(plugin.plugin_root); if (!root || root !== join(resolve(extensionHome()), id)) fail('refusing to remove an untrusted npm materialization path'); rmSync(root, { recursive: true, force: true }); removeProvenance(id); }
+            if (npm) { runHerdr(['plugin', 'unlink', id]); const root = validRoot(plugin.plugin_root); if (!root || !isNpmRoot(plugin)) fail('refusing to remove an untrusted npm materialization path'); rmSync(root, { recursive: true, force: true }); removeProvenance(id); }
             else runHerdr(['plugin', action === 'uninstall' ? 'uninstall' : 'unlink', id]);
             process.stdout.write(`removed ${id}\n`); return 0;
         });

@@ -196,6 +196,30 @@ try {
     assert.equal(existsSync(provenancePath), false, 'remove left npm provenance behind');
     assert.equal(existsSync(statePath) && readFileSync(statePath, 'utf8') !== '', false);
 
+    // A symlinked parent must not make host/package ownership disagree. The
+    // stored provenance root stays canonical and exact while list/update/remove
+    // resolve the already-owner-checked extensions directory to the same root.
+    const directMuxrHome = process.env.MUXR_HOME;
+    const aliasedHome = join(scratch, 'home-alias');
+    symlinkSync(home, aliasedHome, 'dir');
+    process.env.MUXR_HOME = join(aliasedHome, '.muxr');
+    try {
+        assert.equal(await runPackage('install', ['npm:pkg@1.0.0', '--yes']), 0);
+        const canonicalAliasRoot = realpathSync(join(process.env.MUXR_HOME, 'extensions'));
+        const aliasMaterialized = join(canonicalAliasRoot, 'test.npm');
+        const aliasProvenance = join(canonicalAliasRoot, '.provenance', 'test.npm.json');
+        const aliasListed = await captureOutput(() => runPackage('list'));
+        assert.equal(aliasListed.value, 0);
+        assert.match(aliasListed.output, /test\.npm\t1\.0\.0\tenabled\t\{"kind":"npm"/);
+        assert.equal(await runPackage('update', ['npm:pkg@2.0.0', '--yes']), 0);
+        assert.equal(JSON.parse(readFileSync(aliasProvenance, 'utf8')).version, '2.0.0');
+        assert.equal(await runPackage('remove', ['test.npm', '--yes']), 0);
+        assert.equal(existsSync(aliasMaterialized), false, 'aliased remove left npm materialization behind');
+        assert.equal(existsSync(aliasProvenance), false, 'aliased remove left npm provenance behind');
+    } finally {
+        process.env.MUXR_HOME = directMuxrHome;
+    }
+
     await assert.rejects(runPackage('install', ['npm:pkg@9.9.9', '--yes']), /unsafe|package/);
     assert.equal(existsSync(materialized), false);
 

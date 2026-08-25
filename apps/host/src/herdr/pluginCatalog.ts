@@ -349,12 +349,14 @@ type NpmProvenance = { schemaVersion: 1; pluginId: string; root: string; name: s
 function npmProvenance(plugin: HerdrPlugin, pluginRoot?: string): PluginSource | undefined {
     let root;
     try { root = pluginRoot ?? realpathSync(plugin.plugin_root); } catch { return undefined; }
-    const expectedRoot = resolve(process.env.MUXR_HOME?.trim() || join(homedir(), '.muxr'), 'extensions');
+    const expectedRootPath = resolve(process.env.MUXR_HOME?.trim() || join(homedir(), '.muxr'), 'extensions');
+    let expectedRoot: string;
     try {
-        const extensionStat = lstatSync(expectedRoot);
+        const extensionStat = lstatSync(expectedRootPath);
         if (extensionStat.isSymbolicLink() || !extensionStat.isDirectory()) return undefined;
-        const provenanceStat = lstatSync(join(expectedRoot, '.provenance'));
+        const provenanceStat = lstatSync(join(expectedRootPath, '.provenance'));
         if (provenanceStat.isSymbolicLink() || !provenanceStat.isDirectory()) return undefined;
+        expectedRoot = realpathSync(expectedRootPath);
     } catch { return undefined; }
     const rel = relative(expectedRoot, root);
     if (rel === '' || rel.startsWith('..') || isAbsolute(rel) || rel.includes('\\') || rel.split(/[\\/]/).length !== 1 || rel !== plugin.plugin_id) return undefined;
