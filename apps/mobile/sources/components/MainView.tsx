@@ -42,6 +42,7 @@ import { useAuth } from '@/auth/AuthContext';
 import { useVisibleSessionListViewData } from '@/hooks/useVisibleSessionListViewData';
 import { OptionSheet, type ModelMode } from './OptionSheet';
 import { Modal } from '@/modal';
+import { realtimeMachineSwitchGuard, stopRealtimeSession } from '@/realtime/realtimeSessionState';
 
 
 const styles = StyleSheet.create((theme) => ({
@@ -252,6 +253,15 @@ const HeaderTitle = React.memo(({ activeTab, pluginTitle, large = false }: { act
         if (option.key === activeMachineId) return;
         const grant = pairedGrants.find((entry) => entry.machineId === option.key);
         if (grant === undefined) return;
+        if (!realtimeMachineSwitchGuard(grant.machineId).allowed) {
+            const confirmed = await Modal.confirm(
+                'End voice and switch?',
+                'Realtime voice stays pinned to the computer where it started.',
+                { confirmText: 'End voice and switch', destructive: true },
+            );
+            if (!confirmed) return;
+            stopRealtimeSession();
+        }
         try {
             await saveConnectionSettings({
                 ...getCachedConnectionSettings(),
