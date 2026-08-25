@@ -86,6 +86,20 @@ const stylesheet = StyleSheet.create((theme) => ({
         textTransform: 'uppercase',
         ...Typography.default('semiBold'),
     },
+    toolRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        minHeight: 40,
+        paddingHorizontal: 10,
+        borderRadius: 10,
+    },
+    toolText: {
+        color: theme.colors.textSecondary,
+        fontSize: 13,
+        fontWeight: '600',
+        ...Typography.default('semiBold'),
+    },
     settingsRow: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -177,6 +191,14 @@ export const SidebarView = React.memo(() => {
             />
             <View style={styles.toolsSection}>
                 <Text style={styles.toolsTitle}>Tools</Text>
+                <Pressable
+                    accessibilityRole="button"
+                    onPress={() => router.push('/session/recent')}
+                    style={({ pressed }) => [styles.toolRow, pressed && styles.newSessionButtonPressed]}
+                >
+                    <Ionicons name="time-outline" size={16} color={stylesheet.toolText.color} />
+                    <Text style={styles.toolText}>Session history</Text>
+                </Pressable>
                 <DeclarativeNavigationItems
                     compact
                     onSelect={(_key, pluginId, contentId) => router.push(pluginHref(pluginId, contentId))}

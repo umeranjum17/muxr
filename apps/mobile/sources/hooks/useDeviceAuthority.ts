@@ -26,6 +26,8 @@ export function useDeviceAuthority(): { authority: DeviceAuthority; loading: boo
                 authority: grants.find((grant) => grant.machineId === connection.machineId)?.authority ?? 'observe',
                 loading: false,
             });
+        }).catch(() => {
+            if (!cancelled) setState({ authority: 'observe', loading: false });
         });
         return () => { cancelled = true; };
     }, [connection.machineId, connection.mode, socketStatus]);

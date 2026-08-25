@@ -67,6 +67,7 @@ const stylesheet = StyleSheet.create((theme) => ({
     },
     emptyAction: {
         marginTop: 12,
+        gap: 8,
     },
     setupTitle: {
         color: theme.colors.text,
@@ -141,6 +142,23 @@ const stylesheet = StyleSheet.create((theme) => ({
         borderRadius: 8,
         alignItems: 'center',
         justifyContent: 'center',
+    },
+    historyButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        marginHorizontal: 16,
+        marginVertical: 8,
+        paddingHorizontal: 14,
+        minHeight: 44,
+        borderRadius: 10,
+        backgroundColor: theme.colors.surfaceHigh,
+    },
+    historyText: {
+        color: theme.colors.text,
+        fontSize: 14,
+        fontWeight: '600',
+        ...Typography.default('semiBold'),
     },
     error: {
         fontSize: 12,
@@ -286,15 +304,20 @@ export const HerdView = React.memo(({
                             ? 'No matches'
                             : 'No agents yet — start one below.'}
                 </Text>
-                {error !== null && (
-                    <View style={styles.emptyAction}>
+                <View style={styles.emptyAction}>
+                    <RoundButton
+                        title="Session history"
+                        size="normal"
+                        onPress={() => router.push('/session/recent')}
+                    />
+                    {error !== null && (
                         <RoundButton
                             title="Set up connection"
                             size="normal"
                             onPress={() => router.push('/settings/connection' as any)}
                         />
-                    </View>
-                )}
+                    )}
+                </View>
             </View>
             </View>
         );
@@ -318,7 +341,19 @@ export const HerdView = React.memo(({
                 defaultExpandedWorkspaceIds={defaultExpandedWorkspaceIds}
                 refresh={refresh}
                 searchQuery={searchQuery}
-                listHeaderComponent={<>{header}<LiveTerminalsRow /></>}
+                listHeaderComponent={<>
+                    {header}
+                    <LiveTerminalsRow />
+                    <Pressable
+                        accessibilityRole="button"
+                        onPress={() => router.push('/session/recent')}
+                        style={({ pressed }) => [styles.historyButton, pressed && { opacity: 0.7 }]}
+                    >
+                        <Ionicons name="time-outline" size={18} color={theme.colors.textSecondary} />
+                        <Text style={styles.historyText}>Session history</Text>
+                        <Ionicons name="chevron-forward" size={16} color={theme.colors.groupped.chevron} style={{ marginLeft: 'auto' }} />
+                    </Pressable>
+                </>}
                 topContentInset={topContentInset}
                 bottomContentInset={safeArea.bottom + bottomContentInset}
                 maxContentWidth={maxContentWidth}

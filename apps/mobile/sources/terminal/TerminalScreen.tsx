@@ -44,7 +44,6 @@ import { openExternalUrl } from '@/utils/openExternalUrl';
 import { resolvePluginText } from '@/plugins/pluginText';
 import { randomUUID } from 'expo-crypto';
 import { useDeviceAuthority } from '@/hooks/useDeviceAuthority';
-import { useSplitViewLayout } from '@/utils/responsive';
 
 /**
  * The floating tools trigger: a small icon inside a target big enough to hit and
@@ -87,7 +86,6 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const { theme } = useUnistyles();
     const { authority, loading: authorityLoading } = useDeviceAuthority();
     const canControl = authority === 'control' && !authorityLoading;
-    const splitViewLayout = useSplitViewLayout();
     const insets = useSafeAreaInsets();
     // Keyboard height already covers the home indicator, so keeping the bottom
     // inset while it is up double-pads the composer.
@@ -116,10 +114,9 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     // The actions menu hangs above the keys, attachments and composer, and that
     // block changes height as attachments come and go.
     const [bottomBlockHeight, setBottomBlockHeight] = React.useState(0);
-    const showTouchControls = canControl && !(Platform.OS === 'web' && splitViewLayout);
     React.useEffect(() => {
-        if (!showTouchControls) setBottomBlockHeight(0);
-    }, [showTouchControls]);
+        if (!canControl) setBottomBlockHeight(0);
+    }, [canControl]);
     // How far the tools trigger has been dragged up its edge, and how far it may
     // go: the terminal band only, never the header above or the keys below.
     const toolsLift = useSharedValue(0);
@@ -685,7 +682,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                 )}
             </View>
 
-            {showTouchControls && <View onLayout={(event) => setBottomBlockHeight(event.nativeEvent.layout.height)}>
+            {canControl && <View onLayout={(event) => setBottomBlockHeight(event.nativeEvent.layout.height)}>
             <View style={{ minHeight: 52, flexDirection: 'row', alignItems: 'center', backgroundColor: theme.colors.surface }}>
                 <ScrollView
                     horizontal

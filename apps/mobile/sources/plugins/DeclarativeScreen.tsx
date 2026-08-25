@@ -959,6 +959,11 @@ function ScreenBody(props: {
                             {status.text}
                         </Text>
                     )}
+                    {props.source.kind !== 'local' && (
+                        <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 11, marginTop: 20 }}>
+                            {`${props.pluginName} · ${sourceLabel(props.source)}`}
+                        </Text>
+                    )}
                 </ScreenWidthContext.Provider>
             </View>
         </ScrollView>

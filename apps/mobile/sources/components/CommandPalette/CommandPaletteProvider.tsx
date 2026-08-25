@@ -64,7 +64,7 @@ export function CommandPaletteProvider({ children }: { children: React.ReactNode
                 icon: 'chatbubbles-outline',
                 category: 'Sessions',
                 action: () => {
-                    router.push('/');
+                    router.push('/session/recent');
                 }
             },
             {

@@ -20,6 +20,7 @@ import { Typography } from '@/constants/Typography';
 import { StatusDot } from './StatusDot';
 import { Avatar } from './Avatar';
 import { layout } from './layout';
+import { useDeviceAuthority } from '@/hooks/useDeviceAuthority';
 
 const stylesheet = StyleSheet.create((theme) => ({
     contentContainer: {
@@ -194,12 +195,14 @@ const AgentRow = React.memo(({
     onClose,
     compact,
     selected,
+    canClose,
 }: {
     pane: HerdrTreePane;
     first?: boolean;
     onClose: () => void;
     compact: boolean;
     selected: boolean;
+    canClose: boolean;
 }) => {
     const { theme } = useUnistyles();
     const styles = stylesheet;
@@ -216,7 +219,7 @@ const AgentRow = React.memo(({
             {first !== true && <View style={styles.separator} />}
             <Pressable
                 onPress={sessionId === undefined ? undefined : () => navigateToSession(sessionId)}
-                onLongPress={onClose}
+                onLongPress={canClose ? onClose : undefined}
                 disabled={sessionId === undefined}
                 style={({ pressed }) => [
                     styles.agentPressable,
@@ -250,6 +253,7 @@ const WorkspaceCard = React.memo(({
     onClosePane,
     compact,
     selectedSessionId,
+    canClose,
 }: {
     workspace: HerdrTreeWorkspace;
     expanded: boolean;
@@ -260,6 +264,7 @@ const WorkspaceCard = React.memo(({
     onClosePane: (pane: HerdrTreePane) => void;
     compact: boolean;
     selectedSessionId?: string;
+    canClose: boolean;
 }) => {
     const { theme } = useUnistyles();
     const styles = stylesheet;
@@ -270,7 +275,7 @@ const WorkspaceCard = React.memo(({
         <View style={[styles.card, compact && styles.cardCompact]}>
             <Pressable
                 onPress={onToggle}
-                onLongPress={onClose}
+                onLongPress={canClose ? onClose : undefined}
                 style={({ pressed }) => [
                     styles.cardHeader,
                     compact && styles.cardHeaderCompact,
@@ -311,6 +316,7 @@ const WorkspaceCard = React.memo(({
                     onClose={() => onClosePane(pane)}
                     compact={compact}
                     selected={pane.sessionId !== undefined && pane.sessionId === selectedSessionId}
+                    canClose={canClose}
                 />
             ))}
         </View>
@@ -334,14 +340,18 @@ export const SpacesTree = React.memo(({
 }: SpacesTreeProps) => {
     const styles = stylesheet;
     const compact = density === 'compact';
+    const { authority, loading: authorityLoading } = useDeviceAuthority();
+    const canClose = authority === 'control' && !authorityLoading;
+    const seededDefaults = React.useRef(defaultExpandedWorkspaceIds.length > 0);
     const [expanded, setExpanded] = React.useState<ReadonlySet<string>>(
         () => new Set(defaultExpandedWorkspaceIds),
     );
 
     React.useEffect(() => {
-        if (expanded.size > 0 || defaultExpandedWorkspaceIds.length === 0) return;
+        if (seededDefaults.current || defaultExpandedWorkspaceIds.length === 0) return;
+        seededDefaults.current = true;
         setExpanded(new Set(defaultExpandedWorkspaceIds));
-    }, [defaultExpandedWorkspaceIds, expanded.size]);
+    }, [defaultExpandedWorkspaceIds]);
 
     const toggleWorkspace = React.useCallback((workspaceId: string) => {
         setExpanded((previous) => {
@@ -418,8 +428,9 @@ export const SpacesTree = React.memo(({
             onClosePane={confirmClosePane}
             compact={compact}
             selectedSessionId={selectedSessionId}
+            canClose={canClose}
         />
-    ), [compact, confirmClosePane, confirmCloseWorkspace, selectedSessionId, toggleWorkspace]);
+    ), [canClose, compact, confirmClosePane, confirmCloseWorkspace, selectedSessionId, toggleWorkspace]);
 
     return (
         <View style={[styles.contentContainer, { maxWidth: maxContentWidth }]}>
