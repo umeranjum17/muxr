@@ -102,7 +102,7 @@ function NavigationItemButton({ contribution, pluginId, manifestHash, active, on
     return <Pressable onPress={onPress} accessibilityRole={compact ? 'button' : 'tab'} accessibilityLabel={`${label}${badge === undefined ? '' : `, ${badge}`}`} hitSlop={compact ? 9 : undefined}
         accessibilityState={compact ? undefined : { selected: active === true }}
         style={compact
-            ? { flexDirection: 'row', alignItems: 'center', gap: 6, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 7, backgroundColor: theme.colors.surfaceHigh }
+            ? { flexDirection: 'row', alignItems: 'center', gap: 6, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8, backgroundColor: active ? theme.colors.surfaceHigh : 'transparent' }
             : { flex: 1, alignItems: 'center', paddingTop: 8, paddingBottom: 4 }}>
         <View>
             <Ionicons name={contribution.icon as any} size={compact ? 15 : 24} color={active ? theme.colors.accent : theme.colors.textSecondary} />
@@ -110,7 +110,7 @@ function NavigationItemButton({ contribution, pluginId, manifestHash, active, on
                 <Text style={{ color: theme.colors.button.primary.tint, fontSize: 9, fontWeight: '700' }}>{badge}</Text>
             </View>}
         </View>
-        <Text style={{ color: active ? theme.colors.accent : theme.colors.text, fontSize: compact ? 13 : 10, fontWeight: compact ? '600' : '400' }}>{label}</Text>
+        <Text style={{ color: active ? theme.colors.accent : compact ? theme.colors.textSecondary : theme.colors.text, fontSize: compact ? 13 : 10, fontWeight: compact ? '600' : '400' }}>{label}</Text>
     </Pressable>;
 }
 

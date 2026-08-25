@@ -14,7 +14,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useSocketStatus } from '@/sync/storage';
 import { useVisibleSessionListViewData } from '@/hooks/useVisibleSessionListViewData';
-import { useIsTablet } from '@/utils/responsive';
+import { useSplitViewLayout } from '@/utils/responsive';
 import { useRouter } from 'expo-router';
 import { EmptySessionsTablet } from './EmptySessionsTablet';
 import { SessionsList } from './SessionsList';
@@ -117,6 +117,24 @@ const styles = StyleSheet.create((theme) => ({
         flexBasis: 0,
         flexGrow: 1,
     },
+    tabletDashboard: {
+        flex: 1,
+        backgroundColor: theme.colors.groupped.background,
+    },
+    tabletDashboardHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        minHeight: 88,
+        paddingHorizontal: 24,
+        paddingBottom: 16,
+    },
+    tabletDashboardIdentity: {
+        flex: 1,
+        minWidth: 0,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
+    },
     titleContainer: {
         flex: 1,
         alignItems: Platform.OS === 'web' ? 'center' : 'flex-start',
@@ -127,6 +145,10 @@ const styles = StyleSheet.create((theme) => ({
         color: theme.colors.header.tint,
         fontWeight: '600',
         ...Typography.default('semiBold'),
+    },
+    tabletTitleText: {
+        fontSize: 26,
+        lineHeight: 31,
     },
     machineTitleButton: {
         flexDirection: 'row',
@@ -144,6 +166,10 @@ const styles = StyleSheet.create((theme) => ({
         fontWeight: '500',
         lineHeight: 16,
         ...Typography.default(),
+    },
+    tabletStatusText: {
+        fontSize: 13,
+        lineHeight: 18,
     },
     headerButton: {
         width: 32,
@@ -199,7 +225,7 @@ const TAB_TITLES = {
 type ActiveTabType = TabType;
 
 // Header title component with connection status and the active saved pairing.
-const HeaderTitle = React.memo(({ activeTab, pluginTitle }: { activeTab: ActiveTabType; pluginTitle?: string }) => {
+const HeaderTitle = React.memo(({ activeTab, pluginTitle, large = false }: { activeTab: ActiveTabType; pluginTitle?: string; large?: boolean }) => {
     const { theme } = useUnistyles();
     const socketStatus = useSocketStatus();
     const auth = useAuth();
@@ -288,16 +314,16 @@ const HeaderTitle = React.memo(({ activeTab, pluginTitle }: { activeTab: ActiveT
                     onPress={() => { void openMachinePicker(); }}
                     style={styles.machineTitleButton}
                 >
-                    <Text style={styles.titleText} numberOfLines={1}>{title}</Text>
+                    <Text style={[styles.titleText, large && styles.tabletTitleText]} numberOfLines={1}>{title}</Text>
                     <Ionicons name="chevron-down" size={13} color={theme.colors.header.tint} />
                 </Pressable>
             ) : (
-                <Text style={styles.titleText} numberOfLines={1}>{title}</Text>
+                <Text style={[styles.titleText, large && styles.tabletTitleText]} numberOfLines={1}>{title}</Text>
             )}
             {connectionStatus.text && (
                 <View style={styles.statusContainer}>
                     <StatusDot color={connectionStatus.color} isPulsing={connectionStatus.isPulsing} size={6} style={{ marginRight: 4 }} />
-                    <Text numberOfLines={1} style={[styles.statusText, { color: connectionStatus.color }]}>{connectionStatus.text}</Text>
+                    <Text numberOfLines={1} style={[styles.statusText, large && styles.tabletStatusText, { color: connectionStatus.color }]}>{connectionStatus.text}</Text>
                 </View>
             )}
             <OptionSheet
@@ -408,7 +434,7 @@ const HeaderRight = React.memo(({
 export const MainView = React.memo(({ variant }: MainViewProps) => {
     const { theme } = useUnistyles();
     const sessionListViewData = useVisibleSessionListViewData();
-    const isTablet = useIsTablet();
+    const useSplitView = useSplitViewLayout();
     const router = useRouter();
     const safeArea = useSafeAreaInsets();
     const { isStarting: isStartingHomeSession, startSession: startHomeSession } = useStartSessionFromDraft();
@@ -512,17 +538,38 @@ export const MainView = React.memo(({ variant }: MainViewProps) => {
         // Sessions list
         return (
             <View style={styles.sidebarContentContainer}>
-                <SessionsList />
+                <SessionsList showLiveTerminals={false} />
             </View>
         );
     }
 
-    // Phone variant
-    // Tablet in phone mode - special case (when showing index view on tablets, show empty view)
-    if (isTablet) {
-        // Just show an empty view on tablets for the index view
-        // The sessions list is shown in the sidebar, so the main area should be blank
-        return <View style={styles.emptyStateContentContainer} />;
+    // Tablet landing surface. The sidebar is the compact navigator; the detail
+    // pane is a live dashboard rather than an intentionally blank canvas.
+    if (useSplitView) {
+        return (
+            <View style={styles.tabletDashboard}>
+                <HerdView
+                    topContentInset={topContentInset}
+                    bottomContentInset={safeArea.bottom + 32}
+                    maxContentWidth={Platform.OS === 'web' ? 1200 : 800}
+                    header={(
+                        <>
+                            <View style={styles.tabletDashboardHeader}>
+                                <View style={styles.tabletDashboardIdentity}>
+                                    <HeaderLogo />
+                                    <HeaderTitle activeTab="sessions" large />
+                                </View>
+                            </View>
+                            <PluginSlot slot="home.cards" context={{}} />
+                            <DeclarativeHomeCards />
+                            <DeclarativePhoneNavRow onSelect={(pluginId, contentId) => router.push(pluginHref(pluginId, contentId))} />
+                        </>
+                    )}
+                    onScroll={handleContentScroll}
+                    searchQuery={searchQuery}
+                />
+            </View>
+        );
     }
 
     // Regular phone mode with tabs

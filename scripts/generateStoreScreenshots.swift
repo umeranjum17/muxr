@@ -18,12 +18,12 @@ let iphoneShots = [
 ]
 
 let ipadShots = [
-    StoreShot(name: "01-herd", headline: "Your whole herd.\nBuilt for iPad."),
-    StoreShot(name: "02-terminal", headline: "A real terminal.\nWith room to work."),
-    StoreShot(name: "03-settings", headline: "Every feature.\nEasy to reach."),
-    StoreShot(name: "04-appearance", headline: "Make it yours.\nEverywhere."),
-    StoreShot(name: "05-voice", headline: "Talk to the work."),
-    StoreShot(name: "06-new-agent", headline: "Start one agent.\nOr a whole squad."),
+    StoreShot(name: "01-herd", headline: "Every agent.\nOne command center."),
+    StoreShot(name: "02-terminal", headline: "Live terminals.\nRoom to work."),
+    StoreShot(name: "03-new-agent", headline: "One agent.\nOr a whole squad."),
+    StoreShot(name: "04-files", headline: "Browse the repo.\nWithout leaving the session."),
+    StoreShot(name: "05-runbook", headline: "Your commands.\nOne tap away."),
+    StoreShot(name: "06-appearance", headline: "Make it yours.\nEverywhere."),
 ]
 
 let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)

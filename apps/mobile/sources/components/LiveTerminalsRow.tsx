@@ -6,7 +6,7 @@
  */
 
 import * as React from 'react';
-import { Pressable, ScrollView, View } from 'react-native';
+import { Pressable, ScrollView, View, type LayoutChangeEvent } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Text } from '@/components/StyledText';
 import { useHerdrTree, useSessions, useSocketStatus } from '@/sync/storage';
@@ -21,8 +21,10 @@ import { useNavigateToSession } from '@/hooks/useNavigateToSession';
 import { t } from '@/text';
 
 const MAX_CARDS = 5;
-const CARD_WIDTH = 300;
-const CARD_HEIGHT = 200;
+const COMPACT_CARD_WIDTH = 300;
+const COMPACT_CARD_HEIGHT = 200;
+const CARD_GAP = 12;
+const STRIP_GUTTER = 16;
 
 function footerTitle(session: Session): string {
     const metadata = session.metadata;
@@ -47,8 +49,8 @@ const stylesheet = StyleSheet.create((theme) => ({
         paddingBottom: 8,
     },
     card: {
-        width: CARD_WIDTH,
-        height: CARD_HEIGHT,
+        width: COMPACT_CARD_WIDTH,
+        height: COMPACT_CARD_HEIGHT,
         borderRadius: 12,
         backgroundColor: theme.colors.surfaceHigh,
         overflow: 'hidden',
@@ -99,9 +101,11 @@ interface LiveTerminalCardProps {
     status: LiveTerminalOrderCard['status'];
     kindName: string;
     branch?: string;
+    width: number;
+    height: number;
 }
 
-const LiveTerminalCard = React.memo(({ id, title, status, kindName, branch }: LiveTerminalCardProps) => {
+const LiveTerminalCard = React.memo(({ id, title, status, kindName, branch, width, height }: LiveTerminalCardProps) => {
     const { theme } = useUnistyles();
     const navigateToSession = useNavigateToSession();
     const styles = stylesheet;
@@ -112,7 +116,7 @@ const LiveTerminalCard = React.memo(({ id, title, status, kindName, branch }: Li
             onPress={() => navigateToSession(id)}
             accessibilityRole="button"
             accessibilityLabel={`${title}, ${HERD_STATUS_LABELS[status]}`}
-            style={({ pressed }) => [styles.card, { opacity: pressed ? 0.85 : 1 }]}
+            style={({ pressed }) => [styles.card, { width, height, opacity: pressed ? 0.85 : 1 }]}
         >
             <View style={styles.cardBody}>
                 <TerminalPreview sessionId={id} />
@@ -147,26 +151,45 @@ export const LiveTerminalsRow = React.memo(() => {
     const { workspaces } = useHerdrTree();
     const { status: socketStatus } = useSocketStatus();
     const styles = stylesheet;
+    const [stripWidth, setStripWidth] = React.useState(0);
+    const handleLayout = React.useCallback((event: LayoutChangeEvent) => {
+        setStripWidth(event.nativeEvent.layout.width);
+    }, []);
+    const cardSize = React.useMemo(() => {
+        const contentWidth = Math.max(0, stripWidth - STRIP_GUTTER * 2);
+        if (stripWidth >= 1200) {
+            const width = Math.min(360, Math.floor((contentWidth - CARD_GAP * 2) / 3));
+            return { columns: 3, width, height: Math.min(200, Math.max(180, Math.round(width * 0.54))) };
+        }
+        if (stripWidth >= 620) {
+            const width = Math.floor((contentWidth - CARD_GAP) / 2);
+            return { columns: 2, width, height: Math.min(190, Math.max(180, Math.round(width * 0.54))) };
+        }
+        return { columns: 1, width: COMPACT_CARD_WIDTH, height: COMPACT_CARD_HEIGHT };
+    }, [stripWidth]);
     const panes = React.useMemo(
         () => sortHerd(sessions, lifecycleTree(workspaces, socketStatus === 'connected')),
         [sessions, socketStatus, workspaces],
     );
     const cards = React.useMemo(() => selectLiveTerminalCards(sessions, panes), [panes, sessions]);
     const orderedCards = useLiveTerminalOrder(cards).slice(0, MAX_CARDS);
+    const visibleCards = stripWidth >= 620
+        ? orderedCards.slice(0, cardSize.columns)
+        : orderedCards;
 
     if (orderedCards.length === 0) return null;
 
     return (
-        <View style={styles.strip}>
+        <View style={styles.strip} onLayout={handleLayout}>
             <Text style={styles.label}>{t('liveTerminals.title')}</Text>
             {/* .map, not FlatList: virtualization unmounts previews on scroll,
                 and each mount spawns a herdr observe subprocess. */}
             <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
-                contentContainerStyle={{ gap: 10, paddingHorizontal: 16 }}
+                contentContainerStyle={{ gap: CARD_GAP, paddingHorizontal: STRIP_GUTTER }}
             >
-                {orderedCards.map(({ session: item, status }) => (
+                {visibleCards.map(({ session: item, status }) => (
                     <LiveTerminalCard
                         key={item.id}
                         id={item.id}
@@ -174,6 +197,8 @@ export const LiveTerminalsRow = React.memo(() => {
                         status={status}
                         kindName={item.metadata?.provider?.name ?? 'agent'}
                         branch={item.metadata?.worktree?.branch}
+                        width={cardSize.width}
+                        height={cardSize.height}
                     />
                 ))}
             </ScrollView>

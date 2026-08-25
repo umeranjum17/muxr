@@ -37,7 +37,7 @@ function NotAuthenticated() {
     const auth = useAuth();
     const isLandscape = useIsLandscape();
     const insets = useSafeAreaInsets();
-    const hosted = getCachedConnectionSettings().mode === 'hosted';
+    const hosted = Platform.OS === 'web' || getCachedConnectionSettings().mode === 'hosted';
     const pairing = React.useRef(false);
 
     React.useEffect(() => {
@@ -90,12 +90,12 @@ function NotAuthenticated() {
             <View style={styles.screen}>
                 <View style={styles.hero}>
                     {heroMark}
-                    <Text style={styles.title}>Run your agents from your phone.</Text>
+                    <Text style={styles.title}>{Platform.OS === 'web' ? 'Run your agents from this browser.' : 'Run your agents from your phone.'}</Text>
                     <Text style={styles.subtitle}>Pair once. Every agent session on your computer, end-to-end encrypted.</Text>
                 </View>
                 <View style={[styles.actions, { paddingBottom: insets.bottom + 24 }]}>
                     {Platform.OS === 'web' ? (
-                        <ActionButton title="Pair this browser" icon="link-outline" action={() => promptForPairingString('Pair this browser')} />
+                        <ActionButton title="Enter pairing string" icon="keypad-outline" action={() => promptForPairingString('Enter pairing string')} />
                     ) : (
                         <>
                             <ActionButton title="Scan QR to pair" icon="qr-code-outline" action={scanHostedQr} />

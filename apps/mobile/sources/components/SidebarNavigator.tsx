@@ -1,7 +1,7 @@
 import { useAuth } from '@/auth/AuthContext';
 import * as React from 'react';
 import { Drawer } from 'expo-router/drawer';
-import { useIsTablet, useHeaderHeight } from '@/utils/responsive';
+import { useSplitViewLayout, useHeaderHeight } from '@/utils/responsive';
 import { SidebarView } from './SidebarView';
 import { useWindowDimensions, View, Pressable, Platform } from 'react-native';
 import { useLocalSetting, useLocalSettingMutable } from '@/sync/storage';
@@ -11,6 +11,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useUnistyles } from 'react-native-unistyles';
 import { t } from '@/text';
 import { isTauri } from '@/utils/isTauri';
+import { isRunningOnMac } from '@/utils/platform';
 import { useOverlayNav } from '@/utils/sessionOverlayNav';
 import { DEFAULT_APP_ZOOM } from '@/hooks/useTauriZoom';
 import { canRouteForward, canUseRouteBack, getNavigatorCanGoBack } from '@/navigation/browserNavigation';
@@ -20,16 +21,17 @@ const TAURI_HEADER_CONTROL_LEFT = Math.ceil(92 / DEFAULT_APP_ZOOM);
 
 export const SidebarNavigator = React.memo(() => {
     const auth = useAuth();
-    const isTablet = useIsTablet();
+    const { theme } = useUnistyles();
+    const splitViewLayout = useSplitViewLayout();
     const zenMode = useLocalSetting('zenMode');
-    const isDesktopLayout = auth.isAuthenticated && isTablet;
+    const isDesktopLayout = auth.isAuthenticated && splitViewLayout;
     const showSidebar = isDesktopLayout && !zenMode;
     const { width: windowWidth } = useWindowDimensions();
 
     // Calculate target drawer width
     const fullDrawerWidth = React.useMemo(() => {
         if (!isDesktopLayout) return 280;
-        return Math.min(Math.max(Math.floor(windowWidth * 0.3), 250), 360);
+        return Math.min(Math.max(Math.floor(windowWidth * 0.29), 270), 320);
     }, [windowWidth, isDesktopLayout]);
     const drawerWidth = showSidebar ? fullDrawerWidth : 0;
 
@@ -60,8 +62,9 @@ export const SidebarNavigator = React.memo(() => {
             headerShown: false,
             drawerType: 'permanent' as const,
             drawerStyle: {
-                backgroundColor: 'white',
-                borderRightWidth: 0,
+                backgroundColor: theme.colors.groupped.background,
+                borderRightWidth: 1,
+                borderRightColor: theme.colors.divider,
                 width: drawerWidth,
                 overflow: 'hidden' as const,
             } as any,
@@ -71,7 +74,7 @@ export const SidebarNavigator = React.memo(() => {
             drawerItemStyle: { display: 'none' as const },
             drawerLabelStyle: { display: 'none' as const },
         };
-    }, [isDesktopLayout, drawerWidth]);
+    }, [isDesktopLayout, drawerWidth, theme.colors.divider, theme.colors.groupped.background]);
 
     const drawerContent = React.useCallback(
         () => <SidebarView />,
@@ -101,6 +104,7 @@ const PersistentHeader = React.memo(() => {
     const [zenMode, setZenMode] = useLocalSettingMutable('zenMode');
     const inTauri = isTauri();
     const isMacTauri = inTauri && typeof navigator !== 'undefined' && /Mac/.test(navigator.platform);
+    const showHistoryControls = Platform.OS === 'web' || isRunningOnMac();
 
     const routeHistory = useBrowserNavigationStore((s) => s.routeHistory);
     const canGoForward = useBrowserNavigationStore((s) => s.routeHistory ? canRouteForward(s.routeHistory) : false);
@@ -173,13 +177,17 @@ const PersistentHeader = React.memo(() => {
                         color={zenMode ? theme.colors.textLink : theme.colors.header.tint}
                     />
                 </Pressable>
-                <Pressable onPress={handleBack} disabled={!canGoBackEffective} hitSlop={10} accessibilityRole="button" accessibilityLabel={t('common.back')} accessibilityState={{ disabled: !canGoBackEffective }} style={{ width: 28, height: 28, alignItems: 'center', justifyContent: 'center', opacity: canGoBackEffective ? 1 : 0.3 }}>
-                    <Ionicons name="chevron-back" size={20} color={theme.colors.header.tint} />
-                </Pressable>
-                {Platform.OS === 'web' && (
-                    <Pressable onPress={handleForward} disabled={!canGoForwardEffective} hitSlop={10} accessibilityRole="button" accessibilityLabel="Forward" accessibilityState={{ disabled: !canGoForwardEffective }} style={{ width: 28, height: 28, alignItems: 'center', justifyContent: 'center', opacity: canGoForwardEffective ? 1 : 0.3 }}>
-                        <Ionicons name="chevron-forward" size={20} color={theme.colors.header.tint} />
-                    </Pressable>
+                {showHistoryControls && (
+                    <>
+                        <Pressable onPress={handleBack} disabled={!canGoBackEffective} hitSlop={10} accessibilityRole="button" accessibilityLabel={t('common.back')} accessibilityState={{ disabled: !canGoBackEffective }} style={{ width: 28, height: 28, alignItems: 'center', justifyContent: 'center', opacity: canGoBackEffective ? 1 : 0.3 }}>
+                            <Ionicons name="chevron-back" size={20} color={theme.colors.header.tint} />
+                        </Pressable>
+                        {Platform.OS === 'web' && (
+                            <Pressable onPress={handleForward} disabled={!canGoForwardEffective} hitSlop={10} accessibilityRole="button" accessibilityLabel="Forward" accessibilityState={{ disabled: !canGoForwardEffective }} style={{ width: 28, height: 28, alignItems: 'center', justifyContent: 'center', opacity: canGoForwardEffective ? 1 : 0.3 }}>
+                                <Ionicons name="chevron-forward" size={20} color={theme.colors.header.tint} />
+                            </Pressable>
+                        )}
+                    </>
                 )}
             </View>
         </View>

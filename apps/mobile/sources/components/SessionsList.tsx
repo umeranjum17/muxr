@@ -13,7 +13,7 @@ import { Typography } from '@/constants/Typography';
 import { StatusDot } from './StatusDot';
 import { isSettledSession, SessionMetaLine } from './SessionRowParts';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
-import { useIsTablet } from '@/utils/responsive';
+import { useSplitViewLayout } from '@/utils/responsive';
 import { requestReview } from '@/utils/requestReview';
 import { UpdateBanner } from './UpdateBanner';
 import { LiveTerminalsRow } from './LiveTerminalsRow';
@@ -172,26 +172,28 @@ export function SessionsList({
     bottomContentInset = 128,
     onScroll,
     searchQuery = '',
+    showLiveTerminals = true,
 }: {
     topContentInset?: number;
     bottomContentInset?: number;
     onScroll?: (event: NativeSyntheticEvent<NativeScrollEvent>) => void;
     searchQuery?: string;
+    showLiveTerminals?: boolean;
 } = {}) {
     const styles = stylesheet;
     const safeArea = useSafeAreaInsets();
     const sourceData = useVisibleSessionListViewData();
     const pathname = usePathname();
-    const isTablet = useIsTablet();
+    const splitViewLayout = useSplitViewLayout();
     // Selection is derived once from pathname so the data array stays stable
     // across navigations. This keeps FlatList virtualization intact: only
     // the previously- and newly-selected rows re-render, instead of the
     // whole visible window.
     const selectedSessionId = React.useMemo<string | undefined>(() => {
-        if (!isTablet) return undefined;
+        if (!splitViewLayout) return undefined;
         if (!pathname.startsWith('/session/')) return undefined;
         return pathname.split('/')[2];
-    }, [isTablet, pathname]);
+    }, [splitViewLayout, pathname]);
 
     // Request review
     React.useEffect(() => {
@@ -268,12 +270,12 @@ export function SessionsList({
                 );
 
             case 'active-sessions':
-                return (
+                return showLiveTerminals ? (
                     <ActiveSessionsGroupCompact
                         sessions={item.sessions}
                         selectedSessionId={selectedSessionId}
                     />
-                );
+                ) : null;
 
             case 'session':
                 // Determine card styling based on position within date group
@@ -295,7 +297,7 @@ export function SessionsList({
                     />
                 );
         }
-    }, [selectedSessionId, data]);
+    }, [selectedSessionId, data, showLiveTerminals]);
 
 
     // Remove this section as we'll use FlatList for all items now
@@ -304,11 +306,11 @@ export function SessionsList({
     const HeaderComponent = React.useCallback(() => {
         return (
             <>
-                <LiveTerminalsRow />
+                {showLiveTerminals && <LiveTerminalsRow />}
                 <UpdateBanner />
             </>
         );
-    }, []);
+    }, [showLiveTerminals]);
 
     // Footer removed - all sessions now shown inline
 

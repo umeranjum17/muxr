@@ -386,12 +386,14 @@ export const HerdView = React.memo(({
     header,
     onScroll,
     searchQuery = '',
+    maxContentWidth = layout.maxWidth,
 }: {
     topContentInset?: number;
     bottomContentInset?: number;
     header?: React.ReactNode;
     onScroll?: (event: NativeSyntheticEvent<NativeScrollEvent>) => void;
     searchQuery?: string;
+    maxContentWidth?: number;
 }) => {
     const { theme } = useUnistyles();
     const styles = stylesheet;
@@ -689,7 +691,7 @@ export const HerdView = React.memo(({
                     </Text>
                 </View>
             ) : null}
-            <View style={styles.contentContainer}>
+            <View style={[styles.contentContainer, { maxWidth: maxContentWidth }]}>
                 <SectionList
                     sections={sections}
                     keyExtractor={keyExtractor}
