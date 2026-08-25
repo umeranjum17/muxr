@@ -54,6 +54,7 @@ interface HostedAuthState {
     credentialExpiresAt: string;
     machine: {
         id: string;
+        name?: string;
         crypto?: MachineCrypto;
     };
 }
@@ -159,7 +160,7 @@ interface SelfhostState {
     machineCredential?: string;
     credentialExpiresAt?: string;
     relayLocation?: 'local' | 'remote';
-    machine: { id: string; crypto: MachineCrypto };
+    machine: { id: string; name?: string; crypto: MachineCrypto };
 }
 
 function selfhostFile(): string {
@@ -377,6 +378,7 @@ const relayUrl = env('MUXR_RELAY_URL') ?? hostedAuth?.relayUrl
     ?? (selfhostAuth?.relayPort === undefined ? undefined : `ws://127.0.0.1:${selfhostAuth.relayPort}/relay`)
     ?? 'ws://127.0.0.1:8792';
 const machineId = env('MUXR_MACHINE_ID') ?? hostedAuth?.machine.id ?? selfhostAuth?.machine.id ?? hostname();
+const machineName = env('MUXR_MACHINE_NAME') ?? hostedAuth?.machine.name ?? selfhostAuth?.machine.name ?? hostname();
 const dataDir = env('MUXR_DATA_DIR') ?? defaultDataDir();
 const stateRoot = dirname(dataDir);
 const useFake = process.argv.includes('--fake');
@@ -492,6 +494,7 @@ async function main(): Promise<void> {
         ...(token === undefined ? {} : { token }),
         relayUrl,
         machineId,
+        machineName,
         source,
         domain,
         terminals,

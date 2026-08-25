@@ -55,6 +55,7 @@ describe('host capability catalog', () => {
             source,
             domain: {} as never,
             machineId: 'm1',
+            machineName: 'Build Mac',
             hostVersion: '0.0.0',
         });
         await expect(dispatch({ type: 'herdr.agentKinds', requestId: 'catalog', params: {} } as never, 'device-1'))
@@ -62,7 +63,7 @@ describe('host capability catalog', () => {
         await expect(dispatch({ type: 'machines.list', requestId: 'machines', params: {} } as never, 'device-1'))
             .resolves.toMatchObject({
                 ok: true,
-                data: [{ platform: process.platform === 'darwin' ? 'macOS' : process.platform === 'win32' ? 'Windows' : process.platform === 'linux' ? 'Linux' : process.platform }],
+                data: [{ name: 'Build Mac', platform: process.platform === 'darwin' ? 'macOS' : process.platform === 'win32' ? 'Windows' : process.platform === 'linux' ? 'Linux' : process.platform }],
             });
     });
 });
