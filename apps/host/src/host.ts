@@ -117,7 +117,7 @@ export function startHost(options: HostOptions): Host {
         onClientFrame: (frame, authenticatedSenderId) => {
             void handleClientFrame(frame, authenticatedSenderId).catch((error: unknown) => {
                 const message = error instanceof Error ? error.message : String(error);
-                if ('requestId' in frame && typeof frame.requestId === 'string') {
+                if (typeof frame === 'object' && frame !== null && 'requestId' in frame && typeof frame.requestId === 'string') {
                     const errorSessionId = 'params' in frame && typeof frame.params === 'object' && frame.params !== null
                         && 'sessionId' in frame.params && typeof frame.params.sessionId === 'string' ? frame.params.sessionId : undefined;
                     const peerRecipient = authenticatedSenderId !== undefined
@@ -131,6 +131,7 @@ export function startHost(options: HostOptions): Host {
                     return;
                 }
                 const sessionId =
+                    typeof frame === 'object' && frame !== null &&
                     'params' in frame &&
                     typeof frame.params === 'object' &&
                     frame.params !== null &&

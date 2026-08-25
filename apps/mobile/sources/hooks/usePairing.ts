@@ -6,6 +6,7 @@ import { Modal } from '@/modal';
 import { claimHostedPairing, hostedPairingAuthority, hostedPairingDisplayName } from '@/state/hostedE2ee';
 import { getCachedConnectionSettings, saveConnectionSettings } from '@/state/connectionSettings';
 import { useCheckScannerPermissions } from '@/hooks/useCheckCameraPermissions';
+import { realtimeMachineSwitchGuard, stopRealtimeSession } from '@/realtime/realtimeSessionState';
 
 const PAIR_LINK = /^https:\/\/[^#]+\/pair#|^muxr:\/\/pair[?#]|^wss?:\/\/[^?\s]+\?[^#\s]*\bpair=|^http:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?\/pair#/i;
 
@@ -36,6 +37,15 @@ export function useHostedPairing() {
             );
             if (!approved) return;
             const grant = await claimHostedPairing(url);
+            if (!realtimeMachineSwitchGuard(grant.machineId).allowed) {
+                const switchApproved = await Modal.confirm(
+                    'End voice and switch?',
+                    'Realtime voice stays pinned to the computer where it started. The new pairing is saved even if you switch later.',
+                    { confirmText: 'End voice and switch', destructive: true },
+                );
+                if (!switchApproved) return;
+                stopRealtimeSession();
+            }
             await saveConnectionSettings({
                 ...getCachedConnectionSettings(),
                 mode: 'hosted',

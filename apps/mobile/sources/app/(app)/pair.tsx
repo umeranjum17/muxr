@@ -11,6 +11,8 @@ import { getCachedConnectionSettings, saveConnectionSettings } from '@/state/con
 import { ActionButton } from '@/components/ActionButton';
 import { Typography } from '@/constants/Typography';
 import { usePairQrScanner } from '@/hooks/usePairing';
+import { Modal } from '@/modal';
+import { realtimeMachineSwitchGuard, stopRealtimeSession } from '@/realtime/realtimeSessionState';
 
 /**
  * What pairing actually authorises. The previous copy described only the
@@ -125,6 +127,18 @@ export default function PairScreen() {
 
     const pair = React.useCallback(async (url: string) => {
         const grant = await claimHostedPairing(url);
+        if (!realtimeMachineSwitchGuard(grant.machineId).allowed) {
+            const switchApproved = await Modal.confirm(
+                'End voice and switch?',
+                'Realtime voice stays pinned to the computer where it started. The new pairing is saved even if you switch later.',
+                { confirmText: 'End voice and switch', destructive: true },
+            );
+            if (!switchApproved) {
+                router.replace('/');
+                return;
+            }
+            stopRealtimeSession();
+        }
         await saveConnectionSettings({
             ...getCachedConnectionSettings(),
             mode: 'hosted',

@@ -187,6 +187,7 @@ export default function ComputerCollaborationScreen() {
     const selectionChanged = intent !== undefined
         && [...selected].sort().join('\0') !== [...intent.selectedMachineIds].sort().join('\0');
     const hasCollaboration = intent !== undefined && (intent.selectedMachineIds.length >= 2 || intent.edges.length > 0);
+    const pendingCollaboration = intent !== undefined && hasPendingCollaboration(intent);
 
     return (
         <ItemList>
@@ -237,13 +238,13 @@ export default function ComputerCollaborationScreen() {
 
             <ItemGroup>
                 <Item
-                    title={selectionChanged ? 'Confirm collaboration' : hasPendingCollaboration(intent ?? { version: 1, selectedMachineIds: [], machines: [], edges: [] }) ? 'Retry setup' : 'Refresh collaboration'}
+                    title={selectionChanged ? 'Confirm collaboration' : pendingCollaboration ? 'Retry setup' : 'Refresh collaboration'}
                     subtitle="Selected computers connect directly after phone authorization"
                     icon={<Ionicons name="git-network-outline" size={28} color="#007AFF" />}
                     loading={busy}
-                    disabled={busy || selected.length < 2}
+                    disabled={busy || selectionChanged && selected.length < 2}
                     showChevron={false}
-                    onPress={() => void (selectionChanged || hasPendingCollaboration(intent!) ? confirmSelection() : refresh())}
+                    onPress={() => void (selectionChanged ? confirmSelection() : refresh())}
                 />
                 {hasCollaboration && (
                     <Item

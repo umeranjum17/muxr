@@ -1,7 +1,7 @@
 ---
 title: Cross-machine agent collaboration
 slug: cross-machine-collaboration
-status: in-progress
+status: implemented
 created: 2026-08-25
 updated: 2026-08-25
 owner: umer
@@ -63,9 +63,9 @@ Peer grants carry signed capabilities and the host dispatcher enforces them per 
 - completion watch registration
 - prompt delivery
 
-Optional advanced permission:
+Deferred advanced permission:
 
-- start an agent in an approved directory
+- start an agent in an approved directory, after Settings can choose target-owned directories without guessing from an inactive global machine catalog
 
 Excluded from the initial peer surface:
 
@@ -136,6 +136,21 @@ Voice state changes from a session-only target to `{ machineId, sessionId }`. St
 
 Only the pinned voice host needs a configured provider. Other peers do not need voice credentials.
 
+## Adversarial release hardening
+
+The release implementation adds the following security and recovery invariants:
+
+- peer mutations expire after five minutes and each device has a strict 64-receipt admission cap; authenticated revocation is idempotent and bypasses attacker-controlled receipts
+- `peer.authorize` journals before authority issuance, checkpoints hosted pair-session recovery, uploads the grant before local crypto activation, persists a repair-visible relationship, and resumes every phase after restart
+- legacy peer crypto devices without a relationship are discovered and revoked through key rotation instead of consuming fleet slots forever
+- hosted issuance uses the deployed generic pair-session claim and grant flow, device revoke, and machine key rotation APIs; self-host keeps its dedicated peer routes
+- a peer client sends mutations only after a fresh random liveness request receives its correlated encrypted result
+- decrypted client frames are validated before host access and malformed-frame errors are null-safe
+- voice adapters expose no raw Herdr CLI or close tool; remote output is bounded and redacts credentials, internal ids, and private paths before provider access
+- voice reconnect refreshes only the pinned machine's grant generation, and every pairing entry point requires **End voice and switch** before changing the active machine
+
+The optional **Start agents** permission remains deferred. It returns only when Settings can present target-reported directories and the user can approve an exact directory per machine.
+
 ## Implementation phases inside one feature PR
 
 1. Add peer contract types, signed capability claims, persistence, authorization ceremony, rotation, and revocation.
@@ -167,6 +182,10 @@ The work lands as one cohesive feature PR with reviewable internal commits.
 - `apps/mobile/sources/realtime/realtimeSessionState.ts`
 - `apps/mobile/sources/voice/realtimeSession.ts`
 - bundled voice provider stream adapters under `plugins/voice*/`
+
+## Revisions
+
+- 2026-08-25: hardened the release after hostile review: receipt admission and security-first revoke, crash-recoverable authorization, correlated liveness, strict frame validation, deployed hosted generic pairing APIs, immutable voice grant refresh, pairing guards, destructive voice-tool removal, and remote-output redaction.
 
 ## Verification
 

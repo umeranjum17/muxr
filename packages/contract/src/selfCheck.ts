@@ -2,7 +2,7 @@
  * Contract selfCheck: the wire carries the full event vocabulary, and every
  * declared type round-trips through the payload codec byte-identically.
  */
-import { decodePayload, encodePayload, isPluginsInvalidatedFrame } from './wire.js';
+import { decodePayload, encodePayload, isPluginsInvalidatedFrame, parseClientFrame } from './wire.js';
 import { SESSION_EVENT_TYPES, type SessionEventBody } from './sessionEvent.js';
 import { isPeerCapabilities, peerCapabilityForRequest } from './peer.js';
 import type { SessionInfo, SessionStatus } from './sessionState.js';
@@ -75,6 +75,12 @@ function demo(): void {
     assert(peerCapabilityForRequest('session.start') === 'start', 'advanced peer start stays separate');
     assert(peerCapabilityForRequest('session.shell') === undefined && peerCapabilityForRequest('herdr.cli') === undefined,
         'shell and raw herdr stay outside the peer surface');
+    assert(parseClientFrame({ type: 'client.hello', clientId: 'fresh-client' }).type === 'client.hello', 'valid client hello passes');
+    for (const malformed of [null, { type: 'session.list', requestId: 'bad', params: null }]) {
+        let rejected = false;
+        try { parseClientFrame(malformed); } catch { rejected = true; }
+        assert(rejected, 'malformed client frame is rejected before host access');
+    }
     process.stdout.write(`PASS: contract selfCheck (${events.length} event types, plugin frames, peer allowlist)\n`);
 }
 

@@ -92,6 +92,22 @@ export function isPluginsInvalidatedFrame(value: unknown): value is PluginsInval
 
 export type ClientFrame = ClientRequest | { type: 'client.hello'; clientId: string };
 
+/** Validate the common client-frame boundary before host code reads request fields. */
+export function parseClientFrame(value: unknown): ClientFrame {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new Error('client frame must be an object');
+    const frame = value as Record<string, unknown>;
+    if (typeof frame.type !== 'string' || frame.type === '' || frame.type.length > 80) throw new Error('client frame type is invalid');
+    if (frame.type === 'client.hello') {
+        if (typeof frame.clientId !== 'string' || frame.clientId === '' || frame.clientId.length > 160) throw new Error('client hello is invalid');
+        return value as ClientFrame;
+    }
+    if (typeof frame.requestId !== 'string' || frame.requestId === '' || frame.requestId.length > 160
+        || typeof frame.params !== 'object' || frame.params === null || Array.isArray(frame.params)) {
+        throw new Error('client request shape is invalid');
+    }
+    return value as ClientFrame;
+}
+
 export function encodePayload(frame: HostFrame | ClientFrame): string {
     return JSON.stringify(frame);
 }

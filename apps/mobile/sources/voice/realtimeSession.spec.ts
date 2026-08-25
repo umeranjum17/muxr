@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
     openStream: vi.fn(),
+    refreshStream: vi.fn(async (snapshot: Record<string, unknown>) => snapshot),
     captureStream: vi.fn(async (_capability: string, machineId: string) => ({
         capability: 'voice.session', machineId, relayUrl: 'wss://relay-a', mode: 'hosted', token: 'grant-a',
         pluginId: 'voice-a', manifestHash: 'manifest-a', contributionId: 'session',
@@ -24,6 +25,7 @@ vi.mock('react-native', () => ({ AppState: { addEventListener: vi.fn() } }));
 vi.mock('@/plugins/openPluginStream', () => ({
     capturePluginStreamSnapshot: mocks.captureStream,
     openPluginStream: mocks.openStream,
+    refreshPluginStreamSnapshot: mocks.refreshStream,
 }));
 vi.mock('react-native-live-audio-stream', () => ({ default: mocks.liveAudio }));
 vi.mock('@/../modules/voice-overlay', () => mocks.pcm);
@@ -69,6 +71,7 @@ beforeEach(() => {
         capability: 'voice.session', machineId, relayUrl: 'wss://relay-a', mode: 'hosted', token: 'grant-a',
         pluginId: 'voice-a', manifestHash: 'manifest-a', contributionId: 'session',
     }));
+    mocks.refreshStream.mockImplementation(async (snapshot) => snapshot);
     mocks.vad.claimVadCapture.mockReturnValue(null);
 });
 afterEach(() => vi.unstubAllGlobals());
@@ -77,6 +80,8 @@ describe('generic realtime stream session', () => {
     it('opens the semantic stream, starts audio on ready, forwards frames, and tears down once', async () => {
         const stream = fakeStream();
         const reconnected = fakeStream();
+        let grantGeneration = 0;
+        mocks.refreshStream.mockImplementation(async (snapshot) => ({ ...snapshot, token: `grant-generation-${++grantGeneration}` }));
         mocks.openStream
             .mockResolvedValueOnce(asPluginStream(stream))
             .mockResolvedValueOnce(asPluginStream(reconnected));
@@ -126,8 +131,9 @@ describe('generic realtime stream session', () => {
         expect(mocks.captureStream).toHaveBeenCalledOnce();
         expect(mocks.openStream.mock.calls[1]?.[1]).toEqual(expect.objectContaining({
             sessionId: 's1',
-            snapshot: expect.objectContaining({ machineId: 'machine-a', relayUrl: 'wss://relay-a', pluginId: 'voice-a' }),
+            snapshot: expect.objectContaining({ machineId: 'machine-a', relayUrl: 'wss://relay-a', pluginId: 'voice-a', token: 'grant-generation-2' }),
         }));
+        expect(mocks.refreshStream).toHaveBeenCalledTimes(2);
         reconnected.frames.forEach((listener) => listener({ type: 'realtime.ready', inputRate: 24_000, outputRate: 24_000 }));
         await vi.waitFor(() => expect(statuses.at(-1)).toEqual(['connected', 'Voice stream reconnected']));
         expect(mocks.liveAudio.start).toHaveBeenCalledOnce();

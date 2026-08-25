@@ -11,6 +11,7 @@ import {
 import {
     capturePluginStreamSnapshot,
     openPluginStream,
+    refreshPluginStreamSnapshot,
     type PluginStream,
 } from '@/plugins/openPluginStream';
 import { claimVadCapture } from '@/voice/vadStandby';
@@ -36,7 +37,7 @@ export function startRealtimeSession(options: {
     onActivity?: () => void;
 }): RealtimeHandle {
     const { target, onStatus, onTurn, onActivity } = options;
-    const streamSnapshot = capturePluginStreamSnapshot('voice.session', target.machineId);
+    let streamSnapshot = capturePluginStreamSnapshot('voice.session', target.machineId);
     let stream: PluginStream | undefined;
     let stopped = false;
     let muted = false;
@@ -118,9 +119,11 @@ export function startRealtimeSession(options: {
     const connect = async (): Promise<void> => {
         onStatus('connecting', reconnects === 0 ? undefined : 'Reconnecting voice stream');
         try {
+            const snapshot = await refreshPluginStreamSnapshot(await streamSnapshot);
+            streamSnapshot = Promise.resolve(snapshot);
             const next = await openPluginStream('voice.session', {
                 sessionId: target.sessionId,
-                snapshot: await streamSnapshot,
+                snapshot,
             });
             if (stopped) {
                 next.close();

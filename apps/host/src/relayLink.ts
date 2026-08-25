@@ -16,6 +16,7 @@ import {
     type Envelope,
     type HostFrame,
     issueWsTicket,
+    parseClientFrame,
     ticketSocketUrl,
     WsTicketError,
 } from '@muxr/contract';
@@ -149,7 +150,7 @@ export function connectToRelay(options: RelayLinkOptions): RelayLink {
                         }
                         return hosted.open(sender, channel, stream, envelope.payload);
                     })();
-                const frame = decodePayload<ClientFrame>(plaintext);
+                const frame = parseClientFrame(decodePayload(plaintext));
                 if (hosted !== undefined && envelope.header.channel !== (frame.type === 'attachment.read' ? 'attachment' : 'session')) {
                     throw new Error('hosted e2ee: request channel mismatch');
                 }

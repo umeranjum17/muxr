@@ -189,4 +189,4 @@ export type { WsTransport } from './wsTickets.js';
 export { issueWsTicket, ticketSocketUrl, WsTicketError } from './wsTickets.js';
 
 export type { ClientFrame, Envelope, EnvelopeHeader, PluginsInvalidatedFrame, HostFrame, RoutingChannel } from './wire.js';
-export { decodePayload, encodePayload, isPluginsInvalidatedFrame, isValidPluginId, nextRequestId, RELAY_CLOSE_REPLACED } from './wire.js';
+export { decodePayload, encodePayload, isPluginsInvalidatedFrame, isValidPluginId, nextRequestId, parseClientFrame, RELAY_CLOSE_REPLACED } from './wire.js';
