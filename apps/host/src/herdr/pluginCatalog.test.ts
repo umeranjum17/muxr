@@ -2,9 +2,9 @@ import { mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from 'node
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { pluginInvalidationFrame, PluginCatalog, PluginRefreshGate, WriteReplayFence, Semaphore, boundRpcDisplay, rpcReplayKey, runPluginProcess, type HerdrPlugin } from './pluginCatalog.js';
+import { pluginInvalidationFrame, PluginCatalog, PluginRefreshGate, WriteReplayFence, Semaphore, rpcReplayKey, runPluginProcess, type HerdrPlugin } from './pluginCatalog.js';
 import { buildPluginPublicContext } from './pluginPublicContext.js';
-import { MAX_RPC_RESULT_STRING_BYTES, parseManifest, parsePluginAction, pluginCompatibilityError } from '@muxr/contract';
+import { MAX_RPC_RESULT_STRING_BYTES, boundRpcDisplay, parseManifest, parsePluginAction, pluginCompatibilityError } from '@muxr/contract';
 
 function plugin(root: string, actions: HerdrPlugin['actions'] = []): HerdrPlugin {
     return {
@@ -214,17 +214,24 @@ describe('plugin catalog flow', () => {
         expect(() => catalog.action(changed.pluginId, changed.manifestHash!, 'missing')).toThrow('unavailable or changed');
 
         const muxrHome = await realpath(await mkdtemp(join(tmpdir(), 'muxr-home-')));
+        const aliasParent = await realpath(await mkdtemp(join(tmpdir(), 'muxr-home-alias-')));
+        const muxrHomeAlias = join(aliasParent, 'home');
+        await symlink(muxrHome, muxrHomeAlias, 'dir');
         const extensionRoot = join(muxrHome, 'extensions');
         const managedRoot = join(extensionRoot, 'example.muxr-ui');
         await mkdir(managedRoot, { recursive: true });
         await writeFile(join(managedRoot, 'muxr-ui.json'), JSON.stringify({ schemaVersion: 1, pluginId: 'example.muxr-ui', contributions: [] }));
         await mkdir(join(extensionRoot, '.provenance'));
         await writeFile(join(extensionRoot, '.provenance', 'example.muxr-ui.json'), JSON.stringify({ schemaVersion: 1, pluginId: 'example.muxr-ui', root: managedRoot, name: 'pkg', version: '1.0.0', integrity: 'sha512-abc' }));
-        const previousHome = process.env.MUXR_HOME; process.env.MUXR_HOME = muxrHome;
+        const previousHome = process.env.MUXR_HOME;
+        process.env.MUXR_HOME = muxrHomeAlias;
         try {
             await catalog.refresh([plugin(managedRoot, [action])]);
             const npm = catalog.list(() => true)[0]!;
             expect(npm.source).toEqual({ kind: 'npm', name: 'pkg', version: '1.0.0', integrity: 'sha512-abc' });
+            await writeFile(join(extensionRoot, '.provenance', 'example.muxr-ui.json'), JSON.stringify({ schemaVersion: 1, pluginId: 'example.muxr-ui', root: `${managedRoot}/.`, name: 'pkg', version: '1.0.0', integrity: 'sha512-abc' }));
+            await catalog.refresh([plugin(managedRoot, [action])]);
+            expect(catalog.list(() => true)[0]!.source).toEqual({ kind: 'local' });
             await writeFile(join(extensionRoot, '.provenance', 'example.muxr-ui.json'), JSON.stringify({ schemaVersion: 1, pluginId: 'example.muxr-ui', root: managedRoot, name: 'pkg', version: '2.0.0', integrity: 'sha512-def' }));
             await catalog.refresh([plugin(managedRoot, [action])]);
             const rotated = catalog.list(() => true)[0]!;

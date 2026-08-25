@@ -9,7 +9,7 @@ import { sync } from '@/sync/sync';
 import { OptionSheet } from '@/components/OptionSheet';
 import { StatusDot } from '@/components/StatusDot';
 import { hapticsError, hapticsLight } from '@/components/haptics';
-import type { PrimitiveProps } from '../primitiveRegistry';
+import type { PrimitiveProps } from '../primitiveTypes'
 import type { PluginSlotContexts } from '../slotTypes';
 import { asPluginTree, type PluginTreeNode } from '../treeModel';
 import { dispatchPluginAction, validatePluginAction } from '../pluginActions';

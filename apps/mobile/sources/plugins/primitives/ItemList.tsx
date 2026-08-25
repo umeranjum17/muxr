@@ -11,7 +11,7 @@ import { Modal } from '@/modal';
 import { sync } from '@/sync/sync';
 import { Typography } from '@/constants/Typography';
 import { PLUGIN_CALL_CLIENT_TIMEOUT_MS } from '@muxr/contract';
-import type { PrimitiveProps } from '../primitiveRegistry';
+import type { PrimitiveProps } from '../primitiveTypes'
 import { asPluginItemList, type PluginItemListAction, type PluginItemListItem, type PluginItemListModel } from '../itemListModel';
 import { dispatchPluginAction, validatePluginAction } from '../pluginActions';
 import { pluginSnapshot } from '../pluginStore';

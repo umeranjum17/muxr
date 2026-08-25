@@ -143,6 +143,7 @@ export {
     PRIMITIVE_SPECS,
     PLUGIN_CONTEXT_REQUESTS,
     capUtf8Bytes,
+    boundRpcDisplay,
     pluginCompatibilityError,
     sanitizeDisplayText,
 } from './plugins.js';
