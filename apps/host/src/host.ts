@@ -78,8 +78,10 @@ export function startHost(options: HostOptions): Host {
             throw new Error('terminal: device grant does not match the authenticated client');
         }
         if (frame.type === 'client.hello') {
-            link?.send({ type: 'session.list', sessions: await source.list({}) }, undefined, 'session', peerRecipient);
-            source.resendCumulativeState?.();
+            if (peerRecipient === undefined || options.hostedE2ee?.deviceCapabilities?.[peerRecipient]?.includes('list') === true) {
+                link?.send({ type: 'session.list', sessions: await source.list({}) }, undefined, 'session', peerRecipient);
+            }
+            if (peerRecipient === undefined) source.resendCumulativeState?.();
             return;
         }
         const response = await dispatcher.dispatch(frame as ClientRequest, authenticatedSenderId);

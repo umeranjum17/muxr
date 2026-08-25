@@ -395,6 +395,10 @@ export async function applyCollaboration(
                     mutation: setup.prepareMutation,
                 });
                 activeMutation = undefined;
+                if (prepared.descriptor.claims.sourceMachineId !== source.machineId
+                    || prepared.descriptor.claims.sourceMachineSigningPublicKey !== source.machineSigningPublicKey) {
+                    throw new PeerHostResponseError('The source computer returned a mismatched identity.', 'peer-source-mismatch');
+                }
                 setup.descriptor = prepared.descriptor;
                 await onProgress(next);
             }
