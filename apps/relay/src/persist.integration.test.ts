@@ -2,6 +2,7 @@ import { chmod, mkdir, mkdtemp, open, readFile, readdir, rm, stat, symlink, writ
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it, vi } from 'vitest';
+import WebSocket from 'ws';
 import type { Envelope } from '@muxr/contract';
 import { OfflineBuffer } from './buffer.js';
 import { loadRelayConfig } from './config.js';
@@ -12,6 +13,7 @@ import { ReplayLog } from './replay.js';
 import { SelfhostPairing } from './selfhostPairing.js';
 import { PeerTable, type ConnectedPeer } from './peers.js';
 import { routeEnvelope, type PeerRouteOutcome } from './routing.js';
+import { startRelay } from './relay.js';
 
 it('keeps a browser grant recoverable until its role and durable client acknowledgement are confirmed', async () => {
     const root = await mkdtemp(join(tmpdir(), 'muxr-browser-pairing-'));
@@ -250,6 +252,97 @@ it('hardens every relay state path in a custom data directory', async () => {
         if (previousDataDir === undefined) delete process.env.MUXR_RELAY_DATA_DIR;
         else process.env.MUXR_RELAY_DATA_DIR = previousDataDir;
         await Promise.all(originalHandles.map((handle) => handle.close()));
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+it('delivers frames sent while relay ticket authentication is pending without routing rejected peers', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'muxr-relay-auth-race-'));
+    let releaseAuthorized!: () => void;
+    let releaseRejected!: () => void;
+    const authorizedGate = new Promise<void>((resolve) => { releaseAuthorized = resolve; });
+    const rejectedGate = new Promise<void>((resolve) => { releaseRejected = resolve; });
+    const relay = await startRelay({
+        port: 0,
+        host: '127.0.0.1',
+        config: {
+            dataDir: root,
+            authMode: 'strict',
+            e2eeMode: 'off',
+            localAuthority: false,
+            developmentApi: false,
+            advertiseMdns: false,
+        },
+        consumeTicket: async (ticket) => {
+            if (ticket === 'authorized-client') {
+                await authorizedGate;
+                return {
+                    role: 'client',
+                    machineSlug: 'target',
+                    accountId: 'account',
+                    transport: 'relay',
+                };
+            }
+            if (ticket === 'rejected-client') {
+                await rejectedGate;
+                return undefined;
+            }
+            return ticket === 'host'
+                ? { role: 'machine', machineSlug: 'target', accountId: 'account', transport: 'relay' }
+                : undefined;
+        },
+    });
+    const sockets: WebSocket[] = [];
+    try {
+        const url = `ws://127.0.0.1:${relay.port}/relay`;
+        const host = new WebSocket(`${url}?ticket=host`);
+        sockets.push(host);
+        await new Promise<void>((resolve, reject) => {
+            host.once('open', resolve);
+            host.once('error', reject);
+        });
+        await vi.waitFor(async () => {
+            const response = await fetch(`http://127.0.0.1:${relay.port}/health`);
+            await expect(response.json()).resolves.toMatchObject({ connectedPeers: 1 });
+        });
+
+        const received: string[] = [];
+        host.on('message', (raw) => received.push(String(raw)));
+        const envelope = JSON.stringify({
+            header: { machineId: 'target', seq: 1, at: Date.now() },
+            payload: 'opaque-ciphertext',
+        });
+        const authorized = new WebSocket(`${url}?ticket=authorized-client`);
+        sockets.push(authorized);
+        await new Promise<void>((resolve, reject) => {
+            authorized.once('open', () => {
+                authorized.send(envelope, (error) => {
+                    if (error == null) resolve();
+                    else reject(error);
+                });
+            });
+            authorized.once('error', reject);
+        });
+        // Real WebSocket I/O cannot be advanced by fake timers; let the sent frame reach the gated server.
+        await new Promise<void>((resolve) => setTimeout(resolve, 10));
+        expect(received).toEqual([]);
+        releaseAuthorized();
+        await vi.waitFor(() => expect(received).toEqual([envelope]));
+
+        const rejected = new WebSocket(`${url}?ticket=rejected-client`);
+        sockets.push(rejected);
+        const rejectedClose = new Promise<number>((resolve, reject) => {
+            rejected.once('open', () => rejected.send(envelope));
+            rejected.once('close', resolve);
+            rejected.once('error', reject);
+        });
+        await vi.waitFor(() => expect(rejected.readyState).toBe(WebSocket.OPEN));
+        releaseRejected();
+        await expect(rejectedClose).resolves.toBe(1008);
+        expect(received).toEqual([envelope]);
+    } finally {
+        for (const socket of sockets) socket.terminate();
+        await relay.close();
         await rm(root, { recursive: true, force: true });
     }
 });

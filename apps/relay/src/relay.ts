@@ -960,15 +960,28 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
     const wss = new WebSocketServer({ server: http, maxPayload: config.maxPayloadBytes });
 
     wss.on('connection', (socket, req) => {
-        void (async () => {
         const url = new URL(req.url ?? '/', 'http://localhost');
+        const relayTransport = !url.pathname.endsWith('/preview')
+            && !url.pathname.endsWith('/terminal') && !url.pathname.endsWith('/stream');
+        const ignoreAuthError = (): void => undefined;
+        const discardRejectedMessage = (): void => undefined;
+        const rejectConnection = (code: number, reason: string): void => {
+            if (relayTransport) socket.on('message', discardRejectedMessage);
+            socket.close(code, reason);
+            if (relayTransport) socket.resume();
+        };
+        if (relayTransport) {
+            socket.pause();
+            socket.on('error', ignoreAuthError);
+        }
+        void (async () => {
         if (!config.developmentApi
             && rateLimited(`ws:${clientIp(req, config.trustProxy)}`, 60, 60_000, Date.now())) {
-            socket.close(1008, 'too many requests');
+            rejectConnection(1008, 'too many requests');
             return;
         }
         if (!webSocketOriginAllowed(req, config)) {
-            socket.close(1008, 'origin not allowed');
+            rejectConnection(1008, 'origin not allowed');
             return;
         }
         const identity = await authenticateWebSocket({
@@ -989,24 +1002,28 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
 
         if (!identity) {
             process.stderr.write('rejected unauthorized WebSocket\n');
-            socket.close(1008, 'unauthorized');
+            rejectConnection(1008, 'unauthorized');
             return;
         }
         if (config.localAuthority && localPairing !== undefined && identity.kind === 'ticket'
             && identity.deviceId !== undefined && !(await localPairing.isDeviceActive(identity.deviceId, identity.credentialVersion))) {
-            socket.close(1008, 'revoked');
+            rejectConnection(1008, 'revoked');
             return;
         }
         const transport = url.pathname.endsWith('/preview')
             ? 'preview'
             : url.pathname.endsWith('/terminal') ? 'terminal' : url.pathname.endsWith('/stream') ? 'stream' : 'relay';
         if (identity.kind === 'ticket' && identity.transport !== transport) {
-            socket.close(1008, 'ticket scope mismatch');
+            rejectConnection(1008, 'ticket scope mismatch');
             return;
         }
         if (config.e2eeMode === 'on' && transport === 'preview'
             && identity.role === 'client' && url.searchParams.get('bridge') !== '1') {
-            socket.close(1008, 'encrypted preview requires the native bridge');
+            rejectConnection(1008, 'encrypted preview requires the native bridge');
+            return;
+        }
+        if (socket.readyState !== socket.OPEN) {
+            if (relayTransport) socket.off('error', ignoreAuthError);
             return;
         }
         const authenticatedSocket = { socket, identity };
@@ -1076,6 +1093,11 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
             return;
         }
 
+        if (socket.readyState !== socket.OPEN) {
+            authenticatedSockets.delete(authenticatedSocket);
+            if (relayTransport) socket.off('error', ignoreAuthError);
+            return;
+        }
         const lastSeenSeq = parseLastSeq(url);
         const peer: ConnectedPeer = {
             socket,
@@ -1141,9 +1163,17 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
         };
         socket.on('close', detach);
         socket.on('error', detach);
+        if (relayTransport) {
+            socket.off('error', ignoreAuthError);
+            if (socket.readyState !== socket.OPEN) {
+                detach();
+                return;
+            }
+            socket.resume();
+        }
         })().catch(() => {
             process.stderr.write('WebSocket authentication failed\n');
-            socket.close(1011, 'authentication failed');
+            rejectConnection(1011, 'authentication failed');
         });
     });
 
