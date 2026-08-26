@@ -209,20 +209,22 @@ The work lands as one cohesive feature PR with reviewable internal commits.
 - 2026-08-26: the correlated target window contained no peer ingress event, ruling out target-host decryption. The relay now retains 15 minutes / 64 owner-only redacted peer route outcomes (`delivered`, `tenant-mismatch`, or `target-unavailable`) and regression coverage reproduces a Linux peer ticket in the wrong self-host tenant while the Mac target socket is online.
 - 2026-08-26: cross-relay evidence proved the Linux outbound peer opened against the wrong relay: the source relay delivered locally while the target Mac relay and host saw nothing. The target host now canonically signs only its own relay endpoint into the install bundle; an optional caller endpoint is an equality assertion that fails closed and can never select routing. The source persists that signed endpoint and uses it for grant refresh, ticket issue, and WebSocket creation. Local Tailscale hosts derive their owned public relay endpoint from current ingress instead of stale copied relay state. Distinct target/source/stale-relay coverage proves stale caller state is rejected, source and stale relays receive zero sockets, and the target receives and completes liveness.
 - 2026-08-26: a failed authorization followed by matching revocation could clear the durable recovery journal but leave the runtime's cached recovery fence set, causing an immediate retry to fail in 1 ms. Successful cancellation now recomputes and clears the cache/timer when no work remains; `peer-recovery-pending` is allowlisted and rendered as a bounded retry message. Regression proves revoke followed immediately by prepare succeeds.
+- 2026-08-26: real Linux-to-Mac and Mac-to-Linux list, status, bounded read, prompt, and completed watch all pass on identical packaged runtimes. A gated-auth experiment proved the target relay could drop immediate liveness frames before its asynchronous ticket check installed the message handler; relay sockets now pause before authentication and resume only after authorization, routing, and detach handlers are installed.
+- 2026-08-26: thermonuclear restart and revocation review fenced disposed peer clients and relationships before durable cleanup, prevented stale socket callbacks and shutdown retries from recreating access, made daemon start/restart wait for the peer broker, retried transient launchd bootstrap error 5, and raised Linux's bounded service start burst to 20 per minute. Ten cold restart-to-first-list cycles pass in each direction.
 
 ## Verification
 
 - [x] Two paired computers can be selected in Settings and converge to symmetric peer grants without CLI setup.
 - [x] The phone may go offline after setup while peers continue to connect directly.
-- [ ] A peer can list agents, send one prompt, watch completion, and read recent pane output on the other computer.
+- [x] A peer can list agents, send one prompt, watch completion, and read recent pane output on the other computer.
 - [x] Observe-only and default peer capabilities reject shell, raw Herdr CLI, close, takeover, worktree landing, and undeclared plugin operations.
 - [x] A timed-out or offline-buffered prompt cannot execute after `notValidAfter` and a retried operation executes once.
 - [x] Revocation closes live peer sockets and blocks future tickets and mutations.
-- [ ] Offline setup and disconnect show pending state and converge after the missing computer returns.
-- [ ] Forgetting a phone pairing never claims peer collaboration was revoked.
-- [ ] Voice stays one native realtime speech-to-speech stream pinned to its original machine/session across reconnects.
+- [x] Offline setup and disconnect show pending state and converge after the missing computer returns.
+- [x] Forgetting a phone pairing never claims peer collaboration was revoked.
+- [x] Voice stays one native realtime speech-to-speech stream pinned to its original machine/session across reconnects.
 - [ ] Voice can unambiguously prompt, watch, and summarize an allowed remote agent without receiving peer credentials.
-- [ ] Switching computers during voice requires explicit call termination.
+- [x] Switching computers during voice requires explicit call termination.
 - [x] Internal ids, raw terminal output, credentials, and private paths are never displayed, spoken, or exported through diagnostics.
 - [x] `muxr diagnostics` shows bounded relay, recently-seen client, peer relationship, collaboration request, and broker history after restart without prompts, paths, secrets, or raw/internal ids.
 - [x] Existing local Herdr, pairing, plugin, voice, Android, iOS, and relay isolation flows remain green.
@@ -240,4 +242,5 @@ The work lands as one cohesive feature PR with reviewable internal commits.
 - 2026-08-26: with the phone force-stopped, the ordinary local CLI listed the VPS and exercised status, read, prompt, and watch; `muxr diagnostics` recorded bounded successful broker operations. Host restart preserved the relationship.
 - 2026-08-26: mobile revocation made the CLI unavailable immediately, converged to an empty peer list, and a new authorization succeeded afterward. Final Fable review returned **SHIP**, the full suite passed 30/30, and npm v0.1.20 was published.
 - 2026-08-26: PR #138 phase instrumentation isolated Linux-to-Mac failure to encrypted liveness after successful grant refresh, ticket issue, and WebSocket open. The target/grant machine invariant, liveness-timeout category, native polling suppression, one-machine error attribution, stale local machine-credential upgrade path, source-computer prompt provenance, and automatic one-direction relationship repair pass focused flows, strict typecheck, package smoke, and the full 30/30 suite.
-- Not yet verified: the repaired Linux-to-Mac runtime against the real Mac, a live completed watch with readable output, hosted grant rotation, and cross-machine native voice. The spec remains `in-progress`.
+- 2026-08-26: identical packaged Mac and Linux runtimes passed both reciprocal 5/5 matrices, including completed idle watches and readable output. Linux and macOS each passed 10/10 daemon restart → immediate first peer-list cycles; the full 30/30 suite, package smoke, strict typecheck, hosted authority rotation flow, revocation, relay isolation, voice lifecycle, and secret scan pass.
+- Remaining live acceptance: cross-machine native voice with a real provider. Its pinned-stream, explicit-switch guard, per-stream broker capability, remote prompt/read/watch, output redaction, and capability revocation paths pass deterministic flows, but the spec remains `in-progress` until that real-provider ceremony runs.
