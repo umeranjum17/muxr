@@ -188,7 +188,7 @@ describe('computer collaboration flow', () => {
         fleet.get('mac-internal')!.online = true;
         fleet.get('mac-internal')!.listError = new PeerHostResponseError('unknown request type', 'host-contract-mismatch');
         report = await applyCollaboration(report.intent, machines, request, save, now, newId);
-        expect(report.issues['mac-internal']).toEqual({ kind: 'outdated', message: 'Update muxr on this computer, restart it, then retry.' });
+        expect(report.issues['mac-internal']).toEqual({ kind: 'outdated', message: 'Run `muxr update` on this computer, then retry.' });
         expect(calls).toEqual([]);
 
         fleet.get('mac-internal')!.listError = undefined;

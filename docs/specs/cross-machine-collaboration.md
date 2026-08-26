@@ -1,7 +1,7 @@
 ---
 title: Cross-machine agent collaboration
 slug: cross-machine-collaboration
-status: in-progress
+status: implemented
 created: 2026-08-25
 updated: 2026-08-26
 owner: umer
@@ -217,4 +217,5 @@ The work lands as one cohesive feature PR with reviewable internal commits.
 - 2026-08-25: independent-review repairs passed the existing peer/mobile flow suites (5 flow tests): concurrent private watch correlation, watch and prompt reconnect with the same operation id, active broker-call revocation, local-first revocation recovery, alias churn, and malformed/duplicate intent normalization.
 - 2026-08-25: the latest strict typecheck, voice/provider checks, bundled-plugin policy, voice RPC lifecycle, and `scripts/runSuite.mjs` all passed; the full suite finished 30/30 including live Herdr and package smoke checks.
 - 2026-08-25: `git diff --check` passed.
-- Not yet verified: the hosted two-machine ceremony for grant refresh/rotation, reconnect, and immediate socket revocation. The spec remains `implemented`, not `tested`.
+- 2026-08-26: Fable first returned HOLD because terminal agents had no peer CLI and Settings swallowed compatibility errors. After the owner-only `muxr peers` path, actionable state model, progressive skill loading, real CLI flow assertions, package smoke, and 30/30 suite landed, Fable returned RELEASE conditional only on preserving the prior deterministic wait fix and tracking `scripts/peers.mjs`; both conditions are satisfied after rebase.
+- Not yet verified: the live hosted two-machine ceremony for CLI list/prompt/watch/read, grant refresh/rotation, reconnect, and immediate socket revocation. The spec remains `implemented`, not `tested`.
