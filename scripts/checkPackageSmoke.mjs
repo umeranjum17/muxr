@@ -704,6 +704,7 @@ try {
     assert.match(linuxUnit, /MUXR_MODE=.*selfhost/, 'update removed the daemon mode');
     assert.ok(linuxUnit.includes(`Environment=PATH="${env.PATH}:`), 'Linux daemon dropped the interactive executable path');
     assert.ok(linuxUnit.includes(`Environment=HERDR_BIN="${env.HERDR_BIN}"`), 'Linux daemon did not pin the Herdr binary');
+    assert.match(linuxUnit, /StartLimitIntervalSec=60[\s\S]*StartLimitBurst=20/, 'Linux daemon cannot survive bounded rapid restart recovery');
     assert.equal(readFileSync(join(home, '.config', 'herdr', 'config.toml'), 'utf8'), configBefore);
     assert.equal(readFileSync(instructionPath, 'utf8'), initialInstructions, 'update rewrote agent instructions');
     assert.equal(existsSync(join(home, '.muxr', 'integrations')), false, 'update created a copied skill tree');

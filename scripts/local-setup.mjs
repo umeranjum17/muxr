@@ -996,7 +996,7 @@ function daemonDefinition(mode) {
         // No After=network-online.target: it does not exist in the systemd user
         // manager and reads as ordering while being a silent no-op. The host
         // and relay retry their own connections instead.
-        const content = `[Unit]\nDescription=muxr host bridge\n\n[Service]\nExecStart=${systemdArg(process.execPath)} ${systemdArg(cli)} up\n${modeEnv ? `${modeEnv}\n` : ''}Restart=on-failure\nRestartSec=3\n\n[Install]\nWantedBy=default.target\n`;
+        const content = `[Unit]\nDescription=muxr host bridge\nStartLimitIntervalSec=60\nStartLimitBurst=20\n\n[Service]\nExecStart=${systemdArg(process.execPath)} ${systemdArg(cli)} up\n${modeEnv ? `${modeEnv}\n` : ''}Restart=on-failure\nRestartSec=3\n\n[Install]\nWantedBy=default.target\n`;
         return { path, content, mode: 0o600 };
     }
     throw new Error('daemon services support Linux and macOS; use WSL on Windows');
