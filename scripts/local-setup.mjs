@@ -1302,13 +1302,25 @@ function validMachineCrypto(value, expected) {
                 ? grant : undefined;
         } catch { return undefined; }
     };
-    const validDevice = (device) => typeof device === 'object' && device !== null
-        && typeof device.deviceId === 'string' && device.deviceId.length > 0
-        && validBase64(device.devicePublicKey, 32)
-        && validBase64(device.ingressKey, 32)
-        && typeof device.expiresAt === 'string' && Number.isFinite(Date.parse(device.expiresAt))
-        && (device.kind === undefined || device.kind === 'browser')
-        && (device.authority === undefined || device.authority === 'control' || device.authority === 'observe');
+    const validCapabilities = (capabilities) => Array.isArray(capabilities) && capabilities.length > 0 && capabilities.length <= 6
+        && new Set(capabilities).size === capabilities.length
+        && capabilities.every((capability) => ['list', 'read', 'status', 'watch', 'prompt', 'start'].includes(capability));
+    const validDevice = (device) => {
+        if (typeof device !== 'object' || device === null) return false;
+        const peer = device.kind === 'peer';
+        return typeof device.deviceId === 'string' && device.deviceId.length > 0
+            && validBase64(device.devicePublicKey, 32)
+            && validBase64(device.ingressKey, 32)
+            && typeof device.expiresAt === 'string' && Number.isFinite(Date.parse(device.expiresAt))
+            && (device.kind === undefined || device.kind === 'browser' || peer)
+            && (peer ? device.authority === undefined && validBase64(device.dataKey, 32) && validCapabilities(device.capabilities)
+                : device.dataKey === undefined && device.capabilities === undefined && device.allowedCwds === undefined
+                    && (device.authority === undefined || device.authority === 'control' || device.authority === 'observe'))
+            && (!peer || (device.capabilities.includes('start')
+                ? Array.isArray(device.allowedCwds) && device.allowedCwds.length > 0
+                    && device.allowedCwds.every((cwd) => typeof cwd === 'string' && cwd !== '')
+                : device.allowedCwds === undefined));
+    };
     if (!keys || !Number.isInteger(value.keyVersion) || value.keyVersion < 1
         || !Array.isArray(value.devices) || !value.devices.every(validDevice)
         || new Set(value.devices.map((device) => device.deviceId)).size !== value.devices.length) return false;
@@ -1317,21 +1329,25 @@ function validMachineCrypto(value, expected) {
     if (!validBase64(pending.dataKey, 32) || !Array.isArray(pending.devices) || !pending.devices.every(validDevice)
         || new Set(pending.devices.map((device) => device.deviceId)).size !== pending.devices.length
         || !Array.isArray(pending.grants) || pending.grants.length !== pending.devices.length) return false;
-    const selfhost = pending.kind === 'selfhost-revoke-v1';
-    if (expected === 'hosted' ? selfhost : !selfhost) return false;
-    const versionValid = selfhost
-        ? Number.isInteger(pending.previousKeyVersion) && Number.isInteger(pending.keyVersion)
-            && pending.keyVersion === pending.previousKeyVersion + 1
-            && (value.keyVersion === pending.previousKeyVersion || value.keyVersion === pending.keyVersion)
-            && typeof pending.revokedDeviceId === 'string' && typeof pending.revokedDeviceName === 'string'
-        : pending.kind === undefined && Number.isInteger(pending.keyVersion) && pending.keyVersion === value.keyVersion + 1;
-    if (!versionValid) return false;
+    const kind = pending.kind;
+    const peer = kind === 'peer-revoke-v1';
+    const selfhost = kind === 'selfhost-revoke-v1';
+    if (kind !== undefined && !peer && !selfhost) return false;
+    if (kind === undefined && expected !== 'hosted') return false;
+    if (selfhost && expected !== 'selfhost') return false;
+    if (peer && pending.authorityKind !== expected) return false;
+    const version = pending.keyVersion;
+    if (kind === undefined ? !Number.isInteger(version) || version !== value.keyVersion + 1
+        : !Number.isInteger(pending.previousKeyVersion) || !Number.isInteger(version)
+            || version !== pending.previousKeyVersion + 1
+            || value.keyVersion !== pending.previousKeyVersion && value.keyVersion !== version
+            || typeof pending.revokedDeviceId !== 'string' || typeof pending.revokedDeviceName !== 'string') return false;
     const byId = new Map(pending.devices.map((device) => [device.deviceId, device]));
     const expectedKeys = new Set(pending.devices.map((device) => device.devicePublicKey));
     const seen = new Set();
     return pending.grants.every((entry) => {
         if (typeof entry !== 'object' || entry === null) return false;
-        const deviceKey = selfhost ? byId.get(entry.deviceId)?.devicePublicKey : entry.device_public_key;
+        const deviceKey = kind === undefined ? entry.device_public_key : byId.get(entry.deviceId)?.devicePublicKey ?? entry.devicePublicKey;
         const grant = parseGrant(entry.grant);
         if (typeof deviceKey !== 'string' || !expectedKeys.has(deviceKey) || seen.has(deviceKey) || grant === undefined
             || grant.sender !== value.boxPublicKey || grant.signer !== value.signingPublicKey) return false;
@@ -1953,6 +1969,8 @@ export async function runSelfHost(args = []) {
         state.mintSecret = secretRaw;
         state.relayUrl = advertise.url;
         state.relayLocation = 'local';
+        delete state.machineCredential;
+        delete state.credentialExpiresAt;
         state.relayRole = managedRelay ? 'shared' : 'single-machine';
         state.connectionMode = connectionMode;
         state.webEnabled = web;

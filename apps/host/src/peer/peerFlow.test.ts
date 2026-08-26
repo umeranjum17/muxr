@@ -292,6 +292,12 @@ describe('host peer collaboration flow', () => {
             channel: 'session', streamId: 'machine', keyVersion: 1,
         }, newV2ReplayTracker())).toBe('peer-result');
 
+        await sourceRuntime.store.putRelationship({
+            ...outbound,
+            relationshipId: 'revoked-old-build-mac',
+            state: 'revoked',
+            machineAlias: 'Build Mac',
+        });
         const listed = await call(sourceRuntime, 'peer.remote.list', { relationshipId: installed.relationshipId });
         expect(listed).toEqual({ machineAlias: 'Build Mac', sessions: [{ sessionId: 'muxr-session-ios', agentAlias: 'iOS builder' }] });
         const promptMutation = fresh('prompt-once');
@@ -765,6 +771,52 @@ describe('host peer collaboration flow', () => {
             globalThis.fetch = originalFetch;
             await new Promise<void>((resolve) => server.close(() => resolve()));
         }
+    });
+
+    it('scopes self-host peer authority calls to the target machine', async () => {
+        const calls: string[] = [];
+        const peerPublicKey = generateKeyPair().publicKey;
+        let lists = 0;
+        const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
+            const url = new URL(String(input));
+            const method = init?.method ?? 'GET';
+            calls.push(`${method} ${url.pathname}${url.search}`);
+            let body: Record<string, unknown> = { ok: true };
+            if (url.pathname === '/v1/selfhost/peers' && method === 'GET') {
+                body = { peers: lists++ === 0 ? [] : [{ deviceId: 'peer-device', publicKey: peerPublicKey }] };
+            } else if (url.pathname === '/v1/selfhost/peers' && method === 'POST') {
+                body = { device_id: 'peer-device', device_credential: 'peer-credential' };
+            } else if (url.pathname.endsWith('/rotate')) {
+                body = { device_credential: 'rotated-credential' };
+            }
+            return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
+        }) as typeof fetch;
+        const authority = new HttpPeerAuthority({
+            kind: 'selfhost', controlUrl: 'https://relay.test', machineId: 'target-machine', credential: 'owner-secret', fetch: fetchImpl,
+        });
+        const input = {
+            peerPublicKey,
+            sourceMachineId: 'source-machine',
+            sourceName: 'Linux builder',
+            capabilities: [...DEFAULT_PEER_CAPABILITIES],
+            credentialExpiresAt: Date.now() + 60_000,
+            refreshAfter: Date.now() + 30_000,
+        };
+        await authority.issuePeer(input);
+        await authority.issuePeer(input);
+        await authority.uploadGrant('peer-device', 'sealed-peer-grant', 2);
+        await authority.revokePeer('peer-device');
+        await authority.publishRotation(3, [{ deviceId: 'peer-device', devicePublicKey: peerPublicKey, grant: 'rotated-grant' }]);
+
+        expect(calls).toEqual([
+            'GET /v1/selfhost/peers?machine=target-machine',
+            'POST /v1/selfhost/peers?machine=target-machine',
+            'GET /v1/selfhost/peers?machine=target-machine',
+            'POST /v1/selfhost/peers/peer-device/rotate?machine=target-machine',
+            'POST /v1/selfhost/peers/peer-device/grant?machine=target-machine',
+            'DELETE /v1/selfhost/peers/peer-device?machine=target-machine',
+            'POST /v1/selfhost/machines/target-machine/grants',
+        ]);
     });
 
     it('uses deployed hosted pair-session, device revoke, and rotation APIs', async () => {
