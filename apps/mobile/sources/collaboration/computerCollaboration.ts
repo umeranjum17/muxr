@@ -99,7 +99,7 @@ function machineIssue(cause: unknown): CollaborationMachineIssue {
     if (cause.code === 'host-contract-mismatch') {
         return /runtime is unavailable/i.test(cause.message)
             ? { kind: 'unavailable', message: 'Collaboration is unavailable on this computer. Restart muxr, then retry.' }
-            : { kind: 'outdated', message: 'Update muxr on this computer, restart it, then retry.' };
+            : { kind: 'outdated', message: 'Run `muxr update` on this computer, then retry.' };
     }
     if (/(auth|credential|grant|e2ee|forbidden|unauthorized|pair)/i.test(cause.code ?? '')) {
         return { kind: 'unauthorized', message: 'Pair this computer with the phone again, then retry.' };
