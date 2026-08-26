@@ -2,7 +2,11 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { PEER_MUTATION_MAX_TTL_MS, PEER_MUTATION_TTL_MS } from '@muxr/contract';
+import {
+    PEER_MUTATION_CLOCK_SKEW_MS,
+    PEER_MUTATION_MAX_TTL_MS,
+    PEER_MUTATION_TTL_MS,
+} from '@muxr/contract';
 import { PeerReceiptExecutor } from './receiptExecutor.js';
 import { PeerStore } from './store.js';
 
@@ -13,7 +17,7 @@ afterEach(() => {
 });
 
 describe('PeerReceiptExecutor mutation window', () => {
-    it('accepts a producer one second ahead while rejecting an exact-limit window', async () => {
+    it('accepts skew-safe and legacy exact-limit producers while rejecting beyond the allowance', async () => {
         const root = mkdtempSync(join(tmpdir(), 'muxr-peer-receipt-'));
         roots.push(root);
         const hostNow = 1_000;
@@ -25,13 +29,24 @@ describe('PeerReceiptExecutor mutation window', () => {
             'peer.prepare',
             { operationId: 'skew-safe', notValidAfter: producerNow + PEER_MUTATION_TTL_MS },
             { target: 'machine' },
-            async () => 'ok',
-        )).resolves.toBe('ok');
+            async () => 'safe',
+        )).resolves.toBe('safe');
 
         await expect(executor.execute(
             'peer-device',
             'peer.prepare',
-            { operationId: 'exact-limit', notValidAfter: producerNow + PEER_MUTATION_MAX_TTL_MS },
+            { operationId: 'legacy-exact-limit', notValidAfter: producerNow + PEER_MUTATION_MAX_TTL_MS },
+            { target: 'machine' },
+            async () => 'legacy',
+        )).resolves.toBe('legacy');
+
+        await expect(executor.execute(
+            'peer-device',
+            'peer.prepare',
+            {
+                operationId: 'beyond-skew-allowance',
+                notValidAfter: hostNow + PEER_MUTATION_MAX_TTL_MS + PEER_MUTATION_CLOCK_SKEW_MS + 1,
+            },
             { target: 'machine' },
             async () => 'unreachable',
         )).rejects.toMatchObject({ code: 'peer-mutation-invalid' });

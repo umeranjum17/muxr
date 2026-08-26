@@ -64,6 +64,7 @@ export {
     DEFAULT_PEER_CAPABILITIES,
     isPeerCapabilities,
     PEER_CAPABILITIES,
+    PEER_MUTATION_CLOCK_SKEW_MS,
     PEER_MUTATION_MAX_TTL_MS,
     PEER_MUTATION_TTL_MS,
     peerCapabilityForRequest,

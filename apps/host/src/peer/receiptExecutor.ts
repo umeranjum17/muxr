@@ -1,5 +1,9 @@
 import { createHash } from 'node:crypto';
-import { PEER_MUTATION_MAX_TTL_MS, type PeerMutationMetadata } from '@muxr/contract';
+import {
+    PEER_MUTATION_CLOCK_SKEW_MS,
+    PEER_MUTATION_MAX_TTL_MS,
+    type PeerMutationMetadata,
+} from '@muxr/contract';
 import { PeerStore, type StoredPeerReceipt } from './store.js';
 
 
@@ -26,7 +30,7 @@ export class PeerReceiptExecutor {
             throw operationError('peer mutation metadata is invalid', 'peer-mutation-invalid');
         }
         if (mutation.notValidAfter <= now) throw operationError('peer mutation expired before dispatch', 'peer-mutation-expired');
-        if (mutation.notValidAfter > now + PEER_MUTATION_MAX_TTL_MS) {
+        if (mutation.notValidAfter > now + PEER_MUTATION_MAX_TTL_MS + PEER_MUTATION_CLOCK_SKEW_MS) {
             throw operationError('peer mutation validity window is too long', 'peer-mutation-invalid');
         }
         const requestHash = createHash('sha256').update(JSON.stringify({ type, request })).digest('base64url');

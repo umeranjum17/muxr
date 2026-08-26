@@ -6,6 +6,8 @@ export const DEFAULT_PEER_CAPABILITIES = PEER_CAPABILITIES.slice(0, 5) as readon
 export const PEER_MUTATION_TTL_MS = 4 * 60_000;
 /** Hard target-side limit for untrusted mutation metadata. */
 export const PEER_MUTATION_MAX_TTL_MS = 5 * 60_000;
+/** Maximum accepted positive producer clock skew for legacy clients at the hard TTL. */
+export const PEER_MUTATION_CLOCK_SKEW_MS = 30_000;
 
 export type PeerCapability = (typeof PEER_CAPABILITIES)[number];
 export type DeviceKind = 'native' | 'browser' | 'peer';
