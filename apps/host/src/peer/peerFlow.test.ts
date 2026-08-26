@@ -161,6 +161,7 @@ describe('host peer collaboration flow', () => {
         const sourceAuthority = new FakeAuthority();
         const targetAuthority = new FakeAuthority();
         let prompts = 0;
+        const promptTexts: string[] = [];
         const session = {
             id: 'muxr-session-ios',
             cwd: '/work/app',
@@ -177,7 +178,7 @@ describe('host peer collaboration flow', () => {
         const pendingWaits: Array<(value: { status: string; detail: string }) => void> = [];
         const targetSource = {
             async list() { return remoteSessions; },
-            async prompt() { prompts += 1; },
+            async prompt(options: { text: string }) { prompts += 1; promptTexts.push(options.text); },
             async paneRead() { return { text: 'build complete /Users/owner/private pp_secret token=remote-secret-value', truncated: false }; },
             async status(sessionId: string) {
                 return { sessionId, agentStatus: 'idle', isStreaming: false, tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }, cost: 0, usageLimits: { capturedAt: new Date().toISOString(), windows: [] } };
@@ -308,6 +309,7 @@ describe('host peer collaboration flow', () => {
             mutation: promptMutation,
         });
         expect(prompts).toBe(1);
+        expect(promptTexts).toEqual(['Peer message from Linux builder:\nRun the iOS build']);
         await expect(call(sourceRuntime, 'peer.remote.watch', {
             relationshipId: installed.relationshipId,
             sessionId: 'muxr-session-ios',
@@ -352,7 +354,7 @@ describe('host peer collaboration flow', () => {
         targetDispatch = makeTargetDispatcher(restartedTarget).dispatch;
         await expect(targetDispatch({
             type: 'session.prompt', requestId: 'target-receipt-retry',
-            params: { sessionId: 'muxr-session-ios', text: 'Run the iOS build', peerMutation: promptMutation },
+            params: { sessionId: 'muxr-session-ios', text: 'Peer message from Linux builder:\nRun the iOS build', peerMutation: promptMutation },
         }, authorized.peerDeviceId)).resolves.toMatchObject({ ok: true });
         expect(prompts).toBe(1);
         await call(sourceRuntime, 'peer.remote.prompt', {

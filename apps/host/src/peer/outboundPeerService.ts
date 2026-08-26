@@ -13,6 +13,7 @@ type SemanticRemoteRequest = Extract<RemotePeerRequest, { type: 'peer.remote.wat
 export interface OutboundPeerServiceOptions {
     store: PeerStore;
     now: () => number;
+    sourceMachineName: string;
     clientFactory?: (relationship: StoredPeerRelationship) => PeerClientTransport;
     onConnectionDiagnostic?: (event: PeerConnectionDiagnostic) => void;
 }
@@ -211,7 +212,7 @@ export class OutboundPeerService {
             const params = stored.params as Extract<SemanticRemoteRequest, { type: 'peer.remote.prompt' }>['params'];
             await client.request('session.prompt', {
                 sessionId: params.sessionId,
-                text: params.text,
+                text: `Peer message from ${name(this.options.sourceMachineName, 'Peer computer')}:\n${params.text}`,
                 ...(params.streamingBehavior === undefined ? {} : { streamingBehavior: params.streamingBehavior }),
                 peerMutation: params.mutation,
             }, signal);

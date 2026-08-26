@@ -97,6 +97,7 @@ export class PeerRuntime {
         this.outboundService = new OutboundPeerService({
             store: this.store,
             now: this.now,
+            sourceMachineName: options.machineName,
             ...(options.clientFactory === undefined ? {} : { clientFactory: options.clientFactory }),
             ...(options.onConnectionDiagnostic === undefined ? {} : { onConnectionDiagnostic: options.onConnectionDiagnostic }),
         });
