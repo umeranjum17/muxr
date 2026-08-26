@@ -27,8 +27,6 @@ export interface CollaborationMachine {
     name: string;
     platform?: string;
     machineSigningPublicKey: string;
-    /** Endpoint authenticated by this machine's phone pairing. */
-    relayUrl?: string;
 }
 
 interface SetupProgress {
@@ -117,6 +115,7 @@ function safeError(cause: unknown): string {
         case 'peer-limit': return 'This computer has reached its collaboration limit.';
         case 'peer-already-authorized': return 'This connection needs repair before setup can continue.';
         case 'peer-operation-uncertain': return 'The computer is still checking an earlier request. Retry shortly.';
+        case 'peer-recovery-pending': return 'The computer is finishing an earlier repair. Retry shortly.';
         default: return 'The computer rejected this setup step. Retry, or repair the connection if it continues.';
     }
 }
@@ -194,7 +193,6 @@ function normalizeIntent(value: unknown): CollaborationIntent | undefined {
             name: safeName(machine.name),
             machineSigningPublicKey: machine.machineSigningPublicKey,
             ...(typeof machine.platform === 'string' ? { platform: machine.platform.slice(0, 80) } : {}),
-            ...(typeof machine.relayUrl === 'string' && machine.relayUrl.length <= 2_048 ? { relayUrl: machine.relayUrl } : {}),
         });
     }
     const edges = new Map<string, CollaborationEdge>();
@@ -624,7 +622,6 @@ export async function applyCollaboration(
                     capabilities: COLLABORATION_CAPABILITIES,
                     mutation: setup.authorizeMutation,
                     relationshipId: edge.relationshipId,
-                    ...(target.relayUrl === undefined ? {} : { targetRelayUrl: target.relayUrl }),
                 });
                 activeMutation = undefined;
                 activeMachineId = undefined;

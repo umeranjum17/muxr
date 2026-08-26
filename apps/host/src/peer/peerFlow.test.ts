@@ -231,7 +231,7 @@ describe('host peer collaboration flow', () => {
             machineId: 'target-machine',
             machineName: 'Build Mac',
             platform: 'macOS',
-            relayUrl: 'ws://stale-source-relay.test',
+            relayUrl: 'ws://target-relay.test',
             crypto: targetKeys.adapter,
             authority: targetAuthority,
         });
@@ -260,11 +260,16 @@ describe('host peer collaboration flow', () => {
             targetMachineSigningPublicKey: targetKeys.current().signingPublicKey,
             mutation: fresh('prepare'),
         });
+        await expect(call(targetRuntime, 'peer.authorize', {
+            descriptor: prepared.descriptor,
+            capabilities: [...DEFAULT_PEER_CAPABILITIES],
+            mutation: fresh('stale-relay-assertion'),
+            targetRelayUrl: 'ws://stale-third-relay.test',
+        })).rejects.toMatchObject({ code: 'peer-bundle-invalid' });
         const authorized = await call(targetRuntime, 'peer.authorize', {
             descriptor: prepared.descriptor,
             capabilities: [...DEFAULT_PEER_CAPABILITIES],
             mutation: fresh('authorize'),
-            targetRelayUrl: 'ws://target-relay.test',
         });
         const installed = await call(sourceRuntime, 'peer.install', {
             targetMachineId: 'target-machine',
@@ -498,6 +503,7 @@ describe('host peer collaboration flow', () => {
         await expect(brokerCall(broker.socketPath, access.capability, { method: 'list' })).rejects.toThrow('capability rejected');
         diagnostics.peerConnection('socket-open', 'ok', 4);
         diagnostics.peerConnection('liveness-proof', 'timeout', 20_000, 'liveness-timeout');
+        diagnostics.request('peer.prepare', 'native', 'rejected', 1, 'peer-recovery-pending');
         for (let index = 0; index < 600; index += 1) diagnostics.request('herdr.tree', 'native', 'ok', 1);
         await broker.close();
         await diagnostics.flush();
@@ -505,10 +511,11 @@ describe('host peer collaboration flow', () => {
         const diagnosticsPath = join(root, 'source', 'diagnostics.json');
         expect(statSync(diagnosticsPath).mode & 0o077).toBe(0);
         const diagnosticOutput = readFileSync(diagnosticsPath, 'utf8');
-        const diagnosticEvents = (JSON.parse(diagnosticOutput) as { events: Array<{ event: string; operation?: string; request?: string; phase?: string; outcome?: string }> }).events;
+        const diagnosticEvents = (JSON.parse(diagnosticOutput) as { events: Array<{ event: string; operation?: string; request?: string; phase?: string; outcome?: string; code?: string }> }).events;
         expect(diagnosticEvents).toContainEqual(expect.objectContaining({ event: 'peer.broker', operation: 'list', outcome: 'ok' }));
         expect(diagnosticEvents).toContainEqual(expect.objectContaining({ event: 'peer.broker', operation: 'prompt', outcome: 'ok' }));
         expect(diagnosticEvents).toContainEqual(expect.objectContaining({ event: 'peer.connection', phase: 'liveness-proof', outcome: 'timeout' }));
+        expect(diagnosticEvents).toContainEqual(expect.objectContaining({ event: 'client.request', request: 'peer.prepare', code: 'peer-recovery-pending' }));
         expect(diagnosticEvents).not.toContainEqual(expect.objectContaining({ event: 'client.request', request: 'herdr.tree', outcome: 'ok' }));
         expect(diagnosticOutput).not.toMatch(/target-machine|muxr-session|internal-pane-path|Report Xcode status|machineId|sessionId|relationshipId|operationId/);
         let diagnosticNow = Date.parse('2026-08-26T00:00:00.000Z');
@@ -647,6 +654,30 @@ describe('host peer collaboration flow', () => {
         const recovered = await call(target, 'peer.authorize', authorize);
         expect(recovered.peerDeviceId).toBe(targetKeys.current().devices[0]!.deviceId);
         expect(targetKeys.current().devices).toHaveLength(1);
+
+        const cancelledPrepared = await call(source, 'peer.prepare', {
+            targetMachineId: 'target',
+            targetMachineSigningPublicKey: targetKeys.current().signingPublicKey,
+            descriptorExpiresAt: now + 1_000,
+            mutation: { operationId: 'prepare-cancelled-recovery', notValidAfter: now + 60_000 },
+        });
+        authority.failGrantUploads = 1;
+        await expect(call(target, 'peer.authorize', {
+            descriptor: cancelledPrepared.descriptor,
+            capabilities: [...DEFAULT_PEER_CAPABILITIES],
+            relationshipId: 'rel_cancelled_recovery',
+            mutation: { operationId: 'authorize-cancelled-recovery', notValidAfter: now + 60_000 },
+        })).rejects.toThrow('simulated grant upload interruption');
+        await expect(call(target, 'peer.revoke', {
+            relationshipId: 'rel_cancelled_recovery',
+            mutation: { operationId: 'revoke-cancelled-recovery', notValidAfter: now + 60_000 },
+        })).resolves.toMatchObject({ state: 'revoked' });
+        expect(target.store.pendingAuthorization()).toBeUndefined();
+        await expect(call(target, 'peer.prepare', {
+            targetMachineId: 'next-target',
+            targetMachineSigningPublicKey: sourceKeys.current().signingPublicKey,
+            mutation: { operationId: 'prepare-immediately-after-revoke', notValidAfter: now + 60_000 },
+        })).resolves.toMatchObject({ preparationId: expect.stringMatching(/^prep_/) });
     });
 
     it('records redacted peer ingress receive, rejection, and decode boundaries', async () => {
@@ -732,6 +763,10 @@ describe('host peer collaboration flow', () => {
         let sourceRelayConnections = 0;
         sourceRelay.on('connection', () => { sourceRelayConnections += 1; });
         await new Promise<void>((resolve) => sourceRelay.once('listening', resolve));
+        const staleRelay = new WebSocketServer({ port: 0 });
+        let staleRelayConnections = 0;
+        staleRelay.on('connection', () => { staleRelayConnections += 1; });
+        await new Promise<void>((resolve) => staleRelay.once('listening', resolve));
         const server = new WebSocketServer({ port: 0 });
         await new Promise<void>((resolve) => server.once('listening', resolve));
         const address = server.address();
@@ -852,6 +887,7 @@ describe('host peer collaboration flow', () => {
             expect(promptOperationIds).toEqual(['durable-buffered-prompt', 'durable-buffered-prompt']);
             expect(promptExecutions).toBe(1);
             expect(sourceRelayConnections).toBe(0);
+            expect(staleRelayConnections).toBe(0);
             expect(new Set(controlOrigins)).toEqual(new Set([new URL(relayControlUrl(relayUrl)).origin]));
             expect(connectionDiagnostics).toEqual(expect.arrayContaining([
                 expect.objectContaining({ phase: 'grant-refresh', outcome: 'ok' }),
@@ -883,6 +919,7 @@ describe('host peer collaboration flow', () => {
             await Promise.all([
                 new Promise<void>((resolve) => server.close(() => resolve())),
                 new Promise<void>((resolve) => sourceRelay.close(() => resolve())),
+                new Promise<void>((resolve) => staleRelay.close(() => resolve())),
             ]);
         }
     });

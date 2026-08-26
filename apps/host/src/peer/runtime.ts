@@ -55,6 +55,14 @@ function operationError(message: string, code: string): Error {
     return Object.assign(new Error(message), { code });
 }
 
+function canonicalRelayUrl(value: string): string {
+    relayControlUrl(value);
+    const relay = new URL(value);
+    relay.search = '';
+    relay.hash = '';
+    return relay.toString().replace(/\/+$/, '');
+}
+
 type RemotePeerRequest = Extract<PeerClientRequest, { type: `peer.remote.${string}` }>;
 
 function isRemotePeerRequest(request: PeerClientRequest): request is RemotePeerRequest {
@@ -269,9 +277,16 @@ export class PeerRuntime {
         });
         if (!isPeerCapabilities(params.capabilities)) throw operationError('invalid peer capabilities', 'peer-invalid-capabilities');
         const allowedCwds = this.validateStartDirectories(params.capabilities, params.allowedCwds);
-        const targetRelayUrl = params.targetRelayUrl?.trim() || this.options.relayUrl;
-        try { relayControlUrl(targetRelayUrl); }
-        catch { throw operationError('invalid target relay endpoint', 'peer-bundle-invalid'); }
+        let targetRelayUrl: string;
+        try {
+            targetRelayUrl = canonicalRelayUrl(this.options.relayUrl);
+            if (params.targetRelayUrl !== undefined && canonicalRelayUrl(params.targetRelayUrl) !== targetRelayUrl) {
+                throw operationError('target relay assertion does not match this computer', 'peer-bundle-invalid');
+            }
+        } catch (error) {
+            if ((error as { code?: unknown }).code === 'peer-bundle-invalid') throw error;
+            throw operationError('invalid target relay endpoint', 'peer-bundle-invalid');
+        }
         if (crypto.devices.some((device) => device.devicePublicKey === claims.peerPublicKey)) {
             await this.repairOrphanDevices();
         }
@@ -591,6 +606,7 @@ export class PeerRuntime {
             await this.store.putRelationship({ ...relationship, state: 'revoked', updatedAt: this.now() });
         }
         await this.store.putPendingAuthorization(undefined);
+        this.refreshRecoveryState();
         return { state: 'revoked', revokedAt: this.now(), authority: issued.authority };
     }
 
@@ -775,6 +791,14 @@ export class PeerRuntime {
         if (!this.hasRecoveryWork()) return;
         this.recoveryPending = true;
         this.scheduleRecovery();
+    }
+
+    private refreshRecoveryState(): void {
+        this.recoveryPending = this.hasRecoveryWork();
+        if (this.recoveryPending || this.recoveryTimer === undefined) return;
+        clearTimeout(this.recoveryTimer);
+        this.recoveryTimer = undefined;
+        this.recoveryAttempts = 0;
     }
 
     private scheduleRecovery(): void {
