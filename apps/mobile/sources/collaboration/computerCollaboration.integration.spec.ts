@@ -9,9 +9,12 @@ vi.mock('expo-crypto', () => ({ randomUUID: () => 'unused-random-id' }));
 
 import {
     applyCollaboration,
+    collaborationSummary,
+    hasPendingCollaboration,
     loadCollaborationIntent,
     reconcileCollaboration,
     selectCollaborationMachines,
+    PeerHostResponseError,
     type CollaborationMachine,
     type PeerRequester,
 } from './computerCollaboration';
@@ -27,6 +30,7 @@ interface MutationCall {
 class FakeMachineClient {
     online = true;
     failNext?: PeerRequestType;
+    offlineMachineAfterAuthorize?: string;
     peers: PeerRelationship[] = [];
 
     constructor(
@@ -72,6 +76,9 @@ class FakeMachineClient {
             const sourceId = input.descriptor.claims.sourceMachineId;
             const relationshipId = input.relationshipId!;
             const peerDeviceId = `peer-${sourceId}-${this.machine.machineId}`;
+            if (this.peers.some((peer) => peer.relationshipId === relationshipId && peer.direction === 'inbound' && peer.state === 'connected')) {
+                throw new PeerHostResponseError('already authorized', 'peer-already-authorized');
+            }
             this.calls.push(`authorize:${this.fleet.get(sourceId)!.machine.name}->${this.machine.name}`);
             this.peers.push({
                 relationshipId,
@@ -85,6 +92,7 @@ class FakeMachineClient {
                 createdAt: 1_000,
                 updatedAt: 1_000,
             });
+            if (this.offlineMachineAfterAuthorize !== undefined) this.fleet.get(this.offlineMachineAfterAuthorize)!.online = false;
             return {
                 peerDeviceId,
                 sealedBundle: JSON.stringify({ sourceId, targetId: this.machine.machineId, relationshipId, peerDeviceId }),
@@ -170,6 +178,7 @@ describe('computer collaboration flow', () => {
         fleet.get('mac-internal')!.online = false;
         let report = await applyCollaboration(intent, machines, request, save, now, newId);
         expect(Object.values(report.states)).toEqual(['Waiting for computer', 'Waiting for computer']);
+        expect(collaborationSummary(report.intent)).toBe('Setting up');
         expect(calls).toEqual([]);
         expect(report.intent.edges.every((edge) => edge.setup !== undefined)).toBe(true);
 
@@ -180,8 +189,18 @@ describe('computer collaboration flow', () => {
         const failedPrepare = mutations.find((entry) => entry.machineId === 'linux-internal' && entry.type === 'peer.prepare')!;
 
         machines[0]!.name = 'Renamed Linux workstation';
+        fleet.get('mac-internal')!.offlineMachineAfterAuthorize = 'linux-internal';
+        report = await applyCollaboration(report.intent, machines, request, save, now, newId);
+        expect(Object.values(report.states)).toEqual(['Waiting for computer', 'Waiting for computer']);
+        expect(collaborationSummary(report.intent)).toBe('Setting up');
+        expect(report.intent.edges.every((edge) => edge.setup?.repairNeeded !== true)).toBe(true);
+        expect(calls.some((call) => call.startsWith('revoke:'))).toBe(false);
+
+        fleet.get('mac-internal')!.offlineMachineAfterAuthorize = undefined;
+        fleet.get('linux-internal')!.online = true;
         report = await applyCollaboration(report.intent, machines, request, save, now, newId);
         expect(Object.values(report.states)).toEqual(['Connected', 'Connected']);
+        expect(collaborationSummary(report.intent)).toBe('2 computers');
         expect(report.intent.edges.map((edge) => edge.relationshipId)).toEqual(relationshipIds);
         const retriedPrepare = mutations.filter((entry) => entry.machineId === 'linux-internal' && entry.type === 'peer.prepare')[1]!;
         expect(retriedPrepare).toEqual(failedPrepare);
@@ -201,6 +220,7 @@ describe('computer collaboration flow', () => {
         expect(recovered.intent.edges.map((edge) => edge.relationshipId).sort()).toEqual([...relationshipIds].sort());
         const selectedAgain = selectCollaborationMachines(recovered.intent, machines, newId);
         expect(selectedAgain.edges.map((edge) => edge.relationshipId).sort()).toEqual([...relationshipIds].sort());
+        expect(hasPendingCollaboration({ ...selectedAgain, edges: [] })).toBe(true);
 
         const orphan: PeerRelationship = {
             relationshipId: 'orphan-live-authority', direction: 'outbound', machineId: 'mac-internal', machineName: 'Build Mac',
@@ -210,17 +230,38 @@ describe('computer collaboration flow', () => {
         const repair = await reconcileCollaboration({ version: 1, selectedMachineIds: [], machines: [], edges: [] }, machines, request);
         expect(repair.intent.edges).toContainEqual(expect.objectContaining({ relationshipId: 'orphan-live-authority', setup: expect.objectContaining({ repairNeeded: true }) }));
         expect(Object.values(repair.states)).toEqual(['Repair needed', 'Repair needed']);
+        expect(collaborationSummary(repair.intent)).toBe('Needs attention');
         fleet.get('linux-internal')!.peers = fleet.get('linux-internal')!.peers.filter((peer) => peer !== orphan);
 
         report = recovered;
+        const lostReceiptEdge = report.intent.edges.find((edge) => edge.sourceMachineId === 'linux-internal')!;
+        fleet.get('linux-internal')!.peers = fleet.get('linux-internal')!.peers.filter((peer) => peer.relationshipId !== lostReceiptEdge.relationshipId);
+        lostReceiptEdge.setup = {};
+        report = await applyCollaboration(report.intent, machines, request, save, now, newId);
+        expect(report.intent.edges.find((edge) => edge.relationshipId === lostReceiptEdge.relationshipId)?.setup?.repairNeeded).toBe(true);
+        expect(collaborationSummary(report.intent)).toBe('Needs attention');
+        report = await applyCollaboration(report.intent, machines, request, save, now, newId);
+        expect(Object.values(report.states)).toEqual(['Connected', 'Connected']);
+
         intent = selectCollaborationMachines(report.intent, [], newId);
         fleet.get('mac-internal')!.online = false;
         report = await applyCollaboration(intent, machines, request, save, now, newId);
         expect(Object.values(report.states)).toEqual(['Disconnecting', 'Disconnecting']);
+        expect(collaborationSummary(report.intent)).toBe('Disconnecting');
         expect(fleet.get('linux-internal')!.peers.some((peer) => peer.direction === 'outbound' && peer.state === 'connected')).toBe(true);
         expect(report.intent.edges.every((edge) => edge.disconnect !== undefined)).toBe(true);
-        for (const edge of report.intent.edges) edge.disconnect!.targetRevoked = true;
 
+        intent = selectCollaborationMachines(report.intent, machines, newId);
+        fleet.get('mac-internal')!.online = true;
+        report = await applyCollaboration(intent, machines, request, save, now, newId);
+        expect(Object.values(report.states)).toEqual(['Connected', 'Connected']);
+        expect(report.intent.edges).toHaveLength(2);
+        expect(report.intent.edges.every((edge) => edge.setup === undefined && edge.disconnect === undefined)).toBe(true);
+
+        intent = selectCollaborationMachines(report.intent, [], newId);
+        fleet.get('mac-internal')!.online = false;
+        report = await applyCollaboration(intent, machines, request, save, now, newId);
+        for (const edge of report.intent.edges) edge.disconnect!.targetRevoked = true;
         fleet.get('mac-internal')!.online = true;
         report = await applyCollaboration(report.intent, machines, request, save, now, newId);
         expect(report.intent.edges).toEqual([]);

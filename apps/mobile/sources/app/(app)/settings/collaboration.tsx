@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from 'expo-router';
-import { Platform, Text, View } from 'react-native';
+import { Platform, Switch, Text, View } from 'react-native';
 import { useUnistyles } from 'react-native-unistyles';
 import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
@@ -22,6 +22,10 @@ import {
     type PeerRequester,
 } from '@/collaboration/computerCollaboration';
 import { requestPairedMachine } from '@/collaboration/scopedMachineClient';
+
+function showCollaborationError(cause: unknown) {
+    Modal.alert('Collaboration unavailable', cause instanceof Error ? cause.message : String(cause));
+}
 
 function platformName(value: string | undefined): string | undefined {
     switch (value?.toLowerCase()) {
@@ -91,7 +95,7 @@ export default function ComputerCollaborationScreen() {
     }, [machinesFor, requesterFor]);
 
     useFocusEffect(React.useCallback(() => {
-        void refresh().catch((cause) => Modal.alert('Collaboration unavailable', cause instanceof Error ? cause.message : String(cause)));
+        void refresh().catch(showCollaborationError);
     }, [refresh]));
 
     const rows = React.useMemo(() => {
@@ -117,6 +121,12 @@ export default function ComputerCollaborationScreen() {
             };
         });
     }, [grants, intent, liveMachines, report]);
+
+    const selectionChanged = intent !== undefined
+        && [...selected].sort().join('\0') !== [...intent.selectedMachineIds].sort().join('\0');
+    const collaborationEnabled = intent !== undefined && intent.selectedMachineIds.length >= 2;
+    const pendingCollaboration = intent !== undefined && hasPendingCollaboration(intent);
+    const disconnecting = intent?.edges.some((edge) => edge.disconnect !== undefined && edge.disconnect.repair !== true) === true;
 
     const toggle = (machineId: string, grant: StoredHostedGrant | undefined) => {
         if (busy) return;
@@ -162,17 +172,17 @@ export default function ComputerCollaborationScreen() {
         }
     };
 
-    const confirmSelection = async () => {
-        if (selected.length < 2 || selected.length > 6) {
-            Modal.alert('Select 2–6 computers', 'Computer collaboration needs at least two paired computers.');
+    const confirmSelection = async (machineIds = selected) => {
+        if (machineIds.length < 2 || machineIds.length > 6) {
+            Modal.alert('Select 2–6 computers', 'Select the computers first, then turn on the permission.');
             return;
         }
         const confirmed = await Modal.confirm(
-            'Connect these computers?',
-            'They will be able to read agent output and send prompts to one another. The computers connect directly afterward; this phone is not required to keep the connection working.',
-            { confirmText: 'Connect computers' },
+            'Allow agent collaboration?',
+            'The selected computers will be able to read agent output and send prompts to one another. They connect directly afterward; this phone is not required to keep the connection working.',
+            { confirmText: 'Allow' },
         );
-        if (confirmed) await runSelection(selected);
+        if (confirmed) await runSelection(machineIds);
     };
 
     const disconnect = async () => {
@@ -184,10 +194,15 @@ export default function ComputerCollaborationScreen() {
         if (confirmed) await runSelection([]);
     };
 
-    const selectionChanged = intent !== undefined
-        && [...selected].sort().join('\0') !== [...intent.selectedMachineIds].sort().join('\0');
-    const hasCollaboration = intent !== undefined && (intent.selectedMachineIds.length >= 2 || intent.edges.length > 0);
-    const pendingCollaboration = intent !== undefined && hasPendingCollaboration(intent);
+    const togglePermission = async (enabled: boolean) => {
+        if (busy) return;
+        try {
+            if (enabled) await confirmSelection();
+            else if (collaborationEnabled) await disconnect();
+        } finally {
+            setIntent((current) => current === undefined ? current : { ...current });
+        }
+    };
 
     return (
         <ItemList>
@@ -197,7 +212,7 @@ export default function ComputerCollaborationScreen() {
             >
                 {rows.map((row) => {
                     const checked = selected.includes(row.machineId);
-                    const state = row.collaborationState ?? (checked ? 'Setting up' : undefined);
+                    const state = row.collaborationState ?? (checked ? selectionChanged ? 'Selected' : 'Setting up' : undefined);
                     const error = report?.errors[row.machineId];
                     return (
                         <Item
@@ -226,38 +241,38 @@ export default function ComputerCollaborationScreen() {
                 )}
             </ItemGroup>
 
-            <ItemGroup title="Permissions" footer="Shell access, terminal takeover, closing workspaces, worktree landing, and arbitrary plugin calls are never included.">
+            <ItemGroup title="Permission" footer="Turn this off to revoke computer-to-computer access. Shell, terminal takeover, destructive actions, and arbitrary plugin calls are never included.">
                 <Item
-                    title="Read agent output and send prompts"
-                    subtitle="List sessions, read status and output, watch completion, and deliver prompts"
+                    title="Agent collaboration"
+                    subtitle="Read agent output, watch completion, and send prompts"
                     icon={<Ionicons name="shield-checkmark-outline" size={28} color="#5856D6" />}
-                    detail="Recommended"
+                    rightElement={(
+                        <Switch
+                            value={collaborationEnabled}
+                            disabled={busy}
+                            accessibilityLabel="Allow agent collaboration"
+                            onValueChange={(enabled) => void togglePermission(enabled).catch(showCollaborationError)}
+                        />
+                    )}
                     showChevron={false}
                 />
             </ItemGroup>
 
-            <ItemGroup>
-                <Item
-                    title={selectionChanged ? 'Confirm collaboration' : pendingCollaboration ? 'Retry setup' : 'Refresh collaboration'}
-                    subtitle="Selected computers connect directly after phone authorization"
-                    icon={<Ionicons name="git-network-outline" size={28} color="#007AFF" />}
-                    loading={busy}
-                    disabled={busy || selectionChanged && selected.length < 2}
-                    showChevron={false}
-                    onPress={() => void (selectionChanged ? confirmSelection() : refresh())}
-                />
-                {hasCollaboration && (
+            {((collaborationEnabled && selectionChanged) || pendingCollaboration) && (
+                <ItemGroup>
                     <Item
-                        title="Disconnect collaboration"
-                        subtitle="Revoke computer-to-computer access; phone pairings stay intact"
-                        icon={<Ionicons name="unlink-outline" size={28} color={theme.colors.textDestructive} />}
-                        destructive
-                        disabled={busy}
+                        title={selectionChanged ? 'Apply computer changes' : disconnecting ? 'Retry disconnection' : 'Retry connection'}
+                        subtitle={selectionChanged && selected.length < 2
+                            ? 'Select at least two computers, or turn off Agent collaboration'
+                            : disconnecting ? 'Finish revoking access when the computers are reachable' : 'Try again when every selected computer is reachable'}
+                        icon={<Ionicons name={disconnecting ? 'unlink-outline' : 'refresh-outline'} size={28} color="#007AFF" />}
+                        loading={busy}
+                        disabled={busy || selectionChanged && selected.length < 2}
                         showChevron={false}
-                        onPress={() => void disconnect()}
+                        onPress={() => void (selectionChanged ? confirmSelection() : refresh()).catch(showCollaborationError)}
                     />
-                )}
-            </ItemGroup>
+                </ItemGroup>
+            )}
 
             {Platform.OS === 'web' && (
                 <View style={{ paddingHorizontal: 24, paddingBottom: 24 }}>
