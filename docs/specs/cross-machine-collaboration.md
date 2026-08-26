@@ -1,7 +1,7 @@
 ---
 title: Cross-machine agent collaboration
 slug: cross-machine-collaboration
-status: implemented
+status: in-progress
 created: 2026-08-25
 updated: 2026-08-26
 owner: umer
@@ -202,6 +202,7 @@ The work lands as one cohesive feature PR with reviewable internal commits.
 - 2026-08-26: reopened after the third owner iteration and a Fable HOLD: add an ordinary-agent peer CLI, preserve outdated/offline/authorization causes through Settings with an explicit Connected receipt, and make CLI skill loading progressive instead of dumping every reference.
 - 2026-08-26: reopened after live owner evidence showed the collaboration screen falsely rendered an empty pairing state while remote checks were pending; render saved grants immediately and add a bounded host diagnostic journal plus `muxr diagnostics` so local agents can inspect client, relay, peer, and broker history without raw log dumps.
 - 2026-08-26: the real Android, Linux, and Hetzner journey exposed active-socket contention, owner-authority gaps, stale remote credentials, loopback peer bundles, incomplete peer-state validation, and revoked alias churn; v0.1.20 fixes each root cause and is implemented pending the remaining macOS and live voice acceptance.
+- 2026-08-26: reopened after the first real Linux and macOS ceremony produced an asymmetric relationship: Linux installed outbound Mac access, but Mac rejected its reciprocal preparation step. Preserve the safe one-way edge, expose the failing machine and phase accurately, and make repair converge without weakening peer authority.
 
 ## Verification
 
