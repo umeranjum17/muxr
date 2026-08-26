@@ -5,6 +5,7 @@ import {
     DEFAULT_PEER_CAPABILITIES,
     isPeerCapabilities,
     peerCapabilityForRequest,
+    relayControlUrl,
     type ClientRequest,
     type PeerCapability,
     type PeerClientRequest,
@@ -23,7 +24,7 @@ import {
     type PeerInstallBundlePayload,
 } from '@muxr/crypto';
 import type { PeerAuthority } from './authority.js';
-import type { PeerClientTransport } from './client.js';
+import type { PeerClientTransport, PeerConnectionDiagnostic } from './client.js';
 import { OutboundPeerService } from './outboundPeerService.js';
 import { PeerReceiptExecutor } from './receiptExecutor.js';
 import { PeerStore, type StoredPendingAuthorization, type StoredPeerRelationship } from './store.js';
@@ -47,10 +48,19 @@ export interface PeerRuntimeOptions {
     authority: PeerAuthority;
     now?: () => number;
     clientFactory?: (relationship: StoredPeerRelationship) => PeerClientTransport;
+    onConnectionDiagnostic?: (event: PeerConnectionDiagnostic) => void;
 }
 
 function operationError(message: string, code: string): Error {
     return Object.assign(new Error(message), { code });
+}
+
+function canonicalRelayUrl(value: string): string {
+    relayControlUrl(value);
+    const relay = new URL(value);
+    relay.search = '';
+    relay.hash = '';
+    return relay.toString().replace(/\/+$/, '');
 }
 
 type RemotePeerRequest = Extract<PeerClientRequest, { type: `peer.remote.${string}` }>;
@@ -96,7 +106,9 @@ export class PeerRuntime {
         this.outboundService = new OutboundPeerService({
             store: this.store,
             now: this.now,
+            sourceMachineName: options.machineName,
             ...(options.clientFactory === undefined ? {} : { clientFactory: options.clientFactory }),
+            ...(options.onConnectionDiagnostic === undefined ? {} : { onConnectionDiagnostic: options.onConnectionDiagnostic }),
         });
         this.recoveryPending = this.hasRecoveryWork();
     }
@@ -265,6 +277,16 @@ export class PeerRuntime {
         });
         if (!isPeerCapabilities(params.capabilities)) throw operationError('invalid peer capabilities', 'peer-invalid-capabilities');
         const allowedCwds = this.validateStartDirectories(params.capabilities, params.allowedCwds);
+        let targetRelayUrl: string;
+        try {
+            targetRelayUrl = canonicalRelayUrl(this.options.relayUrl);
+            if (params.targetRelayUrl !== undefined && canonicalRelayUrl(params.targetRelayUrl) !== targetRelayUrl) {
+                throw operationError('target relay assertion does not match this computer', 'peer-bundle-invalid');
+            }
+        } catch (error) {
+            if ((error as { code?: unknown }).code === 'peer-bundle-invalid') throw error;
+            throw operationError('invalid target relay endpoint', 'peer-bundle-invalid');
+        }
         if (crypto.devices.some((device) => device.devicePublicKey === claims.peerPublicKey)) {
             await this.repairOrphanDevices();
         }
@@ -290,6 +312,7 @@ export class PeerRuntime {
             peerPublicKey: claims.peerPublicKey,
             capabilities: [...params.capabilities],
             ...(allowedCwds === undefined ? {} : { allowedCwds }),
+            relayUrl: targetRelayUrl,
             createdAt: this.now(),
         };
         await this.store.putPendingAuthorization(authorization);
@@ -360,7 +383,7 @@ export class PeerRuntime {
                 targetMachineName: this.options.machineName,
                 targetPlatform: this.options.platform,
                 targetMachineSigningPublicKey: crypto.signingPublicKey,
-                relayUrl: this.options.relayUrl,
+                relayUrl: pending.relayUrl ?? this.options.relayUrl,
                 peerDeviceId: issued.peerDeviceId,
                 credential: issued.credential,
                 ...(issued.grantPath === undefined ? {} : { grantPath: issued.grantPath }),
@@ -583,6 +606,7 @@ export class PeerRuntime {
             await this.store.putRelationship({ ...relationship, state: 'revoked', updatedAt: this.now() });
         }
         await this.store.putPendingAuthorization(undefined);
+        this.refreshRecoveryState();
         return { state: 'revoked', revokedAt: this.now(), authority: issued.authority };
     }
 
@@ -767,6 +791,14 @@ export class PeerRuntime {
         if (!this.hasRecoveryWork()) return;
         this.recoveryPending = true;
         this.scheduleRecovery();
+    }
+
+    private refreshRecoveryState(): void {
+        this.recoveryPending = this.hasRecoveryWork();
+        if (this.recoveryPending || this.recoveryTimer === undefined) return;
+        clearTimeout(this.recoveryTimer);
+        this.recoveryTimer = undefined;
+        this.recoveryAttempts = 0;
     }
 
     private scheduleRecovery(): void {

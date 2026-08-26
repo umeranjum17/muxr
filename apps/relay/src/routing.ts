@@ -11,8 +11,11 @@ export interface RouteMetrics {
     pushNotified: boolean;
 }
 
+export type PeerRouteOutcome = 'delivered' | 'tenant-mismatch' | 'target-unavailable';
+
 export interface RouteContext {
     pushWebhook?: PushWebhookConfig;
+    onPeerRoute?: (outcome: PeerRouteOutcome) => void;
 }
 
 function tenantMachineKey(accountId: string, machineId: string): string {
@@ -38,6 +41,11 @@ export function routeEnvelope(
     for (const peer of peers.forMachine(machineId, targetRole, from.accountId)) {
         sendEnvelope(peer.socket, envelope);
         delivered += 1;
+    }
+    if (from.identity.kind === 'ticket' && from.identity.deviceKind === 'peer' && targetRole === 'machine') {
+        ctx.onPeerRoute?.(delivered > 0
+            ? 'delivered'
+            : peers.forMachine(machineId, targetRole).length > 0 ? 'tenant-mismatch' : 'target-unavailable');
     }
 
     if (delivered === 0 && targetRole === 'machine') {

@@ -36,7 +36,7 @@ import type { PushWebhookConfig } from './pushWebhook.js';
 import { ReplayLog } from './replay.js';
 import { MachineRegistry } from './registry.js';
 import { awaitPersistChain, writeJsonFileAtomic, readPrivateFile } from './persist.js';
-import { deliverReplayAndOffline, routeEnvelope } from './routing.js';
+import { deliverReplayAndOffline, routeEnvelope, type PeerRouteOutcome } from './routing.js';
 
 /** How long push/action waits for the machine's answer before giving up. */
 const PUSH_ACTION_TIMEOUT_MS = 15_000;
@@ -139,6 +139,12 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
     const offline = new OfflineBuffer(config.dataDir, config.bufferLimit, config.bufferTtlMs);
     const replay = new ReplayLog(config.dataDir, config.replayLimit, config.replayTtlMs);
     const startedAt = Date.now();
+    const peerRouteEvents: Array<{ at: string; event: 'peer.route'; direction: 'client-to-host'; outcome: PeerRouteOutcome }> = [];
+    const recordPeerRoute = (outcome: PeerRouteOutcome): void => {
+        const now = Date.now();
+        peerRouteEvents.push({ at: new Date(now).toISOString(), event: 'peer.route', direction: 'client-to-host', outcome });
+        while (peerRouteEvents.length > 64 || Date.parse(peerRouteEvents[0]?.at ?? '') < now - 15 * 60_000) peerRouteEvents.shift();
+    };
     const authMode = config.authMode === 'strict' ? 'strict' : 'permissive';
 
     const pushWebhook: PushWebhookConfig | undefined =
@@ -362,6 +368,17 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
             if (req.method === 'GET' && url.pathname === '/ready') {
                 const ready = options.readyCheck === undefined ? true : await options.readyCheck();
                 writeJson(res, ready ? 200 : 503, { ok: ready });
+                return;
+            }
+            if (config.localAuthority && req.method === 'GET' && url.pathname === '/v1/selfhost/route-diagnostics') {
+                const authority = await resolveAuthority(req);
+                if (!authority.owner) { writeJsonError(res, 403, 'route diagnostics require relay owner authority'); return; }
+                const cutoff = Date.now() - 15 * 60_000;
+                writeJson(res, 200, {
+                    note: 'bounded redacted peer routes; timestamps and outcomes only',
+                    windowMinutes: 15,
+                    events: peerRouteEvents.filter((event) => Date.parse(event.at) >= cutoff),
+                });
                 return;
             }
             if ((req.method === 'GET' || req.method === 'HEAD') && await serveWeb(url.pathname, req.method === 'HEAD', res)) return;
@@ -943,15 +960,28 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
     const wss = new WebSocketServer({ server: http, maxPayload: config.maxPayloadBytes });
 
     wss.on('connection', (socket, req) => {
-        void (async () => {
         const url = new URL(req.url ?? '/', 'http://localhost');
+        const relayTransport = !url.pathname.endsWith('/preview')
+            && !url.pathname.endsWith('/terminal') && !url.pathname.endsWith('/stream');
+        const ignoreAuthError = (): void => undefined;
+        const discardRejectedMessage = (): void => undefined;
+        const rejectConnection = (code: number, reason: string): void => {
+            if (relayTransport) socket.on('message', discardRejectedMessage);
+            socket.close(code, reason);
+            if (relayTransport) socket.resume();
+        };
+        if (relayTransport) {
+            socket.pause();
+            socket.on('error', ignoreAuthError);
+        }
+        void (async () => {
         if (!config.developmentApi
             && rateLimited(`ws:${clientIp(req, config.trustProxy)}`, 60, 60_000, Date.now())) {
-            socket.close(1008, 'too many requests');
+            rejectConnection(1008, 'too many requests');
             return;
         }
         if (!webSocketOriginAllowed(req, config)) {
-            socket.close(1008, 'origin not allowed');
+            rejectConnection(1008, 'origin not allowed');
             return;
         }
         const identity = await authenticateWebSocket({
@@ -972,24 +1002,28 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
 
         if (!identity) {
             process.stderr.write('rejected unauthorized WebSocket\n');
-            socket.close(1008, 'unauthorized');
+            rejectConnection(1008, 'unauthorized');
             return;
         }
         if (config.localAuthority && localPairing !== undefined && identity.kind === 'ticket'
             && identity.deviceId !== undefined && !(await localPairing.isDeviceActive(identity.deviceId, identity.credentialVersion))) {
-            socket.close(1008, 'revoked');
+            rejectConnection(1008, 'revoked');
             return;
         }
         const transport = url.pathname.endsWith('/preview')
             ? 'preview'
             : url.pathname.endsWith('/terminal') ? 'terminal' : url.pathname.endsWith('/stream') ? 'stream' : 'relay';
         if (identity.kind === 'ticket' && identity.transport !== transport) {
-            socket.close(1008, 'ticket scope mismatch');
+            rejectConnection(1008, 'ticket scope mismatch');
             return;
         }
         if (config.e2eeMode === 'on' && transport === 'preview'
             && identity.role === 'client' && url.searchParams.get('bridge') !== '1') {
-            socket.close(1008, 'encrypted preview requires the native bridge');
+            rejectConnection(1008, 'encrypted preview requires the native bridge');
+            return;
+        }
+        if (socket.readyState !== socket.OPEN) {
+            if (relayTransport) socket.off('error', ignoreAuthError);
             return;
         }
         const authenticatedSocket = { socket, identity };
@@ -1059,6 +1093,11 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
             return;
         }
 
+        if (socket.readyState !== socket.OPEN) {
+            authenticatedSockets.delete(authenticatedSocket);
+            if (relayTransport) socket.off('error', ignoreAuthError);
+            return;
+        }
         const lastSeenSeq = parseLastSeq(url);
         const peer: ConnectedPeer = {
             socket,
@@ -1110,7 +1149,7 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
                 peers,
                 offline,
                 replay,
-                pushWebhook === undefined ? {} : { pushWebhook },
+                { ...(pushWebhook === undefined ? {} : { pushWebhook }), onPeerRoute: recordPeerRoute },
             );
         });
 
@@ -1124,9 +1163,17 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
         };
         socket.on('close', detach);
         socket.on('error', detach);
+        if (relayTransport) {
+            socket.off('error', ignoreAuthError);
+            if (socket.readyState !== socket.OPEN) {
+                detach();
+                return;
+            }
+            socket.resume();
+        }
         })().catch(() => {
             process.stderr.write('WebSocket authentication failed\n');
-            socket.close(1011, 'authentication failed');
+            rejectConnection(1011, 'authentication failed');
         });
     });
 

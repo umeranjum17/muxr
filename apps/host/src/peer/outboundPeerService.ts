@@ -4,7 +4,7 @@ import type {
     PeerRequestResult,
     SessionInfo,
 } from '@muxr/contract';
-import { NodePeerClient, type PeerClientTransport } from './client.js';
+import { NodePeerClient, type PeerClientTransport, type PeerConnectionDiagnostic } from './client.js';
 import { PeerStore, type StoredPeerRelationship, type StoredSemanticMutation } from './store.js';
 
 type RemotePeerRequest = Extract<PeerClientRequest, { type: `peer.remote.${string}` }>;
@@ -13,7 +13,9 @@ type SemanticRemoteRequest = Extract<RemotePeerRequest, { type: 'peer.remote.wat
 export interface OutboundPeerServiceOptions {
     store: PeerStore;
     now: () => number;
+    sourceMachineName: string;
     clientFactory?: (relationship: StoredPeerRelationship) => PeerClientTransport;
+    onConnectionDiagnostic?: (event: PeerConnectionDiagnostic) => void;
 }
 
 function operationError(message: string, code: string): Error {
@@ -35,6 +37,8 @@ function key(value: string): string {
 export class OutboundPeerService {
     private readonly clients = new Map<string, PeerClientTransport>();
     private readonly semanticInFlight = new Map<string, Promise<unknown>>();
+    private readonly disabledRelationships = new Set<string>();
+    private closed = false;
 
     constructor(private readonly options: OutboundPeerServiceOptions) {}
 
@@ -102,11 +106,13 @@ export class OutboundPeerService {
     }
 
     closeRelationship(id: string): void {
+        this.disabledRelationships.add(id);
         this.clients.get(id)?.close();
         this.clients.delete(id);
     }
 
     close(): void {
+        this.closed = true;
         for (const client of this.clients.values()) client.close();
         this.clients.clear();
     }
@@ -210,7 +216,7 @@ export class OutboundPeerService {
             const params = stored.params as Extract<SemanticRemoteRequest, { type: 'peer.remote.prompt' }>['params'];
             await client.request('session.prompt', {
                 sessionId: params.sessionId,
-                text: params.text,
+                text: `Peer message from ${name(this.options.sourceMachineName, 'Peer computer')}:\n${params.text}`,
                 ...(params.streamingBehavior === undefined ? {} : { streamingBehavior: params.streamingBehavior }),
                 peerMutation: params.mutation,
             }, signal);
@@ -237,7 +243,8 @@ export class OutboundPeerService {
 
     private relationship(id: string): StoredPeerRelationship {
         const relationship = this.options.store.relationship(id);
-        if (relationship === undefined || relationship.direction !== 'outbound' || relationship.state !== 'connected'
+        if (this.closed || this.disabledRelationships.has(id)
+            || relationship === undefined || relationship.direction !== 'outbound' || relationship.state !== 'connected'
             || relationship.credential === undefined || relationship.peerKey === undefined || relationship.sealedGrant === undefined
             || relationship.relayUrl === undefined || relationship.targetMachineSigningPublicKey === undefined) {
             throw operationError('peer relationship is not connected', 'peer-not-connected');
@@ -246,6 +253,9 @@ export class OutboundPeerService {
     }
 
     private client(relationship: StoredPeerRelationship): PeerClientTransport {
+        if (this.closed || this.disabledRelationships.has(relationship.relationshipId)) {
+            throw operationError('peer relationship is not connected', 'peer-not-connected');
+        }
         const existing = this.clients.get(relationship.relationshipId);
         if (existing !== undefined) return existing;
         const created = this.options.clientFactory?.(relationship) ?? new NodePeerClient({
@@ -257,6 +267,7 @@ export class OutboundPeerService {
             pinnedMachineSigningPublicKey: relationship.targetMachineSigningPublicKey!,
             sealedGrant: relationship.sealedGrant!,
             ...(relationship.grantPath === undefined ? {} : { grantPath: relationship.grantPath }),
+            ...(this.options.onConnectionDiagnostic === undefined ? {} : { onConnectionDiagnostic: this.options.onConnectionDiagnostic }),
         });
         this.clients.set(relationship.relationshipId, created);
         return created;

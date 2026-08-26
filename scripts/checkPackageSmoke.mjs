@@ -18,7 +18,8 @@ import { dirname, join } from 'node:path';
 import { packageInfoFromPath, packagePathFromInput } from './packageAudit.mjs';
 
 const root = process.cwd();
-const scratch = realpathSync(mkdtempSync(join(tmpdir(), 'muxr-package-smoke-')));
+const scratchBase = process.platform === 'darwin' ? '/tmp' : tmpdir();
+const scratch = realpathSync(mkdtempSync(join(scratchBase, 'muxr-package-smoke-')));
 const tarDir = join(scratch, 'tar');
 const installDir = join(scratch, 'install');
 const home = join(scratch, 'home');
@@ -703,6 +704,7 @@ try {
     assert.match(linuxUnit, /MUXR_MODE=.*selfhost/, 'update removed the daemon mode');
     assert.ok(linuxUnit.includes(`Environment=PATH="${env.PATH}:`), 'Linux daemon dropped the interactive executable path');
     assert.ok(linuxUnit.includes(`Environment=HERDR_BIN="${env.HERDR_BIN}"`), 'Linux daemon did not pin the Herdr binary');
+    assert.match(linuxUnit, /StartLimitIntervalSec=60[\s\S]*StartLimitBurst=20/, 'Linux daemon cannot survive bounded rapid restart recovery');
     assert.equal(readFileSync(join(home, '.config', 'herdr', 'config.toml'), 'utf8'), configBefore);
     assert.equal(readFileSync(instructionPath, 'utf8'), initialInstructions, 'update rewrote agent instructions');
     assert.equal(existsSync(join(home, '.muxr', 'integrations')), false, 'update created a copied skill tree');
@@ -743,6 +745,10 @@ try {
     chmodSync(hostedAuthPath, 0o600);
     rmSync(hostedAuthPath, { force: true });
 
+    const localSelfhostPath = join(home, '.muxr', 'selfhost.json');
+    const upgradedLocalState = JSON.parse(readFileSync(localSelfhostPath, 'utf8'));
+    upgradedLocalState.machineCredential = 'machinetok_stale-upgrade';
+    writeFileSync(localSelfhostPath, `${JSON.stringify(upgradedLocalState, null, 2)}\n`, { mode: 0o600 });
     const host = spawn(cli, ['up', '--fake'], { cwd: installDir, env: { ...env, MUXR_MODE: 'selfhost' }, stdio: ['ignore', 'pipe', 'pipe'] });
     let hostOutput = '';
     host.stdout.on('data', (chunk) => { hostOutput += chunk; });
@@ -750,7 +756,9 @@ try {
     await new Promise((resolve, reject) => {
         const timer = setTimeout(() => reject(new Error(`packaged host did not start\n${hostOutput}`)), 10_000);
         const poll = setInterval(() => {
-            if (hostOutput.includes('(fake)') && existsSync(join(home, '.muxr', 'relay', 'relay.pid'))) {
+            if (hostOutput.includes('(fake)')
+                && existsSync(join(home, '.muxr', 'relay', 'relay.pid'))
+                && existsSync(join(home, '.muxr', 'host', 'peer', 'cli.json'))) {
                 clearTimeout(timer);
                 clearInterval(poll);
                 resolve();
@@ -919,5 +927,5 @@ try {
     process.stdout.write(`package smoke passed: ${tarball}\n`);
 } finally {
     stopRelayFor(join(home, '.muxr', 'relay'));
-    rmSync(scratch, { recursive: true, force: true });
+    rmSync(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 }

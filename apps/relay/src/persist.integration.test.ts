@@ -2,6 +2,7 @@ import { chmod, mkdir, mkdtemp, open, readFile, readdir, rm, stat, symlink, writ
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it, vi } from 'vitest';
+import WebSocket from 'ws';
 import type { Envelope } from '@muxr/contract';
 import { OfflineBuffer } from './buffer.js';
 import { loadRelayConfig } from './config.js';
@@ -10,6 +11,9 @@ import { PushService } from './push.js';
 import { MachineRegistry } from './registry.js';
 import { ReplayLog } from './replay.js';
 import { SelfhostPairing } from './selfhostPairing.js';
+import { PeerTable, type ConnectedPeer } from './peers.js';
+import { routeEnvelope, type PeerRouteOutcome } from './routing.js';
+import { startRelay } from './relay.js';
 
 it('keeps a browser grant recoverable until its role and durable client acknowledgement are confirmed', async () => {
     const root = await mkdtemp(join(tmpdir(), 'muxr-browser-pairing-'));
@@ -87,6 +91,50 @@ it('issues a constrained peer credential, carries its metadata through rotation,
         await expect(pairing.revokeDevice(issued.deviceId, 'machine-target')).resolves.toEqual({ machineSlug: 'machine-target' });
         await expect(pairing.resolveDeviceCredential(rotated.credential)).resolves.toBeUndefined();
         await expect(pairing.fetchCurrentGrant(issued.deviceId, 'machine-target')).resolves.toBeUndefined();
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+it('reports a self-host peer tenant mismatch instead of claiming the target is offline', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'muxr-peer-route-'));
+    try {
+        const peers = new PeerTable();
+        const socket = { OPEN: 1, readyState: 1, send: vi.fn() } as unknown as import('ws').WebSocket;
+        const target: ConnectedPeer = {
+            socket, identity: { kind: 'ticket', role: 'machine', machineIds: new Set(['mac']), accountId: 'local:mac', transport: 'relay' },
+            accountId: 'local:mac', role: 'machine', machineIds: new Set(['mac']), connectedAt: Date.now(),
+        };
+        const source: ConnectedPeer = {
+            socket: { OPEN: 1, readyState: 1, send: vi.fn() } as unknown as import('ws').WebSocket,
+            identity: {
+                kind: 'ticket', role: 'client', machineIds: new Set(['mac']), accountId: 'local:linux',
+                deviceKind: 'peer', transport: 'relay',
+            },
+            accountId: 'local:linux', role: 'client', machineIds: new Set(['mac']), connectedAt: Date.now(),
+        };
+        peers.add(target);
+        const outcomes: PeerRouteOutcome[] = [];
+        const envelope: Envelope = { header: { machineId: 'mac', seq: 1, at: Date.now() }, payload: 'opaque-ciphertext' };
+        const result = routeEnvelope(envelope, source, peers, new OfflineBuffer(root, 10, 60_000), new ReplayLog(root, 10, 60_000), {
+            onPeerRoute: (outcome) => outcomes.push(outcome),
+        });
+        expect(result).toEqual({ delivered: 0, buffered: true, pushNotified: false });
+        expect(outcomes).toEqual(['tenant-mismatch']);
+        expect(socket.send).not.toHaveBeenCalled();
+
+        const sameTenantSource: ConnectedPeer = {
+            ...source,
+            accountId: 'local:mac',
+            identity: {
+                kind: 'ticket', role: 'client', machineIds: new Set(['mac']), accountId: 'local:mac',
+                deviceKind: 'peer', transport: 'relay',
+            },
+        };
+        expect(routeEnvelope(envelope, sameTenantSource, peers, new OfflineBuffer(root, 10, 60_000), new ReplayLog(root, 10, 60_000), {
+            onPeerRoute: (outcome) => outcomes.push(outcome),
+        })).toEqual({ delivered: 1, buffered: false, pushNotified: false });
+        expect(outcomes).toEqual(['tenant-mismatch', 'delivered']);
     } finally {
         await rm(root, { recursive: true, force: true });
     }
@@ -204,6 +252,111 @@ it('hardens every relay state path in a custom data directory', async () => {
         if (previousDataDir === undefined) delete process.env.MUXR_RELAY_DATA_DIR;
         else process.env.MUXR_RELAY_DATA_DIR = previousDataDir;
         await Promise.all(originalHandles.map((handle) => handle.close()));
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+it('delivers frames sent while relay ticket authentication is pending without routing rejected peers', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'muxr-relay-auth-race-'));
+    let releaseAuthorized!: () => void;
+    let releaseRejected!: () => void;
+    const authorizedGate = new Promise<void>((resolve) => { releaseAuthorized = resolve; });
+    const rejectedGate = new Promise<void>((resolve) => { releaseRejected = resolve; });
+    const relay = await startRelay({
+        port: 0,
+        host: '127.0.0.1',
+        config: {
+            dataDir: root,
+            authMode: 'strict',
+            e2eeMode: 'off',
+            localAuthority: false,
+            developmentApi: false,
+            advertiseMdns: false,
+        },
+        consumeTicket: async (ticket) => {
+            if (ticket === 'authorized-client') {
+                await authorizedGate;
+                return {
+                    role: 'client',
+                    machineSlug: 'target',
+                    accountId: 'account',
+                    transport: 'relay',
+                };
+            }
+            if (ticket === 'rejected-client') {
+                await rejectedGate;
+                return undefined;
+            }
+            if (ticket === 'throwing-client') throw new Error('simulated authentication failure');
+            return ticket === 'host'
+                ? { role: 'machine', machineSlug: 'target', accountId: 'account', transport: 'relay' }
+                : undefined;
+        },
+    });
+    const sockets: WebSocket[] = [];
+    try {
+        const url = `ws://127.0.0.1:${relay.port}/relay`;
+        const host = new WebSocket(`${url}?ticket=host`);
+        sockets.push(host);
+        await new Promise<void>((resolve, reject) => {
+            host.once('open', resolve);
+            host.once('error', reject);
+        });
+        await vi.waitFor(async () => {
+            const response = await fetch(`http://127.0.0.1:${relay.port}/health`);
+            await expect(response.json()).resolves.toMatchObject({ connectedPeers: 1 });
+        });
+
+        const received: string[] = [];
+        host.on('message', (raw) => received.push(String(raw)));
+        const envelope = JSON.stringify({
+            header: { machineId: 'target', seq: 1, at: Date.now() },
+            payload: 'opaque-ciphertext',
+        });
+        const authorized = new WebSocket(`${url}?ticket=authorized-client`);
+        sockets.push(authorized);
+        await new Promise<void>((resolve, reject) => {
+            authorized.once('open', () => {
+                authorized.send(envelope, (error) => {
+                    if (error == null) resolve();
+                    else reject(error);
+                });
+            });
+            authorized.once('error', reject);
+        });
+        // Real WebSocket I/O cannot be advanced by fake timers; let the sent frame reach the gated server.
+        await new Promise<void>((resolve) => setTimeout(resolve, 10));
+        expect(received).toEqual([]);
+        releaseAuthorized();
+        await vi.waitFor(() => expect(received).toEqual([envelope]));
+
+        const rejected = new WebSocket(`${url}?ticket=rejected-client`);
+        sockets.push(rejected);
+        const rejectedClose = new Promise<number>((resolve, reject) => {
+            rejected.once('open', () => rejected.send(envelope));
+            rejected.once('close', resolve);
+            rejected.once('error', reject);
+        });
+        await vi.waitFor(() => expect(rejected.readyState).toBe(WebSocket.OPEN));
+        releaseRejected();
+        await expect(rejectedClose).resolves.toBe(1008);
+        expect(received).toEqual([envelope]);
+
+        const throwing = new WebSocket(`${url}?ticket=throwing-client`);
+        sockets.push(throwing);
+        const throwingClose = new Promise<number>((resolve, reject) => {
+            throwing.once('close', resolve);
+            throwing.once('error', reject);
+        });
+        await expect(throwingClose).resolves.toBe(1011);
+        await vi.waitFor(async () => {
+            const response = await fetch(`http://127.0.0.1:${relay.port}/health`);
+            await expect(response.json()).resolves.toMatchObject({ connectedPeers: 2 });
+        });
+        expect(received).toEqual([envelope]);
+    } finally {
+        for (const socket of sockets) socket.terminate();
+        await relay.close();
         await rm(root, { recursive: true, force: true });
     }
 });

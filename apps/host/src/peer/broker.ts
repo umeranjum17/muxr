@@ -2,7 +2,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { chmodSync, existsSync, lstatSync, unlinkSync } from 'node:fs';
 import { createServer, type Server, type Socket } from 'node:net';
 import { dirname } from 'node:path';
-import type { PeerRequestResult } from '@muxr/contract';
+import { PEER_MUTATION_TTL_MS, type PeerRequestResult } from '@muxr/contract';
 import { atomicWriteJson } from '../domain/atomicWriteJson.js';
 import type { PeerRuntime } from './runtime.js';
 import type { StoredPeerRelationship } from './store.js';
@@ -10,7 +10,6 @@ import type { DiagnosticOutcome, HostDiagnosticsJournal } from '../diagnostics/j
 
 const MAX_REQUEST_BYTES = 32 * 1024;
 const MAX_ACK_BYTES = 4 * 1024;
-const MUTATION_TTL_MS = 5 * 60_000;
 const PLUGIN_ACK_TIMEOUT_MS = 5_000;
 
 export type PeerBrokerRequest =
@@ -46,7 +45,9 @@ function safeVoiceOutput(value: unknown): string {
         .replace(/\b(Bearer)\s+[A-Za-z0-9._~+/-]{12,}/gi, '$1 [redacted]')
         .replace(/\b(api[_-]?key|token|secret|password)\s*[:=]\s*[^\s,;]+/gi, '$1=[redacted]')
         .replace(/\b(?:pph?_[a-z0-9]+|(?:w\d+[A-Za-z]?):(?:p|t)\d+|(?:machine|device|session|pane|rel|peer)[-_][a-z0-9_-]{6,})\b/gi, '[internal id]')
-        .replace(/(^|[\s("'])\/(?:[^\s/]+\/)+[^\s]*/gm, '$1[path hidden]')
+        .replace(/\bfile:\/\/\/(?:[^\s/]+\/)+[^\s]*/g, '[path hidden]')
+        .replace(/(?<![A-Za-z0-9_/])\/(?!\/)(?:[^\s/]+\/)+[^\s]*/gm, '[path hidden]')
+        .replace(/\b[A-Za-z]:\\(?:[^\s\\]+\\)+[^\s,;]*/g, '[path hidden]')
         .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, ' ')
         .slice(-8_000);
 }
@@ -226,7 +227,7 @@ export class PeerBroker {
                 return { machine: cleanAlias(result.machineAlias), agent: cleanAlias(result.agentAlias), status: { agentStatus: result.status.agentStatus, isStreaming: result.status.isStreaming } };
             }
             assertAccess();
-            const mutation = { operationId: `voice_${randomUUID()}`, notValidAfter: Date.now() + MUTATION_TTL_MS };
+            const mutation = { operationId: `voice_${randomUUID()}`, notValidAfter: Date.now() + PEER_MUTATION_TTL_MS };
             if (request.method === 'watch') {
                 const timeoutMs = Math.min(Math.max(Math.trunc(request.timeoutMs ?? 30_000), 1_000), 290_000);
                 const params = { sessionId: target.sessionId, timeoutMs, mutation };
@@ -298,11 +299,16 @@ export class PeerBroker {
             void (async () => {
                 try {
                     const message = object(JSON.parse(input.slice(0, newline)), 'peer broker message');
-                    only(message, ['id', 'capability', 'request']);
+                    only(message, ['id', 'capability', 'request', 'ready']);
                     id = requiredString(message.id, 'id').slice(0, 120);
                     const capability = requiredString(message.capability, 'capability');
                     const state = this.capabilities.get(capability);
                     if (state === undefined) throw new Error('peer broker capability rejected');
+                    if (message.ready !== undefined) {
+                        if (message.ready !== true || message.request !== undefined) throw new Error('invalid peer broker readiness request');
+                        reply({ ok: true, data: { ready: true } });
+                        return;
+                    }
                     const controller = new AbortController();
                     state.sockets.add(socket);
                     state.controllers.add(controller);
@@ -317,7 +323,7 @@ export class PeerBroker {
                     const request = parsePeerBrokerRequest(message.request);
                     const requestTimeout = request.method === 'watch'
                         ? Math.min(Math.max(Math.trunc(request.timeoutMs ?? 30_000), 1_000), 290_000) + 25_000
-                        : request.method === 'prompt' ? MUTATION_TTL_MS + 25_000 : 45_000;
+                        : request.method === 'prompt' ? PEER_MUTATION_TTL_MS + 25_000 : 45_000;
                     socket.setTimeout(requestTimeout, () => socket.destroy());
                     const startedAt = Date.now();
                     try {

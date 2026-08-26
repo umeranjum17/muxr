@@ -42,6 +42,8 @@ export interface StoredPendingAuthorization {
     peerPublicKey: string;
     capabilities: PeerCapability[];
     allowedCwds?: string[];
+    /** Target endpoint verified by the phone pairing and pinned into the install bundle. */
+    relayUrl?: string;
     createdAt: number;
     authorityRecovery?: PeerAuthorityIssueRecovery;
     issued?: {
@@ -102,6 +104,7 @@ function validState(value: unknown): value is PeerState {
             && (entry.direction === 'inbound' || entry.direction === 'outbound')
             && (entry.state === 'pending' || entry.state === 'connected' || entry.state === 'repair-needed'
                 || entry.state === 'disconnecting' || entry.state === 'revoked')
+            && (entry.relayUrl === undefined || typeof entry.relayUrl === 'string' && entry.relayUrl !== '')
             && (entry.machineAlias === undefined || typeof entry.machineAlias === 'string' && entry.machineAlias !== '')
             && (entry.agentAliases === undefined || typeof entry.agentAliases === 'object' && entry.agentAliases !== null
                 && Object.values(entry.agentAliases).every((alias) => typeof alias === 'string' && alias !== ''))
@@ -124,6 +127,8 @@ function validState(value: unknown): value is PeerState {
                 && typeof state.pendingAuthorization.sourceMachineId === 'string'
                 && typeof state.pendingAuthorization.peerPublicKey === 'string'
                 && isPeerCapabilities(state.pendingAuthorization.capabilities)
+                && (state.pendingAuthorization.relayUrl === undefined || typeof state.pendingAuthorization.relayUrl === 'string'
+                    && state.pendingAuthorization.relayUrl !== '')
                 && Number.isFinite(state.pendingAuthorization.createdAt));
 }
 

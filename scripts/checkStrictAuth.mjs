@@ -64,6 +64,10 @@ const post = async (path, body, token) => {
     });
     return { status: res.status, body: await res.json().catch(() => ({})) };
 };
+const get = async (path, token) => {
+    const res = await fetch(`${BASE}${path}`, { headers: token ? { authorization: `Bearer ${token}` } : {} });
+    return { status: res.status, body: await res.json().catch(() => ({})) };
+};
 
 // A tunnelled peer arrives from 127.0.0.1 with no token. It must be refused.
 if (await tryConnect('role=machine&machineId=box')) {
@@ -99,11 +103,17 @@ const clientTicket = await mint({ machineId: 'box', role: 'client', transport: '
 if (!(await tryConnect(`ticket=${encodeURIComponent(clientTicket)}`))) {
     done(1, '\nFAIL: strict relay refused a valid client ticket\n');
 }
+const publicRoutes = await get('/v1/selfhost/route-diagnostics');
+if (publicRoutes.status !== 403) done(1, '\nFAIL: relay exposed route diagnostics without owner authority\n');
+const ownerRoutes = await get('/v1/selfhost/route-diagnostics', mintSecret);
+if (ownerRoutes.status !== 200 || ownerRoutes.body.windowMinutes !== 15 || !Array.isArray(ownerRoutes.body.events)) {
+    done(1, '\nFAIL: owner could not read bounded route diagnostics\n');
+}
 
 done(
     0,
     '\nPASS: strict auth holds for remote exposure\n' +
         '      tokenless machine/client from loopback refused: yes\n' +
         '      forged token/ticket refused: yes   valid tickets accepted: yes\n' +
-        '      single-use ticket reuse refused: yes\n',
+        '      single-use ticket reuse refused: yes   route diagnostics owner-only: yes\n',
 );

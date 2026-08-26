@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { randomUUID } from 'expo-crypto';
 import {
     DEFAULT_PEER_CAPABILITIES,
+    PEER_MUTATION_TTL_MS,
     type PeerCapability,
     type PeerMutationMetadata,
     type PeerRelationship,
@@ -11,7 +12,6 @@ import {
 } from '@muxr/contract';
 
 const STORAGE_KEY = 'muxr.computer-collaboration.v1';
-const MUTATION_TTL_MS = 5 * 60_000;
 
 export const COLLABORATION_CAPABILITIES: PeerCapability[] = [...DEFAULT_PEER_CAPABILITIES];
 export type CollaborationMachineState = 'Connected' | 'Setting up' | 'Waiting for computer' | 'Repair needed' | 'Disconnecting';
@@ -115,6 +115,7 @@ function safeError(cause: unknown): string {
         case 'peer-limit': return 'This computer has reached its collaboration limit.';
         case 'peer-already-authorized': return 'This connection needs repair before setup can continue.';
         case 'peer-operation-uncertain': return 'The computer is still checking an earlier request. Retry shortly.';
+        case 'peer-recovery-pending': return 'The computer is finishing an earlier repair. Retry shortly.';
         default: return 'The computer rejected this setup step. Retry, or repair the connection if it continues.';
     }
 }
@@ -299,7 +300,7 @@ export function selectCollaborationMachines(
 function mutation(current: PeerMutationMetadata | undefined, now: number, newId: () => string): PeerMutationMetadata {
     return current !== undefined && current.notValidAfter > now
         ? current
-        : { operationId: newId(), notValidAfter: now + MUTATION_TTL_MS };
+        : { operationId: newId(), notValidAfter: now + PEER_MUTATION_TTL_MS };
 }
 
 async function listPeers(machines: CollaborationMachine[], request: PeerRequester) {
@@ -389,7 +390,7 @@ async function reconcileIntent(intent: CollaborationIntent, lists: Map<string, P
         if (edge.disconnect === undefined) {
             selected.add(entry.sourceMachineId);
             selected.add(entry.targetMachineId);
-            if (isActive(entry.outbound) && isActive(entry.inbound)) edge.setup = undefined;
+            if (isActive(entry.outbound) && isActive(entry.inbound) && edge.setup?.repairNeeded !== true) edge.setup = undefined;
             else if (lists.get(entry.sourceMachineId) !== undefined && lists.get(entry.targetMachineId) !== undefined
                 && (isActive(entry.outbound) || edge.setup === undefined)) {
                 edge.setup = { repairNeeded: true, peerDeviceId: entry.outbound?.peerDeviceId ?? entry.inbound?.peerDeviceId };
@@ -405,7 +406,7 @@ async function reconcileIntent(intent: CollaborationIntent, lists: Map<string, P
         const outbound = relationship(lists, edge.sourceMachineId, edge.relationshipId, 'outbound');
         const inbound = relationship(lists, edge.targetMachineId, edge.relationshipId, 'inbound');
         if (edge.disconnect !== undefined && sourceList !== undefined && targetList !== undefined && isGone(outbound) && isGone(inbound)) return false;
-        if (edge.disconnect === undefined && isActive(outbound) && isActive(inbound)) edge.setup = undefined;
+        if (edge.disconnect === undefined && isActive(outbound) && isActive(inbound) && edge.setup?.repairNeeded !== true) edge.setup = undefined;
         if (edge.disconnect === undefined && sourceList !== undefined && targetList !== undefined) {
             const partialRelationship = isActive(outbound) !== isActive(inbound);
             if ((edge.setup === undefined && (!isActive(outbound) || !isActive(inbound)))
@@ -422,6 +423,31 @@ async function reconcileIntent(intent: CollaborationIntent, lists: Map<string, P
     return next;
 }
 
+async function probePeerPaths(
+    intent: CollaborationIntent,
+    lists: Map<string, PeerRelationship[] | undefined>,
+    request: PeerRequester,
+): Promise<Record<string, string>> {
+    const errors: Record<string, string> = {};
+    await Promise.all(intent.edges.map(async (edge) => {
+        if (edge.setup !== undefined || edge.disconnect !== undefined
+            || lists.get(edge.sourceMachineId) === undefined || lists.get(edge.targetMachineId) === undefined
+            || !isActive(relationship(lists, edge.sourceMachineId, edge.relationshipId, 'outbound'))
+            || !isActive(relationship(lists, edge.targetMachineId, edge.relationshipId, 'inbound'))) return;
+        try {
+            await request(edge.sourceMachineId, 'peer.remote.list', { relationshipId: edge.relationshipId });
+        } catch (cause) {
+            edge.setup = {
+                repairNeeded: true,
+                peerDeviceId: relationship(lists, edge.sourceMachineId, edge.relationshipId, 'outbound')?.peerDeviceId
+                    ?? relationship(lists, edge.targetMachineId, edge.relationshipId, 'inbound')?.peerDeviceId,
+            };
+            errors[edge.sourceMachineId] = safeError(cause);
+        }
+    }));
+    return errors;
+}
+
 export async function reconcileCollaboration(
     intent: CollaborationIntent,
     machines: CollaborationMachine[],
@@ -431,12 +457,13 @@ export async function reconcileCollaboration(
     const catalog = mergeMachines(normalized, machines);
     const { lists, issues } = await listPeers(catalog, request);
     const next = await reconcileIntent({ ...normalized, machines: catalog }, lists);
+    const errors = await probePeerPaths(next, lists, request);
     return {
         intent: next,
         states: ensureMachineStates(next, lists),
         reachableMachineIds: [...lists].filter(([, peers]) => peers !== undefined).map(([id]) => id),
         issues,
-        errors: {},
+        errors,
     };
 }
 
@@ -461,9 +488,10 @@ export async function applyCollaboration(
     let listed = await listPeers(catalog, request);
     let lists = listed.lists;
     let next = await reconcileIntent({ ...normalized, machines: catalog }, lists);
+    await probePeerPaths(next, lists, request);
     await onProgress(next);
 
-    const revokeEdge = async (edge: CollaborationEdge): Promise<boolean> => {
+    const revokeEdge = async (edge: CollaborationEdge, setActiveMachine: (machineId: string | undefined) => void = () => undefined): Promise<boolean> => {
         const progress = edge.disconnect ??= { peerDeviceId: edge.setup?.peerDeviceId };
         const inbound = relationship(lists, edge.targetMachineId, edge.relationshipId, 'inbound');
         const outbound = relationship(lists, edge.sourceMachineId, edge.relationshipId, 'outbound');
@@ -472,29 +500,34 @@ export async function applyCollaboration(
             if (lists.get(edge.targetMachineId) === undefined) return false;
             progress.targetMutation = mutation(progress.targetMutation, now(), newId);
             await onProgress(next);
+            setActiveMachine(edge.targetMachineId);
             await request(edge.targetMachineId, 'peer.revoke', {
                 relationshipId: edge.relationshipId,
                 ...(progress.peerDeviceId === undefined ? {} : { peerDeviceId: progress.peerDeviceId }),
                 mutation: progress.targetMutation,
             });
+            setActiveMachine(undefined);
             progress.targetRevoked = true;
             await onProgress(next);
         }
         if (lists.get(edge.sourceMachineId) === undefined || !isGone(outbound) && progress.peerDeviceId === undefined) return false;
         progress.sourceMutation = mutation(progress.sourceMutation, now(), newId);
         await onProgress(next);
+        setActiveMachine(edge.sourceMachineId);
         await request(edge.sourceMachineId, 'peer.revoke', {
             relationshipId: edge.relationshipId,
             ...(progress.peerDeviceId === undefined ? {} : { peerDeviceId: progress.peerDeviceId }),
             mutation: progress.sourceMutation,
         });
+        setActiveMachine(undefined);
         return true;
     };
 
     for (const edge of [...next.edges]) {
         if (edge.disconnect === undefined) continue;
+        let activeMachineId: string | undefined;
         try {
-            if (await revokeEdge(edge)) {
+            if (await revokeEdge(edge, (machineId) => { activeMachineId = machineId; })) {
                 if (edge.disconnect.repair) {
                     edge.relationshipId = `rel_${newId()}`;
                     edge.disconnect = undefined;
@@ -505,9 +538,7 @@ export async function applyCollaboration(
                 await onProgress(next);
             }
         } catch (cause) {
-            const message = safeError(cause);
-            errors[edge.sourceMachineId] = message;
-            errors[edge.targetMachineId] = message;
+            errors[activeMachineId ?? edge.targetMachineId] = safeError(cause);
             // Target revocation must succeed before source cleanup. Persist and retry later.
         }
     }
@@ -525,9 +556,11 @@ export async function applyCollaboration(
     }
     for (const edge of next.edges) {
         if (!desired.has(edgeKey(edge.sourceMachineId, edge.targetMachineId)) || edge.disconnect !== undefined) continue;
-        if (isActive(relationship(lists, edge.sourceMachineId, edge.relationshipId, 'outbound'))
+        if (edge.setup?.repairNeeded !== true
+            && isActive(relationship(lists, edge.sourceMachineId, edge.relationshipId, 'outbound'))
             && isActive(relationship(lists, edge.targetMachineId, edge.relationshipId, 'inbound'))) continue;
         let activeMutation: 'prepareMutation' | 'authorizeMutation' | 'installMutation' | undefined;
+        let activeMachineId: string | undefined;
         try {
             if (edge.setup?.repairNeeded) {
                 edge.disconnect = {
@@ -535,7 +568,7 @@ export async function applyCollaboration(
                     peerDeviceId: relationship(lists, edge.sourceMachineId, edge.relationshipId, 'outbound')?.peerDeviceId
                         ?? relationship(lists, edge.targetMachineId, edge.relationshipId, 'inbound')?.peerDeviceId,
                 };
-                if (!await revokeEdge(edge)) continue;
+                if (!await revokeEdge(edge, (machineId) => { activeMachineId = machineId; })) continue;
                 edge.relationshipId = `rel_${newId()}`;
                 edge.disconnect = undefined;
                 edge.setup = {};
@@ -562,6 +595,7 @@ export async function applyCollaboration(
                 setup.peerDeviceId = undefined;
                 activeMutation = 'prepareMutation';
                 await onProgress(next);
+                activeMachineId = source.machineId;
                 const prepared = await request(source.machineId, 'peer.prepare', {
                     targetMachineId: target.machineId,
                     targetMachineSigningPublicKey: target.machineSigningPublicKey,
@@ -570,6 +604,7 @@ export async function applyCollaboration(
                     mutation: setup.prepareMutation,
                 });
                 activeMutation = undefined;
+                activeMachineId = undefined;
                 if (prepared.descriptor.claims.sourceMachineId !== source.machineId
                     || prepared.descriptor.claims.sourceMachineSigningPublicKey !== source.machineSigningPublicKey) {
                     throw new PeerHostResponseError('The source computer returned a mismatched identity.', 'peer-source-mismatch');
@@ -581,6 +616,7 @@ export async function applyCollaboration(
                 setup.authorizeMutation = mutation(setup.authorizeMutation, now(), newId);
                 activeMutation = 'authorizeMutation';
                 await onProgress(next);
+                activeMachineId = target.machineId;
                 const authorized = await request(target.machineId, 'peer.authorize', {
                     descriptor: setup.descriptor,
                     capabilities: COLLABORATION_CAPABILITIES,
@@ -588,6 +624,7 @@ export async function applyCollaboration(
                     relationshipId: edge.relationshipId,
                 });
                 activeMutation = undefined;
+                activeMachineId = undefined;
                 setup.sealedBundle = authorized.sealedBundle;
                 setup.peerDeviceId = authorized.peerDeviceId;
                 await onProgress(next);
@@ -595,6 +632,7 @@ export async function applyCollaboration(
             setup.installMutation = mutation(setup.installMutation, now(), newId);
             activeMutation = 'installMutation';
             await onProgress(next);
+            activeMachineId = source.machineId;
             await request(source.machineId, 'peer.install', {
                 targetMachineId: target.machineId,
                 sealedBundle: setup.sealedBundle,
@@ -602,6 +640,7 @@ export async function applyCollaboration(
                 relationshipId: edge.relationshipId,
             });
             activeMutation = undefined;
+            activeMachineId = undefined;
             edge.setup = undefined;
             await onProgress(next);
         } catch (cause) {
@@ -610,9 +649,7 @@ export async function applyCollaboration(
                 if (activeMutation !== undefined) edge.setup[activeMutation] = undefined;
                 await onProgress(next);
             }
-            const message = safeError(cause);
-            errors[edge.sourceMachineId] = message;
-            errors[edge.targetMachineId] = message;
+            errors[activeMachineId ?? edge.sourceMachineId] = safeError(cause);
             // Reachability and host truth are reconciled below; progress remains retryable.
         }
     }
@@ -620,6 +657,7 @@ export async function applyCollaboration(
     listed = await listPeers(catalog, request);
     lists = listed.lists;
     next = await reconcileIntent(next, lists);
+    Object.assign(errors, await probePeerPaths(next, lists, request));
     await onProgress(next);
     return {
         intent: next,

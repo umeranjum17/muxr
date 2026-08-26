@@ -8,6 +8,7 @@
 import WebSocket from 'ws';
 import { v2EnvelopeSequence } from '@muxr/crypto';
 import { HostV2Crypto, type HostedMachineKeys } from './hostedE2ee.js';
+import type { DiagnosticPeerIngressOutcome } from './diagnostics/journal.js';
 import {
     decodePayload,
     encodePayload,
@@ -26,6 +27,7 @@ export interface RelayLinkOptions {
     machineId: string;
     onClientFrame: (frame: ClientFrame, authenticatedSenderId?: string) => void;
     onStateChange?: (state: 'connecting' | 'open' | 'closed' | 'replaced') => void;
+    onPeerIngress?: (outcome: DiagnosticPeerIngressOutcome) => void;
     /** ponytail: fixed backoff. Make it adaptive when a real network says so. */
     reconnectDelayMs?: number;
     /** Mandatory strict v2 keys in hosted mode. */
@@ -134,6 +136,9 @@ export function connectToRelay(options: RelayLinkOptions): RelayLink {
             } catch {
                 return;
             }
+            const peerIngress = hosted !== undefined && envelope.header.senderId !== undefined
+                && options.hostedE2ee?.deviceKinds?.[envelope.header.senderId] === 'peer';
+            if (peerIngress) options.onPeerIngress?.('received');
             try {
                 if (envelope.header.machineId !== options.machineId) throw new Error('hosted e2ee: routing machine mismatch');
                 const plaintext = hosted === undefined
@@ -154,8 +159,10 @@ export function connectToRelay(options: RelayLinkOptions): RelayLink {
                 if (hosted !== undefined && envelope.header.channel !== (frame.type === 'attachment.read' ? 'attachment' : 'session')) {
                     throw new Error('hosted e2ee: request channel mismatch');
                 }
+                if (peerIngress) options.onPeerIngress?.('decoded');
                 options.onClientFrame(frame, hosted === undefined ? undefined : envelope.header.senderId);
             } catch {
+                if (peerIngress) options.onPeerIngress?.('decrypt-rejected');
                 /* malformed or undecryptable frame; ignore rather than kill the link */
             }
         });

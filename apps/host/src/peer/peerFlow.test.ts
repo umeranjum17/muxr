@@ -10,6 +10,8 @@ import { describe, expect, it } from 'vitest';
 import {
     DEFAULT_PEER_CAPABILITIES,
     decodePayload,
+    encodePayload,
+    relayControlUrl,
     type ClientRequest,
     type Envelope,
     type PeerClientRequest,
@@ -25,16 +27,19 @@ import {
     generateKeyPair,
     generateSigningKeyPair,
     newV2ReplayTracker,
+    newV2SenderState,
     openV2,
+    sealV2,
     v2EnvelopeSequence,
     verifyDeviceGrant,
 } from '@muxr/crypto';
 import { HostV2Crypto } from '../hostedE2ee.js';
+import { connectToRelay } from '../relayLink.js';
 import { createRequestDispatcher } from '../requests/createRequestDispatcher.js';
 import { HostDiagnosticsJournal } from '../diagnostics/journal.js';
 import type { SessionSource } from '../sessionSource.js';
 import { HttpPeerAuthority, type PeerAuthority } from './authority.js';
-import { NodePeerClient, type PeerClientRequestType, type PeerClientTransport } from './client.js';
+import { NodePeerClient, type PeerClientRequestType, type PeerClientTransport, type PeerConnectionDiagnostic } from './client.js';
 import { PeerBroker } from './broker.js';
 import { PeerRuntime } from './runtime.js';
 import type { MachineCryptoAdapter, MachineCryptoState, MachineRotationGrant } from './types.js';
@@ -153,6 +158,23 @@ async function brokerCall(socketPath: string, capability: string, request: unkno
     });
 }
 
+async function brokerReady(socketPath: string, capability: string): Promise<boolean> {
+    return new Promise((resolve, reject) => {
+        const socket = createConnection(socketPath);
+        let input = '';
+        socket.on('connect', () => socket.write(`${JSON.stringify({ id: 'ready-flow', capability, ready: true })}\n`));
+        socket.on('data', (chunk) => {
+            input += chunk.toString('utf8');
+            const newline = input.indexOf('\n');
+            if (newline === -1) return;
+            const response = JSON.parse(input.slice(0, newline)) as { id?: string; ok?: boolean; data?: { ready?: boolean } };
+            socket.destroy();
+            resolve(response.id === 'ready-flow' && response.ok === true && response.data?.ready === true);
+        });
+        socket.on('error', reject);
+    });
+}
+
 describe('host peer collaboration flow', () => {
     it('prepares, authorizes, installs, executes one fresh prompt, rejects unsafe work, and revokes', async () => {
         const root = mkdtempSync(join(tmpdir(), 'muxr-peer-flow-'));
@@ -161,6 +183,7 @@ describe('host peer collaboration flow', () => {
         const sourceAuthority = new FakeAuthority();
         const targetAuthority = new FakeAuthority();
         let prompts = 0;
+        const promptTexts: string[] = [];
         const session = {
             id: 'muxr-session-ios',
             cwd: '/work/app',
@@ -177,8 +200,8 @@ describe('host peer collaboration flow', () => {
         const pendingWaits: Array<(value: { status: string; detail: string }) => void> = [];
         const targetSource = {
             async list() { return remoteSessions; },
-            async prompt() { prompts += 1; },
-            async paneRead() { return { text: 'build complete /Users/owner/private pp_secret token=remote-secret-value', truncated: false }; },
+            async prompt(options: { text: string }) { prompts += 1; promptTexts.push(options.text); },
+            async paneRead() { return { text: 'build complete PWD=/Users/owner/private path:/private/tmp/work HOME=C:\\Users\\owner\\private pp_secret token=remote-secret-value', truncated: false }; },
             async status(sessionId: string) {
                 return { sessionId, agentStatus: 'idle', isStreaming: false, tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }, cost: 0, usageLimits: { capturedAt: new Date().toISOString(), windows: [] } };
             },
@@ -195,7 +218,7 @@ describe('host peer collaboration flow', () => {
             machineId: 'source-machine',
             machineName: 'Linux builder',
             platform: 'Linux',
-            relayUrl: 'ws://relay.test',
+            relayUrl: 'ws://source-relay.test',
             crypto: sourceKeys.adapter,
             authority: sourceAuthority,
             clientFactory: (relationship) => new class implements PeerClientTransport {
@@ -225,7 +248,7 @@ describe('host peer collaboration flow', () => {
             machineId: 'target-machine',
             machineName: 'Build Mac',
             platform: 'macOS',
-            relayUrl: 'ws://relay.test',
+            relayUrl: 'ws://target-relay.test',
             crypto: targetKeys.adapter,
             authority: targetAuthority,
         });
@@ -254,6 +277,12 @@ describe('host peer collaboration flow', () => {
             targetMachineSigningPublicKey: targetKeys.current().signingPublicKey,
             mutation: fresh('prepare'),
         });
+        await expect(call(targetRuntime, 'peer.authorize', {
+            descriptor: prepared.descriptor,
+            capabilities: [...DEFAULT_PEER_CAPABILITIES],
+            mutation: fresh('stale-relay-assertion'),
+            targetRelayUrl: 'ws://stale-third-relay.test',
+        })).rejects.toMatchObject({ code: 'peer-bundle-invalid' });
         const authorized = await call(targetRuntime, 'peer.authorize', {
             descriptor: prepared.descriptor,
             capabilities: [...DEFAULT_PEER_CAPABILITIES],
@@ -269,6 +298,7 @@ describe('host peer collaboration flow', () => {
         expect(targetKeys.current().devices[0]).toMatchObject({ kind: 'peer', capabilities: DEFAULT_PEER_CAPABILITIES });
         expect(targetKeys.current().devices[0]!.dataKey).not.toBe(targetKeys.current().dataKey);
         const outbound = sourceRuntime.store.relationship(installed.relationshipId)!;
+        expect(outbound.relayUrl).toBe('ws://target-relay.test');
         const peerGrant = verifyDeviceGrant(outbound.sealedGrant!, {
             pinnedMachineSigningPublicKey: outbound.targetMachineSigningPublicKey!,
             deviceKey: outbound.peerKey!,
@@ -308,6 +338,7 @@ describe('host peer collaboration flow', () => {
             mutation: promptMutation,
         });
         expect(prompts).toBe(1);
+        expect(promptTexts).toEqual(['Peer message from Linux builder:\nRun the iOS build']);
         await expect(call(sourceRuntime, 'peer.remote.watch', {
             relationshipId: installed.relationshipId,
             sessionId: 'muxr-session-ios',
@@ -352,7 +383,7 @@ describe('host peer collaboration flow', () => {
         targetDispatch = makeTargetDispatcher(restartedTarget).dispatch;
         await expect(targetDispatch({
             type: 'session.prompt', requestId: 'target-receipt-retry',
-            params: { sessionId: 'muxr-session-ios', text: 'Run the iOS build', peerMutation: promptMutation },
+            params: { sessionId: 'muxr-session-ios', text: 'Peer message from Linux builder:\nRun the iOS build', peerMutation: promptMutation },
         }, authorized.peerDeviceId)).resolves.toMatchObject({ ok: true });
         expect(prompts).toBe(1);
         await call(sourceRuntime, 'peer.remote.prompt', {
@@ -413,6 +444,8 @@ describe('host peer collaboration flow', () => {
         const cliAccess = await broker.issuePersistentCapability(cliFile);
         expect(statSync(broker.socketPath).mode & 0o077).toBe(0);
         expect(statSync(cliFile).mode & 0o077).toBe(0);
+        await expect(brokerReady(broker.socketPath, cliAccess.capability)).resolves.toBe(true);
+        await expect(brokerReady(broker.socketPath, 'stale-capability')).resolves.toBe(false);
         expect(JSON.parse(readFileSync(cliFile, 'utf8'))).toEqual({ version: 1, ...cliAccess });
         const listedFromCli = await peerCli(cliFile, ['list']);
         expect(listedFromCli).toMatchObject({ code: 0, stderr: '' });
@@ -427,7 +460,7 @@ describe('host peer collaboration flow', () => {
         const spokenRead = await brokerCall(broker.socketPath, access.capability, { method: 'read', machine: 'Build Mac', agent: 'iOS builder' });
         expect(spokenRead).toMatchObject({ machine: 'Build Mac', agent: 'iOS builder', truncated: false });
         expect(JSON.stringify(spokenRead)).toContain('build complete');
-        expect(JSON.stringify(spokenRead)).not.toMatch(/Users|pp_secret|remote-secret-value/);
+        expect(JSON.stringify(spokenRead)).not.toMatch(/Users|\\\\Users|private\/tmp|pp_secret|remote-secret-value/);
         const causalPrompt = { method: 'prompt', machine: 'Build Mac', agent: 'iOS builder', text: 'Report build status' };
         await expect(brokerCall(broker.socketPath, access.capability, causalPrompt, false))
             .resolves.toEqual({ machine: 'Build Mac', agent: 'iOS builder', delivered: true });
@@ -487,15 +520,22 @@ describe('host peer collaboration flow', () => {
         await expect(activeWatch).rejects.toThrow(/closed|revoked|cancelled/i);
         controlWaits = false;
         await expect(brokerCall(broker.socketPath, access.capability, { method: 'list' })).rejects.toThrow('capability rejected');
+        diagnostics.peerConnection('socket-open', 'ok', 4);
+        diagnostics.peerConnection('liveness-proof', 'timeout', 20_000, 'liveness-timeout');
+        diagnostics.request('peer.prepare', 'native', 'rejected', 1, 'peer-recovery-pending');
+        for (let index = 0; index < 600; index += 1) diagnostics.request('herdr.tree', 'native', 'ok', 1);
         await broker.close();
         await diagnostics.flush();
         expect(existsSync(cliFile)).toBe(false);
         const diagnosticsPath = join(root, 'source', 'diagnostics.json');
         expect(statSync(diagnosticsPath).mode & 0o077).toBe(0);
         const diagnosticOutput = readFileSync(diagnosticsPath, 'utf8');
-        const diagnosticEvents = (JSON.parse(diagnosticOutput) as { events: Array<{ event: string; operation?: string; outcome?: string }> }).events;
+        const diagnosticEvents = (JSON.parse(diagnosticOutput) as { events: Array<{ event: string; operation?: string; request?: string; phase?: string; outcome?: string; code?: string }> }).events;
         expect(diagnosticEvents).toContainEqual(expect.objectContaining({ event: 'peer.broker', operation: 'list', outcome: 'ok' }));
         expect(diagnosticEvents).toContainEqual(expect.objectContaining({ event: 'peer.broker', operation: 'prompt', outcome: 'ok' }));
+        expect(diagnosticEvents).toContainEqual(expect.objectContaining({ event: 'peer.connection', phase: 'liveness-proof', outcome: 'timeout' }));
+        expect(diagnosticEvents).toContainEqual(expect.objectContaining({ event: 'client.request', request: 'peer.prepare', code: 'peer-recovery-pending' }));
+        expect(diagnosticEvents).not.toContainEqual(expect.objectContaining({ event: 'client.request', request: 'herdr.tree', outcome: 'ok' }));
         expect(diagnosticOutput).not.toMatch(/target-machine|muxr-session|internal-pane-path|Report Xcode status|machineId|sessionId|relationshipId|operationId/);
         let diagnosticNow = Date.parse('2026-08-26T00:00:00.000Z');
         const recencyDiagnostics = new HostDiagnosticsJournal(join(root, 'recency'), 'test-version', () => diagnosticNow);
@@ -574,11 +614,29 @@ describe('host peer collaboration flow', () => {
         expect(crashedTarget.store.relationship(inboundRelationshipId)).toMatchObject({ state: 'revoked' });
         expect(targetAuthority.rotations).toHaveLength(1);
 
-        await call(sourceRuntime, 'peer.revoke', {
+        const putSourceRelationship = sourceRuntime.store.putRelationship.bind(sourceRuntime.store);
+        let releaseSourceRevocation!: () => void;
+        const sourceRevocationGate = new Promise<void>((resolve) => { releaseSourceRevocation = resolve; });
+        let reportSourceRevocation!: () => void;
+        const sourceRevocationStarted = new Promise<void>((resolve) => { reportSourceRevocation = resolve; });
+        sourceRuntime.store.putRelationship = async (relationship) => {
+            if (relationship.relationshipId === installed.relationshipId && relationship.state === 'revoked') {
+                reportSourceRevocation();
+                await sourceRevocationGate;
+            }
+            return putSourceRelationship(relationship);
+        };
+        const sourceRevocation = call(sourceRuntime, 'peer.revoke', {
             relationshipId: installed.relationshipId,
             peerDeviceId: authorized.peerDeviceId,
             mutation: fresh('revoke-source'),
         });
+        await sourceRevocationStarted;
+        await expect(call(sourceRuntime, 'peer.remote.list', {
+            relationshipId: installed.relationshipId,
+        })).rejects.toMatchObject({ code: 'peer-not-connected' });
+        releaseSourceRevocation();
+        await sourceRevocation;
         expect(sourceRuntime.store.list().peers).toContainEqual(expect.objectContaining({ relationshipId: installed.relationshipId, state: 'revoked', machineName: 'Build Mac' }));
     });
 
@@ -633,6 +691,80 @@ describe('host peer collaboration flow', () => {
         const recovered = await call(target, 'peer.authorize', authorize);
         expect(recovered.peerDeviceId).toBe(targetKeys.current().devices[0]!.deviceId);
         expect(targetKeys.current().devices).toHaveLength(1);
+
+        const cancelledPrepared = await call(source, 'peer.prepare', {
+            targetMachineId: 'target',
+            targetMachineSigningPublicKey: targetKeys.current().signingPublicKey,
+            descriptorExpiresAt: now + 1_000,
+            mutation: { operationId: 'prepare-cancelled-recovery', notValidAfter: now + 60_000 },
+        });
+        authority.failGrantUploads = 1;
+        await expect(call(target, 'peer.authorize', {
+            descriptor: cancelledPrepared.descriptor,
+            capabilities: [...DEFAULT_PEER_CAPABILITIES],
+            relationshipId: 'rel_cancelled_recovery',
+            mutation: { operationId: 'authorize-cancelled-recovery', notValidAfter: now + 60_000 },
+        })).rejects.toThrow('simulated grant upload interruption');
+        await expect(call(target, 'peer.revoke', {
+            relationshipId: 'rel_cancelled_recovery',
+            mutation: { operationId: 'revoke-cancelled-recovery', notValidAfter: now + 60_000 },
+        })).resolves.toMatchObject({ state: 'revoked' });
+        expect(target.store.pendingAuthorization()).toBeUndefined();
+        await expect(call(target, 'peer.prepare', {
+            targetMachineId: 'next-target',
+            targetMachineSigningPublicKey: sourceKeys.current().signingPublicKey,
+            mutation: { operationId: 'prepare-immediately-after-revoke', notValidAfter: now + 60_000 },
+        })).resolves.toMatchObject({ preparationId: expect.stringMatching(/^prep_/) });
+    });
+
+    it('records redacted peer ingress receive, rejection, and decode boundaries', async () => {
+        const machineId = 'private-target-machine';
+        const peerDeviceId = 'private-peer-device';
+        const ingressKey = randomBytes(32).toString('base64');
+        const server = new WebSocketServer({ port: 0 });
+        await new Promise<void>((resolve) => server.once('listening', resolve));
+        const address = server.address();
+        if (typeof address === 'string' || address === null) throw new Error('test websocket did not bind');
+        let accept!: (socket: import('ws').WebSocket) => void;
+        const accepted = new Promise<import('ws').WebSocket>((resolve) => { accept = resolve; });
+        server.once('connection', accept);
+        const root = mkdtempSync(join(tmpdir(), 'muxr-ingress-diagnostics-'));
+        const diagnostics = new HostDiagnosticsJournal(root, 'test-version');
+        let decoded!: () => void;
+        const decodedFrame = new Promise<void>((resolve) => { decoded = resolve; });
+        const link = connectToRelay({
+            relayUrl: `ws://127.0.0.1:${address.port}`,
+            machineId,
+            hostedE2ee: {
+                machineId, keyVersion: 1, dataKey: randomBytes(32).toString('base64'),
+                ingressKeys: { [peerDeviceId]: ingressKey }, deviceKinds: { [peerDeviceId]: 'peer' },
+            },
+            onPeerIngress: (outcome) => diagnostics.peerIngress(outcome),
+            onClientFrame: () => decoded(),
+        });
+        const socket = await accepted;
+        const header = {
+            machineId, senderId: peerDeviceId, recipientId: machineId,
+            channel: 'session' as const, streamId: 'machine', keyVersion: 1, at: Date.now(),
+        };
+        socket.send(JSON.stringify({ header: { ...header, seq: 0 }, payload: 'invalid-ciphertext' } satisfies Envelope));
+        const payload = sealV2(
+            encodePayload({ type: 'client.hello', clientId: 'private-client' }),
+            deriveV2Key(ingressKey, 'client->host'),
+            header,
+            newV2SenderState(),
+        );
+        socket.send(JSON.stringify({ header: { ...header, seq: v2EnvelopeSequence(payload) }, payload } satisfies Envelope));
+        await decodedFrame;
+        await diagnostics.flush();
+        const output = readFileSync(join(root, 'diagnostics.json'), 'utf8');
+        const state = JSON.parse(output) as { events: Array<{ event: string; outcome?: string }> };
+        expect(state.events.filter((event) => event.event === 'peer.ingress').map((event) => event.outcome))
+            .toEqual(['received', 'decrypt-rejected', 'received', 'decoded']);
+        expect(output).not.toContain(machineId);
+        expect(output).not.toContain(peerDeviceId);
+        link.close();
+        await new Promise<void>((resolve) => server.close(() => resolve()));
     });
 
     it('requires a fresh correlated host result before releasing a peer mutation', async () => {
@@ -654,6 +786,60 @@ describe('host peer collaboration flow', () => {
             deviceKind: 'peer',
             capabilities: [...DEFAULT_PEER_CAPABILITIES],
         });
+        expect(() => new NodePeerClient({
+            relayUrl: 'ws://127.0.0.1',
+            machineId: 'different-target',
+            credential: 'peer-credential',
+            peerDeviceId: deviceId,
+            peerKey,
+            pinnedMachineSigningPublicKey: machine.signingPublicKey,
+            sealedGrant,
+        })).toThrow('peer grant has the wrong target machine');
+
+        let releaseDisposedRefresh!: () => void;
+        const disposedRefreshGate = new Promise<void>((resolve) => { releaseDisposedRefresh = resolve; });
+        let reportDisposedRefresh!: () => void;
+        const disposedRefreshStarted = new Promise<void>((resolve) => { reportDisposedRefresh = resolve; });
+        let disposedFetchCalls = 0;
+        const disposedFetch = (async () => {
+            disposedFetchCalls += 1;
+            reportDisposedRefresh();
+            await disposedRefreshGate;
+            return new Response(JSON.stringify({ grant: JSON.stringify(sealedGrant) }), {
+                status: 200,
+                headers: { 'content-type': 'application/json' },
+            });
+        }) as typeof fetch;
+        const disposedClient = new NodePeerClient({
+            relayUrl: 'ws://127.0.0.1:1',
+            machineId: 'target-live',
+            credential: 'peer-credential',
+            peerDeviceId: deviceId,
+            peerKey,
+            pinnedMachineSigningPublicKey: machine.signingPublicKey,
+            sealedGrant,
+            fetch: disposedFetch,
+        });
+        const disposedRequest = expect(disposedClient.request('session.prompt', {
+            sessionId: 'private-session',
+            text: 'must not reconnect after local revocation',
+            peerMutation: { operationId: 'disposed-client-prompt', notValidAfter: Date.now() + 60_000 },
+        })).rejects.toMatchObject({ name: 'AbortError' });
+        await disposedRefreshStarted;
+        disposedClient.close();
+        releaseDisposedRefresh();
+        await disposedRequest;
+        await expect(disposedClient.connect()).rejects.toMatchObject({ name: 'AbortError' });
+        expect(disposedFetchCalls).toBe(1);
+
+        const sourceRelay = new WebSocketServer({ port: 0 });
+        let sourceRelayConnections = 0;
+        sourceRelay.on('connection', () => { sourceRelayConnections += 1; });
+        await new Promise<void>((resolve) => sourceRelay.once('listening', resolve));
+        const staleRelay = new WebSocketServer({ port: 0 });
+        let staleRelayConnections = 0;
+        staleRelay.on('connection', () => { staleRelayConnections += 1; });
+        await new Promise<void>((resolve) => staleRelay.once('listening', resolve));
         const server = new WebSocketServer({ port: 0 });
         await new Promise<void>((resolve) => server.once('listening', resolve));
         const address = server.address();
@@ -671,6 +857,7 @@ describe('host peer collaboration flow', () => {
         const promptOperationIds: string[] = [];
         const executedPrompts = new Set<string>();
         let promptExecutions = 0;
+        let answerLiveness = true;
         const hostCrypto = new HostV2Crypto({
             machineId: 'target-live', keyVersion: 1, dataKey: machine.dataKey,
             ingressKeys: { [deviceId]: ingressKey }, deviceDataKeys: { [deviceId]: peerDataKey },
@@ -698,7 +885,7 @@ describe('host peer collaboration flow', () => {
                 const frame = decodePayload<ClientRequest>(plaintext);
                 if (frame.type === 'machines.list') {
                     sawChallenge();
-                    void challengeGate.then(() => send({ type: 'result', requestId: frame.requestId, ok: true, data: [] }));
+                    if (answerLiveness) void challengeGate.then(() => send({ type: 'result', requestId: frame.requestId, ok: true, data: [] }));
                 } else if (frame.type === 'agent.watch') {
                     watchOperationIds.push(frame.params.peerMutation!.operationId);
                     sawWatch();
@@ -721,13 +908,17 @@ describe('host peer collaboration flow', () => {
                 }
             });
         });
+        const controlOrigins: string[] = [];
         const fakeFetch = (async (input: string | URL | Request) => {
-            const path = new URL(String(input)).pathname;
+            const url = new URL(String(input));
+            controlOrigins.push(url.origin);
+            const path = url.pathname;
             const body = path === '/v1/ws-tickets' ? { ticket: 'fresh-ticket' } : { grant: JSON.stringify(sealedGrant) };
             return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
         }) as typeof fetch;
         const originalFetch = globalThis.fetch;
         globalThis.fetch = fakeFetch;
+        const connectionDiagnostics: PeerConnectionDiagnostic[] = [];
         const client = new NodePeerClient({
             relayUrl,
             machineId: 'target-live',
@@ -738,7 +929,9 @@ describe('host peer collaboration flow', () => {
             sealedGrant,
             requestTimeoutMs: 2_000,
             fetch: fakeFetch,
+            onConnectionDiagnostic: (event) => connectionDiagnostics.push(event),
         });
+        let silentClient: NodePeerClient | undefined;
         let connected = false;
         try {
             const connecting = client.connect().then(() => { connected = true; });
@@ -766,10 +959,41 @@ describe('host peer collaboration flow', () => {
             })).resolves.toBeNull();
             expect(promptOperationIds).toEqual(['durable-buffered-prompt', 'durable-buffered-prompt']);
             expect(promptExecutions).toBe(1);
+            expect(sourceRelayConnections).toBe(0);
+            expect(staleRelayConnections).toBe(0);
+            expect(new Set(controlOrigins)).toEqual(new Set([new URL(relayControlUrl(relayUrl)).origin]));
+            expect(connectionDiagnostics).toEqual(expect.arrayContaining([
+                expect.objectContaining({ phase: 'grant-refresh', outcome: 'ok' }),
+                expect.objectContaining({ phase: 'ticket-issue', outcome: 'ok' }),
+                expect.objectContaining({ phase: 'socket-open', outcome: 'ok' }),
+                expect.objectContaining({ phase: 'liveness-proof', outcome: 'ok' }),
+            ]));
+
+            answerLiveness = false;
+            const timeoutDiagnostics: PeerConnectionDiagnostic[] = [];
+            silentClient = new NodePeerClient({
+                relayUrl,
+                machineId: 'target-live',
+                credential: 'peer-credential',
+                peerDeviceId: deviceId,
+                peerKey,
+                pinnedMachineSigningPublicKey: machine.signingPublicKey,
+                sealedGrant,
+                requestTimeoutMs: 50,
+                fetch: fakeFetch,
+                onConnectionDiagnostic: (event) => timeoutDiagnostics.push(event),
+            });
+            await expect(silentClient.connect()).rejects.toThrow('peer target did not prove it was live');
+            expect(timeoutDiagnostics.at(-1)).toMatchObject({ phase: 'liveness-proof', outcome: 'timeout', code: 'liveness-timeout' });
         } finally {
             client.close();
+            silentClient?.close();
             globalThis.fetch = originalFetch;
-            await new Promise<void>((resolve) => server.close(() => resolve()));
+            await Promise.all([
+                new Promise<void>((resolve) => server.close(() => resolve())),
+                new Promise<void>((resolve) => sourceRelay.close(() => resolve())),
+                new Promise<void>((resolve) => staleRelay.close(() => resolve())),
+            ]);
         }
     });
 

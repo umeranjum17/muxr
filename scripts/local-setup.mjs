@@ -3,6 +3,7 @@ import nacl from 'tweetnacl';
 import QRCode from 'qrcode';
 import { fileURLToPath } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
+import { createConnection } from 'node:net';
 import {
     chmodSync,
     existsSync,
@@ -995,10 +996,22 @@ function daemonDefinition(mode) {
         // No After=network-online.target: it does not exist in the systemd user
         // manager and reads as ordering while being a silent no-op. The host
         // and relay retry their own connections instead.
-        const content = `[Unit]\nDescription=muxr host bridge\n\n[Service]\nExecStart=${systemdArg(process.execPath)} ${systemdArg(cli)} up\n${modeEnv ? `${modeEnv}\n` : ''}Restart=on-failure\nRestartSec=3\n\n[Install]\nWantedBy=default.target\n`;
+        const content = `[Unit]\nDescription=muxr host bridge\nStartLimitIntervalSec=60\nStartLimitBurst=20\n\n[Service]\nExecStart=${systemdArg(process.execPath)} ${systemdArg(cli)} up\n${modeEnv ? `${modeEnv}\n` : ''}Restart=on-failure\nRestartSec=3\n\n[Install]\nWantedBy=default.target\n`;
         return { path, content, mode: 0o600 };
     }
     throw new Error('daemon services support Linux and macOS; use WSL on Windows');
+}
+
+const launchdRetrySignal = new Int32Array(new SharedArrayBuffer(4));
+
+function bootstrapMacService(domain, plist) {
+    let result = run('launchctl', ['bootstrap', domain, plist]);
+    for (let attempt = 0; !result.ok && attempt < 19
+        && /Bootstrap failed:\s*5\b|Input\/output error/i.test(`${result.stdout}\n${result.stderr}`); attempt += 1) {
+        Atomics.wait(launchdRetrySignal, 0, 0, 100);
+        result = run('launchctl', ['bootstrap', domain, plist]);
+    }
+    return result;
 }
 
 function serviceCommand(action) {
@@ -1009,22 +1022,13 @@ function serviceCommand(action) {
         const service = `${domain}/${label}`;
         const plist = join(home(), 'Library', 'LaunchAgents', 'com.muxr.host.plist');
         if (action === 'reload') return { ok: true, stdout: '', stderr: '' };
-        if (action === 'start') {
+        if (action === 'start' || action === 'restart') {
             const loaded = run('launchctl', ['print', service]);
             if (loaded.ok) {
                 const unloaded = run('launchctl', ['bootout', service]);
                 if (!unloaded.ok) return unloaded;
             }
-            const bootstrapped = run('launchctl', ['bootstrap', domain, plist]);
-            return bootstrapped.ok ? run('launchctl', ['kickstart', '-k', service]) : bootstrapped;
-        }
-        if (action === 'restart') {
-            const loaded = run('launchctl', ['print', service]);
-            if (loaded.ok) {
-                const unloaded = run('launchctl', ['bootout', service]);
-                if (!unloaded.ok) return unloaded;
-            }
-            const bootstrapped = run('launchctl', ['bootstrap', domain, plist]);
+            const bootstrapped = bootstrapMacService(domain, plist);
             return bootstrapped.ok ? run('launchctl', ['kickstart', '-k', service]) : bootstrapped;
         }
         if (action === 'stop' || action === 'unload') return run('launchctl', ['bootout', service]);
@@ -1050,6 +1054,63 @@ function serviceCommand(action) {
 
 export function daemonIsRunning() {
     return serviceCommand('status').ok;
+}
+
+function readPeerBrokerAccess() {
+    const accessPath = join(stateDir(), 'host', 'peer', 'cli.json');
+    try {
+        const info = lstatSync(accessPath);
+        const access = JSON.parse(readFileSync(accessPath, 'utf8'));
+        return info.isFile() && !info.isSymbolicLink() && (info.mode & 0o077) === 0
+            && access?.version === 1 && typeof access.socketPath === 'string' && isAbsolute(access.socketPath)
+            && typeof access.capability === 'string' && /^[A-Za-z0-9_-]{40,80}$/.test(access.capability)
+            ? { socketPath: access.socketPath, capability: access.capability }
+            : undefined;
+    } catch {
+        return undefined;
+    }
+}
+
+async function waitForPeerBrokerReady(previousCapability, timeoutMs = 15_000) {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+        const access = readPeerBrokerAccess();
+        if (access !== undefined && access.capability !== previousCapability) {
+            const authenticated = await new Promise((resolve) => {
+                const socket = createConnection(access.socketPath);
+                let input = '';
+                let settled = false;
+                const finish = (ready) => {
+                    if (settled) return;
+                    settled = true;
+                    socket.destroy();
+                    resolve(ready);
+                };
+                socket.setTimeout(500, () => finish(false));
+                socket.once('connect', () => socket.write(`${JSON.stringify({
+                    id: 'daemon-readiness',
+                    capability: access.capability,
+                    ready: true,
+                })}\n`));
+                socket.on('data', (chunk) => {
+                    input += chunk.toString('utf8');
+                    const newline = input.indexOf('\n');
+                    if (newline === -1) return;
+                    try {
+                        const response = JSON.parse(input.slice(0, newline));
+                        finish(response?.id === 'daemon-readiness' && response.ok === true && response.data?.ready === true);
+                    } catch {
+                        finish(false);
+                    }
+                });
+                socket.once('error', () => finish(false));
+                socket.once('close', () => finish(false));
+            });
+            if (authenticated) return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    throw new Error('peer access did not become ready after the muxr service started');
 }
 
 export function daemonMode() {
@@ -1081,7 +1142,7 @@ function selfhostControlBase(state) {
 }
 
 function selfhostCredential(state) {
-    return typeof state?.machineCredential === 'string' ? state.machineCredential : state?.mintSecret;
+    return typeof state?.mintSecret === 'string' ? state.mintSecret : state?.machineCredential;
 }
 
 async function selfhostRelayHealthy(state) {
@@ -1217,8 +1278,13 @@ export async function runDaemon(args = []) {
             return result.ok ? 0 : 1;
         }
         if (!['start', 'stop', 'restart', 'status'].includes(action)) throw new Error('usage: muxr daemon install|uninstall|start|stop|restart|status|logs');
+        const installedMode = daemonMode();
+        const serviceWasRunning = (action === 'start' || action === 'restart') && daemonIsRunning();
+        const replacesService = action === 'restart'
+            || action === 'start' && (platform() === 'darwin' || !serviceWasRunning);
+        const previousPeerCapability = replacesService ? readPeerBrokerAccess()?.capability : undefined;
         let herdrFailure;
-        if ((action === 'start' || action === 'restart') && daemonMode() !== 'relay') {
+        if ((action === 'start' || action === 'restart') && installedMode !== 'relay') {
             try { await ensureHerdrServer(undefined, false, args.includes('--quiet')); }
             catch (cause) { herdrFailure = cause; }
         }
@@ -1228,6 +1294,15 @@ export async function runDaemon(args = []) {
             if (action === 'status') print('muxr service is stopped or unavailable.');
             else error(result.stderr || result.stdout || `muxr service ${action} failed`);
             return 1;
+        }
+        if (!dryRun && env('MUXR_NO_SERVICE_COMMANDS') !== '1'
+            && (action === 'start' || action === 'restart')
+            && (installedMode === 'selfhost' || installedMode === 'hosted')) {
+            try { await waitForPeerBrokerReady(previousPeerCapability); }
+            catch (cause) {
+                error(cause instanceof Error ? cause.message : String(cause));
+                return 1;
+            }
         }
         if (herdrFailure !== undefined) {
             error(`  warn: muxr service ${action === 'restart' ? 'restarted' : 'started'}, but Herdr did not recover: ${herdrFailure instanceof Error ? herdrFailure.message : String(herdrFailure)}`);
