@@ -158,6 +158,23 @@ async function brokerCall(socketPath: string, capability: string, request: unkno
     });
 }
 
+async function brokerReady(socketPath: string, capability: string): Promise<boolean> {
+    return new Promise((resolve, reject) => {
+        const socket = createConnection(socketPath);
+        let input = '';
+        socket.on('connect', () => socket.write(`${JSON.stringify({ id: 'ready-flow', capability, ready: true })}\n`));
+        socket.on('data', (chunk) => {
+            input += chunk.toString('utf8');
+            const newline = input.indexOf('\n');
+            if (newline === -1) return;
+            const response = JSON.parse(input.slice(0, newline)) as { id?: string; ok?: boolean; data?: { ready?: boolean } };
+            socket.destroy();
+            resolve(response.id === 'ready-flow' && response.ok === true && response.data?.ready === true);
+        });
+        socket.on('error', reject);
+    });
+}
+
 describe('host peer collaboration flow', () => {
     it('prepares, authorizes, installs, executes one fresh prompt, rejects unsafe work, and revokes', async () => {
         const root = mkdtempSync(join(tmpdir(), 'muxr-peer-flow-'));
@@ -184,7 +201,7 @@ describe('host peer collaboration flow', () => {
         const targetSource = {
             async list() { return remoteSessions; },
             async prompt(options: { text: string }) { prompts += 1; promptTexts.push(options.text); },
-            async paneRead() { return { text: 'build complete /Users/owner/private pp_secret token=remote-secret-value', truncated: false }; },
+            async paneRead() { return { text: 'build complete PWD=/Users/owner/private HOME=C:\\Users\\owner\\private pp_secret token=remote-secret-value', truncated: false }; },
             async status(sessionId: string) {
                 return { sessionId, agentStatus: 'idle', isStreaming: false, tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }, cost: 0, usageLimits: { capturedAt: new Date().toISOString(), windows: [] } };
             },
@@ -427,6 +444,8 @@ describe('host peer collaboration flow', () => {
         const cliAccess = await broker.issuePersistentCapability(cliFile);
         expect(statSync(broker.socketPath).mode & 0o077).toBe(0);
         expect(statSync(cliFile).mode & 0o077).toBe(0);
+        await expect(brokerReady(broker.socketPath, cliAccess.capability)).resolves.toBe(true);
+        await expect(brokerReady(broker.socketPath, 'stale-capability')).resolves.toBe(false);
         expect(JSON.parse(readFileSync(cliFile, 'utf8'))).toEqual({ version: 1, ...cliAccess });
         const listedFromCli = await peerCli(cliFile, ['list']);
         expect(listedFromCli).toMatchObject({ code: 0, stderr: '' });
@@ -441,7 +460,7 @@ describe('host peer collaboration flow', () => {
         const spokenRead = await brokerCall(broker.socketPath, access.capability, { method: 'read', machine: 'Build Mac', agent: 'iOS builder' });
         expect(spokenRead).toMatchObject({ machine: 'Build Mac', agent: 'iOS builder', truncated: false });
         expect(JSON.stringify(spokenRead)).toContain('build complete');
-        expect(JSON.stringify(spokenRead)).not.toMatch(/Users|pp_secret|remote-secret-value/);
+        expect(JSON.stringify(spokenRead)).not.toMatch(/Users|\\\\Users|pp_secret|remote-secret-value/);
         const causalPrompt = { method: 'prompt', machine: 'Build Mac', agent: 'iOS builder', text: 'Report build status' };
         await expect(brokerCall(broker.socketPath, access.capability, causalPrompt, false))
             .resolves.toEqual({ machine: 'Build Mac', agent: 'iOS builder', delivered: true });

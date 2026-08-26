@@ -1056,32 +1056,57 @@ export function daemonIsRunning() {
     return serviceCommand('status').ok;
 }
 
-async function waitForPeerBrokerReady(timeoutMs = 15_000) {
+function readPeerBrokerAccess() {
     const accessPath = join(stateDir(), 'host', 'peer', 'cli.json');
+    try {
+        const info = lstatSync(accessPath);
+        const access = JSON.parse(readFileSync(accessPath, 'utf8'));
+        return info.isFile() && !info.isSymbolicLink() && (info.mode & 0o077) === 0
+            && access?.version === 1 && typeof access.socketPath === 'string' && isAbsolute(access.socketPath)
+            && typeof access.capability === 'string' && /^[A-Za-z0-9_-]{40,80}$/.test(access.capability)
+            ? { socketPath: access.socketPath, capability: access.capability }
+            : undefined;
+    } catch {
+        return undefined;
+    }
+}
+
+async function waitForPeerBrokerReady(previousCapability, timeoutMs = 15_000) {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
-        try {
-            const info = lstatSync(accessPath);
-            const access = JSON.parse(readFileSync(accessPath, 'utf8'));
-            if (info.isFile() && !info.isSymbolicLink() && (info.mode & 0o077) === 0
-                && typeof access?.socketPath === 'string' && isAbsolute(access.socketPath)) {
-                const connected = await new Promise((resolve) => {
-                    const socket = createConnection(access.socketPath);
-                    let settled = false;
-                    const finish = (ready) => {
-                        if (settled) return;
-                        settled = true;
-                        socket.destroy();
-                        resolve(ready);
-                    };
-                    socket.setTimeout(500, () => finish(false));
-                    socket.once('connect', () => finish(true));
-                    socket.once('error', () => finish(false));
+        const access = readPeerBrokerAccess();
+        if (access !== undefined && access.capability !== previousCapability) {
+            const authenticated = await new Promise((resolve) => {
+                const socket = createConnection(access.socketPath);
+                let input = '';
+                let settled = false;
+                const finish = (ready) => {
+                    if (settled) return;
+                    settled = true;
+                    socket.destroy();
+                    resolve(ready);
+                };
+                socket.setTimeout(500, () => finish(false));
+                socket.once('connect', () => socket.write(`${JSON.stringify({
+                    id: 'daemon-readiness',
+                    capability: access.capability,
+                    ready: true,
+                })}\n`));
+                socket.on('data', (chunk) => {
+                    input += chunk.toString('utf8');
+                    const newline = input.indexOf('\n');
+                    if (newline === -1) return;
+                    try {
+                        const response = JSON.parse(input.slice(0, newline));
+                        finish(response?.id === 'daemon-readiness' && response.ok === true && response.data?.ready === true);
+                    } catch {
+                        finish(false);
+                    }
                 });
-                if (connected) return;
-            }
-        } catch {
-            // The daemon rewrites access atomically after its peer broker starts.
+                socket.once('error', () => finish(false));
+                socket.once('close', () => finish(false));
+            });
+            if (authenticated) return;
         }
         await new Promise((resolve) => setTimeout(resolve, 100));
     }
@@ -1253,8 +1278,11 @@ export async function runDaemon(args = []) {
             return result.ok ? 0 : 1;
         }
         if (!['start', 'stop', 'restart', 'status'].includes(action)) throw new Error('usage: muxr daemon install|uninstall|start|stop|restart|status|logs');
+        const installedMode = daemonMode();
+        const previousPeerCapability = action === 'start' || action === 'restart'
+            ? readPeerBrokerAccess()?.capability : undefined;
         let herdrFailure;
-        if ((action === 'start' || action === 'restart') && daemonMode() !== 'relay') {
+        if ((action === 'start' || action === 'restart') && installedMode !== 'relay') {
             try { await ensureHerdrServer(undefined, false, args.includes('--quiet')); }
             catch (cause) { herdrFailure = cause; }
         }
@@ -1265,11 +1293,10 @@ export async function runDaemon(args = []) {
             else error(result.stderr || result.stdout || `muxr service ${action} failed`);
             return 1;
         }
-        const installedMode = daemonMode();
         if (!dryRun && env('MUXR_NO_SERVICE_COMMANDS') !== '1'
             && (action === 'start' || action === 'restart')
             && (installedMode === 'selfhost' || installedMode === 'hosted')) {
-            try { await waitForPeerBrokerReady(); }
+            try { await waitForPeerBrokerReady(previousPeerCapability); }
             catch (cause) {
                 error(cause instanceof Error ? cause.message : String(cause));
                 return 1;
