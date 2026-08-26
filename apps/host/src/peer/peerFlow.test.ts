@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest';
 import {
     DEFAULT_PEER_CAPABILITIES,
     decodePayload,
+    encodePayload,
     type ClientRequest,
     type Envelope,
     type PeerClientRequest,
@@ -25,11 +26,14 @@ import {
     generateKeyPair,
     generateSigningKeyPair,
     newV2ReplayTracker,
+    newV2SenderState,
     openV2,
+    sealV2,
     v2EnvelopeSequence,
     verifyDeviceGrant,
 } from '@muxr/crypto';
 import { HostV2Crypto } from '../hostedE2ee.js';
+import { connectToRelay } from '../relayLink.js';
 import { createRequestDispatcher } from '../requests/createRequestDispatcher.js';
 import { HostDiagnosticsJournal } from '../diagnostics/journal.js';
 import type { SessionSource } from '../sessionSource.js';
@@ -640,6 +644,56 @@ describe('host peer collaboration flow', () => {
         const recovered = await call(target, 'peer.authorize', authorize);
         expect(recovered.peerDeviceId).toBe(targetKeys.current().devices[0]!.deviceId);
         expect(targetKeys.current().devices).toHaveLength(1);
+    });
+
+    it('records redacted peer ingress receive, rejection, and decode boundaries', async () => {
+        const machineId = 'private-target-machine';
+        const peerDeviceId = 'private-peer-device';
+        const ingressKey = randomBytes(32).toString('base64');
+        const server = new WebSocketServer({ port: 0 });
+        await new Promise<void>((resolve) => server.once('listening', resolve));
+        const address = server.address();
+        if (typeof address === 'string' || address === null) throw new Error('test websocket did not bind');
+        let accept!: (socket: import('ws').WebSocket) => void;
+        const accepted = new Promise<import('ws').WebSocket>((resolve) => { accept = resolve; });
+        server.once('connection', accept);
+        const root = mkdtempSync(join(tmpdir(), 'muxr-ingress-diagnostics-'));
+        const diagnostics = new HostDiagnosticsJournal(root, 'test-version');
+        let decoded!: () => void;
+        const decodedFrame = new Promise<void>((resolve) => { decoded = resolve; });
+        const link = connectToRelay({
+            relayUrl: `ws://127.0.0.1:${address.port}`,
+            machineId,
+            hostedE2ee: {
+                machineId, keyVersion: 1, dataKey: randomBytes(32).toString('base64'),
+                ingressKeys: { [peerDeviceId]: ingressKey }, deviceKinds: { [peerDeviceId]: 'peer' },
+            },
+            onPeerIngress: (outcome) => diagnostics.peerIngress(outcome),
+            onClientFrame: () => decoded(),
+        });
+        const socket = await accepted;
+        const header = {
+            machineId, senderId: peerDeviceId, recipientId: machineId,
+            channel: 'session' as const, streamId: 'machine', keyVersion: 1, at: Date.now(),
+        };
+        socket.send(JSON.stringify({ header: { ...header, seq: 0 }, payload: 'invalid-ciphertext' } satisfies Envelope));
+        const payload = sealV2(
+            encodePayload({ type: 'client.hello', clientId: 'private-client' }),
+            deriveV2Key(ingressKey, 'client->host'),
+            header,
+            newV2SenderState(),
+        );
+        socket.send(JSON.stringify({ header: { ...header, seq: v2EnvelopeSequence(payload) }, payload } satisfies Envelope));
+        await decodedFrame;
+        await diagnostics.flush();
+        const output = readFileSync(join(root, 'diagnostics.json'), 'utf8');
+        const state = JSON.parse(output) as { events: Array<{ event: string; outcome?: string }> };
+        expect(state.events.filter((event) => event.event === 'peer.ingress').map((event) => event.outcome))
+            .toEqual(['received', 'decrypt-rejected', 'received', 'decoded']);
+        expect(output).not.toContain(machineId);
+        expect(output).not.toContain(peerDeviceId);
+        link.close();
+        await new Promise<void>((resolve) => server.close(() => resolve()));
     });
 
     it('requires a fresh correlated host result before releasing a peer mutation', async () => {

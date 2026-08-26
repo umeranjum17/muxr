@@ -13,6 +13,7 @@ export type DiagnosticOutcome = 'ok' | 'rejected' | 'timeout' | 'unavailable';
 export type DiagnosticRelayState = 'connecting' | 'open' | 'closed' | 'replaced';
 export type DiagnosticBrokerOperation = 'list' | 'read' | 'status' | 'watch' | 'prompt';
 export type DiagnosticPeerConnectionPhase = 'grant-refresh' | 'ticket-issue' | 'socket-open' | 'liveness-proof';
+export type DiagnosticPeerIngressOutcome = 'received' | 'decrypt-rejected' | 'decoded';
 
 type ClientCounts = Record<DiagnosticClientKind, number>;
 type RelationshipCounts = Record<'pending' | 'connected' | 'repair-needed' | 'disconnecting' | 'revoked', number>;
@@ -24,6 +25,7 @@ export type HostDiagnosticEvent =
     | { at: string; event: 'client.hello'; clientKind: DiagnosticClientKind; recentClients: ClientCounts }
     | { at: string; event: 'client.request'; clientKind: DiagnosticClientKind; request: RequestType; outcome: DiagnosticOutcome; durationMs: number; code?: string }
     | { at: string; event: 'peer.connection'; direction: 'outbound'; phase: DiagnosticPeerConnectionPhase; outcome: DiagnosticOutcome; durationMs: number; code?: string }
+    | { at: string; event: 'peer.ingress'; direction: 'inbound'; outcome: DiagnosticPeerIngressOutcome }
     | { at: string; event: 'peer.broker'; operation: DiagnosticBrokerOperation; outcome: DiagnosticOutcome; durationMs: number; code?: string };
 
 interface HostDiagnosticState {
@@ -138,6 +140,10 @@ export class HostDiagnosticsJournal {
             durationMs: Math.max(0, Math.min(Math.round(durationMs), 10 * 60_000)),
             ...(normalizedCode === undefined ? {} : { code: normalizedCode }),
         });
+    }
+
+    peerIngress(outcome: DiagnosticPeerIngressOutcome): void {
+        this.record({ at: this.timestamp(), event: 'peer.ingress', direction: 'inbound', outcome });
     }
 
     broker(operation: DiagnosticBrokerOperation, outcome: DiagnosticOutcome, durationMs: number, code?: string): void {

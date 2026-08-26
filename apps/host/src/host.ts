@@ -114,6 +114,7 @@ export function startHost(options: HostOptions): Host {
         machineId: options.machineId,
         ...(options.hostedE2ee === undefined ? {} : { hostedE2ee: options.hostedE2ee }),
         ...(options.token === undefined ? {} : { token: options.token }),
+        onPeerIngress: (outcome) => options.diagnostics?.peerIngress(outcome),
         onStateChange: (state) => {
             options.diagnostics?.relay(state);
             options.onStateChange?.(state);
