@@ -1002,6 +1002,18 @@ function daemonDefinition(mode) {
     throw new Error('daemon services support Linux and macOS; use WSL on Windows');
 }
 
+const launchdRetrySignal = new Int32Array(new SharedArrayBuffer(4));
+
+function bootstrapMacService(domain, plist) {
+    let result = run('launchctl', ['bootstrap', domain, plist]);
+    for (let attempt = 0; !result.ok && attempt < 19
+        && /Bootstrap failed:\s*5\b|Input\/output error/i.test(`${result.stdout}\n${result.stderr}`); attempt += 1) {
+        Atomics.wait(launchdRetrySignal, 0, 0, 100);
+        result = run('launchctl', ['bootstrap', domain, plist]);
+    }
+    return result;
+}
+
 function serviceCommand(action) {
     if (env('MUXR_NO_SERVICE_COMMANDS') === '1') return { ok: true, stdout: 'service command skipped by test environment', stderr: '' };
     if (platform() === 'darwin') {
@@ -1010,22 +1022,13 @@ function serviceCommand(action) {
         const service = `${domain}/${label}`;
         const plist = join(home(), 'Library', 'LaunchAgents', 'com.muxr.host.plist');
         if (action === 'reload') return { ok: true, stdout: '', stderr: '' };
-        if (action === 'start') {
+        if (action === 'start' || action === 'restart') {
             const loaded = run('launchctl', ['print', service]);
             if (loaded.ok) {
                 const unloaded = run('launchctl', ['bootout', service]);
                 if (!unloaded.ok) return unloaded;
             }
-            const bootstrapped = run('launchctl', ['bootstrap', domain, plist]);
-            return bootstrapped.ok ? run('launchctl', ['kickstart', '-k', service]) : bootstrapped;
-        }
-        if (action === 'restart') {
-            const loaded = run('launchctl', ['print', service]);
-            if (loaded.ok) {
-                const unloaded = run('launchctl', ['bootout', service]);
-                if (!unloaded.ok) return unloaded;
-            }
-            const bootstrapped = run('launchctl', ['bootstrap', domain, plist]);
+            const bootstrapped = bootstrapMacService(domain, plist);
             return bootstrapped.ok ? run('launchctl', ['kickstart', '-k', service]) : bootstrapped;
         }
         if (action === 'stop' || action === 'unload') return run('launchctl', ['bootout', service]);
