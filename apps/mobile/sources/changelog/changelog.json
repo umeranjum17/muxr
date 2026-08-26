@@ -3,7 +3,7 @@
     {
       "title": "Computers that work together",
       "summary": "Authorize paired computers to read, watch, and prompt one another safely.",
-      "markdown": "- Select paired computers in Settings and use one explicit Agent collaboration permission switch.\n- Let agents list sessions, read output and status, watch completion, and send prompts across allowed computers without granting shell or destructive access.\n- Keep native realtime voice pinned to one machine while it works with allowed agents elsewhere.\n- Load the complete public agent guide explicitly with `muxr --skill`; setup and updates never rewrite agent instructions."
+      "markdown": "- Select paired computers in Settings and see saved computers immediately while live collaboration checks finish.\n- Let agents list sessions, read output and status, watch completion, and send prompts across allowed computers without granting shell or destructive access.\n- Keep native realtime voice pinned to one machine while it works with allowed agents elsewhere.\n- Load the compact public agent guide with `muxr --skill`, focused topics on demand, and bounded host history with `muxr diagnostics`; setup and updates never rewrite agent instructions."
     },
     {
       "title": "Pairing that stays paired",

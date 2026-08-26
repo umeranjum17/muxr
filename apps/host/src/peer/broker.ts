@@ -6,6 +6,7 @@ import type { PeerRequestResult } from '@muxr/contract';
 import { atomicWriteJson } from '../domain/atomicWriteJson.js';
 import type { PeerRuntime } from './runtime.js';
 import type { StoredPeerRelationship } from './store.js';
+import type { DiagnosticOutcome, HostDiagnosticsJournal } from '../diagnostics/journal.js';
 
 const MAX_REQUEST_BYTES = 32 * 1024;
 const MAX_ACK_BYTES = 4 * 1024;
@@ -113,7 +114,7 @@ export class PeerBroker {
     private readonly capabilities = new Map<string, CapabilityState>();
     private readonly accessFiles = new Map<string, string>();
 
-    constructor(readonly socketPath: string, private readonly runtime: PeerRuntime) {}
+    constructor(readonly socketPath: string, private readonly runtime: PeerRuntime, private readonly diagnostics?: HostDiagnosticsJournal) {}
 
     async start(): Promise<void> {
         if (this.server !== undefined) return;
@@ -318,6 +319,7 @@ export class PeerBroker {
                         ? Math.min(Math.max(Math.trunc(request.timeoutMs ?? 30_000), 1_000), 290_000) + 25_000
                         : request.method === 'prompt' ? MUTATION_TTL_MS + 25_000 : 45_000;
                     socket.setTimeout(requestTimeout, () => socket.destroy());
+                    const startedAt = Date.now();
                     try {
                         let semantic: SemanticBrokerRequest | undefined;
                         const data = await this.invoke(request, {
@@ -328,6 +330,14 @@ export class PeerBroker {
                         if (controller.signal.aborted) return;
                         if (semantic === undefined) reply({ ok: true, data });
                         else await this.awaitPluginAck(socket, id, capability, semantic, data);
+                        this.diagnostics?.broker(request.method, 'ok', Date.now() - startedAt);
+                    } catch (error) {
+                        const message = error instanceof Error ? error.message : '';
+                        const outcome: DiagnosticOutcome = /timed out/i.test(message) ? 'timeout'
+                            : /unavailable/i.test(message) ? 'unavailable' : 'rejected';
+                        const code = (error as { code?: unknown }).code;
+                        this.diagnostics?.broker(request.method, outcome, Date.now() - startedAt, typeof code === 'string' ? code : undefined);
+                        throw error;
                     } finally {
                         cleanup();
                     }

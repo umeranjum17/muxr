@@ -117,7 +117,8 @@ endpoint from their pairing grant. Plugin and agent changes sync live.
 ```bash
 muxr update                    # check, confirm, update, and restart
 muxr update --check            # check without changing anything
-muxr doctor                    # redacted setup diagnostics
+muxr doctor                    # current setup health
+muxr diagnostics               # bounded redacted host/client history
 muxr daemon status|logs|start|stop|restart
 muxr setup --dry-run           # preview managed-file changes
 ```
