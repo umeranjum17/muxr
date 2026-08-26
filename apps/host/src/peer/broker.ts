@@ -45,7 +45,8 @@ function safeVoiceOutput(value: unknown): string {
         .replace(/\b(Bearer)\s+[A-Za-z0-9._~+/-]{12,}/gi, '$1 [redacted]')
         .replace(/\b(api[_-]?key|token|secret|password)\s*[:=]\s*[^\s,;]+/gi, '$1=[redacted]')
         .replace(/\b(?:pph?_[a-z0-9]+|(?:w\d+[A-Za-z]?):(?:p|t)\d+|(?:machine|device|session|pane|rel|peer)[-_][a-z0-9_-]{6,})\b/gi, '[internal id]')
-        .replace(/(^|[\s("'=])\/(?:[^\s/]+\/)+[^\s]*/gm, '$1[path hidden]')
+        .replace(/\bfile:\/\/\/(?:[^\s/]+\/)+[^\s]*/g, '[path hidden]')
+        .replace(/(?<![A-Za-z0-9_/])\/(?!\/)(?:[^\s/]+\/)+[^\s]*/gm, '[path hidden]')
         .replace(/\b[A-Za-z]:\\(?:[^\s\\]+\\)+[^\s,;]*/g, '[path hidden]')
         .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, ' ')
         .slice(-8_000);

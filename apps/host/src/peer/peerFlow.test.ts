@@ -201,7 +201,7 @@ describe('host peer collaboration flow', () => {
         const targetSource = {
             async list() { return remoteSessions; },
             async prompt(options: { text: string }) { prompts += 1; promptTexts.push(options.text); },
-            async paneRead() { return { text: 'build complete PWD=/Users/owner/private HOME=C:\\Users\\owner\\private pp_secret token=remote-secret-value', truncated: false }; },
+            async paneRead() { return { text: 'build complete PWD=/Users/owner/private path:/private/tmp/work HOME=C:\\Users\\owner\\private pp_secret token=remote-secret-value', truncated: false }; },
             async status(sessionId: string) {
                 return { sessionId, agentStatus: 'idle', isStreaming: false, tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }, cost: 0, usageLimits: { capturedAt: new Date().toISOString(), windows: [] } };
             },
@@ -460,7 +460,7 @@ describe('host peer collaboration flow', () => {
         const spokenRead = await brokerCall(broker.socketPath, access.capability, { method: 'read', machine: 'Build Mac', agent: 'iOS builder' });
         expect(spokenRead).toMatchObject({ machine: 'Build Mac', agent: 'iOS builder', truncated: false });
         expect(JSON.stringify(spokenRead)).toContain('build complete');
-        expect(JSON.stringify(spokenRead)).not.toMatch(/Users|\\\\Users|pp_secret|remote-secret-value/);
+        expect(JSON.stringify(spokenRead)).not.toMatch(/Users|\\\\Users|private\/tmp|pp_secret|remote-secret-value/);
         const causalPrompt = { method: 'prompt', machine: 'Build Mac', agent: 'iOS builder', text: 'Report build status' };
         await expect(brokerCall(broker.socketPath, access.capability, causalPrompt, false))
             .resolves.toEqual({ machine: 'Build Mac', agent: 'iOS builder', delivered: true });

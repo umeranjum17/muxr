@@ -1279,8 +1279,10 @@ export async function runDaemon(args = []) {
         }
         if (!['start', 'stop', 'restart', 'status'].includes(action)) throw new Error('usage: muxr daemon install|uninstall|start|stop|restart|status|logs');
         const installedMode = daemonMode();
-        const previousPeerCapability = action === 'start' || action === 'restart'
-            ? readPeerBrokerAccess()?.capability : undefined;
+        const serviceWasRunning = (action === 'start' || action === 'restart') && daemonIsRunning();
+        const replacesService = action === 'restart'
+            || action === 'start' && (platform() === 'darwin' || !serviceWasRunning);
+        const previousPeerCapability = replacesService ? readPeerBrokerAccess()?.capability : undefined;
         let herdrFailure;
         if ((action === 'start' || action === 'restart') && installedMode !== 'relay') {
             try { await ensureHerdrServer(undefined, false, args.includes('--quiet')); }
