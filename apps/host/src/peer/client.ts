@@ -82,68 +82,84 @@ export class NodePeerClient implements PeerClientTransport {
     private connectTimer?: ReturnType<typeof setTimeout>;
     private livenessRequestId: string | undefined;
     private connectionPhase: { phase: PeerConnectionPhase; startedAt: number } | undefined;
+    private closed = false;
 
     constructor(private readonly options: NodePeerClientOptions) {
         this.grant = this.verify(options.sealedGrant);
     }
 
-    async connect(): Promise<void> {
-        if (this.authenticated) return;
+    connect(): Promise<void> {
+        if (this.closed) {
+            return Promise.reject(Object.assign(new Error('peer client is closed'), { name: 'AbortError' }));
+        }
+        if (this.authenticated) return Promise.resolve();
         if (this.connectPromise !== undefined) return this.connectPromise;
         const connecting = new Promise<void>((resolve, reject) => {
             this.resolveConnect = resolve;
             this.rejectConnect = reject;
         });
         this.connectPromise = connecting;
-        try {
-            this.beginConnectionPhase('grant-refresh');
-            await this.refreshGrant();
-            this.finishConnectionPhase('ok');
-            this.beginConnectionPhase('ticket-issue');
-            const ticket = await issueWsTicket({
-                relayUrl: this.options.relayUrl,
-                credential: this.options.credential,
-                machineId: this.options.machineId,
-                role: 'client',
-                transport: 'relay',
-            });
-            this.finishConnectionPhase('ok');
-            this.beginConnectionPhase('socket-open');
-            const socket = new WebSocket(ticketSocketUrl(this.options.relayUrl, ticket, 'relay'));
-            this.socket = socket;
-            this.connectTimer = setTimeout(() => {
-                const liveness = this.connectionPhase?.phase === 'liveness-proof';
-                this.finishConnectionPhase('timeout', liveness ? 'liveness-timeout' : 'socket-timeout');
-                this.socket = undefined;
-                this.fail(new Error(liveness ? 'peer target did not prove it was live' : 'peer socket did not open'));
-                socket.close();
-            }, this.options.requestTimeoutMs ?? 20_000);
-            socket.on('open', () => {
-                this.finishConnectionPhase('ok');
-                this.beginConnectionPhase('liveness-proof');
-                this.livenessRequestId = `peer-live_${randomBytes(24).toString('base64url')}`;
-                this.send({ type: 'client.hello', clientId: nextRequestId('peer') });
-                this.send({ type: 'machines.list', requestId: this.livenessRequestId, params: {} });
-            });
-            socket.on('message', (raw) => this.onMessage(String(raw)));
-            socket.on('error', () => {
-                this.finishConnectionPhase('unavailable', 'socket-error');
-                socket.close();
-            });
-            socket.on('close', () => {
-                if (this.socket !== socket) return;
-                const liveness = this.connectionPhase?.phase === 'liveness-proof';
-                this.finishConnectionPhase('unavailable', liveness ? 'liveness-closed' : 'socket-closed');
-                this.socket = undefined;
-                this.fail(new Error('peer connection closed'));
-            });
-        } catch (error) {
+        void this.openConnection().catch((error) => {
             const phase = this.connectionPhase?.phase;
             this.finishConnectionPhase('unavailable', phase === 'grant-refresh' ? 'grant-refresh-failed'
                 : phase === 'ticket-issue' ? 'ticket-issue-failed' : undefined);
             this.fail(error instanceof Error ? error : new Error(String(error)));
-        }
+        });
         return connecting;
+    }
+
+    private async openConnection(): Promise<void> {
+        this.beginConnectionPhase('grant-refresh');
+        await this.refreshGrant();
+        if (this.closed) throw new Error('peer client is closed');
+        this.finishConnectionPhase('ok');
+        this.beginConnectionPhase('ticket-issue');
+        const ticket = await issueWsTicket({
+            relayUrl: this.options.relayUrl,
+            credential: this.options.credential,
+            machineId: this.options.machineId,
+            role: 'client',
+            transport: 'relay',
+        });
+        if (this.closed) throw new Error('peer client is closed');
+        this.finishConnectionPhase('ok');
+        this.beginConnectionPhase('socket-open');
+        const socket = new WebSocket(ticketSocketUrl(this.options.relayUrl, ticket, 'relay'));
+        this.socket = socket;
+        this.connectTimer = setTimeout(() => {
+            if (this.socket !== socket) return;
+            const liveness = this.connectionPhase?.phase === 'liveness-proof';
+            this.finishConnectionPhase('timeout', liveness ? 'liveness-timeout' : 'socket-timeout');
+            this.socket = undefined;
+            this.fail(new Error(liveness ? 'peer target did not prove it was live' : 'peer socket did not open'));
+            socket.close();
+        }, this.options.requestTimeoutMs ?? 20_000);
+        socket.on('open', () => {
+            if (this.socket !== socket) {
+                socket.close();
+                return;
+            }
+            this.finishConnectionPhase('ok');
+            this.beginConnectionPhase('liveness-proof');
+            this.livenessRequestId = `peer-live_${randomBytes(24).toString('base64url')}`;
+            this.send({ type: 'client.hello', clientId: nextRequestId('peer') });
+            this.send({ type: 'machines.list', requestId: this.livenessRequestId, params: {} });
+        });
+        socket.on('message', (raw) => {
+            if (this.socket === socket) this.onMessage(String(raw));
+        });
+        socket.on('error', () => {
+            if (this.socket !== socket) return;
+            this.finishConnectionPhase('unavailable', 'socket-error');
+            socket.close();
+        });
+        socket.on('close', () => {
+            if (this.socket !== socket) return;
+            const liveness = this.connectionPhase?.phase === 'liveness-proof';
+            this.finishConnectionPhase('unavailable', liveness ? 'liveness-closed' : 'socket-closed');
+            this.socket = undefined;
+            this.fail(new Error('peer connection closed'));
+        });
     }
 
     async request<T extends PeerClientRequestType>(type: T, params: RequestParams<T>, signal?: AbortSignal): Promise<RequestResult<T>> {
@@ -204,9 +220,10 @@ export class NodePeerClient implements PeerClientTransport {
     }
 
     close(): void {
+        this.closed = true;
         const socket = this.socket;
         this.socket = undefined;
-        this.fail(new Error('peer client closed'));
+        this.fail(Object.assign(new Error('peer client closed'), { name: 'AbortError' }));
         socket?.close();
     }
 

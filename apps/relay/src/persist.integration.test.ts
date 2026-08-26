@@ -287,6 +287,7 @@ it('delivers frames sent while relay ticket authentication is pending without ro
                 await rejectedGate;
                 return undefined;
             }
+            if (ticket === 'throwing-client') throw new Error('simulated authentication failure');
             return ticket === 'host'
                 ? { role: 'machine', machineSlug: 'target', accountId: 'account', transport: 'relay' }
                 : undefined;
@@ -339,6 +340,19 @@ it('delivers frames sent while relay ticket authentication is pending without ro
         await vi.waitFor(() => expect(rejected.readyState).toBe(WebSocket.OPEN));
         releaseRejected();
         await expect(rejectedClose).resolves.toBe(1008);
+        expect(received).toEqual([envelope]);
+
+        const throwing = new WebSocket(`${url}?ticket=throwing-client`);
+        sockets.push(throwing);
+        const throwingClose = new Promise<number>((resolve, reject) => {
+            throwing.once('close', resolve);
+            throwing.once('error', reject);
+        });
+        await expect(throwingClose).resolves.toBe(1011);
+        await vi.waitFor(async () => {
+            const response = await fetch(`http://127.0.0.1:${relay.port}/health`);
+            await expect(response.json()).resolves.toMatchObject({ connectedPeers: 2 });
+        });
         expect(received).toEqual([envelope]);
     } finally {
         for (const socket of sockets) socket.terminate();

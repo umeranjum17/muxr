@@ -166,7 +166,7 @@ interface SelfhostState {
 
 function targetPeerRelayUrl(state: SelfhostState | undefined, fallback: string): string {
     const dnsName = state?.relayLocation === 'local' && state.ingress?.kind === 'tailscale-serve'
-        ? state.ingress.dnsName?.trim() : undefined;
+        && typeof state.ingress.dnsName === 'string' ? state.ingress.dnsName.trim() : undefined;
     if (dnsName !== undefined && dnsName !== '') {
         try {
             const endpoint = new URL(`wss://${dnsName}`);
@@ -177,7 +177,7 @@ function targetPeerRelayUrl(state: SelfhostState | undefined, fallback: string):
             // Fall through to the stored public endpoint validated by relayControlUrl at authorization.
         }
     }
-    return state?.relayUrl ?? fallback;
+    return typeof state?.relayUrl === 'string' ? state.relayUrl : fallback;
 }
 
 function selfhostFile(): string {

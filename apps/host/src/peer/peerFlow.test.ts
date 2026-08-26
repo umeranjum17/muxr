@@ -595,11 +595,29 @@ describe('host peer collaboration flow', () => {
         expect(crashedTarget.store.relationship(inboundRelationshipId)).toMatchObject({ state: 'revoked' });
         expect(targetAuthority.rotations).toHaveLength(1);
 
-        await call(sourceRuntime, 'peer.revoke', {
+        const putSourceRelationship = sourceRuntime.store.putRelationship.bind(sourceRuntime.store);
+        let releaseSourceRevocation!: () => void;
+        const sourceRevocationGate = new Promise<void>((resolve) => { releaseSourceRevocation = resolve; });
+        let reportSourceRevocation!: () => void;
+        const sourceRevocationStarted = new Promise<void>((resolve) => { reportSourceRevocation = resolve; });
+        sourceRuntime.store.putRelationship = async (relationship) => {
+            if (relationship.relationshipId === installed.relationshipId && relationship.state === 'revoked') {
+                reportSourceRevocation();
+                await sourceRevocationGate;
+            }
+            return putSourceRelationship(relationship);
+        };
+        const sourceRevocation = call(sourceRuntime, 'peer.revoke', {
             relationshipId: installed.relationshipId,
             peerDeviceId: authorized.peerDeviceId,
             mutation: fresh('revoke-source'),
         });
+        await sourceRevocationStarted;
+        await expect(call(sourceRuntime, 'peer.remote.list', {
+            relationshipId: installed.relationshipId,
+        })).rejects.toMatchObject({ code: 'peer-not-connected' });
+        releaseSourceRevocation();
+        await sourceRevocation;
         expect(sourceRuntime.store.list().peers).toContainEqual(expect.objectContaining({ relationshipId: installed.relationshipId, state: 'revoked', machineName: 'Build Mac' }));
     });
 
@@ -758,6 +776,42 @@ describe('host peer collaboration flow', () => {
             pinnedMachineSigningPublicKey: machine.signingPublicKey,
             sealedGrant,
         })).toThrow('peer grant has the wrong target machine');
+
+        let releaseDisposedRefresh!: () => void;
+        const disposedRefreshGate = new Promise<void>((resolve) => { releaseDisposedRefresh = resolve; });
+        let reportDisposedRefresh!: () => void;
+        const disposedRefreshStarted = new Promise<void>((resolve) => { reportDisposedRefresh = resolve; });
+        let disposedFetchCalls = 0;
+        const disposedFetch = (async () => {
+            disposedFetchCalls += 1;
+            reportDisposedRefresh();
+            await disposedRefreshGate;
+            return new Response(JSON.stringify({ grant: JSON.stringify(sealedGrant) }), {
+                status: 200,
+                headers: { 'content-type': 'application/json' },
+            });
+        }) as typeof fetch;
+        const disposedClient = new NodePeerClient({
+            relayUrl: 'ws://127.0.0.1:1',
+            machineId: 'target-live',
+            credential: 'peer-credential',
+            peerDeviceId: deviceId,
+            peerKey,
+            pinnedMachineSigningPublicKey: machine.signingPublicKey,
+            sealedGrant,
+            fetch: disposedFetch,
+        });
+        const disposedRequest = expect(disposedClient.request('session.prompt', {
+            sessionId: 'private-session',
+            text: 'must not reconnect after local revocation',
+            peerMutation: { operationId: 'disposed-client-prompt', notValidAfter: Date.now() + 60_000 },
+        })).rejects.toMatchObject({ name: 'AbortError' });
+        await disposedRefreshStarted;
+        disposedClient.close();
+        releaseDisposedRefresh();
+        await disposedRequest;
+        await expect(disposedClient.connect()).rejects.toMatchObject({ name: 'AbortError' });
+        expect(disposedFetchCalls).toBe(1);
 
         const sourceRelay = new WebSocketServer({ port: 0 });
         let sourceRelayConnections = 0;
