@@ -23,7 +23,7 @@ function env(name: string): string | undefined {
 }
 
 function defaultDataDir(): string {
-    return join(homedir(), '.muxr', 'host');
+    return join(env('MUXR_HOME') ?? join(homedir(), '.muxr'), 'host');
 }
 
 /**
@@ -557,8 +557,9 @@ async function main(): Promise<void> {
                 process.stderr.write(`peer recovery pending: ${error instanceof Error ? error.message : String(error)}\n`);
             });
             try {
-                peerBroker = new PeerBroker(join(dataDir, 'peer', 'voice.sock'), peerRuntime);
+                peerBroker = new PeerBroker(join(dataDir, 'peer', 'broker.sock'), peerRuntime);
                 await peerBroker.start();
+                await peerBroker.issuePersistentCapability(join(dataDir, 'peer', 'cli.json'));
             } catch (error) {
                 await peerBroker?.close().catch(() => undefined);
                 peerBroker = undefined;

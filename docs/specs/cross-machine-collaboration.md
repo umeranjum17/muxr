@@ -1,7 +1,7 @@
 ---
 title: Cross-machine agent collaboration
 slug: cross-machine-collaboration
-status: implemented
+status: in-progress
 created: 2026-08-25
 updated: 2026-08-26
 owner: umer
@@ -100,8 +100,9 @@ The existing Machines section continues to own phone pairing, switching, and for
 - paired computer list with name, platform, online status, and checkbox
 - an interactive **Agent collaboration** permission switch for the safe `Read agent output and send prompts` bundle
 - turning the switch on confirms and authorizes the selected computers; turning it off confirms and revokes their peer access
-- pending setup or revocation exposes a contextual retry action instead of a generic confirmation button
-- optional advanced `Start agents` permission remains deferred
+- explicit per-machine causes: `Update muxr`, `Computer unavailable`, `Pair again`, `Repair needed`, or `Connected`, never a swallowed generic `Unknown`
+- a clear success receipt only after every directed peer grant is active; pending setup or revocation exposes a contextual retry action
+- starting agents is explicitly unavailable until exact target-directory approval exists; no fake or disabled permission control is rendered
 - per-computer states: Connected, Setting up, Waiting for computer, Repair needed, Disconnecting
 - machine detail copy such as `Collaborates with Mac and Linux`
 
@@ -109,14 +110,15 @@ Forgetting a phone pairing warns when collaboration still exists. It never impli
 
 ## Cross-machine agent operations
 
-The host peer client exposes typed, capability-checked operations rather than arbitrary command execution:
+The host peer client exposes typed, capability-checked operations rather than arbitrary command execution. The running host publishes an owner-only local broker capability so any local coding agent can use human-named CLI commands after reading `muxr --skill`:
 
-- list machines and agent aliases
-- list sessions on one allowed machine
-- send a prompt to one agent
-- read recent pane output
-- read status and wait for completion
-- optionally start an agent when the advanced capability is present
+- `muxr peers list`
+- `muxr peers read --machine <name> [--agent <name>]`
+- `muxr peers status --machine <name> [--agent <name>]`
+- `muxr peers watch --machine <name> [--agent <name>]`
+- `muxr peers prompt --machine <name> [--agent <name>] --text <prompt>`
+
+The local broker inherits the existing peer grant allowlist and never exposes raw shell, terminal takeover, destructive operations, or undeclared plugin calls. Starting an agent remains unavailable until Settings can approve an exact target-reported directory.
 
 Stable muxr session identity remains the routing handle internally. User-facing commands and UI use human machine and agent aliases. Ambiguous aliases require clarification.
 
@@ -189,6 +191,7 @@ The work lands as one cohesive feature PR with reviewable internal commits.
 - 2026-08-25: reopened after owner review to add directed watch settlement, per-stream voice broker capabilities and strict parsing, retryable recovery fencing, canonical mobile authority reconciliation, stable human aliases, and focused PeerRuntime responsibility extraction.
 - 2026-08-25: reopened after independent Sol review for active capability abort, exact private watch settlement, reconnect-safe semantic mutations, security-first local revocation, alias churn, deep mobile intent normalization, and precise trusted-local-plugin documentation.
 - 2026-08-26: reopened after live owner testing because machine checkmarks looked persisted before confirmation, the permission card was not interactive, and ordinary offline setup was mislabeled `Needs attention`; replace the fixed card with a real revoking switch, reserve the warning for repair, and keep interrupted authorization and pending disconnect retries convergent.
+- 2026-08-26: reopened after the third owner iteration and a Fable HOLD: add an ordinary-agent peer CLI, preserve outdated/offline/authorization causes through Settings with an explicit Connected receipt, and make CLI skill loading progressive instead of dumping every reference.
 
 ## Verification
 

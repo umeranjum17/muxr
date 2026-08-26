@@ -146,7 +146,7 @@ Verify a downloaded APK with `sha256sum --ignore-missing -c SHA256SUMS`, then ru
 
 ## Use the agents you already have
 
-muxr connects to sessions [Herdr](https://github.com/herdrdev/herdr) already runs. Your CLIs, subscriptions, configuration, skills, and MCP servers stay as they are. muxr never edits agent instruction files; explicitly load `muxr --skill` when you want its self-contained agent guidance.
+muxr connects to sessions [Herdr](https://github.com/herdrdev/herdr) already runs. Your CLIs, subscriptions, configuration, skills, and MCP servers stay as they are. muxr never edits agent instruction files; load the compact `muxr --skill`, then request one focused topic with `muxr skill <topic>` only when needed.
 
 <p>
   <img src="docs/agents/icons/pi.svg" width="28" alt="Pi" title="Pi" />

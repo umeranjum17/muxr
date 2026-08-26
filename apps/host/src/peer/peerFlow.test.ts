@@ -1,7 +1,9 @@
-import { mkdtempSync, statSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, statSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
+import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { createConnection } from 'node:net';
 import { WebSocketServer } from 'ws';
 import { describe, expect, it } from 'vitest';
@@ -99,6 +101,26 @@ async function waitFor(predicate: () => boolean, message: string, timeoutMs = 5_
     const deadline = Date.now() + timeoutMs;
     while (!predicate() && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 10));
     if (!predicate()) throw new Error(`Timed out waiting for ${message}`);
+}
+
+async function peerCli(accessFile: string, args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
+    const cli = fileURLToPath(new URL('../../../../scripts/cli.mjs', import.meta.url));
+    return new Promise((resolve, reject) => {
+        const child = spawn(process.execPath, [cli, 'peers', ...args], {
+            env: { ...process.env, MUXR_PEER_ACCESS_FILE: accessFile },
+            stdio: ['ignore', 'pipe', 'pipe'],
+        });
+        let stdout = '';
+        let stderr = '';
+        const timeout = setTimeout(() => child.kill('SIGKILL'), 10_000);
+        child.stdout.on('data', (chunk) => { stdout += chunk; });
+        child.stderr.on('data', (chunk) => { stderr += chunk; });
+        child.on('error', reject);
+        child.on('close', (code) => {
+            clearTimeout(timeout);
+            resolve({ code: code ?? 1, stdout, stderr });
+        });
+    });
 }
 
 async function brokerCall(socketPath: string, capability: string, request: unknown, acknowledge: boolean | 'invalid' = true): Promise<unknown> {
@@ -376,10 +398,18 @@ describe('host peer collaboration flow', () => {
             type: 'machine.shell', requestId: 'forbidden', params: { command: 'echo unsafe', cwd: '/tmp' },
         }, authorized.peerDeviceId)).resolves.toMatchObject({ ok: false, code: 'peer-forbidden' });
 
-        const broker = new PeerBroker(join(root, 'source', 'voice.sock'), sourceRuntime);
+        const broker = new PeerBroker(join(root, 'source', 'broker.sock'), sourceRuntime);
         await broker.start();
         const access = broker.issueCapability();
+        const cliFile = join(root, 'source', 'cli.json');
+        const cliAccess = await broker.issuePersistentCapability(cliFile);
         expect(statSync(broker.socketPath).mode & 0o077).toBe(0);
+        expect(statSync(cliFile).mode & 0o077).toBe(0);
+        expect(JSON.parse(readFileSync(cliFile, 'utf8'))).toEqual({ version: 1, ...cliAccess });
+        const listedFromCli = await peerCli(cliFile, ['list']);
+        expect(listedFromCli).toMatchObject({ code: 0, stderr: '' });
+        expect(JSON.parse(listedFromCli.stdout)).toEqual({ machines: [{ machine: 'Build Mac', agents: [{ agent: 'iOS builder' }] }] });
+        expect(listedFromCli.stdout).not.toMatch(/target-machine|muxr-session|internal-pane-path/);
         await expect(brokerCall(broker.socketPath, 'not-a-capability', { method: 'list' })).rejects.toThrow('capability rejected');
         await expect(brokerCall(broker.socketPath, access.capability, { method: 'unknown', text: 'must not become a prompt' })).rejects.toThrow('unknown peer broker method');
         const brokerList = await brokerCall(broker.socketPath, access.capability, { method: 'list', machine: 'Build Mac' });
@@ -421,6 +451,12 @@ describe('host peer collaboration flow', () => {
         remoteSessions = [session, { ...session, id: 'another-internal-session' }];
         const afterReadd = await brokerCall(broker.socketPath, access.capability, { method: 'list', machine: 'Build Mac' }) as { machines: Array<{ agents: Array<{ agent: string }> }> };
         expect(afterReadd.machines[0]!.agents.map((entry) => entry.agent).sort()).toEqual(['iOS builder', 'iOS builder (pi)']);
+        remoteSessions = [session];
+        const promptedFromCli = await peerCli(cliFile, ['prompt', '--machine', 'Build Mac', '--agent', 'iOS builder', '--text', 'Report Xcode status']);
+        expect(promptedFromCli).toMatchObject({ code: 0, stderr: '' });
+        expect(JSON.parse(promptedFromCli.stdout)).toEqual({ machine: 'Build Mac', agent: 'iOS builder', delivered: true });
+        expect(prompts).toBe(4);
+        remoteSessions = [session, { ...session, id: 'another-internal-session' }];
         const { machineAlias: _machineAlias, agentAliases: _agentAliases, ...outboundCopy } = sourceRuntime.store.relationship(installed.relationshipId)!;
         const duplicateMachine = {
             ...outboundCopy,
@@ -444,6 +480,7 @@ describe('host peer collaboration flow', () => {
         controlWaits = false;
         await expect(brokerCall(broker.socketPath, access.capability, { method: 'list' })).rejects.toThrow('capability rejected');
         await broker.close();
+        expect(existsSync(cliFile)).toBe(false);
 
         // One peer cannot consume the global receipt store, and revocation bypasses receipts entirely.
         let capacityError: unknown;

@@ -27,6 +27,15 @@ function showCollaborationError(cause: unknown) {
     Modal.alert('Collaboration unavailable', cause instanceof Error ? cause.message : String(cause));
 }
 
+function issueLabel(kind: CollaborationReport['issues'][string]['kind']): string {
+    switch (kind) {
+        case 'outdated': return 'Update required';
+        case 'unauthorized': return 'Pair again';
+        case 'unavailable': return 'Restart required';
+        case 'offline': return 'Unavailable';
+    }
+}
+
 function platformName(value: string | undefined): string | undefined {
     switch (value?.toLowerCase()) {
         case 'darwin': return 'macOS';
@@ -75,7 +84,7 @@ export default function ComputerCollaborationScreen() {
         };
     }, []);
 
-    const refresh = React.useCallback(async () => {
+    const refresh = React.useCallback(async (): Promise<CollaborationReport> => {
         setBusy(true);
         try {
             const [paired, stored] = await Promise.all([listPairedGrants(), loadCollaborationIntent()]);
@@ -89,6 +98,7 @@ export default function ComputerCollaborationScreen() {
             setIntent(nextReport.intent);
             setReport(nextReport);
             setSelected(nextReport.intent.selectedMachineIds);
+            return nextReport;
         } finally {
             setBusy(false);
         }
@@ -118,6 +128,7 @@ export default function ComputerCollaborationScreen() {
                 platform: platformName(live?.metadata?.platform) ?? known?.platform,
                 online: report?.reachableMachineIds.includes(machineId) === true,
                 collaborationState: report?.states[machineId],
+                issue: report?.issues[machineId],
             };
         });
     }, [grants, intent, liveMachines, report]);
@@ -127,6 +138,30 @@ export default function ComputerCollaborationScreen() {
     const collaborationEnabled = intent !== undefined && intent.selectedMachineIds.length >= 2;
     const pendingCollaboration = intent !== undefined && hasPendingCollaboration(intent);
     const disconnecting = intent?.edges.some((edge) => edge.disconnect !== undefined && edge.disconnect.repair !== true) === true;
+
+    const presentReport = (nextReport: CollaborationReport, machineIds: string[]) => {
+        const byId = new Map(nextReport.intent.machines.map((machine) => [machine.machineId, machine.name]));
+        if (machineIds.length === 0) {
+            Modal.alert(nextReport.intent.edges.length === 0 ? 'Collaboration disconnected' : 'Disconnecting',
+                nextReport.intent.edges.length === 0 ? 'Computer-to-computer access has been revoked.' : 'Access is fenced and will finish revoking when every computer is reachable.');
+            return;
+        }
+        const issue = machineIds.map((id) => [byId.get(id) ?? 'Computer', nextReport.issues[id]] as const).find(([, value]) => value !== undefined);
+        if (issue?.[1] !== undefined) {
+            Modal.alert(issueLabel(issue[1].kind), `${issue[0]}: ${issue[1].message}`);
+            return;
+        }
+        const error = machineIds.map((id) => [byId.get(id) ?? 'Computer', nextReport.errors[id]] as const).find(([, value]) => value !== undefined);
+        if (error?.[1] !== undefined) {
+            Modal.alert('Collaboration could not finish', `${error[0]}: ${error[1]}`);
+            return;
+        }
+        if (machineIds.every((id) => nextReport.states[id] === 'Connected')) {
+            Modal.alert('Computers connected', 'Local agents can now list, read, watch, and prompt agents on the selected computers.');
+            return;
+        }
+        Modal.alert('Still connecting', 'Keep muxr running on every selected computer, then tap Retry connection.');
+    };
 
     const toggle = (machineId: string, grant: StoredHostedGrant | undefined) => {
         if (busy) return;
@@ -167,6 +202,7 @@ export default function ComputerCollaborationScreen() {
             setIntent(nextReport.intent);
             setReport(nextReport);
             setSelected(nextReport.intent.selectedMachineIds);
+            presentReport(nextReport, machineIds);
         } finally {
             setBusy(false);
         }
@@ -208,19 +244,20 @@ export default function ComputerCollaborationScreen() {
         <ItemList>
             <ItemGroup
                 title="Computers"
-                footer="Select 2–6 paired computers. Online means the host answered now; otherwise status stays Unknown rather than guessing that an inactive computer is offline."
+                footer="Select 2–6 paired computers. Each status comes from a fresh host check and tells you whether to update, restart, pair again, or retry."
             >
                 {rows.map((row) => {
                     const checked = selected.includes(row.machineId);
                     const state = row.collaborationState ?? (checked ? selectionChanged ? 'Selected' : 'Setting up' : undefined);
-                    const error = report?.errors[row.machineId];
+                    const detail = row.issue?.message ?? report?.errors[row.machineId];
+                    const availability = row.issue === undefined ? row.online ? 'Online' : 'Checking' : issueLabel(row.issue.kind);
                     return (
                         <Item
                             key={row.machineId}
                             title={row.name}
-                            subtitle={`${[row.platform, row.online ? 'Online' : 'Unknown', state].filter(Boolean).join(' • ')}${error ? `\n${error}` : ''}`}
+                            subtitle={`${[row.platform, availability, row.issue === undefined ? state : undefined].filter(Boolean).join(' • ')}${detail ? `\n${detail}` : ''}`}
                             subtitleLines={2}
-                            icon={<Ionicons name="desktop-outline" size={28} color={row.online ? theme.colors.status.connected : theme.colors.textSecondary} />}
+                            icon={<Ionicons name="desktop-outline" size={28} color={row.online ? theme.colors.status.connected : row.issue ? '#FF9F0A' : theme.colors.textSecondary} />}
                             rightElement={busy && checked ? undefined : (
                                 <Ionicons
                                     name={checked ? 'checkmark-circle' : 'ellipse-outline'}
@@ -241,7 +278,7 @@ export default function ComputerCollaborationScreen() {
                 )}
             </ItemGroup>
 
-            <ItemGroup title="Permission" footer="Turn this off to revoke computer-to-computer access. Shell, terminal takeover, destructive actions, and arbitrary plugin calls are never included.">
+            <ItemGroup title="Permission" footer="Turn this off to revoke access. Starting new agents is not available yet. Shell, terminal takeover, destructive actions, and arbitrary plugin calls are never included.">
                 <Item
                     title="Agent collaboration"
                     subtitle="Read agent output, watch completion, and send prompts"
@@ -269,7 +306,7 @@ export default function ComputerCollaborationScreen() {
                         loading={busy}
                         disabled={busy || selectionChanged && selected.length < 2}
                         showChevron={false}
-                        onPress={() => void (selectionChanged ? confirmSelection() : refresh()).catch(showCollaborationError)}
+                        onPress={() => void (selectionChanged ? confirmSelection() : refresh().then((nextReport) => presentReport(nextReport, nextReport.intent.selectedMachineIds))).catch(showCollaborationError)}
                     />
                 </ItemGroup>
             )}

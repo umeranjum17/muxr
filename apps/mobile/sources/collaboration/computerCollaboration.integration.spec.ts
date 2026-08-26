@@ -29,6 +29,7 @@ interface MutationCall {
 
 class FakeMachineClient {
     online = true;
+    listError?: Error;
     failNext?: PeerRequestType;
     offlineMachineAfterAuthorize?: string;
     peers: PeerRelationship[] = [];
@@ -42,6 +43,7 @@ class FakeMachineClient {
 
     async request<T extends PeerRequestType>(type: T, params: PeerRequestMap[T]['params']): Promise<PeerRequestMap[T]['result']> {
         if (!this.online) throw new Error('offline');
+        if (type === 'peer.list' && this.listError !== undefined) throw this.listError;
         if (type === 'peer.list') return { peers: this.peers } as PeerRequestMap[T]['result'];
         const mutation = (params as { mutation?: { operationId: string; notValidAfter: number } }).mutation;
         if (mutation !== undefined) this.mutations.push({ machineId: this.machine.machineId, type, ...mutation, params: JSON.stringify(params) });
@@ -179,10 +181,17 @@ describe('computer collaboration flow', () => {
         let report = await applyCollaboration(intent, machines, request, save, now, newId);
         expect(Object.values(report.states)).toEqual(['Waiting for computer', 'Waiting for computer']);
         expect(collaborationSummary(report.intent)).toBe('Setting up');
+        expect(report.issues['mac-internal']).toMatchObject({ kind: 'offline' });
         expect(calls).toEqual([]);
         expect(report.intent.edges.every((edge) => edge.setup !== undefined)).toBe(true);
 
         fleet.get('mac-internal')!.online = true;
+        fleet.get('mac-internal')!.listError = new PeerHostResponseError('unknown request type', 'host-contract-mismatch');
+        report = await applyCollaboration(report.intent, machines, request, save, now, newId);
+        expect(report.issues['mac-internal']).toEqual({ kind: 'outdated', message: 'Update muxr on this computer, restart it, then retry.' });
+        expect(calls).toEqual([]);
+
+        fleet.get('mac-internal')!.listError = undefined;
         fleet.get('linux-internal')!.failNext = 'peer.prepare';
         report = await applyCollaboration(report.intent, machines, request, save, now, newId);
         expect(Object.values(report.states)).toEqual(['Setting up', 'Setting up']);

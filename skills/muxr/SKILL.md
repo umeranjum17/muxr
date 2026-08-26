@@ -1,6 +1,8 @@
 ---
 name: muxr
 description: Set up and operate muxr (control coding agents from your phone) — install/pair/self-host, drive Herdr workspaces/panes/agents/worktrees, share pane attachments, hand browser login/2FA/CAPTCHA to the phone, connect computers for cross-machine collaboration and voice, and author/install muxr plugins. Use for any muxr or Herdr setup, orchestration, collaboration, plugin, or troubleshooting task.
+license: Apache-2.0
+compatibility: Requires the muxr and Herdr CLIs on a paired macOS or Linux host, with shell access for commands.
 ---
 
 # muxr
@@ -40,14 +42,19 @@ renders state the host reports.
 
 ## Task router
 
-| You want to | Read |
+Load only the reference needed for the current task. Compatible skill clients may
+open the linked file; when this skill came from CLI output, run the matching
+`muxr skill <topic>` command instead. Do not load `muxr skill all` during normal
+work.
+
+| You want to | Load |
 |---|---|
-| Install, pair a phone or browser, self-host, update, uninstall, diagnose | [references/onboarding.md](references/onboarding.md) |
-| Create panes/tabs/workspaces/worktrees, run and read agents, socket API | [references/herdr.md](references/herdr.md) |
-| Connect two computers, prompt or watch a remote agent, voice across machines | [references/collaboration.md](references/collaboration.md) |
-| Hand a browser login, 2FA, or CAPTCHA to the phone | [references/browser-takeover.md](references/browser-takeover.md) |
-| Build, install, debug, or override a plugin | [references/plugins.md](references/plugins.md) |
-| Troubleshoot | run `muxr doctor`, then use the relevant reference's Pitfalls and Verify sections |
+| Install, pair a phone or browser, self-host, update, uninstall, diagnose | `muxr skill onboarding` · [source](references/onboarding.md) |
+| Create panes/tabs/workspaces/worktrees, run and read agents, socket API | `muxr skill herdr` · [source](references/herdr.md) |
+| Connect computers; list, read, watch, or prompt a remote agent; voice | `muxr skill collaboration` · [source](references/collaboration.md) |
+| Hand a browser login, 2FA, or CAPTCHA to the phone | `muxr skill browser-takeover` · [source](references/browser-takeover.md) |
+| Build, install, debug, or override a plugin | `muxr skill plugins` · [source](references/plugins.md) |
+| Troubleshoot | run `muxr doctor`, then load the relevant topic's Pitfalls and Verify sections |
 | Full plugin manifest contract | run `muxr plugin docs` and read the printed PLUGINS.md |
 
 ## Pane attachments (always-on convention)

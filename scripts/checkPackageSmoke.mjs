@@ -82,6 +82,13 @@ function run(command, args, options = {}) {
     return result;
 }
 
+function assertCompactSkillOutput(output) {
+    assert.match(output, /^---\nname: muxr\ndescription: /);
+    assert.match(output, /## Task router/);
+    assert.match(output, /muxr skill collaboration/);
+    assert.doesNotMatch(output, /muxr-skill-reference|# Cross-machine agent collaboration|## Installed Herdr CLI reference/);
+}
+
 function assertUnifiedSkillOutput(output, { liveHerdr = true } = {}) {
     assert.match(output, /^---\nname: muxr\ndescription: /);
     assert.match(output, /## Task router/);
@@ -277,13 +284,16 @@ ${expectWaitForExit}`],
 try {
     const sourceEnv = cliEnv();
     const sourceHelp = run(process.execPath, ['scripts/cli.mjs', '--help'], { env: sourceEnv }).stdout;
-    assert.match(sourceHelp, /muxr --skill \| muxr skill\s+print the complete muxr agent skill and references/);
+    assert.match(sourceHelp, /muxr --skill \| muxr skill\s+print the compact muxr agent skill/);
+    assert.match(sourceHelp, /muxr peers list\|read\|status\|watch\|prompt/);
     const sourceSkill = run(process.execPath, ['scripts/cli.mjs', '--skill'], { env: sourceEnv }).stdout;
-    assertUnifiedSkillOutput(sourceSkill);
+    assertCompactSkillOutput(sourceSkill);
     assert.equal(run(process.execPath, ['scripts/cli.mjs', 'skill'], { env: sourceEnv }).stdout, sourceSkill, 'source skill alias diverged from --skill');
+    assert.match(run(process.execPath, ['scripts/cli.mjs', 'skill', 'collaboration'], { env: sourceEnv }).stdout, /muxr peers prompt/);
+    assertUnifiedSkillOutput(run(process.execPath, ['scripts/cli.mjs', 'skill', 'all'], { env: sourceEnv }).stdout);
     const fallbackHome = join(scratch, 'skill-fallback-home');
     mkdirSync(fallbackHome);
-    assertUnifiedSkillOutput(run(process.execPath, ['scripts/cli.mjs', '--skill'], { env: cliEnvWithoutHerdr(fallbackHome) }).stdout, { liveHerdr: false });
+    assertUnifiedSkillOutput(run(process.execPath, ['scripts/cli.mjs', 'skill', 'all'], { env: cliEnvWithoutHerdr(fallbackHome) }).stdout, { liveHerdr: false });
 
     run('npm', ['run', 'web:export']);
     const auditFixture = join(scratch, 'audit-fixture');
@@ -340,6 +350,7 @@ try {
     assert.ok(!listing.includes('package/esbuild-metafile.json'));
     assert.ok(listing.includes('package/relay.js'), 'self-host relay bundle missing from npm artifact');
     assert.ok(listing.includes('package/update.mjs'), 'interactive CLI updater missing from npm artifact');
+    assert.ok(listing.includes('package/peers.mjs'), 'peer CLI client missing from npm artifact');
     assert.ok(listing.includes('package/plugins/control/run.mjs'), 'control plugin missing from npm artifact');
     assert.ok(listing.includes('package/plugins/servers/serve.mjs'), 'Preview discovery plugin missing from npm artifact');
     assert.ok(listing.includes('package/plugins/voice/rpc.mjs'), 'xAI Voice plugin missing from npm artifact');
@@ -386,12 +397,18 @@ try {
     const cli = join(installDir, 'node_modules', '.bin', 'muxr');
     const installedPackage = join(installDir, 'node_modules', '@trymuxr', 'cli');
     const installedPlugins = join(installedPackage, 'plugins');
-    assert.match(readFileSync(join(installedPackage, 'README.md'), 'utf8'), /muxr --skill\s+# print the complete agent skill and references/);
+    assert.match(readFileSync(join(installedPackage, 'README.md'), 'utf8'), /muxr --skill\s+# print the compact agent skill/);
     const rootHelp = run(cli, ['--help'], { cwd: installDir }).stdout;
-    assert.match(rootHelp, /muxr --skill \| muxr skill\s+print the complete muxr agent skill and references/);
+    assert.match(rootHelp, /muxr --skill \| muxr skill\s+print the compact muxr agent skill/);
+    assert.match(rootHelp, /muxr peers list\|read\|status\|watch\|prompt/);
     const installedSkill = run(cli, ['--skill'], { cwd: installDir, env: cliEnv() }).stdout;
-    assertUnifiedSkillOutput(installedSkill);
+    assertCompactSkillOutput(installedSkill);
     assert.equal(run(cli, ['skill'], { cwd: installDir, env: cliEnv() }).stdout, installedSkill, 'packed skill alias diverged from --skill');
+    assert.match(run(cli, ['skill', 'collaboration'], { cwd: installDir, env: cliEnv() }).stdout, /muxr peers prompt/);
+    assertUnifiedSkillOutput(run(cli, ['skill', 'all'], { cwd: installDir, env: cliEnv() }).stdout);
+    const unavailablePeers = run(cli, ['peers', 'list'], { cwd: installDir, env: cliEnv(), allowFailure: true });
+    assert.equal(unavailablePeers.status, 1);
+    assert.match(unavailablePeers.stderr, /Peer access is not ready/);
     const wizardSource = readFileSync(join(installedPackage, 'setup-wizard.mjs'), 'utf8');
     const applyGuard = wizardSource.indexOf("if (apply !== true) return cancelSetup();");
     const tailscaleMutation = wizardSource.indexOf('await applyTailscaleConnect(found)', applyGuard);

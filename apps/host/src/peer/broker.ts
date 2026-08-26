@@ -1,7 +1,9 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { chmodSync, existsSync, lstatSync, unlinkSync } from 'node:fs';
 import { createServer, type Server, type Socket } from 'node:net';
+import { dirname } from 'node:path';
 import type { PeerRequestResult } from '@muxr/contract';
+import { atomicWriteJson } from '../domain/atomicWriteJson.js';
 import type { PeerRuntime } from './runtime.js';
 import type { StoredPeerRelationship } from './store.js';
 
@@ -20,6 +22,10 @@ export type PeerBrokerRequest =
 export interface PeerBrokerAccess {
     socketPath: string;
     capability: string;
+}
+
+export interface StoredPeerBrokerAccess extends PeerBrokerAccess {
+    version: 1;
 }
 
 function cleanAlias(value: unknown): string {
@@ -105,6 +111,7 @@ interface CapabilityState {
 export class PeerBroker {
     private server: Server | undefined;
     private readonly capabilities = new Map<string, CapabilityState>();
+    private readonly accessFiles = new Map<string, string>();
 
     constructor(readonly socketPath: string, private readonly runtime: PeerRuntime) {}
 
@@ -134,9 +141,26 @@ export class PeerBroker {
         return { socketPath: this.socketPath, capability };
     }
 
+    async issuePersistentCapability(filePath: string): Promise<PeerBrokerAccess> {
+        const access = this.issueCapability();
+        try {
+            await atomicWriteJson(filePath, { version: 1, ...access } satisfies StoredPeerBrokerAccess);
+            chmodSync(dirname(filePath), 0o700);
+            chmodSync(filePath, 0o600);
+            this.accessFiles.set(access.capability, filePath);
+            return access;
+        } catch (error) {
+            this.revokeCapability(access.capability);
+            throw error;
+        }
+    }
+
     revokeCapability(capability: string): void {
         const state = this.capabilities.get(capability);
         this.capabilities.delete(capability);
+        const filePath = this.accessFiles.get(capability);
+        this.accessFiles.delete(capability);
+        if (filePath !== undefined && existsSync(filePath)) unlinkSync(filePath);
         if (state === undefined) return;
         for (const controller of state.controllers) controller.abort();
         for (const socket of state.sockets) socket.destroy();
