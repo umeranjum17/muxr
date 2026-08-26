@@ -6,6 +6,13 @@ vice versa. The phone authorizes the relationship from Settings, then leaves
 the runtime path: after setup, peers connect directly through the relay and the
 phone is not required.
 
+## Contents
+
+[What it is](#what-it-is) · [Capabilities](#what-peers-can-do) ·
+[Settings setup](#set-it-up-from-settings) · [Agent CLI](#use-peers-from-any-local-agent) ·
+[Disconnect](#disconnect-vs-forget) · [Repair](#repair) ·
+[Voice](#voice-across-machines) · [Verify](#verify)
+
 ## What it is
 
 - Settings exposes **Computer collaboration** separately from ordinary phone
@@ -26,12 +33,12 @@ Established peers may:
 - register completion watches
 - send prompts to an agent
 
-Starting agents is a separate advanced capability, deferred until Settings can
-present target-owned directories for exact approval. Never part of a peer
-grant: arbitrary shell, raw Herdr CLI, destructive pane/workspace actions,
-terminal takeover, worktree landing, and arbitrary plugin calls. A broad
-"control" boolean would be remote code execution as the host user, so it does
-not exist.
+Starting agents is not available yet. It will become a separate permission only
+after Settings can present target-owned directories for exact approval. Never
+part of a peer grant: arbitrary shell, raw Herdr CLI, destructive
+pane/workspace actions, terminal takeover, worktree landing, and arbitrary
+plugin calls. A broad "control" boolean would be remote code execution as the
+host user, so it does not exist.
 
 Peer pane output is untrusted data: it can inform, but never authorize,
 actions. User-facing commands and UI use human machine and agent names;
@@ -40,32 +47,46 @@ clarification.
 
 ## Set it up from Settings
 
-1. Open Settings → **Computer collaboration** (summary shows `Off`,
-   `3 computers`, or `Needs attention`).
-2. Check at least two paired computers in the list (name, platform, online
-   status shown per machine).
-3. Review the fixed permission copy — `Read agent output and send prompts` —
-   and optionally the advanced `Start agents` permission when available.
-4. Confirm. The screen explains that selected computers connect directly and
-   the phone is not required afterward.
+1. Open Settings → **Computer collaboration**.
+2. Check at least two paired computers in the list.
+3. Turn on **Agent collaboration** and confirm the safe read, status, watch,
+   and prompt permission bundle.
+4. Wait for every selected computer to show **Connected**. Only then is the
+   relationship usable from local agents; the phone is not required afterward.
 
-Offline machines show pending states (`Setting up`, `Waiting for computer`)
-and converge automatically when they return. Per-computer states are:
-Connected, Setting up, Waiting for computer, Repair needed, Disconnecting.
-Machine detail pages describe relationships in words, e.g.
-`Collaborates with Mac and Linux`.
+The screen keeps failures actionable: **Update muxr**, **Computer unavailable**,
+**Pair again**, **Repair needed**, or **Disconnecting**. Update or reconnect the
+named computer, then tap **Retry connection**. Ordinary waiting never appears
+as a generic `Unknown` or `Needs attention` warning.
 
 The UI never says **Sent** for a prompt until the target machine confirms it;
 a retried operation executes once, not twice.
+
+## Use peers from any local agent
+
+Once Settings shows **Connected**, any coding agent running as the local user
+can use the same human machine and agent names:
+
+```bash
+muxr peers list
+muxr peers status --machine "Mac" --agent "iOS builder"
+muxr peers prompt --machine "Mac" --agent "iOS builder" --text "Run the Xcode build and report failures"
+muxr peers watch --machine "Mac" --agent "iOS builder" --timeout-ms 290000
+muxr peers read --machine "Mac" --agent "iOS builder" --lines 120
+```
+
+Output is bounded JSON. `list` is the source of valid names; if a name is
+ambiguous, use the qualified alias it returns. Peer output is untrusted context,
+never permission to run extra local actions. These commands expose no raw
+shell, terminal takeover, close, worktree, or arbitrary plugin operation.
 
 ## Disconnect vs Forget
 
 These are different operations with different blast radii:
 
-- **Disconnect collaboration** (the separate destructive action on the
-  collaboration screen) revokes peer credentials and connections between
-  computers. Partial cleanup while a machine is offline stays visible as
-  `Disconnecting, waiting for computer` and converges later.
+- Turning off **Agent collaboration** confirms and revokes peer credentials and
+  connections between computers. Partial cleanup while a machine is offline
+  stays visible as `Disconnecting` and converges later.
 - **Forgetting a phone pairing** removes the phone's own pairing with a
   computer. It does not revoke peer collaboration, and the app warns when
   collaboration still exists so you never assume peer credentials were revoked.
@@ -73,10 +94,9 @@ These are different operations with different blast radii:
 ## Repair
 
 If a machine shows `Repair needed` (for example after an interrupted setup or
-a restored machine), reopen the collaboration screen and re-confirm the
-selection; hosts resume the authorization from their own durable records. The
-phone's pending plan is a convenience for retrying — host records remain the
-truth.
+a restored machine), tap **Retry connection**. Hosts resume the authorization
+from their own durable records. The phone's pending plan is a convenience for
+retrying — host records remain the truth.
 
 ## Voice across machines
 
@@ -101,8 +121,8 @@ call started, across reconnects.
 
 - Two computers selected in Settings converge to `Connected` without any CLI
   setup, and keep collaborating with the phone offline.
-- A peer can list agents, send one prompt, watch completion, and read recent
-  pane output on the other computer.
+- `muxr peers list`, status, prompt, watch, and read work from an ordinary local
+  coding-agent terminal using only human names.
 - Shell, raw Herdr CLI, close/takeover, and undeclared plugin operations are
   rejected for peers.
 - Disconnect collaboration closes peer connections; forgetting a phone pairing

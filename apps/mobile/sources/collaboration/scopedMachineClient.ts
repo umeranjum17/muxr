@@ -9,6 +9,8 @@ export async function requestPairedMachine<T extends PeerRequestType>(
     type: T,
     params: PeerRequestMap[T]['params'],
 ): Promise<PeerRequestMap[T]['result']> {
+    let permanentError: string | undefined;
+    let ticketRejected = false;
     const client = new MuxrClient({
         mode: 'hosted',
         relayUrl: grant.relayUrl,
@@ -17,12 +19,16 @@ export async function requestPairedMachine<T extends PeerRequestType>(
         hostedGrant: grant,
         requestTimeoutMs: 12_000,
         reconnectDelayMs: 30_000,
+        onTicketRejected: () => { ticketRejected = true; },
+        onPermanentError: (message) => { permanentError = message; },
     });
     try {
         await new Promise<void>((resolve, reject) => {
             const timeout = setTimeout(() => {
                 unsubscribe();
-                reject(new Error('computer unavailable'));
+                reject(ticketRejected
+                    ? new PeerHostResponseError('The computer pairing was rejected.', 'e2ee-required')
+                    : new Error('computer unavailable'));
             }, 12_000);
             const unsubscribe = client.onStateChange((state) => {
                 if (state === 'open') {
@@ -32,7 +38,9 @@ export async function requestPairedMachine<T extends PeerRequestType>(
                 } else if (state === 'stale') {
                     clearTimeout(timeout);
                     unsubscribe();
-                    reject(new Error('computer unavailable'));
+                    queueMicrotask(() => reject(permanentError
+                        ? new PeerHostResponseError(permanentError, 'e2ee-required')
+                        : new Error('computer unavailable')));
                 }
             });
             client.connect();

@@ -3,6 +3,13 @@
 Everything muxr does runs on your own infrastructure: the relay, the agent
 host, and the pairing between them and the app.
 
+## Contents
+
+[Prerequisites](#prerequisites) · [Install](#install) · [First run](#first-run) ·
+[Connection choices](#connection-choices) · [Pairing](#pairing) ·
+[Shared relay](#shared-relay-on-a-vps) · [Maintenance](#maintenance) ·
+[Uninstall](#uninstall) · [Verify](#verify)
+
 ## Prerequisites
 
 - Node 22+ on the machine that runs your agents (Linux, macOS, WSL).
@@ -34,9 +41,8 @@ one-use QR from the phone app), and verifies the connection and managed
 services without printing credentials.
 
 Setup never installs skills or edits agent instruction files. Run `muxr --skill`
-(or `muxr skill`) and explicitly load its self-contained output when you want an
-agent to use muxr guidance. Lifecycle integrations only report agent process
-status.
+for the compact workflow, then `muxr skill onboarding` only when this reference
+is needed. Lifecycle integrations only report agent process status.
 
 The registered user service supervises the relay and host together, so both
 return after login or reboot. Preview managed-file changes anytime with

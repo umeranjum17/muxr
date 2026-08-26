@@ -15,6 +15,12 @@ const MUTATION_TTL_MS = 5 * 60_000;
 
 export const COLLABORATION_CAPABILITIES: PeerCapability[] = [...DEFAULT_PEER_CAPABILITIES];
 export type CollaborationMachineState = 'Connected' | 'Setting up' | 'Waiting for computer' | 'Repair needed' | 'Disconnecting';
+export type CollaborationMachineIssueKind = 'offline' | 'outdated' | 'unauthorized' | 'unavailable';
+
+export interface CollaborationMachineIssue {
+    kind: CollaborationMachineIssueKind;
+    message: string;
+}
 
 export interface CollaborationMachine {
     machineId: string;
@@ -62,6 +68,7 @@ export interface CollaborationReport {
     intent: CollaborationIntent;
     states: Record<string, CollaborationMachineState>;
     reachableMachineIds: string[];
+    issues: Record<string, CollaborationMachineIssue>;
     errors: Record<string, string>;
 }
 
@@ -85,9 +92,26 @@ const isGone = (relationship: PeerRelationship | undefined): boolean => relation
 const cloneIntent = (intent: CollaborationIntent): CollaborationIntent => JSON.parse(JSON.stringify(intent)) as CollaborationIntent;
 const safeName = (value: string | undefined): string => value?.trim().slice(0, 120) || 'Paired computer';
 
+function machineIssue(cause: unknown): CollaborationMachineIssue {
+    if (!(cause instanceof PeerHostResponseError)) {
+        return { kind: 'offline', message: 'Computer unavailable. Start muxr on this computer, then retry.' };
+    }
+    if (cause.code === 'host-contract-mismatch') {
+        return /runtime is unavailable/i.test(cause.message)
+            ? { kind: 'unavailable', message: 'Collaboration is unavailable on this computer. Restart muxr, then retry.' }
+            : { kind: 'outdated', message: 'Update muxr on this computer, restart it, then retry.' };
+    }
+    if (/(auth|credential|grant|e2ee|forbidden|unauthorized|pair)/i.test(cause.code ?? '')) {
+        return { kind: 'unauthorized', message: 'Pair this computer with the phone again, then retry.' };
+    }
+    return { kind: 'unavailable', message: 'This computer rejected the collaboration check. Restart muxr, then retry.' };
+}
+
 function safeError(cause: unknown): string {
-    if (!(cause instanceof PeerHostResponseError)) return 'Could not finish while a computer was unavailable. Retry when it is reachable.';
+    if (!(cause instanceof PeerHostResponseError)) return machineIssue(cause).message;
     switch (cause.code) {
+        case 'host-contract-mismatch': return machineIssue(cause).message;
+        case 'e2ee-required': return machineIssue(cause).message;
         case 'peer-limit': return 'This computer has reached its collaboration limit.';
         case 'peer-already-authorized': return 'This connection needs repair before setup can continue.';
         case 'peer-operation-uncertain': return 'The computer is still checking an earlier request. Retry shortly.';
@@ -279,14 +303,16 @@ function mutation(current: PeerMutationMetadata | undefined, now: number, newId:
 }
 
 async function listPeers(machines: CollaborationMachine[], request: PeerRequester) {
+    const issues: Record<string, CollaborationMachineIssue> = {};
     const entries = await Promise.all(machines.map(async (machine) => {
         try {
             return [machine.machineId, (await request(machine.machineId, 'peer.list', {})).peers] as const;
-        } catch {
+        } catch (cause) {
+            issues[machine.machineId] = machineIssue(cause);
             return [machine.machineId, undefined] as const;
         }
     }));
-    return new Map(entries);
+    return { lists: new Map(entries), issues };
 }
 
 function relationship(
@@ -403,12 +429,13 @@ export async function reconcileCollaboration(
 ): Promise<CollaborationReport> {
     const normalized = normalizeIntent(intent) ?? emptyIntent();
     const catalog = mergeMachines(normalized, machines);
-    const lists = await listPeers(catalog, request);
+    const { lists, issues } = await listPeers(catalog, request);
     const next = await reconcileIntent({ ...normalized, machines: catalog }, lists);
     return {
         intent: next,
         states: ensureMachineStates(next, lists),
         reachableMachineIds: [...lists].filter(([, peers]) => peers !== undefined).map(([id]) => id),
+        issues,
         errors: {},
     };
 }
@@ -431,7 +458,8 @@ export async function applyCollaboration(
     const catalog = mergeMachines(normalized, machines);
     const byId = new Map(catalog.map((machine) => [machine.machineId, machine]));
     const errors: Record<string, string> = {};
-    let lists = await listPeers(catalog, request);
+    let listed = await listPeers(catalog, request);
+    let lists = listed.lists;
     let next = await reconcileIntent({ ...normalized, machines: catalog }, lists);
     await onProgress(next);
 
@@ -589,13 +617,15 @@ export async function applyCollaboration(
         }
     }
 
-    lists = await listPeers(catalog, request);
+    listed = await listPeers(catalog, request);
+    lists = listed.lists;
     next = await reconcileIntent(next, lists);
     await onProgress(next);
     return {
         intent: next,
         states: ensureMachineStates(next, lists),
         reachableMachineIds: [...lists].filter(([, peers]) => peers !== undefined).map(([id]) => id),
+        issues: listed.issues,
         errors,
     };
 }

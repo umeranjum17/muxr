@@ -2567,6 +2567,17 @@ function entryStatus(path, entry) {
     return entry.kind === 'owned' && hash(readFileSync(path, 'utf8')) === entry.hash ? 'current' : 'drifted';
 }
 
+function peerAgentAccessReady() {
+    const path = join(stateDir(), 'host', 'peer', 'cli.json');
+    if (!existsSync(path)) return false;
+    try {
+        const info = lstatSync(path);
+        const value = JSON.parse(readFileSync(path, 'utf8'));
+        return info.isFile() && !info.isSymbolicLink() && (info.mode & 0o077) === 0
+            && value?.version === 1 && typeof value.socketPath === 'string' && typeof value.capability === 'string';
+    } catch { return false; }
+}
+
 export async function runDoctor() {
     const checks = [];
     // repair: { label, run } — offered interactively when the check fails.
@@ -2776,6 +2787,13 @@ export async function runDoctor() {
         if (selfhost.webEnabled === true) add(ingressReady ? 'ok' : 'warn', 'web client', ingressReady
             ? `${publicRelayUrl(selfhost.relayUrl)?.replace(/^ws/, 'http') ?? 'configured'} · control and view-only browser grants expire after eight hours`
             : 'configured but unreachable until the tunnel is restored');
+    }
+    if (managedMode !== 'relay' && (selfhost !== undefined || existsSync(authPath()))) {
+        const ready = peerAgentAccessReady();
+        add(ready ? 'ok' : 'fail', 'peer agent access', ready
+            ? 'ready for `muxr peers`'
+            : 'not ready — run `muxr daemon restart`',
+        ready ? undefined : { label: 'restart muxr to restore local peer access', run: () => runDaemon(['restart']) });
     }
     if (hasPendingRemoteConnect()) add('fail', 'pending enrollment', 'run `muxr` and choose Resume remote connection');
     const width = Math.max(...checks.map((check) => check.name.length));
