@@ -1,6 +1,8 @@
 import type { PeerRequestMap, PeerRequestType } from '@muxr/contract';
 import { MuxrClient, MuxrRequestError } from '@/client/muxrClient';
 import type { StoredHostedGrant } from '@/state/hostedE2ee';
+import { getCachedConnectionSettings } from '@/state/connectionSettings';
+import { sync } from '@/sync/sync';
 import { PeerHostResponseError } from './computerCollaboration';
 
 /** Request one paired machine without changing the app's active connection. */
@@ -9,6 +11,13 @@ export async function requestPairedMachine<T extends PeerRequestType>(
     type: T,
     params: PeerRequestMap[T]['params'],
 ): Promise<PeerRequestMap[T]['result']> {
+    if (getCachedConnectionSettings().machineId === grant.machineId) {
+        try { return await sync.request(type, params, 12_000); }
+        catch (cause) {
+            if (cause instanceof MuxrRequestError) throw new PeerHostResponseError(cause.message, cause.code);
+            throw cause;
+        }
+    }
     let permanentError: string | undefined;
     let ticketRejected = false;
     const client = new MuxrClient({

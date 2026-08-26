@@ -60,7 +60,8 @@ export class HttpPeerAuthority implements PeerAuthority {
     }
 
     private async issueSelfhost(input: Parameters<PeerAuthority['issuePeer']>[0]): Promise<IssuedPeer> {
-        const listed = await this.json('/v1/selfhost/peers', { method: 'GET' }) as { peers?: unknown };
+        const peersPath = `/v1/selfhost/peers?machine=${encodeURIComponent(this.options.machineId)}`;
+        const listed = await this.json(peersPath, { method: 'GET' }) as { peers?: unknown };
         const existing = Array.isArray(listed.peers)
             ? listed.peers.find((value) => {
                 const peer = value as Record<string, unknown>;
@@ -68,7 +69,7 @@ export class HttpPeerAuthority implements PeerAuthority {
             }) as Record<string, unknown> | undefined
             : undefined;
         if (existing !== undefined && typeof existing.deviceId === 'string') {
-            const rotated = await this.json(`/v1/selfhost/peers/${encodeURIComponent(existing.deviceId)}/rotate`, {
+            const rotated = await this.json(`/v1/selfhost/peers/${encodeURIComponent(existing.deviceId)}/rotate?machine=${encodeURIComponent(this.options.machineId)}`, {
                 method: 'POST',
                 body: JSON.stringify({
                     credential_expires_at: input.credentialExpiresAt,
@@ -79,7 +80,7 @@ export class HttpPeerAuthority implements PeerAuthority {
             if (typeof rotated.device_credential !== 'string') throw new Error('selfhost peer authority returned an invalid recovery response');
             return this.issued(existing.deviceId, rotated.device_credential, input);
         }
-        const result = await this.json('/v1/selfhost/peers', {
+        const result = await this.json(peersPath, {
             method: 'POST',
             body: JSON.stringify({
                 device_public_key: input.peerPublicKey,
@@ -168,7 +169,7 @@ export class HttpPeerAuthority implements PeerAuthority {
             });
             return;
         }
-        await this.json(`/v1/selfhost/peers/${encodeURIComponent(peerDeviceId)}/grant`, {
+        await this.json(`/v1/selfhost/peers/${encodeURIComponent(peerDeviceId)}/grant?machine=${encodeURIComponent(this.options.machineId)}`, {
             method: 'POST', body: JSON.stringify({ grant, key_version: keyVersion }),
         });
     }
@@ -178,7 +179,7 @@ export class HttpPeerAuthority implements PeerAuthority {
             await this.json(`/v1/devices/${encodeURIComponent(peerDeviceId)}/revoke`, { method: 'POST' }, true);
             return;
         }
-        await this.json(`/v1/selfhost/peers/${encodeURIComponent(peerDeviceId)}`, { method: 'DELETE' }, true);
+        await this.json(`/v1/selfhost/peers/${encodeURIComponent(peerDeviceId)}?machine=${encodeURIComponent(this.options.machineId)}`, { method: 'DELETE' }, true);
     }
 
     async publishRotation(keyVersion: number, grants: MachineRotationGrant[]): Promise<void> {

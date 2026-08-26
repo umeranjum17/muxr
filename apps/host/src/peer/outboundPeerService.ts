@@ -267,7 +267,8 @@ export class OutboundPeerService {
         const base = name(relationship.machineName, 'Peer computer');
         const used = new Set(this.options.store.list().peers.flatMap((entry) => {
             const stored = this.options.store.relationship(entry.relationshipId);
-            return stored?.direction === 'outbound' && stored.relationshipId !== relationship.relationshipId && stored.machineAlias
+            return stored?.direction === 'outbound' && stored.state !== 'revoked'
+                && stored.relationshipId !== relationship.relationshipId && stored.machineAlias
                 ? [key(stored.machineAlias)] : [];
         }));
         let alias = base;

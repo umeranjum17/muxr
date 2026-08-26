@@ -679,7 +679,13 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
             if (config.localAuthority && localPairing !== undefined && req.method === 'POST'
                 && url.pathname === '/v1/selfhost/peers') {
                 const authority = await resolveAuthority(req);
-                if (authority.machine === undefined) { writeJsonError(res, 403, 'peer issuance requires target machine authority'); return; }
+                if (!authority.owner && authority.machine === undefined) { writeJsonError(res, 403, 'peer issuance requires owner or target machine authority'); return; }
+                const requestedSlug = url.searchParams.get('machine')?.trim() ?? '';
+                if (authority.machine !== undefined && requestedSlug !== '' && requestedSlug !== authority.machine.slug) {
+                    writeJsonError(res, 403, 'machine credential cannot issue for another machine'); return;
+                }
+                const machineSlug = authority.machine?.slug ?? requestedSlug;
+                if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(machineSlug)) { writeJsonError(res, 400, 'machine is required'); return; }
                 const body = (await readJsonBody(req).catch(() => undefined)) as Record<string, unknown> | undefined;
                 const publicKey = typeof body?.device_public_key === 'string' ? body.device_public_key : '';
                 const name = typeof body?.device_name === 'string' ? body.device_name.trim() : '';
@@ -695,7 +701,7 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
                     return;
                 }
                 const issued = await localPairing.issuePeer({
-                    machineSlug: authority.machine.slug,
+                    machineSlug,
                     publicKey,
                     name,
                     capabilities,
@@ -731,21 +737,33 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
                 const action = peerAuthorityMatch[2];
                 if (req.method === 'POST' && action === 'grant') {
                     const authority = await resolveAuthority(req);
-                    if (authority.machine === undefined) { writeJsonError(res, 403, 'peer grant refresh requires target machine authority'); return; }
+                    if (!authority.owner && authority.machine === undefined) { writeJsonError(res, 403, 'peer grant refresh requires owner or target machine authority'); return; }
+                    const requestedSlug = url.searchParams.get('machine')?.trim() ?? '';
+                    if (authority.machine !== undefined && requestedSlug !== '' && requestedSlug !== authority.machine.slug) {
+                        writeJsonError(res, 403, 'machine credential cannot refresh another machine'); return;
+                    }
+                    const machineSlug = authority.machine?.slug ?? requestedSlug;
+                    if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(machineSlug)) { writeJsonError(res, 400, 'machine is required'); return; }
                     const body = (await readJsonBody(req).catch(() => undefined)) as Record<string, unknown> | undefined;
                     const grant = typeof body?.grant === 'string' ? body.grant : '';
                     const keyVersion = body?.key_version;
                     if (grant === '' || grant.length > 16 * 1024 || typeof keyVersion !== 'number'
-                        || !(await localPairing.storePeerGrant(deviceId, authority.machine.slug, grant, keyVersion))) {
+                        || !(await localPairing.storePeerGrant(deviceId, machineSlug, grant, keyVersion))) {
                         writeJsonError(res, 409, 'peer_grant_invalid'); return;
                     }
-                    closePeers({ accountId: `local:${authority.machine.slug}`, deviceId }, 'peer grant refreshed');
+                    closePeers({ accountId: `local:${machineSlug}`, deviceId }, 'peer grant refreshed');
                     writeJson(res, 200, { ok: true, key_version: keyVersion });
                     return;
                 }
                 if (req.method === 'POST' && action === 'rotate') {
                     const authority = await resolveAuthority(req);
-                    if (authority.machine === undefined) { writeJsonError(res, 403, 'peer credential rotation requires target machine authority'); return; }
+                    if (!authority.owner && authority.machine === undefined) { writeJsonError(res, 403, 'peer credential rotation requires owner or target machine authority'); return; }
+                    const requestedSlug = url.searchParams.get('machine')?.trim() ?? '';
+                    if (authority.machine !== undefined && requestedSlug !== '' && requestedSlug !== authority.machine.slug) {
+                        writeJsonError(res, 403, 'machine credential cannot rotate another machine'); return;
+                    }
+                    const machineSlug = authority.machine?.slug ?? requestedSlug;
+                    if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(machineSlug)) { writeJsonError(res, 400, 'machine is required'); return; }
                     const body = (await readJsonBody(req).catch(() => undefined)) as Record<string, unknown> | undefined;
                     const expiresAt = body?.credential_expires_at;
                     const refreshAfter = body?.refresh_after;
@@ -753,13 +771,13 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
                         || refreshAfter !== undefined && (typeof refreshAfter !== 'number' || !Number.isFinite(refreshAfter))) {
                         writeJsonError(res, 400, 'invalid peer credential lifetime'); return;
                     }
-                    const rotated = await localPairing.rotatePeerCredential(deviceId, authority.machine.slug, {
+                    const rotated = await localPairing.rotatePeerCredential(deviceId, machineSlug, {
                         ...(expiresAt === undefined ? {} : { expiresAt }),
                         ...(refreshAfter === undefined ? {} : { refreshAfter }),
                         ...(typeof body?.authority_id === 'string' && body.authority_id !== '' ? { authorityId: body.authority_id.slice(0, 256) } : {}),
                     });
                     if (rotated === undefined) { writeJsonError(res, 404, 'peer_not_found'); return; }
-                    revokePeers({ accountId: `local:${authority.machine.slug}`, deviceId });
+                    revokePeers({ accountId: `local:${machineSlug}`, deviceId });
                     writeJson(res, 200, {
                         device_credential: rotated.credential,
                         credential_version: rotated.credentialVersion,
