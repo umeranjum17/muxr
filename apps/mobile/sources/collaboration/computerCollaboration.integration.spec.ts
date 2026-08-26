@@ -51,6 +51,7 @@ class FakeMachineClient {
             this.failNext = undefined;
             throw new Error('transport dropped after send');
         }
+        if (type === 'peer.remote.list') return { machineAlias: 'Peer computer', sessions: [] } as PeerRequestMap[T]['result'];
         if (type === 'peer.prepare') {
             const input = params as PeerRequestMap['peer.prepare']['params'];
             this.calls.push(`prepare:${this.machine.name}->${this.fleet.get(input.targetMachineId)!.machine.name}`);
@@ -232,6 +233,16 @@ describe('computer collaboration flow', () => {
         expect(selectedAgain.edges.map((edge) => edge.relationshipId).sort()).toEqual([...relationshipIds].sort());
         expect(hasPendingCollaboration({ ...selectedAgain, edges: [] })).toBe(true);
 
+        fleet.get('linux-internal')!.failNext = 'peer.remote.list';
+        const staleRuntime = await reconcileCollaboration(recovered.intent, machines, request);
+        const staleEdge = staleRuntime.intent.edges.find((edge) => edge.sourceMachineId === 'linux-internal')!;
+        expect(staleEdge.setup).toMatchObject({ repairNeeded: true });
+        expect(staleRuntime.errors).toEqual({ 'linux-internal': 'Computer unavailable. Start muxr on this computer, then retry.' });
+        report = await applyCollaboration(staleRuntime.intent, machines, request, save, now, newId);
+        expect(Object.values(report.states)).toEqual(['Connected', 'Connected']);
+        expect(report.intent.edges).not.toContainEqual(expect.objectContaining({ relationshipId: staleEdge.relationshipId }));
+        expect(report.intent.edges.find((edge) => edge.sourceMachineId === 'linux-internal')?.setup).toBeUndefined();
+
         const orphan: PeerRelationship = {
             relationshipId: 'orphan-live-authority', direction: 'outbound', machineId: 'mac-internal', machineName: 'Build Mac',
             state: 'connected', capabilities: ['list', 'read', 'status', 'watch', 'prompt'], peerDeviceId: 'orphan-device', createdAt: 1_000, updatedAt: 1_000,
@@ -243,7 +254,6 @@ describe('computer collaboration flow', () => {
         expect(collaborationSummary(repair.intent)).toBe('Needs attention');
         fleet.get('linux-internal')!.peers = fleet.get('linux-internal')!.peers.filter((peer) => peer !== orphan);
 
-        report = recovered;
         const lostReceiptEdge = report.intent.edges.find((edge) => edge.sourceMachineId === 'linux-internal')!;
         fleet.get('linux-internal')!.peers = fleet.get('linux-internal')!.peers.filter((peer) => peer.relationshipId !== lostReceiptEdge.relationshipId);
         lostReceiptEdge.setup = {};
