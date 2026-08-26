@@ -2,7 +2,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { chmodSync, existsSync, lstatSync, unlinkSync } from 'node:fs';
 import { createServer, type Server, type Socket } from 'node:net';
 import { dirname } from 'node:path';
-import type { PeerRequestResult } from '@muxr/contract';
+import { PEER_MUTATION_TTL_MS, type PeerRequestResult } from '@muxr/contract';
 import { atomicWriteJson } from '../domain/atomicWriteJson.js';
 import type { PeerRuntime } from './runtime.js';
 import type { StoredPeerRelationship } from './store.js';
@@ -10,7 +10,6 @@ import type { DiagnosticOutcome, HostDiagnosticsJournal } from '../diagnostics/j
 
 const MAX_REQUEST_BYTES = 32 * 1024;
 const MAX_ACK_BYTES = 4 * 1024;
-const MUTATION_TTL_MS = 5 * 60_000;
 const PLUGIN_ACK_TIMEOUT_MS = 5_000;
 
 export type PeerBrokerRequest =
@@ -226,7 +225,7 @@ export class PeerBroker {
                 return { machine: cleanAlias(result.machineAlias), agent: cleanAlias(result.agentAlias), status: { agentStatus: result.status.agentStatus, isStreaming: result.status.isStreaming } };
             }
             assertAccess();
-            const mutation = { operationId: `voice_${randomUUID()}`, notValidAfter: Date.now() + MUTATION_TTL_MS };
+            const mutation = { operationId: `voice_${randomUUID()}`, notValidAfter: Date.now() + PEER_MUTATION_TTL_MS };
             if (request.method === 'watch') {
                 const timeoutMs = Math.min(Math.max(Math.trunc(request.timeoutMs ?? 30_000), 1_000), 290_000);
                 const params = { sessionId: target.sessionId, timeoutMs, mutation };
@@ -317,7 +316,7 @@ export class PeerBroker {
                     const request = parsePeerBrokerRequest(message.request);
                     const requestTimeout = request.method === 'watch'
                         ? Math.min(Math.max(Math.trunc(request.timeoutMs ?? 30_000), 1_000), 290_000) + 25_000
-                        : request.method === 'prompt' ? MUTATION_TTL_MS + 25_000 : 45_000;
+                        : request.method === 'prompt' ? PEER_MUTATION_TTL_MS + 25_000 : 45_000;
                     socket.setTimeout(requestTimeout, () => socket.destroy());
                     const startedAt = Date.now();
                     try {

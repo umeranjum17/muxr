@@ -18,7 +18,8 @@ import { dirname, join } from 'node:path';
 import { packageInfoFromPath, packagePathFromInput } from './packageAudit.mjs';
 
 const root = process.cwd();
-const scratch = realpathSync(mkdtempSync(join(tmpdir(), 'muxr-package-smoke-')));
+const scratchBase = process.platform === 'darwin' ? '/tmp' : tmpdir();
+const scratch = realpathSync(mkdtempSync(join(scratchBase, 'muxr-package-smoke-')));
 const tarDir = join(scratch, 'tar');
 const installDir = join(scratch, 'install');
 const home = join(scratch, 'home');
@@ -754,7 +755,9 @@ try {
     await new Promise((resolve, reject) => {
         const timer = setTimeout(() => reject(new Error(`packaged host did not start\n${hostOutput}`)), 10_000);
         const poll = setInterval(() => {
-            if (hostOutput.includes('(fake)') && existsSync(join(home, '.muxr', 'relay', 'relay.pid'))) {
+            if (hostOutput.includes('(fake)')
+                && existsSync(join(home, '.muxr', 'relay', 'relay.pid'))
+                && existsSync(join(home, '.muxr', 'host', 'peer', 'cli.json'))) {
                 clearTimeout(timer);
                 clearInterval(poll);
                 resolve();
@@ -923,5 +926,5 @@ try {
     process.stdout.write(`package smoke passed: ${tarball}\n`);
 } finally {
     stopRelayFor(join(home, '.muxr', 'relay'));
-    rmSync(scratch, { recursive: true, force: true });
+    rmSync(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 }

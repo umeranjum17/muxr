@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { randomUUID } from 'expo-crypto';
 import {
     DEFAULT_PEER_CAPABILITIES,
+    PEER_MUTATION_TTL_MS,
     type PeerCapability,
     type PeerMutationMetadata,
     type PeerRelationship,
@@ -11,7 +12,6 @@ import {
 } from '@muxr/contract';
 
 const STORAGE_KEY = 'muxr.computer-collaboration.v1';
-const MUTATION_TTL_MS = 5 * 60_000;
 
 export const COLLABORATION_CAPABILITIES: PeerCapability[] = [...DEFAULT_PEER_CAPABILITIES];
 export type CollaborationMachineState = 'Connected' | 'Setting up' | 'Waiting for computer' | 'Repair needed' | 'Disconnecting';
@@ -300,7 +300,7 @@ export function selectCollaborationMachines(
 function mutation(current: PeerMutationMetadata | undefined, now: number, newId: () => string): PeerMutationMetadata {
     return current !== undefined && current.notValidAfter > now
         ? current
-        : { operationId: newId(), notValidAfter: now + MUTATION_TTL_MS };
+        : { operationId: newId(), notValidAfter: now + PEER_MUTATION_TTL_MS };
 }
 
 async function listPeers(machines: CollaborationMachine[], request: PeerRequester) {

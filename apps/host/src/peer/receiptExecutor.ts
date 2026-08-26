@@ -1,8 +1,7 @@
 import { createHash } from 'node:crypto';
-import type { PeerMutationMetadata } from '@muxr/contract';
+import { PEER_MUTATION_MAX_TTL_MS, type PeerMutationMetadata } from '@muxr/contract';
 import { PeerStore, type StoredPeerReceipt } from './store.js';
 
-const PEER_MUTATION_MAX_TTL_MS = 5 * 60_000;
 
 function operationError(message: string, code: string): Error {
     return Object.assign(new Error(message), { code });

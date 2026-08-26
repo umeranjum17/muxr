@@ -215,7 +215,7 @@ describe('computer collaboration flow', () => {
         expect(report.intent.edges.map((edge) => edge.relationshipId)).toEqual(relationshipIds);
         const retriedPrepare = mutations.filter((entry) => entry.machineId === 'linux-internal' && entry.type === 'peer.prepare')[1]!;
         expect(retriedPrepare).toEqual(failedPrepare);
-        expect(mutations.every((entry) => entry.operationId !== '' && entry.notValidAfter === 301_000)).toBe(true);
+        expect(mutations.every((entry) => entry.operationId !== '' && entry.notValidAfter === 241_000)).toBe(true);
         expect(mutations.filter((entry) => entry.type === 'peer.authorize').every((entry) => JSON.parse(entry.params).targetRelayUrl === undefined)).toBe(true);
         expect(calls).toEqual([
             'prepare:Build Mac->Linux workstation',

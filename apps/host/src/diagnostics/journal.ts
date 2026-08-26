@@ -46,9 +46,10 @@ const clientCounts = (): ClientCounts => ({ local: 0, native: 0, browser: 0, pee
 const relationshipCounts = (): RelationshipCounts => ({ pending: 0, connected: 0, 'repair-needed': 0, disconnecting: 0, revoked: 0 });
 const safeCodes = new Set([
     'host-contract-mismatch', 'e2ee-required', 'peer-forbidden', 'peer-limit',
-    'peer-already-authorized', 'peer-mutation-required', 'peer-mutation-unresolved', 'peer-recovery-pending',
-    'peer-operation-uncertain', 'grant-refresh-failed', 'ticket-issue-failed',
-    'socket-error', 'socket-closed', 'socket-timeout', 'liveness-closed', 'liveness-timeout',
+    'peer-already-authorized', 'peer-mutation-invalid', 'peer-mutation-required',
+    'peer-mutation-unresolved', 'peer-recovery-pending', 'peer-operation-uncertain',
+    'grant-refresh-failed', 'ticket-issue-failed', 'socket-error', 'socket-closed',
+    'socket-timeout', 'liveness-closed', 'liveness-timeout',
     'timeout', 'unavailable',
 ]);
 const loggedRequests = new Set<RequestType>([
