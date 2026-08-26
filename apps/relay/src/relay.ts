@@ -36,7 +36,7 @@ import type { PushWebhookConfig } from './pushWebhook.js';
 import { ReplayLog } from './replay.js';
 import { MachineRegistry } from './registry.js';
 import { awaitPersistChain, writeJsonFileAtomic, readPrivateFile } from './persist.js';
-import { deliverReplayAndOffline, routeEnvelope } from './routing.js';
+import { deliverReplayAndOffline, routeEnvelope, type PeerRouteOutcome } from './routing.js';
 
 /** How long push/action waits for the machine's answer before giving up. */
 const PUSH_ACTION_TIMEOUT_MS = 15_000;
@@ -139,6 +139,12 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
     const offline = new OfflineBuffer(config.dataDir, config.bufferLimit, config.bufferTtlMs);
     const replay = new ReplayLog(config.dataDir, config.replayLimit, config.replayTtlMs);
     const startedAt = Date.now();
+    const peerRouteEvents: Array<{ at: string; event: 'peer.route'; direction: 'client-to-host'; outcome: PeerRouteOutcome }> = [];
+    const recordPeerRoute = (outcome: PeerRouteOutcome): void => {
+        const now = Date.now();
+        peerRouteEvents.push({ at: new Date(now).toISOString(), event: 'peer.route', direction: 'client-to-host', outcome });
+        while (peerRouteEvents.length > 64 || Date.parse(peerRouteEvents[0]?.at ?? '') < now - 15 * 60_000) peerRouteEvents.shift();
+    };
     const authMode = config.authMode === 'strict' ? 'strict' : 'permissive';
 
     const pushWebhook: PushWebhookConfig | undefined =
@@ -362,6 +368,17 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
             if (req.method === 'GET' && url.pathname === '/ready') {
                 const ready = options.readyCheck === undefined ? true : await options.readyCheck();
                 writeJson(res, ready ? 200 : 503, { ok: ready });
+                return;
+            }
+            if (config.localAuthority && req.method === 'GET' && url.pathname === '/v1/selfhost/route-diagnostics') {
+                const authority = await resolveAuthority(req);
+                if (!authority.owner) { writeJsonError(res, 403, 'route diagnostics require relay owner authority'); return; }
+                const cutoff = Date.now() - 15 * 60_000;
+                writeJson(res, 200, {
+                    note: 'bounded redacted peer routes; timestamps and outcomes only',
+                    windowMinutes: 15,
+                    events: peerRouteEvents.filter((event) => Date.parse(event.at) >= cutoff),
+                });
                 return;
             }
             if ((req.method === 'GET' || req.method === 'HEAD') && await serveWeb(url.pathname, req.method === 'HEAD', res)) return;
@@ -1110,7 +1127,7 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
                 peers,
                 offline,
                 replay,
-                pushWebhook === undefined ? {} : { pushWebhook },
+                { ...(pushWebhook === undefined ? {} : { pushWebhook }), onPeerRoute: recordPeerRoute },
             );
         });
 

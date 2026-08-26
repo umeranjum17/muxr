@@ -10,6 +10,8 @@ import { PushService } from './push.js';
 import { MachineRegistry } from './registry.js';
 import { ReplayLog } from './replay.js';
 import { SelfhostPairing } from './selfhostPairing.js';
+import { PeerTable, type ConnectedPeer } from './peers.js';
+import { routeEnvelope, type PeerRouteOutcome } from './routing.js';
 
 it('keeps a browser grant recoverable until its role and durable client acknowledgement are confirmed', async () => {
     const root = await mkdtemp(join(tmpdir(), 'muxr-browser-pairing-'));
@@ -87,6 +89,50 @@ it('issues a constrained peer credential, carries its metadata through rotation,
         await expect(pairing.revokeDevice(issued.deviceId, 'machine-target')).resolves.toEqual({ machineSlug: 'machine-target' });
         await expect(pairing.resolveDeviceCredential(rotated.credential)).resolves.toBeUndefined();
         await expect(pairing.fetchCurrentGrant(issued.deviceId, 'machine-target')).resolves.toBeUndefined();
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+it('reports a self-host peer tenant mismatch instead of claiming the target is offline', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'muxr-peer-route-'));
+    try {
+        const peers = new PeerTable();
+        const socket = { OPEN: 1, readyState: 1, send: vi.fn() } as unknown as import('ws').WebSocket;
+        const target: ConnectedPeer = {
+            socket, identity: { kind: 'ticket', role: 'machine', machineIds: new Set(['mac']), accountId: 'local:mac', transport: 'relay' },
+            accountId: 'local:mac', role: 'machine', machineIds: new Set(['mac']), connectedAt: Date.now(),
+        };
+        const source: ConnectedPeer = {
+            socket: { OPEN: 1, readyState: 1, send: vi.fn() } as unknown as import('ws').WebSocket,
+            identity: {
+                kind: 'ticket', role: 'client', machineIds: new Set(['mac']), accountId: 'local:linux',
+                deviceKind: 'peer', transport: 'relay',
+            },
+            accountId: 'local:linux', role: 'client', machineIds: new Set(['mac']), connectedAt: Date.now(),
+        };
+        peers.add(target);
+        const outcomes: PeerRouteOutcome[] = [];
+        const envelope: Envelope = { header: { machineId: 'mac', seq: 1, at: Date.now() }, payload: 'opaque-ciphertext' };
+        const result = routeEnvelope(envelope, source, peers, new OfflineBuffer(root, 10, 60_000), new ReplayLog(root, 10, 60_000), {
+            onPeerRoute: (outcome) => outcomes.push(outcome),
+        });
+        expect(result).toEqual({ delivered: 0, buffered: true, pushNotified: false });
+        expect(outcomes).toEqual(['tenant-mismatch']);
+        expect(socket.send).not.toHaveBeenCalled();
+
+        const sameTenantSource: ConnectedPeer = {
+            ...source,
+            accountId: 'local:mac',
+            identity: {
+                kind: 'ticket', role: 'client', machineIds: new Set(['mac']), accountId: 'local:mac',
+                deviceKind: 'peer', transport: 'relay',
+            },
+        };
+        expect(routeEnvelope(envelope, sameTenantSource, peers, new OfflineBuffer(root, 10, 60_000), new ReplayLog(root, 10, 60_000), {
+            onPeerRoute: (outcome) => outcomes.push(outcome),
+        })).toEqual({ delivered: 1, buffered: false, pushNotified: false });
+        expect(outcomes).toEqual(['tenant-mismatch', 'delivered']);
     } finally {
         await rm(root, { recursive: true, force: true });
     }
