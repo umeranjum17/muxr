@@ -1,7 +1,7 @@
 ---
 title: Cross-machine agent collaboration
 slug: cross-machine-collaboration
-status: in-progress
+status: implemented
 created: 2026-08-25
 updated: 2026-08-26
 owner: umer
@@ -201,23 +201,24 @@ The work lands as one cohesive feature PR with reviewable internal commits.
 - 2026-08-26: reopened after live owner testing because machine checkmarks looked persisted before confirmation, the permission card was not interactive, and ordinary offline setup was mislabeled `Needs attention`; replace the fixed card with a real revoking switch, reserve the warning for repair, and keep interrupted authorization and pending disconnect retries convergent.
 - 2026-08-26: reopened after the third owner iteration and a Fable HOLD: add an ordinary-agent peer CLI, preserve outdated/offline/authorization causes through Settings with an explicit Connected receipt, and make CLI skill loading progressive instead of dumping every reference.
 - 2026-08-26: reopened after live owner evidence showed the collaboration screen falsely rendered an empty pairing state while remote checks were pending; render saved grants immediately and add a bounded host diagnostic journal plus `muxr diagnostics` so local agents can inspect client, relay, peer, and broker history without raw log dumps.
+- 2026-08-26: the real Android, Linux, and Hetzner journey exposed active-socket contention, owner-authority gaps, stale remote credentials, loopback peer bundles, incomplete peer-state validation, and revoked alias churn; v0.1.20 fixes each root cause and is implemented pending the remaining macOS and live voice acceptance.
 
 ## Verification
 
-- [ ] Two paired computers can be selected in Settings and converge to symmetric peer grants without CLI setup.
-- [ ] The phone may go offline after setup while peers continue to connect directly.
+- [x] Two paired computers can be selected in Settings and converge to symmetric peer grants without CLI setup.
+- [x] The phone may go offline after setup while peers continue to connect directly.
 - [ ] A peer can list agents, send one prompt, watch completion, and read recent pane output on the other computer.
-- [ ] Observe-only and default peer capabilities reject shell, raw Herdr CLI, close, takeover, worktree landing, and undeclared plugin operations.
-- [ ] A timed-out or offline-buffered prompt cannot execute after `notValidAfter` and a retried operation executes once.
-- [ ] Revocation closes live peer sockets and blocks future tickets and mutations.
+- [x] Observe-only and default peer capabilities reject shell, raw Herdr CLI, close, takeover, worktree landing, and undeclared plugin operations.
+- [x] A timed-out or offline-buffered prompt cannot execute after `notValidAfter` and a retried operation executes once.
+- [x] Revocation closes live peer sockets and blocks future tickets and mutations.
 - [ ] Offline setup and disconnect show pending state and converge after the missing computer returns.
 - [ ] Forgetting a phone pairing never claims peer collaboration was revoked.
 - [ ] Voice stays one native realtime speech-to-speech stream pinned to its original machine/session across reconnects.
 - [ ] Voice can unambiguously prompt, watch, and summarize an allowed remote agent without receiving peer credentials.
 - [ ] Switching computers during voice requires explicit call termination.
-- [ ] Internal ids, raw terminal output, credentials, and private paths are never displayed, spoken, or exported through diagnostics.
-- [ ] `muxr diagnostics` shows bounded relay, recently-seen client, peer relationship, collaboration request, and broker history after restart without prompts, paths, secrets, or raw/internal ids.
-- [ ] Existing local Herdr, pairing, plugin, voice, Android, iOS, and relay isolation flows remain green.
+- [x] Internal ids, raw terminal output, credentials, and private paths are never displayed, spoken, or exported through diagnostics.
+- [x] `muxr diagnostics` shows bounded relay, recently-seen client, peer relationship, collaboration request, and broker history after restart without prompts, paths, secrets, or raw/internal ids.
+- [x] Existing local Herdr, pairing, plugin, voice, Android, iOS, and relay isolation flows remain green.
 
 ## Review evidence
 
@@ -228,4 +229,7 @@ The work lands as one cohesive feature PR with reviewable internal commits.
 - 2026-08-25: the latest strict typecheck, voice/provider checks, bundled-plugin policy, voice RPC lifecycle, and `scripts/runSuite.mjs` all passed; the full suite finished 30/30 including live Herdr and package smoke checks.
 - 2026-08-25: `git diff --check` passed.
 - 2026-08-26: Fable first returned HOLD because terminal agents had no peer CLI and Settings swallowed compatibility errors. After the owner-only `muxr peers` path, actionable state model, progressive skill loading, real CLI flow assertions, package smoke, and 30/30 suite landed, Fable returned RELEASE conditional only on preserving the prior deterministic wait fix and tracking `scripts/peers.mjs`; both conditions are satisfied after rebase.
-- Not yet verified: the live hosted two-machine ceremony for CLI list/prompt/watch/read, grant refresh/rotation, reconnect, and immediate socket revocation. The spec remains `implemented`, not `tested`.
+- 2026-08-26: a standalone Android build paired this Linux host and a fresh Hetzner self-host relay, rendered both saved computers immediately, reached the explicit **Computers connected** receipt, and left symmetric connected host relationships.
+- 2026-08-26: with the phone force-stopped, the ordinary local CLI listed the VPS and exercised status, read, prompt, and watch; `muxr diagnostics` recorded bounded successful broker operations. Host restart preserved the relationship.
+- 2026-08-26: mobile revocation made the CLI unavailable immediately, converged to an empty peer list, and a new authorization succeeded afterward. Final Fable review returned **SHIP**, the full suite passed 30/30, and npm v0.1.20 was published.
+- Not yet verified: the real macOS relationship and a live remote agent that produces a completed watch plus readable output, hosted grant rotation, and cross-machine native voice. The spec remains `implemented`, not `tested`.
