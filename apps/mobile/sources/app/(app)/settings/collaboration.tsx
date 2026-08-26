@@ -69,6 +69,7 @@ export default function ComputerCollaborationScreen() {
             return {
                 machineId: grant.machineId,
                 machineSigningPublicKey: grant.machineSigningPublicKey,
+                relayUrl: grant.relayUrl,
                 name: displayName || grant.machineName || safeHost || knownById.get(grant.machineId)?.name || 'Paired computer',
                 platform: platformName(live?.metadata?.platform) ?? knownById.get(grant.machineId)?.platform,
             };

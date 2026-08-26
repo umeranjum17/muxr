@@ -162,8 +162,8 @@ describe('computer collaboration flow', () => {
         })]);
 
         const machines: CollaborationMachine[] = [
-            { machineId: 'linux-internal', name: 'Linux workstation', platform: 'Linux', machineSigningPublicKey: 'linux-signing-key' },
-            { machineId: 'mac-internal', name: 'Build Mac', platform: 'macOS', machineSigningPublicKey: 'mac-signing-key' },
+            { machineId: 'linux-internal', name: 'Linux workstation', platform: 'Linux', machineSigningPublicKey: 'linux-signing-key', relayUrl: 'wss://linux-relay.test' },
+            { machineId: 'mac-internal', name: 'Build Mac', platform: 'macOS', machineSigningPublicKey: 'mac-signing-key', relayUrl: 'wss://mac-relay.test' },
         ];
         const calls: string[] = [];
         const mutations: MutationCall[] = [];
@@ -216,6 +216,9 @@ describe('computer collaboration flow', () => {
         const retriedPrepare = mutations.filter((entry) => entry.machineId === 'linux-internal' && entry.type === 'peer.prepare')[1]!;
         expect(retriedPrepare).toEqual(failedPrepare);
         expect(mutations.every((entry) => entry.operationId !== '' && entry.notValidAfter === 301_000)).toBe(true);
+        for (const entry of mutations.filter((candidate) => candidate.type === 'peer.authorize')) {
+            expect(JSON.parse(entry.params).targetRelayUrl).toBe(machines.find((machine) => machine.machineId === entry.machineId)!.relayUrl);
+        }
         expect(calls).toEqual([
             'prepare:Build Mac->Linux workstation',
             'authorize:Build Mac->Linux workstation',

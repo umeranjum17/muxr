@@ -27,6 +27,8 @@ export interface CollaborationMachine {
     name: string;
     platform?: string;
     machineSigningPublicKey: string;
+    /** Endpoint authenticated by this machine's phone pairing. */
+    relayUrl?: string;
 }
 
 interface SetupProgress {
@@ -192,6 +194,7 @@ function normalizeIntent(value: unknown): CollaborationIntent | undefined {
             name: safeName(machine.name),
             machineSigningPublicKey: machine.machineSigningPublicKey,
             ...(typeof machine.platform === 'string' ? { platform: machine.platform.slice(0, 80) } : {}),
+            ...(typeof machine.relayUrl === 'string' && machine.relayUrl.length <= 2_048 ? { relayUrl: machine.relayUrl } : {}),
         });
     }
     const edges = new Map<string, CollaborationEdge>();
@@ -621,6 +624,7 @@ export async function applyCollaboration(
                     capabilities: COLLABORATION_CAPABILITIES,
                     mutation: setup.authorizeMutation,
                     relationshipId: edge.relationshipId,
+                    ...(target.relayUrl === undefined ? {} : { targetRelayUrl: target.relayUrl }),
                 });
                 activeMutation = undefined;
                 activeMachineId = undefined;

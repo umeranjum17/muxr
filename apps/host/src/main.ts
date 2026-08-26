@@ -160,7 +160,24 @@ interface SelfhostState {
     machineCredential?: string;
     credentialExpiresAt?: string;
     relayLocation?: 'local' | 'remote';
+    ingress?: { kind?: string; dnsName?: string };
     machine: { id: string; name?: string; crypto: MachineCryptoState };
+}
+
+function targetPeerRelayUrl(state: SelfhostState | undefined, fallback: string): string {
+    const dnsName = state?.relayLocation === 'local' && state.ingress?.kind === 'tailscale-serve'
+        ? state.ingress.dnsName?.trim() : undefined;
+    if (dnsName !== undefined && dnsName !== '') {
+        try {
+            const endpoint = new URL(`wss://${dnsName}`);
+            if (endpoint.username === '' && endpoint.password === '' && endpoint.pathname === '/' && endpoint.search === '' && endpoint.hash === '') {
+                return endpoint.origin;
+            }
+        } catch {
+            // Fall through to the stored public endpoint validated by relayControlUrl at authorization.
+        }
+    }
+    return state?.relayUrl ?? fallback;
 }
 
 function selfhostFile(): string {
@@ -401,7 +418,7 @@ if (requestedMode !== undefined && requestedMode !== 'hosted' && requestedMode !
 }
 const mode = requestedMode ?? (hostedAuth !== undefined ? 'hosted' : selfhostAuth !== undefined ? 'selfhost' : useFake ? 'local' : undefined);
 if (mode === undefined) throw new Error('no hosted auth state; set MUXR_MODE=local explicitly for development');
-const peerRelayUrl = mode === 'selfhost' ? selfhostAuth?.relayUrl ?? relayUrl : relayUrl;
+const peerRelayUrl = mode === 'selfhost' ? targetPeerRelayUrl(selfhostAuth, relayUrl) : relayUrl;
 const token = env('MUXR_RELAY_TOKEN') ?? (mode === 'hosted' ? hostedAuth?.credential : mode === 'selfhost' ? selfhostAuth?.mintSecret ?? selfhostAuth?.machineCredential : undefined);
 if (mode === 'hosted' && hostedAuth === undefined) {
     process.stderr.write('hosted mode requires muxr setup/login state; run `muxr doctor`\n');

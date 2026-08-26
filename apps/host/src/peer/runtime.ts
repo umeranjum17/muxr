@@ -5,6 +5,7 @@ import {
     DEFAULT_PEER_CAPABILITIES,
     isPeerCapabilities,
     peerCapabilityForRequest,
+    relayControlUrl,
     type ClientRequest,
     type PeerCapability,
     type PeerClientRequest,
@@ -268,6 +269,9 @@ export class PeerRuntime {
         });
         if (!isPeerCapabilities(params.capabilities)) throw operationError('invalid peer capabilities', 'peer-invalid-capabilities');
         const allowedCwds = this.validateStartDirectories(params.capabilities, params.allowedCwds);
+        const targetRelayUrl = params.targetRelayUrl?.trim() || this.options.relayUrl;
+        try { relayControlUrl(targetRelayUrl); }
+        catch { throw operationError('invalid target relay endpoint', 'peer-bundle-invalid'); }
         if (crypto.devices.some((device) => device.devicePublicKey === claims.peerPublicKey)) {
             await this.repairOrphanDevices();
         }
@@ -293,6 +297,7 @@ export class PeerRuntime {
             peerPublicKey: claims.peerPublicKey,
             capabilities: [...params.capabilities],
             ...(allowedCwds === undefined ? {} : { allowedCwds }),
+            relayUrl: targetRelayUrl,
             createdAt: this.now(),
         };
         await this.store.putPendingAuthorization(authorization);
@@ -363,7 +368,7 @@ export class PeerRuntime {
                 targetMachineName: this.options.machineName,
                 targetPlatform: this.options.platform,
                 targetMachineSigningPublicKey: crypto.signingPublicKey,
-                relayUrl: this.options.relayUrl,
+                relayUrl: pending.relayUrl ?? this.options.relayUrl,
                 peerDeviceId: issued.peerDeviceId,
                 credential: issued.credential,
                 ...(issued.grantPath === undefined ? {} : { grantPath: issued.grantPath }),

@@ -42,6 +42,8 @@ export interface StoredPendingAuthorization {
     peerPublicKey: string;
     capabilities: PeerCapability[];
     allowedCwds?: string[];
+    /** Target endpoint verified by the phone pairing and pinned into the install bundle. */
+    relayUrl?: string;
     createdAt: number;
     authorityRecovery?: PeerAuthorityIssueRecovery;
     issued?: {

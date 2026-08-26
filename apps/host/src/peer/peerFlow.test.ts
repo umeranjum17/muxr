@@ -11,6 +11,7 @@ import {
     DEFAULT_PEER_CAPABILITIES,
     decodePayload,
     encodePayload,
+    relayControlUrl,
     type ClientRequest,
     type Envelope,
     type PeerClientRequest,
@@ -200,7 +201,7 @@ describe('host peer collaboration flow', () => {
             machineId: 'source-machine',
             machineName: 'Linux builder',
             platform: 'Linux',
-            relayUrl: 'ws://relay.test',
+            relayUrl: 'ws://source-relay.test',
             crypto: sourceKeys.adapter,
             authority: sourceAuthority,
             clientFactory: (relationship) => new class implements PeerClientTransport {
@@ -230,7 +231,7 @@ describe('host peer collaboration flow', () => {
             machineId: 'target-machine',
             machineName: 'Build Mac',
             platform: 'macOS',
-            relayUrl: 'ws://relay.test',
+            relayUrl: 'ws://stale-source-relay.test',
             crypto: targetKeys.adapter,
             authority: targetAuthority,
         });
@@ -263,6 +264,7 @@ describe('host peer collaboration flow', () => {
             descriptor: prepared.descriptor,
             capabilities: [...DEFAULT_PEER_CAPABILITIES],
             mutation: fresh('authorize'),
+            targetRelayUrl: 'ws://target-relay.test',
         });
         const installed = await call(sourceRuntime, 'peer.install', {
             targetMachineId: 'target-machine',
@@ -274,6 +276,7 @@ describe('host peer collaboration flow', () => {
         expect(targetKeys.current().devices[0]).toMatchObject({ kind: 'peer', capabilities: DEFAULT_PEER_CAPABILITIES });
         expect(targetKeys.current().devices[0]!.dataKey).not.toBe(targetKeys.current().dataKey);
         const outbound = sourceRuntime.store.relationship(installed.relationshipId)!;
+        expect(outbound.relayUrl).toBe('ws://target-relay.test');
         const peerGrant = verifyDeviceGrant(outbound.sealedGrant!, {
             pinnedMachineSigningPublicKey: outbound.targetMachineSigningPublicKey!,
             deviceKey: outbound.peerKey!,
@@ -725,6 +728,10 @@ describe('host peer collaboration flow', () => {
             sealedGrant,
         })).toThrow('peer grant has the wrong target machine');
 
+        const sourceRelay = new WebSocketServer({ port: 0 });
+        let sourceRelayConnections = 0;
+        sourceRelay.on('connection', () => { sourceRelayConnections += 1; });
+        await new Promise<void>((resolve) => sourceRelay.once('listening', resolve));
         const server = new WebSocketServer({ port: 0 });
         await new Promise<void>((resolve) => server.once('listening', resolve));
         const address = server.address();
@@ -793,8 +800,11 @@ describe('host peer collaboration flow', () => {
                 }
             });
         });
+        const controlOrigins: string[] = [];
         const fakeFetch = (async (input: string | URL | Request) => {
-            const path = new URL(String(input)).pathname;
+            const url = new URL(String(input));
+            controlOrigins.push(url.origin);
+            const path = url.pathname;
             const body = path === '/v1/ws-tickets' ? { ticket: 'fresh-ticket' } : { grant: JSON.stringify(sealedGrant) };
             return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
         }) as typeof fetch;
@@ -841,6 +851,8 @@ describe('host peer collaboration flow', () => {
             })).resolves.toBeNull();
             expect(promptOperationIds).toEqual(['durable-buffered-prompt', 'durable-buffered-prompt']);
             expect(promptExecutions).toBe(1);
+            expect(sourceRelayConnections).toBe(0);
+            expect(new Set(controlOrigins)).toEqual(new Set([new URL(relayControlUrl(relayUrl)).origin]));
             expect(connectionDiagnostics).toEqual(expect.arrayContaining([
                 expect.objectContaining({ phase: 'grant-refresh', outcome: 'ok' }),
                 expect.objectContaining({ phase: 'ticket-issue', outcome: 'ok' }),
@@ -868,7 +880,10 @@ describe('host peer collaboration flow', () => {
             client.close();
             silentClient?.close();
             globalThis.fetch = originalFetch;
-            await new Promise<void>((resolve) => server.close(() => resolve()));
+            await Promise.all([
+                new Promise<void>((resolve) => server.close(() => resolve())),
+                new Promise<void>((resolve) => sourceRelay.close(() => resolve())),
+            ]);
         }
     });
 

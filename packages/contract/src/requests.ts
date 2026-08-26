@@ -77,6 +77,8 @@ export interface PeerRequestMap {
             allowedCwds?: string[];
             mutation: PeerMutationMetadata;
             relationshipId?: string;
+            /** Target endpoint from the phone's verified machine pairing. */
+            targetRelayUrl?: string;
         };
         result: {
             peerDeviceId: string;
