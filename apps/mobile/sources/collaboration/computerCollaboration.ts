@@ -214,7 +214,9 @@ export async function saveCollaborationIntent(intent: CollaborationIntent): Prom
 
 export function collaborationSummary(intent: CollaborationIntent): string {
     if (intent.selectedMachineIds.length < 2 && intent.edges.length === 0) return 'Off';
-    if (intent.edges.some((edge) => edge.setup !== undefined || edge.disconnect !== undefined)) return 'Needs attention';
+    if (intent.edges.some((edge) => edge.setup?.repairNeeded || edge.disconnect?.repair)) return 'Needs attention';
+    if (intent.edges.some((edge) => edge.disconnect !== undefined)) return 'Disconnecting';
+    if (intent.edges.some((edge) => edge.setup !== undefined)) return 'Setting up';
     return `${intent.selectedMachineIds.length} computers`;
 }
 
@@ -224,7 +226,8 @@ export function hasMachineCollaboration(intent: CollaborationIntent, machineId: 
 }
 
 export function hasPendingCollaboration(intent: CollaborationIntent): boolean {
-    return intent.edges.some((edge) => edge.setup !== undefined || edge.disconnect !== undefined);
+    return (intent.selectedMachineIds.length >= 2 && intent.edges.length === 0)
+        || intent.edges.some((edge) => edge.setup !== undefined || edge.disconnect !== undefined);
 }
 
 export function selectCollaborationMachines(
@@ -309,6 +312,10 @@ function ensureMachineStates(intent: CollaborationIntent, lists: Map<string, Pee
             continue;
         }
         if (!selected.has(machine.machineId)) continue;
+        if (edges.length === 0) {
+            states[machine.machineId] = 'Setting up';
+            continue;
+        }
         let state: CollaborationMachineState = 'Connected';
         for (const edge of edges) {
             const source = lists.get(edge.sourceMachineId);
@@ -357,7 +364,12 @@ async function reconcileIntent(intent: CollaborationIntent, lists: Map<string, P
             selected.add(entry.sourceMachineId);
             selected.add(entry.targetMachineId);
             if (isActive(entry.outbound) && isActive(entry.inbound)) edge.setup = undefined;
-            else edge.setup = { repairNeeded: true, peerDeviceId: entry.outbound?.peerDeviceId ?? entry.inbound?.peerDeviceId };
+            else if (lists.get(entry.sourceMachineId) !== undefined && lists.get(entry.targetMachineId) !== undefined
+                && (isActive(entry.outbound) || edge.setup === undefined)) {
+                edge.setup = { repairNeeded: true, peerDeviceId: entry.outbound?.peerDeviceId ?? entry.inbound?.peerDeviceId };
+            } else if (edge.setup !== undefined) {
+                edge.setup.peerDeviceId ??= entry.inbound?.peerDeviceId;
+            }
         }
     }
     next.selectedMachineIds = [...selected];
@@ -476,6 +488,13 @@ export async function applyCollaboration(
     for (const source of next.selectedMachineIds) {
         for (const target of next.selectedMachineIds) if (source !== target) desired.add(edgeKey(source, target));
     }
+    for (const sourceMachineId of next.selectedMachineIds) {
+        for (const targetMachineId of next.selectedMachineIds) {
+            if (sourceMachineId === targetMachineId || next.edges.some((edge) => edgeKey(edge.sourceMachineId, edge.targetMachineId) === edgeKey(sourceMachineId, targetMachineId))) continue;
+            next.edges.push({ sourceMachineId, targetMachineId, relationshipId: `rel_${newId()}`, setup: {} });
+            await onProgress(next);
+        }
+    }
     for (const edge of next.edges) {
         if (!desired.has(edgeKey(edge.sourceMachineId, edge.targetMachineId)) || edge.disconnect !== undefined) continue;
         if (isActive(relationship(lists, edge.sourceMachineId, edge.relationshipId, 'outbound'))
@@ -558,8 +577,9 @@ export async function applyCollaboration(
             edge.setup = undefined;
             await onProgress(next);
         } catch (cause) {
-            if (cause instanceof PeerHostResponseError && edge.setup !== undefined && activeMutation !== undefined) {
-                edge.setup[activeMutation] = undefined;
+            if (cause instanceof PeerHostResponseError && edge.setup !== undefined) {
+                if (cause.code === 'peer-already-authorized') edge.setup.repairNeeded = true;
+                if (activeMutation !== undefined) edge.setup[activeMutation] = undefined;
                 await onProgress(next);
             }
             const message = safeError(cause);
