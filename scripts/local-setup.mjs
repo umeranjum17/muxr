@@ -3,6 +3,7 @@ import nacl from 'tweetnacl';
 import QRCode from 'qrcode';
 import { fileURLToPath } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
+import { createConnection } from 'node:net';
 import {
     chmodSync,
     existsSync,
@@ -1052,6 +1053,38 @@ export function daemonIsRunning() {
     return serviceCommand('status').ok;
 }
 
+async function waitForPeerBrokerReady(timeoutMs = 15_000) {
+    const accessPath = join(stateDir(), 'host', 'peer', 'cli.json');
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+        try {
+            const info = lstatSync(accessPath);
+            const access = JSON.parse(readFileSync(accessPath, 'utf8'));
+            if (info.isFile() && !info.isSymbolicLink() && (info.mode & 0o077) === 0
+                && typeof access?.socketPath === 'string' && isAbsolute(access.socketPath)) {
+                const connected = await new Promise((resolve) => {
+                    const socket = createConnection(access.socketPath);
+                    let settled = false;
+                    const finish = (ready) => {
+                        if (settled) return;
+                        settled = true;
+                        socket.destroy();
+                        resolve(ready);
+                    };
+                    socket.setTimeout(500, () => finish(false));
+                    socket.once('connect', () => finish(true));
+                    socket.once('error', () => finish(false));
+                });
+                if (connected) return;
+            }
+        } catch {
+            // The daemon rewrites access atomically after its peer broker starts.
+        }
+        await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    throw new Error('peer access did not become ready after the muxr service started');
+}
+
 export function daemonMode() {
     try {
         const content = readFileSync(daemonDefinition().path, 'utf8');
@@ -1228,6 +1261,16 @@ export async function runDaemon(args = []) {
             if (action === 'status') print('muxr service is stopped or unavailable.');
             else error(result.stderr || result.stdout || `muxr service ${action} failed`);
             return 1;
+        }
+        const installedMode = daemonMode();
+        if (!dryRun && env('MUXR_NO_SERVICE_COMMANDS') !== '1'
+            && (action === 'start' || action === 'restart')
+            && (installedMode === 'selfhost' || installedMode === 'hosted')) {
+            try { await waitForPeerBrokerReady(); }
+            catch (cause) {
+                error(cause instanceof Error ? cause.message : String(cause));
+                return 1;
+            }
         }
         if (herdrFailure !== undefined) {
             error(`  warn: muxr service ${action === 'restart' ? 'restarted' : 'started'}, but Herdr did not recover: ${herdrFailure instanceof Error ? herdrFailure.message : String(herdrFailure)}`);
