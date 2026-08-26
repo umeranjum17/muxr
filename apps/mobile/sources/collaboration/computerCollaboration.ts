@@ -463,7 +463,7 @@ export async function applyCollaboration(
     let next = await reconcileIntent({ ...normalized, machines: catalog }, lists);
     await onProgress(next);
 
-    const revokeEdge = async (edge: CollaborationEdge): Promise<boolean> => {
+    const revokeEdge = async (edge: CollaborationEdge, setActiveMachine: (machineId: string | undefined) => void = () => undefined): Promise<boolean> => {
         const progress = edge.disconnect ??= { peerDeviceId: edge.setup?.peerDeviceId };
         const inbound = relationship(lists, edge.targetMachineId, edge.relationshipId, 'inbound');
         const outbound = relationship(lists, edge.sourceMachineId, edge.relationshipId, 'outbound');
@@ -472,29 +472,34 @@ export async function applyCollaboration(
             if (lists.get(edge.targetMachineId) === undefined) return false;
             progress.targetMutation = mutation(progress.targetMutation, now(), newId);
             await onProgress(next);
+            setActiveMachine(edge.targetMachineId);
             await request(edge.targetMachineId, 'peer.revoke', {
                 relationshipId: edge.relationshipId,
                 ...(progress.peerDeviceId === undefined ? {} : { peerDeviceId: progress.peerDeviceId }),
                 mutation: progress.targetMutation,
             });
+            setActiveMachine(undefined);
             progress.targetRevoked = true;
             await onProgress(next);
         }
         if (lists.get(edge.sourceMachineId) === undefined || !isGone(outbound) && progress.peerDeviceId === undefined) return false;
         progress.sourceMutation = mutation(progress.sourceMutation, now(), newId);
         await onProgress(next);
+        setActiveMachine(edge.sourceMachineId);
         await request(edge.sourceMachineId, 'peer.revoke', {
             relationshipId: edge.relationshipId,
             ...(progress.peerDeviceId === undefined ? {} : { peerDeviceId: progress.peerDeviceId }),
             mutation: progress.sourceMutation,
         });
+        setActiveMachine(undefined);
         return true;
     };
 
     for (const edge of [...next.edges]) {
         if (edge.disconnect === undefined) continue;
+        let activeMachineId: string | undefined;
         try {
-            if (await revokeEdge(edge)) {
+            if (await revokeEdge(edge, (machineId) => { activeMachineId = machineId; })) {
                 if (edge.disconnect.repair) {
                     edge.relationshipId = `rel_${newId()}`;
                     edge.disconnect = undefined;
@@ -505,9 +510,7 @@ export async function applyCollaboration(
                 await onProgress(next);
             }
         } catch (cause) {
-            const message = safeError(cause);
-            errors[edge.sourceMachineId] = message;
-            errors[edge.targetMachineId] = message;
+            errors[activeMachineId ?? edge.targetMachineId] = safeError(cause);
             // Target revocation must succeed before source cleanup. Persist and retry later.
         }
     }
@@ -528,6 +531,7 @@ export async function applyCollaboration(
         if (isActive(relationship(lists, edge.sourceMachineId, edge.relationshipId, 'outbound'))
             && isActive(relationship(lists, edge.targetMachineId, edge.relationshipId, 'inbound'))) continue;
         let activeMutation: 'prepareMutation' | 'authorizeMutation' | 'installMutation' | undefined;
+        let activeMachineId: string | undefined;
         try {
             if (edge.setup?.repairNeeded) {
                 edge.disconnect = {
@@ -535,7 +539,7 @@ export async function applyCollaboration(
                     peerDeviceId: relationship(lists, edge.sourceMachineId, edge.relationshipId, 'outbound')?.peerDeviceId
                         ?? relationship(lists, edge.targetMachineId, edge.relationshipId, 'inbound')?.peerDeviceId,
                 };
-                if (!await revokeEdge(edge)) continue;
+                if (!await revokeEdge(edge, (machineId) => { activeMachineId = machineId; })) continue;
                 edge.relationshipId = `rel_${newId()}`;
                 edge.disconnect = undefined;
                 edge.setup = {};
@@ -562,6 +566,7 @@ export async function applyCollaboration(
                 setup.peerDeviceId = undefined;
                 activeMutation = 'prepareMutation';
                 await onProgress(next);
+                activeMachineId = source.machineId;
                 const prepared = await request(source.machineId, 'peer.prepare', {
                     targetMachineId: target.machineId,
                     targetMachineSigningPublicKey: target.machineSigningPublicKey,
@@ -570,6 +575,7 @@ export async function applyCollaboration(
                     mutation: setup.prepareMutation,
                 });
                 activeMutation = undefined;
+                activeMachineId = undefined;
                 if (prepared.descriptor.claims.sourceMachineId !== source.machineId
                     || prepared.descriptor.claims.sourceMachineSigningPublicKey !== source.machineSigningPublicKey) {
                     throw new PeerHostResponseError('The source computer returned a mismatched identity.', 'peer-source-mismatch');
@@ -581,6 +587,7 @@ export async function applyCollaboration(
                 setup.authorizeMutation = mutation(setup.authorizeMutation, now(), newId);
                 activeMutation = 'authorizeMutation';
                 await onProgress(next);
+                activeMachineId = target.machineId;
                 const authorized = await request(target.machineId, 'peer.authorize', {
                     descriptor: setup.descriptor,
                     capabilities: COLLABORATION_CAPABILITIES,
@@ -588,6 +595,7 @@ export async function applyCollaboration(
                     relationshipId: edge.relationshipId,
                 });
                 activeMutation = undefined;
+                activeMachineId = undefined;
                 setup.sealedBundle = authorized.sealedBundle;
                 setup.peerDeviceId = authorized.peerDeviceId;
                 await onProgress(next);
@@ -595,6 +603,7 @@ export async function applyCollaboration(
             setup.installMutation = mutation(setup.installMutation, now(), newId);
             activeMutation = 'installMutation';
             await onProgress(next);
+            activeMachineId = source.machineId;
             await request(source.machineId, 'peer.install', {
                 targetMachineId: target.machineId,
                 sealedBundle: setup.sealedBundle,
@@ -602,6 +611,7 @@ export async function applyCollaboration(
                 relationshipId: edge.relationshipId,
             });
             activeMutation = undefined;
+            activeMachineId = undefined;
             edge.setup = undefined;
             await onProgress(next);
         } catch (cause) {
@@ -610,9 +620,7 @@ export async function applyCollaboration(
                 if (activeMutation !== undefined) edge.setup[activeMutation] = undefined;
                 await onProgress(next);
             }
-            const message = safeError(cause);
-            errors[edge.sourceMachineId] = message;
-            errors[edge.targetMachineId] = message;
+            errors[activeMachineId ?? edge.sourceMachineId] = safeError(cause);
             // Reachability and host truth are reconciled below; progress remains retryable.
         }
     }

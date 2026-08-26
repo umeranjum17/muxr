@@ -195,6 +195,7 @@ describe('computer collaboration flow', () => {
         fleet.get('linux-internal')!.failNext = 'peer.prepare';
         report = await applyCollaboration(report.intent, machines, request, save, now, newId);
         expect(Object.values(report.states)).toEqual(['Setting up', 'Setting up']);
+        expect(report.errors).toEqual({ 'linux-internal': 'Computer unavailable. Start muxr on this computer, then retry.' });
         const failedPrepare = mutations.find((entry) => entry.machineId === 'linux-internal' && entry.type === 'peer.prepare')!;
 
         machines[0]!.name = 'Renamed Linux workstation';

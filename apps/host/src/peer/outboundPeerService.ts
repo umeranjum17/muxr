@@ -4,7 +4,7 @@ import type {
     PeerRequestResult,
     SessionInfo,
 } from '@muxr/contract';
-import { NodePeerClient, type PeerClientTransport } from './client.js';
+import { NodePeerClient, type PeerClientTransport, type PeerConnectionDiagnostic } from './client.js';
 import { PeerStore, type StoredPeerRelationship, type StoredSemanticMutation } from './store.js';
 
 type RemotePeerRequest = Extract<PeerClientRequest, { type: `peer.remote.${string}` }>;
@@ -14,6 +14,7 @@ export interface OutboundPeerServiceOptions {
     store: PeerStore;
     now: () => number;
     clientFactory?: (relationship: StoredPeerRelationship) => PeerClientTransport;
+    onConnectionDiagnostic?: (event: PeerConnectionDiagnostic) => void;
 }
 
 function operationError(message: string, code: string): Error {
@@ -257,6 +258,7 @@ export class OutboundPeerService {
             pinnedMachineSigningPublicKey: relationship.targetMachineSigningPublicKey!,
             sealedGrant: relationship.sealedGrant!,
             ...(relationship.grantPath === undefined ? {} : { grantPath: relationship.grantPath }),
+            ...(this.options.onConnectionDiagnostic === undefined ? {} : { onConnectionDiagnostic: this.options.onConnectionDiagnostic }),
         });
         this.clients.set(relationship.relationshipId, created);
         return created;

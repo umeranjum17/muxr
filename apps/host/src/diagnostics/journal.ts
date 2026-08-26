@@ -12,6 +12,7 @@ export type DiagnosticClientKind = 'local' | 'native' | 'browser' | 'peer' | 'un
 export type DiagnosticOutcome = 'ok' | 'rejected' | 'timeout' | 'unavailable';
 export type DiagnosticRelayState = 'connecting' | 'open' | 'closed' | 'replaced';
 export type DiagnosticBrokerOperation = 'list' | 'read' | 'status' | 'watch' | 'prompt';
+export type DiagnosticPeerConnectionPhase = 'grant-refresh' | 'ticket-issue' | 'socket-open' | 'liveness-proof';
 
 type ClientCounts = Record<DiagnosticClientKind, number>;
 type RelationshipCounts = Record<'pending' | 'connected' | 'repair-needed' | 'disconnecting' | 'revoked', number>;
@@ -22,6 +23,7 @@ export type HostDiagnosticEvent =
     | { at: string; event: 'relay.state'; state: DiagnosticRelayState }
     | { at: string; event: 'client.hello'; clientKind: DiagnosticClientKind; recentClients: ClientCounts }
     | { at: string; event: 'client.request'; clientKind: DiagnosticClientKind; request: RequestType; outcome: DiagnosticOutcome; durationMs: number; code?: string }
+    | { at: string; event: 'peer.connection'; direction: 'outbound'; phase: DiagnosticPeerConnectionPhase; outcome: DiagnosticOutcome; durationMs: number; code?: string }
     | { at: string; event: 'peer.broker'; operation: DiagnosticBrokerOperation; outcome: DiagnosticOutcome; durationMs: number; code?: string };
 
 interface HostDiagnosticState {
@@ -43,7 +45,9 @@ const relationshipCounts = (): RelationshipCounts => ({ pending: 0, connected: 0
 const safeCodes = new Set([
     'host-contract-mismatch', 'e2ee-required', 'peer-forbidden', 'peer-limit',
     'peer-already-authorized', 'peer-mutation-required', 'peer-mutation-unresolved',
-    'peer-operation-uncertain', 'timeout', 'unavailable',
+    'peer-operation-uncertain', 'grant-refresh-failed', 'ticket-issue-failed',
+    'socket-error', 'socket-closed', 'socket-timeout', 'liveness-closed', 'liveness-timeout',
+    'timeout', 'unavailable',
 ]);
 const loggedRequests = new Set<RequestType>([
     'machines.list', 'herdr.tree', 'terminal.attach', 'terminal.detach',
@@ -118,10 +122,19 @@ export class HostDiagnosticsJournal {
     }
 
     request(request: RequestType, clientKind: DiagnosticClientKind, outcome: DiagnosticOutcome, durationMs: number, code?: string): void {
-        if (!loggedRequests.has(request)) return;
+        if (!loggedRequests.has(request) || request === 'herdr.tree' && outcome === 'ok') return;
         const normalizedCode = safeCode(code);
         this.record({
             at: this.timestamp(), event: 'client.request', clientKind, request, outcome,
+            durationMs: Math.max(0, Math.min(Math.round(durationMs), 10 * 60_000)),
+            ...(normalizedCode === undefined ? {} : { code: normalizedCode }),
+        });
+    }
+
+    peerConnection(phase: DiagnosticPeerConnectionPhase, outcome: DiagnosticOutcome, durationMs: number, code?: string): void {
+        const normalizedCode = safeCode(code);
+        this.record({
+            at: this.timestamp(), event: 'peer.connection', direction: 'outbound', phase, outcome,
             durationMs: Math.max(0, Math.min(Math.round(durationMs), 10 * 60_000)),
             ...(normalizedCode === undefined ? {} : { code: normalizedCode }),
         });

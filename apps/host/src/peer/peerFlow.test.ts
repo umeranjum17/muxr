@@ -34,7 +34,7 @@ import { createRequestDispatcher } from '../requests/createRequestDispatcher.js'
 import { HostDiagnosticsJournal } from '../diagnostics/journal.js';
 import type { SessionSource } from '../sessionSource.js';
 import { HttpPeerAuthority, type PeerAuthority } from './authority.js';
-import { NodePeerClient, type PeerClientRequestType, type PeerClientTransport } from './client.js';
+import { NodePeerClient, type PeerClientRequestType, type PeerClientTransport, type PeerConnectionDiagnostic } from './client.js';
 import { PeerBroker } from './broker.js';
 import { PeerRuntime } from './runtime.js';
 import type { MachineCryptoAdapter, MachineCryptoState, MachineRotationGrant } from './types.js';
@@ -487,15 +487,20 @@ describe('host peer collaboration flow', () => {
         await expect(activeWatch).rejects.toThrow(/closed|revoked|cancelled/i);
         controlWaits = false;
         await expect(brokerCall(broker.socketPath, access.capability, { method: 'list' })).rejects.toThrow('capability rejected');
+        diagnostics.peerConnection('socket-open', 'ok', 4);
+        diagnostics.peerConnection('liveness-proof', 'timeout', 20_000, 'liveness-timeout');
+        for (let index = 0; index < 600; index += 1) diagnostics.request('herdr.tree', 'native', 'ok', 1);
         await broker.close();
         await diagnostics.flush();
         expect(existsSync(cliFile)).toBe(false);
         const diagnosticsPath = join(root, 'source', 'diagnostics.json');
         expect(statSync(diagnosticsPath).mode & 0o077).toBe(0);
         const diagnosticOutput = readFileSync(diagnosticsPath, 'utf8');
-        const diagnosticEvents = (JSON.parse(diagnosticOutput) as { events: Array<{ event: string; operation?: string; outcome?: string }> }).events;
+        const diagnosticEvents = (JSON.parse(diagnosticOutput) as { events: Array<{ event: string; operation?: string; request?: string; phase?: string; outcome?: string }> }).events;
         expect(diagnosticEvents).toContainEqual(expect.objectContaining({ event: 'peer.broker', operation: 'list', outcome: 'ok' }));
         expect(diagnosticEvents).toContainEqual(expect.objectContaining({ event: 'peer.broker', operation: 'prompt', outcome: 'ok' }));
+        expect(diagnosticEvents).toContainEqual(expect.objectContaining({ event: 'peer.connection', phase: 'liveness-proof', outcome: 'timeout' }));
+        expect(diagnosticEvents).not.toContainEqual(expect.objectContaining({ event: 'client.request', request: 'herdr.tree', outcome: 'ok' }));
         expect(diagnosticOutput).not.toMatch(/target-machine|muxr-session|internal-pane-path|Report Xcode status|machineId|sessionId|relationshipId|operationId/);
         let diagnosticNow = Date.parse('2026-08-26T00:00:00.000Z');
         const recencyDiagnostics = new HostDiagnosticsJournal(join(root, 'recency'), 'test-version', () => diagnosticNow);
@@ -654,6 +659,16 @@ describe('host peer collaboration flow', () => {
             deviceKind: 'peer',
             capabilities: [...DEFAULT_PEER_CAPABILITIES],
         });
+        expect(() => new NodePeerClient({
+            relayUrl: 'ws://127.0.0.1',
+            machineId: 'different-target',
+            credential: 'peer-credential',
+            peerDeviceId: deviceId,
+            peerKey,
+            pinnedMachineSigningPublicKey: machine.signingPublicKey,
+            sealedGrant,
+        })).toThrow('peer grant has the wrong target machine');
+
         const server = new WebSocketServer({ port: 0 });
         await new Promise<void>((resolve) => server.once('listening', resolve));
         const address = server.address();
@@ -671,6 +686,7 @@ describe('host peer collaboration flow', () => {
         const promptOperationIds: string[] = [];
         const executedPrompts = new Set<string>();
         let promptExecutions = 0;
+        let answerLiveness = true;
         const hostCrypto = new HostV2Crypto({
             machineId: 'target-live', keyVersion: 1, dataKey: machine.dataKey,
             ingressKeys: { [deviceId]: ingressKey }, deviceDataKeys: { [deviceId]: peerDataKey },
@@ -698,7 +714,7 @@ describe('host peer collaboration flow', () => {
                 const frame = decodePayload<ClientRequest>(plaintext);
                 if (frame.type === 'machines.list') {
                     sawChallenge();
-                    void challengeGate.then(() => send({ type: 'result', requestId: frame.requestId, ok: true, data: [] }));
+                    if (answerLiveness) void challengeGate.then(() => send({ type: 'result', requestId: frame.requestId, ok: true, data: [] }));
                 } else if (frame.type === 'agent.watch') {
                     watchOperationIds.push(frame.params.peerMutation!.operationId);
                     sawWatch();
@@ -728,6 +744,7 @@ describe('host peer collaboration flow', () => {
         }) as typeof fetch;
         const originalFetch = globalThis.fetch;
         globalThis.fetch = fakeFetch;
+        const connectionDiagnostics: PeerConnectionDiagnostic[] = [];
         const client = new NodePeerClient({
             relayUrl,
             machineId: 'target-live',
@@ -738,7 +755,9 @@ describe('host peer collaboration flow', () => {
             sealedGrant,
             requestTimeoutMs: 2_000,
             fetch: fakeFetch,
+            onConnectionDiagnostic: (event) => connectionDiagnostics.push(event),
         });
+        let silentClient: NodePeerClient | undefined;
         let connected = false;
         try {
             const connecting = client.connect().then(() => { connected = true; });
@@ -766,8 +785,32 @@ describe('host peer collaboration flow', () => {
             })).resolves.toBeNull();
             expect(promptOperationIds).toEqual(['durable-buffered-prompt', 'durable-buffered-prompt']);
             expect(promptExecutions).toBe(1);
+            expect(connectionDiagnostics).toEqual(expect.arrayContaining([
+                expect.objectContaining({ phase: 'grant-refresh', outcome: 'ok' }),
+                expect.objectContaining({ phase: 'ticket-issue', outcome: 'ok' }),
+                expect.objectContaining({ phase: 'socket-open', outcome: 'ok' }),
+                expect.objectContaining({ phase: 'liveness-proof', outcome: 'ok' }),
+            ]));
+
+            answerLiveness = false;
+            const timeoutDiagnostics: PeerConnectionDiagnostic[] = [];
+            silentClient = new NodePeerClient({
+                relayUrl,
+                machineId: 'target-live',
+                credential: 'peer-credential',
+                peerDeviceId: deviceId,
+                peerKey,
+                pinnedMachineSigningPublicKey: machine.signingPublicKey,
+                sealedGrant,
+                requestTimeoutMs: 50,
+                fetch: fakeFetch,
+                onConnectionDiagnostic: (event) => timeoutDiagnostics.push(event),
+            });
+            await expect(silentClient.connect()).rejects.toThrow('peer target did not prove it was live');
+            expect(timeoutDiagnostics.at(-1)).toMatchObject({ phase: 'liveness-proof', outcome: 'timeout', code: 'liveness-timeout' });
         } finally {
             client.close();
+            silentClient?.close();
             globalThis.fetch = originalFetch;
             await new Promise<void>((resolve) => server.close(() => resolve()));
         }

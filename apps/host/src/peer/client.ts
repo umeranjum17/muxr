@@ -39,6 +39,14 @@ export interface PeerClientTransport {
     close(): void;
 }
 
+export type PeerConnectionPhase = 'grant-refresh' | 'ticket-issue' | 'socket-open' | 'liveness-proof';
+export interface PeerConnectionDiagnostic {
+    phase: PeerConnectionPhase;
+    outcome: 'ok' | 'timeout' | 'unavailable';
+    durationMs: number;
+    code?: string;
+}
+
 export interface NodePeerClientOptions {
     relayUrl: string;
     machineId: string;
@@ -50,6 +58,7 @@ export interface NodePeerClientOptions {
     grantPath?: string;
     requestTimeoutMs?: number;
     fetch?: typeof fetch;
+    onConnectionDiagnostic?: (event: PeerConnectionDiagnostic) => void;
 }
 
 interface Pending {
@@ -72,6 +81,7 @@ export class NodePeerClient implements PeerClientTransport {
     private rejectConnect: ((error: Error) => void) | undefined;
     private connectTimer?: ReturnType<typeof setTimeout>;
     private livenessRequestId: string | undefined;
+    private connectionPhase: { phase: PeerConnectionPhase; startedAt: number } | undefined;
 
     constructor(private readonly options: NodePeerClientOptions) {
         this.grant = this.verify(options.sealedGrant);
@@ -86,7 +96,10 @@ export class NodePeerClient implements PeerClientTransport {
         });
         this.connectPromise = connecting;
         try {
+            this.beginConnectionPhase('grant-refresh');
             await this.refreshGrant();
+            this.finishConnectionPhase('ok');
+            this.beginConnectionPhase('ticket-issue');
             const ticket = await issueWsTicket({
                 relayUrl: this.options.relayUrl,
                 credential: this.options.credential,
@@ -94,22 +107,40 @@ export class NodePeerClient implements PeerClientTransport {
                 role: 'client',
                 transport: 'relay',
             });
+            this.finishConnectionPhase('ok');
+            this.beginConnectionPhase('socket-open');
             const socket = new WebSocket(ticketSocketUrl(this.options.relayUrl, ticket, 'relay'));
             this.socket = socket;
-            this.connectTimer = setTimeout(() => this.fail(new Error('peer target did not prove it was live')), this.options.requestTimeoutMs ?? 20_000);
+            this.connectTimer = setTimeout(() => {
+                const liveness = this.connectionPhase?.phase === 'liveness-proof';
+                this.finishConnectionPhase('timeout', liveness ? 'liveness-timeout' : 'socket-timeout');
+                this.socket = undefined;
+                this.fail(new Error(liveness ? 'peer target did not prove it was live' : 'peer socket did not open'));
+                socket.close();
+            }, this.options.requestTimeoutMs ?? 20_000);
             socket.on('open', () => {
+                this.finishConnectionPhase('ok');
+                this.beginConnectionPhase('liveness-proof');
                 this.livenessRequestId = `peer-live_${randomBytes(24).toString('base64url')}`;
                 this.send({ type: 'client.hello', clientId: nextRequestId('peer') });
                 this.send({ type: 'machines.list', requestId: this.livenessRequestId, params: {} });
             });
             socket.on('message', (raw) => this.onMessage(String(raw)));
-            socket.on('error', () => socket.close());
+            socket.on('error', () => {
+                this.finishConnectionPhase('unavailable', 'socket-error');
+                socket.close();
+            });
             socket.on('close', () => {
                 if (this.socket !== socket) return;
+                const liveness = this.connectionPhase?.phase === 'liveness-proof';
+                this.finishConnectionPhase('unavailable', liveness ? 'liveness-closed' : 'socket-closed');
                 this.socket = undefined;
                 this.fail(new Error('peer connection closed'));
             });
         } catch (error) {
+            const phase = this.connectionPhase?.phase;
+            this.finishConnectionPhase('unavailable', phase === 'grant-refresh' ? 'grant-refresh-failed'
+                : phase === 'ticket-issue' ? 'ticket-issue-failed' : undefined);
             this.fail(error instanceof Error ? error : new Error(String(error)));
         }
         return connecting;
@@ -186,6 +217,7 @@ export class NodePeerClient implements PeerClientTransport {
             deviceId: this.options.peerDeviceId,
         });
         if (opened.deviceKind !== 'peer') throw new Error('peer grant has the wrong device kind');
+        if (opened.machineId !== this.options.machineId) throw new Error('peer grant has the wrong target machine');
         return opened;
     }
 
@@ -269,6 +301,7 @@ export class NodePeerClient implements PeerClientTransport {
             const frame = decoded as HostFrame;
             if (!this.authenticated) {
                 if (frame.type !== 'result' || frame.requestId !== this.livenessRequestId || frame.ok !== true) return;
+                this.finishConnectionPhase('ok');
                 this.authenticated = true;
                 this.livenessRequestId = undefined;
                 if (this.connectTimer !== undefined) clearTimeout(this.connectTimer);
@@ -283,6 +316,22 @@ export class NodePeerClient implements PeerClientTransport {
         } catch {
             // Undecryptable or misrouted peer data is ignored; the request timer remains authoritative.
         }
+    }
+
+    private beginConnectionPhase(phase: PeerConnectionPhase): void {
+        this.connectionPhase = { phase, startedAt: Date.now() };
+    }
+
+    private finishConnectionPhase(outcome: PeerConnectionDiagnostic['outcome'], code?: string): void {
+        const active = this.connectionPhase;
+        if (active === undefined) return;
+        this.connectionPhase = undefined;
+        this.options.onConnectionDiagnostic?.({
+            phase: active.phase,
+            outcome,
+            durationMs: Date.now() - active.startedAt,
+            ...(code === undefined ? {} : { code }),
+        });
     }
 
     private wait(ms: number, signal?: AbortSignal): Promise<void> {
@@ -303,6 +352,7 @@ export class NodePeerClient implements PeerClientTransport {
         if (!this.authenticated) this.rejectConnect?.(error);
         this.connectPromise = undefined;
         this.livenessRequestId = undefined;
+        this.connectionPhase = undefined;
         this.resolveConnect = undefined;
         this.rejectConnect = undefined;
         for (const pending of this.pending.values()) {

@@ -402,7 +402,7 @@ if (requestedMode !== undefined && requestedMode !== 'hosted' && requestedMode !
 const mode = requestedMode ?? (hostedAuth !== undefined ? 'hosted' : selfhostAuth !== undefined ? 'selfhost' : useFake ? 'local' : undefined);
 if (mode === undefined) throw new Error('no hosted auth state; set MUXR_MODE=local explicitly for development');
 const peerRelayUrl = mode === 'selfhost' ? selfhostAuth?.relayUrl ?? relayUrl : relayUrl;
-const token = env('MUXR_RELAY_TOKEN') ?? (mode === 'hosted' ? hostedAuth?.credential : mode === 'selfhost' ? selfhostAuth?.machineCredential ?? selfhostAuth?.mintSecret : undefined);
+const token = env('MUXR_RELAY_TOKEN') ?? (mode === 'hosted' ? hostedAuth?.credential : mode === 'selfhost' ? selfhostAuth?.mintSecret ?? selfhostAuth?.machineCredential : undefined);
 if (mode === 'hosted' && hostedAuth === undefined) {
     process.stderr.write('hosted mode requires muxr setup/login state; run `muxr doctor`\n');
     process.exit(0);
@@ -553,6 +553,9 @@ async function main(): Promise<void> {
                     controlUrl: mode === 'hosted' ? hostedAuth!.controlUrl : relayControlUrl(relayUrl),
                     machineId,
                     credential: token,
+                }),
+                ...(diagnostics === undefined ? {} : {
+                    onConnectionDiagnostic: (event) => diagnostics.peerConnection(event.phase, event.outcome, event.durationMs, event.code),
                 }),
             });
             diagnostics?.relationships(peerRuntime.store.list().peers);

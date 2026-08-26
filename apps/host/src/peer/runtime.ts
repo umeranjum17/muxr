@@ -23,7 +23,7 @@ import {
     type PeerInstallBundlePayload,
 } from '@muxr/crypto';
 import type { PeerAuthority } from './authority.js';
-import type { PeerClientTransport } from './client.js';
+import type { PeerClientTransport, PeerConnectionDiagnostic } from './client.js';
 import { OutboundPeerService } from './outboundPeerService.js';
 import { PeerReceiptExecutor } from './receiptExecutor.js';
 import { PeerStore, type StoredPendingAuthorization, type StoredPeerRelationship } from './store.js';
@@ -47,6 +47,7 @@ export interface PeerRuntimeOptions {
     authority: PeerAuthority;
     now?: () => number;
     clientFactory?: (relationship: StoredPeerRelationship) => PeerClientTransport;
+    onConnectionDiagnostic?: (event: PeerConnectionDiagnostic) => void;
 }
 
 function operationError(message: string, code: string): Error {
@@ -97,6 +98,7 @@ export class PeerRuntime {
             store: this.store,
             now: this.now,
             ...(options.clientFactory === undefined ? {} : { clientFactory: options.clientFactory }),
+            ...(options.onConnectionDiagnostic === undefined ? {} : { onConnectionDiagnostic: options.onConnectionDiagnostic }),
         });
         this.recoveryPending = this.hasRecoveryWork();
     }

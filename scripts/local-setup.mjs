@@ -1081,7 +1081,7 @@ function selfhostControlBase(state) {
 }
 
 function selfhostCredential(state) {
-    return typeof state?.machineCredential === 'string' ? state.machineCredential : state?.mintSecret;
+    return typeof state?.mintSecret === 'string' ? state.mintSecret : state?.machineCredential;
 }
 
 async function selfhostRelayHealthy(state) {
