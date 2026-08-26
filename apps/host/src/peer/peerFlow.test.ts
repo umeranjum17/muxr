@@ -95,6 +95,12 @@ async function call<T extends PeerRequestType>(
     return runtime.handle({ type, requestId: `phone-${Math.random()}`, params } as PeerClientRequest, 'phone-control') as Promise<PeerRequestResult<T>>;
 }
 
+async function waitFor(predicate: () => boolean, message: string, timeoutMs = 5_000): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
+    while (!predicate() && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 10));
+    if (!predicate()) throw new Error(`Timed out waiting for ${message}`);
+}
+
 async function brokerCall(socketPath: string, capability: string, request: unknown, acknowledge: boolean | 'invalid' = true): Promise<unknown> {
     return new Promise((resolve, reject) => {
         const socket = createConnection(socketPath);
@@ -296,7 +302,7 @@ describe('host peer collaboration flow', () => {
             timeoutMs: 5_000,
             mutation: fresh('watch-second'),
         });
-        for (let attempt = 0; attempt < 20 && pendingWaits.length < 2; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 0));
+        await waitFor(() => pendingWaits.length >= 2, 'both directed watches');
         pendingWaits[1]!({ status: 'blocked', detail: 'Second watch settled' });
         await expect(secondWatch).resolves.toMatchObject({ settlement: { status: 'blocked' } });
         expect(firstWatchSettled).toBe(false);
@@ -398,15 +404,11 @@ describe('host peer collaboration flow', () => {
         await expect(brokerCall(broker.socketPath, access.capability, causalPrompt))
             .resolves.toEqual({ machine: 'Build Mac', agent: 'iOS builder', delivered: true });
         expect(prompts).toBe(3);
-        for (let attempt = 0; attempt < 20 && sourceRuntime.store.semanticMutations().find((entry) => entry.operationId === awaitingPluginAck.operationId)?.state !== 'delivered'; attempt += 1) {
-            await new Promise((resolve) => setTimeout(resolve, 0));
-        }
+        await waitFor(() => sourceRuntime.store.semanticMutations().find((entry) => entry.operationId === awaitingPluginAck.operationId)?.state === 'delivered', 'prompt delivery acknowledgement');
         expect(sourceRuntime.store.semanticMutations().find((entry) => entry.operationId === awaitingPluginAck.operationId)).toMatchObject({ state: 'delivered' });
         await expect(brokerCall(broker.socketPath, access.capability, { method: 'watch', machine: 'Build Mac', agent: 'iOS builder', timeoutMs: 5_000 }))
             .resolves.toMatchObject({ settlement: { status: 'done', detail: 'Agent is done' } });
-        for (let attempt = 0; attempt < 20 && !sourceRuntime.store.semanticMutations().some((entry) => entry.type === 'peer.remote.watch' && entry.state === 'delivered'); attempt += 1) {
-            await new Promise((resolve) => setTimeout(resolve, 0));
-        }
+        await waitFor(() => sourceRuntime.store.semanticMutations().some((entry) => entry.type === 'peer.remote.watch' && entry.state === 'delivered'), 'watch delivery acknowledgement');
         expect(sourceRuntime.store.semanticMutations()).toContainEqual(expect.objectContaining({ type: 'peer.remote.watch', state: 'delivered' }));
         remoteSessions = [session, { ...session, id: 'another-internal-session' }];
         const qualified = await brokerCall(broker.socketPath, access.capability, { method: 'list', machine: 'Build Mac' }) as { machines: Array<{ agents: Array<{ agent: string }> }> };
@@ -435,7 +437,7 @@ describe('host peer collaboration flow', () => {
         controlWaits = true;
         const activeWaitIndex = pendingWaits.length;
         const activeWatch = brokerCall(broker.socketPath, access.capability, { method: 'watch', machine: 'Build Mac', agent: 'iOS builder', timeoutMs: 5_000 });
-        for (let attempt = 0; attempt < 20 && pendingWaits.length === activeWaitIndex; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 0));
+        await waitFor(() => pendingWaits.length > activeWaitIndex, 'active broker watch');
         broker.revokeCapability(access.capability);
         pendingWaits[activeWaitIndex]?.({ status: 'done', detail: 'cancelled wait cleanup' });
         await expect(activeWatch).rejects.toThrow(/closed|revoked|cancelled/i);
@@ -504,9 +506,7 @@ describe('host peer collaboration flow', () => {
         expect(targetKeys.current().pendingRotation).toMatchObject({ revokedDeviceId: authorized.peerDeviceId });
         expect(crashedTarget.store.relationship(inboundRelationshipId)).toMatchObject({ state: 'connected' });
         crashedTarget.retryRecovery();
-        for (let attempt = 0; attempt < 50 && crashedTarget.store.relationship(inboundRelationshipId)?.state !== 'revoked'; attempt += 1) {
-            await new Promise((resolve) => setTimeout(resolve, 10));
-        }
+        await waitFor(() => crashedTarget.store.relationship(inboundRelationshipId)?.state === 'revoked', 'crashed target revocation recovery');
         expect(targetAuthority.revoked.has(authorized.peerDeviceId)).toBe(true);
         expect(crashedTarget.store.relationship(inboundRelationshipId)).toMatchObject({ state: 'revoked' });
         expect(targetAuthority.rotations).toHaveLength(1);
@@ -564,9 +564,7 @@ describe('host peer collaboration flow', () => {
         })).rejects.toMatchObject({ code: 'peer-recovery-pending' });
 
         target.retryRecovery();
-        for (let attempt = 0; attempt < 50 && target.store.list().peers[0]?.state !== 'connected'; attempt += 1) {
-            await new Promise((resolve) => setTimeout(resolve, 10));
-        }
+        await target.recover();
         expect(target.store.list().peers).toEqual([expect.objectContaining({ relationshipId: 'rel_recovery', state: 'connected' })]);
         expect(targetKeys.current().devices).toHaveLength(1);
         const recovered = await call(target, 'peer.authorize', authorize);
