@@ -10,6 +10,7 @@ import { runMachineManagement, runRemoteRelaySetup, runSetup, runSharedRelaySetu
 import { runPlugin } from './plugin.mjs';
 import { runPackage } from './package.mjs';
 import { runPeers } from './peers.mjs';
+import { runDiagnostics } from './diagnostics.mjs';
 import { runUpdate } from './update.mjs';
 import { BACK, heading, prompt, select, status } from './setup-ui.mjs';
 
@@ -20,6 +21,7 @@ Run muxr with no arguments for the interactive menu.
 Get started
   muxr setup                     install, connect, and pair this machine
   muxr doctor                    check the complete local setup
+  muxr diagnostics               show bounded redacted host history for agents
   muxr pair [--browser|--browser-view] pair a phone or control/view-only browser
   muxr connect --enrollment ...  connect this agent machine to a shared relay
   muxr shared-relay              host an always-on relay for other machines
@@ -65,6 +67,7 @@ const COMMAND_HELP = {
     'plugin remove': `muxr plugin remove <plugin-id> [--yes]\n\nDisable, unlink, and remove muxr-managed plugin files.\n`,
     pair: `muxr pair [--browser|--browser-view]\n\nCreate a two-minute native QR/string, an eight-hour control-browser link (--browser), or an eight-hour view-only browser link (--browser-view).\n`,
     doctor: `muxr doctor\n\nCheck Node, Herdr, integrations, managed files, and the self-host relay without printing secrets.\n`,
+    diagnostics: `muxr diagnostics\n\nPrint seven days of bounded redacted host, client, relay, collaboration, and broker history as JSON. No prompts, terminal output, paths, secrets, or internal ids are recorded.\n`,
     status: `muxr status\n\nAlias for muxr doctor.\n`,
     restart: `muxr restart\n\nRestart the supervised relay and host (same as muxr daemon restart).\n`,
     uninstall: `muxr uninstall [--yes|--resume]\n\nRemove all muxr-owned services, ingress, identity, pairings, grants, relay/plugin state, provider keys, logs, caches, and managed integrations. Herdr, its sessions, repositories, worktrees, exports, signing keys, and unrecognized files stay. The globally installed CLI can be removed last.\n`,
@@ -283,6 +286,10 @@ async function dispatch(command, args = []) {
         }
     }
     if (command === 'doctor' || command === 'status') return runDoctor();
+    if (command === 'diagnostics') {
+        try { runDiagnostics(); return 0; }
+        catch (error) { process.stderr.write(`muxr diagnostics: ${error instanceof Error ? error.message : String(error)}\n`); return 1; }
+    }
     if (command === 'update') return runUpdate(args);
     if (command === 'daemon') return runDaemon(args);
     if (command === 'restart') return runDaemon(['restart']);

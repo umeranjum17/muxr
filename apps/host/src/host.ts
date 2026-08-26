@@ -14,6 +14,7 @@ import type { TerminalManager } from './herdr/terminalManager.js';
 import type { SessionSource } from './sessionSource.js';
 import type { HostedMachineKeys } from './hostedE2ee.js';
 import type { PeerRuntime } from './peer/runtime.js';
+import type { DiagnosticClientKind, HostDiagnosticsJournal } from './diagnostics/journal.js';
 
 export interface HostOptions {
     relayUrl: string;
@@ -28,6 +29,7 @@ export interface HostOptions {
     hostedE2ee?: HostedMachineKeys;
     token?: string;
     peerRuntime?: PeerRuntime;
+    diagnostics?: HostDiagnosticsJournal;
 }
 
 export interface Host {
@@ -71,6 +73,9 @@ export function startHost(options: HostOptions): Host {
     }
 
     async function handleClientFrame(frame: ClientFrame, authenticatedSenderId?: string): Promise<void> {
+        const deviceKind = authenticatedSenderId === undefined ? 'local' : options.hostedE2ee?.deviceKinds?.[authenticatedSenderId] ?? 'unknown';
+        const clientKind: DiagnosticClientKind = deviceKind;
+        options.diagnostics?.client(authenticatedSenderId ?? 'local', clientKind, frame.type === 'client.hello');
         const peerRecipient = authenticatedSenderId !== undefined
             && options.hostedE2ee?.deviceKinds?.[authenticatedSenderId] === 'peer' ? authenticatedSenderId : undefined;
         if (options.hostedE2ee !== undefined && frame.type === 'terminal.attach'
@@ -84,7 +89,18 @@ export function startHost(options: HostOptions): Host {
             if (peerRecipient === undefined) source.resendCumulativeState?.();
             return;
         }
-        const response = await dispatcher.dispatch(frame as ClientRequest, authenticatedSenderId);
+        const startedAt = Date.now();
+        let response;
+        try {
+            response = await dispatcher.dispatch(frame as ClientRequest, authenticatedSenderId);
+        } catch (error) {
+            options.diagnostics?.request(frame.type, clientKind, 'unavailable', Date.now() - startedAt);
+            throw error;
+        }
+        options.diagnostics?.request(frame.type, clientKind, response.ok ? 'ok' : 'rejected', Date.now() - startedAt, response.ok ? undefined : response.code);
+        if (frame.type.startsWith('peer.') && options.peerRuntime !== undefined) {
+            options.diagnostics?.relationships(options.peerRuntime.store.list().peers);
+        }
         const sessionId = 'params' in frame && typeof frame.params === 'object' && frame.params !== null
             && 'sessionId' in frame.params && typeof frame.params.sessionId === 'string' ? frame.params.sessionId : undefined;
         if (frame.type === 'attachment.prepare') {
@@ -99,6 +115,7 @@ export function startHost(options: HostOptions): Host {
         ...(options.hostedE2ee === undefined ? {} : { hostedE2ee: options.hostedE2ee }),
         ...(options.token === undefined ? {} : { token: options.token }),
         onStateChange: (state) => {
+            options.diagnostics?.relay(state);
             options.onStateChange?.(state);
             if (state === 'open') {
                 link?.send({

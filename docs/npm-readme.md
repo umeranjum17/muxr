@@ -32,7 +32,8 @@ muxr update                    # check, confirm, update, and restart
 muxr update --check            # check without changing anything
 muxr --skill                   # print the compact agent skill
 muxr skill collaboration       # load one focused reference on demand
-muxr doctor                    # redacted setup diagnostics
+muxr doctor                    # current setup health
+muxr diagnostics               # bounded redacted host/client history for agents
 muxr pair                      # pair another phone
 muxr pair --browser            # pair an 8-hour control browser
 muxr pair --browser-view       # pair an 8-hour view-only browser

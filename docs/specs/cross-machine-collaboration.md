@@ -1,7 +1,7 @@
 ---
 title: Cross-machine agent collaboration
 slug: cross-machine-collaboration
-status: implemented
+status: in-progress
 created: 2026-08-25
 updated: 2026-08-26
 owner: umer
@@ -122,6 +122,12 @@ The local broker inherits the existing peer grant allowlist and never exposes ra
 
 Stable muxr session identity remains the routing handle internally. User-facing commands and UI use human machine and agent aliases. Ambiguous aliases require clarification.
 
+## Host diagnostics
+
+Every computer keeps a bounded, owner-only structured journal at `~/.muxr/host/diagnostics.json`. `muxr diagnostics` exposes it locally so an agent can inspect relay state, recently seen client kinds, peer relationship counts, collaboration requests, local broker operations, outcomes, and durations without scraping raw service logs.
+
+The journal retains at most 512 allowlisted events for seven days and is capped at 256 KiB. It never records prompts, terminal or file content, paths, credentials, keys, or internal machine, device, relationship, session, pane, tab, workspace, request, or operation ids. There are no background uploads or daily dumps. Client presence is labelled as recently seen because the relay does not provide an exact client disconnect signal.
+
 ## Realtime voice
 
 Voice state changes from a session-only target to `{ machineId, sessionId }`. Starting a call captures an immutable target machine, relay URL, grant, plugin snapshot, and provider. Reconnect uses that captured target even if global Settings changes.
@@ -177,6 +183,8 @@ The work lands as one cohesive feature PR with reviewable internal commits.
 - `apps/host/src/requests/createRequestDispatcher.ts`
 - `apps/host/src/herdr/herdrSessionSource.ts`
 - new host peer client, store, receipt, and broker modules under `apps/host/src/peer/`
+- `apps/host/src/diagnostics/journal.ts`
+- `scripts/diagnostics.mjs`
 - `apps/mobile/sources/components/SettingsView.tsx`
 - machine detail and pairing routes under `apps/mobile/sources/app/(app)/`
 - `apps/mobile/sources/state/hostedE2ee.ts`
@@ -192,6 +200,7 @@ The work lands as one cohesive feature PR with reviewable internal commits.
 - 2026-08-25: reopened after independent Sol review for active capability abort, exact private watch settlement, reconnect-safe semantic mutations, security-first local revocation, alias churn, deep mobile intent normalization, and precise trusted-local-plugin documentation.
 - 2026-08-26: reopened after live owner testing because machine checkmarks looked persisted before confirmation, the permission card was not interactive, and ordinary offline setup was mislabeled `Needs attention`; replace the fixed card with a real revoking switch, reserve the warning for repair, and keep interrupted authorization and pending disconnect retries convergent.
 - 2026-08-26: reopened after the third owner iteration and a Fable HOLD: add an ordinary-agent peer CLI, preserve outdated/offline/authorization causes through Settings with an explicit Connected receipt, and make CLI skill loading progressive instead of dumping every reference.
+- 2026-08-26: reopened after live owner evidence showed the collaboration screen falsely rendered an empty pairing state while remote checks were pending; render saved grants immediately and add a bounded host diagnostic journal plus `muxr diagnostics` so local agents can inspect client, relay, peer, and broker history without raw log dumps.
 
 ## Verification
 
@@ -206,7 +215,8 @@ The work lands as one cohesive feature PR with reviewable internal commits.
 - [ ] Voice stays one native realtime speech-to-speech stream pinned to its original machine/session across reconnects.
 - [ ] Voice can unambiguously prompt, watch, and summarize an allowed remote agent without receiving peer credentials.
 - [ ] Switching computers during voice requires explicit call termination.
-- [ ] Internal ids, raw terminal output, credentials, and private paths are never displayed or spoken.
+- [ ] Internal ids, raw terminal output, credentials, and private paths are never displayed, spoken, or exported through diagnostics.
+- [ ] `muxr diagnostics` shows bounded relay, recently-seen client, peer relationship, collaboration request, and broker history after restart without prompts, paths, secrets, or raw/internal ids.
 - [ ] Existing local Herdr, pairing, plugin, voice, Android, iOS, and relay isolation flows remain green.
 
 ## Review evidence

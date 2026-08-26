@@ -315,9 +315,6 @@ export class AttachmentWatcher {
                 paneId,
                 new Set(attachments.map((entry) => entry.id)),
             );
-            console.log(
-                `[attachments] emit pane=${paneId} count=${wireView.length} ids=${wireView.map((e) => e.id.slice(0, 12)).join(',')}`,
-            );
             this.emit(paneId, wireView, scan.total, scan.truncated);
         } catch {
             // Never throw into the watch callback.

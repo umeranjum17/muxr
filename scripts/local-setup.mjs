@@ -1125,6 +1125,15 @@ export async function selfhostPublicSummary() {
     };
 }
 
+function rotateMacDaemonLog() {
+    if (platform() !== 'darwin') return;
+    const path = join(stateDir(), 'logs', 'daemon.log');
+    if (!existsSync(path) || statSync(path).size <= 5 * 1024 * 1024) return;
+    const previous = `${path}.1`;
+    rmSync(previous, { force: true });
+    renameSync(path, previous);
+}
+
 export async function runDaemon(args = []) {
     const action = args[0] ?? 'status';
     const dryRun = args.includes('--dry-run');
@@ -1213,6 +1222,7 @@ export async function runDaemon(args = []) {
             try { await ensureHerdrServer(undefined, false, args.includes('--quiet')); }
             catch (cause) { herdrFailure = cause; }
         }
+        if (!dryRun && (action === 'start' || action === 'restart')) rotateMacDaemonLog();
         const result = serviceCommand(action);
         if (!result.ok) {
             if (action === 'status') print('muxr service is stopped or unavailable.');

@@ -135,7 +135,7 @@ await build({
     legalComments: 'none',
     logLevel: 'warning',
 });
-for (const file of ['cli.mjs', 'doctor.mjs', 'local-setup.mjs', 'setup-ui.mjs', 'setup-wizard.mjs', 'update.mjs', 'host-up.mjs', 'package.mjs', 'peers.mjs']) {
+for (const file of ['cli.mjs', 'doctor.mjs', 'diagnostics.mjs', 'local-setup.mjs', 'setup-ui.mjs', 'setup-wizard.mjs', 'update.mjs', 'host-up.mjs', 'package.mjs', 'peers.mjs']) {
     copyFileSync(join(root, 'scripts', file), join(out, file));
 }
 const extensionSource = readFileSync(join(root, 'scripts', 'plugin.mjs'), 'utf8');

@@ -16,6 +16,7 @@ import { HttpPeerAuthority } from './peer/authority.js';
 import { PeerBroker } from './peer/broker.js';
 import { PeerRuntime } from './peer/runtime.js';
 import type { MachineCryptoState } from './peer/types.js';
+import { HostDiagnosticsJournal } from './diagnostics/journal.js';
 
 const DURABLE_GRANT_EXPIRES_AT = Date.UTC(9999, 11, 31, 23, 59, 59, 999);
 function env(name: string): string | undefined {
@@ -411,6 +412,10 @@ if (mode === 'selfhost' && selfhostAuth === undefined) {
 }
 
 async function main(): Promise<void> {
+    const hostVersion = resolveHostVersion() ?? '0.0.0';
+    let diagnostics: HostDiagnosticsJournal | undefined;
+    try { diagnostics = new HostDiagnosticsJournal(dataDir, hostVersion); }
+    catch (error) { process.stderr.write(`host diagnostics unavailable: ${error instanceof Error ? error.message : String(error)}\n`); }
     if (mode === 'hosted' && hostedAuth!.machine.crypto?.pendingRotation?.kind !== 'peer-revoke-v1') {
         await reconcileHostedKeys(hostedAuth!);
     }
@@ -549,6 +554,7 @@ async function main(): Promise<void> {
                     credential: token,
                 }),
             });
+            diagnostics?.relationships(peerRuntime.store.list().peers);
         } catch (error) {
             process.stderr.write(`peer runtime unavailable: ${error instanceof Error ? error.message : String(error)}\n`);
         }
@@ -557,7 +563,7 @@ async function main(): Promise<void> {
                 process.stderr.write(`peer recovery pending: ${error instanceof Error ? error.message : String(error)}\n`);
             });
             try {
-                peerBroker = new PeerBroker(join(dataDir, 'peer', 'broker.sock'), peerRuntime);
+                peerBroker = new PeerBroker(join(dataDir, 'peer', 'broker.sock'), peerRuntime, diagnostics);
                 await peerBroker.start();
                 await peerBroker.issuePersistentCapability(join(dataDir, 'peer', 'cli.json'));
             } catch (error) {
@@ -592,7 +598,6 @@ async function main(): Promise<void> {
               ...(peerBroker === undefined ? {} : { peerBroker }),
           });
 
-    const hostVersion = resolveHostVersion();
     startHost({
         ...(hostedE2ee === undefined ? {} : { hostedE2ee }),
         ...(token === undefined ? {} : { token }),
@@ -603,7 +608,8 @@ async function main(): Promise<void> {
         domain,
         terminals,
         ...(peerRuntime === undefined ? {} : { peerRuntime }),
-        ...(hostVersion === undefined ? {} : { hostVersion }),
+        ...(diagnostics === undefined ? {} : { diagnostics }),
+        hostVersion,
         onStateChange: (state) => {
             process.stdout.write(`relay link: ${state}\n`);
             if (state === 'open') peerRuntime?.retryRecovery();
@@ -615,12 +621,14 @@ async function main(): Promise<void> {
     });
 
     // A dead host must never leave --takeover streams holding the desk's panes.
+    let shuttingDown = false;
     const shutdown = (): void => {
+        if (shuttingDown) return;
+        shuttingDown = true;
         terminals.closeAll();
         peerRuntime?.close();
-        void peerBroker?.close();
-        void source.dispose();
-        process.exit(0);
+        diagnostics?.stopping();
+        void Promise.all([peerBroker?.close(), source.dispose(), diagnostics?.flush()]).finally(() => process.exit(0));
     };
     process.on('SIGTERM', shutdown);
     process.on('SIGINT', shutdown);

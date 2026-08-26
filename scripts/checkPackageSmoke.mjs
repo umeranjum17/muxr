@@ -286,6 +286,15 @@ try {
     const sourceHelp = run(process.execPath, ['scripts/cli.mjs', '--help'], { env: sourceEnv }).stdout;
     assert.match(sourceHelp, /muxr --skill \| muxr skill\s+print the compact muxr agent skill/);
     assert.match(sourceHelp, /muxr peers list\|read\|status\|watch\|prompt/);
+    assert.match(sourceHelp, /muxr diagnostics\s+show bounded redacted host history/);
+    const diagnosticsDir = join(home, '.muxr', 'host');
+    mkdirSync(diagnosticsDir, { recursive: true });
+    const diagnosticsPath = join(diagnosticsDir, 'diagnostics.json');
+    writeFileSync(diagnosticsPath, `${JSON.stringify({ version: 1, current: { updatedAt: '2026-08-26T00:00:00.000Z' }, events: [{ at: '2026-08-26T00:00:00.000Z', event: 'relay.state', state: 'open' }] })}\n`, { mode: 0o600 });
+    chmodSync(diagnosticsPath, 0o600);
+    const sourceDiagnostics = JSON.parse(run(process.execPath, ['scripts/cli.mjs', 'diagnostics'], { env: sourceEnv }).stdout);
+    assert.equal(sourceDiagnostics.events[0].event, 'relay.state');
+    assert.doesNotMatch(JSON.stringify(sourceDiagnostics), /machineId|deviceId|sessionId|prompt/i);
     const sourceSkill = run(process.execPath, ['scripts/cli.mjs', '--skill'], { env: sourceEnv }).stdout;
     assertCompactSkillOutput(sourceSkill);
     assert.equal(run(process.execPath, ['scripts/cli.mjs', 'skill'], { env: sourceEnv }).stdout, sourceSkill, 'source skill alias diverged from --skill');
@@ -351,6 +360,7 @@ try {
     assert.ok(listing.includes('package/relay.js'), 'self-host relay bundle missing from npm artifact');
     assert.ok(listing.includes('package/update.mjs'), 'interactive CLI updater missing from npm artifact');
     assert.ok(listing.includes('package/peers.mjs'), 'peer CLI client missing from npm artifact');
+    assert.ok(listing.includes('package/diagnostics.mjs'), 'host diagnostics CLI missing from npm artifact');
     assert.ok(listing.includes('package/plugins/control/run.mjs'), 'control plugin missing from npm artifact');
     assert.ok(listing.includes('package/plugins/servers/serve.mjs'), 'Preview discovery plugin missing from npm artifact');
     assert.ok(listing.includes('package/plugins/voice/rpc.mjs'), 'xAI Voice plugin missing from npm artifact');
@@ -401,6 +411,8 @@ try {
     const rootHelp = run(cli, ['--help'], { cwd: installDir }).stdout;
     assert.match(rootHelp, /muxr --skill \| muxr skill\s+print the compact muxr agent skill/);
     assert.match(rootHelp, /muxr peers list\|read\|status\|watch\|prompt/);
+    assert.match(rootHelp, /muxr diagnostics\s+show bounded redacted host history/);
+    assert.equal(JSON.parse(run(cli, ['diagnostics'], { cwd: installDir, env: cliEnv() }).stdout).events[0].event, 'relay.state');
     const installedSkill = run(cli, ['--skill'], { cwd: installDir, env: cliEnv() }).stdout;
     assertCompactSkillOutput(installedSkill);
     assert.equal(run(cli, ['skill'], { cwd: installDir, env: cliEnv() }).stdout, installedSkill, 'packed skill alias diverged from --skill');

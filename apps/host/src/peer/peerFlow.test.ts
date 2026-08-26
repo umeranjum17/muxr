@@ -31,6 +31,7 @@ import {
 } from '@muxr/crypto';
 import { HostV2Crypto } from '../hostedE2ee.js';
 import { createRequestDispatcher } from '../requests/createRequestDispatcher.js';
+import { HostDiagnosticsJournal } from '../diagnostics/journal.js';
 import type { SessionSource } from '../sessionSource.js';
 import { HttpPeerAuthority, type PeerAuthority } from './authority.js';
 import { NodePeerClient, type PeerClientRequestType, type PeerClientTransport } from './client.js';
@@ -398,7 +399,8 @@ describe('host peer collaboration flow', () => {
             type: 'machine.shell', requestId: 'forbidden', params: { command: 'echo unsafe', cwd: '/tmp' },
         }, authorized.peerDeviceId)).resolves.toMatchObject({ ok: false, code: 'peer-forbidden' });
 
-        const broker = new PeerBroker(join(root, 'source', 'broker.sock'), sourceRuntime);
+        const diagnostics = new HostDiagnosticsJournal(join(root, 'source'), 'test-version');
+        const broker = new PeerBroker(join(root, 'source', 'broker.sock'), sourceRuntime, diagnostics);
         await broker.start();
         const access = broker.issueCapability();
         const cliFile = join(root, 'source', 'cli.json');
@@ -480,7 +482,25 @@ describe('host peer collaboration flow', () => {
         controlWaits = false;
         await expect(brokerCall(broker.socketPath, access.capability, { method: 'list' })).rejects.toThrow('capability rejected');
         await broker.close();
+        await diagnostics.flush();
         expect(existsSync(cliFile)).toBe(false);
+        const diagnosticsPath = join(root, 'source', 'diagnostics.json');
+        expect(statSync(diagnosticsPath).mode & 0o077).toBe(0);
+        const diagnosticOutput = readFileSync(diagnosticsPath, 'utf8');
+        const diagnosticEvents = (JSON.parse(diagnosticOutput) as { events: Array<{ event: string; operation?: string; outcome?: string }> }).events;
+        expect(diagnosticEvents).toContainEqual(expect.objectContaining({ event: 'peer.broker', operation: 'list', outcome: 'ok' }));
+        expect(diagnosticEvents).toContainEqual(expect.objectContaining({ event: 'peer.broker', operation: 'prompt', outcome: 'ok' }));
+        expect(diagnosticOutput).not.toMatch(/target-machine|muxr-session|internal-pane-path|Report Xcode status|machineId|sessionId|relationshipId|operationId/);
+        let diagnosticNow = Date.parse('2026-08-26T00:00:00.000Z');
+        const recencyDiagnostics = new HostDiagnosticsJournal(join(root, 'recency'), 'test-version', () => diagnosticNow);
+        recencyDiagnostics.client('memory-only-device', 'native', true);
+        diagnosticNow += 60 * 60_000;
+        recencyDiagnostics.relay('open');
+        await recencyDiagnostics.flush();
+        const recencyState = JSON.parse(readFileSync(join(root, 'recency', 'diagnostics.json'), 'utf8')) as {
+            current: { updatedAt: string; recentClients: { native: number } };
+        };
+        expect(recencyState.current).toMatchObject({ updatedAt: '2026-08-26T01:00:00.000Z', recentClients: { native: 0 } });
 
         // One peer cannot consume the global receipt store, and revocation bypasses receipts entirely.
         let capacityError: unknown;

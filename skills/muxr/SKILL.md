@@ -54,7 +54,7 @@ work.
 | Connect computers; list, read, watch, or prompt a remote agent; voice | `muxr skill collaboration` · [source](references/collaboration.md) |
 | Hand a browser login, 2FA, or CAPTCHA to the phone | `muxr skill browser-takeover` · [source](references/browser-takeover.md) |
 | Build, install, debug, or override a plugin | `muxr skill plugins` · [source](references/plugins.md) |
-| Troubleshoot | run `muxr doctor`, then load the relevant topic's Pitfalls and Verify sections |
+| Troubleshoot | run `muxr doctor`, then `muxr diagnostics`; load the relevant topic's Pitfalls and Verify sections |
 | Full plugin manifest contract | run `muxr plugin docs` and read the printed PLUGINS.md |
 
 ## Pane attachments (always-on convention)
@@ -98,5 +98,5 @@ they preview natively.
 ## Verify
 
 - `muxr --version` prints the installed CLI version.
-- `muxr doctor` prints redacted setup diagnostics.
+- `muxr doctor` prints current setup health; `muxr diagnostics` prints bounded redacted host history.
 - `herdr status` confirms the Herdr server is up.

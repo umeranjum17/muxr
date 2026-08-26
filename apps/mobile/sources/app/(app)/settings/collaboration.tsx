@@ -88,13 +88,15 @@ export default function ComputerCollaborationScreen() {
         setBusy(true);
         try {
             const [paired, stored] = await Promise.all([listPairedGrants(), loadCollaborationIntent()]);
+            setGrants(paired);
+            setIntent(stored);
+            setSelected(stored.selectedMachineIds);
             const machines = machinesFor(paired, stored);
             const request = requesterFor(paired);
             const nextReport = hasPendingCollaboration(stored)
                 ? await applyCollaboration(stored, machines, request)
                 : await reconcileCollaboration(stored, machines, request);
             await saveCollaborationIntent(nextReport.intent);
-            setGrants(paired);
             setIntent(nextReport.intent);
             setReport(nextReport);
             setSelected(nextReport.intent.selectedMachineIds);
@@ -273,7 +275,11 @@ export default function ComputerCollaborationScreen() {
                         />
                     );
                 })}
-                {rows.length === 0 && (
+                {intent === undefined ? busy ? (
+                    <Item title="Checking paired computers…" loading showChevron={false} />
+                ) : (
+                    <Item title="Could not read this phone's pairings" subtitle="Reopen this screen to try again." showChevron={false} />
+                ) : rows.length === 0 && (
                     <Item title="Pair at least two computers first" subtitle="Return to Settings and pair each computer with this phone." showChevron={false} />
                 )}
             </ItemGroup>
