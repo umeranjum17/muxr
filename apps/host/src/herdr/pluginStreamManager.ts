@@ -27,6 +27,7 @@ import {
 import { v2EnvelopeSequence } from '@muxr/crypto';
 import { HostV2Crypto, type HostedMachineKeys } from '../hostedE2ee.js';
 import type { PeerBroker } from '../peer/broker.js';
+import type { RealtimeCodingCoordinator } from './realtimeCoordinator.js';
 
 const ATTACH_TIMEOUT_MS = 10_000;
 const STREAM_IDLE_TIMEOUT_MS = 10 * 60_000;
@@ -40,6 +41,7 @@ export interface PluginStreamTarget {
     pluginRoot: string;
     entry: string;
     peerBroker?: boolean;
+    codingCoordinator?: boolean;
 }
 
 interface StreamOptions {
@@ -48,6 +50,7 @@ interface StreamOptions {
     token?: string;
     hostedE2ee?: HostedMachineKeys;
     peerBroker?: PeerBroker;
+    codingCoordinator?: RealtimeCodingCoordinator;
 }
 
 interface Attachment {
@@ -128,6 +131,12 @@ export class PluginStreamManager {
         // this token. Enabled backends still run as the host user and are trusted
         // local code; the token is not isolation from a malicious enabled plugin.
         const peerAccess = params.target.peerBroker === true ? this.options.peerBroker?.issueCapability() : undefined;
+        const codingAccess = params.target.codingCoordinator === true
+            ? this.options.codingCoordinator?.issueCapability({
+                ...(params.sessionId === undefined ? {} : { sessionId: params.sessionId }),
+                ...(params.cwd === undefined ? {} : { cwd: params.cwd }),
+            })
+            : undefined;
         let child: ChildProcessWithoutNullStreams;
         try {
             child = spawn(process.execPath, [join(params.target.pluginRoot, params.target.entry)], {
@@ -143,11 +152,16 @@ export class PluginStreamManager {
                         MUXR_PEER_BROKER_SOCKET: peerAccess.socketPath,
                         MUXR_PEER_BROKER_CAPABILITY: peerAccess.capability,
                     }),
+                    ...(codingAccess === undefined ? {} : {
+                        MUXR_VOICE_COORDINATOR_SOCKET: codingAccess.socketPath,
+                        MUXR_VOICE_COORDINATOR_CAPABILITY: codingAccess.capability,
+                    }),
                 },
                 stdio: ['pipe', 'pipe', 'pipe'],
             });
         } catch (error) {
             if (peerAccess !== undefined) this.options.peerBroker?.revokeCapability(peerAccess.capability);
+            if (codingAccess !== undefined) this.options.codingCoordinator?.revokeCapability(codingAccess.capability);
             socket.close();
             throw error;
         }
@@ -230,6 +244,7 @@ export class PluginStreamManager {
                 this.hosted.releaseReplay(params.deviceId, 'stream', params.channel);
             }
             if (peerAccess !== undefined) this.options.peerBroker?.revokeCapability(peerAccess.capability);
+            if (codingAccess !== undefined) this.options.codingCoordinator?.revokeCapability(codingAccess.capability);
             attachment.onClosed();
         };
         const killChild = (): void => {

@@ -16,7 +16,7 @@ import {
     toSnapshot,
     type HerdrLayoutNode,
 } from './herdrSessionSource.js';
-import { IdentityStore } from './identity.js';
+import { IdentityStore, promotedHerdrDisplayName, reconcileHerdrIdentity } from './identity.js';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -118,6 +118,51 @@ async function demo(): Promise<void> {
     const restarted = new IdentityStore(migrationDir);
     await restarted.load();
     assert(restarted.get('stable-b')?.displayName === 'maria 3', 'display-name migration persists across restart');
+
+    const stableDir = mkdtempSync(join(tmpdir(), 'pph-stable-identity-check-'));
+    const started = new IdentityStore(stableDir);
+    started.put({
+        sessionId: 'pp_stable_voice',
+        paneId: 'w1:p1',
+        workspaceId: 'w1',
+        tabId: 'w1:t1',
+        cwd: '/repo',
+        agentName: 'pp_stable_voice',
+        displayName: 'John',
+        taskTitle: 'Stabilize realtime voice',
+        kind: 'codex',
+        autoLabel: true,
+        createdAt: new Date().toISOString(),
+        ours: true,
+    });
+    await started.flush();
+    const rediscovered = new IdentityStore(stableDir);
+    await rediscovered.load();
+    const matched = rediscovered.matchAgent('pp_stable_voice', 'w9:p7');
+    assert(matched?.sessionId === 'pp_stable_voice', 'stable app agent token wins before a changed pane id');
+    assert(promotedHerdrDisplayName(matched!, 'pp_hidden', rediscovered.all()) === undefined, 'internal names cannot replace spoken identity');
+    assert(promotedHerdrDisplayName(matched!, 'Maria', [
+        ...rediscovered.all(),
+        { ...matched!, sessionId: 'pp_other', paneId: 'w2:p1', displayName: 'Maria' },
+    ]) === undefined, 'duplicate human names cannot replace spoken identity');
+    const promoted = promotedHerdrDisplayName(matched!, 'Nora', rediscovered.all());
+    assert(promoted === 'Nora', 'a unique explicit rename promotes the auto display name');
+    rediscovered.put({ ...reconcileHerdrIdentity(matched!, {
+        paneId: 'w9:p7',
+        workspaceId: 'w9',
+        tabId: 'w9:t4',
+        cwd: '/repo/worktree',
+        agentName: 'pp_stable_voice',
+        kind: 'codex',
+        taskTitle: 'Stabilize realtime voice',
+        displayName: promoted!,
+    }), label: 'Nora', autoLabel: false });
+    await rediscovered.flush();
+    const afterMove = new IdentityStore(stableDir);
+    await afterMove.load();
+    const stable = afterMove.get('pp_stable_voice');
+    assert(stable?.paneId === 'w9:p7' && stable.workspaceId === 'w9' && stable.tabId === 'w9:t4' && stable.cwd === '/repo/worktree', 'rediscovery persists coherent moved topology');
+    assert(stable?.sessionId === 'pp_stable_voice' && stable.displayName === 'Nora' && stable.taskTitle === 'Stabilize realtime voice' && stable.kind === 'codex', 'restart and move preserve promoted spoken name, stable session, task title, and kind');
 
     console.log('layout snapshot self-check passed');
 }

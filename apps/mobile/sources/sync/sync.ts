@@ -15,7 +15,6 @@ import type { DecryptedArtifact } from './artifactTypes';
 import { MuxrClient } from '../client/muxrClient';
 import * as Notifications from 'expo-notifications';
 import { AppState, Platform } from 'react-native';
-import { getSessionName } from '@/utils/sessionUtils';
 import {
     DEFAULT_CONNECTION,
     getCachedConnectionSettings,
@@ -312,8 +311,13 @@ class MuxrSync {
         // A watch the user armed by hand. Unlike attention it always notifies:
         // asking to be told is the whole point, so a foreground app gets it too.
         if (event.type === 'watch.settled') {
-            const name = storage.getState().sessions[sessionId];
-            void this.scheduleSessionNotification(sessionId, `${name === undefined ? 'Agent' : getSessionName(name)} finished.`);
+            const watched = storage.getState().sessions[sessionId];
+            const trustedDisplayName = watched?.metadata?.displayName?.trim();
+            const displayName = trustedDisplayName || 'Agent';
+            const rawStatus = event.timedOut === true ? 'timeout' : event.status.toLowerCase();
+            const status = ['blocked', 'failed', 'done', 'idle', 'timeout', 'error'].includes(rawStatus) ? rawStatus : 'error';
+            const outcome = status === 'done' || status === 'idle' ? 'finished' : status === 'blocked' ? 'needs attention' : status;
+            void this.scheduleSessionNotification(sessionId, `${displayName} ${outcome}.`);
         }
 
         if (event.type === 'session.removed') {
@@ -346,7 +350,7 @@ class MuxrSync {
             const session = storage.getState().sessions[entry.sessionId];
             void this.scheduleSessionNotification(
                 entry.sessionId,
-                `${session === undefined ? 'Agent' : getSessionName(session)} needs attention.`,
+                `${session?.metadata?.displayName?.trim() || 'Agent'} needs attention.`,
             );
         }
     }
@@ -384,7 +388,7 @@ class MuxrSync {
         if (Platform.OS === 'android') return;
         try {
             const session = storage.getState().sessions[sessionId];
-            const title = session !== undefined ? getSessionName(session) : body;
+            const title = session?.metadata?.displayName?.trim() || 'Agent';
             await Notifications.scheduleNotificationAsync({
                 content: {
                     title,

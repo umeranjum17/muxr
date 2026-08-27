@@ -187,6 +187,8 @@ export interface RequestMap extends PeerRequestMap {
             label?: string;
             /** Human-facing name, independent of routing identity and agent kind. */
             displayName?: string;
+            /** Explicit concise task identity. Never derived from terminal output. */
+            taskTitle?: string;
             /** Create the session inside a new git worktree of the repo at cwd. */
             worktree?: { branch?: string; base?: string };
             /** Squad mode: one workspace, one tab per kind (max 4). Ignores kind. */

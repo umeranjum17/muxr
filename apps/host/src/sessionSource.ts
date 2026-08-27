@@ -35,6 +35,7 @@ export interface SessionStartOptions {
     kind?: string;
     label?: string;
     displayName?: string;
+    taskTitle?: string;
     worktree?: { branch?: string; base?: string };
     /** Squad mode: one workspace, one tab per kind (max 4). Ignores kind. */
     kinds?: string[];

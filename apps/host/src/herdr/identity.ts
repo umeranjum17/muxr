@@ -9,7 +9,7 @@ import { randomBytes } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { atomicWriteJson } from '../domain/atomicWriteJson.js';
 import { join } from 'node:path';
-import { pickHerdName } from './herdNames.js';
+import { isPlaceholderLabel, pickHerdName } from './herdNames.js';
 
 export interface HerdrIdentity {
     sessionId: string;
@@ -22,11 +22,41 @@ export interface HerdrIdentity {
     label?: string;
     /** Human-facing name. Stable across pane moves and never used for routing. */
     displayName: string;
+    /** Explicit or generic task identity. Never a routing key. */
+    taskTitle?: string;
     /** True only when muxr chose label from the fallback herd pool. */
     autoLabel?: boolean;
     createdAt: string;
     /** App-started (vs discovered on the herdr bus): drives discovery naming. */
     ours: boolean;
+}
+
+export interface HerdrIdentityObservation {
+    paneId: string;
+    workspaceId?: string;
+    tabId?: string;
+    cwd?: string;
+    agentName?: string;
+    kind?: string;
+    taskTitle?: string;
+    displayName?: string;
+}
+
+export function reconcileHerdrIdentity(
+    identity: HerdrIdentity,
+    observed: HerdrIdentityObservation,
+): HerdrIdentity {
+    return {
+        ...identity,
+        paneId: observed.paneId,
+        workspaceId: observed.workspaceId ?? identity.workspaceId,
+        tabId: observed.tabId ?? identity.tabId,
+        cwd: observed.cwd ?? identity.cwd,
+        ...(observed.agentName === undefined ? {} : { agentName: observed.agentName }),
+        ...(observed.kind === undefined ? {} : { kind: observed.kind }),
+        ...(observed.taskTitle === undefined ? {} : { taskTitle: observed.taskTitle }),
+        ...(observed.displayName === undefined ? {} : { displayName: observed.displayName }),
+    };
 }
 
 interface IdentityFile {
@@ -40,7 +70,23 @@ function normalizeDisplayName(value: string): string {
 }
 
 function displayKey(value: string): string {
-    return normalizeDisplayName(value).toLowerCase();
+    return normalizeDisplayName(value).toLocaleLowerCase('und').replace(/ß/g, 'ss').replace(/ς/g, 'σ');
+}
+
+export function promotedHerdrDisplayName(
+    identity: HerdrIdentity,
+    candidate: string | undefined,
+    identities: Iterable<HerdrIdentity>,
+    reserved: Iterable<string> = [],
+): string | undefined {
+    if (!(identity.ours || identity.autoLabel === true) || candidate === undefined) return undefined;
+    const clean = normalizeDisplayName(candidate);
+    if (!DISPLAY_NAME.test(clean) || isPlaceholderLabel(clean)) return undefined;
+    const key = displayKey(clean);
+    const duplicate = [...identities].some((other) =>
+        other.sessionId !== identity.sessionId && displayKey(other.displayName) === key,
+    ) || [...reserved].some((name) => displayKey(name) === key);
+    return duplicate ? undefined : clean;
 }
 
 export function newSessionId(): string {
@@ -51,6 +97,7 @@ export class IdentityStore {
     private readonly byId = new Map<string, HerdrIdentity>();
     private readonly file: string;
     private writeChain: Promise<void> = Promise.resolve();
+    private writeError: unknown;
 
     constructor(dataDir: string) {
         this.file = join(dataDir, 'herdr-identity.json');
@@ -101,6 +148,17 @@ export class IdentityStore {
         return undefined;
     }
 
+    /** Stable app-owned agent token first; mutable pane id is only the fallback. */
+    matchAgent(agentName: string | undefined, paneId: string): HerdrIdentity | undefined {
+        if (agentName !== undefined) {
+            const appOwned = this.byId.get(agentName);
+            if (appOwned?.ours === true) return appOwned;
+            const named = [...this.byId.values()].filter((identity) => identity.agentName === agentName);
+            if (named.length === 1) return named[0];
+        }
+        return this.byPane(paneId);
+    }
+
     all(): HerdrIdentity[] {
         return [...this.byId.values()];
     }
@@ -115,8 +173,20 @@ export class IdentityStore {
         this.persist();
     }
 
+    async flush(): Promise<void> {
+        await this.writeChain;
+        if (this.writeError !== undefined) throw this.writeError;
+    }
+
     private persist(): void {
         const snapshot: IdentityFile = { sessions: this.all() };
-        this.writeChain = this.writeChain.then(() => atomicWriteJson(this.file, snapshot)).catch(() => {});
+        this.writeChain = this.writeChain.then(async () => {
+            try {
+                await atomicWriteJson(this.file, snapshot);
+                this.writeError = undefined;
+            } catch (error) {
+                this.writeError = error;
+            }
+        });
     }
 }

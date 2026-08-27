@@ -42,11 +42,15 @@ import type {
     SessionStartOptions,
 } from '../sessionSource.js';
 import { HerdrClient } from './socketClient.js';
-import { IdentityStore, newSessionId, type HerdrIdentity } from './identity.js';
+import { IdentityStore, newSessionId, promotedHerdrDisplayName, reconcileHerdrIdentity, type HerdrIdentity } from './identity.js';
 import { explicitHerdName, isGeneratedName, isPlaceholderLabel, pickHerdName } from './herdNames.js';
 import { pluginInvalidationFrame, PluginCatalog, PluginRefreshGate, WriteReplayFence, Semaphore, rpcInputDigest, rpcReplayKey, runPluginProcess, type HerdrPlugin } from './pluginCatalog.js';
 import { PluginApprovals } from './pluginApprovals.js';
 import { PluginStreamManager } from './pluginStreamManager.js';
+import {
+    RealtimeCodingCoordinator,
+    type RealtimeCodingAgent,
+} from './realtimeCoordinator.js';
 import type { HostedMachineKeys } from '../hostedE2ee.js';
 import type { PeerBroker } from '../peer/broker.js';
 import { MAX_RPC_CONCURRENCY, MAX_RPC_INPUT_BYTES, MAX_RPC_PER_DEVICE, MAX_RPC_PER_PLUGIN, type PluginContextRequest } from '@muxr/contract';
@@ -285,6 +289,18 @@ export async function createHerdrSessionSource(
     const pluginApprovals = new PluginApprovals(options.dataDir);
     await pluginApprovals.load();
     const pluginInvocations = new Map<string, Promise<void>>();
+    const codingCoordinator = options.relayUrl === undefined || options.machineId === undefined
+        ? undefined
+        : new RealtimeCodingCoordinator(join(options.dataDir, 'realtime-coding.sock'), {
+            list: listRealtimeAgents,
+            start: startRealtimeAgent,
+            prompt: promptSession,
+            read: readSessionOutput,
+            status: async (sessionId) => statusFor(sessionId).agentStatus ?? 'unknown',
+            watch: waitForAgent,
+            focus: focusSession,
+        });
+    await codingCoordinator?.start();
     const pluginStreams = options.relayUrl === undefined || options.machineId === undefined
         ? undefined
         : new PluginStreamManager({
@@ -293,6 +309,7 @@ export async function createHerdrSessionSource(
             ...(options.token === undefined ? {} : { token: options.token }),
             ...(options.hostedE2ee === undefined ? {} : { hostedE2ee: options.hostedE2ee }),
             ...(options.peerBroker === undefined ? {} : { peerBroker: options.peerBroker }),
+            ...(codingCoordinator === undefined ? {} : { codingCoordinator }),
         });
     /** Write-mode RPC replay fence: successful outcomes retained five minutes; rejections dropped; pending writes never evicted. */
     const writeReplayFence = new WriteReplayFence();
@@ -394,11 +411,13 @@ export async function createHerdrSessionSource(
     }
 
     function transition(record: HerdrIdentity, state: AgentLifecycle, reason: Parameters<NonNullable<CreateHerdrSessionSourceOptions['lifecycle']>['transition']>[3]): void {
-        const pane = panesById.get(record.paneId);
-        const agent = agentsByPane.get(record.paneId);
-        const taskTitle = safeTaskTitle(agent?.terminal_title_stripped ?? pane?.terminal_title_stripped ?? record.label ?? tabsById.get(record.tabId)?.label, record.kind ?? agent?.agent, record.displayName)
-            ?? (state === 'working' ? 'Working' : state === 'starting' ? 'Starting' : undefined);
-        const event = options.lifecycle?.transition(record.sessionId, record.displayName, state, reason, taskTitle);
+        const event = options.lifecycle?.transition(
+            record.sessionId,
+            record.displayName,
+            state,
+            reason,
+            record.taskTitle ?? genericTaskTitle(record.kind),
+        );
         if (event !== undefined) publish(record.sessionId, { type: 'lifecycle.update', event });
     }
 
@@ -430,6 +449,13 @@ export async function createHerdrSessionSource(
         return clean;
     }
 
+    function genericTaskTitle(kind?: string): string {
+        const cleanKind = kind?.normalize('NFKC').replace(/[^a-z0-9_-]/gi, '').slice(0, 32);
+        return cleanKind === undefined || cleanKind === ''
+            ? 'Coding task'
+            : `${cleanKind.charAt(0).toLocaleUpperCase()}${cleanKind.slice(1)} task`;
+    }
+
     function infoFor(record: HerdrIdentity): SessionInfo {
         const pane = panesById.get(record.paneId);
         const agent = agentsByPane.get(record.paneId);
@@ -439,8 +465,7 @@ export async function createHerdrSessionSource(
         const workspace = workspacesById.get(record.workspaceId);
         const worktree = workspace?.worktree;
         const tabLabel = tabsById.get(record.tabId)?.label;
-        const taskTitle = safeTaskTitle(terminalTitle ?? record.label ?? tabLabel, agentKind, record.displayName)
-            ?? (lifecycleOf(record.paneId) === 'working' ? 'Working' : undefined);
+        const taskTitle = record.taskTitle ?? genericTaskTitle(agentKind);
         const safeTerminalTitle = safeTaskTitle(terminalTitle, agentKind, record.displayName);
         const spawnedBy = pane?.tokens?.spawned_by;
         return {
@@ -624,6 +649,22 @@ export async function createHerdrSessionSource(
     const isHumanDisplayName = (value: string | undefined): value is string =>
         value !== undefined && /^[\p{L}\p{M}][\p{L}\p{M}' -]{0,72}(?: \d+)?$/u.test(value.normalize('NFKC'));
 
+    function discoveredDisplayName(value: string | undefined): string {
+        const clean = value?.normalize('NFKC').replace(/\s+/g, ' ').trim();
+        const key = clean?.toLocaleLowerCase();
+        const duplicate = key !== undefined && (
+            reservedNames.has(key)
+            || identity.all().some((record) => record.displayName.normalize('NFKC').toLocaleLowerCase() === key)
+        );
+        return clean !== undefined && isHumanDisplayName(clean) && !duplicate ? clean : freeHerdName();
+    }
+
+    function reconciledTaskTitle(record: HerdrIdentity, kind: string | undefined): string {
+        return record.taskTitle === undefined || record.taskTitle === genericTaskTitle(record.kind)
+            ? genericTaskTitle(kind)
+            : record.taskTitle;
+    }
+
     function reserveDisplayName(requested?: string): { name: string; explicit: boolean } {
         const explicit = requested?.trim();
         if (explicit !== undefined && explicit !== '') {
@@ -656,12 +697,13 @@ export async function createHerdrSessionSource(
     }
 
     /** Reconcile identity with what herdr currently reports. */
-    function syncDiscovery(): void {
+    async function syncDiscovery(): Promise<void> {
         for (const agent of agentsByPane.values()) {
             if (agent.pane_id === undefined) continue;
             ensureStatusWatch(agent.pane_id);
-            const known = identity.byPane(agent.pane_id);
-            const paneLabel = panesById.get(agent.pane_id)?.label?.trim() || undefined;
+            const pane = panesById.get(agent.pane_id);
+            const known = identity.matchAgent(agent.name, agent.pane_id);
+            const paneLabel = pane?.label?.trim() || undefined;
             const pendingPaneLabel = pendingPaneLabels.get(agent.pane_id);
             if (paneLabel === pendingPaneLabel) pendingPaneLabels.delete(agent.pane_id);
             const agentLabel = isGeneratedName(agent.name) ? undefined : agent.name?.trim();
@@ -671,6 +713,20 @@ export async function createHerdrSessionSource(
             const rawTabLabel = tabPaneCount <= 1 ? tabsById.get(agent.tab_id ?? '')?.label : undefined;
             const tabLabel = isPlaceholderLabel(rawTabLabel) ? undefined : rawTabLabel?.trim();
             if (known !== undefined) {
+                if (known.paneId !== agent.pane_id) {
+                    const displaced = identity.byPane(agent.pane_id);
+                    if (displaced !== undefined && displaced.sessionId !== known.sessionId) {
+                        identity.remove(displaced.sessionId);
+                        options.lifecycle?.remove(displaced.sessionId);
+                        clearAttention(displaced.sessionId);
+                        publish(displaced.sessionId, { type: 'session.removed' });
+                    }
+                    statusWatches.get(known.paneId)?.();
+                    statusWatches.delete(known.paneId);
+                    lifecycleEpochByPane.delete(known.paneId);
+                    pendingPaneLabels.delete(known.paneId);
+                    attachments.dropPane(known.paneId);
+                }
                 // A later explicit rename beats an automatic animal. Otherwise
                 // the stored explicit name remains authoritative.
                 const paneRenamed = pendingPaneLabel === undefined && paneLabel !== known.label && !isPlaceholderLabel(paneLabel) && isHumanDisplayName(paneLabel) ? paneLabel : undefined;
@@ -678,21 +734,40 @@ export async function createHerdrSessionSource(
                 const tabRenamed = known.autoLabel === true && tabLabel !== known.label && isHumanDisplayName(tabLabel) ? tabLabel : undefined;
                 const renamed = paneRenamed ?? agentRenamed ?? tabRenamed;
                 if (renamed !== undefined && paneRenamed === undefined) renamePane(agent.pane_id, renamed);
+                const displayName = promotedHerdrDisplayName(known, renamed, identity.all(), reservedNames) ?? known.displayName;
                 const given = renamed ?? known.label ?? paneLabel ?? agentLabel ?? tabLabel;
                 const label = given;
                 const autoLabel = renamed === undefined && given === undefined ? true : renamed === undefined ? known.autoLabel : false;
+                const kind = agent.agent ?? known.kind;
+                const taskTitle = reconciledTaskTitle(known, kind);
+                const updated = reconcileHerdrIdentity(known, {
+                    paneId: agent.pane_id,
+                    ...((agent.workspace_id ?? pane?.workspace_id) === undefined ? {} : { workspaceId: agent.workspace_id ?? pane?.workspace_id! }),
+                    ...((agent.tab_id ?? pane?.tab_id) === undefined ? {} : { tabId: agent.tab_id ?? pane?.tab_id! }),
+                    ...((agent.foreground_cwd ?? pane?.foreground_cwd ?? agent.cwd ?? pane?.cwd) === undefined
+                        ? {}
+                        : { cwd: agent.foreground_cwd ?? pane?.foreground_cwd ?? agent.cwd ?? pane?.cwd! }),
+                    ...(agent.name === undefined ? {} : { agentName: agent.name }),
+                    ...(kind === undefined ? {} : { kind }),
+                    taskTitle,
+                    displayName,
+                });
                 if (
                     label !== known.label
                     || autoLabel !== known.autoLabel
-                    || (agent.name !== undefined && known.agentName !== agent.name)
-                    || (agent.agent !== undefined && known.kind !== agent.agent)
+                    || displayName !== known.displayName
+                    || taskTitle !== known.taskTitle
+                    || updated.paneId !== known.paneId
+                    || updated.workspaceId !== known.workspaceId
+                    || updated.tabId !== known.tabId
+                    || updated.cwd !== known.cwd
+                    || updated.agentName !== known.agentName
+                    || updated.kind !== known.kind
                 ) {
                     identity.put({
-                        ...known,
+                        ...updated,
                         ...(label === undefined ? {} : { label }),
                         ...(autoLabel === undefined ? {} : { autoLabel }),
-                        ...(agent.name === undefined ? {} : { agentName: agent.name }),
-                        ...(agent.agent === undefined ? {} : { kind: agent.agent }),
                     });
                 }
                 continue;
@@ -704,18 +779,19 @@ export async function createHerdrSessionSource(
                 ...(agent.name === undefined ? {} : { agentName: agent.name }),
                 ...(rawTabLabel === undefined ? {} : { tabLabel: rawTabLabel }),
             });
-            const displayName = freeHerdName();
+            const displayName = discoveredDisplayName(given);
             identity.put({
                 sessionId,
                 paneId: agent.pane_id,
-                workspaceId: agent.workspace_id ?? '',
-                tabId: agent.tab_id ?? '',
+                workspaceId: agent.workspace_id ?? pane?.workspace_id ?? '',
+                tabId: agent.tab_id ?? pane?.tab_id ?? '',
                 ...(given === undefined ? {} : { label: given }),
                 displayName,
                 autoLabel: given === undefined,
                 ...(agent.name === undefined ? {} : { agentName: agent.name }),
                 ...(agent.agent === undefined ? {} : { kind: agent.agent }),
-                cwd: agent.foreground_cwd ?? agent.cwd ?? '/',
+                taskTitle: genericTaskTitle(agent.agent),
+                cwd: agent.foreground_cwd ?? pane?.foreground_cwd ?? agent.cwd ?? pane?.cwd ?? '/',
                 createdAt: new Date().toISOString(),
                 ours: false,
             });
@@ -734,8 +810,23 @@ export async function createHerdrSessionSource(
                 const paneLabel = pane.label?.trim() || undefined;
                 const pending = pendingPaneLabels.get(pane.pane_id);
                 if (paneLabel === pending) pendingPaneLabels.delete(pane.pane_id);
+                const taskTitle = known.taskTitle ?? genericTaskTitle(known.kind ?? 'shell');
+                const updated = reconcileHerdrIdentity(known, {
+                    paneId: pane.pane_id,
+                    ...(pane.workspace_id === undefined ? {} : { workspaceId: pane.workspace_id }),
+                    ...(pane.tab_id === undefined ? {} : { tabId: pane.tab_id }),
+                    ...((pane.foreground_cwd ?? pane.cwd) === undefined ? {} : { cwd: pane.foreground_cwd ?? pane.cwd! }),
+                    taskTitle,
+                });
                 if (pending === undefined && paneLabel !== undefined && paneLabel !== known.label && !isPlaceholderLabel(paneLabel)) {
-                    identity.put({ ...known, label: paneLabel, autoLabel: false });
+                    identity.put({ ...updated, label: paneLabel, autoLabel: false });
+                } else if (
+                    updated.workspaceId !== known.workspaceId
+                    || updated.tabId !== known.tabId
+                    || updated.cwd !== known.cwd
+                    || taskTitle !== known.taskTitle
+                ) {
+                    identity.put(updated);
                 }
                 continue;
             }
@@ -746,7 +837,7 @@ export async function createHerdrSessionSource(
                 ...(pane.label === undefined ? {} : { paneLabel: pane.label }),
                 ...(rawTabLabel === undefined ? {} : { tabLabel: rawTabLabel }),
             });
-            const displayName = freeHerdName();
+            const displayName = discoveredDisplayName(given);
             identity.put({
                 sessionId,
                 paneId: pane.pane_id,
@@ -755,6 +846,7 @@ export async function createHerdrSessionSource(
                 cwd: pane.foreground_cwd ?? pane.cwd ?? '/',
                 ...(given === undefined ? {} : { label: given }),
                 displayName,
+                taskTitle: genericTaskTitle('shell'),
                 autoLabel: given === undefined,
                 createdAt: new Date().toISOString(),
                 ours: false,
@@ -799,6 +891,7 @@ export async function createHerdrSessionSource(
                 }
             }
         }
+        await identity.flush();
     }
 
     async function refreshSnapshot(): Promise<void> {
@@ -837,7 +930,7 @@ export async function createHerdrSessionSource(
             workspacesById.set(workspace.workspace_id, workspace);
         }
         for (const tab of result.snapshot?.tabs ?? []) tabsById.set(tab.tab_id, tab);
-        syncDiscovery();
+        await syncDiscovery();
     }
 
     function scheduleResnapshot(): void {
@@ -906,7 +999,17 @@ export async function createHerdrSessionSource(
                 const nextId = pane?.pane_id;
                 const record = previous === undefined ? undefined : identity.byPane(previous);
                 if (record !== undefined && nextId !== undefined) {
-                    identity.put({ ...record, paneId: nextId });
+                    const observedKind = pane !== undefined && 'agent' in pane ? pane.agent : undefined;
+                    const nextKind = observedKind ?? record.kind;
+                    identity.put(reconcileHerdrIdentity(record, {
+                        paneId: nextId,
+                        ...(pane?.workspace_id === undefined ? {} : { workspaceId: pane.workspace_id }),
+                        ...(pane?.tab_id === undefined ? {} : { tabId: pane.tab_id }),
+                        ...((pane?.foreground_cwd ?? pane?.cwd) === undefined ? {} : { cwd: pane?.foreground_cwd ?? pane!.cwd! }),
+                        ...(nextKind === undefined ? {} : { kind: nextKind }),
+                        taskTitle: reconciledTaskTitle(record, nextKind),
+                    }));
+                    void identity.flush().catch(() => scheduleResnapshot());
                     if (previous !== undefined) {
                         statusWatches.get(previous)?.();
                         statusWatches.delete(previous);
@@ -1009,6 +1112,7 @@ export async function createHerdrSessionSource(
                     cwd: startOptions.cwd,
                     kind: member.kind,
                     ...(member.displayName === undefined ? {} : { displayName: member.displayName }),
+                    ...(startOptions.taskTitle === undefined ? {} : { taskTitle: startOptions.taskTitle }),
                 });
                 if (!('info' in snapshot)) {
                     for (const record of started.reverse()) {
@@ -1037,11 +1141,13 @@ export async function createHerdrSessionSource(
         // a herd of panes all called "pi" is one nobody can point at.
         const requestedLabel = startOptions.label?.trim();
         const reserved = reserveDisplayName(startOptions.displayName);
-        const starting = options.lifecycle?.transition(sessionId, reserved.name, 'starting', 'start-requested');
+        const taskTitle = safeTaskTitle(startOptions.taskTitle ?? requestedLabel, kind, reserved.name)
+            ?? genericTaskTitle(kind);
+        const starting = options.lifecycle?.transition(sessionId, reserved.name, 'starting', 'start-requested', taskTitle);
         if (starting !== undefined) publish(sessionId, { type: 'lifecycle.update', event: starting });
         const earlyFailure = (): SessionStartResult => {
             reservedNames.delete(reserved.name.normalize('NFKC').toLocaleLowerCase());
-            const event = options.lifecycle?.transition(sessionId, reserved.name, 'failed', 'start-launch-failed');
+            const event = options.lifecycle?.transition(sessionId, reserved.name, 'failed', 'start-launch-failed', taskTitle);
             if (event !== undefined) {
                 publish(sessionId, { type: 'lifecycle.update', event });
                 notifyAttention(sessionId, event.eventId, 'failed', `${reserved.name} could not start.`);
@@ -1124,12 +1230,20 @@ export async function createHerdrSessionSource(
             kind,
             ...(requestedLabel === undefined || requestedLabel === '' ? {} : { label: requestedLabel }),
             displayName: reserved.name,
+            taskTitle,
             autoLabel: !reserved.explicit,
             createdAt: new Date().toISOString(),
             ours: true,
         });
         const record = identity.get(sessionId);
         if (record === undefined) return earlyFailure();
+        try {
+            await identity.flush();
+        } catch {
+            identity.remove(sessionId);
+            await client.call('pane.close', { pane_id: paneId }).catch(() => undefined);
+            return earlyFailure();
+        }
         transition(record, 'starting', 'start-requested');
 
         // tab.create already left the pane at an interactive shell, which IS the
@@ -1173,6 +1287,89 @@ export async function createHerdrSessionSource(
             });
 
         return snapshotFor(record, true);
+    }
+
+    function realtimeAgentFor(record: HerdrIdentity): RealtimeCodingAgent {
+        const info = infoFor(record);
+        return {
+            sessionId: record.sessionId,
+            cwd: info.cwd,
+            displayName: record.displayName,
+            taskTitle: record.taskTitle ?? genericTaskTitle(record.kind),
+            kind: record.kind ?? 'agent',
+            status: statusFor(record.sessionId).agentStatus ?? 'unknown',
+        };
+    }
+
+    async function listRealtimeAgents(): Promise<RealtimeCodingAgent[]> {
+        await refreshSnapshot();
+        return identity.all().map(realtimeAgentFor);
+    }
+
+    async function startRealtimeAgent(input: {
+        cwd: string;
+        displayName: string;
+        taskTitle: string;
+        kind: string;
+    }): Promise<{ accepted: boolean; agent?: RealtimeCodingAgent }> {
+        const result = await startSession({
+            cwd: input.cwd,
+            displayName: input.displayName,
+            taskTitle: input.taskTitle,
+            label: input.taskTitle,
+            kind: input.kind,
+        });
+        if (!('info' in result)) return { accepted: false };
+        const record = identity.get(result.info.id);
+        return record === undefined
+            ? { accepted: false }
+            : { accepted: true, agent: realtimeAgentFor(record) };
+    }
+
+    async function promptSession(sessionId: string, text: string): Promise<void> {
+        const record = await resolvePane(sessionId);
+        try {
+            await client.call('agent.prompt', { target: record.paneId, text });
+        } catch {
+            await client.call('pane.send_input', { pane_id: record.paneId, text, keys: ['enter'] });
+        }
+    }
+
+    async function readSessionOutput(sessionId: string): Promise<{ text: string; truncated: boolean }> {
+        const record = await resolvePane(sessionId);
+        const result = await client.call<{ read?: { text?: string; truncated?: boolean } }>('pane.read', {
+            pane_id: record.paneId,
+            source: 'recent',
+            lines: 80,
+            format: 'text',
+            strip_ansi: true,
+        });
+        return { text: result.read?.text ?? '', truncated: result.read?.truncated === true };
+    }
+
+    async function waitForAgent(sessionId: string, timeoutMs: number): Promise<{ status: string; detail: string; timedOut?: boolean }> {
+        const record = await resolvePane(sessionId);
+        try {
+            const result = await client.call<{ agent?: { agent_status?: string } }>(
+                'agent.wait',
+                { target: record.paneId, until: ['idle', 'done', 'blocked', 'failed'], timeout_ms: timeoutMs },
+                timeoutMs + 10_000,
+            );
+            const status = result.agent?.agent_status ?? 'settled';
+            return { status, detail: `${record.displayName} is ${status}` };
+        } catch (error) {
+            const timedOut = (error instanceof Error ? error.message : String(error)).includes('timed out');
+            return {
+                status: timedOut ? 'unknown' : 'error',
+                detail: timedOut ? 'Watch timed out' : 'Watch ended before completion',
+                ...(timedOut ? { timedOut: true } : {}),
+            };
+        }
+    }
+
+    async function focusSession(sessionId: string): Promise<void> {
+        const record = await resolvePane(sessionId);
+        await client.call('pane.focus', { pane_id: record.paneId });
     }
 
     const pluginRefreshGate = new PluginRefreshGate(async () => {
@@ -1284,7 +1481,7 @@ export async function createHerdrSessionSource(
                     sessionId: record.sessionId,
                     label: record.label ?? agent?.name ?? pane?.terminal_title_stripped ?? tab?.label ?? base,
                     displayName: record.displayName,
-                    taskTitle: safeTaskTitle(agent?.terminal_title_stripped ?? pane?.terminal_title_stripped ?? record.label ?? tab?.label, record.kind ?? agent?.agent, record.displayName),
+                    taskTitle: record.taskTitle ?? genericTaskTitle(record.kind ?? agent?.agent),
                     cwd,
                     workspaceLabel: workspace?.label,
                     tabLabel: tab?.label,
@@ -1314,7 +1511,7 @@ export async function createHerdrSessionSource(
                                 ...(session === undefined ? {} : { sessionId: session.sessionId }),
                                 label: pane.label ?? agent?.name ?? pane.terminal_title_stripped ?? session?.label,
                                 displayName: session?.displayName,
-                                taskTitle: safeTaskTitle(agent?.terminal_title_stripped ?? pane.terminal_title_stripped ?? pane.label ?? session?.label, agent?.agent ?? session?.kind, session?.displayName),
+                                taskTitle: session?.taskTitle ?? genericTaskTitle(agent?.agent ?? session?.kind),
                                 agentKind: agent?.agent ?? session?.kind,
                                 agentStatus: lifecycleOf(pane.pane_id),
                             };
@@ -1473,7 +1670,7 @@ export async function createHerdrSessionSource(
                         pluginId,
                         pluginRoot: target.pluginRoot,
                         entry: target.entry,
-                        ...(voiceSession ? { peerBroker: true } : {}),
+                        ...(voiceSession ? { peerBroker: true, codingCoordinator: true } : {}),
                     },
                     channel,
                     stateDir,
@@ -1689,7 +1886,7 @@ export async function createHerdrSessionSource(
                     const treePanes = tabPanes.map((pane) => {
                         const agent = agentsByPane.get(pane.pane_id);
                         const session = identity.byPane(pane.pane_id);
-                        const taskTitle = safeTaskTitle(agent?.terminal_title_stripped ?? pane.terminal_title_stripped ?? pane.label, agent?.agent ?? session?.kind, session?.displayName);
+                        const taskTitle = session?.taskTitle ?? genericTaskTitle(agent?.agent ?? session?.kind);
                         return {
                             paneId: pane.pane_id,
                             tabId,
@@ -1927,8 +2124,7 @@ export async function createHerdrSessionSource(
         },
 
         async paneFocus(sessionId: string): Promise<void> {
-            const record = await resolvePane(sessionId);
-            await client.call('pane.focus', { pane_id: record.paneId });
+            await focusSession(sessionId);
         },
 
         async focusNeighbor(sessionId: string, direction: 'left' | 'right' | 'up' | 'down'): Promise<void> {
@@ -2016,6 +2212,8 @@ export async function createHerdrSessionSource(
                 kind: options.kind ?? 'shell',
                 ...(requestedLabel === undefined ? {} : { label: requestedLabel }),
                 displayName: reserved.name,
+                taskTitle: safeTaskTitle(requestedLabel, options.kind ?? 'shell', reserved.name)
+                    ?? genericTaskTitle(options.kind ?? 'shell'),
                 autoLabel: !reserved.explicit,
                 createdAt: new Date().toISOString(),
                 ours: true,
@@ -2083,17 +2281,7 @@ export async function createHerdrSessionSource(
         },
 
         async prompt(promptOptions: SessionPromptOptions): Promise<void> {
-            const record = await resolvePane(promptOptions.sessionId);
-            try {
-                await client.call('agent.prompt', { target: record.paneId, text: promptOptions.text });
-            } catch {
-                // No live agent in the pane (yet): type into the shell instead.
-                await client.call('pane.send_input', {
-                    pane_id: record.paneId,
-                    text: promptOptions.text,
-                    keys: ['enter'],
-                });
-            }
+            await promptSession(promptOptions.sessionId, promptOptions.text);
         },
 
 
@@ -2225,11 +2413,13 @@ export async function createHerdrSessionSource(
             if (resnapshotTimer !== undefined) clearTimeout(resnapshotTimer);
             if (pluginPollTimer !== undefined) clearInterval(pluginPollTimer);
             pluginStreams?.closeAll();
+            await codingCoordinator?.close();
             attachments.dispose();
             attachmentDownloads.dispose();
             for (const close of statusWatches.values()) close();
             statusWatches.clear();
             client.close();
+            await identity.flush();
         },
     };
 }

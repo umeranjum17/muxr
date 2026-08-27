@@ -4,7 +4,8 @@ import TestRenderer from 'react-test-renderer';
 import { useDictation } from './dictation';
 import { pcm16ChunksToArrayBuffer } from './transcription';
 import { wakeAndReport } from '../voice/wakeAndReport';
-import { micOwners, realtimeWatchTarget, registerRealtimeNotificationStart, releaseDictation, resolveRealtimeTarget, startRealtimeSession, stopRealtimeSession } from '../realtime/realtimeSessionState';
+import { usePluginEvents } from '../plugins/usePluginEvents';
+import { cancelRealtimeReportWait, micOwners, realtimeGeneration, realtimeWatchTarget, registerRealtimeNotificationStart, releaseDictation, resolveRealtimeTarget, startRealtimeSession, stopRealtimeSession } from '../realtime/realtimeSessionState';
 
 const mocks = vi.hoisted(() => ({
     sessions: {} as Record<string, { id: string; activeAt: number; updatedAt: number }>,
@@ -24,6 +25,15 @@ const mocks = vi.hoisted(() => ({
     }),
     syncRequest: vi.fn(),
     callPlugin: vi.fn(),
+    voicePending: [] as Array<Record<string, unknown> & { identity: string; attempts: number; readyAt: number }>,
+    voiceDelivered: [] as string[],
+    lifecycleEvents: [] as Array<Record<string, unknown> & { eventId: string }>,
+    prebaselineLifecycleEvents: [] as Array<Record<string, unknown> & { eventId: string }>,
+    lifecycleCatalogInitialized: true,
+    lifecycleCatalogAvailable: true,
+    storageListeners: new Set<(state: Record<string, unknown>, previous: Record<string, unknown>) => void>(),
+    pluginSnapshot: [] as Array<Record<string, unknown>>,
+    capability: vi.fn(),
 }));
 
 vi.mock('react-native', () => ({ Platform: { OS: 'android' }, AppState: { addEventListener: vi.fn() } }));
@@ -32,11 +42,45 @@ vi.mock('@/utils/localTranscription', () => ({ transcribePcm16: mocks.transcribe
 vi.mock('@/sync/sync', () => ({ sync: { request: mocks.syncRequest } }));
 vi.mock('@/plugins/callPlugin', () => ({ callPlugin: mocks.callPlugin }));
 vi.mock('@/modal', () => ({ Modal: { alert: mocks.modalAlert } }));
-vi.mock('@/sync/storage', () => ({ storage: { getState: () => ({
-    sessions: mocks.sessions,
-    localSettings: { vadStandbyEnabled: false },
-    applyLocalSettings: mocks.applyLocalSettings,
-}) } }));
+vi.mock('@/plugins/pluginStore', () => ({ pluginSnapshot: () => mocks.pluginSnapshot }));
+vi.mock('@/plugins/capabilityRegistry', () => ({ capabilityFor: () => mocks.capability }));
+vi.mock('@/sync/storage', () => ({
+    sanitizePersistedVoiceReport: (report: Record<string, unknown>) => report,
+    storage: {
+    subscribe: vi.fn((listener: (state: Record<string, unknown>, previous: Record<string, unknown>) => void) => {
+        mocks.storageListeners.add(listener);
+        return () => mocks.storageListeners.delete(listener);
+    }),
+    getState: () => ({
+        sessions: mocks.sessions,
+        localSettings: { vadStandbyEnabled: false },
+        applyLocalSettings: mocks.applyLocalSettings,
+        voicePendingReports: mocks.voicePending,
+        voiceDeliveredReportIds: mocks.voiceDelivered,
+        voiceReportScope: 'scope-a',
+        voiceReportScopeGeneration: 1,
+        lifecycleEvents: mocks.lifecycleEvents,
+        prebaselineLifecycleEvents: mocks.prebaselineLifecycleEvents,
+        lifecycleCatalogInitialized: mocks.lifecycleCatalogInitialized,
+        lifecycleCatalogAvailable: mocks.lifecycleCatalogAvailable,
+        admitVoiceReport: (report: Record<string, unknown> & { identity: string; attempts: number; readyAt: number }) => {
+            if (mocks.voiceDelivered.includes(report.identity)) return 'delivered';
+            if (mocks.voicePending.some((entry) => entry.identity === report.identity)) return 'pending';
+            mocks.voicePending = [...mocks.voicePending, report];
+            return 'admitted';
+        },
+        updateVoiceReportRetry: (identity: string, attempts: number, readyAt: number) => {
+            mocks.voicePending = mocks.voicePending.map((entry) => entry.identity === identity ? { ...entry, attempts, readyAt } : entry);
+        },
+        deliverVoiceReport: (identity: string) => {
+            mocks.voicePending = mocks.voicePending.filter((entry) => entry.identity !== identity);
+            mocks.voiceDelivered = [...mocks.voiceDelivered, identity];
+        },
+        discardVoiceReport: (identity: string) => {
+            mocks.voicePending = mocks.voicePending.filter((entry) => entry.identity !== identity);
+        },
+    }),
+} }));
 vi.mock('@/utils/microphonePermissions', () => ({
     requestMicrophonePermission: mocks.permission,
     showMicrophonePermissionDeniedAlert: mocks.showDenied,
@@ -57,6 +101,11 @@ let onData: ((chunk: string) => void) | undefined;
 
 function Harness() {
     api = useDictation(() => base, (text) => appended.push(text));
+    return null;
+}
+
+function PluginHarness() {
+    usePluginEvents();
     return null;
 }
 
@@ -89,6 +138,14 @@ beforeEach(() => {
     });
     mocks.syncRequest.mockResolvedValue({ text: 'unused' });
     mocks.callPlugin.mockResolvedValue({ say: 'The agent finished.' });
+    mocks.voicePending = [];
+    mocks.voiceDelivered = [];
+    mocks.lifecycleEvents = [];
+    mocks.prebaselineLifecycleEvents = [];
+    mocks.lifecycleCatalogInitialized = true;
+    mocks.lifecycleCatalogAvailable = true;
+    mocks.pluginSnapshot = [];
+    mocks.capability.mockReset();
     vi.clearAllMocks();
 });
 
@@ -148,10 +205,22 @@ describe('on-device dictation flow', () => {
         expect(setMuted).toHaveBeenCalledWith(true);
     });
 
-    it('disconnects the sleeping provider, keeps watching locally, and wakes once to report completion', async () => {
+    it('retains and serializes prioritized reports until delivery, then sleeps after drain', async () => {
         const first = { stop: vi.fn(), setMuted: vi.fn(), speak: vi.fn() };
-        const woken = { stop: vi.fn(), setMuted: vi.fn(), speak: vi.fn() };
-        mocks.startRealtimeSession.mockReturnValueOnce(first).mockReturnValueOnce(woken);
+        const failed = { stop: vi.fn(), setMuted: vi.fn(), speak: vi.fn() };
+        const rearmed = { stop: vi.fn(), setMuted: vi.fn(), speak: vi.fn() };
+        const reporting = { stop: vi.fn(), setMuted: vi.fn(), speak: vi.fn() };
+        mocks.startRealtimeSession
+            .mockReturnValueOnce(first)
+            .mockReturnValueOnce(failed)
+            .mockReturnValueOnce(rearmed)
+            .mockReturnValueOnce(reporting);
+        let failFirst!: (error: Error) => void;
+        mocks.callPlugin
+            .mockImplementationOnce(() => new Promise((_resolve, reject) => { failFirst = reject; }))
+            .mockImplementation(async (_id: string, input: { displayName: string; status: string }) => ({
+                say: `${input.displayName}: ${input.status}`,
+            }));
 
         startRealtimeSession('session-a');
         expect(realtimeWatchTarget()).toBe('session-a');
@@ -164,23 +233,187 @@ describe('on-device dictation flow', () => {
         expect(mocks.stopVoiceService).toHaveBeenCalledOnce();
         expect(realtimeWatchTarget()).toBe('session-a');
 
-        await wakeAndReport({ sessionId: 'session-a', status: 'done', pane: 'finished cleanly' });
-        expect(mocks.startRealtimeSession).toHaveBeenCalledTimes(2);
-        expect(mocks.callPlugin).toHaveBeenCalledWith('voice.report', { status: 'done', pane: 'finished cleanly' });
-        expect(woken.speak).toHaveBeenCalledWith('The agent finished.');
+        await expect(Promise.all(['timeout', 'error', 'unknown'].map((status) => wakeAndReport({
+            sessionId: status, from: 'working', status, displayName: 'Noah', taskTitle: 'Invalid settlement', eventId: `event:${status}`,
+        })))).rejects.toThrow('Invalid voice report');
+        expect(mocks.voicePending).toEqual([]);
 
-        const reportProvider = mocks.startRealtimeSession.mock.calls[1]![0] as {
-            onStatus: (status: 'connected' | 'speaking') => void;
+        const rejectTail = vi.fn(async () => {
+            expect(mocks.voicePending.some((entry) => entry.identity === 'event:three')).toBe(true);
+            throw new Error('tail unavailable');
+        });
+        const reportsDone = Promise.all([
+            wakeAndReport({ sessionId: 'one', from: 'working', status: 'done', displayName: 'Alex', taskTitle: 'Ship one', eventId: 'event:one' }),
+            wakeAndReport({ sessionId: 'two', from: 'working', status: 'done', displayName: 'Bea', taskTitle: 'Ship two', eventId: 'event:two' }),
+            wakeAndReport({ sessionId: 'three', from: 'working', status: 'blocked', displayName: 'Cara', taskTitle: 'Unblock three', eventId: 'event:three', loadTail: rejectTail }),
+            wakeAndReport({ sessionId: 'one', from: 'working', status: 'done', displayName: 'Alex', taskTitle: 'Ship one', eventId: 'event:one' }),
+        ]);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(mocks.startRealtimeSession).toHaveBeenCalledTimes(2);
+        expect(mocks.startRealtimeSession.mock.calls[1]![0]).toMatchObject({ target: { sessionId: 'three' } });
+        expect(mocks.callPlugin).toHaveBeenCalledTimes(1);
+        expect(mocks.callPlugin).toHaveBeenNthCalledWith(1, 'voice.report', {
+            displayName: 'Cara', taskTitle: 'Unblock three', status: 'blocked', outcome: 'blocked',
+        });
+        expect(rejectTail).toHaveBeenCalledOnce();
+        expect(failed.speak).not.toHaveBeenCalled();
+
+        stopRealtimeSession();
+        failFirst(new Error('provider unavailable'));
+        await vi.advanceTimersByTimeAsync(30_000);
+        expect(mocks.startRealtimeSession).toHaveBeenCalledTimes(2);
+        expect(mocks.callPlugin).toHaveBeenCalledTimes(1);
+
+        // A later legitimate watch activation resumes retained work without resubmission.
+        startRealtimeSession('session-a');
+        const rearmProvider = mocks.startRealtimeSession.mock.calls[2]![0] as {
+            onStatus: (status: 'connected' | 'thinking' | 'speaking' | 'disconnected', detail?: string) => void;
+        };
+        rearmProvider.onStatus('connected');
+        await vi.advanceTimersByTimeAsync(0);
+        expect(mocks.startRealtimeSession).toHaveBeenCalledTimes(3);
+        expect(mocks.callPlugin).toHaveBeenCalledTimes(2);
+
+        expect(rearmed.speak).toHaveBeenLastCalledWith('Cara: blocked');
+        // Thinking then connected is a complete no-audio response.
+        rearmProvider.onStatus('thinking');
+        rearmProvider.onStatus('connected');
+        await vi.advanceTimersByTimeAsync(0);
+        expect(rearmed.speak).toHaveBeenLastCalledWith('Alex: done');
+
+        rearmProvider.onStatus('speaking');
+        rearmProvider.onStatus('connected');
+        await vi.advanceTimersByTimeAsync(0);
+        expect(rearmed.speak).toHaveBeenLastCalledWith('Bea: done');
+
+        rearmProvider.onStatus('speaking');
+        rearmProvider.onStatus('connected');
+        await vi.advanceTimersByTimeAsync(0);
+        await reportsDone;
+        await vi.advanceTimersByTimeAsync(0);
+        expect(mocks.callPlugin.mock.calls.map((call) => (call[1] as { displayName: string }).displayName)).toEqual(['Cara', 'Cara', 'Alex', 'Bea']);
+        expect(rearmed.speak.mock.calls.map((call) => call[0])).toEqual(['Cara: blocked', 'Alex: done', 'Bea: done']);
+        expect(rearmed.stop).not.toHaveBeenCalled();
+        cancelRealtimeReportWait(realtimeGeneration());
+        expect(rearmed.stop).not.toHaveBeenCalled();
+
+        // Once that user-owned conversation ends, a new cold report owns one final sleep.
+        rearmProvider.onStatus('disconnected', 'ended');
+        const finalReport = wakeAndReport({ sessionId: 'four', from: 'working', status: 'failed', displayName: 'Dana', taskTitle: 'Repair four', eventId: 'event:four' });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(mocks.startRealtimeSession).toHaveBeenCalledTimes(4);
+        expect(mocks.startRealtimeSession.mock.calls[3]![0]).toMatchObject({ target: { sessionId: 'four' } });
+        const reportProvider = mocks.startRealtimeSession.mock.calls[3]![0] as {
+            onStatus: (status: 'connected' | 'thinking') => void;
         };
         reportProvider.onStatus('connected');
-        reportProvider.onStatus('speaking');
+        reportProvider.onStatus('thinking');
         reportProvider.onStatus('connected');
-        expect(woken.stop).toHaveBeenCalledOnce();
+        await vi.advanceTimersByTimeAsync(0);
+        await finalReport;
+        await vi.advanceTimersByTimeAsync(0);
+        expect(reporting.stop).toHaveBeenCalledOnce();
         expect(micOwners()).toEqual([]);
-        expect(realtimeWatchTarget()).toBe('session-a');
+        expect(realtimeWatchTarget()).toBe('four');
 
         stopRealtimeSession();
         expect(realtimeWatchTarget()).toBeNull();
+
+        const working = {
+            eventId: 'observer-working', sessionId: 'session-a', state: 'working',
+            displayName: 'Elle', taskTitle: 'Retry queued report',
+        };
+        const otherWorking = { ...working, eventId: 'observer-other-working', sessionId: 'session-b' };
+        mocks.lifecycleEvents = [otherWorking, working];
+        mocks.pluginSnapshot = [{
+            summary: { pluginId: 'voice', manifestHash: 'hash' },
+            manifest: { contributions: [{
+                slot: 'events', id: 'report', from: 'working', to: ['done'],
+                action: { type: 'capability', name: 'speech.wake' },
+            }] },
+        }];
+        let fullAttempts = 0;
+        let deferredAttempts = 0;
+        let finishOld!: () => void;
+        let finishNew!: () => void;
+        mocks.capability.mockImplementation((input: { eventId: string }) => {
+            if (input.eventId === 'observer-done') {
+                fullAttempts += 1;
+                return fullAttempts === 1
+                    ? Promise.reject(Object.assign(new Error('queue full'), { retryable: true }))
+                    : Promise.resolve();
+            }
+            if (input.eventId === 'observer-invalid') {
+                return Promise.reject(Object.assign(new Error('invalid credential'), { retryable: false }));
+            }
+            if (input.eventId === 'observer-deferred') {
+                deferredAttempts += 1;
+                return new Promise<void>((resolve) => {
+                    if (deferredAttempts === 1) finishOld = resolve;
+                    else finishNew = resolve;
+                });
+            }
+            return Promise.resolve();
+        });
+        const notifyObserver = () => {
+            const observerState = {
+                lifecycleEvents: mocks.lifecycleEvents,
+                prebaselineLifecycleEvents: mocks.prebaselineLifecycleEvents,
+                sessions: mocks.sessions,
+                lifecycleCatalogInitialized: mocks.lifecycleCatalogInitialized,
+                lifecycleCatalogAvailable: mocks.lifecycleCatalogAvailable,
+                voicePendingReports: mocks.voicePending,
+                voiceReportScopeGeneration: 1,
+            };
+            for (const listener of mocks.storageListeners) listener(observerState, observerState);
+        };
+        act(() => { renderer = TestRenderer.create(React.createElement(PluginHarness)); });
+        mocks.lifecycleEvents = [{ ...working, eventId: 'observer-done', state: 'done' }, otherWorking, working];
+        notifyObserver();
+        await vi.advanceTimersByTimeAsync(1_500);
+        expect(fullAttempts).toBe(1);
+
+        // The rejected transition remains retryable after falling out of the
+        // bounded lifecycle catalog; a permanent invalid event is tried once.
+        const newer = Array.from({ length: 50 }, (_, index) => ({
+            ...working, eventId: `observer-newer-${index}`, sessionId: `newer-${index}`,
+        }));
+        mocks.lifecycleEvents = [{ ...otherWorking, eventId: 'observer-invalid', state: 'done', taskTitle: 'password=secret' }, ...newer];
+        notifyObserver();
+        await vi.advanceTimersByTimeAsync(1_500);
+        await vi.advanceTimersByTimeAsync(1_500);
+        expect(mocks.capability.mock.calls.filter(([input]) => input.eventId === 'observer-done')).toHaveLength(2);
+        expect(mocks.capability.mock.calls.filter(([input]) => input.eventId === 'observer-invalid')).toHaveLength(1);
+        expect(mocks.capability).toHaveBeenCalledWith(expect.objectContaining({
+            eventId: 'observer-done', from: 'working', status: 'done',
+        }));
+
+        // A callback from the old scope cannot acknowledge or clear the same
+        // canonical action after the observer establishes a new epoch.
+        mocks.lifecycleEvents = [];
+        mocks.lifecycleCatalogAvailable = false;
+        notifyObserver();
+        mocks.lifecycleEvents = [working];
+        mocks.lifecycleCatalogAvailable = true;
+        notifyObserver();
+        mocks.lifecycleEvents = [{ ...working, eventId: 'observer-deferred', state: 'done' }, working];
+        await vi.advanceTimersByTimeAsync(1_500);
+        expect(deferredAttempts).toBe(1);
+        mocks.lifecycleEvents = [];
+        mocks.lifecycleCatalogAvailable = false;
+        notifyObserver();
+        mocks.lifecycleEvents = [{ ...working, eventId: 'observer-deferred', state: 'done' }, working];
+        mocks.prebaselineLifecycleEvents = [mocks.lifecycleEvents[0]!];
+        notifyObserver();
+        mocks.lifecycleCatalogAvailable = true;
+        notifyObserver();
+        expect(deferredAttempts).toBe(2);
+        finishOld();
+        await vi.advanceTimersByTimeAsync(1_500);
+        expect(deferredAttempts).toBe(2);
+        finishNew();
+        await vi.advanceTimersByTimeAsync(1_500);
+        expect(deferredAttempts).toBe(2);
     });
 
     it('releases ownership when the native recorder cannot start', async () => {

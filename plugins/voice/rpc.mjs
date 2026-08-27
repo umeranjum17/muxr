@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { chmod, lstat, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { reportInstruction } from './coordinatorPolicy.mjs';
 
 const root = process.env.MUXR_HOME?.trim() || join(homedir(), '.muxr');
 const keyFile = join(root, 'xai.key');
@@ -58,18 +59,7 @@ if (method === 'status') {
     } catch (cause) { if (cause?.code !== 'ENOENT') throw cause; }
     output = null;
 } else if (method === 'report') {
-    // What the agent should say when a pane stops working. Wording lives here,
-    // not in the app, so it changes without a rebuild.
-    const blocked = input?.status === 'blocked';
-    output = {
-        say: [
-            blocked
-                ? 'The agent has finished working. It is waiting on a question. Put that question to the user in your own words.'
-                : 'The agent has finished working. Summarise what it did in one sentence, in plain language. Do not read this out.',
-            '',
-            String(input?.pane ?? '').slice(-4000),
-        ].join('\n'),
-    };
+    output = { say: reportInstruction(input) };
 } else {
     throw new Error(`unknown muxr Voice method: ${method ?? ''}`);
 }

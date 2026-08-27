@@ -30,6 +30,7 @@ export interface RealtimeTurn {
 const MAX_TURNS = 60;
 /** Long enough to think mid-sentence; short enough not to bill a forgotten call. */
 export const IDLE_HANGUP_MS = 120_000;
+const REPORT_RESPONSE_TIMEOUT_MS = 45_000;
 
 let session: RealtimeHandle | null = null;
 let starting = false;
@@ -40,8 +41,13 @@ let muted = false;
 let turnId = 0;
 let bound: RealtimeTarget | null = null;
 let pendingSpeech: string | null = null;
-let sleepAfterSpeech = false;
-let reportSpeechStarted = false;
+let reportSpeech: {
+    sent: boolean;
+    responseStarted: boolean;
+    resolve: () => void;
+    reject: (error: Error) => void;
+    timer: ReturnType<typeof setTimeout>;
+} | null = null;
 let idleTimer: ReturnType<typeof setTimeout> | null = null;
 let vadArming: Promise<boolean> | null = null;
 let vadEpoch = 0;
@@ -56,6 +62,7 @@ let dictating = false;
 /** Supersedes in-flight handoffs, callbacks, turns and inactivity timers. */
 let realtimeEpoch = 0;
 const listeners = new Set<() => void>();
+const watchActivationListeners = new Set<() => void>();
 let notificationStart: () => void | Promise<void> = () => {};
 const notify = () => {
     for (const listener of listeners) listener();
@@ -144,26 +151,71 @@ export function realtimeWatchTarget(): string | null {
     return watching ? realtimeTarget?.sessionId ?? null : null;
 }
 
+export function realtimeWatching(): boolean {
+    return watching;
+}
+
+export function realtimeGeneration(): number {
+    return realtimeEpoch;
+}
+
+export function registerRealtimeWatchActivation(listener: () => void): () => void {
+    watchActivationListeners.add(listener);
+    return () => watchActivationListeners.delete(listener);
+}
+
+function activateWatching(): void {
+    if (watching) return;
+    watching = true;
+    for (const listener of watchActivationListeners) listener();
+}
+
 export function acknowledgeRealtimeError(): void {
     detail = undefined;
     notify();
 }
 
-/** Make the agent say something unprompted, e.g. that a task finished. */
-export function speak(text: string): void {
-    session?.speak(text);
+/** Resolve only after the provider's response (and native playback) is drained. */
+export function speakReport(text: string): Promise<void> {
+    if (reportSpeech !== null) return Promise.reject(new Error('A voice report is already playing.'));
+    if (session === null && !starting) return Promise.reject(new Error('Voice session is not connected.'));
+    return new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => rejectReportSpeech(new Error('Voice report timed out.')), REPORT_RESPONSE_TIMEOUT_MS);
+        const active = session;
+        reportSpeech = { sent: active !== null && state === 'connected', responseStarted: false, resolve, reject, timer };
+        if (active !== null && state === 'connected') active.speak(text);
+        else pendingSpeech = text;
+    });
 }
 
-/**
- * Say this once a session exists, then disconnect again after its reply so a
- * completion report cannot leave a paid provider idling. Waking takes a few
- * seconds, so a report arriving while asleep must also survive until ready.
- */
-export function speakWhenReady(text: string): void {
-    sleepAfterSpeech = true;
-    reportSpeechStarted = false;
-    if (session !== null) return session.speak(text);
-    pendingSpeech = text;
+/** Called by the report coordinator only when it woke an otherwise sleeping provider. */
+export function sleepAfterReports(): void {
+    if (session !== null || starting) sleepRealtimeSession();
+}
+
+export function cancelRealtimeReportWait(generation: number): void {
+    if (generation === realtimeEpoch) rejectReportSpeech(new Error('Voice report scope changed.'));
+}
+
+export function stopRealtimeReportProvider(generation: number): void {
+    if (generation === realtimeEpoch && (session !== null || starting)) sleepRealtimeSession();
+}
+
+function resolveReportSpeech(): void {
+    const report = reportSpeech;
+    if (report === null) return;
+    clearTimeout(report.timer);
+    reportSpeech = null;
+    report.resolve();
+}
+
+function rejectReportSpeech(error: Error): void {
+    const report = reportSpeech;
+    if (report === null) return;
+    clearTimeout(report.timer);
+    reportSpeech = null;
+    pendingSpeech = null;
+    report.reject(error);
 }
 
 function recordTurn(epoch: number, role: 'user' | 'agent', text: string): void {
@@ -171,6 +223,7 @@ function recordTurn(epoch: number, role: 'user' | 'agent', text: string): void {
     const trimmed = text.trim();
     if (trimmed === '') return;
     turns = [...turns, { id: turnId++, role, text: trimmed }].slice(-MAX_TURNS);
+    if (role === 'agent' && reportSpeech?.sent === true) reportSpeech.responseStarted = true;
     keepAwake(epoch);
     notify();
 }
@@ -190,6 +243,7 @@ function keepAwake(epoch: number): void {
 
 function clearLiveState(): void {
     clearIdleTimer();
+    rejectReportSpeech(new Error('Voice session disconnected.'));
     if (!vadStandbyOwnsMicrophone()) stopVoiceService();
     session = null;
     starting = false;
@@ -197,8 +251,6 @@ function clearLiveState(): void {
     turns = [];
     muted = false;
     pendingSpeech = null;
-    sleepAfterSpeech = false;
-    reportSpeechStarted = false;
 }
 
 function failRealtimeStart(epoch: number, reason: string): void {
@@ -230,13 +282,11 @@ export function startRealtimeSession(input: RealtimeTarget | string): boolean {
     cancelVadStandbyStart();
     const epoch = ++realtimeEpoch;
     realtimeTarget = target;
-    watching = true;
+    activateWatching();
     clearIdleTimer();
     session = null;
     turns = [];
     muted = false;
-    sleepAfterSpeech = false;
-    reportSpeechStarted = false;
     bound = target;
     starting = true;
     state = 'connecting';
@@ -278,14 +328,12 @@ function startRealtimeAfterService(target: RealtimeTarget, epoch: number): void 
                     return;
                 }
                 if (next === 'connected' || next === 'thinking' || next === 'speaking') keepAwake(liveEpoch);
-                if (next === 'speaking' && sleepAfterSpeech) reportSpeechStarted = true;
-                if (next === 'connected' && sleepAfterSpeech && reportSpeechStarted) {
-                    sleepRealtimeSession();
-                    return;
-                }
+                if ((next === 'thinking' || next === 'speaking') && reportSpeech?.sent === true) reportSpeech.responseStarted = true;
+                if (next === 'connected' && reportSpeech?.responseStarted === true) resolveReportSpeech();
                 if (next === 'connected' && pendingSpeech !== null) {
                     handle.speak(pendingSpeech);
                     pendingSpeech = null;
+                    if (reportSpeech !== null) reportSpeech.sent = true;
                 }
                 state = next;
                 detail = why;
@@ -326,7 +374,7 @@ async function armVadStandby(): Promise<boolean> {
         if (target === null || epoch !== vadEpoch || storage.getState().localSettings?.vadStandbyEnabled !== true
             || dictating || session !== null || starting) return false;
         realtimeTarget = target;
-        watching = true;
+        activateWatching();
         const armed = await startVadStandby(
             () => {
                 const wakeTarget = realtimeTarget;

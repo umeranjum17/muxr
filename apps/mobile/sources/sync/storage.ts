@@ -10,13 +10,18 @@ import type { Profile } from './profile';
 import { profileDefaults } from './profile';
 import {
     loadLifecycleNotificationPersistence,
+    loadVoiceReportPersistence,
     loadSettings,
     loadLocalSettings,
     loadProfile,
     saveLifecycleNotificationPersistence,
+    saveVoiceReportPersistence,
+    sanitizePersistedVoiceReport,
     saveSettings,
     saveLocalSettings,
 } from './persistence';
+export { sanitizePersistedVoiceReport } from './persistence';
+import type { PersistedVoiceReport, VoiceReportScope } from './persistence';
 import { boundSessionFileCache } from './sessionFileCache';
 import type { Message } from './typesMessage';
 import type { GitStatus } from './storageTypes';
@@ -230,6 +235,14 @@ interface StorageState {
     prebaselineLifecycleEvents: LifecycleEvent[];
     lifecycleCatalogInitialized: boolean;
     lifecycleCatalogAvailable: boolean;
+    voicePendingReports: PersistedVoiceReport[];
+    voiceDeliveredReportIds: string[];
+    voiceReportScope: string;
+    voiceReportScopeGeneration: number;
+    admitVoiceReport: (report: PersistedVoiceReport) => 'admitted' | 'pending' | 'delivered' | 'full' | 'invalid';
+    updateVoiceReportRetry: (identity: string, attempts: number, readyAt: number) => void;
+    deliverVoiceReport: (identity: string) => void;
+    discardVoiceReport: (identity: string) => void;
     applySessions: (sessions: (Omit<Session, 'presence'> & { presence?: 'online' | number })[], replace?: boolean) => void;
     applyHerdrTree: (workspaces: HerdrTreeWorkspace[]) => void;
     applyMachines: (machines: Machine[], replace?: boolean) => void;
@@ -282,17 +295,27 @@ const { settings } = loadSettings();
 const localSettings = loadLocalSettings();
 const profile = loadProfile();
 const lifecyclePersistence = loadLifecycleNotificationPersistence();
+const voicePersistence = loadVoiceReportPersistence();
 let lifecycleScope = '';
 let lifecycleAuthority = '';
 let lifecycleScopeState = { initialized: false, presented: [] as Array<{ eventId: string; at: string }>, updatedAt: 0 };
 const persistedLifecycleIds = new Set<string>();
 const preAuthorityPushes: Array<{ eventId: string; machineId: string }> = [];
+let voiceScopeState: VoiceReportScope = { pending: [], delivered: [], updatedAt: 0 };
+let voiceScopeGeneration = 0;
 
 function saveLifecycleScope(): void {
     if (lifecycleScope === '') return;
     lifecycleScopeState.updatedAt = Date.now();
     lifecyclePersistence.scopes[lifecycleScope] = lifecycleScopeState;
     saveLifecycleNotificationPersistence(lifecyclePersistence);
+}
+
+function saveVoiceScope(): void {
+    if (lifecycleScope === '') return;
+    voiceScopeState.updatedAt = Date.now();
+    voicePersistence.scopes[lifecycleScope] = voiceScopeState;
+    saveVoiceReportPersistence(voicePersistence);
 }
 
 function acknowledgePushInScope(scope: string, eventId: string): void {
@@ -352,6 +375,46 @@ export const storage = create<StorageState>()((set, get) => ({
     prebaselineLifecycleEvents: [],
     lifecycleCatalogInitialized: false,
     lifecycleCatalogAvailable: false,
+    voicePendingReports: [],
+    voiceDeliveredReportIds: [],
+    voiceReportScope: '',
+    voiceReportScopeGeneration: 0,
+    admitVoiceReport: (report) => {
+        const clean = sanitizePersistedVoiceReport(report);
+        if (clean === null) return 'invalid';
+        if (voiceScopeState.delivered.includes(clean.identity)) return 'delivered';
+        if (voiceScopeState.pending.some((entry) => entry.identity === clean.identity)) return 'pending';
+        if ((clean.status === 'idle' || clean.status === 'done')
+            && voiceScopeState.pending.filter((entry) => entry.status === 'idle' || entry.status === 'done').length >= 96) return 'full';
+        if (voiceScopeState.pending.length >= 128) return 'full';
+        voiceScopeState = { ...voiceScopeState, pending: [...voiceScopeState.pending, clean] };
+        saveVoiceScope();
+        set({ voicePendingReports: voiceScopeState.pending });
+        return 'admitted';
+    },
+    updateVoiceReportRetry: (identity, attempts, readyAt) => {
+        const pending = voiceScopeState.pending.map((entry) =>
+            entry.identity === identity ? { ...entry, attempts, readyAt } : entry);
+        if (pending.every((entry, index) => entry === voiceScopeState.pending[index])) return;
+        voiceScopeState = { ...voiceScopeState, pending };
+        saveVoiceScope();
+        set({ voicePendingReports: pending });
+    },
+    deliverVoiceReport: (identity) => {
+        const pending = voiceScopeState.pending.filter((entry) => entry.identity !== identity);
+        if (pending.length === voiceScopeState.pending.length) return;
+        const delivered = [...voiceScopeState.delivered.filter((id) => id !== identity), identity].slice(-512);
+        voiceScopeState = { ...voiceScopeState, pending, delivered };
+        saveVoiceScope();
+        set({ voicePendingReports: pending, voiceDeliveredReportIds: delivered });
+    },
+    discardVoiceReport: (identity) => {
+        const pending = voiceScopeState.pending.filter((entry) => entry.identity !== identity);
+        if (pending.length === voiceScopeState.pending.length) return;
+        voiceScopeState = { ...voiceScopeState, pending };
+        saveVoiceScope();
+        set({ voicePendingReports: pending });
+    },
     applySessions: (sessions, replace = false) => set((state) => {
         const merged = replace ? {} as Record<string, Session> : { ...state.sessions };
         for (const session of sessions) {
@@ -623,12 +686,26 @@ export const storage = create<StorageState>()((set, get) => ({
     setLifecycleScope: (scope) => {
         if (scope === lifecycleScope) return;
         lifecycleScope = scope;
+        voiceScopeGeneration += 1;
         const loaded = lifecyclePersistence.scopes[scope];
         lifecycleScopeState = loaded === undefined
             ? { initialized: false, presented: [], updatedAt: Date.now() }
             : { ...loaded, presented: boundPresented(loaded.presented) };
         persistedLifecycleIds.clear();
         for (const entry of lifecycleScopeState.presented) persistedLifecycleIds.add(entry.eventId);
+        const loadedVoice = voicePersistence.scopes[scope];
+        const rawVoice = loadedVoice === undefined
+            ? { pending: [], delivered: [], updatedAt: Date.now() }
+            : { ...loadedVoice };
+        const allDelivered = [...new Set(rawVoice.delivered)];
+        const deliveredIds = new Set(allDelivered);
+        const delivered = allDelivered.slice(-512);
+        const pending = new Map<string, PersistedVoiceReport>();
+        for (const raw of rawVoice.pending) {
+            const entry = sanitizePersistedVoiceReport(raw);
+            if (entry !== null && !deliveredIds.has(entry.identity) && !pending.has(entry.identity)) pending.set(entry.identity, entry);
+        }
+        voiceScopeState = { ...rawVoice, pending: [...pending.values()].slice(0, 128), delivered };
         set({
             lifecycleRevision: 0,
             lifecycleEvents: [],
@@ -636,6 +713,10 @@ export const storage = create<StorageState>()((set, get) => ({
             prebaselineLifecycleEvents: [],
             lifecycleCatalogInitialized: lifecycleScopeState.initialized,
             lifecycleCatalogAvailable: false,
+            voicePendingReports: voiceScopeState.pending,
+            voiceDeliveredReportIds: voiceScopeState.delivered,
+            voiceReportScope: scope,
+            voiceReportScopeGeneration: voiceScopeGeneration,
         });
     },
     resetLifecycleCatalog: () => {
