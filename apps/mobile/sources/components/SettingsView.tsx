@@ -480,9 +480,10 @@ export const SettingsView = React.memo(function SettingsView({
             </ItemGroup>
 
             <ItemGroup title="Help and advanced" footer="Diagnostics never includes credentials, QR claims, machine keys, terminal text or internal identifiers.">
-                {docsBase && <Item title="Connect a computer" icon={<Ionicons name="desktop-outline" size={29} color="#007AFF" />} onPress={() => openExternalUrl(`${docsBase}/setup`)} />}
+                {docsBase && <Item title="Connect a computer" icon={<Ionicons name="desktop-outline" size={29} color="#007AFF" />} onPress={() => openExternalUrl(`${docsBase}/docs/setup`)} />}
                 {docsBase && <Item title="Troubleshooting" icon={<Ionicons name="help-circle-outline" size={29} color="#FF9500" />} onPress={() => openExternalUrl(`${docsBase}/docs/troubleshooting`)} />}
-                {docsBase && <Item title="Privacy policy" icon={<Ionicons name="shield-checkmark-outline" size={29} color="#5856D6" />} onPress={() => openExternalUrl(`${docsBase}/docs/privacy`)} />}
+                <Item title="Contact support" subtitle="Public issue tracker" icon={<Ionicons name="chatbubble-ellipses-outline" size={29} color="#34C759" />} onPress={() => openExternalUrl('https://github.com/umeranjum17/muxr/issues')} />
+                {docsBase && <Item title="Privacy and deletion" subtitle="Policy, revocation and data removal" icon={<Ionicons name="shield-checkmark-outline" size={29} color="#5856D6" />} onPress={() => openExternalUrl(`${docsBase}/docs/privacy#retention-and-deletion`)} />}
                 <Item
                     title="Redacted diagnostics"
                     subtitle={`Connection: ${pushState === 'unsupported' ? 'available in muxr doctor' : 'app active'} · Provider details hidden`}

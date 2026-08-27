@@ -1,8 +1,9 @@
 # Distribution runway
 
-What stands between the current release and the two stores, split by who must act.
-Everything under "agent can do" is prepared; everything under "owner must do" is
-legally or cryptographically impossible to delegate.
+This file records the historical account-setup runway; it is not the current
+operator runbook. Use `docs/RELEASING.md` and the two `mobile-*` workflows for
+current releases. Do not execute the historical local-build/upload instructions
+below; account, signing, credential, and cloud-lane steps may already be complete.
 
 ## Google Play
 
