@@ -101,8 +101,11 @@ jobs:
       - name: Write release summary
         if: success()
         run: |
+          jq -e --arg sha "$GITHUB_SHA" 'all(.[]; .gitCommitHash == $sha)' "$RUNNER_TEMP/eas/result.json"
           {
             echo "## Mobile internal testing"
+            echo
+            echo "Commit: \`$GITHUB_SHA\`"
             echo
             echo "| Platform | Version | Store build | EAS build | EAS submission |"
             echo "| --- | --- | --- | --- | --- |"

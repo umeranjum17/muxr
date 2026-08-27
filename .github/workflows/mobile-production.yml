@@ -9,6 +9,10 @@ on:
         default: all
         type: choice
         options: [all, android, ios]
+      internal_run_id:
+        description: Successful all-platform mobile internal workflow run for this exact main commit
+        required: true
+        type: string
       version:
         description: Tested marketing version, for example 0.1.9
         required: true
@@ -42,6 +46,7 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
+  actions: read
   contents: read
 
 jobs:
@@ -52,10 +57,12 @@ jobs:
         env:
           PLATFORM: ${{ inputs.platform }}
           APP_VERSION: ${{ inputs.version }}
+          INTERNAL_RUN_ID: ${{ inputs.internal_run_id }}
           ANDROID_VERSION_CODE: ${{ inputs.android_version_code }}
           IOS_BUILD_NUMBER: ${{ inputs.ios_build_number }}
           IOS_RELEASE_NOTES: ${{ inputs.ios_release_notes }}
         run: |
+          [[ "$INTERNAL_RUN_ID" =~ ^[1-9][0-9]*$ ]]
           [[ "$APP_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
           if [ "$PLATFORM" != ios ]; then [[ "$ANDROID_VERSION_CODE" =~ ^[1-9][0-9]*$ ]]; fi
           if [ "$PLATFORM" != android ]; then
@@ -63,9 +70,54 @@ jobs:
             test -n "$IOS_RELEASE_NOTES"
           fi
 
+
+  provenance:
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Prove the internal run and exact tested artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INTERNAL_RUN_ID: ${{ inputs.internal_run_id }}
+          PLATFORM: ${{ inputs.platform }}
+          APP_VERSION: ${{ inputs.version }}
+          ANDROID_VERSION_CODE: ${{ inputs.android_version_code }}
+          IOS_BUILD_NUMBER: ${{ inputs.ios_build_number }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$INTERNAL_RUN_ID" > "$RUNNER_TEMP/internal-run.json"
+          jq -e --arg sha "$GITHUB_SHA" '
+            .event == "workflow_dispatch"
+            and .name == "mobile internal testing"
+            and .head_branch == "main"
+            and .head_sha == $sha
+            and .status == "completed"
+            and .conclusion == "success"
+          ' "$RUNNER_TEMP/internal-run.json"
+          mkdir -p "$RUNNER_TEMP/internal-artifact"
+          gh run download "$INTERNAL_RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name eas-cloud-result-all \
+            --dir "$RUNNER_TEMP/internal-artifact"
+          jq -e \
+            --arg sha "$GITHUB_SHA" \
+            --arg platform "$PLATFORM" \
+            --arg version "$APP_VERSION" \
+            --arg android "$ANDROID_VERSION_CODE" \
+            --arg ios "$IOS_BUILD_NUMBER" '
+              length == 2
+              and all(.[];
+                .gitCommitHash == $sha
+                and .appVersion == $version
+                and (.id | length > 0)
+                and (.submissions | length > 0)
+              )
+              and ($platform == "ios" or any(.[]; .platform == "ANDROID" and .appBuildVersion == $android))
+              and ($platform == "android" or any(.[]; .platform == "IOS" and .appBuildVersion == $ios))
+            ' "$RUNNER_TEMP/internal-artifact/result.json"
+
   android:
     if: inputs.platform != 'ios'
-    needs: validate
+    needs: [validate, provenance]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: production
@@ -87,7 +139,7 @@ jobs:
 
   ios:
     if: inputs.platform != 'android'
-    needs: validate
+    needs: [validate, provenance]
     runs-on: macos-15
     timeout-minutes: 30
     environment: production
@@ -110,7 +162,7 @@ jobs:
 
   summary:
     if: always()
-    needs: [validate, android, ios]
+    needs: [validate, provenance, android, ios]
     runs-on: ubuntu-latest
     steps:
       - name: Write production promotion summary

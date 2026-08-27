@@ -21,7 +21,7 @@ The `stores` GitHub environment owns `EXPO_TOKEN` (preferred) or `EXPO_STATE_JSO
 
 ## Mobile production promotion
 
-Run `.github/workflows/mobile-production.yml` with the exact Android version code and iOS build number reported by a successful internal workflow. The protected `production` environment is a deliberate approval gate.
+Run `.github/workflows/mobile-production.yml` with the successful all-platform internal workflow run, exact Android version code, and exact iOS build number. The production workflow proves that run succeeded on the same `main` commit and that its recorded artifacts match every supplied version before the protected `production` approval gate opens.
 
 Production does not rebuild:
 

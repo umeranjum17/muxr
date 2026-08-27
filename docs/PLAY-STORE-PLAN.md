@@ -7,7 +7,7 @@ Status: **Play Console app is live; signed store artifacts are built through the
 - Package/application ID: `com.trymuxr.app` (immutable after first upload).
 - Store title: **muxr**.
 - Category: **Productivity**.
-- Version name: `0.1.7`; version code: `8`. Every subsequent upload must increment it.
+- Marketing version: `0.1.12` in `apps/mobile/app.config.js`; EAS owns the monotonically increasing remote `versionCode`. Never reuse a consumed code.
 - Production App-Link origin: `https://trymuxr.com`.
 - Keep preview/dev identifiers separate. Never sign preview and production with the same upload workflow by accident.
 
@@ -31,7 +31,7 @@ and records its exact version code and EAS build identifier.
 
 Before submission:
 
-- `node scripts/runSuite.mjs` passes 29/29.
+- `yarn run check` passes.
 - Build metadata points at the release commit and the working tree is clean.
 - Bundle targets API 36, contains `arm64-v8a`, and includes no unsupported 32-bit ABI without its corresponding 64-bit ABI.
 - Use `bundletool` to generate/install device APKs from the AAB and run the clean-room smoke on API 36.
@@ -87,7 +87,7 @@ Prepared assets live in `docs/play/store-assets/`:
 
 - `store-icon.png`: 512×512 RGBA PNG.
 - `feature-graphic.png`: 1024×500 opaque PNG, no device imagery.
-- `01-herd.png` through `08-live-update.png`: opaque sRGB 1080×1920 marketing screenshots showing current product UI, realtime voice, and Android Live Update.
+- `01-herd.png` through `08-live-update.png`: candidate 1080×1920 marketing screenshots. Re-capture any frame that is stale, exposes private paths or internal state, or cannot be traced to current app UI before upload.
 
 Upload all eight in this sequence: Herd, Terminal, Plugins, Files, Changes, Runbook, Voice, Live Update. Google accepts up to eight and requires each dimension to be 320–3840 px with the long side no more than twice the short side: [preview asset requirements](https://support.google.com/googleplay/android-developer/answer/9866151).
 
@@ -106,7 +106,7 @@ All boxes are blockers:
 - [ ] trymuxr.com static site deployed; checkout/account/control-plane routes are 404.
 - [ ] Upload key backed up; Play App Signing active.
 - [ ] Play signing SHA configured in `assetlinks.json`; Play-delivered App Link verified.
-- [ ] Production AAB built locally from a clean tag, signed, inspected, and checksummed.
+- [ ] Exact current-main AAB from the successful internal EAS workflow downloaded, inspected, checksummed, and matched to its recorded commit and version code.
 - [ ] Clean-room new-user smoke passes from public artifacts.
 - [ ] FGS video and all App content/Data safety declarations submitted.
 - [ ] Store listing assets and support/privacy URLs accepted.
