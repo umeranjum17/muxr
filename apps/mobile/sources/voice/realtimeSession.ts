@@ -15,6 +15,7 @@ import {
     type PluginStream,
 } from '@/plugins/openPluginStream';
 import { claimVadCapture } from '@/voice/vadStandby';
+import { sync } from '@/sync/sync';
 
 export type RealtimeStatus = 'connecting' | 'connected' | 'thinking' | 'speaking' | 'disconnected';
 
@@ -124,6 +125,7 @@ export function startRealtimeSession(options: {
             const next = await openPluginStream('voice.session', {
                 sessionId: target.sessionId,
                 snapshot,
+                requestControl: (params) => sync.request('plugin.stream', params),
             });
             if (stopped) {
                 next.close();

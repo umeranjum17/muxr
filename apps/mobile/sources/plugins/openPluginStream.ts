@@ -1,20 +1,15 @@
 import {
-    decodePayload,
-    encodePayload,
     issueWsTicket,
     newRealtimeChannel,
-    nextRequestId,
     parseRealtimeClientFrame,
     parseRealtimeHostFrame,
     realtimeSocketUrl,
     ticketSocketUrl,
-    type ClientFrame,
-    type ClientRequest,
     type Envelope,
-    type HostFrame,
     type PluginStreamCapability,
     type RealtimeClientFrame,
     type RealtimeHostFrame,
+    type RequestParams,
 } from '@muxr/contract';
 import { getCachedConnectionSettings } from '@/state/connectionSettings';
 import {
@@ -94,98 +89,15 @@ export async function refreshPluginStreamSnapshot(snapshot: PluginStreamSnapshot
     };
 }
 
-/** One pinned control request; it never consults or refreshes global machine state. */
-async function requestPinnedStream(snapshot: PluginStreamSnapshot, channel: string, sessionId?: string): Promise<void> {
-    const hosted = snapshot.grant === undefined ? undefined : new DeviceV2Crypto(snapshot.grant);
-    const legacyToken = snapshot.mode === 'local' && snapshot.token.startsWith('acctok_');
-    const url = snapshot.token === '' || legacyToken
-        ? `${snapshot.relayUrl}?role=client&machineId=${encodeURIComponent(snapshot.machineId)}${snapshot.token === '' ? '' : `&token=${encodeURIComponent(snapshot.token)}`}`
-        : ticketSocketUrl(snapshot.relayUrl, await issueWsTicket({
-            relayUrl: snapshot.relayUrl,
-            credential: snapshot.token,
-            machineId: snapshot.machineId,
-            role: 'client',
-            transport: 'relay',
-        }), 'relay');
-    const requestId = nextRequestId('voice');
-    await new Promise<void>((resolve, reject) => {
-        const socket = new WebSocket(url);
-        let seq = 0;
-        let done = false;
-        const finish = (error?: Error): void => {
-            if (done) return;
-            done = true;
-            clearTimeout(timer);
-            socket.onopen = null;
-            socket.onmessage = null;
-            socket.onerror = null;
-            socket.onclose = null;
-            socket.close();
-            if (error === undefined) resolve(); else reject(error);
-        };
-        const send = (frame: ClientFrame, streamId = 'machine'): void => {
-            seq += 1;
-            const sealed = hosted?.seal('session', streamId, encodePayload(frame));
-            socket.send(JSON.stringify({
-                header: {
-                    machineId: snapshot.machineId,
-                    ...(streamId === 'machine' ? {} : { sessionId: streamId }),
-                    ...(sealed === undefined ? {} : {
-                        senderId: hosted!.grant.deviceId,
-                        recipientId: snapshot.machineId,
-                        channel: 'session' as const,
-                        streamId,
-                        keyVersion: hosted!.grant.keyVersion,
-                    }),
-                    seq: sealed?.sequence ?? seq,
-                    at: Date.now(),
-                },
-                payload: sealed?.payload ?? encodePayload(frame),
-            } satisfies Envelope));
-        };
-        const timer = setTimeout(() => finish(new Error('stream control request timed out')), 20_000);
-        socket.onopen = () => {
-            send({ type: 'client.hello', clientId: nextRequestId('voice-client') });
-            send({
-                type: 'plugin.stream',
-                requestId,
-                params: {
-                    pluginId: snapshot.pluginId,
-                    manifestHash: snapshot.manifestHash,
-                    contributionId: snapshot.contributionId,
-                    channel,
-                    ...(sessionId === undefined ? {} : { sessionId }),
-                },
-            } as ClientRequest, sessionId);
-        };
-        socket.onerror = () => finish(new Error('stream control connection failed'));
-        socket.onclose = () => finish(new Error('stream control connection closed'));
-        socket.onmessage = (event) => {
-            void (async () => {
-                try {
-                    const envelope = JSON.parse(String(event.data)) as Envelope;
-                    if (envelope.header.machineId !== snapshot.machineId) return;
-                    const streamId = envelope.header.streamId ?? envelope.header.sessionId ?? 'machine';
-                    const plaintext = hosted === undefined ? envelope.payload : (() => {
-                        if (envelope.header.senderId !== snapshot.machineId || envelope.header.recipientId !== '*'
-                            || envelope.header.channel !== 'session' || envelope.header.streamId !== streamId
-                            || envelope.header.keyVersion !== hosted.grant.keyVersion) throw new Error('stream: invalid hosted control context');
-                        return hosted.open('session', streamId, envelope.payload, envelope.header.seq);
-                    })();
-                    const frame = decodePayload<HostFrame>(await plaintext);
-                    if (frame.type !== 'result' || frame.requestId !== requestId) return;
-                    if (frame.ok) finish();
-                    else finish(new Error(frame.error));
-                } catch { finish(new Error('stream control frame rejected')); }
-            })();
-        };
-    });
-}
-
 /** Resolve a semantic stream capability without ever naming a provider/plugin id. */
 export async function openPluginStream(
     capability: string,
-    options: { sessionId?: string; machineId?: string; snapshot?: PluginStreamSnapshot } = {},
+    options: {
+        sessionId?: string;
+        machineId?: string;
+        snapshot?: PluginStreamSnapshot;
+        requestControl: (params: RequestParams<'plugin.stream'>) => Promise<unknown>;
+    },
 ): Promise<PluginStream> {
     const snapshot = options.snapshot ?? await capturePluginStreamSnapshot(
         capability,
@@ -195,7 +107,17 @@ export async function openPluginStream(
     const grant = snapshot.grant;
     const hosted = grant === undefined ? undefined : new DeviceV2Crypto(grant);
     const channel = newRealtimeChannel();
-    await requestPinnedStream(snapshot, channel, options.sessionId);
+    if (getCachedConnectionSettings().machineId !== snapshot.machineId) throw new Error('End voice before switching computers.');
+    // Reuse the main relay client: a second socket receives the same encrypted broadcasts
+    // and can lose the shared replay race before its plugin.stream result arrives.
+    await options.requestControl({
+        pluginId: snapshot.pluginId,
+        manifestHash: snapshot.manifestHash,
+        contributionId: snapshot.contributionId,
+        channel,
+        ...(options.sessionId === undefined ? {} : { sessionId: options.sessionId }),
+    });
+    if (getCachedConnectionSettings().machineId !== snapshot.machineId) throw new Error('End voice before switching computers.');
 
     const relayUrl = snapshot.relayUrl;
     const url = grant !== undefined
