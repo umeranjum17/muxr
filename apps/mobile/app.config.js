@@ -120,7 +120,7 @@ export default {
                 usesNonExemptEncryption: false
             },
             infoPlist: {
-                NSMicrophoneUsageDescription: "Allow $(PRODUCT_NAME) to access your microphone for voice conversations with AI.",
+                NSMicrophoneUsageDescription: "Allow $(PRODUCT_NAME) to use your microphone for on-device dictation and, when you choose realtime voice, send audio to the provider configured on your computer.",
                 NSLocalNetworkUsageDescription: "Allow $(PRODUCT_NAME) to find and connect to local devices on your network.",
                 NSBonjourServices: ["_http._tcp", "_https._tcp"],
                 UIBackgroundModes: ["audio"],
@@ -199,7 +199,7 @@ export default {
             [
                 "expo-audio",
                 {
-                    microphonePermission: "Allow $(PRODUCT_NAME) to access your microphone for voice conversations."
+                    microphonePermission: "Allow $(PRODUCT_NAME) to use your microphone for on-device dictation and, when you choose realtime voice, send audio to the provider configured on your computer."
                 }
             ],
             [
