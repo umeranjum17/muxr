@@ -702,8 +702,14 @@ export async function createHerdrSessionSource(
             if (agent.pane_id === undefined) continue;
             ensureStatusWatch(agent.pane_id);
             const pane = panesById.get(agent.pane_id);
-            const known = identity.matchAgent(agent.name, agent.pane_id);
             const paneLabel = pane?.label?.trim() || undefined;
+            const fallbackMatches = agent.name === undefined && paneLabel !== undefined
+                ? identity.all().filter((record) => record.agentName === undefined && record.label === paneLabel && record.kind === agent.agent)
+                : [];
+            // Reported shell-backed agents have no Herdr name. A unique
+            // task+kind match preserves their human identity across reboot and
+            // changing pane ids without ever routing by the display name.
+            const known = identity.matchAgent(agent.name, agent.pane_id) ?? (fallbackMatches.length === 1 ? fallbackMatches[0] : undefined);
             const pendingPaneLabel = pendingPaneLabels.get(agent.pane_id);
             if (paneLabel === pendingPaneLabel) pendingPaneLabels.delete(agent.pane_id);
             const agentLabel = isGeneratedName(agent.name) ? undefined : agent.name?.trim();
