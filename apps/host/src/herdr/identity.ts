@@ -60,6 +60,7 @@ export function reconcileHerdrIdentity(
 }
 
 interface IdentityFile {
+    schemaVersion?: 2;
     sessions: HerdrIdentity[];
 }
 
@@ -109,10 +110,19 @@ export class IdentityStore {
             const sessions = [...(parsed.sessions ?? [])].sort((left, right) => left.sessionId < right.sessionId ? -1 : left.sessionId > right.sessionId ? 1 : 0);
             const prepared = sessions.map((session) => {
                 const legacy = session as HerdrIdentity & { displayName?: string };
-                const candidate = legacy.displayName?.trim()
-                    || (legacy.autoLabel !== true ? legacy.label?.trim() : undefined);
+                const display = legacy.displayName?.trim();
+                const label = legacy.label?.trim();
+                // Older files used label for both identity and work. If the two
+                // are identical, preserve it as the task and assign a real human
+                // name instead of rendering "Cart Fix" as a teammate.
+                const legacyTaskAsName = parsed.schemaVersion !== 2 && display !== undefined && display === label;
+                const candidate = legacyTaskAsName ? undefined : display;
                 const normalized = candidate === undefined ? undefined : normalizeDisplayName(candidate);
-                return { session, candidate: normalized !== undefined && DISPLAY_NAME.test(normalized) ? normalized : undefined };
+                const taskTitle = legacy.taskTitle ?? (legacyTaskAsName && label !== undefined && !isPlaceholderLabel(label) ? label : undefined);
+                return {
+                    session: taskTitle === undefined || taskTitle === legacy.taskTitle ? session : { ...session, taskTitle },
+                    candidate: normalized !== undefined && DISPLAY_NAME.test(normalized) ? normalized : undefined,
+                };
             });
             const reserved = new Set(prepared.flatMap(({ candidate }) => candidate === undefined ? [] : [displayKey(candidate)]));
             const used = new Set<string>();
@@ -125,7 +135,7 @@ export class IdentityStore {
                     displayName = `${displayName} ${suffix}`;
                 }
                 used.add(displayKey(displayName));
-                migrated = migrated || session.displayName !== displayName;
+                migrated = migrated || parsed.schemaVersion !== 2 || session.displayName !== displayName;
                 this.byId.set(session.sessionId, { ...session, displayName });
             }
             if (migrated) {
@@ -179,7 +189,7 @@ export class IdentityStore {
     }
 
     private persist(): void {
-        const snapshot: IdentityFile = { sessions: this.all() };
+        const snapshot: IdentityFile = { schemaVersion: 2, sessions: this.all() };
         this.writeChain = this.writeChain.then(async () => {
             try {
                 await atomicWriteJson(this.file, snapshot);

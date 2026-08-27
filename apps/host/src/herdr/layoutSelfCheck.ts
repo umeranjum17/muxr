@@ -106,6 +106,7 @@ async function demo(): Promise<void> {
     const migrationDir = mkdtempSync(join(tmpdir(), 'pph-identity-check-'));
     const legacyBase = { workspaceId: 'w1', tabId: 'w1:t1', cwd: '/repo', createdAt: '', ours: true };
     writeFileSync(join(migrationDir, 'herdr-identity.json'), JSON.stringify({ sessions: [
+        { ...legacyBase, sessionId: 'stable-d', paneId: 'p4', label: 'Cart Fix', displayName: 'Cart Fix' },
         { ...legacyBase, sessionId: 'stable-c', paneId: 'p3', displayName: 'Maria 2' },
         { ...legacyBase, sessionId: 'stable-b', paneId: 'p2', displayName: ' maria ' },
         { ...legacyBase, sessionId: 'stable-a', paneId: 'p1', displayName: 'Maria' },
@@ -115,6 +116,7 @@ async function demo(): Promise<void> {
     assert(migrated.get('stable-a')?.displayName === 'Maria', 'stable ordering preserves one base display name');
     assert(migrated.get('stable-b')?.displayName === 'maria 3', 'duplicate display name skips an existing visible suffix');
     assert(migrated.get('stable-c')?.displayName === 'Maria 2', 'existing safe suffix remains stable');
+    assert(migrated.get('stable-d')?.displayName !== 'Cart Fix' && migrated.get('stable-d')?.taskTitle === 'Cart Fix', 'legacy work label becomes the task, not a teammate name');
     const restarted = new IdentityStore(migrationDir);
     await restarted.load();
     assert(restarted.get('stable-b')?.displayName === 'maria 3', 'display-name migration persists across restart');
