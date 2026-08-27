@@ -659,10 +659,10 @@ export async function createHerdrSessionSource(
         return clean !== undefined && isHumanDisplayName(clean) && !duplicate ? clean : freeHerdName();
     }
 
-    function reconciledTaskTitle(record: HerdrIdentity, kind: string | undefined): string {
-        return record.taskTitle === undefined || record.taskTitle === genericTaskTitle(record.kind)
-            ? genericTaskTitle(kind)
-            : record.taskTitle;
+    function reconciledTaskTitle(record: HerdrIdentity, kind: string | undefined, candidate?: string): string {
+        const generic = genericTaskTitle(kind);
+        if (record.ours && record.taskTitle !== undefined && record.taskTitle !== genericTaskTitle(record.kind)) return record.taskTitle;
+        return candidate ?? record.taskTitle ?? generic;
     }
 
     function reserveDisplayName(requested?: string): { name: string; explicit: boolean } {
@@ -727,19 +727,20 @@ export async function createHerdrSessionSource(
                     pendingPaneLabels.delete(known.paneId);
                     attachments.dropPane(known.paneId);
                 }
-                // A later explicit rename beats an automatic animal. Otherwise
-                // the stored explicit name remains authoritative.
-                const paneRenamed = pendingPaneLabel === undefined && paneLabel !== known.label && !isPlaceholderLabel(paneLabel) && isHumanDisplayName(paneLabel) ? paneLabel : undefined;
-                const agentRenamed = agent.name !== known.agentName && isHumanDisplayName(agentLabel) ? agentLabel : undefined;
-                const tabRenamed = known.autoLabel === true && tabLabel !== known.label && isHumanDisplayName(tabLabel) ? tabLabel : undefined;
-                const renamed = paneRenamed ?? agentRenamed ?? tabRenamed;
-                if (renamed !== undefined && paneRenamed === undefined) renamePane(agent.pane_id, renamed);
-                const displayName = promotedHerdrDisplayName(known, renamed, identity.all(), reservedNames) ?? known.displayName;
-                const given = renamed ?? known.label ?? paneLabel ?? agentLabel ?? tabLabel;
-                const label = given;
-                const autoLabel = renamed === undefined && given === undefined ? true : renamed === undefined ? known.autoLabel : false;
+                // Pane/tab labels describe the work. Only an explicit Herdr
+                // agent name may change the small human identity.
+                const agentRenamed = agent.name !== known.agentName && isHumanDisplayName(agentLabel) && !isPlaceholderLabel(agentLabel)
+                    ? agentLabel
+                    : undefined;
+                const displayName = promotedHerdrDisplayName(known, agentRenamed, identity.all(), reservedNames) ?? known.displayName;
+                const label = pendingPaneLabel === undefined && paneLabel !== undefined && !isPlaceholderLabel(paneLabel)
+                    ? paneLabel
+                    : known.label ?? tabLabel;
+                const autoLabel = known.autoLabel;
                 const kind = agent.agent ?? known.kind;
-                const taskTitle = reconciledTaskTitle(known, kind);
+                const liveTask = safeTaskTitle(agent.terminal_title_stripped ?? pane?.terminal_title_stripped, kind, displayName)
+                    ?? safeTaskTitle(label, kind, displayName);
+                const taskTitle = reconciledTaskTitle(known, kind, liveTask);
                 const updated = reconcileHerdrIdentity(known, {
                     paneId: agent.pane_id,
                     ...((agent.workspace_id ?? pane?.workspace_id) === undefined ? {} : { workspaceId: agent.workspace_id ?? pane?.workspace_id! }),
@@ -779,7 +780,10 @@ export async function createHerdrSessionSource(
                 ...(agent.name === undefined ? {} : { agentName: agent.name }),
                 ...(rawTabLabel === undefined ? {} : { tabLabel: rawTabLabel }),
             });
-            const displayName = discoveredDisplayName(given);
+            const displayName = discoveredDisplayName(agentLabel !== undefined && !isPlaceholderLabel(agentLabel) ? agentLabel : undefined);
+            const taskTitle = safeTaskTitle(agent.terminal_title_stripped ?? pane?.terminal_title_stripped, agent.agent, displayName)
+                ?? safeTaskTitle(given, agent.agent, displayName)
+                ?? genericTaskTitle(agent.agent);
             identity.put({
                 sessionId,
                 paneId: agent.pane_id,
@@ -790,7 +794,7 @@ export async function createHerdrSessionSource(
                 autoLabel: given === undefined,
                 ...(agent.name === undefined ? {} : { agentName: agent.name }),
                 ...(agent.agent === undefined ? {} : { kind: agent.agent }),
-                taskTitle: genericTaskTitle(agent.agent),
+                taskTitle,
                 cwd: agent.foreground_cwd ?? pane?.foreground_cwd ?? agent.cwd ?? pane?.cwd ?? '/',
                 createdAt: new Date().toISOString(),
                 ours: false,
@@ -810,7 +814,9 @@ export async function createHerdrSessionSource(
                 const paneLabel = pane.label?.trim() || undefined;
                 const pending = pendingPaneLabels.get(pane.pane_id);
                 if (paneLabel === pending) pendingPaneLabels.delete(pane.pane_id);
-                const taskTitle = known.taskTitle ?? genericTaskTitle(known.kind ?? 'shell');
+                const liveTask = safeTaskTitle(pane.terminal_title_stripped, known.kind ?? 'shell', known.displayName)
+                    ?? safeTaskTitle(paneLabel, known.kind ?? 'shell', known.displayName);
+                const taskTitle = reconciledTaskTitle(known, known.kind ?? 'shell', liveTask);
                 const updated = reconcileHerdrIdentity(known, {
                     paneId: pane.pane_id,
                     ...(pane.workspace_id === undefined ? {} : { workspaceId: pane.workspace_id }),
@@ -837,7 +843,7 @@ export async function createHerdrSessionSource(
                 ...(pane.label === undefined ? {} : { paneLabel: pane.label }),
                 ...(rawTabLabel === undefined ? {} : { tabLabel: rawTabLabel }),
             });
-            const displayName = discoveredDisplayName(given);
+            const displayName = freeHerdName();
             identity.put({
                 sessionId,
                 paneId: pane.pane_id,
@@ -846,7 +852,9 @@ export async function createHerdrSessionSource(
                 cwd: pane.foreground_cwd ?? pane.cwd ?? '/',
                 ...(given === undefined ? {} : { label: given }),
                 displayName,
-                taskTitle: genericTaskTitle('shell'),
+                taskTitle: safeTaskTitle(pane.terminal_title_stripped, 'shell', displayName)
+                    ?? safeTaskTitle(given, 'shell', displayName)
+                    ?? genericTaskTitle('shell'),
                 autoLabel: given === undefined,
                 createdAt: new Date().toISOString(),
                 ours: false,
