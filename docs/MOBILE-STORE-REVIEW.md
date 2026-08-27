@@ -1,26 +1,28 @@
 # Mobile store review packet
 
-Status: draft for the next current-main internal build. Nothing in this file authorizes a build, upload, console edit, review submission, or production promotion.
+Status: pre-submission packet for mobile 0.1.12 from frozen source `bccd0e0a`. Internal/TestFlight uploads and safe console preparation are complete or in progress. App Review submission and Play Production promotion still require explicit owner approval.
+
+Frozen candidate evidence:
+
+- Internal workflow: `33041924776` (successful)
+- Android: versionCode `43`, EAS build `2df4e076-9273-453b-bb94-62cf41338961`, Play Internal completed
+- iOS: buildNumber `40`, EAS build `34eb0c30-dc0c-4842-9bd4-6976fed4b249`, uploaded to App Store Connect
+- Both EAS build records report `FINISHED`, Store distribution, production profile, and exact Git commit `bccd0e0a65b987f85a0b011ea317454c74bace88`
 
 ## App Review notes draft
 
-muxr is an open-source companion for Herdr coding-agent sessions running on a Mac or Linux computer controlled by the reviewer. The iOS and Android apps do not create a muxr user account and do not require demo credentials. A paired computer remains the source of truth for agents, terminals, repositories, plugins, and optional provider credentials.
+muxr is an open-source companion for Herdr coding-agent sessions running on a Mac or Linux computer. App Review does not need an account, purchase, CLI installation, repository, or computer setup. A private, durable invitation opens access to a live disposable review computer containing only synthetic data.
 
 ### Reviewer setup
 
-1. On a disposable Mac or Linux test computer, install the matching public CLI release:
+1. Open the private invitation URL supplied in **App Review Information** or **Play App access**.
+2. Tap **Copy pairing string**. The page creates a fresh standard two-minute pairing string without exposing owner credentials.
+3. In muxr, tap **Enter pairing string**, paste the value, review the disclosed permissions, and tap **Pair**. If the string expires, revisit the same invitation page for a fresh value; the invitation remains valid throughout review.
+4. Open **Review-Workspace → Otter**.
+5. Send `Create review.txt containing hello`.
+6. Expected result: the terminal confirms that `review.txt` was created and the change was recorded. The same synthetic workspace supports terminal input, file browsing, change review, attachments, reconnect, and notification flows.
 
-   ```sh
-   npm install -g @trymuxr/cli
-   muxr
-   ```
-
-2. Choose **Set up or repair this machine**, select a connection method reachable by the phone, and review the plan before applying it.
-3. In the mobile app, open **Settings → Pair another machine** and scan the one-use QR code shown by the CLI. Pairing claims expire and cannot be reused.
-4. Use a disposable Git repository. Start a shell or an installed coding agent from **New session**.
-5. Verify the Herd, live terminal, file browser, changes, runbook, notification, revocation, and reconnect surfaces. No paid provider key is needed for these features.
-
-Public setup details: https://trymuxr.com/docs/setup
+The sandbox runs real Herdr and muxr transport against a disposable repository. It contains no owner account, source repository, terminal history, provider credential, or production secret. Optional realtime voice requires a provider configured by the computer owner and is intentionally not configured in the credential-free review sandbox; local dictation remains available.
 
 Support: https://github.com/umeranjum17/muxr/issues
 
@@ -39,21 +41,19 @@ Privacy: https://trymuxr.com/docs/privacy
 
 ### Review contact
 
-Use the public support issue tracker for ordinary review questions. Security-sensitive material must use the private security-advisory route linked from the privacy policy. Never place a reusable pairing claim, device credential, provider key, or privileged repository in review notes.
+Use the public support issue tracker for ordinary review questions. Security-sensitive material must use the private security-advisory route linked from the privacy policy. The bounded invitation URL belongs only in the stores' private reviewer-access fields; never publish it in listing copy, screenshots, source control, or public documentation. Never place a device credential, provider key, owner repository, or permanent privileged grant in review notes.
 
-## Revocable reviewer sandbox design
+## Deployed reviewer sandbox
 
-The reviewer should receive one durable invite URL, not a short-lived pairing claim and not owner credentials. The smallest safe design is:
+The deployed review system deliberately reuses muxr's normal pairing and E2EE grant flow:
 
-1. An owner creates an invite record with a random opaque token, explicit expiry, revocation flag, maximum redemption count, and a fixed reviewer-sandbox target.
-2. Opening the invite as a Universal Link launches muxr. The app presents its newly generated device public key to the redemption endpoint.
-3. The endpoint atomically validates the invite and asks the isolated sandbox host to mint a fresh standard one-use pairing claim. The short-lived claim is created only at redemption time, so asynchronous App Review does not consume its lifetime.
-4. The app immediately completes the normal pairing protocol. A redeemed invite cannot mint a second grant unless its policy explicitly permits one reinstall.
-5. Revoking or expiring the invite revokes every grant it minted. Bounded audit events record only creation, redemption, expiry, and revocation outcomes.
+1. A private, high-entropy invitation has an explicit expiry and claim cap.
+2. The invitation broker stores only the token hash and returns a fresh standard two-minute pairing string.
+3. The reviewer approves the normal mobile pairing disclosure and receives a revocable device grant.
+4. The target is an isolated review computer running real Herdr, muxr, and a deterministic review agent against a disposable synthetic repository.
+5. A scheduled reset restores the repository baseline. A watchdog keeps the review agent and invitation services online throughout the review window.
 
-The sandbox must be a separate, resettable host with network egress denied and no owner account, source repository, terminal, provider key, or machine credential. It serves only synthetic session states, prerecorded terminal/file/diff fixtures, and a deterministic synthetic voice stream. Write actions mutate disposable in-memory fixture state; they never reach a shell. The UI must identify the connection as review content without exposing internal identifiers.
-
-This design needs a threat-model and implementation review before deployment. Do not place a permanent privileged token in App Store Connect.
+The sandbox is separate from owner computers and contains no personal data, owner repository, cloud credential, AI subscription, or production secret. The deterministic agent accepts a bounded test vocabulary while exercising the real terminal, file, change, attachment, notification, and reconnect surfaces. The private invitation is rotated or revoked after review, test-device grants are removed, and the sandbox is reset before each submission.
 
 
 ## Privacy and Data Safety draft
@@ -130,12 +130,12 @@ The last two commands require approved read-only App Store Connect authenticatio
 
 | Asset | Format gate | Release gate |
 | --- | --- | --- |
-| Store icon | 512×512 PNG with alpha | Format ready; console presence unverified. |
-| Feature graphic | 1024×500 opaque PNG, no device image | Format ready; broad marketing claim needs owner approval. |
-| Eight phone screenshots | 1080×1920 opaque PNG | Not ready: several contain a private home-directory path or source-state fragments; the plugin example is not a clean first-run surface; color profiles are not embedded. |
-| Owner-provided realtime capture | Runtime error visible: `stream control frame rejected` | Rejected. The failing plugin-stream control path is shared JavaScript, not Android-only; the next iOS and Android candidates must both contain the Linux-owned sync-client fix and pass the realtime flow. Do not crop, cover, or rewrite the error in artwork. |
+| Store icon | 512×512 PNG with alpha | Approved unchanged for the Play icon slot. |
+| Feature graphic | 1024×500 opaque 8-bit sRGB PNG, no device image | Approved copy: “Your agents. In your pocket.” / “Your coding agents, from your phone.” |
+| Eight phone screenshots | 1080×1920 opaque 8-bit sRGB PNG | Approved order: attention → terminal → changes → code → voice → runbook → plugins → onboarding. Authentic UI pixels are unchanged inside a consistent marketing frame. |
+| Realtime capture | Current starfield UI in a healthy `Listening` state | Approved; contains no runtime error or private content. |
 
-No screenshot is eligible merely because its dimensions pass. Each final asset must show authentic current-build UI, synthetic public data, no internal identifiers or private paths, and behavior proven by the frozen release candidate.
+The final Play assets show authentic current-build UI, synthetic public data, no internal identifiers or private paths, and behavior proven against the frozen release source. Fable completed two full visual/policy review rounds and approved every screenshot, the feature graphic, and the store icon.
 
 ## Minimum reliable store automation
 
