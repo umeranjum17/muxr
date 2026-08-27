@@ -319,13 +319,6 @@
           "tone": "secondary"
         },
         {
-          "type": "field",
-          "kind": "text",
-          "id": "folder",
-          "label": "Run in folder",
-          "value": "{{data.cwd}}"
-        },
-        {
           "type": "tree",
           "title": "Choose folder",
           "emptyText": "No repository folders available",
