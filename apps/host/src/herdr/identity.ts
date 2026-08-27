@@ -60,7 +60,7 @@ export function reconcileHerdrIdentity(
 }
 
 interface IdentityFile {
-    schemaVersion?: 2;
+    schemaVersion?: 3;
     sessions: HerdrIdentity[];
 }
 
@@ -115,7 +115,7 @@ export class IdentityStore {
                 // Older files used label for both identity and work. If the two
                 // are identical, preserve it as the task and assign a real human
                 // name instead of rendering "Cart Fix" as a teammate.
-                const legacyTaskAsName = parsed.schemaVersion !== 2 && display !== undefined && display === label;
+                const legacyTaskAsName = parsed.schemaVersion !== 3 && display !== undefined && display === label;
                 const candidate = legacyTaskAsName ? undefined : display;
                 const normalized = candidate === undefined ? undefined : normalizeDisplayName(candidate);
                 const taskTitle = legacy.taskTitle ?? (legacyTaskAsName && label !== undefined && !isPlaceholderLabel(label) ? label : undefined);
@@ -135,7 +135,7 @@ export class IdentityStore {
                     displayName = `${displayName} ${suffix}`;
                 }
                 used.add(displayKey(displayName));
-                migrated = migrated || parsed.schemaVersion !== 2 || session.displayName !== displayName;
+                migrated = migrated || parsed.schemaVersion !== 3 || session.displayName !== displayName;
                 this.byId.set(session.sessionId, { ...session, displayName });
             }
             if (migrated) {
@@ -189,7 +189,7 @@ export class IdentityStore {
     }
 
     private persist(): void {
-        const snapshot: IdentityFile = { schemaVersion: 2, sessions: this.all() };
+        const snapshot: IdentityFile = { schemaVersion: 3, sessions: this.all() };
         this.writeChain = this.writeChain.then(async () => {
             try {
                 await atomicWriteJson(this.file, snapshot);
