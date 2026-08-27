@@ -155,6 +155,27 @@ export class PluginStreamManager {
         let finished = false;
         let gracefulCloseSent = false;
         let stderr = Buffer.alloc(0);
+        let stdoutPaused = false;
+        let socketPaused = false;
+        // Audio must never be dropped: a provider reply bursts several times
+        // faster than a slow phone downlink drains. Pause the plugin's stdout
+        // and let pipe backpressure hold the reply until the socket catches up.
+        const resumeStdoutIfDrained = (): void => {
+            if (!finished && stdoutPaused && socket.bufferedAmount <= MAX_STREAM_BUFFER_BYTES / 2) {
+                stdoutPaused = false;
+                child.stdout.resume();
+            }
+        };
+        const pauseStdoutIfNeeded = (): void => {
+            if (!stdoutPaused && socket.bufferedAmount > MAX_STREAM_BUFFER_BYTES) {
+                stdoutPaused = true;
+                child.stdout.pause();
+            }
+        };
+        const resumeSocketInput = (): void => {
+            socketPaused = false;
+            if (!finished && socket.readyState === WebSocket.OPEN) socket.resume();
+        };
         const signalProcess = (signal: NodeJS.Signals): void => {
             try {
                 if (child.pid === undefined) return;
@@ -162,29 +183,34 @@ export class PluginStreamManager {
                 else child.kill(signal);
             } catch { /* already gone */ }
         };
-        const send = (frame: RealtimeHostFrame): void => {
-            if (socket.readyState !== WebSocket.OPEN) return;
-            if (frame.type === 'realtime.audio' && socket.bufferedAmount > MAX_STREAM_BUFFER_BYTES) return;
+        const send = (frame: RealtimeHostFrame): boolean => {
+            if (socket.readyState !== WebSocket.OPEN) return false;
             const line = encodeRealtimeFrame(frame);
-            if (this.hosted === undefined) {
-                socket.send(line);
-                return;
-            }
-            const payload = this.hosted.seal('stream', params.channel, line);
-            const envelope: Envelope = {
-                header: {
-                    machineId: this.options.machineId,
-                    senderId: this.options.machineId,
-                    recipientId: '*',
-                    channel: 'stream',
-                    streamId: params.channel,
-                    keyVersion: this.options.hostedE2ee!.keyVersion,
-                    seq: v2EnvelopeSequence(payload),
-                    at: Date.now(),
-                },
-                payload,
-            };
-            socket.send(JSON.stringify(envelope));
+            const data = this.hosted === undefined
+                ? line
+                : (() => {
+                    const payload = this.hosted.seal('stream', params.channel, line);
+                    const envelope: Envelope = {
+                        header: {
+                            machineId: this.options.machineId,
+                            senderId: this.options.machineId,
+                            recipientId: '*',
+                            channel: 'stream',
+                            streamId: params.channel,
+                            keyVersion: this.options.hostedE2ee!.keyVersion,
+                            seq: v2EnvelopeSequence(payload),
+                            at: Date.now(),
+                        },
+                        payload,
+                    };
+                    return JSON.stringify(envelope);
+                })();
+            socket.send(data, (error) => {
+                if (error) attachment.close('plugin stream disconnected');
+                else resumeStdoutIfDrained();
+            });
+            pauseStdoutIfNeeded();
+            return true;
         };
         const armIdle = (): void => {
             attachment.idleTimer.refresh();
@@ -192,6 +218,7 @@ export class PluginStreamManager {
         const finish = (reason?: string): void => {
             if (finished) return;
             finished = true;
+            child.stdin.off('drain', resumeSocketInput);
             clearTimeout(attachment.idleTimer);
             params.signal.removeEventListener('abort', onAbort);
             if (reason !== undefined && socket.readyState === WebSocket.OPEN) {
@@ -199,6 +226,9 @@ export class PluginStreamManager {
             }
             if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) socket.close();
             if (this.attachments.get(params.channel) === attachment) this.attachments.delete(params.channel);
+            if (this.hosted !== undefined && params.deviceId !== undefined) {
+                this.hosted.releaseReplay(params.deviceId, 'stream', params.channel);
+            }
             if (peerAccess !== undefined) this.options.peerBroker?.revokeCapability(peerAccess.capability);
             attachment.onClosed();
         };
@@ -242,23 +272,27 @@ export class PluginStreamManager {
             stderr = Buffer.concat([stderr, chunk]);
             if (stderr.length > 32 * 1024) stderr = stderr.subarray(stderr.length - 32 * 1024);
         });
-        let stdout = '';
-        let stdoutBytes = 0;
+        let stdout: Buffer<ArrayBufferLike> = Buffer.alloc(0);
         child.stdout.on('data', (chunk: Buffer) => {
-            stdoutBytes += chunk.length;
-            if (stdoutBytes > MAX_STREAM_LINE_BYTES) {
-                attachment.close('plugin stream output exceeded its frame bound');
-                return;
-            }
-            stdout += chunk.toString('utf8');
-            const lines = stdout.split('\n');
-            stdout = lines.pop() ?? '';
-            stdoutBytes = Buffer.byteLength(stdout);
-            for (const line of lines) {
-                if (line.trim() === '') continue;
+            stdout = stdout.length === 0 ? chunk : Buffer.concat([stdout, chunk]);
+            let offset = 0;
+            for (;;) {
+                const newline = stdout.indexOf(0x0a, offset);
+                if (newline === -1) break;
+                const line = stdout.subarray(offset, newline);
+                offset = newline + 1;
+                if (line.length > MAX_STREAM_LINE_BYTES) {
+                    attachment.close('plugin stream output exceeded its frame bound');
+                    return;
+                }
+                const text = line.toString('utf8');
+                if (text.trim() === '') continue;
                 try {
-                    const frame = parseRealtimeHostFrame(JSON.parse(line));
-                    send(frame);
+                    const frame = parseRealtimeHostFrame(JSON.parse(text));
+                    if (!send(frame)) {
+                        attachment.close('plugin stream disconnected');
+                        return;
+                    }
                     if (frame.type === 'realtime.closed') gracefulCloseSent = true;
                     armIdle();
                 } catch {
@@ -266,6 +300,8 @@ export class PluginStreamManager {
                     return;
                 }
             }
+            stdout = offset === 0 ? stdout : Buffer.from(stdout.subarray(offset));
+            if (stdout.length > MAX_STREAM_LINE_BYTES) attachment.close('plugin stream output exceeded its frame bound');
         });
         child.once('error', (error) => attachment.close(`plugin stream failed: ${error.message}`));
         child.once('close', (code) => {
@@ -301,7 +337,11 @@ export class PluginStreamManager {
                     text = this.hosted.open(params.deviceId!, 'stream', params.channel, envelope.payload);
                 }
                 const frame = parseRealtimeClientFrame(JSON.parse(text));
-                child.stdin.write(`${JSON.stringify(frame)}\n`);
+                if (!child.stdin.write(`${JSON.stringify(frame)}\n`) && !socketPaused) {
+                    socketPaused = true;
+                    socket.pause();
+                    child.stdin.once('drain', resumeSocketInput);
+                }
                 armIdle();
             } catch {
                 attachment.close('client sent an invalid realtime frame');
@@ -318,7 +358,11 @@ export class PluginStreamManager {
                 ...(params.cwd === undefined ? {} : { cwd: params.cwd }),
                 ...(params.publicContext === undefined ? {} : { publicContext: realtimePluginPublicContext(params.publicContext.sessions) }),
             };
-            child.stdin.write(`${JSON.stringify(open)}\n`);
+            if (!child.stdin.write(`${JSON.stringify(open)}\n`) && !socketPaused) {
+                socketPaused = true;
+                socket.pause();
+                child.stdin.once('drain', resumeSocketInput);
+            }
         } catch (error) {
             attachment.close(error instanceof Error ? error.message : String(error));
             throw error;

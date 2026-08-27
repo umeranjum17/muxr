@@ -40,6 +40,7 @@ export interface HostedDeviceKeys {
 export class HostV2Crypto {
     private readonly senders = new Map<string, V2SenderState>();
     private readonly replays = new Map<string, V2ReplayTracker>();
+    private readonly ephemeralReplays = new Set<string>();
     private generation: string;
     private outputKey: string;
 
@@ -55,6 +56,7 @@ export class HostV2Crypto {
         this.outputKey = deriveV2Key(this.keys.dataKey, 'host->client');
         this.senders.clear();
         this.replays.clear();
+        this.ephemeralReplays.clear();
     }
 
     seal(channel: 'session' | 'terminal' | 'attachment' | 'stream', streamId: string, plaintext: string, recipientId = '*'): string {
@@ -81,9 +83,10 @@ export class HostV2Crypto {
             throw new Error('hosted e2ee: sender has no active device grant');
         }
         const replayKey = `${deviceId}\0${channel}\0${streamId}`;
-        const snapshot = this.keys.replaySnapshots?.[replayKey];
+        const snapshot = channel === 'stream' ? undefined : this.keys.replaySnapshots?.[replayKey];
         const replay = this.replays.get(replayKey) ?? (snapshot === undefined ? newV2ReplayTracker() : v2ReplayFromSnapshot(snapshot));
         this.replays.set(replayKey, replay);
+        if (channel === 'stream') this.ephemeralReplays.add(replayKey);
         const context: V2Context = {
             machineId: this.keys.machineId,
             senderId: deviceId,
@@ -93,11 +96,20 @@ export class HostV2Crypto {
             keyVersion: this.keys.keyVersion,
         };
         const plaintext = openV2(payload, deriveV2Key(root, 'client->host'), context, replay);
-        if (this.keys.onReplayChange !== undefined) {
+        if (channel !== 'stream' && this.keys.onReplayChange !== undefined) {
             const snapshots = { ...(this.keys.replaySnapshots ?? {}) };
-            for (const [key, value] of this.replays) snapshots[key] = value.toSnapshot();
+            for (const [key, value] of this.replays) {
+                if (!this.ephemeralReplays.has(key)) snapshots[key] = value.toSnapshot();
+            }
             this.keys.onReplayChange(snapshots);
         }
         return plaintext;
+    }
+
+    /** Ephemeral stream replay state lives only for its attached socket. */
+    releaseReplay(deviceId: string, channel: 'stream', streamId: string): void {
+        const replayKey = `${deviceId}\0${channel}\0${streamId}`;
+        this.replays.delete(replayKey);
+        this.ephemeralReplays.delete(replayKey);
     }
 }

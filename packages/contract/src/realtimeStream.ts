@@ -66,6 +66,7 @@ export function realtimePluginPublicContext(input: readonly RealtimePluginPublic
 }
 
 export type RealtimeState = 'connecting' | 'connected' | 'thinking' | 'speaking';
+export type RealtimeControlAction = 'mute' | 'unmute' | 'stop' | 'pause_output' | 'resume_output' | 'output_drained';
 
 export interface RealtimeAudioClientFrame {
     type: 'realtime.audio';
@@ -75,7 +76,7 @@ export interface RealtimeAudioClientFrame {
 
 export interface RealtimeControlFrame {
     type: 'realtime.control';
-    action: 'mute' | 'unmute' | 'stop';
+    action: RealtimeControlAction;
 }
 
 export interface RealtimeSayFrame {
@@ -122,11 +123,24 @@ function boundedText(value: unknown, max: number, label: string): string {
     return clean;
 }
 
-function audio(value: unknown): string {
-    if (typeof value !== 'string' || value.length === 0 || value.length > MAX_REALTIME_AUDIO_BASE64_BYTES || !/^[A-Za-z0-9+/]*={0,2}$/.test(value)) {
+const BASE64_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+
+export function realtimePcm16ByteLength(value: unknown): number {
+    if (typeof value !== 'string' || value.length === 0 || value.length > MAX_REALTIME_AUDIO_BASE64_BYTES || value.length % 4 !== 0
+        || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value)) {
         throw new Error('invalid realtime audio');
     }
-    return value;
+    const padding = value.endsWith('==') ? 2 : value.endsWith('=') ? 1 : 0;
+    const trailingSextet = BASE64_ALPHABET.indexOf(value.charAt(value.length - padding - 1));
+    const nonCanonicalPadding = padding === 2 ? (trailingSextet & 15) !== 0 : padding === 1 && (trailingSextet & 3) !== 0;
+    const bytes = value.length / 4 * 3 - padding;
+    if (nonCanonicalPadding || bytes === 0 || bytes % 2 !== 0) throw new Error('invalid realtime audio');
+    return bytes;
+}
+
+function audio(value: unknown): string {
+    realtimePcm16ByteLength(value);
+    return value as string;
 }
 
 function rate(value: unknown): number {
@@ -140,7 +154,10 @@ export function parseRealtimeClientFrame(value: unknown): RealtimeClientFrame {
     const frame = record(value);
     if (frame.type === 'realtime.audio') return { type: 'realtime.audio', data: audio(frame.data) };
     if (frame.type === 'realtime.control') {
-        if (frame.action !== 'mute' && frame.action !== 'unmute' && frame.action !== 'stop') throw new Error('invalid realtime control');
+        if (frame.action !== 'mute' && frame.action !== 'unmute' && frame.action !== 'stop'
+            && frame.action !== 'pause_output' && frame.action !== 'resume_output' && frame.action !== 'output_drained') {
+            throw new Error('invalid realtime control');
+        }
         return { type: 'realtime.control', action: frame.action };
     }
     if (frame.type === 'realtime.say') return { type: 'realtime.say', text: boundedText(frame.text, MAX_REALTIME_TEXT_BYTES, 'speech') };

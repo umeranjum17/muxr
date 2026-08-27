@@ -4,13 +4,24 @@ type VoiceState = 'disconnected' | 'connecting' | 'connected' | 'thinking' | 'sp
 type HerdMode = 'connecting' | 'offline' | 'idle' | 'working' | 'attention' | 'finished';
 type NotificationAction = 'start' | 'stop' | 'mute';
 
+export interface RealtimePcmStats {
+    acceptedAdmissions: number;
+    rejectedAdmissions: number;
+    peakQueuedMs: number;
+    underruns: number;
+    drainRestarts: number;
+    clears: number;
+}
+
 interface VoiceNative {
     routeVoiceAudio: () => boolean;
     releaseVoiceAudio: () => boolean;
     startRealtimePcm?: (sampleRate: number) => boolean;
     playRealtimePcm?: (base64: string) => boolean;
     clearRealtimePcm?: () => boolean;
-    stopRealtimePcm?: () => void;
+    finishRealtimePcm?: () => boolean;
+    isRealtimePcmDrained?: () => boolean;
+    stopRealtimePcm?: () => RealtimePcmStats | undefined;
     startService: () => boolean;
     stopService: () => boolean;
     startHerdService: () => boolean;
@@ -103,8 +114,23 @@ export function clearRealtimePcm(): void {
     native?.clearRealtimePcm?.();
 }
 
-export function stopRealtimePcm(): void {
-    native?.stopRealtimePcm?.();
+export function finishRealtimePcm(): boolean {
+    return native?.finishRealtimePcm?.() ?? false;
+}
+
+export function isRealtimePcmDrained(): boolean {
+    return native?.isRealtimePcmDrained?.() ?? true;
+}
+
+export function stopRealtimePcm(): RealtimePcmStats {
+    return native?.stopRealtimePcm?.() ?? {
+        acceptedAdmissions: 0,
+        rejectedAdmissions: 0,
+        peakQueuedMs: 0,
+        underruns: 0,
+        drainRestarts: 0,
+        clears: 0,
+    };
 }
 
 export function updateVoiceNotification(

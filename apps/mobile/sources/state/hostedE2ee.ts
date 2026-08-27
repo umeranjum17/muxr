@@ -613,7 +613,7 @@ export class DeviceV2Crypto {
         if (this.grant.expiresAt <= Date.now()) throw new Error('hosted e2ee: device grant expired');
         if (sequence !== v2EnvelopeSequence(payload)) throw new Error('hosted e2ee: routing sequence mismatch');
         const replayKey = `${this.grant.machineId}\0${channel}\0${streamId}`;
-        const snapshot = replayCache?.[replayKey];
+        const snapshot = channel === 'stream' ? undefined : replayCache?.[replayKey];
         const replay = this.replays.get(replayKey) ?? (snapshot === undefined ? newV2ReplayTracker() : v2ReplayFromSnapshot(snapshot));
         this.replays.set(replayKey, replay);
         const plaintext = openV2(payload, this.inputKey, {
@@ -624,8 +624,18 @@ export class DeviceV2Crypto {
             streamId,
             keyVersion: this.grant.keyVersion,
         }, replay);
-        await persistReplay(replayKey, replay.toSnapshot());
+        // Stream channels are ephemeral (one random channel per call) and carry
+        // realtime audio: a per-frame AsyncStorage write here adds playback
+        // jitter and grows the persisted cache with dead channels. In-memory
+        // replay tracking still protects the live session; the AAD's streamId
+        // makes cross-channel replay fail regardless.
+        if (channel !== 'stream') await persistReplay(replayKey, replay.toSnapshot());
         return plaintext;
+    }
+
+    /** Ephemeral stream replay state is retained only while that socket is live. */
+    release(channel: 'stream', streamId: string): void {
+        this.replays.delete(`${this.grant.machineId}\0${channel}\0${streamId}`);
     }
 }
 

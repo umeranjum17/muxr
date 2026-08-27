@@ -184,7 +184,15 @@ export type { LandWorktreeResult } from './worktree.js';
 
 export type { TerminalClientFrame, TerminalHostFrame } from './terminal.js';
 export { newTerminalChannel, terminalSocketUrl } from './terminal.js';
-export type { RealtimeClientFrame, RealtimeHostFrame, RealtimePluginOpenFrame, RealtimePluginPublicContext, RealtimePluginPublicSession, RealtimeState } from './realtimeStream.js';
+export type {
+    RealtimeClientFrame,
+    RealtimeControlAction,
+    RealtimeHostFrame,
+    RealtimePluginOpenFrame,
+    RealtimePluginPublicContext,
+    RealtimePluginPublicSession,
+    RealtimeState,
+} from './realtimeStream.js';
 export {
     encodeRealtimeFrame,
     MAX_REALTIME_AUDIO_BASE64_BYTES,
@@ -196,6 +204,7 @@ export {
     realtimePluginPublicContext,
     REALTIME_INPUT_RATE,
     REALTIME_OUTPUT_RATE,
+    realtimePcm16ByteLength,
     realtimeSocketUrl,
 } from './realtimeStream.js';
 

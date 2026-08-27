@@ -5,6 +5,7 @@
 import { decodePayload, encodePayload, isPluginsInvalidatedFrame, parseClientFrame } from './wire.js';
 import { SESSION_EVENT_TYPES, type SessionEventBody } from './sessionEvent.js';
 import { isPeerCapabilities, peerCapabilityForRequest } from './peer.js';
+import { parseRealtimeClientFrame, realtimePcm16ByteLength } from './realtimeStream.js';
 import type { SessionInfo, SessionStatus } from './sessionState.js';
 import { MAX_REALTIME_PUBLIC_SESSIONS, realtimePluginPublicContext } from './realtimeStream.js';
 
@@ -96,6 +97,16 @@ function demo(): void {
     assert(publicContext.sessions.length === MAX_REALTIME_PUBLIC_SESSIONS, 'realtime public session map is bounded');
     assert(publicContext.sessions[0]?.taskTitle === 'Realtime Stability', 'realtime public task title strips provider prefix');
     assert(!publicContext.sessions.some((entry) => entry.sessionId === 'bad/path'), 'realtime public session map rejects unsafe routing ids');
+    for (const action of ['pause_output', 'resume_output', 'output_drained'] as const) {
+        const frame = parseRealtimeClientFrame({ type: 'realtime.control', action });
+        assert(frame.type === 'realtime.control' && frame.action === action, `${action} control validates`);
+    }
+    assert(realtimePcm16ByteLength('AAA=') === 2, 'canonical PCM16 base64 reports decoded bytes');
+    for (const malformed of ['AAA', 'AAB=', 'AAAA', 'AA==']) {
+        let rejected = false;
+        try { realtimePcm16ByteLength(malformed); } catch { rejected = true; }
+        assert(rejected, 'malformed or non-PCM16 base64 is rejected');
+    }
     assert(parseClientFrame({ type: 'client.hello', clientId: 'fresh-client' }).type === 'client.hello', 'valid client hello passes');
     for (const malformed of [null, { type: 'session.list', requestId: 'bad', params: null }]) {
         let rejected = false;
