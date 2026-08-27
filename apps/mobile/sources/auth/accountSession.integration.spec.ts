@@ -17,6 +17,9 @@ const harness = vi.hoisted(() => ({
     ready: false,
     machineReplaceFlags: [] as boolean[],
     sessionReplaceFlags: [] as boolean[],
+    lifecycleScopes: [] as string[],
+    lifecycleAuthorities: [] as string[],
+    lifecycleCatalogError: Object.assign(new Error('older host'), { code: 'host-contract-mismatch' }) as Error & { code?: string },
 }));
 
 vi.mock('expo-crypto', () => ({ randomUUID: () => 'login-device' }));
@@ -58,6 +61,7 @@ vi.mock('../client/muxrClient', () => ({
         async request(type: string) {
             if (type === 'herdr.tree') return { workspaces: [] };
             if (type === 'attention.catalog') return { revision: 0, entries: [] };
+            if (type === 'lifecycle.catalog') throw harness.lifecycleCatalogError;
             return [];
         }
     },
@@ -82,6 +86,10 @@ vi.mock('../sync/storage', () => ({
             applyHerdrTree: vi.fn(),
             markSessionsLoaded: vi.fn(),
             applyAttentionCatalog: vi.fn(),
+            applyLifecycleCatalog: vi.fn(),
+            setLifecycleAuthority: (authority: string) => { harness.lifecycleAuthorities.push(authority); },
+            setLifecycleScope: (scope: string) => { harness.lifecycleScopes.push(scope); },
+            resetLifecycleCatalog: vi.fn(),
             applyReady: () => { harness.ready = true; },
         }),
     },
@@ -115,6 +123,9 @@ describe('hosted account-only lifecycle', () => {
         harness.ready = false;
         harness.machineReplaceFlags.length = 0;
         harness.sessionReplaceFlags.length = 0;
+        harness.lifecycleScopes.length = 0;
+        harness.lifecycleAuthorities.length = 0;
+        harness.lifecycleCatalogError = Object.assign(new Error('older host'), { code: 'host-contract-mismatch' });
     });
 
     afterEach(() => {
@@ -167,6 +178,13 @@ describe('hosted account-only lifecycle', () => {
         expect(harness.sessionReplaceFlags.at(-1)).toBe(true);
         expect(harness.clientOptions).toHaveLength(1);
         expect(harness.clientOptions[0].token).toBe('stored-grant');
+        expect(harness.lifecycleScopes).toContain('account-device:account');
+        expect(harness.lifecycleScopes).toContain('account-device:machine-a');
+        expect(harness.lifecycleAuthorities).toEqual(['account-device', 'account-device']);
+
+        harness.lifecycleCatalogError = new Error('relay temporarily offline');
+        await expect(sync.refreshSessions()).rejects.toThrow('relay temporarily offline');
+        harness.lifecycleCatalogError = Object.assign(new Error('older host'), { code: 'host-contract-mismatch' });
 
         harness.clientOptions[0].onTicketRejected?.();
         await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(7));

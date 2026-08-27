@@ -14,6 +14,7 @@ import type {
     SessionEventBody,
     SessionInfo,
     SessionSnapshot,
+    SessionStartResult,
     SessionStatus,
     StreamingBehavior,
     PluginsInvalidatedFrame,
@@ -33,9 +34,11 @@ export interface SessionStartOptions {
     /** herdr agent kind: pi, claude, codex, opencode, gemini, grok, ... */
     kind?: string;
     label?: string;
+    displayName?: string;
     worktree?: { branch?: string; base?: string };
     /** Squad mode: one workspace, one tab per kind (max 4). Ignores kind. */
     kinds?: string[];
+    members?: Array<{ kind: string; displayName?: string }>;
 }
 
 export interface SessionOpenOptions {
@@ -81,7 +84,7 @@ export interface SessionReadFileOptions {
 
 export interface SessionSource {
     list(options?: SessionListOptions): Promise<SessionInfo[]>;
-    start(options: SessionStartOptions): Promise<SessionSnapshot>;
+    start(options: SessionStartOptions): Promise<SessionStartResult>;
     open(options: SessionOpenOptions): Promise<SessionSnapshot>;
     /** Refresh herdr's cached snapshot after an out-of-band CLI mutation. */
     refreshHerdr(): Promise<void>;

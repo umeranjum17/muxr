@@ -156,6 +156,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         'unread.catalog': async () => domain.unread.catalog(),
         'unread.acknowledge': async (params) => domain.unread.acknowledge(params.sessionId, params.throughSeq),
         'attention.catalog': async () => domain.attention.catalog(),
+        'lifecycle.catalog': async () => domain.lifecycle.catalog(),
         'machines.list': async () => [
             {
                 machineId,
@@ -204,7 +205,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
                 'session.list', 'session.open', 'session.status',
                 'herdr.tree', 'herdr.agentKinds', 'herdr.layout', 'pane.read', 'plugin.list', 'plugin.manifest', 'voice.provider.list',
                 'attachment.fetch', 'attachment.read', 'unread.catalog',
-                'attention.catalog', 'machines.list', 'terminal.attach',
+                'attention.catalog', 'lifecycle.catalog', 'machines.list', 'terminal.attach',
             ]);
             // A read-only browser may still call read-mode plugin RPCs (Usage,
             // Files, Git history); write RPCs, invokes, and streams stay fenced.
@@ -324,4 +325,3 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         },
     };
 }
-

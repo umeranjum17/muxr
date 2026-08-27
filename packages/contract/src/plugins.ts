@@ -59,6 +59,8 @@ export type PluginContextRequest = typeof PLUGIN_CONTEXT_REQUESTS[number];
 export interface PluginPublicSessionContext {
     sessionId: string;
     label: string;
+    displayName: string;
+    taskTitle?: string;
     cwd?: string;
     workspaceLabel?: string;
     tabLabel?: string;
@@ -77,6 +79,8 @@ export interface PluginPublicAttentionContext {
 export interface PluginPublicTreeSession {
     sessionId?: string;
     label: string;
+    displayName: string;
+    taskTitle?: string;
     agentKind?: string;
     agentStatus: AgentLifecycle;
 }

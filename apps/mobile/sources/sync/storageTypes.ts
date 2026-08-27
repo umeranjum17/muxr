@@ -175,6 +175,8 @@ export const MetadataSchema = z.object({
     effortLevel: z.string().nullish(),
     // herdr-native session fields (muxr host).
     terminalTitle: z.string().optional(),
+    displayName: z.string().optional(),
+    taskTitle: z.string().optional(),
     /** Raw herdr pane id backing this muxr session. */
     paneId: z.string().optional(),
     workspaceLabel: z.string().optional(),
@@ -188,7 +190,7 @@ export const MetadataSchema = z.object({
         path: z.string(),
     }).optional(),
     /** herdr agent lifecycle; drives status dots and the inbox kanban. */
-    agentStatus: z.enum(['idle', 'working', 'blocked', 'done', 'unknown']).optional(),
+    agentStatus: z.enum(['starting', 'idle', 'working', 'blocked', 'done', 'failed', 'unknown']).optional(),
     /** herdr agent kind (pi, claude, codex, ...). */
     agentKind: z.string().optional(),
     // Passthrough so read-modify-write metadata updates from this app never

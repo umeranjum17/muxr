@@ -8,7 +8,15 @@ import type { LocalSettings } from './localSettings';
 import { localSettingsDefaults } from './localSettings';
 import type { Profile } from './profile';
 import { profileDefaults } from './profile';
-import { loadSettings, loadLocalSettings, loadProfile, saveSettings, saveLocalSettings } from './persistence';
+import {
+    loadLifecycleNotificationPersistence,
+    loadSettings,
+    loadLocalSettings,
+    loadProfile,
+    saveLifecycleNotificationPersistence,
+    saveSettings,
+    saveLocalSettings,
+} from './persistence';
 import { boundSessionFileCache } from './sessionFileCache';
 import type { Message } from './typesMessage';
 import type { GitStatus } from './storageTypes';
@@ -17,7 +25,7 @@ import type { ProjectFilesList } from './projectFiles';
 import type { DecryptedArtifact } from './artifactTypes';
 import type { UserProfile, RelationshipUpdatedEvent } from './friendTypes';
 import type { FeedItem } from './feedTypes';
-import type { AttentionEntry, AttentionReason, HerdrTreeWorkspace } from '@muxr/contract';
+import type { AttentionEntry, AttentionReason, HerdrTreeWorkspace, LifecycleCatalog, LifecycleEvent } from '@muxr/contract';
 import { buildMessagesMap } from './messageAdapter';
 import { ACTIVE_SESSION_MS } from './sessionMapping';
 import { getRigActivityIndicators, getRigIdentity } from './rig';
@@ -29,6 +37,37 @@ function resolveSessionOnlineState(session: { active: boolean; activeAt: number 
 
 function isSessionActive(session: { active: boolean }): boolean {
     return session.active;
+}
+
+const MAX_LIFECYCLE_EVENTS = 50;
+const LIFECYCLE_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+
+function lifecycleTime(event: LifecycleEvent): number {
+    return Date.parse(event.at) || 0;
+}
+
+function boundLifecycleEvents(events: readonly LifecycleEvent[]): LifecycleEvent[] {
+    const cutoff = Date.now() - LIFECYCLE_RETENTION_MS;
+    const byId = new Map<string, LifecycleEvent>();
+    for (const event of events) {
+        if (lifecycleTime(event) >= cutoff && !byId.has(event.eventId)) byId.set(event.eventId, event);
+    }
+    return [...byId.values()]
+        .sort((left, right) => lifecycleTime(right) - lifecycleTime(left))
+        .slice(0, MAX_LIFECYCLE_EVENTS);
+}
+
+function presentsLifecycle(event: LifecycleEvent): boolean {
+    return event.state === 'blocked' || event.state === 'failed' || event.state === 'done';
+}
+
+function boundPresented(records: Array<{ eventId: string; at: string }>): Array<{ eventId: string; at: string }> {
+    const cutoff = Date.now() - LIFECYCLE_RETENTION_MS;
+    return [...new Map(records
+        .filter((record) => (Date.parse(record.at) || 0) >= cutoff)
+        .map((record) => [record.eventId, record])).values()]
+        .sort((left, right) => (Date.parse(right.at) || 0) - (Date.parse(left.at) || 0))
+        .slice(0, MAX_LIFECYCLE_EVENTS);
 }
 
 export interface SessionRowData {
@@ -185,6 +224,12 @@ interface StorageState {
     currentViewingSessionId: string | null;
     unreadSessionIds: Set<string>;
     attentionEntries: AttentionEntry[];
+    lifecycleRevision: number;
+    lifecycleEvents: LifecycleEvent[];
+    pendingLifecycleEvents: LifecycleEvent[];
+    prebaselineLifecycleEvents: LifecycleEvent[];
+    lifecycleCatalogInitialized: boolean;
+    lifecycleCatalogAvailable: boolean;
     applySessions: (sessions: (Omit<Session, 'presence'> & { presence?: 'online' | number })[], replace?: boolean) => void;
     applyHerdrTree: (workspaces: HerdrTreeWorkspace[]) => void;
     applyMachines: (machines: Machine[], replace?: boolean) => void;
@@ -224,11 +269,46 @@ interface StorageState {
     markSessionRead: (sessionId: string) => void;
     markSessionUnread: (sessionId: string) => void;
     applyAttentionCatalog: (entries: AttentionEntry[]) => void;
+    applyLifecycleCatalog: (catalog: LifecycleCatalog) => LifecycleEvent[];
+    applyLifecycleEvent: (event: LifecycleEvent) => LifecycleEvent[];
+    markLifecyclePresented: (eventId: string, at?: string) => void;
+    acknowledgeLifecyclePush: (eventId: string, machineId: string) => void;
+    setLifecycleAuthority: (authority: string) => void;
+    setLifecycleScope: (scope: string) => void;
+    resetLifecycleCatalog: () => void;
 }
 
 const { settings } = loadSettings();
 const localSettings = loadLocalSettings();
 const profile = loadProfile();
+const lifecyclePersistence = loadLifecycleNotificationPersistence();
+let lifecycleScope = '';
+let lifecycleAuthority = '';
+let lifecycleScopeState = { initialized: false, presented: [] as Array<{ eventId: string; at: string }>, updatedAt: 0 };
+const persistedLifecycleIds = new Set<string>();
+const preAuthorityPushes: Array<{ eventId: string; machineId: string }> = [];
+
+function saveLifecycleScope(): void {
+    if (lifecycleScope === '') return;
+    lifecycleScopeState.updatedAt = Date.now();
+    lifecyclePersistence.scopes[lifecycleScope] = lifecycleScopeState;
+    saveLifecycleNotificationPersistence(lifecyclePersistence);
+}
+
+function acknowledgePushInScope(scope: string, eventId: string): void {
+    const current = lifecyclePersistence.scopes[scope]
+        ?? { initialized: false, presented: [], updatedAt: 0 };
+    const updated = {
+        ...current,
+        presented: boundPresented([...current.presented, { eventId, at: new Date().toISOString() }]),
+        updatedAt: Date.now(),
+    };
+    lifecyclePersistence.scopes[scope] = updated;
+    saveLifecycleNotificationPersistence(lifecyclePersistence);
+    if (scope !== lifecycleScope) return;
+    lifecycleScopeState = updated;
+    persistedLifecycleIds.add(eventId);
+}
 
 export const storage = create<StorageState>()((set, get) => ({
     settings,
@@ -266,6 +346,12 @@ export const storage = create<StorageState>()((set, get) => ({
     currentViewingSessionId: null,
     unreadSessionIds: new Set<string>(),
     attentionEntries: [],
+    lifecycleRevision: 0,
+    lifecycleEvents: [],
+    pendingLifecycleEvents: [],
+    prebaselineLifecycleEvents: [],
+    lifecycleCatalogInitialized: false,
+    lifecycleCatalogAvailable: false,
     applySessions: (sessions, replace = false) => set((state) => {
         const merged = replace ? {} as Record<string, Session> : { ...state.sessions };
         for (const session of sessions) {
@@ -448,6 +534,124 @@ export const storage = create<StorageState>()((set, get) => ({
     // there is no local seen/dismissed state to merge -- a row leaves because
     // its condition resolved, never because this client hid it.
     applyAttentionCatalog: (entries) => set(() => ({ attentionEntries: entries })),
+    applyLifecycleCatalog: (catalog) => {
+        if (catalog.revision < get().lifecycleRevision) return [];
+        const buffered = get().prebaselineLifecycleEvents;
+        const lifecycleEvents = boundLifecycleEvents([...buffered, ...catalog.events]);
+        if (!get().lifecycleCatalogInitialized) {
+            const bufferedIds = new Set(buffered.map((event) => event.eventId));
+            const presented = boundPresented([
+                ...lifecycleScopeState.presented,
+                ...lifecycleEvents
+                .filter((event) => !bufferedIds.has(event.eventId))
+                .map((event) => ({ eventId: event.eventId, at: event.at })),
+            ]);
+            for (const event of presented) persistedLifecycleIds.add(event.eventId);
+            const fresh = buffered.filter((event) => presentsLifecycle(event));
+            lifecycleScopeState.initialized = true;
+            lifecycleScopeState.presented = presented;
+            saveLifecycleScope();
+            set({
+                lifecycleRevision: catalog.revision,
+                lifecycleEvents,
+                pendingLifecycleEvents: boundLifecycleEvents(fresh),
+                prebaselineLifecycleEvents: [],
+                lifecycleCatalogInitialized: true,
+                lifecycleCatalogAvailable: true,
+            });
+            return fresh;
+        }
+        const pendingIds = new Set(get().pendingLifecycleEvents.map((event) => event.eventId));
+        const fresh = lifecycleEvents.filter((event) =>
+            presentsLifecycle(event) && !persistedLifecycleIds.has(event.eventId) && !pendingIds.has(event.eventId));
+        const pendingLifecycleEvents = boundLifecycleEvents([...fresh, ...get().pendingLifecycleEvents]);
+        set({ lifecycleRevision: catalog.revision, lifecycleEvents, pendingLifecycleEvents, lifecycleCatalogAvailable: true });
+        return fresh;
+    },
+    applyLifecycleEvent: (event) => {
+        const lifecycleEvents = boundLifecycleEvents([event, ...get().lifecycleEvents]);
+        const pendingIds = new Set(get().pendingLifecycleEvents.map((entry) => entry.eventId));
+        const fresh = get().lifecycleCatalogInitialized
+            && presentsLifecycle(event)
+            && !persistedLifecycleIds.has(event.eventId)
+            && !pendingIds.has(event.eventId)
+            ? [event]
+            : [];
+        set({
+            lifecycleEvents,
+            prebaselineLifecycleEvents: get().lifecycleCatalogInitialized
+                ? get().prebaselineLifecycleEvents
+                : boundLifecycleEvents([event, ...get().prebaselineLifecycleEvents]),
+            pendingLifecycleEvents: fresh.length === 0
+                ? get().pendingLifecycleEvents
+                : boundLifecycleEvents([...fresh, ...get().pendingLifecycleEvents]),
+        });
+        return fresh;
+    },
+    markLifecyclePresented: (eventId, at) => set((state) => {
+        const event = state.pendingLifecycleEvents.find((entry) => entry.eventId === eventId)
+            ?? state.lifecycleEvents.find((entry) => entry.eventId === eventId);
+        persistedLifecycleIds.add(eventId);
+        const presented = boundPresented([
+            ...lifecycleScopeState.presented,
+            { eventId, at: event?.at ?? at ?? new Date().toISOString() },
+        ]);
+        lifecycleScopeState.initialized = true;
+        lifecycleScopeState.presented = presented;
+        saveLifecycleScope();
+        return { pendingLifecycleEvents: state.pendingLifecycleEvents.filter((entry) => entry.eventId !== eventId) };
+    }),
+    acknowledgeLifecyclePush: (eventId, machineId) => set((state) => {
+        if (lifecycleAuthority === '') {
+            if (!preAuthorityPushes.some((entry) => entry.eventId === eventId && entry.machineId === machineId)) {
+                preAuthorityPushes.push({ eventId, machineId });
+            }
+            return state;
+        }
+        const scope = `${lifecycleAuthority}:${machineId}`;
+        acknowledgePushInScope(scope, eventId);
+        return scope === lifecycleScope
+            ? { pendingLifecycleEvents: state.pendingLifecycleEvents.filter((entry) => entry.eventId !== eventId) }
+            : state;
+    }),
+    setLifecycleAuthority: (authority) => {
+        lifecycleAuthority = authority;
+        for (const push of preAuthorityPushes.splice(0)) {
+            acknowledgePushInScope(`${authority}:${push.machineId}`, push.eventId);
+        }
+    },
+    setLifecycleScope: (scope) => {
+        if (scope === lifecycleScope) return;
+        lifecycleScope = scope;
+        const loaded = lifecyclePersistence.scopes[scope];
+        lifecycleScopeState = loaded === undefined
+            ? { initialized: false, presented: [], updatedAt: Date.now() }
+            : { ...loaded, presented: boundPresented(loaded.presented) };
+        persistedLifecycleIds.clear();
+        for (const entry of lifecycleScopeState.presented) persistedLifecycleIds.add(entry.eventId);
+        set({
+            lifecycleRevision: 0,
+            lifecycleEvents: [],
+            pendingLifecycleEvents: [],
+            prebaselineLifecycleEvents: [],
+            lifecycleCatalogInitialized: lifecycleScopeState.initialized,
+            lifecycleCatalogAvailable: false,
+        });
+    },
+    resetLifecycleCatalog: () => {
+        persistedLifecycleIds.clear();
+        lifecycleScopeState.initialized = false;
+        lifecycleScopeState.presented = [];
+        saveLifecycleScope();
+        set({
+            lifecycleRevision: 0,
+            lifecycleEvents: [],
+            pendingLifecycleEvents: [],
+            prebaselineLifecycleEvents: [],
+            lifecycleCatalogInitialized: false,
+            lifecycleCatalogAvailable: false,
+        });
+    },
 }));
 
 const emptyMessages: Message[] = [];
@@ -550,6 +754,19 @@ export interface AttentionRowData {
 
 export function useAttentionEntries(): AttentionEntry[] {
     return storage(useShallow((state) => state.attentionEntries));
+}
+
+export function useLifecycleEvents(): LifecycleEvent[] {
+    return storage(useShallow((state) => state.lifecycleEvents));
+}
+
+export function usePendingLifecycleEvent(): LifecycleEvent | undefined {
+    return storage(useShallow((state) =>
+        state.pendingLifecycleEvents.find((event) => event.state !== 'done') ?? state.pendingLifecycleEvents[0]));
+}
+
+export function useLifecycleCatalogAvailable(): boolean {
+    return storage(useShallow((state) => state.lifecycleCatalogAvailable));
 }
 
 export function useAttentionRows(): AttentionRowData[] {

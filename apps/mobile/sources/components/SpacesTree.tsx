@@ -15,7 +15,7 @@ import { storage } from '@/sync/storage';
 import { sync } from '@/sync/sync';
 import { useNavigateToSession } from '@/hooks/useNavigateToSession';
 import { agentStatusColor } from '@/utils/sessionUtils';
-import { buildSpaceRows, middleTruncate, workspaceName, type HerdRow } from '@/utils/herdTree';
+import { buildSpaceRows, paneDisplayName, paneTaskTitle, workspaceName, type HerdRow } from '@/utils/herdTree';
 import { Typography } from '@/constants/Typography';
 import { StatusDot } from './StatusDot';
 import { Avatar } from './Avatar';
@@ -209,10 +209,10 @@ const AgentRow = React.memo(({
     const navigateToSession = useNavigateToSession();
     const dot = agentStatusColor(pane.agentStatus, theme);
     const kind = pane.agentKind ?? 'shell';
-    const cwd = pane.cwd ?? '';
-    const name = pane.label ?? pane.agentName ?? pane.terminalTitle ?? kind;
+    const displayName = paneDisplayName(pane);
+    const title = paneTaskTitle(pane);
     const sessionId = pane.sessionId;
-    const subtitle = cwd === '' ? kind : `${middleTruncate(cwd)} · ${kind}`;
+    const subtitle = `${displayName} · ${kind}`;
 
     return (
         <View style={[styles.agentRow, compact && styles.agentRowCompact]}>
@@ -230,11 +230,11 @@ const AgentRow = React.memo(({
                 android_ripple={{ color: theme.colors.surfaceRipple, foreground: true }}
                 accessibilityRole="button"
                 accessibilityState={{ selected }}
-                accessibilityLabel={`Open ${name}`}
+                accessibilityLabel={`Open ${title}, ${displayName}`}
             >
                 <Avatar id={pane.paneId} size={compact ? 28 : 32} flavor={null} />
                 <View style={styles.agentText}>
-                    <Text numberOfLines={1} style={[styles.agentName, compact && styles.agentNameCompact]}>{name}</Text>
+                    <Text numberOfLines={1} style={[styles.agentName, compact && styles.agentNameCompact]}>{title}</Text>
                     <Text numberOfLines={1} style={[styles.agentSubtitle, compact && styles.agentSubtitleCompact]}>{subtitle}</Text>
                 </View>
                 <StatusDot color={dot.color} isPulsing={dot.pulsing} size={7} />
@@ -387,8 +387,8 @@ export const SpacesTree = React.memo(({
     const confirmClosePane = React.useCallback((pane: HerdrTreePane) => {
         const sessionId = pane.sessionId;
         if (sessionId === undefined) return;
-        const name = pane.agentName ?? pane.terminalTitle ?? pane.agentKind ?? 'shell';
-        Modal.alert('Close pane?', `Closes "${name}" in herdr — its process is gone.`, [
+        const name = paneDisplayName(pane);
+        Modal.alert('Close pane?', `Closes "${paneTaskTitle(pane)}" (${name}) in herdr — its process is gone.`, [
             { text: 'Cancel', style: 'cancel' },
             {
                 text: 'Close',

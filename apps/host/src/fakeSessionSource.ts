@@ -65,6 +65,18 @@ function scriptedTurn(sessionId: string, session: SessionInfo, demoWrite: { path
                 entries: [{ sessionId: 'fake-1', reason: 'done', detail: 'Agent finished', at: '2026-01-01T00:00:00.000Z' }],
             },
         },
+        {
+            type: 'lifecycle.update',
+            event: {
+                eventId: 'fake-working',
+                sessionId,
+                displayName: 'Maria',
+            state: 'working',
+            reasonCode: 'agent-working',
+            reason: 'agent-working',
+                at: '2026-01-01T00:00:00.000Z',
+            },
+        },
         { type: 'status.update', status: statusFor(sessionId, false) },
         { type: 'activity.update', activity: { sessionId, phase: 'idle', label: 'idle', at: new Date().toISOString() } },
         { type: 'watch.settled', status: 'done', detail: 'agent is done' },

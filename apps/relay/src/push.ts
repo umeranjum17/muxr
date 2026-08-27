@@ -4,6 +4,7 @@
  */
 
 import { join } from 'node:path';
+import type { LifecycleReasonCode } from '@muxr/contract';
 import webpush from 'web-push';
 import { readPrivateFile, writeJsonFileAtomic } from './persist.js';
 
@@ -14,10 +15,53 @@ export interface PushSubscriptionRecord {
 }
 
 export interface PushPayload {
-    title: string;
-    body: string;
+    eventId: string;
+    kind: PushNotificationKind;
+    reasonCode: LifecycleReasonCode;
+    displayName: string;
+    taskTitle?: string;
     sessionId: string;
     machineId: string;
+}
+
+export type PushNotificationKind = 'blocked' | 'done' | 'failed';
+
+const COPY_SUFFIX: Record<PushNotificationKind, string> = {
+    blocked: ' needs attention.',
+    done: ' finished.',
+    failed: ' failed.',
+};
+
+const REASON_CODES = new Set<LifecycleReasonCode>([
+    'start-requested', 'start-launch-failed', 'start-timeout', 'squad-rolled-back',
+    'agent-working', 'agent-blocked', 'agent-done', 'agent-runtime-failed',
+    'agent-unavailable', 'state-reconciled',
+]);
+
+const START_FAILURE_REASONS = new Set<LifecycleReasonCode>([
+    'start-launch-failed', 'start-timeout', 'squad-rolled-back', 'agent-unavailable',
+]);
+
+/** Validate the host's fixed lifecycle fields before constructing push copy. */
+export function parsePushNotification(value: {
+    eventId?: unknown;
+    kind?: unknown;
+    reasonCode?: unknown;
+    displayName?: unknown;
+    taskTitle?: unknown;
+}): Pick<PushPayload, 'eventId' | 'kind' | 'reasonCode' | 'displayName' | 'taskTitle'> | undefined {
+    if (typeof value.eventId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/.test(value.eventId)) return undefined;
+    if (value.kind !== 'blocked' && value.kind !== 'done' && value.kind !== 'failed') return undefined;
+    if (typeof value.reasonCode !== 'string' || !REASON_CODES.has(value.reasonCode as LifecycleReasonCode)) return undefined;
+    const reasonCode = value.reasonCode as LifecycleReasonCode;
+    if (typeof value.displayName !== 'string') return undefined;
+    const displayName = value.displayName.normalize('NFKC').replace(/\s+/g, ' ').trim();
+    if (displayName.length > 80 || !/^[\p{L}\p{M}][\p{L}\p{M}' -]*(?: [2-9][0-9]*)?$/u.test(displayName)) return undefined;
+    if (value.taskTitle === undefined) return { eventId: value.eventId, kind: value.kind, reasonCode, displayName };
+    if (typeof value.taskTitle !== 'string') return undefined;
+    const taskTitle = value.taskTitle.normalize('NFKC').replace(/[\0-\x1F\x7F]/g, ' ').replace(/\s+/g, ' ').trim();
+    if (taskTitle === '' || taskTitle.length > 120 || /^(?:\/|[A-Za-z]:\\)|\b(?:token|password|secret|credential)\s*=/i.test(taskTitle)) return undefined;
+    return { eventId: value.eventId, kind: value.kind, reasonCode, displayName, taskTitle };
 }
 
 interface ExpoPushTokenRecord {
@@ -29,6 +73,21 @@ interface ExpoPushTokenRecord {
 interface PushSubscriptionsFile {
     accounts: Record<string, PushSubscriptionRecord[]>;
     expoAccounts?: Record<string, ExpoPushTokenRecord[]>;
+    deliveredEvents?: Array<{ accountId: string; eventId: string }>;
+}
+
+const DELIVERED_EVENT_LIMIT = 2_048;
+
+function boundDeliveredEvents(events: Array<{ accountId: string; eventId: string }>): Array<{ accountId: string; eventId: string }> {
+    const counts = new Map<string, number>();
+    return events.filter((entry) => typeof entry?.accountId === 'string' && typeof entry.eventId === 'string')
+        .reverse()
+        .filter((entry) => {
+            const count = counts.get(entry.accountId) ?? 0;
+            counts.set(entry.accountId, count + 1);
+            return count < DELIVERED_EVENT_LIMIT;
+        })
+        .reverse();
 }
 
 function isGone(error: unknown): boolean {
@@ -42,6 +101,10 @@ export class PushService {
     private vapid: { publicKey: string; privateKey: string } | undefined;
     private subs: Record<string, PushSubscriptionRecord[]> = {};
     private expoSubs: Record<string, ExpoPushTokenRecord[]> = {};
+    private deliveredEvents: Array<{ accountId: string; eventId: string }> = [];
+    private readonly deliveries = new Map<string, Promise<{ sent: number; duplicate?: true }>>();
+    private readonly undurableEvents = new Set<string>();
+    private persistChain: Promise<void> = Promise.resolve();
 
     constructor(dataDir: string) {
         this.vapidPath = join(dataDir, 'vapid.json');
@@ -66,8 +129,9 @@ export class PushService {
         const subscriptionsRaw = await readPrivateFile(this.subsPath);
         if (subscriptionsRaw !== undefined) {
             const parsed = JSON.parse(subscriptionsRaw) as PushSubscriptionsFile;
-            this.subs = parsed.accounts;
+            this.subs = parsed.accounts ?? {};
             this.expoSubs = parsed.expoAccounts ?? {};
+            this.deliveredEvents = boundDeliveredEvents(parsed.deliveredEvents ?? []);
         }
     }
 
@@ -98,10 +162,31 @@ export class PushService {
         await this.removeExpo(accountId, (entry) => entry.token === token);
     }
 
-    /** Send every configured push channel for this account. Never throws. */
-    async notify(accountId: string, payload: PushPayload): Promise<{ sent: number }> {
+    /** Send every configured push channel for this account, coalescing concurrent retries. */
+    async notify(accountId: string, payload: PushPayload): Promise<{ sent: number; duplicate?: true }> {
+        const key = `${accountId}\0${payload.eventId}`;
+        if (this.deliveredEvents.some((entry) => entry.accountId === accountId && entry.eventId === payload.eventId)) {
+            if (this.undurableEvents.has(key)) {
+                await this.persist();
+                this.undurableEvents.delete(key);
+            }
+            return { sent: 0, duplicate: true };
+        }
+        const active = this.deliveries.get(key);
+        if (active !== undefined) return active;
+        const delivery = this.deliver(accountId, payload).finally(() => this.deliveries.delete(key));
+        this.deliveries.set(key, delivery);
+        return delivery;
+    }
+
+    private async deliver(accountId: string, payload: PushPayload): Promise<{ sent: number }> {
+        const title = payload.taskTitle ?? 'Agent update';
+        const suffix = payload.kind === 'failed' && START_FAILURE_REASONS.has(payload.reasonCode)
+            ? ' could not start.'
+            : COPY_SUFFIX[payload.kind];
+        const bodyText = `${payload.displayName}${suffix}`;
         const list = this.subs[accountId] ?? [];
-        const body = JSON.stringify(payload);
+        const body = JSON.stringify({ ...payload, title, body: bodyText, presentationOwner: 'relay-push' });
         const results = await Promise.allSettled(list.map((sub) => webpush.sendNotification(sub, body)));
         const dead = list.filter((sub, index) => results[index]?.status === 'rejected' && isGone((results[index] as PromiseRejectedResult).reason));
         if (dead.length > 0) {
@@ -118,9 +203,20 @@ export class PushService {
                     headers: { 'content-type': 'application/json' },
                     body: JSON.stringify(expo.map(({ token }) => ({
                         to: token,
-                        title: 'muxr',
-                        body: 'An agent needs your attention.',
+                        title,
+                        body: bodyText,
                         sound: 'default',
+                        collapseId: payload.eventId,
+                        data: {
+                            eventId: payload.eventId,
+                            kind: payload.kind,
+                            reasonCode: payload.reasonCode,
+                            displayName: payload.displayName,
+                            ...(payload.taskTitle === undefined ? {} : { taskTitle: payload.taskTitle }),
+                            sessionId: payload.sessionId,
+                            machineId: payload.machineId,
+                            presentationOwner: 'relay-push',
+                        },
                     }))),
                     signal: AbortSignal.timeout(5_000),
                 });
@@ -133,8 +229,17 @@ export class PushService {
             } catch {}
         }
 
-        if (dead.length > 0 || this.expoSubs[accountId]?.length !== expo.length) await this.persist().catch(() => {});
-        return { sent: results.filter((result) => result.status === 'fulfilled').length + expoSent };
+        const sent = results.filter((result) => result.status === 'fulfilled').length + expoSent;
+        if (sent > 0) {
+            // Mark after provider acceptance so total send failures remain retryable.
+            // A crash before this queued write can still duplicate; transports offer no atomic send+commit.
+            this.deliveredEvents.push({ accountId, eventId: payload.eventId });
+            this.deliveredEvents = boundDeliveredEvents(this.deliveredEvents);
+            this.undurableEvents.add(`${accountId}\0${payload.eventId}`);
+        }
+        if (sent > 0 || dead.length > 0 || this.expoSubs[accountId]?.length !== expo.length) await this.persist();
+        if (sent > 0) this.undurableEvents.delete(`${accountId}\0${payload.eventId}`);
+        return { sent };
     }
 
     private async removeExpo(accountId: string, matches: (entry: ExpoPushTokenRecord) => boolean): Promise<void> {
@@ -146,6 +251,13 @@ export class PushService {
     }
 
     private persist(): Promise<void> {
-        return writeJsonFileAtomic(this.subsPath, { accounts: this.subs, expoAccounts: this.expoSubs });
+        const snapshot = structuredClone({
+            accounts: this.subs,
+            expoAccounts: this.expoSubs,
+            deliveredEvents: this.deliveredEvents,
+        });
+        const write = this.persistChain.then(() => writeJsonFileAtomic(this.subsPath, snapshot));
+        this.persistChain = write.catch(() => {});
+        return write;
     }
 }

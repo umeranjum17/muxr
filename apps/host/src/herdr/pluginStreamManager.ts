@@ -16,9 +16,12 @@ import {
     issueWsTicket,
     parseRealtimeClientFrame,
     parseRealtimeHostFrame,
+    realtimePluginPublicContext,
     realtimeSocketUrl,
     ticketSocketUrl,
     type Envelope,
+    type RealtimePluginOpenFrame,
+    type RealtimePluginPublicContext,
     type RealtimeHostFrame,
 } from '@muxr/contract';
 import { v2EnvelopeSequence } from '@muxr/crypto';
@@ -74,6 +77,7 @@ export class PluginStreamManager {
         sessionId?: string;
         paneId?: string;
         cwd?: string;
+        publicContext?: RealtimePluginPublicContext;
         deviceId?: string;
         signal: AbortSignal;
         onClosed: () => void;
@@ -307,12 +311,14 @@ export class PluginStreamManager {
         socket.on('error', () => attachment.close());
 
         try {
-            child.stdin.write(`${JSON.stringify({
+            const open: RealtimePluginOpenFrame = {
                 type: 'realtime.open',
                 ...(params.sessionId === undefined ? {} : { sessionId: params.sessionId }),
                 ...(params.paneId === undefined ? {} : { paneId: params.paneId }),
                 ...(params.cwd === undefined ? {} : { cwd: params.cwd }),
-            })}\n`);
+                ...(params.publicContext === undefined ? {} : { publicContext: realtimePluginPublicContext(params.publicContext.sessions) }),
+            };
+            child.stdin.write(`${JSON.stringify(open)}\n`);
         } catch (error) {
             attachment.close(error instanceof Error ? error.message : String(error));
             throw error;

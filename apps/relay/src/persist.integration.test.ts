@@ -7,7 +7,7 @@ import type { Envelope } from '@muxr/contract';
 import { OfflineBuffer } from './buffer.js';
 import { loadRelayConfig } from './config.js';
 import { awaitPersistChain } from './persist.js';
-import { PushService } from './push.js';
+import { parsePushNotification, PushService } from './push.js';
 import { MachineRegistry } from './registry.js';
 import { ReplayLog } from './replay.js';
 import { SelfhostPairing } from './selfhostPairing.js';
@@ -158,7 +158,13 @@ it('hardens every relay state path in a custom data directory', async () => {
         'offline-buffer.json': '{"queues":{},"droppedCount":0}',
         'replay-log.json': '{"byMachine":{}}',
         'vapid.json': '{}',
-        'push-subscriptions.json': '{"accounts":{}}',
+        'push-subscriptions.json': JSON.stringify({
+            accounts: {},
+            deliveredEvents: [
+                { accountId: 'tenant-b', eventId: 'event-keep' },
+                ...Array.from({ length: 2_049 }, (_, index) => ({ accountId: 'tenant-a', eventId: `event-${index}` })),
+            ],
+        }),
     };
     const previousUmask = process.umask(0o000);
     const originalHandles: FileHandle[] = [];
@@ -204,19 +210,96 @@ it('hardens every relay state path in a custom data directory', async () => {
         await push.subscribeExpo(account.accountId, 'ExpoPushToken[fixture-token]');
         const expoAccount = await registry.createAccount();
         await push.subscribeExpo(expoAccount.accountId, 'ExpoPushToken[delivery-token]', 'device-1');
-        const fetchMock = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) => new Response(JSON.stringify({ data: [{ status: 'ok' }] }), { status: 200 }));
+        let failNextExpoSend = false;
+        const fetchMock = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) => {
+            if (failNextExpoSend) {
+                failNextExpoSend = false;
+                return new Response('', { status: 503 });
+            }
+            return new Response(JSON.stringify({ data: [{ status: 'ok' }] }), { status: 200 });
+        });
         vi.stubGlobal('fetch', fetchMock);
-        await expect(push.notify(expoAccount.accountId, {
-            title: 'Agent finished', body: 'Agent finished', sessionId: 'session-1', machineId: 'machine-a',
-        })).resolves.toEqual({ sent: 1 });
+        const notification = parsePushNotification({
+            eventId: 'event-done', kind: 'done', reasonCode: 'agent-done', displayName: 'Maria', taskTitle: 'Prepare release notes',
+        });
+        expect(notification).toEqual({
+            eventId: 'event-done', kind: 'done', reasonCode: 'agent-done', displayName: 'Maria', taskTitle: 'Prepare release notes',
+        });
+        expect(parsePushNotification({
+            eventId: 'event-unknown', kind: 'failed', reasonCode: 'unknown-prose', displayName: 'Maria',
+        })).toBeUndefined();
+        if (notification === undefined) throw new Error('fixture lifecycle notification rejected');
+        const completed = {
+            ...notification,
+            sessionId: 'session-1', machineId: 'machine-a',
+        };
+        const concurrent = {
+            ...completed, eventId: 'event-concurrent', kind: 'blocked' as const, reasonCode: 'agent-blocked' as const,
+        };
+        await expect(Promise.all([
+            push.notify(expoAccount.accountId, completed),
+            push.notify(expoAccount.accountId, concurrent),
+        ])).resolves.toEqual([{ sent: 1 }, { sent: 1 }]);
         expect(fetchMock).toHaveBeenCalledWith('https://exp.host/--/api/v2/push/send', expect.objectContaining({ method: 'POST' }));
-        const expoRequest = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as Array<{ title: string; body: string }>;
-        expect(expoRequest).toEqual([expect.objectContaining({ title: 'muxr', body: 'An agent needs your attention.' })]);
-        await push.removeExpoDevice(expoAccount.accountId, 'device-1');
-        await expect(push.notify(expoAccount.accountId, {
-            title: 'Should not send', body: 'Should not send', sessionId: 'session-1', machineId: 'machine-a',
+        const expoRequest = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as Array<Record<string, unknown>>;
+        expect(expoRequest).toEqual([expect.objectContaining({
+            title: 'Prepare release notes',
+            body: 'Maria finished.',
+            collapseId: 'event-done',
+            data: expect.objectContaining({ eventId: 'event-done', kind: 'done', presentationOwner: 'relay-push' }),
+        })]);
+        await expect(push.notify(expoAccount.accountId, completed)).resolves.toEqual({ sent: 0, duplicate: true });
+
+        const restartedPush = new PushService(dataDir);
+        await restartedPush.load();
+        await expect(restartedPush.notify(expoAccount.accountId, completed)).resolves.toEqual({ sent: 0, duplicate: true });
+        await expect(restartedPush.notify(expoAccount.accountId, concurrent)).resolves.toEqual({ sent: 0, duplicate: true });
+        await expect(restartedPush.notify('tenant-b', {
+            ...completed, eventId: 'event-keep',
+        })).resolves.toEqual({ sent: 0, duplicate: true });
+        await expect(restartedPush.notify('tenant-a', {
+            ...completed, eventId: 'event-0',
         })).resolves.toEqual({ sent: 0 });
-        expect(fetchMock).toHaveBeenCalledOnce();
+        await expect(restartedPush.notify('tenant-a', {
+            ...completed, eventId: 'event-2048',
+        })).resolves.toEqual({ sent: 0, duplicate: true });
+
+        const retryable = {
+            ...completed, eventId: 'event-blocked', kind: 'blocked' as const, reasonCode: 'agent-blocked' as const,
+        };
+        failNextExpoSend = true;
+        await expect(restartedPush.notify(expoAccount.accountId, retryable)).resolves.toEqual({ sent: 0 });
+        await expect(restartedPush.notify(expoAccount.accountId, retryable)).resolves.toEqual({ sent: 1 });
+        const startFailure = parsePushNotification({
+            eventId: 'event-start-failed', kind: 'failed', reasonCode: 'start-timeout', displayName: 'John',
+        });
+        const runtimeFailure = parsePushNotification({
+            eventId: 'event-runtime-failed', kind: 'failed', reasonCode: 'agent-runtime-failed', displayName: 'Maria',
+        });
+        if (startFailure === undefined || runtimeFailure === undefined) throw new Error('fixture failure notification rejected');
+        await expect(restartedPush.notify(expoAccount.accountId, {
+            ...startFailure, sessionId: 'session-2', machineId: 'machine-a',
+        })).resolves.toEqual({ sent: 1 });
+        await expect(restartedPush.notify(expoAccount.accountId, {
+            ...runtimeFailure, sessionId: 'session-1', machineId: 'machine-a',
+        })).resolves.toEqual({ sent: 1 });
+        const failureRequests = fetchMock.mock.calls.slice(-2).map((call) =>
+            (JSON.parse(String(call[1]?.body)) as Array<Record<string, unknown>>)[0]);
+        expect(failureRequests).toEqual([
+            expect.objectContaining({
+                body: 'John could not start.',
+                data: expect.objectContaining({ reasonCode: 'start-timeout' }),
+            }),
+            expect.objectContaining({
+                body: 'Maria failed.',
+                data: expect.objectContaining({ reasonCode: 'agent-runtime-failed' }),
+            }),
+        ]);
+        await restartedPush.removeExpoDevice(expoAccount.accountId, 'device-1');
+        await expect(restartedPush.notify(expoAccount.accountId, {
+            ...completed, eventId: 'event-failed', kind: 'failed', reasonCode: 'agent-runtime-failed',
+        })).resolves.toEqual({ sent: 0 });
+        expect(fetchMock).toHaveBeenCalledTimes(6);
         vi.unstubAllGlobals();
         await awaitPersistChain();
 

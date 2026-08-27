@@ -35,6 +35,7 @@ export function sessionInfoToSession(info: SessionInfo, status?: SessionStatus):
     const busy = status !== undefined && !isSessionIdle(status);
     const cwd = info.cwd;
     const displayName = sessionDisplayName(info);
+    const taskTitle = info.taskTitle?.trim() || 'Current task';
     const machineId = getCachedConnectionSettings().machineId;
     // Herdr runs every CLI, so the agent kind is per session, not per build.
     const kind = info.agentKind ?? 'agent';
@@ -48,7 +49,7 @@ export function sessionInfoToSession(info: SessionInfo, status?: SessionStatus):
         updatedAt,
         active,
         activeAt: updatedAt,
-        ...(status?.agentStatus === 'blocked' ? { agentState: blockedAgentState(kindName) } : {}),
+        ...(status?.agentStatus === 'blocked' ? { agentState: blockedAgentState(displayName ?? kindName) } : {}),
         metadata: {
             path: cwd,
             homeDir: cwd,
@@ -63,6 +64,8 @@ export function sessionInfoToSession(info: SessionInfo, status?: SessionStatus):
             ...(info.agentKind === undefined || info.agentKind === '' ? {} : { agentKind: info.agentKind }),
             ...(info.paneId === undefined || info.paneId === '' ? {} : { paneId: info.paneId }),
             ...(info.terminalTitle === undefined || info.terminalTitle === '' ? {} : { terminalTitle: info.terminalTitle }),
+            ...(displayName === undefined ? {} : { displayName }),
+            taskTitle,
             ...(info.worktree === undefined
                 ? {}
                 : {
@@ -80,7 +83,7 @@ export function sessionInfoToSession(info: SessionInfo, status?: SessionStatus):
             // `metadata.version` is read as a legacy CLI semver. muxr's host is not
             // that CLI, so leaving it unset keeps the "CLI Update Required" banner off.
             startedBy: 'daemon',
-            ...(displayName === undefined ? {} : { summary: { text: displayName, updatedAt } }),
+            summary: { text: taskTitle, updatedAt },
             rigMetadataVersion: 1,
             // The UI gates every optional feature on this. Declare what muxr
             // really supports: unset meant "no attachments, no abort button".
@@ -116,6 +119,7 @@ export function sessionInfoToSession(info: SessionInfo, status?: SessionStatus):
  * refresh overwrote a real title with it.
  */
 export function sessionDisplayName(info: SessionInfo): string | undefined {
+    if (info.displayName !== undefined && info.displayName.trim().length > 0) return info.displayName.trim();
     if (info.name !== undefined && info.name.trim().length > 0) return info.name.trim();
     return undefined;
 }

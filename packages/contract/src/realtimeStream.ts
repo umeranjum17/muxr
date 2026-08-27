@@ -12,6 +12,58 @@ export const REALTIME_INPUT_RATE = 24_000;
 export const REALTIME_OUTPUT_RATE = 24_000;
 export const MAX_REALTIME_AUDIO_BASE64_BYTES = 96 * 1024;
 export const MAX_REALTIME_TEXT_BYTES = 4 * 1024;
+export const MAX_REALTIME_PUBLIC_SESSIONS = 64;
+
+/** Trusted host metadata delivered to a stream plugin in realtime.open. */
+export interface RealtimePluginPublicSession {
+    sessionId: string;
+    displayName: string;
+    taskTitle?: string;
+    agentKind?: string;
+}
+
+export interface RealtimePluginPublicContext {
+    sessions: RealtimePluginPublicSession[];
+}
+
+export interface RealtimePluginOpenFrame {
+    type: 'realtime.open';
+    sessionId?: string;
+    paneId?: string;
+    cwd?: string;
+    publicContext?: RealtimePluginPublicContext;
+}
+
+/** Bound and sanitize the stable-id/name map before it crosses the stream process boundary. */
+export function realtimePluginPublicContext(input: readonly RealtimePluginPublicSession[]): RealtimePluginPublicContext {
+    const sessions: RealtimePluginPublicSession[] = [];
+    const ids = new Set<string>();
+    for (const entry of input) {
+        const sessionId = entry.sessionId.replace(/[\0-\x1F\x7F]/g, '').trim();
+        const displayName = entry.displayName.normalize('NFKC').replace(/[\0-\x1F\x7F]/g, '').replace(/\s+/g, ' ').trim();
+        if (!/^[A-Za-z0-9._:-]{1,80}$/.test(sessionId) || ids.has(sessionId)) continue;
+        if (!/^[\p{L}\p{M}][\p{L}\p{M}' -]{0,72}(?: \d+)?$/u.test(displayName)) continue;
+        const agentKind = entry.agentKind?.trim().toLowerCase();
+        let taskTitle = entry.taskTitle?.replace(/[\0-\x1F\x7F]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120);
+        if (taskTitle !== undefined) {
+            for (const prefix of [displayName, agentKind]) {
+                if (prefix === undefined || prefix === '') continue;
+                const escaped = prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                taskTitle = taskTitle.replace(new RegExp(`^${escaped}\\s*[-–—:|]\\s*`, 'i'), '').trim();
+            }
+            if (taskTitle === '' || taskTitle.split(/\s+/).length > 8 || /[\\/`]|&&|\|\||\b(?:token|password|secret|credential)\s*=/i.test(taskTitle)) taskTitle = undefined;
+        }
+        ids.add(sessionId);
+        sessions.push({
+            sessionId,
+            displayName,
+            ...(taskTitle === undefined ? {} : { taskTitle }),
+            ...(agentKind === undefined || !/^[a-z][a-z0-9_-]{0,31}$/.test(agentKind) ? {} : { agentKind }),
+        });
+        if (sessions.length === MAX_REALTIME_PUBLIC_SESSIONS) break;
+    }
+    return { sessions };
+}
 
 export type RealtimeState = 'connecting' | 'connected' | 'thinking' | 'speaking';
 

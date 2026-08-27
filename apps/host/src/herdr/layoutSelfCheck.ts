@@ -11,12 +11,13 @@
 import {
     collectKinds,
     collectPaneIds,
+    lifecycleReasonForObservation,
     toHerdrRoot,
     toSnapshot,
     type HerdrLayoutNode,
 } from './herdrSessionSource.js';
 import { IdentityStore } from './identity.js';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -24,11 +25,11 @@ function assert(condition: boolean, message: string): void {
     if (!condition) throw new Error(message);
 }
 
-function demo(): void {
+async function demo(): Promise<void> {
     const identity = new IdentityStore(mkdtempSync(join(tmpdir(), 'pph-layout-check-')));
     const base = { workspaceId: 'w1', tabId: 'w1:t1', cwd: '/repo', createdAt: '', ours: true };
-    identity.put({ ...base, sessionId: 'a', paneId: 'w1:p1', kind: 'pi' });
-    identity.put({ ...base, sessionId: 'b', paneId: 'w1:p3', kind: 'claude' });
+    identity.put({ ...base, sessionId: 'a', paneId: 'w1:p1', displayName: 'John', kind: 'pi' });
+    identity.put({ ...base, sessionId: 'b', paneId: 'w1:p3', displayName: 'Maria', kind: 'claude' });
 
     // (p1 | (p2 / p3)) -- asymmetric on purpose so a left/right swap shows up.
     const live: HerdrLayoutNode = {
@@ -89,8 +90,39 @@ function demo(): void {
     // A single-pane tab is the common case and must not throw.
     const solo = toSnapshot({ type: 'pane', pane_id: 'w1:p1' }, identity);
     assert(collectKinds(solo).length === 1, 'single pane yields one slot');
+    assert(
+        lifecycleReasonForObservation('failed', undefined, 'start-timeout') === 'start-timeout',
+        'failed reconciliation without a live agent preserves the start failure chronology',
+    );
+    assert(
+        lifecycleReasonForObservation('failed', undefined, 'start-launch-failed') === 'start-launch-failed',
+        'launch failure reconciliation does not emit a duplicate runtime failure',
+    );
+    assert(
+        lifecycleReasonForObservation('failed', 'failed', 'start-timeout') === 'agent-runtime-failed',
+        'an observed live agent failure is classified as runtime failure',
+    );
+
+    const migrationDir = mkdtempSync(join(tmpdir(), 'pph-identity-check-'));
+    const legacyBase = { workspaceId: 'w1', tabId: 'w1:t1', cwd: '/repo', createdAt: '', ours: true };
+    writeFileSync(join(migrationDir, 'herdr-identity.json'), JSON.stringify({ sessions: [
+        { ...legacyBase, sessionId: 'stable-c', paneId: 'p3', displayName: 'Maria 2' },
+        { ...legacyBase, sessionId: 'stable-b', paneId: 'p2', displayName: ' maria ' },
+        { ...legacyBase, sessionId: 'stable-a', paneId: 'p1', displayName: 'Maria' },
+    ] }));
+    const migrated = new IdentityStore(migrationDir);
+    await migrated.load();
+    assert(migrated.get('stable-a')?.displayName === 'Maria', 'stable ordering preserves one base display name');
+    assert(migrated.get('stable-b')?.displayName === 'maria 3', 'duplicate display name skips an existing visible suffix');
+    assert(migrated.get('stable-c')?.displayName === 'Maria 2', 'existing safe suffix remains stable');
+    const restarted = new IdentityStore(migrationDir);
+    await restarted.load();
+    assert(restarted.get('stable-b')?.displayName === 'maria 3', 'display-name migration persists across restart');
 
     console.log('layout snapshot self-check passed');
 }
 
-demo();
+demo().catch((error: unknown) => {
+    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+    process.exitCode = 1;
+});

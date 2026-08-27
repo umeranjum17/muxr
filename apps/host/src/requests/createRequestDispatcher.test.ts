@@ -45,6 +45,63 @@ describe('session.start cwd guard', () => {
     });
 });
 
+describe('agent lifecycle request flow', () => {
+    it('forwards human names on starts and routes stale-target failures only by session id', async () => {
+        const cwd = mkdtempSync(join(tmpdir(), 'muxr-start-'));
+        const starts: unknown[] = [];
+        const routed: string[] = [];
+        const source = {
+            async start(options: unknown) {
+                starts.push(options);
+                const named = options as { displayName?: string; members?: Array<{ displayName?: string }> };
+                return {
+                    info: { id: 'stable-session' },
+                    acceptance: { outcome: 'accepted', state: 'starting', displayName: named.displayName ?? named.members?.[0]?.displayName },
+                };
+            },
+            async paneFocus(sessionId: string) {
+                routed.push(sessionId);
+                const error = new Error('That agent is no longer available. Refresh and try again.') as Error & { code: string };
+                error.code = 'agent-unavailable';
+                throw error;
+            },
+            async open() { throw new Error('must not fall back'); },
+        } as unknown as SessionSource;
+        const { dispatch } = createRequestDispatcher({
+            source,
+            domain: {} as never,
+            machineId: 'm1',
+            hostVersion: '0.0.0',
+        });
+
+        const single = await dispatch({
+            type: 'session.start', requestId: 'single', params: { cwd, kind: 'codex', displayName: 'Maria' },
+        } as never);
+        const squad = await dispatch({
+            type: 'session.start', requestId: 'squad', params: {
+                cwd,
+                members: [{ kind: 'codex', displayName: 'John' }, { kind: 'claude', displayName: 'Maria' }],
+            },
+        } as never);
+        expect(starts).toEqual([
+            { cwd, kind: 'codex', displayName: 'Maria' },
+            { cwd, members: [{ kind: 'codex', displayName: 'John' }, { kind: 'claude', displayName: 'Maria' }] },
+        ]);
+        expect(single).toMatchObject({ ok: true, data: { acceptance: { outcome: 'accepted', state: 'starting', displayName: 'Maria' } } });
+        expect(squad).toMatchObject({ ok: true, data: { acceptance: { outcome: 'accepted', state: 'starting', displayName: 'John' } } });
+
+        const stale = await dispatch({
+            type: 'pane.focus', requestId: 'focus', params: { sessionId: 'stable-session' },
+        } as never);
+        expect(routed).toEqual(['stable-session']);
+        expect(stale).toEqual({
+            type: 'result', requestId: 'focus', ok: false, code: 'agent-unavailable',
+            error: 'That agent is no longer available. Refresh and try again.',
+        });
+        expect(JSON.stringify(stale)).not.toMatch(/\/|prompt|pane-|stable-session/);
+    });
+});
+
 describe('host capability catalog', () => {
     it('reports launchable agents and the actual host platform', async () => {
         const source = {

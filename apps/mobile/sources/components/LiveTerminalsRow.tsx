@@ -127,13 +127,14 @@ interface LiveTerminalCardProps {
     id: string;
     title: string;
     status: LiveTerminalOrderCard['status'];
+    displayName: string;
     kindName: string;
     branch?: string;
     width: number;
     height: number;
 }
 
-const LiveTerminalCard = React.memo(({ id, title, status, kindName, branch, width, height }: LiveTerminalCardProps) => {
+const LiveTerminalCard = React.memo(({ id, title, status, displayName, kindName, branch, width, height }: LiveTerminalCardProps) => {
     const { theme } = useUnistyles();
     const navigateToSession = useNavigateToSession();
     const styles = stylesheet;
@@ -167,7 +168,7 @@ const LiveTerminalCard = React.memo(({ id, title, status, kindName, branch, widt
                         numberOfLines={1}
                         style={{ color: theme.colors.textSecondary, fontSize: 11, flexShrink: 1 }}
                     >
-                        {kindName}
+                        {displayName} · {kindName}
                         {branch === undefined ? '' : ` · ${branch}`}
                     </Text>
                 </View>
@@ -219,6 +220,7 @@ export const LiveTerminalsRow = React.memo(({ layout = 'strip' }: { layout?: 'st
             id={item.id}
             title={title || footerTitle(item)}
             status={status}
+            displayName={item.metadata?.displayName?.trim() || 'Agent'}
             kindName={item.metadata?.provider?.name ?? 'agent'}
             branch={item.metadata?.worktree?.branch}
             width={cardSize.width}

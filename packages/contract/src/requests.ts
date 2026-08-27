@@ -27,11 +27,12 @@ export type LayoutSnapshot =
 import type {
     MachineInfo,
     SessionSnapshot,
+    SessionStartResult,
     UnreadCatalog,
 } from './sessionDomain.js';
 import type { PluginManifestV1, PluginSource, PluginSummary } from './plugins.js';
 import type { LandWorktreeResult } from './worktree.js';
-import type { AttentionCatalog, HerdrTreeWorkspace, SessionInfo, SessionShellOutcome, SessionStatus } from './sessionState.js';
+import type { AttentionCatalog, HerdrTreeWorkspace, LifecycleCatalog, SessionInfo, SessionShellOutcome, SessionStatus } from './sessionState.js';
 import type {
     PeerAuthorityMetadata,
     PeerCapability,
@@ -150,6 +151,8 @@ export interface PeerRequestMap {
             cwd: string;
             kind?: string;
             label?: string;
+            /** Human-facing name, independent of routing identity and agent kind. */
+            displayName?: string;
             mutation: PeerMutationMetadata;
         };
         result: { machineAlias: string; sessionId: string; agentAlias: string };
@@ -182,14 +185,18 @@ export interface RequestMap extends PeerRequestMap {
             kind?: string;
             /** Display label; also names the herdr tab. */
             label?: string;
+            /** Human-facing name, independent of routing identity and agent kind. */
+            displayName?: string;
             /** Create the session inside a new git worktree of the repo at cwd. */
             worktree?: { branch?: string; base?: string };
             /** Squad mode: one workspace, one tab per kind (max 4). Ignores kind. */
             kinds?: string[];
+            /** Named squad form. Takes precedence over `kinds`. */
+            members?: Array<{ kind: string; displayName?: string }>;
             /** Required by the peer dispatcher; ordinary trusted clients omit it. */
             peerMutation?: PeerMutationMetadata;
         };
-        result: SessionSnapshot;
+        result: SessionStartResult;
     };
     /** The whole herd: workspaces -> tabs -> panes with live agent state. `connected` is herdr liveness; absent from pre-liveness hosts. */
     'herdr.tree': { params: Record<string, never>; result: { workspaces: HerdrTreeWorkspace[]; connected?: boolean } };
@@ -409,6 +416,7 @@ export interface RequestMap extends PeerRequestMap {
     // Read-only on purpose: entries clear when their condition resolves, so
     // there is nothing for a client to dismiss.
     'attention.catalog': { params: Record<string, never>; result: AttentionCatalog };
+    'lifecycle.catalog': { params: Record<string, never>; result: LifecycleCatalog };
 
     // --- machines -----------------------------------------------------------
     'machines.list': { params: Record<string, never>; result: MachineInfo[] };

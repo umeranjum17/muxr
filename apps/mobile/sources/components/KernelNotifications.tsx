@@ -2,7 +2,7 @@ import * as React from 'react';
 import { AppState, Platform } from 'react-native';
 import type { AgentLifecycle } from '@muxr/contract';
 import { useAuth } from '@/auth/AuthContext';
-import { useHerdrTree, useLocalSetting, useLocalSettingMutable, useSessions, useSocketStatus } from '@/sync/storage';
+import { useHerdrTree, useLifecycleCatalogAvailable, useLocalSetting, useLocalSettingMutable, useSessions, useSocketStatus } from '@/sync/storage';
 import {
     canPostPromotedNotifications,
     clearVoiceNotification,
@@ -14,7 +14,7 @@ import {
     updateVoiceNotification,
 } from '@/../modules/voice-overlay';
 import { requestNotificationPermission } from '@/utils/microphonePermissions';
-import { completionAlerts, completionNotificationState, herdNotificationState, sortHerd } from '@/utils/herd';
+import { completionNotificationState, completionTransition, herdNotificationState, sortHerd } from '@/utils/herd';
 import { lifecycleTree } from '@/utils/herdTree';
 import { boundRealtimeSession, configureVadStandby, useRealtimeMuted, useRealtimeSessionState } from '@/realtime/realtimeSessionState';
 import { Modal } from '@/modal';
@@ -30,11 +30,16 @@ export function KernelNotifications() {
     const sessionCount = Object.keys(sessions).length;
     const { workspaces } = useHerdrTree();
     const { status } = useSocketStatus();
+    const lifecycleCatalogAvailable = useLifecycleCatalogAvailable();
     const { isAuthenticated } = useAuth();
     const { state: voiceState } = useRealtimeSessionState();
     const muted = useRealtimeMuted();
     const panes = React.useMemo(() => sortHerd(sessions, lifecycleTree(workspaces, status === 'connected')), [sessions, status, workspaces]);
     const herd = React.useMemo(() => herdNotificationState(panes, status), [panes, status]);
+    const nativeHerd = React.useMemo(
+        () => lifecycleCatalogAvailable && herd.mode === 'attention' ? { ...herd, eventKey: 'attention:' } : herd,
+        [herd, lifecycleCatalogAvailable],
+    );
     const voiceName = panes.find((pane) => pane.id === boundRealtimeSession())?.name ?? '';
     const previous = React.useRef<Record<string, AgentLifecycle> | null>(null);
     const [presentation, setPresentation] = React.useState(herd);
@@ -48,13 +53,17 @@ export function KernelNotifications() {
     const herdActive = herd.mode === 'working' || herd.mode === 'attention';
 
     React.useEffect(() => {
-        const next = Object.fromEntries(panes.map((pane) => [pane.id, pane.status]));
+        if (lifecycleCatalogAvailable) {
+            previous.current = null;
+            setPresentation(herd);
+            return;
+        }
         const before = previous.current;
-        previous.current = next;
+        const { baseline, completed } = completionTransition(panes, status === 'connected', before);
+        previous.current = baseline;
         if (before === null) return setPresentation(herd);
-        const completed = completionAlerts(panes, before);
         setPresentation(completed.length ? completionNotificationState(completed) : herd);
-    }, [herd, panes]);
+    }, [herd, lifecycleCatalogAvailable, panes, status]);
 
     React.useEffect(() => {
         if (!isAuthenticated) {
@@ -73,11 +82,11 @@ export function KernelNotifications() {
         let live = true;
         void requestNotificationPermission(false).then(() => {
             if (!live) return;
-            updateVoiceNotification(herdActive ? herd : presentation, voiceState, voiceName, muted);
+            updateVoiceNotification(herdActive ? nativeHerd : presentation, voiceState, voiceName, muted);
             if (herdActive && !keepalive.current) keepalive.current = startHerdKeepalive();
         });
         return () => { live = false; };
-    }, [appActive, herd, herdActive, isAuthenticated, muted, presentation, status, voiceName, voiceState]);
+    }, [appActive, herdActive, isAuthenticated, muted, nativeHerd, presentation, status, voiceName, voiceState]);
 
     React.useEffect(() => {
         if (!isAuthenticated) return;

@@ -18,6 +18,7 @@ export interface SpawnSessionOptions {
     approvedNewDirectoryCreation?: boolean;
     token?: string;
     agent?: NewSessionAgentType;
+    displayName?: string;
     permissionMode?: string;
     modelMode?: string;
     effortLevel?: string;
@@ -229,7 +230,14 @@ export async function machineSpawnNewSession(options: SpawnSessionOptions): Prom
             ...(options.approvedNewDirectoryCreation === true ? { createCwd: true } : {}),
             ...(options.parentSessionId === undefined ? {} : { parentSessionId: options.parentSessionId }),
             ...(options.agent === undefined ? {} : { kind: options.agent }),
+            ...(options.displayName?.trim() ? { displayName: options.displayName.trim() } : {}),
         });
+        if (!('info' in snapshot)) {
+            return {
+                type: 'error',
+                errorMessage: `${snapshot.acceptance.displayName.trim() || 'Agent'} could not start.`,
+            };
+        }
         const sessionId = snapshot.info.id;
         await refreshUntilSessionVisible(sessionId);
         return { type: 'success', sessionId };
@@ -238,7 +246,7 @@ export async function machineSpawnNewSession(options: SpawnSessionOptions): Prom
         if (message.includes(MISSING_CWD_ERROR_PREFIX)) {
             return { type: 'requestToApproveDirectoryCreation', directory: options.directory };
         }
-        return { type: 'error', errorMessage: message };
+        return { type: 'error', errorMessage: 'Agent could not start. Try again.' };
     }
 }
 

@@ -5,7 +5,7 @@ import {
     validateHostedAccountSession,
     type AccountSessionState,
 } from '@/auth/accountSession';
-import type { AttentionEntry, HerdrTreeWorkspace, PluginsInvalidatedFrame, PromptAttachment, SessionEvent } from '@muxr/contract';
+import type { AttentionEntry, HerdrTreeWorkspace, LifecycleEvent, PluginsInvalidatedFrame, PromptAttachment, SessionEvent, SessionStatus } from '@muxr/contract';
 import { isSessionIdle, MAX_RPC_PER_DEVICE, MAX_RPC_PER_PLUGIN } from '@muxr/contract';
 import { decodeBase64, encodeBase64 } from '@/encryption/base64';
 import type { AttachmentPreview } from '@/sync/attachmentTypes';
@@ -29,9 +29,21 @@ import {
     sessionInfoToSession,
 } from './sessionMapping';
 import type { Settings } from './settings';
+import { lifecycleNotificationCopy } from '@/utils/herd';
 
 /** A shell that never reports back must not pin the promise forever. */
 const SHELL_TIMEOUT_MS = 120_000;
+
+const LIFECYCLE_CATALOG_UNAVAILABLE_CODES = new Set([
+    'host-contract-mismatch',
+    'method-not-found',
+    'unsupported',
+]);
+
+function lifecycleCatalogUnavailable(error: unknown): boolean {
+    return typeof error === 'object' && error !== null && 'code' in error
+        && LIFECYCLE_CATALOG_UNAVAILABLE_CODES.has(String(error.code));
+}
 
 /**
  * FIFO client admission for plugin RPCs. The host deliberately rejects callers
@@ -159,6 +171,7 @@ class MuxrSync {
     private opening = new Map<string, Promise<void>>();
     private activeMachineId: string | undefined;
     private herdrTreeRequest = 0;
+    private presentingLifecycleIds = new Set<string>();
     encryption!: Encryption;
     anonID = 'muxr-local';
     serverID = 'muxr-local';
@@ -291,10 +304,16 @@ class MuxrSync {
             this.applyAttentionCatalog(event.catalog.entries);
         }
 
+        if (event.type === 'lifecycle.update') {
+            storage.getState().applyLifecycleEvent(event.event);
+            void this.presentPendingLifecycleEvents();
+        }
+
         // A watch the user armed by hand. Unlike attention it always notifies:
         // asking to be told is the whole point, so a foreground app gets it too.
         if (event.type === 'watch.settled') {
-            void this.scheduleSessionNotification(sessionId, event.detail);
+            const name = storage.getState().sessions[sessionId];
+            void this.scheduleSessionNotification(sessionId, `${name === undefined ? 'Agent' : getSessionName(name)} finished.`);
         }
 
         if (event.type === 'session.removed') {
@@ -320,10 +339,41 @@ class MuxrSync {
     private applyAttentionCatalog(entries: readonly AttentionEntry[]): void {
         const previous = new Set(storage.getState().attentionEntries.map((entry) => entry.sessionId));
         storage.getState().applyAttentionCatalog([...entries]);
+        if (storage.getState().lifecycleCatalogAvailable) return;
         if (AppState.currentState === 'active') return;
         for (const entry of entries) {
             if (previous.has(entry.sessionId) || Platform.OS === 'ios' || (Platform.OS === 'android' && entry.reason === 'done')) continue;
-            void this.scheduleSessionNotification(entry.sessionId, entry.detail);
+            const session = storage.getState().sessions[entry.sessionId];
+            void this.scheduleSessionNotification(
+                entry.sessionId,
+                `${session === undefined ? 'Agent' : getSessionName(session)} needs attention.`,
+            );
+        }
+    }
+
+    private async presentPendingLifecycleEvents(): Promise<void> {
+        const pending = [...storage.getState().pendingLifecycleEvents]
+            .sort((left, right) => (left.state === 'done' ? 1 : 0) - (right.state === 'done' ? 1 : 0));
+        for (const event of pending) {
+            if (this.presentingLifecycleIds.has(event.eventId)) continue;
+            this.presentingLifecycleIds.add(event.eventId);
+            try {
+                if (Platform.OS !== 'web') {
+                    await Notifications.scheduleNotificationAsync({
+                        content: {
+                            title: 'muxr',
+                            body: lifecycleNotificationCopy(event),
+                            data: { url: `/session/${encodeURIComponent(event.sessionId)}` },
+                        },
+                        trigger: null,
+                    });
+                }
+                storage.getState().markLifecyclePresented(event.eventId);
+            } catch (error) {
+                console.error('lifecycle notification failed', error);
+            } finally {
+                this.presentingLifecycleIds.delete(event.eventId);
+            }
         }
     }
 
@@ -417,18 +467,46 @@ class MuxrSync {
                 });
             });
         }
-        const [machines, sessions, attention] = await Promise.all([
+        const [machines, sessions, attention, lifecycle, tree] = await Promise.all([
             client.request('machines.list', {}),
             client.request('session.list', {}),
             client.request('attention.catalog', {}).catch(() => ({ revision: 0, entries: [] })),
+            client.request('lifecycle.catalog', {}).catch((error: unknown) => {
+                if (lifecycleCatalogUnavailable(error)) return undefined;
+                throw error;
+            }),
             this.refreshHerdTree().catch(() => undefined),
         ]);
         storage.getState().applyMachines(machines.map((machine) =>
             machineInfoToMachine(machine, getCachedHostedGrant(machine.machineId)?.machineName)
         ), true);
-        storage.getState().applySessions(sessions.map((info) => sessionInfoToSession(info)), true);
+        // session.list carries no lifecycle and events are not replayed, so a
+        // rebuilt catalog would otherwise show stale statuses until the next
+        // real transition. The herd tree fetched alongside is the same host
+        // truth the Spaces/notification surfaces use; fold it in.
+        const statusBySession = new Map<string, SessionStatus['agentStatus']>();
+        for (const workspace of tree?.workspaces ?? []) {
+            for (const tab of workspace.tabs) {
+                for (const pane of tab.panes) {
+                    if (pane.sessionId !== undefined) statusBySession.set(pane.sessionId, pane.agentStatus);
+                }
+            }
+        }
+        storage.getState().applySessions(sessions.map((info) => {
+            const agentStatus = statusBySession.get(info.id);
+            return sessionInfoToSession(info, agentStatus === undefined ? undefined : {
+                sessionId: info.id,
+                agentStatus,
+                isStreaming: agentStatus === 'working',
+                tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+            });
+        }), true);
         storage.getState().markSessionsLoaded();
         storage.getState().applyAttentionCatalog(attention.entries);
+        if (lifecycle !== undefined) {
+            storage.getState().applyLifecycleCatalog(lifecycle);
+            void this.presentPendingLifecycleEvents();
+        }
     }
 
     /** Re-hydrate a session from the host after a gap. Host state is the truth. */
@@ -486,6 +564,8 @@ class MuxrSync {
         this.credentials = credentials;
         await this.initEncryption(credentials);
         const settings = await loadConnectionSettingsAsync();
+        storage.getState().setLifecycleAuthority(this.anonID);
+        storage.getState().setLifecycleScope(`${this.anonID}:${settings.machineId || 'account'}`);
         const switchedMachine = this.activeMachineId !== undefined && this.activeMachineId !== settings.machineId;
         this.activeMachineId = settings.machineId;
         if (switchedMachine) {
@@ -613,6 +693,8 @@ class MuxrSync {
         this.client?.close();
         this.client = undefined;
         storage.getState().setSocketStatus(this.hasTransport() ? 'connecting' : 'disconnected');
+        const settings = this.getConnection();
+        storage.getState().setLifecycleScope(`${this.anonID}:${settings.machineId || 'account'}`);
         await this.refreshCatalog();
     }
 }

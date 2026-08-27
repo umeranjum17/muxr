@@ -19,6 +19,7 @@ import { ACCENT } from '@/components/AgentGlyph';
 import { TerminalPreview } from '@/terminal/TerminalPreview';
 import { sync } from '@/sync/sync';
 import { agentStatusColor, type AgentLifecycleStatus } from '@/utils/sessionUtils';
+import { paneDisplayName, paneTaskTitle } from '@/utils/herdTree';
 import type { HerdrTreePane, HerdrTreeTab } from '@muxr/contract';
 
 const POLL_MS = 4_000;
@@ -152,10 +153,8 @@ const PaneTile = React.memo((props: { pane: HerdrTreePane; style: object; router
     const color = agentStatusColor(status, theme).color;
     const hasSession = pane.sessionId !== undefined;
     const kindName = pane.agentKind ?? 'shell';
-    const title =
-        pane.terminalTitle !== undefined && pane.terminalTitle.trim() !== ''
-            ? pane.terminalTitle
-            : (pane.agentName ?? kindName);
+    const title = paneTaskTitle(pane);
+    const displayName = paneDisplayName(pane);
 
     return (
         <Pressable
@@ -192,7 +191,7 @@ const PaneTile = React.memo((props: { pane: HerdrTreePane; style: object; router
                     </Text>
                 </View>
                 <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 10, textTransform: 'capitalize' }}>
-                    {kindName}
+                    {displayName} · {kindName}
                 </Text>
             </View>
         </Pressable>

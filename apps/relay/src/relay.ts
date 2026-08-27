@@ -27,7 +27,7 @@ import { isValidPublicKey, PairingRequests } from './pairing.js';
 import { parseLastSeq, PeerTable, peerMayRoute, sendEnvelope, type ConnectedPeer } from './peers.js';
 import { PreviewChannels } from './preview.js';
 import { TerminalChannels } from './terminal.js';
-import { PushService } from './push.js';
+import { parsePushNotification, PushService } from './push.js';
 import { notificationEmailFromEnv } from './email.js';
 import { FileTicketStore } from './selfhostTickets.js';
 import { SelfhostPairing } from './selfhostPairing.js';
@@ -913,18 +913,18 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
                 const machine = presented === undefined ? undefined : await machineAuthority.resolveCredential(presented);
                 const body = (await readJsonBody(req).catch(() => undefined)) as Record<string, unknown> | undefined;
                 if (machine === undefined) { writeJsonError(res, 403, 'invalid machine credential'); return; }
+                const notification = body === undefined ? undefined : parsePushNotification(body);
                 if (body?.machineId !== machine.slug || typeof body.sessionId !== 'string' || body.sessionId === ''
-                    || typeof body.detail !== 'string' || body.detail === '') {
+                    || body.sessionId.length > 256 || notification === undefined) {
                     writeJsonError(res, 400, 'invalid push payload');
                     return;
                 }
-                const { sent } = await push.notify(`local:${machine.slug}`, {
-                    title: body.detail,
-                    body: body.detail,
+                const outcome = await push.notify(`local:${machine.slug}`, {
+                    ...notification,
                     sessionId: body.sessionId,
                     machineId: machine.slug,
                 });
-                writeJson(res, 200, { ok: true, sent });
+                writeJson(res, 200, { ok: true, ...outcome });
                 return;
             }
             for (const handler of options.httpHandlers ?? []) {

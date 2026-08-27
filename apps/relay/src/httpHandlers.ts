@@ -7,7 +7,7 @@ import type { MachineRegistry } from './registry.js';
 import type { OfflineBuffer } from './buffer.js';
 import type { PeerTable } from './peers.js';
 import type { ReplayLog } from './replay.js';
-import type { PushService } from './push.js';
+import { parsePushNotification, type PushService } from './push.js';
 
 export interface PushActionOutcome {
     ok: boolean;
@@ -410,9 +410,9 @@ export async function handleHttpRequest(
             writeJson(res, 403, { error: 'invalid machine token' });
             return;
         }
-        let body: { machineId?: unknown; sessionId?: unknown; kind?: unknown; detail?: unknown };
+        let body: { machineId?: unknown; sessionId?: unknown; eventId?: unknown; kind?: unknown; reasonCode?: unknown; displayName?: unknown; taskTitle?: unknown };
         try {
-            body = (await readJsonBody(req)) as { machineId?: unknown; sessionId?: unknown; kind?: unknown; detail?: unknown };
+            body = (await readJsonBody(req)) as typeof body;
         } catch {
             writeJson(res, 400, { error: 'invalid json body' });
             return;
@@ -421,22 +421,21 @@ export async function handleHttpRequest(
             writeJson(res, 403, { error: 'machineId does not match token' });
             return;
         }
-        if (typeof body.sessionId !== 'string' || body.sessionId === '' || typeof body.detail !== 'string' || body.detail === '') {
-            writeJson(res, 400, { error: 'sessionId and detail are required' });
+        if (typeof body.sessionId !== 'string' || body.sessionId === '' || body.sessionId.length > 256) {
+            writeJson(res, 400, { error: 'valid sessionId is required' });
             return;
         }
-        if (body.kind !== undefined && typeof body.kind !== 'string') {
-            writeJson(res, 400, { error: 'kind must be a string' });
+        const notification = parsePushNotification(body);
+        if (notification === undefined) {
+            writeJson(res, 400, { error: 'invalid lifecycle notification' });
             return;
         }
-        // detail already reads "pi needs an answer"; it serves as both title and body.
-        const { sent } = await ctx.push.notify(machine.accountId, {
-            title: body.detail,
-            body: body.detail,
+        const outcome = await ctx.push.notify(machine.accountId, {
+            ...notification,
             sessionId: body.sessionId,
             machineId: machine.machineId,
         });
-        writeJson(res, 200, { ok: true, sent });
+        writeJson(res, 200, { ok: true, ...outcome });
         return;
     }
 

@@ -6,6 +6,7 @@ import { decodePayload, encodePayload, isPluginsInvalidatedFrame, parseClientFra
 import { SESSION_EVENT_TYPES, type SessionEventBody } from './sessionEvent.js';
 import { isPeerCapabilities, peerCapabilityForRequest } from './peer.js';
 import type { SessionInfo, SessionStatus } from './sessionState.js';
+import { MAX_REALTIME_PUBLIC_SESSIONS, realtimePluginPublicContext } from './realtimeStream.js';
 
 function assert(condition: boolean, message: string): asserts condition {
     if (!condition) throw new Error(message);
@@ -46,6 +47,18 @@ const events: SessionEventBody[] = [
         activity: { sessionId: session.id, phase: 'active', label: 'working', at: '2026-01-01T00:00:00.000Z' },
     },
     { type: 'attention.update', catalog: { revision: 1, entries: [] } },
+    {
+        type: 'lifecycle.update',
+        event: {
+            eventId: 'event-check',
+            sessionId: session.id,
+            displayName: 'Maria',
+            state: 'working',
+            reasonCode: 'agent-working',
+            reason: 'agent-working',
+            at: '2026-01-01T00:00:00.000Z',
+        },
+    },
     { type: 'watch.settled', status: 'done', detail: 'pi is done' },
     { type: 'session.removed' },
     { type: 'shell.start', command: 'ls' },
@@ -75,6 +88,14 @@ function demo(): void {
     assert(peerCapabilityForRequest('session.start') === 'start', 'advanced peer start stays separate');
     assert(peerCapabilityForRequest('session.shell') === undefined && peerCapabilityForRequest('herdr.cli') === undefined,
         'shell and raw herdr stay outside the peer surface');
+    const publicContext = realtimePluginPublicContext([
+        { sessionId: 'pp_voice', displayName: 'Maria', taskTitle: 'pi - Realtime Stability', agentKind: 'pi' },
+        { sessionId: 'bad/path', displayName: 'Leaked', taskTitle: '/private/work' },
+        ...Array.from({ length: MAX_REALTIME_PUBLIC_SESSIONS + 4 }, (_, index) => ({ sessionId: `pp_${index}`, displayName: `John ${index + 2}` })),
+    ]);
+    assert(publicContext.sessions.length === MAX_REALTIME_PUBLIC_SESSIONS, 'realtime public session map is bounded');
+    assert(publicContext.sessions[0]?.taskTitle === 'Realtime Stability', 'realtime public task title strips provider prefix');
+    assert(!publicContext.sessions.some((entry) => entry.sessionId === 'bad/path'), 'realtime public session map rejects unsafe routing ids');
     assert(parseClientFrame({ type: 'client.hello', clientId: 'fresh-client' }).type === 'client.hello', 'valid client hello passes');
     for (const malformed of [null, { type: 'session.list', requestId: 'bad', params: null }]) {
         let rejected = false;

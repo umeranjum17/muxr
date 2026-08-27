@@ -134,7 +134,7 @@ function ids(value: unknown): string[] {
     return result;
 }
 
-const AGENT_LIFECYCLE = ['idle', 'working', 'blocked', 'done', 'unknown'] as const;
+const AGENT_LIFECYCLE = ['starting', 'idle', 'working', 'blocked', 'done', 'failed', 'unknown'] as const;
 
 function lifecycle(value: unknown): AgentLifecycle {
     if (typeof value !== 'string' || !(AGENT_LIFECYCLE as readonly string[]).includes(value)) throw new Error('invalid agent status');

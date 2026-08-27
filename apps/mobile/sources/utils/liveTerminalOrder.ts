@@ -25,7 +25,7 @@ export function selectLiveTerminalCards(
     const sessionsById = new Map(sessions.map((session) => [session.id, session]));
     return panes.flatMap((pane) => {
         const session = sessionsById.get(pane.id);
-        return session === undefined ? [] : [{ session, status: pane.status, title: pane.name }];
+        return session === undefined ? [] : [{ session, status: pane.status, title: pane.taskTitle }];
     });
 }
 

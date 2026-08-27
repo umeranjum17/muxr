@@ -227,8 +227,12 @@ export class OutboundPeerService {
             cwd: params.cwd,
             ...(params.kind === undefined ? {} : { kind: params.kind }),
             ...(params.label === undefined ? {} : { label: params.label }),
+            ...(params.displayName === undefined ? {} : { displayName: params.displayName }),
             peerMutation: params.mutation,
         }, signal);
+        if (!('info' in snapshot)) {
+            throw operationError(snapshot.acceptance.message, snapshot.acceptance.code);
+        }
         const sessions = await client.request('session.list', {}, signal);
         const latest = this.options.store.relationship(relationship.relationshipId) ?? relationship;
         const agentAliases = this.agentAliases(latest, sessions.some((session) => session.id === snapshot.info.id) ? sessions : [...sessions, snapshot.info]);

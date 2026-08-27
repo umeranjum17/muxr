@@ -27,6 +27,10 @@ export interface SessionInfo extends SessionRef {
     parentSessionPath?: string;
     /** herdr agent kind for sessions backed by a live agent (pi, claude, ...). */
     agentKind?: string;
+    /** Human-facing name. Never used as a routing key. */
+    displayName?: string;
+    /** Concise dynamic description of the current work. */
+    taskTitle?: string;
     /** herdr pane id backing this session, when live. */
     paneId?: string;
     /** Latest OSC title from the pane -- the "what it is doing" breadcrumb. */
@@ -113,6 +117,10 @@ export interface HerdrTreePane {
     cwd?: string;
     agentKind?: string;
     agentName?: string;
+    /** Human-facing name. Never used as a routing key. */
+    displayName?: string;
+    /** Concise dynamic description of the current work. */
+    taskTitle?: string;
     agentStatus: AgentLifecycle;
     terminalTitle?: string;
     focused: boolean;
@@ -156,8 +164,40 @@ export interface SessionWarning {
     message: string;
 }
 
-/** herdr's raw agent lifecycle, so clients can render honest status chips. */
-export type AgentLifecycle = 'idle' | 'working' | 'blocked' | 'done' | 'unknown';
+/** Canonical user-facing lifecycle. `idle` remains for older herdr providers. */
+export type AgentLifecycle = 'starting' | 'idle' | 'working' | 'blocked' | 'done' | 'failed' | 'unknown';
+
+export type LifecycleReasonCode =
+    | 'start-requested'
+    | 'start-launch-failed'
+    | 'start-timeout'
+    | 'squad-rolled-back'
+    | 'agent-working'
+    | 'agent-blocked'
+    | 'agent-done'
+    | 'agent-runtime-failed'
+    | 'agent-unavailable'
+    | 'state-reconciled';
+
+/** Privacy-safe host-owned transition record. */
+export interface LifecycleEvent {
+    eventId: string;
+    /** Stable transport key. Clients must not render it. */
+    sessionId: string;
+    displayName: string;
+    /** Bounded privacy-safe work context captured with the transition. */
+    taskTitle?: string;
+    state: AgentLifecycle;
+    reasonCode: LifecycleReasonCode;
+    /** @deprecated Read reasonCode. Kept for older clients during rollout. */
+    reason?: LifecycleReasonCode;
+    at: string;
+}
+
+export interface LifecycleCatalog {
+    revision: number;
+    events: LifecycleEvent[];
+}
 
 export interface SessionUsageWindow {
     label: string;

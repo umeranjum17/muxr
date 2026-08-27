@@ -17,6 +17,8 @@ export interface PublicContextSource {
     sessions: Array<{
         sessionId: string;
         label?: string | undefined;
+        displayName?: string | undefined;
+        taskTitle?: string | undefined;
         cwd?: string | undefined;
         workspaceLabel?: string | undefined;
         tabLabel?: string | undefined;
@@ -33,12 +35,12 @@ export interface PublicContextSource {
             label?: string | undefined;
             focused: boolean;
             agentStatus?: string | undefined;
-            sessions: Array<{ sessionId?: string | undefined; label?: string | undefined; agentKind?: string | undefined; agentStatus?: string | undefined }>;
+            sessions: Array<{ sessionId?: string | undefined; label?: string | undefined; displayName?: string | undefined; taskTitle?: string | undefined; agentKind?: string | undefined; agentStatus?: string | undefined }>;
         }>;
     }>;
 }
 
-const LIFECYCLE = new Set<AgentLifecycle>(['idle', 'working', 'blocked', 'done', 'unknown']);
+const LIFECYCLE = new Set<AgentLifecycle>(['starting', 'idle', 'working', 'blocked', 'done', 'failed', 'unknown']);
 const ATTENTION_REASON = new Set(['waiting', 'blocked', 'failed', 'done']);
 
 function text(value: string | undefined, max: number): string | undefined {
@@ -80,9 +82,12 @@ export function buildPluginPublicContext(
             const workspaceLabel = text(session.workspaceLabel, 80);
             const tabLabel = text(session.tabLabel, 80);
             const agentKind = text(session.agentKind, 40);
+            const taskTitle = text(session.taskTitle, 120);
             return {
                 sessionId: session.sessionId,
                 label: text(session.label, 80) ?? 'session',
+                displayName: text(session.displayName, 80) ?? text(session.label, 80) ?? 'Agent',
+                ...(taskTitle === undefined ? {} : { taskTitle }),
                 ...(cwd === undefined ? {} : { cwd }),
                 ...(workspaceLabel === undefined ? {} : { workspaceLabel }),
                 ...(tabLabel === undefined ? {} : { tabLabel }),
@@ -124,9 +129,12 @@ export function buildPluginPublicContext(
                     const id = session.sessionId === undefined ? undefined : sessionId(session.sessionId);
                     if (session.sessionId !== undefined && id === undefined) return [];
                     const agentKind = text(session.agentKind, 40);
+                    const taskTitle = text(session.taskTitle, 120);
                     return [{
                         ...(id === undefined ? {} : { sessionId: id }),
                         label: text(session.label, 80) ?? 'session',
+                        displayName: text(session.displayName, 80) ?? text(session.label, 80) ?? 'Agent',
+                        ...(taskTitle === undefined ? {} : { taskTitle }),
                         ...(agentKind === undefined ? {} : { agentKind }),
                         agentStatus: lifecycle(session.agentStatus),
                     }];

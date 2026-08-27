@@ -70,6 +70,7 @@ const fakeHerdrSource = join(scratch, 'fake-herdr-source');
 const fakeInstaller = join(scratch, 'fake-herdr-installer');
 const fakeInstallerLog = join(scratch, 'fake-installer.log');
 mkdirSync(installerBin, { recursive: true });
+symlinkSync(process.execPath, join(installerBin, 'node'));
 writeFileSync(fakeHerdrSource, fakeHerdr, { mode: 0o755 });
 writeFileSync(fakeInstaller, '#!/bin/sh\n/bin/cp "$FAKE_HERDR_SOURCE" "$FAKE_HERDR_INSTALL_DIR/herdr"\n/bin/chmod 755 "$FAKE_HERDR_INSTALL_DIR/herdr"\nprintf invoked > "$FAKE_HERDR_INSTALL_LOG"\n', { mode: 0o755 });
 writeFileSync(join(binDir, 'pi'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
@@ -153,7 +154,7 @@ function cliEnv(targetHome = home, extra = {}) {
 }
 
 function cliEnvWithoutHerdr(targetHome, extra = {}) {
-    const env = cliEnv(targetHome, { PATH: `${installerBin}:${dirname(process.execPath)}`, ...extra });
+    const env = cliEnv(targetHome, { PATH: installerBin, ...extra });
     delete env.HERDR_BIN;
     return env;
 }

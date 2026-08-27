@@ -1,11 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import { buildSpaceRows, middleTruncate, workspaceName } from './herdTree';
+import { buildSpaceRows, middleTruncate, paneDisplayName, paneTaskTitle, workspaceName } from './herdTree';
 import type { HerdrTreePane as ContractPane, HerdrTreeTab, HerdrTreeWorkspace as ContractWorkspace } from '@muxr/contract';
 
 const pane = (id: string, agentKind?: string, extra: Partial<ContractPane> = {}): ContractPane => ({ paneId: id, tabId: 't1', agentStatus: 'idle', focused: false, agentKind, ...extra });
 const ws = (id: string, label: string | undefined, tabs: HerdrTreeTab[]): ContractWorkspace => ({ workspaceId: id, label, focused: false, agentStatus: 'idle', tabs });
 const tab = (tabId: string, label: string | undefined, panes: ContractPane[]): HerdrTreeTab => ({ tabId, label, focused: false, agentStatus: 'idle', panes });
-const agent = pane('p-a', 'pi', { sessionId: 's-a', cwd: '/home/umer/proj', agentName: 'Alpha' });
+const agent = pane('p-a', 'pi', {
+    sessionId: 's-a',
+    cwd: '/home/umer/proj',
+    agentName: 'Legacy name',
+    displayName: 'Maria',
+    taskTitle: 'Review monitoring stability',
+});
 const shell = pane('p-s', undefined, { cwd: '/tmp' });
 
 describe('visible herd tree flow', () => {
@@ -15,8 +21,15 @@ describe('visible herd tree flow', () => {
         expect(expanded).toHaveLength(1);
         expect(expanded[0]).toMatchObject({ type: 'workspace', agentCount: 1, expanded: true, panes: [agent, shell] });
         expect(buildSpaceRows(workspaces, new Set(), '')[0]).toMatchObject({ expanded: false, panes: [] });
-        expect(buildSpaceRows(workspaces, new Set(['w1']), 'alpha')).toHaveLength(1);
+        expect(buildSpaceRows(workspaces, new Set(['w1']), 'review monitoring')).toHaveLength(1);
+        expect(buildSpaceRows(workspaces, new Set(['w1']), 'maria')).toHaveLength(1);
         expect(buildSpaceRows(workspaces, new Set(['w1']), 'beta')).toEqual([]);
+        expect({
+            primary: paneTaskTitle(agent),
+            secondary: paneDisplayName(agent),
+            kind: agent.agentKind,
+        }).toEqual({ primary: 'Review monitoring stability', secondary: 'Maria', kind: 'pi' });
+        expect(paneTaskTitle(agent)).not.toContain(paneDisplayName(agent));
         expect(buildSpaceRows([ws('w2', 'repo-b', [tab('1', undefined, [shell])])], new Set(), '')[0])
             .toMatchObject({ agentCount: 0, expanded: false });
     });

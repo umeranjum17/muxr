@@ -15,6 +15,7 @@ import type {
     SessionActivity,
     SessionInfo,
     SessionStatus,
+    LifecycleEvent,
 } from './sessionState.js';
 
 /** Per-session control + state stream. */
@@ -40,6 +41,7 @@ export type SessionEventBody =
      * add/remove delta can when a client misses one.
      */
     | { type: 'attention.update'; catalog: AttentionCatalog }
+    | { type: 'lifecycle.update'; event: LifecycleEvent }
     /** A watch requested via agent.watch reached a settled state (or timed out). */
     | { type: 'watch.settled'; status: string; detail: string; timedOut?: boolean }
     | { type: 'session.error'; message: string }
@@ -65,6 +67,7 @@ export const SESSION_EVENT_TYPES = [
     'status.update',
     'activity.update',
     'attention.update',
+    'lifecycle.update',
     'watch.settled',
     'session.error',
     'session.removed',

@@ -15,6 +15,19 @@ export function hasAgent(ws: HerdrTreeWorkspace): boolean {
     return ws.tabs.some((tab) => tab.panes.some((pane) => pane.agentKind !== undefined));
 }
 
+/** Human-facing pane name. Stable ids and terminal content are never display fallbacks. */
+export function paneDisplayName(pane: HerdrTreePane): string {
+    const explicit = pane.displayName?.trim();
+    if (explicit) return explicit;
+    const existing = pane.agentName?.trim();
+    if (existing) return existing;
+    return 'Agent';
+}
+
+export function paneTaskTitle(pane: HerdrTreePane): string {
+    return pane.taskTitle?.trim() || 'Current task';
+}
+
 /** The shared lifecycle projection used by Spaces, Live Terminals and notifications. */
 export function lifecycleTree(
     workspaces: readonly HerdrTreeWorkspace[],
@@ -66,7 +79,7 @@ export function buildSpaceRows(
 ): HerdSpaceRow[] {
     const query = searchQuery.trim().toLocaleLowerCase();
     const matches = (pane: HerdrTreePane): boolean =>
-        query === '' || [pane.agentName, pane.agentKind, pane.terminalTitle, pane.label, pane.cwd]
+        query === '' || [pane.taskTitle, pane.displayName, pane.agentName, pane.agentKind, pane.label]
             .some((value) => value !== undefined && value.toLocaleLowerCase().includes(query));
 
     const rows: HerdSpaceRow[] = [];

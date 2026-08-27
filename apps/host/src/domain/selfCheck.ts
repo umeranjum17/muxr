@@ -22,6 +22,7 @@ async function runSelfCheck(): Promise<void> {
     const now = (): Date => new Date('2026-07-27T12:00:00.000Z');
     const unreadPath = join(dataDir, 'unread.json');
     const attentionPath = join(dataDir, 'attention.json');
+    const lifecyclePath = join(dataDir, 'lifecycle-activity.json');
 
     try {
         const stores = createDomainStores({ dataDir, now });
@@ -77,11 +78,32 @@ async function runSelfCheck(): Promise<void> {
         stores.attention.clear('s2');
         assert(stores.attention.catalog().entries.length === 1, 'clearing a session drops its row');
 
+        stores.lifecycle.transition('stable', 'Maria', 'working', 'agent-working', 'Realtime Stability');
+        const firstFailure = stores.lifecycle.transition('corrected', 'John', 'failed', 'start-launch-failed');
+        assert(firstFailure !== undefined, 'first lifecycle outcome is recorded');
+        assert(
+            stores.lifecycle.transition('corrected', 'John', 'failed', 'start-launch-failed') === undefined,
+            'an exact lifecycle duplicate is deduped',
+        );
+        assert(stores.lifecycle.latestFor('corrected')?.reasonCode === 'start-launch-failed', 'failed reconciliation preserves the start-related reason');
+        const correctedFailure = stores.lifecycle.transition('corrected', 'John', 'failed', 'agent-runtime-failed');
+        assert(correctedFailure !== undefined, 'same state with corrected reason is recorded');
+        assert(stores.lifecycle.latestFor('corrected')?.reasonCode === 'agent-runtime-failed', 'corrected reason becomes current');
+        assert(stores.lifecycle.catalog().events.filter((event) => event.sessionId === 'corrected').length === 2, 'corrected reason appends exactly one event');
+        for (let index = 0; index < 60; index += 1) {
+            stores.lifecycle.transition(`other-${index}`, 'John', 'done', 'agent-done');
+        }
+        assert(stores.lifecycle.catalog().events.length === 50, 'lifecycle digest stays bounded');
+        assert(stores.lifecycle.latestFor('stable')?.state === 'working', 'current lifecycle survives unrelated digest eviction');
+
         await waitForPersistedRevision(unreadPath, isRevisionFile, unread3.revision);
         await waitForPersistedRevision(attentionPath, isRevisionFile, stores.attention.catalog().revision);
+        await waitForPersistedRevision(lifecyclePath, isRevisionFile, stores.lifecycle.catalog().revision);
 
         // simulated restart: revision must continue increasing, not reset
         const restarted = createDomainStores({ dataDir, now });
+        assert(restarted.lifecycle.latestFor('stable')?.state === 'working', 'current lifecycle survives restart outside the digest');
+        assert(restarted.lifecycle.latestFor('corrected')?.reasonCode === 'agent-runtime-failed', 'corrected lifecycle reason survives restart');
         const unreadAfterRestart = restarted.unread.catalog();
         assert(unreadAfterRestart.revision === unread3.revision, 'unread revision survives restart');
         assert(unreadAfterRestart.entries.length === 0, 'unread entries survive restart');
@@ -119,7 +141,7 @@ async function runSelfCheck(): Promise<void> {
     } finally {
         rmSync(dataDir, { recursive: true, force: true });
     }
-    process.stdout.write('PASS: domain selfCheck (unread, attention)\n');
+    process.stdout.write('PASS: domain selfCheck (unread, attention, lifecycle)\n');
 }
 
 if (import.meta.url === new URL(process.argv[1] ?? '', 'file:').href) {

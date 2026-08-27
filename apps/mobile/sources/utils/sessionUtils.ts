@@ -127,15 +127,18 @@ export function getSessionName(session: Session): string {
 }
 
 /** herdr lifecycle status, shared across dots, kanban and grid tiles. */
-export type AgentLifecycleStatus = 'idle' | 'working' | 'blocked' | 'done' | 'unknown';
+export type AgentLifecycleStatus = 'starting' | 'idle' | 'working' | 'blocked' | 'done' | 'failed' | 'unknown';
 
 /** herdr semantics: red = needs you, blue = working, green = done, grey = idle. Working/blocked pulse. */
 export function agentStatusColor(status: AgentLifecycleStatus, theme: Theme): { color: string; pulsing: boolean } {
     switch (status) {
         case 'working':
+        case 'starting':
             return { color: theme.colors.status.working, pulsing: true };
         case 'blocked':
             return { color: theme.colors.status.error, pulsing: true };
+        case 'failed':
+            return { color: theme.colors.status.error, pulsing: false };
         case 'done':
             return { color: theme.colors.status.done, pulsing: false };
         default:

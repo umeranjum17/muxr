@@ -37,6 +37,7 @@ import { useTauriZoom } from '@/hooks/useTauriZoom';
 import { useTauriDrag } from '@/hooks/useTauriDrag';
 import { BrowserNavigationShortcuts } from '@/hooks/useBrowserNavigationShortcuts';
 import { KernelNotifications } from '@/components/KernelNotifications';
+import { acknowledgeLifecyclePush } from '@/utils/nativePushNotifications';
 
 // Configure notification handler — suppress push display when app is in foreground
 Notifications.setNotificationHandler({
@@ -108,15 +109,6 @@ function HorizontalSafeAreaWrapper({ children }: { children: React.ReactNode }) 
 
 let lock = new AsyncLock();
 let loaded = false;
-
-function stringifyNotificationPayload(value: unknown): string {
-    try {
-        const serialized = JSON.stringify(value, null, 2);
-        return serialized ?? String(value);
-    } catch (error) {
-        return `[unserializable notification payload: ${error instanceof Error ? error.message : 'Unknown error'}]`;
-    }
-}
 
 async function loadFonts() {
     await lock.inLock(async () => {
@@ -239,6 +231,13 @@ export default function RootLayout() {
     // Init sequence
     //
     const [initState, setInitState] = React.useState<{ credentials: AuthCredentials | null; error?: string } | null>(null);
+
+    React.useEffect(() => {
+        const subscription = Notifications.addNotificationReceivedListener((notification) => {
+            acknowledgeLifecyclePush(notification.request.content.data);
+        });
+        return () => subscription.remove();
+    }, []);
     React.useEffect(() => {
         (async () => {
             let credentials: AuthCredentials | null = null;
@@ -289,6 +288,12 @@ export default function RootLayout() {
 
                 if (credentials) {
                     try {
+                        if (Platform.OS !== 'web') {
+                            const presented = await Notifications.getPresentedNotificationsAsync().catch(() => []);
+                            for (const notification of presented) {
+                                acknowledgeLifecyclePush(notification.request.content.data);
+                            }
+                        }
                         await syncRestore(credentials);
                     } catch (error) {
                         // Machine/grant/network/bootstrap failures are not account rejection.
@@ -322,8 +327,6 @@ export default function RootLayout() {
             return;
         }
 
-        console.log('[PUSH ROUTING] Full notification response:\n' + stringifyNotificationPayload(response));
-
         const responseId = response.notification.request.identifier;
         if (handledNotificationIds.current.has(responseId)) {
             console.log(`[PUSH ROUTING] Duplicate notification response ignored: ${responseId}`);
@@ -331,6 +334,7 @@ export default function RootLayout() {
         }
 
         handledNotificationIds.current.add(responseId);
+        acknowledgeLifecyclePush(response.notification.request.content.data);
 
         try {
             if (response.actionIdentifier !== Notifications.DEFAULT_ACTION_IDENTIFIER) {
@@ -338,10 +342,6 @@ export default function RootLayout() {
                 return;
             }
 
-            console.log(
-                '[PUSH ROUTING] notification.request.content.data:\n' +
-                stringifyNotificationPayload(response.notification.request.content.data)
-            );
             const route = getSessionRouteFromNotificationResponse(response);
             console.log(`[PUSH ROUTING] Computed route: ${route ?? 'null'}`);
             if (!route) {

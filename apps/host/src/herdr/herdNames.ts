@@ -1,16 +1,12 @@
 /**
- * Names for panes nobody named. A herd of "pi" panes is unreferrable -- by
- * thumb or by voice -- so every unnamed pane gets one of these instead of its
- * kind or its `pp_` id. Animals: short, distinct over dictation, and nothing
- * here collides with an agent kind.
+ * Human first-name defaults for unnamed agents. They are display-only; stable
+ * session ids remain the sole routing keys.
  */
 const POOL = [
-    'Otter', 'Falcon', 'Badger', 'Heron', 'Bison',
-    'Lynx', 'Raven', 'Marten', 'Kestrel', 'Ibex',
-    'Osprey', 'Wolf', 'Stoat', 'Gannet', 'Elk',
-    'Puffin', 'Vole', 'Shrike', 'Tapir', 'Curlew',
-    'Beaver', 'Merlin', 'Pika', 'Godwit', 'Sable',
-    'Hare', 'Auk', 'Weasel', 'Grebe', 'Fox',
+    'John', 'Maria', 'Alex', 'Maya', 'Sam',
+    'Nina', 'Leo', 'Sara', 'Omar', 'Lina',
+    'Noah', 'Zoe', 'Adam', 'Emma', 'Ryan',
+    'Iris', 'Luke', 'Anna', 'Eli', 'Mila',
 ];
 
 /** Herdr's own generated handles, which are ids wearing a name's clothes. */
@@ -18,7 +14,7 @@ export function isGeneratedName(name: string | null | undefined): boolean {
     return typeof name !== 'string' || name.trim() === '' || /^pp_|^pph_/i.test(name);
 }
 
-const ANIMALS = new Set(POOL.map((name) => name.toLowerCase()));
+const LEGACY_ANIMALS = new Set(['otter', 'falcon', 'badger', 'heron', 'bison', 'lynx', 'raven', 'marten', 'kestrel', 'ibex', 'osprey', 'wolf', 'stoat', 'gannet', 'elk', 'puffin', 'vole', 'shrike', 'tapir', 'curlew', 'beaver', 'merlin', 'pika', 'godwit', 'sable', 'hare', 'auk', 'weasel', 'grebe', 'fox']);
 const GREETING = /^(hi|hey|hello|yo|sup|test|ok|hmm|thanks|help)(\s|$)/i;
 const FIRST_PROMPT = /^[a-z0-9]+(?:\s+[a-z0-9]+){2,5}$/;
 
@@ -30,7 +26,7 @@ export function isPlaceholderLabel(name: string | null | undefined): boolean {
     if (isGeneratedName(name) || isGenericTabLabel(name)) return true;
     const value = name!.trim();
     const stem = value.toLowerCase().replace(/\s+\d+$/, '');
-    if (ANIMALS.has(stem)) return true;
+    if (LEGACY_ANIMALS.has(stem)) return true;
     if (GREETING.test(value)) return true;
     return FIRST_PROMPT.test(value);
 }

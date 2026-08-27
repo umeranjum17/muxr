@@ -30,6 +30,7 @@ import { SpacesTree } from './SpacesTree';
 import { useHerdTreeLive } from '@/hooks/useHerdTreeLive';
 import { Typography } from '@/constants/Typography';
 import { layout } from './layout';
+import { RecentActivity } from './RecentActivity';
 
 const stylesheet = StyleSheet.create((theme) => ({
     container: {
@@ -287,6 +288,7 @@ export const HerdView = React.memo(({
             // a new user, who most needs to see that their plugins landed.
             <View style={{ flex: 1, paddingTop: topContentInset }}>
                 {header}
+            <RecentActivity />
             {herdrConnected === false ? (
                 <View style={styles.banner}>
                     <Ionicons name="warning-outline" size={16} color={theme.colors.box.warning.text} />
@@ -344,6 +346,7 @@ export const HerdView = React.memo(({
                 listHeaderComponent={<>
                     {header}
                     <LiveTerminalsRow />
+                    <RecentActivity />
                     <Pressable
                         accessibilityRole="button"
                         onPress={() => router.push('/session/recent')}

@@ -9,6 +9,17 @@ type PermissionModeKey = string;
 const mmkv = new MMKV();
 const NEW_SESSION_DRAFT_KEY = 'new-session-draft-v1';
 const REGISTERED_PUSH_TOKEN_KEY = 'registered-push-token-v1';
+const LIFECYCLE_NOTIFICATIONS_KEY = 'lifecycle-notifications-v1';
+
+export interface LifecycleNotificationScope {
+    initialized: boolean;
+    presented: Array<{ eventId: string; at: string }>;
+    updatedAt: number;
+}
+
+export interface LifecycleNotificationPersistence {
+    scopes: Record<string, LifecycleNotificationScope>;
+}
 
 /**
  * Legacy MMKV copy of the OpenAI key, captured once at load and purged from
@@ -224,6 +235,40 @@ export function saveRegisteredPushToken(token: string) {
 
 export function clearRegisteredPushToken() {
     mmkv.delete(REGISTERED_PUSH_TOKEN_KEY);
+}
+
+export function loadLifecycleNotificationPersistence(): LifecycleNotificationPersistence {
+    const raw = mmkv.getString(LIFECYCLE_NOTIFICATIONS_KEY);
+    if (!raw) return { scopes: {} };
+    try {
+        const value = JSON.parse(raw) as Partial<LifecycleNotificationPersistence>;
+        if (typeof value.scopes !== 'object' || value.scopes === null) return { scopes: {} };
+        const scopes: LifecycleNotificationPersistence['scopes'] = {};
+        for (const [key, scope] of Object.entries(value.scopes)) {
+            if (typeof scope !== 'object' || scope === null) continue;
+            scopes[key] = {
+                initialized: scope.initialized === true,
+                presented: Array.isArray(scope.presented)
+                    ? scope.presented.filter((entry): entry is { eventId: string; at: string } =>
+                        typeof entry?.eventId === 'string' && typeof entry.at === 'string')
+                    : [],
+                updatedAt: typeof scope.updatedAt === 'number' ? scope.updatedAt : 0,
+            };
+        }
+        return { scopes };
+    } catch {
+        return { scopes: {} };
+    }
+}
+
+export function saveLifecycleNotificationPersistence(value: LifecycleNotificationPersistence): void {
+    const cutoff = Date.now() - 90 * 24 * 60 * 60 * 1000;
+    const scopes = Object.fromEntries(Object.entries(value.scopes)
+        .filter(([, scope]) => scope.updatedAt >= cutoff)
+        .sort(([, left], [, right]) => right.updatedAt - left.updatedAt)
+        .slice(0, 8));
+    value.scopes = scopes;
+    mmkv.set(LIFECYCLE_NOTIFICATIONS_KEY, JSON.stringify({ scopes }));
 }
 
 export function loadSessionLastMessageSentAt(): Record<string, number> {

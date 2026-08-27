@@ -7,6 +7,7 @@
  */
 
 import type { SessionInfo, SessionStatus } from './sessionState.js';
+import type { AgentLifecycle } from './sessionState.js';
 
 // --- unread -----------------------------------------------------------------
 
@@ -37,7 +38,23 @@ export interface SessionSnapshot {
     info: SessionInfo;
     status: SessionStatus;
     page: MessagePage;
+    /** Present on start responses; older clients safely ignore it. */
+    acceptance?: {
+        outcome: 'accepted';
+        state: AgentLifecycle;
+        displayName: string;
+    };
 }
+
+export type SessionStartResult = SessionSnapshot | {
+    acceptance: {
+        outcome: 'failed';
+        state: 'failed';
+        displayName: string;
+        code: 'start-launch-failed';
+        message: string;
+    };
+};
 
 // --- machines ---------------------------------------------------------------
 

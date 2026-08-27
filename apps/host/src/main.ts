@@ -609,6 +609,7 @@ async function main(): Promise<void> {
         : await createHerdrSessionSource({
               dataDir,
               attention: domain.attention,
+              lifecycle: domain.lifecycle,
               identity,
               relayUrl,
               machineId,
