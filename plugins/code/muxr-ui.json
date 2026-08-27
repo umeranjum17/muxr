@@ -55,7 +55,6 @@
             "template": {
               "type": "row",
               "title": "{{item.name}}",
-              "subtitle": "{{item.path}}",
               "action": {
                 "type": "screen",
                 "contributionId": "files",
