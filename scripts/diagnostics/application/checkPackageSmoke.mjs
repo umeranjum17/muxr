@@ -373,6 +373,7 @@ try {
     assert.ok(listing.includes('package/plugins/voice/rpc.mjs'), 'xAI Voice plugin missing from npm artifact');
     assert.ok(listing.includes('package/plugins/voice-gemini/rpc.mjs') && listing.includes('package/plugins/voice-gemini/stream.mjs'), 'Gemini Live plugin missing from npm artifact');
     assert.ok(listing.includes('package/plugins/voice-openai/rpc.mjs') && listing.includes('package/plugins/voice-openai/stream.mjs'), 'OpenAI Realtime plugin missing from npm artifact');
+    assert.ok(listing.includes('package/plugins/voice-codex/rpc.mjs') && listing.includes('package/plugins/voice-codex/stream.mjs'), 'Codex Voice plugin missing from npm artifact');
     assert.ok(listing.includes('package/skills/muxr/SKILL.md'), 'muxr skill missing from npm artifact');
     assert.deepEqual(listing.filter((file) => /^package\/skills\/.*\/SKILL\.md$/.test(file)), ['package/skills/muxr/SKILL.md'], 'npm artifact must ship exactly one public skill');
     assert.ok(listing.includes('package/skills/muxr/references/plugins.md'), 'muxr skill references missing from npm artifact');
@@ -640,12 +641,14 @@ try {
     const pluginRoot = join(installDir, 'node_modules', '@trymuxr', 'cli', 'plugins');
     const firstSetupLinks = readFileSync(fakeLog, 'utf8');
     assert.match(firstSetupLinks, new RegExp(`plugin link ${join(pluginRoot, 'voice').replaceAll('\\', '\\\\')} --enabled`));
+    assert.match(firstSetupLinks, new RegExp(`plugin link ${join(pluginRoot, 'voice-codex').replaceAll('\\', '\\\\')} --disabled`));
     assert.match(firstSetupLinks, new RegExp(`plugin link ${join(pluginRoot, 'voice-gemini').replaceAll('\\', '\\\\')} --disabled`));
     assert.match(firstSetupLinks, new RegExp(`plugin link ${join(pluginRoot, 'voice-openai').replaceAll('\\', '\\\\')} --disabled`));
     const existingProviders = {
         result: {
             plugins: [
                 { plugin_id: 'muxr.voice', plugin_root: join(pluginRoot, 'voice'), enabled: false },
+                { plugin_id: 'muxr.voice-codex', plugin_root: join(pluginRoot, 'voice-codex'), enabled: false },
                 { plugin_id: 'muxr.voice-gemini', plugin_root: join(pluginRoot, 'voice-gemini'), enabled: false },
                 { plugin_id: 'muxr.voice-openai', plugin_root: join(pluginRoot, 'voice-openai'), enabled: true },
             ],
@@ -654,7 +657,7 @@ try {
     const logBeforeSecondSetup = readFileSync(fakeLog, 'utf8');
     run(cli, ['setup', ...setupArgs], { cwd: installDir, env: { ...env, FAKE_PLUGIN_LIST: JSON.stringify(existingProviders) } });
     const secondSetupLinks = readFileSync(fakeLog, 'utf8').slice(logBeforeSecondSetup.length);
-    assert.doesNotMatch(secondSetupLinks, /plugins[/\\]voice(?:-gemini|-openai)?(?:\s|[/\\])/, 'setup relinked an existing provider and changed its enabled state');
+    assert.doesNotMatch(secondSetupLinks, /plugins[/\\]voice(?:-codex|-gemini|-openai)?(?:\s|[/\\])/, 'setup relinked an existing provider and changed its enabled state');
     const movedProviders = {
         result: {
             plugins: existingProviders.result.plugins.map((plugin) => ({ ...plugin, plugin_root: join(scratch, 'old-package', plugin.plugin_id) })),
@@ -664,6 +667,7 @@ try {
     run(cli, ['setup', ...setupArgs], { cwd: installDir, env: { ...env, FAKE_PLUGIN_LIST: JSON.stringify(movedProviders) } });
     const movedSetupLinks = readFileSync(fakeLog, 'utf8').slice(logBeforeMovedSetup.length);
     assert.match(movedSetupLinks, new RegExp(`plugin link ${join(pluginRoot, 'voice').replaceAll('\\', '\\\\')} --disabled`));
+    assert.match(movedSetupLinks, new RegExp(`plugin link ${join(pluginRoot, 'voice-codex').replaceAll('\\', '\\\\')} --disabled`));
     assert.match(movedSetupLinks, new RegExp(`plugin link ${join(pluginRoot, 'voice-gemini').replaceAll('\\', '\\\\')} --disabled`));
     assert.match(movedSetupLinks, new RegExp(`plugin link ${join(pluginRoot, 'voice-openai').replaceAll('\\', '\\\\')} --enabled`));
     assert.equal(readFileSync(join(home, '.muxr', 'setup-manifest.json'), 'utf8'), manifestAfterFirst);

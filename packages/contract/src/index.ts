@@ -263,6 +263,8 @@ export {
     MAX_REALTIME_AUDIO_BASE64_BYTES,
     MAX_REALTIME_TEXT_BYTES,
     MAX_REALTIME_PUBLIC_SESSIONS,
+    MAX_REALTIME_SDP_BYTES,
+    MAX_REALTIME_WEBRTC_DATA_BYTES,
     newRealtimeChannel,
     parseRealtimeClientFrame,
     parseRealtimeHostFrame,

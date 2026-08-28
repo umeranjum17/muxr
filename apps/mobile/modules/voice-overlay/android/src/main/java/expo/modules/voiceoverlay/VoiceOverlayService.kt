@@ -36,6 +36,8 @@ class VoiceOverlayService : Service() {
     private const val HERD_NOTIFICATION_ID = 0x0B
     private const val VOICE_NOTIFICATION_ID = 0x0C
     private const val HERD_GROUP_KEY = "muxr.herd"
+    @Volatile private var voiceForegroundReady = false
+    internal fun isVoiceForegroundReady(): Boolean = voiceForegroundReady
 
     private var instance: WeakReference<VoiceOverlayService>? = null
     private var herdMode = "offline"
@@ -78,6 +80,7 @@ class VoiceOverlayService : Service() {
     private const val MIN_POST_INTERVAL_MS = 1500L
 
     internal fun prepareVoice() {
+      voiceForegroundReady = false
       mainHandler.post {
         voiceState = "connecting"
         voiceMuted = false
@@ -445,6 +448,7 @@ class VoiceOverlayService : Service() {
       return START_NOT_STICKY
     }
     if (intent?.action == ACTION_STOP) {
+      voiceForegroundReady = false
       if (notificationAction) VoiceOverlayModule.emitNotificationAction("stop")
       resetCommunicationAudio()
       releaseVoiceLocks()
@@ -483,7 +487,9 @@ class VoiceOverlayService : Service() {
       }
       acquireVoiceLocks()
       foregroundStarted = true
+      voiceForegroundReady = true
     } catch (error: Throwable) {
+      voiceForegroundReady = false
       Log.w("VoiceOverlay", "microphone foreground service refused", error)
       resetCommunicationAudio()
       releaseVoiceLocks()
@@ -497,6 +503,7 @@ class VoiceOverlayService : Service() {
   }
 
   override fun onDestroy() {
+    voiceForegroundReady = false
     if (instance?.get() === this) instance = null
     voiceState = "disconnected"
     voiceName = ""

@@ -7,6 +7,7 @@ import { acquireRealtimeCapture, type RealtimeCaptureLease } from './vadStandby'
 import { createRealtimePlayback } from '@/playback';
 import { sync } from '@/catalog/sync';
 import { realtimeAppController } from './realtimeAppControl';
+import { startRealtimeWebRtc, type RealtimeWebRtcHandle } from '../infrastructure/realtimeWebRtc';
 
 export type RealtimeStatus = 'connecting' | 'connected' | 'thinking' | 'speaking' | 'disconnected';
 
@@ -41,6 +42,8 @@ export function startRealtimeSession(options: {
     let microphoneStarted = false;
     let captureLease: RealtimeCaptureLease | undefined;
     let captureStart: Promise<void> | undefined;
+    let webRtc: RealtimeWebRtcHandle | undefined;
+    let webRtcStart: Promise<void> | undefined;
     const pendingSpeech: string[] = [];
     let reconnects = 0;
     let connectFlight: Promise<void> | undefined;
@@ -66,12 +69,16 @@ export function startRealtimeSession(options: {
         captureLease?.release();
         captureLease = undefined;
     };
+    const transportReady = (): boolean => webRtc !== undefined || microphoneStarted;
     const teardown = (): void => {
         for (const timer of [reconnectTimer, stableTimer, micRetry, speechRetry]) {
             if (timer !== undefined) clearTimeout(timer);
         }
         reconnectTimer = stableTimer = micRetry = speechRetry = undefined;
         stopCapture();
+        webRtc?.stop();
+        webRtc = undefined;
+        webRtcStart = undefined;
         playback.stop();
         playback.release();
         const current = stream;
@@ -144,7 +151,7 @@ export function startRealtimeSession(options: {
         }, RETRY_MS);
     };
     const flushPendingSpeech = (): void => {
-        if (stopped || pendingSpeech.length === 0 || stream === undefined || readyStream !== stream || !microphoneStarted) return;
+        if (stopped || pendingSpeech.length === 0 || stream === undefined || readyStream !== stream || !transportReady()) return;
         if (speechBoundaryScheduled) return;
         if (playback.afterDrain('speech', () => {
             speechBoundaryScheduled = false;
@@ -176,6 +183,46 @@ export function startRealtimeSession(options: {
         })();
         return captureStart;
     };
+    const startWebRtc = (label: string, next: StablePluginStream): Promise<void> => {
+        if (webRtcStart !== undefined) return webRtcStart;
+        webRtcStart = startRealtimeWebRtc(label, {
+            onOffer: (sdp) => {
+                if (stopped || stream !== next) return;
+                if (!next.send({ type: 'realtime.webrtc.offer', sdp })) fail(new Error('Realtime WebRTC offer could not be sent.'));
+            },
+            onData: (data) => {
+                if (stopped || stream !== next) return;
+                if (!next.send({ type: 'realtime.webrtc.data', data })) fail(new Error('Realtime WebRTC control buffer overflowed.'));
+            },
+            onConnectionState: (state) => {
+                if (stopped || stream !== next) return;
+                if (state === 'connected') {
+                    readyStream = next;
+                    onStatus('connected', reconnects === 0 ? undefined : 'Voice stream reconnected');
+                    clearTimeout(stableTimer);
+                    stableTimer = setTimeout(() => { reconnects = 0; }, STABLE_AFTER_MS);
+                    flushPendingSpeech();
+                } else if (state === 'connecting') onStatus('connecting', 'Connecting secure voice media');
+            },
+            onRemoteAudio: (active) => {
+                if (!stopped && stream === next) onStatus(active ? 'speaking' : 'connected');
+            },
+            onInterruption: (interrupted) => {
+                if (stopped || stream !== next) return;
+                if (interrupted) onStatus('connecting', 'Microphone interrupted');
+                else onStatus('connected');
+            },
+            onError: fail,
+        }).then((handle) => {
+            if (stopped || stream !== next) {
+                handle.stop();
+                return;
+            }
+            webRtc = handle;
+            handle.setMuted(muted);
+        });
+        return webRtcStart;
+    };
 
     const connect = (): Promise<void> => {
         if (connectFlight !== undefined) return connectFlight;
@@ -203,13 +250,26 @@ export function startRealtimeSession(options: {
                                 if (!stopped && stream === next) onStatus('connected', readyDetail);
                             };
                             if (!playback.afterDrain('connected', notifyReady)) notifyReady();
-                            if (stableTimer !== undefined) clearTimeout(stableTimer);
+                            clearTimeout(stableTimer);
                             stableTimer = setTimeout(() => { reconnects = 0; }, STABLE_AFTER_MS);
                             flushMic();
                             flushPendingSpeech();
                         }).catch(fail);
                         return;
                     }
+                    case 'realtime.webrtc.start':
+                        void startWebRtc(frame.dataChannelLabel, next).catch(fail);
+                        return;
+                    case 'realtime.webrtc.answer':
+                        if (webRtc === undefined) {
+                            fail(new Error('Realtime WebRTC answer arrived before the offer.'));
+                            return;
+                        }
+                        void webRtc.acceptAnswer(frame.sdp).catch(fail);
+                        return;
+                    case 'realtime.webrtc.data':
+                        if (webRtc === undefined || !webRtc.sendData(frame.data)) fail(new Error('Realtime WebRTC control buffer overflowed.'));
+                        return;
                     case 'realtime.audio': {
                         const admitted = playback.admit(frame.data);
                         if (admitted === 'malformed') {
@@ -230,6 +290,10 @@ export function startRealtimeSession(options: {
                         flushPendingSpeech();
                         return;
                     case 'realtime.state':
+                        if (webRtc !== undefined) {
+                            onStatus(frame.state, frame.detail);
+                            return;
+                        }
                         if (frame.state === 'connected') {
                             const notifyConnected = () => {
                                 if (!stopped && stream === next) onStatus('connected', frame.detail);
@@ -268,12 +332,16 @@ export function startRealtimeSession(options: {
             };
             next.onClose((reason) => {
                 if (stopped || stream !== next) return;
+                const hadWebRtc = webRtc !== undefined || webRtcStart !== undefined;
+                webRtc?.stop();
+                webRtc = undefined;
+                webRtcStart = undefined;
                 stream = undefined;
                 if (readyStream === next) readyStream = undefined;
                 playback.unbind(next);
                 playback.finish();
                 if (stableTimer !== undefined) { clearTimeout(stableTimer); stableTimer = undefined; }
-                if (microphoneStarted && reconnects < 2 && retryableClose(reason)) {
+                if ((microphoneStarted || hadWebRtc) && reconnects < 2 && retryableClose(reason)) {
                     reconnects += 1;
                     stats.transportReconnects += 1;
                     reconnectTimer = setTimeout(() => { reconnectTimer = undefined; void connect().catch(fail); }, reconnects * 500);
@@ -297,6 +365,7 @@ export function startRealtimeSession(options: {
         stop,
         setMuted: (nextMuted) => {
             muted = nextMuted;
+            webRtc?.setMuted(muted);
             try { stream?.send({ type: 'realtime.control', action: muted ? 'mute' : 'unmute' }); } catch { /* local mute is already applied */ }
         },
         speak: (value) => {

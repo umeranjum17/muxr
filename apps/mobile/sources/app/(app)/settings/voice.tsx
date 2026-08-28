@@ -129,8 +129,8 @@ export default function VoiceProviderScreen() {
                 <ItemGroup title="Setup">
                     <Item
                         title={`Configure ${selected.name}`}
-                        subtitle="Set or replace its API key on the connected machine"
-                        icon={<Ionicons name="key-outline" size={28} color={theme.colors.textSecondary} />}
+                        subtitle="Open this provider's settings on the connected machine"
+                        icon={<Ionicons name="settings-outline" size={28} color={theme.colors.textSecondary} />}
                         loading={busy === selected.id}
                         onPress={() => void configure()}
                     />
