@@ -159,7 +159,7 @@ export const MetadataSchema = z.object({
     effortLevel: z.string().nullish(),
     // herdr-native session fields (muxr host).
     terminalTitle: z.string().optional(),
-    displayName: z.string().optional(),
+    agentName: z.string().optional(),
     taskTitle: z.string().optional(),
     /** Raw herdr pane id backing this muxr session. */
     paneId: z.string().optional(),

@@ -20,13 +20,12 @@ export interface AgentIdentity {
     workspaceId: string;
     tabId: string;
     cwd: string;
-    /** Canonical Herdr Agent Name, mirrored as displayName for wire compatibility. */
-    displayName: string;
+    /** Canonical Herdr Agent Name. Never used as a routing key. */
+    agentName: string;
     /** Task Title. Primary work identity, never a routing key. */
     taskTitle: string;
     /** Provider Kind. Which coding agent, never a name. */
     kind?: string | undefined;
-    agentName?: string | undefined;
     createdAt: string;
     ours: boolean;
 }
@@ -96,9 +95,8 @@ export function parseAgentIdentity(value: unknown): AgentIdentity | undefined {
     if (typeof row.workspaceId !== 'string' || typeof row.tabId !== 'string') return undefined;
     if (typeof row.cwd !== 'string' || row.cwd.trim() === '') return undefined;
     if (typeof row.createdAt !== 'string' || typeof row.ours !== 'boolean') return undefined;
-    if (typeof row.displayName !== 'string' || typeof row.taskTitle !== 'string') return undefined;
-    const agentName = typeof row.agentName === 'string' && row.agentName.trim() !== '' ? row.agentName : undefined;
-    const displayName = normalizeAgentName(agentName);
+    if (typeof row.agentName !== 'string' || typeof row.taskTitle !== 'string') return undefined;
+    const agentName = normalizeAgentName(row.agentName);
     const taskTitle = row.taskTitle.normalize('NFKC').replace(/\s+/g, ' ').trim();
     if (taskTitle === '') return undefined;
     const kind = typeof row.kind === 'string' && row.kind.trim() !== '' ? row.kind : undefined;
@@ -108,11 +106,10 @@ export function parseAgentIdentity(value: unknown): AgentIdentity | undefined {
         workspaceId: row.workspaceId,
         tabId: row.tabId,
         cwd: row.cwd,
-        displayName,
+        agentName,
         taskTitle,
         createdAt: row.createdAt,
         ours: row.ours,
         ...(kind === undefined ? {} : { kind }),
-        ...(agentName === undefined ? {} : { agentName }),
     };
 }

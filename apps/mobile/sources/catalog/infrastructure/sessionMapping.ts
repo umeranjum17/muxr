@@ -21,9 +21,6 @@ function parseTime(value: string | undefined): number {
     return Number.isFinite(parsed) ? parsed : Date.now();
 }
 
-export function sessionDisplayName(info: SessionInfo): string | undefined {
-    return agentNameFromHost(info);
-}
 
 /** Map a host SessionInfo DTO once into the stored Agent snapshot. */
 export function sessionInfoToSession(info: SessionInfo, status?: SessionStatus): Session {
@@ -48,7 +45,7 @@ export function sessionInfoToSession(info: SessionInfo, status?: SessionStatus):
         activeAt: updatedAt,
         metadata: sessionMetadataFromInfo(info, {
             cwd,
-            displayName: agentName,
+            agentName,
             taskTitle,
             machineId,
             kind: provider.kind,
@@ -70,7 +67,7 @@ function sessionMetadataFromInfo(
     info: SessionInfo,
     fields: {
         cwd: string;
-        displayName: string | undefined;
+        agentName: string | undefined;
         taskTitle: string;
         machineId: string;
         kind: string;
@@ -93,7 +90,7 @@ function sessionMetadataFromInfo(
         ...(info.agentKind === undefined || info.agentKind === '' ? {} : { agentKind: info.agentKind }),
         ...(info.paneId === undefined || info.paneId === '' ? {} : { paneId: info.paneId }),
         ...(info.terminalTitle === undefined || info.terminalTitle === '' ? {} : { terminalTitle: info.terminalTitle }),
-        ...(fields.displayName === undefined ? {} : { displayName: fields.displayName }),
+        ...(fields.agentName === undefined ? {} : { agentName: fields.agentName }),
         taskTitle: fields.taskTitle,
         ...(info.worktree === undefined
             ? {}

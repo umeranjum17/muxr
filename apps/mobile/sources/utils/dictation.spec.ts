@@ -236,9 +236,7 @@ describe('on-device dictation flow', () => {
         expect(mocks.stopVoiceService).toHaveBeenCalledOnce();
         expect(realtimeWatchTarget()).toBe('session-a');
 
-        await expect(Promise.all(['timeout', 'error', 'unknown'].map((status) => wakeAndReport({
-            sessionId: status, from: 'working', status, displayName: 'Noah', taskTitle: 'Invalid settlement', eventId: `event:${status}`,
-        })))).rejects.toThrow('Invalid voice report');
+        await expect(Promise.all(['timeout', 'error', 'unknown'].map((status) => wakeAndReport({sessionId: status, from: 'working', status, agentName: 'Noah', taskTitle: 'Invalid settlement', eventId: `event:${status}`,})))).rejects.toThrow('Invalid voice report');
         expect(mocks.voicePending).toEqual([]);
 
         const rejectTail = vi.fn(async () => {
@@ -246,10 +244,10 @@ describe('on-device dictation flow', () => {
             throw new Error('tail unavailable');
         });
         const reportsDone = Promise.all([
-            wakeAndReport({ sessionId: 'one', from: 'working', status: 'done', displayName: 'Alex', taskTitle: 'Ship one', eventId: 'event:one' }),
-            wakeAndReport({ sessionId: 'two', from: 'working', status: 'done', displayName: 'Bea', taskTitle: 'Ship two', eventId: 'event:two' }),
-            wakeAndReport({ sessionId: 'three', from: 'working', status: 'blocked', displayName: 'Cara', taskTitle: 'Unblock three', eventId: 'event:three', loadTail: rejectTail }),
-            wakeAndReport({ sessionId: 'one', from: 'working', status: 'done', displayName: 'Alex', taskTitle: 'Ship one', eventId: 'event:one' }),
+            wakeAndReport({sessionId: 'one', from: 'working', status: 'done', agentName: 'Alex', taskTitle: 'Ship one', eventId: 'event:one'}),
+            wakeAndReport({sessionId: 'two', from: 'working', status: 'done', agentName: 'Bea', taskTitle: 'Ship two', eventId: 'event:two'}),
+            wakeAndReport({sessionId: 'three', from: 'working', status: 'blocked', agentName: 'Cara', taskTitle: 'Unblock three', eventId: 'event:three', loadTail: rejectTail}),
+            wakeAndReport({sessionId: 'one', from: 'working', status: 'done', agentName: 'Alex', taskTitle: 'Ship one', eventId: 'event:one'}),
         ]);
         await vi.advanceTimersByTimeAsync(0);
         expect(mocks.startRealtimeSession).toHaveBeenCalledTimes(2);
@@ -302,7 +300,7 @@ describe('on-device dictation flow', () => {
 
         // Once that user-owned conversation ends, a new cold report owns one final sleep.
         rearmProvider.onStatus('disconnected', 'ended');
-        const finalReport = wakeAndReport({ sessionId: 'four', from: 'working', status: 'failed', displayName: 'Dana', taskTitle: 'Repair four', eventId: 'event:four' });
+        const finalReport = wakeAndReport({sessionId: 'four', from: 'working', status: 'failed', agentName: 'Dana', taskTitle: 'Repair four', eventId: 'event:four'});
         await vi.advanceTimersByTimeAsync(0);
         expect(mocks.startRealtimeSession).toHaveBeenCalledTimes(4);
         expect(mocks.startRealtimeSession.mock.calls[3]![0]).toMatchObject({ target: { sessionId: 'four' } });

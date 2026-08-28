@@ -136,7 +136,7 @@ async function demo(): Promise<void> {
         kind: 'codex',
         ours: true,
     });
-    assert(started.get(route)?.displayName === 'Agent', 'internal Herdr names stay hidden');
+    assert(started.get(route)?.agentName === 'Agent', 'internal Herdr names stay hidden');
     started.observe({ paneId: 'w1:p1', agentName: 'falcon', kind: 'codex' });
     await started.flush();
     const rediscovered = new IdentityStore(stableDir);
@@ -151,7 +151,7 @@ async function demo(): Promise<void> {
         kind: 'codex',
         terminalTitle: 'Stabilize realtime voice',
     });
-    assert(moved.identity.displayName === 'falcon', 'observation mirrors the real Herdr Agent Name');
+    assert(moved.identity.agentName === 'falcon', 'observation mirrors the real Herdr Agent Name');
     const other = rediscovered.adopt({
         paneId: 'w1:p2',
         workspaceId: 'w1',
@@ -179,7 +179,7 @@ async function demo(): Promise<void> {
     await afterMove.load();
     const stable = afterMove.get(route);
     assert(stable?.paneId === 'w9:p7' && stable.workspaceId === 'w9' && stable.tabId === 'w9:t4' && stable.cwd === '/repo/worktree', 'rediscovery persists coherent moved topology');
-    assert(stable?.sessionId === route && stable.displayName === 'falcon' && stable.taskTitle === 'Stabilize realtime voice' && stable.kind === 'codex', 'restart and move preserve Agent Name, Agent Route, Task Title, and Provider Kind');
+    assert(stable?.sessionId === route && stable.agentName === 'falcon' && stable.taskTitle === 'Stabilize realtime voice' && stable.kind === 'codex', 'restart and move preserve Agent Name, Agent Route, Task Title, and Provider Kind');
 
     const socketDir = mkdtempSync(join(tmpdir(), 'pph-coord-check-'));
     const socketPath = join(socketDir, 'realtime-coding.sock');

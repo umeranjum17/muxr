@@ -114,16 +114,16 @@ export interface PeerRequestMap {
         params: { relationshipId: string };
         result: {
             machineAlias: string;
-            sessions: Array<{ sessionId: string; agentAlias: string; ambiguous?: true }>;
+            sessions: Array<{ sessionId: string; agentName: string; ambiguous?: true }>;
         };
     };
     'peer.remote.read': {
         params: { relationshipId: string; sessionId: string; lines?: number };
-        result: { machineAlias: string; agentAlias: string; text: string; truncated: boolean };
+        result: { machineAlias: string; agentName: string; text: string; truncated: boolean };
     };
     'peer.remote.status': {
         params: { relationshipId: string; sessionId: string };
-        result: { machineAlias: string; agentAlias: string; status: SessionStatus };
+        result: { machineAlias: string; agentName: string; status: SessionStatus };
     };
     'peer.remote.watch': {
         params: {
@@ -133,7 +133,7 @@ export interface PeerRequestMap {
             timeoutMs?: number;
             mutation: PeerMutationMetadata;
         };
-        result: { machineAlias: string; agentAlias: string; settlement: WatchSettlement };
+        result: { machineAlias: string; agentName: string; settlement: WatchSettlement };
     };
     'peer.remote.prompt': {
         params: {
@@ -143,7 +143,7 @@ export interface PeerRequestMap {
             streamingBehavior?: StreamingBehavior;
             mutation: PeerMutationMetadata;
         };
-        result: { machineAlias: string; agentAlias: string; delivered: true };
+        result: { machineAlias: string; agentName: string; delivered: true };
     };
     'peer.remote.start': {
         params: {
@@ -151,11 +151,11 @@ export interface PeerRequestMap {
             cwd: string;
             kind?: string;
             label?: string;
-            /** Human-facing name, independent of routing identity and agent kind. */
+            /** Agent Name compatibility field. Agent Route alone authorizes. */
             displayName?: string;
             mutation: PeerMutationMetadata;
         };
-        result: { machineAlias: string; sessionId: string; agentAlias: string };
+        result: { machineAlias: string; sessionId: string; agentName: string };
     };
 }
 
@@ -185,7 +185,7 @@ export interface RequestMap extends PeerRequestMap {
             kind?: string;
             /** Display label; also names the herdr tab. */
             label?: string;
-            /** Human-facing name, independent of routing identity and agent kind. */
+            /** Agent Name compatibility field. Agent Route alone authorizes. */
             displayName?: string;
             /** Explicit concise task identity. Never derived from terminal output. */
             taskTitle?: string;

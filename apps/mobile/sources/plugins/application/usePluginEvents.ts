@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { PLUGIN_CALL_CLIENT_TIMEOUT_MS, type LifecycleEvent, type PluginEventTrigger, type PluginManifestV1, type PluginSummary } from '@muxr/contract';
+import { lifecycleEventAgentName, PLUGIN_CALL_CLIENT_TIMEOUT_MS, type LifecycleEvent, type PluginEventTrigger, type PluginManifestV1, type PluginSummary } from '@muxr/contract';
 import { sync } from '@/catalog/sync';
 import { storage } from '@/catalog/store';
 import { capabilityFor } from './capabilityRegistry';
@@ -145,7 +145,7 @@ async function run(trigger: PluginEventTrigger, plugin: PluginSummary & { manife
         status: string;
         outcome: string;
         from: string;
-        displayName?: string;
+        agentName?: string;
         taskTitle?: string;
         eventId?: string;
         loadTail?: () => Promise<string>;
@@ -154,12 +154,12 @@ async function run(trigger: PluginEventTrigger, plugin: PluginSummary & { manife
         status: event.state,
         outcome: event.state,
         from,
-        displayName: event.displayName,
+        agentName: lifecycleEventAgentName(event),
         taskTitle: event.taskTitle,
         eventId: event.eventId,
     };
     const voiceReport = trigger.action.type === 'capability' && trigger.action.name === 'speech.wake';
-    if (voiceReport && (!input.displayName?.trim() || !input.taskTitle?.trim())) return;
+    if (voiceReport && (!input.agentName?.trim() || !input.taskTitle?.trim())) return;
     if (voiceReport && trigger.action.include === 'pane') {
         input.loadTail = async () => {
             const { text } = await sync.request('pane.read', { sessionId: event.sessionId, lines: REPORT_LINES, source: 'recent_unwrapped', ansi: false });

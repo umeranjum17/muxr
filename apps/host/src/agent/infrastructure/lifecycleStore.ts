@@ -14,7 +14,7 @@ export interface LifecycleStore {
     current(sessionId: string): LifecycleEvent | undefined;
     latestFor(sessionId: string): LifecycleEvent | undefined;
     remove(sessionId: string): void;
-    transition(sessionId: string, displayName: string, state: AgentLifecycle, reason: LifecycleReasonCode, taskTitle?: string): LifecycleEvent | undefined;
+    transition(sessionId: string, agentName: string, state: AgentLifecycle, reason: LifecycleReasonCode, taskTitle?: string): LifecycleEvent | undefined;
 }
 
 const MAX_EVENTS = 50;
@@ -75,10 +75,10 @@ export function createLifecycleStore(dataDir: string, now: () => Date = () => ne
         remove(sessionId) {
             if (current.delete(sessionId)) save();
         },
-        transition(sessionId, displayName, state, reason, taskTitle) {
+        transition(sessionId, agentName, state, reason, taskTitle) {
             taskTitle = safeTaskTitle(taskTitle);
             const previous = this.current(sessionId);
-            if (previous?.state === state && previous.reasonCode === reason && previous.displayName === displayName) {
+            if (previous?.state === state && previous.reasonCode === reason && previous.displayName === agentName) {
                 if (previous.taskTitle !== taskTitle) {
                     const updated = { ...previous };
                     if (taskTitle === undefined) delete updated.taskTitle;
@@ -91,7 +91,7 @@ export function createLifecycleStore(dataDir: string, now: () => Date = () => ne
             const event: LifecycleEvent = {
                 eventId: randomUUID(),
                 sessionId,
-                displayName,
+                displayName: agentName,
                 ...(taskTitle === undefined ? {} : { taskTitle }),
                 state,
                 reasonCode: reason,

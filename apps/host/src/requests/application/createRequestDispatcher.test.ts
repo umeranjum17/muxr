@@ -47,7 +47,7 @@ describe('session.start cwd guard', () => {
 });
 
 describe('agent lifecycle request flow', () => {
-    it('forwards human names on starts and routes stale-target failures only by session id', async () => {
+    it('forwards wire Agent Names on starts and routes stale-target failures only by session id', async () => {
         const cwd = mkdtempSync(join(tmpdir(), 'muxr-start-'));
         const starts: unknown[] = [];
         const routed: string[] = [];

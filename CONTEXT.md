@@ -1,6 +1,6 @@
 # muxr
 
-muxr lets a person direct coding agents running on their computers. Human-facing identity, lifecycle reporting, proactive voice, and realtime conversation remain separate from internal routing and provider mechanics.
+muxr lets a person direct coding agents running on their computers. User-facing identity, lifecycle reporting, proactive voice, and realtime conversation remain separate from internal routing and provider mechanics.
 
 ## Machines
 
@@ -43,7 +43,7 @@ The user-editable Herdr `agent.name` (`falcon`, `reviewer`). Display-only, never
 _Avoid_: label, display label, pane title
 
 **Task Title**:
-The work the Agent is doing. Primary identity for humans scanning a herd.
+The work the Agent is doing. Primary identity for people scanning a herd.
 _Avoid_: label, pane title, terminal title, name
 
 **Provider Kind**:
@@ -59,7 +59,7 @@ A host-emitted change in an Agent's working, blocked, done, or failed state, key
 _Avoid_: status tick, attention row, watch receipt
 
 **Agent Watch**:
-The machine-scoped record of Lifecycle Events and the human-visible reports that follow from them.
+The machine-scoped record of Lifecycle Events and the user-visible reports that follow from them.
 _Avoid_: inbox, notification store, voice queue, catalog cache
 
 **Voice Report**:

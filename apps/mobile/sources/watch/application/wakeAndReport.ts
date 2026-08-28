@@ -18,7 +18,7 @@ export interface VoiceReportInput {
     sessionId: string;
     from: string;
     status: string;
-    displayName?: string;
+    agentName?: string;
     taskTitle?: string;
     eventId?: string;
     lifecycleStateSince?: number;
@@ -70,7 +70,7 @@ export function wakeAndReport(input: VoiceReportInput, loadTail?: () => Promise<
         sessionId: input.sessionId,
         from: input.from,
         status: input.status,
-        displayName: input.displayName,
+        agentName: input.agentName,
         taskTitle: input.taskTitle,
     }, {
         deliveredIds: snapshot.voiceDeliveredReportIds,
@@ -209,7 +209,7 @@ async function drain(): Promise<void> {
                 activeReportGeneration = realtimeGeneration();
                 const response = await Promise.race([
                     callPlugin<{ say: string }>('voice.report', {
-                        displayName: clean.displayName, taskTitle: clean.taskTitle,
+                        displayName: clean.agentName, taskTitle: clean.taskTitle,
                         status: clean.status, outcome: clean.status, ...(tail ? { tail } : {}),
                     }),
                     current.cancelled.then(() => undefined),

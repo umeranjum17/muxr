@@ -350,7 +350,7 @@ class MuxrSync {
             const session = storage.getState().sessions[entry.sessionId];
             void this.scheduleSessionNotification(
                 entry.sessionId,
-                `${session?.metadata?.displayName?.trim() || 'Agent'} needs attention.`,
+                `${session?.metadata?.agentName?.trim() || 'Agent'} needs attention.`,
             );
         }
     }
@@ -392,7 +392,7 @@ class MuxrSync {
         if (Platform.OS === 'android') return;
         try {
             const session = storage.getState().sessions[sessionId];
-            const title = session?.metadata?.displayName?.trim() || 'Agent';
+            const title = session?.metadata?.agentName?.trim() || 'Agent';
             await Notifications.scheduleNotificationAsync({
                 content: {
                     title,

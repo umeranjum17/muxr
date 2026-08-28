@@ -18,11 +18,11 @@ _Avoid_: status tick, attention row
 - Agent Route + identity authorize. Display metadata never does.
 - Invalid Voice Reports never persist.
 - `lifecycleStateSince` is the last state change, not the last tick.
-- Human alerts are blocked, failed, or done. Routine voice is idle or done.
+- Lifecycle alerts are blocked, failed, or done. Routine voice is idle or done.
 
 
 **Agent Watch**:
-The machine-scoped record of Lifecycle Events and the human-visible reports that follow from them.
+The machine-scoped record of Lifecycle Events and the user-visible reports that follow from them.
 _Avoid_: inbox, notification store, voice queue
 
 **Voice Report**:
