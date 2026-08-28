@@ -2,28 +2,37 @@ import type { AgentLifecycle, LifecycleEvent } from '@muxr/contract';
 
 export interface RecentActivityRow {
     eventId: string;
+    sessionId: string;
     taskTitle: string;
-    humanName?: string;
+    agentName?: string;
     status: Extract<AgentLifecycle, 'blocked' | 'done' | 'failed'>;
     reasonCode: string;
     at: number;
 }
 
 const VISIBLE_STATES = new Set<AgentLifecycle>(['blocked', 'done', 'failed']);
+const MAX_AGE_MS = 24 * 60 * 60_000;
 
-/** Latest human-meaningful transition per agent; raw lifecycle churn stays hidden. */
-export function recentActivityRows(events: readonly LifecycleEvent[], limit = 8): RecentActivityRow[] {
-    const seen = new Set<string>();
+/** Unseen meaningful transitions only; latest event wins when one agent changed repeatedly. */
+export function unseenActivityRows(
+    events: readonly LifecycleEvent[],
+    seenEventIds: ReadonlySet<string>,
+    now = Date.now(),
+    limit = 8,
+): RecentActivityRow[] {
+    const latestRoutes = new Set<string>();
     const rows: RecentActivityRow[] = [];
     for (const event of events) {
-        if (!VISIBLE_STATES.has(event.state) || seen.has(event.sessionId)) continue;
+        if (!VISIBLE_STATES.has(event.state) || latestRoutes.has(event.sessionId)) continue;
+        latestRoutes.add(event.sessionId);
+        if (seenEventIds.has(event.eventId)) continue;
         const at = Date.parse(event.at);
-        if (!Number.isFinite(at)) continue;
-        seen.add(event.sessionId);
+        if (!Number.isFinite(at) || now - at > MAX_AGE_MS) continue;
         rows.push({
             eventId: event.eventId,
+            sessionId: event.sessionId,
             taskTitle: event.taskTitle?.trim() || 'Untitled task',
-            humanName: event.displayName.trim() || undefined,
+            agentName: event.displayName.trim() || undefined,
             status: event.state as RecentActivityRow['status'],
             reasonCode: event.reasonCode,
             at,

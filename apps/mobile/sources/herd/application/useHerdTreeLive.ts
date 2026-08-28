@@ -1,17 +1,12 @@
 import * as React from 'react';
 import { useFocusEffect } from 'expo-router';
-import { storage, useHerdrTree, useSocketStatus } from '@/catalog/store';
+import { storage, useHerdrTree } from '@/catalog/store';
 import { sync } from '@/catalog/sync';
 import { listPairedGrants } from '@/pairing/e2ee';
-import { hasAgent, lifecycleTree } from '../domain/herdTree';
+import { hasAgent } from '../domain/herdTree';
 
 export function useHerdTreeLive() {
-    const { workspaces: sourceWorkspaces, loaded } = useHerdrTree();
-    const { status: socketStatus } = useSocketStatus();
-    const workspaces = React.useMemo(
-        () => lifecycleTree(sourceWorkspaces, socketStatus === 'connected'),
-        [socketStatus, sourceWorkspaces],
-    );
+    const { workspaces, loaded } = useHerdrTree();
     const [attempted, setAttempted] = React.useState(false);
     const [error, setError] = React.useState<string | null>(null);
     const [herdrConnected, setHerdrConnected] = React.useState<boolean | undefined>(undefined);
