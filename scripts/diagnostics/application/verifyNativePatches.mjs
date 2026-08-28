@@ -41,7 +41,7 @@ const whisperModel = readFileSync(new URL('apps/mobile/sources/assets/models/ggm
 const nativeGuard = androidBuild.indexOf('node "$ROOT/scripts/diagnostics/application/verifyNativePatches.mjs"');
 const workspaceBuild = androidBuild.indexOf('(cd "$ROOT" && yarn build)');
 const vitestGate = androidBuild.indexOf('npx vitest run');
-const easBuild = androidBuild.indexOf('npx eas-cli');
+const easBuild = androidBuild.indexOf('eas-cli@');
 const checks = [
     ['Ghostty patch hides its accessory bar', ghosttyPatch.includes('accessoryBar.visibility = GONE') && ghosttyView.includes('accessoryBar.visibility = GONE')],
     ['Ghostty patch forwards scroll rows', ghosttyPatch.includes('onScrollRows') && ghosttyTerminal.includes('onScrollRows') && ghosttyView.includes('onScroll')],
