@@ -3,10 +3,10 @@ import { Platform } from 'react-native';
 import { CameraView } from 'expo-camera';
 import { useAuth } from '@/auth/AuthContext';
 import { Modal } from '@/modal';
-import { claimHostedPairing, hostedPairingAuthority, hostedPairingDisplayName } from '@/state/hostedE2ee';
-import { getCachedConnectionSettings, saveConnectionSettings } from '@/state/connectionSettings';
+import { hostedPairingAuthority, hostedPairingDisplayName } from '@/state/hostedE2ee';
+import { getCachedConnectionSettings } from '@/state/connectionSettings';
 import { useCheckScannerPermissions } from './useCheckCameraPermissions';
-import { realtimeMachineSwitchGuard, stopRealtimeSession } from '@/realtime/realtimeSessionState';
+import { pairMachine } from './PairMachine';
 
 const PAIR_LINK = /^https:\/\/[^#]+\/pair#|^muxr:\/\/pair[?#]|^wss?:\/\/[^?\s]+\?[^#\s]*\bpair=|^http:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?\/pair#/i;
 
@@ -36,25 +36,27 @@ export function useHostedPairing() {
                 { confirmText: 'Pair' },
             );
             if (!approved) return;
-            const grant = await claimHostedPairing(url);
-            if (!realtimeMachineSwitchGuard(grant.machineId).allowed) {
+            const paired = await pairMachine({ url });
+            if (!paired.ok && paired.reason === 'voice-pinned') {
                 const switchApproved = await Modal.confirm(
                     'End voice and switch?',
                     'Realtime voice stays pinned to the computer where it started. The new pairing is saved even if you switch later.',
                     { confirmText: 'End voice and switch', destructive: true },
                 );
                 if (!switchApproved) return;
-                stopRealtimeSession();
+                const retried = await pairMachine({ grant: paired.grant, endVoiceIfPinned: true });
+                if (!retried.ok) {
+                    Modal.alert('Pairing failed', retried.reason === 'failed' ? retried.message ?? 'Pairing failed' : 'Pairing failed');
+                    return;
+                }
+                await auth.login(retried.credential, retried.secretKey);
+                return;
             }
-            await saveConnectionSettings({
-                ...getCachedConnectionSettings(),
-                mode: 'hosted',
-                relayUrl: grant.relayUrl,
-                machineId: grant.machineId,
-                token: '',
-                selfhost: grant.source === 'selfhost' ? true : undefined,
-            });
-            await auth.login(grant.credential, grant.deviceKey.secretKey);
+            if (!paired.ok) {
+                Modal.alert('Pairing failed', paired.message ?? 'Pairing failed');
+                return;
+            }
+            await auth.login(paired.credential, paired.secretKey);
         } catch (error) {
             Modal.alert('Pairing failed', error instanceof Error ? error.message : String(error));
         } finally {

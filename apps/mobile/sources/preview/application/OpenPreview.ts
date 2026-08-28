@@ -9,13 +9,10 @@
  * a listener -- is the only caller left on that path.
  */
 
-import * as Device from 'expo-device';
-import { Platform } from 'react-native';
 import { newPreviewKey } from '@muxr/crypto';
 import { issueWsTicket, newPreviewChannel, previewSocketUrl, ticketSocketUrl } from '@muxr/contract';
 import { getCachedConnectionSettings } from '@/state/connectionSettings';
 import { sync } from '@/sync/sync';
-import { previewBridgeAvailable, startPreviewBridge } from '../infrastructure/previewBridge';
 
 const READY_TIMEOUT_MS = 15_000;
 
@@ -23,6 +20,11 @@ export interface OpenPreview {
     url: string;
     close: () => void;
 }
+
+export type OpenPreviewCommand = {
+    port: number;
+    onIosSimulator?: boolean;
+};
 
 export interface PreviewTunnel {
     hostname: string;
@@ -61,6 +63,7 @@ function waitForRelay(socket: WebSocket, type: string): Promise<void> {
  * ride the same tunnel.
  */
 export async function attachPreviewTunnel(port: number): Promise<PreviewTunnel> {
+    const { previewBridgeAvailable, startPreviewBridge } = await import('../infrastructure/previewBridge');
     const settings = getCachedConnectionSettings();
     if (!previewBridgeAvailable && settings.mode !== 'local') {
         throw new Error('Browser preview needs the muxr app on this platform.');
@@ -132,11 +135,12 @@ export async function attachPreviewTunnel(port: number): Promise<PreviewTunnel> 
     return { hostname, port: previewPort, close: () => socket.close() };
 }
 
-export async function openPreview(port: number): Promise<OpenPreview> {
+export async function openPreview(command: OpenPreviewCommand): Promise<OpenPreview> {
+    const port = command.port;
     // The iOS simulator shares the Mac's loopback. Bypass the native TCP bridge
     // only for an explicit local-development connection to that same loopback:
     // a paired remote machine may expose the same port on a different host.
-    if (Platform.OS === 'ios' && Device.isDevice === false) {
+    if (command.onIosSimulator === true) {
         const settings = getCachedConnectionSettings();
         const hostname = relayHostname(settings.relayUrl);
         if (

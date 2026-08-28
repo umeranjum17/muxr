@@ -37,15 +37,20 @@ export interface TerminalChannel {
     close: () => void;
 }
 
+export type OpenTerminalCommand = {
+    agentRoute: string;
+    size: { cols: number; rows: number };
+    mode?: 'control' | 'observe';
+};
+
 // ponytail: bounded retries (~2.5 min worst case), then the channel reports
 // 'disconnected' like before. Raise the cap if phone-sleep gaps beat it.
 const MAX_ATTEMPTS = 15;
 
-export async function openTerminal(
-    sessionId: string,
-    size: { cols: number; rows: number },
-    options?: { mode?: 'control' | 'observe' },
-): Promise<TerminalChannel> {
+export async function openTerminal(command: OpenTerminalCommand): Promise<TerminalChannel> {
+    const sessionId = command.agentRoute;
+    const size = command.size;
+    const options = command.mode === undefined ? undefined : { mode: command.mode };
     const settings = getCachedConnectionSettings();
     let grant = settings.mode === 'hosted' ? getCachedHostedGrant(settings.machineId) : undefined;
     if (settings.mode === 'hosted' && grant === undefined) throw new Error('terminal: hosted machine grant is missing');

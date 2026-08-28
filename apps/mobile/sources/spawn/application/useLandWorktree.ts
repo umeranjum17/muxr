@@ -4,25 +4,10 @@ import { Modal } from '@/modal';
 import { t } from '@/text';
 import { ActionError } from '@/utils/errors';
 import { useAsyncAction } from '@/hooks/useAsyncAction';
-import { getRepoPath, isWorktreePath, landWorktree } from '../infrastructure/worktree';
+import { isWorktreePath } from '../infrastructure/worktree';
 import { getSessionName } from '@/herd';
-import { machineSpawnNewSession } from '@/sync/ops';
-import { sync } from '@/sync/sync';
 import type { Session } from '@/sync/storageTypes';
-
-/** Plain strings, like the rest of the newer screens: land UI is English-only for now. */
-function handoffPrompt(worktreePath: string, branch: string, detail: string): string {
-    return [
-        `Land the worktree branch "${branch}" (worktree at ${worktreePath}) into this repository's current branch.`,
-        'The automated land ran `git rebase` and hit conflicts. Git said:',
-        '',
-        detail,
-        '',
-        'Rules: never discard or overwrite uncommitted changes in this checkout; never force-push; keep the branch commits intact.',
-        'Finish the rebase (resolve the conflicts), fast-forward this checkout onto the landed branch, and leave the worktree directory alone -- removal is handled separately.',
-        'Report what you did in two lines.',
-    ].join('\n');
-}
+import { landWorktreeBranch } from './LandWorktree';
 
 export function useLandWorktree(session: Session | null | undefined) {
     const router = useRouter();
@@ -30,7 +15,7 @@ export function useLandWorktree(session: Session | null | undefined) {
     const canLand = !!session && !!path && isWorktreePath(path);
 
     const [landing, perform] = useAsyncAction(async () => {
-        if (!canLand) return;
+        if (!canLand || path === undefined) return;
         const message = await Modal.prompt(
             t('sessionInfo.landWorktree'),
             t('sessionInfo.landWorktreeMessage'),
@@ -39,10 +24,13 @@ export function useLandWorktree(session: Session | null | undefined) {
         const trimmed = message?.trim();
         if (!trimmed) return;
 
-        let result = await landWorktree(path!, trimmed, false);
+        const command = {
+            worktreePath: path,
+            message: trimmed,
+            machineId: session!.metadata?.machineId ?? '',
+        };
+        let result = await landWorktreeBranch(command);
 
-        // The base checkout has unsaved work on files this branch touches.
-        // Nothing has moved yet; ask before stashing it aside and back.
         if (result.status === 'blocked-dirty-base') {
             const shown = result.files.slice(0, 5).join('\n');
             const more = result.files.length > 5 ? `\n… and ${result.files.length - 5} more` : '';
@@ -52,7 +40,7 @@ export function useLandWorktree(session: Session | null | undefined) {
                 { confirmText: 'Stash & land' },
             );
             if (!agreed) return;
-            result = await landWorktree(path!, trimmed, true);
+            result = await landWorktreeBranch({ ...command, stashDirtyBase: true });
         }
 
         if (result.status === 'landed') {
@@ -70,10 +58,8 @@ export function useLandWorktree(session: Session | null | undefined) {
             return;
         }
 
-        // Rebase conflicts need a brain, not a script: offer an agent that runs
-        // in the base checkout, safely outside the worktree being landed.
         if (result.status !== 'conflict') {
-            throw new ActionError(t('sessionInfo.landWorktreeFailed'), false);
+            throw new ActionError(result.status === 'failed' ? result.message ?? t('sessionInfo.landWorktreeFailed') : t('sessionInfo.landWorktreeFailed'), false);
         }
         const handoff = await Modal.confirm(
             'Rebase conflict',
@@ -81,15 +67,12 @@ export function useLandWorktree(session: Session | null | undefined) {
             { confirmText: 'Start agent' },
         );
         if (!handoff) return;
-        const spawn = await machineSpawnNewSession({
-            machineId: session!.metadata?.machineId ?? '',
-            directory: getRepoPath(path!),
-        });
-        if (spawn.type !== 'success') {
-            throw new ActionError(spawn.type === 'error' ? spawn.errorMessage : 'Could not start the agent', false);
+        result = await landWorktreeBranch({ ...command, onConflict: 'handoff', knownConflict: { branch: result.branch, detail: result.detail } });
+        if (result.status === 'handoff-started') {
+            router.push(`/session/${result.agentRoute}`);
+            return;
         }
-        await sync.sendMessage(spawn.sessionId, handoffPrompt(path!, result.branch, result.detail));
-        router.push(`/session/${spawn.sessionId}`);
+        throw new ActionError(result.status === 'failed' ? result.message ?? t('sessionInfo.landWorktreeFailed') : t('sessionInfo.landWorktreeFailed'), false);
     });
 
     return React.useMemo(

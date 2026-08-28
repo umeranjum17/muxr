@@ -11,11 +11,12 @@ import { useAllMachines } from '@/sync/storage';
 import { listPairedGrants, type StoredHostedGrant } from '@/state/hostedE2ee';
 import {
     applyCollaboration,
+    grantPeerAuthority,
     hasPendingCollaboration,
     loadCollaborationIntent,
     reconcileCollaboration,
+    revokePeerAuthority,
     saveCollaborationIntent,
-    selectCollaborationMachines,
     type CollaborationIntent,
     type CollaborationMachine,
     type CollaborationReport,
@@ -195,12 +196,11 @@ export default function ComputerCollaborationScreen() {
             Modal.alert('Pair every selected computer', 'Pair the missing computer with this phone again before changing collaboration.');
             return;
         }
-        const next = selectCollaborationMachines(intent, chosen);
-        await saveCollaborationIntent(next);
-        setIntent(next);
         setBusy(true);
         try {
-            const nextReport = await applyCollaboration(next, liveMachinesNow, requesterFor(grants));
+            const nextReport = chosen.length === 0
+                ? await revokePeerAuthority({ intent, machines: liveMachinesNow, request: requesterFor(grants) })
+                : await grantPeerAuthority({ intent, selected: chosen, machines: liveMachinesNow, request: requesterFor(grants) });
             setIntent(nextReport.intent);
             setReport(nextReport);
             setSelected(nextReport.intent.selectedMachineIds);

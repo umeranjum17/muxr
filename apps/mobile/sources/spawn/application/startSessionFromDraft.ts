@@ -1,15 +1,12 @@
 import type { Machine } from '@/sync/storageTypes';
-import { machineSpawnNewSession } from '@/sync/ops';
-import { sync } from '@/sync/sync';
 import { useNewSessionDraft } from './useNewSessionDraft';
-import { isMachineOnline } from '@/pairing';
 import { resolveAbsolutePath } from '@/utils/pathUtils';
-import { createWorktree } from '../infrastructure/worktree';
 import { Modal } from '@/modal';
 import { t } from '@/text';
 import { WorktreeSelection } from '../domain/WorktreeSelection';
+import { startAgentFromDock } from './StartAgentFromDock';
 
-/** Shared configured machine/project/agent flow for UI and app capabilities. */
+/** Adapter: Dock draft + confirmations around StartAgentFromDock. */
 export async function startSessionFromDraft(options: {
     machines: Machine[];
     navigateToSession: (sessionId: string) => void;
@@ -17,71 +14,43 @@ export async function startSessionFromDraft(options: {
 }): Promise<string | null> {
     const draft = useNewSessionDraft.getState();
     const machine = options.machines.find((candidate) => candidate.id === draft.selectedMachineId);
-    if (!machine) {
-        Modal.alert(t('common.error'), 'Please select a machine');
-        return null;
-    }
-    if (!isMachineOnline(machine)) {
-        Modal.alert(t('common.error'), 'Machine is offline');
-        return null;
-    }
-
     const blank = options.blank === true;
-    const prompt = blank ? '' : draft.input.trim();
-    const attachments = blank ? [] : draft.attachments;
-    const absolutePath = resolveAbsolutePath(draft.selectedPath?.trim() || '~', machine.metadata?.homeDir);
+    const absolutePath = resolveAbsolutePath(draft.selectedPath?.trim() || '~', machine?.metadata?.homeDir);
     const worktree = WorktreeSelection.fromPickerKey(
         draft.sessionType === 'worktree' ? draft.worktreeKey ?? '__new__' : '__none__',
     );
-    try {
-        let spawnDirectory = absolutePath;
-        if (worktree.wantsNewCheckout()) {
-            const result = await createWorktree(machine.id, absolutePath);
-            if (!result.success) {
-                Modal.alert(t('common.error'), result.error || 'Failed to create worktree');
-                return null;
-            }
-            spawnDirectory = result.worktreePath;
-        } else if (!worktree.isNone()) {
-            spawnDirectory = worktree.existingPath() ?? absolutePath;
-        }
 
-        const spawn = async (approvedNewDirectoryCreation = false): Promise<string | null> => {
-            const result = await machineSpawnNewSession({
-                machineId: machine.id,
-                directory: spawnDirectory,
-                approvedNewDirectoryCreation,
-                agent: draft.agentType,
-            });
-            if (result.type === 'success') return result.sessionId;
-            if (result.type === 'error') {
-                Modal.alert(t('common.error'), result.errorMessage);
-                return null;
+    let createCwd = false;
+    for (;;) {
+        const result = await startAgentFromDock({
+            machine,
+            directory: absolutePath,
+            worktree,
+            providerKind: draft.agentType,
+            prompt: blank ? '' : draft.input.trim(),
+            attachments: blank ? [] : draft.attachments,
+            createCwd,
+        });
+        if (result.ok) {
+            if (!blank) {
+                draft.setInput('');
+                draft.setAttachments([]);
             }
+            if (result.promptFailed) Modal.alert(t('common.error'), result.promptFailed);
+            options.navigateToSession(result.agentRoute);
+            return result.agentRoute;
+        }
+        if (result.reason === 'needs-directory' && !createCwd) {
             const approved = await Modal.confirm(
                 'Create Directory?',
                 `The directory '${result.directory}' does not exist. Would you like to create it?`,
                 { cancelText: t('common.cancel'), confirmText: t('common.create') },
             );
-            return approved ? spawn(true) : null;
-        };
-
-        const sessionId = await spawn();
-        if (!sessionId) return null;
-        await sync.refreshSessions();
-        if (!blank) {
-            draft.setInput('');
-            draft.setAttachments([]);
+            if (!approved) return null;
+            createCwd = true;
+            continue;
         }
-        options.navigateToSession(sessionId);
-        if (prompt || attachments.length > 0) {
-            void sync.sendMessage(sessionId, prompt, { source: 'new_session', attachments }).catch((error) => {
-                Modal.alert(t('common.error'), error instanceof Error ? error.message : 'Failed to send the first message');
-            });
-        }
-        return sessionId;
-    } catch (error) {
-        Modal.alert(t('common.error'), error instanceof Error ? error.message : 'Failed to start session');
+        Modal.alert(t('common.error'), result.message ?? 'Failed to start session');
         return null;
     }
 }

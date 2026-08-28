@@ -67,4 +67,5 @@ See root `CONTEXT.md`. Agent Route authorizes. Human Name, Task Title, and compu
 
 ## Dependency direction
 
-Outsiders import `@/<context>` for domain and use cases, or `@/<context>/ui` for screens. Never `@/<context>/domain/…`. Domain is pure TypeScript (type-only React types allowed). `architecture.spec.ts` rejects forbidden direction, presentation on public barrels, and nested ternaries in domain.
+Outsiders import `@/<context>` for domain and use cases, or `@/<context>/ui` for screens. Never `@/<context>/domain/…`. Domain is pure TypeScript (type-only React types allowed). Named operations are listed in `USE_CASES.md`. `architecture.spec.ts` rejects forbidden direction, presentation on public barrels, nested ternaries in domain/use cases, and UI imports in named use cases.
+

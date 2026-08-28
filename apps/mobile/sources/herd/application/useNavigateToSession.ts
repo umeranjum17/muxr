@@ -2,9 +2,11 @@ import * as React from 'react';
 import type { Router } from 'expo-router';
 import { usePathname, useRouter } from 'expo-router';
 import { useSplitViewLayout } from '@/utils/responsive';
+import { focusAgent } from './FocusAgent';
 
 export function navigateToSession(router: Router, sessionId: string) {
-    router.push(`/session/${encodeURIComponent(sessionId)}`);
+    const { href } = focusAgent({ agentRoute: sessionId });
+    router.push(href);
 }
 
 export function useNavigateToSession() {
@@ -13,11 +15,15 @@ export function useNavigateToSession() {
     const splitViewLayout = useSplitViewLayout();
 
     return React.useCallback((sessionId: string) => {
-        const href = `/session/${encodeURIComponent(sessionId)}` as const;
-        if (splitViewLayout && pathname.startsWith('/session/')) {
-            router.replace(href);
+        const focused = focusAgent({
+            agentRoute: sessionId,
+            alreadyViewingAgent: pathname.startsWith('/session/'),
+            splitView: splitViewLayout,
+        });
+        if (focused.replace) {
+            router.replace(focused.href);
             return;
         }
-        router.push(href);
+        router.push(focused.href);
     }, [pathname, router, splitViewLayout]);
 }

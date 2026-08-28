@@ -1,10 +1,11 @@
 /** Public API of the plugins context. Screens live in `./ui`. */
+export * from './application/RunPluginAction';
+export * from './application/RunPluginShortcut';
 export * from './application/capabilityRegistry';
-export * from './application/pluginActions';
 export * from './application/pluginDataInvalidation';
+export { dispatchPluginAction } from './application/pluginActions';
 export * from './application/pluginStore';
 export * from './application/primitivePresence';
-export * from './application/runShortcut';
 export * from './application/usePluginEvents';
 export * from './application/useSessionPlugins';
 export * from './application/useSlotContributions';

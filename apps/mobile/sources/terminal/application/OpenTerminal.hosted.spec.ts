@@ -83,7 +83,7 @@ class FakeWebSocket {
 vi.stubGlobal('WebSocket', FakeWebSocket);
 vi.stubGlobal('fetch', mocks.fetch);
 
-import { openTerminal } from './openTerminal';
+import { openTerminal } from './OpenTerminal';
 
 describe('openTerminal hosted transport', () => {
     beforeEach(() => {
@@ -105,7 +105,7 @@ describe('openTerminal hosted transport', () => {
     });
 
     it('joins the channel by ticket under the grant credential, then flows sealed frames', async () => {
-        const channel = await openTerminal('session-1', { cols: 100, rows: 30 });
+        const channel = await openTerminal({ agentRoute: 'session-1', size: { cols: 100, rows: 30 } });
         await vi.waitFor(() => expect(FakeWebSocket.instances.length).toBe(1));
 
         // The ticket is minted against the grant's relay with the grant

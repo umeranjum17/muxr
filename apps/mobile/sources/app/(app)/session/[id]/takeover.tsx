@@ -77,7 +77,7 @@ export default function TakeoverScreen() {
         try {
             await machineBash('', `${agentBrowser} stream enable --port ${streamPort}`, cwd);
             streamRef.current = { command: agentBrowser, cwd };
-            const opened = await openTakeover(streamPort);
+            const opened = await openTakeover({ port: streamPort });
             closeTunnelRef.current = opened.close;
             const socket = new WebSocket(opened.wsUrl);
             socketRef.current = socket;

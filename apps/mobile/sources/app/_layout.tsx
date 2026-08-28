@@ -31,7 +31,7 @@ import { initConsoleLogging, setConsoleOutputEnabled } from '@/utils/consoleLogg
 import { useLocalSetting } from '@/sync/storage';
 import { useUnistyles } from 'react-native-unistyles';
 import { AsyncLock } from '@/utils/lock';
-import { getSessionRouteFromNotificationResponse } from '@/herd';
+import { watchAgentLifecycle } from '@/herd';
 import { navigateToSession } from '@/herd';
 import { useTauriZoom } from '@/hooks/useTauriZoom';
 import { useTauriDrag } from '@/hooks/useTauriDrag';
@@ -336,23 +336,15 @@ export default function RootLayout() {
                 return;
             }
 
-            const route = getSessionRouteFromNotificationResponse(response);
-            console.log(`[PUSH ROUTING] Computed route: ${route ?? 'null'}`);
-            if (!route) {
+            const watched = watchAgentLifecycle({ notification: response });
+            console.log(`[PUSH ROUTING] Computed route: ${watched.agentRoute ?? 'null'}`);
+            if (!watched.agentRoute) {
                 console.log('[PUSH ROUTING] No session route found in notification.request.content.data');
                 return;
             }
 
-            const encodedSessionId = route.replace(/^\/session\//, '');
-            const sessionId = (() => {
-                try {
-                    return decodeURIComponent(encodedSessionId);
-                } catch {
-                    return encodedSessionId;
-                }
-            })();
-            console.log(`[PUSH ROUTING] Navigating to session: ${sessionId}`);
-            navigateToSession(router, sessionId);
+            console.log(`[PUSH ROUTING] Navigating to session: ${watched.agentRoute}`);
+            navigateToSession(router, watched.agentRoute);
         } finally {
             try {
                 await Notifications.clearLastNotificationResponseAsync();

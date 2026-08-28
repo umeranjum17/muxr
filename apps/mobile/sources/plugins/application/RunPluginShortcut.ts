@@ -21,6 +21,10 @@ function canonicalShortcutId(shortcutId: string): string {
     )?.id ?? shortcutId;
 }
 
+export type RunPluginShortcutCommand = { shortcutId: string };
+
+export type RunPluginShortcutResult = { ok: true } | { ok: false };
+
 /**
  * Run a plugin shortcut by its canonical id (`<pluginId>.<contributionId>`)
  * or a legacy alias from an older deep link.
@@ -28,20 +32,25 @@ function canonicalShortcutId(shortcutId: string): string {
  * The baked Android mapping is identity/alias data only. The enabled catalog is
  * authoritative even on cold start, so a disabled plugin can never open the mic.
  */
-export async function runShortcut(shortcutId: string): Promise<void> {
+export async function runPluginShortcut(command: RunPluginShortcutCommand): Promise<RunPluginShortcutResult> {
     try {
         await refreshPlugins();
     } catch {
-        return;
+        return { ok: false };
     }
-    const found = find(canonicalShortcutId(shortcutId));
-    if (found === undefined) return;
+    const found = find(canonicalShortcutId(command.shortcutId));
+    if (found === undefined) return { ok: false };
     const { shortcut, pluginId, manifestHash, manifest } = found;
     if (shortcut.action.type === 'capability') {
         await capabilityFor(shortcut.action.name, manifest)?.({ sessionId: '', status: 'shortcut', from: 'shortcut' });
-        return;
+        return { ok: true };
     }
-    await sync.request('plugin.call', { pluginId, manifestHash, contributionId: shortcut.action.contributionId, input: { shortcutId } }, PLUGIN_CALL_CLIENT_TIMEOUT_MS);
+    await sync.request('plugin.call', { pluginId, manifestHash, contributionId: shortcut.action.contributionId, input: { shortcutId: command.shortcutId } }, PLUGIN_CALL_CLIENT_TIMEOUT_MS);
+    return { ok: true };
+}
+
+export async function runShortcut(shortcutId: string): Promise<void> {
+    await runPluginShortcut({ shortcutId });
 }
 
 function find(shortcutId: string): { shortcut: PluginShortcut; pluginId: string; manifestHash: string; manifest: import('@muxr/contract').PluginManifestV1 } | undefined {

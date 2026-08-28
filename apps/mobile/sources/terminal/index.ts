@@ -1,5 +1,5 @@
 /** Public API of the terminal context. Screens live in `./ui`. */
-export * from './application/openTerminal';
+export * from './application/OpenTerminal';
 export * from './application/recentOutput';
 export * from './application/sessionOverlayNav';
 export * from './application/useGitStatusFiles';

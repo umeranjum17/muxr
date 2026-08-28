@@ -1,7 +1,8 @@
 /** Public API of the herd context. Domain and use cases only — screens live in `./ui`. */
+export * from './application/FocusAgent';
+export * from './application/WatchAgentLifecycle';
 export * from './application/copySessionMetadataToClipboard';
 export * from './application/liveTerminalOrder';
-export * from './application/notificationRouting';
 export * from './application/sessionFork';
 export * from './application/sessionUtils';
 export * from './application/useHerdTreeLive';

@@ -56,7 +56,7 @@ class FakeWebSocket {
 
 vi.stubGlobal('WebSocket', FakeWebSocket);
 
-import { openTerminal } from './openTerminal';
+import { openTerminal } from './OpenTerminal';
 
 describe('openTerminal reconnect ownership', () => {
     beforeEach(() => {
@@ -71,7 +71,7 @@ describe('openTerminal reconnect ownership', () => {
 
     it('replays the first paint when it arrives before the native view subscribes', async () => {
         mocks.request.mockResolvedValue({});
-        const channel = await openTerminal('session', { cols: 100, rows: 30 });
+        const channel = await openTerminal({ agentRoute: 'session', size: { cols: 100, rows: 30 } });
         const socket = FakeWebSocket.instances[0];
         expect(socket).toBeDefined();
         socket!.open();
@@ -96,7 +96,7 @@ describe('openTerminal reconnect ownership', () => {
             return attachCalls === 2 ? delayedAttach : Promise.resolve({});
         });
 
-        const channel = await openTerminal('session', { cols: 100, rows: 30 });
+        const channel = await openTerminal({ agentRoute: 'session', size: { cols: 100, rows: 30 } });
         const first = FakeWebSocket.instances[0];
         expect(first).toBeDefined();
         first!.open();

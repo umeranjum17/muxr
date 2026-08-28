@@ -15,7 +15,7 @@ import * as React from 'react';
 import { View } from 'react-native';
 import { TerminalView as GhosttyView, type TerminalViewRef } from 'expo-libghostty';
 import { decodeBase64, encodeBase64 } from '@/encryption/base64';
-import { openTerminal, type TerminalChannel } from '../application/openTerminal';
+import { openTerminal, type TerminalChannel } from '../application/OpenTerminal';
 import { beginViewportCapture, recordTerminalOutput, setTerminalColumns } from '../application/recentOutput';
 
 /**
@@ -155,7 +155,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             // -- seeded history, a repaint, a cleared screen -- lands those
             // diffs on the wrong cells and quietly eats lines.
             void Promise.resolve()
-                .then(() => openTerminal(sessionId, { cols, rows }))
+                .then(() => openTerminal({ agentRoute: sessionId, size: { cols, rows } }))
                 .then((channel) => {
                     channelRef.current = channel;
                     // The first thing herdr sends is the whole screen, so this

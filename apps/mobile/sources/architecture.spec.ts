@@ -11,6 +11,22 @@ const contexts = [
 const layers = ['domain', 'application', 'infrastructure', 'presentation'] as const;
 const excluded = new Set(['sync', 'state', 'realtime', 'voice', 'auth', 'encryption']);
 const presentationOnly = new Set(['settings']);
+const useCases = [
+    'spawn/application/StartAgent.ts',
+    'spawn/application/StartAgentFromDock.ts',
+    'spawn/application/LandWorktree.ts',
+    'herd/application/FocusAgent.ts',
+    'herd/application/WatchAgentLifecycle.ts',
+    'pairing/application/PairMachine.ts',
+    'pairing/application/ReconnectMachine.ts',
+    'collaboration/application/GrantPeerAuthority.ts',
+    'collaboration/application/RevokePeerAuthority.ts',
+    'terminal/application/OpenTerminal.ts',
+    'preview/application/OpenPreview.ts',
+    'takeover/application/OpenTakeover.ts',
+    'plugins/application/RunPluginAction.ts',
+    'plugins/application/RunPluginShortcut.ts',
+];
 
 function walk(dir: string): string[] {
     const out: string[] = [];
@@ -95,18 +111,46 @@ describe('mobile UI bounded contexts', () => {
         expect(failures).toEqual([]);
     });
 
-    it('rejects nested ternaries in domain modules', () => {
+    it('rejects nested ternaries in domain and named use-case modules', () => {
         const failures: string[] = [];
         for (const file of files) {
             const rel = path.relative(sources, file);
-            if (!rel.includes('/domain/') || rel.endsWith('.spec.ts')) continue;
+            const isUseCase = useCases.includes(rel);
+            if ((!rel.includes('/domain/') && !isUseCase) || rel.endsWith('.spec.ts')) continue;
             const body = strip(fs.readFileSync(file, 'utf8'))
                 .split('\n')
                 .filter((line) => !line.includes(' extends '))
                 .join('\n');
-            // Value ternary `a ? b : c ? d : e` — not `name?: Type` or `?.`.
             if (/\s\?\s[^?:\n]{1,120}\s:\s[^?:\n]{1,80}\s\?\s/.test(body)) {
                 failures.push(rel);
+            }
+        }
+        expect(failures).toEqual([]);
+    });
+
+    it('maps each real operation to a named use case with a command and no UI', () => {
+        expect(fs.existsSync(path.join(sources, 'USE_CASES.md'))).toBe(true);
+        expect(fs.existsSync(path.join(sources, 'services'))).toBe(false);
+        const failures: string[] = [];
+        for (const rel of useCases) {
+            const file = path.join(sources, rel);
+            if (!fs.existsSync(file)) {
+                failures.push(`missing ${rel}`);
+                continue;
+            }
+            const src = fs.readFileSync(file, 'utf8');
+            if (!/export type \w+Command\b/.test(src)) {
+                failures.push(`${rel}: missing Command type`);
+            }
+            for (const line of src.split('\n')) {
+                const trimmed = line.trim();
+                if (trimmed.startsWith('import type ')) continue;
+                if (/from ['"]react['"]/.test(trimmed) || /from ['"]react-native['"]/.test(trimmed)) {
+                    failures.push(`${rel}: use case imports React`);
+                }
+                if (/from ['"]expo-router['"]/.test(trimmed) || /from ['"]@\/modal['"]/.test(trimmed)) {
+                    failures.push(`${rel}: use case imports UI (${trimmed})`);
+                }
             }
         }
         expect(failures).toEqual([]);

@@ -9,7 +9,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { Terminal } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
-import { openTerminal, type TerminalChannel } from '../application/openTerminal';
+import { openTerminal, type TerminalChannel } from '../application/OpenTerminal';
 import { beginViewportCapture, recordTerminalOutput, setTerminalColumns } from '../application/recentOutput';
 
 export interface TerminalViewProps {
@@ -74,7 +74,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
         let disposed = false;
 
         onStatus?.('connecting');
-        void openTerminal(sessionId, { cols: term.cols, rows: term.rows })
+        void openTerminal({ agentRoute: sessionId, size: { cols: term.cols, rows: term.rows } })
             .then((opened) => {
                 if (disposed) {
                     opened.close();

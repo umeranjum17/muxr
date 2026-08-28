@@ -109,6 +109,40 @@ broke are worse than none. Crypto and security paths keep their coverage.
 `apps/mobile/sources/sync/sessionSync.integration.spec.ts` is the reference.
 Do not add a test matrix because a brief asked for one.
 
+## Mobile UI architecture
+
+Phone features under `apps/mobile/sources/` are split by what the person is doing, then by layer. Expo Router `app/` is the composition root. Shared chrome (`components/`, `modal/`, `theme`, `text`) is not a fake context.
+
+**In scope:** `herd`, `spawn`, `pairing`, `plugins`, `terminal`, `collaboration`, `preview`, `takeover`, `changelog`, `settings`. **Leave alone:** `sync/`, `state/`, `realtime/`, `voice/`, `auth/`, `encryption/`.
+
+### Dependency direction
+
+Outsiders import `@/<context>` (domain + use cases) or `@/<context>/ui` (screens). Never `@/<context>/domain/…`. Domain is pure TypeScript (type-only React types allowed). Domain never imports application, presentation, infrastructure, or `@/*/ui`.
+
+### Ubiquitous names
+
+Use [CONTEXT.md](CONTEXT.md). Agent Route authorizes. Human Name, Task Title, and computer display names never authorize. Do not introduce chat-era names into new code.
+
+### Use cases
+
+One PascalCase module per real operation (`StartAgent.ts`, `OpenTerminal.ts`, …). Command in, explicit result out. The module orchestrates domain entities and existing ports (`@/sync`, `@/state`). It contains no React, `expo-router`, or `@/modal`. Routes, hooks, and plugin slots are thin adapters. Map: [apps/mobile/sources/USE_CASES.md](apps/mobile/sources/USE_CASES.md). No `services/` folder. No use case that does not exist in the product.
+
+### Rich domain
+
+Invariants and transitions live on domain objects (`Agent.lifecycle()`, `SpawnRequest.rejection()`, `PairedMachine.isOnline()`, `WorktreeSelection`, `Collaboration`). Do not add BaseEntity, generic repositories, a DI container, CQRS, or empty layers.
+
+### Compatibility
+
+Do not add shims for old internal import paths. Frozen re-exports under `utils/` and `hooks/` exist only because excluded runtime still imports them. Do not grow that set.
+
+### Readability
+
+No nested ternaries. No boolean piles that decide three things at once. Flatten with early returns.
+
+### Tests
+
+Flow-level checks through real modules. Default to zero new test files. Architecture checks live in `apps/mobile/sources/architecture.spec.ts` and run in `yarn check`. Security and crypto keep their coverage.
+
 ## The rules that keep this codebase small
 
 1. **One vocabulary.** The app speaks herdr's words: herd, agents, workspaces

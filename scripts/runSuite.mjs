@@ -26,6 +26,7 @@ const checks = [
     ['unit: relay pairing (expiry, cap, validation)', 'node', ['apps/relay/dist/selfCheck.js']],
     ['unit: layout snapshot round-trip', 'node', ['apps/host/dist/herdr/layoutSelfCheck.js']],
     ['unit: all vitest flows', 'npx', ['vitest', 'run', '--root', '.']],
+    ['policy: mobile UI architecture', 'npx', ['vitest', 'run', 'apps/mobile/sources/architecture.spec.ts', '--config', 'apps/mobile/vitest.config.ts']],
     ['policy: store/direct mobile commerce builds', 'node', ['scripts/checkMobileCommerceBuilds.mjs']],
     ['e2e: device pairing through relay', 'node', ['scripts/checkPairing.mjs']],
     ['e2e: durable self-host device revocation', 'node', ['scripts/checkSelfhostRevocation.mjs']],

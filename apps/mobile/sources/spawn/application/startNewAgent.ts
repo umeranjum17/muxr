@@ -5,17 +5,11 @@
  */
 
 import { router } from 'expo-router';
-import { sync } from '@/sync/sync';
-import { refreshUntilSessionVisible } from '@/sync/ops';
-import { MISSING_CWD_ERROR_PREFIX, type HerdrTreeWorkspace } from '@muxr/contract';
 import { Modal } from '@/modal';
-import {
-    getCachedConnectionSettings,
-    rememberSessionCwd,
-    saveConnectionSettings,
-} from '@/state/connectionSettings';
+import type { HerdrTreeWorkspace } from '@muxr/contract';
 import type { AgentCatalogOption } from '@/sync/agentKinds';
 import { SpawnRequest } from '../domain/SpawnRequest';
+import { startAgent } from './StartAgent';
 
 export type CatalogSource = 'loading' | 'host' | 'unknown' | 'fallback';
 
@@ -69,45 +63,22 @@ export async function startNewAgent(input: {
     squad: boolean;
     worktree: boolean;
 }): Promise<{ error?: string; cancelled?: boolean }> {
-    const request = new SpawnRequest(input.directory, input.kinds, input.namedMembers, input.squad, input.worktree);
-    const rejected = request.rejection();
-    if (rejected) return { error: rejected.message };
-
     let createCwd = false;
     for (;;) {
-        try {
-            const snapshot = await sync.request('session.start', {
-                cwd: input.directory,
-                ...(createCwd ? { createCwd: true } : {}),
-                ...(input.squad
-                    ? { kinds: [...input.kinds], members: [...input.namedMembers] }
-                    : {
-                        kind: input.kinds[0],
-                        ...(input.namedMembers[0]?.displayName === undefined
-                            ? {}
-                            : { displayName: input.namedMembers[0].displayName }),
-                    }),
-                ...(input.worktree ? { worktree: {} } : {}),
-            });
-            if (!('info' in snapshot)) {
-                return { error: `${snapshot.acceptance.displayName.trim() || 'Agent'} could not start.` };
-            }
-            await saveConnectionSettings(rememberSessionCwd(getCachedConnectionSettings(), input.directory));
-            await refreshUntilSessionVisible(snapshot.info.id);
-            router.replace(`/session/${snapshot.info.id}`);
+        const result = await startAgent({ ...input, createCwd });
+        if (result.ok) {
+            router.replace(`/session/${result.agentRoute}`);
             return {};
-        } catch (caught: unknown) {
-            const message = caught instanceof Error ? caught.message : String(caught);
-            if (!createCwd && message.includes(MISSING_CWD_ERROR_PREFIX)) {
-                createCwd = await Modal.confirm(
-                    'Create directory?',
-                    `${input.directory} does not exist. Create it?`,
-                    { confirmText: 'Create', cancelText: 'Cancel' },
-                );
-                if (createCwd) continue;
-                return { cancelled: true };
-            }
-            return { error: 'Agent could not start. Try again.' };
         }
+        if (result.reason === 'needs-directory' && !createCwd) {
+            createCwd = await Modal.confirm(
+                'Create directory?',
+                `${input.directory} does not exist. Create it?`,
+                { confirmText: 'Create', cancelText: 'Cancel' },
+            );
+            if (createCwd) continue;
+            return { cancelled: true };
+        }
+        return { error: result.message };
     }
 }

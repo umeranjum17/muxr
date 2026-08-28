@@ -1,8 +1,7 @@
 import * as React from 'react';
 import { Platform } from 'react-native';
 import { useAuth } from '@/auth/AuthContext';
-import { reconnectViaDiscoveredRelay } from '@/state/hostedE2ee';
-import { syncReconnect } from '@/sync/sync';
+import { reconnectMachine } from './ReconnectMachine';
 
 export interface DiscoveredRelay {
     name: string;
@@ -84,12 +83,7 @@ export function RelayDiscoveryReconnect() {
         if (!auth.isAuthenticated || running.current || relays.length === 0) return;
         running.current = true;
         void (async () => {
-            for (const relay of relays) {
-                if (await reconnectViaDiscoveredRelay(relay.machineId, relay.relayUrl)) {
-                    await syncReconnect();
-                    break;
-                }
-            }
+            await reconnectMachine({ relays });
         })().catch(() => undefined).finally(() => { running.current = false; });
     }, [auth.isAuthenticated, relays]);
 

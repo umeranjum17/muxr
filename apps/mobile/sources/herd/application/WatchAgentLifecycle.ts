@@ -79,3 +79,19 @@ export function getSessionRouteFromNotificationResponse(response: unknown): `/se
     const contentData = getObjectValue(getObjectValue(getObjectValue(response, 'notification'), 'request'), 'content');
     return getSessionRouteFromNotificationData(getObjectValue(contentData, 'data'));
 }
+
+export type WatchAgentLifecycleCommand = { notification: unknown };
+
+export type WatchAgentLifecycleResult = { agentRoute: string } | { agentRoute: null };
+
+/** Resolve a Lifecycle Event notification to the Agent Route it names. */
+export function watchAgentLifecycle(command: WatchAgentLifecycleCommand): WatchAgentLifecycleResult {
+    const route = getSessionRouteFromNotificationResponse(command.notification);
+    if (!route) return { agentRoute: null };
+    const encoded = route.replace(/^\/session\//, '');
+    try {
+        return { agentRoute: decodeURIComponent(encoded) };
+    } catch {
+        return { agentRoute: encoded };
+    }
+}

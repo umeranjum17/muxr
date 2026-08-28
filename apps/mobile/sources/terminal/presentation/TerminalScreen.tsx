@@ -29,7 +29,7 @@ import { usePaneGestures } from '../application/usePaneGestures';
 import { StatusDot } from '@/components/StatusDot';
 import { AnimatedPopup } from '@/components/AnimatedOverlay';
 import { agentStatusColor } from '@/herd';
-import type { TerminalChannel } from '../application/openTerminal';
+import type { TerminalChannel } from '../application/OpenTerminal';
 import { useImagePicker } from '@/hooks/useImagePicker';
 import { readFileBytes } from '@/utils/readFileBytes';
 import { encodeBase64 } from '@/encryption/base64';
