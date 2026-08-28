@@ -15,7 +15,6 @@ import {
 } from '@/../modules/voice-overlay';
 import { requestNotificationPermission } from '@/utils/microphonePermissions';
 import { completionNotificationState, completionTransition, herdNotificationState, sortHerd } from '../domain/herd';
-import { lifecycleTree } from '../domain/herdTree';
 import { boundRealtimeSession, configureVadStandby, useRealtimeMuted, useRealtimeSessionState } from '@/conversation/session';
 import { Modal } from '@/modal';
 import { registerNativePushNotifications } from '@/utils/nativePushNotifications';
@@ -34,7 +33,7 @@ export function KernelNotifications() {
     const { isAuthenticated } = useAuth();
     const { state: voiceState } = useRealtimeSessionState();
     const muted = useRealtimeMuted();
-    const panes = React.useMemo(() => sortHerd(sessions, lifecycleTree(workspaces, status === 'connected')), [sessions, status, workspaces]);
+    const panes = React.useMemo(() => sortHerd(sessions, workspaces), [sessions, workspaces]);
     const herd = React.useMemo(() => herdNotificationState(panes, status), [panes, status]);
     const nativeHerd = React.useMemo(
         () => lifecycleCatalogAvailable && herd.mode === 'attention' ? { ...herd, eventKey: 'attention:' } : herd,

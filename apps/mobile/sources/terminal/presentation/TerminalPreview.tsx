@@ -26,7 +26,7 @@ function tail(text: string): string {
     return lines.slice(-MAX_LINES).join('\n');
 }
 
-export const TerminalPreview = React.memo((props: { sessionId: string; paused?: boolean }) => {
+export const TerminalPreview = React.memo((props: { sessionId: string; paused?: boolean; live?: boolean }) => {
     const [text, setText] = React.useState('');
 
     React.useEffect(() => {
@@ -49,7 +49,7 @@ export const TerminalPreview = React.memo((props: { sessionId: string; paused?: 
         const start = (): void => {
             if (timer !== undefined) return;
             read();
-            timer = setInterval(read, POLL_MS);
+            if (props.live !== false) timer = setInterval(read, POLL_MS);
         };
         const stop = (): void => {
             if (timer === undefined) return;
@@ -70,7 +70,7 @@ export const TerminalPreview = React.memo((props: { sessionId: string; paused?: 
             stop();
             subscription.remove();
         };
-    }, [props.paused, props.sessionId]);
+    }, [props.live, props.paused, props.sessionId]);
 
     return (
         <View style={{ flex: 1, backgroundColor: '#0c0c0b', overflow: 'hidden' }} pointerEvents="none">

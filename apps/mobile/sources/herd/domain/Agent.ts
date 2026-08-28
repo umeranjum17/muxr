@@ -1,12 +1,12 @@
 import type { AgentLifecycle } from '@muxr/contract';
 
 /**
- * The person-shaped row in the Herd. Agent Route authorizes; Human Name and
+ * The terminal-shaped card in the Herd. Agent Route authorizes; Agent Name and
  * Task Title are display-only and never used as keys.
  */
 export type AgentRecord = {
     route: string;
-    humanName: string;
+    agentName: string;
     taskTitle: string;
     recordedStatus?: AgentLifecycle;
     online: boolean;
@@ -22,9 +22,9 @@ export class Agent {
         return this.record.route;
     }
 
-    /** Spoken first name. Never a routing key. */
-    get humanName(): string {
-        return this.record.humanName.trim() || 'Agent';
+    /** Stable spoken Agent Name. Never a routing key. */
+    get agentName(): string {
+        return this.record.agentName.trim() || 'Agent';
     }
 
     get taskTitle(): string {

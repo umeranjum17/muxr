@@ -211,7 +211,7 @@ const AgentRow = React.memo(({
     const dot = agentStatusColor(pane.agentStatus, theme);
     const labels = agentLabels(pane);
     const sessionId = pane.sessionId;
-    const subtitle = [labels.humanName, labels.providerKind].filter(Boolean).join(' · ');
+    const subtitle = labels.agentName ?? '';
 
     return (
         <View style={[styles.agentRow, compact && styles.agentRowCompact]}>
@@ -229,7 +229,7 @@ const AgentRow = React.memo(({
                 android_ripple={{ color: theme.colors.surfaceRipple, foreground: true }}
                 accessibilityRole="button"
                 accessibilityState={{ selected }}
-                accessibilityLabel={[`Open ${labels.taskTitle}`, labels.humanName].filter(Boolean).join(', ')}
+                accessibilityLabel={[`Open ${labels.taskTitle}`, labels.agentName].filter(Boolean).join(', ')}
             >
                 <Avatar id={pane.paneId} size={compact ? 28 : 32} flavor={null} />
                 <View style={styles.agentText}>
@@ -387,7 +387,7 @@ export const SpacesTree = React.memo(({
         const sessionId = pane.sessionId;
         if (sessionId === undefined) return;
         const labels = agentLabels(pane);
-        const identity = labels.humanName === undefined ? '' : ` (${labels.humanName})`;
+        const identity = labels.agentName === undefined ? '' : ` (${labels.agentName})`;
         Modal.alert('Close pane?', `Closes "${labels.taskTitle}"${identity} in herdr — its process is gone.`, [
             { text: 'Cancel', style: 'cancel' },
             {

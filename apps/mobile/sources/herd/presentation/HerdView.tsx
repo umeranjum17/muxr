@@ -30,7 +30,6 @@ import { SpacesTree } from './SpacesTree';
 import { useHerdTreeLive } from '../application/useHerdTreeLive';
 import { Typography } from '@/constants/Typography';
 import { layout } from '@/components/layout';
-import { RecentActivity } from './RecentActivity';
 
 const stylesheet = StyleSheet.create((theme) => ({
     container: {
@@ -271,7 +270,11 @@ export const HerdView = React.memo(({
             // a new user, who most needs to see that their plugins landed.
             <View style={{ flex: 1, paddingTop: topContentInset }}>
                 {header}
-            <RecentActivity />
+                <LiveTerminalsRow
+                    showZeroState={false}
+                    visibilityTop={topContentInset}
+                    visibilityBottomInset={bottomContentInset}
+                />
             {herdrConnected === false ? (
                 <View style={styles.banner}>
                     <Ionicons name="warning-outline" size={16} color={theme.colors.box.warning.text} />
@@ -289,20 +292,15 @@ export const HerdView = React.memo(({
                             ? 'No matches'
                             : 'No agents yet — start one below.'}
                 </Text>
-                <View style={styles.emptyAction}>
-                    <RoundButton
-                        title="Session history"
-                        size="normal"
-                        onPress={() => router.push('/session/recent')}
-                    />
-                    {error !== null && (
+                {error === null ? null : (
+                    <View style={styles.emptyAction}>
                         <RoundButton
                             title="Set up connection"
                             size="normal"
                             onPress={() => router.push('/settings/connection' as any)}
                         />
-                    )}
-                </View>
+                    </View>
+                )}
             </View>
             </View>
         );
@@ -328,8 +326,10 @@ export const HerdView = React.memo(({
                 searchQuery={searchQuery}
                 listHeaderComponent={<>
                     {header}
-                    <LiveTerminalsRow />
-                    <RecentActivity />
+                    <LiveTerminalsRow
+                        visibilityTop={topContentInset}
+                        visibilityBottomInset={bottomContentInset}
+                    />
                 </>}
                 topContentInset={topContentInset}
                 bottomContentInset={safeArea.bottom + bottomContentInset}

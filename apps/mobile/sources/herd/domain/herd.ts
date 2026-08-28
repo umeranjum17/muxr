@@ -8,7 +8,7 @@ export interface HerdPane {
     name: string;
     taskTitle: string;
     status: AgentLifecycle;
-    changedAt: number;
+    changedAt?: number;
     doing: string;
 }
 
@@ -48,7 +48,7 @@ export const HERD_STATUS_LABELS: Record<AgentLifecycle, string> = {
 export function agentFromSession(session: Session): Agent {
     return new Agent({
         route: session.id,
-        humanName: session.metadata?.displayName?.trim() || 'Agent',
+        agentName: session.metadata?.displayName?.trim() || 'Agent',
         taskTitle: session.metadata?.taskTitle?.trim() || 'Current task',
         recordedStatus: session.metadata?.agentStatus,
         online: session.presence === 'online',
@@ -90,7 +90,7 @@ function nameOf(session: Session | undefined, fallback: string): string {
 }
 
 /** The same tree panes Spaces renders, enriched only with session display names. */
-export function sortHerd(sessions: Session[], workspaces: readonly HerdrTreeWorkspace[]): HerdPane[] {
+export function herdPanes(sessions: Session[], workspaces: readonly HerdrTreeWorkspace[]): HerdPane[] {
     const sessionsById = new Map(sessions.map((session) => [session.id, session]));
     return workspaces
         .flatMap((workspace) => workspace.tabs)
@@ -103,12 +103,18 @@ export function sortHerd(sessions: Session[], workspaces: readonly HerdrTreeWork
                 name: pane.displayName?.trim() || nameOf(session, paneDisplayName(pane)),
                 taskTitle: pane.taskTitle?.trim() || session?.metadata?.taskTitle?.trim() || paneTaskTitle(pane),
                 status: pane.agentStatus,
-                changedAt: session?.metadata?.lifecycleStateSince ?? session?.updatedAt ?? 0,
+                changedAt: session?.metadata?.lifecycleStateSince ?? session?.updatedAt,
                 doing: '',
             }];
-        })
+        });
+}
+
+export function sortHerd(sessions: Session[], workspaces: readonly HerdrTreeWorkspace[]): HerdPane[] {
+    return herdPanes(sessions, workspaces)
         .sort((left, right) => HERD_ORDER[left.status] - HERD_ORDER[right.status]
-            || (left.status === 'blocked' ? left.changedAt - right.changedAt : right.changedAt - left.changedAt)
+            || (left.status === 'blocked'
+                ? (left.changedAt ?? 0) - (right.changedAt ?? 0)
+                : (right.changedAt ?? 0) - (left.changedAt ?? 0))
             || left.id.localeCompare(right.id));
 }
 

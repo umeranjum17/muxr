@@ -15,7 +15,7 @@ export function hasAgent(ws: HerdrTreeWorkspace): boolean {
     return ws.tabs.some((tab) => tab.panes.some((pane) => pane.agentKind !== undefined));
 }
 
-/** Human Name only. Herdr's agent name is an internal route, not display identity. */
+/** Agent Name only. Herdr's agent name is an internal route, not display identity. */
 export function paneDisplayName(pane: HerdrTreePane): string {
     return pane.displayName?.trim() || 'Agent';
 }
@@ -24,10 +24,6 @@ export function paneTaskTitle(pane: HerdrTreePane): string {
     return pane.taskTitle?.trim() || 'Untitled task';
 }
 
-/** A transport blip does not rewrite the last observed agent lifecycle. */
-export function lifecycleTree(workspaces: readonly HerdrTreeWorkspace[], _connected?: boolean): HerdrTreeWorkspace[] {
-    return workspaces as HerdrTreeWorkspace[];
-}
 
 /** Long cwd paths collapse around a midline ellipsis, like a shell prompt. */
 export function middleTruncate(value: string, max = 44): string {
