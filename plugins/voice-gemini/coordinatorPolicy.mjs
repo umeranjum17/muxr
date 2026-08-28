@@ -1,5 +1,3 @@
-// Keep this standalone mirror aligned with the bundled voice coordinator policy:
-// bundled plugins can be cloned into independent directories.
 import { randomUUID } from 'node:crypto';
 import { createConnection } from 'node:net';
 
@@ -144,11 +142,12 @@ export const isExplicitHangup = (value) => new Set(['go to sleep', 'stop listeni
 
 const redactCredentials = (value) => String(value ?? '')
     .replace(/\b(Bearer)\s+[A-Za-z0-9._~+/-]{12,}/gi, '$1 [redacted]')
+    .replace(/\b(?:[A-Za-z][A-Za-z0-9]*_)+(?:api_key|token|secret|password)\s*[:=]\s*[^\s,;]+/gi, '[credential redacted]')
     .replace(/\b((?:api[_-]?)?key|token|secret|password)\s*[:=]\s*[^\s,;]+/gi, '$1=[redacted]')
     .replace(/\bsk-[A-Za-z0-9_-]{8,}\b/gi, '[credential redacted]')
     .replace(/\beyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/gi, '[credential redacted]');
 
-const cleanProse = (value, fallback, max) => {
+export const cleanProviderProse = (value, fallback, max) => {
     const clean = redactCredentials(value)
         .replace(/\b(?:pph?_[a-z0-9]+|(?:w\d+[A-Za-z]?):(?:p|t)\d+|(?:machine|device|session|pane|rel|peer)[-_][a-z0-9_-]{6,})\b/gi, '[internal reference]')
         .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/gi, '[internal reference]')
@@ -173,9 +172,9 @@ const safeTail = (value) => redactCredentials(value)
     .trim().slice(-1500);
 
 export function reportInstruction(value) {
-    const displayName = cleanProse(value?.displayName, 'The watched agent', 80);
-    const taskTitle = cleanProse(value?.taskTitle, 'coding task', 120);
-    const status = cleanProse(value?.outcome ?? value?.status, 'settled', 32).toLocaleLowerCase();
+    const displayName = cleanProviderProse(value?.displayName, 'The watched agent', 80);
+    const taskTitle = cleanProviderProse(value?.taskTitle, 'coding task', 120);
+    const status = cleanProviderProse(value?.outcome ?? value?.status, 'settled', 32).toLocaleLowerCase();
     const confirmed = new Set(['idle', 'done', 'blocked', 'failed']).has(status);
     const statusLine = status === 'blocked'
         ? `${displayName} is blocked on ${taskTitle} and is waiting for the user.`

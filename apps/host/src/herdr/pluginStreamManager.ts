@@ -36,6 +36,21 @@ const KILL_GRACE_MS = 2_000;
 const MAX_STREAMS_PER_DEVICE = 2;
 const MAX_STREAM_BUFFER_BYTES = 512 * 1024;
 
+function safeStreamReason(value: unknown): string {
+    return String(value ?? 'Voice stream unavailable.')
+        .replace(/\b(?:[A-Za-z][A-Za-z0-9]*_)+(?:api_key|token|secret|password)\s*[:=]\s*[^\s,;]+/gi, '[credential redacted]')
+        .replace(/\b(api[_-]?key|token|secret|password)\s*[:=]\s*[^\s,;]+/gi, '$1=[redacted]')
+        .replace(/\bsk-[A-Za-z0-9_-]{8,}\b/gi, '[credential redacted]')
+        .replace(/\beyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/gi, '[credential redacted]')
+        .replace(/\b(?:pph?_[a-z0-9]+|(?:w\d+[A-Za-z]?):(?:p|t)\d+|(?:machine|device|session|pane|rel|peer)[-_][a-z0-9_-]{6,})\b/gi, '[internal reference]')
+        .replace(/file:\/\/\S+/g, '[path hidden]')
+        .replace(/(?<![A-Za-z0-9_/])\/(?!\/)(?:[^\s\/<>'"]+\/)+[^\s\/<>'"]+/g, '[path hidden]')
+        .replace(/\b[A-Za-z]:\\(?:[^\s\\]+\\)+[^\s,;]*/g, '[path hidden]')
+        .replace(/[\u0000-\u001F\u007F]/g, ' ')
+        .trim()
+        .slice(0, 400) || 'Voice stream unavailable.';
+}
+
 export interface PluginStreamTarget {
     pluginId: string;
     pluginRoot: string;
@@ -303,7 +318,12 @@ export class PluginStreamManager {
                 const text = line.toString('utf8');
                 if (text.trim() === '') continue;
                 try {
-                    const frame = parseRealtimeHostFrame(JSON.parse(text));
+                    const parsed = parseRealtimeHostFrame(JSON.parse(text));
+                    const frame = parsed.type === 'realtime.closed' && parsed.reason !== undefined
+                        ? { ...parsed, reason: safeStreamReason(parsed.reason) }
+                        : parsed.type === 'realtime.state' && parsed.detail !== undefined
+                          ? { ...parsed, detail: safeStreamReason(parsed.detail) }
+                          : parsed;
                     if (!send(frame)) {
                         attachment.close('plugin stream disconnected');
                         return;
@@ -318,13 +338,12 @@ export class PluginStreamManager {
             stdout = offset === 0 ? stdout : Buffer.from(stdout.subarray(offset));
             if (stdout.length > MAX_STREAM_LINE_BYTES) attachment.close('plugin stream output exceeded its frame bound');
         });
-        child.once('error', (error) => attachment.close(`plugin stream failed: ${error.message}`));
+        child.once('error', (error) => attachment.close(`plugin stream failed: ${safeStreamReason(error.message)}`));
         child.once('close', (code) => {
             // Never forward stack traces or local paths: keep one clean line.
             const rawDetail = stderr.toString('utf8').trim();
             const exceptionLine = rawDetail.split('\n').map((line) => line.trim()).find((line) => /^(?:[A-Za-z]+Error|Error): /.test(line));
-            const detail = Buffer.from(exceptionLine ?? rawDetail.split('\n')[0] ?? '').subarray(0, 400).toString('utf8')
-                .replace(/file:\/\/\S+/g, 'plugin').replace(/[\u0000-\u001F\u007F]/g, ' ').trim();
+            const detail = safeStreamReason(Buffer.from(exceptionLine ?? rawDetail.split('\n')[0] ?? '').subarray(0, 400).toString('utf8'));
             const finishChild = () => attachment.close(code === 0 ? undefined : detail === '' ? `plugin stream exited (${code ?? 'signal'})` : detail);
             // Let the encrypted graceful-close frame reach the phone before its
             // socket close event; decryption completes asynchronously there.

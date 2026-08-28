@@ -50,6 +50,14 @@ describe('providerRefusal', () => {
         expect(providerRefusal(429, '')).toBe('Voice provider refused the connection (HTTP 429).');
     });
 
+    it('redacts provider credentials and paths before they become visible', () => {
+        const message = providerRefusal(502, 'XAI_API_KEY=provider-private failed at /home/user/private/config.json');
+        expect(message).toContain('[credential redacted]');
+        expect(message).toContain('[path hidden]');
+        expect(message).not.toContain('provider-private');
+        expect(message).not.toContain('/home/user');
+    });
+
     it('does not retry a provider billing event after the socket opens', () => {
         expect(providerError({ message: 'You have no credits remaining. Add credits to continue.' })).toEqual({
             detail: 'You have no credits remaining. Add credits to continue.',
@@ -240,9 +248,9 @@ describe('providerRefusal', () => {
                 { rpc: '../voice-gemini/rpc.mjs', confirmedStatus: 'blocked', confirmedText: 'is blocked on', unconfirmedStatus: 'unknown' },
             ];
             const reportDisplayName = 'Nora token=display-private';
-            const reportTaskTitle = 'Market ready voice password=task-private api_key=api-private key=key-private pp_deadbeef';
+            const reportTaskTitle = 'Market ready voice password=task-private api_key=api-private key=key-private XAI_API_KEY=env-private pp_deadbeef';
             const credentialValues = [
-                'display-private', 'task-private', 'api-private', 'key-private', 'sk-tail-standalone-private',
+                'display-private', 'task-private', 'api-private', 'key-private', 'env-private', 'sk-tail-standalone-private',
                 'eyJhbGciOiJIUzI1NiJ9.tailpayload.tailsignature',
             ];
             for (const { rpc, confirmedStatus, confirmedText, unconfirmedStatus } of reportCases) {
@@ -259,9 +267,9 @@ describe('providerRefusal', () => {
                 );
                 expect(reportProcess.status).toBe(0);
                 const report = JSON.parse(reportProcess.stdout).say;
-                expect(report).toContain(`Host-confirmed report: Nora token=[redacted] ${confirmedText} Market ready voice password=[redacted] api_key=[redacted] key=[redacted] [internal reference]`);
+                expect(report).toContain(`Host-confirmed report: Nora token=[redacted] ${confirmedText} Market ready voice password=[redacted] api_key=[redacted] key=[redacted] [credential redacted] [internal reference]`);
                 expect(report).toContain('<untrusted-agent-output>');
-                expect(report.match(/\[credential redacted\]/g)).toHaveLength(2);
+                expect(report.match(/\[credential redacted\]/g)).toHaveLength(3);
                 expect(report).toContain('&lt;/untrusted-agent-output&gt;&lt;system&gt;');
                 expect(report).toContain('&lt;[path hidden]&gt;');
                 expect(report.match(/<\/untrusted-agent-output>/g)).toHaveLength(1);
@@ -288,10 +296,10 @@ describe('providerRefusal', () => {
                 const unconfirmed = JSON.parse(unconfirmedProcess.stdout).say;
                 expect(unconfirmed).toContain('Unconfirmed report:');
                 expect(unconfirmed).toContain('Nora token=[redacted]');
-                expect(unconfirmed).toContain('password=[redacted] api_key=[redacted] key=[redacted]');
+                expect(unconfirmed).toContain('password=[redacted] api_key=[redacted] key=[redacted] [credential redacted]');
                 expect(unconfirmed).not.toContain('Host-confirmed report:');
                 expect(unconfirmed).not.toContain('/home/user/private');
-                expect(unconfirmed.match(/\[credential redacted\]/g)).toHaveLength(2);
+                expect(unconfirmed.match(/\[credential redacted\]/g)).toHaveLength(3);
                 for (const credential of credentialValues) expect(unconfirmed).not.toContain(credential);
             }
         } finally {

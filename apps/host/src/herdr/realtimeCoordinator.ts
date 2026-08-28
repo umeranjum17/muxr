@@ -130,7 +130,7 @@ function cleanHuman(value: unknown, fallback: string, max = 120): string {
 function cleanTaskTitle(value: unknown): string | undefined {
     const clean = cleanHuman(value, '', 120);
     if (clean === '' || clean.split(/\s+/).length > 8
-        || /^(?:\/|[A-Za-z]:\\|[$>#])|[\\/`]|&&|\|\||\b(?:token|password|secret|credential)\s*=/i.test(clean)) return undefined;
+        || /^(?:\/|[A-Za-z]:\\|[$>#])|[\\/`]|&&|\|\||\b(?:[A-Za-z][A-Za-z0-9]*_)+(?:api_key|token|secret|password)\s*=|\b(?:token|password|secret|credential)\s*=/i.test(clean)) return undefined;
     return clean;
 }
 
@@ -176,6 +176,7 @@ function safeProviderText(value: unknown, maxBytes = MAX_PROVIDER_TEXT_BYTES): s
         .replace(/\u001B\[[0-?]*[ -/]*[@-~]/g, '')
         .replace(/-----BEGIN [^-]{1,40}-----[\s\S]*?-----END [^-]{1,40}-----/g, '[credential redacted]')
         .replace(/\b(Bearer)\s+[A-Za-z0-9._~+/-]{12,}/gi, '$1 [redacted]')
+        .replace(/\b(?:[A-Za-z][A-Za-z0-9]*_)+(?:api_key|token|secret|password)\s*[:=]\s*[^\s,;]+/gi, '[credential redacted]')
         .replace(/\b(api[_-]?key|token|secret|password)\s*[:=]\s*[^\s,;]+/gi, '$1=[redacted]')
         .replace(/\bsk-[A-Za-z0-9_-]{8,}\b/gi, '[credential redacted]')
         .replace(/\beyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/gi, '[credential redacted]')

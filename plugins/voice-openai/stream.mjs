@@ -14,6 +14,7 @@ import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import {
+    cleanProviderProse,
     codingTools,
     isExplicitHangup,
     runCodingTool,
@@ -89,7 +90,8 @@ let providerReady = false;
 
 const text = (value) => String(value ?? '').trim();
 export function providerError(error) {
-    const detail = String(typeof error === 'string' ? error : error?.message ?? error?.code ?? 'provider error').replace(/[\u0000-\u001F]/g, ' ').slice(0, 200);
+    const raw = typeof error === 'string' ? error : error?.message ?? error?.code ?? 'provider error';
+    const detail = cleanProviderProse(raw, 'provider error', 200);
     return { detail, terminal: /api key|auth|credit|quota|billing|permission|forbidden|invalid json|invalid payload|unknown name|unsupported/i.test(detail) };
 }
 const runTool = (name, input, operationId) => runCodingTool(name, input, operationId);
@@ -216,9 +218,10 @@ export function providerRefusal(status, body) {
         else if (typeof parsed?.code === 'string') detail = parsed.code;
     } catch { /* not JSON: fall back to the raw body */ }
     if (detail === '') detail = body.trim();
-    return detail === ''
+    const safe = cleanProviderProse(detail, '', 300);
+    return safe === ''
         ? `Voice provider refused the connection (HTTP ${status}).`
-        : `Voice provider refused the connection (HTTP ${status}): ${detail.slice(0, 300)}`;
+        : `Voice provider refused the connection (HTTP ${status}): ${safe}`;
 }
 
 function connectProvider(key) {
@@ -278,7 +281,7 @@ function connectProvider(key) {
         });
     });
     current.on('close', (code, reasonBuffer) => {
-        const reason = String(reasonBuffer).trim();
+        const reason = cleanProviderProse(String(reasonBuffer), '', 160);
         const detail = `OpenAI session ended (${code})${reason ? `: ${reason}` : '.'}`;
         if (providerError(reason).terminal) {
             stopped = true;
@@ -288,7 +291,7 @@ function connectProvider(key) {
         }
     });
     current.on('error', (error) => {
-        if (!stopped && ws === current) state('connecting', `Voice provider connection interrupted: ${String(error.message).slice(0, 160)}`);
+        if (!stopped && ws === current) state('connecting', `Voice provider connection interrupted: ${cleanProviderProse(error.message, 'connection error', 160)}`);
     });
 }
 
@@ -308,5 +311,5 @@ async function main() {
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-    main().catch((error) => close(error instanceof Error ? error.message.slice(0, 300) : String(error)));
+    main().catch((error) => close(cleanProviderProse(error instanceof Error ? error.message : error, 'Voice session could not start.', 300)));
 }

@@ -28,6 +28,23 @@ export interface RealtimeTurn {
     text: string;
 }
 const MAX_TURNS = 60;
+
+function visibleVoiceDetail(value: unknown): string | undefined {
+    const clean = String(value ?? '')
+        .replace(/\b(?:[A-Za-z][A-Za-z0-9]*_)+(?:api_key|token|secret|password)\s*[:=]\s*[^\s,;]+/gi, '[credential redacted]')
+        .replace(/\b(api[_-]?key|token|secret|password)\s*[:=]\s*[^\s,;]+/gi, '$1=[redacted]')
+        .replace(/\bsk-[A-Za-z0-9_-]{8,}\b/gi, '[credential redacted]')
+        .replace(/\beyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/gi, '[credential redacted]')
+        .replace(/\b(?:pph?_[a-z0-9]+|(?:w\d+[A-Za-z]?):(?:p|t)\d+|(?:machine|device|session|pane|rel|peer)[-_][a-z0-9_-]{6,})\b/gi, '[internal reference]')
+        .replace(/file:\/\/\S+/g, '[path hidden]')
+        .replace(/(^|\s)\/(?!\/)(?:[^\s/]+\/)+[^\s]*/g, '$1[path hidden]')
+        .replace(/\b[A-Za-z]:\\(?:[^\s\\]+\\)+[^\s,;]*/g, '[path hidden]')
+        .replace(/[\u0000-\u001F\u007F]/g, ' ')
+        .trim()
+        .slice(0, 500);
+    return clean === '' ? undefined : clean;
+}
+
 /** Long enough to think mid-sentence; short enough not to bill a forgotten call. */
 export const IDLE_HANGUP_MS = 120_000;
 const REPORT_RESPONSE_TIMEOUT_MS = 45_000;
@@ -258,7 +275,7 @@ function failRealtimeStart(epoch: number, reason: string): void {
     clearLiveState();
     rearmVadStandby();
     state = 'disconnected';
-    detail = reason;
+    detail = visibleVoiceDetail(reason);
     notify();
 }
 
@@ -321,7 +338,7 @@ function startRealtimeAfterService(target: RealtimeTarget, epoch: number): void 
                 if (next === 'disconnected') {
                     clearLiveState();
                     state = 'disconnected';
-                    detail = why === 'ended' ? undefined : why;
+                    detail = why === 'ended' ? undefined : visibleVoiceDetail(why);
                     notify();
                     rearmVadStandby();
                     if (watching && !vadStandbyOwnsMicrophone()) void armVadStandby();
@@ -336,7 +353,7 @@ function startRealtimeAfterService(target: RealtimeTarget, epoch: number): void 
                     if (reportSpeech !== null) reportSpeech.sent = true;
                 }
                 state = next;
-                detail = why;
+                detail = visibleVoiceDetail(why);
                 notify();
             },
             onTurn: (role, text) => recordTurn(liveEpoch, role, text),
@@ -348,7 +365,7 @@ function startRealtimeAfterService(target: RealtimeTarget, epoch: number): void 
         if (epoch === realtimeEpoch) {
             clearLiveState();
             state = 'disconnected';
-            detail = error instanceof Error ? error.message : String(error);
+            detail = visibleVoiceDetail(error instanceof Error ? error.message : error);
             notify();
             rearmVadStandby();
             if (watching && !vadStandbyOwnsMicrophone()) void armVadStandby();

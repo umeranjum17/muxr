@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { execFileSync, execSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, delimiter, join } from 'node:path';
 
@@ -9,6 +9,7 @@ const method = process.argv[2];
 const stateDir = process.env.MUXR_PLUGIN_STATE_DIR;
 if (!stateDir) throw new Error('MUXR_PLUGIN_STATE_DIR is required');
 const file = join(stateDir, 'commands.json');
+const aliasesFile = join(stateDir, 'folder-aliases.json');
 const TOOL_PATH = [process.env.PATH ?? '', join(homedir(), '.local', 'bin'), '/opt/homebrew/bin', '/usr/local/bin', '/usr/bin'].filter(Boolean).join(delimiter);
 const runFile = (cmd, args) => execFileSync(cmd, args, { encoding: 'utf8', timeout: 15000, maxBuffer: 4 * 1024 * 1024, env: { ...process.env, PATH: TOOL_PATH } });
 
@@ -43,18 +44,43 @@ function repoRoots() {
     return [...roots].filter((root) => root !== '' && existsSync(root)).slice(0, 24);
 }
 
+function folderAliases(roots) {
+    let saved = {};
+    try {
+        const parsed = JSON.parse(readFileSync(aliasesFile, 'utf8'));
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) saved = parsed;
+    } catch { /* first run or corrupt optional display aliases */ }
+    const aliases = new Map();
+    const used = new Set();
+    for (const [root, alias] of Object.entries(saved)) {
+        if (typeof root !== 'string' || typeof alias !== 'string' || !alias.startsWith('~/') || alias.length > 120 || used.has(alias)) continue;
+        aliases.set(root, alias);
+        used.add(alias);
+    }
+    let changed = false;
+    for (const root of roots) {
+        if (aliases.has(root)) continue;
+        const name = basename(root) || 'repository';
+        let alias = `~/${name}`;
+        for (let suffix = 2; used.has(alias); suffix += 1) alias = `~/${name} ${suffix}`;
+        aliases.set(root, alias);
+        used.add(alias);
+        changed = true;
+    }
+    if (changed) {
+        mkdirSync(stateDir, { recursive: true, mode: 0o700 });
+        const temporary = `${aliasesFile}.${process.pid}.tmp`;
+        writeFileSync(temporary, `${JSON.stringify(Object.fromEntries(aliases))}\n`, { mode: 0o600 });
+        renameSync(temporary, aliasesFile);
+    }
+    return aliases;
+}
+
 function folderTree() {
     const nodes = [];
     const seen = new Set();
     const roots = repoRoots();
-    const aliases = new Map();
-    const aliasCounts = new Map();
-    for (const root of roots) {
-        const name = basename(root) || 'repository';
-        const count = (aliasCounts.get(name) ?? 0) + 1;
-        aliasCounts.set(name, count);
-        aliases.set(root, `~/${name}${count === 1 ? '' : ` ${count}`}`);
-    }
+    const aliases = folderAliases(roots);
     const perRoot = Math.max(8, Math.floor(256 / Math.max(1, roots.length)));
     for (const root of roots) {
         if (nodes.length >= 256) break;

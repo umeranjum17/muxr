@@ -24,7 +24,7 @@ process.stdin.once('data', () => {
         out += JSON.stringify({ type: 'realtime.audio', data: chunk.toString('base64') }) + '\\n';
     }
     process.stdout.write(out, () => {
-        process.stdout.write(JSON.stringify({ type: 'realtime.closed', reason: 'burst done' }) + '\\n');
+        process.stdout.write(JSON.stringify({ type: 'realtime.closed', reason: 'burst done XAI_API_KEY=secret-value /home/reviewer/private' }) + '\\n');
     });
 });
 `);
@@ -74,7 +74,11 @@ it('delivers a bursty provider reply completely and in order through a slow rela
     manager.closeAll();
     server.close();
 
-    expect(closedReason).toBe('burst done');
+    expect(closedReason).toContain('burst done');
+    expect(closedReason).toContain('[credential redacted]');
+    expect(closedReason).toContain('[path hidden]');
+    expect(closedReason).not.toContain('secret-value');
+    expect(closedReason).not.toContain('/home/reviewer');
     expect(received).toHaveLength(FRAME_COUNT);
     const sequence = received.map((data) => Buffer.from(data, 'base64')[0]);
     expect(sequence).toEqual([...Array(FRAME_COUNT).keys()].map((i) => i % 251));
