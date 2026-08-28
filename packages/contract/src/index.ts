@@ -100,6 +100,7 @@ export {
     isPluginsInvalidatedFrame,
     isRoutingChannel,
     nextRequestId,
+    admitClientFrame,
     parseClientFrame,
     tryParseClientFrame,
     RELAY_CLOSE_REPLACED,
@@ -156,10 +157,12 @@ export {
     parsePeerAllowlist,
     peerCapabilityForRequest,
     peerMayDispatch,
+    authorizePeerDispatch,
+    admitPeerMutation,
 } from './peer/index.js';
 
-export type { LandWorktreeResult } from './worktree/index.js';
-export { landNeedsConsent, landSucceeded } from './worktree/index.js';
+export type { LandWorktreeResult, WorktreeLandingDecision } from './worktree/index.js';
+export { interpretWorktreeLanding, landNeedsConsent, landSucceeded } from './worktree/index.js';
 
 export type {
     PluginContribution,
@@ -256,6 +259,7 @@ export {
     pluginIsCompatible,
     sanitizeDisplayText,
     parseManifest,
+    parsePluginManifest,
     parsePluginAction,
     parsePluginScreenParams,
     tryParseManifest,
@@ -278,6 +282,7 @@ export {
     newRealtimeChannel,
     parseRealtimeClientFrame,
     parseRealtimeHostFrame,
+    boundRealtimePublicContext,
     realtimePluginPublicContext,
     REALTIME_INPUT_RATE,
     REALTIME_OUTPUT_RATE,

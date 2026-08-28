@@ -1,4 +1,4 @@
-import { unwrapOrThrow, fail, ok, type Outcome } from '../../shared/outcome.js';
+import { unwrapOrThrow } from '../../shared/outcome.js';
 import type { AgentLifecycle } from '../../herd/index.js';
 import type {
     PluginAction,
@@ -821,14 +821,6 @@ export function parseManifest(value: unknown): PluginManifestV1 {
         ...(capabilities === undefined ? {} : { capabilities }),
         contributions,
     };
-}
-
-export function tryParseManifest(value: unknown): Outcome<PluginManifestV1> {
-    try {
-        return ok(parseManifest(value));
-    } catch (error) {
-        return fail(error instanceof Error ? error.message : 'invalid muxr plugin manifest');
-    }
 }
 
 function screenTreeSources(nodes: PluginScreenNode[]): Array<{ contributionId: string }> {

@@ -26,11 +26,10 @@ export {
     isPluginsInvalidatedFrame,
     isRoutingChannel,
     nextRequestId,
-    parseClientFrame,
-    tryParseClientFrame,
     RELAY_CLOSE_REPLACED,
     ROUTING_CHANNELS,
 } from './domain/envelope.js';
+export { admitClientFrame, parseClientFrame, tryParseClientFrame } from './application/admitClientFrame.js';
 
 export type { PreviewFrame } from './infrastructure/preview.js';
 export {

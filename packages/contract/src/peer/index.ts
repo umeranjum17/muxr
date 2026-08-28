@@ -25,3 +25,5 @@ export {
     peerCapabilityForRequest,
     peerMayDispatch,
 } from './domain/peer.js';
+export { authorizePeerDispatch } from './application/authorizePeerDispatch.js';
+export { admitPeerMutation } from './application/admitPeerMutation.js';

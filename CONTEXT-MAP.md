@@ -1,6 +1,6 @@
 # Context Map
 
-muxr is one product with several bounded contexts. The glossary lives in [CONTEXT.md](./CONTEXT.md). Ownership, invariants, and the package tree live in [packages/README.md](./packages/README.md).
+muxr is one product with several bounded contexts. The glossary lives in [CONTEXT.md](./CONTEXT.md). Ownership, invariants, and the package tree live in [packages/README.md](./packages/README.md). Named operations live in [packages/USE_CASES.md](./packages/USE_CASES.md).
 
 ## Contexts
 

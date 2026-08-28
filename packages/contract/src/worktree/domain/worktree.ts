@@ -21,10 +21,10 @@ export type LandWorktreeResult =
     /** Rebase hit conflicts; step names where, detail is git's own output. */
     | { status: 'conflict'; step: 'rebase'; branch: string; detail: string };
 
-export function landNeedsConsent(result: LandWorktreeResult): boolean {
+export function landNeedsConsent(result: LandWorktreeResult): result is Extract<LandWorktreeResult, { status: 'blocked-dirty-base' }> {
     return result.status === 'blocked-dirty-base';
 }
 
-export function landSucceeded(result: LandWorktreeResult): boolean {
+export function landSucceeded(result: LandWorktreeResult): result is Extract<LandWorktreeResult, { status: 'landed' | 'already-landed' }> {
     return result.status === 'landed' || result.status === 'already-landed';
 }

@@ -15,9 +15,9 @@ export {
     newRealtimeChannel,
     parseRealtimeClientFrame,
     parseRealtimeHostFrame,
-    realtimePluginPublicContext,
     REALTIME_INPUT_RATE,
     REALTIME_OUTPUT_RATE,
     realtimePcm16ByteLength,
     realtimeSocketUrl,
 } from './domain/realtimeStream.js';
+export { boundRealtimePublicContext, realtimePluginPublicContext } from './application/boundRealtimePublicContext.js';

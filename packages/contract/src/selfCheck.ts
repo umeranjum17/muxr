@@ -2,10 +2,10 @@
  * Contract selfCheck: the wire carries the full event vocabulary, and every
  * declared type round-trips through the payload codec byte-identically.
  */
-import { decodePayload, encodePayload, envelopeIsHosted, isPluginsInvalidatedFrame, parseClientFrame, tryParseClientFrame } from './control-plane/index.js';
+import { admitClientFrame, decodePayload, encodePayload, envelopeIsHosted, isPluginsInvalidatedFrame, parseClientFrame, tryParseClientFrame } from './control-plane/index.js';
 import { SESSION_EVENT_TYPES, type SessionEventBody } from './herd/index.js';
-import { deviceIsPeer, inspectPeerGrantConstraints, inspectPeerMutation, isPeerCapabilities, peerCapabilityForRequest, peerMayDispatch } from './peer/index.js';
-import { parseRealtimeClientFrame, realtimePcm16ByteLength, MAX_REALTIME_PUBLIC_SESSIONS, realtimePluginPublicContext } from './realtime/index.js';
+import { admitPeerMutation, authorizePeerDispatch, deviceIsPeer, inspectPeerGrantConstraints, isPeerCapabilities, peerCapabilityForRequest, peerMayDispatch } from './peer/index.js';
+import { boundRealtimePublicContext, parseRealtimeClientFrame, realtimePcm16ByteLength, MAX_REALTIME_PUBLIC_SESSIONS } from './realtime/index.js';
 import {
     agentIsWorking,
     attentionOutranks,
@@ -18,8 +18,8 @@ import {
     type SessionInfo,
     type SessionStatus,
 } from './herd/index.js';
-import { landNeedsConsent, landSucceeded } from './worktree/index.js';
-import { parsePluginId, pluginIsCompatible } from './plugins/index.js';
+import { interpretWorktreeLanding, landNeedsConsent, landSucceeded } from './worktree/index.js';
+import { parsePluginId, parsePluginManifest, pluginIsCompatible } from './plugins/index.js';
 
 function assert(condition: boolean, message: string): asserts condition {
     if (!condition) throw new Error(message);
@@ -101,11 +101,13 @@ function demo(): void {
     assert(peerCapabilityForRequest('session.start') === 'start', 'advanced peer start stays separate');
     assert(peerCapabilityForRequest('session.shell') === undefined && peerCapabilityForRequest('herdr.cli') === undefined,
         'shell and raw herdr stay outside the peer surface');
-    const publicContext = realtimePluginPublicContext([
-        { sessionId: 'pp_voice', displayName: 'Maria', taskTitle: 'pi - Realtime Stability', agentKind: 'pi' },
-        { sessionId: 'bad/path', displayName: 'Leaked', taskTitle: '/private/work' },
-        ...Array.from({ length: MAX_REALTIME_PUBLIC_SESSIONS + 4 }, (_, index) => ({ sessionId: `pp_${index}`, displayName: `John ${index + 2}` })),
-    ]);
+    const publicContext = boundRealtimePublicContext({
+        sessions: [
+            { sessionId: 'pp_voice', displayName: 'Maria', taskTitle: 'pi - Realtime Stability', agentKind: 'pi' },
+            { sessionId: 'bad/path', displayName: 'Leaked', taskTitle: '/private/work' },
+            ...Array.from({ length: MAX_REALTIME_PUBLIC_SESSIONS + 4 }, (_, index) => ({ sessionId: `pp_${index}`, displayName: `John ${index + 2}` })),
+        ],
+    });
     assert(publicContext.sessions.length === MAX_REALTIME_PUBLIC_SESSIONS, 'realtime public session map is bounded');
     assert(publicContext.sessions[0]?.taskTitle === 'Realtime Stability', 'realtime public task title strips provider prefix');
     assert(!publicContext.sessions.some((entry) => entry.sessionId === 'bad/path'), 'realtime public session map rejects unsafe routing ids');
@@ -120,6 +122,7 @@ function demo(): void {
         assert(rejected, 'malformed or non-PCM16 base64 is rejected');
     }
     assert(parseClientFrame({ type: 'client.hello', clientId: 'fresh-client' }).type === 'client.hello', 'valid client hello passes');
+    assert(admitClientFrame({ frame: { type: 'client.hello', clientId: 'fresh-client' } }).ok, 'admit client frame is the named use case');
     assert(tryParseClientFrame({ type: 'client.hello', clientId: 'fresh-client' }).ok, 'client hello is an expected-success outcome');
     assert(!envelopeIsHosted({ machineId: 'm1', seq: 1, at: 0 }), 'local envelopes are not hosted');
     assert(!tryParseClientFrame(null).ok, 'malformed client frame is an expected rejection');
@@ -134,12 +137,17 @@ function demo(): void {
     assert(!attentionReasonStillHolds('done', ATTENTION_DONE_TTL_MS + 1), 'done attention ages out');
     assert(parseHumanName('Maria 2').ok && !parsePublicAgentRoute('bad/path').ok, 'human name is display-only; routes reject path characters');
     assert(peerMayDispatch(['prompt'], 'session.prompt') && !peerMayDispatch(['prompt'], 'session.start'), 'peer dispatch uses the signed allowlist');
+    assert(authorizePeerDispatch({ allowlist: ['prompt'], requestType: 'session.prompt' }).ok, 'authorize peer dispatch admits a signed capability');
+    assert(!authorizePeerDispatch({ allowlist: ['prompt'], requestType: 'session.start' }).ok, 'authorize peer dispatch denies start without start');
     assert(deviceIsPeer('peer') && !deviceIsPeer('native'), 'peer device kind is the only peer');
     assert(!inspectPeerGrantConstraints({ deviceKind: 'native', capabilities: ['list'] }).ok, 'peer constraints cannot ride on a native grant');
-    assert(inspectPeerMutation({ operationId: 'op-1', notValidAfter: Date.now() + 60_000 }, Date.now()).ok, 'fresh peer mutation is accepted');
-    assert(!inspectPeerMutation({ operationId: 'op-1', notValidAfter: Date.now() - 1 }, Date.now()).ok, 'expired peer mutation is rejected');
+    assert(admitPeerMutation({ mutation: { operationId: 'op-1', notValidAfter: Date.now() + 60_000 }, now: Date.now() }).ok, 'fresh peer mutation is accepted');
+    assert(!admitPeerMutation({ mutation: { operationId: 'op-1', notValidAfter: Date.now() - 1 }, now: Date.now() }).ok, 'expired peer mutation is rejected');
+    assert(interpretWorktreeLanding({ status: 'already-landed', branch: 'feat', into: 'main' }).kind === 'succeeded', 'already-landed is a succeeded landing');
+    assert(interpretWorktreeLanding({ status: 'blocked-dirty-base', files: ['a.ts'] }).kind === 'needs-consent', 'dirty base needs consent');
     assert(landSucceeded({ status: 'already-landed', branch: 'feat', into: 'main' }) && landNeedsConsent({ status: 'blocked-dirty-base', files: ['a.ts'] }), 'worktree landing states are decisions');
     assert(parsePluginId('example.muxr-ui').ok && !parsePluginId('bad id').ok, 'plugin identity rejects display-like names');
+    assert(parsePluginManifest({ source: { schemaVersion: 1, pluginId: 'example.muxr-ui', contributions: [] } }).ok, 'parse plugin manifest admits a current graph');
     assert(pluginIsCompatible({ schemaVersion: 1, pluginId: 'example.muxr-ui', contributions: [] }), 'current manifests are compatible');
     process.stdout.write(`PASS: contract selfCheck (${events.length} event types, plugin frames, peer allowlist)\n`);
 }

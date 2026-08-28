@@ -15,8 +15,8 @@
 
 import nacl from 'tweetnacl';
 import { envelopeIsHosted, isRoutingChannel, type EnvelopeHeader, type RoutingChannel } from '@muxr/contract/control-plane';
-import { concatBytes, decodeUtf8, encodeUtf8, fromBase64, toBase64 } from './encoding.js';
-import { toKeyBytes } from './keys.js';
+import { concatBytes, decodeUtf8, encodeUtf8, fromBase64, toBase64 } from '../infrastructure/encoding.js';
+import { toKeyBytes } from '../infrastructure/keys.js';
 
 export type V2Direction = 'host->client' | 'client->host';
 

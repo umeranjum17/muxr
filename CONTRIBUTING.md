@@ -14,8 +14,7 @@ yarn build
 
 You need Node ≥ 22, yarn 1.x, and — for anything touching the live backend —
 [herdr](https://herdr.dev) running (`herdr server`). Without herdr, the fake
-host (`node apps/host/dist/main.js --fake`) drives a scripted agent so mobile work
-needs no real agents.
+host (`yarn host`) drives a scripted agent so mobile work needs no real agents.
 
 Dev loop: `yarn up` (relay + host), then the app dev server with
 `cd apps/mobile && yarn start`. `yarn doctor` diagnoses a stack that will not come up.
@@ -25,17 +24,90 @@ The unsupported local relay fixture lives in
 
 ## Verify before you push
 
-```bash
-node scripts/runSuite.mjs
-```
-
-That is the same gate CI runs. After native dependency changes also run
-`node scripts/verifyNativePatches.mjs`. If you changed the contract, run the
-probe — it asserts every event type survives the wire end to end:
+The exact check path CI runs:
 
 ```bash
-node apps/probe/dist/main.js
+yarn check
 ```
+
+That is `node scripts/runSuite.mjs`. It includes `yarn typecheck`
+(`tsc --build --force`), mobile `tsc --noEmit`, package self-checks, and
+`node packages/checkArchitecture.mjs`.
+
+After native dependency changes also run `node scripts/verifyNativePatches.mjs`.
+If you changed the contract, run the probe — it asserts every event type
+survives the wire end to end:
+
+```bash
+yarn probe
+```
+
+Focused package loop after `@muxr/contract` / `@muxr/crypto` edits:
+
+```bash
+yarn typecheck
+node packages/checkArchitecture.mjs
+node packages/contract/dist/selfCheck.js
+node packages/crypto/dist/selfCheck.js
+npx vitest run packages/contract --root .
+```
+
+## Architecture
+
+Packages are context-first, not layer-first. Read
+[packages/README.md](packages/README.md) for ownership and invariants,
+[packages/USE_CASES.md](packages/USE_CASES.md) to navigate by intent, and
+[CONTEXT.md](CONTEXT.md) for the glossary.
+
+```
+packages/contract/src/<context>/{domain,application?,infrastructure?}
+packages/crypto/src/e2ee/{domain,application,infrastructure}
+```
+
+**Dependency direction.** Domain is pure TypeScript: no tweetnacl, zod, Node,
+fetch, React, or sockets. Infrastructure may import same-context domain.
+Application may import same-context domain and infrastructure. A context
+imports another context only through that context's `index.ts`. Contract never
+imports crypto. E2EE imports `@muxr/contract/peer`, `/control-plane`, and
+`/shared`, not the contract barrel. Apps import package barrels or context
+entries; they must not import `domain/`, `application/`, or `infrastructure/`
+paths. `packages/checkArchitecture.mjs` rejects the reverse.
+
+**Ubiquitous language.** Names in code match [CONTEXT.md](CONTEXT.md): Agent,
+Agent Route, Human Name, Task Title, Attention, Peer Allowlist, Device Grant,
+Envelope, Routing Channel, Plugin Identity, Worktree Landing. Do not invent
+synonyms (session-as-chat, display label, IRepository). Public functions keep
+those words.
+
+**Use cases.** One intent-revealing `application/<verbNoun>.ts` per real
+operation the package owns. Each takes a small command or value object,
+coordinates domain entities and ports that already exist, and returns an
+explicit result. No transport, UI, or native details. Domain entities decide
+invariants and transitions; use cases coordinate them. Routes, React hooks,
+socket handlers, CLI commands, and plugins are thin adapters that invoke the
+named use case. Do not add a generic `services/` folder, empty handlers, or
+one-method ports. If the behavior lives in host or mobile, list it in
+`USE_CASES.md` and keep the adapter there.
+
+**Rich domain.** Entities and value objects carry the rules (parse, admit,
+expire, authorize). Anemic DTO bags with a service layer that re-implements
+those rules are a bug. No `BaseEntity`, generic repositories, or DI container.
+
+**No internal compatibility.** Internals are not an API. When a file moves,
+delete the old path. Do not leave shims, dual implementations, or deprecated
+internal barrels. Public export names apps already import stay until a
+deliberate breaking change; throwing parsers such as `parseClientFrame` and
+`openV2` may remain as adapter aliases of the named use case.
+
+**Readability.** No nested ternaries. No boolean piles — extract a named
+predicate. Flatten control flow with early returns. `checkArchitecture.mjs`
+fails nested ternaries.
+
+**Tests.** Flow-level only. Default to zero new test files. One flow test per
+feature is the norm. Heavily mocked tests that would pass if the real code
+broke are worse than none. Crypto and security paths keep their coverage.
+`apps/mobile/sources/sync/sessionSync.integration.spec.ts` is the reference.
+Do not add a test matrix because a brief asked for one.
 
 ## The rules that keep this codebase small
 
@@ -51,13 +123,14 @@ node apps/probe/dist/main.js
    through git, the herdr socket, or directory conventions — never through
    provider-specific internals.
 4. **The contract ripples.** Adding a session event type means updating
-   `packages/contract/src/sessionEvent.ts`, `sessionState.ts`, `index.ts`,
-   `selfCheck.ts`, and `apps/host/src/fakeSessionSource.ts` together — the
-   self-checks assert full coverage and fail otherwise. Requests likewise: one
-   `RequestMap` entry + one dispatcher handler, or both sides stop compiling.
-   Plugin primitive changes ripple through `PRIMITIVE_SPECS`,
+   `packages/contract/src/herd/domain/sessionEvent.ts`, `sessionState.ts`, the
+   herd `index.ts`, `selfCheck.ts`, and `apps/host/src/fakeSessionSource.ts`
+   together — the self-checks assert full coverage and fail otherwise. Requests
+   likewise: one `RequestMap` entry + one dispatcher handler, or both sides stop
+   compiling. Plugin primitive changes ripple through `PRIMITIVE_SPECS`,
    `primitiveRegistry.tsx`, `MUXR_UI_VERSION`, `docs/PLUGINS.md`, and the bundled
-   plugin index/check.
+   plugin index/check. A new package operation gets one `application/` module and
+   a `USE_CASES.md` row, or the architecture check fails.
 5. **No LLM tokens in data paths.** Host features are plumbing: git, fs.watch,
    websockets. Never a model call, never anything injected into a watched agent's
    prompt.
@@ -73,8 +146,9 @@ node apps/probe/dist/main.js
 
 ## Where things live
 
-- `packages/contract` — the host/mobile/relay contract vocabulary
-- `packages/crypto` — E2EE that the relay never holds keys for
+- `packages/contract` — bounded contexts for the host/mobile/relay vocabulary
+- `packages/crypto` — E2EE context; the relay never holds keys
+- `packages/USE_CASES.md` — capability → use case → domain owner → adapters
 - `apps/host` — the herdr bridge; `src/herdr/` is the backend
 - `apps/relay` — envelope routing, replay, terminal/preview channels, push
 - `apps/mobile` — the app; `sources/terminal/` is the terminal layer

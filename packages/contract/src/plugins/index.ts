@@ -93,4 +93,5 @@ export {
     pluginIsCompatible,
     sanitizeDisplayText,
 } from './domain/plugins.js';
-export { parseManifest, parsePluginAction, parsePluginScreenParams, tryParseManifest } from './infrastructure/manifest.js';
+export { parseManifest, parsePluginAction, parsePluginScreenParams } from './infrastructure/manifest.js';
+export { parsePluginManifest, tryParseManifest } from './application/parsePluginManifest.js';

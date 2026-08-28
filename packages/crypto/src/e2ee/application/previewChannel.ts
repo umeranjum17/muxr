@@ -1,6 +1,6 @@
 import nacl from 'tweetnacl';
-import { concatBytes, toBase64 } from './encoding.js';
-import { toKeyBytes } from './keys.js';
+import { concatBytes, toBase64 } from '../infrastructure/encoding.js';
+import { toKeyBytes } from '../infrastructure/keys.js';
 
 /** Per-preview root delivered inside the existing encrypted control channel. */
 export function newPreviewKey(): string {

@@ -6,7 +6,7 @@
  * and a client call site cannot drift apart -- adding a capability means adding
  * one line here, and both sides fail to compile until they agree.
  *
- * The event stream (sessionEvent.ts) stays separate and remains push-only.
+ * The event stream (herd session events) stays separate and remains push-only.
  * Requests are for things a client asks for; events are for things that happen.
  */
 
