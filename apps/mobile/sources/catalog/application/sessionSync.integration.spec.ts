@@ -3,7 +3,7 @@ import type { AgentLifecycle, HerdrTreeWorkspace, LifecycleEvent } from '@muxr/c
 import type { Session } from '../infrastructure/storageTypes';
 import { completionAlerts, completionNotificationState, completionTransition, herdNotificationState, HERD_STATUS_LABELS, lifecycleNotificationCopy, lifecycleNotificationState, sortHerd } from '@/utils/herd';
 import { normalizeRequestFailure, requestRequiresE2ee } from '@muxr/contract';
-import { buildSpaceRows, lifecycleTree, paneDisplayName, paneTaskTitle } from '@/utils/herdTree';
+import { buildSpaceRows, paneDisplayName, paneTaskTitle } from '@/utils/herdTree';
 import { selectLiveTerminalCards } from '../../herd/application/liveTerminalOrder';
 
 const request = vi.fn();
@@ -206,8 +206,8 @@ describe('session sync flow', () => {
             }],
         }];
 
-        const stage = (status: AgentLifecycle, connected = true) => {
-            const tree = lifecycleTree(canonicalTree(status), connected);
+        const stage = (status: AgentLifecycle) => {
+            const tree = canonicalTree(status);
             const spacesStatus = buildSpaceRows(tree, new Set(['workspace-a']), '')[0].panes[0].agentStatus;
             const notificationPanes = sortHerd([session], tree);
             const liveStatus = selectLiveTerminalCards([session], notificationPanes)[0].status;
@@ -254,7 +254,7 @@ describe('session sync flow', () => {
         expect(completionNotificationState(completed).eventKey).toBe(finishedNotification.eventKey);
         expect(JSON.stringify([workingNotification, blockedNotification, finishedNotification].map(({ name, names }) => ({ name, names })))).not.toContain(session.id);
 
-        const offline = stage('done', false);
+        const offline = stage('done');
         expect(HERD_STATUS_LABELS[offline[0].status]).toBe('Done');
         expect(herdNotificationState(offline, 'error').mode).toBe('offline');
 

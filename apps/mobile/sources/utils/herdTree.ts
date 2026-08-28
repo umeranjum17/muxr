@@ -1,7 +1,6 @@
 export {
     buildSpaceRows,
     hasAgent,
-    lifecycleTree,
     middleTruncate,
     paneDisplayName,
     paneTaskTitle,

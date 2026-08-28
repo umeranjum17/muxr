@@ -518,7 +518,7 @@ export const MainView = React.memo(() => {
                             <HeaderTitle activeTab="sessions" large />
                         </View>
                     </View>
-                    <LiveTerminalsRow layout="grid" />
+                    <LiveTerminalsRow visibilityTop={safeArea.top} visibilityBottomInset={safeArea.bottom} />
                     <PluginSlot slot="home.cards" context={{}} />
                     <DeclarativeHomeCards />
                     {recentSessions.length > 0 && (

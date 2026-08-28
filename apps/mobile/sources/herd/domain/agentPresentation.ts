@@ -4,28 +4,27 @@ import { HERD_STATUS_LABELS } from './herd';
 
 export interface AgentLabels {
     taskTitle: string;
-    humanName?: string;
-    providerKind?: string;
-    context?: string;
+    agentName?: string;
 }
 
-/** One display vocabulary: Task Title, Human Name, then optional provider/context. */
+/** One display vocabulary: Task Title, then canonical speakable Agent Name. */
 export function agentLabels(pane?: HerdrTreePane, session?: Session): AgentLabels {
     const metadata = session?.metadata;
     return {
         taskTitle: pane?.taskTitle?.trim() || metadata?.taskTitle?.trim() || 'Untitled task',
-        humanName: metadata?.displayName?.trim() || pane?.displayName?.trim() || undefined,
-        providerKind: pane?.agentKind?.trim() || metadata?.agentKind?.trim() || metadata?.provider?.kind?.trim() || undefined,
-        context: metadata?.worktree?.branch?.trim() || metadata?.workspaceLabel?.trim() || undefined,
+        agentName: metadata?.displayName?.trim() || pane?.displayName?.trim() || undefined,
     };
 }
 
-export function agentAccessibilityLabel(labels: AgentLabels, status: AgentLifecycle, sinceMs?: number): string {
-    const elapsed = sinceMs === undefined ? undefined : compactAge(Date.now() - sinceMs);
-    let age = '';
-    if (elapsed === 'now') age = ' just now';
-    else if (elapsed !== undefined) age = ` for ${elapsed}`;
-    return [labels.taskTitle, `${HERD_STATUS_LABELS[status]}${age}`, labels.humanName]
+export function agentStateLabel(status: AgentLifecycle, changedAt?: number, now = Date.now()): string {
+    const label = HERD_STATUS_LABELS[status];
+    if (status === 'working' || status === 'starting' || changedAt === undefined) return label;
+    return `${label} · ${compactAge(now - changedAt)}`;
+}
+
+export function agentAccessibilityLabel(labels: AgentLabels, status: AgentLifecycle, changedAt?: number): string {
+    const state = changedAt === undefined ? HERD_STATUS_LABELS[status] : agentStateLabel(status, changedAt);
+    return [labels.taskTitle, state, labels.agentName]
         .filter((value): value is string => value !== undefined && value !== '')
         .join('. ');
 }

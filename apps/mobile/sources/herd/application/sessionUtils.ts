@@ -155,14 +155,9 @@ export function getSessionAvatarId(session: Session): string {
     return session.id;
 }
 
-/** Human Name is secondary; one workspace/path context may follow it. */
+/** Canonical Agent Name only; task cards own their context. */
 export function getSessionSubtitle(session: Session): string {
-    const metadata = session.metadata;
-    if (metadata === null) return '';
-    const humanName = metadata.displayName?.trim();
-    const workspace = metadata.workspaceLabel?.trim();
-    const context = workspace || formatPathRelativeToHome(metadata.path, metadata.homeDir);
-    return [humanName, context].filter((value) => value !== undefined && value !== '').join(' · ');
+    return session.metadata?.displayName?.trim() ?? '';
 }
 
 /**

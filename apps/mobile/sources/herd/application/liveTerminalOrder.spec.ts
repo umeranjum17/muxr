@@ -1,74 +1,159 @@
 import { describe, expect, it } from 'vitest';
 import type { LifecycleEvent } from '@muxr/contract';
 import type { Session } from '@/catalog';
-import { recentActivityRows } from '../domain/recentActivity';
+import type { HerdPane } from '../domain/herd';
+import { agentStateLabel } from '../domain/agentPresentation';
+import { unseenActivityRows, type RecentActivityRow } from '../domain/recentActivity';
 import {
     nextWorkingAgentId,
     orderLiveTerminalCards,
+    reconcileLiveTerminalCards,
+    selectLiveTerminalCards,
+    visibleActivityEventIds,
     workingAgentSwipeIds,
     type LiveTerminalOrderCard,
 } from './liveTerminalOrder';
 
-function session(id: string, changedAt: number, status: LiveTerminalOrderCard['status']): Session {
+function session(
+    id: string,
+    changedAt: number,
+    status: LiveTerminalOrderCard['status'],
+    createdAt = changedAt,
+): Session {
     return {
         id,
+        createdAt,
         updatedAt: changedAt,
         presence: 'online',
         metadata: { agentStatus: status, lifecycleStateSince: changedAt },
     } as Session;
 }
 
-function card(id: string, changedAt: number, status: LiveTerminalOrderCard['status']): LiveTerminalOrderCard {
-    return { session: session(id, changedAt, status), status, changedAt };
+function card(
+    id: string,
+    changedAt: number,
+    status: LiveTerminalOrderCard['status'],
+    createdAt = changedAt,
+): LiveTerminalOrderCard {
+    return { id, session: session(id, changedAt, status, createdAt), status, title: id, name: 'Otter', changedAt, createdAt };
 }
 
 describe('agent lifecycle presentation', () => {
-    it('orders needs-you, working, and recently-done agents without title churn', () => {
-        const now = 2_000_000;
+    it('keeps terminal slots in creation order across lifecycle changes and old completions', () => {
         const cards = orderLiveTerminalCards([
-            card('stale-done', now - 31 * 60_000, 'done'),
-            card('working-new', now - 1_000, 'working'),
-            card('blocked-new', now - 2_000, 'blocked'),
-            card('done', now - 5_000, 'done'),
-            card('blocked-old', now - 20_000, 'blocked'),
-            card('working-old', now - 10_000, 'working'),
-        ], now);
+            card('done', 900, 'done', 100),
+            card('blocked', 800, 'blocked', 300),
+            card('working', 1_000, 'working', 200),
+        ]);
 
-        expect(cards.map(({ session: item }) => item.id)).toEqual([
-            'blocked-old',
-            'blocked-new',
-            'working-new',
-            'working-old',
-            'done',
+        expect(cards.map((item) => item.id)).toEqual(['done', 'working', 'blocked']);
+        expect(orderLiveTerminalCards(cards.map((item) => ({ ...item, status: 'done' })))
+            .map((item) => item.id)).toEqual(['done', 'working', 'blocked']);
+    });
+
+    it('keeps a running tree pane through a lagging catalog join without replacing its slot', () => {
+        const pane = (id: string, status: HerdPane['status'], changedAt?: number): HerdPane => ({
+            id,
+            name: `${id} agent`,
+            taskTitle: `${id} task`,
+            status,
+            changedAt,
+            doing: '',
+        });
+        const treeOnly = selectLiveTerminalCards([], [pane('first', 'working', 100), pane('second', 'blocked')]);
+        expect(treeOnly.map((item) => [item.id, item.session])).toEqual([
+            ['first', undefined],
+            ['second', undefined],
+        ]);
+        expect(agentStateLabel(treeOnly[1]!.status, treeOnly[1]!.changedAt, 1_000_000)).toBe('Needs you');
+
+        const joined = reconcileLiveTerminalCards(treeOnly, selectLiveTerminalCards([
+            session('second', 200, 'done', 20),
+            session('first', 200, 'blocked', 10),
+        ], [pane('first', 'blocked', 200), pane('second', 'done', 200)]));
+        expect(joined.map((item) => [item.id, item.status, item.session?.id])).toEqual([
+            ['first', 'blocked', 'first'],
+            ['second', 'done', 'second'],
         ]);
     });
 
-    it('collapses activity by agent and removes working/unknown noise', () => {
+    it('shows only unseen meaningful transitions from the last day, latest per agent', () => {
+        const now = Date.parse('2026-01-02T00:00:00.000Z');
         const event = (eventId: string, sessionId: string, state: LifecycleEvent['state'], at: string): LifecycleEvent => ({
             eventId,
             sessionId,
-            displayName: 'Adam',
+            displayName: 'Otter',
             taskTitle: 'Fix realtime voice',
             state,
             reasonCode: 'state-reconciled',
             reason: 'state-reconciled',
             at,
         });
-        const rows = recentActivityRows([
-            event('new', 'one', 'done', '2026-01-02T00:00:00.000Z'),
-            event('duplicate', 'one', 'blocked', '2026-01-01T23:59:00.000Z'),
-            event('working', 'two', 'working', '2026-01-01T23:58:00.000Z'),
-            event('unknown', 'three', 'unknown', '2026-01-01T23:57:00.000Z'),
+        const rows = unseenActivityRows([
+            event('seen', 'seen-agent', 'done', '2026-01-01T23:59:30.000Z'),
+            event('latest', 'one', 'done', '2026-01-01T23:59:00.000Z'),
+            event('older-same-agent', 'one', 'blocked', '2026-01-01T23:58:00.000Z'),
+            event('working', 'two', 'working', '2026-01-01T23:57:00.000Z'),
+            event('old', 'three', 'failed', '2025-12-31T23:00:00.000Z'),
             event('failed', 'four', 'failed', '2026-01-01T23:56:00.000Z'),
+        ], new Set(['seen']), now);
+
+        expect(rows.map((row) => [row.eventId, row.sessionId, row.agentName, row.status])).toEqual([
+            ['latest', 'one', 'Otter', 'done'],
+            ['failed', 'four', 'Otter', 'failed'],
         ]);
 
-        expect(rows.map((row) => [row.eventId, row.status])).toEqual([
-            ['new', 'done'],
-            ['failed', 'failed'],
-        ]);
+        expect(unseenActivityRows([
+            event('seen', 'seen-agent', 'done', '2026-01-01T23:59:30.000Z'),
+            event('older-unseen', 'seen-agent', 'blocked', '2026-01-01T23:58:30.000Z'),
+        ], new Set(['seen']), now)).toEqual([]);
     });
 
-    it('keeps swipe navigation on active and two-minute-recent agents', () => {
+    it('acknowledges only fully visible cards on a focused foreground Herd screen', () => {
+        const rows: RecentActivityRow[] = [
+            {
+                eventId: 'first-event',
+                sessionId: 'first',
+                taskTitle: 'First task',
+                agentName: 'Otter',
+                status: 'done',
+                reasonCode: 'state-reconciled',
+                at: 100,
+            },
+            {
+                eventId: 'second-event',
+                sessionId: 'second',
+                taskTitle: 'Second task',
+                agentName: 'Badger',
+                status: 'blocked',
+                reasonCode: 'state-reconciled',
+                at: 200,
+            },
+        ];
+        const cards = [card('first', 100, 'done'), card('second', 200, 'blocked')];
+        const viewport = {
+            focused: true,
+            foreground: true,
+            viewportTop: 80,
+            viewportBottom: 500,
+            stripTop: 100,
+            stripHeight: 152,
+            scrollX: 0,
+            stripWidth: 390,
+            cardWidth: 208,
+            cardGap: 10,
+            gutter: 16,
+        };
+
+        expect(visibleActivityEventIds(rows, cards, viewport)).toEqual(['first-event']);
+        expect(visibleActivityEventIds(rows, cards, { ...viewport, focused: false })).toEqual([]);
+        expect(visibleActivityEventIds(rows, cards, { ...viewport, foreground: false })).toEqual([]);
+        expect(visibleActivityEventIds(rows, cards, { ...viewport, stripTop: 79 })).toEqual([]);
+        expect(visibleActivityEventIds(rows, cards, { ...viewport, stripTop: 349 })).toEqual([]);
+        expect(visibleActivityEventIds(rows, cards, { ...viewport, scrollX: 20 })).toEqual([]);
+    });
+
+    it('keeps terminal swipe navigation on active and two-minute-recent agents', () => {
         const now = 300_000;
         const ids = workingAgentSwipeIds([
             session('old', now - 120_001, 'done'),

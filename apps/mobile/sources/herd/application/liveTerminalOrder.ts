@@ -1,33 +1,39 @@
 import type { AgentLifecycle } from '@muxr/contract';
 import type { Session } from '@/catalog';
 import { paneStatus, type HerdPane } from '../domain/herd';
+import type { RecentActivityRow } from '../domain/recentActivity';
 
 export const RECENTLY_DONE_SWIPE_MS = 2 * 60_000;
-export const RECENTLY_DONE_DISPLAY_MS = 30 * 60_000;
 
 export type LiveTerminalBucket = 'attention' | 'working' | 'settled' | 'offline';
 
 export interface LiveTerminalOrderCard {
-    session: Session;
+    id: string;
+    session?: Session;
     status: AgentLifecycle;
-    title?: string;
-    changedAt: number;
+    title: string;
+    name: string;
+    changedAt?: number;
+    createdAt?: number;
 }
 
-/** Join display metadata onto canonical panes; lifecycle stays tree-owned. */
+/** Tree panes are canonical; the session catalog only enriches their previews. */
 export function selectLiveTerminalCards(
     sessions: readonly Session[],
     panes: readonly HerdPane[],
 ): LiveTerminalOrderCard[] {
     const sessionsById = new Map(sessions.map((session) => [session.id, session]));
-    return panes.flatMap((pane) => {
+    return panes.map((pane) => {
         const session = sessionsById.get(pane.id);
-        return session === undefined ? [] : [{
+        return {
+            id: pane.id,
             session,
             status: pane.status,
             title: pane.taskTitle,
+            name: pane.name,
             changedAt: pane.changedAt,
-        }];
+            createdAt: session?.createdAt,
+        };
     });
 }
 
@@ -38,31 +44,61 @@ export function liveTerminalBucket(status: AgentLifecycle): LiveTerminalBucket {
     return 'offline';
 }
 
-const STATUS_ORDER: Record<AgentLifecycle, number> = {
-    blocked: 0,
-    failed: 1,
-    working: 2,
-    starting: 3,
-    done: 4,
-    idle: 5,
-    unknown: 6,
-};
+/** A terminal is a place, not an event: lifecycle changes never move its card. */
+export function orderLiveTerminalCards(cards: readonly LiveTerminalOrderCard[]): LiveTerminalOrderCard[] {
+    return [...cards].sort((left, right) =>
+        (left.createdAt ?? Number.MAX_SAFE_INTEGER) - (right.createdAt ?? Number.MAX_SAFE_INTEGER));
+}
 
-/** Needs-you first, active work next, then recent completions and offline panes. */
-export function orderLiveTerminalCards(
-    cards: readonly LiveTerminalOrderCard[],
-    now = Date.now(),
+/**
+ * Preserve every surviving slot when metadata arrives or lifecycle changes.
+ * New panes append in creation order, so a late catalog join cannot reshuffle
+ * the strip the user is already looking at.
+ */
+export function reconcileLiveTerminalCards(
+    previous: readonly LiveTerminalOrderCard[],
+    current: readonly LiveTerminalOrderCard[],
 ): LiveTerminalOrderCard[] {
-    return cards
-        .filter((card) => card.status !== 'done' || now - card.changedAt <= RECENTLY_DONE_DISPLAY_MS)
-        .sort((left, right) => {
-            const status = STATUS_ORDER[left.status] - STATUS_ORDER[right.status];
-            if (status !== 0) return status;
-            const time = left.status === 'blocked'
-                ? left.changedAt - right.changedAt
-                : right.changedAt - left.changedAt;
-            return time || left.session.id.localeCompare(right.session.id);
-        });
+    const currentById = new Map(current.map((card) => [card.id, card]));
+    const existing = previous.flatMap((card) => {
+        const updated = currentById.get(card.id);
+        if (updated === undefined) return [];
+        currentById.delete(card.id);
+        return [updated];
+    });
+    return [...existing, ...orderLiveTerminalCards([...currentById.values()])];
+}
+
+export interface ActivityAcknowledgementViewport {
+    focused: boolean;
+    foreground: boolean;
+    viewportTop: number;
+    viewportBottom: number;
+    stripTop: number;
+    stripHeight: number;
+    scrollX: number;
+    stripWidth: number;
+    cardWidth: number;
+    cardGap: number;
+    gutter: number;
+}
+
+/** Activity becomes seen only while its entire terminal card is actually visible. */
+export function visibleActivityEventIds(
+    rows: readonly RecentActivityRow[],
+    cards: readonly LiveTerminalOrderCard[],
+    viewport: ActivityAcknowledgementViewport,
+): string[] {
+    if (!viewport.focused || !viewport.foreground) return [];
+    if (viewport.stripTop < viewport.viewportTop) return [];
+    if (viewport.stripTop + viewport.stripHeight > viewport.viewportBottom) return [];
+
+    const visibleRoutes = new Set(cards.flatMap((card, index) => {
+        const start = viewport.gutter + index * (viewport.cardWidth + viewport.cardGap);
+        const end = start + viewport.cardWidth;
+        return start >= viewport.scrollX && end <= viewport.scrollX + viewport.stripWidth ? [card.id] : [];
+    }));
+    return rows.filter((row) => visibleRoutes.has(row.sessionId)).map((row) => row.eventId);
 }
 
 /** The one-swipe buffer: active agents, then agents that finished very recently. */
