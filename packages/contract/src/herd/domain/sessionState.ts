@@ -182,16 +182,17 @@ export function agentIsWorking(state: AgentLifecycle): boolean {
 }
 
 /**
- * Spoken first name. Display-only: it never authorizes a prompt, watch, or focus.
- * Optional trailing digit is a homonym disambiguator (Maria 2), not a route.
+ * Canonical user-facing Agent Name. Wire records still call this displayName
+ * for protocol compatibility; it never authorizes routing.
  */
-const HUMAN_NAME = /^[\p{L}\p{M}][\p{L}\p{M}' -]{0,72}(?: \d+)?$/u;
+export function normalizeAgentName(value: string | undefined): string {
+    const name = value?.normalize('NFKC').replace(/[\0-\x1F\x7F]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80);
+    return name === undefined || name === '' || /^pph?_/i.test(name) ? 'Agent' : name;
+}
 
-export function parseHumanName(value: unknown): Outcome<string> {
-    if (typeof value !== 'string') return fail('invalid human name');
-    const name = value.normalize('NFKC').replace(/[\0-\x1F\x7F]/g, '').replace(/\s+/g, ' ').trim();
-    if (!HUMAN_NAME.test(name)) return fail('invalid human name');
-    return ok(name);
+export function parseAgentName(value: unknown): Outcome<string> {
+    if (typeof value !== 'string') return fail('invalid Agent Name');
+    return ok(normalizeAgentName(value));
 }
 
 /**
@@ -221,12 +222,12 @@ export function agentRoute(agent: { id: string }): string {
     return agent.id;
 }
 
-/** Lifecycle Event's routing key. Human Name and Task Title on the same record never authorize. */
+/** Lifecycle Event's routing key. Agent Name and Task Title on the same record never authorize. */
 export function lifecycleEventRoute(event: LifecycleEvent): string {
     return event.sessionId;
 }
 
-export function lifecycleEventHumanName(event: LifecycleEvent): string {
+export function lifecycleEventAgentName(event: LifecycleEvent): string {
     return event.displayName;
 }
 

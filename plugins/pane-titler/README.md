@@ -1,20 +1,21 @@
 # Pane titler
 
-Names each pane after the work happening inside it, so a herd of agents is
-referrable by Task Title instead of a provider kind or a bare number.
+Owns the two user-facing names: Herdr `agent.name` is Agent Name, while the
+pane/tab label is Task Title.
 
 ## What appears in muxr
 
-Nothing directly. This is a Herdr plugin with no `muxr-ui.json`; muxr shows it
-as "Backend only". The names it writes flow to the phone because muxr renders
-the herd tree Herdr reports.
+The session Actions menu includes a native Agent Name editor backed by bounded
+host RPCs. It reads and renames the real Herdr agent; wire `displayName` remains
+only as compatibility metadata.
 
 ## What runs on the host
 
-One command on `pane.agent_status_changed`: read about 60 lines of scrollback,
-ask a model for a short title, `herdr pane rename`. It renames only panes that
-still carry generated chrome (bare numbers, provider kinds, herdr handles), so
-an explicit Task Title you chose is never overwritten.
+One command on `pane.agent_status_changed`: preserve every public Herdr Agent
+Name, or assign an available deterministic animal to an absent/internal name
+with `herdr agent rename`. It then reads about 60 lines of scrollback and uses
+`herdr pane rename` only when the Task Title still carries generated chrome.
+Neither an explicit Agent Name nor Task Title is overwritten.
 
 ## Which model
 

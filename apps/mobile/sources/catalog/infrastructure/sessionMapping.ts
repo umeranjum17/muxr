@@ -7,7 +7,7 @@ import {
     agentNeedsApproval,
     agentStillListed,
     approvalAgentState,
-    humanNameFromHost,
+    agentNameFromHost,
     lifecycleSinceForAgent,
     providerKindFromHost,
     taskTitleFromHost,
@@ -22,7 +22,7 @@ function parseTime(value: string | undefined): number {
 }
 
 export function sessionDisplayName(info: SessionInfo): string | undefined {
-    return humanNameFromHost(info);
+    return agentNameFromHost(info);
 }
 
 /** Map a host SessionInfo DTO once into the stored Agent snapshot. */
@@ -32,13 +32,13 @@ export function sessionInfoToSession(info: SessionInfo, status?: SessionStatus):
     const now = Date.now();
     const busy = agentIsBusy(status);
     const cwd = info.cwd;
-    const displayName = humanNameFromHost(info);
+    const agentName = agentNameFromHost(info);
     const taskTitle = taskTitleFromHost(info.taskTitle);
     const machineId = getCachedConnectionSettings().machineId;
     const provider = providerKindFromHost(info.agentKind);
     const listed = agentStillListed(busy, updatedAt, now);
     const blocked = agentNeedsApproval(status);
-    const spokenName = displayName ?? provider.name;
+    const spokenName = agentName ?? provider.name;
     return {
         id: info.id,
         seq: 0,
@@ -48,7 +48,7 @@ export function sessionInfoToSession(info: SessionInfo, status?: SessionStatus):
         activeAt: updatedAt,
         metadata: sessionMetadataFromInfo(info, {
             cwd,
-            displayName,
+            displayName: agentName,
             taskTitle,
             machineId,
             kind: provider.kind,

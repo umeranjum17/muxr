@@ -83,7 +83,7 @@ entries; they must not import `domain/`, `application/`, or `infrastructure/`
 paths. `packages/checkArchitecture.mjs` rejects the reverse.
 
 **Ubiquitous language.** Names in code match [CONTEXT.md](CONTEXT.md): Agent,
-Agent Route, Human Name, Task Title, Attention, Peer Allowlist, Device Grant,
+Agent Route, Agent Name, Task Title, Attention, Peer Allowlist, Device Grant,
 Envelope, Routing Channel, Plugin Identity, Worktree Landing. Do not invent
 synonyms (session-as-chat, display label, IRepository). Public functions keep
 those words.
@@ -130,7 +130,7 @@ Outsiders import `@/<context>` (domain + use cases), `@/<context>/ui` (screens),
 
 ### Ubiquitous names
 
-Use [CONTEXT.md](CONTEXT.md). Agent Route authorizes. Human Name, Task Title, and computer display names never authorize. Do not introduce chat-era names into new code. Do not reintroduce internal ids in UI or speech (`pp_*`, pane ids, session ids).
+Use [CONTEXT.md](CONTEXT.md). Agent Route authorizes. Agent Name, Task Title, and computer display names never authorize. Do not introduce chat-era names into new code. Do not reintroduce internal ids in UI or speech (`pp_*`, pane ids, session ids).
 
 ### Use cases
 

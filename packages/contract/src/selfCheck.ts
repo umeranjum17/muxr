@@ -13,7 +13,8 @@ import {
     ATTENTION_DONE_TTL_MS,
     ATTENTION_HARD_CAP_MS,
     isSessionIdle,
-    parseHumanName,
+    normalizeAgentName,
+    parseAgentName,
     parsePublicAgentRoute,
     type SessionInfo,
     type SessionStatus,
@@ -103,13 +104,14 @@ function demo(): void {
         'shell and raw herdr stay outside the peer surface');
     const publicContext = boundRealtimePublicContext({
         sessions: [
-            { sessionId: 'pp_voice', displayName: 'Maria', taskTitle: 'pi - Realtime Stability', agentKind: 'pi' },
-            { sessionId: 'bad/path', displayName: 'Leaked', taskTitle: '/private/work' },
-            ...Array.from({ length: MAX_REALTIME_PUBLIC_SESSIONS + 4 }, (_, index) => ({ sessionId: `pp_${index}`, displayName: `John ${index + 2}` })),
+            { sessionId: 'pp_voice', displayName: 'pp_internal', taskTitle: 'pi - Realtime Stability', agentKind: 'pi' },
+            { sessionId: 'bad/path', displayName: 'leaked', taskTitle: '/private/work' },
+            ...Array.from({ length: MAX_REALTIME_PUBLIC_SESSIONS + 4 }, (_, index) => ({ sessionId: `pp_${index}`, displayName: `agent-${index}` })),
         ],
     });
     assert(publicContext.sessions.length === MAX_REALTIME_PUBLIC_SESSIONS, 'realtime public session map is bounded');
     assert(publicContext.sessions[0]?.taskTitle === 'Realtime Stability', 'realtime public task title strips provider prefix');
+    assert(publicContext.sessions[0]?.displayName === 'Agent', 'internal or absent Agent Names remain present behind the unified fallback');
     assert(!publicContext.sessions.some((entry) => entry.sessionId === 'bad/path'), 'realtime public session map rejects unsafe routing ids');
     for (const action of ['pause_output', 'resume_output', 'output_drained'] as const) {
         const frame = parseRealtimeClientFrame({ type: 'realtime.control', action });
@@ -135,7 +137,8 @@ function demo(): void {
     assert(!isSessionIdle(status) && isSessionIdle({ ...status, agentStatus: 'done', isStreaming: true }), 'herdr lifecycle outranks the streaming flag');
     assert(attentionOutranks('waiting', 'done') && attentionReasonStillHolds('waiting', ATTENTION_HARD_CAP_MS + 1), 'waiting outranks done and never decays');
     assert(!attentionReasonStillHolds('done', ATTENTION_DONE_TTL_MS + 1), 'done attention ages out');
-    assert(parseHumanName('Maria 2').ok && !parsePublicAgentRoute('bad/path').ok, 'human name is display-only; routes reject path characters');
+    const internalName = parseAgentName('pp_hidden');
+    assert(internalName.ok && internalName.value === 'Agent' && normalizeAgentName('Мария') === 'Мария' && !parsePublicAgentRoute('bad/path').ok, 'Agent Name normalization preserves real names, hides internal names, and never authorizes routes');
     assert(peerMayDispatch(['prompt'], 'session.prompt') && !peerMayDispatch(['prompt'], 'session.start'), 'peer dispatch uses the signed allowlist');
     assert(authorizePeerDispatch({ allowlist: ['prompt'], requestType: 'session.prompt' }).ok, 'authorize peer dispatch admits a signed capability');
     assert(!authorizePeerDispatch({ allowlist: ['prompt'], requestType: 'session.start' }).ok, 'authorize peer dispatch denies start without start');

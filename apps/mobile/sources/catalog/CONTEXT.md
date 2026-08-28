@@ -12,9 +12,9 @@ _Avoid_: pane, tab, process, session row
 The stable internal route that identifies an Agent across pane moves. On this device that is the host session id.
 _Avoid_: pane id, spoken name, label
 
-**Human Name**:
-The spoken first name of an Agent. Display-only, never a routing key.
-_Avoid_: label, agent name
+**Agent Name**:
+The user-editable Herdr Agent Name. Display-only, never a routing key.
+_Avoid_: label, pane title
 
 **Task Title**:
 The work the Agent is doing.

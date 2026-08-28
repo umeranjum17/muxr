@@ -1,7 +1,6 @@
 export type StartAgentCommand = {
     directory: string;
     kind?: string;
-    humanName?: string;
     parentAgentRoute?: string;
     createDirectory?: boolean;
 };
@@ -20,14 +19,13 @@ export type StartAgentPorts = {
         directory: string;
         createDirectory?: true;
         kind?: string;
-        humanName?: string;
         parentAgentRoute?: string;
     }) => Promise<StartAgentHostSnapshot>;
     waitUntilListed: (agentRoute: string) => Promise<unknown>;
     missingDirectory: (message: string) => boolean;
 };
 
-/** Start an Agent on the connected machine. Human Name is display-only. */
+/** Start an Agent on the connected machine. */
 export async function startAgent(command: StartAgentCommand, ports: StartAgentPorts): Promise<StartAgentResult> {
     try {
         const snapshot = await ports.startOnHost({
@@ -35,7 +33,6 @@ export async function startAgent(command: StartAgentCommand, ports: StartAgentPo
             ...(command.createDirectory === true ? { createDirectory: true as const } : {}),
             ...(command.parentAgentRoute === undefined ? {} : { parentAgentRoute: command.parentAgentRoute }),
             ...(command.kind === undefined ? {} : { kind: command.kind }),
-            ...(command.humanName?.trim() ? { humanName: command.humanName.trim() } : {}),
         });
         if (!('info' in snapshot)) {
             return {

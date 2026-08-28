@@ -31,8 +31,8 @@ export type VoiceReportParse =
 
 export type VoiceAdmission = 'admitted' | 'pending' | 'delivered' | 'full' | 'invalid';
 
-/** Spoken Human Name must never be an internal route, pane id, or session id. */
-export function spokenNameIsTrusted(name: string): boolean {
+/** Spoken Agent Name must never be an internal route, pane id, or session id. */
+export function agentNameIsTrusted(name: string): boolean {
     if (/^(?:pp_|pane[_-]|session[_-])/i.test(name)) return false;
     if (/^[\w-]+:[\w-]+$/.test(name)) return false;
     if (/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(name)) return false;
@@ -82,7 +82,7 @@ export function parseVoiceReport(value: unknown): VoiceReportParse {
     if (entry.from !== 'working') return { ok: false };
     if (typeof entry.status !== 'string' || !VOICE_STATUSES.has(entry.status)) return { ok: false };
     if (displayName === '' || taskTitle === '') return { ok: false };
-    if (!spokenNameIsTrusted(displayName)) return { ok: false };
+    if (!agentNameIsTrusted(displayName)) return { ok: false };
     if (VOICE_PATH_PATTERN.test(taskTitle)) return { ok: false };
     if (VOICE_CONTROL_PATTERN.test(`${rawDisplayName}${rawTaskTitle}`)) return { ok: false };
     if (VOICE_CREDENTIAL_PATTERN.test(trustedText)) return { ok: false };
