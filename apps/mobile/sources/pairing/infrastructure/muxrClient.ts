@@ -26,7 +26,7 @@ import {
 } from '@muxr/contract';
 import { DeviceV2Crypto, refreshHostedGrant, type StoredHostedGrant } from '../application/hostedE2ee';
 
-/** `stale`: socket is up but the host stopped answering requests (host process gone). */
+/** `stale`: host liveness is unproven because a request timed out without newer authenticated host traffic. */
 export type ConnectionState = 'connecting' | 'open' | 'closed' | 'stale';
 
 export interface MuxrClientOptions {
@@ -68,6 +68,7 @@ function requestFailure(type: RequestType, error: string, code?: string): MuxrRe
 type EventListener = (sessionId: string, event: SessionEvent) => void;
 type StateListener = (state: ConnectionState) => void;
 type PluginInvalidationListener = (frame: Extract<HostFrame, { type: 'plugins.invalidated' }>) => void;
+const MAX_PENDING_REQUESTS = 128;
 
 export class MuxrClient {
     private socket: WebSocket | undefined;
@@ -81,6 +82,8 @@ export class MuxrClient {
     private readonly clientId = nextRequestId('client');
     private reconnectTimer: ReturnType<typeof setTimeout> | undefined;
     private reconnectAttempt = 0;
+    /** Valid host traffic observed on the current socket. Request timers use it as a liveness fence. */
+    private hostFrameRevision = 0;
 
     state: ConnectionState = 'closed';
 
@@ -98,7 +101,12 @@ export class MuxrClient {
     }
 
     private async open(): Promise<void> {
-        if (this.closed) return;
+        if (this.closed || (this.socket !== undefined
+            && (this.socket.readyState === WebSocket.CONNECTING || this.socket.readyState === WebSocket.OPEN))) return;
+        if (this.reconnectTimer !== undefined) {
+            clearTimeout(this.reconnectTimer);
+            this.reconnectTimer = undefined;
+        }
         this.setState('connecting');
         const { machineId, token } = this.options;
         let relayUrl = this.options.relayUrl;
@@ -124,6 +132,7 @@ export class MuxrClient {
                     transport: 'relay',
                 }), 'relay');
         } catch (error) {
+            if (this.closed || this.socket !== undefined) return;
             const rejected = error instanceof WsTicketError && (error.status === 401 || error.status === 403);
             const expired = error instanceof Error && /grant expired/i.test(error.message);
             const permanent = expired || rejected && this.hosted?.grant.source === 'selfhost';
@@ -144,10 +153,15 @@ export class MuxrClient {
             }
             return;
         }
+        if (this.closed || this.socket !== undefined) return;
         const socket = new WebSocket(url);
         this.socket = socket;
 
         socket.onopen = () => {
+            if (this.socket !== socket) {
+                socket.close();
+                return;
+            }
             this.reconnectAttempt = 0;
             // The relay accepts a client peer even when no machine is attached,
             // so socket open is not "connected". Stay `connecting` until the
@@ -155,25 +169,40 @@ export class MuxrClient {
             // the host answers client.hello immediately when it is alive.
             this.send({ type: 'client.hello', clientId: this.clientId });
         };
-        socket.onmessage = (message: MessageEvent) => { void this.handleMessage(String(message.data)); };
-        socket.onerror = () => socket.close();
-        socket.onclose = () => {
-            this.setState('closed');
-            if (this.closed) return;
-            const base = this.options.reconnectDelayMs ?? 1500;
-            this.reconnectTimer = setTimeout(() => this.connect(), Math.min(base * 2 ** this.reconnectAttempt++, 30_000));
+        socket.onmessage = (message: MessageEvent) => {
+            if (this.socket === socket) void this.handleMessage(String(message.data));
         };
+        socket.onerror = () => socket.close();
+        socket.onclose = () => this.retireSocket(socket);
     }
 
     close(): void {
         this.closed = true;
-        if (this.reconnectTimer !== undefined) clearTimeout(this.reconnectTimer);
+        clearTimeout(this.reconnectTimer);
+        this.reconnectTimer = undefined;
+        this.rejectPending('client closed');
+        const socket = this.socket;
+        this.socket = undefined;
+        socket?.close();
+        this.setState('closed');
+    }
+
+    private rejectPending(message: string): void {
         for (const pending of this.pending.values()) {
             clearTimeout(pending.timer);
-            pending.reject(new Error('client closed'));
+            pending.reject(new Error(message));
         }
         this.pending.clear();
-        this.socket?.close();
+    }
+
+    private retireSocket(socket: WebSocket): void {
+        if (this.socket !== socket) return;
+        this.socket = undefined;
+        this.rejectPending('connection lost');
+        this.setState('closed');
+        if (this.closed) return;
+        const base = this.options.reconnectDelayMs ?? 1500;
+        this.reconnectTimer = setTimeout(() => this.connect(), Math.min(base * 2 ** this.reconnectAttempt++, 30_000));
     }
 
     onEvent(listener: EventListener): () => void {
@@ -197,18 +226,26 @@ export class MuxrClient {
                 reject(new MuxrRequestError(`${type} requires an authenticated encrypted channel`, 'e2ee-required'));
                 return;
             }
-            if (this.socket === undefined || this.socket.readyState !== 1) {
+            const socket = this.socket;
+            if (socket === undefined || socket.readyState !== WebSocket.OPEN) {
                 reject(new Error('not connected'));
                 return;
             }
+            if (this.pending.size >= MAX_PENDING_REQUESTS) {
+                reject(new Error('too many pending requests'));
+                return;
+            }
             const requestId = nextRequestId('rn');
+            const hostFrameRevision = this.hostFrameRevision;
             const timer = setTimeout(() => {
                 this.pending.delete(requestId);
-                // Demote from `connecting` too: the relay accepts the socket
-                // with no machine attached, and only an answered request ever
-                // proves otherwise — otherwise the app pins on "connecting"
-                // forever. `closed` is excluded; onclose already owns that.
-                if (this.state !== 'closed') this.setState('stale');
+                // A timed-out request proves staleness only when no authenticated
+                // host traffic arrived after it began. Replace that half-open route.
+                if (this.socket === socket && this.hostFrameRevision === hostFrameRevision && this.state !== 'closed') {
+                    this.setState('stale');
+                    this.retireSocket(socket);
+                    socket.close();
+                }
                 // Overwhelmingly the cause is a machineId mismatch: the relay
                 // buffers frames for a machine that never connects, so the
                 // request just never comes back. Name the id being addressed.
@@ -287,6 +324,7 @@ export class MuxrClient {
 
         // Socket open only proves the relay accepted us; the first frame that
         // survives the machine's E2EE context proves the host is really there.
+        this.hostFrameRevision += 1;
         if (this.state !== 'open') this.setState('open');
 
         if (frame.type === 'result') {

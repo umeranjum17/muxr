@@ -205,6 +205,7 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
                     transport: 'terminal',
                     channel,
                 }), 'terminal');
+        if (closedByUser || socket !== undefined) return;
         const next = new WebSocket(url);
         socket = next;
         let opened = false;
