@@ -124,17 +124,21 @@ writeFileSync(
         dependencies: dependencies.map(({ licensePath: _licensePath, ...dependency }) => dependency),
     }, null, 2)}\n`,
 );
-await build({
+const contractResult = await build({
     entryPoints: ['packages/contract/dist/index.js'],
     outfile: join(out, 'contract.mjs'),
     bundle: true,
     platform: 'node',
     format: 'esm',
     target: 'node22',
+    metafile: true,
     minifyWhitespace: true,
     legalComments: 'none',
     logLevel: 'warning',
 });
+const zodInput = [...Object.keys(result.metafile.inputs), ...Object.keys(contractResult.metafile.inputs)]
+    .find((input) => /(?:^|\/)node_modules\/zod\//.test(input.replaceAll('\\', '/')));
+if (zodInput !== undefined) throw new Error(`package artifact must not bundle Zod (${zodInput})`);
 const copyContext = (name) => {
     cpSync(join(root, 'scripts', name), join(out, name), {
         recursive: true,
