@@ -1,7 +1,6 @@
 /**
- * Agent identity. One current schema: Human Name, Task Title, Provider Kind,
- * and an Agent Route. Herdr pane ids move; the route does not. Old or invalid
- * files are ignored and the map rebuilds from live Herdr.
+ * Agent identity. Herdr's agent.name is the canonical Agent Name; this store
+ * only keeps muxr's stable Agent Route and the last observed topology.
  */
 
 import { randomBytes } from 'node:crypto';
@@ -9,46 +8,31 @@ import { readFile } from 'node:fs/promises';
 import { atomicWriteJson } from '../../platform/atomicWriteJson.js';
 import { join } from 'node:path';
 import {
+    normalizeAgentName,
     genericTaskTitle,
-    humanKey,
-    isValidHumanName,
-    normalizeHuman,
     parseAgentIdentity,
     parseTaskTitle,
     taskTitleFor,
     type AgentAdoptInput,
     type AgentIdentity,
     type AgentObservation,
-    type NameReservation,
 } from '../domain/identity.js';
 
 export {
+    normalizeAgentName,
     parseTaskTitle,
     taskTitleFor,
     type AgentAdoptInput,
     type AgentIdentity,
     type AgentObservation,
-    type NameReservation,
 };
-
 const SCHEMA_VERSION = 4 as const;
-const POOL = [
-    'John', 'Maria', 'Alex', 'Maya', 'Sam',
-    'Nina', 'Leo', 'Sara', 'Omar', 'Lina',
-    'Noah', 'Zoe', 'Adam', 'Emma', 'Ryan',
-    'Iris', 'Luke', 'Anna', 'Eli', 'Mila',
-];
 
 interface IdentityFile {
     schemaVersion: typeof SCHEMA_VERSION;
     sessions: AgentIdentity[];
 }
 
-function namedError(message: string, code: string): Error & { code: string } {
-    const error = new Error(message) as Error & { code: string };
-    error.code = code;
-    return error;
-}
 
 function newSessionId(): string {
     return `pp_${randomBytes(4).toString('hex')}`;
@@ -56,7 +40,6 @@ function newSessionId(): string {
 
 export class IdentityStore {
     private readonly byId = new Map<string, AgentIdentity>();
-    private readonly reserved = new Set<string>();
     private readonly file: string;
     private writeChain: Promise<void> = Promise.resolve();
     private writeError: unknown;
@@ -90,14 +73,6 @@ export class IdentityStore {
         return undefined;
     }
 
-    /** Agent Route: app-owned session id first, then the live pane id. */
-    byRoute(agentName: string | undefined, paneId: string): AgentIdentity | undefined {
-        if (agentName !== undefined) {
-            const owned = this.byId.get(agentName);
-            if (owned?.ours === true) return owned;
-        }
-        return this.byPane(paneId);
-    }
 
     all(): AgentIdentity[] {
         return [...this.byId.values()];
@@ -113,31 +88,20 @@ export class IdentityStore {
         if (this.writeError !== undefined) throw this.writeError;
     }
 
-    reserve(requested?: string): NameReservation {
-        const explicit = requested?.trim();
-        if (explicit !== undefined && explicit !== '') {
-            const clean = normalizeHuman(explicit);
-            if (!isValidHumanName(clean)) throw namedError('Choose a short human name, such as John or Maria.', 'invalid-display-name');
-            const key = humanKey(clean);
-            if (this.taken(key)) throw namedError('That agent name is already in use. Choose another name.', 'duplicate-display-name');
-            this.reserved.add(key);
-            return { sessionId: newSessionId(), displayName: clean, release: () => { this.reserved.delete(key); } };
-        }
-        const displayName = this.nextHumanName();
-        const key = humanKey(displayName);
-        this.reserved.add(key);
-        return { sessionId: newSessionId(), displayName, release: () => { this.reserved.delete(key); } };
+    allocateRoute(): string {
+        return newSessionId();
     }
 
     adopt(input: AgentAdoptInput): AgentIdentity {
+        const displayName = normalizeAgentName(input.agentName);
         const identity: AgentIdentity = {
             sessionId: input.sessionId ?? newSessionId(),
             paneId: input.paneId,
             workspaceId: input.workspaceId,
             tabId: input.tabId,
             cwd: input.cwd,
-            displayName: input.displayName,
-            taskTitle: taskTitleFor(input.taskTitle, input.kind, input.displayName),
+            displayName,
+            taskTitle: taskTitleFor(input.taskTitle, input.kind, displayName),
             createdAt: new Date().toISOString(),
             ours: input.ours,
             ...(input.kind === undefined ? {} : { kind: input.kind }),
@@ -154,15 +118,17 @@ export class IdentityStore {
         previousPaneId?: string;
         displaced?: AgentIdentity;
     } {
-        const known = this.byRoute(live.agentName, live.previousPaneId ?? live.paneId);
+        const known = live.previousPaneId === undefined
+            ? this.byPane(live.paneId)
+            : this.byPane(live.previousPaneId) ?? this.byPane(live.paneId);
         if (known !== undefined) {
             const displaced = this.displace(known, live.paneId);
             const identity = this.reconcile(known, live);
             if (displaced === undefined) return { identity, created: false, previousPaneId: known.paneId };
             return { identity, created: false, previousPaneId: known.paneId, displaced };
         }
-        const displayName = this.nextHumanName();
         const kind = live.kind;
+        const displayName = normalizeAgentName(live.agentName);
         const identity: AgentIdentity = {
             sessionId: newSessionId(),
             paneId: live.paneId,
@@ -181,14 +147,6 @@ export class IdentityStore {
         return { identity, created: true };
     }
 
-    bindRoute(sessionId: string, agentName: string): AgentIdentity | undefined {
-        const current = this.byId.get(sessionId);
-        if (current === undefined) return undefined;
-        const identity = { ...current, agentName };
-        this.byId.set(sessionId, identity);
-        this.persist();
-        return identity;
-    }
 
     private displace(known: AgentIdentity, paneId: string): AgentIdentity | undefined {
         if (known.paneId === paneId) return undefined;
@@ -200,15 +158,16 @@ export class IdentityStore {
 
     private reconcile(known: AgentIdentity, live: AgentObservation): AgentIdentity {
         const kind = live.kind ?? known.kind;
-        const agentName = live.agentName ?? known.agentName;
+        const agentName = Object.hasOwn(live, 'agentName') ? live.agentName : known.agentName;
+        const displayName = normalizeAgentName(agentName);
         const next: AgentIdentity = {
             sessionId: known.sessionId,
             paneId: live.paneId,
             workspaceId: live.workspaceId ?? known.workspaceId,
             tabId: live.tabId ?? known.tabId,
             cwd: live.cwd ?? known.cwd,
-            displayName: known.displayName,
-            taskTitle: this.observedTaskTitle(known, live, kind, known.displayName),
+            displayName,
+            taskTitle: this.observedTaskTitle(known, live, kind, displayName),
             createdAt: known.createdAt,
             ours: known.ours,
             ...(kind === undefined ? {} : { kind }),
@@ -220,6 +179,7 @@ export class IdentityStore {
             && next.tabId === known.tabId
             && next.cwd === known.cwd
             && next.agentName === known.agentName
+            && next.displayName === known.displayName
             && next.kind === known.kind
             && next.taskTitle === known.taskTitle
         ) return known;
@@ -247,18 +207,6 @@ export class IdentityStore {
         return genericTaskTitle(kind);
     }
 
-    private taken(key: string): boolean {
-        return this.reserved.has(key) || this.all().some((agent) => humanKey(agent.displayName) === key);
-    }
-
-    private nextHumanName(): string {
-        for (let round = 1; ; round += 1) {
-            for (const name of POOL) {
-                const candidate = round === 1 ? name : `${name} ${round}`;
-                if (!this.taken(humanKey(candidate))) return candidate;
-            }
-        }
-    }
 
     private persist(): void {
         const snapshot: IdentityFile = { schemaVersion: SCHEMA_VERSION, sessions: this.all() };

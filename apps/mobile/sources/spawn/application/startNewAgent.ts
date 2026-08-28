@@ -41,7 +41,7 @@ export function agentAvailabilitySpoken(
 }
 
 export function startButtonLabel(kinds: readonly string[]): string {
-    return new SpawnRequest('', kinds, [], kinds.length > 1, false).startButtonLabel();
+    return new SpawnRequest('', kinds, kinds.length > 1, false).startButtonLabel();
 }
 
 export function workspaceJoinPath(workspace: HerdrTreeWorkspace): string | undefined {
@@ -50,16 +50,10 @@ export function workspaceJoinPath(workspace: HerdrTreeWorkspace): string | undef
     return undefined;
 }
 
-export function namedMembersHaveDuplicates(
-    namedMembers: ReadonlyArray<{ displayName?: string }>,
-): boolean {
-    return new SpawnRequest('', [], namedMembers.map((member) => ({ kind: '', ...member })), false, false).hasDuplicateNames();
-}
 
 export async function startNewAgent(input: {
     directory: string;
     kinds: readonly string[];
-    namedMembers: ReadonlyArray<{ kind: string; displayName?: string }>;
     squad: boolean;
     worktree: boolean;
 }): Promise<{ error?: string; cancelled?: boolean }> {

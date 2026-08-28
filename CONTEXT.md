@@ -38,16 +38,16 @@ _Avoid_: host, device, computer (except spoken copy)
 An isolated checkout herdr creates so Agents can work in parallel on one repo.
 _Avoid_: branch folder, clone
 
-**Human Name**:
-The spoken first name of an Agent (John, Maria). Secondary, display-only, never a routing key.
-_Avoid_: label, animal name, agent name, display label
+**Agent Name**:
+The user-editable Herdr `agent.name` (`falcon`, `reviewer`). Display-only, never a routing key.
+_Avoid_: label, display label, pane title
 
 **Task Title**:
 The work the Agent is doing. Primary identity for humans scanning a herd.
 _Avoid_: label, pane title, terminal title, name
 
 **Provider Kind**:
-Which coding-agent program is running (pi, claude, codex). Separate from Human Name and Task Title.
+Which coding-agent program is running (pi, claude, codex). Separate from Agent Name and Task Title.
 _Avoid_: agent name, kind label, model
 
 **Agent Route**:

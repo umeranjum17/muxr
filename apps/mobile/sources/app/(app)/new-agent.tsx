@@ -12,7 +12,6 @@ import {
     ActivityIndicator,
     Pressable,
     ScrollView,
-    TextInput,
     View,
 } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
@@ -37,7 +36,6 @@ import {
     agentAvailabilityLabel,
     agentAvailabilitySpoken,
     catalogSourceLabel,
-    namedMembersHaveDuplicates,
     startButtonLabel,
     startNewAgent,
     workspaceJoinPath,
@@ -137,32 +135,6 @@ const stylesheet = StyleSheet.create((theme) => ({
         color: theme.colors.textSecondary,
         fontSize: 12,
         paddingHorizontal: 2,
-    },
-    nameList: {
-        gap: 8,
-        marginTop: 12,
-    },
-    nameRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 10,
-    },
-    nameKind: {
-        width: 72,
-        color: theme.colors.textSecondary,
-        fontSize: 12,
-        textTransform: 'capitalize',
-    },
-    nameInput: {
-        flex: 1,
-        minHeight: 42,
-        paddingHorizontal: 12,
-        borderRadius: 10,
-        borderWidth: 1,
-        borderColor: theme.colors.divider,
-        backgroundColor: theme.colors.surfaceHigh,
-        color: theme.colors.text,
-        fontSize: 14,
     },
     moreAgentsButton: {
         flexDirection: 'row',
@@ -271,7 +243,6 @@ export default function NewAgentScreen() {
     );
     const [catalogSource, setCatalogSource] = React.useState<CatalogSource>('loading');
     const [selected, setSelected] = React.useState<ReadonlySet<string>>(new Set());
-    const [names, setNames] = React.useState<Record<string, string>>({});
     const [showUnavailableAgents, setShowUnavailableAgents] = React.useState(false);
     const [cwd, setCwd] = React.useState(settings.lastSessionCwd ?? '');
     const [worktree, setWorktree] = React.useState(false);
@@ -331,8 +302,6 @@ export default function NewAgentScreen() {
         ? catalog
         : catalog.filter((option) => option.availability !== 'unavailable');
     const directory = cwd.trim();
-    const namedMembers = kinds.map((kind) => ({ kind, displayName: names[kind]?.trim() || undefined }));
-    const hasDuplicateNames = namedMembersHaveDuplicates(namedMembers);
 
     const start = React.useCallback(async () => {
         if (kinds.length === 0) {
@@ -343,17 +312,12 @@ export default function NewAgentScreen() {
             setError('Pick a directory first.');
             return;
         }
-        if (hasDuplicateNames) {
-            setError('Give each squad member a different name.');
-            return;
-        }
         setBusy(true);
         setError(undefined);
         try {
             const result = await startNewAgent({
                 directory,
                 kinds,
-                namedMembers,
                 squad,
                 worktree,
             });
@@ -365,7 +329,7 @@ export default function NewAgentScreen() {
         } finally {
             setBusy(false);
         }
-    }, [directory, hasDuplicateNames, kinds, namedMembers, squad, worktree]);
+    }, [directory, kinds, squad, worktree]);
 
     const styles = stylesheet;
     const recent = (settings.recentSessionCwds ?? []).slice(0, MAX_RECENT_CHIPS);
@@ -477,32 +441,6 @@ export default function NewAgentScreen() {
                             ? `Squad: ${kinds.join(' · ')}. One tab each, same workspace.`
                             : 'Pick up to 4 agents to run them together as a squad.'}
                     </Text>
-                    {kinds.length > 0 && (
-                        <View style={styles.nameList}>
-                            {kinds.map((kind) => (
-                                <View key={kind} style={styles.nameRow}>
-                                    {squad && <Text style={styles.nameKind}>{kind}</Text>}
-                                    <TextInput
-                                        value={names[kind] ?? ''}
-                                        onChangeText={(value) => {
-                                            setNames((current) => ({ ...current, [kind]: value }));
-                                            setError(undefined);
-                                        }}
-                                        placeholder={squad ? 'Name (optional)' : 'Agent name (optional)'}
-                                        placeholderTextColor={theme.colors.textSecondary}
-                                        autoCapitalize="words"
-                                        autoCorrect={false}
-                                        maxLength={48}
-                                        accessibilityLabel={squad ? `Name for ${kind}` : 'Agent name'}
-                                        style={styles.nameInput}
-                                    />
-                                </View>
-                            ))}
-                            {hasDuplicateNames && (
-                                <Text style={styles.errorText}>Give each squad member a different name.</Text>
-                            )}
-                        </View>
-                    )}
                 </View>
 
                 {/* --- Directory ---------------------------------------------- */}
@@ -581,8 +519,8 @@ export default function NewAgentScreen() {
 
                 <Pressable
                     onPress={start}
-                    disabled={busy || directory === '' || kinds.length === 0 || hasDuplicateNames}
-                    style={[styles.startButton, (busy || directory === '' || kinds.length === 0 || hasDuplicateNames) && styles.startButtonDisabled]}
+                    disabled={busy || directory === '' || kinds.length === 0}
+                    style={[styles.startButton, (busy || directory === '' || kinds.length === 0) && styles.startButtonDisabled]}
                 >
                     {busy ? (
                         <ActivityIndicator color={theme.colors.button.primary.tint} />

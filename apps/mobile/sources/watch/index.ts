@@ -14,7 +14,7 @@ export {
     parseVoiceReport,
     parseVoiceReportInput,
     sanitizePersistedVoiceReport,
-    spokenNameIsTrusted,
+    agentNameIsTrusted,
     type VoiceAdmission,
     type VoiceReport,
     type VoiceReportParse,

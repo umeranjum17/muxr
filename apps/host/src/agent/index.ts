@@ -1,4 +1,4 @@
-export type { AgentIdentity, AgentObservation, AgentAdoptInput, NameReservation } from './domain/identity.js';
+export type { AgentIdentity, AgentObservation, AgentAdoptInput } from './domain/identity.js';
 export { parseTaskTitle, taskTitleFor } from './domain/identity.js';
 export { IdentityStore } from './infrastructure/identity.js';
 export {

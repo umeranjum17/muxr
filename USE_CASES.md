@@ -23,7 +23,7 @@ There is no `services/` folder. A use case is one camelCase module that exports 
 | Inspect this setup | `inspectSetup` | Connection, Machine | `muxr doctor`, `muxr status` |
 | Uninstall muxr | `uninstallMuxr` | Machine | `muxr uninstall` |
 | Hosted login | `hostedLogin` | Hosted auth | packed hosted CLI |
-| Prompt a peer Agent | `promptPeerAgent` | Agent Route, Human Name | `muxr peers prompt` |
+| Prompt a peer Agent | `promptPeerAgent` | Agent Route, Agent Name | `muxr peers prompt` |
 | List peer machines | `listPeerMachines` | Machine | `muxr peers list` |
 | Read a peer Agent session | `readPeerSession` | Agent Route | `muxr peers read` |
 | Inspect peer Agent status | `inspectPeerAgent` | Lifecycle Event | `muxr peers status` |

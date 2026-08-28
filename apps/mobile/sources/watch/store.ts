@@ -1,6 +1,6 @@
 export {
     createAgentWatch,
-    isTrustedVoiceName,
+    isTrustedVoiceAgentName,
     sanitizePersistedVoiceReport,
     type AgentWatch,
     type PersistedVoiceReport,

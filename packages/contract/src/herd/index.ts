@@ -32,10 +32,11 @@ export {
     attentionRank,
     attentionReasonStillHolds,
     isSessionIdle,
-    lifecycleEventHumanName,
+    lifecycleEventAgentName,
     lifecycleEventRoute,
     parseAgentLifecycle,
-    parseHumanName,
+    normalizeAgentName,
+    parseAgentName,
     parseProviderKind,
     parsePublicAgentRoute,
 } from './domain/sessionState.js';
