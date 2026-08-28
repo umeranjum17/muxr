@@ -1,7 +1,7 @@
 # Pane titler
 
 Names each pane after the work happening inside it, so a herd of agents is
-referrable by thumb and by voice instead of being "pi 3" or an animal.
+referrable by Task Title instead of a provider kind or a bare number.
 
 ## What appears in muxr
 
@@ -13,8 +13,8 @@ the herd tree Herdr reports.
 
 One command on `pane.agent_status_changed`: read about 60 lines of scrollback,
 ask a model for a short title, `herdr pane rename`. It renames only panes that
-still carry a generated name (herd animals, bare numbers, agent kinds), so an
-explicit name you chose is never overwritten.
+still carry generated chrome (bare numbers, provider kinds, herdr handles), so
+an explicit Task Title you chose is never overwritten.
 
 ## Which model
 

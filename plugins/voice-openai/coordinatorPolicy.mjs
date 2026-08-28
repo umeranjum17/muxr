@@ -175,15 +175,14 @@ export function reportInstruction(value) {
     const displayName = cleanProviderProse(value?.displayName, 'The watched agent', 80);
     const taskTitle = cleanProviderProse(value?.taskTitle, 'coding task', 120);
     const status = cleanProviderProse(value?.outcome ?? value?.status, 'settled', 32).toLocaleLowerCase();
-    const confirmed = new Set(['idle', 'done', 'blocked', 'failed']).has(status);
-    const statusLine = status === 'blocked'
-        ? `${displayName} is blocked on ${taskTitle} and is waiting for the user.`
-        : status === 'failed'
-            ? `${displayName} could not finish ${taskTitle}.`
-            : `${displayName} has finished ${taskTitle}.`;
-    const headline = confirmed
-        ? `Host-confirmed report: ${statusLine}`
-        : `Unconfirmed report: ${displayName}'s ${taskTitle} has no confirmed host outcome. Do not describe it as finished, failed, or blocked.`;
+    let statusLine;
+    if (status === 'idle') statusLine = `${displayName} is idle.`;
+    else if (status === 'done') statusLine = `${displayName} has finished ${taskTitle}.`;
+    else if (status === 'blocked') statusLine = `${displayName} is blocked on ${taskTitle} and is waiting for the user.`;
+    else if (status === 'failed') statusLine = `${displayName} could not finish ${taskTitle}.`;
+    const headline = statusLine === undefined
+        ? `Unconfirmed report: ${displayName}'s ${taskTitle} has no confirmed host outcome. Do not describe it as finished, failed, or blocked.`
+        : `Host-confirmed report: ${statusLine}`;
     const tail = safeTail(value?.tail ?? value?.pane);
     return [
         headline,

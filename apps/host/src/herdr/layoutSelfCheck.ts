@@ -1,11 +1,6 @@
 /**
- * Layout snapshot round-trip.
- *
- * The transforms are recursive and the apply path relies on one specific
- * invariant: collectKinds and collectPaneIds must walk the tree in the SAME
- * order, because that positional match is how a recorded agent kind finds the
- * new pane herdr just created for it. Get the order wrong and agents silently
- * launch in the wrong panes.
+ * Layout snapshot round-trip plus the IdentityStore flow: current schema only,
+ * Human Name allocation, Agent Route across pane moves, voice replay fence.
  */
 
 import {
@@ -16,7 +11,9 @@ import {
     toSnapshot,
     type HerdrLayoutNode,
 } from './herdrSessionSource.js';
-import { IdentityStore, promotedHerdrDisplayName, reconcileHerdrIdentity } from './identity.js';
+import { IdentityStore, parseTaskTitle } from './identity.js';
+import { RealtimeCodingCoordinator } from './realtimeCoordinator.js';
+import { createConnection } from 'node:net';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -25,13 +22,29 @@ function assert(condition: boolean, message: string): void {
     if (!condition) throw new Error(message);
 }
 
+async function ask(
+    socketPath: string,
+    capability: string,
+    request: Record<string, unknown>,
+): Promise<{ ok: boolean; data?: string }> {
+    return new Promise((resolve, reject) => {
+        const socket = createConnection(socketPath);
+        let buf = '';
+        socket.on('data', (chunk) => { buf += chunk.toString('utf8'); });
+        socket.on('end', () => {
+            try { resolve(JSON.parse(buf) as { ok: boolean; data?: string }); } catch (error) { reject(error); }
+        });
+        socket.on('error', reject);
+        socket.write(`${JSON.stringify({ id: '1', capability, request })}\n`);
+    });
+}
+
 async function demo(): Promise<void> {
     const identity = new IdentityStore(mkdtempSync(join(tmpdir(), 'pph-layout-check-')));
-    const base = { workspaceId: 'w1', tabId: 'w1:t1', cwd: '/repo', createdAt: '', ours: true };
-    identity.put({ ...base, sessionId: 'a', paneId: 'w1:p1', displayName: 'John', kind: 'pi' });
-    identity.put({ ...base, sessionId: 'b', paneId: 'w1:p3', displayName: 'Maria', kind: 'claude' });
+    const john = identity.adopt({ paneId: 'w1:p1', workspaceId: 'w1', tabId: 'w1:t1', cwd: '/repo', displayName: 'John', kind: 'pi', ours: true });
+    const maria = identity.adopt({ paneId: 'w1:p3', workspaceId: 'w1', tabId: 'w1:t1', cwd: '/repo', displayName: 'Maria', kind: 'claude', ours: true });
+    assert(john.taskTitle === 'Pi task' && maria.taskTitle === 'Claude task', 'adopt fills a generic Task Title from Provider Kind');
 
-    // (p1 | (p2 / p3)) -- asymmetric on purpose so a left/right swap shows up.
     const live: HerdrLayoutNode = {
         type: 'split',
         direction: 'right',
@@ -48,23 +61,17 @@ async function demo(): Promise<void> {
 
     const snapshot = toSnapshot(live, identity);
     assert(snapshot.type === 'split', 'root stays a split');
-
-    // Kinds land on the right leaves, and a pane with no agent stays undefined.
     assert(
         JSON.stringify(collectKinds(snapshot)) === JSON.stringify(['pi', undefined, 'claude']),
         'kinds follow leaf order, undefined where no agent',
     );
-
-    // Live pane ids must NOT survive into a saved snapshot; they are stale on restore.
     assert(!JSON.stringify(snapshot).includes('w1:p'), 'snapshot carries no live pane ids');
     assert(JSON.stringify(snapshot).includes('/other'), 'per-pane cwd is preserved');
 
-    // Rebuilding for herdr keeps shape and cwd but adds no pane ids or commands.
     const rebuilt = toHerdrRoot(snapshot);
     assert(rebuilt.type === 'split' && rebuilt.direction === 'right', 'direction preserved');
     assert(!JSON.stringify(rebuilt).includes('pane_id'), 'rebuilt tree has no pane ids');
 
-    // The invariant the apply path depends on: same tree shape => same walk order.
     const applied: HerdrLayoutNode = {
         type: 'split',
         direction: 'right',
@@ -87,7 +94,6 @@ async function demo(): Promise<void> {
         `kind/pane pairing drifted: ${pairs.join(' ')}`,
     );
 
-    // A single-pane tab is the common case and must not throw.
     const solo = toSnapshot({ type: 'pane', pane_id: 'w1:p1' }, identity);
     assert(collectKinds(solo).length === 1, 'single pane yields one slot');
     assert(
@@ -103,68 +109,106 @@ async function demo(): Promise<void> {
         'an observed live agent failure is classified as runtime failure',
     );
 
-    const migrationDir = mkdtempSync(join(tmpdir(), 'pph-identity-check-'));
-    const legacyBase = { workspaceId: 'w1', tabId: 'w1:t1', cwd: '/repo', createdAt: '', ours: true };
-    writeFileSync(join(migrationDir, 'herdr-identity.json'), JSON.stringify({ sessions: [
-        { ...legacyBase, sessionId: 'stable-d', paneId: 'p4', label: 'Cart Fix', displayName: 'Cart Fix' },
-        { ...legacyBase, sessionId: 'stable-c', paneId: 'p3', displayName: 'Maria 2' },
-        { ...legacyBase, sessionId: 'stable-b', paneId: 'p2', displayName: ' maria ' },
-        { ...legacyBase, sessionId: 'stable-a', paneId: 'p1', displayName: 'Maria' },
+    const staleDir = mkdtempSync(join(tmpdir(), 'pph-stale-identity-check-'));
+    writeFileSync(join(staleDir, 'herdr-identity.json'), JSON.stringify({ sessions: [
+        { sessionId: 'stable-d', paneId: 'p4', workspaceId: 'w1', tabId: 'w1:t1', cwd: '/repo', createdAt: '', ours: true, label: 'Cart Fix', displayName: 'Cart Fix' },
     ] }));
-    const migrated = new IdentityStore(migrationDir);
-    await migrated.load();
-    assert(migrated.get('stable-a')?.displayName === 'Maria', 'stable ordering preserves one base display name');
-    assert(migrated.get('stable-b')?.displayName === 'maria 3', 'duplicate display name skips an existing visible suffix');
-    assert(migrated.get('stable-c')?.displayName === 'Maria 2', 'existing safe suffix remains stable');
-    assert(migrated.get('stable-d')?.displayName !== 'Cart Fix' && migrated.get('stable-d')?.taskTitle === 'Cart Fix', 'legacy work label becomes the task, not a teammate name');
-    const restarted = new IdentityStore(migrationDir);
-    await restarted.load();
-    assert(restarted.get('stable-b')?.displayName === 'maria 3', 'display-name migration persists across restart');
+    const stale = new IdentityStore(staleDir);
+    await stale.load();
+    assert(stale.all().length === 0, 'old or invalid identity files rebuild empty from Herdr');
+
+    assert(parseTaskTitle('pi') === undefined && parseTaskTitle('hi') === undefined && parseTaskTitle('pp_hidden') === undefined, 'provider kinds, greetings, and handles are not Task Titles');
+    assert(parseTaskTitle('Falcon') === 'Falcon' && parseTaskTitle('Review monitoring') === 'Review monitoring', 'a real work phrase is a Task Title');
+
+    const names = new IdentityStore(mkdtempSync(join(tmpdir(), 'pph-name-pool-')));
+    const taken: string[] = [];
+    for (let index = 0; index < 40; index += 1) {
+        const reserved = names.reserve();
+        assert(!taken.map((name) => name.toLocaleLowerCase()).includes(reserved.displayName.toLocaleLowerCase()), 'Human Names stay unique while reserved');
+        names.adopt({
+            sessionId: reserved.sessionId,
+            paneId: `w1:p${index}`,
+            workspaceId: 'w1',
+            tabId: 'w1:t1',
+            cwd: '/repo',
+            displayName: reserved.displayName,
+            kind: 'pi',
+            ours: true,
+        });
+        reserved.release();
+        taken.push(reserved.displayName);
+    }
+    assert(new Set(taken.map((name) => name.toLocaleLowerCase())).size === 40, 'the Human Name pool does not collide');
 
     const stableDir = mkdtempSync(join(tmpdir(), 'pph-stable-identity-check-'));
     const started = new IdentityStore(stableDir);
-    started.put({
-        sessionId: 'pp_stable_voice',
+    const reserved = started.reserve('John');
+    started.adopt({
+        sessionId: reserved.sessionId,
         paneId: 'w1:p1',
         workspaceId: 'w1',
         tabId: 'w1:t1',
         cwd: '/repo',
-        agentName: 'pp_stable_voice',
-        displayName: 'John',
+        agentName: reserved.sessionId,
+        displayName: reserved.displayName,
         taskTitle: 'Stabilize realtime voice',
         kind: 'codex',
-        autoLabel: true,
-        createdAt: new Date().toISOString(),
         ours: true,
     });
+    reserved.release();
     await started.flush();
     const rediscovered = new IdentityStore(stableDir);
     await rediscovered.load();
-    const matched = rediscovered.matchAgent('pp_stable_voice', 'w9:p7');
-    assert(matched?.sessionId === 'pp_stable_voice', 'stable app agent token wins before a changed pane id');
-    assert(promotedHerdrDisplayName(matched!, 'pp_hidden', rediscovered.all()) === undefined, 'internal names cannot replace spoken identity');
-    assert(promotedHerdrDisplayName(matched!, 'Maria', [
-        ...rediscovered.all(),
-        { ...matched!, sessionId: 'pp_other', paneId: 'w2:p1', displayName: 'Maria' },
-    ]) === undefined, 'duplicate human names cannot replace spoken identity');
-    const promoted = promotedHerdrDisplayName(matched!, 'Nora', rediscovered.all());
-    assert(promoted === 'Nora', 'a unique explicit rename promotes the auto display name');
-    rediscovered.put({ ...reconcileHerdrIdentity(matched!, {
+    const matched = rediscovered.byRoute(reserved.sessionId, 'w9:p7');
+    assert(matched?.sessionId === reserved.sessionId, 'Agent Route wins before a changed pane id');
+    const moved = rediscovered.observe({
         paneId: 'w9:p7',
+        previousPaneId: 'w1:p1',
         workspaceId: 'w9',
         tabId: 'w9:t4',
         cwd: '/repo/worktree',
-        agentName: 'pp_stable_voice',
+        agentName: reserved.sessionId,
         kind: 'codex',
-        taskTitle: 'Stabilize realtime voice',
-        displayName: promoted!,
-    }), label: 'Nora', autoLabel: false });
+        terminalTitle: 'Stabilize realtime voice',
+    });
+    assert(moved.identity.displayName === 'John', 'observation never promotes a Human Name');
     await rediscovered.flush();
     const afterMove = new IdentityStore(stableDir);
     await afterMove.load();
-    const stable = afterMove.get('pp_stable_voice');
+    const stable = afterMove.get(reserved.sessionId);
     assert(stable?.paneId === 'w9:p7' && stable.workspaceId === 'w9' && stable.tabId === 'w9:t4' && stable.cwd === '/repo/worktree', 'rediscovery persists coherent moved topology');
-    assert(stable?.sessionId === 'pp_stable_voice' && stable.displayName === 'Nora' && stable.taskTitle === 'Stabilize realtime voice' && stable.kind === 'codex', 'restart and move preserve promoted spoken name, stable session, task title, and kind');
+    assert(stable?.sessionId === reserved.sessionId && stable.displayName === 'John' && stable.taskTitle === 'Stabilize realtime voice' && stable.kind === 'codex', 'restart and move preserve Human Name, Agent Route, Task Title, and Provider Kind');
+
+    const socketDir = mkdtempSync(join(tmpdir(), 'pph-coord-check-'));
+    const socketPath = join(socketDir, 'realtime-coding.sock');
+    let prompts = 0;
+    const coordinator = new RealtimeCodingCoordinator(socketPath, {
+        list: async () => [{ sessionId: 'pp_john', cwd: '/repo', displayName: 'John', taskTitle: 'Harden audio', kind: 'pi', status: 'idle' }],
+        start: async () => ({ accepted: false }),
+        prompt: async () => { prompts += 1; },
+        read: async () => ({ text: '', truncated: false }),
+        status: async () => 'idle',
+        watch: async () => ({ status: 'idle', detail: 'John is idle' }),
+        focus: async () => undefined,
+    });
+    await coordinator.start();
+    const access = coordinator.issueCapability({ cwd: '/repo', sessionId: 'pp_john' });
+    const first = await ask(socketPath, access.capability, { method: 'prompt', agent: 'John', text: 'Keep going.', operationId: 'op-0' });
+    const replayed = await ask(socketPath, access.capability, { method: 'prompt', agent: 'John', text: 'Keep going.', operationId: 'op-0' });
+    assert(first.ok === true && replayed.ok === true && prompts === 1, 'an accepted operation id replays without rerunning the mutation');
+    const idleWatch = await ask(socketPath, access.capability, { method: 'watch', agent: 'John', operationId: 'watch-idle' });
+    assert(idleWatch.data === 'Confirmed: John is idle.', 'idle is spoken as idle, without duplicated watch wording or finished');
+    assert(idleWatch.data !== undefined && !/finish/i.test(idleWatch.data), 'idle is not spoken as finished');
+    for (let index = 1; index <= 126; index += 1) {
+        await ask(socketPath, access.capability, { method: 'prompt', agent: 'John', text: `n${index}`, operationId: `op-${index}` });
+    }
+    assert(prompts === 127, 'accepted prompts occupy the replay fence');
+    const overflow = await ask(socketPath, access.capability, { method: 'prompt', agent: 'John', text: 'overflow', operationId: 'op-overflow' });
+    assert(overflow.ok === true && overflow.data !== undefined && overflow.data.includes('Too many') && prompts === 127, 'a full replay fence rejects new mutations instead of evicting an accepted id');
+    const stillHeld = await ask(socketPath, access.capability, { method: 'prompt', agent: 'John', text: 'Keep going.', operationId: 'op-0' });
+    assert(stillHeld.ok === true && prompts === 127, 'the first accepted operation id still replays after the fence is full');
+    coordinator.revokeCapability(access.capability);
+    await coordinator.close();
 
     console.log('layout snapshot self-check passed');
 }

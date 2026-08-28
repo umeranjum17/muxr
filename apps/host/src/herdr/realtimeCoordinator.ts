@@ -6,7 +6,6 @@ import { dirname, isAbsolute } from 'node:path';
 const MAX_REQUEST_BYTES = 32 * 1024;
 const MAX_PROVIDER_TEXT_BYTES = 8 * 1024;
 const MAX_REPLAYS = 128;
-const CONFIRMED_WATCH_STATUSES = new Set(['idle', 'done', 'blocked']);
 const DISPLAY_NAME = /^[\p{L}\p{M}][\p{L}\p{M}' -]{0,72}(?: \d+)?$/u;
 const KIND = /^[a-z][a-z0-9_-]{0,31}$/;
 const PRIVATE_ID = /^[A-Za-z0-9._:-]{1,80}$/;
@@ -292,9 +291,19 @@ export class RealtimeCodingCoordinator {
         const hash = createHash('sha256').update(JSON.stringify(semantic)).digest('base64url');
         const existing = state.replays.get(request.operationId);
         if (existing !== undefined) return existing.hash === hash ? existing.promise : Promise.resolve('That confirmation did not match the original request. Please try again.');
-        const promise = run();
-        state.replays.set(request.operationId, { hash, promise });
-        while (state.replays.size > MAX_REPLAYS) state.replays.delete(state.replays.keys().next().value!);
+        if (state.replays.size >= MAX_REPLAYS) return Promise.resolve('Too many voice operations are in flight. Please try again.');
+        let settle!: (value: string) => void;
+        let fail!: (reason?: unknown) => void;
+        const promise = new Promise<string>((resolve, reject) => { settle = resolve; fail = reject; });
+        const entry = { hash, promise };
+        state.replays.set(request.operationId, entry);
+        void Promise.resolve().then(run).then(
+            (value) => settle(value),
+            (error) => {
+                if (state.replays.get(request.operationId) === entry) state.replays.delete(request.operationId);
+                fail(error);
+            },
+        );
         return promise;
     }
 
@@ -346,11 +355,10 @@ export class RealtimeCodingCoordinator {
             this.activate(state, resolved.agent);
             const status = cleanHuman(settlement.status, 'unknown', 32).toLocaleLowerCase();
             if (settlement.timedOut === true) return `The watch for ${resolved.agent.displayName} timed out without confirmation.`;
-            if (!CONFIRMED_WATCH_STATUSES.has(status)) {
-                return `The watch for ${resolved.agent.displayName} ended without confirmation; its status was ${status}.`;
-            }
-            const detail = safeProviderText(settlement.detail, 500);
-            return `Confirmed: ${resolved.agent.displayName} is ${status}${detail === '' ? '.' : `. ${detail}`}`;
+            if (status === 'idle') return `Confirmed: ${resolved.agent.displayName} is idle.`;
+            if (status === 'done') return `Confirmed: ${resolved.agent.displayName} is done.`;
+            if (status === 'blocked') return `Confirmed: ${resolved.agent.displayName} is blocked.`;
+            return `The watch for ${resolved.agent.displayName} ended without confirmation; its status was ${status}.`;
         });
         const resolved = await this.resolve(state, request.agent);
         if (resolved.agent === undefined) return resolved.clarification!;

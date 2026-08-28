@@ -32,7 +32,7 @@ const TOOL_PATH = [
 const log = (line) => { try { mkdirSync(STATE, { recursive: true }); appendFileSync(join(STATE, 'titler.log'), `${new Date().toISOString()} ${line}\n`); } catch {} };
 const run = (args, timeout = 20000) => execFileSync(herdr, args, { encoding: 'utf8', timeout, maxBuffer: 1024 * 1024, env: { ...process.env, PATH: TOOL_PATH } });
 
-const GENERATED = /^(otter|falcon|badger|heron|bison|lynx|raven|marten|kestrel|ibex|osprey|wolf|stoat|gannet|elk|puffin|vole|shrike|tapir|curlew|beaver|merlin|pika|godwit|sable|hare|auk|weasel|grebe|fox)(\s+\d+)?$|^\d+$|^(pi|claude|codex|gemini|cursor|opencode|amp|droid|grok|omp)(\s+\d+)?$|^pp_|^pph_/i;
+const GENERATED = /^\d+$|^(pi|claude|codex|gemini|cursor|opencode|amp|droid|grok|omp)(\s+\d+)?$|^pp_|^pph_/i;
 const GREETING = /^(hi|hey|hello|yo|sup|test|ok|hmm|thanks|help)(\s|$)/i;
 const FIRST_PROMPT = /^[a-z0-9]+(?:\s+[a-z0-9]+){2,5}$/;
 

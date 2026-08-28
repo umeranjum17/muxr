@@ -38,7 +38,7 @@ renders state the host reports.
   list, read, inspect status, watch, and prompt — never shell, raw Herdr CLI, terminal
   takeover, destructive pane/workspace actions, or arbitrary plugin calls.
 - Machine, pane, session, device, and grant ids are internal. Never display or
-  speak them; use human machine and agent names.
+  speak them; use machine names, Human Names, and Task Titles. Route only by stable Agent Routes.
 
 ## Task router
 
