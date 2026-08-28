@@ -38,6 +38,7 @@ import {
     type CollaborationIntent,
 } from '@/collaboration';
 import { realtimeMachineSwitchGuard, stopRealtimeSession } from '@/conversation/session';
+import { useRealtimeAppControl } from '@/conversation/application/realtimeAppControl';
 
 type BuildConfig = {
     buildCommitSha?: unknown;
@@ -92,6 +93,16 @@ export const SettingsView = React.memo(function SettingsView({
     const { theme } = useUnistyles();
     const router = useRouter();
     const appVersion = Constants.expoConfig?.version || '1.0.0';
+    const openConnection = React.useCallback(() => router.push('/settings/connection' as never), [router]);
+    const openVoice = React.useCallback(() => router.push('/settings/voice' as never), [router]);
+    const openPlugins = React.useCallback(() => router.push('/settings/plugins' as never), [router]);
+    const openAppearance = React.useCallback(() => router.push('/settings/appearance' as never), [router]);
+    const openPreferences = React.useCallback(() => router.push('/settings/features' as never), [router]);
+    useRealtimeAppControl('Connection', openConnection, '/settings');
+    useRealtimeAppControl('Realtime voice', openVoice, '/settings');
+    useRealtimeAppControl('Plugins', openPlugins, '/settings');
+    useRealtimeAppControl('Appearance', openAppearance, '/settings');
+    useRealtimeAppControl('Preferences', openPreferences, '/settings');
     const runtimeVersion = typeof Constants.expoConfig?.runtimeVersion === 'string'
         ? Constants.expoConfig.runtimeVersion
         : undefined;
@@ -408,38 +419,37 @@ export const SettingsView = React.memo(function SettingsView({
                     onPress={() => router.push('/settings/collaboration' as any)}
                 />
             </ItemGroup>
-
             <ItemGroup title="App and plugins">
                 <Item
                     title="Connection"
                     subtitle="Status, transport, relay, and how to fix it"
                     icon={<Ionicons name="link-outline" size={29} color="#FF9500" />}
-                    onPress={() => router.push('/settings/connection' as any)}
+                    onPress={openConnection}
                 />
                 <Item
                     title="Realtime voice"
                     subtitle="Choose which provider runs on this machine"
                     icon={<Ionicons name="pulse-outline" size={29} color="#34C759" />}
-                    onPress={() => router.push('/settings/voice' as any)}
+                    onPress={openVoice}
                 />
                 <Item
                     title="Plugins"
                     subtitle="Native UI and capabilities installed through Herdr"
                     icon={<Ionicons name="extension-puzzle-outline" size={29} color="#5856D6" />}
-                    onPress={() => router.push('/settings/plugins' as any)}
+                    onPress={openPlugins}
                 />
                 <DeclarativeSettingsItems />
                 <Item
                     title="Appearance"
                     subtitle={t('settings.appearanceSubtitle')}
                     icon={<Ionicons name="color-palette-outline" size={29} color="#5856D6" />}
-                    onPress={() => router.push('/settings/appearance')}
+                    onPress={openAppearance}
                 />
                 <Item
                     title="Preferences"
                     subtitle="Recent activity and inactive sessions"
                     icon={<Ionicons name="options-outline" size={29} color="#FF9500" />}
-                    onPress={() => router.push('/settings/features')}
+                    onPress={openPreferences}
                 />
                 {Platform.OS === 'android' && (
                     <Item

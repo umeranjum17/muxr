@@ -7,7 +7,6 @@ import type { LifecycleEvent } from '@muxr/contract';
 const MAX_REQUEST_BYTES = 32 * 1024;
 const MAX_PROVIDER_TEXT_BYTES = 8 * 1024;
 const MAX_REPLAYS = 128;
-const DISPLAY_NAME = /^[\p{L}\p{M}][\p{L}\p{M}' -]{0,72}(?: \d+)?$/u;
 const KIND = /^[a-z][a-z0-9_-]{0,31}$/;
 const PRIVATE_ID = /^[A-Za-z0-9._:-]{1,80}$/;
 
@@ -29,8 +28,9 @@ export interface RealtimeCodingStartResult {
 export interface RealtimeCodingHandlers {
     list(): Promise<RealtimeCodingAgent[]>;
     activity(): Promise<LifecycleEvent[]>;
-    start(input: { cwd: string; displayName: string; taskTitle: string; kind: string }): Promise<RealtimeCodingStartResult>;
+    start(input: { cwd: string; taskTitle: string; kind: string }): Promise<RealtimeCodingStartResult>;
     prompt(sessionId: string, text: string): Promise<void>;
+    sendKeys(sessionId: string, keys: ['escape']): Promise<void>;
     read(sessionId: string): Promise<{ text: string; truncated: boolean }>;
     status(sessionId: string): Promise<string>;
     watch(sessionId: string, timeoutMs: number): Promise<{ status: string; detail: string; timedOut?: boolean }>;
@@ -45,8 +45,9 @@ export interface RealtimeCoordinatorAccess {
 type CodingRequest =
     | { method: 'list'; kind?: string; limit?: number }
     | { method: 'activity'; limit?: number }
-    | { method: 'start'; name: string; taskTitle: string; kind: string; operationId: string }
+    | { method: 'start'; taskTitle: string; kind: string; operationId: string }
     | { method: 'prompt'; agent?: string; text: string; operationId: string }
+    | { method: 'key'; agent?: string; key: string; operationId: string }
     | { method: 'read'; agent?: string }
     | { method: 'status'; agent?: string }
     | { method: 'watch'; agent?: string; timeoutMs?: number; operationId: string }
@@ -105,9 +106,9 @@ function parseRequest(value: unknown): CodingRequest {
             only(request, ['method', 'limit']);
             return { method: 'activity', ...(request.limit === undefined ? {} : { limit: optionalLimit(request.limit)! }) };
         case 'start':
-            only(request, ['method', 'name', 'taskTitle', 'kind', 'operationId']);
+            only(request, ['method', 'taskTitle', 'kind', 'operationId']);
             return {
-                method: 'start', name: string(request.name, 'name', 160), taskTitle: string(request.taskTitle, 'taskTitle', 240),
+                method: 'start', taskTitle: string(request.taskTitle, 'taskTitle', 240),
                 kind: string(request.kind, 'kind', 80), operationId: operationId(request.operationId),
             };
         case 'prompt':
@@ -115,6 +116,12 @@ function parseRequest(value: unknown): CodingRequest {
             return {
                 method: 'prompt', ...(request.agent === undefined ? {} : { agent: optionalString(request.agent, 'agent')! }),
                 text: string(request.text, 'text'), operationId: operationId(request.operationId),
+            };
+        case 'key':
+            only(request, ['method', 'agent', 'key', 'operationId']);
+            return {
+                method: 'key', ...(request.agent === undefined ? {} : { agent: optionalString(request.agent, 'agent')! }),
+                key: string(request.key, 'key', 32), operationId: operationId(request.operationId),
             };
         case 'read':
         case 'status':
@@ -363,28 +370,35 @@ export class RealtimeCodingCoordinator {
             return `Recent agent activity, newest first: ${activity.join('. ')}.`;
         }
         if (request.method === 'start') return this.replay(state, request, async () => {
-            const displayName = cleanHuman(request.name, '', 80);
             const taskTitle = cleanTaskTitle(request.taskTitle);
             const kind = request.kind.trim().toLocaleLowerCase();
-            if (!DISPLAY_NAME.test(displayName) || taskTitle === undefined || !KIND.test(kind)) {
-                return 'Please give a short human name, agent kind, and concise task title.';
+            if (taskTitle === undefined || !KIND.test(kind)) {
+                return 'Please give an agent kind and concise task title.';
             }
             const agents = await this.currentAgents();
-            if (agents.some((agent) => key(agent.displayName) === key(displayName))) return `An agent named ${displayName} already exists. Choose another human name.`;
             const active = agents.find((agent) => agent.sessionId === state.activeSessionId);
             const cwd = active?.cwd ?? state.cwd;
             if (cwd === undefined) return 'I need an active project before I can start an agent.';
-            const result = await this.handlers.start({ cwd, displayName, taskTitle, kind });
-            if (!result.accepted || result.agent === undefined) return `I could not create ${displayName}.`;
+            const result = await this.handlers.start({ cwd, taskTitle, kind });
+            if (!result.accepted || result.agent === undefined) return 'I could not create that agent.';
             const created = publicAgent(result.agent);
-            if (created.sessionId === '' || created.cwd === '') return `I could not confirm ${displayName}.`;
+            if (created.sessionId === '' || created.cwd === '') return 'I could not confirm the new agent.';
             this.activate(state, created);
             return `Confirmed: ${created.displayName} was created for ${title(created)} with ${kindLabel(created.kind)} and is ${cleanHuman(created.status, 'starting', 32)}.`;
+        });
+        if (request.method === 'key') return this.replay(state, request, async () => {
+            const requestedKey = key(request.key);
+            if (requestedKey !== 'escape') return 'That agent key is not available. Available key: Escape.';
+            const resolved = await this.resolve(state, request.agent);
+            if (resolved.agent === undefined) return resolved.clarification!;
+            await this.handlers.sendKeys(resolved.agent.sessionId, ['escape']);
+            this.activate(state, resolved.agent);
+            return `Confirmed: Escape was sent to ${resolved.agent.displayName}.`;
         });
         if (request.method === 'prompt') return this.replay(state, request, async () => {
             const resolved = await this.resolve(state, request.agent);
             if (resolved.agent === undefined) return resolved.clarification!;
-            await this.handlers.prompt(resolved.agent.sessionId, request.text);
+            await this.handlers.prompt(resolved.agent.sessionId, `${request.text}\n\ncame from a real-time agent`);
             this.activate(state, resolved.agent);
             return `Confirmed: your instruction was delivered to ${resolved.agent.displayName}.`;
         });

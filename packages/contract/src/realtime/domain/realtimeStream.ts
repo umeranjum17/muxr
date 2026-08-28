@@ -36,6 +36,7 @@ export interface RealtimePluginOpenFrame {
 
 export type RealtimeState = 'connecting' | 'connected' | 'thinking' | 'speaking';
 export type RealtimeControlAction = 'mute' | 'unmute' | 'stop' | 'pause_output' | 'resume_output' | 'output_drained';
+export type RealtimeAppAction = 'view' | 'navigate' | 'activate';
 
 export interface RealtimeAudioClientFrame {
     type: 'realtime.audio';
@@ -53,7 +54,14 @@ export interface RealtimeSayFrame {
     text: string;
 }
 
-export type RealtimeClientFrame = RealtimeAudioClientFrame | RealtimeControlFrame | RealtimeSayFrame;
+export interface RealtimeAppResultFrame {
+    type: 'realtime.app.result';
+    requestId: string;
+    ok: boolean;
+    text: string;
+}
+
+export type RealtimeClientFrame = RealtimeAudioClientFrame | RealtimeControlFrame | RealtimeSayFrame | RealtimeAppResultFrame;
 
 export interface RealtimeReadyFrame {
     type: 'realtime.ready';
@@ -71,6 +79,13 @@ export interface RealtimeAudioClearFrame { type: 'realtime.audio.clear' }
 export interface RealtimeStateFrame { type: 'realtime.state'; state: RealtimeState; detail?: string }
 export interface RealtimeTranscriptFrame { type: 'realtime.transcript'; role: 'user' | 'agent'; text: string }
 export interface RealtimeClosedFrame { type: 'realtime.closed'; reason?: string }
+export interface RealtimeAppRequestFrame {
+    type: 'realtime.app.request';
+    requestId: string;
+    action: RealtimeAppAction;
+    target?: string;
+}
+
 
 export type RealtimeHostFrame =
     | RealtimeReadyFrame
@@ -78,9 +93,11 @@ export type RealtimeHostFrame =
     | RealtimeAudioClearFrame
     | RealtimeStateFrame
     | RealtimeTranscriptFrame
+    | RealtimeAppRequestFrame
     | RealtimeClosedFrame;
 
 const REALTIME_CONTROL_ACTIONS = new Set<RealtimeControlAction>(['mute', 'unmute', 'stop', 'pause_output', 'resume_output', 'output_drained']);
+const REALTIME_APP_ACTIONS: Record<RealtimeAppAction, true> = { view: true, navigate: true, activate: true };
 const REALTIME_STATES = new Set<RealtimeState>(['connecting', 'connected', 'thinking', 'speaking']);
 
 function record(value: unknown): Record<string, unknown> {
@@ -94,6 +111,11 @@ function boundedText(value: unknown, max: number, label: string): string {
     if (clean.length === 0 || new TextEncoder().encode(clean).length > max) throw new Error(`invalid realtime ${label}`);
     return clean;
 }
+function requestId(value: unknown): string {
+    if (typeof value !== 'string' || !/^[A-Za-z0-9._:-]{1,160}$/.test(value)) throw new Error('invalid realtime request id');
+    return value;
+}
+
 
 const BASE64_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 
@@ -136,6 +158,15 @@ export function parseRealtimeClientFrame(value: unknown): RealtimeClientFrame {
         return { type: 'realtime.control', action: frame.action as RealtimeControlAction };
     }
     if (frame.type === 'realtime.say') return { type: 'realtime.say', text: boundedText(frame.text, MAX_REALTIME_TEXT_BYTES, 'speech') };
+    if (frame.type === 'realtime.app.result') {
+        if (typeof frame.ok !== 'boolean') throw new Error('invalid realtime app result');
+        return {
+            type: 'realtime.app.result',
+            requestId: requestId(frame.requestId),
+            ok: frame.ok,
+            text: boundedText(frame.text, MAX_REALTIME_TEXT_BYTES, 'app result'),
+        };
+    }
     throw new Error('unknown realtime client frame');
 }
 
@@ -156,6 +187,20 @@ export function parseRealtimeHostFrame(value: unknown): RealtimeHostFrame {
     if (frame.type === 'realtime.transcript') {
         if (frame.role !== 'user' && frame.role !== 'agent') throw new Error('invalid realtime transcript role');
         return { type: 'realtime.transcript', role: frame.role, text: boundedText(frame.text, MAX_REALTIME_TEXT_BYTES, 'transcript') };
+    }
+    if (frame.type === 'realtime.app.request') {
+        if (typeof frame.action !== 'string' || REALTIME_APP_ACTIONS[frame.action as RealtimeAppAction] !== true) {
+            throw new Error('invalid realtime app action');
+        }
+        const action = frame.action as RealtimeAppAction;
+        if (action === 'view' && frame.target !== undefined) throw new Error('invalid realtime app target');
+        if (action !== 'view' && frame.target === undefined) throw new Error('invalid realtime app target');
+        return {
+            type: 'realtime.app.request',
+            requestId: requestId(frame.requestId),
+            action,
+            ...(frame.target === undefined ? {} : { target: boundedText(frame.target, 160, 'app target') }),
+        };
     }
     if (frame.type === 'realtime.closed') {
         return { type: 'realtime.closed', ...(frame.reason === undefined ? {} : { reason: boundedText(frame.reason, 500, 'close reason') }) };

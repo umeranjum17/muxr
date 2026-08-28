@@ -40,6 +40,7 @@ vi.mock('./vadStandby', () => mocks.vad);
 vi.mock('@/catalog/sync', () => ({ sync: { request: mocks.controlRequest } }));
 
 import { startRealtimeSession } from './realtimeSession';
+import { RealtimeAppController } from './realtimeAppControl';
 
 interface FakeStream {
     send: ReturnType<typeof vi.fn>;
@@ -100,6 +101,33 @@ beforeEach(() => {
     vi.spyOn(console, 'info').mockImplementation(() => undefined);
 });
 afterEach(() => vi.unstubAllGlobals());
+
+describe('semantic realtime app control', () => {
+    it('inspects, allowlist-navigates, and activates only one visible registered control', async () => {
+        const app = new RealtimeAppController();
+        const navigation: string[] = [];
+        let activations = 0;
+        app.setNavigation((path) => {
+            navigation.push(path);
+            app.setScreen(path);
+        });
+        const unregister = app.registerControl('/settings', 'Realtime voice', () => { activations += 1; });
+        const unregisterDuplicate = app.registerControl('/settings', 'Realtime voice', () => { activations += 10; });
+
+        expect(app.inspect()).toContain('Screen: home. Visible controls: none registered.');
+        expect(await app.navigateTo('/settings')).toContain('could not find one app destination');
+        expect(navigation).toEqual([]);
+        expect(await app.navigateTo('settings')).toBe('Navigated to settings.');
+        expect(app.inspect()).toContain('Visible controls: Realtime voice, Realtime voice.');
+        expect(await app.activate('Realtime voice')).toContain('could not find one visible control');
+        expect(activations).toBe(0);
+
+        unregisterDuplicate();
+        expect(await app.activate('Realtime voice')).toBe('Activated Realtime voice.');
+        expect(activations).toBe(1);
+        unregister();
+    });
+});
 
 describe('generic realtime stream session', () => {
     it('opens the semantic stream, starts audio on ready, forwards frames, and tears down once', async () => {
