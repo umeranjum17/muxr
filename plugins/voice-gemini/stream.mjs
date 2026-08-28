@@ -19,7 +19,7 @@ import {
     isExplicitHangup,
     runCodingTool,
     voiceCoordinationInstructions,
-} from './coordinatorPolicy.mjs';
+} from '../voice/coordinatorPolicy.mjs';
 
 const MODEL = 'gemini-3.1-flash-live-preview';
 const INPUT_RATE = 16_000;

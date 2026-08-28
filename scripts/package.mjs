@@ -435,7 +435,15 @@ async function gitInstall(github, yes) {
 }
 
 export async function runPackage(command, args = []) {
-    if (command === 'list') { if (args.length) fail('muxr plugin list takes no arguments'); for (const plugin of herdrPlugins()) process.stdout.write(`${plugin.plugin_id}\t${plugin.version ?? '0.0.0'}\t${plugin.enabled ? 'enabled' : 'disabled'}\t${JSON.stringify(sourceFor(plugin))}\t${plugin.plugin_root ?? ''}\n`); return 0; }
+    if (command === 'list') {
+        if (args.length) fail('muxr plugin list takes no arguments');
+        for (const plugin of herdrPlugins()) {
+            const version = plugin.version ?? '0.0.0';
+            const enabled = plugin.enabled ? 'enabled' : 'disabled';
+            process.stdout.write(`${plugin.plugin_id}\t${version}\t${enabled}\t${JSON.stringify(sourceFor(plugin))}\t${plugin.plugin_root ?? ''}\n`);
+        }
+        return 0;
+    }
     if (!['install', 'update', 'remove'].includes(command)) fail(`unknown package command: ${command}`);
     if (command === 'remove') {
         const { spec: requested, yes } = requireArgs(args, command); if (!ID_RE.test(requested)) fail('plugin id must match [a-z0-9][a-z0-9._-]{0,63}');

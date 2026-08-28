@@ -1,7 +1,9 @@
 import { spawnSync } from 'node:child_process';
 import { networkInterfaces, userInfo } from 'node:os';
 import { intro, heading, status, note, outro, prompt, select, withSpinner, withFullscreen, setupStep, completeFullscreen, BACK } from './setup-ui.mjs';
-import { herdrServerIsReady, runDoctor, runLocalPrerequisites, runMachines, runPair, runRemoteConnect, runSelfHost, runTailscale, selfhostPublicSummary, sharedMachineCount, tailscaleBin } from './local-setup.mjs';
+import { herdrServerIsReady, runLocalPrerequisites } from './herdrLifecycle.mjs';
+import { runDoctor } from './local-setup.mjs';
+import { runMachines, runPair, runRemoteConnect, runSelfHost, runTailscale, selfhostPublicSummary, sharedMachineCount, tailscaleBin } from './selfhostRuntime.mjs';
 
 function command(name, args = []) {
     const result = spawnSync(name, args, { encoding: 'utf8', timeout: 120_000 });
@@ -65,13 +67,11 @@ function probeTailscale() {
     const ip = ips.find((candidate) => candidate.includes('.'));
     const connected = result.ok && backend === 'Running' && ip !== undefined;
     if (connected) return { installed: true, connected, ip, dnsName, backend };
-    const reason = backend !== undefined && backend !== 'Running'
-        ? `backend state ${backend}`
-        : result.errorCode !== undefined
-            ? `tailscale status failed (${result.errorCode})`
-            : result.ok
-                ? 'no tailnet address assigned yet'
-                : (result.output.split('\n')[0] || 'tailscale status failed');
+    let reason;
+    if (backend !== undefined && backend !== 'Running') reason = `backend state ${backend}`;
+    else if (result.errorCode !== undefined) reason = `tailscale status failed (${result.errorCode})`;
+    else if (result.ok) reason = 'no tailnet address assigned yet';
+    else reason = result.output.split('\n')[0] || 'tailscale status failed';
     return { installed: true, connected: false, ip, dnsName, backend, detail: `${reason} — try ${TAILSCALE_UP_HINT}` };
 }
 
@@ -100,13 +100,19 @@ export function inspectSetup() {
     };
 }
 
+function agentIntegrationDetail(found) {
+    if (!found.agents.checked) return `availability check failed — ${found.agents.error}; run \`muxr doctor\``;
+    if (found.agents.current.length === 0) return '0 ready';
+    const shown = found.agents.current.slice(0, 5).join(', ');
+    const extra = found.agents.current.length > 5 ? '…' : '';
+    return `${found.agents.current.length} ready — ${shown}${extra}`;
+}
+
 function renderInspection(found) {
     heading('Checking this machine');
     status('Herdr', found.herdr.installed ? found.herdr.version : 'not installed — will be installed during setup', found.herdr.installed ? 'ok' : 'warn');
     status('Herdr server', found.herdr.running ? 'running' : 'will be started', found.herdr.running ? 'ok' : 'warn');
-    status('Agent integrations', found.agents.checked
-        ? `${found.agents.current.length} ready${found.agents.current.length ? ` — ${found.agents.current.slice(0, 5).join(', ')}${found.agents.current.length > 5 ? '…' : ''}` : ''}`
-        : `availability check failed — ${found.agents.error}; run \`muxr doctor\``, found.agents.checked && found.agents.current.length ? 'ok' : 'warn');
+    status('Agent integrations', agentIntegrationDetail(found), found.agents.checked && found.agents.current.length ? 'ok' : 'warn');
     status('Tailscale', found.tailscale.connected ? `connected — ${found.tailscale.ip}` : found.tailscale.detail, found.tailscale.connected ? 'ok' : 'off');
     status('Cloudflare Tunnel', found.cloudflared.ok ? 'available' : found.cloudflared.detail, found.cloudflared.ok ? 'ok' : 'off');
     process.stdout.write('\n');
@@ -223,6 +229,36 @@ function connectionLabel(mode, endpoint, port) {
     if (mode === 'lan') return `Trusted LAN on port ${port}`;
     if (mode === 'cloudflare') return `Cloudflare quick tunnel to local port ${port}`;
     return `External ${endpoint}`;
+}
+
+function advertisedRelayUrl({ mode, found, current, port, endpoint, web, tailscalePlanned }) {
+    if (mode === 'lan') return `ws://${found.lan}:${port}`;
+    if (mode === 'external') return endpoint;
+    if (mode === 'tailscale-direct' && found.tailscale.ip) return `ws://${found.tailscale.ip}:${port}`;
+    if (mode === 'tailscale-direct' && tailscalePlanned && current?.connectionMode === mode) return current.relayUrl;
+    if (mode === 'tailscale' && found.tailscale.dnsName) return `wss://${found.tailscale.dnsName}`;
+    if (mode === 'tailscale' && tailscalePlanned && current?.connectionMode === mode) return current.relayUrl;
+    const reuseCloudflare = mode === 'cloudflare'
+        && current?.connectionMode === 'cloudflare'
+        && current.relayPort === port
+        && current.webEnabled === web
+        && current.ingressHealthy === true;
+    if (reuseCloudflare) return current.relayUrl;
+    return undefined;
+}
+
+function ingressPlan(mode, tailscalePlanned, { shared = false } = {}) {
+    if (mode === 'tailscale') {
+        const connect = tailscalePlanned ? 'connect Tailscale, then ' : '';
+        return shared
+            ? `${connect}create a muxr-owned Tailscale Serve route`
+            : `${connect}persist a muxr-owned Tailscale Serve route`;
+    }
+    if (mode === 'cloudflare') return 'start a tracked temporary Cloudflare tunnel';
+    if (mode === 'external') return shared
+        ? 'your stable external reverse proxy or named Cloudflare tunnel'
+        : 'bind loopback for your external reverse proxy';
+    return shared ? 'your stable external reverse proxy or named Cloudflare tunnel' : 'no proxy or public tunnel changes';
 }
 
 const aborted = (value) => value === undefined || value === BACK;
@@ -363,19 +399,7 @@ export async function runSetup(args = []) {
         : false;
     if (aborted(web)) return cancelSetup();
     if (!secureWebMode) status('Browser client', 'requires Tailscale Serve, External WSS, or Cloudflare; native app only', 'off');
-    const desiredUrl = mode === 'lan' ? `ws://${found.lan}:${port}`
-        : mode === 'external' ? endpoint
-            : mode === 'tailscale-direct' && found.tailscale.ip ? `ws://${found.tailscale.ip}:${port}`
-                : mode === 'tailscale-direct' && tailscalePlanned && current?.connectionMode === mode ? current.relayUrl
-                    : mode === 'tailscale' && found.tailscale.dnsName ? `wss://${found.tailscale.dnsName}`
-                        : mode === 'tailscale' && tailscalePlanned && current?.connectionMode === mode ? current.relayUrl
-                    : mode === 'cloudflare'
-                        && current?.connectionMode === 'cloudflare'
-                        && current.relayPort === port
-                        && current.webEnabled === web
-                        && current.ingressHealthy === true
-                        ? current.relayUrl
-                        : undefined;
+    const desiredUrl = advertisedRelayUrl({ mode, found, current, port, endpoint, web, tailscalePlanned });
     const connectionChanged = current === undefined || desiredUrl === undefined || current.relayUrl !== desiredUrl;
     const pairingChoices = [
         ...(current !== undefined ? [{
@@ -419,7 +443,7 @@ export async function runSetup(args = []) {
         `Optional add-ons: ${plugins.length ? plugins.map((plugin) => plugin.title).join(', ') : 'none'}`,
         `Browser client: ${web ? 'host the web app; browser keys stay WebCrypto-wrapped on this device' : 'off'}`,
         `Pairing: ${pairing === 'none' ? 'keep existing devices; no new pairing' : pairing === 'both' ? 'phone, then control browser' : pairing}${pairing === 'browser' || pairing === 'browser-view' || pairing === 'both' ? ' · browser access expires after eight hours' : ''}`,
-        `Ingress: ${mode === 'tailscale' ? `${tailscalePlanned ? 'connect Tailscale, then ' : ''}persist a muxr-owned Tailscale Serve route` : mode === 'cloudflare' ? 'start a tracked temporary Cloudflare tunnel' : mode === 'external' ? 'bind loopback for your external reverse proxy' : 'no proxy or public tunnel changes'}`,
+        `Ingress: ${ingressPlan(mode, tailscalePlanned)}`,
         'Services: register or restart the relay and host with systemd/launchd',
         `Existing connections: ${connectionChanged ? 'stored grants stay authoritative and adopt the advertised endpoint automatically' : 'keep working; restart only if a reviewed runtime setting changed'}`,
         'No change is made until you choose Apply setup.',
@@ -535,10 +559,7 @@ export async function runSharedRelaySetup() {
             } catch { status('Public relay URL', 'use a valid wss:// URL', 'warn'); }
         }
     }
-    const desiredUrl = mode === 'external' ? endpoint
-        : found.tailscale.dnsName ? `wss://${found.tailscale.dnsName}`
-            : tailscalePlanned && current?.connectionMode === 'tailscale' ? current.relayUrl
-                : undefined;
+    const desiredUrl = advertisedRelayUrl({ mode, found, current, port, endpoint, web: false, tailscalePlanned });
     const endpointChanged = current !== undefined && (desiredUrl === undefined || desiredUrl !== current.relayUrl);
     if (endpointChanged && await sharedMachineCount() > 0) {
         process.stderr.write('Revoke the enrolled machines before changing the shared relay endpoint. Their credentials and devices pin the current URL.\n');
@@ -553,7 +574,7 @@ export async function runSharedRelaySetup() {
     note([
         `Public connection: ${connectionLabel(mode, endpoint, port)}`,
         `Browser client: ${web ? 'web app over HTTPS; control and view-only grants expire after eight hours' : 'off'}`,
-        `Ingress: ${mode === 'tailscale' ? `${tailscalePlanned ? 'connect Tailscale, then create a ' : ''}muxr-owned Tailscale Serve route` : 'your stable external reverse proxy or named Cloudflare tunnel'}`,
+        `Ingress: ${ingressPlan(mode, tailscalePlanned, { shared: true })}`,
         'Service: supervised relay-only systemd/launchd service with Linux boot persistence; no Herdr or agent host on this server',
         'Authority: owner state remains on this server; enrolled machines receive scoped credentials only',
         ...(endpointChanged ? ['Endpoint change: create fresh enrollments and pair every machine again'] : []),

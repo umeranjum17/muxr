@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { chmod, lstat, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { reportInstruction } from './coordinatorPolicy.mjs';
+import { reportInstruction } from '../voice/coordinatorPolicy.mjs';
 
 const root = process.env.MUXR_HOME?.trim() || join(homedir(), '.muxr');
 const keyFile = join(root, 'gemini.key');

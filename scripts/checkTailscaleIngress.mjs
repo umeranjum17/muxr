@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { resolveAdvertise, tailscaleBin, tailscaleIngress } from './local-setup.mjs';
+import { resolveAdvertise, tailscaleBin, tailscaleIngress } from './selfhostRuntime.mjs';
 
 const scratch = mkdtempSync(join(tmpdir(), 'muxr-tailscale-'));
 const fake = join(scratch, 'tailscale');

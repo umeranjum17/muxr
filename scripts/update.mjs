@@ -3,7 +3,9 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, realpathSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { daemonIsRunning, daemonMode, restartSelfhostRelayIfRunning, runBootstrap, runDaemon, stopSelfhostRelayIfRunning } from './local-setup.mjs';
+import { runBootstrap } from './herdrLifecycle.mjs';
+import { daemonIsRunning, daemonMode, runDaemon } from './muxrDaemon.mjs';
+import { restartSelfhostRelayIfRunning, stopSelfhostRelayIfRunning } from './selfhostRuntime.mjs';
 import { select } from './setup-ui.mjs';
 
 const PACKAGE = '@trymuxr/cli';

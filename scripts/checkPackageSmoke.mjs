@@ -880,8 +880,8 @@ try {
     const repairHerdr = join(binDir, 'herdr-repair');
     writeFileSync(staleHerdr, '<plist><dict><key>Label</key><string>dev.herdr.server</string><key>ProgramArguments</key><array><string>/missing/herdr</string><string>server</string></array></dict></plist>\n');
     writeFileSync(repairHerdr, '#!/bin/sh\n[ "$*" = "status server --json" ] && echo \'{"running":true}\'\nexit 0\n', { mode: 0o755 });
-    const localSetupUrl = `file://${join(installDir, 'node_modules', '@trymuxr', 'cli', 'local-setup.mjs')}`;
-    run(process.execPath, ['--input-type=module', '-e', `import {ensureHerdrServer} from ${JSON.stringify(localSetupUrl)}; await ensureHerdrServer(${JSON.stringify(repairHerdr)})`], {
+    const herdrLifecycleUrl = `file://${join(installDir, 'node_modules', '@trymuxr', 'cli', 'herdrLifecycle.mjs')}`;
+    run(process.execPath, ['--input-type=module', '-e', `import {ensureHerdrServer} from ${JSON.stringify(herdrLifecycleUrl)}; await ensureHerdrServer(${JSON.stringify(repairHerdr)})`], {
         cwd: installDir, env: macEnv, allowFailure: true,
     });
     assert.match(readFileSync(staleHerdr, 'utf8'), new RegExp(repairHerdr.replaceAll('/', '\\/')), 'stale Herdr plist was not repaired');

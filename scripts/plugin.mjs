@@ -97,6 +97,15 @@ function cloneBundledPlugin(pluginId, destination) {
         }
         const readmePath = join(temporary, 'README.md');
         if (existsSync(readmePath)) writeFileSync(readmePath, readFileSync(readmePath, 'utf8').replaceAll(pluginId, clonedId));
+        const policyImport = "from '../voice/coordinatorPolicy.mjs'";
+        for (const name of ['stream.mjs', 'rpc.mjs']) {
+            const path = join(temporary, name);
+            if (!existsSync(path)) continue;
+            const text = readFileSync(path, 'utf8');
+            if (!text.includes(policyImport)) continue;
+            cpSync(join(plugins, 'voice', 'coordinatorPolicy.mjs'), join(temporary, 'coordinatorPolicy.mjs'));
+            writeFileSync(path, text.replaceAll(policyImport, "from './coordinatorPolicy.mjs'"));
+        }
         checkPlugin(temporary);
         renameSync(temporary, target);
     } finally {

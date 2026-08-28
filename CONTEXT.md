@@ -105,3 +105,21 @@ _Avoid_: token, pairing, device grant
 **Mic Ownership**:
 The exclusive claim among the realtime call, dictation, and VAD standby.
 _Avoid_: audio focus, recorder lock
+
+## Setup and plugins
+
+**Bundled Plugin**:
+A Herdr plugin folder shipped with muxr and linked during setup. Optional provider adapters stay disabled until chosen.
+_Avoid_: extension, package, add-on
+
+**Coordinator Policy**:
+The spoken-name, coding-tool, and redaction rules every realtime voice adapter must follow.
+_Avoid_: prompt, system prompt, provider policy
+
+**Ingress**:
+The published path phones use to reach a Self-host relay: Tailscale Serve, a Cloudflare tunnel, or an external reverse proxy.
+_Avoid_: tunnel, proxy, advertise URL
+
+**Self-host**:
+A machine-owned relay and pairing authority, as opposed to the hosted cloud control plane.
+_Avoid_: local mode, selfhost.json, standalone

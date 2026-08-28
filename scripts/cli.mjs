@@ -5,7 +5,10 @@ import { spawnSync } from 'node:child_process';
 import { dirname, join, relative } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { browserHostingCanEnable, browserHostingReady, daemonIsRunning, enableBrowserHosting, hasPendingRemoteConnect, runDaemon, runDevices, runDoctor, runFullUninstall, runIntegrations, runMachines, runPair, runRemoteConnect, runSelfHost } from './local-setup.mjs';
+import { runIntegrations } from './herdrLifecycle.mjs';
+import { runDoctor, runFullUninstall } from './local-setup.mjs';
+import { daemonIsRunning, runDaemon } from './muxrDaemon.mjs';
+import { browserHostingCanEnable, browserHostingReady, enableBrowserHosting, hasPendingRemoteConnect, runDevices, runMachines, runPair, runRemoteConnect, runSelfHost } from './selfhostRuntime.mjs';
 import { runMachineManagement, runRemoteRelaySetup, runSetup, runSharedRelaySetup } from './setup-wizard.mjs';
 import { runPlugin } from './plugin.mjs';
 import { runPackage } from './package.mjs';
@@ -175,9 +178,16 @@ async function printState() {
         relayHealthy = await fetch(`http://127.0.0.1:${state.relayPort}/health`, { signal: AbortSignal.timeout(1500) })
             .then((response) => response.ok).catch(() => false);
     }
-    const kind = local ? (RELAY_KIND[state.connectionMode] ?? state.connectionMode) : 'shared relay in the cloud (this host dials out)';
+    const kind = local
+        ? (RELAY_KIND[state.connectionMode] ?? state.connectionMode)
+        : 'shared relay in the cloud (this host dials out)';
     const relaySummary = [kind, state.relayUrl].filter(Boolean).join(' · ');
-    status('relay', local ? `${relaySummary} · ${relayHealthy ? 'running' : 'not responding'}` : relaySummary, local ? (relayHealthy ? 'ok' : 'warn') : 'off');
+    if (!local) {
+        status('relay', relaySummary, 'off');
+    } else {
+        const health = relayHealthy ? 'running' : 'not responding';
+        status('relay', `${relaySummary} · ${health}`, relayHealthy ? 'ok' : 'warn');
+    }
     if (state.relayRole === 'shared') {
         status('host', 'none — this machine is a shared relay server', 'off');
     } else {

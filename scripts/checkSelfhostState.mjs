@@ -13,7 +13,8 @@ import { join } from 'node:path';
 const scratch = mkdtempSync(join(tmpdir(), 'muxr-selfhost-state-'));
 process.env.MUXR_HOME = scratch;
 process.env.MUXR_NO_SERVICE_COMMANDS = '1';
-const { selfhostConfigured, selfhostStateUnreadable, runDoctor, runSelfHost } = await import('./local-setup.mjs');
+const { runDoctor } = await import('./local-setup.mjs');
+const { selfhostConfigured, selfhostStateUnreadable, runSelfHost } = await import('./selfhostRuntime.mjs');
 
 assert.equal(selfhostConfigured(), false);
 assert.equal(selfhostStateUnreadable(), false);

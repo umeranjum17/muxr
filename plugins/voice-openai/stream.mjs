@@ -19,7 +19,7 @@ import {
     isExplicitHangup,
     runCodingTool,
     voiceCoordinationInstructions,
-} from './coordinatorPolicy.mjs';
+} from '../voice/coordinatorPolicy.mjs';
 
 const MODEL = 'gpt-realtime-2.1';
 const RATE = 24_000;
