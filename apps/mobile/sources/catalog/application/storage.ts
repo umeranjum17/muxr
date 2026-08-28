@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { useShallow } from 'zustand/react/shallow';
 import React from 'react';
+import deepEqual from 'fast-deep-equal';
 import type { Session, Machine, SessionAgentModesPatch } from '../infrastructure/storageTypes';
 import type { Settings } from './settings';
 import { settingsDefaults } from './settings';
@@ -310,9 +311,13 @@ export const storage = create<StorageState>()((set, get) => ({
         for (const session of sessions) {
             merged[session.id] = mergeCatalogSession(state.sessions[session.id], merged[session.id], session, replace);
         }
+        if (deepEqual(merged, state.sessions)) return state;
         return { sessions: merged, sessionListViewData: buildSessionListViewData(merged) };
     }),
-    applyHerdrTree: (herdrWorkspaces) => set({ herdrWorkspaces, herdrTreeLoaded: true }),
+    applyHerdrTree: (herdrWorkspaces) => set((state) =>
+        state.herdrTreeLoaded && deepEqual(herdrWorkspaces, state.herdrWorkspaces)
+            ? state
+            : { herdrWorkspaces, herdrTreeLoaded: true }),
     applyMachines: (machines, replace = false) => set((state) => {
         const next = replace ? {} as Record<string, Machine> : { ...state.machines };
         for (const machine of machines) next[machine.id] = machine;

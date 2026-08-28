@@ -1,4 +1,5 @@
 import { isSessionIdle, normalizeAgentName, type SessionInfo, type SessionStatus } from '@muxr/contract';
+import deepEqual from 'fast-deep-equal';
 import type { Session } from '../infrastructure/storageTypes';
 import {
     lifecycleIsBusy,
@@ -145,16 +146,29 @@ export function mergeCatalogAgent(
 
 /** Live info churn carries a fresh host DTO but no status; keep status-derived fields. */
 export function applyHostInfoToAgent(existing: Session, fresh: Session): Session {
-    return {
+    const known = existing.metadata;
+    const merged: Session = {
         ...existing,
         ...fresh,
         thinking: existing.thinking,
         thinkingAt: existing.thinkingAt,
         agentState: existing.agentState,
         agentStateVersion: existing.agentStateVersion,
-        latestUsage: existing.latestUsage,
-        metadata: existing.metadata === null
+        metadata: known === null
             ? fresh.metadata
-            : { ...existing.metadata, ...fresh.metadata },
+            : {
+                  ...known,
+                  ...fresh.metadata,
+                  ...(known.summary === undefined ? {} : { summary: known.summary }),
+                  ...(known.taskTitle === undefined ? {} : { taskTitle: known.taskTitle }),
+                  ...(known.terminalTitle === undefined ? {} : { terminalTitle: known.terminalTitle }),
+              },
     };
+    const withoutOutputTimestamps: Session = {
+        ...merged,
+        updatedAt: existing.updatedAt,
+        activeAt: existing.activeAt,
+        presence: existing.presence,
+    };
+    return deepEqual(withoutOutputTimestamps, existing) ? existing : merged;
 }
