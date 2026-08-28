@@ -8,12 +8,15 @@
  * only ever see the generic frame vocabulary.
  */
 import WebSocket from 'ws';
+import { randomUUID } from 'node:crypto';
 import { lstat, readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import {
+    appTools,
+    appControlInstructions,
     cleanProviderProse,
     codingTools,
     isExplicitHangup,
@@ -29,7 +32,7 @@ const PROVIDER_URL = process.env.NODE_ENV === 'test' && process.env.MUXR_TEST_XA
 const root = process.env.MUXR_HOME?.trim() || join(homedir(), '.muxr');
 const keyFile = join(root, 'xai.key');
 let endAfterResponse = false;
-export const providerTools = codingTools;
+export const providerTools = [...codingTools, ...appTools];
 
 const MAX_STDOUT_BYTES = 256 * 1024;
 const MAX_REFUSAL_BODY_BYTES = 16 * 1024;
@@ -92,8 +95,8 @@ const state = (value, detail) => emit(detail === undefined
 const PROMPT = `You are the voice interface to a herd of coding agents. You are direct and brief. Speak with bright, upbeat energy and brisk enthusiasm; sound alert and helpful, never sultry or sleepy.
 
 <important>
-- Answer in one short sentence unless asked to elaborate. The user understands this work better than you do.
 ${voiceCoordinationInstructions}
+${appControlInstructions}
 - You do not do the work. The coding agent does. You carry instructions to it and report back what it did.
 - Assume the user is thinking out loud until they clearly ask for something.
 - Let them finish. A pause is thinking, not an invitation to speak: wait through it rather than filling it.
@@ -122,12 +125,41 @@ async function readKey() {
     return value;
 }
 
+const pendingAppRequests = new Map();
+const requestApp = (action, target) => {
+    if (action !== 'view' && (target === '' || Buffer.byteLength(target, 'utf8') > 160)) {
+        return Promise.resolve(action === 'navigate'
+            ? 'I could not find one app destination with that name. Ask me to inspect the app.'
+            : 'I could not find one visible control with that name. Ask me to inspect the app.');
+    }
+    return new Promise((resolve) => {
+        const requestId = randomUUID();
+        const timer = setTimeout(() => {
+            pendingAppRequests.delete(requestId);
+            resolve('The app did not answer that semantic request. Please try again.');
+        }, 15_000);
+        pendingAppRequests.set(requestId, {
+            resolve: (value) => {
+                clearTimeout(timer);
+                resolve(value);
+            },
+        });
+        if (!emit({ type: 'realtime.app.request', requestId, action, ...(target ? { target } : {}) })) {
+            clearTimeout(timer);
+            pendingAppRequests.delete(requestId);
+            resolve('The app could not receive that semantic request.');
+        }
+    });
+};
+
 let closing = false;
 const close = (reason, forceExit = false) => {
     if (closing) return;
     closing = true;
     clearTimeout(reconnectTimer);
     clearTimeout(stableTimer);
+    for (const pending of pendingAppRequests.values()) pending.resolve('The app semantic request was cancelled.');
+    pendingAppRequests.clear();
     clearTimeout(inputPoll);
     const timer = setTimeout(() => process.exit(forceExit ? 1 : 0), 1_000);
     emit({ type: 'realtime.closed', reason }, () => {
@@ -170,7 +202,12 @@ export function providerError(error) {
     const detail = cleanProviderProse(raw, 'provider error', 200);
     return { detail, terminal: /api key|auth|credit|quota|billing|permission|forbidden|invalid json|invalid payload|unknown name|unsupported/i.test(detail) };
 }
-const runTool = (name, input, operationId) => runCodingTool(name, input, operationId);
+const runTool = (name, input, operationId) => {
+    if (name === 'inspect_app') return requestApp('view');
+    if (name === 'navigate_app') return requestApp('navigate', text(input?.destination));
+    if (name === 'activate_app_control') return requestApp('activate', text(input?.control));
+    return runCodingTool(name, input, operationId);
+};
 
 const currentProvider = (current, epoch) => !stopped && ws === current && providerEpoch === epoch;
 const finishGracefulEndIfDrained = () => {
@@ -358,6 +395,14 @@ const clientFrameBytes = (frame) => frame.type === 'realtime.audio'
     : Buffer.byteLength(JSON.stringify(frame));
 
 function handleClientFrame(frame) {
+    if (frame.type === 'realtime.app.result') {
+        const pending = pendingAppRequests.get(frame.requestId);
+        if (pending !== undefined) {
+            pendingAppRequests.delete(frame.requestId);
+            pending.resolve(frame.text);
+        }
+        return;
+    }
     if (frame.type === 'realtime.control') {
         if (frame.action === 'stop') {
             stopped = true;
