@@ -1,4 +1,4 @@
-import type { AgentLifecycle, LifecycleEvent } from '@muxr/contract';
+import { lifecycleEventAgentName, type AgentLifecycle, type LifecycleEvent } from '@muxr/contract';
 
 export interface RecentActivityRow {
     eventId: string;
@@ -32,7 +32,7 @@ export function unseenActivityRows(
             eventId: event.eventId,
             sessionId: event.sessionId,
             taskTitle: event.taskTitle?.trim() || 'Untitled task',
-            agentName: event.displayName.trim() || undefined,
+            agentName: lifecycleEventAgentName(event),
             status: event.state as RecentActivityRow['status'],
             reasonCode: event.reasonCode,
             at,

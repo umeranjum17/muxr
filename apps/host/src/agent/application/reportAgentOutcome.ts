@@ -3,7 +3,7 @@ import { lifecycleReasonForObservation } from '../domain/lifecycle.js';
 
 export type ReportAgentOutcomeCommand = {
     sessionId: string;
-    displayName: string;
+    agentName: string;
     state: AgentLifecycle;
     liveAgentStatus?: string;
     previousReason?: LifecycleReasonCode;
@@ -13,7 +13,7 @@ export type ReportAgentOutcomeCommand = {
 export interface AgentOutcomeJournal {
     transition(
         sessionId: string,
-        displayName: string,
+        agentName: string,
         state: AgentLifecycle,
         reason: LifecycleReasonCode,
         taskTitle?: string,
@@ -30,7 +30,7 @@ export function reportAgentOutcome(
     const reason = lifecycleReasonForObservation(command.state, command.liveAgentStatus, command.previousReason);
     const event = journal.transition(
         command.sessionId,
-        command.displayName,
+        command.agentName,
         command.state,
         reason,
         command.taskTitle,

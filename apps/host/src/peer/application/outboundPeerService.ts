@@ -1,8 +1,9 @@
 import { createHash } from 'node:crypto';
-import type {
-    PeerClientRequest,
-    PeerRequestResult,
-    SessionInfo,
+import {
+    normalizeAgentName,
+    type PeerClientRequest,
+    type PeerRequestResult,
+    type SessionInfo,
 } from '@muxr/contract';
 import { NodePeerClient, type PeerClientTransport, type PeerConnectionDiagnostic } from '../infrastructure/client.js';
 import { PeerStore, type StoredPeerRelationship, type StoredSemanticMutation } from '../infrastructure/store.js';
@@ -33,7 +34,7 @@ function key(value: string): string {
     return value.toLocaleLowerCase();
 }
 
-/** Outbound routing, durable semantic mutations, transport ownership, and stable human selectors. */
+/** Outbound routing, durable semantic mutations, transport ownership, and stable user-facing selectors. */
 export class OutboundPeerService {
     private readonly clients = new Map<string, PeerClientTransport>();
     private readonly semanticInFlight = new Map<string, Promise<unknown>>();
@@ -48,21 +49,28 @@ export class OutboundPeerService {
         switch (request.type) {
             case 'peer.remote.list': {
                 const sessions = await client.request('session.list', {}, signal);
-                const agentAliases = this.agentAliases(relationship, sessions);
+                const agentNames = this.agentNames(sessions);
+                const nameCounts = new Map<string, number>();
+                for (const agentName of Object.values(agentNames)) {
+                    nameCounts.set(key(agentName), (nameCounts.get(key(agentName)) ?? 0) + 1);
+                }
                 const machineAlias = await this.ensureMachineAlias(relationship);
-                await this.options.store.putRelationship({ ...relationship, machineAlias, agentAliases, updatedAt: this.options.now() });
+                await this.options.store.putRelationship({ ...relationship, machineAlias, agentNames, updatedAt: this.options.now() });
                 return {
                     machineAlias,
-                    sessions: sessions.map((session) => ({ sessionId: session.id, agentAlias: agentAliases[session.id]! })),
+                    sessions: sessions.map((session) => {
+                        const agentName = agentNames[session.id]!;
+                        return { sessionId: session.id, agentName, ...(nameCounts.get(key(agentName))! > 1 ? { ambiguous: true as const } : {}) };
+                    }),
                 } satisfies PeerRequestResult<'peer.remote.list'>;
             }
             case 'peer.remote.read': {
                 const result = await client.request('pane.read', { sessionId: request.params.sessionId, ...(request.params.lines === undefined ? {} : { lines: request.params.lines }), source: 'recent' }, signal);
-                return { machineAlias: await this.ensureMachineAlias(relationship), agentAlias: this.knownAgentAlias(relationship, request.params.sessionId), ...result };
+                return { machineAlias: await this.ensureMachineAlias(relationship), agentName: this.knownAgentName(relationship, request.params.sessionId), ...result };
             }
             case 'peer.remote.status': {
                 const status = await client.request('session.status', { sessionId: request.params.sessionId }, signal);
-                return { machineAlias: await this.ensureMachineAlias(relationship), agentAlias: this.knownAgentAlias(relationship, request.params.sessionId), status };
+                return { machineAlias: await this.ensureMachineAlias(relationship), agentName: this.knownAgentName(relationship, request.params.sessionId), status };
             }
             case 'peer.remote.watch':
             case 'peer.remote.prompt':
@@ -208,7 +216,7 @@ export class OutboundPeerService {
             if (result.settlement === undefined) throw operationError('peer watch returned before settlement', 'peer-watch-unsettled');
             return {
                 machineAlias: await this.ensureMachineAlias(relationship),
-                agentAlias: this.knownAgentAlias(relationship, params.sessionId),
+                agentName: this.knownAgentName(relationship, params.sessionId),
                 settlement: result.settlement,
             } satisfies PeerRequestResult<'peer.remote.watch'>;
         }
@@ -220,7 +228,7 @@ export class OutboundPeerService {
                 ...(params.streamingBehavior === undefined ? {} : { streamingBehavior: params.streamingBehavior }),
                 peerMutation: params.mutation,
             }, signal);
-            return { machineAlias: await this.ensureMachineAlias(relationship), agentAlias: this.knownAgentAlias(relationship, params.sessionId), delivered: true } satisfies PeerRequestResult<'peer.remote.prompt'>;
+            return { machineAlias: await this.ensureMachineAlias(relationship), agentName: this.knownAgentName(relationship, params.sessionId), delivered: true } satisfies PeerRequestResult<'peer.remote.prompt'>;
         }
         const params = stored.params as Extract<SemanticRemoteRequest, { type: 'peer.remote.start' }>['params'];
         const snapshot = await client.request('session.start', {
@@ -235,9 +243,9 @@ export class OutboundPeerService {
         }
         const sessions = await client.request('session.list', {}, signal);
         const latest = this.options.store.relationship(relationship.relationshipId) ?? relationship;
-        const agentAliases = this.agentAliases(latest, sessions.some((session) => session.id === snapshot.info.id) ? sessions : [...sessions, snapshot.info]);
-        await this.options.store.putRelationship({ ...latest, agentAliases, updatedAt: this.options.now() });
-        return { machineAlias: await this.ensureMachineAlias(latest), sessionId: snapshot.info.id, agentAlias: agentAliases[snapshot.info.id]! } satisfies PeerRequestResult<'peer.remote.start'>;
+        const agentNames = this.agentNames(sessions.some((session) => session.id === snapshot.info.id) ? sessions : [...sessions, snapshot.info]);
+        await this.options.store.putRelationship({ ...latest, agentNames, updatedAt: this.options.now() });
+        return { machineAlias: await this.ensureMachineAlias(latest), sessionId: snapshot.info.id, agentName: agentNames[snapshot.info.id]! } satisfies PeerRequestResult<'peer.remote.start'>;
     }
 
     private storedOutcome(stored: StoredSemanticMutation): unknown {
@@ -293,33 +301,14 @@ export class OutboundPeerService {
         return alias;
     }
 
-    private agentAliases(relationship: StoredPeerRelationship, sessions: SessionInfo[]): Record<string, string> {
-        const aliases: Record<string, string> = {};
-        const used = new Set<string>();
-        for (const [sessionId, value] of Object.entries(relationship.agentAliases ?? {})) {
-            const existing = name(value, '');
-            if (existing === '' || used.has(key(existing))) continue;
-            aliases[sessionId] = existing;
-            used.add(key(existing));
-        }
-        for (const session of sessions) {
-            if (aliases[session.id] !== undefined) continue;
-            const base = this.baseAgentAlias(session);
-            const qualifier = name(session.tabLabel, '') || name(session.agentKind, 'agent');
-            const qualified = key(qualifier) === key(base) ? `${base} (agent)` : `${base} (${qualifier})`;
-            let alias = used.has(key(base)) ? qualified : base;
-            for (let suffix = 2; used.has(key(alias)); suffix += 1) alias = `${qualified} ${suffix}`;
-            aliases[session.id] = alias;
-            used.add(key(alias));
-        }
-        return aliases;
+    private agentNames(sessions: SessionInfo[]): Record<string, string> {
+        return Object.fromEntries(sessions.map((session) => [
+            session.id,
+            normalizeAgentName(session.displayName),
+        ]));
     }
 
-    private baseAgentAlias(session: SessionInfo): string {
-        return name(session.name, '') || name(session.tabLabel, '') || name(session.agentKind, '') || 'Agent';
-    }
-
-    private knownAgentAlias(relationship: StoredPeerRelationship, sessionId: string): string {
-        return relationship.agentAliases?.[sessionId] ?? 'Agent';
+    private knownAgentName(relationship: StoredPeerRelationship, sessionId: string): string {
+        return relationship.agentNames?.[sessionId] ?? 'Agent';
     }
 }

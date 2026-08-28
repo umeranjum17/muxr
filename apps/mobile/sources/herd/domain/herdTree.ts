@@ -2,7 +2,7 @@
  * Pure helpers for the Herd tab's herdr-tree rendering (no react-native imports).
  */
 
-import type { HerdrTreePane, HerdrTreeWorkspace } from '@muxr/contract';
+import { normalizeAgentName, type HerdrTreePane, type HerdrTreeWorkspace } from '@muxr/contract';
 
 /** A path label becomes its folder; anything else is already a name. */
 export function workspaceName(ws: HerdrTreeWorkspace): string {
@@ -15,9 +15,9 @@ export function hasAgent(ws: HerdrTreeWorkspace): boolean {
     return ws.tabs.some((tab) => tab.panes.some((pane) => pane.agentKind !== undefined));
 }
 
-/** Agent Name only. Herdr's agent name is an internal route, not display identity. */
+/** Canonical Agent Name from the compatibility wire field. */
 export function paneDisplayName(pane: HerdrTreePane): string {
-    return pane.displayName?.trim() || 'Agent';
+    return normalizeAgentName(pane.displayName);
 }
 
 export function paneTaskTitle(pane: HerdrTreePane): string {
