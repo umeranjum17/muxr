@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { RealtimeWebRtcCallbacks } from '../infrastructure/realtimeWebRtc';
 
 const mocks = vi.hoisted(() => ({
     openStream: vi.fn(),
@@ -26,6 +27,16 @@ const mocks = vi.hoisted(() => ({
         startVoiceService: vi.fn(() => true),
         stopVoiceService: vi.fn(),
     },
+    webRtc: {
+        callbacks: undefined as RealtimeWebRtcCallbacks | undefined,
+        handle: {
+            acceptAnswer: vi.fn(async () => undefined),
+            sendData: vi.fn(() => true),
+            setMuted: vi.fn(),
+            stop: vi.fn(),
+        },
+        start: vi.fn(),
+    },
 }));
 
 vi.mock('react-native', () => ({ AppState: { addEventListener: vi.fn() } }));
@@ -38,6 +49,7 @@ vi.mock('react-native-live-audio-stream', () => ({ default: mocks.liveAudio }));
 vi.mock('@/../modules/voice-overlay', () => mocks.pcm);
 vi.mock('./vadStandby', () => mocks.vad);
 vi.mock('@/catalog/sync', () => ({ sync: { request: mocks.controlRequest } }));
+vi.mock('../infrastructure/realtimeWebRtc', () => ({ startRealtimeWebRtc: mocks.webRtc.start }));
 
 import { startRealtimeSession } from './realtimeSession';
 import { RealtimeAppController } from './realtimeAppControl';
@@ -98,6 +110,12 @@ beforeEach(() => {
         })(),
         release: vi.fn(() => { void mocks.liveAudio.stop(); }),
     }));
+    mocks.webRtc.callbacks = undefined;
+    mocks.webRtc.handle.acceptAnswer.mockResolvedValue(undefined);
+    mocks.webRtc.start.mockImplementation(async (_label: string, callbacks: RealtimeWebRtcCallbacks) => {
+        mocks.webRtc.callbacks = callbacks;
+        return mocks.webRtc.handle;
+    });
     vi.spyOn(console, 'info').mockImplementation(() => undefined);
 });
 afterEach(() => vi.unstubAllGlobals());
@@ -337,6 +355,45 @@ describe('generic realtime stream session', () => {
         reconnected.closes.forEach((listener) => listener('late'));
         await tick();
         expect(mocks.pcm.stopRealtimePcm).toHaveBeenCalledOnce();
+    });
+
+    it('switches the same generic stream to mobile-owned WebRTC signaling without starting PCM capture', async () => {
+        const stream = fakeStream();
+        stream.start.mockImplementation(() => {
+            stream.frames.forEach((listener) => listener({ type: 'realtime.webrtc.start', dataChannelLabel: 'events-channel' }));
+        });
+        mocks.openStream.mockResolvedValue(asPluginStream(stream));
+        const statuses: string[] = [];
+        const turns: string[] = [];
+        const handle = startRealtimeSession({
+            target: { machineId: 'machine-a', sessionId: 's1' },
+            onStatus: (status) => statuses.push(status),
+            onTurn: (_role, text) => turns.push(text),
+        });
+        await vi.waitFor(() => expect(mocks.webRtc.start).toHaveBeenCalledWith('events-channel', expect.any(Object)));
+        const callbacks = mocks.webRtc.callbacks;
+        if (callbacks === undefined) throw new Error('WebRTC callbacks were not installed');
+        callbacks.onOffer('v=0\r\na=offer');
+        expect(stream.send).toHaveBeenCalledWith({ type: 'realtime.webrtc.offer', sdp: 'v=0\r\na=offer' });
+        stream.frames.forEach((listener) => listener({ type: 'realtime.webrtc.answer', sdp: 'v=0\r\na=answer' }));
+        await vi.waitFor(() => expect(mocks.webRtc.handle.acceptAnswer).toHaveBeenCalledWith('v=0\r\na=answer'));
+        stream.frames.forEach((listener) => listener({ type: 'realtime.webrtc.data', data: '{\"server\":true}' }));
+        expect(mocks.webRtc.handle.sendData).toHaveBeenCalledWith('{\"server\":true}');
+        callbacks.onData('{\"client\":true}');
+        expect(stream.send).toHaveBeenCalledWith({ type: 'realtime.webrtc.data', data: '{\"client\":true}' });
+        callbacks.onConnectionState('connected');
+        callbacks.onRemoteAudio(true);
+        stream.frames.forEach((listener) => listener({ type: 'realtime.transcript', role: 'agent', text: 'WebRTC replied.' }));
+        expect(statuses).toContain('connected');
+        expect(statuses.at(-1)).toBe('speaking');
+        expect(turns).toEqual(['WebRTC replied.']);
+        expect(mocks.liveAudio.start).not.toHaveBeenCalled();
+        expect(mocks.pcm.startRealtimePcm).not.toHaveBeenCalled();
+        handle.setMuted(true);
+        expect(mocks.webRtc.handle.setMuted).toHaveBeenCalledWith(true);
+        handle.stop();
+        expect(mocks.webRtc.handle.stop).toHaveBeenCalledOnce();
+        expect(stream.close).toHaveBeenCalledOnce();
     });
 
     it('arms locally after two speech-energy chunks and keeps silence off the provider path', async () => {

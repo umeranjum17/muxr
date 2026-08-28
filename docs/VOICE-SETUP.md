@@ -1,20 +1,21 @@
 # muxr realtime provider plugins
 
-Realtime voice is ordinary plugin composition: generic capability buttons, a provider-neutral realtime overlay, and a declarative Settings destination. The app kernel owns microphone permission, foreground-service startup, audio routing, and generic PCM capture/playback. Each backend plugin owns its provider authentication, model, prompt, tools, codecs, and event translation.
+Realtime voice is ordinary plugin composition: generic capability buttons, a provider-neutral realtime overlay, and a declarative Settings destination. The mobile kernel owns microphone permission, foreground-service ordering, PCM capture/playback, and WebRTC media. Backend plugins own provider authentication, prompts, tools, event translation, and either host-relayed PCM or bounded WebRTC signaling.
 
 ## Setup
 
-All three adapters ship with `@trymuxr/cli`:
+All four adapters ship with `@trymuxr/cli`:
 
-| Plugin | Provider | Default | Key file |
-|---|---|---|---|
-| `muxr.voice` | xAI Grok | enabled | `~/.muxr/xai.key` |
-| `muxr.voice-gemini` | Gemini Live | disabled | `~/.muxr/gemini.key` |
-| `muxr.voice-openai` | OpenAI Realtime | disabled | `~/.muxr/openai.key` |
+| Plugin | Provider | Transport | Default | Credential |
+|---|---|---|---|---|
+| `muxr.voice` | xAI Grok | host-relayed PCM | enabled | `~/.muxr/xai.key` |
+| `muxr.voice-gemini` | Gemini Live | host-relayed PCM | disabled | `~/.muxr/gemini.key` |
+| `muxr.voice-openai` | OpenAI Realtime | host-relayed PCM | disabled | `~/.muxr/openai.key` |
+| `muxr.voice-codex` | Codex Voice (experimental) | mobile WebRTC | disabled | owner-only local Codex ChatGPT OAuth |
 
-Exactly one provider may be enabled because all three claim `voice.session`. In the app, open **Settings → Realtime voice**, choose Grok, Gemini Live, or OpenAI Realtime, then open **Configure** to paste that provider's API key. The host serializes each switch so concurrent devices still converge on one provider.
+Exactly one provider may be enabled because all four claim `voice.session`. In the app, open **Settings → Realtime voice** to switch providers. Grok, Gemini Live, and OpenAI Realtime collect their API key through Configure. Codex Voice shows an explicit experimental OAuth/identity warning and uses the existing local `codex login`.
 
-The attributed secure prompt sends the value once through authenticated E2EE to that plugin's write RPC; declarative UI never stores or displays it. Provider and key choices survive `npm` upgrades and subsequent `muxr setup` runs.
+Provider keys use attributed secure prompts sent once through authenticated E2EE. Codex OAuth never enters a muxr frame, phone, process argument, log, or muxr storage. Provider choices survive `npm` upgrades and subsequent `muxr setup` runs.
 
 `MUXR_HOME` relocates the key directory. It is owner-only (`0700`); each key is owner-only (`0600`), written through a unique temporary file and atomic rename. Reads reject symlinks, non-regular files, and unsafe permissions.
 
@@ -27,6 +28,6 @@ Core has no vendor-specific host handler. The generic plugin bridge resolves:
 - `voice.session` — a persistent provider-neutral `host.stream`;
 - `voice.report` — supplies plugin-owned wake wording.
 
-The phone sends and receives only bounded audio, state, transcript, and control frames. The bundled adapters translate those frames to xAI `grok-voice-think-fast-2.0`, Gemini `gemini-3.1-flash-live-preview`, or OpenAI `gpt-realtime-2.1`. Another plugin can implement a different speech-to-speech provider without adding a provider branch to React Native.
+The three PCM providers retain their existing bounded audio/state/transcript/control frames. A WebRTC provider exchanges only bounded SDP and opaque data-channel control through the encrypted plugin stream; mobile media flows directly to the provider. No provider name, model, credential, account id, private header, or event vocabulary enters the mobile kernel.
 
 Local Whisper dictation is separate, on-device, and does not require this provider plugin.

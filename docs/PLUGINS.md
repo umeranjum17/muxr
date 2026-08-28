@@ -533,9 +533,9 @@ validates shape; `plugin call` proves wiring.
 { "slot": "host.stream", "id": "session", "type": "stream", "entry": "stream.mjs" }
 ```
 
-A stream process receives one private `realtime.open` line followed by bounded provider-neutral NDJSON frames. The phone sends PCM audio, mute/stop controls, or text to speak; the adapter returns ready/state/audio/clear/transcript/closed frames. It owns all provider credentials, models, prompts, tools, codecs, and protocol events. The host enforces approval revocation, per-device admission, idle/process-group cleanup, frame bounds, and encrypted relay transport. Adding another provider means adding another plugin adapter, not changing React Native.
+A stream process receives one private `realtime.open` line followed by bounded provider-neutral NDJSON frames. A PCM provider exchanges ready/audio/state/transcript/control frames and keeps its provider socket on the host. A WebRTC signaling provider exchanges bounded offer/answer SDP plus opaque data-channel control while the mobile kernel owns the peer and direct media. The host enforces approval revocation, admission, process cleanup, frame bounds, and encrypted relay transport.
 
-The package ships xAI (`plugins/voice`, default on), Gemini Live (`plugins/voice-gemini`, default off), and OpenAI Realtime (`plugins/voice-openai`, default off) as complete examples. All claim `voice.session`; choose one under **Settings → Realtime voice**, where the host serializes the switch and keeps the capability unambiguous. Setup defaults apply only on first install and never overwrite an existing choice.
+The package ships xAI (`plugins/voice`, default on), Gemini Live (`plugins/voice-gemini`, default off), OpenAI Realtime (`plugins/voice-openai`, default off), and experimental Codex Voice (`plugins/voice-codex`, default off). All claim `voice.session`; choose one under **Settings → Realtime voice**, where the host serializes the switch. Existing PCM providers remain unchanged; Codex adds only the generic WebRTC transport kind.
 
 Voice uses this without knowing any provider plugin id. Its one-shot semantic RPC aliases remain:
 

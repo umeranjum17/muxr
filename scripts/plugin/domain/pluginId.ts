@@ -1,7 +1,11 @@
 import { accepted, rejected, type Result } from './result.js';
 
 const ID_RE = /^[a-z0-9][a-z0-9._-]{0,63}$/;
-const OPTIONAL_VOICE_ADAPTERS = new Set(['muxr.voice-openai', 'muxr.voice-gemini']);
+const OPTIONAL_VOICE_ADAPTERS: Record<string, true> = {
+    'muxr.voice-openai': true,
+    'muxr.voice-gemini': true,
+    'muxr.voice-codex': true,
+};
 
 export function parsePluginId(value: unknown): Result<string> {
     if (typeof value === 'string' && ID_RE.test(value)) return accepted(value);
@@ -28,7 +32,7 @@ export function parseBundledPlugin(id: unknown, folderName: string): Result<Bund
     return accepted({
         id: parsed.value,
         folderName,
-        enabledByDefault: !OPTIONAL_VOICE_ADAPTERS.has(parsed.value),
+        enabledByDefault: OPTIONAL_VOICE_ADAPTERS[parsed.value] !== true,
     });
 }
 

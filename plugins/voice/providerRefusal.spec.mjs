@@ -1,4 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process';
+import { createServer } from 'node:http';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -11,6 +12,7 @@ import { parseRealtimeHostFrame } from '../../packages/contract/src/realtime/dom
 import { providerTools as geminiTools } from '../voice-gemini/stream.mjs';
 import { providerTools as openaiTools } from '../voice-openai/stream.mjs';
 import { providerError, providerRefusal, providerTools as xaiTools } from './stream.mjs';
+import { approvedSignalingUrl } from '../voice-codex/stream.mjs';
 
 const waitFor = async (predicate, message, timeoutMs = 4_000) => {
     const deadline = Date.now() + timeoutMs;
@@ -311,6 +313,7 @@ describe('providerRefusal', () => {
                 { rpc: './rpc.mjs', confirmedStatus: 'done', confirmedText: 'has finished', unconfirmedStatus: 'timeout' },
                 { rpc: '../voice-openai/rpc.mjs', confirmedStatus: 'failed', confirmedText: 'could not finish', unconfirmedStatus: 'error' },
                 { rpc: '../voice-gemini/rpc.mjs', confirmedStatus: 'blocked', confirmedText: 'is blocked on', unconfirmedStatus: 'unknown' },
+                { rpc: '../voice-codex/rpc.mjs', confirmedStatus: 'done', confirmedText: 'has finished', unconfirmedStatus: 'timeout' },
             ];
             const reportDisplayName = 'Nora token=display-private';
             const reportTaskTitle = 'Market ready voice password=task-private api_key=api-private key=key-private XAI_API_KEY=env-private pp_deadbeef';
@@ -489,4 +492,89 @@ describe('providerRefusal', () => {
             await rm(muxrHome, { recursive: true, force: true });
         }
     }, 10_000);
+
+    it('keeps Codex OAuth host-only while bounding signaling and lifecycle frames', async () => {
+        const requests = [];
+        const server = createServer((request, response) => {
+            let body = '';
+            request.on('data', (chunk) => { body += chunk; });
+            request.on('end', () => {
+                requests.push({ headers: request.headers, body: JSON.parse(body) });
+                response.writeHead(201, { 'content-type': 'application/sdp' });
+                response.end('v=0\r\na=answer');
+            });
+        });
+        const listening = Promise.withResolvers();
+        server.once('listening', listening.resolve);
+        server.once('error', listening.reject);
+        server.listen(0, '127.0.0.1');
+        await listening.promise;
+        const address = server.address();
+        if (!address || typeof address === 'string') throw new Error('Codex signaling fixture did not bind');
+        const account = 'acct-test';
+        const payload = Buffer.from(JSON.stringify({ 'https://api.openai.com/auth': { chatgpt_account_id: account } })).toString('base64url');
+        const token = `e30.${payload}.test-signature`;
+        const spawnProvider = (boundAccount = account) => {
+            const child = spawn(process.execPath, [fileURLToPath(new URL('../voice-codex/stream.mjs', import.meta.url))], {
+                cwd: fileURLToPath(new URL('../..', import.meta.url)),
+                env: {
+                    ...process.env,
+                    NODE_ENV: 'test',
+                    MUXR_TEST_CODEX_SIGNALING_URL: `http://127.0.0.1:${address.port}/signal`,
+                    MUXR_TEST_CODEX_TOKEN: token,
+                    MUXR_TEST_CODEX_ACCOUNT_ID: boundAccount,
+                },
+                stdio: ['pipe', 'pipe', 'pipe'],
+            });
+            const frames = [];
+            const errors = [];
+            createInterface({ input: child.stdout }).on('line', (line) => frames.push(JSON.parse(line)));
+            createInterface({ input: child.stderr }).on('line', (line) => errors.push(line));
+            return { child, frames, errors, send: (frame) => child.stdin.write(`${JSON.stringify(frame)}\n`) };
+        };
+        expect(approvedSignalingUrl('https://chatgpt.com/backend-api/codex/realtime/calls?intent=quicksilver')).toBe(true);
+        expect(approvedSignalingUrl('https://example.com/backend-api/codex/realtime/calls')).toBe(false);
+
+        const flow = spawnProvider();
+        try {
+            flow.send({ type: 'realtime.open' });
+            await waitFor(() => flow.frames.some((frame) => frame.type === 'realtime.webrtc.start'), `Codex provider did not request WebRTC: ${flow.errors.join('\n')}`);
+            flow.send({ type: 'realtime.webrtc.offer', sdp: 'v=0\r\na=offer' });
+            await waitFor(() => flow.frames.some((frame) => frame.type === 'realtime.webrtc.answer'), 'Codex provider did not return SDP');
+            expect(requests).toHaveLength(1);
+            expect(requests[0].headers.authorization).toBe(`Bearer ${token}`);
+            expect(requests[0].headers['chatgpt-account-id']).toBe(account);
+            expect(requests[0].headers.originator).toBe('Codex Desktop');
+            expect(requests[0].body.sdp).toBe('v=0\r\na=offer');
+
+            flow.send({ type: 'realtime.webrtc.data', data: JSON.stringify({ type: 'session.started', session: { id: 'rtc_private' } }) });
+            flow.send({ type: 'realtime.webrtc.data', data: JSON.stringify({ type: 'turn.done', turn: { role: 'user', transcript: 'Please inspect the build.' } }) });
+            flow.send({ type: 'realtime.webrtc.data', data: JSON.stringify({ type: 'turn.done', turn: { role: 'assistant', transcript: 'The build is ready.' } }) });
+            await waitFor(() => flow.frames.filter((frame) => frame.type === 'realtime.transcript').length === 2, 'Codex transcripts were not translated');
+            expect(flow.frames.filter((frame) => frame.type === 'realtime.transcript')).toEqual([
+                { type: 'realtime.transcript', role: 'user', text: 'Please inspect the build.' },
+                { type: 'realtime.transcript', role: 'agent', text: 'The build is ready.' },
+            ]);
+            expect(JSON.stringify(flow.frames)).not.toContain(token);
+            expect(JSON.stringify(flow.frames)).not.toContain(account);
+            expect(JSON.stringify(flow.frames)).not.toContain('rtc_private');
+            flow.send({ type: 'realtime.control', action: 'stop' });
+            await waitFor(() => flow.frames.some((frame) => frame.type === 'realtime.closed'), 'Codex provider did not close');
+            await waitFor(() => flow.child.exitCode !== null, `Codex provider did not exit: ${flow.errors.join('\n')}`);
+
+            const refused = spawnProvider('acct-other');
+            refused.send({ type: 'realtime.open' });
+            await waitFor(() => refused.frames.some((frame) => frame.type === 'realtime.webrtc.start'), 'mismatch provider did not start');
+            refused.send({ type: 'realtime.webrtc.offer', sdp: 'v=0\r\na=offer' });
+            await waitFor(() => refused.frames.some((frame) => frame.type === 'realtime.closed'), 'account mismatch did not fail closed');
+            expect(refused.frames.at(-1).reason).toContain('account binding is inconsistent');
+            expect(requests).toHaveLength(1);
+            if (refused.child.exitCode === null) refused.child.kill('SIGKILL');
+        } finally {
+            if (flow.child.exitCode === null) flow.child.kill('SIGKILL');
+            const closed = Promise.withResolvers();
+            server.close(closed.resolve);
+            await closed.promise;
+        }
+    }, 15_000);
 });
