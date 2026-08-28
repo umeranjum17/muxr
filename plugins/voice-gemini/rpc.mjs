@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { readFileSync } from 'node:fs';
-import { reportInstruction } from '../voice/coordinatorPolicy.mjs';
+import { reportAgentOutcome } from '../voice/coordinatorPolicy.mjs';
 import { providerSecret } from '../voice/providerSecret.mjs';
 
 const secret = providerSecret('gemini.key', {
@@ -23,7 +23,7 @@ if (method === 'status') {
     await secret.clearKey();
     output = null;
 } else if (method === 'report') {
-    output = { say: reportInstruction(input) };
+    output = { say: reportAgentOutcome(input) };
 } else {
     throw new Error(`unknown Gemini Live method: ${method ?? ''}`);
 }

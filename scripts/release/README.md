@@ -7,7 +7,7 @@ Owns assembling the self-hostable npm artifact and updating an already-installed
 ```
 scripts/release/
   index.mjs                 public entry
-  application/              pack, update
+  application/              packRelease script, updateCli
   infrastructure/           license audit of bundled dependencies
 ```
 

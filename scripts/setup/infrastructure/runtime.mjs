@@ -7,6 +7,7 @@ import {
     existsSync,
     mkdirSync,
     readFileSync,
+    realpathSync,
     renameSync,
     rmSync,
     statSync,

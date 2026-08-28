@@ -4,5 +4,20 @@ export {
     parsePluginId,
     retiredSuccessor,
 } from './domain/dist/index.js';
-export { checkPlugin, runPlugin } from './application/manifest.mjs';
-export { parseNpmSpec, readNpmArchive, runPackage } from './application/registry.mjs';
+export {
+    callPluginAction,
+    checkPlugin,
+    clonePlugin,
+    createPlugin,
+    linkPlugin,
+    reportPluginCheck,
+    showPluginDocs,
+} from './application/checkPlugin.mjs';
+export {
+    installPlugin,
+    listPlugins,
+    parseNpmSpec,
+    readNpmArchive,
+    removePlugin,
+    updatePlugin,
+} from './application/installPlugin.mjs';

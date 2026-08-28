@@ -7,33 +7,47 @@ import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import {
     BACK,
+    applyMachineSetup,
     browserHostingCanEnable,
     browserHostingReady,
+    connectEnrollment,
+    connectRemoteRelay,
     daemonIsRunning,
     enableBrowserHosting,
     hasPendingRemoteConnect,
     heading,
+    hostSharedRelay,
+    inspectSetup,
+    listDevices,
+    listMachines,
+    manageMachines,
+    pairDevice,
     prompt,
+    revokeDevice,
+    revokeMachine,
+    enrollMachine,
     runDaemon,
-    runDevices,
-    runDoctor,
-    runFullUninstall,
     runIntegrations,
-    runMachineManagement,
-    runMachines,
-    runPair,
     runPeers,
-    runRemoteConnect,
-    runRemoteRelaySetup,
-    runSelfHost,
-    runSetup,
-    runSharedRelaySetup,
     select,
+    startSelfHost,
     status,
+    uninstallMuxr,
 } from './setup/index.mjs';
-import { runPackage, runPlugin } from './plugin/index.mjs';
-import { runDiagnostics } from './diagnostics/index.mjs';
-import { runUpdate } from './release/index.mjs';
+import {
+    callPluginAction,
+    clonePlugin,
+    createPlugin,
+    installPlugin,
+    linkPlugin,
+    listPlugins,
+    removePlugin,
+    reportPluginCheck,
+    showPluginDocs,
+    updatePlugin,
+} from './plugin/index.mjs';
+import { dumpDiagnostics } from './diagnostics/index.mjs';
+import { updateCli } from './release/index.mjs';
 
 const HELP = `muxr — every coding agent on your phone
 
@@ -247,7 +261,7 @@ async function runUninstall(args = []) {
         if (confirmed !== 'yes') return 0;
     }
 
-    const code = await runFullUninstall(args);
+    const code = await uninstallMuxr(args);
     if (code !== 0) return code;
     const global = globalCliPrefix();
     if (global === undefined) return 0;
@@ -264,6 +278,63 @@ async function runUninstall(args = []) {
     }
     process.stdout.write('@trymuxr/cli was removed. Reinstall later with `npm install -g --ignore-scripts @trymuxr/cli`.\n');
     return 0;
+}
+
+async function applyUpdate(args = []) {
+    return updateCli({
+        checkOnly: args.includes('--check'),
+        yes: args.includes('--yes'),
+        confirm: process.stdin.isTTY && process.stdout.isTTY
+            ? async ({ latest }) => select('Apply this update?', [
+                { value: false, title: 'Not now', description: 'leave this installation unchanged' },
+                { value: true, title: 'Update muxr', description: `install @trymuxr/cli@${latest} and apply the plan above` },
+            ])
+            : undefined,
+    });
+}
+
+function pluginFlag(args, name) {
+    const index = args.indexOf(name);
+    if (index !== -1) {
+        if (index === args.length - 1) throw new Error(`${name} requires a JSON value`);
+        return args[index + 1];
+    }
+    const inline = args.find((arg) => arg.startsWith(`${name}=`));
+    return inline?.slice(name.length + 1);
+}
+
+async function dispatchPlugin(command, args = []) {
+    if (command === 'docs') {
+        if (args.length !== 0) throw new Error('muxr plugin docs takes no arguments');
+        return showPluginDocs();
+    }
+    if (command === 'clone') {
+        if (!args[0] || args.length > 2) throw new Error('muxr plugin clone requires a plugin id and optional destination');
+        return clonePlugin(args[0], args[1]);
+    }
+    if (command === 'call') {
+        const positional = [];
+        for (let index = 0; index < args.length; index += 1) {
+            if (args[index] === '--input' || args[index] === '--context') { index += 1; continue; }
+            if (args[index].startsWith('--input=') || args[index].startsWith('--context=')) continue;
+            positional.push(args[index]);
+        }
+        const [path, contributionId] = positional;
+        if (!path || !contributionId) throw new Error('muxr plugin call requires a path and a contribution id');
+        return callPluginAction(path, contributionId, pluginFlag(args, '--input'), pluginFlag(args, '--context'));
+    }
+    if (command === 'list') return listPlugins(args);
+    if (command === 'install') return installPlugin(args);
+    if (command === 'update') return updatePlugin(args);
+    if (command === 'remove') return removePlugin(args);
+    const web = args.includes('--web');
+    const path = args.find((arg) => arg !== '--web');
+    if (!path) throw new Error(`muxr plugin ${command} requires a path or name`);
+    if (web && command !== 'dev') throw new Error('--web is only valid with muxr plugin dev');
+    if (command === 'create') return createPlugin(path);
+    if (command === 'check') return reportPluginCheck(path);
+    if (command === 'dev') return linkPlugin(path, { web });
+    throw new Error(`unknown plugin command: ${command}`);
 }
 
 async function dispatch(command, args = []) {
@@ -290,19 +361,26 @@ async function dispatch(command, args = []) {
         await import('./setup/presentation/hostUp.mjs');
         return 0;
     }
-    if (command === 'setup') return runSetup(args);
-    if (command === 'shared-relay') return runSharedRelaySetup();
-    if (command === 'connect-wizard') return runRemoteRelaySetup();
-    if (command === 'machines-menu') return runMachineManagement();
-    if (command === 'connect') return runRemoteConnect(args);
-    if (command === 'self-host') return runSelfHost(args);
+    if (command === 'setup') return applyMachineSetup(args);
+    if (command === 'shared-relay') return hostSharedRelay();
+    if (command === 'connect-wizard') return connectRemoteRelay();
+    if (command === 'machines-menu') return manageMachines();
+    if (command === 'connect') return connectEnrollment(args);
+    if (command === 'self-host') return startSelfHost(args);
     if (command === 'devices') {
         const [deviceCommand = 'list', ...deviceArgs] = args;
-        return runDevices(deviceCommand, deviceArgs);
+        if (deviceCommand === 'list') return listDevices();
+        if (deviceCommand === 'revoke') return revokeDevice(deviceArgs);
+        process.stderr.write('usage: muxr devices list | muxr devices revoke <number|name>\n');
+        return 1;
     }
     if (command === 'machines') {
         const [machineCommand = 'list', ...machineArgs] = args;
-        return runMachines(machineCommand, machineArgs);
+        if (machineCommand === 'enroll') return enrollMachine();
+        if (machineCommand === 'list') return listMachines();
+        if (machineCommand === 'revoke') return revokeMachine(machineArgs);
+        process.stderr.write('usage: muxr machines enroll | list | revoke <number|name>\n');
+        return 1;
     }
     if (command === 'peers' || command === 'peer') {
         try {
@@ -313,12 +391,12 @@ async function dispatch(command, args = []) {
             return 1;
         }
     }
-    if (command === 'doctor' || command === 'status') return runDoctor();
+    if (command === 'doctor' || command === 'status') return inspectSetup();
     if (command === 'diagnostics') {
-        try { runDiagnostics(); return 0; }
+        try { dumpDiagnostics(); return 0; }
         catch (error) { process.stderr.write(`muxr diagnostics: ${error instanceof Error ? error.message : String(error)}\n`); return 1; }
     }
-    if (command === 'update') return runUpdate(args);
+    if (command === 'update') return applyUpdate(args);
     if (command === 'daemon') return runDaemon(args);
     if (command === 'restart') return runDaemon(['restart']);
     if (command === 'uninstall') return runUninstall(args);
@@ -326,15 +404,13 @@ async function dispatch(command, args = []) {
     if (command === 'plugin') {
         const [pluginCommand = 'list', ...pluginArgs] = args;
         try {
-            return ['docs', 'create', 'clone', 'check', 'call', 'dev'].includes(pluginCommand)
-                ? runPlugin(pluginCommand, pluginArgs)
-                : await runPackage(pluginCommand, pluginArgs);
+            return await dispatchPlugin(pluginCommand, pluginArgs);
         } catch (error) {
             process.stderr.write(`muxr plugin: ${error instanceof Error ? error.message : String(error)}\n`);
             return 1;
         }
     }
-    if (command === 'pair') return runPair(args);
+    if (command === 'pair') return pairDevice(args);
     if (command === 'version' || command === '--version' || command === '-v') {
         process.stdout.write(`${versionString()}\n`);
         return 0;
@@ -381,7 +457,7 @@ async function devicesMenu() {
         if (choice === undefined) return 'quit';
         if (choice === BACK || choice === 'back') return;
         let code = 0;
-        if (choice === 'pair') code = await runPair([]);
+        if (choice === 'pair') code = await pairDevice([]);
         else if (choice === 'pair-browser' || choice === 'pair-browser-view') {
             if (!browserHostingReady()) {
                 const targeted = browserHostingCanEnable();
@@ -400,16 +476,16 @@ async function devicesMenu() {
                 if (enable === undefined) return 'quit';
                 if (enable === 'enable') {
                     code = await enableBrowserHosting();
-                    if (code === 0) code = await runPair([choice === 'pair-browser-view' ? '--browser-view' : '--browser']);
+                    if (code === 0) code = await pairDevice([choice === 'pair-browser-view' ? '--browser-view' : '--browser']);
                 } else if (enable === 'setup') code = await dispatch('setup', []);
-            } else code = await runPair([choice === 'pair-browser-view' ? '--browser-view' : '--browser']);
-        } else if (choice === 'list') code = await runDevices('list');
+            } else code = await pairDevice([choice === 'pair-browser-view' ? '--browser-view' : '--browser']);
+        } else if (choice === 'list') code = await listDevices();
         else if (choice === 'revoke') {
-            code = await runDevices('list');
+            code = await listDevices();
             if (code === 0) {
                 const reference = await prompt('Device list number or exact name');
                 if (reference === undefined) return 'quit';
-                if (reference) code = await runDevices('revoke', [reference]);
+                if (reference) code = await revokeDevice([reference]);
             }
         }
         if (code !== 0) process.exitCode = code;
@@ -435,15 +511,16 @@ async function relayMenu() {
         if (choice === undefined) return 'quit';
         if (choice === BACK || choice === 'back') return;
         let code = 0;
-        if (choice === 'host') code = await runSharedRelaySetup();
-        else if (choice === 'connect') code = await runRemoteRelaySetup();
-        else if (choice === 'enroll' || choice === 'list') code = await runMachines(choice);
+        if (choice === 'host') code = await hostSharedRelay();
+        else if (choice === 'connect') code = await connectRemoteRelay();
+        else if (choice === 'enroll') code = await enrollMachine();
+        else if (choice === 'list') code = await listMachines();
         else if (choice === 'revoke') {
-            code = await runMachines('list');
+            code = await listMachines();
             if (code === 0) {
                 const reference = await prompt('Machine list number or exact name');
                 if (reference === undefined) return 'quit';
-                if (reference) code = await runMachines('revoke', [reference]);
+                if (reference) code = await revokeMachine([reference]);
             }
         }
         if (code !== 0) process.exitCode = code;
@@ -479,9 +556,9 @@ if (input[0] === undefined && process.stdin.isTTY && process.stdout.isTTY) {
         else if (selected === 'start') result = await runDaemon(['start']);
         else if (selected === 'devices') result = await devicesMenu();
         else if (selected === 'relay') result = await relayMenu();
-        else if (selected === 'machines') result = await runMachineManagement();
+        else if (selected === 'machines') result = await manageMachines();
         else if (selected === 'doctor' || selected === 'update') result = await dispatch(selected, []);
-        else if (selected === 'change') result = sharedRelay ? await runSharedRelaySetup() : await dispatch('setup', []);
+        else if (selected === 'change') result = sharedRelay ? await hostSharedRelay() : await dispatch('setup', []);
         else if (selected === 'advanced') result = await advancedMenu();
         else { printHelp(); continue; }
         if (result === 'quit') break;

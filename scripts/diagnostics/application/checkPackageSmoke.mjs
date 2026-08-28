@@ -353,16 +353,21 @@ try {
         env: { ...process.env, MUXR_PACKAGE_CONTROL_URL: 'https://package-smoke.invalid' },
     });
     const packed = JSON.parse(run('npm', ['pack', '--json', '--pack-destination', tarDir], { cwd: join(root, 'dist-npm') }).stdout);
-    const tarball = join(tarDir, packed[0].filename);
+    const packedInfo = Array.isArray(packed) ? packed[0] : Object.values(packed)[0];
+    const tarball = join(tarDir, packedInfo.filename);
     const listing = run('tar', ['-tf', tarball]).stdout.split('\n');
     assert.ok(listing.includes('package/host.js'));
     assert.ok(listing.includes('package/crypto.js'), 'strict hosted crypto runtime missing');
     assert.ok(listing.includes('package/THIRD_PARTY_LICENSES.json'));
     assert.ok(!listing.includes('package/esbuild-metafile.json'));
     assert.ok(listing.includes('package/relay.js'), 'self-host relay bundle missing from npm artifact');
-    assert.ok(listing.includes('package/release/application/update.mjs'), 'interactive CLI updater missing from npm artifact');
-    assert.ok(listing.includes('package/setup/application/peers.mjs'), 'peer CLI client missing from npm artifact');
-    assert.ok(listing.includes('package/diagnostics/application/dump.mjs'), 'host diagnostics CLI missing from npm artifact');
+    assert.ok(listing.includes('package/release/application/updateCli.mjs'), 'interactive CLI updater missing from npm artifact');
+    assert.ok(listing.includes('package/setup/application/inspectSetup.mjs'), 'setup inspect use case missing from npm artifact');
+    assert.ok(listing.includes('package/setup/application/pairDevice.mjs'), 'pair-device use case missing from npm artifact');
+    assert.ok(listing.includes('package/plugin/application/checkPlugin.mjs'), 'plugin check use case missing from npm artifact');
+    assert.ok(listing.includes('package/plugin/application/installPlugin.mjs'), 'plugin install use case missing from npm artifact');
+    assert.ok(listing.includes('package/setup/application/promptPeerAgent.mjs'), 'peer CLI client missing from npm artifact');
+    assert.ok(listing.includes('package/diagnostics/application/dumpDiagnostics.mjs'), 'host diagnostics CLI missing from npm artifact');
     assert.ok(listing.includes('package/plugins/control/run.mjs'), 'control plugin missing from npm artifact');
     assert.ok(listing.includes('package/plugins/servers/serve.mjs'), 'Preview discovery plugin missing from npm artifact');
     assert.ok(listing.includes('package/plugins/voice/rpc.mjs'), 'xAI Voice plugin missing from npm artifact');
@@ -423,7 +428,7 @@ try {
     const unavailablePeers = run(cli, ['peers', 'list'], { cwd: installDir, env: cliEnv(), allowFailure: true });
     assert.equal(unavailablePeers.status, 1);
     assert.match(unavailablePeers.stderr, /Peer access is not ready/);
-    const wizardSource = readFileSync(join(installedPackage, 'setup/application/wizard.mjs'), 'utf8');
+    const wizardSource = readFileSync(join(installedPackage, 'setup/presentation/setupWizard.mjs'), 'utf8');
     const applyGuard = wizardSource.indexOf("if (apply !== true) return cancelSetup();");
     const tailscaleMutation = wizardSource.indexOf('await applyTailscaleConnect(found)', applyGuard);
     assert.ok(applyGuard >= 0 && tailscaleMutation > applyGuard, 'interactive setup may mutate Tailscale before Apply setup');
@@ -544,7 +549,7 @@ try {
         }
         assert.ok(parsedProbe.daily.some((day) => day.agents.some((agent) => agent.agent === 'claude')), 'ccusage agent ids no longer match the Usage allowlist');
     }
-    const installedUpdate = await import(new URL(`file://${join(installDir, 'node_modules', '@trymuxr', 'cli', 'release/application/update.mjs')}`).href);
+    const installedUpdate = await import(new URL(`file://${join(installDir, 'node_modules', '@trymuxr', 'cli', 'release/application/updateCli.mjs')}`).href);
     assert.ok(installedUpdate.compareVersions('1.0.0-beta.10', '1.0.0-beta.9') > 0);
     assert.ok(installedUpdate.compareVersions('1.0.0-beta.9', '1.0.0-beta.10') < 0);
     assert.ok(installedUpdate.compareVersions('1.0.0', '1.0.0-rc.1') > 0);
@@ -676,8 +681,8 @@ try {
     const hungDoctor = run(cli, ['doctor'], { cwd: installDir, env: { ...env, FAKE_HERDR_HANG: '1' }, allowFailure: true });
     assert.notEqual(hungDoctor.status, 0, 'doctor accepted an unresponsive Herdr server');
     assert.ok(Date.now() - hungProbeStarted < 3_000, 'unresponsive Herdr blocked doctor');
-    const wizardUrl = `file://${join(installDir, 'node_modules', '@trymuxr', 'cli', 'setup/application/wizard.mjs')}`;
-    const deadInspection = run(process.execPath, ['--input-type=module', '-e', `import {inspectSetup} from ${JSON.stringify(wizardUrl)}; console.log(JSON.stringify(inspectSetup().herdr))`], { cwd: installDir, env });
+    const wizardUrl = `file://${join(installDir, 'node_modules', '@trymuxr', 'cli', 'setup/presentation/setupWizard.mjs')}`;
+    const deadInspection = run(process.execPath, ['--input-type=module', '-e', `import {probeMachine} from ${JSON.stringify(wizardUrl)}; console.log(JSON.stringify(probeMachine().herdr))`], { cwd: installDir, env });
     assert.equal(JSON.parse(deadInspection.stdout).running, false, 'onboarding accepted a stopped Herdr server');
     const restarted = run(cli, ['daemon', 'restart'], { cwd: installDir, env });
     assert.ok(existsSync(fakeServerState), 'daemon restart did not recover a stopped Herdr server');

@@ -6,7 +6,7 @@ function diagnosticsPath() {
     return join(process.env.MUXR_HOME?.trim() || join(homedir(), '.muxr'), 'host', 'diagnostics.json');
 }
 
-export function runDiagnostics() {
+export function dumpDiagnostics() {
     const path = diagnosticsPath();
     if (!existsSync(path)) throw new Error('no host diagnostics yet; start muxr and try again');
     const info = lstatSync(path);

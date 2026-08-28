@@ -1,9 +1,15 @@
 import { spawnSync } from 'node:child_process';
 import { networkInterfaces, userInfo } from 'node:os';
-import { intro, heading, status, note, outro, prompt, select, withSpinner, withFullscreen, setupStep, completeFullscreen, BACK } from '../presentation/ui.mjs';
+import { intro, heading, status, note, outro, prompt, select, withSpinner, withFullscreen, setupStep, completeFullscreen, BACK } from './ui.mjs';
 import { herdrServerIsReady, runLocalPrerequisites } from '../infrastructure/herdr.mjs';
-import { runDoctor } from './hosted.mjs';
-import { runMachines, runPair, runRemoteConnect, runSelfHost, selfhostPublicSummary, sharedMachineCount } from './selfHost.mjs';
+import { inspectSetup } from '../application/inspectSetup.mjs';
+import { pairDevice } from '../application/pairDevice.mjs';
+import { startSelfHost } from '../application/startSelfHost.mjs';
+import { connectEnrollment } from '../application/connectEnrollment.mjs';
+import { enrollMachine } from '../application/enrollMachine.mjs';
+import { listMachines } from '../application/listMachines.mjs';
+import { revokeMachine } from '../application/revokeMachine.mjs';
+import { selfhostPublicSummary, sharedMachineCount } from '../infrastructure/selfhostRelay.mjs';
 import { runTailscale, tailscaleBin } from '../infrastructure/selfhost.mjs';
 import { advertisedUrlForMode, connectionLabel, ingressPlan, modeAllowsBrowserHosting } from '../domain/dist/index.js';
 
@@ -108,7 +114,7 @@ function probeCloudflared() {
     return { installed: true, ok: result.ok, detail };
 }
 
-export function inspectSetup() {
+export function probeMachine() {
     const binary = herdr();
     const herdrVersion = command(binary, ['--version']);
     const integration = herdrVersion.ok ? command(binary, ['integration', 'status']) : { ok: false, output: '' };
@@ -285,7 +291,7 @@ async function applyTailscaleConnect(found) {
     return found.tailscale.connected;
 }
 
-export async function runSetup(args = []) {
+export async function applyMachineSetup(args = []) {
     // Existing automation stays stable: flags used by scripts keep the historical
     // non-wizard flow. Plain `muxr setup` is the high-touch interactive path.
     const requestedMode = value(args, '--mode');
@@ -298,7 +304,7 @@ export async function runSetup(args = []) {
     const scripted = !fromPlugin && (!process.stdin.isTTY || !process.stdout.isTTY || automationFlags.some((flag) => args.includes(flag)));
     if (args.includes('--inspect')) {
         intro();
-        const found = await withSpinner('Inspecting Herdr, agents, and networking', async () => inspectSetup());
+        const found = await withSpinner('Inspecting Herdr, agents, and networking', async () => probeMachine());
         renderInspection(found);
         outro('Inspection complete. Nothing changed.');
         return 0;
@@ -306,12 +312,12 @@ export async function runSetup(args = []) {
     if (scripted) {
         const prerequisites = await runLocalPrerequisites(args);
         if (prerequisites !== 0) return prerequisites;
-        return runSelfHost(args);
+        return startSelfHost(args);
     }
 
     return withFullscreen(async () => {
     setupStep(1, 5, 'Check this machine');
-    const found = await withSpinner('Inspecting Herdr, agents, and networking', async () => inspectSetup());
+    const found = await withSpinner('Inspecting Herdr, agents, and networking', async () => probeMachine());
     renderInspection(found);
     const tailscaleResult = await offerTailscaleConnect(found);
     if (aborted(tailscaleResult)) return cancelled();
@@ -461,10 +467,10 @@ export async function runSetup(args = []) {
     if (pairing === 'browser') selfhostArgs.push('--pair-browser');
     if (pairing === 'browser-view') selfhostArgs.push('--pair-browser-view');
     if (pairing === 'none') selfhostArgs.push('--no-pair');
-    const result = await runSelfHost(selfhostArgs);
+    const result = await startSelfHost(selfhostArgs);
     if (result !== 0) return result;
-    const browserPairFailed = pairing === 'both' && (await runPair(['--browser'])) !== 0;
-    const doctor = await runDoctor();
+    const browserPairFailed = pairing === 'both' && (await pairDevice(['--browser'])) !== 0;
+    const doctor = await inspectSetup();
     if (doctor !== 0) return doctor;
     const summary = await selfhostPublicSummary();
     setupStep(5, 5, 'Setup complete');
@@ -497,13 +503,13 @@ export async function runSetup(args = []) {
     });
 }
 
-export async function runSharedRelaySetup() {
+export async function hostSharedRelay() {
     if (!process.stdin.isTTY || !process.stdout.isTTY) {
         process.stderr.write('muxr shared-relay is interactive; run it in a terminal\n');
         return 1;
     }
     intro();
-    const found = await withSpinner('Inspecting secure networking on this server', async () => inspectSetup());
+    const found = await withSpinner('Inspecting secure networking on this server', async () => probeMachine());
     renderInspection(found);
     const tailscaleResult = await offerTailscaleConnect(found);
     if (aborted(tailscaleResult)) return cancelled();
@@ -577,7 +583,7 @@ export async function runSharedRelaySetup() {
     const relayArgs = ['--relay-only', '--managed-relay', '--reconfigure', '--port', String(port), '--connection-mode', mode];
     if (mode === 'external') relayArgs.push('--advertise', endpoint);
     if (web) relayArgs.push('--web', '--yes');
-    const result = await runSelfHost(relayArgs);
+    const result = await startSelfHost(relayArgs);
     if (result !== 0) return result;
     const summary = await selfhostPublicSummary();
     if (!summary?.publicHealthy) {
@@ -603,7 +609,7 @@ export async function runSharedRelaySetup() {
         outro('Shared relay is up. No enrollment was created.');
         return 0;
     }
-    return runMachines('enroll');
+    return enrollMachine();
 }
 
 function describeEnrollment(raw) {
@@ -616,14 +622,14 @@ function describeEnrollment(raw) {
     } catch { throw new Error('paste the complete muxr://enroll string from the shared relay server'); }
 }
 
-export async function runRemoteRelaySetup() {
+export async function connectRemoteRelay() {
     intro();
     const raw = await prompt('Machine enrollment string (muxr://enroll?...)');
     if (raw === undefined || raw === '') return cancelled();
     let enrollment;
     try { enrollment = describeEnrollment(raw); }
     catch (cause) { process.stderr.write(`${cause.message}\n`); return 1; }
-    const found = await withSpinner('Inspecting Herdr and coding agents', async () => inspectSetup());
+    const found = await withSpinner('Inspecting Herdr and coding agents', async () => probeMachine());
     renderInspection(found);
     const current = await selfhostPublicSummary();
     const syncIntegrations = await select('Sync detected coding-agent integrations?', [
@@ -674,7 +680,7 @@ export async function runRemoteRelaySetup() {
         ...(pairing === 'browser-view' ? ['--pair-browser-view'] : []),
         ...(pairing === 'both' ? ['--pair-both'] : []),
     ];
-    const connected = await runRemoteConnect(connectArgs);
+    const connected = await connectEnrollment(connectArgs);
     if (connected !== 0) return connected;
     const summary = await selfhostPublicSummary();
     heading('Remote connection ready');
@@ -695,7 +701,7 @@ export async function runRemoteRelaySetup() {
     return 0;
 }
 
-export async function runMachineManagement() {
+export async function manageMachines() {
     const action = await select('Shared relay machines', [
         { value: 'enroll', title: 'Create enrollment', description: 'show a five-minute, one-use string for an agent machine' },
         { value: 'list', title: 'List machines', description: 'show friendly names and credential expiry' },
@@ -703,8 +709,9 @@ export async function runMachineManagement() {
         { value: 'cancel', title: 'Back', description: 'make no changes' },
     ]);
     if (aborted(action) || action === 'cancel') return cancelled();
-    if (action !== 'revoke') return runMachines(action);
-    if ((await runMachines('list')) !== 0) return 1;
+    if (action === 'enroll') return enrollMachine();
+    if (action === 'list') return listMachines();
+    if ((await listMachines()) !== 0) return 1;
     const reference = await prompt('Machine list number or exact name');
-    return reference ? runMachines('revoke', [reference]) : cancelled();
+    return reference ? revokeMachine([reference]) : cancelled();
 }

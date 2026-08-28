@@ -113,26 +113,79 @@ async function requestCoordinator(request, signal) {
     });
 }
 
+export async function listAgents(signal) {
+    return requestCoordinator({ method: 'list' }, signal);
+}
+
+export async function startAgent(command, signal) {
+    return requestCoordinator({
+        method: 'start',
+        name: text(command.name),
+        kind: text(command.kind),
+        taskTitle: text(command.taskTitle),
+        operationId: command.operationId,
+    }, signal);
+}
+
+export async function promptAgent(command, signal) {
+    return requestCoordinator({
+        method: 'prompt',
+        ...(command.agent ? { agent: command.agent } : {}),
+        text: text(command.text),
+        operationId: command.operationId,
+    }, signal);
+}
+
+export async function readAgentSession(command, signal) {
+    return requestCoordinator({
+        method: 'read',
+        ...(command.agent ? { agent: command.agent } : {}),
+    }, signal);
+}
+
+export async function inspectAgentStatus(command, signal) {
+    return requestCoordinator({
+        method: 'status',
+        ...(command.agent ? { agent: command.agent } : {}),
+    }, signal);
+}
+
+export async function watchAgentLifecycle(command, signal) {
+    return requestCoordinator({
+        method: 'watch',
+        ...(command.agent ? { agent: command.agent } : {}),
+        ...(command.timeoutMs === undefined ? {} : { timeoutMs: command.timeoutMs }),
+        operationId: command.operationId,
+    }, signal);
+}
+
+export async function focusAgent(command, signal) {
+    return requestCoordinator({
+        method: 'focus',
+        ...(command.agent ? { agent: command.agent } : {}),
+        operationId: command.operationId,
+    }, signal);
+}
+
 export async function runCodingTool(name, args, operationId, signal) {
     const input = args && typeof args === 'object' ? args : {};
     const agent = text(input.agent);
     const mutation = typeof operationId === 'string' && /^[A-Za-z0-9._:-]{1,160}$/.test(operationId)
         ? operationId
         : randomUUID();
-    if (name === 'list_agents') return requestCoordinator({ method: 'list' }, signal);
-    if (name === 'start_agent') return requestCoordinator({
-        method: 'start', name: text(input.name), kind: text(input.kind), taskTitle: text(input.taskTitle), operationId: mutation,
-    }, signal);
-    if (name === 'prompt_agent') return requestCoordinator({
-        method: 'prompt', ...(agent ? { agent } : {}), text: text(input.text), operationId: mutation,
-    }, signal);
-    if (name === 'read_agent_output') return requestCoordinator({ method: 'read', ...(agent ? { agent } : {}) }, signal);
-    if (name === 'agent_status') return requestCoordinator({ method: 'status', ...(agent ? { agent } : {}) }, signal);
-    if (name === 'watch_agent') return requestCoordinator({
-        method: 'watch', ...(agent ? { agent } : {}),
-        ...(input.timeoutMs === undefined ? {} : { timeoutMs: input.timeoutMs }), operationId: mutation,
-    }, signal);
-    if (name === 'focus_agent') return requestCoordinator({ method: 'focus', ...(agent ? { agent } : {}), operationId: mutation }, signal);
+    if (name === 'list_agents') return listAgents(signal);
+    if (name === 'start_agent') {
+        return startAgent({ name: input.name, kind: input.kind, taskTitle: input.taskTitle, operationId: mutation }, signal);
+    }
+    if (name === 'prompt_agent') {
+        return promptAgent({ agent, text: input.text, operationId: mutation }, signal);
+    }
+    if (name === 'read_agent_output') return readAgentSession({ agent }, signal);
+    if (name === 'agent_status') return inspectAgentStatus({ agent }, signal);
+    if (name === 'watch_agent') {
+        return watchAgentLifecycle({ agent, timeoutMs: input.timeoutMs, operationId: mutation }, signal);
+    }
+    if (name === 'focus_agent') return focusAgent({ agent, operationId: mutation }, signal);
     return 'That coding action is not available.';
 }
 
@@ -193,7 +246,7 @@ export function parseVoiceReport(value) {
     };
 }
 
-export function reportInstruction(value) {
+export function reportAgentOutcome(value) {
     const report = parseVoiceReport(value);
     const headline = report.confirmed
         ? `Host-confirmed report: ${report.sentence}`

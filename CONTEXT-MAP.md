@@ -1,6 +1,6 @@
 # Context Map
 
-muxr is one product with several bounded contexts. The glossary lives in [CONTEXT.md](./CONTEXT.md). Ownership, invariants, and the package tree live in [packages/README.md](./packages/README.md). Named operations live in [packages/USE_CASES.md](./packages/USE_CASES.md).
+muxr is one product with several bounded contexts. The glossary lives in [CONTEXT.md](./CONTEXT.md). Package ownership lives in [packages/README.md](./packages/README.md); operations are mapped in [USE_CASES.md](./USE_CASES.md), [packages/USE_CASES.md](./packages/USE_CASES.md), and [apps/mobile/sources/USE_CASES.md](./apps/mobile/sources/USE_CASES.md).
 
 ## Contexts
 
@@ -56,7 +56,7 @@ Encryption primitives under `apps/mobile/sources/encryption/` are a shared kerne
 
 ## Relationships
 
-- **CLI → each context public index**: `scripts/cli.mjs` imports only `scripts/<context>/index.mjs`
+- **CLI → named use cases**: `scripts/cli.mjs` is a composition root. It parses argv/menus and calls named application functions through each context's public index.
 - **Setup → Plugin (public)**: linking bundled plugins reads Plugin Id from the plugin public index
 - **Release → Setup / Plugin trees**: pack copies compiled context folders into the npm artifact
 - **Diagnostics → Setup (public)**: self-host and Tailscale checks call setup use cases through the public index

@@ -113,13 +113,57 @@ export function callPeerBroker(request, access = readAccess()) {
     });
 }
 
+export async function listPeerMachines(command = {}) {
+    return callPeerBroker({ method: 'list', ...(command.machine ? { machine: command.machine } : {}) });
+}
+
+export async function readPeerSession(command) {
+    return callPeerBroker({
+        method: 'read',
+        machine: command.machine,
+        ...(command.agent ? { agent: command.agent } : {}),
+        ...(command.lines ? { lines: command.lines } : {}),
+    });
+}
+
+export async function inspectPeerAgent(command) {
+    return callPeerBroker({
+        method: 'status',
+        machine: command.machine,
+        ...(command.agent ? { agent: command.agent } : {}),
+    });
+}
+
+export async function watchPeerAgent(command) {
+    return callPeerBroker({
+        method: 'watch',
+        machine: command.machine,
+        ...(command.agent ? { agent: command.agent } : {}),
+        ...(command.timeoutMs ? { timeoutMs: command.timeoutMs } : {}),
+    });
+}
+
+export async function promptPeerAgent(command) {
+    return callPeerBroker({
+        method: 'prompt',
+        machine: command.machine,
+        ...(command.agent ? { agent: command.agent } : {}),
+        text: command.text,
+    });
+}
+
 export async function runPeers(args) {
     const request = peerRequest(args);
     if (request === undefined) {
         process.stdout.write(HELP);
         return;
     }
-    const result = await callPeerBroker(request);
+    let result;
+    if (request.method === 'list') result = await listPeerMachines(request);
+    else if (request.method === 'read') result = await readPeerSession(request);
+    else if (request.method === 'status') result = await inspectPeerAgent(request);
+    else if (request.method === 'watch') result = await watchPeerAgent(request);
+    else result = await promptPeerAgent(request);
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
 }
 

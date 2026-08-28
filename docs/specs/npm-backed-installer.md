@@ -39,7 +39,7 @@ Documentation downloads the script completely to a `mktemp` file before executio
 
 - `install.sh` — canonical wrapper.
 - `scripts/diagnostics/application/checkInstallScript.mjs` — one flow smoke with fake Node/npm, stale PATH binary, whitespace prefix, old Node, injection, and npm permission failure.
-- `scripts/release/application/update.mjs` — lifecycle-script and active-prefix parity.
+- `scripts/release/application/updateCli.mjs` — lifecycle-script and active-prefix parity.
 - `scripts/release/application/pack.mjs`, `scripts/deployWebExport.sh` — copy the canonical script into the browser/web artifact.
 - README, self-hosting, release, clean-room, and npm docs — one consistent install policy.
 

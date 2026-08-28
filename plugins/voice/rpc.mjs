@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { readFileSync } from 'node:fs';
-import { reportInstruction } from './coordinatorPolicy.mjs';
+import { reportAgentOutcome } from './coordinatorPolicy.mjs';
 import { providerSecret } from './providerSecret.mjs';
 
 const secret = providerSecret('xai.key', {
@@ -23,7 +23,7 @@ if (method === 'status') {
     await secret.clearKey();
     output = null;
 } else if (method === 'report') {
-    output = { say: reportInstruction(input) };
+    output = { say: reportAgentOutcome(input) };
 } else {
     throw new Error(`unknown muxr Voice method: ${method ?? ''}`);
 }

@@ -184,7 +184,7 @@ The work lands as one cohesive feature PR with reviewable internal commits.
 - `apps/host/src/herdr/herdrSessionSource.ts`
 - new host peer client, store, receipt, and broker modules under `apps/host/src/peer/`
 - `apps/host/src/diagnostics/journal.ts`
-- `scripts/diagnostics/application/dump.mjs`
+- `scripts/diagnostics/application/dumpDiagnostics.mjs`
 - `apps/mobile/sources/components/SettingsView.tsx`
 - machine detail and pairing routes under `apps/mobile/sources/app/(app)/`
 - `apps/mobile/sources/state/hostedE2ee.ts`
@@ -237,7 +237,7 @@ The work lands as one cohesive feature PR with reviewable internal commits.
 - 2026-08-25: independent-review repairs passed the existing peer/mobile flow suites (5 flow tests): concurrent private watch correlation, watch and prompt reconnect with the same operation id, active broker-call revocation, local-first revocation recovery, alias churn, and malformed/duplicate intent normalization.
 - 2026-08-25: the latest strict typecheck, voice/provider checks, bundled-plugin policy, voice RPC lifecycle, and `scripts/diagnostics/application/runSuite.mjs` all passed; the full suite finished 30/30 including live Herdr and package smoke checks.
 - 2026-08-25: `git diff --check` passed.
-- 2026-08-26: Fable first returned HOLD because terminal agents had no peer CLI and Settings swallowed compatibility errors. After the owner-only `muxr peers` path, actionable state model, progressive skill loading, real CLI flow assertions, package smoke, and 30/30 suite landed, Fable returned RELEASE conditional only on preserving the prior deterministic wait fix and tracking `scripts/setup/application/peers.mjs`; both conditions are satisfied after rebase.
+- 2026-08-26: Fable first returned HOLD because terminal agents had no peer CLI and Settings swallowed compatibility errors. After the owner-only `muxr peers` path, actionable state model, progressive skill loading, real CLI flow assertions, package smoke, and 30/30 suite landed, Fable returned RELEASE conditional only on preserving the prior deterministic wait fix and tracking `scripts/setup/application/promptPeerAgent.mjs`; both conditions are satisfied after rebase.
 - 2026-08-26: a standalone Android build paired this Linux host and a fresh Hetzner self-host relay, rendered both saved computers immediately, reached the explicit **Computers connected** receipt, and left symmetric connected host relationships.
 - 2026-08-26: with the phone force-stopped, the ordinary local CLI listed the VPS and exercised status, read, prompt, and watch; `muxr diagnostics` recorded bounded successful broker operations. Host restart preserved the relationship.
 - 2026-08-26: mobile revocation made the CLI unavailable immediately, converged to an empty peer list, and a new authorization succeeded afterward. Final Fable review returned **SHIP**, the full suite passed 30/30, and npm v0.1.20 was published.

@@ -6,7 +6,7 @@ import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 import { homedir, tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
-import { parseNpmSpec, readNpmArchive, runPackage } from '../../plugin/index.mjs';
+import { parseNpmSpec, readNpmArchive, installPlugin, updatePlugin, removePlugin, listPlugins } from '../../plugin/index.mjs';
 
 const scratch = mkdtempSync(join(tmpdir(), 'muxr-package-lifecycle-'));
 const homeParent = mkdtempSync(join(homedir(), '.muxr-package-lifecycle-'));
@@ -120,32 +120,32 @@ try {
     process.env.FAKE_FAIL_FILE = failurePath;
     process.env.PATH = `${bin}:${process.env.PATH}`;
 
-    const packedPath = join(process.cwd(), 'dist-npm', 'package.mjs');
-    assert.ok(existsSync(packedPath), 'packed CLI package.mjs is missing');
+    const packedPath = join(process.cwd(), 'dist-npm', 'plugin', 'index.mjs');
+    assert.ok(existsSync(packedPath), 'packed CLI plugin index is missing');
     const packedPackage = await import(pathToFileURL(packedPath).href);
-    assert.equal(typeof packedPackage.runPackage, 'function', 'packed CLI package module did not import');
+    assert.equal(typeof packedPackage.installPlugin, 'function', 'packed CLI installPlugin did not import');
 
     assert.deepEqual(parseNpmSpec('npm:@scope/pkg@1.2.3'), { kind: 'npm', name: '@scope/pkg', version: '1.2.3' });
     assert.throws(() => parseNpmSpec('npm:pkg@^1.2.3'), /exact registry version/);
     assert.equal(readNpmArchive(packageV1).size, 3);
     assert.throws(() => readNpmArchive(malicious), /unsafe|package/);
 
-    assert.equal(await runPackage('install', ['npm:@scope/pkg@1.2.3', '--yes']), 0);
+    assert.equal(await installPlugin(['npm:@scope/pkg@1.2.3', '--yes']), 0);
     assert.match(readFileSync(npmArgvPath, 'utf8'), /--@scope:registry=https:\/\/registry\.npmjs\.org\//);
-    assert.equal(await runPackage('remove', ['test.scoped', '--yes']), 0);
+    assert.equal(await removePlugin(['test.scoped', '--yes']), 0);
 
     // A malformed identity cannot reach Herdr and leaves no registry orphan.
     const smuggleRoot = join(scratch, 'smuggle'); mkdirSync(smuggleRoot);
     writeFileSync(join(smuggleRoot, 'herdr-plugin.toml'), '"id" = "smuggle.one"\nid = "smuggle.two"\nname = "bad"\n');
-    await assert.rejects(runPackage('install', [smuggleRoot, '--yes']), /quoted id|exactly one|simple quoted/);
+    await assert.rejects(installPlugin([smuggleRoot, '--yes']), /quoted id|exactly one|simple quoted/);
     assert.equal(readFileSync(statePath, 'utf8'), '', 'quoted-key id smuggle created a registry entry');
     assert.equal(existsSync(join(home, '.muxr', 'plugins', 'smuggle.one')), false);
     const multilineRoot = join(scratch, 'multiline'); mkdirSync(multilineRoot);
     writeFileSync(join(multilineRoot, 'herdr-plugin.toml'), 'id = "smuggle.multi"\nname = """\nsmuggle\n"""\n');
-    await assert.rejects(runPackage('install', [multilineRoot, '--yes']), /multiline/);
+    await assert.rejects(installPlugin([multilineRoot, '--yes']), /multiline/);
     assert.equal(readFileSync(statePath, 'utf8'), '', 'multiline id smuggle created a registry entry');
 
-    assert.equal(await runPackage('install', ['npm:pkg@1.0.0', '--yes']), 0);
+    assert.equal(await installPlugin(['npm:pkg@1.0.0', '--yes']), 0);
     const extensionRoot = join(home, '.muxr', 'extensions');
     const materialized = join(extensionRoot, 'test.npm');
     const provenancePath = join(extensionRoot, '.provenance', 'test.npm.json');
@@ -158,7 +158,7 @@ try {
     assert.deepEqual(provenance, {
         schemaVersion: 1, pluginId: 'test.npm', root: materialized, name: 'pkg', version: '1.0.0', integrity: integrity(packageV1),
     });
-    const listed = await captureOutput(() => runPackage('list'));
+    const listed = await captureOutput(() => listPlugins());
     assert.equal(listed.value, 0);
     assert.match(listed.output, /test\.npm\t1\.0\.0\tenabled\t\{"kind":"npm","name":"pkg","version":"1\.0\.0","integrity":"/);
     const logAfterInstall = readFileSync(logPath, 'utf8').trim().split('\n').map((line) => JSON.parse(line));
@@ -169,7 +169,7 @@ try {
 
     const assertRollback = async (phase) => {
         rmSync(failurePath, { force: true }); process.env.FAKE_FAIL = phase;
-        await assert.rejects(runPackage('update', ['npm:pkg@2.0.0', '--yes']), /injected failure|rollback failed/);
+        await assert.rejects(updatePlugin(['npm:pkg@2.0.0', '--yes']), /injected failure|rollback failed/);
         delete process.env.FAKE_FAIL;
         const restored = JSON.parse(readFileSync(statePath));
         assert.equal(restored.enabled, true, `${phase} changed enabled state`);
@@ -182,7 +182,7 @@ try {
 
     assert.equal(spawnSync(process.env.HERDR_BIN, ['plugin', 'disable', 'test.npm'], { env: process.env }).status, 0);
     assert.equal(JSON.parse(readFileSync(statePath)).enabled, false);
-    assert.equal(await runPackage('update', ['npm:pkg@2.0.0', '--yes']), 0);
+    assert.equal(await updatePlugin(['npm:pkg@2.0.0', '--yes']), 0);
     const updated = JSON.parse(readFileSync(statePath));
     assert.equal(updated.enabled, false, 'update changed the previous disabled state');
     assert.equal(updated.plugin_id, 'test.npm');
@@ -191,7 +191,7 @@ try {
     assert.equal(JSON.parse(readFileSync(provenancePath)).version, '2.0.0');
     assert.equal(JSON.parse(readFileSync(join(materialized, 'package.json'))).version, '2.0.0');
 
-    assert.equal(await runPackage('remove', ['test.npm', '--yes']), 0);
+    assert.equal(await removePlugin(['test.npm', '--yes']), 0);
     assert.equal(existsSync(materialized), false, 'remove left npm materialization behind');
     assert.equal(existsSync(provenancePath), false, 'remove left npm provenance behind');
     assert.equal(existsSync(statePath) && readFileSync(statePath, 'utf8') !== '', false);
@@ -204,42 +204,42 @@ try {
     symlinkSync(home, aliasedHome, 'dir');
     process.env.MUXR_HOME = join(aliasedHome, '.muxr');
     try {
-        assert.equal(await runPackage('install', ['npm:pkg@1.0.0', '--yes']), 0);
+        assert.equal(await installPlugin(['npm:pkg@1.0.0', '--yes']), 0);
         const canonicalAliasRoot = realpathSync(join(process.env.MUXR_HOME, 'extensions'));
         const aliasMaterialized = join(canonicalAliasRoot, 'test.npm');
         const aliasProvenance = join(canonicalAliasRoot, '.provenance', 'test.npm.json');
-        const aliasListed = await captureOutput(() => runPackage('list'));
+        const aliasListed = await captureOutput(() => listPlugins());
         assert.equal(aliasListed.value, 0);
         assert.match(aliasListed.output, /test\.npm\t1\.0\.0\tenabled\t\{"kind":"npm"/);
-        assert.equal(await runPackage('update', ['npm:pkg@2.0.0', '--yes']), 0);
+        assert.equal(await updatePlugin(['npm:pkg@2.0.0', '--yes']), 0);
         assert.equal(JSON.parse(readFileSync(aliasProvenance, 'utf8')).version, '2.0.0');
-        assert.equal(await runPackage('remove', ['test.npm', '--yes']), 0);
+        assert.equal(await removePlugin(['test.npm', '--yes']), 0);
         assert.equal(existsSync(aliasMaterialized), false, 'aliased remove left npm materialization behind');
         assert.equal(existsSync(aliasProvenance), false, 'aliased remove left npm provenance behind');
     } finally {
         process.env.MUXR_HOME = directMuxrHome;
     }
 
-    await assert.rejects(runPackage('install', ['npm:pkg@9.9.9', '--yes']), /unsafe|package/);
+    await assert.rejects(installPlugin(['npm:pkg@9.9.9', '--yes']), /unsafe|package/);
     assert.equal(existsSync(materialized), false);
 
     // GitHub lifecycle stays native to Herdr, including ref changes, explicit
     // confirmation forwarding, uninstall, and failed native replacement.
-    await runPackage('install', ['owner/repo@v1']);
+    await installPlugin(['owner/repo@v1']);
     const githubV1 = JSON.parse(readFileSync(statePath));
     assert.equal(githubV1.source.ref, 'v1');
     const githubInstallArgs = readFileSync(logPath, 'utf8').trim().split('\n').map((line) => JSON.parse(line)).findLast((args) => args[0] === 'plugin' && args[1] === 'install');
     assert.ok(githubInstallArgs);
     assert.equal(githubInstallArgs.includes('--yes'), false, 'native install received implicit --yes');
-    await runPackage('update', ['owner/repo@v2', '--yes']);
+    await updatePlugin(['owner/repo@v2', '--yes']);
     assert.equal(JSON.parse(readFileSync(statePath)).source.ref, 'v2');
     const githubUpdateArgs = readFileSync(logPath, 'utf8').trim().split('\n').map((line) => JSON.parse(line)).findLast((args) => args[0] === 'plugin' && args[1] === 'install');
     assert.equal(githubUpdateArgs.includes('--yes'), true, 'explicit --yes was not forwarded to native install');
     process.env.FAKE_GIT_FAIL = 'owner/repo';
-    await assert.rejects(runPackage('update', ['owner/repo@v3', '--yes']), /native install cancelled/);
+    await assert.rejects(updatePlugin(['owner/repo@v3', '--yes']), /native install cancelled/);
     delete process.env.FAKE_GIT_FAIL;
     assert.deepEqual(JSON.parse(readFileSync(statePath)), { ...githubV1, version: 'v2', source: { ...githubV1.source, ref: 'v2' } });
-    await runPackage('remove', ['test.github', '--yes']);
+    await removePlugin(['test.github', '--yes']);
     assert.equal(readFileSync(statePath, 'utf8'), '');
     const githubRemoveArgs = readFileSync(logPath, 'utf8').trim().split('\n').map((line) => JSON.parse(line)).findLast((args) => args[0] === 'plugin' && args[1] === 'uninstall');
     assert.ok(githubRemoveArgs, 'GitHub remove did not use Herdr uninstall');
@@ -248,37 +248,37 @@ try {
     // Herdr registry lifecycle as npm packages.
     const localRoot = join(scratch, 'local-plugin'); mkdirSync(localRoot);
     writeFileSync(join(localRoot, 'herdr-plugin.toml'), 'id = "local.my-plugin"\nname = "Local"\nversion = "1.0.0"\n');
-    await runPackage('install', [localRoot]);
+    await installPlugin([localRoot]);
     assert.equal(readFileSync(statePath, 'utf8'), '', 'cancelled local install left a registry entry');
-    await runPackage('install', [localRoot, '--yes']);
+    await installPlugin([localRoot, '--yes']);
     assert.equal(JSON.parse(readFileSync(statePath)).enabled, true);
     writeFileSync(join(localRoot, 'herdr-plugin.toml'), 'id = "local.my-plugin"\nname = "Local updated"\nversion = "2.0.0"\n');
-    await runPackage('update', [localRoot, '--yes']);
+    await updatePlugin([localRoot, '--yes']);
     assert.equal(JSON.parse(readFileSync(statePath)).plugin_root, realpathSync(localRoot));
-    await runPackage('remove', ['my-plugin', '--yes']);
+    await removePlugin(['my-plugin', '--yes']);
     assert.equal(readFileSync(statePath, 'utf8'), '');
 
     const liveLock = join(extensionRoot, '.locks', 'test.npm.lock');
     mkdirSync(join(extensionRoot, '.locks'), { recursive: true });
     mkdirSync(liveLock);
     writeFileSync(join(liveLock, 'owner.json'), JSON.stringify({ pid: process.pid, startedAt: 0 }));
-    await assert.rejects(runPackage('install', ['npm:pkg@1.0.0', '--yes']), /already being changed/);
+    await assert.rejects(installPlugin(['npm:pkg@1.0.0', '--yes']), /already being changed/);
     rmSync(extensionRoot, { recursive: true, force: true });
 
     // Managed directories are never followed when an install needs them.
     const muxrRoot = join(home, '.muxr');
     const outside = join(scratch, 'outside'); mkdirSync(outside);
     rmSync(extensionRoot, { recursive: true, force: true }); symlinkSync(outside, extensionRoot, 'dir');
-    await assert.rejects(runPackage('install', ['npm:pkg@1.0.0', '--yes']), /extensions.*directory/);
+    await assert.rejects(installPlugin(['npm:pkg@1.0.0', '--yes']), /extensions.*directory/);
     unlinkSync(extensionRoot); writeFileSync(extensionRoot, 'not a directory');
-    await assert.rejects(runPackage('install', ['npm:pkg@1.0.0', '--yes']), /extensions.*directory/);
+    await assert.rejects(installPlugin(['npm:pkg@1.0.0', '--yes']), /extensions.*directory/);
     rmSync(extensionRoot, { force: true }); mkdirSync(extensionRoot);
     symlinkSync(outside, join(extensionRoot, '.provenance'), 'dir');
-    await assert.rejects(runPackage('install', ['npm:pkg@1.0.0', '--yes']), /provenance.*directory/);
+    await assert.rejects(installPlugin(['npm:pkg@1.0.0', '--yes']), /provenance.*directory/);
     unlinkSync(join(extensionRoot, '.provenance')); mkdirSync(join(extensionRoot, '.provenance'));
     rmSync(join(extensionRoot, '.locks'), { recursive: true, force: true });
     symlinkSync(outside, join(extensionRoot, '.locks'), 'dir');
-    await assert.rejects(runPackage('install', ['npm:pkg@1.0.0', '--yes']), /locks.*directory/);
+    await assert.rejects(installPlugin(['npm:pkg@1.0.0', '--yes']), /locks.*directory/);
     assert.equal(lstatSync(outside).isDirectory(), true, 'managed-directory checks followed an outside symlink');
 
     process.stdout.write('package lifecycle smoke passed\n');

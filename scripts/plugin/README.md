@@ -8,7 +8,7 @@ Owns Plugin Id, the bundled catalog, clone/create/check/dev, and the npm/git reg
 scripts/plugin/
   index.mjs                 public entry
   domain/                   Plugin Id, bundled enablement, retired successors
-  application/              manifest/clone/check and registry install/update/remove
+  application/              checkPlugin, clonePlugin, installPlugin, and the other `muxr plugin` operations
   infrastructure/           packed-vs-checkout path resolution
 ```
 

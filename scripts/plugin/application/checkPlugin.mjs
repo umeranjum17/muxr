@@ -34,7 +34,7 @@ function selfhostRelayUrl() {
     }
 }
 
-function printPluginDocs() {
+export function showPluginDocs() {
     const guide = pluginDocsPath();
     const skill = pluginSkillPath();
     const reference = pluginReferencePath();
@@ -69,7 +69,7 @@ function localPluginId(target, canonical = target) {
     return `local.${slug.slice(0, 48)}-${suffix}`;
 }
 
-function cloneBundledPlugin(pluginId, destination) {
+export function clonePlugin(pluginId, destination) {
     if (!id(pluginId)) fail('muxr plugin clone requires a valid bundled plugin id');
     const plugins = bundledPluginsRoot();
     if (plugins === undefined) fail('bundled plugins are missing from this muxr install');
@@ -224,86 +224,63 @@ function runRpcCall(checked, contributionId, inputJson, contextJson) {
     return 0;
 }
 
-export function runPlugin(command, args = []) {
-    if (command === 'docs') {
-        if (args.length !== 0) fail('muxr plugin docs takes no arguments');
-        return printPluginDocs();
-    }
-    if (command === 'clone') {
-        if (!args[0] || args.length > 2) fail('muxr plugin clone requires a plugin id and optional destination');
-        return cloneBundledPlugin(args[0], args[1]);
-    }
-    if (command === 'call') {
-        const option = (name) => {
-            const index = args.indexOf(name);
-            if (index !== -1) {
-                if (index === args.length - 1) fail(`${name} requires a JSON value`);
-                return args[index + 1];
-            }
-            const inline = args.find((arg) => arg.startsWith(`${name}=`));
-            return inline?.slice(name.length + 1);
-        };
-        const positional = [];
-        for (let index = 0; index < args.length; index += 1) {
-            if (args[index] === '--input' || args[index] === '--context') { index += 1; continue; }
-            if (args[index].startsWith('--input=') || args[index].startsWith('--context=')) continue;
-            positional.push(args[index]);
-        }
-        const [path, contributionId] = positional;
-        if (!path || !contributionId) fail('muxr plugin call requires a path and a contribution id');
-        return runRpcCall(checkPlugin(path), contributionId, option('--input'), option('--context'));
-    }
-    const web = args.includes('--web');
-    const path = args.find((arg) => arg !== '--web');
-    if (!path) fail(`muxr plugin ${command} requires a path or name`);
-    if (web && command !== 'dev') fail(`--web is only valid with muxr plugin dev`);
-    if (command === 'create') {
-        const { target: root, canonical } = pluginDestination(path);
-        if (existsSync(root)) fail(`${root}: already exists`);
-        mkdirSync(root, { recursive: true });
-        const title = basename(root);
-        const pluginId = localPluginId(root, canonical);
-        writeFileSync(join(root, 'herdr-plugin.toml'), [
-            `id = "${pluginId}"`,
-            `name = ${JSON.stringify(title)}`,
-            'version = "0.1.0"',
-            'min_herdr_version = "0.8.0"',
-            `description = ${JSON.stringify(`${title} muxr plugin`)}`,
-            'platforms = ["linux", "macos", "windows"]',
-            '',
-        ].join('\n'));
-        writeFileSync(join(root, 'muxr-ui.json'), `${JSON.stringify({
-            schemaVersion: 1,
-            pluginId,
-            contributions: [
-                {
-                    slot: 'settings.items', id: 'settings', type: 'settings-item', label: title,
-                    subtitle: 'Open this plugin', icon: 'extension-puzzle-outline',
-                    action: { type: 'screen', contributionId: 'settings-screen' },
-                },
-                {
-                    slot: 'navigation.content', id: 'settings-screen', type: 'screen', title,
-                    children: [
-                        { type: 'text', text: 'This native screen comes from muxr-ui.json.' },
-                        { type: 'row', title: 'Status', value: 'It works' },
-                    ],
-                },
-            ],
-        }, null, 2)}\n`);
-        writeFileSync(join(root, 'README.md'), `# ${title}\n\nA minimal UI-only muxr plugin created by \`muxr plugin create\`.\n\n- **Phone:** one Settings item opening a native declarative screen.\n- **Host:** no executable backend or data access.\n- **Offline:** hidden until the host reconnects.\n- **Develop:** \`muxr plugin dev .\`\n- **Remove:** \`herdr plugin unlink ${pluginId}\`\n`);
-        checkPlugin(root);
-        process.stdout.write(`created ${root} (${pluginId})\n`);
-        return 0;
-    }
+
+export function callPluginAction(path, contributionId, inputJson, contextJson) {
+    return runRpcCall(checkPlugin(path), contributionId, inputJson, contextJson);
+}
+
+export function createPlugin(path) {
+    const { target: root, canonical } = pluginDestination(path);
+    if (existsSync(root)) fail(`${root}: already exists`);
+    mkdirSync(root, { recursive: true });
+    const title = basename(root);
+    const pluginId = localPluginId(root, canonical);
+    writeFileSync(join(root, 'herdr-plugin.toml'), [
+        `id = "${pluginId}"`,
+        `name = ${JSON.stringify(title)}`,
+        'version = "0.1.0"',
+        'min_herdr_version = "0.8.0"',
+        `description = ${JSON.stringify(`${title} muxr plugin`)}`,
+        'platforms = ["linux", "macos", "windows"]',
+        '',
+    ].join('\n'));
+    writeFileSync(join(root, 'muxr-ui.json'), `${JSON.stringify({
+        schemaVersion: 1,
+        pluginId,
+        contributions: [
+            {
+                slot: 'settings.items', id: 'settings', type: 'settings-item', label: title,
+                subtitle: 'Open this plugin', icon: 'extension-puzzle-outline',
+                action: { type: 'screen', contributionId: 'settings-screen' },
+            },
+            {
+                slot: 'navigation.content', id: 'settings-screen', type: 'screen', title,
+                children: [
+                    { type: 'text', text: 'This native screen comes from muxr-ui.json.' },
+                    { type: 'row', title: 'Status', value: 'It works' },
+                ],
+            },
+        ],
+    }, null, 2)}\n`);
+    writeFileSync(join(root, 'README.md'), `# ${title}\n\nA minimal UI-only muxr plugin created by \`muxr plugin create\`.\n\n- **Phone:** one Settings item opening a native declarative screen.\n- **Host:** no executable backend or data access.\n- **Offline:** hidden until the host reconnects.\n- **Develop:** \`muxr plugin dev .\`\n- **Remove:** \`herdr plugin unlink ${pluginId}\`\n`);
+    checkPlugin(root);
+    process.stdout.write(`created ${root} (${pluginId})\n`);
+    return 0;
+}
+
+export function reportPluginCheck(path) {
     const checked = checkPlugin(path);
     process.stdout.write(`✓ ${checked.pluginId}: ${checked.ui ? 'muxr UI manifest' : 'Herdr only'}\n`);
-    if (command === 'check') return 0;
-    if (command !== 'dev') fail(`unknown plugin command: ${command}`);
+    return 0;
+}
+
+export function linkPlugin(path, { web = false } = {}) {
+    const checked = checkPlugin(path);
+    process.stdout.write(`✓ ${checked.pluginId}: ${checked.ui ? 'muxr UI manifest' : 'Herdr only'}\n`);
     const result = spawnSync(process.env.HERDR_BIN?.trim() || 'herdr', ['plugin', 'link', checked.root, '--enabled'], { stdio: 'inherit' });
     if (result.status !== 0) return result.status ?? 1;
     process.stdout.write(`linked ${basename(checked.root)}; reconnect muxr after manifest edits\n`);
     if (!web) return 0;
-
     const packageJson = mobilePackageJson();
     if (!packageJson) {
         process.stderr.write('muxr plugin dev --web needs a source checkout (apps/mobile/package.json not found)\n');
@@ -315,15 +292,10 @@ export function runPlugin(command, args = []) {
         return 1;
     }
     process.stdout.write(`starting web client against ${relayUrl}\n`);
-    const mobileRoot = dirname(packageJson);
     const expo = spawnSync('npx', ['expo', 'start', '--web'], {
-        cwd: mobileRoot,
+        cwd: dirname(packageJson),
         stdio: 'inherit',
-        env: {
-            ...process.env,
-            EXPO_PUBLIC_MUXR_RELAY_URL: relayUrl,
-            EXPO_PUBLIC_MUXR_MODE: 'selfhost',
-        },
+        env: { ...process.env, EXPO_PUBLIC_MUXR_RELAY_URL: relayUrl, EXPO_PUBLIC_MUXR_MODE: 'selfhost' },
     });
     return expo.status ?? 1;
 }

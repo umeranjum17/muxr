@@ -1,2 +1,2 @@
-export { runUpdate } from './application/update.mjs';
+export { updateCli } from './application/updateCli.mjs';
 export { packageInfoFromPath, packagePathFromInput } from './infrastructure/audit.mjs';

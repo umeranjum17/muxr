@@ -27,7 +27,7 @@ The unsupported local relay fixture lives in
 The exact check path CI runs:
 
 ```bash
-yarn check
+yarn run check
 ```
 
 That invokes `scripts/diagnostics/application/runSuite.mjs`. It includes
@@ -143,6 +143,57 @@ No nested ternaries. No boolean piles that decide three things at once. Flatten 
 ### Tests
 
 Flow-level checks through real modules. Default to zero new test files. Architecture checks live in `apps/mobile/sources/architecture.spec.ts` and run in `yarn check`. Security and crypto keep their coverage.
+
+## Tooling architecture
+
+Context first, layers only when they have real code:
+
+```text
+scripts/<context>/{domain,application,infrastructure,presentation}/
+scripts/<context>/index.mjs   public entry — other contexts import only this
+```
+
+Contexts: Setup, Plugin, Release, Diagnostics. Glossary: [CONTEXT.md](CONTEXT.md).
+Map: [CONTEXT-MAP.md](CONTEXT-MAP.md). Operations: [USE_CASES.md](USE_CASES.md).
+
+**Dependency direction.** Domain is pure. Application coordinates domain and
+ports. Infrastructure implements filesystem, systemd, Tailscale, Herdr, and
+crypto I/O. Presentation is CLI widgets and wizards. Presentation may import
+application; application must not import presentation; infrastructure must not
+import application or presentation. Domain imports nothing from the other
+layers.
+
+**Ubiquitous names.** Use [CONTEXT.md](CONTEXT.md). Agents, Machines, Device
+Ids, Pairing Intents, Enrollments, Plugin Ids, Voice Reports. Display names
+never authorize. Do not invent chat-era vocabulary (sessions-as-chats, model
+pickers) in the UI.
+
+**Use cases, not services.** One camelCase application module per real
+operation (`pairDevice.mjs` exports `pairDevice`). It accepts a small command
+object, orchestrates domain entities and ports, and returns an explicit result.
+No `services/`, `handlers/`, or `*Service.mjs` folders. CLI commands, React
+hooks, socket handlers, and plugin `rpc.mjs` / `stream.mjs` files are thin
+adapters that invoke named use cases. Herdr plugin entry files stay at the
+plugin root.
+
+**Rich domain.** Entities and value objects own invariants, validation, and
+state transitions. Call sites express intent (`pairingIntent(...)`,
+`parseConnection(state)`) instead of inspecting field bags. Constructors are
+reject-closed; expected failures are `{ ok: false, reason }`.
+
+**No internal compatibility wrappers.** When a path or export moves, update
+every call site. Do not leave `runFoo` aliases or shim files at old
+`scripts/*.mjs` locations. Packed-vs-repo path walk-up is not a compatibility
+wrapper.
+
+**Readability.** Guard clauses and explicit branches. No nested ternaries, no
+boolean piles. Names say what the value is.
+
+**Tests.** Flow-level only. Default to zero new test files. One flow test per
+feature is the norm. Heavily mocked tests that would pass if the real code
+broke are worse than none. Security and crypto paths keep their coverage.
+`apps/mobile/sources/sync/sessionSync.integration.spec.ts` is the reference
+style.
 
 ## The rules that keep this codebase small
 

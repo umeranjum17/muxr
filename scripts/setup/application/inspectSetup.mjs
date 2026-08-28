@@ -20,11 +20,13 @@ import {
     deriveV2Key,
     env,
     error,
+    ensurePrivateDir,
     executable,
     hash,
     home,
     loadManifest,
     machineIdentity,
+    manifestPath,
     nacl,
     newV2ReplayTracker,
     openV2,
@@ -73,7 +75,7 @@ import {
     hasPendingRemoteConnect,
     remoteHostOnline,
     relayDiscovery,
-} from './selfHost.mjs';
+} from '../infrastructure/selfhostRelay.mjs';
 
 const PACKAGED_CONTROL_URL = '__MUXR_PACKAGED_CONTROL_URL__';
 
@@ -121,7 +123,7 @@ export async function revokeRemoteMachineForUninstall(state) {
 }
 
 /** Fully remove muxr-owned runtime authority while preserving Herdr and user artifacts. */
-export async function runFullUninstall(args = []) {
+export async function uninstallMuxr(args = []) {
     const root = validateUninstallRoot();
     const failures = [];
     const state = readSelfhostState();
@@ -220,7 +222,7 @@ export function maybeOpenVerification(url, headless) {
     if (!result.ok) print('  warn: could not open the browser; use the URL below');
 }
 
-export async function runHostedLogin(args = []) {
+export async function hostedLogin(args = []) {
     if (process.env.MUXR_SKIP_HOSTED_AUTH === '1') {
         print('  Hosted login skipped by explicit test/development override.');
         return 0;
@@ -312,7 +314,7 @@ export async function runHostedLogin(args = []) {
     throw new Error('device authorization expired; rerun the command to start a new session');
 }
 
-export async function runSetup(args = []) {
+export async function applyHostedSetup(args = []) {
     const dryRun = args.includes('--dry-run');
     print(`muxr setup${dryRun ? ' (dry run)' : ''}:`);
     try {
@@ -329,7 +331,7 @@ export async function runSetup(args = []) {
             if ((await runIntegrations(integrationArgs)) !== 0) throw new Error('integration sync failed');
         }
         if (dryRun) print('  would start/resume hosted device authorization and single-use QR pairing');
-        else if ((await runHostedLogin(args)) !== 0) throw new Error('hosted login failed');
+        else if ((await hostedLogin(args)) !== 0) throw new Error('hosted login failed');
         // Bring the host online before showing a device QR. The old order let
         // the phone claim a grant and begin connecting to a host that did not
         // exist yet on a clean machine.
@@ -349,7 +351,7 @@ export async function runSetup(args = []) {
 export async function runAccount(command, args = []) {
     try {
         if (command === 'login') {
-            const code = await runHostedLogin(args);
+            const code = await hostedLogin(args);
             if (code === 0) {
                 const definition = daemonDefinition();
                 if (existsSync(definition.path)) {
@@ -514,7 +516,7 @@ function managedSetupReport(states, drifted) {
     return { level: 'ok', detail: `${states.length} entries current` };
 }
 
-export async function runDoctor() {
+export async function inspectSetup() {
     const checks = [];
     // repair: { label, run } — offered interactively when the check fails.
     const add = (level, name, detail, repair) => checks.push({ level, name, detail, repair });

@@ -5,7 +5,7 @@ import { homedir, tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { gunzipSync } from 'node:zlib';
 import { createInterface } from 'node:readline';
-import { checkPlugin } from './manifest.mjs';
+import { checkPlugin } from './checkPlugin.mjs';
 import { parsePluginId } from '../domain/dist/index.js';
 
 export const MAX_COMPRESSED_BYTES = 16 * 1024 * 1024;
@@ -435,36 +435,45 @@ async function gitInstall(github, yes) {
     });
 }
 
-export async function runPackage(command, args = []) {
-    if (command === 'list') {
-        if (args.length) fail('muxr plugin list takes no arguments');
-        for (const plugin of herdrPlugins()) {
-            const version = plugin.version ?? '0.0.0';
-            const enabled = plugin.enabled ? 'enabled' : 'disabled';
-            process.stdout.write(`${plugin.plugin_id}\t${version}\t${enabled}\t${JSON.stringify(sourceFor(plugin))}\t${plugin.plugin_root ?? ''}\n`);
-        }
-        return 0;
+export async function listPlugins(args = []) {
+    if (args.length) fail('muxr plugin list takes no arguments');
+    for (const plugin of herdrPlugins()) {
+        const version = plugin.version ?? '0.0.0';
+        const enabled = plugin.enabled ? 'enabled' : 'disabled';
+        process.stdout.write(`${plugin.plugin_id}\t${version}\t${enabled}\t${JSON.stringify(sourceFor(plugin))}\t${plugin.plugin_root ?? ''}\n`);
     }
-    if (!['install', 'update', 'remove'].includes(command)) fail(`unknown package command: ${command}`);
-    if (command === 'remove') {
-        const { spec: requested, yes } = requireArgs(args, command);
-        const parsedId = parsePluginId(requested);
-        if (!parsedId.ok) fail(parsedId.reason);
-        const installed = herdrPlugins();
-        const localId = `local.${requested}`.slice(0, 64);
-        const id = pluginFor(installed, requested)
-            ? requested
-            : (pluginFor(installed, localId) ? localId : requested);
-        return withRegistryLock(id, async () => {
-            const plugin = pluginFor(herdrPlugins(), id); if (!plugin) fail(`plugin is not installed: ${requested}`); const npm = validNpmProvenance(plugin); const action = npm ? 'unlink then remove managed npm materialization' : plugin.source?.kind === 'github' ? 'uninstall' : 'unlink';
-            if (!await confirm(yes, `Remove ${id} (${action})?`)) return 0;
-            if (npm) { runHerdr(['plugin', 'unlink', id]); const root = validRoot(plugin.plugin_root); if (!root || !isNpmRoot(plugin)) fail('refusing to remove an untrusted npm materialization path'); rmSync(root, { recursive: true, force: true }); removeProvenance(id); }
-            else runHerdr(['plugin', action === 'uninstall' ? 'uninstall' : 'unlink', id]);
-            process.stdout.write(`removed ${id}\n`); return 0;
-        });
-    }
+    return 0;
+}
+
+export async function removePlugin(args = []) {
+    const { spec: requested, yes } = requireArgs(args, 'remove');
+    const parsedId = parsePluginId(requested);
+    if (!parsedId.ok) fail(parsedId.reason);
+    const installed = herdrPlugins();
+    const localId = `local.${requested}`.slice(0, 64);
+    const id = pluginFor(installed, requested)
+        ? requested
+        : (pluginFor(installed, localId) ? localId : requested);
+    return withRegistryLock(id, async () => {
+        const plugin = pluginFor(herdrPlugins(), id); if (!plugin) fail(`plugin is not installed: ${requested}`); const npm = validNpmProvenance(plugin); const action = npm ? 'unlink then remove managed npm materialization' : plugin.source?.kind === 'github' ? 'uninstall' : 'unlink';
+        if (!await confirm(yes, `Remove ${id} (${action})?`)) return 0;
+        if (npm) { runHerdr(['plugin', 'unlink', id]); const root = validRoot(plugin.plugin_root); if (!root || !isNpmRoot(plugin)) fail('refusing to remove an untrusted npm materialization path'); rmSync(root, { recursive: true, force: true }); removeProvenance(id); }
+        else runHerdr(['plugin', action === 'uninstall' ? 'uninstall' : 'unlink', id]);
+        process.stdout.write(`removed ${id}\n`); return 0;
+    });
+}
+
+async function mutatePlugin(command, args = []) {
     const { spec, yes } = requireArgs(args, command); const npm = parseNpmSpec(spec); if (npm) return npmMutate(npm, yes, command === 'update');
     if (existsSync(resolve(spec))) return localMutate(resolve(spec), yes, command === 'update');
     const github = parseGithubSpec(spec); if (github) return gitInstall(github, yes);
     fail('package spec must be a local path, owner/repo[/subdir][@ref], or npm:<name>@<exact-version>');
+}
+
+export async function installPlugin(args = []) {
+    return mutatePlugin('install', args);
+}
+
+export async function updatePlugin(args = []) {
+    return mutatePlugin('update', args);
 }

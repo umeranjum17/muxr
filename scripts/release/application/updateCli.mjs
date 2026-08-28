@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, realpathSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { runBootstrap, daemonIsRunning, daemonMode, runDaemon, restartSelfhostRelayIfRunning, stopSelfhostRelayIfRunning, select } from '../../setup/index.mjs';
+import { runBootstrap, daemonIsRunning, daemonMode, runDaemon, restartSelfhostRelayIfRunning, stopSelfhostRelayIfRunning } from '../../setup/index.mjs';
 
 const PACKAGE = '@trymuxr/cli';
 
@@ -87,7 +87,7 @@ export function compareVersions(left, right) {
     return 0;
 }
 
-export async function runUpdate(args = []) {
+export async function updateCli(command = {}) {
     const current = currentVersion();
     const lookup = npm(['view', PACKAGE, 'dist-tags.latest', '--json']);
     if (lookup.status !== 0) {
@@ -115,11 +115,10 @@ export async function runUpdate(args = []) {
     }
 
     process.stdout.write(`muxr ${latest} is available (installed: ${current}).\n`);
-    if (args.includes('--check')) return 0;
+    if (command.checkOnly) return 0;
     const installedMode = daemonMode();
-
-    let approved = args.includes('--yes');
-    if (!approved && process.stdin.isTTY && process.stdout.isTTY) {
+    let approved = command.yes === true;
+    if (!approved && command.confirm) {
         process.stdout.write([
             'Update plan:',
             `  • install ${PACKAGE}@${latest}`,
@@ -129,10 +128,7 @@ export async function runUpdate(args = []) {
             '  • restart the muxr relay and host if they are running',
             '',
         ].join('\n'));
-        approved = await select('Apply this update?', [
-            { value: false, title: 'Not now', description: 'leave this installation unchanged' },
-            { value: true, title: 'Update muxr', description: `install ${PACKAGE}@${latest} and apply the plan above` },
-        ]) === true;
+        approved = await command.confirm({ latest, current }) === true;
     }
     if (!approved) {
         process.stdout.write(`Nothing changed. Run \`muxr update --yes\` when ready.\n`);

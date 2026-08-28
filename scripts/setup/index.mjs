@@ -26,23 +26,36 @@ export {
     validMachineCrypto,
 } from './domain/dist/index.js';
 
+export { pairDevice } from './application/pairDevice.mjs';
+export { listDevices } from './application/listDevices.mjs';
+export { revokeDevice } from './application/revokeDevice.mjs';
+export { enrollMachine } from './application/enrollMachine.mjs';
+export { listMachines } from './application/listMachines.mjs';
+export { revokeMachine } from './application/revokeMachine.mjs';
+export { connectEnrollment } from './application/connectEnrollment.mjs';
+export { startSelfHost } from './application/startSelfHost.mjs';
+export { enableBrowserHosting } from './application/enableBrowserHosting.mjs';
 export {
-    browserHostingCanEnable,
-    browserHostingReady,
-    enableBrowserHosting,
-    enrollmentPayload,
-    hasPendingRemoteConnect,
-    resolveAdvertise,
-    restartSelfhostRelayIfRunning,
-    runDevices,
-    runMachines,
-    runPair,
-    runRemoteConnect,
-    runSelfHost,
-    selfhostPublicSummary,
-    sharedMachineCount,
-    stopSelfhostRelayIfRunning,
-} from './application/selfHost.mjs';
+    applyHostedSetup,
+    hostedLogin,
+    inspectSetup,
+    uninstallMuxr,
+} from './application/inspectSetup.mjs';
+export {
+    inspectPeerAgent,
+    listPeerMachines,
+    promptPeerAgent,
+    readPeerSession,
+    runPeers,
+    watchPeerAgent,
+} from './application/promptPeerAgent.mjs';
+
+export {
+    applyMachineSetup,
+    connectRemoteRelay,
+    hostSharedRelay,
+    manageMachines,
+} from './presentation/setupWizard.mjs';
 
 export {
     advertisedRelayHealthy,
@@ -62,9 +75,17 @@ export {
     writeSelfhostState,
 } from './infrastructure/selfhost.mjs';
 
-export { runDoctor, runFullUninstall, runSetup as runHostedSetup } from './application/hosted.mjs';
-export { runMachineManagement, runRemoteRelaySetup, runSetup, runSharedRelaySetup } from './application/wizard.mjs';
-export { runPeers } from './application/peers.mjs';
+export {
+    browserHostingCanEnable,
+    browserHostingReady,
+    enrollmentPayload,
+    hasPendingRemoteConnect,
+    resolveAdvertise,
+    restartSelfhostRelayIfRunning,
+    selfhostPublicSummary,
+    sharedMachineCount,
+    stopSelfhostRelayIfRunning,
+} from './infrastructure/selfhostRelay.mjs';
 
 export {
     daemonDefinition,

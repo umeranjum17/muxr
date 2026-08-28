@@ -1,3 +1,3 @@
-export { runDiagnostics } from './application/dump.mjs';
+export { dumpDiagnostics } from './application/dumpDiagnostics.mjs';
 export { waitForRelay } from './application/waitForRelay.mjs';
 

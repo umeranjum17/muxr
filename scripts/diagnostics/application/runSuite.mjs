@@ -46,7 +46,7 @@ const checks = [
     ['package: host-only install/setup smoke', 'node', ['scripts/diagnostics/application/checkPackageSmoke.mjs'], undefined, 300000],
     ['package: full lifecycle smoke', 'node', ['scripts/diagnostics/application/packageLifecycleSmoke.mjs'], undefined, 300000],
     ['policy: core purity (no cloud refs in OSS)', 'node', ['scripts/diagnostics/application/checkCorePurity.mjs']],
-    ['policy: tooling architecture (layers, no nested ternaries)', 'node', ['scripts/diagnostics/application/checkArchitecture.mjs']],
+    ['policy: tooling architecture (named use cases, layers, no nested ternaries)', 'node', ['scripts/diagnostics/application/checkArchitecture.mjs']],
     ['security: tracked/package secret scan', 'node', ['scripts/diagnostics/application/checkNoSecrets.mjs']],
 ];
 

@@ -22,6 +22,7 @@ import {
     backup,
     env,
     error,
+    ensurePrivateDir,
     executable,
     home,
     loadManifest,

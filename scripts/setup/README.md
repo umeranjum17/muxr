@@ -10,9 +10,9 @@ Domain is pure TypeScript. Application orchestrates use cases. Infrastructure ma
 scripts/setup/
   index.mjs                 public entry (CLI and other contexts import only this)
   domain/                   pairing, connection, enrollment, machine crypto, daemon mode, hosted auth
-  application/              self-host use cases, wizard, hosted login/doctor, peers
-  infrastructure/           paths, runtime/crypto, self-host state, daemon, Herdr
-  presentation/             interactive UI, host/relay up
+  application/              named use cases (pairDevice, startSelfHost, inspectSetup, …)
+  infrastructure/           paths, runtime/crypto, self-host state and relay, daemon, Herdr
+  presentation/             interactive UI, setup wizard, host/relay up
 ```
 
 ## Aggregates

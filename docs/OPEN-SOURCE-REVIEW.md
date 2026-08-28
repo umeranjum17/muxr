@@ -215,7 +215,7 @@ Method: six parallel deep-dive reviews (host/relay, mobile, plugin SDK, packages
    discover that `docker compose up` exists. Pick one (recommend Dockerfile), document it, delete
    or justify the rest.
 
-9. **The open-core boundary leaks through `scripts/`.** `scripts/setup/application/hosted.mjs` is Tier-3
+9. **The open-core boundary leaks through `scripts/`.** `scripts/setup/application/inspectSetup.mjs` is Tier-3
    cloud control-plane enrollment (`MUXR_CONTROL_URL`, `MUXR_BOOTSTRAP_TOKEN`) shipped in the OSS
    repo and bundled into the npm package (`scripts/release/application/pack.mjs`). `scripts/diagnostics/application/checkCorePurity.mjs` only
    greps `apps/relay/src apps/host/src packages/*/src`, so scripts/ escapes the purity gate.
@@ -224,8 +224,8 @@ Method: six parallel deep-dive reviews (host/relay, mobile, plugin SDK, packages
 10. **scripts/ sprawl: 38 files, ~5,768 lines, one `--help` between them** (`cli.mjs` only).
     Orphaned (zero references): `scripts/diagnostics/application/serveWebExport.mjs`, `scripts/genBrand.sh`. Manual-only, never run by CI:
     `scripts/diagnostics/application/checkHostContract.mjs` (see Correctness #3), `scripts/release/infrastructure/audit.mjs`. Setup logic is split across
-    six overlapping files (`cli.mjs`, `setup/application/hosted.mjs`, `setup/application/wizard.mjs`,
-    `setup/presentation/ui.mjs`, `setup/presentation/hostUp.mjs`, `setup/presentation/up.mjs`) knowable only by reading cli.mjs.
+    six overlapping files (`cli.mjs`, `setup/application/inspectSetup.mjs`, `setup/application/startSelfHost.mjs`,
+    `setup/presentation/ui.mjs`, `setup/presentation/hostUp.mjs`, `setup/presentation/setupWizard.mjs`) knowable only by reading cli.mjs.
 
 11. **Error-handling inconsistency across plugin RPC backends.** `example-ui/rpc.mjs:5-8` guards
     `JSON.parse(MUXR_PLUGIN_INPUT)`; `ports/rpc.mjs`, `git-history/rpc.mjs`, `runbook/rpc.mjs`,
@@ -246,7 +246,7 @@ Method: six parallel deep-dive reviews (host/relay, mobile, plugin SDK, packages
     - `docs/SELF-HOSTING.md` names the email seam `TransactionalEmail`; code calls it
       `NotificationEmail` (`apps/relay/src/email.ts:9`). SELF-HOSTING covers maybe half the
       `MUXR_*` knobs; there is no single env-var reference.
-    - README says "Linux host"; SELF-HOSTING says "Linux, macOS, WSL" (`scripts/setup/application/hosted.mjs` has a
+    - README says "Linux host"; SELF-HOSTING says "Linux, macOS, WSL" (`scripts/setup/application/inspectSetup.mjs` has a
       darwin branch — README is stale).
     - README layout lists `deploy  TLS proxy` — no `deploy/` directory exists.
     - `docs/license-inventory.md` claims the npm artifact excludes relay source and `web-push` —
@@ -258,7 +258,7 @@ Method: six parallel deep-dive reviews (host/relay, mobile, plugin SDK, packages
     `MUXR_PACKAGE_CONTROL_URL` (no single reproducible tarball), no npm-publish automation or
     provenance attestation, packed `dependencies` use caret ranges with no lockfile shipped — two
     installs a week apart can resolve different `ws`/`web-push` minors. (The plugin-install path
-    `scripts/plugin/application/registry.mjs` is much stricter — exact versions, `--ignore-scripts`, provenance — than
+    `scripts/plugin/application/installPlugin.mjs` is much stricter — exact versions, `--ignore-scripts`, provenance — than
     the pipeline that ships muxr itself.)
 
 14. **Packages can't build themselves.** `@muxr/contract` and `@muxr/crypto` have no `scripts`

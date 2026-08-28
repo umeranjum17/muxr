@@ -138,7 +138,12 @@ await build({
 const copyContext = (name) => {
     cpSync(join(root, 'scripts', name), join(out, name), {
         recursive: true,
-        filter: (src) => !src.endsWith('.ts') && !src.endsWith('tsconfig.json') && !src.endsWith('.tsbuildinfo'),
+        filter: (src) => {
+            if (src.endsWith('.ts') || src.endsWith('tsconfig.json') || src.endsWith('.tsbuildinfo')) return false;
+            if (name !== 'diagnostics' || !src.endsWith('.mjs')) return true;
+            const base = src.split(/[\\/]/).pop();
+            return base === 'index.mjs' || base === 'dumpDiagnostics.mjs' || base === 'waitForRelay.mjs';
+        },
     });
 };
 copyFileSync(join(root, 'scripts', 'cli.mjs'), join(out, 'cli.mjs'));
@@ -149,9 +154,9 @@ if (!existsSync(join(out, 'setup', 'domain', 'dist', 'index.js'))) {
 if (!existsSync(join(out, 'plugin', 'domain', 'dist', 'index.js'))) {
     throw new Error('plugin domain was not compiled; run yarn build before packing');
 }
-const extensionSource = readFileSync(join(out, 'plugin', 'application', 'manifest.mjs'), 'utf8');
+const extensionSource = readFileSync(join(out, 'plugin', 'application', 'checkPlugin.mjs'), 'utf8');
 if (!extensionSource.includes("from '@muxr/contract'")) throw new Error('plugin validator import changed; update the package rewrite');
-writeFileSync(join(out, 'plugin', 'application', 'manifest.mjs'), extensionSource.replace("from '@muxr/contract'", "from '../../../contract.mjs'"));
+writeFileSync(join(out, 'plugin', 'application', 'checkPlugin.mjs'), extensionSource.replace("from '@muxr/contract'", "from '../../contract.mjs'"));
 cpSync(join(root, 'plugins'), join(out, 'plugins'), { recursive: true });
 cpSync(join(root, 'skills', 'muxr'), join(out, 'skills', 'muxr'), { recursive: true });
 const webDist = join(root, 'apps', 'mobile', 'dist');
@@ -178,7 +183,7 @@ if (!packagedControlUrl) {
 } else if (!/^https:\/\/[^/]+$/.test(packagedControlUrl)) {
     throw new Error('MUXR_PACKAGE_CONTROL_URL must be the published HTTPS control-plane origin');
 }
-const setupPath = join(out, 'setup', 'application', 'hosted.mjs');
+const setupPath = join(out, 'setup', 'application', 'inspectSetup.mjs');
 writeFileSync(
     setupPath,
     readFileSync(setupPath, 'utf8').replace('__MUXR_PACKAGED_CONTROL_URL__', packagedControlUrl ?? ''),
