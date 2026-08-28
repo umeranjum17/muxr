@@ -1,4 +1,4 @@
-import type { AgentLifecycle, HerdrTreeWorkspace, LifecycleEvent } from '@muxr/contract';
+import { lifecycleEventAgentName, type AgentLifecycle, type HerdrTreeWorkspace, type LifecycleEvent } from '@muxr/contract';
 import type { Session } from '@/catalog';
 import { paneDisplayName, paneTaskTitle } from './herdTree';
 import { Agent } from './Agent';
@@ -48,7 +48,7 @@ export const HERD_STATUS_LABELS: Record<AgentLifecycle, string> = {
 export function agentFromSession(session: Session): Agent {
     return new Agent({
         route: session.id,
-        agentName: session.metadata?.displayName?.trim() || 'Agent',
+        agentName: session.metadata?.agentName?.trim() || 'Agent',
         taskTitle: session.metadata?.taskTitle?.trim() || 'Current task',
         recordedStatus: session.metadata?.agentStatus,
         online: session.presence === 'online',
@@ -62,7 +62,7 @@ export function paneStatus(session: Session): AgentLifecycle {
 }
 
 export function lifecycleNotificationState(event: LifecycleEvent): HerdNotificationState {
-    const name = event.displayName.trim() || 'Agent';
+    const name = lifecycleEventAgentName(event);
     return {
         mode: event.state === 'done' ? 'finished' : 'attention',
         count: 1,
@@ -73,7 +73,7 @@ export function lifecycleNotificationState(event: LifecycleEvent): HerdNotificat
 }
 
 export function lifecycleNotificationCopy(event: LifecycleEvent): string {
-    const name = event.displayName.trim() || 'Agent';
+    const name = lifecycleEventAgentName(event);
     if (event.state === 'done') return `${name} finished.`;
     if (event.state === 'failed') {
         const startFailure = event.reasonCode === 'start-launch-failed'
@@ -86,10 +86,10 @@ export function lifecycleNotificationCopy(event: LifecycleEvent): string {
 }
 
 function nameOf(session: Session | undefined, fallback: string): string {
-    return session?.metadata?.displayName?.trim() || fallback;
+    return session?.metadata?.agentName?.trim() || fallback;
 }
 
-/** The same tree panes Spaces renders, enriched only with session display names. */
+/** The same tree panes Spaces renders, enriched only with canonical Agent Names. */
 export function herdPanes(sessions: Session[], workspaces: readonly HerdrTreeWorkspace[]): HerdPane[] {
     const sessionsById = new Map(sessions.map((session) => [session.id, session]));
     return workspaces

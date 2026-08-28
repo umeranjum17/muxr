@@ -1,6 +1,7 @@
 import type { AgentLifecycle, HerdrTreePane } from '@muxr/contract';
 import type { Session } from '@/catalog';
 import { HERD_STATUS_LABELS } from './herd';
+import { paneDisplayName } from './herdTree';
 
 export interface AgentLabels {
     taskTitle: string;
@@ -12,7 +13,7 @@ export function agentLabels(pane?: HerdrTreePane, session?: Session): AgentLabel
     const metadata = session?.metadata;
     return {
         taskTitle: pane?.taskTitle?.trim() || metadata?.taskTitle?.trim() || 'Untitled task',
-        agentName: metadata?.displayName?.trim() || pane?.displayName?.trim() || undefined,
+        agentName: metadata?.agentName?.trim() || (pane === undefined ? undefined : paneDisplayName(pane)),
     };
 }
 

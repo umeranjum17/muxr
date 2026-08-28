@@ -187,6 +187,7 @@ describe('host peer collaboration flow', () => {
             cwd: '/work/app',
             path: 'internal-pane-path',
             name: 'iOS builder',
+            displayName: 'iOS builder',
             created: new Date().toISOString(),
             modified: new Date().toISOString(),
             messageCount: 0,
@@ -328,7 +329,7 @@ describe('host peer collaboration flow', () => {
             machineAlias: 'Build Mac',
         });
         const listed = await call(sourceRuntime, 'peer.remote.list', { relationshipId: installed.relationshipId });
-        expect(listed).toEqual({ machineAlias: 'Build Mac', sessions: [{ sessionId: 'muxr-session-ios', agentAlias: 'iOS builder' }] });
+        expect(listed).toEqual({ machineAlias: 'Build Mac', sessions: [{ sessionId: 'muxr-session-ios', agentName: 'iOS builder' }] });
         const promptMutation = fresh('prompt-once');
         await call(sourceRuntime, 'peer.remote.prompt', {
             relationshipId: installed.relationshipId,
@@ -481,23 +482,23 @@ describe('host peer collaboration flow', () => {
         await waitFor(() => sourceRuntime.store.semanticMutations().some((entry) => entry.type === 'peer.remote.watch' && entry.state === 'delivered'), 'watch delivery acknowledgement');
         expect(sourceRuntime.store.semanticMutations()).toContainEqual(expect.objectContaining({ type: 'peer.remote.watch', state: 'delivered' }));
         remoteSessions = [session, { ...session, id: 'another-internal-session' }];
-        const qualified = await brokerCall(broker.socketPath, access.capability, { method: 'list', machine: 'Build Mac' }) as { machines: Array<{ agents: Array<{ agent: string }> }> };
-        expect(qualified.machines[0]!.agents.map((entry) => entry.agent).sort()).toEqual(['iOS builder', 'iOS builder (pi)']);
-        await expect(brokerCall(broker.socketPath, access.capability, { method: 'read', machine: 'Build Mac', agent: qualified.machines[0]!.agents[0]!.agent }))
-            .resolves.toMatchObject({ agent: qualified.machines[0]!.agents[0]!.agent });
+        const duplicateNames = await brokerCall(broker.socketPath, access.capability, { method: 'list', machine: 'Build Mac' }) as { machines: Array<{ agents: Array<{ agent: string }> }> };
+        expect(duplicateNames.machines[0]!.agents).toEqual([{ agent: 'iOS builder' }, { agent: 'iOS builder' }]);
+        await expect(brokerCall(broker.socketPath, access.capability, { method: 'read', machine: 'Build Mac', agent: 'iOS builder' }))
+            .rejects.toThrow('More than one agent has that Agent Name');
         remoteSessions = [session];
         const afterRemoval = await brokerCall(broker.socketPath, access.capability, { method: 'list', machine: 'Build Mac' }) as { machines: Array<{ agents: Array<{ agent: string }> }> };
         expect(afterRemoval.machines[0]!.agents).toEqual([{ agent: 'iOS builder' }]);
         remoteSessions = [session, { ...session, id: 'another-internal-session' }];
         const afterReadd = await brokerCall(broker.socketPath, access.capability, { method: 'list', machine: 'Build Mac' }) as { machines: Array<{ agents: Array<{ agent: string }> }> };
-        expect(afterReadd.machines[0]!.agents.map((entry) => entry.agent).sort()).toEqual(['iOS builder', 'iOS builder (pi)']);
+        expect(afterReadd.machines[0]!.agents).toEqual([{ agent: 'iOS builder' }, { agent: 'iOS builder' }]);
         remoteSessions = [session];
         const promptedFromCli = await peerCli(cliFile, ['prompt', '--machine', 'Build Mac', '--agent', 'iOS builder', '--text', 'Report Xcode status']);
         expect(promptedFromCli).toMatchObject({ code: 0, stderr: '' });
         expect(JSON.parse(promptedFromCli.stdout)).toEqual({ machine: 'Build Mac', agent: 'iOS builder', delivered: true });
         expect(prompts).toBe(4);
         remoteSessions = [session, { ...session, id: 'another-internal-session' }];
-        const { machineAlias: _machineAlias, agentAliases: _agentAliases, ...outboundCopy } = sourceRuntime.store.relationship(installed.relationshipId)!;
+        const { machineAlias: _machineAlias, agentNames: _agentNames, ...outboundCopy } = sourceRuntime.store.relationship(installed.relationshipId)!;
         const duplicateMachine = {
             ...outboundCopy,
             relationshipId: 'second-build-mac',
@@ -510,6 +511,7 @@ describe('host peer collaboration flow', () => {
         await expect(brokerCall(broker.socketPath, access.capability, { method: 'list', machine: 'Build Mac (macOS)' }))
             .resolves.toMatchObject({ machines: [expect.objectContaining({ machine: 'Build Mac (macOS)' })] });
         await sourceRuntime.store.putRelationship({ ...duplicateMachine, state: 'revoked' });
+        remoteSessions = [session];
         controlWaits = true;
         const activeWaitIndex = pendingWaits.length;
         const activeWatch = brokerCall(broker.socketPath, access.capability, { method: 'watch', machine: 'Build Mac', agent: 'iOS builder', timeoutMs: 5_000 });

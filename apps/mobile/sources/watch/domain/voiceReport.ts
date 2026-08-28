@@ -3,7 +3,7 @@ import { lifecycleIsRoutineVoice } from './lifecycle';
 const MAX_VOICE_ATTEMPTS = 1_000;
 const MAX_VOICE_READY_AHEAD_MS = 30_000;
 const MAX_VOICE_IDENTITY_LENGTH = 200;
-const MAX_VOICE_DISPLAY_NAME = 80;
+const MAX_VOICE_AGENT_NAME = 80;
 const MAX_VOICE_TASK_TITLE = 200;
 
 const VOICE_STATUSES = new Set(['idle', 'done', 'blocked', 'failed']);
@@ -19,7 +19,7 @@ export interface VoiceReport {
     sessionId: string;
     from: string;
     status: string;
-    displayName: string;
+    agentName: string;
     taskTitle: string;
     attempts: number;
     readyAt: number;
@@ -33,7 +33,7 @@ export type VoiceAdmission = 'admitted' | 'pending' | 'delivered' | 'full' | 'in
 
 /** Spoken Agent Name must never be an internal route, pane id, or session id. */
 export function agentNameIsTrusted(name: string): boolean {
-    if (/^(?:pp_|pane[_-]|session[_-])/i.test(name)) return false;
+    if (/^(?:pph?_|pane[_-]|session[_-])/i.test(name)) return false;
     if (/^[\w-]+:[\w-]+$/.test(name)) return false;
     if (/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(name)) return false;
     if (/[\\/]/.test(name)) return false;
@@ -62,17 +62,17 @@ function boundedVoiceReadyAt(value: unknown): number {
 }
 
 /**
- * A Voice Report is invalid until current-schema validation. Display metadata
- * never authorizes: Agent Route (session id) and identity do.
+ * A Voice Report is invalid until current-schema validation. Presentation
+ * metadata never authorizes: Agent Route (session id) and identity do.
  */
 export function parseVoiceReport(value: unknown): VoiceReportParse {
     if (typeof value !== 'object' || value === null) return { ok: false };
-    const entry = value as Partial<VoiceReport> & { from?: string; displayName?: string; taskTitle?: string };
-    const rawDisplayName = typeof entry.displayName === 'string' ? entry.displayName : '';
+    const entry = value as Partial<VoiceReport> & { from?: string; agentName?: string; taskTitle?: string };
+    const rawAgentName = typeof entry.agentName === 'string' ? entry.agentName : '';
     const rawTaskTitle = typeof entry.taskTitle === 'string' ? entry.taskTitle : '';
-    const displayName = rawDisplayName.trim().slice(0, MAX_VOICE_DISPLAY_NAME);
+    const agentName = rawAgentName.trim().slice(0, MAX_VOICE_AGENT_NAME);
     const taskTitle = rawTaskTitle.trim().slice(0, MAX_VOICE_TASK_TITLE);
-    const trustedText = `${displayName} ${taskTitle}`;
+    const trustedText = `${agentName} ${taskTitle}`;
     if (typeof entry.identity !== 'string' || entry.identity === '' || entry.identity.length > MAX_VOICE_IDENTITY_LENGTH) {
         return { ok: false };
     }
@@ -81,10 +81,10 @@ export function parseVoiceReport(value: unknown): VoiceReportParse {
     }
     if (entry.from !== 'working') return { ok: false };
     if (typeof entry.status !== 'string' || !VOICE_STATUSES.has(entry.status)) return { ok: false };
-    if (displayName === '' || taskTitle === '') return { ok: false };
-    if (!agentNameIsTrusted(displayName)) return { ok: false };
+    if (agentName === '' || taskTitle === '') return { ok: false };
+    if (!agentNameIsTrusted(agentName)) return { ok: false };
     if (VOICE_PATH_PATTERN.test(taskTitle)) return { ok: false };
-    if (VOICE_CONTROL_PATTERN.test(`${rawDisplayName}${rawTaskTitle}`)) return { ok: false };
+    if (VOICE_CONTROL_PATTERN.test(`${rawAgentName}${rawTaskTitle}`)) return { ok: false };
     if (VOICE_CREDENTIAL_PATTERN.test(trustedText)) return { ok: false };
     if (VOICE_INTERNAL_REFERENCE_PATTERN.test(trustedText)) return { ok: false };
     if (VOICE_INSTRUCTION_PATTERN.test(trustedText)) return { ok: false };
@@ -95,7 +95,7 @@ export function parseVoiceReport(value: unknown): VoiceReportParse {
             sessionId: entry.sessionId,
             from: 'working',
             status: entry.status,
-            displayName,
+            agentName,
             taskTitle,
             attempts: boundedVoiceAttempts(entry.attempts),
             readyAt: boundedVoiceReadyAt(entry.readyAt),
@@ -108,7 +108,7 @@ export function parseVoiceReportInput(input: {
     sessionId: string;
     from: string;
     status: string;
-    displayName?: string;
+    agentName?: string;
     taskTitle?: string;
 }): VoiceReportParse {
     return parseVoiceReport({
@@ -116,7 +116,7 @@ export function parseVoiceReportInput(input: {
         sessionId: input.sessionId,
         from: input.from,
         status: input.status,
-        displayName: input.displayName,
+        agentName: input.agentName,
         taskTitle: input.taskTitle,
         attempts: 0,
         readyAt: 0,

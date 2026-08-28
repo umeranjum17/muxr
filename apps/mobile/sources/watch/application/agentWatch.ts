@@ -1,6 +1,6 @@
 import { MMKV } from 'react-native-mmkv';
 import type { LifecycleCatalog, LifecycleEvent } from '@muxr/contract';
-import { lifecycleNeedsHumanAlert } from '../domain/lifecycle';
+import { lifecycleNeedsNotification } from '../domain/lifecycle';
 import {
     MAX_VOICE_IDENTITY_LENGTH,
     isTrustedVoiceScopeKey,
@@ -353,7 +353,7 @@ export function createAgentWatch(): AgentWatch {
                 }
                 const presented = boundPresented([...notification.presented, ...catalogHistory]);
                 for (const record of presented) presentedIds.add(record.eventId);
-                const newAlerts = eventsBeforeCatalog.filter((event) => lifecycleNeedsHumanAlert(event.state));
+                const newAlerts = eventsBeforeCatalog.filter((event) => lifecycleNeedsNotification(event.state));
                 notification.initialized = true;
                 notification.presented = presented;
                 saveNotifications();
@@ -369,7 +369,7 @@ export function createAgentWatch(): AgentWatch {
             }
             const pendingIds = new Set(current.pendingLifecycleEvents.map((event) => event.eventId));
             const newAlerts = lifecycleEvents.filter((event) => {
-                if (!lifecycleNeedsHumanAlert(event.state)) return false;
+                if (!lifecycleNeedsNotification(event.state)) return false;
                 if (presentedIds.has(event.eventId)) return false;
                 if (pendingIds.has(event.eventId)) return false;
                 return true;
@@ -392,7 +392,7 @@ export function createAgentWatch(): AgentWatch {
                 return [];
             }
             const alreadyPending = current.pendingLifecycleEvents.some((entry) => entry.eventId === event.eventId);
-            if (!lifecycleNeedsHumanAlert(event.state) || presentedIds.has(event.eventId) || alreadyPending) {
+            if (!lifecycleNeedsNotification(event.state) || presentedIds.has(event.eventId) || alreadyPending) {
                 replaceSnapshot({ lifecycleEvents });
                 return [];
             }

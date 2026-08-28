@@ -3,7 +3,7 @@ title: Cross-machine agent collaboration
 slug: cross-machine-collaboration
 status: in-progress
 created: 2026-08-25
-updated: 2026-08-26
+updated: 2026-08-28
 owner: umer
 links:
   - remote-relay-enrollment
@@ -110,7 +110,7 @@ Forgetting a phone pairing warns when collaboration still exists. It never impli
 
 ## Cross-machine agent operations
 
-The host peer client exposes typed, capability-checked operations rather than arbitrary command execution. The running host publishes an owner-only local broker capability so any local coding agent can use human-named CLI commands after reading `muxr --skill`:
+The host peer client exposes typed, capability-checked operations rather than arbitrary command execution. The running host publishes an owner-only local broker capability so any local coding agent can use Machine Name and Agent Name CLI selectors after reading `muxr --skill`:
 
 - `muxr peers list`
 - `muxr peers read --machine <name> [--agent <name>]`
@@ -120,7 +120,7 @@ The host peer client exposes typed, capability-checked operations rather than ar
 
 The local broker inherits the existing peer grant allowlist and never exposes raw shell, terminal takeover, destructive operations, or undeclared plugin calls. Starting an agent remains unavailable until Settings can approve an exact target-reported directory.
 
-Stable muxr session identity remains the routing handle internally. User-facing commands and UI use human machine and agent aliases. Ambiguous aliases require clarification.
+Stable muxr session identity remains the routing handle internally. User-facing commands and UI use Machine Names and Agent Names. Ambiguous names require clarification.
 
 ## Host diagnostics
 
@@ -196,7 +196,7 @@ The work lands as one cohesive feature PR with reviewable internal commits.
 ## Revisions
 
 - 2026-08-25: hardened the release after hostile review: receipt admission and security-first revoke, crash-recoverable authorization, correlated liveness, strict frame validation, deployed hosted generic pairing APIs, immutable voice grant refresh, pairing guards, destructive voice-tool removal, and remote-output redaction.
-- 2026-08-25: reopened after owner review to add directed watch settlement, per-stream voice broker capabilities and strict parsing, retryable recovery fencing, canonical mobile authority reconciliation, stable human aliases, and focused PeerRuntime responsibility extraction.
+- 2026-08-25: reopened after owner review to add directed watch settlement, per-stream voice broker capabilities and strict parsing, retryable recovery fencing, canonical mobile authority reconciliation, stable user-facing names, and focused PeerRuntime responsibility extraction.
 - 2026-08-25: reopened after independent Sol review for active capability abort, exact private watch settlement, reconnect-safe semantic mutations, security-first local revocation, alias churn, deep mobile intent normalization, and precise trusted-local-plugin documentation.
 - 2026-08-26: reopened after live owner testing because machine checkmarks looked persisted before confirmation, the permission card was not interactive, and ordinary offline setup was mislabeled `Needs attention`; replace the fixed card with a real revoking switch, reserve the warning for repair, and keep interrupted authorization and pending disconnect retries convergent.
 - 2026-08-26: reopened after the third owner iteration and a Fable HOLD: add an ordinary-agent peer CLI, preserve outdated/offline/authorization causes through Settings with an explicit Connected receipt, and make CLI skill loading progressive instead of dumping every reference.
@@ -211,6 +211,7 @@ The work lands as one cohesive feature PR with reviewable internal commits.
 - 2026-08-26: a failed authorization followed by matching revocation could clear the durable recovery journal but leave the runtime's cached recovery fence set, causing an immediate retry to fail in 1 ms. Successful cancellation now recomputes and clears the cache/timer when no work remains; `peer-recovery-pending` is allowlisted and rendered as a bounded retry message. Regression proves revoke followed immediately by prepare succeeds.
 - 2026-08-26: real Linux-to-Mac and Mac-to-Linux list, status, bounded read, prompt, and completed watch all pass on identical packaged runtimes. A gated-auth experiment proved the target relay could drop immediate liveness frames before its asynchronous ticket check installed the message handler; relay sockets now pause before authentication and resume only after authorization, routing, and detach handlers are installed.
 - 2026-08-26: thermonuclear restart and revocation review fenced disposed peer clients and relationships before durable cleanup, prevented stale socket callbacks and shutdown retries from recreating access, made daemon start/restart wait for the peer broker, retried transient launchd bootstrap error 5, and raised Linux's bounded service start burst to 20 per minute. Ten cold restart-to-first-list cycles pass in each direction.
+- 2026-08-28: completed the Agent Name vocabulary cutover so Herdr `agent.name` is canonical, Agent Route alone authorizes, and `displayName` survives only at compatibility wire boundaries.
 
 ## Verification
 

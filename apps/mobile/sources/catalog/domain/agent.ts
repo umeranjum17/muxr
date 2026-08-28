@@ -1,4 +1,4 @@
-import { isSessionIdle, type SessionInfo, type SessionStatus } from '@muxr/contract';
+import { isSessionIdle, normalizeAgentName, type SessionInfo, type SessionStatus } from '@muxr/contract';
 import type { Session } from '../infrastructure/storageTypes';
 import {
     lifecycleIsBusy,
@@ -20,10 +20,9 @@ const FALLBACK_TASK_TITLE = 'Current task';
  * back to the cwd basename gave every Agent in a repo the same name, and each
  * catalog refresh overwrote the real Herdr Agent Name.
  */
-export function agentNameFromHost(info: Pick<SessionInfo, 'displayName' | 'name'>): string | undefined {
-    if (info.displayName !== undefined && info.displayName.trim().length > 0) return info.displayName.trim();
-    if (info.name !== undefined && info.name.trim().length > 0) return info.name.trim();
-    return undefined;
+export function agentNameFromHost(info: Pick<SessionInfo, 'displayName'>): string | undefined {
+    if (info.displayName === undefined || info.displayName.trim() === '') return undefined;
+    return normalizeAgentName(info.displayName);
 }
 
 export function taskTitleFromHost(raw: string | undefined): string {
@@ -66,7 +65,7 @@ export function approvalAgentState(spokenName: string): NonNullable<Session['age
 }
 
 export function agentNameForNotice(session: Session | undefined): string {
-    const name = session?.metadata?.displayName?.trim();
+    const name = session?.metadata?.agentName?.trim();
     return name && name.length > 0 ? name : 'Agent';
 }
 

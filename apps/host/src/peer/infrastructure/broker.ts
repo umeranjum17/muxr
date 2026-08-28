@@ -196,7 +196,7 @@ export class PeerBroker {
                     const alias = relationship.machineAlias ?? (cleanAlias(relationship.machineName) || 'Peer computer');
                     try {
                         const listed = await this.remote<'peer.remote.list'>(relationship, 'peer.remote.list', {}, access?.signal);
-                        return { machine: alias, agents: listed.sessions.map(({ agentAlias }) => ({ agent: cleanAlias(agentAlias) })) };
+                        return { machine: alias, agents: listed.sessions.map(({ agentName }) => ({ agent: cleanAlias(agentName) })) };
                     } catch {
                         return { machine: alias, unavailable: true, agents: [] };
                     }
@@ -209,9 +209,9 @@ export class PeerBroker {
         try { listed = await this.remote<'peer.remote.list'>(relationship, 'peer.remote.list', {}, access?.signal); }
         catch { throw new Error('The selected peer computer is unavailable.'); }
         const agent = cleanAlias(request.agent);
-        const matches = agent === '' ? listed.sessions : listed.sessions.filter((entry) => aliasKey(entry.agentAlias) === aliasKey(agent));
+        const matches = agent === '' ? listed.sessions : listed.sessions.filter((entry) => aliasKey(entry.agentName) === aliasKey(agent));
         if (matches.length === 0) throw new Error('No allowed agent with that name is available on the selected computer.');
-        if (matches.length > 1) throw new Error('Use one of the qualified agent aliases returned by list machines.');
+        if (matches.length > 1) throw new Error('More than one agent has that Agent Name. Rename one in Herdr.');
         const target = matches[0]!;
         try {
             if (request.method === 'read') {
@@ -220,11 +220,11 @@ export class PeerBroker {
                     sessionId: target.sessionId,
                     ...(lines === undefined ? {} : { lines }),
                 }, access?.signal);
-                return { machine: cleanAlias(result.machineAlias), agent: cleanAlias(result.agentAlias), text: safeVoiceOutput(result.text), truncated: result.truncated };
+                return { machine: cleanAlias(result.machineAlias), agent: cleanAlias(result.agentName), text: safeVoiceOutput(result.text), truncated: result.truncated };
             }
             if (request.method === 'status') {
                 const result = await this.remote<'peer.remote.status'>(relationship, 'peer.remote.status', { sessionId: target.sessionId }, access?.signal);
-                return { machine: cleanAlias(result.machineAlias), agent: cleanAlias(result.agentAlias), status: { agentStatus: result.status.agentStatus, isStreaming: result.status.isStreaming } };
+                return { machine: cleanAlias(result.machineAlias), agent: cleanAlias(result.agentName), status: { agentStatus: result.status.agentStatus, isStreaming: result.status.isStreaming } };
             }
             assertAccess();
             const mutation = { operationId: `voice_${randomUUID()}`, notValidAfter: Date.now() + PEER_MUTATION_TTL_MS };
@@ -235,7 +235,7 @@ export class PeerBroker {
                 access?.onSemanticResult?.(this.semanticRequest('peer.remote.watch', relationship, params));
                 return {
                     machine: cleanAlias(result.machineAlias),
-                    agent: cleanAlias(result.agentAlias),
+                    agent: cleanAlias(result.agentName),
                     settlement: {
                         status: cleanAlias(result.settlement.status) || 'unknown',
                         detail: safeVoiceOutput(result.settlement.detail),
@@ -248,7 +248,7 @@ export class PeerBroker {
             const params = { sessionId: target.sessionId, text, mutation };
             const result = await this.remote<'peer.remote.prompt'>(relationship, 'peer.remote.prompt', params, access?.signal);
             access?.onSemanticResult?.(this.semanticRequest('peer.remote.prompt', relationship, params));
-            return { machine: cleanAlias(result.machineAlias), agent: cleanAlias(result.agentAlias), delivered: result.delivered };
+            return { machine: cleanAlias(result.machineAlias), agent: cleanAlias(result.agentName), delivered: result.delivered };
         } catch (error) {
             if (error instanceof Error && (/^(No |Use one|The selected)/.test(error.message)
                 || (error as { name?: unknown }).name === 'AbortError'

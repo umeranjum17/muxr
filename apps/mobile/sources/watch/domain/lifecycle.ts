@@ -23,7 +23,7 @@ export function lifecycleIsDeskFocus(state: string | undefined): boolean {
 }
 
 /** Lifecycle Events that must interrupt: blocked, failed, or done. */
-export function lifecycleNeedsHumanAlert(state: string): boolean {
+export function lifecycleNeedsNotification(state: string): boolean {
     return state === 'blocked' || state === 'failed' || state === 'done';
 }
 
