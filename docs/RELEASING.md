@@ -19,6 +19,10 @@ Runs are serialized so two manual releases cannot race. Build progress and logs 
 
 The `stores` GitHub environment owns `EXPO_TOKEN` (preferred) or `EXPO_STATE_JSON` and `PLAY_SERVICE_ACCOUNT_JSON`. EAS owns the production signing credentials and App Store Connect submission key. Keep all credential material out of the repository.
 
+## Mobile Closed testing
+
+Run `.github/workflows/mobile-closed.yml` with the successful Android internal workflow run, marketing version, and exact Android version code. The workflow proves the Internal run succeeded on the same `main` commit, verifies the recorded EAS build and submission identifiers, confirms the version is available on Play Internal, then promotes that existing release to the `alpha` Closed-testing track. It verifies Closed-track availability after promotion and never rebuilds or uploads another binary.
+
 ## Mobile production promotion
 
 Run `.github/workflows/mobile-production.yml` with the successful all-platform internal workflow run, exact Android version code, and exact iOS build number. The production workflow proves that run succeeded on the same `main` commit and that its recorded artifacts match every supplied version before the protected `production` approval gate opens.

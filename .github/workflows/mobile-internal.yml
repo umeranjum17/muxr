@@ -49,7 +49,7 @@ jobs:
         run: |
           yarn build
           yarn workspace @muxr/mobile typecheck
-          yarn workspace @muxr/mobile vitest run sources/auth/accountSession.integration.spec.ts sources/sync/sessionSync.integration.spec.ts
+          yarn workspace @muxr/mobile vitest run sources/account/application/accountSession.integration.spec.ts sources/catalog/application/sessionSync.integration.spec.ts
           node scripts/diagnostics/application/checkMobileCommerceBuilds.mjs
           node scripts/diagnostics/application/checkNoSecrets.mjs
 
