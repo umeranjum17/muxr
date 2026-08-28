@@ -13,6 +13,8 @@ export const REALTIME_OUTPUT_RATE = 24_000;
 export const MAX_REALTIME_AUDIO_BASE64_BYTES = 96 * 1024;
 export const MAX_REALTIME_TEXT_BYTES = 4 * 1024;
 export const MAX_REALTIME_PUBLIC_SESSIONS = 64;
+export const MAX_REALTIME_SDP_BYTES = 128 * 1024;
+export const MAX_REALTIME_WEBRTC_DATA_BYTES = 32 * 1024;
 
 /** Trusted host metadata delivered to a stream plugin in realtime.open. */
 export interface RealtimePluginPublicSession {
@@ -61,7 +63,16 @@ export interface RealtimeAppResultFrame {
     text: string;
 }
 
-export type RealtimeClientFrame = RealtimeAudioClientFrame | RealtimeControlFrame | RealtimeSayFrame | RealtimeAppResultFrame;
+
+export interface RealtimeWebRtcOfferFrame { type: 'realtime.webrtc.offer'; sdp: string }
+export interface RealtimeWebRtcDataClientFrame { type: 'realtime.webrtc.data'; data: string }
+export type RealtimeClientFrame =
+    | RealtimeAudioClientFrame
+    | RealtimeControlFrame
+    | RealtimeSayFrame
+    | RealtimeAppResultFrame
+    | RealtimeWebRtcOfferFrame
+    | RealtimeWebRtcDataClientFrame;
 
 export interface RealtimeReadyFrame {
     type: 'realtime.ready';
@@ -86,6 +97,9 @@ export interface RealtimeAppRequestFrame {
     target?: string;
 }
 
+export interface RealtimeWebRtcStartFrame { type: 'realtime.webrtc.start'; dataChannelLabel: string }
+export interface RealtimeWebRtcAnswerFrame { type: 'realtime.webrtc.answer'; sdp: string }
+export interface RealtimeWebRtcDataHostFrame { type: 'realtime.webrtc.data'; data: string }
 
 export type RealtimeHostFrame =
     | RealtimeReadyFrame
@@ -94,7 +108,10 @@ export type RealtimeHostFrame =
     | RealtimeStateFrame
     | RealtimeTranscriptFrame
     | RealtimeAppRequestFrame
-    | RealtimeClosedFrame;
+    | RealtimeClosedFrame
+    | RealtimeWebRtcStartFrame
+    | RealtimeWebRtcAnswerFrame
+    | RealtimeWebRtcDataHostFrame;
 
 const REALTIME_CONTROL_ACTIONS = new Set<RealtimeControlAction>(['mute', 'unmute', 'stop', 'pause_output', 'resume_output', 'output_drained']);
 const REALTIME_APP_ACTIONS: Record<RealtimeAppAction, true> = { view: true, navigate: true, activate: true };
@@ -148,6 +165,29 @@ function rate(value: unknown): number {
     return value;
 }
 
+function webRtcSdp(value: unknown): string {
+    if (typeof value !== 'string' || !value.startsWith('v=0') || value.includes('\u0000')
+        || new TextEncoder().encode(value).length > MAX_REALTIME_SDP_BYTES) {
+        throw new Error('invalid realtime WebRTC SDP');
+    }
+    return value;
+}
+
+function webRtcData(value: unknown): string {
+    if (typeof value !== 'string' || value.length === 0 || value.includes('\u0000')
+        || new TextEncoder().encode(value).length > MAX_REALTIME_WEBRTC_DATA_BYTES) {
+        throw new Error('invalid realtime WebRTC data');
+    }
+    return value;
+}
+
+function dataChannelLabel(value: unknown): string {
+    if (typeof value !== 'string' || !/^[A-Za-z0-9._-]{1,64}$/.test(value)) {
+        throw new Error('invalid realtime WebRTC data channel');
+    }
+    return value;
+}
+
 export function parseRealtimeClientFrame(value: unknown): RealtimeClientFrame {
     const frame = record(value);
     if (frame.type === 'realtime.audio') return { type: 'realtime.audio', data: audio(frame.data) };
@@ -167,6 +207,8 @@ export function parseRealtimeClientFrame(value: unknown): RealtimeClientFrame {
             text: boundedText(frame.text, MAX_REALTIME_TEXT_BYTES, 'app result'),
         };
     }
+    if (frame.type === 'realtime.webrtc.offer') return { type: 'realtime.webrtc.offer', sdp: webRtcSdp(frame.sdp) };
+    if (frame.type === 'realtime.webrtc.data') return { type: 'realtime.webrtc.data', data: webRtcData(frame.data) };
     throw new Error('unknown realtime client frame');
 }
 
@@ -205,6 +247,11 @@ export function parseRealtimeHostFrame(value: unknown): RealtimeHostFrame {
     if (frame.type === 'realtime.closed') {
         return { type: 'realtime.closed', ...(frame.reason === undefined ? {} : { reason: boundedText(frame.reason, 500, 'close reason') }) };
     }
+    if (frame.type === 'realtime.webrtc.start') {
+        return { type: 'realtime.webrtc.start', dataChannelLabel: dataChannelLabel(frame.dataChannelLabel) };
+    }
+    if (frame.type === 'realtime.webrtc.answer') return { type: 'realtime.webrtc.answer', sdp: webRtcSdp(frame.sdp) };
+    if (frame.type === 'realtime.webrtc.data') return { type: 'realtime.webrtc.data', data: webRtcData(frame.data) };
     throw new Error('unknown realtime host frame');
 }
 

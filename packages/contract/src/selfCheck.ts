@@ -121,6 +121,12 @@ function demo(): void {
     assert(appRequest.type === 'realtime.app.request' && appRequest.target === 'settings', 'semantic app requests validate without coordinates or routes');
     const appResult = parseRealtimeClientFrame({ type: 'realtime.app.result', requestId: 'app-1', ok: true, text: 'Navigated to settings.' });
     assert(appResult.type === 'realtime.app.result' && appResult.ok, 'semantic app results validate on the realtime transport');
+    const webRtcStart = parseRealtimeHostFrame({ type: 'realtime.webrtc.start', dataChannelLabel: 'oai-events' });
+    assert(webRtcStart.type === 'realtime.webrtc.start' && webRtcStart.dataChannelLabel === 'oai-events', 'provider-neutral WebRTC start validates');
+    const webRtcOffer = parseRealtimeClientFrame({ type: 'realtime.webrtc.offer', sdp: 'v=0\r\na=offer' });
+    assert(webRtcOffer.type === 'realtime.webrtc.offer' && webRtcOffer.sdp.includes('a=offer'), 'bounded WebRTC SDP validates');
+    const webRtcData = parseRealtimeHostFrame({ type: 'realtime.webrtc.data', data: '{\"type\":\"session.started\"}' });
+    assert(webRtcData.type === 'realtime.webrtc.data', 'opaque WebRTC control validates without provider parsing');
     assert(realtimePcm16ByteLength('AAA=') === 2, 'canonical PCM16 base64 reports decoded bytes');
     for (const malformed of ['AAA', 'AAB=', 'AAAA', 'AA==']) {
         let rejected = false;

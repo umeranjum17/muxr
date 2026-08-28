@@ -1,0 +1,105 @@
+{
+  "schemaVersion": 1,
+  "pluginId": "muxr.voice-codex",
+  "minMuxrVersion": 6,
+  "capabilities": {
+    "voice.status": "status",
+    "voice.session": "session",
+    "voice.report": "report"
+  },
+  "contributions": [
+    { "slot": "host.rpc", "id": "status", "type": "rpc", "method": "status", "entry": "rpc.mjs", "mode": "read" },
+    { "slot": "host.stream", "id": "session", "type": "stream", "entry": "stream.mjs" },
+    { "slot": "host.rpc", "id": "report", "type": "rpc", "method": "report", "entry": "rpc.mjs", "mode": "read" },
+    { "slot": "app.overlay", "id": "overlay", "type": "native", "primitive": "realtime-session-overlay" },
+    {
+      "slot": "home.composer.leading",
+      "id": "talk-home",
+      "type": "native",
+      "primitive": "icon-button",
+      "params": {
+        "capability": "voice.start",
+        "icon": "pulse-outline",
+        "accessibilityLabel": "Start or open realtime conversation",
+        "indicator": "realtime-session"
+      }
+    },
+    {
+      "slot": "session.composer.trailing",
+      "id": "talk-session",
+      "type": "native",
+      "primitive": "icon-button",
+      "params": {
+        "capability": "voice.start",
+        "icon": "pulse-outline",
+        "accessibilityLabel": "Talk to this session",
+        "indicator": "realtime-session"
+      }
+    },
+    {
+      "slot": "settings.items",
+      "id": "settings",
+      "type": "settings-item",
+      "label": {
+        "default": "Codex Voice (experimental)",
+        "translations": {
+          "ru": "Голосовой ассистент",
+          "pl": "Asystent głosowy",
+          "es": "Asistente de voz",
+          "it": "Assistente vocale",
+          "pt": "Assistente de voz",
+          "ca": "Assistent de veu",
+          "zh-Hans": "语音助手",
+          "zh-Hant": "語音助理",
+          "ja": "音声アシスタント"
+        }
+      },
+      "subtitle": {
+        "default": "Uses your local Codex ChatGPT subscription",
+        "translations": {
+          "ru": "Настройка предпочтений голосового взаимодействия",
+          "pl": "Konfiguruj preferencje interakcji głosowej",
+          "es": "Configura las preferencias de voz",
+          "it": "Configura le preferenze vocali",
+          "pt": "Configure as preferências de interação por voz",
+          "ca": "Configura les preferències d'interacció per veu",
+          "zh-Hans": "配置语音交互偏好",
+          "zh-Hant": "設定語音互動偏好",
+          "ja": "音声操作の設定"
+        }
+      },
+      "icon": "warning-outline",
+      "action": { "type": "screen", "contributionId": "settings-screen" }
+    },
+    {
+      "slot": "navigation.content",
+      "id": "settings-screen",
+      "type": "screen",
+      "title": "Codex Voice (experimental)",
+      "data": { "type": "plugin.call", "contributionId": "status" },
+      "children": [
+        {
+          "type": "text",
+          "text": "Warning: this experimental provider reads the renewable ChatGPT OAuth bearer from the owner-only local Codex credential store at session start and identifies signaling as Codex Desktop."
+        },
+        {
+          "type": "text",
+          "text": "The credential remains host-only and in memory. This is not a documented third-party OpenAI integration contract and may stop working or affect your account."
+        },
+        { "type": "row", "title": "Subscription access", "value": "{{data.statusLabel}}" },
+        {
+          "type": "text",
+          "text": "The phone receives only bounded SDP and opaque realtime control messages. OAuth, account ids, and private headers never enter muxr frames or storage."
+        }
+      ]
+    },
+    {
+      "slot": "events",
+      "id": "report-when-agent-stops",
+      "on": "agent.status",
+      "from": "working",
+      "to": ["idle", "done", "blocked", "failed"],
+      "action": { "type": "capability", "name": "speech.wake", "include": "pane" }
+    }
+  ]
+}
