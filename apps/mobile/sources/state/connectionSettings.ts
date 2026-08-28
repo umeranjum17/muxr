@@ -5,13 +5,23 @@ import { getWebSecret, setWebSecret } from './webSecureStore';
 const STORAGE_KEY = 'muxr.connection.v1';
 const MAX_RECENT_CWDS = 5;
 
+function isTailscaleHost(hostname: string): boolean {
+    return hostname.endsWith('.ts.net')
+        || /^100\.(6[4-9]|[78]\d|9\d|1[01]\d|12[0-7])\./.test(hostname);
+}
+
+function isPrivateLanHost(hostname: string): boolean {
+    return /^(localhost|127\.)/.test(hostname)
+        || /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(hostname);
+}
+
 export function pairingTransport(relayUrl: string | undefined): string | undefined {
     if (relayUrl === undefined) return undefined;
     try {
         const { hostname, protocol } = new URL(relayUrl);
-        if (hostname.endsWith('.ts.net') || /^100\.(6[4-9]|[78]\d|9\d|1[01]\d|12[0-7])\./.test(hostname)) return 'Tailscale';
+        if (isTailscaleHost(hostname)) return 'Tailscale';
         if (hostname.endsWith('.trycloudflare.com')) return 'Cloudflare tunnel';
-        if (protocol === 'ws:' && (/^(localhost|127\.)/.test(hostname) || /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(hostname))) return 'Local network';
+        if (protocol === 'ws:' && isPrivateLanHost(hostname)) return 'Local network';
         return 'Hosted VPS / custom relay';
     } catch {
         return undefined;
@@ -64,12 +74,25 @@ export function isConnectionSettingsHydrated(): boolean {
     return hydrated;
 }
 
+function parseMachineId(mode: ConnectionSettings['mode'], parsed: Partial<ConnectionSettings>): string {
+    const raw = typeof parsed.machineId === 'string' ? parsed.machineId.trim() : '';
+    if (mode === 'hosted') return raw;
+    if (raw.length > 0) return raw;
+    return DEFAULT_CONNECTION.machineId;
+}
+
+function parseLocalToken(storedToken: string): string {
+    if (storedToken.length > 0) return storedToken;
+    return DEFAULT_CONNECTION.token;
+}
+
 function parseSettings(raw: string): ConnectionSettings {
     const parsed = JSON.parse(raw) as Partial<ConnectionSettings>;
     const mode = parsed.mode === 'local' || parsed.mode === 'hosted' ? parsed.mode : DEFAULT_CONNECTION.mode;
     const recent = Array.isArray(parsed.recentSessionCwds)
         ? parsed.recentSessionCwds.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
         : [];
+    const storedToken = typeof parsed.token === 'string' ? parsed.token.trim() : '';
     return {
         mode,
         relayUrl: typeof parsed.relayUrl === 'string' && parsed.relayUrl.trim().length > 0
@@ -77,17 +100,11 @@ function parseSettings(raw: string): ConnectionSettings {
             : DEFAULT_CONNECTION.relayUrl,
         // Hosted account-only sessions deliberately persist an empty machine id.
         // Falling back to the build default turns account auth into a fake machine connection.
-        machineId: mode === 'hosted'
-            ? typeof parsed.machineId === 'string' ? parsed.machineId.trim() : ''
-            : typeof parsed.machineId === 'string' && parsed.machineId.trim().length > 0
-                ? parsed.machineId.trim()
-                : DEFAULT_CONNECTION.machineId,
+        machineId: parseMachineId(mode, parsed),
         // An empty stored token is never usable against a strict relay, so it
         // falls back to the build default rather than pinning the app to a
         // permanent unauthorized retry loop.
-        token: mode === 'local' && typeof parsed.token === 'string' && parsed.token.trim().length > 0
-            ? parsed.token.trim()
-            : mode === 'local' ? DEFAULT_CONNECTION.token : '',
+        token: mode === 'local' ? parseLocalToken(storedToken) : '',
         lastSessionCwd: typeof parsed.lastSessionCwd === 'string' ? parsed.lastSessionCwd.trim() : '',
         ...(parsed.selfhost === true ? { selfhost: true } : {}),
         recentSessionCwds: recent.slice(0, MAX_RECENT_CWDS),

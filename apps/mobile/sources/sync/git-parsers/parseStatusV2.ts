@@ -255,7 +255,7 @@ function categorizeFileV2(summary: GitStatusSummaryV2, entry: GitFileEntryV2): v
 }
 
 /**
- * Count files by their status (compatible with v1 interface)
+ * Count files by staged, modified, untracked, and conflicted status.
  */
 export function getStatusCountsV2(summary: GitStatusSummaryV2): {
     staged: number;
@@ -274,7 +274,7 @@ export function getStatusCountsV2(summary: GitStatusSummaryV2): {
 }
 
 /**
- * Check if repository has any changes (compatible with v1 interface)
+ * Whether the working tree has staged, modified, or untracked files.
  */
 export function isDirtyV2(summary: GitStatusSummaryV2): boolean {
     return summary.files.length > 0 || summary.not_added.length > 0;

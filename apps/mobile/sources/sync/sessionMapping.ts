@@ -8,7 +8,6 @@ function parseTime(value: string | undefined): number {
     return Number.isFinite(parsed) ? parsed : Date.now();
 }
 
-/** What the Pi SDK reports as `firstMessage` for a journal with no user turn. */
 /**
  * How long a quiet session keeps counting as active. Pi sessions never report
  * going offline, so a hardcoded `active: true` piled every session muxr had
@@ -37,11 +36,10 @@ export function sessionInfoToSession(info: SessionInfo, status?: SessionStatus):
     const displayName = sessionDisplayName(info);
     const taskTitle = info.taskTitle?.trim() || 'Current task';
     const machineId = getCachedConnectionSettings().machineId;
-    // Herdr runs every CLI, so the agent kind is per session, not per build.
     const kind = info.agentKind ?? 'agent';
     const kindName = kind.charAt(0).toUpperCase() + kind.slice(1);
-    // Live or recently-active: the phone shows whatever herdr currently lists.
     const active = busy || Date.now() - updatedAt < ACTIVE_SESSION_MS;
+    const blocked = status?.agentStatus === 'blocked';
     return {
         id: info.id,
         seq: 0,
@@ -49,60 +47,17 @@ export function sessionInfoToSession(info: SessionInfo, status?: SessionStatus):
         updatedAt,
         active,
         activeAt: updatedAt,
-        ...(status?.agentStatus === 'blocked' ? { agentState: blockedAgentState(displayName ?? kindName) } : {}),
-        metadata: {
-            path: cwd,
-            homeDir: cwd,
-            host: machineId,
-            machineId,
-            flavor: 'pi',
-            client: { id: 'herdr', name: kindName, version: 'muxr' },
-            provider: { id: kind, kind, name: kindName },
-            ...(status?.agentStatus === undefined
-                ? {}
-                : { agentStatus: status.agentStatus, lifecycleStateSince: updatedAt }),
-            ...(info.agentKind === undefined || info.agentKind === '' ? {} : { agentKind: info.agentKind }),
-            ...(info.paneId === undefined || info.paneId === '' ? {} : { paneId: info.paneId }),
-            ...(info.terminalTitle === undefined || info.terminalTitle === '' ? {} : { terminalTitle: info.terminalTitle }),
-            ...(displayName === undefined ? {} : { displayName }),
+        ...(blocked ? { agentState: blockedAgentState(displayName ?? kindName) } : {}),
+        metadata: sessionMetadataFromInfo(info, {
+            cwd,
+            displayName,
             taskTitle,
-            ...(info.worktree === undefined
-                ? {}
-                : {
-                      worktree: {
-                          repo: info.worktree.repo,
-                          ...(info.worktree.branch === undefined ? {} : { branch: info.worktree.branch }),
-                          path: info.worktree.path,
-                      },
-                  }),
-            ...(info.workspaceLabel === undefined || info.workspaceLabel === '' ? {} : { workspaceLabel: info.workspaceLabel }),
-            ...(info.workspaceId === undefined || info.workspaceId === '' ? {} : { workspaceId: info.workspaceId }),
-            ...(info.tabId === undefined || info.tabId === '' ? {} : { tabId: info.tabId }),
-            ...(info.tabLabel === undefined || info.tabLabel === '' ? {} : { tabLabel: info.tabLabel }),
-            ...(info.spawnedBy === undefined || info.spawnedBy === '' ? {} : { spawnedBy: info.spawnedBy }),
-            // muxr's host is not a CLI semver publisher, so leaving version
-            // unset keeps the "CLI Update Required" banner off.
-            startedBy: 'daemon',
-            summary: { text: taskTitle, updatedAt },
-            rigMetadataVersion: 1,
-            // The UI gates every optional feature on this. Declare what muxr
-            // really supports: unset meant "no attachments, no abort button".
-            // File RPCs stay off while sources/sync/ops.ts stubs them.
-            capabilities: {
-                abort: true,
-                shell: true,
-                steering: true,
-                attachments: { enabled: true, maxBytes: 1_000_000, mediaTypes: ['image/*'] },
-                files: { browse: false, read: false, search: false, write: false },
-                modelSelection: true,
-                reasoningSelection: true,
-                permissionModeSelection: false,
-                resume: false,
-                rpcMethods: ['abort', 'bash'],
-            },
-            models: [],
-            thoughtLevels: [],
-        },
+            machineId,
+            kind,
+            kindName,
+            status,
+            updatedAt,
+        }),
         metadataVersion: 1,
         agentState: null,
         agentStateVersion: 0,
@@ -110,6 +65,69 @@ export function sessionInfoToSession(info: SessionInfo, status?: SessionStatus):
         thinkingAt: busy ? Date.now() : 0,
         presence: active ? 'online' : updatedAt,
         draft: null,
+    };
+}
+
+function sessionMetadataFromInfo(
+    info: SessionInfo,
+    fields: {
+        cwd: string;
+        displayName: string | undefined;
+        taskTitle: string;
+        machineId: string;
+        kind: string;
+        kindName: string;
+        status: SessionStatus | undefined;
+        updatedAt: number;
+    },
+): Session['metadata'] {
+    return {
+        path: fields.cwd,
+        homeDir: fields.cwd,
+        host: fields.machineId,
+        machineId: fields.machineId,
+        flavor: 'pi',
+        client: { id: 'herdr', name: fields.kindName, version: 'muxr' },
+        provider: { id: fields.kind, kind: fields.kind, name: fields.kindName },
+        ...(fields.status?.agentStatus === undefined
+            ? {}
+            : { agentStatus: fields.status.agentStatus, lifecycleStateSince: fields.updatedAt }),
+        ...(info.agentKind === undefined || info.agentKind === '' ? {} : { agentKind: info.agentKind }),
+        ...(info.paneId === undefined || info.paneId === '' ? {} : { paneId: info.paneId }),
+        ...(info.terminalTitle === undefined || info.terminalTitle === '' ? {} : { terminalTitle: info.terminalTitle }),
+        ...(fields.displayName === undefined ? {} : { displayName: fields.displayName }),
+        taskTitle: fields.taskTitle,
+        ...(info.worktree === undefined
+            ? {}
+            : {
+                  worktree: {
+                      repo: info.worktree.repo,
+                      ...(info.worktree.branch === undefined ? {} : { branch: info.worktree.branch }),
+                      path: info.worktree.path,
+                  },
+              }),
+        ...(info.workspaceLabel === undefined || info.workspaceLabel === '' ? {} : { workspaceLabel: info.workspaceLabel }),
+        ...(info.workspaceId === undefined || info.workspaceId === '' ? {} : { workspaceId: info.workspaceId }),
+        ...(info.tabId === undefined || info.tabId === '' ? {} : { tabId: info.tabId }),
+        ...(info.tabLabel === undefined || info.tabLabel === '' ? {} : { tabLabel: info.tabLabel }),
+        ...(info.spawnedBy === undefined || info.spawnedBy === '' ? {} : { spawnedBy: info.spawnedBy }),
+        startedBy: 'daemon',
+        summary: { text: fields.taskTitle, updatedAt: fields.updatedAt },
+        rigMetadataVersion: 1,
+        capabilities: {
+            abort: true,
+            shell: true,
+            steering: true,
+            attachments: { enabled: true, maxBytes: 1_000_000, mediaTypes: ['image/*'] },
+            files: { browse: false, read: false, search: false, write: false },
+            modelSelection: true,
+            reasoningSelection: true,
+            permissionModeSelection: false,
+            resume: false,
+            rpcMethods: ['abort', 'bash'],
+        },
+        models: [],
+        thoughtLevels: [],
     };
 }
 
@@ -178,16 +196,22 @@ export function applyStatusToSession(session: Session, status: SessionStatus): S
             ? session.metadata
             : {
                 ...session.metadata,
-                // herdr's lifecycle word drives the status dot / kanban grouping;
-                // keep it current on every status.update.
                 ...(status.agentStatus === undefined
                     ? {}
                     : {
                           agentStatus: status.agentStatus,
-                          lifecycleStateSince: status.agentStatus === session.metadata.agentStatus
-                              ? session.metadata.lifecycleStateSince ?? now
-                              : now,
+                          lifecycleStateSince: unchangedLifecycleSince(session.metadata, status.agentStatus, now),
                       }),
             },
     };
+}
+
+function unchangedLifecycleSince(
+    metadata: NonNullable<Session['metadata']>,
+    nextStatus: SessionStatus['agentStatus'],
+    now: number,
+): number {
+    const statusUnchanged = nextStatus === metadata.agentStatus;
+    if (statusUnchanged && metadata.lifecycleStateSince !== undefined) return metadata.lifecycleStateSince;
+    return now;
 }

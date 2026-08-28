@@ -1,5 +1,5 @@
 import { callPlugin } from '@/plugins/callPlugin';
-import { sanitizePersistedVoiceReport, type PersistedVoiceReport } from '@/sync/agentWatch';
+import { sanitizePersistedVoiceReport, isTrustedVoiceName, type PersistedVoiceReport } from '@/sync/agentWatch';
 import { storage } from '@/sync/storage';
 import {
     realtimeGeneration,
@@ -65,8 +65,18 @@ export function wakeAndReport(input: VoiceReportInput, loadTail?: () => Promise<
     const identity = input.eventId ?? `${input.sessionId}:${input.from}:${input.status}:${input.lifecycleStateSince ?? ''}`;
     const displayName = input.displayName?.trim();
     const taskTitle = input.taskTitle?.trim();
-    if (input.from !== 'working' || !['idle', 'done', 'blocked', 'failed'].includes(input.status)
-        || !displayName || !taskTitle || !isHumanName(displayName)) return Promise.reject(new VoiceReportAdmissionError('Invalid voice report.', false));
+    if (input.from !== 'working') {
+        return Promise.reject(new VoiceReportAdmissionError('Invalid voice report.', false));
+    }
+    if (!['idle', 'done', 'blocked', 'failed'].includes(input.status)) {
+        return Promise.reject(new VoiceReportAdmissionError('Invalid voice report.', false));
+    }
+    if (!displayName || !taskTitle) {
+        return Promise.reject(new VoiceReportAdmissionError('Invalid voice report.', false));
+    }
+    if (!isTrustedVoiceName(displayName)) {
+        return Promise.reject(new VoiceReportAdmissionError('Invalid voice report.', false));
+    }
     const report: PersistedVoiceReport = {
         identity, sessionId: input.sessionId, from: input.from, status: input.status,
         displayName, taskTitle, attempts: 0, readyAt: 0,
@@ -88,13 +98,6 @@ export function wakeAndReport(input: VoiceReportInput, loadTail?: () => Promise<
     runtime.set(runtimeKey, created);
     scheduleDrain();
     return created.promise;
-}
-
-function isHumanName(name: string): boolean {
-    return !/^(?:pp_|pane[_-]|session[_-])/i.test(name)
-        && !/^[\w-]+:[\w-]+$/.test(name)
-        && !/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(name)
-        && !/[\\/]/.test(name);
 }
 
 function runtimeFor(scope: string, generation: number, report: PersistedVoiceReport): RuntimeReport {

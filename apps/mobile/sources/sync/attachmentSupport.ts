@@ -59,7 +59,9 @@ export function planAttachmentHeal<T extends { id: string; size: number }>(entri
 
 export function estimateBase64Bytes(value: unknown): number | null {
     if (typeof value !== 'string' || value.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(value)) return null;
-    const padding = value.endsWith('==') ? 2 : value.endsWith('=') ? 1 : 0;
+    let padding = 0;
+    if (value.endsWith('==')) padding = 2;
+    else if (value.endsWith('=')) padding = 1;
     return Math.max(0, (value.length * 3) / 4 - padding);
 }
 

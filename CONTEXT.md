@@ -62,6 +62,8 @@ _Avoid_: epoch, reconnect id, session id
 The ordered wait until native playback of admitted PCM has finished, before queued speech or a connected status for that turn may proceed.
 _Avoid_: flush, complete, EOS
 
+## Mobile application
+
 **Spawn**:
 Starting one Agent or a squad on a Machine, in a directory, optionally on a Worktree.
 _Avoid_: new session, create chat
@@ -77,3 +79,13 @@ _Avoid_: chip URL, detected hyperlink
 **Collaboration**:
 The intended mesh of paired Machines that can reach each other. Machine ids authorize; computer names never do.
 _Avoid_: peer graph, computer sharing
+
+## Hosted pairing
+
+**Pairing String**:
+The URL a person pastes or scans to bind this device to a machine. Distinct from account login.
+_Avoid_: claim, ticket, QR payload
+
+**Hosted Grant**:
+The verified machine permission this device stores after pairing. It owns authority, the relay, and the keys used to open sealed traffic.
+_Avoid_: token, pairing cache, device record

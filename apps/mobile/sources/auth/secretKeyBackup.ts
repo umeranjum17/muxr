@@ -108,24 +108,14 @@ export function formatSecretKeyForBackup(secretKey: string): string {
  */
 export function parseBackupSecretKey(formattedKey: string): string {
     try {
-        // Convert from base32 back to bytes
         const bytes = base32ToBytes(formattedKey);
-
-        // Ensure we have exactly 32 bytes
         if (bytes.length !== 32) {
             throw new Error(`Invalid key length: expected 32 bytes, got ${bytes.length}`);
         }
-
-        // Encode to base64url
         return encodeBase64(bytes, 'base64url');
     } catch (error) {
-        // Re-throw specific error messages
-        if (error instanceof Error) {
-            if (error.message.includes('Invalid key length') || 
-                error.message.includes('No valid characters found')) {
-                throw error;
-            }
-        }
+        if (error instanceof Error && error.message.includes('Invalid key length')) throw error;
+        if (error instanceof Error && error.message.includes('No valid characters found')) throw error;
         throw new Error('Invalid secret key format');
     }
 }
@@ -156,24 +146,14 @@ export function isValidSecretKey(key: string): boolean {
  * @returns Base64url encoded secret key
  */
 export function normalizeSecretKey(key: string): string {
-    // Trim whitespace
     const trimmed = key.trim();
-    
-    // Check if it looks like a formatted key (contains dashes or spaces between groups)
-    // or has been typed with spaces/formatting
-    if (/[-\s]/.test(trimmed) || trimmed.length > 50) {
-        return parseBackupSecretKey(trimmed);
-    }
-
-    // Otherwise try to parse as base64url
+    const looksFormatted = /[-\s]/.test(trimmed) || trimmed.length > 50;
+    if (looksFormatted) return parseBackupSecretKey(trimmed);
     try {
         const bytes = decodeBase64(trimmed, 'base64url');
-        if (bytes.length !== 32) {
-            throw new Error('Invalid secret key');
-        }
+        if (bytes.length !== 32) throw new Error('Invalid secret key');
         return trimmed;
-    } catch (error) {
-        // If base64 parsing fails, try parsing as formatted key anyway
+    } catch {
         return parseBackupSecretKey(trimmed);
     }
 }

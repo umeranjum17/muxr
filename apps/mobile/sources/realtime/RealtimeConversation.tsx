@@ -18,7 +18,23 @@ import {
     useRealtimeSessionState,
     useRealtimeTurns,
     useRealtimeWatching,
+    type RealtimeSessionState,
 } from './realtimeSessionState';
+
+function conversationStatusLabel(
+    state: RealtimeSessionState,
+    watching: boolean,
+    muted: boolean,
+    speaking: boolean,
+): string {
+    if (state === 'disconnected' && watching) return 'Asleep — watching agent';
+    if (state === 'disconnected') return 'Asleep — tap the mic to wake';
+    if (state === 'connecting') return 'Connecting…';
+    if (state === 'thinking') return 'Thinking…';
+    if (speaking) return 'Speaking';
+    if (muted) return 'Microphone muted';
+    return 'Listening';
+}
 
 export const RealtimeConversation = React.memo(function RealtimeConversation({
     visible,
@@ -63,20 +79,7 @@ export const RealtimeConversation = React.memo(function RealtimeConversation({
     if (!visible) return null;
 
     const speaking = state === 'speaking';
-    // The state word is the headline; a provider's failure string is not. Set at
-    // 28pt it wrapped into four lines and took the screen, which is how a
-    // hiccup ends up looking like a crash.
-    const status = (state === 'disconnected'
-        ? watching ? 'Asleep — watching agent' : 'Asleep — tap the mic to wake'
-        : state === 'connecting'
-          ? 'Connecting…'
-          : state === 'thinking'
-            ? 'Thinking…'
-            : speaking
-              ? 'Speaking'
-              : muted
-              ? 'Microphone muted'
-              : 'Listening');
+    const status = conversationStatusLabel(state, watching, muted, speaking);
     const failure = state === 'disconnected' || state === 'connecting' ? detail : undefined;
 
     return (

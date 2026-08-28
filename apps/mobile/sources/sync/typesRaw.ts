@@ -122,11 +122,76 @@ export type NormalizedMessage = ({
 
 const TURN_ENDED: AgentEvent = { type: 'ready' };
 
-function isUsageOnlyService(envelope: SessionEnvelope): boolean {
-    return envelope.role === 'agent'
-        && envelope.ev.t === 'service'
-        && envelope.ev.text.trim().length === 0
-        && envelope.usage !== undefined;
+/** Agent service envelope that carries token usage and no visible text. */
+function isUsageHeartbeat(envelope: SessionEnvelope): boolean {
+    if (envelope.role !== 'agent') return false;
+    if (envelope.ev.t !== 'service') return false;
+    if (envelope.ev.text.trim().length !== 0) return false;
+    return envelope.usage !== undefined;
+}
+
+function isAgentWithoutTurn(envelope: SessionEnvelope): boolean {
+    return envelope.role === 'agent' && !envelope.turn;
+}
+
+function agentMessage(
+    envelope: SessionEnvelope,
+    localId: string | null,
+    meta: MessageMeta | undefined,
+    content: NormalizedAgentContent[],
+    extra: { claudeUuid?: string; codexItemId?: string } = {},
+): NormalizedMessage {
+    const parentUUID = envelope.subagent ?? null;
+    return {
+        id: envelope.id,
+        localId,
+        createdAt: envelope.time,
+        role: 'agent',
+        isSidechain: parentUUID !== null,
+        content,
+        meta,
+        usage: envelope.usage,
+        ...extra,
+    };
+}
+
+function fileAttachmentBlocks(envelope: SessionEnvelope): NormalizedAgentContent[] {
+    if (envelope.ev.t !== 'file') return [];
+    const event = envelope.ev;
+    const parentUUID = envelope.subagent ?? null;
+    const input: Record<string, unknown> = {
+        ref: event.ref,
+        name: event.name,
+        size: event.size,
+    };
+    let description = `Attached file: ${event.name}`;
+    if (event.image) {
+        input.image = {
+            width: event.image.width,
+            height: event.image.height,
+            thumbhash: event.image.thumbhash,
+        };
+        description = `Attached image: ${event.name} (${event.image.width}x${event.image.height})`;
+    }
+    return [
+        {
+            type: 'tool-call',
+            id: envelope.id,
+            name: 'file',
+            input,
+            description,
+            uuid: envelope.id,
+            parentUUID,
+        },
+        {
+            type: 'tool-result',
+            tool_use_id: envelope.id,
+            content: null,
+            is_error: false,
+            uuid: `${envelope.id}:result`,
+            parentUUID: envelope.id,
+        },
+    ];
 }
 
 function normalizeSessionEnvelope(
@@ -134,14 +199,11 @@ function normalizeSessionEnvelope(
     localId: string | null,
     meta: MessageMeta | undefined,
 ): NormalizedMessage | null {
-    if (envelope.role === 'agent' && !envelope.turn && !isUsageOnlyService(envelope)) {
-        return null;
-    }
+    if (isAgentWithoutTurn(envelope) && !isUsageHeartbeat(envelope)) return null;
 
     const messageId = envelope.id;
     const createdAt = envelope.time;
     const parentUUID = envelope.subagent ?? null;
-    const isSidechain = parentUUID !== null;
     const event = envelope.ev;
 
     switch (event.t) {
@@ -162,23 +224,15 @@ function normalizeSessionEnvelope(
         case 'service': {
             if (envelope.role !== 'agent') return null;
             const content: NormalizedAgentContent[] = [];
-            if (!isUsageOnlyService(envelope)) {
+            if (!isUsageHeartbeat(envelope)) {
                 content.push({ type: 'text', text: event.text, uuid: messageId, parentUUID });
             }
-            return {
-                id: messageId,
-                localId,
-                createdAt,
-                role: 'agent',
-                isSidechain,
-                content,
-                meta,
-                usage: envelope.usage,
-            } satisfies NormalizedMessage;
+            return agentMessage(envelope, localId, meta, content);
         }
         case 'text': {
             const visibleText = stripLeadingTaskNotificationWrappers(event.text);
-            if (visibleText !== event.text && visibleText.trim().length === 0) return null;
+            const wrapperWasStripped = visibleText !== event.text;
+            if (wrapperWasStripped && visibleText.trim().length === 0) return null;
             if (envelope.role === 'user') {
                 return {
                     id: messageId,
@@ -192,106 +246,35 @@ function normalizeSessionEnvelope(
                     codexItemId: envelope.codexItemId,
                 } satisfies NormalizedMessage;
             }
-            const content: NormalizedAgentContent[] = [];
-            if (event.thinking) {
-                content.push({ type: 'thinking', thinking: visibleText, uuid: messageId, parentUUID });
-            } else {
-                content.push({ type: 'text', text: visibleText, uuid: messageId, parentUUID });
-            }
-            return {
-                id: messageId,
-                localId,
-                createdAt,
-                role: 'agent',
-                isSidechain,
-                content,
-                meta,
+            const content: NormalizedAgentContent[] = event.thinking
+                ? [{ type: 'thinking', thinking: visibleText, uuid: messageId, parentUUID }]
+                : [{ type: 'text', text: visibleText, uuid: messageId, parentUUID }];
+            return agentMessage(envelope, localId, meta, content, {
                 claudeUuid: envelope.claudeUuid,
                 codexItemId: envelope.codexItemId,
-                usage: envelope.usage,
-            } satisfies NormalizedMessage;
+            });
         }
         case 'tool-call-start':
-            return {
-                id: messageId,
-                localId,
-                createdAt,
-                role: 'agent',
-                isSidechain,
-                content: [{
-                    type: 'tool-call',
-                    id: event.call,
-                    name: event.name || 'unknown',
-                    input: event.args,
-                    description: event.description,
-                    uuid: messageId,
-                    parentUUID,
-                }],
-                meta,
-                usage: envelope.usage,
-            } satisfies NormalizedMessage;
+            return agentMessage(envelope, localId, meta, [{
+                type: 'tool-call',
+                id: event.call,
+                name: event.name || 'unknown',
+                input: event.args,
+                description: event.description,
+                uuid: messageId,
+                parentUUID,
+            }]);
         case 'tool-call-end':
-            return {
-                id: messageId,
-                localId,
-                createdAt,
-                role: 'agent',
-                isSidechain,
-                content: [{
-                    type: 'tool-result',
-                    tool_use_id: event.call,
-                    content: null,
-                    is_error: false,
-                    uuid: messageId,
-                    parentUUID,
-                }],
-                meta,
-                usage: envelope.usage,
-            } satisfies NormalizedMessage;
-        case 'file': {
-            const input: Record<string, unknown> = {
-                ref: event.ref,
-                name: event.name,
-                size: event.size,
-            };
-            let description = `Attached file: ${event.name}`;
-            if (event.image) {
-                input.image = {
-                    width: event.image.width,
-                    height: event.image.height,
-                    thumbhash: event.image.thumbhash,
-                };
-                description = `Attached image: ${event.name} (${event.image.width}x${event.image.height})`;
-            }
-            return {
-                id: messageId,
-                localId,
-                createdAt,
-                role: 'agent',
-                isSidechain,
-                content: [
-                    {
-                        type: 'tool-call',
-                        id: messageId,
-                        name: 'file',
-                        input,
-                        description,
-                        uuid: messageId,
-                        parentUUID,
-                    },
-                    {
-                        type: 'tool-result',
-                        tool_use_id: messageId,
-                        content: null,
-                        is_error: false,
-                        uuid: `${messageId}:result`,
-                        parentUUID: messageId,
-                    },
-                ],
-                meta,
-                usage: envelope.usage,
-            } satisfies NormalizedMessage;
-        }
+            return agentMessage(envelope, localId, meta, [{
+                type: 'tool-result',
+                tool_use_id: event.call,
+                content: null,
+                is_error: false,
+                uuid: messageId,
+                parentUUID,
+            }]);
+        case 'file':
+            return agentMessage(envelope, localId, meta, fileAttachmentBlocks(envelope));
     }
 }
 

@@ -76,15 +76,16 @@ export type SessionListViewItem =
     | { type: 'active-sessions'; sessions: SessionRowData[] }
     | { type: 'session'; session: SessionRowData };
 
-function buildSessionRowData(session: Session): SessionRowData {
+function sessionRowState(session: Session): SessionState {
     const isOnline = session.presence === 'online';
     const hasPermissions = !!(session.agentState?.requests && Object.keys(session.agentState.requests).length > 0);
-    let state: SessionState;
-    if (!isOnline) state = 'disconnected';
-    else if (hasPermissions) state = 'permission_required';
-    else if (session.thinking) state = 'thinking';
-    else state = 'waiting';
+    if (!isOnline) return 'disconnected';
+    if (hasPermissions) return 'permission_required';
+    if (session.thinking) return 'thinking';
+    return 'waiting';
+}
 
+function buildSessionRowData(session: Session): SessionRowData {
     const rigIdentity = getRigIdentity(session.metadata);
     const rigActivity = getRigActivityIndicators(session.metadata);
     return {
@@ -100,7 +101,7 @@ function buildSessionRowData(session: Session): SessionRowData {
         activitySummary: rigActivity.length > 0
             ? rigActivity.map((item) => `${item.count}${item.queued ? `+${item.queued}` : ''} ${item.key}`).join(' · ')
             : null,
-        state,
+        state: sessionRowState(session),
         ...(!session.active && { activeAt: session.activeAt, createdAt: session.createdAt }),
         hasDraft: !!session.draft,
         active: session.active,
@@ -242,6 +243,55 @@ interface StorageState extends WatchSnapshot {
     resetLifecycleCatalog: () => void;
 }
 
+function mergeCatalogSession(
+    storePrevious: Session | undefined,
+    mergedPrevious: Session | undefined,
+    session: Omit<Session, 'presence'> & { presence?: 'online' | number },
+    replace: boolean,
+): Session {
+    // metadata is replaced wholesale, and session.list carries neither a
+    // title nor live model/lifecycle state. Carry those over or a catalog
+    // refresh briefly turns working/blocked panes into done panes, fires
+    // false completion notifications and re-arms the recent-agent buffer.
+    const previous = replace ? storePrevious : mergedPrevious;
+    const known = previous?.metadata;
+    const metadata = session.metadata === null
+        ? session.metadata
+        : {
+            ...(known?.summary === undefined ? {} : { summary: known.summary }),
+            ...(known?.currentModelCode === undefined ? {} : {
+                currentModelCode: known.currentModelCode,
+                currentModelProviderId: known.currentModelProviderId,
+            }),
+            ...(known?.currentThoughtLevelCode === undefined
+                ? {}
+                : { currentThoughtLevelCode: known.currentThoughtLevelCode }),
+            ...(known?.agentStatus === undefined
+                ? {}
+                : {
+                      agentStatus: known.agentStatus,
+                      lifecycleStateSince: known.lifecycleStateSince,
+                  }),
+            ...session.metadata,
+        };
+    const catalogHasLifecycle = session.metadata?.agentStatus !== undefined;
+    const liveStatus = previous !== undefined && !catalogHasLifecycle
+        ? {
+              thinking: previous.thinking,
+              thinkingAt: previous.thinkingAt,
+              agentState: previous.agentState,
+              agentStateVersion: previous.agentStateVersion,
+          }
+        : {};
+    return {
+        ...previous,
+        ...session,
+        ...liveStatus,
+        metadata,
+        presence: session.presence ?? resolveSessionOnlineState(session),
+    };
+}
+
 const { settings } = loadSettings();
 const localSettings = loadLocalSettings();
 const profile = loadProfile();
@@ -301,47 +351,7 @@ export const storage = create<StorageState>()((set, get) => ({
     applySessions: (sessions, replace = false) => set((state) => {
         const merged = replace ? {} as Record<string, Session> : { ...state.sessions };
         for (const session of sessions) {
-            // metadata is replaced wholesale, and session.list carries neither a
-            // title nor live model/lifecycle state. Carry those over or a catalog
-            // refresh briefly turns working/blocked panes into done panes, fires
-            // false completion notifications and re-arms the recent-agent buffer.
-            const previous = replace ? state.sessions[session.id] : merged[session.id];
-            const known = previous?.metadata;
-            const metadata = session.metadata === null
-                ? session.metadata
-                : {
-                    ...(known?.summary === undefined ? {} : { summary: known.summary }),
-                    ...(known?.currentModelCode === undefined ? {} : {
-                        currentModelCode: known.currentModelCode,
-                        currentModelProviderId: known.currentModelProviderId,
-                    }),
-                    ...(known?.currentThoughtLevelCode === undefined
-                        ? {}
-                        : { currentThoughtLevelCode: known.currentThoughtLevelCode }),
-                    ...(known?.agentStatus === undefined
-                        ? {}
-                        : {
-                              agentStatus: known.agentStatus,
-                              lifecycleStateSince: known.lifecycleStateSince,
-                          }),
-                    ...session.metadata,
-                };
-            const existing = previous;
-            const catalogHasLifecycle = session.metadata?.agentStatus !== undefined;
-            merged[session.id] = {
-                ...existing,
-                ...session,
-                ...(!catalogHasLifecycle && existing !== undefined
-                    ? {
-                          thinking: existing.thinking,
-                          thinkingAt: existing.thinkingAt,
-                          agentState: existing.agentState,
-                          agentStateVersion: existing.agentStateVersion,
-                      }
-                    : {}),
-                metadata,
-                presence: session.presence ?? resolveSessionOnlineState(session),
-            };
+            merged[session.id] = mergeCatalogSession(state.sessions[session.id], merged[session.id], session, replace);
         }
         return { sessions: merged, sessionListViewData: buildSessionListViewData(merged) };
     }),
@@ -510,6 +520,12 @@ export const storage = create<StorageState>()((set, get) => ({
 const emptyMessages: Message[] = [];
 const emptySessions: Session[] = [];
 
+function pathLookup<T>(state: { getSessionPathKey: (sessionId: string) => string | null }, sessionId: string, table: Record<string, T | null>): T | null {
+    const pathKey = state.getSessionPathKey(sessionId);
+    if (!pathKey) return null;
+    return table[pathKey] ?? null;
+}
+
 export function useSessions(): Session[] {
     return storage(useShallow((state) => Object.values(state.sessions)));
 }
@@ -662,24 +678,15 @@ export function useSideChatSessions(_parentSessionId: string | null): Session[] 
 }
 
 export function useSessionGitStatus(_sessionId: string): GitStatus | null {
-    return storage(useShallow((state) => {
-        const pathKey = state.getSessionPathKey(_sessionId);
-        return pathKey ? state.pathGitStatus[pathKey] ?? null : null;
-    }));
+    return storage(useShallow((state) => pathLookup(state, _sessionId, state.pathGitStatus)));
 }
 
 export function useSessionGitStatusFiles(_sessionId: string): GitStatusFiles | null {
-    return storage(useShallow((state) => {
-        const pathKey = state.getSessionPathKey(_sessionId);
-        return pathKey ? state.pathGitStatusFiles[pathKey] ?? null : null;
-    }));
+    return storage(useShallow((state) => pathLookup(state, _sessionId, state.pathGitStatusFiles)));
 }
 
 export function useSessionProjectFiles(_sessionId: string): ProjectFilesList | null {
-    return storage(useShallow((state) => {
-        const pathKey = state.getSessionPathKey(_sessionId);
-        return pathKey ? state.pathProjectFiles[pathKey] ?? null : null;
-    }));
+    return storage(useShallow((state) => pathLookup(state, _sessionId, state.pathProjectFiles)));
 }
 
 export function useSessionFileCache(sessionId: string, filePath: string) {

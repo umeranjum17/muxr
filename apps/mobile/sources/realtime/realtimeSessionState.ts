@@ -122,7 +122,8 @@ export async function resolveRealtimeTarget(): Promise<RealtimeTarget | null> {
     const sessionId = [...sessions]
         .sort((left, right) => (right.activeAt || right.updatedAt) - (left.activeAt || left.updatedAt))[0]
         ?.id ?? focused?.sessionId;
-    return sessionId === undefined ? null : { machineId, sessionId };
+    if (sessionId === undefined) return null;
+    return { machineId, sessionId };
 }
 
 export function registerRealtimeNotificationStart(handler: () => void | Promise<void>): () => void {
@@ -167,7 +168,8 @@ export function rememberedRealtimeSession(): string | null {
 }
 
 export function realtimeWatchTarget(): string | null {
-    return watching ? realtimeTarget?.sessionId ?? null : null;
+    if (!watching) return null;
+    return realtimeTarget?.sessionId ?? null;
 }
 
 export function realtimeWatching(): boolean {
@@ -281,6 +283,29 @@ function failRealtimeStart(epoch: number, reason: string): void {
     notify();
 }
 
+function applyTransportStatus(handle: RealtimeHandle, liveEpoch: number, next: RealtimeSessionState, why?: string): void {
+    if (next === 'disconnected') {
+        clearLiveState();
+        state = 'disconnected';
+        detail = why === 'ended' ? undefined : visibleVoiceDetail(why);
+        notify();
+        rearmVadStandby();
+        if (watching && !vadStandbyOwnsMicrophone()) void armVadStandby();
+        return;
+    }
+    if (next === 'connected' || next === 'thinking' || next === 'speaking') keepAwake(liveEpoch);
+    if ((next === 'thinking' || next === 'speaking') && reportSpeech?.sent === true) reportSpeech.responseStarted = true;
+    if (next === 'connected' && reportSpeech?.responseStarted === true) resolveReportSpeech();
+    if (next === 'connected' && pendingSpeech !== null) {
+        handle.speak(pendingSpeech);
+        pendingSpeech = null;
+        if (reportSpeech !== null) reportSpeech.sent = true;
+    }
+    state = next;
+    detail = visibleVoiceDetail(why);
+    notify();
+}
+
 export function startRealtimeSession(input: RealtimeTarget | string): boolean {
     const target = typeof input === 'string'
         ? { machineId: getCachedConnectionSettings().machineId, sessionId: input }
@@ -291,9 +316,8 @@ export function startRealtimeSession(input: RealtimeTarget | string): boolean {
         return false;
     }
     if (starting || session !== null) {
-        voiceDiagnostic(bound?.machineId === target.machineId && bound.sessionId === target.sessionId
-            ? 'startVoice.guard:duplicate'
-            : 'startVoice.guard:pinned');
+        const sameTarget = bound?.machineId === target.machineId && bound.sessionId === target.sessionId;
+        voiceDiagnostic(sameTarget ? 'startVoice.guard:duplicate' : 'startVoice.guard:pinned');
         return false;
     }
     vadEpoch += 1;
@@ -337,26 +361,7 @@ function startRealtimeAfterService(target: RealtimeTarget, epoch: number): void 
             target,
             onStatus: (next, why) => {
                 if (liveEpoch !== realtimeEpoch || session !== handle) return;
-                if (next === 'disconnected') {
-                    clearLiveState();
-                    state = 'disconnected';
-                    detail = why === 'ended' ? undefined : visibleVoiceDetail(why);
-                    notify();
-                    rearmVadStandby();
-                    if (watching && !vadStandbyOwnsMicrophone()) void armVadStandby();
-                    return;
-                }
-                if (next === 'connected' || next === 'thinking' || next === 'speaking') keepAwake(liveEpoch);
-                if ((next === 'thinking' || next === 'speaking') && reportSpeech?.sent === true) reportSpeech.responseStarted = true;
-                if (next === 'connected' && reportSpeech?.responseStarted === true) resolveReportSpeech();
-                if (next === 'connected' && pendingSpeech !== null) {
-                    handle.speak(pendingSpeech);
-                    pendingSpeech = null;
-                    if (reportSpeech !== null) reportSpeech.sent = true;
-                }
-                state = next;
-                detail = visibleVoiceDetail(why);
-                notify();
+                applyTransportStatus(handle, liveEpoch, next, why);
             },
             onTurn: (role, text) => recordTurn(liveEpoch, role, text),
             onActivity: () => {
@@ -365,11 +370,7 @@ function startRealtimeAfterService(target: RealtimeTarget, epoch: number): void 
         });
     } catch (error) {
         if (epoch === realtimeEpoch) {
-            clearLiveState();
-            state = 'disconnected';
-            detail = visibleVoiceDetail(error instanceof Error ? error.message : error);
-            notify();
-            rearmVadStandby();
+            failRealtimeStart(epoch, error instanceof Error ? error.message : String(error));
             if (watching && !vadStandbyOwnsMicrophone()) void armVadStandby();
         }
         return;

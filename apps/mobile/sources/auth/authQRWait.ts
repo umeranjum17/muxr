@@ -15,9 +15,7 @@ export async function authQRWait(keypair: QRAuthKeyPair, onProgress?: (dots: num
     const serverUrl = getServerUrl();
 
     while (true) {
-        if (shouldCancel && shouldCancel()) {
-            return null;
-        }
+        if (shouldCancel?.()) return null;
 
         try {
             const response = await axios.post(`${serverUrl}/v1/auth/account/request`, {
@@ -31,31 +29,21 @@ export async function authQRWait(keypair: QRAuthKeyPair, onProgress?: (dots: num
             if (response.data.state === 'authorized') {
                 const token = response.data.token as string;
                 const encryptedResponse = decodeBase64(response.data.response);
-                
                 const decrypted = decryptBox(encryptedResponse, keypair.secretKey);
-                if (decrypted) {
-                    console.log('\n\n✓ Authentication successful\n');
-                    return {
-                        secret: decrypted,
-                        token: token
-                    };
-                } else {
+                if (!decrypted) {
                     console.log('\n\nFailed to decrypt response. Please try again.');
                     return null;
                 }
+                console.log('\n\n✓ Authentication successful\n');
+                return { secret: decrypted, token };
             }
-        } catch (error) {
+        } catch {
             console.log('\n\nFailed to check authentication status. Please try again.');
             return null;
         }
 
-        // Call progress callback if provided
-        if (onProgress) {
-            onProgress(dots);
-        }
+        onProgress?.(dots);
         dots++;
-
-        // Wait 1 second before next check
         await new Promise(resolve => setTimeout(resolve, 1000));
     }
 }

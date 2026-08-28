@@ -1,4 +1,4 @@
-import { realtimePcm16ByteLength } from '@muxr/contract';
+import { realtimePcm16ByteLength, type RealtimeHostFrame } from '@muxr/contract';
 import { reportEnergy, resetEnergy } from '@/realtime/audioEnergy';
 import {
     capturePluginStreamSnapshot, openPluginStream, refreshPluginStreamSnapshot, type PluginStream,
@@ -189,6 +189,62 @@ export function startRealtimeSession(options: {
             }) as StablePluginStream;
             if (stopped) { next.close(); return; }
             let readySeen = false;
+            const handleRealtimeFrame = (frame: RealtimeHostFrame): void => {
+                switch (frame.type) {
+                    case 'realtime.ready': {
+                        if (readySeen) stats.providerReconnects += 1;
+                        readySeen = true;
+                        void startAudio(frame.inputRate, frame.outputRate).then(() => {
+                            if (stopped || stream !== next) return;
+                            readyStream = next;
+                            const readyDetail = reconnects === 0 ? undefined : 'Voice stream reconnected';
+                            const notifyReady = () => {
+                                if (!stopped && stream === next) onStatus('connected', readyDetail);
+                            };
+                            if (!playback.afterDrain('connected', notifyReady)) notifyReady();
+                            if (stableTimer !== undefined) clearTimeout(stableTimer);
+                            stableTimer = setTimeout(() => { reconnects = 0; }, STABLE_AFTER_MS);
+                            flushMic();
+                            flushPendingSpeech();
+                        }).catch(fail);
+                        return;
+                    }
+                    case 'realtime.audio': {
+                        const admitted = playback.admit(frame.data);
+                        if (admitted === 'malformed') {
+                            fail(new Error('Realtime provider sent malformed audio.'));
+                            return;
+                        }
+                        if (admitted === 'overflow') {
+                            fail(new Error('Realtime playback buffer overflowed.'));
+                            return;
+                        }
+                        reportEnergy('output', frame.data);
+                        onStatus('speaking');
+                        return;
+                    }
+                    case 'realtime.audio.clear':
+                        playback.clear();
+                        speechBoundaryScheduled = false;
+                        flushPendingSpeech();
+                        return;
+                    case 'realtime.state':
+                        if (frame.state === 'connected') {
+                            const notifyConnected = () => {
+                                if (!stopped && stream === next) onStatus('connected', frame.detail);
+                            };
+                            if (!playback.finish(notifyConnected)) notifyConnected();
+                            return;
+                        }
+                        onStatus(frame.state, frame.detail);
+                        return;
+                    case 'realtime.transcript':
+                        onTurn(frame.role, frame.text);
+                        return;
+                    default:
+                        return;
+                }
+            };
             next.onClose((reason) => {
                 if (stopped || stream !== next) return;
                 stream = undefined;
@@ -205,51 +261,7 @@ export function startRealtimeSession(options: {
             next.onFrame((frame) => {
                 if (stopped || stream !== next) return;
                 onActivity?.();
-                if (frame.type === 'realtime.ready') {
-                    if (readySeen) stats.providerReconnects += 1;
-                    readySeen = true;
-                    const ready = startAudio(frame.inputRate, frame.outputRate);
-                    void ready.then(() => {
-                        if (stopped || stream !== next) return;
-                        readyStream = next;
-                        const readyDetail = reconnects === 0 ? undefined : 'Voice stream reconnected';
-                        const notifyReady = () => {
-                            if (!stopped && stream === next) {
-                                onStatus('connected', readyDetail);
-                            }
-                        };
-                        if (!playback.afterDrain('connected', notifyReady)) notifyReady();
-                        if (stableTimer !== undefined) clearTimeout(stableTimer);
-                        stableTimer = setTimeout(() => { reconnects = 0; }, STABLE_AFTER_MS);
-                        flushMic();
-                        flushPendingSpeech();
-                    }).catch(fail);
-                } else if (frame.type === 'realtime.audio') {
-                    const admitted = playback.admit(frame.data);
-                    if (admitted === 'malformed') {
-                        fail(new Error('Realtime provider sent malformed audio.'));
-                        return;
-                    }
-                    if (admitted === 'overflow') {
-                        fail(new Error('Realtime playback buffer overflowed.'));
-                        return;
-                    }
-                    reportEnergy('output', frame.data);
-                    onStatus('speaking');
-                } else if (frame.type === 'realtime.audio.clear') {
-                    playback.clear();
-                    speechBoundaryScheduled = false;
-                    flushPendingSpeech();
-                } else if (frame.type === 'realtime.state') {
-                    if (frame.state === 'connected') {
-                        const notifyConnected = () => {
-                            if (!stopped && stream === next) onStatus('connected', frame.detail);
-                        };
-                        if (!playback.finish(notifyConnected)) notifyConnected();
-                    } else onStatus(frame.state, frame.detail);
-                } else if (frame.type === 'realtime.transcript') {
-                    onTurn(frame.role, frame.text);
-                }
+                handleRealtimeFrame(frame);
             });
             stream = next;
             playback.bind(next);

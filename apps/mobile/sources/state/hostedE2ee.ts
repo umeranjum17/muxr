@@ -23,7 +23,14 @@ import { relayControlUrl } from '@muxr/contract';
 import { deleteWebSecret, getWebSecret, listWebSecretNames, setWebSecret } from './webSecureStore';
 import { deleteNativeSecret, getNativeSecret, setNativeSecret } from './nativeSecretStore';
 import { getCachedConnectionSettings, loadConnectionSettingsAsync, saveConnectionSettings } from './connectionSettings';
-import { decodeBase64 } from '@/encryption/base64';
+import {
+    expandCompactPairingPayload,
+    hostedPairingDisplayName,
+    pairingSearchParams,
+    prepareHostedPairingInput,
+} from './hostedPairingUrl';
+
+export { hostedPairingAuthority, hostedPairingDisplayName, prepareHostedPairingInput } from './hostedPairingUrl';
 
 const DEVICE_KEY = 'muxr.hosted-e2ee.device.v2';
 const REPLAY_KEY = 'muxr.hosted-e2ee.replay.v2';
@@ -219,8 +226,9 @@ export async function restoreHostedConnection(): Promise<StoredHostedGrant | und
     const settings = await loadConnectionSettingsAsync();
     if (settings.mode !== 'hosted') return undefined;
     const paired = await listPairedGrants();
-    const grant = paired.find((entry) => entry.machineId === settings.machineId)
-        ?? (settings.machineId === '' && paired.length === 1 ? paired[0] : undefined);
+    const remembered = paired.find((entry) => entry.machineId === settings.machineId);
+    const solePairing = settings.machineId === '' && paired.length === 1 ? paired[0] : undefined;
+    const grant = remembered ?? solePairing;
     if (grant === undefined) return undefined;
     if (settings.machineId !== grant.machineId || settings.relayUrl !== grant.relayUrl
         || settings.selfhost !== (grant.source === 'selfhost' ? true : undefined)) {
@@ -258,20 +266,9 @@ async function json(base: string, path: string, options: RequestInit = {}): Prom
             headers: { 'content-type': 'application/json', ...options.headers },
         });
         const body = await response.json() as Record<string, any>;
-        if (!response.ok) {
-            const message = String(body.error ?? `request failed (${response.status})`);
-            const friendlyErrors: Record<string, string> = {
-                invalid_claim: 'This pairing string is invalid. Create a fresh one on the machine.',
-                invalid_pairing_code: 'This pairing code is invalid or was already used. Create a fresh one on the machine.',
-                pairing_code_expired: 'This pairing code expired. Create a fresh one on the machine.',
-                already_claimed: 'This pairing string was already used. Create a fresh one on the machine.',
-                expired: 'This pairing string expired. Create a fresh one on the machine.',
-                wrong_device_kind: 'This pairing link is for a different client type. Generate a fresh link from the muxr menu.',
-            };
-            const friendly = friendlyErrors[message];
-            throw new Error(friendly ?? message);
-        }
-        return body;
+        if (response.ok) return body;
+        const message = String(body.error ?? `request failed (${response.status})`);
+        throw new Error(friendlyRelayError(message));
     } catch (cause) {
         if (cause instanceof Error && cause.name === 'AbortError') throw new Error('The relay did not respond. Check the network, then run `muxr doctor` on the machine.');
         throw cause;
@@ -280,80 +277,33 @@ async function json(base: string, path: string, options: RequestInit = {}): Prom
     }
 }
 
-const UNSAFE_PAIRING_TEXT = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f\u200e\u200f\u202a-\u202e\u2066-\u2069]/u;
-
-/** Validate pairing input before confirmation or network access. */
-export function prepareHostedPairingInput(value: string): string {
-    // Ordinary ASCII whitespace is wrapping from terminals; strip it while
-    // still rejecting control and bidi spoofing characters.
-    const input = value.trim().replace(/[ \t\r\n]+/g, '');
-    if (input.length === 0) throw new Error('Enter a pairing string from `muxr setup` or `muxr pair`.');
-    if (input.length > 65_536) throw new Error('This pairing string is too large. Create a fresh one on the computer.');
-    if (UNSAFE_PAIRING_TEXT.test(input)) throw new Error('This pairing string contains hidden control characters. Create a fresh one and scan or paste it exactly.');
-
-    let parsed: URL;
-    try { parsed = new URL(input); }
-    catch { throw new Error('This pairing string is not a valid URL. Create a fresh one on the computer.'); }
-    if (parsed.username !== '' || parsed.password !== '') {
-        throw new Error('Unsafe pairing string: text before “@” is treated as login information, not as part of the computer name. muxr did not connect. Create a fresh pairing code and scan or paste it exactly.');
-    }
-    if (parsed.hostname === '') throw new Error('This pairing string has no relay address. Create a fresh one on the computer.');
-
-    if (parsed.protocol === 'ws:' || parsed.protocol === 'wss:') {
-        const codes = parsed.searchParams.getAll('pair');
-        if ((parsed.pathname !== '' && parsed.pathname !== '/') || parsed.hash !== '' || codes.length !== 1
-            || codes[0] === '' || [...parsed.searchParams.keys()].some((key) => key !== 'pair')) {
-            throw new Error('This short pairing string is malformed. Create a fresh one on the computer.');
-        }
-        return input;
-    }
-    const developmentLoopback = typeof __DEV__ !== 'undefined' && __DEV__
-        && parsed.protocol === 'http:' && ['127.0.0.1', 'localhost'].includes(parsed.hostname);
-    if (parsed.protocol === 'muxr:' && parsed.hostname === 'pair') return input;
-    if ((parsed.protocol === 'https:' || developmentLoopback) && parsed.pathname === '/pair') {
-        const codes = parsed.searchParams.getAll('pair');
-        if (codes.length > 0) {
-            const role = parsed.searchParams.get('role');
-            if (codes.length !== 1 || codes[0] === '' || (role !== 'control' && role !== 'observe')
-                || [...parsed.searchParams.keys()].some((key) => key !== 'pair' && key !== 'role') || parsed.hash !== '') {
-                throw new Error('This short browser pairing link is malformed. Create a fresh one on the computer.');
-            }
-            return input;
-        }
-        const fragment = new URLSearchParams(parsed.hash.replace(/^#/, ''));
-        if (parsed.searchParams.has('payload') || parsed.searchParams.get('v') === '2'
-            || fragment.has('payload') || fragment.get('v') === '2') return input;
-        throw new Error('This browser pairing link has no pairing code. Create a fresh one with `muxr pair --browser`.');
-    }
-    throw new Error('This is not a muxr pairing string. Create a fresh one with `muxr setup` or `muxr pair`.');
+function friendlyRelayError(message: string): string {
+    if (message === 'invalid_claim') return 'This pairing string is invalid. Create a fresh one on the machine.';
+    if (message === 'invalid_pairing_code') return 'This pairing code is invalid or was already used. Create a fresh one on the machine.';
+    if (message === 'pairing_code_expired') return 'This pairing code expired. Create a fresh one on the machine.';
+    if (message === 'already_claimed') return 'This pairing string was already used. Create a fresh one on the machine.';
+    if (message === 'expired') return 'This pairing string expired. Create a fresh one on the machine.';
+    if (message === 'wrong_device_kind') return 'This pairing link is for a different client type. Generate a fresh link from the muxr menu.';
+    return message;
 }
 
-export function hostedPairingAuthority(url: string): 'control' | 'observe' {
-    const paramsStart = url.search(/[?#]/);
-    const fragment = new URLSearchParams(paramsStart >= 0 ? url.slice(paramsStart + 1) : '');
-    const direct = fragment.get('role') ?? fragment.get('authority');
-    if (direct === 'control' || direct === 'observe') return direct;
-    const compact = fragment.get('payload');
-    if (compact) {
-        try {
-            const authority = JSON.parse(new TextDecoder().decode(decodeBase64(compact, 'base64url'))).authority;
-            if (authority === 'control' || authority === 'observe') return authority;
-        } catch { /* claim reports malformed payloads */ }
-    }
-    // Unknown consent copy must never understate authority.
-    return 'control';
+function hostedDeviceName(): string {
+    if (Platform.OS === 'ios') return 'iPhone';
+    if (Platform.OS === 'android') return 'Android phone';
+    return 'Browser';
 }
 
-export function hostedPairingDisplayName(url: string): string {
-    const paramsStart = url.search(/[?#]/);
-    const fragment = new URLSearchParams(paramsStart >= 0 ? url.slice(paramsStart + 1) : '');
-    let name = fragment.get('name')?.trim();
-    const compact = fragment.get('payload');
-    if (!name && compact) {
-        try { name = JSON.parse(new TextDecoder().decode(decodeBase64(compact, 'base64url'))).name?.trim(); }
-        catch { /* claim reports the precise malformed-link error */ }
-    }
-    return name && name.length <= 120 ? name : 'this machine';
+function replayTrackerFor(
+    replays: Map<string, V2ReplayTracker>,
+    replayKey: string,
+    channel: 'session' | 'terminal' | 'attachment' | 'stream',
+): V2ReplayTracker {
+    const existing = replays.get(replayKey);
+    if (existing !== undefined) return existing;
+    const snapshot = channel === 'stream' ? undefined : replayCache?.[replayKey];
+    const replay = snapshot === undefined ? newV2ReplayTracker() : v2ReplayFromSnapshot(snapshot);
+    replays.set(replayKey, replay);
+    return replay;
 }
 
 interface PendingHostedPair {
@@ -480,24 +430,18 @@ export async function claimHostedPairing(url: string): Promise<StoredHostedGrant
     const parsed = new URL(url);
     const developmentLoopback = typeof __DEV__ !== 'undefined' && __DEV__
         && parsed.protocol === 'http:' && ['127.0.0.1', 'localhost'].includes(parsed.hostname);
-    if (parsed.protocol !== 'https:' && !isSelfhostLink && !developmentLoopback) {
+    const allowsPlainHttp = isSelfhostLink || developmentLoopback;
+    if (parsed.protocol !== 'https:' && !allowsPlainHttp) {
         throw new Error('pairing link must use HTTPS');
     }
     // Extract by hand: RN's URL polyfill mishandles non-special schemes, and
     // deep-link routers may drop #-fragments — self-host links use ? instead.
-    const paramsStart = url.search(/[?#]/);
-    const fragment = new URLSearchParams(paramsStart >= 0 ? url.slice(paramsStart + 1) : '');
-    const compact = fragment.get('payload');
-    if (compact !== null) {
-        let decoded: Record<string, unknown>;
-        try { decoded = JSON.parse(new TextDecoder().decode(decodeBase64(compact, 'base64url'))); }
-        catch { throw new Error('pairing link payload is invalid'); }
-        for (const [key, value] of Object.entries(decoded)) {
-            if (typeof value === 'string') fragment.set(key, value);
-        }
-    }
+    const fragment = pairingSearchParams(url);
+    expandCompactPairingPayload(fragment);
     const payloadAuthority = fragment.get('authority');
-    if (expectedAuthority === null && (payloadAuthority === 'control' || payloadAuthority === 'observe')) expectedAuthority = payloadAuthority;
+    if (expectedAuthority === null && (payloadAuthority === 'control' || payloadAuthority === 'observe')) {
+        expectedAuthority = payloadAuthority;
+    }
     if (fragment.get('v') !== '2') throw new Error('unknown pairing link version');
     const rawGeneration = fragment.get('generation');
     const generation = rawGeneration === null ? 1 : Number(rawGeneration);
@@ -519,7 +463,7 @@ export async function claimHostedPairing(url: string): Promise<StoredHostedGrant
     // Self-host links carry the relay in `r`; the control base derives via the canonical helper.
     const controlBase = selfhostRelay !== null ? relayControlUrl(selfhostRelay) : parsed.origin;
     const keys = await getOrCreateHostedDeviceKey();
-    const deviceName = Platform.OS === 'ios' ? 'iPhone' : Platform.OS === 'android' ? 'Android phone' : 'Browser';
+    const deviceName = hostedDeviceName();
     const mailbox = sealV2(JSON.stringify({
         devicePublicKey: keys.publicKey,
         machineSigningPublicKey,
@@ -603,9 +547,7 @@ export class DeviceV2Crypto {
         if (this.grant.expiresAt <= Date.now()) throw new Error('hosted e2ee: device grant expired');
         if (sequence !== v2EnvelopeSequence(payload)) throw new Error('hosted e2ee: routing sequence mismatch');
         const replayKey = `${this.grant.machineId}\0${channel}\0${streamId}`;
-        const snapshot = channel === 'stream' ? undefined : replayCache?.[replayKey];
-        const replay = this.replays.get(replayKey) ?? (snapshot === undefined ? newV2ReplayTracker() : v2ReplayFromSnapshot(snapshot));
-        this.replays.set(replayKey, replay);
+        const replay = replayTrackerFor(this.replays, replayKey, channel);
         const plaintext = openV2(payload, this.inputKey, {
             machineId: this.grant.machineId,
             senderId: this.grant.machineId,

@@ -44,6 +44,33 @@ function lifecycleCatalogUnavailable(error: unknown): boolean {
         && LIFECYCLE_CATALOG_UNAVAILABLE_CODES.has(String(error.code));
 }
 
+function socketStatusFromClient(state: string): 'connected' | 'connecting' | 'error' | 'disconnected' {
+    if (state === 'open') return 'connected';
+    if (state === 'connecting') return 'connecting';
+    if (state === 'stale') return 'error';
+    return 'disconnected';
+}
+
+function watchOutcomeLabel(status: string): string {
+    if (status === 'done' || status === 'idle') return 'finished';
+    if (status === 'blocked') return 'needs attention';
+    return status;
+}
+
+function waitUntilClientOpen(client: MuxrClient, timeoutMs: number): Promise<void> {
+    if (client.state === 'open') return Promise.resolve();
+    return new Promise<void>((resolve) => {
+        const timeout = setTimeout(resolve, timeoutMs);
+        const off = client.onStateChange((state) => {
+            if (state === 'open') {
+                clearTimeout(timeout);
+                off();
+                resolve();
+            }
+        });
+    });
+}
+
 /**
  * FIFO client admission for plugin RPCs. The host deliberately rejects callers
  * above its per-device ceiling; queueing here makes every plugin surface share
@@ -211,14 +238,15 @@ class MuxrSync {
         if (settings.mode === 'hosted' && !canStartHostedTransport(settings.machineId, hostedGrant)) {
             throw new Error('machine transport unavailable until secure pairing completes');
         }
+        const transportToken = settings.mode === 'hosted' ? hostedGrant?.credential : settings.token.trim();
         const client = new MuxrClient({
             mode: settings.mode,
             relayUrl: hostedGrant?.relayUrl ?? settings.relayUrl,
             machineId: settings.machineId,
-            ...((settings.mode === 'hosted' ? hostedGrant?.credential : settings.token.trim()) ? {
+            ...(transportToken ? {
                 // Discovery chooses where to dial; only the stored grant may
                 // choose the reconnect credential.
-                token: settings.mode === 'hosted' ? hostedGrant!.credential : settings.token.trim(),
+                token: transportToken,
             } : {}),
             ...(hostedGrant === undefined ? {} : { hostedGrant }),
             ...(settings.mode === 'hosted' ? {
@@ -228,7 +256,7 @@ class MuxrSync {
         });
         client.onPluginsInvalidated?.((frame) => reconcilePluginCaches(frame));
         client.onStateChange((state) => {
-            storage.getState().setSocketStatus(state === 'open' ? 'connected' : state === 'connecting' ? 'connecting' : state === 'stale' ? 'error' : 'disconnected');
+            storage.getState().setSocketStatus(socketStatusFromClient(state));
             // Events emitted while the socket was down are gone: nothing replays them.
             // Re-open from the host snapshot instead of leaving a stale transcript
             // that only a manual app reload could fix.
@@ -316,7 +344,7 @@ class MuxrSync {
             const displayName = trustedDisplayName || 'Agent';
             const rawStatus = event.timedOut === true ? 'timeout' : event.status.toLowerCase();
             const status = ['blocked', 'failed', 'done', 'idle', 'timeout', 'error'].includes(rawStatus) ? rawStatus : 'error';
-            const outcome = status === 'done' || status === 'idle' ? 'finished' : status === 'blocked' ? 'needs attention' : status;
+            const outcome = watchOutcomeLabel(status);
             void this.scheduleSessionNotification(sessionId, `${displayName} ${outcome}.`);
         }
 
@@ -357,7 +385,11 @@ class MuxrSync {
 
     private async presentPendingLifecycleEvents(): Promise<void> {
         const pending = [...storage.getState().pendingLifecycleEvents]
-            .sort((left, right) => (left.state === 'done' ? 1 : 0) - (right.state === 'done' ? 1 : 0));
+            .sort((left, right) => {
+                const leftDone = left.state === 'done' ? 1 : 0;
+                const rightDone = right.state === 'done' ? 1 : 0;
+                return leftDone - rightDone;
+            });
         for (const event of pending) {
             if (this.presentingLifecycleIds.has(event.eventId)) continue;
             this.presentingLifecycleIds.add(event.eventId);
@@ -459,18 +491,7 @@ class MuxrSync {
             return;
         }
         const client = this.ensureClient();
-        if (client.state !== 'open') {
-            await new Promise<void>((resolve) => {
-                const timeout = setTimeout(resolve, 5000);
-                const off = client.onStateChange((state) => {
-                    if (state === 'open') {
-                        clearTimeout(timeout);
-                        off();
-                        resolve();
-                    }
-                });
-            });
-        }
+        if (client.state !== 'open') await waitUntilClientOpen(client, 5000);
         const [machines, sessions, attention, lifecycle, tree] = await Promise.all([
             client.request('machines.list', {}),
             client.request('session.list', {}),
@@ -667,16 +688,7 @@ class MuxrSync {
             // raced the socket: requests fired while it was still connecting
             // and failed with 'not connected'. Wait it out; the request's own
             // timeout still bounds a relay that never comes up.
-            await new Promise<void>((resolve) => {
-                const timeout = setTimeout(resolve, 10_000);
-                const off = client.onStateChange((state) => {
-                    if (state === 'open') {
-                        clearTimeout(timeout);
-                        off();
-                        resolve();
-                    }
-                });
-            });
+            await waitUntilClientOpen(client, 10_000);
         }
         const request = () => client.request(type, params, timeoutMs);
         if (type === 'plugin.call' || type === 'plugin.invoke') {

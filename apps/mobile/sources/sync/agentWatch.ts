@@ -154,7 +154,7 @@ function newestScopes<T extends { updatedAt: number }>(
     return Object.fromEntries(kept.slice(0, MAX_SCOPES));
 }
 
-function isTrustedVoiceName(name: string): boolean {
+export function isTrustedVoiceName(name: string): boolean {
     if (/^(?:pp_|pane[_-]|session[_-])/i.test(name)) return false;
     if (/^[\w-]+:[\w-]+$/.test(name)) return false;
     if (/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(name)) return false;
@@ -253,6 +253,22 @@ function readPendingVoiceReports(value: unknown): PersistedVoiceReport[] {
     return reports;
 }
 
+function sanitizeVoiceScope(pending: unknown, delivered: unknown, updatedAt: number): VoiceScope {
+    const allDelivered = readDeliveredIdentities(delivered);
+    const deliveredIds = new Set(allDelivered);
+    const pendingById = new Map<string, PersistedVoiceReport>();
+    for (const report of readPendingVoiceReports(pending)) {
+        if (deliveredIds.has(report.identity)) continue;
+        if (pendingById.has(report.identity)) continue;
+        pendingById.set(report.identity, report);
+    }
+    return {
+        pending: [...pendingById.values()].slice(0, MAX_PENDING_VOICE),
+        delivered: allDelivered.slice(-MAX_DELIVERED_VOICE),
+        updatedAt,
+    };
+}
+
 function loadNotificationPersistence(): Record<string, NotificationScope> {
     const raw = mmkv.getString(NOTIFICATIONS_KEY);
     if (!raw) return {};
@@ -298,19 +314,7 @@ function loadVoicePersistence(): Record<string, VoiceScope> {
         candidates.sort(([, left], [, right]) => right.updatedAt - left.updatedAt);
         const scopes: Record<string, VoiceScope> = {};
         for (const [key, scope] of candidates.slice(0, MAX_SCOPES)) {
-            const allDelivered = readDeliveredIdentities(scope.delivered);
-            const deliveredIds = new Set(allDelivered);
-            const pendingById = new Map<string, PersistedVoiceReport>();
-            for (const report of readPendingVoiceReports(scope.pending)) {
-                if (deliveredIds.has(report.identity)) continue;
-                if (pendingById.has(report.identity)) continue;
-                pendingById.set(report.identity, report);
-            }
-            scopes[key] = {
-                pending: [...pendingById.values()].slice(0, MAX_PENDING_VOICE),
-                delivered: allDelivered.slice(-MAX_DELIVERED_VOICE),
-                updatedAt: typeof scope.updatedAt === 'number' ? scope.updatedAt : 0,
-            };
+            scopes[key] = sanitizeVoiceScope(scope.pending, scope.delivered, scope.updatedAt);
         }
         return scopes;
     } catch {
@@ -368,21 +372,7 @@ export function createAgentWatch(): AgentWatch {
         if (stored === undefined) {
             return { pending: [], delivered: [], updatedAt: Date.now() };
         }
-        const allDelivered = [...new Set(stored.delivered)];
-        const deliveredIds = new Set(allDelivered);
-        const pendingById = new Map<string, PersistedVoiceReport>();
-        for (const item of stored.pending) {
-            const report = sanitizePersistedVoiceReport(item);
-            if (report === null) continue;
-            if (deliveredIds.has(report.identity)) continue;
-            if (pendingById.has(report.identity)) continue;
-            pendingById.set(report.identity, report);
-        }
-        return {
-            pending: [...pendingById.values()].slice(0, MAX_PENDING_VOICE),
-            delivered: allDelivered.slice(-MAX_DELIVERED_VOICE),
-            updatedAt: stored.updatedAt,
-        };
+        return sanitizeVoiceScope(stored.pending, stored.delivered, stored.updatedAt);
     }
 
     function acknowledgeInScope(scopeKey: string, eventId: string): void {
@@ -500,8 +490,8 @@ export function createAgentWatch(): AgentWatch {
             const knownEvent = current.pendingLifecycleEvents.find((entry) => entry.eventId === eventId)
                 ?? current.lifecycleEvents.find((entry) => entry.eventId === eventId);
             let presentedAt = new Date().toISOString();
-            if (at !== undefined) presentedAt = at;
             if (knownEvent !== undefined) presentedAt = knownEvent.at;
+            else if (at !== undefined) presentedAt = at;
             presentedIds.add(eventId);
             notification.initialized = true;
             notification.presented = boundPresented([

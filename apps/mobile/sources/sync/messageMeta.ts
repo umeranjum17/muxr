@@ -28,8 +28,10 @@ export function resolveMessageModeMeta(
         if (permissionMode) meta.permissionMode = permissionMode;
 
         const selectedKey = session.modelMode ?? getRigSelectedModelKey(session.metadata);
-        const selectedModel = getRigModels(session.metadata).find((model) => model.key === selectedKey)
-            ?? (selectedKey === getRigSelectedModelKey(session.metadata) ? getRigCurrentModel(session.metadata) : null);
+        const models = getRigModels(session.metadata);
+        const selectedFromList = models.find((model) => model.key === selectedKey);
+        const selectedIsCurrent = selectedKey === getRigSelectedModelKey(session.metadata);
+        const selectedModel = selectedFromList ?? (selectedIsCurrent ? getRigCurrentModel(session.metadata) : null);
         if (selectedModel) {
             meta.model = selectedModel.id;
             meta.modelProviderId = selectedModel.providerId;

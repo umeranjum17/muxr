@@ -110,15 +110,11 @@ export class AES256Encryption implements Encryptor, Decryptor {
         // crypto subtle backend (and any native bridge work) to interleave.
         return Promise.all(data.map(async (item) => {
             try {
-                if (item[0] !== 0) {
-                    return null;
-                }
+                if (item[0] !== 0) return null;
                 const decryptedString = await decryptAESGCMString(encodeBase64(item.slice(1)), this.secretKeyB64);
-                if (!decryptedString) {
-                    return null;
-                }
+                if (!decryptedString) return null;
                 return JSON.parse(decryptedString);
-            } catch (error) {
+            } catch {
                 return null;
             }
         }));

@@ -50,9 +50,10 @@ export async function finishHostedEmailLogin(flow: EmailLoginFlow, code: string)
     const machinesResponse = await fetch(`${flow.base}/v1/machines`, {
         headers: { authorization: `Bearer ${verified.access_token}` },
     });
-    const machines = machinesResponse.ok
-        ? (await machinesResponse.json() as { machines?: Array<{ id?: unknown; paired?: unknown }> }).machines ?? []
-        : [];
+    let machines: Array<{ id?: unknown; paired?: unknown }> = [];
+    if (machinesResponse.ok) {
+        machines = (await machinesResponse.json() as { machines?: Array<{ id?: unknown; paired?: unknown }> }).machines ?? [];
+    }
     const machineId = firstRestorableMachine(machines);
     return {
         token: verified.access_token,
