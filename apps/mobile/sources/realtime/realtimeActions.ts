@@ -4,7 +4,6 @@ import {
     showMicrophonePermissionDeniedAlert,
 } from '@/utils/microphonePermissions';
 import { Modal } from '@/modal';
-import { takeLegacyRealtimeApiKey } from '@/sync/persistence';
 import {
     openRealtimeConversation,
     realtimeSessionSnapshot,
@@ -36,13 +35,9 @@ export async function requestRealtimePermission(): Promise<boolean> {
 
 /**
  * The selected realtime provider plugin owns its credential on the machine.
- * It is provisioned through the authenticated E2EE channel, silently
- * transferring any leftover phone copy captured at load. New credentials are
- * collected only by the attributed plugin Settings secure prompt. False means
- * realtime cannot run.
+ * New credentials are collected only by the attributed plugin Settings secure prompt.
  */
 export async function ensureRealtimeProviderConfigured(): Promise<boolean> {
-    const legacy = takeLegacyRealtimeApiKey();
     let configured: boolean;
     try {
         configured = ((await callPlugin('voice.status')) as { configured: boolean }).configured;
@@ -51,18 +46,8 @@ export async function ensureRealtimeProviderConfigured(): Promise<boolean> {
         return false;
     }
     if (configured) return true;
-
-    if (legacy == null || legacy.trim() === '') {
-        Modal.alert('Realtime conversation', 'Configure the provider plugin from Settings to continue.');
-        return false;
-    }
-    try {
-        await callPlugin('voice.key.set', { key: legacy.trim() });
-        return true;
-    } catch (error) {
-        Modal.alert('Realtime conversation', `The provider plugin rejected the migrated value: ${error instanceof Error ? error.message : String(error)}`);
-        return false;
-    }
+    Modal.alert('Realtime conversation', 'Configure the provider plugin from Settings to continue.');
+    return false;
 }
 
 /** Start the singleton realtime session and reveal its root-owned sheet. */

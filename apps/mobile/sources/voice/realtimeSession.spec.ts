@@ -273,11 +273,12 @@ describe('generic realtime stream session', () => {
         expect(reconnected.send.mock.calls.filter(([frame]) => frame.type === 'realtime.say')).toHaveLength(0);
         expect(mocks.pcm.finishRealtimePcm).toHaveBeenCalledTimes(finishesBeforeTransportClose + 1);
         mocks.pcm.isRealtimePcmDrained.mockReturnValue(true);
-        await vi.waitFor(() => expect(reconnected.send.mock.calls.filter(([frame]) => frame.action === 'output_drained')).toHaveLength(1));
-        expect(reconnected.send.mock.calls.filter(([frame]) => frame.type === 'realtime.say').map(([frame]) => frame.text)).toEqual([
+        await vi.waitFor(() => expect(reconnected.send.mock.calls.filter(([frame]) => frame.type === 'realtime.say').map(([frame]) => frame.text)).toEqual([
             'first after reconnect',
             'second after reconnect',
-        ]);
+        ]));
+        expect(reconnected.send.mock.calls.filter(([frame]) => frame.action === 'output_drained')).toHaveLength(0);
+        expect(stream.send.mock.calls.filter(([frame]) => frame.action === 'output_drained')).toHaveLength(drainAcksBefore + 2);
         expect(stream.send).not.toHaveBeenCalledWith({ type: 'realtime.say', text: 'first after reconnect' });
         expect(statuses.filter(([status]) => status === 'connected')).toHaveLength(connectedBeforeTransportReady);
 
@@ -287,7 +288,7 @@ describe('generic realtime stream session', () => {
         await new Promise((resolve) => setTimeout(resolve, 30));
         expect(statuses.filter(([status]) => status === 'connected')).toHaveLength(connectedBeforeTransportReady);
         mocks.pcm.isRealtimePcmDrained.mockReturnValue(true);
-        await vi.waitFor(() => expect(reconnected.send.mock.calls.filter(([frame]) => frame.action === 'output_drained')).toHaveLength(2));
+        await vi.waitFor(() => expect(reconnected.send.mock.calls.filter(([frame]) => frame.action === 'output_drained')).toHaveLength(1));
         expect(statuses.filter(([status]) => status === 'connected').slice(connectedBeforeTransportReady)).toEqual([
             ['connected', 'queued say drained'],
         ]);

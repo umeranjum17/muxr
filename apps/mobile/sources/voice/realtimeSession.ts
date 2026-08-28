@@ -1,13 +1,10 @@
 import { realtimePcm16ByteLength } from '@muxr/contract';
 import { reportEnergy, resetEnergy } from '@/realtime/audioEnergy';
 import {
-    clearRealtimePcm, finishRealtimePcm, isRealtimePcmDrained, playRealtimePcm, releaseVoiceAudio,
-    routeVoiceAudio, startRealtimePcm, stopRealtimePcm,
-} from '@/../modules/voice-overlay';
-import {
     capturePluginStreamSnapshot, openPluginStream, refreshPluginStreamSnapshot, type PluginStream,
 } from '@/plugins/openPluginStream';
 import { acquireRealtimeCapture, type RealtimeCaptureLease } from '@/voice/vadStandby';
+import { createRealtimePlayback } from '@/voice/realtimePlayback';
 import { sync } from '@/sync/sync';
 
 export type RealtimeStatus = 'connecting' | 'connected' | 'thinking' | 'speaking' | 'disconnected';
@@ -20,17 +17,11 @@ export interface RealtimeHandle {
 }
 
 const MAX_MIC_BYTES = 96_000; // Two seconds of mono 24 kHz PCM16.
-const MAX_OUTPUT_BYTES = 192_000;
-const OUTPUT_LOW_WATER_BYTES = 48_000;
 const RETRY_MS = 20;
 type StablePluginStream = Omit<PluginStream, 'send'> & {
     send: (frame: Parameters<PluginStream['send']>[0]) => boolean;
     start: () => void;
 };
-type BoundaryCallback = { generation: number; kind: 'connected' | 'speech'; run: () => void };
-type OutputItem =
-    | { type: 'audio'; data: string; bytes: number; queued: boolean }
-    | { type: 'finish'; token: number; started: boolean; callbacks: BoundaryCallback[] };
 
 /** Provider-blind native streaming speech-to-speech transport. */
 export function startRealtimeSession(options: {
@@ -40,6 +31,7 @@ export function startRealtimeSession(options: {
     onActivity?: () => void;
 }): RealtimeHandle {
     const { target, onStatus, onTurn, onActivity } = options;
+    const playback = createRealtimePlayback();
     let streamSnapshot = capturePluginStreamSnapshot('voice.session', target.machineId);
     let stream: StablePluginStream | undefined;
     let readyStream: StablePluginStream | undefined;
@@ -55,45 +47,18 @@ export function startRealtimeSession(options: {
     let stableTimer: ReturnType<typeof setTimeout> | undefined;
     let micRetry: ReturnType<typeof setTimeout> | undefined;
     let speechRetry: ReturnType<typeof setTimeout> | undefined;
-    let outputRetry: ReturnType<typeof setTimeout> | undefined;
-    let outputControlRetry: ReturnType<typeof setTimeout> | undefined;
-    let outputDrainRetry: ReturnType<typeof setTimeout> | undefined;
-    let outputGeneration = 0;
-    let finishSequence = 0;
-    let outputNeedsFinish = false;
-    let outputPressured = false;
-    let pausedStream: StablePluginStream | undefined;
-    let playbackRate: number | undefined;
     let statsLogged = false;
     let speechBoundaryScheduled = false;
     const micQueue: Array<{ data: string; bytes: number; queued: boolean }> = [];
-    const outputQueue: OutputItem[] = [];
-    const pendingBoundaryCallbacks: BoundaryCallback[] = [];
     let micBytes = 0;
-    let outputBytes = 0;
-    const stats = {
-        micCaptured: 0, micSent: 0, micQueued: 0, micDropped: 0,
-        outputReceived: 0, outputQueued: 0, outputDropped: 0, outputCleared: 0,
-        playbackClears: 0, playbackUnderruns: 0, nativePeak: 0,
-        transportReconnects: 0, providerReconnects: 0,
-    };
+    const stats = { micCaptured: 0, micSent: 0, micQueued: 0, micDropped: 0, transportReconnects: 0, providerReconnects: 0 };
     const STABLE_AFTER_MS = 30_000;
 
-    const collectNativeStats = (value: unknown): void => {
-        if (value === null || typeof value !== 'object') return;
-        const native = value as Record<string, unknown>;
-        const number = (name: string): number => typeof native[name] === 'number' && Number.isFinite(native[name]) ? native[name] as number : 0;
-        stats.playbackUnderruns += number('underruns');
-        stats.playbackClears += number('clears');
-        stats.nativePeak = Math.max(stats.nativePeak, number('peakQueuedMs'), number('peakQueuedBytes'), number('peak'));
-    };
-    const stopPlayer = (): void => {
-        try { collectNativeStats(stopRealtimePcm()); } catch { /* teardown remains observable */ }
-    };
     const logStats = (): void => {
         if (statsLogged) return;
         statsLogged = true;
-        console.info(`realtime_voice_stats mic_captured=${stats.micCaptured} mic_sent=${stats.micSent} mic_queued=${stats.micQueued} mic_dropped=${stats.micDropped} output_received=${stats.outputReceived} output_queued=${stats.outputQueued} output_dropped=${stats.outputDropped} output_cleared=${stats.outputCleared} playback_clears=${stats.playbackClears} playback_underruns=${stats.playbackUnderruns} native_peak=${stats.nativePeak} transport_reconnects=${stats.transportReconnects} provider_reconnects=${stats.providerReconnects}`);
+        const output = playback.stats;
+        console.info(`realtime_voice_stats mic_captured=${stats.micCaptured} mic_sent=${stats.micSent} mic_queued=${stats.micQueued} mic_dropped=${stats.micDropped} output_received=${output.received} output_queued=${output.queued} output_dropped=${output.dropped} output_cleared=${output.cleared} playback_clears=${output.playbackClears} playback_underruns=${output.playbackUnderruns} native_peak=${output.nativePeak} transport_reconnects=${stats.transportReconnects} provider_reconnects=${stats.providerReconnects}`);
     };
     const stopCapture = (): void => {
         microphoneStarted = false;
@@ -101,14 +66,13 @@ export function startRealtimeSession(options: {
         captureLease = undefined;
     };
     const teardown = (): void => {
-        for (const timer of [reconnectTimer, stableTimer, micRetry, speechRetry, outputRetry, outputControlRetry, outputDrainRetry]) {
+        for (const timer of [reconnectTimer, stableTimer, micRetry, speechRetry]) {
             if (timer !== undefined) clearTimeout(timer);
         }
-        reconnectTimer = stableTimer = micRetry = speechRetry = outputRetry = outputControlRetry = outputDrainRetry = undefined;
+        reconnectTimer = stableTimer = micRetry = speechRetry = undefined;
         stopCapture();
-        if (playbackRate !== undefined) stopPlayer();
-        playbackRate = undefined;
-        try { releaseVoiceAudio(); } catch { /* teardown remains observable */ }
+        playback.stop();
+        playback.release();
         const current = stream;
         stream = undefined;
         readyStream = undefined;
@@ -171,136 +135,6 @@ export function startRealtimeSession(options: {
         flushMic();
     };
 
-    const scheduleOutputControl = (): void => {
-        if (stopped || outputControlRetry !== undefined) return;
-        outputControlRetry = setTimeout(() => {
-            outputControlRetry = undefined;
-            flushOutputControl();
-        }, RETRY_MS);
-    };
-    const flushOutputControl = (): void => {
-        if (stopped || stream === undefined) {
-            if (outputPressured) scheduleOutputControl();
-            return;
-        }
-        const action = outputPressured
-            ? pausedStream === stream ? undefined : 'pause_output'
-            : pausedStream === stream ? 'resume_output' : undefined;
-        if (action === undefined) return;
-        let sent = false;
-        try { sent = stream.send({ type: 'realtime.control', action }); } catch { /* retry */ }
-        if (!sent) { scheduleOutputControl(); return; }
-        pausedStream = action === 'pause_output' ? stream : undefined;
-    };
-    const setOutputPressured = (pressured: boolean): void => {
-        outputPressured = pressured;
-        flushOutputControl();
-    };
-    const clearOutput = (): void => {
-        outputGeneration += 1;
-        for (const timer of [outputRetry, outputDrainRetry, outputControlRetry]) if (timer !== undefined) clearTimeout(timer);
-        outputRetry = outputDrainRetry = outputControlRetry = undefined;
-        stats.outputCleared += outputQueue.filter((item) => item.type === 'audio').length;
-        outputQueue.length = 0;
-        pendingBoundaryCallbacks.length = 0;
-        outputBytes = 0;
-        outputNeedsFinish = false;
-        speechBoundaryScheduled = false;
-        setOutputPressured(false);
-        if (playbackRate !== undefined) {
-            clearRealtimePcm();
-        }
-        flushPendingSpeech();
-    };
-    const scheduleOutputFlush = (generation: number): void => {
-        if (stopped || outputRetry !== undefined) return;
-        outputRetry = setTimeout(() => {
-            outputRetry = undefined;
-            if (generation === outputGeneration) flushOutput(generation);
-        }, RETRY_MS);
-    };
-    const flushOutput = (generation = outputGeneration): void => {
-        while (!stopped && generation === outputGeneration && outputQueue.length > 0) {
-            const head = outputQueue[0];
-            if (head.type === 'finish') {
-                if (outputBytes <= OUTPUT_LOW_WATER_BYTES) setOutputPressured(false);
-                if (!head.started && !finishRealtimePcm()) {
-                    scheduleOutputFlush(generation);
-                    return;
-                }
-                head.started = true;
-                if (!isRealtimePcmDrained()) {
-                    if (outputDrainRetry === undefined) {
-                        const token = head.token;
-                        outputDrainRetry = setTimeout(() => {
-                            outputDrainRetry = undefined;
-                            const current = outputQueue[0];
-                            if (generation === outputGeneration && current?.type === 'finish' && current.token === token) flushOutput(generation);
-                        }, RETRY_MS);
-                    }
-                    return;
-                }
-                let acknowledged = false;
-                try { acknowledged = stream?.send({ type: 'realtime.control', action: 'output_drained' }) ?? false; } catch { /* retry */ }
-                if (!acknowledged) { scheduleOutputFlush(generation); return; }
-                outputQueue.shift();
-                if (head.callbacks.length > 0) {
-                    const nextFinish = outputQueue.find((item): item is Extract<OutputItem, { type: 'finish' }> => item.type === 'finish');
-                    if (nextFinish !== undefined) {
-                        nextFinish.callbacks.unshift(...head.callbacks);
-                    } else if (outputQueue.length > 0) {
-                        pendingBoundaryCallbacks.push(...head.callbacks);
-                    } else {
-                        const releasesSpeech = head.callbacks.some((callback) => callback.kind === 'speech');
-                        for (const callback of head.callbacks) {
-                            if (callback.generation === outputGeneration && !(releasesSpeech && callback.kind === 'connected')) callback.run();
-                        }
-                    }
-                }
-                continue;
-            }
-            if (!playRealtimePcm(head.data)) {
-                if (!head.queued) { head.queued = true; stats.outputQueued += 1; }
-                setOutputPressured(true);
-                scheduleOutputFlush(generation);
-                return;
-            }
-            outputQueue.shift();
-            outputBytes -= head.bytes;
-        }
-        if (!stopped && generation === outputGeneration && outputQueue.length === 0 && outputBytes <= OUTPUT_LOW_WATER_BYTES) {
-            setOutputPressured(false);
-        }
-    };
-    const latestPendingFinish = (): Extract<OutputItem, { type: 'finish' }> | undefined => {
-        for (let index = outputQueue.length - 1; index >= 0; index -= 1) {
-            const item = outputQueue[index];
-            if (item.type === 'finish') return item;
-        }
-        return undefined;
-    };
-    const deferUntilOutputBoundary = (kind: BoundaryCallback['kind'], callback: () => void): boolean => {
-        const pending = { generation: outputGeneration, kind, run: callback };
-        const marker = latestPendingFinish();
-        if (marker !== undefined) {
-            marker.callbacks.push(pending);
-            return true;
-        }
-        if (!outputNeedsFinish) return false;
-        pendingBoundaryCallbacks.push(pending);
-        return true;
-    };
-    const finishOutput = (onDrained?: () => void): boolean => {
-        if (stopped || playbackRate === undefined) return false;
-        if (!outputNeedsFinish) return onDrained === undefined ? false : deferUntilOutputBoundary('connected', onDrained);
-        outputNeedsFinish = false;
-        const callbacks = pendingBoundaryCallbacks.splice(0);
-        if (onDrained !== undefined) callbacks.push({ generation: outputGeneration, kind: 'connected', run: onDrained });
-        outputQueue.push({ type: 'finish', token: ++finishSequence, started: false, callbacks });
-        flushOutput();
-        return onDrained !== undefined;
-    };
-
     const scheduleSpeechFlush = (): void => {
         if (stopped || speechRetry !== undefined) return;
         speechRetry = setTimeout(() => {
@@ -311,7 +145,7 @@ export function startRealtimeSession(options: {
     const flushPendingSpeech = (): void => {
         if (stopped || pendingSpeech.length === 0 || stream === undefined || readyStream !== stream || !microphoneStarted) return;
         if (speechBoundaryScheduled) return;
-        if (deferUntilOutputBoundary('speech', () => {
+        if (playback.afterDrain('speech', () => {
             speechBoundaryScheduled = false;
             flushPendingSpeech();
         })) {
@@ -328,34 +162,8 @@ export function startRealtimeSession(options: {
             pendingSpeech.shift();
         }
     };
-    const queueOutput = (data: string): void => {
-        let bytes: number;
-        try { bytes = realtimePcm16ByteLength(data); } catch {
-            fail(new Error('Realtime provider sent malformed audio.'));
-            return;
-        }
-        stats.outputReceived += 1;
-        if (outputBytes + bytes > MAX_OUTPUT_BYTES) {
-            stats.outputDropped += 1;
-            fail(new Error('Realtime playback buffer overflowed.'));
-            return;
-        }
-        outputQueue.push({ type: 'audio', data, bytes, queued: false });
-        outputBytes += bytes;
-        outputNeedsFinish = true;
-        reportEnergy('output', data);
-        flushOutput();
-        onStatus('speaking');
-    };
-
-    function ensurePlayback(outputRate: number): void {
-        if (playbackRate === outputRate) return;
-        if (playbackRate !== undefined) stopPlayer();
-        if (!routeVoiceAudio() || !startRealtimePcm(outputRate)) throw new Error('This device could not start realtime audio.');
-        playbackRate = outputRate;
-    }
     const startAudio = (inputRate: number, outputRate: number): Promise<void> => {
-        ensurePlayback(outputRate);
+        playback.ensure(outputRate);
         if (captureStart !== undefined) return captureStart;
         captureStart = (async () => {
             const lease = acquireRealtimeCapture(inputRate, captureFrame);
@@ -385,8 +193,8 @@ export function startRealtimeSession(options: {
                 if (stopped || stream !== next) return;
                 stream = undefined;
                 if (readyStream === next) readyStream = undefined;
-                if (pausedStream === next) pausedStream = undefined;
-                finishOutput();
+                playback.unbind(next);
+                playback.finish();
                 if (stableTimer !== undefined) { clearTimeout(stableTimer); stableTimer = undefined; }
                 if (microphoneStarted && reconnects < 2 && retryableClose(reason)) {
                     reconnects += 1;
@@ -410,32 +218,43 @@ export function startRealtimeSession(options: {
                                 onStatus('connected', readyDetail);
                             }
                         };
-                        if (!deferUntilOutputBoundary('connected', notifyReady)) notifyReady();
+                        if (!playback.afterDrain('connected', notifyReady)) notifyReady();
                         if (stableTimer !== undefined) clearTimeout(stableTimer);
                         stableTimer = setTimeout(() => { reconnects = 0; }, STABLE_AFTER_MS);
                         flushMic();
                         flushPendingSpeech();
                     }).catch(fail);
                 } else if (frame.type === 'realtime.audio') {
-                    queueOutput(frame.data);
+                    const admitted = playback.admit(frame.data);
+                    if (admitted === 'malformed') {
+                        fail(new Error('Realtime provider sent malformed audio.'));
+                        return;
+                    }
+                    if (admitted === 'overflow') {
+                        fail(new Error('Realtime playback buffer overflowed.'));
+                        return;
+                    }
+                    reportEnergy('output', frame.data);
+                    onStatus('speaking');
                 } else if (frame.type === 'realtime.audio.clear') {
-                    clearOutput();
+                    playback.clear();
+                    speechBoundaryScheduled = false;
+                    flushPendingSpeech();
                 } else if (frame.type === 'realtime.state') {
                     if (frame.state === 'connected') {
                         const notifyConnected = () => {
                             if (!stopped && stream === next) onStatus('connected', frame.detail);
                         };
-                        if (!finishOutput(notifyConnected)) notifyConnected();
+                        if (!playback.finish(notifyConnected)) notifyConnected();
                     } else onStatus(frame.state, frame.detail);
                 } else if (frame.type === 'realtime.transcript') {
                     onTurn(frame.role, frame.text);
                 }
             });
             stream = next;
+            playback.bind(next);
             next.start();
             flushMic();
-            flushOutputControl();
-            flushOutput();
         })().finally(() => { connectFlight = undefined; });
         return connectFlight;
     };

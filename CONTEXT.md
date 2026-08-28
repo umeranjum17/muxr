@@ -1,16 +1,16 @@
-# muxr herd identity
+# muxr
 
-muxr shows coding agents running on a computer. Identity is what a person uses to tell one Agent from another; routing never uses those words.
+muxr lets a person direct coding agents running on their computers. Human-facing identity, lifecycle reporting, and realtime voice remain separate from internal routing and provider mechanics.
 
-## Language
+## Agents
 
 **Agent**:
-A coding-agent session muxr tracks. It is the person-shaped row in the herd, not a Herdr pane and not a provider binary.
+A coding-agent session muxr tracks. It is the person-shaped row in the herd, not a pane, process, or provider binary.
 _Avoid_: pane, tab, process, session row
 
 **Human Name**:
 The spoken first name of an Agent (John, Maria). Secondary, display-only, never a routing key.
-_Avoid_: label, autoLabel, animal name, agent name, display label
+_Avoid_: label, animal name, agent name, display label
 
 **Task Title**:
 The work the Agent is doing. Primary identity for humans scanning a herd.
@@ -21,9 +21,23 @@ Which coding-agent program is running (pi, claude, codex). Separate from Human N
 _Avoid_: agent name, kind label, model
 
 **Agent Route**:
-The stable muxr session id that names an Agent across pane moves. The only key used to prompt, watch, or focus.
+The stable internal route that identifies an Agent across pane moves. The only key used to prompt, watch, or focus.
 _Avoid_: pane id, spoken name, label, Herdr agent name
 
 **Lifecycle Event**:
-A recorded change in an Agent's working/blocked/done/failed state, keyed by Agent Route.
+A recorded change in an Agent's working, blocked, done, or failed state, keyed by Agent Route.
 _Avoid_: status string, attention row, watch receipt
+
+## Realtime voice
+
+**Realtime Playback**:
+The native PCM sink for one voice call, including admission, backpressure, turn-finish drain, and ownership of drain acknowledgements.
+_Avoid_: player, output buffer, audio service
+
+**Stream Generation**:
+The owner of audio currently draining. A replacement stream is a new generation and must not receive acknowledgements for previous audio.
+_Avoid_: epoch, reconnect id, session id
+
+**Output Drain**:
+The ordered wait until native playback of admitted PCM has finished, before queued speech or a connected status for that turn may proceed.
+_Avoid_: flush, complete, EOS
