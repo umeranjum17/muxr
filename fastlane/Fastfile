@@ -58,6 +58,41 @@ platform :android do
     UI.user_error!("Play Internal does not contain versionCode #{expected}") unless versions.include?(expected)
   end
 
+  desc "Promote an existing Play Internal build to Closed testing"
+  lane :promote_closed do
+    upload_to_play_store(
+      package_name: "com.trymuxr.app",
+      json_key_data: ENV.fetch("PLAY_SERVICE_ACCOUNT_JSON"),
+      track: "internal",
+      track_promote_to: "alpha",
+      version_code: ENV.fetch("ANDROID_VERSION_CODE"),
+      track_promote_release_status: "completed",
+      skip_upload_apk: true,
+      skip_upload_aab: true,
+      skip_upload_metadata: true,
+      skip_upload_images: true,
+      skip_upload_screenshots: true
+    )
+  end
+
+  desc "Prove the promoted build is completed on Play Closed testing"
+  lane :verify_closed do
+    expected = Integer(ENV.fetch("ANDROID_VERSION_CODE"))
+    versions = []
+    10.times do |attempt|
+      versions = google_play_track_version_codes(
+        package_name: "com.trymuxr.app",
+        json_key_data: ENV.fetch("PLAY_SERVICE_ACCOUNT_JSON"),
+        track: "alpha"
+      ).map(&:to_i)
+      break if versions.include?(expected)
+
+      UI.message("Play Closed has not exposed versionCode #{expected}; retry #{attempt + 1}/10")
+      sleep 15
+    end
+    UI.user_error!("Play Closed does not contain versionCode #{expected}") unless versions.include?(expected)
+  end
+
   desc "Promote an existing Play Internal build to Production"
   lane :promote_production do
     fraction = Integer(ENV.fetch("ROLLOUT_PERCENT", "10")) / 100.0

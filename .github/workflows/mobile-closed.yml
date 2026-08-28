@@ -1,0 +1,118 @@
+name: mobile closed testing
+
+on:
+  workflow_dispatch:
+    inputs:
+      internal_run_id:
+        description: Successful Android mobile internal workflow run for this exact main commit
+        required: true
+        type: string
+      version:
+        description: Tested marketing version, for example 0.1.12
+        required: true
+        type: string
+      android_version_code:
+        description: Exact versionCode completed on Play Internal
+        required: true
+        type: string
+
+concurrency:
+  group: mobile-closed
+  cancel-in-progress: false
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate tested build identifiers
+        env:
+          INTERNAL_RUN_ID: ${{ inputs.internal_run_id }}
+          APP_VERSION: ${{ inputs.version }}
+          ANDROID_VERSION_CODE: ${{ inputs.android_version_code }}
+        run: |
+          [[ "$INTERNAL_RUN_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$APP_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$ANDROID_VERSION_CODE" =~ ^[1-9][0-9]*$ ]]
+
+  provenance:
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Prove the Internal run and exact Android build
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INTERNAL_RUN_ID: ${{ inputs.internal_run_id }}
+          APP_VERSION: ${{ inputs.version }}
+          ANDROID_VERSION_CODE: ${{ inputs.android_version_code }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$INTERNAL_RUN_ID" > "$RUNNER_TEMP/internal-run.json"
+          jq -e --arg sha "$GITHUB_SHA" '
+            .event == "workflow_dispatch"
+            and .name == "mobile internal testing"
+            and .head_branch == "main"
+            and .head_sha == $sha
+            and .status == "completed"
+            and .conclusion == "success"
+          ' "$RUNNER_TEMP/internal-run.json"
+          mkdir -p "$RUNNER_TEMP/internal-artifact"
+          gh run download "$INTERNAL_RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name eas-cloud-result-android \
+            --dir "$RUNNER_TEMP/internal-artifact"
+          jq -e \
+            --arg sha "$GITHUB_SHA" \
+            --arg version "$APP_VERSION" \
+            --arg android "$ANDROID_VERSION_CODE" '
+              length == 1
+              and .[0].platform == "ANDROID"
+              and .[0].gitCommitHash == $sha
+              and .[0].appVersion == $version
+              and .[0].appBuildVersion == $android
+              and (.[0].id | length > 0)
+              and (.[0].submissions | length > 0)
+            ' "$RUNNER_TEMP/internal-artifact/result.json"
+
+  promote:
+    needs: [validate, provenance]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: stores
+    env:
+      PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+      ANDROID_VERSION_CODE: ${{ inputs.android_version_code }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0
+        with:
+          ruby-version: "3.3"
+          bundler-cache: true
+      - name: Prove the exact build is on Play Internal
+        run: bundle exec fastlane android verify_internal
+      - name: Promote the exact build to Play Closed testing
+        run: bundle exec fastlane android promote_closed
+      - name: Prove the exact build is on Play Closed testing
+        run: bundle exec fastlane android verify_closed
+
+  summary:
+    if: always()
+    needs: [validate, provenance, promote]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Write Closed testing summary
+        env:
+          RESULT: ${{ needs.promote.result }}
+          APP_VERSION: ${{ inputs.version }}
+          ANDROID_VERSION_CODE: ${{ inputs.android_version_code }}
+        run: |
+          {
+            echo "## Mobile Closed testing"
+            echo
+            echo "Version: $APP_VERSION"
+            echo "Android versionCode: $ANDROID_VERSION_CODE"
+            echo "Result: $RESULT"
+            echo "Source: exact Play Internal release; no rebuild"
+          } >> "$GITHUB_STEP_SUMMARY"
