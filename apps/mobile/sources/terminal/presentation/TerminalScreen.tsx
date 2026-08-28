@@ -243,7 +243,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
 
     React.useEffect(() => {
         const subscription = AppState.addEventListener('change', (next) => {
-            if (next === 'active') channelRef.current?.reconnect();
+            if (next === 'active') channelRef.current?.repaint();
         });
         return () => subscription.remove();
     }, []);
