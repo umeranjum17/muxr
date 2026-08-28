@@ -6,6 +6,7 @@ import {
 import { acquireRealtimeCapture, type RealtimeCaptureLease } from './vadStandby';
 import { createRealtimePlayback } from '@/playback';
 import { sync } from '@/catalog/sync';
+import { realtimeAppController } from './realtimeAppControl';
 
 export type RealtimeStatus = 'connecting' | 'connected' | 'thinking' | 'speaking' | 'disconnected';
 
@@ -240,6 +241,26 @@ export function startRealtimeSession(options: {
                         return;
                     case 'realtime.transcript':
                         onTurn(frame.role, frame.text);
+                        return;
+                    case 'realtime.app.request':
+                        void (async () => {
+                            let ok = true;
+                            let text: string;
+                            try {
+                                if (frame.action === 'view') text = realtimeAppController.inspect();
+                                else if (frame.action === 'navigate') text = await realtimeAppController.navigateTo(frame.target!);
+                                else text = await realtimeAppController.activate(frame.target!);
+                            } catch {
+                                ok = false;
+                                text = 'The app could not complete that semantic action.';
+                            }
+                            if (!stopped && stream === next) next.send({
+                                type: 'realtime.app.result',
+                                requestId: frame.requestId,
+                                ok,
+                                text,
+                            });
+                        })();
                         return;
                     default:
                         return;

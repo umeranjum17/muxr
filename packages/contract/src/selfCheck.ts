@@ -5,7 +5,7 @@
 import { admitClientFrame, decodePayload, encodePayload, envelopeIsHosted, isPluginsInvalidatedFrame, parseClientFrame, tryParseClientFrame } from './control-plane/index.js';
 import { SESSION_EVENT_TYPES, type SessionEventBody } from './herd/index.js';
 import { admitPeerMutation, authorizePeerDispatch, deviceIsPeer, inspectPeerGrantConstraints, isPeerCapabilities, peerCapabilityForRequest, peerMayDispatch } from './peer/index.js';
-import { boundRealtimePublicContext, parseRealtimeClientFrame, realtimePcm16ByteLength, MAX_REALTIME_PUBLIC_SESSIONS } from './realtime/index.js';
+import { boundRealtimePublicContext, parseRealtimeClientFrame, parseRealtimeHostFrame, realtimePcm16ByteLength, MAX_REALTIME_PUBLIC_SESSIONS } from './realtime/index.js';
 import {
     agentIsWorking,
     attentionOutranks,
@@ -117,6 +117,10 @@ function demo(): void {
         const frame = parseRealtimeClientFrame({ type: 'realtime.control', action });
         assert(frame.type === 'realtime.control' && frame.action === action, `${action} control validates`);
     }
+    const appRequest = parseRealtimeHostFrame({ type: 'realtime.app.request', requestId: 'app-1', action: 'navigate', target: 'settings' });
+    assert(appRequest.type === 'realtime.app.request' && appRequest.target === 'settings', 'semantic app requests validate without coordinates or routes');
+    const appResult = parseRealtimeClientFrame({ type: 'realtime.app.result', requestId: 'app-1', ok: true, text: 'Navigated to settings.' });
+    assert(appResult.type === 'realtime.app.result' && appResult.ok, 'semantic app results validate on the realtime transport');
     assert(realtimePcm16ByteLength('AAA=') === 2, 'canonical PCM16 base64 reports decoded bytes');
     for (const malformed of ['AAA', 'AAB=', 'AAAA', 'AA==']) {
         let rejected = false;

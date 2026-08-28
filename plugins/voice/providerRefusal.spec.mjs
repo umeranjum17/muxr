@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import { describe, expect, it } from 'vitest';
 import { RealtimeCodingCoordinator } from '../../apps/host/src/agent/infrastructure/realtimeCoordinator.ts';
+import { parseRealtimeHostFrame } from '../../packages/contract/src/realtime/domain/realtimeStream.ts';
 import { providerTools as geminiTools } from '../voice-gemini/stream.mjs';
 import { providerTools as openaiTools } from '../voice-openai/stream.mjs';
 import { providerError, providerRefusal, providerTools as xaiTools } from './stream.mjs';
@@ -70,7 +71,7 @@ describe('providerRefusal', () => {
         const muxrHome = await mkdtemp(join(tmpdir(), 'muxr-voice-coordinator-'));
         await writeFile(join(muxrHome, 'xai.key'), 'test-only-key\n', { mode: 0o600 });
         const privateProject = join(muxrHome, 'private-project');
-        const calls = { starts: [], prompts: [], reads: [], watches: [], focuses: [] };
+        const calls = { starts: [], prompts: [], keys: [], reads: [], watches: [], focuses: [] };
         const watchResults = [
             { status: 'done', detail: 'Host confirmed completion.' },
             { status: 'error', detail: 'A private raw error must not become confirmation.' },
@@ -90,10 +91,11 @@ describe('providerRefusal', () => {
             }],
             start: async (input) => {
                 calls.starts.push(input);
+                const displayName = calls.starts.length === 1 ? 'Nora' : 'Owen';
                 const agent = {
                     sessionId: `pp_started_${calls.starts.length}`,
-                    cwd: join(muxrHome, `private-worktree-${input.displayName.toLocaleLowerCase()}`),
-                    displayName: input.displayName,
+                    cwd: join(muxrHome, `private-worktree-${displayName.toLocaleLowerCase()}`),
+                    displayName,
                     taskTitle: input.taskTitle,
                     kind: input.kind,
                     status: 'starting',
@@ -102,6 +104,7 @@ describe('providerRefusal', () => {
                 return { accepted: true, agent };
             },
             prompt: async (sessionId, text) => { calls.prompts.push({ sessionId, text }); },
+            sendKeys: async (sessionId, keys) => { calls.keys.push({ sessionId, keys }); },
             read: async (sessionId) => {
                 calls.reads.push(sessionId);
                 return {
@@ -147,6 +150,12 @@ describe('providerRefusal', () => {
         });
         const stderr = [];
         createInterface({ input: child.stderr }).on('line', (line) => stderr.push(line));
+        const hostFrames = [];
+        let invalidHostFrames = 0;
+        createInterface({ input: child.stdout }).on('line', (line) => {
+            try { hostFrames.push(parseRealtimeHostFrame(JSON.parse(line))); }
+            catch { invalidHostFrames += 1; }
+        });
         const sendProvider = (connection, frame) => connection.socket.send(JSON.stringify(frame));
 
         try {
@@ -162,12 +171,14 @@ describe('providerRefusal', () => {
                 () => connection.frames.find((frame) => frame.type === 'session.update'),
                 'provider session was not configured',
             );
-            const expectedTools = [
-                'list_agents', 'recent_agent_activity', 'start_agent', 'prompt_agent', 'read_agent_output', 'agent_status', 'watch_agent', 'focus_agent',
+            const expectedCodingTools = [
+                'list_agents', 'recent_agent_activity', 'start_agent', 'prompt_agent', 'send_agent_keybinding', 'read_agent_output', 'agent_status', 'watch_agent', 'focus_agent',
             ];
-            expect(update.session.tools.map((tool) => tool.name)).toEqual(expectedTools);
+            const expectedAppTools = ['inspect_app', 'navigate_app', 'activate_app_control'];
+            expect(update.session.tools.map((tool) => tool.name)).toEqual([...expectedCodingTools, ...expectedAppTools]);
+            expect(update.session.tools.find((tool) => tool.name === 'start_agent').parameters.properties).not.toHaveProperty('name');
+            expect(update.session.tools.find((tool) => tool.name === 'send_agent_keybinding').parameters.properties.key.enum).toEqual(['escape']);
             for (const tools of [xaiTools, openaiTools, geminiTools]) {
-                expect(tools.map((tool) => tool.name)).toEqual(expectedTools);
                 const surface = JSON.stringify(tools);
                 expect(surface).not.toMatch(/herdr_cli|list_machines|end_conversation|list_panes|focus_pane|shell|close/);
             }
@@ -180,6 +191,7 @@ describe('providerRefusal', () => {
             expect(providerSetup).not.toContain(privateProject);
             expect(providerSetup).toContain('John is stabilizing realtime voice');
             expect(providerSetup).toContain('Ask for confirmation only before destructive actions');
+            expect(providerSetup).toContain('Agent Names are backend-owned');
 
             let operation = 0;
             const call = async (name, args) => {
@@ -195,6 +207,20 @@ describe('providerRefusal', () => {
                 );
                 sendProvider(connection, { type: 'response.done' });
                 return output;
+            };
+
+            const answeredAppRequests = new Set();
+            const callApp = async (name, args, result) => {
+                const output = call(name, args);
+                const request = await waitFor(
+                    () => hostFrames.find((frame) => frame.type === 'realtime.app.request' && !answeredAppRequests.has(frame.requestId)),
+                    `${name} did not request semantic app state`,
+                );
+                answeredAppRequests.add(request.requestId);
+                child.stdin.write(`${JSON.stringify({
+                    type: 'realtime.app.result', requestId: request.requestId, ok: true, text: result,
+                })}\n`);
+                return { output: await output, request };
             };
 
             const unknown = await call('focus_agent', { agent: 'Nobody' });
@@ -213,16 +239,42 @@ describe('providerRefusal', () => {
             const recentActivity = await call('recent_agent_activity', { limit: 3 });
             expect(recentActivity).toContain('John — Harden audio; done');
 
+            const inspectedApp = await callApp('inspect_app', {}, 'Screen: home. Visible controls: none registered. Destinations: settings.');
+            expect(inspectedApp.request).toMatchObject({ action: 'view' });
+            expect(inspectedApp.output).toContain('Screen: home');
+            const navigatedApp = await callApp('navigate_app', { destination: 'settings' }, 'Navigated to settings.');
+            expect(navigatedApp.request).toMatchObject({ action: 'navigate', target: 'settings' });
+            expect(navigatedApp.output).toBe('Navigated to settings.');
+            const activatedApp = await callApp('activate_app_control', { control: 'Realtime voice' }, 'Activated Realtime voice.');
+            expect(activatedApp.request).toMatchObject({ action: 'activate', target: 'Realtime voice' });
+            const appRequestsBeforeDegenerateCalls = hostFrames.filter((frame) => frame.type === 'realtime.app.request').length;
+            expect(await call('navigate_app', { destination: ' \t ' }))
+                .toBe('I could not find one app destination with that name. Ask me to inspect the app.');
+            expect(await call('activate_app_control', { control: 'é'.repeat(81) }))
+                .toBe('I could not find one visible control with that name. Ask me to inspect the app.');
+            expect(hostFrames.filter((frame) => frame.type === 'realtime.app.request')).toHaveLength(appRequestsBeforeDegenerateCalls);
+            expect(invalidHostFrames).toBe(0);
+            expect(await call('agent_status', { agent: 'John' })).toBe('John is idle.');
+            expect(activatedApp.output).toBe('Activated Realtime voice.');
             const promptReceipt = await call('prompt_agent', { agent: 'ＪＯＨＮ', text: 'Fix the realtime routing.' });
             expect(promptReceipt).toBe('Confirmed: your instruction was delivered to John.');
-            expect(calls.prompts).toEqual([{ sessionId: 'pp_john_private', text: 'Fix the realtime routing.' }]);
+            expect(calls.prompts).toEqual([{ sessionId: 'pp_john_private', text: 'Fix the realtime routing.\n\ncame from a real-time agent' }]);
 
-            const startReceipt = await call('start_agent', { name: 'Nora', kind: 'codex', taskTitle: 'Market ready voice' });
+            const unknownKey = await call('send_agent_keybinding', { agent: 'John', key: 'ctrl-x' });
+            expect(unknownKey).toContain('That agent key is not available');
+            expect(calls.keys).toEqual([]);
+            const ambiguousKey = await call('send_agent_keybinding', { agent: 'Maria', key: 'escape' });
+            expect(ambiguousKey).toContain('More than one agent is named Maria');
+            expect(calls.keys).toEqual([]);
+            expect(await call('send_agent_keybinding', { agent: 'Harden audio', key: 'Escape' })).toBe('Confirmed: Escape was sent to John.');
+            expect(calls.keys).toEqual([{ sessionId: 'pp_john_private', keys: ['escape'] }]);
+
+            const startReceipt = await call('start_agent', { kind: 'codex', taskTitle: 'Market ready voice' });
             expect(startReceipt).toBe('Confirmed: Nora was created for Market ready voice with Codex and is starting.');
             expect(calls.starts[0]).toEqual({
-                cwd: privateProject, displayName: 'Nora', taskTitle: 'Market ready voice', kind: 'codex',
+                cwd: privateProject, taskTitle: 'Market ready voice', kind: 'codex',
             });
-            const secondStart = await call('start_agent', { name: 'Owen', kind: 'pi', taskTitle: 'Follow up routing' });
+            const secondStart = await call('start_agent', { kind: 'pi', taskTitle: 'Follow up routing' });
             expect(secondStart).toContain('Confirmed: Owen was created');
             expect(calls.starts[1].cwd).toBe(join(muxrHome, 'private-worktree-nora'));
 

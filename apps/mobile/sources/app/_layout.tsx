@@ -6,7 +6,7 @@ import * as Fonts from 'expo-font';
 import * as Notifications from 'expo-notifications';
 import * as Updates from 'expo-updates';
 import { FontAwesome } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { usePathname, useRouter } from 'expo-router';
 import { AuthCredentials, TokenStorage } from '@/account';
 import { AuthProvider } from '@/account/ui';
 import { restoreHostedConnection } from '@/pairing/e2ee';
@@ -38,6 +38,7 @@ import { useTauriDrag } from '@/hooks/useTauriDrag';
 import { BrowserNavigationShortcuts } from '@/hooks/useBrowserNavigationShortcuts';
 import { KernelNotifications } from '@/herd/ui';
 import { acknowledgeLifecyclePush } from '@/utils/nativePushNotifications';
+import { realtimeAppController } from '@/conversation/application/realtimeAppControl';
 
 // Configure notification handler — suppress push display when app is in foreground
 Notifications.setNotificationHandler({
@@ -93,6 +94,14 @@ function PluginEventRunner() {
     usePluginEvents();
     return null;
 }
+function RealtimeAppControlBridge() {
+    const pathname = usePathname();
+    const router = useRouter();
+    React.useEffect(() => realtimeAppController.setNavigation((path) => router.push(path as never)), [router]);
+    React.useEffect(() => realtimeAppController.setScreen(pathname), [pathname]);
+    return null;
+}
+
 
 function HorizontalSafeAreaWrapper({ children }: { children: React.ReactNode }) {
     const insets = useSafeAreaInsets();
@@ -445,6 +454,7 @@ export default function RootLayout() {
                             <StatusBarProvider />
                             <ModalProvider>
                                 <BrowserNavigationShortcuts />
+                                <RealtimeAppControlBridge />
                                 <CommandPaletteProvider>
                                         <HorizontalSafeAreaWrapper>
                                             {/* Keep the root conversation mounted while routes change. */}
