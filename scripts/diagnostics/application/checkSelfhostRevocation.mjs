@@ -15,7 +15,7 @@ import {
     verifyDeviceGrant,
 } from '@muxr/crypto';
 import { waitForRelay } from './waitForRelay.mjs';
-import { SelfhostPairing } from '../../../apps/relay/dist/selfhostPairing.js';
+import { SelfhostPairing } from '../../../apps/relay/dist/admission/infrastructure/selfhostPairing.js';
 
 const expiryDir = mkdtempSync(join(tmpdir(), 'muxr-pair-expiry-'));
 const expiryStore = new SelfhostPairing(expiryDir);

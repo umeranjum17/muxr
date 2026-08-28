@@ -7,7 +7,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import nacl from 'tweetnacl';
 import WebSocket from 'ws';
 import { waitForRelay } from './waitForRelay.mjs';
-import { MachineAuthority } from '../../../apps/relay/dist/machineAuthority.js';
+import { MachineAuthority } from '../../../apps/relay/dist/admission/infrastructure/machineAuthority.js';
 
 const authorityDir = mkdtempSync(join(tmpdir(), 'muxr-remote-authority-'));
 const authority = new MachineAuthority(authorityDir);

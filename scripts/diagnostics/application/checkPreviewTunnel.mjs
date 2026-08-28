@@ -180,6 +180,32 @@ async function runBridge() {
     return localPort;
 }
 
+function loopbackGet(value, path) {
+    const port = Number(value);
+    if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+        return Promise.reject(new Error('relay returned an invalid preview port'));
+    }
+    if (!/^\/[a-z0-9./_-]+$/i.test(path)) {
+        return Promise.reject(new Error('preview path is invalid'));
+    }
+    return new Promise((resolve, reject) => {
+        const socket = connect({ host: '127.0.0.1', port });
+        const chunks = [];
+        const timer = setTimeout(() => socket.destroy(new Error('preview request timed out')), 10_000);
+        socket.on('connect', () => socket.write(`GET ${path} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n`));
+        socket.on('data', (chunk) => chunks.push(chunk));
+        socket.on('error', reject);
+        socket.on('close', (hadError) => {
+            clearTimeout(timer);
+            if (hadError) return;
+            const response = Buffer.concat(chunks).toString('utf8');
+            const boundary = response.indexOf('\r\n\r\n');
+            const status = Number(response.match(/^HTTP\/1\.[01] (\d{3})/)?.[1] ?? 0);
+            resolve({ status, body: boundary < 0 ? '' : response.slice(boundary + 4) });
+        });
+    });
+}
+
 function openTunnel() {
     const control = new WebSocket(`${RELAY}/preview?role=client&machineId=${MACHINE}&channel=${CHANNEL}`);
 
@@ -191,10 +217,8 @@ function openTunnel() {
         // A real HTTP client over the relay's listener: proves the whole path,
         // including that the preview is served at a root path.
         try {
-            const response = await fetch(`http://127.0.0.1:${message.port}/index.html`, {
-                signal: AbortSignal.timeout(10000),
-            });
-            const body = await response.text();
+            const response = await loopbackGet(message.port, '/index.html');
+            const body = response.body;
             const ok = response.status === 200 && body.includes(MARKER) && body.includes('/index.html');
             if (!ok) {
                 done(1, `\nFAIL: unexpected response: ${response.status} ${body.slice(0, 300)}\n`);
@@ -202,10 +226,8 @@ function openTunnel() {
 
             // Second request on a fresh connection: a browser opens several per
             // page, so the mux has to keep them apart.
-            const again = await fetch(`http://127.0.0.1:${message.port}/second`, {
-                signal: AbortSignal.timeout(10000),
-            });
-            const againBody = await again.text();
+            const again = await loopbackGet(message.port, '/second');
+            const againBody = again.body;
             if (!againBody.includes('/second')) {
                 done(1, `\nFAIL: second connection got: ${againBody.slice(0, 300)}\n`);
             }
