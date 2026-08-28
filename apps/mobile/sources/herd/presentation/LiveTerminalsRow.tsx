@@ -145,9 +145,11 @@ export const LiveTerminalsRow = React.memo(({
         () => selectLiveTerminalCards(sessions, panes),
         [panes, sessions],
     );
-    const [cards, setCards] = React.useState(() => reconcileLiveTerminalCards([], candidateCards));
-    React.useEffect(() => {
-        setCards((current) => reconcileLiveTerminalCards(current, candidateCards));
+    const cardsRef = React.useRef<readonly LiveTerminalOrderCard[]>([]);
+    const cards = React.useMemo(() => {
+        const next = reconcileLiveTerminalCards(cardsRef.current, candidateCards);
+        cardsRef.current = next;
+        return next;
     }, [candidateCards]);
     const activityRows = React.useMemo(
         () => ready ? unseenActivityRows(lifecycleEvents, seenEventIds) : [],

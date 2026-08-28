@@ -71,6 +71,7 @@ vi.mock('@/utils/sessionUtils', () => ({
     getSessionAvatarId: (session: Session) => session.id,
 }));
 import { applyStatusToSession, sessionInfoToSession } from '../infrastructure/sessionMapping';
+import { applyHostInfoToAgent } from '../domain/agent';
 import { storage } from './storage';
 
 async function spawn(options: { modelMode?: string; effortLevel?: string }) {
@@ -192,6 +193,26 @@ describe('session sync flow', () => {
         expect(mapped.metadata?.paneId).toBe('%1');
         expect(mapped.metadata?.summary?.text).toBe('Stabilizing realtime voice');
         expect(mapped.metadata?.agentName).toBe('Maria');
+        const metadata = mapped.metadata;
+        if (metadata === null) throw new Error('mapped herdr session must have metadata');
+        const stableExisting: Session = {
+            ...mapped,
+            metadata: { ...metadata, terminalTitle: 'stable terminal title' },
+        };
+        const outputOnlyUpdate = sessionInfoToSession({
+            id: 'session-a',
+            paneId: '%1',
+            cwd: '/work/alpha',
+            path: '/work/alpha',
+            created: '2026-01-01T00:00:00Z',
+            modified: '2026-01-01T00:00:01Z',
+            messageCount: 0,
+            firstMessage: '',
+            displayName: 'Maria',
+            taskTitle: 'Stabilizing realtime voice',
+            terminalTitle: 'volatile terminal output',
+        });
+        expect(applyHostInfoToAgent(stableExisting, outputOnlyUpdate)).toBe(stableExisting);
 
         const lifecycle = (agentStatus: 'working' | 'done') => ({
             sessionId: mapped.id,

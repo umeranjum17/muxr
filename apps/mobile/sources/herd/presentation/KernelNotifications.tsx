@@ -14,10 +14,21 @@ import {
     updateVoiceNotification,
 } from '@/../modules/voice-overlay';
 import { requestNotificationPermission } from '@/utils/microphonePermissions';
-import { completionNotificationState, completionTransition, herdNotificationState, sortHerd } from '../domain/herd';
+import { completionNotificationState, completionTransition, herdNotificationState, sortHerd, type HerdNotificationState } from '../domain/herd';
 import { boundRealtimeSession, configureVadStandby, useRealtimeMuted, useRealtimeSessionState } from '@/conversation/session';
 import { Modal } from '@/modal';
 import { registerNativePushNotifications } from '@/utils/nativePushNotifications';
+
+function sameNotification(
+    left: HerdNotificationState,
+    right: HerdNotificationState,
+): boolean {
+    return left.mode === right.mode
+        && left.count === right.count
+        && left.name === right.name
+        && left.names === right.names
+        && left.eventKey === right.eventKey;
+}
 
 /**
  * Unconditional kernel owner for Android's foreground service and baseline
@@ -52,16 +63,16 @@ export function KernelNotifications() {
     const herdActive = herd.mode === 'working' || herd.mode === 'attention';
 
     React.useEffect(() => {
+        let next = herd;
         if (lifecycleCatalogAvailable) {
             previous.current = null;
-            setPresentation(herd);
-            return;
+        } else {
+            const before = previous.current;
+            const { baseline, completed } = completionTransition(panes, status === 'connected', before);
+            previous.current = baseline;
+            if (before !== null && completed.length > 0) next = completionNotificationState(completed);
         }
-        const before = previous.current;
-        const { baseline, completed } = completionTransition(panes, status === 'connected', before);
-        previous.current = baseline;
-        if (before === null) return setPresentation(herd);
-        setPresentation(completed.length ? completionNotificationState(completed) : herd);
+        setPresentation((current) => sameNotification(current, next) ? current : next);
     }, [herd, lifecycleCatalogAvailable, panes, status]);
 
     React.useEffect(() => {

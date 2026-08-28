@@ -324,13 +324,9 @@ class MuxrSync {
             storage.getState().deleteSession(sessionId);
         }
 
-        // Topology only. Status ticks already updated the session row;
-        // refetching the whole tree on every token made the phone hitch.
-        if (
-            event.type === 'session.created'
-            || event.type === 'session.updated'
-            || event.type === 'session.removed'
-        ) {
+        // Only creation and removal change topology. Metadata/output updates are
+        // high-frequency and must not refetch the whole tree.
+        if (event.type === 'session.created' || event.type === 'session.removed') {
             void this.refreshHerdTree().catch(() => undefined);
         }
     }

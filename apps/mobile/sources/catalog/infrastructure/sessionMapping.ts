@@ -15,17 +15,17 @@ import {
 
 export const ACTIVE_SESSION_MS = AGENT_STILL_LISTED_MS;
 
-function parseTime(value: string | undefined): number {
-    if (value === undefined) return Date.now();
+function parseTime(value: string | undefined, fallback = Date.now()): number {
+    if (value === undefined) return fallback;
     const parsed = Date.parse(value);
-    return Number.isFinite(parsed) ? parsed : Date.now();
+    return Number.isFinite(parsed) ? parsed : fallback;
 }
 
 
 /** Map a host SessionInfo DTO once into the stored Agent snapshot. */
 export function sessionInfoToSession(info: SessionInfo, status?: SessionStatus): Session {
     const createdAt = parseTime(info.created);
-    const updatedAt = parseTime(info.modified);
+    const updatedAt = parseTime(info.modified, createdAt);
     const now = Date.now();
     const busy = agentIsBusy(status);
     const cwd = info.cwd;
