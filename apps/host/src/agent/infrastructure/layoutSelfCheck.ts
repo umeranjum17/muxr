@@ -184,6 +184,7 @@ async function demo(): Promise<void> {
     let prompts = 0;
     const coordinator = new RealtimeCodingCoordinator(socketPath, {
         list: async () => [{ sessionId: 'pp_john', cwd: '/repo', displayName: 'John', taskTitle: 'Harden audio', kind: 'pi', status: 'idle' }],
+        activity: async () => [],
         start: async () => ({ accepted: false }),
         prompt: async () => { prompts += 1; },
         read: async () => ({ text: '', truncated: false }),
@@ -196,6 +197,8 @@ async function demo(): Promise<void> {
     const first = await ask(socketPath, access.capability, { method: 'prompt', agent: 'John', text: 'Keep going.', operationId: 'op-0' });
     const replayed = await ask(socketPath, access.capability, { method: 'prompt', agent: 'John', text: 'Keep going.', operationId: 'op-0' });
     assert(first.ok === true && replayed.ok === true && prompts === 1, 'an accepted operation id replays without rerunning the mutation');
+    const taskStatus = await ask(socketPath, access.capability, { method: 'status', agent: 'Harden audio' });
+    assert(taskStatus.data === 'John is idle.', 'a unique Task Title resolves to its Human Name');
     const idleWatch = await ask(socketPath, access.capability, { method: 'watch', agent: 'John', operationId: 'watch-idle' });
     assert(idleWatch.data === 'Confirmed: John is idle.', 'idle is spoken as idle, without duplicated watch wording or finished');
     assert(idleWatch.data !== undefined && !/finish/i.test(idleWatch.data), 'idle is not spoken as finished');

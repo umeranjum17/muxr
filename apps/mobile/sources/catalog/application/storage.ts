@@ -607,7 +607,7 @@ export function useAttentionRows(): AttentionRowData[] {
                 const session = sessions.find((candidate) => candidate.id === entry.sessionId);
                 return {
                     sessionId: entry.sessionId,
-                    name: session !== undefined ? getSessionName(session) : entry.sessionId.slice(0, 8),
+                    name: session !== undefined ? getSessionName(session) : 'Agent',
                     reason: entry.reason,
                     detail: entry.detail,
                     at: Date.parse(entry.at) || 0,

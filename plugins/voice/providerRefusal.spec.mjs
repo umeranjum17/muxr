@@ -66,7 +66,7 @@ describe('providerRefusal', () => {
         expect(providerError('API key not valid. Please pass a valid API key.').terminal).toBe(true);
     });
 
-    it('routes the seven provider tools through trusted named host coordination', async () => {
+    it('routes provider tools through trusted name, task, kind, and activity coordination', async () => {
         const muxrHome = await mkdtemp(join(tmpdir(), 'muxr-voice-coordinator-'));
         await writeFile(join(muxrHome, 'xai.key'), 'test-only-key\n', { mode: 0o600 });
         const privateProject = join(muxrHome, 'private-project');
@@ -78,12 +78,16 @@ describe('providerRefusal', () => {
             { status: 'unknown', detail: 'No terminal state was observed.' },
         ];
         const agents = [
-            { sessionId: 'pp_john_private', cwd: privateProject, displayName: 'John', taskTitle: 'Harden audio', kind: 'pi', status: 'idle' },
-            { sessionId: 'pp_maria_one', cwd: privateProject, displayName: 'Maria', taskTitle: 'Fix auth', kind: 'codex', status: 'working' },
-            { sessionId: 'pp_maria_two', cwd: privateProject, displayName: 'Maria', taskTitle: 'Ship sync', kind: 'claude', status: 'blocked' },
+            { sessionId: 'pp_john_private', cwd: privateProject, displayName: 'John', taskTitle: 'Harden audio', kind: 'pi', status: 'idle', changedAt: 1 },
+            { sessionId: 'pp_maria_one', cwd: privateProject, displayName: 'Maria', taskTitle: 'Fix auth', kind: 'codex', status: 'working', changedAt: 3 },
+            { sessionId: 'pp_maria_two', cwd: privateProject, displayName: 'Maria', taskTitle: 'Ship sync', kind: 'claude', status: 'blocked', changedAt: 2 },
         ];
         const coordinator = new RealtimeCodingCoordinator(join(muxrHome, 'coding.sock'), {
             list: async () => agents,
+            activity: async () => [{
+                eventId: 'activity-one', sessionId: 'pp_john_private', displayName: 'John', taskTitle: 'Harden audio',
+                state: 'done', reasonCode: 'agent-done', reason: 'agent-done', at: '2026-08-28T00:00:00.000Z',
+            }],
             start: async (input) => {
                 calls.starts.push(input);
                 const agent = {
@@ -159,7 +163,7 @@ describe('providerRefusal', () => {
                 'provider session was not configured',
             );
             const expectedTools = [
-                'list_agents', 'start_agent', 'prompt_agent', 'read_agent_output', 'agent_status', 'watch_agent', 'focus_agent',
+                'list_agents', 'recent_agent_activity', 'start_agent', 'prompt_agent', 'read_agent_output', 'agent_status', 'watch_agent', 'focus_agent',
             ];
             expect(update.session.tools.map((tool) => tool.name)).toEqual(expectedTools);
             for (const tools of [xaiTools, openaiTools, geminiTools]) {
@@ -195,10 +199,19 @@ describe('providerRefusal', () => {
 
             const unknown = await call('focus_agent', { agent: 'Nobody' });
             const duplicate = await call('read_agent_output', { agent: 'ＭＡＲＩＡ' });
-            expect(unknown).toContain('could not find an agent named Nobody');
+            expect(unknown).toContain('could not find an agent or task matching Nobody');
             expect(duplicate).toContain('More than one agent is named MARIA');
             expect(calls.focuses).toEqual([]);
             expect(calls.reads).toEqual([]);
+
+            const taskFocus = await call('focus_agent', { agent: 'Fix auth' });
+            expect(taskFocus).toBe('Confirmed: Maria is now in focus.');
+            expect(calls.focuses).toEqual(['pp_maria_one']);
+            const piAgents = await call('list_agents', { kind: 'pi', limit: 3 });
+            expect(piAgents).toContain('John — Harden audio; Pi; idle');
+            expect(piAgents).not.toContain('Fix auth');
+            const recentActivity = await call('recent_agent_activity', { limit: 3 });
+            expect(recentActivity).toContain('John — Harden audio; done');
 
             const promptReceipt = await call('prompt_agent', { agent: 'ＪＯＨＮ', text: 'Fix the realtime routing.' });
             expect(promptReceipt).toBe('Confirmed: your instruction was delivered to John.');

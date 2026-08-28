@@ -4,7 +4,7 @@ import type { Session } from '../infrastructure/storageTypes';
 import { completionAlerts, completionNotificationState, completionTransition, herdNotificationState, HERD_STATUS_LABELS, lifecycleNotificationCopy, lifecycleNotificationState, sortHerd } from '@/utils/herd';
 import { normalizeRequestFailure, requestRequiresE2ee } from '@muxr/contract';
 import { buildSpaceRows, lifecycleTree, paneDisplayName, paneTaskTitle } from '@/utils/herdTree';
-import { selectLiveTerminalCards } from '@/utils/liveTerminalOrder';
+import { selectLiveTerminalCards } from '../../herd/application/liveTerminalOrder';
 
 const request = vi.fn();
 const refreshSessions = vi.fn();
@@ -212,9 +212,9 @@ describe('session sync flow', () => {
             const notificationPanes = sortHerd([session], tree);
             const liveStatus = selectLiveTerminalCards([session], notificationPanes)[0].status;
             expect({ spacesStatus, liveStatus, notificationStatus: notificationPanes[0].status }).toEqual({
-                spacesStatus: connected ? status : 'unknown',
-                liveStatus: connected ? status : 'unknown',
-                notificationStatus: connected ? status : 'unknown',
+                spacesStatus: status,
+                liveStatus: status,
+                notificationStatus: status,
             });
             return notificationPanes;
         };
@@ -237,7 +237,7 @@ describe('session sync flow', () => {
         expect(blockedNotification).toMatchObject({ mode: 'attention', count: 1, eventKey: `attention:${encodeURIComponent(session.id)}` });
 
         const waiting = stage('idle');
-        expect(HERD_STATUS_LABELS[waiting[0].status]).toBe('Waiting');
+        expect(HERD_STATUS_LABELS[waiting[0].status]).toBe('Idle');
         expect(herdNotificationState(waiting, 'connected').mode).toBe('idle');
 
         const done = stage('done');
@@ -255,11 +255,11 @@ describe('session sync flow', () => {
         expect(JSON.stringify([workingNotification, blockedNotification, finishedNotification].map(({ name, names }) => ({ name, names })))).not.toContain(session.id);
 
         const offline = stage('done', false);
-        expect(HERD_STATUS_LABELS[offline[0].status]).toBe('Offline');
+        expect(HERD_STATUS_LABELS[offline[0].status]).toBe('Done');
         expect(herdNotificationState(offline, 'error').mode).toBe('offline');
 
         // A reconnect blip between working and done must still produce exactly
-        // one completion: the offline all-unknown snapshot may not become the
+        // one completion: the stale disconnected snapshot may not become the
         // baseline, and the fresh connected tree fires the alert once.
         const armed = completionTransition(working, true, null);
         expect(armed.completed).toEqual([]);

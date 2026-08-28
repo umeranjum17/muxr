@@ -1,23 +1,20 @@
-import * as React from 'react';
 import type { AgentLifecycle } from '@muxr/contract';
 import type { Session } from '@/catalog';
-import { HERD_ORDER, paneStatus, type HerdPane } from '../domain/herd';
+import { paneStatus, type HerdPane } from '../domain/herd';
 
-export const LIVE_TERMINAL_REEVALUATION_MS = 30_000;
 export const RECENTLY_DONE_SWIPE_MS = 2 * 60_000;
+export const RECENTLY_DONE_DISPLAY_MS = 30 * 60_000;
+
+export type LiveTerminalBucket = 'attention' | 'working' | 'settled' | 'offline';
 
 export interface LiveTerminalOrderCard {
     session: Session;
     status: AgentLifecycle;
     title?: string;
+    changedAt: number;
 }
 
-export interface LiveTerminalOrderState {
-    ids: readonly string[];
-    nextReevaluationAt: number;
-}
-
-/** Join display metadata onto the canonical panes; lifecycle stays tree-owned. */
+/** Join display metadata onto canonical panes; lifecycle stays tree-owned. */
 export function selectLiveTerminalCards(
     sessions: readonly Session[],
     panes: readonly HerdPane[],
@@ -25,31 +22,47 @@ export function selectLiveTerminalCards(
     const sessionsById = new Map(sessions.map((session) => [session.id, session]));
     return panes.flatMap((pane) => {
         const session = sessionsById.get(pane.id);
-        return session === undefined ? [] : [{ session, status: pane.status, title: pane.taskTitle }];
+        return session === undefined ? [] : [{
+            session,
+            status: pane.status,
+            title: pane.taskTitle,
+            changedAt: pane.changedAt,
+        }];
     });
 }
 
-function compareIds(left: string, right: string): number {
-    if (left < right) return -1;
-    if (left > right) return 1;
-    return 0;
-}
-function compareCards(left: LiveTerminalOrderCard, right: LiveTerminalOrderCard): number {
-    const titleOrder = left.title !== undefined && right.title !== undefined
-        ? left.title.localeCompare(right.title)
-        : 0;
-    return HERD_ORDER[left.status] - HERD_ORDER[right.status]
-        || titleOrder
-        || right.session.updatedAt - left.session.updatedAt
-        || compareIds(left.session.id, right.session.id);
+export function liveTerminalBucket(status: AgentLifecycle): LiveTerminalBucket {
+    if (status === 'blocked' || status === 'failed') return 'attention';
+    if (status === 'working' || status === 'starting') return 'working';
+    if (status === 'done' || status === 'idle') return 'settled';
+    return 'offline';
 }
 
-function sortIds(cards: readonly LiveTerminalOrderCard[]): string[] {
-    return [...cards].sort(compareCards).map((card) => card.session.id);
-}
+const STATUS_ORDER: Record<AgentLifecycle, number> = {
+    blocked: 0,
+    failed: 1,
+    working: 2,
+    starting: 3,
+    done: 4,
+    idle: 5,
+    unknown: 6,
+};
 
-function sameIds(left: readonly string[], right: readonly string[]): boolean {
-    return left.length === right.length && left.every((id, index) => id === right[index]);
+/** Needs-you first, active work next, then recent completions and offline panes. */
+export function orderLiveTerminalCards(
+    cards: readonly LiveTerminalOrderCard[],
+    now = Date.now(),
+): LiveTerminalOrderCard[] {
+    return cards
+        .filter((card) => card.status !== 'done' || now - card.changedAt <= RECENTLY_DONE_DISPLAY_MS)
+        .sort((left, right) => {
+            const status = STATUS_ORDER[left.status] - STATUS_ORDER[right.status];
+            if (status !== 0) return status;
+            const time = left.status === 'blocked'
+                ? left.changedAt - right.changedAt
+                : right.changedAt - left.changedAt;
+            return time || left.session.id.localeCompare(right.session.id);
+        });
 }
 
 /** The one-swipe buffer: active agents, then agents that finished very recently. */
@@ -71,7 +84,7 @@ export function workingAgentSwipeIds(sessions: readonly Session[], now = Date.no
             const rightActive = right.status === 'working' || right.status === 'blocked';
             return Number(rightActive) - Number(leftActive)
                 || right.changedAt - left.changedAt
-                || compareIds(left.id, right.id);
+                || left.id.localeCompare(right.id);
         })
         .map(({ id }) => id);
 }
@@ -86,104 +99,4 @@ export function nextWorkingAgentId(
     if (index === -1) return step === 1 ? ids[0] : ids.at(-1);
     if (ids.length === 1) return undefined;
     return ids[(index + step + ids.length) % ids.length];
-}
-
-/**
- * Apply changes that must be visible without waiting for the dwell window:
- * closed panes leave, new panes append, and active panes move to the front.
- * Same-status cards keep their existing positions.
- */
-function immediateIds(previousIds: readonly string[], cards: readonly LiveTerminalOrderCard[]): string[] {
-    const byId = new Map(cards.map((card) => [card.session.id, card]));
-    const ids = previousIds.filter((id) => byId.has(id));
-    if (ids.length === 0) return sortIds(cards);
-
-    const known = new Set(ids);
-    const newIds = cards
-        .filter((card) => !known.has(card.session.id))
-        .sort((left, right) => compareIds(left.session.id, right.session.id))
-        .map((card) => card.session.id);
-    ids.push(...newIds);
-
-    const blocked = ids.filter((id) => byId.get(id)?.status === 'blocked');
-    const working = ids.filter((id) => byId.get(id)?.status === 'working');
-    return [...blocked, ...working, ...ids.filter((id) => {
-        const status = byId.get(id)?.status;
-        return status !== 'blocked' && status !== 'working';
-    })];
-}
-
-export function createLiveTerminalOrderState(
-    cards: readonly LiveTerminalOrderCard[],
-    now = Date.now(),
-): LiveTerminalOrderState {
-    return {
-        ids: sortIds(cards),
-        nextReevaluationAt: now + LIVE_TERMINAL_REEVALUATION_MS,
-    };
-}
-
-export function reconcileLiveTerminalOrder(
-    previous: LiveTerminalOrderState,
-    cards: readonly LiveTerminalOrderCard[],
-    now = Date.now(),
-): LiveTerminalOrderState {
-    const ids = immediateIds(previous.ids, cards);
-    const currentIds = new Set(cards.map((card) => card.session.id));
-    const hasExistingCard = previous.ids.some((id) => currentIds.has(id));
-    const nextReevaluationAt = cards.length > 0 && !hasExistingCard
-        ? now + LIVE_TERMINAL_REEVALUATION_MS
-        : previous.nextReevaluationAt;
-
-    if (sameIds(previous.ids, ids) && nextReevaluationAt === previous.nextReevaluationAt) return previous;
-    return { ids, nextReevaluationAt };
-}
-
-export function reevaluateLiveTerminalOrder(
-    previous: LiveTerminalOrderState,
-    cards: readonly LiveTerminalOrderCard[],
-    now = Date.now(),
-): LiveTerminalOrderState {
-    const byId = new Map(cards.map((card) => [card.session.id, card]));
-    // Stable regroup: a status-class change moves a card, but updatedAt churn
-    // among same-status cards must not -- with several agents streaming, the
-    // row visibly shuffled left-right on every reevaluation window.
-    // (Array.sort is stable, so equal-status cards keep their relative order.)
-    const kept = previous.ids
-        .filter((id) => byId.has(id))
-        .sort((left, right) => HERD_ORDER[byId.get(left)!.status] - HERD_ORDER[byId.get(right)!.status]);
-    const known = new Set(kept);
-    const fresh = cards
-        .filter((card) => !known.has(card.session.id))
-        .sort((left, right) => compareIds(left.session.id, right.session.id))
-        .map((card) => card.session.id);
-    return {
-        ids: [...kept, ...fresh],
-        nextReevaluationAt: now + LIVE_TERMINAL_REEVALUATION_MS,
-    };
-}
-
-/** One row-level dwell timer; cards themselves never own an interval. */
-export function useLiveTerminalOrder(cards: readonly LiveTerminalOrderCard[]): LiveTerminalOrderCard[] {
-    const [state, setState] = React.useState(() => createLiveTerminalOrderState(cards));
-    const cardsRef = React.useRef(cards);
-    cardsRef.current = cards;
-
-    React.useEffect(() => {
-        setState((previous) => reconcileLiveTerminalOrder(previous, cards));
-    }, [cards]);
-
-    React.useEffect(() => {
-        if (cards.length === 0) return;
-        const delay = Math.max(0, state.nextReevaluationAt - Date.now());
-        const timer = setTimeout(() => {
-            setState((previous) => reevaluateLiveTerminalOrder(previous, cardsRef.current));
-        }, delay);
-        return () => clearTimeout(timer);
-    }, [cards.length, state.ids.length, state.nextReevaluationAt]);
-
-    const byId = new Map(cards.map((card) => [card.session.id, card]));
-    return immediateIds(state.ids, cards)
-        .map((id) => byId.get(id))
-        .filter((card): card is LiveTerminalOrderCard => card !== undefined);
 }

@@ -144,23 +144,6 @@ const stylesheet = StyleSheet.create((theme) => ({
         alignItems: 'center',
         justifyContent: 'center',
     },
-    historyButton: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 8,
-        marginHorizontal: 16,
-        marginVertical: 8,
-        paddingHorizontal: 14,
-        minHeight: 44,
-        borderRadius: 10,
-        backgroundColor: theme.colors.surfaceHigh,
-    },
-    historyText: {
-        color: theme.colors.text,
-        fontSize: 14,
-        fontWeight: '600',
-        ...Typography.default('semiBold'),
-    },
     error: {
         fontSize: 12,
         paddingHorizontal: 16,
@@ -347,15 +330,6 @@ export const HerdView = React.memo(({
                     {header}
                     <LiveTerminalsRow />
                     <RecentActivity />
-                    <Pressable
-                        accessibilityRole="button"
-                        onPress={() => router.push('/session/recent')}
-                        style={({ pressed }) => [styles.historyButton, pressed && { opacity: 0.7 }]}
-                    >
-                        <Ionicons name="time-outline" size={18} color={theme.colors.textSecondary} />
-                        <Text style={styles.historyText}>Session history</Text>
-                        <Ionicons name="chevron-forward" size={16} color={theme.colors.groupped.chevron} style={{ marginLeft: 'auto' }} />
-                    </Pressable>
                 </>}
                 topContentInset={topContentInset}
                 bottomContentInset={safeArea.bottom + bottomContentInset}
