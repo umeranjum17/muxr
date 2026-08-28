@@ -51,7 +51,7 @@ describe('agent lifecycle presentation', () => {
             .map((item) => item.id)).toEqual(['done', 'working', 'blocked']);
     });
 
-    it('keeps a running tree pane through a lagging catalog join without replacing its slot', () => {
+    it('keeps terminal slots stable through catalog joins and equivalent snapshots', () => {
         const pane = (id: string, status: HerdPane['status'], changedAt?: number): HerdPane => ({
             id,
             name: `${id} agent`,
@@ -75,6 +75,11 @@ describe('agent lifecycle presentation', () => {
             ['first', 'blocked', 'first'],
             ['second', 'done', 'second'],
         ]);
+        const equivalent = selectLiveTerminalCards(
+            joined.flatMap((item) => item.session === undefined ? [] : [item.session]),
+            [pane('first', 'blocked', 200), pane('second', 'done', 200)],
+        );
+        expect(reconcileLiveTerminalCards(joined, equivalent)).toBe(joined);
     });
 
     it('shows only unseen meaningful transitions from the last day, latest per agent', () => {

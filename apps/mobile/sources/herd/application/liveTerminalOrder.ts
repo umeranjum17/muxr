@@ -58,7 +58,7 @@ export function orderLiveTerminalCards(cards: readonly LiveTerminalOrderCard[]):
 export function reconcileLiveTerminalCards(
     previous: readonly LiveTerminalOrderCard[],
     current: readonly LiveTerminalOrderCard[],
-): LiveTerminalOrderCard[] {
+): readonly LiveTerminalOrderCard[] {
     const currentById = new Map(current.map((card) => [card.id, card]));
     const existing = previous.flatMap((card) => {
         const updated = currentById.get(card.id);
@@ -66,7 +66,18 @@ export function reconcileLiveTerminalCards(
         currentById.delete(card.id);
         return [updated];
     });
-    return [...existing, ...orderLiveTerminalCards([...currentById.values()])];
+    const next = [...existing, ...orderLiveTerminalCards([...currentById.values()])];
+    const unchanged = next.length === previous.length && next.every((card, index) => {
+        const before = previous[index]!;
+        return card.id === before.id
+            && card.session === before.session
+            && card.status === before.status
+            && card.title === before.title
+            && card.name === before.name
+            && card.changedAt === before.changedAt
+            && card.createdAt === before.createdAt;
+    });
+    return unchanged ? previous : next;
 }
 
 export interface ActivityAcknowledgementViewport {
