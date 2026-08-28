@@ -39,7 +39,7 @@ vi.mock('@/../modules/voice-overlay', () => mocks.pcm);
 vi.mock('@/voice/vadStandby', () => mocks.vad);
 vi.mock('@/sync/sync', () => ({ sync: { request: mocks.controlRequest } }));
 
-import { startRealtimeSession } from './realtimeSession';
+import { startRealtimeSession } from '@/voice/realtimeSession';
 
 interface FakeStream {
     send: ReturnType<typeof vi.fn>;

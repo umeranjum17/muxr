@@ -36,7 +36,7 @@ import {
     getNativeSecret,
     setNativeSecret,
     usesSimulatorSecretStore,
-} from './nativeSecretStore';
+} from '@/state/nativeSecretStore';
 
 describe('native secret storage', () => {
     beforeEach(() => {

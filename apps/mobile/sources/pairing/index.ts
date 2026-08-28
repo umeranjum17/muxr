@@ -9,3 +9,24 @@ export * from './domain/ConnectionStatus';
 export * from './domain/PairedMachine';
 export * from './domain/machineUtils';
 export * from './infrastructure/muxrClient';
+
+export {
+    acceptVerifiedGrant,
+    accountSurfaceApplies,
+    connectionShouldAdoptGrant,
+    defaultDeviceAuthority,
+    grantAuthorizesMachine,
+    grantRejectsDowngrade,
+    hostedTransportReady,
+    pickGrantForConnection,
+    type DeviceAuthority,
+    type VerifiedGrantDecision,
+} from './domain/hostedGrant';
+export {
+    hostedPairingAuthority,
+    hostedPairingDisplayName,
+    parsePairingString,
+    prepareHostedPairingInput,
+    type PairingString,
+    type PairingStringParse,
+} from './domain/pairingString';

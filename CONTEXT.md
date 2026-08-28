@@ -33,7 +33,7 @@ Which coding-agent program is running (pi, claude, codex). Separate from Human N
 _Avoid_: agent name, kind label, model
 
 **Agent Route**:
-The stable internal route that identifies an Agent across pane moves. The only key used to prompt, watch, or focus.
+The stable internal route that identifies an Agent across pane moves. The only key used to prompt, watch, or focus. On mobile that route is the host session id.
 _Avoid_: pane id, spoken name, label, Herdr agent name
 
 **Lifecycle Event**:
@@ -89,3 +89,19 @@ _Avoid_: claim, ticket, QR payload
 **Hosted Grant**:
 The verified machine permission this device stores after pairing. It owns authority, the relay, and the keys used to open sealed traffic.
 _Avoid_: token, pairing cache, device record
+
+**Device Authority**:
+Control or observe permission stored on the Hosted Grant. Comes from the Pairing String, never from a machine display name.
+_Avoid_: role, browser flag
+
+**Connection**:
+Hosted (grant-backed) or local (dev fixture) reachability for one machine id.
+_Avoid_: settings blob, relay config
+
+**Account Credential**:
+Proof of the person's muxr account. Independent of any Hosted Grant.
+_Avoid_: token, pairing, device grant
+
+**Mic Ownership**:
+The exclusive claim among the realtime call, dictation, and VAD standby.
+_Avoid_: audio focus, recorder lock
