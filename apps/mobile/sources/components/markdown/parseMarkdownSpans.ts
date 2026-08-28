@@ -1,4 +1,4 @@
-import type { MarkdownSpan } from "./markdownTypes";
+import type { MarkdownSpan } from "@/components/markdown/markdownTypes";
 
 // Updated pattern to handle nested markdown and asterisks
 const pattern = /(\*\*(.*?)(?:\*\*|$))|(\*(.*?)(?:\*|$))|(\[([^\]]+)\](?:\(([^)]+)\))?)|(`(.*?)(?:`|$))/g;

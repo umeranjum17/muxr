@@ -12,9 +12,9 @@
  */
 import { blobObjectUrl } from '@/utils/attachmentBlobs';
 import { attachmentDownloadUrl } from '@/utils/attachmentDownloadUrl';
-import type { StoredSessionAttachment } from '@/sync/persistence';
-import { getCachedConnectionSettings } from '@/state/connectionSettings';
-import { sync } from '@/sync/sync';
+import type { StoredSessionAttachment } from '@/catalog/application/persistence';
+import { getCachedConnectionSettings } from '@/connection';
+import { sync } from '@/catalog/sync';
 
 export type DownloadHandoff = 'browser' | 'device';
 

@@ -7,21 +7,22 @@ import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
 import { ItemList } from '@/components/ItemList';
 import { Modal } from '@/modal';
-import { useAllMachines } from '@/sync/storage';
-import { listPairedGrants, type StoredHostedGrant } from '@/state/hostedE2ee';
+import { useAllMachines } from '@/catalog/store';
+import { listPairedGrants, type StoredHostedGrant } from '@/pairing/e2ee';
 import {
     applyCollaboration,
+    grantPeerAuthority,
     hasPendingCollaboration,
     loadCollaborationIntent,
     reconcileCollaboration,
+    revokePeerAuthority,
     saveCollaborationIntent,
-    selectCollaborationMachines,
     type CollaborationIntent,
     type CollaborationMachine,
     type CollaborationReport,
     type PeerRequester,
-} from '@/collaboration/computerCollaboration';
-import { requestPairedMachine } from '@/collaboration/scopedMachineClient';
+} from '@/collaboration';
+import { requestPairedMachine } from '@/collaboration';
 
 function showCollaborationError(cause: unknown) {
     Modal.alert('Collaboration unavailable', cause instanceof Error ? cause.message : String(cause));
@@ -195,12 +196,11 @@ export default function ComputerCollaborationScreen() {
             Modal.alert('Pair every selected computer', 'Pair the missing computer with this phone again before changing collaboration.');
             return;
         }
-        const next = selectCollaborationMachines(intent, chosen);
-        await saveCollaborationIntent(next);
-        setIntent(next);
         setBusy(true);
         try {
-            const nextReport = await applyCollaboration(next, liveMachinesNow, requesterFor(grants));
+            const nextReport = chosen.length === 0
+                ? await revokePeerAuthority({ intent, machines: liveMachinesNow, request: requesterFor(grants) })
+                : await grantPeerAuthority({ intent, selected: chosen, machines: liveMachinesNow, request: requesterFor(grants) });
             setIntent(nextReport.intent);
             setReport(nextReport);
             setSelected(nextReport.intent.selectedMachineIds);

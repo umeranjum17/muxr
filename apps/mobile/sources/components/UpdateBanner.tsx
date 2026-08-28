@@ -1,10 +1,10 @@
 import React from 'react';
 import { Ionicons } from '@expo/vector-icons';
-import { Item } from './Item';
-import { ItemGroup } from './ItemGroup';
+import { Item } from '@/components/Item';
+import { ItemGroup } from '@/components/ItemGroup';
 import { useUnistyles } from 'react-native-unistyles';
 import { useUpdates } from '@/hooks/useUpdates';
-import { useChangelog } from '@/hooks/useChangelog';
+import { useChangelog } from '@/changelog';
 import { useNativeUpdate } from '@/hooks/useNativeUpdate';
 import { useRouter } from 'expo-router';
 import { Platform } from 'react-native';

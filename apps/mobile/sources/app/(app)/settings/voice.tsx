@@ -7,15 +7,15 @@ import { ItemGroup } from '@/components/ItemGroup';
 import { ItemList } from '@/components/ItemList';
 import { Switch } from '@/components/Switch';
 import { Modal } from '@/modal';
-import { sourceLabel } from '@/plugins/pluginActions';
-import { pluginHref } from '@/plugins/pluginHref';
-import { pluginCatalogSnapshot, refreshPlugins } from '@/plugins/pluginStore';
-import { sync } from '@/sync/sync';
-import { useLocalSetting, useSocketStatus } from '@/sync/storage';
+import { sourceLabel } from '@/plugins';
+import { pluginHref } from '@/plugins';
+import { pluginCatalogSnapshot, refreshPlugins } from '@/plugins';
+import { sync } from '@/catalog/sync';
+import { useLocalSetting, useSocketStatus } from '@/catalog/store';
 import { useRouter } from 'expo-router';
 import { useUnistyles } from 'react-native-unistyles';
-import { configureVadStandby } from '@/realtime/realtimeSessionState';
-import { ensureRealtimeProviderConfigured, requestRealtimePermission } from '@/realtime/realtimeActions';
+import { configureVadStandby } from '@/conversation/session';
+import { ensureRealtimeProviderConfigured, requestRealtimePermission } from '@/conversation';
 
 export default function VoiceProviderScreen() {
     const router = useRouter();

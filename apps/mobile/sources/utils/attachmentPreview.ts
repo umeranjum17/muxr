@@ -1,9 +1,9 @@
 import { File, Paths } from 'expo-file-system';
 import type { PluginAction } from '@muxr/contract';
 import { decodeBase64 } from '@/encryption/base64';
-import { getCachedConnectionSettings } from '@/state/connectionSettings';
-import { sync } from '@/sync/sync';
-import { attachmentDownloadUrl } from './attachmentDownloadUrl';
+import { getCachedConnectionSettings } from '@/connection';
+import { sync } from '@/catalog/sync';
+import { attachmentDownloadUrl } from '@/utils/attachmentDownloadUrl';
 
 export type AttachmentAction = Extract<PluginAction, { type: 'attachment' }>;
 export type AttachmentPreviewSource = { uri: string; dispose?: () => void };

@@ -99,8 +99,14 @@ for (const bucket of ['needsYou', 'working', 'done']) {
         grouped.set(entry.workspace, group);
     }
 }
+function workspaceOrder(left, right) {
+    if (left === 'Other') return 1;
+    if (right === 'Other') return -1;
+    return left.localeCompare(right);
+}
+
 const groups = [...grouped.entries()]
-    .sort(([a], [b]) => a === 'Other' ? 1 : b === 'Other' ? -1 : a.localeCompare(b))
+    .sort(([a], [b]) => workspaceOrder(a, b))
     .map(([title, items], index) => ({ id: `group-${index + 1}`, title, items }));
 
 process.stdout.write(JSON.stringify({ title: 'Inbox', groups }));

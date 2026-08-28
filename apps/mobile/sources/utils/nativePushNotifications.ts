@@ -2,12 +2,27 @@ import Constants from 'expo-constants';
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 import { relayControlUrl } from '@muxr/contract';
-import { TokenStorage, type AuthCredentials } from '@/auth/tokenStorage';
-import { getCachedConnectionSettings } from '@/state/connectionSettings';
-import { clearRegisteredPushToken, loadRegisteredPushToken, saveRegisteredPushToken } from '@/sync/persistence';
+import { TokenStorage, type AuthCredentials } from '@/account';
+import { getCachedConnectionSettings } from '@/connection';
+import { clearRegisteredPushToken, loadRegisteredPushToken, saveRegisteredPushToken } from '@/catalog/application/persistence';
 import { requestNotificationPermission } from '@/utils/microphonePermissions';
+import { storage } from '@/catalog/store';
 
 let registering: Promise<boolean> | null = null;
+
+/** Claim relay-owned lifecycle alerts before catalog reconciliation can repost them. */
+export function acknowledgeLifecyclePush(data: unknown): boolean {
+    if (typeof data !== 'object' || data === null || Array.isArray(data)) return false;
+    const payload = data as Record<string, unknown>;
+    const eventId = payload.eventId;
+    const machineId = payload.machineId;
+    if (payload.presentationOwner !== 'relay-push') return false;
+    if (typeof eventId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/.test(eventId)) return false;
+    if (typeof machineId !== 'string' || machineId.length > 128 || machineId.trim() !== machineId || /[\u0000-\u001f\u007f]/.test(machineId)) return false;
+    if (machineId === '') return false;
+    storage.getState().acknowledgeLifecyclePush(eventId, machineId);
+    return true;
+}
 
 /** Register this iPhone with the relay after the user has granted notifications. */
 export function registerNativePushNotifications(): Promise<boolean> {

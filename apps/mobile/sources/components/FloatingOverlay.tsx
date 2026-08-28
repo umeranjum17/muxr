@@ -2,8 +2,8 @@ import * as React from 'react';
 import { Platform } from 'react-native';
 import Animated from 'react-native-reanimated';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
-import { MobileGlassSurface } from './MobileGlass';
-import { AnimatedPopup, LocalBlurHalo } from './AnimatedOverlay';
+import { MobileGlassSurface } from '@/components/MobileGlass';
+import { AnimatedPopup, LocalBlurHalo } from '@/components/AnimatedOverlay';
 
 const stylesheet = StyleSheet.create((theme, runtime) => ({
     container: {

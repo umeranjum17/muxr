@@ -32,7 +32,7 @@ const TOOL_PATH = [
 const log = (line) => { try { mkdirSync(STATE, { recursive: true }); appendFileSync(join(STATE, 'titler.log'), `${new Date().toISOString()} ${line}\n`); } catch {} };
 const run = (args, timeout = 20000) => execFileSync(herdr, args, { encoding: 'utf8', timeout, maxBuffer: 1024 * 1024, env: { ...process.env, PATH: TOOL_PATH } });
 
-const GENERATED = /^(otter|falcon|badger|heron|bison|lynx|raven|marten|kestrel|ibex|osprey|wolf|stoat|gannet|elk|puffin|vole|shrike|tapir|curlew|beaver|merlin|pika|godwit|sable|hare|auk|weasel|grebe|fox)(\s+\d+)?$|^\d+$|^(pi|claude|codex|gemini|cursor|opencode|amp|droid|grok|omp)(\s+\d+)?$|^pp_|^pph_/i;
+const GENERATED = /^\d+$|^(pi|claude|codex|gemini|cursor|opencode|amp|droid|grok|omp)(\s+\d+)?$|^pp_|^pph_/i;
 const GREETING = /^(hi|hey|hello|yo|sup|test|ok|hmm|thanks|help)(\s|$)/i;
 const FIRST_PROMPT = /^[a-z0-9]+(?:\s+[a-z0-9]+){2,5}$/;
 
@@ -56,8 +56,7 @@ function formatTitle(agent, raw) {
     feature = feature.replace(/[^\w\s-]/g, ' ').replace(/\s+/g, ' ').trim();
     if (feature === '') return undefined;
     const titled = feature.split(' ').slice(0, 4).map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()).join(' ');
-    const title = `${agent} - ${titled}`;
-    return title.length <= 40 ? title : title.slice(0, 40).replace(/\s+\S*$/, '');
+    return titled.length <= 40 ? titled : titled.slice(0, 40).replace(/\s+\S*$/, '');
 }
 
 function fallbackFeature(text) {
@@ -110,7 +109,7 @@ try {
     const text = run(['pane', 'read', paneId, '--source', 'recent-unwrapped', '--lines', '60']);
     if (text.trim().length < 80) process.exit(0);
 
-    const title = ask(agent, `Below is terminal output from a coding agent named ${agent}. Reply with exactly: ${agent} - Feature. Feature is 2 to 4 words in Title Case naming the task. No quotes, no other punctuation, no explanation.\n\n${text.slice(-2500)}`)
+    const title = ask(agent, `Below is terminal output from a coding agent. Reply with exactly 2 to 4 words in Title Case naming only the feature or task. Do not include the agent/provider name, quotes, punctuation, commands, paths, or explanation.\n\n${text.slice(-2500)}`)
         ?? formatTitle(agent, fallbackFeature(text));
     if (title === undefined) process.exit(0);
 

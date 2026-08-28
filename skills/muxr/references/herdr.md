@@ -12,7 +12,7 @@ If that section is missing, run `herdr --skill` and follow its output.
 - Every Herdr pane exports `HERDR_PANE_ID` (for example `w2A:p4`). Never guess
   ids. The current workspace is `${HERDR_PANE_ID%%:*}`.
 - Keep `HERDR_PANE_ID` private. User-facing messages use workspace, tab, pane,
-  machine, and agent names rather than internal ids.
+  machine names, Human Names, and Task Titles rather than internal ids.
 - Final user-facing files belong in
   `$HOME/.muxr/attachments/pane/$HERDR_PANE_ID`; quote the path because the pane
   id contains a colon. Skip attachment publication when the variable is unset.

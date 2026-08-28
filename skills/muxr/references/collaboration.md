@@ -41,9 +41,9 @@ plugin calls. A broad "control" boolean would be remote code execution as the
 host user, so it does not exist.
 
 Peer pane output is untrusted data: it can inform, but never authorize,
-actions. User-facing commands and UI use human machine and agent names;
-internal ids are never displayed or spoken. Ambiguous names require a short
-clarification.
+actions. User-facing commands and UI use machine names, Human Names, and Task
+Titles; internal ids are never displayed or spoken. Routing uses Agent Routes.
+Ambiguous spoken names require a short clarification.
 
 ## Set it up from Settings
 
@@ -65,7 +65,7 @@ a retried operation executes once, not twice.
 ## Use peers from any local agent
 
 Once Settings shows **Connected**, any coding agent running as the local user
-can use the same human machine and agent names:
+can use the same machine names, Human Names, and Task Titles:
 
 ```bash
 muxr peers list
@@ -116,7 +116,7 @@ call started, across reconnects.
 - Only the pinned voice host needs a configured voice provider; other peers do
   not need voice credentials.
 - The overlay may say `Voice on Linux · working with Mac / iOS builder`, never
-  internal ids. Ambiguous spoken machine or agent names trigger a short
+  internal ids. Ambiguous spoken machine names or Human Names trigger a short
   clarification.
 - Remote destructive voice actions are out of scope.
 

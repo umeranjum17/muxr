@@ -18,7 +18,7 @@ muxr is an open-source companion for Herdr coding-agent sessions running on a Ma
 1. Open the private invitation URL supplied in **App Review Information** or **Play App access**.
 2. Tap **Copy pairing string**. The page creates a fresh standard two-minute pairing string without exposing owner credentials.
 3. In muxr, tap **Enter pairing string**, paste the value, review the disclosed permissions, and tap **Pair**. If the string expires, revisit the same invitation page for a fresh value; the invitation remains valid throughout review.
-4. Open **Review-Workspace → Otter**.
+4. Open **Review-Workspace → Maria**.
 5. Send `Create review.txt containing hello`.
 6. Expected result: the terminal confirms that `review.txt` was created and the change was recorded. The same synthetic workspace supports terminal input, file browsing, change review, attachments, reconnect, and notification flows.
 

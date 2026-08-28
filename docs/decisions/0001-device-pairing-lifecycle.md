@@ -28,7 +28,7 @@ A paired phone reaches day 30 while its machine is healthy; both sides discard t
 
 ## Validation
 
-Implemented and independently approved by Claude and Codex. `scripts/checkSelfhostRevocation.mjs` pairs two devices through the real relay, revokes one, proves its live socket, credential, pre-minted ticket, and grant fail, rotates the shared/per-device keys for the survivor, restarts the relay, and proves revocation persists while the survivor reconnects. The forced workspace/mobile typechecks, crypto self-check, and focused mobile terminal/sync flows pass.
+Implemented and independently approved by Claude and Codex. `scripts/diagnostics/application/checkSelfhostRevocation.mjs` pairs two devices through the real relay, revokes one, proves its live socket, credential, pre-minted ticket, and grant fail, rotates the shared/per-device keys for the survivor, restarts the relay, and proves revocation persists while the survivor reconnects. The forced workspace/mobile typechecks, crypto self-check, and focused mobile terminal/sync flows pass.
 
 ## Rollback and reopen trigger
 

@@ -5,7 +5,7 @@ import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
 import { boundText } from '@/utils/boundedText';
 import { SyntaxSpans } from '@/components/SimpleSyntaxHighlighter';
-import { highlightCodeLines, syntaxLanguage } from './syntaxHighlighting';
+import { highlightCodeLines, syntaxLanguage } from '@/components/code/syntaxHighlighting';
 import { ui } from '@/components/ui';
 
 export const SyntaxHighlightedCode = React.memo(function SyntaxHighlightedCode(props: { code: string; language?: string; fileName?: string }) {

@@ -1,75 +1,29 @@
 #!/usr/bin/env node
-import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { chmod, lstat, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { reportAgentOutcome } from '../voice/coordinatorPolicy.mjs';
+import { providerSecret } from '../voice/providerSecret.mjs';
 
-const root = process.env.MUXR_HOME?.trim() || join(homedir(), '.muxr');
-const keyFile = join(root, 'gemini.key');
+const secret = providerSecret('gemini.key', {
+    notDirectory: 'Gemini key store must be a real directory',
+    missing: 'No Gemini key. Configure the provider from muxr Settings.',
+    ownerOnly: 'Gemini key store must be owner-only',
+    empty: 'Gemini key must not be empty',
+    notRegular: 'Refusing to remove non-regular key file',
+});
 const method = process.argv[2];
 const input = JSON.parse(readFileSync(0, 'utf8') || 'null');
 
-function assertKeyRoot(info) {
-    if (!info.isDirectory() || info.isSymbolicLink()) throw new Error('Gemini key store must be a real directory');
-}
-
-async function readKey() {
-    let directory;
-    let info;
-    try { directory = await lstat(root); info = await lstat(keyFile); }
-    catch (cause) {
-        if (cause?.code === 'ENOENT') throw new Error('No Gemini key. Configure the provider from muxr Settings.');
-        throw cause;
-    }
-    assertKeyRoot(directory);
-    if ((directory.mode & 0o077) !== 0 || !info.isFile() || info.isSymbolicLink() || (info.mode & 0o077) !== 0) {
-        throw new Error('Gemini key store must be owner-only');
-    }
-    const value = (await readFile(keyFile, 'utf8')).trim();
-    if (!value) throw new Error('No Gemini key. Configure the provider from muxr Settings.');
-    return value;
-}
-
-async function writeKey(value) {
-    const key = String(value ?? '').trim();
-    if (!key) throw new Error('Gemini key must not be empty');
-    await mkdir(root, { recursive: true, mode: 0o700 });
-    assertKeyRoot(await lstat(root));
-    await chmod(root, 0o700);
-    const temporary = `${keyFile}.tmp-${process.pid}-${randomUUID()}`;
-    try {
-        await writeFile(temporary, `${key}\n`, { mode: 0o600, flag: 'wx' });
-        await rename(temporary, keyFile);
-    } finally { await rm(temporary, { force: true }); }
-}
-
 let output;
 if (method === 'status') {
-    output = await readKey().then(() => ({ configured: true, statusLabel: 'Key set' }), () => ({ configured: false, statusLabel: 'No key set' }));
+    output = await secret.statusPayload();
 } else if (method === 'key.set') {
-    await writeKey(input?.key); output = null;
+    await secret.writeKey(input?.key);
+    output = null;
 } else if (method === 'key.clear') {
-    try {
-        assertKeyRoot(await lstat(root));
-        const info = await lstat(keyFile);
-        if (!info.isFile() || info.isSymbolicLink()) throw new Error('Refusing to remove non-regular key file');
-        await rm(keyFile);
-    } catch (cause) { if (cause?.code !== 'ENOENT') throw cause; }
+    await secret.clearKey();
     output = null;
 } else if (method === 'report') {
-    // What the agent should say when a pane stops working. Wording lives here,
-    // not in the app, so it changes without a rebuild.
-    const blocked = input?.status === 'blocked';
-    output = {
-        say: [
-            blocked
-                ? 'The agent has finished working. It is waiting on a question. Put that question to the user in your own words.'
-                : 'The agent has finished working. Summarise what it did in one sentence, in plain language. Do not read this out.',
-            '',
-            String(input?.pane ?? '').slice(-4000),
-        ].join('\n'),
-    };
+    output = { say: reportAgentOutcome(input) };
 } else {
     throw new Error(`unknown Gemini Live method: ${method ?? ''}`);
 }

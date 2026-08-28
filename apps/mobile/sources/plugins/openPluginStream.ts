@@ -11,21 +11,29 @@ import {
     type RealtimeHostFrame,
     type RequestParams,
 } from '@muxr/contract';
-import { getCachedConnectionSettings } from '@/state/connectionSettings';
+import { getCachedConnectionSettings } from '@/connection';
 import {
     DeviceV2Crypto,
     getCachedHostedGrant,
     refreshHostedGrant,
     type StoredHostedGrant,
-} from '@/state/hostedE2ee';
-import { pluginSnapshot, refreshPlugins } from './pluginStore';
+} from '@/pairing/e2ee';
+import { pluginSnapshot, refreshPlugins } from './application/pluginStore';
 
 export interface PluginStream {
     onFrame: (listener: (frame: RealtimeHostFrame) => void) => () => void;
     onClose: (listener: (reason?: string) => void) => () => void;
-    send: (frame: RealtimeClientFrame) => void;
+    /** Begin delivery after listeners are installed. Safe and idempotent. */
+    start: () => void;
+    send: (frame: RealtimeClientFrame) => boolean;
     close: (reason?: string) => void;
 }
+
+const MAX_PREACTIVATION_FRAMES = 512;
+const MAX_PREACTIVATION_BYTES = 16 * 1024 * 1024;
+const MAX_PENDING_WIRE_FRAMES = 1024;
+const MAX_PENDING_WIRE_BYTES = 16 * 1024 * 1024;
+const MAX_SEND_BUFFER_BYTES = 512 * 1024;
 
 /** Everything reconnect may use, captured once before the call opens. */
 export interface PluginStreamSnapshot {
@@ -147,15 +155,37 @@ export async function openPluginStream(
 
     const frameListeners = new Set<(frame: RealtimeHostFrame) => void>();
     const closeListeners = new Set<(reason?: string) => void>();
-    let closed = false;
+    const pendingFrames: Array<{ frame: RealtimeHostFrame; bytes: number }> = [];
+    let pendingFrameBytes = 0;
     let socket: WebSocket | undefined;
     let opened = false;
     let transportEnded = false;
-    let pendingMessages = 0;
+    let activated = false;
+    let activating = false;
+    let terminal: { reason?: string; notified: boolean } | undefined;
+    let processing = Promise.resolve();
+    let pendingWireFrames = 0;
+    let pendingWireBytes = 0;
+    let replayReleased = false;
 
-    const close = (reason?: string): void => {
-        if (closed) return;
-        closed = true;
+    const notifyTerminal = (): void => {
+        if (!activated || activating || terminal === undefined || terminal.notified) return;
+        terminal.notified = true;
+        for (const listener of [...closeListeners]) {
+            try { listener(terminal.reason); } catch { /* listeners do not own transport ordering */ }
+        }
+    };
+    const finish = (reason?: string, retainPending = true): void => {
+        if (terminal !== undefined) return;
+        terminal = { ...(reason === undefined ? {} : { reason }), notified: false };
+        if (!retainPending) {
+            pendingFrames.length = 0;
+            pendingFrameBytes = 0;
+        }
+        if (!replayReleased) {
+            replayReleased = true;
+            hosted?.release('stream', channel);
+        }
         const current = socket;
         socket = undefined;
         if (current !== undefined) {
@@ -165,69 +195,102 @@ export async function openPluginStream(
             current.onclose = null;
             current.close();
         }
-        for (const listener of closeListeners) listener(reason);
+        notifyTerminal();
     };
-    const closeEndedTransport = (): void => {
-        if (transportEnded && pendingMessages === 0 && !closed) close('stream disconnected');
+    const endTransport = (): void => {
+        if (transportEnded || terminal !== undefined) return;
+        transportEnded = true;
+        const preceding = processing;
+        void preceding.then(() => {
+            if (terminal === undefined) finish('stream disconnected');
+        });
+    };
+    const dispatchFrame = (frame: RealtimeHostFrame): void => {
+        for (const listener of [...frameListeners]) {
+            try { listener(frame); } catch { /* one listener cannot reorder the stream */ }
+        }
+    };
+    const deliverFrame = (frame: RealtimeHostFrame, bytes: number): void => {
+        if (activated) {
+            dispatchFrame(frame);
+            return;
+        }
+        if (pendingFrames.length >= MAX_PREACTIVATION_FRAMES || pendingFrameBytes + bytes > MAX_PREACTIVATION_BYTES) {
+            finish('stream activation buffer exceeded');
+            return;
+        }
+        pendingFrames.push({ frame, bytes });
+        pendingFrameBytes += bytes;
+    };
+    const processMessage = async (raw: string): Promise<void> => {
+        if (terminal !== undefined) return;
+        try {
+            let text = raw;
+            if (hosted !== undefined) {
+                const envelope = JSON.parse(text) as Envelope;
+                if (envelope.header.machineId !== snapshot.machineId
+                    || envelope.header.senderId !== snapshot.machineId
+                    || envelope.header.recipientId !== '*'
+                    || envelope.header.channel !== 'stream'
+                    || envelope.header.streamId !== channel
+                    || envelope.header.keyVersion !== grant?.keyVersion) {
+                    throw new Error('stream: invalid hosted routing context');
+                }
+                text = await hosted.open('stream', channel, envelope.payload, envelope.header.seq);
+            }
+            const frame = parseRealtimeHostFrame(JSON.parse(text));
+            if (frame.type === 'realtime.closed') finish(frame.reason);
+            else deliverFrame(frame, new TextEncoder().encode(text).length);
+        } catch {
+            finish('stream frame rejected');
+        }
     };
 
     await new Promise<void>((resolve, reject) => {
         const timer = setTimeout(() => {
-            close('stream connection timed out');
+            finish('stream connection timed out', false);
             reject(new Error('stream connection timed out'));
         }, 15_000);
         const next = new WebSocket(url);
         socket = next;
         next.onopen = () => {
             clearTimeout(timer);
-            if (closed || socket !== next) return;
+            if (terminal !== undefined || socket !== next) return;
             opened = true;
             resolve();
         };
         next.onerror = () => {
             clearTimeout(timer);
             if (!opened) {
-                close('stream connection failed');
+                finish('stream connection failed', false);
                 reject(new Error('stream connection failed'));
             } else {
-                transportEnded = true;
-                closeEndedTransport();
+                endTransport();
             }
         };
         next.onclose = () => {
             clearTimeout(timer);
-            if (socket !== next || closed) return;
-            transportEnded = true;
-            closeEndedTransport();
+            if (socket !== next || terminal !== undefined) return;
+            endTransport();
         };
         next.onmessage = (event) => {
-            if (closed || socket !== next) return;
-            pendingMessages += 1;
-            void (async () => {
+            if (terminal !== undefined || socket !== next) return;
+            const raw = String(event.data);
+            const wireBytes = new TextEncoder().encode(raw).length;
+            if (pendingWireFrames >= MAX_PENDING_WIRE_FRAMES || pendingWireBytes + wireBytes > MAX_PENDING_WIRE_BYTES) {
+                finish('stream receive buffer exceeded');
+                return;
+            }
+            pendingWireFrames += 1;
+            pendingWireBytes += wireBytes;
+            processing = processing.then(async () => {
                 try {
-                    let text = String(event.data);
-                    if (hosted !== undefined) {
-                        const envelope = JSON.parse(text) as Envelope;
-                        if (envelope.header.machineId !== snapshot.machineId
-                            || envelope.header.senderId !== snapshot.machineId
-                            || envelope.header.recipientId !== '*'
-                            || envelope.header.channel !== 'stream'
-                            || envelope.header.streamId !== channel
-                            || envelope.header.keyVersion !== grant?.keyVersion) {
-                            throw new Error('stream: invalid hosted routing context');
-                        }
-                        text = await hosted.open('stream', channel, envelope.payload, envelope.header.seq);
-                    }
-                    const frame = parseRealtimeHostFrame(JSON.parse(text));
-                    if (frame.type === 'realtime.closed') close(frame.reason);
-                    else for (const listener of frameListeners) listener(frame);
-                } catch {
-                    close('stream frame rejected');
+                    await processMessage(raw);
                 } finally {
-                    pendingMessages -= 1;
-                    closeEndedTransport();
+                    pendingWireFrames -= 1;
+                    pendingWireBytes -= wireBytes;
                 }
-            })();
+            });
         };
     });
 
@@ -238,28 +301,50 @@ export async function openPluginStream(
         },
         onClose: (listener) => {
             closeListeners.add(listener);
+            if (activated && terminal?.notified === true) {
+                try { listener(terminal.reason); } catch { /* listener-owned */ }
+            }
             return () => closeListeners.delete(listener);
         },
+        start: () => {
+            if (activated) return;
+            activated = true;
+            activating = true;
+            const terminalBeforeActivation = terminal;
+            for (const { frame } of pendingFrames.splice(0)) {
+                if (terminalBeforeActivation === undefined && terminal !== undefined) break;
+                dispatchFrame(frame);
+            }
+            pendingFrameBytes = 0;
+            activating = false;
+            notifyTerminal();
+        },
         send: (frame) => {
-            if (closed || socket === undefined || socket.readyState !== WebSocket.OPEN) return;
-            if (frame.type === 'realtime.audio' && socket.bufferedAmount > 512 * 1024) return;
+            if (terminal !== undefined || socket === undefined || socket.readyState !== WebSocket.OPEN) return false;
+            if (frame.type === 'realtime.audio' && socket.bufferedAmount > MAX_SEND_BUFFER_BYTES) return false;
             const clean = parseRealtimeClientFrame(frame);
             const plaintext = JSON.stringify(clean);
             const sealed = hosted?.seal('stream', channel, plaintext);
-            socket.send(sealed === undefined ? plaintext : JSON.stringify({
-                header: {
-                    machineId: snapshot.machineId,
-                    senderId: grant!.deviceId,
-                    recipientId: snapshot.machineId,
-                    channel: 'stream',
-                    streamId: channel,
-                    keyVersion: grant!.keyVersion,
-                    seq: sealed.sequence,
-                    at: Date.now(),
-                },
-                payload: sealed.payload,
-            } satisfies Envelope));
+            try {
+                socket.send(sealed === undefined ? plaintext : JSON.stringify({
+                    header: {
+                        machineId: snapshot.machineId,
+                        senderId: grant!.deviceId,
+                        recipientId: snapshot.machineId,
+                        channel: 'stream',
+                        streamId: channel,
+                        keyVersion: grant!.keyVersion,
+                        seq: sealed.sequence,
+                        at: Date.now(),
+                    },
+                    payload: sealed.payload,
+                } satisfies Envelope));
+                return true;
+            } catch {
+                finish('stream disconnected');
+                return false;
+            }
         },
-        close: () => close(),
+        close: (reason) => finish(reason, false),
     };
 }

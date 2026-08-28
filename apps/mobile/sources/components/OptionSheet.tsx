@@ -15,9 +15,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
-import { ProviderIcon } from './ProviderIcon';
-import { AgentGlyph } from './AgentGlyph';
-import { hapticsLight } from './haptics';
+import { ProviderIcon } from '@/components/ProviderIcon';
+import { AgentGlyph } from '@/components/AgentGlyph';
+import { hapticsLight } from '@/components/haptics';
 import { t } from '@/text';
 export interface ModelMode {
     key: string;

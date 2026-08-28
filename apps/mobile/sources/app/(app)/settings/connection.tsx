@@ -6,17 +6,17 @@ import { ItemGroup } from '@/components/ItemGroup';
 import { ItemList } from '@/components/ItemList';
 import { RoundButton } from '@/components/RoundButton';
 import { Typography } from '@/constants/Typography';
-import { useMachine, useSocketStatus } from '@/sync/storage';
-import { syncReconnect } from '@/sync/sync';
+import { useMachine, useSocketStatus } from '@/catalog/store';
+import { syncReconnect } from '@/catalog/sync';
 import {
     getCachedConnectionSettings,
     loadConnectionSettingsAsync,
     saveConnectionSettings,
-} from '@/state/connectionSettings';
+} from '@/connection';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { t } from '@/text';
 import { useRouter } from 'expo-router';
-import { getCachedHostedGrant } from '@/state/hostedE2ee';
+import { getCachedHostedGrant } from '@/pairing/e2ee';
 import { knownHostVersion, versionsMismatch } from '@/utils/versionStatus';
 
 const stylesheet = StyleSheet.create((theme) => ({

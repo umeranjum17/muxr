@@ -6,8 +6,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams } from 'expo-router';
 import { Text } from '@/components/StyledText';
 import { Typography } from '@/constants/Typography';
-import { useSession, useSocketStatus } from '@/sync/storage';
-import { openPreview, type OpenPreview } from '@/preview/openPreview';
+import { useSession, useSocketStatus } from '@/catalog/store';
+import * as Device from 'expo-device';
+import { openPreview, type OpenPreview } from '@/preview';
 
 function selectedPort(value: string | undefined): number | undefined {
     if (value === undefined || !/^\d{1,5}$/.test(value)) return undefined;
@@ -38,7 +39,10 @@ export default function PreviewScreen() {
         setError(null);
         const tab = webNeedsTab ? window.open('about:blank', '_blank') : null;
         try {
-            const opened = await openPreview(selected);
+            const opened = await openPreview({
+                port: selected,
+                onIosSimulator: Platform.OS === 'ios' && Device.isDevice === false,
+            });
             if (tab !== null) tab.location.href = opened.url;
             setPreview(opened);
         } catch (cause: unknown) {

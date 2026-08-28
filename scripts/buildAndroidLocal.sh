@@ -44,11 +44,11 @@ cd "$MOBILE"
 # Apply from the workspace root: running patch-package from apps/mobile is a
 # successful no-op and can let stale native code reach a build.
 (cd "$ROOT" && npx patch-package --error-on-fail >/dev/null)
-node "$ROOT/scripts/verifyNativePatches.mjs"
+node "$ROOT/scripts/diagnostics/application/verifyNativePatches.mjs"
 (cd "$ROOT" && yarn build)
 (cd "$ROOT" && npx vitest run \
-  apps/mobile/sources/terminal/ghosttyPatch.spec.ts \
-  apps/mobile/sources/voice/realtimeSession.spec.ts \
+  apps/mobile/sources/terminal/application/ghosttyPatch.spec.ts \
+  apps/mobile/sources/conversation/application/realtimeSession.spec.ts \
   apps/mobile/sources/utils/dictation.spec.ts \
   --root "$ROOT") || {
   echo "required native audio/terminal patch or voice checks failed -- refusing to build" >&2
@@ -61,5 +61,5 @@ echo "architectures: $ORG_GRADLE_PROJECT_reactNativeArchitectures"
 if [ "$EXPO_PUBLIC_MUXR_MODE" = local ]; then echo "local token len: ${#EXPO_PUBLIC_MUXR_TOKEN}"; fi
 
 OUTPUT="${MUXR_APK_OUTPUT:-$ROOT/muxr-preview.apk}"
-npx eas-cli@21.6.0 build --platform android --profile preview --local --non-interactive \
+npx --yes eas-cli@22.6.0 build --platform android --profile preview --local --non-interactive \
   --output "$OUTPUT"

@@ -65,7 +65,7 @@ Likely files:
 - `apps/mobile/sources/extensions/ExtensionSlot.tsx`
 - `apps/mobile/sources/extensions/useSlotContributions.ts`
 - `plugins/example-ui/`
-- `scripts/extension.mjs`
+- `scripts/plugin/application/checkPlugin.mjs`
 
 ## Milestone 2: Package Management
 
@@ -93,10 +93,10 @@ Rules:
 Likely files:
 
 - `scripts/cli.mjs`
-- `scripts/package.mjs`
-- `scripts/extension.mjs`
-- `scripts/pack.mjs`
-- `scripts/checkPackageSmoke.mjs`
+- `scripts/plugin/application/installPlugin.mjs`
+- `scripts/plugin/application/checkPlugin.mjs`
+- `scripts/release/application/pack.mjs`
+- `scripts/diagnostics/application/checkPackageSmoke.mjs`
 
 ## Milestone 3: Development Reload and Bounded Invalidation
 

@@ -1,19 +1,19 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Platform, View, Text, TextInput, ScrollView, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
-import { useAuth } from '@/auth/AuthContext';
+import { useAuth } from '@/account/ui';
 import { RoundButton } from '@/components/RoundButton';
 import { Typography } from '@/constants/Typography';
-import { normalizeSecretKey } from '@/auth/secretKeyBackup';
-import { authGetToken } from '@/auth/authGetToken';
+import { normalizeSecretKey } from '@/account/infrastructure/secretKeyBackup';
+import { authGetToken } from '@/account/application/authGetToken';
 import { decodeBase64, encodeBase64 } from '@/encryption/base64';
-import { generateAuthKeyPair, authQRStart, QRAuthKeyPair } from '@/auth/authQRStart';
-import { authQRWait } from '@/auth/authQRWait';
+import { generateAuthKeyPair, authQRStart, QRAuthKeyPair } from '@/account/application/authQRStart';
+import { authQRWait } from '@/account/application/authQRWait';
 import { layout } from '@/components/layout';
 import { Modal } from '@/modal';
 import { t } from '@/text';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
-import { QRCode } from '@/components/qr/QRCode';
+import { QRCode } from '@/pairing/ui';
 import { MobileGlassSurface } from '@/components/MobileGlass';
 
 const stylesheet = StyleSheet.create((theme) => ({

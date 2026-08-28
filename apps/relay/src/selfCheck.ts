@@ -3,7 +3,7 @@
  * Run: node apps/relay/dist/selfCheck.js
  */
 
-import { isValidPublicKey, PairingRequests } from './pairing.js';
+import { isValidPublicKey, PairingRequests } from './admission/index.js';
 
 function assert(condition: boolean, message: string): void {
     if (!condition) throw new Error(message);

@@ -21,8 +21,8 @@ The repository and fresh public history are live. This checklist now tracks the 
 
 ## Pre-flight (code state)
 
-- [x] `node scripts/runSuite.mjs` green on plugin-platform working tree (27/27, 2026-08-16)
-- [x] `node scripts/checkCorePurity.mjs` green — no cloud references in core
+- [x] `node scripts/diagnostics/application/runSuite.mjs` green on plugin-platform working tree (27/27, 2026-08-16)
+- [x] `node scripts/diagnostics/application/checkCorePurity.mjs` green — no cloud references in core
 - [x] No paid/managed setup path is exposed; setup defaults to the self-hosted relay
 - [x] LICENSE replaced with Apache-2.0 text; all `package.json` license fields → `Apache-2.0`
 - [x] NOTICE intact: Happy + PI WEB attribution present; no Apache headers stamped on inherited third-party files
@@ -37,10 +37,10 @@ The repository and fresh public history are live. This checklist now tracks the 
 ## Secrets sweep (either option)
 
 - [x] `gitleaks` 8.30.1 clean on current history (341 commits, 20.28 MB scanned, 2026-08-16)
-- [x] No env values, tokens, fingerprints, or customer data anywhere in tracked files (`checkNoSecrets.mjs`, enforced by `runSuite.mjs` in CI)
+- [x] No env values, tokens, fingerprints, or customer data anywhere in tracked files (`scripts/diagnostics/application/checkNoSecrets.mjs`, enforced by `scripts/diagnostics/application/runSuite.mjs` in CI)
 - [x] Optional provider credentials stay machine-local and are excluded from source/package artifacts
 
-`gitleaks` remains a manual release/history gate because its executable is not vendored or version-pinned in this repository; CI uses the deterministic in-repo `checkNoSecrets.mjs` gate.
+`gitleaks` remains a manual release/history gate because its executable is not vendored or version-pinned in this repository; CI uses the deterministic in-repo `scripts/diagnostics/application/checkNoSecrets.mjs` gate.
 
 ## Publish
 

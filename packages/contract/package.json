@@ -10,6 +10,37 @@
         ".": {
             "types": "./dist/index.d.ts",
             "default": "./dist/index.js"
+        },
+        "./herd": {
+            "types": "./dist/herd/index.d.ts",
+            "default": "./dist/herd/index.js"
+        },
+        "./control-plane": {
+            "types": "./dist/control-plane/index.d.ts",
+            "default": "./dist/control-plane/index.js"
+        },
+        "./peer": {
+            "types": "./dist/peer/index.d.ts",
+            "default": "./dist/peer/index.js"
+        },
+        "./plugins": {
+            "types": "./dist/plugins/index.d.ts",
+            "default": "./dist/plugins/index.js"
+        },
+        "./realtime": {
+            "types": "./dist/realtime/index.d.ts",
+            "default": "./dist/realtime/index.js"
+        },
+        "./worktree": {
+            "types": "./dist/worktree/index.d.ts",
+            "default": "./dist/worktree/index.js"
+        },
+        "./shared": {
+            "types": "./dist/shared/index.d.ts",
+            "default": "./dist/shared/index.js"
         }
+    },
+    "dependencies": {
+        "zod": "4.4.3"
     }
 }

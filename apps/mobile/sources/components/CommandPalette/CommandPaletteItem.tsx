@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, Pressable, StyleSheet, Platform } from 'react-native';
-import { Command } from './types';
+import { Command } from '@/components/CommandPalette/types';
 import { Typography } from '@/constants/Typography';
 import { Ionicons } from '@expo/vector-icons';
 

@@ -5,13 +5,13 @@ import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
 import { ItemList } from '@/components/ItemList';
 import { Modal } from '@/modal';
-import { sync } from '@/sync/sync';
-import { useSocketStatus } from '@/sync/storage';
-import { invalidateSessionPlugins } from '@/plugins/useSessionPlugins';
-import { invalidatePlugins } from '@/plugins/useSlotContributions';
-import { resolvePluginText } from '@/plugins/pluginText';
-import { pluginCatalogLoaded, pluginCatalogSnapshot, refreshPlugins, subscribePlugins } from '@/plugins/pluginStore';
-import { sourceLabel } from '@/plugins/pluginActions';
+import { sync } from '@/catalog/sync';
+import { useSocketStatus } from '@/catalog/store';
+import { invalidateSessionPlugins } from '@/plugins';
+import { invalidatePlugins } from '@/plugins';
+import { resolvePluginText } from '@/plugins';
+import { pluginCatalogLoaded, pluginCatalogSnapshot, refreshPlugins, subscribePlugins } from '@/plugins';
+import { sourceLabel } from '@/plugins';
 import { t } from '@/text';
 
 export default function PluginsScreen() {

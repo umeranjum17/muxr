@@ -3,8 +3,8 @@ import { Platform } from 'react-native';
 import LiveAudioStream from 'react-native-live-audio-stream';
 import { Modal } from '@/modal';
 import { requestMicrophonePermission, showMicrophonePermissionDeniedAlert } from '@/utils/microphonePermissions';
-import { claimDictation, releaseDictation } from '@/realtime/realtimeSessionState';
-import { voiceDiagnostic } from '@/voice/voiceDiagnostics';
+import { claimDictation, releaseDictation } from '@/conversation/session';
+import { voiceDiagnostic } from '@/conversation/diagnostics';
 import { appendTranscript } from '@/utils/transcription';
 import { transcribePcm16 } from '@/utils/localTranscription';
 

@@ -12,9 +12,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
 import type { HerdrTreeWorkspace } from '@muxr/contract';
-import { sync } from '@/sync/sync';
-import { TerminalPreview } from '@/terminal/TerminalPreview';
-import { agentStatusColor } from '@/utils/sessionUtils';
+import { sync } from '@/catalog/sync';
+import { TerminalPreview } from '@/terminal/ui';
+import { agentStatusColor } from '@/herd';
+import { paneDisplayName, paneTaskTitle } from '@/herd';
 
 export default React.memo(function WorkspaceScreen() {
     const { id } = useLocalSearchParams<{ id: string }>();
@@ -69,7 +70,7 @@ export default React.memo(function WorkspaceScreen() {
             <ScrollView contentContainerStyle={{ padding: 12, gap: 14 }}>
                 {(workspace?.tabs ?? []).map((tab) => {
                     const dot = agentStatusColor(tab.agentStatus, theme);
-                    const title = tab.label !== undefined && tab.label !== '' ? tab.label : `tab ${tab.tabId.split(':t')[1] ?? ''}`;
+                    const title = tab.label !== undefined && tab.label !== '' ? tab.label : 'Tab';
                     return (
                         <View key={tab.tabId}>
                             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingBottom: 6 }}>
@@ -98,7 +99,8 @@ export default React.memo(function WorkspaceScreen() {
                                             </View>
                                         );
                                     }
-                                    const paneLabel = pane.terminalTitle ?? pane.agentName ?? 'agent';
+                                    const paneLabel = paneTaskTitle(pane);
+                                    const paneIdentity = `${paneDisplayName(pane)} · ${pane.agentKind ?? 'shell'}`;
                                     return (
                                         <Pressable
                                             key={pane.paneId}
@@ -116,6 +118,9 @@ export default React.memo(function WorkspaceScreen() {
                                             </View>
                                             <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 11, paddingHorizontal: 8, paddingVertical: 5 }}>
                                                 {paneLabel}
+                                            </Text>
+                                            <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 10, paddingHorizontal: 8, paddingBottom: 5 }}>
+                                                {paneIdentity}
                                             </Text>
                                         </Pressable>
                                     );

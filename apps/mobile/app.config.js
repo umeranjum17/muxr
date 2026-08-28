@@ -107,7 +107,7 @@ export default {
         name,
         slug: "muxr",
         version: "0.1.12",
-        runtimeVersion: "1",
+        runtimeVersion: "2",
         orientation: "default",
         icon: "./sources/assets/images/icon.png",
         scheme: "muxr",

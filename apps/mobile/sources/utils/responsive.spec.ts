@@ -7,7 +7,7 @@ vi.mock('react-native', () => ({
 }));
 vi.mock('./platform', () => ({ isRunningOnMac: () => false }));
 
-import { shouldUseSplitViewLayout, sidebarWidth, SPLIT_VIEW_MIN_WIDTH } from './responsive';
+import { shouldUseSplitViewLayout, sidebarWidth, SPLIT_VIEW_MIN_WIDTH } from '@/utils/responsive';
 
 describe('shouldUseSplitViewLayout', () => {
     it('uses master-detail on a full-width iPad but not a narrow Stage Manager window', () => {

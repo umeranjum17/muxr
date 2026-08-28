@@ -1,4 +1,4 @@
-import { storage } from '@/sync/storage';
+import { storage } from '@/catalog/store';
 import { useShallow } from 'zustand/react/shallow';
 
 export function useNativeUpdate(): string | null {

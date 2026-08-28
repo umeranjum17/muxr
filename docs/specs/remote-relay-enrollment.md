@@ -7,7 +7,7 @@ updated: 2026-08-20
 owner: umer
 links:
   - ../SELF-HOSTING.md
-  - ../../scripts/setup-wizard.mjs
+  - ../../scripts/setup/presentation/setupWizard.mjs
 ---
 
 # Shared Remote Relay Enrollment
@@ -86,9 +86,9 @@ The VPS menu includes **Machines** with friendly names and list-number selection
 - `apps/relay/src/selfhostPairing.ts`: slug-scoped pair/device/grant operations and consumed short-code lookup.
 - `packages/crypto/src/index.ts`: shared pairing-code payload encryption.
 - `apps/host/src/main.ts`: accept machine-scoped self-host credentials and remote relay URLs.
-- `scripts/local-setup.mjs`: split state, remote control base, enrollment claim, machine management, service modes.
-- `scripts/setup-wizard.mjs`, `scripts/cli.mjs`: separate VPS-host and remote-connect journeys.
-- `scripts/checkRemoteRelay.mjs`: one end-to-end multi-machine security flow.
+- `scripts/setup/application/inspectSetup.mjs`: split state, remote control base, enrollment claim, machine management, service modes.
+- `scripts/setup/presentation/setupWizard.mjs`, `scripts/cli.mjs`: separate VPS-host and remote-connect journeys.
+- `scripts/diagnostics/application/checkRemoteRelay.mjs`: one end-to-end multi-machine security flow.
 - `docs/SELF-HOSTING.md`, `README.md`, `docs/npm-readme.md`: user paths and threat boundary.
 
 ## Verification

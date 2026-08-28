@@ -4,13 +4,24 @@ type VoiceState = 'disconnected' | 'connecting' | 'connected' | 'thinking' | 'sp
 type HerdMode = 'connecting' | 'offline' | 'idle' | 'working' | 'attention' | 'finished';
 type NotificationAction = 'start' | 'stop' | 'mute';
 
+export interface RealtimePcmStats {
+    acceptedAdmissions: number;
+    rejectedAdmissions: number;
+    peakQueuedMs: number;
+    underruns: number;
+    drainRestarts: number;
+    clears: number;
+}
+
 interface VoiceNative {
     routeVoiceAudio: () => boolean;
     releaseVoiceAudio: () => boolean;
-    startRealtimePcm?: (sampleRate: number) => boolean;
-    playRealtimePcm?: (base64: string) => boolean;
-    clearRealtimePcm?: () => boolean;
-    stopRealtimePcm?: () => void;
+    startRealtimePcm: (sampleRate: number) => boolean;
+    playRealtimePcm: (base64: string) => boolean;
+    clearRealtimePcm: () => boolean;
+    finishRealtimePcm: () => boolean;
+    isRealtimePcmDrained: () => boolean;
+    stopRealtimePcm: () => RealtimePcmStats;
     startService: () => boolean;
     stopService: () => boolean;
     startHerdService: () => boolean;
@@ -24,10 +35,10 @@ interface VoiceNative {
         voiceName: string,
         muted: boolean,
     ) => boolean;
-    supportsPromotedNotifications?: () => boolean;
-    canPostPromotedNotifications?: () => boolean;
-    openPromotedNotificationSettings?: () => boolean;
-    openBackgroundActivitySettings?: () => boolean;
+    supportsPromotedNotifications: () => boolean;
+    canPostPromotedNotifications: () => boolean;
+    openPromotedNotificationSettings: () => boolean;
+    openBackgroundActivitySettings: () => boolean;
     clearNotification: () => boolean;
     addListener: (
         event: 'onNotificationActionRequested',
@@ -92,19 +103,34 @@ export function releaseVoiceAudio(): void {
 }
 
 export function startRealtimePcm(sampleRate: number): boolean {
-    return native?.startRealtimePcm?.(sampleRate) ?? false;
+    return native?.startRealtimePcm(sampleRate) ?? false;
 }
 
 export function playRealtimePcm(base64: string): boolean {
-    return native?.playRealtimePcm?.(base64) ?? false;
+    return native?.playRealtimePcm(base64) ?? false;
 }
 
 export function clearRealtimePcm(): void {
-    native?.clearRealtimePcm?.();
+    native?.clearRealtimePcm();
 }
 
-export function stopRealtimePcm(): void {
-    native?.stopRealtimePcm?.();
+export function finishRealtimePcm(): boolean {
+    return native?.finishRealtimePcm() ?? false;
+}
+
+export function isRealtimePcmDrained(): boolean {
+    return native?.isRealtimePcmDrained() ?? true;
+}
+
+export function stopRealtimePcm(): RealtimePcmStats {
+    return native?.stopRealtimePcm() ?? {
+        acceptedAdmissions: 0,
+        rejectedAdmissions: 0,
+        peakQueuedMs: 0,
+        underruns: 0,
+        drainRestarts: 0,
+        clears: 0,
+    };
 }
 
 export function updateVoiceNotification(
@@ -126,7 +152,7 @@ export function updateVoiceNotification(
 
 export function supportsPromotedNotifications(): boolean {
     try {
-        return native?.supportsPromotedNotifications?.() ?? false;
+        return native?.supportsPromotedNotifications() ?? false;
     } catch {
         return false;
     }
@@ -134,7 +160,7 @@ export function supportsPromotedNotifications(): boolean {
 
 export function canPostPromotedNotifications(): boolean {
     try {
-        return native?.canPostPromotedNotifications?.() ?? true;
+        return native?.canPostPromotedNotifications() ?? true;
     } catch {
         return true;
     }
@@ -142,7 +168,7 @@ export function canPostPromotedNotifications(): boolean {
 
 export function openPromotedNotificationSettings(): boolean {
     try {
-        return native?.openPromotedNotificationSettings?.() ?? false;
+        return native?.openPromotedNotificationSettings() ?? false;
     } catch {
         return false;
     }
@@ -150,7 +176,7 @@ export function openPromotedNotificationSettings(): boolean {
 
 export function openBackgroundActivitySettings(): boolean {
     try {
-        return native?.openBackgroundActivitySettings?.() ?? false;
+        return native?.openBackgroundActivitySettings() ?? false;
     } catch {
         return false;
     }

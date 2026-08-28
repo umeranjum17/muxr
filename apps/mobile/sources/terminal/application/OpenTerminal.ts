@@ -1,0 +1,349 @@
+/**
+ * Live terminal, device half.
+ *
+ * Mirrors openPreview: ask the host to attach the pane to a channel, then open
+ * the client side of that channel. Frames are herdr's own NDJSON protocol --
+ * base64 ANSI in, keystrokes out -- and are never parsed here.
+ *
+ * Reconnect: a dropped channel socket (phone sleep, network switch, relay
+ * restart) used to be terminal -- the screen stayed 'disconnected' until
+ * re-opened. Now the channel re-attaches itself with backoff and only reports
+ * closed when the host says the stream ended or retries run out.
+ */
+
+import { issueWsTicket, newTerminalChannel, terminalSocketUrl, ticketSocketUrl, type Envelope, type TerminalHostFrame } from '@muxr/contract';
+import { getCachedConnectionSettings } from '@/connection';
+import { sync } from '@/catalog/sync';
+import { DeviceV2Crypto, getCachedHostedGrant, refreshHostedGrant } from '@/pairing/e2ee';
+
+export type TerminalChannelState = 'live' | 'reconnecting';
+
+export interface TerminalChannel {
+    /** base64 ANSI chunks from the pane. */
+    onData: (listener: (base64: string) => void) => () => void;
+    onClose: (listener: (reason?: string) => void) => () => void;
+    /** 'reconnecting' while a dropped socket is being re-attached, 'live' after. */
+    onState: (listener: (state: TerminalChannelState) => void) => () => void;
+    sendText: (text: string) => void;
+    sendBytes: (base64: string) => void;
+    resize: (cols: number, rows: number) => void;
+    /** Scroll the real pane. Positive lines go back (up), negative go forward. */
+    scroll: (lines: number) => void;
+    /** Retry now: resets backoff and re-attaches unless the stream is live or closed. */
+    /** Pass true only for a user's explicit same-pane takeover action. */
+    reconnect: (explicitTakeover?: boolean) => void;
+    /** Re-attach a live stream to force a full repaint after the grid changed. */
+    repaint: () => void;
+    close: () => void;
+}
+
+export type OpenTerminalCommand = {
+    agentRoute: string;
+    size: { cols: number; rows: number };
+    mode?: 'control' | 'observe';
+};
+
+// ponytail: bounded retries (~2.5 min worst case), then the channel reports
+// 'disconnected' like before. Raise the cap if phone-sleep gaps beat it.
+const MAX_ATTEMPTS = 15;
+
+export async function openTerminal(command: OpenTerminalCommand): Promise<TerminalChannel> {
+    const sessionId = command.agentRoute;
+    const size = command.size;
+    const options = command.mode === undefined ? undefined : { mode: command.mode };
+    const settings = getCachedConnectionSettings();
+    let grant = settings.mode === 'hosted' ? getCachedHostedGrant(settings.machineId) : undefined;
+    if (settings.mode === 'hosted' && grant === undefined) throw new Error('terminal: hosted machine grant is missing');
+    if (grant !== undefined && grant.expiresAt <= Date.now()) throw new Error('terminal: device grant expired; pair this browser again');
+    let hosted = grant === undefined ? undefined : new DeviceV2Crypto(grant);
+    const channel = newTerminalChannel();
+
+    // Every re-attach spawns herdr at this size, so it has to track the resizes
+    // that followed. Left at the size we opened with, a reconnect after the
+    // keyboard or a rotation brings herdr back at the old row count: it paints
+    // a screen of one height into a grid of another, which reads as a band of
+    // dead space, or as text landing on the wrong rows.
+    let current = size;
+
+    // The host must be on the channel before the relay will pair a client.
+    const sendAttachRequest = (takeover: boolean): Promise<unknown> => sync.request('terminal.attach', {
+        sessionId,
+        channel,
+        cols: current.cols,
+        rows: current.rows,
+        ...(options?.mode === undefined ? {} : { mode: options.mode }),
+        ...(grant === undefined ? {} : { deviceId: grant.deviceId, takeover }),
+    });
+    const attach = (takeover: boolean): Promise<unknown> => grant === undefined ? sendAttachRequest(takeover) : (async () => {
+        const latest = await refreshHostedGrant(settings.machineId, grant!.credential);
+        if (latest !== undefined && latest.keyVersion >= grant!.keyVersion) {
+            if (latest.expiresAt <= Date.now()) throw new Error('terminal: device grant expired; pair this browser again');
+            grant = latest;
+            hosted = new DeviceV2Crypto(latest);
+        }
+        return sendAttachRequest(takeover);
+    })();
+    await attach(true);
+
+    const dataListeners = new Set<(base64: string) => void>();
+    const pendingData: string[] = [];
+    const closeListeners = new Set<(reason?: string) => void>();
+    const stateListeners = new Set<(state: TerminalChannelState) => void>();
+    const outbox: string[] = [];
+    let socket: WebSocket | undefined;
+    let closedByUser = false;
+    let closedByTakeover = false;
+    let attempts = 0;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    let attachInFlight: Promise<void> | undefined;
+    let attachRequested = false;
+    let takeoverRequested = false;
+
+    const emitState = (state: TerminalChannelState): void => {
+        for (const listener of stateListeners) listener(state);
+    };
+
+    function scheduleRetry(): void {
+        if (closedByUser || retryTimer !== undefined) return;
+        attempts += 1;
+        if (attempts > MAX_ATTEMPTS) {
+            for (const listener of closeListeners) listener('disconnected');
+            return;
+        }
+        emitState('reconnecting');
+        // Drop queued input: keystrokes buffered across a long disconnect are
+        // stale the moment the user sees the dead screen.
+        outbox.length = 0;
+        retryTimer = setTimeout(() => {
+            retryTimer = undefined;
+            requestAttach(false);
+        }, Math.min(1500 * attempts, 10_000));
+    }
+
+    /** Collapse focus, foreground and transport retries into one attach owner. */
+    function requestAttach(takeover = false): void {
+        if (closedByUser) return;
+        attachRequested = true;
+        takeoverRequested ||= takeover;
+        if (attachInFlight !== undefined) return;
+
+        const pending = (async () => {
+            // A resize that lands while attach is waiting must replace that
+            // not-yet-paired stream before any client socket is opened.
+            while (attachRequested && !closedByUser) {
+                attachRequested = false;
+                const takeover = takeoverRequested;
+                takeoverRequested = false;
+                await attach(takeover);
+            }
+            if (!closedByUser) await connectSocket();
+        })();
+        attachInFlight = pending;
+        void pending
+            .catch(scheduleRetry)
+            .finally(() => {
+                if (attachInFlight === pending) attachInFlight = undefined;
+                if (attachRequested && !closedByUser) requestAttach(takeoverRequested);
+            });
+    }
+
+    const reconnectNow = (explicitTakeover = false): void => {
+        let retaking = false;
+        if (closedByUser) {
+            if (!explicitTakeover || !closedByTakeover) return;
+            closedByUser = false;
+            closedByTakeover = false;
+            retaking = true;
+        }
+        if (retryTimer !== undefined) {
+            clearTimeout(retryTimer);
+            retryTimer = undefined;
+        }
+        if (retaking && socket !== undefined) {
+            const stale = socket;
+            socket = undefined;
+            stale.onclose = () => {};
+            stale.close();
+        }
+        if (attachInFlight !== undefined) {
+            if (explicitTakeover) requestAttach(true);
+            return;
+        }
+        if (socket !== undefined && (socket.readyState === WebSocket.CONNECTING || socket.readyState === WebSocket.OPEN)) return;
+        attempts = 0;
+        emitState('reconnecting');
+        requestAttach(explicitTakeover);
+    };
+
+    async function connectSocket(): Promise<void> {
+        if (closedByUser) return;
+        // Hosted mode keeps no usable token in connection settings -- the device
+        // credential lives on the grant. A legacy no-token socket lands in the
+        // relay's anonymous 'local' namespace and never pairs with the host,
+        // which joins the channel by ticket under its account.
+        const url = grant !== undefined
+            ? ticketSocketUrl(grant.relayUrl, await issueWsTicket({
+                relayUrl: grant.relayUrl,
+                credential: grant.credential,
+                machineId: settings.machineId,
+                role: 'client',
+                transport: 'terminal',
+                channel,
+            }), 'terminal')
+            : settings.token === '' || settings.token.startsWith('acctok_')
+                ? terminalSocketUrl(settings.relayUrl, {
+                    machineId: settings.machineId,
+                    channel,
+                    role: 'client',
+                    ...(settings.token === '' ? {} : { token: settings.token }),
+                })
+                : ticketSocketUrl(settings.relayUrl, await issueWsTicket({
+                    relayUrl: settings.relayUrl,
+                    credential: settings.token,
+                    machineId: settings.machineId,
+                    role: 'client',
+                    transport: 'terminal',
+                    channel,
+                }), 'terminal');
+        const next = new WebSocket(url);
+        socket = next;
+        let opened = false;
+        // Never wait forever for a relay that will never answer.
+        const openTimer = setTimeout(() => {
+            if (!opened) next.close();
+        }, 15_000);
+
+        next.onopen = () => {
+            clearTimeout(openTimer);
+            if (socket !== next || closedByUser) {
+                next.close();
+                return;
+            }
+            opened = true;
+            attempts = 0;
+            emitState('live');
+            for (const line of outbox.splice(0)) next.send(line);
+        };
+        next.onerror = () => next.close();
+        next.onmessage = async (event) => {
+            if (socket !== next || closedByUser) return;
+            try {
+                let plaintext = String(event.data);
+                if (hosted !== undefined) {
+                    const envelope = JSON.parse(plaintext) as Envelope;
+                    if (envelope.header.machineId !== settings.machineId
+                        || envelope.header.senderId !== settings.machineId
+                        || envelope.header.recipientId !== '*'
+                        || envelope.header.channel !== 'terminal'
+                        || envelope.header.streamId !== channel
+                        || envelope.header.keyVersion !== grant?.keyVersion) {
+                        throw new Error('terminal: invalid hosted routing context');
+                    }
+                    plaintext = await hosted.open('terminal', channel, envelope.payload, envelope.header.seq);
+                }
+                const frame = JSON.parse(plaintext) as Partial<TerminalHostFrame> & { type?: string };
+                if (frame.type === 'terminal.frame' && typeof (frame as TerminalHostFrame & { bytes?: string }).bytes === 'string') {
+                    const bytes = (frame as { bytes: string }).bytes;
+                    if (dataListeners.size === 0) pendingData.push(bytes);
+                    else for (const listener of dataListeners) listener(bytes);
+                } else if (frame.type === 'terminal.closed') {
+                    const reason = (frame as { reason?: string }).reason;
+                    // Automatic foreground/reconnect must not steal control back.
+                    // Only the user's visible retry action may reverse a takeover.
+                    closedByTakeover = reason === 'control moved to another device';
+                    closedByUser = true;
+                    for (const listener of closeListeners) listener(reason);
+                }
+            } catch {
+                // Hosted routing/key mismatches are recoverable only after a
+                // fresh grant; close so the normal re-attach path fetches it.
+                if (hosted !== undefined) next.close();
+            }
+        };
+        next.onclose = () => {
+            clearTimeout(openTimer);
+            // A replaced socket can close after its successor is already live.
+            // Its cleanup owns only itself and must not schedule over the owner.
+            if (socket !== next) return;
+            socket = undefined;
+            scheduleRetry();
+        };
+    }
+    void connectSocket().catch(scheduleRetry);
+
+    const send = (frame: Record<string, unknown>): void => {
+        const plaintext = JSON.stringify(frame);
+        const sealed = hosted?.seal('terminal', channel, plaintext);
+        const line = sealed === undefined ? plaintext : JSON.stringify({
+            header: {
+                machineId: settings.machineId,
+                senderId: grant!.deviceId,
+                recipientId: settings.machineId,
+                channel: 'terminal',
+                streamId: channel,
+                keyVersion: grant!.keyVersion,
+                seq: sealed.sequence,
+                at: Date.now(),
+            },
+            payload: sealed.payload,
+        } satisfies Envelope);
+        if (socket !== undefined && socket.readyState === 1) socket.send(line);
+        else outbox.push(line);
+    };
+
+    return {
+        onData: (listener) => {
+            dataListeners.add(listener);
+            for (const bytes of pendingData.splice(0)) listener(bytes);
+            return () => dataListeners.delete(listener);
+        },
+        onClose: (listener) => {
+            closeListeners.add(listener);
+            return () => closeListeners.delete(listener);
+        },
+        onState: (listener) => {
+            stateListeners.add(listener);
+            return () => stateListeners.delete(listener);
+        },
+        sendText: (text) => send({ type: 'terminal.input', text }),
+        reconnect: reconnectNow,
+        sendBytes: (base64) => send({ type: 'terminal.input', bytes: base64 }),
+        resize: (cols, rows) => {
+            current = { cols, rows };
+            send({ type: 'terminal.resize', cols, rows });
+        },
+        repaint: () => {
+            // herdr sends a complete screen only on attach; everything after is
+            // a diff against the screen it thinks we hold. So once the two
+            // disagree -- a reflow, a font change, a dropped frame -- the cells
+            // it believes are already correct are never drawn again, and the
+            // stale ones sit there forever. Re-attaching is the only way to ask
+            // for the whole screen back.
+            if (closedByUser) return;
+            const stale = socket;
+            socket = undefined;
+            if (stale !== undefined) {
+                stale.onclose = () => {}; // this close is deliberate, not a drop
+                stale.close();
+            }
+            attempts = 0;
+            requestAttach(false);
+        },
+        scroll: (lines) => {
+            const n = Math.abs(Math.trunc(lines));
+            if (n === 0) return; // herdr rejects lines:0
+            send({ type: 'terminal.scroll', direction: lines > 0 ? 'up' : 'down', lines: n });
+        },
+        close: () => {
+            closedByUser = true;
+            attachRequested = false;
+            takeoverRequested = false;
+            if (retryTimer !== undefined) {
+                clearTimeout(retryTimer);
+                retryTimer = undefined;
+            }
+            void sync.request('terminal.detach', { sessionId, channel }).catch(() => {});
+            socket?.close();
+        },
+    };
+}

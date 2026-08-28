@@ -1,0 +1,31 @@
+export type OpenTerminalCommand = {
+    sessionId: string;
+    channel: string;
+    cols: number;
+    rows: number;
+    deviceId?: string;
+    mode?: 'control' | 'observe';
+    takeover?: boolean;
+};
+
+export type OpenTerminalResult =
+    | { ok: true; data: { paneId: string } }
+    | { ok: false; error: string };
+
+export interface TerminalPort {
+    attach(command: OpenTerminalCommand): Promise<{ paneId: string }>;
+    detach(channel: string, deviceId?: string): void;
+    detachSession?(sessionId: string): void;
+}
+
+export async function openTerminal(port: TerminalPort | undefined, command: OpenTerminalCommand): Promise<OpenTerminalResult> {
+    if (port === undefined) return { ok: false, error: 'terminal: not available on this host' };
+    return { ok: true, data: await port.attach(command) };
+}
+
+export type CloseTerminalCommand = { channel: string; deviceId?: string };
+
+export async function closeTerminal(port: TerminalPort | undefined, command: CloseTerminalCommand): Promise<OpenTerminalResult | { ok: true; data: null }> {
+    port?.detach(command.channel, command.deviceId);
+    return { ok: true, data: null };
+}

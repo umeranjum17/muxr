@@ -1,8 +1,8 @@
 import { PLUGIN_CALL_CLIENT_TIMEOUT_MS, type PluginRpcCapability, type PluginRpcMode } from '@muxr/contract';
 import { randomUUID } from 'expo-crypto';
-import { registerPluginInvalidationHandler, sync } from '@/sync/sync';
-import { sharedPluginWriteKeys } from './screenModel';
-import { pluginSnapshot, refreshPlugins } from './pluginStore';
+import { registerPluginInvalidationHandler, sync } from '@/catalog/sync';
+import { sharedPluginWriteKeys } from './domain/screenModel';
+import { pluginSnapshot, refreshPlugins } from './application/pluginStore';
 
 type CapabilityTarget = { pluginId: string; manifestHash: string; contributionId: string; mode: PluginRpcMode };
 const cache = new Map<string, CapabilityTarget>();

@@ -14,7 +14,7 @@ import * as Clipboard from 'expo-clipboard';
 import { Modal } from '@/modal';
 import { t } from '@/text';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
-import { BubblePressable } from './BubblePressable';
+import { BubblePressable } from '@/components/BubblePressable';
 
 export interface ItemProps {
     title: string;

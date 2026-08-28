@@ -5,14 +5,13 @@ import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StyleSheet } from 'react-native-unistyles';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useAuth } from '@/auth/AuthContext';
-import { claimHostedPairing, hostedPairingAuthority, hostedPairingDisplayName, prepareHostedPairingInput } from '@/state/hostedE2ee';
-import { getCachedConnectionSettings, saveConnectionSettings } from '@/state/connectionSettings';
+import { useAuth } from '@/account/ui';
+import { hostedPairingAuthority, hostedPairingDisplayName, prepareHostedPairingInput } from '@/pairing/e2ee';
+import { pairMachine, usePairQrScanner } from '@/pairing';
+import { getCachedConnectionSettings } from '@/connection';
 import { ActionButton } from '@/components/ActionButton';
 import { Typography } from '@/constants/Typography';
-import { usePairQrScanner } from '@/hooks/usePairing';
 import { Modal } from '@/modal';
-import { realtimeMachineSwitchGuard, stopRealtimeSession } from '@/realtime/realtimeSessionState';
 
 /**
  * What pairing actually authorises. The previous copy described only the
@@ -126,8 +125,8 @@ export default function PairScreen() {
     }, [routePairUrl, browser]);
 
     const pair = React.useCallback(async (url: string) => {
-        const grant = await claimHostedPairing(url);
-        if (!realtimeMachineSwitchGuard(grant.machineId).allowed) {
+        const paired = await pairMachine({ url });
+        if (!paired.ok && paired.reason === 'voice-pinned') {
             const switchApproved = await Modal.confirm(
                 'End voice and switch?',
                 'Realtime voice stays pinned to the computer where it started. The new pairing is saved even if you switch later.',
@@ -137,17 +136,18 @@ export default function PairScreen() {
                 router.replace('/');
                 return;
             }
-            stopRealtimeSession();
+            const retried = await pairMachine({ grant: paired.grant, endVoiceIfPinned: true });
+            if (!retried.ok) {
+                throw new Error(retried.reason === 'failed' ? retried.message ?? 'Pairing failed' : 'Pairing failed');
+            }
+            await auth.login(retried.credential, retried.secretKey);
+            router.replace('/');
+            return;
         }
-        await saveConnectionSettings({
-            ...getCachedConnectionSettings(),
-            mode: 'hosted',
-            relayUrl: grant.relayUrl,
-            machineId: grant.machineId,
-            token: '',
-            selfhost: grant.source === 'selfhost' ? true : undefined,
-        });
-        await auth.login(grant.credential, grant.deviceKey.secretKey);
+        if (!paired.ok) {
+            throw new Error(paired.message ?? 'Pairing failed');
+        }
+        await auth.login(paired.credential, paired.secretKey);
         router.replace('/');
     }, [auth, router]);
 

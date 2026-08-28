@@ -1,12 +1,12 @@
 import * as React from "react";
 import { View } from "react-native";
 import { Image } from "expo-image";
-import { AvatarSkia } from "./AvatarSkia";
-import { AvatarGradient } from "./AvatarGradient";
-import { AvatarBrutalist } from "./AvatarBrutalist";
-import { useSetting } from '@/sync/storage';
+import { AvatarSkia } from "@/components/AvatarSkia";
+import { AvatarGradient } from "@/components/AvatarGradient";
+import { AvatarBrutalist } from "@/components/AvatarBrutalist";
+import { useSetting } from '@/catalog/store';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
-import type { GeneratedAvatarProps } from './generatedAvatar';
+import type { GeneratedAvatarProps } from '@/components/generatedAvatar';
 
 interface AvatarProps extends GeneratedAvatarProps {
     flavor?: string | null;

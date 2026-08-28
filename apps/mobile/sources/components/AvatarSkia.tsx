@@ -1,6 +1,6 @@
 import * as React from "react";
 import { Canvas, Rect, Group, Skia } from "@shopify/react-native-skia";
-import { avatarHash, type GeneratedAvatarProps } from './generatedAvatar';
+import { avatarHash, type GeneratedAvatarProps } from '@/components/generatedAvatar';
 
 const ELEMENTS = 64;
 const GRID_SIZE = 8; // 8x8 grid

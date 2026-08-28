@@ -7,7 +7,9 @@
  * (c) per-session event seq is monotonic
  */
 
-import { hostname } from 'node:os';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { hostname, tmpdir } from 'node:os';
+import { join } from 'node:path';
 import WebSocket from 'ws';
 import {
     SESSION_EVENT_TYPES,
@@ -25,6 +27,7 @@ import {
 const relayUrl = process.env.MUXR_RELAY_URL ?? 'ws://127.0.0.1:8792';
 const machineId = process.env.MUXR_MACHINE_ID ?? hostname();
 const TIMEOUT_MS = Number(process.env.MUXR_PROBE_TIMEOUT_MS ?? 8000);
+const probeCwd = mkdtempSync(join(tmpdir(), 'muxr-probe-'));
 
 const received: SessionEvent[] = [];
 const envelopeSeqs: number[] = [];
@@ -43,6 +46,7 @@ function send(socket: WebSocket, frame: ClientRequest | { type: 'client.hello'; 
 }
 
 function finish(code: number, message: string): never {
+    rmSync(probeCwd, { recursive: true, force: true });
     process.stdout.write(message);
     process.exit(code);
 }
@@ -102,6 +106,30 @@ function handleSessionList(sessions: SessionInfo[], socket: WebSocket): void {
     if (sessionId === undefined) promptSession(socket, sessions[0]!.id);
 }
 
+function handleResult(frame: Extract<HostFrame, { type: 'result' }>, socket: WebSocket): void {
+    if (!frame.ok) {
+        process.stdout.write(`  (request error) ${frame.error}\n`);
+        maybePass(socket);
+        return;
+    }
+    if (listRoundTripDone && Array.isArray(frame.data)) {
+        listRoundTripOk = true;
+        maybePass(socket);
+        return;
+    }
+    if (listRoundTripDone) {
+        maybePass(socket);
+        return;
+    }
+    if (isSessionSnapshot(frame.data)) {
+        promptSession(socket, frame.data.info.id);
+        maybePass(socket);
+        return;
+    }
+    if (Array.isArray(frame.data)) handleSessionList(frame.data as SessionInfo[], socket);
+    maybePass(socket);
+}
+
 const socket = new WebSocket(`${relayUrl}?role=client&machineId=${encodeURIComponent(machineId)}`);
 
 const timer = setTimeout(() => {
@@ -113,7 +141,7 @@ socket.on('open', () => {
     send(socket, {
         type: 'session.start',
         requestId: nextRequestId('probe'),
-        params: { cwd: process.cwd() },
+        params: { cwd: probeCwd },
     });
 });
 
@@ -129,18 +157,7 @@ socket.on('message', (raw) => {
     const frame = decodePayload<HostFrame>(envelope.payload);
 
     if (frame.type === 'result') {
-        if (frame.ok) {
-            if (listRoundTripDone && Array.isArray(frame.data)) {
-                listRoundTripOk = true;
-            } else if (!listRoundTripDone && isSessionSnapshot(frame.data)) {
-                promptSession(socket, frame.data.info.id);
-            } else if (!listRoundTripDone && Array.isArray(frame.data)) {
-                handleSessionList(frame.data as SessionInfo[], socket);
-            }
-        } else {
-            process.stdout.write(`  (request error) ${frame.error}\n`);
-        }
-        maybePass(socket);
+        handleResult(frame, socket);
         return;
     }
 

@@ -1,7 +1,7 @@
 import * as React from "react";
 import { View } from "react-native";
 import { Image } from "expo-image";
-import { avatarHash, type GeneratedAvatarProps } from './generatedAvatar';
+import { avatarHash, type GeneratedAvatarProps } from '@/components/generatedAvatar';
 
 
 const abstractImages = [

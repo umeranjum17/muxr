@@ -14,7 +14,7 @@ import {
     firstRestorableMachine,
     MOBILE_ONBOARDING_CHOICES,
     setupEmptyState,
-} from './commercialization';
+} from '@/commercialization';
 
 describe('open-source mobile onboarding flow', () => {
     it('keeps pairing semantics, the no-machine handoff, and every commerce surface absent', () => {
@@ -41,23 +41,22 @@ describe('open-source mobile onboarding flow', () => {
         expect(directBillingUrl({ directDistribution: true, publicBaseUrl: 'https://muxr.test/' })).toBeNull();
     });
 
-    it('purges a legacy mobile voice key before any optional one-time transfer', async () => {
+    it('loads current settings without retaining unknown secret fields', async () => {
         mmkvValues.set('settings', JSON.stringify({
             version: 1,
-            settings: { realtimeApiKey: 'sk-legacy-mobile', preferredLanguage: 'en' },
+            settings: { realtimeApiKey: 'sk-stale-mobile', preferredLanguage: 'en' },
         }));
         mmkvValues.set('pending-settings', JSON.stringify({ realtimeApiKey: 'sk-stale-pending', avatarStyle: 'brutalist' }));
-        const persistence = await import('./sync/persistence');
+        const persistence = await import('@/catalog/application/persistence');
 
-        persistence.loadSettings();
+        const loaded = persistence.loadSettings();
+        expect(loaded.settings.preferredLanguage).toBe('en');
         expect(mmkvValues.get('settings')).not.toContain('realtimeApiKey');
-        expect(mmkvValues.get('settings')).not.toContain('sk-legacy-mobile');
-        expect(mmkvValues.get('pending-settings')).toBe(JSON.stringify({ avatarStyle: 'brutalist' }));
-        expect(persistence.takeLegacyRealtimeApiKey()).toBe('sk-legacy-mobile');
-        // Transfer can now fail/offline: MMKV is already clean and memory is one-shot.
-        expect(persistence.takeLegacyRealtimeApiKey()).toBeNull();
+        expect(mmkvValues.get('settings')).not.toContain('sk-stale-mobile');
+        expect(persistence.loadPendingSettings()).toEqual({ avatarStyle: 'brutalist' });
+        expect(mmkvValues.get('pending-settings')).not.toContain('realtimeApiKey');
 
-        mmkvValues.set('settings', '{corrupt legacy settings');
+        mmkvValues.set('settings', '{corrupt settings');
         persistence.loadSettings();
         expect(mmkvValues.has('settings')).toBe(false);
     });

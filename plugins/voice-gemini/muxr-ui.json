@@ -176,7 +176,8 @@
       "to": [
         "idle",
         "done",
-        "blocked"
+        "blocked",
+        "failed"
       ],
       "action": {
         "type": "capability",

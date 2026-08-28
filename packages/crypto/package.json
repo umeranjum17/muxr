@@ -10,6 +10,10 @@
         ".": {
             "types": "./dist/index.d.ts",
             "default": "./dist/index.js"
+        },
+        "./e2ee": {
+            "types": "./dist/e2ee/index.d.ts",
+            "default": "./dist/e2ee/index.js"
         }
     },
     "dependencies": {

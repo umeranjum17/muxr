@@ -1,4 +1,4 @@
-import { Metadata } from '@/sync/storageTypes';
+import { Metadata } from '@/catalog';
 
 /**
  * Resolves a path relative to the root path from metadata.

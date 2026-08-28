@@ -3,7 +3,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
 import { ItemList } from '@/components/ItemList';
-import { useSettingMutable } from '@/sync/storage';
+import { useSettingMutable } from '@/catalog/store';
 import { useUnistyles } from 'react-native-unistyles';
 import { t, getLanguageNativeName, SUPPORTED_LANGUAGES, SUPPORTED_LANGUAGE_CODES, type SupportedLanguage } from '@/text';
 import { Modal } from '@/modal';

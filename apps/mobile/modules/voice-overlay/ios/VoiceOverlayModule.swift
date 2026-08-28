@@ -18,7 +18,9 @@ public final class VoiceOverlayModule: Module {
       self.realtimePcm.write(base64: base64)
     }
     Function("clearRealtimePcm") { () -> Bool in self.realtimePcm.clear() }
-    Function("stopRealtimePcm") { self.realtimePcm.stop() }
+    Function("finishRealtimePcm") { () -> Bool in self.realtimePcm.finish() }
+    Function("isRealtimePcmDrained") { () -> Bool in self.realtimePcm.isDrained() }
+    Function("stopRealtimePcm") { () -> [String: Double] in self.realtimePcm.stop() }
 
     Function("routeVoiceAudio") { () -> Bool in
       let session = AVAudioSession.sharedInstance()

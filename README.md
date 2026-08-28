@@ -185,7 +185,7 @@ git clone https://github.com/umeranjum17/muxr
 cd muxr
 yarn install --frozen-lockfile
 yarn typecheck
-node scripts/runSuite.mjs
+yarn run check
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and pull requests.
