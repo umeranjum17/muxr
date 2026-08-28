@@ -46,7 +46,7 @@ function getResumeAvailability(session: Session | undefined, machine: Machine | 
             message: '',
         };
     }
-    if (isRigMetadata(session.metadata) || session.metadata?.capabilities?.resume === false) {
+    if (isRigMetadata(session.metadata) || session.metadata?.capabilities?.resume !== true) {
         return {
             canResume: false,
             canShowResume: false,
@@ -66,17 +66,6 @@ function getResumeAvailability(session: Session | undefined, machine: Machine | 
     const machineId = session.metadata?.machineId;
     if (!machineId) {
         const message = t('sessionInfo.resumeSessionMissingMachine');
-        return {
-            canResume: false,
-            canShowResume: true,
-            subtitle: message,
-            message,
-        };
-    }
-
-    const hasBackendResumeId = Boolean(session.metadata?.claudeSessionId || session.metadata?.codexThreadId);
-    if (!hasBackendResumeId) {
-        const message = t('sessionInfo.resumeSessionMissingBackendId');
         return {
             canResume: false,
             canShowResume: true,
@@ -136,11 +125,8 @@ export function useSessionQuickActions(
     // duplicate) ride a single switch on settings/features.
     const forkSource = React.useMemo(() => getSessionForkSource(session), [
         session?.id,
-        session?.metadata?.flavor,
         session?.metadata?.machineId,
         session?.metadata?.path,
-        session?.metadata?.claudeSessionId,
-        session?.metadata?.codexThreadId,
     ]);
     const canFork = Boolean(
         session

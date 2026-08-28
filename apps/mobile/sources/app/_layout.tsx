@@ -124,9 +124,6 @@ async function loadFonts() {
         if (!isTauri) {
             // Normal font loading for non-Tauri environments (native and regular web)
             await Fonts.loadAsync({
-                // Keep existing font
-                SpaceMono: require('@/assets/fonts/SpaceMono-Regular.ttf'),
-
                 // IBM Plex Sans family
                 'IBMPlexSans-Regular': require('@/assets/fonts/IBMPlexSans-Regular.ttf'),
                 'IBMPlexSans-Italic': require('@/assets/fonts/IBMPlexSans-Italic.ttf'),
@@ -148,9 +145,6 @@ async function loadFonts() {
             (async () => {
                 try {
                     await Fonts.loadAsync({
-                        // Keep existing font
-                        SpaceMono: require('@/assets/fonts/SpaceMono-Regular.ttf'),
-
                         // IBM Plex Sans family
                         'IBMPlexSans-Regular': require('@/assets/fonts/IBMPlexSans-Regular.ttf'),
                         'IBMPlexSans-Italic': require('@/assets/fonts/IBMPlexSans-Italic.ttf'),

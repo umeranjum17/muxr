@@ -18,41 +18,7 @@ export type CodexForkSource = {
 
 export type ForkSource = ClaudeForkSource | CodexForkSource;
 
-function nonEmpty(value: unknown): value is string {
-    return typeof value === 'string' && value.trim().length > 0;
-}
-
-export function getSessionForkSource(session: Session | undefined): ForkSource | null {
-    if (!session) return null;
-    const machineId = session.metadata?.machineId;
-    const directory = session.metadata?.path;
-    if (!nonEmpty(machineId) || !nonEmpty(directory)) {
-        return null;
-    }
-
-    if (session.metadata?.flavor === 'codex') {
-        const codexThreadId = session.metadata?.codexThreadId;
-        if (!nonEmpty(codexThreadId)) {
-            return null;
-        }
-        return {
-            kind: 'codex',
-            sessionId: session.id,
-            machineId,
-            directory,
-            codexThreadId,
-        };
-    }
-
-    const claudeSessionId = session.metadata?.claudeSessionId;
-    if (!nonEmpty(claudeSessionId)) {
-        return null;
-    }
-    return {
-        kind: 'claude',
-        sessionId: session.id,
-        machineId,
-        directory,
-        claudeSessionId,
-    };
+/** The herdr host does not expose provider rewind ids; fork is a no-op from this client. */
+export function getSessionForkSource(_session: Session | undefined): ForkSource | null {
+    return null;
 }

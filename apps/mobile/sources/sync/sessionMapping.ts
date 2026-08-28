@@ -80,8 +80,8 @@ export function sessionInfoToSession(info: SessionInfo, status?: SessionStatus):
             ...(info.tabId === undefined || info.tabId === '' ? {} : { tabId: info.tabId }),
             ...(info.tabLabel === undefined || info.tabLabel === '' ? {} : { tabLabel: info.tabLabel }),
             ...(info.spawnedBy === undefined || info.spawnedBy === '' ? {} : { spawnedBy: info.spawnedBy }),
-            // `metadata.version` is read as a legacy CLI semver. muxr's host is not
-            // that CLI, so leaving it unset keeps the "CLI Update Required" banner off.
+            // muxr's host is not a CLI semver publisher, so leaving version
+            // unset keeps the "CLI Update Required" banner off.
             startedBy: 'daemon',
             summary: { text: taskTitle, updatedAt },
             rigMetadataVersion: 1,

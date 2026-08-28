@@ -33,10 +33,7 @@ export async function requestRealtimePermission(): Promise<boolean> {
     return true;
 }
 
-/**
- * The selected realtime provider plugin owns its credential on the machine.
- * New credentials are collected only by the attributed plugin Settings secure prompt.
- */
+/** The selected provider plugin owns its credential on the machine. */
 export async function ensureRealtimeProviderConfigured(): Promise<boolean> {
     let configured: boolean;
     try {

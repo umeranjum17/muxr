@@ -44,8 +44,10 @@ vi.mock('@/plugins/callPlugin', () => ({ callPlugin: mocks.callPlugin }));
 vi.mock('@/modal', () => ({ Modal: { alert: mocks.modalAlert } }));
 vi.mock('@/plugins/pluginStore', () => ({ pluginSnapshot: () => mocks.pluginSnapshot }));
 vi.mock('@/plugins/capabilityRegistry', () => ({ capabilityFor: () => mocks.capability }));
-vi.mock('@/sync/storage', () => ({
+vi.mock('@/sync/agentWatch', () => ({
     sanitizePersistedVoiceReport: (report: Record<string, unknown>) => report,
+}));
+vi.mock('@/sync/storage', () => ({
     storage: {
     subscribe: vi.fn((listener: (state: Record<string, unknown>, previous: Record<string, unknown>) => void) => {
         mocks.storageListeners.add(listener);

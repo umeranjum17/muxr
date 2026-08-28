@@ -1,19 +1,6 @@
 import { z } from "zod";
-// Legacy storage types for pre-herdr transcript rows. The herdr host never
-// populates goal/todos (they were Pi-plugin state), but persisted rows and
-// the row-derivation in storage.ts still reference the shapes.
-export interface SessionGoal {
-    status: string;
-    description?: string;
-    updatedAt?: string;
-}
-
-export interface SessionTask {
-    id: string;
-    description: string;
-    status: 'pending' | 'in_progress' | 'completed';
-    updatedAt?: string;
-}
+// Current herdr host session shapes. Unknown metadata keys stay on the
+// passthrough object so a newer host field is not dropped on read-modify-write.
 
 //
 // Agent states
@@ -133,14 +120,11 @@ export const MetadataSchema = z.object({
         updatedAt: z.number()
     }).optional(),
     machineId: z.string().optional(),
-    claudeSessionId: z.string().optional(), // Legacy agent session ID
-    codexThreadId: z.string().optional(), // Codex app-server thread ID
     tools: z.array(z.string()).optional(),
     slashCommands: z.array(z.string()).optional(),
     mcpServers: z.array(z.object({ name: z.string(), status: z.string() })).optional(),
     skills: z.array(z.string()).optional(),
     homeDir: z.string().optional(), // User's home directory on the machine
-    legacyConfigDir: z.string().optional(),
     startedFromDaemon: z.boolean().optional(),
     hostPid: z.number().optional(), // Process ID of the session
     startedBy: z.enum(['daemon', 'terminal']).optional(),
@@ -312,9 +296,6 @@ export interface Session {
     thinking: boolean,
     thinkingAt: number,
     presence: "online" | number, // "online" when active, timestamp when last seen
-    todos?: SessionTask[]; // kept optional for legacy storage rows; never populated by the herdr host
-    goal?: SessionGoal; // kept optional for legacy storage rows; never populated by the herdr host
-    queuedMessages?: unknown[]; // kept optional for legacy storage rows; never populated by the herdr host
     extensionStatus?: Record<string, string>; // latest ctx.ui.setStatus text per key; cleared keys are removed
     draft?: string | null; // Local draft message, not synced to server
     permissionMode?: string | null; // Permission pick; local mirror of synced metadata.permissionMode (#1492)

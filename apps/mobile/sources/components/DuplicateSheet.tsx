@@ -55,11 +55,8 @@ export const DuplicateSheet = React.memo(function DuplicateSheet(props: Duplicat
 
     const source = React.useMemo(() => session ? getSessionForkSource(session) : null, [
         session?.id,
-        session?.metadata?.flavor,
         session?.metadata?.machineId,
         session?.metadata?.path,
-        session?.metadata?.claudeSessionId,
-        session?.metadata?.codexThreadId,
     ]);
     const canFork = Boolean(source);
 

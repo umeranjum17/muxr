@@ -5,23 +5,20 @@ import type { Session, Machine, SessionAgentModesPatch } from './storageTypes';
 import type { Settings } from './settings';
 import { settingsDefaults } from './settings';
 import type { LocalSettings } from './localSettings';
-import { localSettingsDefaults } from './localSettings';
 import type { Profile } from './profile';
-import { profileDefaults } from './profile';
 import {
-    loadLifecycleNotificationPersistence,
-    loadVoiceReportPersistence,
     loadSettings,
     loadLocalSettings,
     loadProfile,
-    saveLifecycleNotificationPersistence,
-    saveVoiceReportPersistence,
-    sanitizePersistedVoiceReport,
     saveSettings,
     saveLocalSettings,
 } from './persistence';
-export { sanitizePersistedVoiceReport } from './persistence';
-import type { PersistedVoiceReport, VoiceReportScope } from './persistence';
+import {
+    createAgentWatch,
+    type PersistedVoiceReport,
+    type VoiceAdmission,
+    type WatchSnapshot,
+} from './agentWatch';
 import { boundSessionFileCache } from './sessionFileCache';
 import type { Message } from './typesMessage';
 import type { GitStatus } from './storageTypes';
@@ -32,7 +29,6 @@ import type { UserProfile, RelationshipUpdatedEvent } from './friendTypes';
 import type { FeedItem } from './feedTypes';
 import type { AttentionEntry, AttentionReason, HerdrTreeWorkspace, LifecycleCatalog, LifecycleEvent } from '@muxr/contract';
 import { buildMessagesMap } from './messageAdapter';
-import { ACTIVE_SESSION_MS } from './sessionMapping';
 import { getRigActivityIndicators, getRigIdentity } from './rig';
 import { getSessionName, getSessionSubtitle, getSessionAvatarId, type SessionState } from '@/utils/sessionUtils';
 
@@ -42,37 +38,6 @@ function resolveSessionOnlineState(session: { active: boolean; activeAt: number 
 
 function isSessionActive(session: { active: boolean }): boolean {
     return session.active;
-}
-
-const MAX_LIFECYCLE_EVENTS = 50;
-const LIFECYCLE_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
-
-function lifecycleTime(event: LifecycleEvent): number {
-    return Date.parse(event.at) || 0;
-}
-
-function boundLifecycleEvents(events: readonly LifecycleEvent[]): LifecycleEvent[] {
-    const cutoff = Date.now() - LIFECYCLE_RETENTION_MS;
-    const byId = new Map<string, LifecycleEvent>();
-    for (const event of events) {
-        if (lifecycleTime(event) >= cutoff && !byId.has(event.eventId)) byId.set(event.eventId, event);
-    }
-    return [...byId.values()]
-        .sort((left, right) => lifecycleTime(right) - lifecycleTime(left))
-        .slice(0, MAX_LIFECYCLE_EVENTS);
-}
-
-function presentsLifecycle(event: LifecycleEvent): boolean {
-    return event.state === 'blocked' || event.state === 'failed' || event.state === 'done';
-}
-
-function boundPresented(records: Array<{ eventId: string; at: string }>): Array<{ eventId: string; at: string }> {
-    const cutoff = Date.now() - LIFECYCLE_RETENTION_MS;
-    return [...new Map(records
-        .filter((record) => (Date.parse(record.at) || 0) >= cutoff)
-        .map((record) => [record.eventId, record])).values()]
-        .sort((left, right) => (Date.parse(right.at) || 0) - (Date.parse(left.at) || 0))
-        .slice(0, MAX_LIFECYCLE_EVENTS);
 }
 
 export interface SessionRowData {
@@ -103,8 +68,6 @@ export interface SessionRowData {
     /** Worktree provenance: 'repo ⎇ branch' for the group header. */
     worktreeRepo: string | null;
     worktreeBranch: string | null;
-    completedTodosCount: number;
-    totalTodosCount: number;
     hasUnread: boolean;
 }
 
@@ -151,8 +114,6 @@ function buildSessionRowData(session: Session): SessionRowData {
         spawnedBy: session.metadata?.spawnedBy ?? null,
         worktreeRepo: session.metadata?.worktree?.repo ?? null,
         worktreeBranch: session.metadata?.worktree?.branch ?? null,
-        completedTodosCount: session.todos?.filter((todo) => todo.status === 'completed').length ?? 0,
-        totalTodosCount: session.todos?.length ?? 0,
         hasUnread: false,
     };
 }
@@ -192,7 +153,7 @@ interface SessionMessagesState {
     isLoadingOlder: boolean;
 }
 
-interface StorageState {
+interface StorageState extends WatchSnapshot {
     settings: Settings;
     settingsVersion: number | null;
     localSettings: LocalSettings;
@@ -229,17 +190,7 @@ interface StorageState {
     currentViewingSessionId: string | null;
     unreadSessionIds: Set<string>;
     attentionEntries: AttentionEntry[];
-    lifecycleRevision: number;
-    lifecycleEvents: LifecycleEvent[];
-    pendingLifecycleEvents: LifecycleEvent[];
-    prebaselineLifecycleEvents: LifecycleEvent[];
-    lifecycleCatalogInitialized: boolean;
-    lifecycleCatalogAvailable: boolean;
-    voicePendingReports: PersistedVoiceReport[];
-    voiceDeliveredReportIds: string[];
-    voiceReportScope: string;
-    voiceReportScopeGeneration: number;
-    admitVoiceReport: (report: PersistedVoiceReport) => 'admitted' | 'pending' | 'delivered' | 'full' | 'invalid';
+    admitVoiceReport: (report: PersistedVoiceReport) => VoiceAdmission;
     updateVoiceReportRetry: (identity: string, attempts: number, readyAt: number) => void;
     deliverVoiceReport: (identity: string) => void;
     discardVoiceReport: (identity: string) => void;
@@ -294,44 +245,7 @@ interface StorageState {
 const { settings } = loadSettings();
 const localSettings = loadLocalSettings();
 const profile = loadProfile();
-const lifecyclePersistence = loadLifecycleNotificationPersistence();
-const voicePersistence = loadVoiceReportPersistence();
-let lifecycleScope = '';
-let lifecycleAuthority = '';
-let lifecycleScopeState = { initialized: false, presented: [] as Array<{ eventId: string; at: string }>, updatedAt: 0 };
-const persistedLifecycleIds = new Set<string>();
-const preAuthorityPushes: Array<{ eventId: string; machineId: string }> = [];
-let voiceScopeState: VoiceReportScope = { pending: [], delivered: [], updatedAt: 0 };
-let voiceScopeGeneration = 0;
-
-function saveLifecycleScope(): void {
-    if (lifecycleScope === '') return;
-    lifecycleScopeState.updatedAt = Date.now();
-    lifecyclePersistence.scopes[lifecycleScope] = lifecycleScopeState;
-    saveLifecycleNotificationPersistence(lifecyclePersistence);
-}
-
-function saveVoiceScope(): void {
-    if (lifecycleScope === '') return;
-    voiceScopeState.updatedAt = Date.now();
-    voicePersistence.scopes[lifecycleScope] = voiceScopeState;
-    saveVoiceReportPersistence(voicePersistence);
-}
-
-function acknowledgePushInScope(scope: string, eventId: string): void {
-    const current = lifecyclePersistence.scopes[scope]
-        ?? { initialized: false, presented: [], updatedAt: 0 };
-    const updated = {
-        ...current,
-        presented: boundPresented([...current.presented, { eventId, at: new Date().toISOString() }]),
-        updatedAt: Date.now(),
-    };
-    lifecyclePersistence.scopes[scope] = updated;
-    saveLifecycleNotificationPersistence(lifecyclePersistence);
-    if (scope !== lifecycleScope) return;
-    lifecycleScopeState = updated;
-    persistedLifecycleIds.add(eventId);
-}
+const watch = createAgentWatch();
 
 export const storage = create<StorageState>()((set, get) => ({
     settings,
@@ -369,51 +283,20 @@ export const storage = create<StorageState>()((set, get) => ({
     currentViewingSessionId: null,
     unreadSessionIds: new Set<string>(),
     attentionEntries: [],
-    lifecycleRevision: 0,
-    lifecycleEvents: [],
-    pendingLifecycleEvents: [],
-    prebaselineLifecycleEvents: [],
-    lifecycleCatalogInitialized: false,
-    lifecycleCatalogAvailable: false,
-    voicePendingReports: [],
-    voiceDeliveredReportIds: [],
-    voiceReportScope: '',
-    voiceReportScopeGeneration: 0,
+    ...watch.snapshot(),
     admitVoiceReport: (report) => {
-        const clean = sanitizePersistedVoiceReport(report);
-        if (clean === null) return 'invalid';
-        if (voiceScopeState.delivered.includes(clean.identity)) return 'delivered';
-        if (voiceScopeState.pending.some((entry) => entry.identity === clean.identity)) return 'pending';
-        if ((clean.status === 'idle' || clean.status === 'done')
-            && voiceScopeState.pending.filter((entry) => entry.status === 'idle' || entry.status === 'done').length >= 96) return 'full';
-        if (voiceScopeState.pending.length >= 128) return 'full';
-        voiceScopeState = { ...voiceScopeState, pending: [...voiceScopeState.pending, clean] };
-        saveVoiceScope();
-        set({ voicePendingReports: voiceScopeState.pending });
-        return 'admitted';
+        const admission = watch.admitVoice(report);
+        set(watch.snapshot());
+        return admission;
     },
     updateVoiceReportRetry: (identity, attempts, readyAt) => {
-        const pending = voiceScopeState.pending.map((entry) =>
-            entry.identity === identity ? { ...entry, attempts, readyAt } : entry);
-        if (pending.every((entry, index) => entry === voiceScopeState.pending[index])) return;
-        voiceScopeState = { ...voiceScopeState, pending };
-        saveVoiceScope();
-        set({ voicePendingReports: pending });
+        set(watch.updateVoiceRetry(identity, attempts, readyAt));
     },
     deliverVoiceReport: (identity) => {
-        const pending = voiceScopeState.pending.filter((entry) => entry.identity !== identity);
-        if (pending.length === voiceScopeState.pending.length) return;
-        const delivered = [...voiceScopeState.delivered.filter((id) => id !== identity), identity].slice(-512);
-        voiceScopeState = { ...voiceScopeState, pending, delivered };
-        saveVoiceScope();
-        set({ voicePendingReports: pending, voiceDeliveredReportIds: delivered });
+        set(watch.deliverVoice(identity));
     },
     discardVoiceReport: (identity) => {
-        const pending = voiceScopeState.pending.filter((entry) => entry.identity !== identity);
-        if (pending.length === voiceScopeState.pending.length) return;
-        voiceScopeState = { ...voiceScopeState, pending };
-        saveVoiceScope();
-        set({ voicePendingReports: pending });
+        set(watch.discardVoice(identity));
     },
     applySessions: (sessions, replace = false) => set((state) => {
         const merged = replace ? {} as Record<string, Session> : { ...state.sessions };
@@ -598,140 +481,29 @@ export const storage = create<StorageState>()((set, get) => ({
     // its condition resolved, never because this client hid it.
     applyAttentionCatalog: (entries) => set(() => ({ attentionEntries: entries })),
     applyLifecycleCatalog: (catalog) => {
-        if (catalog.revision < get().lifecycleRevision) return [];
-        const buffered = get().prebaselineLifecycleEvents;
-        const lifecycleEvents = boundLifecycleEvents([...buffered, ...catalog.events]);
-        if (!get().lifecycleCatalogInitialized) {
-            const bufferedIds = new Set(buffered.map((event) => event.eventId));
-            const presented = boundPresented([
-                ...lifecycleScopeState.presented,
-                ...lifecycleEvents
-                .filter((event) => !bufferedIds.has(event.eventId))
-                .map((event) => ({ eventId: event.eventId, at: event.at })),
-            ]);
-            for (const event of presented) persistedLifecycleIds.add(event.eventId);
-            const fresh = buffered.filter((event) => presentsLifecycle(event));
-            lifecycleScopeState.initialized = true;
-            lifecycleScopeState.presented = presented;
-            saveLifecycleScope();
-            set({
-                lifecycleRevision: catalog.revision,
-                lifecycleEvents,
-                pendingLifecycleEvents: boundLifecycleEvents(fresh),
-                prebaselineLifecycleEvents: [],
-                lifecycleCatalogInitialized: true,
-                lifecycleCatalogAvailable: true,
-            });
-            return fresh;
-        }
-        const pendingIds = new Set(get().pendingLifecycleEvents.map((event) => event.eventId));
-        const fresh = lifecycleEvents.filter((event) =>
-            presentsLifecycle(event) && !persistedLifecycleIds.has(event.eventId) && !pendingIds.has(event.eventId));
-        const pendingLifecycleEvents = boundLifecycleEvents([...fresh, ...get().pendingLifecycleEvents]);
-        set({ lifecycleRevision: catalog.revision, lifecycleEvents, pendingLifecycleEvents, lifecycleCatalogAvailable: true });
-        return fresh;
+        const newAlerts = watch.applyCatalog(catalog);
+        set(watch.snapshot());
+        return newAlerts;
     },
     applyLifecycleEvent: (event) => {
-        const lifecycleEvents = boundLifecycleEvents([event, ...get().lifecycleEvents]);
-        const pendingIds = new Set(get().pendingLifecycleEvents.map((entry) => entry.eventId));
-        const fresh = get().lifecycleCatalogInitialized
-            && presentsLifecycle(event)
-            && !persistedLifecycleIds.has(event.eventId)
-            && !pendingIds.has(event.eventId)
-            ? [event]
-            : [];
-        set({
-            lifecycleEvents,
-            prebaselineLifecycleEvents: get().lifecycleCatalogInitialized
-                ? get().prebaselineLifecycleEvents
-                : boundLifecycleEvents([event, ...get().prebaselineLifecycleEvents]),
-            pendingLifecycleEvents: fresh.length === 0
-                ? get().pendingLifecycleEvents
-                : boundLifecycleEvents([...fresh, ...get().pendingLifecycleEvents]),
-        });
-        return fresh;
+        const newAlerts = watch.applyEvent(event);
+        set(watch.snapshot());
+        return newAlerts;
     },
-    markLifecyclePresented: (eventId, at) => set((state) => {
-        const event = state.pendingLifecycleEvents.find((entry) => entry.eventId === eventId)
-            ?? state.lifecycleEvents.find((entry) => entry.eventId === eventId);
-        persistedLifecycleIds.add(eventId);
-        const presented = boundPresented([
-            ...lifecycleScopeState.presented,
-            { eventId, at: event?.at ?? at ?? new Date().toISOString() },
-        ]);
-        lifecycleScopeState.initialized = true;
-        lifecycleScopeState.presented = presented;
-        saveLifecycleScope();
-        return { pendingLifecycleEvents: state.pendingLifecycleEvents.filter((entry) => entry.eventId !== eventId) };
-    }),
-    acknowledgeLifecyclePush: (eventId, machineId) => set((state) => {
-        if (lifecycleAuthority === '') {
-            if (!preAuthorityPushes.some((entry) => entry.eventId === eventId && entry.machineId === machineId)) {
-                preAuthorityPushes.push({ eventId, machineId });
-            }
-            return state;
-        }
-        const scope = `${lifecycleAuthority}:${machineId}`;
-        acknowledgePushInScope(scope, eventId);
-        return scope === lifecycleScope
-            ? { pendingLifecycleEvents: state.pendingLifecycleEvents.filter((entry) => entry.eventId !== eventId) }
-            : state;
-    }),
+    markLifecyclePresented: (eventId, at) => {
+        set(watch.markPresented(eventId, at));
+    },
+    acknowledgeLifecyclePush: (eventId, machineId) => {
+        set(watch.acknowledgePush(eventId, machineId));
+    },
     setLifecycleAuthority: (authority) => {
-        lifecycleAuthority = authority;
-        for (const push of preAuthorityPushes.splice(0)) {
-            acknowledgePushInScope(`${authority}:${push.machineId}`, push.eventId);
-        }
+        watch.setAuthority(authority);
     },
     setLifecycleScope: (scope) => {
-        if (scope === lifecycleScope) return;
-        lifecycleScope = scope;
-        voiceScopeGeneration += 1;
-        const loaded = lifecyclePersistence.scopes[scope];
-        lifecycleScopeState = loaded === undefined
-            ? { initialized: false, presented: [], updatedAt: Date.now() }
-            : { ...loaded, presented: boundPresented(loaded.presented) };
-        persistedLifecycleIds.clear();
-        for (const entry of lifecycleScopeState.presented) persistedLifecycleIds.add(entry.eventId);
-        const loadedVoice = voicePersistence.scopes[scope];
-        const rawVoice = loadedVoice === undefined
-            ? { pending: [], delivered: [], updatedAt: Date.now() }
-            : { ...loadedVoice };
-        const allDelivered = [...new Set(rawVoice.delivered)];
-        const deliveredIds = new Set(allDelivered);
-        const delivered = allDelivered.slice(-512);
-        const pending = new Map<string, PersistedVoiceReport>();
-        for (const raw of rawVoice.pending) {
-            const entry = sanitizePersistedVoiceReport(raw);
-            if (entry !== null && !deliveredIds.has(entry.identity) && !pending.has(entry.identity)) pending.set(entry.identity, entry);
-        }
-        voiceScopeState = { ...rawVoice, pending: [...pending.values()].slice(0, 128), delivered };
-        set({
-            lifecycleRevision: 0,
-            lifecycleEvents: [],
-            pendingLifecycleEvents: [],
-            prebaselineLifecycleEvents: [],
-            lifecycleCatalogInitialized: lifecycleScopeState.initialized,
-            lifecycleCatalogAvailable: false,
-            voicePendingReports: voiceScopeState.pending,
-            voiceDeliveredReportIds: voiceScopeState.delivered,
-            voiceReportScope: scope,
-            voiceReportScopeGeneration: voiceScopeGeneration,
-        });
+        set(watch.setScope(scope));
     },
     resetLifecycleCatalog: () => {
-        persistedLifecycleIds.clear();
-        lifecycleScopeState.initialized = false;
-        lifecycleScopeState.presented = [];
-        saveLifecycleScope();
-        set({
-            lifecycleRevision: 0,
-            lifecycleEvents: [],
-            pendingLifecycleEvents: [],
-            prebaselineLifecycleEvents: [],
-            lifecycleCatalogInitialized: false,
-            lifecycleCatalogAvailable: false,
-        });
+        set(watch.resetCatalog());
     },
 }));
 

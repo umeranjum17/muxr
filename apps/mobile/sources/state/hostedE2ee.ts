@@ -26,7 +26,6 @@ import { getCachedConnectionSettings, loadConnectionSettingsAsync, saveConnectio
 import { decodeBase64 } from '@/encryption/base64';
 
 const DEVICE_KEY = 'muxr.hosted-e2ee.device.v2';
-const GRANTS_KEY = 'muxr.hosted-e2ee.grants.v2';
 const REPLAY_KEY = 'muxr.hosted-e2ee.replay.v2';
 const PENDING_PAIR_KEY = 'muxr.hosted-e2ee.pending-pair.v1';
 
@@ -105,16 +104,7 @@ async function grants(): Promise<Record<string, StoredHostedGrant>> {
         grantsCache = Object.fromEntries(live);
         return grantsCache;
     }
-    // Legacy single-blob migration: split, store per-machine, build the index.
-    const stored = await secretGet(GRANTS_KEY);
-    const combined = stored === null ? {} : JSON.parse(stored) as Record<string, StoredHostedGrant>;
-    const legacyIds = Object.keys(combined);
-    if (legacyIds.length > 0) {
-        await Promise.all(legacyIds.map((id) => secretSet(grantKey(id), JSON.stringify(combined[id]))));
-        await secretSet(GRANTS_INDEX, JSON.stringify(legacyIds));
-        await secretDelete(GRANTS_KEY);
-    }
-    grantsCache = combined;
+    grantsCache = {};
     return grantsCache;
 }
 
@@ -294,8 +284,8 @@ const UNSAFE_PAIRING_TEXT = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f\u200e
 
 /** Validate pairing input before confirmation or network access. */
 export function prepareHostedPairingInput(value: string): string {
-    // Terminal-wrapped legacy payloads contain only ordinary ASCII whitespace;
-    // remove that while still rejecting control and bidi spoofing characters.
+    // Ordinary ASCII whitespace is wrapping from terminals; strip it while
+    // still rejecting control and bidi spoofing characters.
     const input = value.trim().replace(/[ \t\r\n]+/g, '');
     if (input.length === 0) throw new Error('Enter a pairing string from `muxr setup` or `muxr pair`.');
     if (input.length > 65_536) throw new Error('This pairing string is too large. Create a fresh one on the computer.');
@@ -350,7 +340,7 @@ export function hostedPairingAuthority(url: string): 'control' | 'observe' {
             if (authority === 'control' || authority === 'observe') return authority;
         } catch { /* claim reports malformed payloads */ }
     }
-    // Unknown or legacy consent copy must never understate authority.
+    // Unknown consent copy must never understate authority.
     return 'control';
 }
 
@@ -643,7 +633,6 @@ export async function clearHostedE2ee(): Promise<void> {
     const all = await grants();
     await Promise.all([
         secretDelete(DEVICE_KEY),
-        secretDelete(GRANTS_KEY),
         secretDelete(GRANTS_INDEX),
         secretDelete(PENDING_PAIR_KEY),
         ...Object.keys(all).map((id) => secretDelete(grantKey(id))),

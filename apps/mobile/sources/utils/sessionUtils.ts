@@ -3,7 +3,6 @@ import { Session } from '@/sync/storageTypes';
 import { t } from '@/text';
 import { useUnistyles } from 'react-native-unistyles';
 import type { Theme } from '@/theme';
-import { buildResumeCommand, buildResumeCommandBlock, ResumeCommandBlock } from './resumeCommand';
 
 export type SessionState = 'disconnected' | 'thinking' | 'waiting' | 'permission_required';
 
@@ -157,18 +156,6 @@ export function getSessionAvatarId(session: Session): string {
     }
     // Fallback to session ID if metadata is missing
     return session.id;
-}
-
-/**
- * Returns the CLI command to resume a disconnected session, or null if not resumable.
- * Legacy fallback; supported Pi sessions resume through the host request path.
- */
-export function getResumeCommand(session: Session): string | null {
-    return buildResumeCommand(session.metadata ?? {});
-}
-
-export function getResumeCommandBlock(session: Session): ResumeCommandBlock | null {
-    return buildResumeCommandBlock(session.metadata ?? {});
 }
 
 /**

@@ -40,13 +40,11 @@ export type UserTextMessage = {
     meta?: MessageMeta;
     /**
      * Claude conversation-file `uuid` corresponding to this message. Used as
-     * the rewind point when forking / duplicating a session. Optional —
-     * older messages and non-Claude agents may not have one.
+     * the rewind point when forking / duplicating a session.
      */
     claudeUuid?: string;
     /**
-     * Codex app-server item id corresponding to this user message. Used as
-     * the rewind point when duplicating/forking Codex threads.
+     * Codex app-server item id corresponding to this user message.
      */
     codexItemId?: string;
 }

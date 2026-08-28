@@ -1,6 +1,6 @@
 import { callPlugin } from '@/plugins/callPlugin';
-import type { PersistedVoiceReport } from '@/sync/persistence';
-import { sanitizePersistedVoiceReport, storage } from '@/sync/storage';
+import { sanitizePersistedVoiceReport, type PersistedVoiceReport } from '@/sync/agentWatch';
+import { storage } from '@/sync/storage';
 import {
     realtimeGeneration,
     realtimeSessionSnapshot,

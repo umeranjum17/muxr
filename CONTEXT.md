@@ -1,6 +1,6 @@
 # muxr
 
-muxr lets a person direct coding agents running on their computers. Human-facing identity, lifecycle reporting, and realtime voice remain separate from internal routing and provider mechanics.
+muxr lets a person direct coding agents running on their computers. Human-facing identity, lifecycle reporting, proactive voice, and realtime conversation remain separate from internal routing and provider mechanics.
 
 ## Agents
 
@@ -25,8 +25,16 @@ The stable internal route that identifies an Agent across pane moves. The only k
 _Avoid_: pane id, spoken name, label, Herdr agent name
 
 **Lifecycle Event**:
-A recorded change in an Agent's working, blocked, done, or failed state, keyed by Agent Route.
-_Avoid_: status string, attention row, watch receipt
+A host-emitted change in an Agent's working, blocked, done, or failed state, keyed by Agent Route.
+_Avoid_: status tick, attention row, watch receipt
+
+**Agent Watch**:
+The machine-scoped record of Lifecycle Events and the human-visible reports that follow from them.
+_Avoid_: inbox, notification store, voice queue, catalog cache
+
+**Voice Report**:
+A spoken update about a trusted Agent and Task Title, admitted only after current-schema validation.
+_Avoid_: TTS job, announcement, completion chime
 
 ## Realtime voice
 
