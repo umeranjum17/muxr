@@ -5,7 +5,7 @@ export type ReportAgentOutcomeCommand = {
     sessionId: string;
     from: string;
     status: string;
-    displayName?: string;
+    agentName?: string;
     taskTitle?: string;
 };
 
@@ -19,7 +19,7 @@ export type ReportAgentOutcomeResult =
     | { ok: false; reason: 'invalid' }
     | { ok: true; action: 'already-delivered' | 'skip-unwatched' | 'admit'; report: VoiceReport };
 
-/** Admit a Voice Report. Parse fails closed. Spoken name must not be an internal id. */
+/** Admit a Voice Report. Parse fails closed. Agent Name must not be an internal id. */
 export function reportAgentOutcome(
     command: ReportAgentOutcomeCommand,
     snapshot: ReportAgentOutcomeSnapshot,

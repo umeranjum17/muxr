@@ -2,7 +2,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { chmodSync, existsSync, lstatSync, mkdirSync, unlinkSync } from 'node:fs';
 import { createServer, type Server, type Socket } from 'node:net';
 import { dirname, isAbsolute } from 'node:path';
-import type { LifecycleEvent } from '@muxr/contract';
+import { lifecycleEventAgentName, normalizeAgentName, type LifecycleEvent } from '@muxr/contract';
 
 const MAX_REQUEST_BYTES = 32 * 1024;
 const MAX_PROVIDER_TEXT_BYTES = 8 * 1024;
@@ -170,7 +170,7 @@ function publicAgent(agent: RealtimeCodingAgent): RealtimeCodingAgent {
     return {
         sessionId: PRIVATE_ID.test(agent.sessionId) ? agent.sessionId : '',
         cwd: isAbsolute(agent.cwd) && agent.cwd.length <= 4_096 ? agent.cwd : '',
-        displayName: cleanHuman(agent.displayName, 'Agent', 80),
+        displayName: normalizeAgentName(cleanHuman(agent.displayName, 'Agent', 80)),
         taskTitle: title(agent),
         kind: KIND.test(agent.kind) ? agent.kind : 'agent',
         status: cleanHuman(agent.status, 'unknown', 32).toLocaleLowerCase(),
@@ -362,7 +362,7 @@ export class RealtimeCodingCoordinator {
             }).slice(0, request.limit ?? 10);
             if (events.length === 0) return 'No recent agent activity is available.';
             const activity = events.map((event) => {
-                const name = cleanHuman(event.displayName, 'Agent', 80);
+                const name = cleanHuman(lifecycleEventAgentName(event), 'Agent', 80);
                 const task = cleanTaskTitle(event.taskTitle) ?? 'Untitled task';
                 const state = cleanHuman(event.state, 'unknown', 32).toLocaleLowerCase();
                 return `${name} — ${task}; ${state}`;

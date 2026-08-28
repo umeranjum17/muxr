@@ -118,7 +118,7 @@ export function useSessionStatus(session: Session | undefined): SessionStatus {
 /** Task Title is the primary label everywhere a session is scanned. */
 export function getSessionName(session: Session): string {
     return session.metadata?.taskTitle?.trim()
-        || session.metadata?.displayName?.trim()
+        || session.metadata?.agentName?.trim()
         || t('session.newChat');
 }
 
@@ -157,7 +157,7 @@ export function getSessionAvatarId(session: Session): string {
 
 /** Canonical Agent Name only; task cards own their context. */
 export function getSessionSubtitle(session: Session): string {
-    return session.metadata?.displayName?.trim() ?? '';
+    return session.metadata?.agentName?.trim() ?? '';
 }
 
 /**

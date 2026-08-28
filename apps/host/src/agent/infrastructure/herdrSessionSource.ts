@@ -162,10 +162,10 @@ interface AgentRecord {
 export async function sendKeysToLiveAgent(
     client: Pick<HerdrClient, 'call'>,
     agentsByPane: ReadonlyMap<string, unknown>,
-    record: Pick<AgentIdentity, 'paneId' | 'displayName'>,
+    record: Pick<AgentIdentity, 'paneId' | 'agentName'>,
     keys: string[],
 ): Promise<void> {
-    if (!agentsByPane.has(record.paneId)) throw new Error(`${record.displayName} is not ready for keys.`);
+    if (!agentsByPane.has(record.paneId)) throw new Error(`${record.agentName} is not ready for keys.`);
     await client.call('agent.send_keys', { target: record.paneId, keys });
 }
 
@@ -372,7 +372,7 @@ export async function createHerdrSessionSource(
     function transition(record: AgentIdentity, state: AgentLifecycle, reason: Parameters<NonNullable<CreateHerdrSessionSourceOptions['lifecycle']>['transition']>[3]): void {
         const event = options.lifecycle?.transition(
             record.sessionId,
-            record.displayName,
+            record.agentName,
             state,
             reason,
             record.taskTitle,
@@ -384,7 +384,7 @@ export async function createHerdrSessionSource(
         if (options.lifecycle === undefined) return;
         const result = reportAgentOutcome(options.lifecycle, {
             sessionId: record.sessionId,
-            displayName: record.displayName,
+            agentName: record.agentName,
             state,
             ...(agentsByPane.get(record.paneId)?.agent_status === undefined
                 ? {}
@@ -566,7 +566,7 @@ export async function createHerdrSessionSource(
             publish(sessionId, { type: 'session.updated', session: info });
         }
         reportObserved(record, agentStatus);
-        applyAttention(sessionId, agentStatus, record.displayName);
+        applyAttention(sessionId, agentStatus, record.agentName);
     }
 
     function singlePaneTabLabel(tabId: string | undefined): string | undefined {
@@ -853,7 +853,7 @@ export async function createHerdrSessionSource(
             info: infoFor(record),
             status: statusFor(record.sessionId),
             page: { messages: [], hasMore: false },
-            ...(accepted ? { acceptance: { outcome: 'accepted' as const, state: lifecycleOf(record.paneId), displayName: record.displayName } } : {}),
+            ...(accepted ? { acceptance: { outcome: 'accepted' as const, state: lifecycleOf(record.paneId), displayName: record.agentName } } : {}),
         };
     }
 
@@ -897,19 +897,19 @@ export async function createHerdrSessionSource(
         const kind = startOptions.kind ?? 'pi';
         const requestedLabel = startOptions.label?.trim();
         const sessionId = identity.allocateRoute();
-        const displayName = 'Agent';
-        const taskTitle = taskTitleFor(startOptions.taskTitle ?? requestedLabel, kind, displayName);
-        const starting = options.lifecycle?.transition(sessionId, displayName, 'starting', 'start-requested', taskTitle);
+        const agentName = 'Agent';
+        const taskTitle = taskTitleFor(startOptions.taskTitle ?? requestedLabel, kind, agentName);
+        const starting = options.lifecycle?.transition(sessionId, agentName, 'starting', 'start-requested', taskTitle);
         if (starting !== undefined) publish(sessionId, { type: 'lifecycle.update', event: starting });
         const earlyFailure = (): SessionStartResult => {
-            const event = options.lifecycle?.transition(sessionId, displayName, 'failed', 'start-launch-failed', taskTitle);
+            const event = options.lifecycle?.transition(sessionId, agentName, 'failed', 'start-launch-failed', taskTitle);
             if (event !== undefined) {
                 publish(sessionId, { type: 'lifecycle.update', event });
                 notifyAttention(sessionId, event.eventId, 'failed');
             }
             return {
                 acceptance: {
-                    outcome: 'failed', state: 'failed', displayName,
+                    outcome: 'failed', state: 'failed', displayName: agentName,
                     code: 'start-launch-failed', message: 'Agent could not start.',
                 },
             };
@@ -1020,7 +1020,7 @@ export async function createHerdrSessionSource(
             .catch((error: unknown) => {
                 const current = identity.get(record.sessionId);
                 if (current !== undefined) transition(current, 'failed', error instanceof Error && /timed?\s*out/i.test(error.message) ? 'start-timeout' : 'start-launch-failed');
-                const friendly = current?.displayName ?? displayName;
+                const friendly = current?.agentName ?? agentName;
                 publish(record.sessionId, { type: 'session.error', message: `${friendly} could not start.` });
                 const attention = options.attention;
                 if (attention !== undefined && attention.set(record.sessionId, 'failed', `${friendly} could not start.`)) {
@@ -1039,7 +1039,7 @@ export async function createHerdrSessionSource(
         return {
             sessionId: record.sessionId,
             cwd: info.cwd,
-            displayName: record.displayName,
+            displayName: record.agentName,
             taskTitle: record.taskTitle,
             kind: record.kind ?? 'agent',
             status: statusFor(record.sessionId).agentStatus ?? 'unknown',
@@ -1073,7 +1073,7 @@ export async function createHerdrSessionSource(
     async function promptSession(sessionId: string, text: string): Promise<void> {
         const record = await resolvePane(sessionId);
         if (!agentsByPane.has(record.paneId)) {
-            throw new Error(`${record.displayName} is not ready for prompts.`);
+            throw new Error(`${record.agentName} is not ready for prompts.`);
         }
         await client.call('agent.prompt', { target: record.paneId, text });
     }
@@ -1104,7 +1104,7 @@ export async function createHerdrSessionSource(
                 timeoutMs + 10_000,
             );
             const status = result.agent?.agent_status ?? 'settled';
-            return { status, detail: `${record.displayName} is ${status}` };
+            return { status, detail: `${record.agentName} is ${status}` };
         } catch (error) {
             const timedOut = (error instanceof Error ? error.message : String(error)).includes('timed out');
             return {
@@ -1228,7 +1228,7 @@ export async function createHerdrSessionSource(
                 return {
                     sessionId: record.sessionId,
                     label: record.taskTitle ?? agent?.name ?? pane?.terminal_title_stripped ?? tab?.label ?? base,
-                    displayName: record.displayName,
+                    displayName: record.agentName,
                     taskTitle: record.taskTitle,
                     cwd,
                     workspaceLabel: workspace?.label,
@@ -1254,7 +1254,7 @@ export async function createHerdrSessionSource(
                             return {
                                 ...(session === undefined ? {} : { sessionId: session.sessionId }),
                                 label: pane.label ?? agent?.name ?? pane.terminal_title_stripped ?? session?.taskTitle,
-                                displayName: session?.displayName,
+                                displayName: session?.agentName,
                                 taskTitle: session?.taskTitle ?? taskTitleFor(undefined, agent?.agent ?? session?.kind),
                                 agentKind: agent?.agent ?? session?.kind,
                                 agentStatus: lifecycleOf(pane.pane_id),
@@ -1412,7 +1412,7 @@ export async function createHerdrSessionSource(
                         const info = infoFor(session);
                         return {
                             sessionId: session.sessionId,
-                            displayName: session.displayName,
+                            displayName: session.agentName,
                             ...(info.taskTitle === undefined ? {} : { taskTitle: info.taskTitle }),
                             ...(session.kind === undefined ? {} : { agentKind: session.kind }),
                         };
@@ -1599,8 +1599,7 @@ export async function createHerdrSessionSource(
                         const agent = agentsByPane.get(pane.pane_id);
                         const session = identity.byPane(pane.pane_id);
                         const taskTitle = session?.taskTitle ?? taskTitleFor(undefined, agent?.agent ?? session?.kind);
-                        const displayName = normalizeAgentName(agent?.name);
-                        const agentName = displayName === 'Agent' ? undefined : displayName;
+                        const agentName = normalizeAgentName(agent?.name);
                         return {
                             paneId: pane.pane_id,
                             tabId,
@@ -1609,8 +1608,7 @@ export async function createHerdrSessionSource(
                                 ? {}
                                 : { cwd: pane.foreground_cwd ?? pane.cwd }),
                             ...(agent?.agent === undefined ? {} : { agentKind: agent.agent }),
-                            ...(agentName === undefined ? {} : { agentName }),
-                            ...(displayName === undefined ? {} : { displayName }),
+                            ...(agentName === 'Agent' ? {} : { displayName: agentName }),
                             ...(taskTitle === undefined ? {} : { taskTitle }),
                             agentStatus: lifecycleOf(pane.pane_id),
                             ...(pane.terminal_title_stripped === undefined
@@ -1724,7 +1722,7 @@ export async function createHerdrSessionSource(
                 .then((result) => {
                     const status = result.agent?.agent_status ?? 'settled';
                     const watched = identity.get(watchOptions.sessionId);
-                    const label = watched?.displayName ?? 'Agent';
+                    const label = watched?.agentName ?? 'Agent';
                     publish(watchOptions.sessionId, {
                         type: 'watch.settled',
                         status,

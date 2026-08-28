@@ -142,7 +142,7 @@ function demo(): void {
     assert(attentionOutranks('waiting', 'done') && attentionReasonStillHolds('waiting', ATTENTION_HARD_CAP_MS + 1), 'waiting outranks done and never decays');
     assert(!attentionReasonStillHolds('done', ATTENTION_DONE_TTL_MS + 1), 'done attention ages out');
     const internalName = parseAgentName('pp_hidden');
-    assert(internalName.ok && internalName.value === 'Agent' && normalizeAgentName('Мария') === 'Мария' && !parsePublicAgentRoute('bad/path').ok, 'Agent Name normalization preserves real names, hides internal names, and never authorizes routes');
+    assert(internalName.ok && internalName.value === 'Agent' && normalizeAgentName('pph_hidden') === 'Agent' && normalizeAgentName('Мария') === 'Мария' && !parsePublicAgentRoute('bad/path').ok, 'Agent Name normalization preserves real names, hides pp_ and pph_ names, and never authorizes routes');
     assert(peerMayDispatch(['prompt'], 'session.prompt') && !peerMayDispatch(['prompt'], 'session.start'), 'peer dispatch uses the signed allowlist');
     assert(authorizePeerDispatch({ allowlist: ['prompt'], requestType: 'session.prompt' }).ok, 'authorize peer dispatch admits a signed capability');
     assert(!authorizePeerDispatch({ allowlist: ['prompt'], requestType: 'session.start' }).ok, 'authorize peer dispatch denies start without start');

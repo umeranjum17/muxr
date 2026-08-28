@@ -8,7 +8,6 @@ const tab = (tabId: string, label: string | undefined, panes: ContractPane[]): H
 const agent = pane('p-a', 'pi', {
     sessionId: 's-a',
     cwd: '/home/umer/proj',
-    agentName: 'Legacy name',
     displayName: 'Maria',
     taskTitle: 'Review monitoring stability',
 });

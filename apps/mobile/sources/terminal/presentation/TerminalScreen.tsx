@@ -28,7 +28,7 @@ import { TerminalView } from './TerminalView';
 import { usePaneGestures } from '../application/usePaneGestures';
 import { StatusDot } from '@/components/StatusDot';
 import { AnimatedPopup } from '@/components/AnimatedOverlay';
-import { agentStatusColor } from '@/herd';
+import { agentStatusColor, paneDisplayName } from '@/herd';
 import type { TerminalChannel } from '../application/OpenTerminal';
 import { useImagePicker } from '@/hooks/useImagePicker';
 import { readFileBytes } from '@/utils/readFileBytes';
@@ -366,7 +366,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const contextTitle = sessionContextTitle({
         paneLabel: currentPane?.label,
         tabLabel: currentTab?.label,
-        agentName: currentPane?.agentName,
+        agentName: session?.metadata?.agentName ?? (currentPane === undefined ? undefined : paneDisplayName(currentPane)),
         agentKind: currentPane?.agentKind,
     });
     const headerDot = agentStatusColor(currentTab?.agentStatus ?? 'unknown', theme);

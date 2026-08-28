@@ -26,7 +26,7 @@ export {
     type AgentIdentity,
     type AgentObservation,
 };
-const SCHEMA_VERSION = 4 as const;
+const SCHEMA_VERSION = 5 as const;
 
 interface IdentityFile {
     schemaVersion: typeof SCHEMA_VERSION;
@@ -93,19 +93,18 @@ export class IdentityStore {
     }
 
     adopt(input: AgentAdoptInput): AgentIdentity {
-        const displayName = normalizeAgentName(input.agentName);
+        const agentName = normalizeAgentName(input.agentName);
         const identity: AgentIdentity = {
             sessionId: input.sessionId ?? newSessionId(),
             paneId: input.paneId,
             workspaceId: input.workspaceId,
             tabId: input.tabId,
             cwd: input.cwd,
-            displayName,
-            taskTitle: taskTitleFor(input.taskTitle, input.kind, displayName),
+            agentName,
+            taskTitle: taskTitleFor(input.taskTitle, input.kind, agentName),
             createdAt: new Date().toISOString(),
             ours: input.ours,
             ...(input.kind === undefined ? {} : { kind: input.kind }),
-            ...(input.agentName === undefined ? {} : { agentName: input.agentName }),
         };
         this.byId.set(identity.sessionId, identity);
         this.persist();
@@ -128,19 +127,18 @@ export class IdentityStore {
             return { identity, created: false, previousPaneId: known.paneId, displaced };
         }
         const kind = live.kind;
-        const displayName = normalizeAgentName(live.agentName);
+        const agentName = normalizeAgentName(live.agentName);
         const identity: AgentIdentity = {
             sessionId: newSessionId(),
             paneId: live.paneId,
             workspaceId: live.workspaceId ?? '',
             tabId: live.tabId ?? '',
             cwd: live.cwd ?? '/',
-            displayName,
-            taskTitle: this.observedTaskTitle(undefined, live, kind, displayName),
+            agentName,
+            taskTitle: this.observedTaskTitle(undefined, live, kind, agentName),
             createdAt: new Date().toISOString(),
             ours: false,
             ...(kind === undefined ? {} : { kind }),
-            ...(live.agentName === undefined ? {} : { agentName: live.agentName }),
         };
         this.byId.set(identity.sessionId, identity);
         this.persist();
@@ -158,20 +156,20 @@ export class IdentityStore {
 
     private reconcile(known: AgentIdentity, live: AgentObservation): AgentIdentity {
         const kind = live.kind ?? known.kind;
-        const agentName = Object.hasOwn(live, 'agentName') ? live.agentName : known.agentName;
-        const displayName = normalizeAgentName(agentName);
+        const agentName = Object.hasOwn(live, 'agentName')
+            ? normalizeAgentName(live.agentName)
+            : known.agentName;
         const next: AgentIdentity = {
             sessionId: known.sessionId,
             paneId: live.paneId,
             workspaceId: live.workspaceId ?? known.workspaceId,
             tabId: live.tabId ?? known.tabId,
             cwd: live.cwd ?? known.cwd,
-            displayName,
-            taskTitle: this.observedTaskTitle(known, live, kind, displayName),
+            agentName,
+            taskTitle: this.observedTaskTitle(known, live, kind, agentName),
             createdAt: known.createdAt,
             ours: known.ours,
             ...(kind === undefined ? {} : { kind }),
-            ...(agentName === undefined ? {} : { agentName }),
         };
         if (
             next.paneId === known.paneId
@@ -179,7 +177,6 @@ export class IdentityStore {
             && next.tabId === known.tabId
             && next.cwd === known.cwd
             && next.agentName === known.agentName
-            && next.displayName === known.displayName
             && next.kind === known.kind
             && next.taskTitle === known.taskTitle
         ) return known;
@@ -192,16 +189,16 @@ export class IdentityStore {
         known: AgentIdentity | undefined,
         live: AgentObservation,
         kind: string | undefined,
-        displayName: string,
+        agentName: string,
     ): string {
         if (known !== undefined && known.ours && known.taskTitle !== genericTaskTitle(known.kind)) {
             return known.taskTitle;
         }
-        const fromTerminal = parseTaskTitle(live.terminalTitle, kind, displayName);
+        const fromTerminal = parseTaskTitle(live.terminalTitle, kind, agentName);
         if (fromTerminal !== undefined) return fromTerminal;
-        const fromPane = parseTaskTitle(live.paneLabel, kind, displayName);
+        const fromPane = parseTaskTitle(live.paneLabel, kind, agentName);
         if (fromPane !== undefined) return fromPane;
-        const fromTab = parseTaskTitle(live.tabLabel, kind, displayName);
+        const fromTab = parseTaskTitle(live.tabLabel, kind, agentName);
         if (fromTab !== undefined) return fromTab;
         if (known !== undefined) return known.taskTitle;
         return genericTaskTitle(kind);

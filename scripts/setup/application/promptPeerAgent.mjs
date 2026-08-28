@@ -10,7 +10,7 @@ muxr peers status --machine <name> [--agent <name>]
 muxr peers watch --machine <name> [--agent <name>] [--timeout-ms <n>]
 muxr peers prompt --machine <name> [--agent <name>] --text <prompt>
 
-Uses human machine and agent names. Output is JSON. Peer grants never include raw shell, terminal takeover, or destructive actions.
+Uses Machine Names and Agent Names. Output is JSON. Peer grants never include raw shell, terminal takeover, or destructive actions.
 `;
 
 function accessFile() {

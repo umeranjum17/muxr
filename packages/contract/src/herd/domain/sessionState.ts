@@ -29,7 +29,7 @@ export interface SessionInfo extends SessionRef {
     parentSessionPath?: string;
     /** herdr agent kind for sessions backed by a live agent (pi, claude, ...). */
     agentKind?: string;
-    /** Human-facing name. Never used as a routing key. */
+    /** Agent Name compatibility field. Never used as a routing key. */
     displayName?: string;
     /** Concise dynamic description of the current work. */
     taskTitle?: string;
@@ -118,8 +118,7 @@ export interface HerdrTreePane {
     label?: string;
     cwd?: string;
     agentKind?: string;
-    agentName?: string;
-    /** Human-facing name. Never used as a routing key. */
+    /** Agent Name compatibility field. Never used as a routing key. */
     displayName?: string;
     /** Concise dynamic description of the current work. */
     taskTitle?: string;
@@ -228,9 +227,8 @@ export function lifecycleEventRoute(event: LifecycleEvent): string {
 }
 
 export function lifecycleEventAgentName(event: LifecycleEvent): string {
-    return event.displayName;
+    return normalizeAgentName(event.displayName);
 }
-
 export type LifecycleReasonCode =
     | 'start-requested'
     | 'start-launch-failed'
