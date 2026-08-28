@@ -24,7 +24,7 @@ import {
     ticketSocketUrl,
     WsTicketError,
 } from '@muxr/contract';
-import { DeviceV2Crypto, refreshHostedGrant, type StoredHostedGrant } from '@/state/hostedE2ee';
+import { DeviceV2Crypto, refreshHostedGrant, type StoredHostedGrant } from '../application/hostedE2ee';
 
 /** `stale`: socket is up but the host stopped answering requests (host process gone). */
 export type ConnectionState = 'connecting' | 'open' | 'closed' | 'stale';

@@ -1,6 +1,7 @@
 import { callPlugin } from '@/plugins/callPlugin';
-import { parseVoiceReportInput, sanitizePersistedVoiceReport, type VoiceReport } from '../domain/voiceReport';
-import { storage } from '@/sync/storage';
+import { sanitizePersistedVoiceReport, type VoiceReport } from '../domain/voiceReport';
+import { reportAgentOutcome } from './reportAgentOutcome';
+import { storage } from '@/catalog/store';
 import {
     realtimeGeneration,
     realtimeSessionSnapshot,
@@ -11,7 +12,7 @@ import {
     speakReport,
     startRealtimeSession,
     stopRealtimeReportProvider,
-} from '@/realtime/realtimeSessionState';
+} from '@/conversation/session';
 
 export interface VoiceReportInput {
     sessionId: string;
@@ -63,21 +64,24 @@ storage.subscribe((state, previous) => {
 /** Persist structured identity first; optional terminal enrichment can only follow admission. */
 export function wakeAndReport(input: VoiceReportInput, loadTail?: () => Promise<string>): Promise<void> {
     const identity = input.eventId ?? `${input.sessionId}:${input.from}:${input.status}:${input.lifecycleStateSince ?? ''}`;
-    const parsed = parseVoiceReportInput({
+    const snapshot = storage.getState();
+    const decided = reportAgentOutcome({
         identity,
         sessionId: input.sessionId,
         from: input.from,
         status: input.status,
         displayName: input.displayName,
         taskTitle: input.taskTitle,
+    }, {
+        deliveredIds: snapshot.voiceDeliveredReportIds,
+        pendingIdentities: snapshot.voicePendingReports.map((entry) => entry.identity),
+        watching: realtimeWatching(),
     });
-    if (!parsed.ok) return Promise.reject(new VoiceReportAdmissionError('Invalid voice report.', false));
-    const report = parsed.report;
-    const snapshot = storage.getState();
+    if (!decided.ok) return Promise.reject(new VoiceReportAdmissionError('Invalid voice report.', false));
+    if (decided.action === 'already-delivered' || decided.action === 'skip-unwatched') return Promise.resolve();
+    const report = decided.report;
     const runtimeKey = runtimeIdentity(snapshot.voiceReportScope, snapshot.voiceReportScopeGeneration, identity);
-    if (snapshot.voiceDeliveredReportIds.includes(identity)) return Promise.resolve();
     const persisted = snapshot.voicePendingReports.some((entry) => entry.identity === identity);
-    if (!persisted && !realtimeWatching()) return Promise.resolve();
     const admission = persisted ? 'pending' : snapshot.admitVoiceReport(report);
     if (admission === 'delivered') return Promise.resolve();
     if (admission === 'full') return Promise.reject(new VoiceReportAdmissionError('Voice report queue rejected admission: full.', true));

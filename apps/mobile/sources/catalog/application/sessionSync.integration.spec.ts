@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AgentLifecycle, HerdrTreeWorkspace, LifecycleEvent } from '@muxr/contract';
-import type { Session } from '@/sync/storageTypes';
+import type { Session } from '../infrastructure/storageTypes';
 import { completionAlerts, completionNotificationState, completionTransition, herdNotificationState, HERD_STATUS_LABELS, lifecycleNotificationCopy, lifecycleNotificationState, sortHerd } from '@/utils/herd';
 import { normalizeRequestFailure, requestRequiresE2ee } from '@muxr/contract';
 import { buildSpaceRows, lifecycleTree, paneDisplayName, paneTaskTitle } from '@/utils/herdTree';
@@ -24,12 +24,17 @@ const voiceMocks = vi.hoisted(() => ({
     state: 'disconnected' as 'disconnected' | 'connected',
 }));
 
-vi.mock('@/state/connectionSettings', () => ({
+vi.mock('@/connection', () => ({
     getCachedConnectionSettings: () => ({ machineId: 'machine' }),
 }));
-vi.mock('@/sync/sync', () => ({ sync: { request, refreshSessions } }));
+vi.mock('./sync', () => ({ sync: { request, refreshSessions } }));
 vi.mock('@/plugins/callPlugin', () => ({ callPlugin: voiceMocks.callPlugin }));
-vi.mock('@/realtime/realtimeSessionState', () => ({
+vi.mock('@/../modules/voice-overlay', () => ({
+    startVoiceService: () => true,
+    stopVoiceService: () => undefined,
+    addVoiceNotificationActionListener: () => ({ remove: () => undefined }),
+}));
+vi.mock('@/conversation/session', () => ({
     realtimeGeneration: () => voiceMocks.generation,
     realtimeSessionSnapshot: () => ({ state: voiceMocks.state, starting: false }),
     realtimeWatching: () => voiceMocks.watching,
@@ -63,11 +68,11 @@ vi.mock('@/utils/sessionUtils', () => ({
     getSessionSubtitle: () => '',
     getSessionAvatarId: (session: Session) => session.id,
 }));
-import { applyStatusToSession, sessionInfoToSession } from '@/sync/sessionMapping';
-import { storage } from '@/sync/storage';
+import { applyStatusToSession, sessionInfoToSession } from '../infrastructure/sessionMapping';
+import { storage } from './storage';
 
 async function spawn(options: { modelMode?: string; effortLevel?: string; displayName?: string }) {
-    const { machineSpawnNewSession } = await import('@/sync/ops');
+    const { machineSpawnNewSession } = await import('./ops');
     return machineSpawnNewSession({ machineId: 'm', directory: '/tmp', ...options });
 }
 
@@ -439,7 +444,7 @@ describe('session sync flow', () => {
         }
         restarted.getState().setLifecycleScope('test-authority:machine');
         expect(restarted.getState().voicePendingReports).toEqual([durableReport]);
-        const coordinator = await import('@/voice/wakeAndReport');
+        const coordinator = await import('@/watch/application/wakeAndReport');
         voiceMocks.watching = true;
         for (const listener of voiceMocks.listeners) listener();
         await vi.waitFor(() => expect(voiceMocks.speakReport).toHaveBeenCalledOnce());
@@ -490,7 +495,7 @@ describe('session sync flow', () => {
         vi.resetModules();
         const deliveredRestart = (await import('./storage')).storage;
         deliveredRestart.getState().setLifecycleScope('test-authority:machine');
-        await import('@/voice/wakeAndReport');
+        await import('@/watch/application/wakeAndReport');
         voiceMocks.watching = true;
         for (const listener of voiceMocks.listeners) listener();
         await Promise.resolve();

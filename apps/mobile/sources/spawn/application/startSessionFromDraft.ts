@@ -1,4 +1,4 @@
-import type { Machine } from '@/sync/storageTypes';
+import type { Machine } from '@/catalog';
 import { useNewSessionDraft } from './useNewSessionDraft';
 import { resolveAbsolutePath } from '@/utils/pathUtils';
 import { Modal } from '@/modal';

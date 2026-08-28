@@ -3,7 +3,7 @@ import { View, Text, Pressable } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Typography } from '@/constants/Typography';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
-import { useAllMachines } from '@/sync/storage';
+import { useAllMachines } from '@/catalog/store';
 import { isMachineOnline } from '@/pairing';
 import { useRouter } from 'expo-router';
 import { t } from '@/text';

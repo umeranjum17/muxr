@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
-import { getWebSecret, setWebSecret } from '@/state/webSecureStore';
+import { getWebSecret, setWebSecret } from '@/pairing/secrets';
 
 const STORAGE_KEY = 'muxr.connection.v1';
 const MAX_RECENT_CWDS = 5;

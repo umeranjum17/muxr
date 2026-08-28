@@ -1,7 +1,7 @@
 import * as z from 'zod';
 import { isCuid } from '@paralleldrive/cuid2';
-import { stripLeadingTaskNotificationWrappers } from '@muxr/wire';
-import { MessageMetaSchema, type MessageMeta } from '@/sync/typesMessageMeta';
+import { stripLeadingTaskNotificationWrappers } from '@muxr/contract';
+import { MessageMetaSchema, type MessageMeta } from './typesMessageMeta';
 import { dropSessionEnvelope, usageHeartbeat } from '../domain/sessionEnvelope';
 
 const usageDataSchema = z.object({

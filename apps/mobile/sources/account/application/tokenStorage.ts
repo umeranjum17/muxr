@@ -1,16 +1,14 @@
 import { Platform } from 'react-native';
-import { deleteNativeSecret, getNativeSecret, setNativeSecret } from '@/state/nativeSecretStore';
-import { deleteWebSecret, getWebSecret, setWebSecret } from '@/state/webSecureStore';
+import { deleteNativeSecret, getNativeSecret, setNativeSecret } from '@/pairing/secrets';
+import { deleteWebSecret, getWebSecret, setWebSecret } from '@/pairing/secrets';
+import type { AuthCredentials } from '../domain/accountSession';
+
+export type { AuthCredentials };
 
 const AUTH_KEY = 'auth_credentials';
 
 // Cache for synchronous access
 let credentialsCache: string | null = null;
-
-export interface AuthCredentials {
-    token: string;
-    secret: string;
-}
 
 export const TokenStorage = {
     async getCredentials(): Promise<AuthCredentials | null> {

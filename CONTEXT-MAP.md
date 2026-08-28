@@ -21,8 +21,16 @@ muxr is one product with several bounded contexts. The glossary lives in [CONTEX
 - **E2EE → Peer / Control plane / shared**: crypto imports those context entry points, not the contract mega-barrel.
 - **Realtime → Control plane**: the voice socket URL is the same relay reachability rule as terminal and preview.
 
-## Mobile runtime contexts
+## Mobile UI contexts
 
+Phone features under `apps/mobile/sources/`. Tree and public entries: [apps/mobile/sources/README.md](./apps/mobile/sources/README.md). Named operations: [apps/mobile/sources/USE_CASES.md](./apps/mobile/sources/USE_CASES.md).
+
+- **Herd**: Agent rows, live terminals, focus, lifecycle watch from the phone
+- **Spawn**: Start Agent, dock, Worktree landing
+- **Pairing**: Pair Machine, Reconnect Machine (shared with runtime)
+- **Plugins / Terminal / Preview / Takeover / Collaboration / Changelog / Settings**: phone chrome and host-backed surfaces
+
+## Mobile runtime contexts
 
 - [Catalog](./apps/mobile/sources/catalog/CONTEXT.md): Agents as listed work, host DTO mapping, transcript envelopes
 - [Watch](./apps/mobile/sources/watch/CONTEXT.md): Lifecycle Events, Agent Watch, Voice Reports
@@ -33,6 +41,8 @@ muxr is one product with several bounded contexts. The glossary lives in [CONTEX
 - [Account](./apps/mobile/sources/account/CONTEXT.md): Account Credential, independent of any grant
 
 Encryption primitives under `apps/mobile/sources/encryption/` are a shared kernel, not a context.
+
+Application operations: [apps/mobile/sources/USE_CASES.md](./apps/mobile/sources/USE_CASES.md).
 
 ## Relationships
 

@@ -1,35 +1,36 @@
-import type { AuthCredentials } from '@/auth/tokenStorage';
 import {
     AccountCredentialRejectedError,
     validateHostedAccountSession,
     type AccountSessionState,
-} from '@/auth/accountSession';
-import { accountSurfaceApplies, hostedTransportReady } from '@/pairing';
+    type AuthCredentials,
+} from '@/account/session';
+import { accountSurfaceApplies, hostedTransportReady } from '@/pairing/grant';
 import type { AttentionEntry, HerdrTreeWorkspace, LifecycleEvent, PluginsInvalidatedFrame, PromptAttachment, SessionEvent, SessionStatus } from '@muxr/contract';
 import { MAX_RPC_PER_DEVICE, MAX_RPC_PER_PLUGIN } from '@muxr/contract';
 import { decodeBase64, encodeBase64 } from '@/encryption/base64';
-import type { AttachmentPreview } from '@/sync/attachmentTypes';
+import type { AttachmentPreview } from '../infrastructure/attachmentTypes';
 import { Modal } from '@/modal';
-import { Encryption } from '@/sync/encryption/encryption';
-import type { DecryptedArtifact } from '@/sync/artifactTypes';
-import { MuxrClient } from '@/client/muxrClient';
+import { Encryption } from '../infrastructure/encryption/encryption';
+import type { DecryptedArtifact } from '../infrastructure/artifactTypes';
+import { MuxrClient } from '@/pairing/client';
 import * as Notifications from 'expo-notifications';
 import { AppState, Platform } from 'react-native';
 import {
     DEFAULT_CONNECTION,
     getCachedConnectionSettings,
     loadConnectionSettingsAsync,
-} from '@/state/connectionSettings';
-import { getCachedHostedGrant, loadHostedGrant, refreshHostedGrant } from '@/state/hostedE2ee';
-import { storage } from '@/sync/storage';
+} from '@/connection';
+import { getCachedHostedGrant, loadHostedGrant, refreshHostedGrant } from '@/pairing/e2ee';
+import { storage } from './storage';
 import {
     applyStatusToSession,
     machineInfoToMachine,
     sessionInfoToSession,
-} from '@/sync/sessionMapping';
+} from '../infrastructure/sessionMapping';
 import { agentStatusUnchanged, applyHostInfoToAgent, humanNameForNotice } from '../domain/agent';
-import { lifecycleIsWorking, lifecycleWatchOutcome } from '@/sync/lifecycle';
-import type { Settings } from '@/sync/settings';
+import { lifecycleIsWorking, lifecycleWatchOutcome, watchAgentLifecycle } from '@/watch';
+import { promptAgent } from './promptAgent';
+import type { Settings } from './settings';
 import { lifecycleNotificationCopy } from '@/utils/herd';
 
 /** A shell that never reports back must not pin the promise forever. */
@@ -561,7 +562,10 @@ class MuxrSync {
         await this.initEncryption(credentials);
         const settings = await loadConnectionSettingsAsync();
         storage.getState().setLifecycleAuthority(this.anonID);
-        storage.getState().setLifecycleScope(`${this.anonID}:${settings.machineId || 'account'}`);
+        watchAgentLifecycle(
+            { authority: this.anonID, machineId: settings.machineId },
+            { setScope: (scope) => storage.getState().setLifecycleScope(scope) },
+        );
         const switchedMachine = this.activeMachineId !== undefined && this.activeMachineId !== settings.machineId;
         this.activeMachineId = settings.machineId;
         if (switchedMachine) {
@@ -592,23 +596,27 @@ class MuxrSync {
     }
 
     async sendMessage(sessionId: string, text: string, options?: SendMessageOptions): Promise<void> {
-        const trimmed = text.trim();
         const previews = options?.attachments ?? [];
-        if (trimmed.length === 0 && previews.length === 0) return;
+        if (text.trim().length === 0 && previews.length === 0) return;
         const client = this.ensureClient();
         // No optimistic echo: the host emits message.append for the prompt, so the
         // transcript fold owns ordering and there is nothing to reconcile.
-        storage.getState().updateSession(sessionId, { lastMessageSentAt: Date.now() });
-        const attachments = await toPromptAttachments(previews);
         // Steer, don't follow up: a message typed mid-turn is a correction, so it
         // lands at the next turn boundary instead of waiting for the run to settle.
         // The host ignores this while idle, where nothing is queued.
-        await client.request('session.prompt', {
-            sessionId,
-            text: trimmed,
-            streamingBehavior: 'steer',
-            ...(attachments.length === 0 ? {} : { attachments }),
-        });
+        await promptAgent(
+            { agentRoute: sessionId, text, hasAttachments: previews.length > 0 },
+            {
+                markSent: (agentRoute) => storage.getState().updateSession(agentRoute, { lastMessageSentAt: Date.now() }),
+                attachments: () => toPromptAttachments(previews),
+                deliver: ({ agentRoute, text: prompt, streamingBehavior, attachments }) => client.request('session.prompt', {
+                    sessionId: agentRoute,
+                    text: prompt,
+                    streamingBehavior,
+                    ...(attachments === undefined || attachments.length === 0 ? {} : { attachments }),
+                }),
+            },
+        );
     }
 
     applySettings(patch: Partial<Settings>): void {
@@ -681,7 +689,10 @@ class MuxrSync {
         this.client = undefined;
         storage.getState().setSocketStatus(this.hasTransport() ? 'connecting' : 'disconnected');
         const settings = this.getConnection();
-        storage.getState().setLifecycleScope(`${this.anonID}:${settings.machineId || 'account'}`);
+        watchAgentLifecycle(
+            { authority: this.anonID, machineId: settings.machineId },
+            { setScope: (scope) => storage.getState().setLifecycleScope(scope) },
+        );
         await this.refreshCatalog();
     }
 }

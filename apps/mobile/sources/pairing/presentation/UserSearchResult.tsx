@@ -1,7 +1,7 @@
 import React from 'react';
 import { Platform, View, Text, TouchableOpacity, ActivityIndicator, Pressable } from 'react-native';
 import { StyleSheet } from 'react-native-unistyles';
-import { UserProfile, getDisplayName } from '@/sync/friendTypes';
+import { UserProfile, getDisplayName } from '@/catalog';
 import { Avatar } from '@/components/Avatar';
 import { t } from '@/text';
 import { useRouter } from 'expo-router';

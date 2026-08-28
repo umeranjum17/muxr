@@ -1,5 +1,5 @@
 import * as z from 'zod';
-import { ImageRefSchema } from '@/sync/profile';
+import { ImageRefSchema } from '../application/profile';
 
 //
 // Relationship Status

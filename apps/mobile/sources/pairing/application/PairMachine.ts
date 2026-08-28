@@ -1,6 +1,7 @@
-import { claimHostedPairing, type StoredHostedGrant } from '@/state/hostedE2ee';
-import { getCachedConnectionSettings, saveConnectionSettings } from '@/state/connectionSettings';
-import { realtimeMachineSwitchGuard, stopRealtimeSession } from '@/realtime/realtimeSessionState';
+import { claimHostedPairing, type StoredHostedGrant } from './hostedE2ee';
+import { parsePairingString } from '../domain/pairingString';
+import { getCachedConnectionSettings, saveConnectionSettings } from '@/connection';
+import { realtimeMachineSwitchGuard, stopRealtimeSession } from '@/conversation/session';
 
 export type PairMachineCommand = {
     url?: string;
@@ -33,8 +34,13 @@ async function activateGrant(grant: StoredHostedGrant, endVoiceIfPinned: boolean
 /** Claim a pairing link and make that Machine the active connection. */
 export async function pairMachine(command: PairMachineCommand): Promise<PairMachineResult> {
     try {
-        const grant = command.grant ?? (command.url !== undefined ? await claimHostedPairing(command.url) : undefined);
-        if (grant === undefined) return { ok: false, reason: 'failed', message: 'Pairing link missing' };
+        let grant = command.grant;
+        if (grant === undefined) {
+            if (command.url === undefined) return { ok: false, reason: 'failed', message: 'Pairing link missing' };
+            const parsed = parsePairingString(command.url);
+            if (!parsed.ok) return { ok: false, reason: 'failed', message: parsed.error };
+            grant = await claimHostedPairing(parsed.pairing.url);
+        }
         return activateGrant(grant, command.endVoiceIfPinned === true);
     } catch (error) {
         return { ok: false, reason: 'failed', message: error instanceof Error ? error.message : String(error) };

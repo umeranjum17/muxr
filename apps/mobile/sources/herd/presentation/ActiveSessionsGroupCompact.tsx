@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Pressable, Platform } from 'react-native';
 import { Text } from '@/components/StyledText';
-import { SessionRowData } from '@/sync/storage';
+import { SessionRowData } from '@/catalog/store';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { sessionStateColors, unreadStateColors, vibingMessages } from '../application/sessionUtils';
 import { formatPathRelativeToHome } from '../domain/sessionIdentity';
@@ -9,7 +9,7 @@ import { Avatar } from '@/components/Avatar';
 import { Typography } from '@/constants/Typography';
 import { StatusDot } from '@/components/StatusDot';
 import { isSettledSession, SessionMetaLine } from './SessionRowParts';
-import { useAllMachines } from '@/sync/storage';
+import { useAllMachines } from '@/catalog/store';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { t } from '@/text';
 import { useNavigateToSession } from '../application/useNavigateToSession';

@@ -1,4 +1,4 @@
-import type { Session } from '@/sync/storageTypes';
+import type { Session } from '@/catalog';
 
 export type ClaudeForkSource = {
     kind: 'claude';

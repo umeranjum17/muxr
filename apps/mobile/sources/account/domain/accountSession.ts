@@ -1,5 +1,11 @@
 export type AccountSessionState = 'valid' | 'unavailable';
 
+/** Proof of the person's muxr account. Independent of any Hosted Grant. */
+export interface AuthCredentials {
+    token: string;
+    secret: string;
+}
+
 export class AccountCredentialRejectedError extends Error {
     constructor() {
         super('account credential rejected');

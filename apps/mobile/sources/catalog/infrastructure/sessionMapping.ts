@@ -1,6 +1,6 @@
 import type { MachineInfo, SessionInfo, SessionStatus } from '@muxr/contract';
-import type { Machine, Session } from '@/sync/storageTypes';
-import { getCachedConnectionSettings } from '@/state/connectionSettings';
+import type { Machine, Session } from './storageTypes';
+import { getCachedConnectionSettings } from '@/connection';
 import {
     AGENT_STILL_LISTED_MS,
     agentIsBusy,

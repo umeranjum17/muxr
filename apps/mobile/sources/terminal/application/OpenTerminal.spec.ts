@@ -4,7 +4,7 @@ const mocks = vi.hoisted(() => ({
     request: vi.fn(),
 }));
 
-vi.mock('@/state/connectionSettings', () => ({
+vi.mock('@/connection', () => ({
     getCachedConnectionSettings: () => ({
         relayUrl: 'ws://relay.test',
         machineId: 'machine',
@@ -12,11 +12,11 @@ vi.mock('@/state/connectionSettings', () => ({
     }),
 }));
 
-vi.mock('@/sync/sync', () => ({
+vi.mock('@/catalog/sync', () => ({
     sync: { request: mocks.request },
 }));
 
-vi.mock('@/state/hostedE2ee', () => ({
+vi.mock('@/pairing/e2ee', () => ({
     getCachedHostedGrant: () => undefined,
     DeviceV2Crypto: class {},
 }));

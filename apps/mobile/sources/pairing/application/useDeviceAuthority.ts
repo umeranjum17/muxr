@@ -1,8 +1,8 @@
 import * as React from 'react';
 import { Platform } from 'react-native';
-import { useSocketStatus } from '@/sync/storage';
-import { getCachedConnectionSettings } from '@/state/connectionSettings';
-import { currentDeviceAuthority, listPairedGrants } from '@/state/hostedE2ee';
+import { useSocketStatus } from '@/catalog/store';
+import { getCachedConnectionSettings } from '@/connection';
+import { currentDeviceAuthority, listPairedGrants } from './hostedE2ee';
 
 export type DeviceAuthority = 'control' | 'observe';
 

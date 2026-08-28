@@ -2,9 +2,9 @@ import { relayControlUrl } from '@muxr/contract';
 import {
     AccountCredentialRejectedError,
     accountCredentialIsPresent,
-    accountSessionFromHttpStatus,
     type AccountSessionState,
 } from '../domain/accountSession';
+import { validateAccountCredential } from './validateAccountCredential';
 
 /** Account authentication is independent from any machine grant or relay ticket. */
 export async function validateHostedAccountSession(
@@ -20,9 +20,7 @@ export async function validateHostedAccountSession(
             headers: { authorization: `Bearer ${credential}` },
             signal: controller.signal,
         });
-        const outcome = accountSessionFromHttpStatus(response.status);
-        if (outcome === 'rejected') throw new AccountCredentialRejectedError();
-        return outcome;
+        return validateAccountCredential({ credential, status: response.status });
     } catch (error) {
         if (error instanceof AccountCredentialRejectedError) throw error;
         return 'unavailable';

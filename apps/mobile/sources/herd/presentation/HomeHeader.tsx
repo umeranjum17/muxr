@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { Image } from 'expo-image';
 import { Header } from '@/components/navigation/Header';
-import { useSocketStatus } from '@/sync/storage';
+import { useSocketStatus } from '@/catalog/store';
 import { Platform, Text, View } from 'react-native';
 import { Typography } from '@/constants/Typography';
 import { StatusDot } from '@/components/StatusDot';

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildActiveSessionDisplayGroups } from './sessionDisplayOrder';
-import type { SessionRowData } from '@/sync/storage';
+import type { SessionRowData } from '@/catalog/store';
 
 function row(over: Partial<SessionRowData>): SessionRowData {
     return {

@@ -2,8 +2,8 @@ import * as React from 'react';
 import { Pressable } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useUnistyles } from 'react-native-unistyles';
-import { useRealtimeSessionState } from '@/realtime/realtimeSessionState';
-import { RealtimeGlyph } from '@/realtime/RealtimeGlyph';
+import { useRealtimeSessionState } from '@/conversation/session';
+import { RealtimeGlyph } from '@/conversation/ui';
 import { withAlpha } from '@/components/ui';
 import type { PrimitiveProps } from '../../domain/primitiveTypes'
 import { capabilityFor } from '../../application/capabilityRegistry';

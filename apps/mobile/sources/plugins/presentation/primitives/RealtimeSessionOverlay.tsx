@@ -12,8 +12,8 @@ import Animated, {
     withSpring,
     withTiming,
 } from 'react-native-reanimated';
-import { RealtimeConversation } from '@/realtime/RealtimeConversation';
-import { RealtimeSessionVisual } from '@/realtime/RealtimeSessionVisual';
+import { RealtimeConversation } from '@/conversation/ui';
+import { RealtimeSessionVisual } from '@/conversation/ui';
 import { useUnistyles } from 'react-native-unistyles';
 import { mountPrimitive } from '../../application/primitivePresence';
 import { t } from '@/text';
@@ -25,7 +25,7 @@ import {
     useRealtimeSessionState,
     useRealtimeWatching,
     stopRealtimeSession,
-} from '@/realtime/realtimeSessionState';
+} from '@/conversation/session';
 
 const WIDTH = 154;
 const HEIGHT = 58;

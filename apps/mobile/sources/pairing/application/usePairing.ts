@@ -1,10 +1,10 @@
 import * as React from 'react';
 import { Platform } from 'react-native';
 import { CameraView } from 'expo-camera';
-import { useAuth } from '@/auth/AuthContext';
+import { useAuth } from '@/account/ui';
 import { Modal } from '@/modal';
-import { hostedPairingAuthority, hostedPairingDisplayName } from '@/state/hostedE2ee';
-import { getCachedConnectionSettings } from '@/state/connectionSettings';
+import { hostedPairingAuthority, hostedPairingDisplayName } from './hostedE2ee';
+import { getCachedConnectionSettings } from '@/connection';
 import { useCheckScannerPermissions } from './useCheckCameraPermissions';
 import { pairMachine } from './PairMachine';
 

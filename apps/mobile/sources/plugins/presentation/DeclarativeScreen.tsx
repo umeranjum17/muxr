@@ -11,7 +11,7 @@ import { Switch } from '@/components/Switch';
 import { hapticsError, hapticsSelection, hapticsSuccess } from '@/components/haptics';
 import { NavigableDiff } from '@/components/diff/NavigableDiff';
 import { SyntaxHighlightedCode } from '@/components/code/SyntaxHighlightedCode';
-import { sync } from '@/sync/sync';
+import { sync } from '@/catalog/sync';
 import { pluginSnapshot } from '../application/pluginStore';
 import { dispatchPluginAction } from '../application/pluginActions';
 import { clearPluginCache, registerPluginDataCacheInvalidator, subscribePluginDataInvalidation } from '../application/pluginDataInvalidation';

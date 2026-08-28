@@ -6,7 +6,7 @@ import { useIsFocused } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Modal } from '@/modal';
-import { sync } from '@/sync/sync';
+import { sync } from '@/catalog/sync';
 import { ItemGroup } from '@/components/ItemGroup';
 import { StatusDot } from '@/components/StatusDot';
 import { Typography } from '@/constants/Typography';

@@ -1,10 +1,10 @@
-import type { Machine } from '@/sync/storageTypes';
-import { machineSpawnNewSession } from '@/sync/ops';
-import { sync } from '@/sync/sync';
+import type { Machine } from '@/catalog';
+import { machineSpawnNewSession } from '@/catalog/ops';
+import { sync } from '@/catalog/sync';
 import { isMachineOnline } from '@/pairing';
 import { createWorktree } from '../infrastructure/worktree';
 import { WorktreeSelection } from '../domain/WorktreeSelection';
-import type { NewSessionAgentType } from '@/sync/persistence';
+import type { NewSessionAgentType } from '@/catalog/application/persistence';
 
 export type StartAgentFromDockCommand = {
     machine: Machine | undefined;

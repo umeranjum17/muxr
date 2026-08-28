@@ -16,7 +16,7 @@ import { Platform } from 'react-native';
 import { Modal } from '@/modal';
 import { generateThumbhash } from '@/utils/thumbhash';
 import { t } from '@/text';
-import type { AttachmentPreview } from '@/sync/attachmentTypes';
+import type { AttachmentPreview } from '@/catalog/infrastructure/attachmentTypes';
 
 export const MAX_IMAGES_PER_MESSAGE = 20;
 export const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB

@@ -1,5 +1,5 @@
-import { reconnectViaDiscoveredRelay } from '@/state/hostedE2ee';
-import { syncReconnect } from '@/sync/sync';
+import { reconnectViaDiscoveredRelay } from './hostedE2ee';
+import { syncReconnect } from '@/catalog/sync';
 
 export type ReconnectMachineCommand = {
     relays: ReadonlyArray<{ machineId: string; relayUrl: string }>;

@@ -11,13 +11,13 @@ import {
     type RealtimeHostFrame,
     type RequestParams,
 } from '@muxr/contract';
-import { getCachedConnectionSettings } from '@/state/connectionSettings';
+import { getCachedConnectionSettings } from '@/connection';
 import {
     DeviceV2Crypto,
     getCachedHostedGrant,
     refreshHostedGrant,
     type StoredHostedGrant,
-} from '@/state/hostedE2ee';
+} from '@/pairing/e2ee';
 import { pluginSnapshot, refreshPlugins } from './application/pluginStore';
 
 export interface PluginStream {

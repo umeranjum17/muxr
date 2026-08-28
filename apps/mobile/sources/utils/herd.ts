@@ -13,4 +13,4 @@ export {
     type HerdPane,
     type HerdNotificationMode,
     type HerdNotificationState,
-} from '@/herd';
+} from '@/herd/model';

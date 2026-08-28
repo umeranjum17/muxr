@@ -11,3 +11,5 @@ _Avoid_: audio focus, recorder lock
 **Desk Focus**:
 The Agent the desktop has focused, used only when that Agent is working or blocked.
 _Avoid_: last pane, current tab
+
+Use cases: [USE_CASES.md](../USE_CASES.md).

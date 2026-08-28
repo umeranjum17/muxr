@@ -1,8 +1,8 @@
 import * as React from 'react';
 import { useFocusEffect } from 'expo-router';
-import { storage, useHerdrTree, useSocketStatus } from '@/sync/storage';
-import { sync } from '@/sync/sync';
-import { listPairedGrants } from '@/state/hostedE2ee';
+import { storage, useHerdrTree, useSocketStatus } from '@/catalog/store';
+import { sync } from '@/catalog/sync';
+import { listPairedGrants } from '@/pairing/e2ee';
 import { hasAgent, lifecycleTree } from '../domain/herdTree';
 
 export function useHerdTreeLive() {

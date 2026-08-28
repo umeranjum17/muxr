@@ -47,7 +47,7 @@ describe('open-source mobile onboarding flow', () => {
             settings: { realtimeApiKey: 'sk-stale-mobile', preferredLanguage: 'en' },
         }));
         mmkvValues.set('pending-settings', JSON.stringify({ realtimeApiKey: 'sk-stale-pending', avatarStyle: 'brutalist' }));
-        const persistence = await import('@/sync/persistence');
+        const persistence = await import('@/catalog/application/persistence');
 
         const loaded = persistence.loadSettings();
         expect(loaded.settings.preferredLanguage).toBe('en');

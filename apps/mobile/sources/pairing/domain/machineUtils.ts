@@ -1,4 +1,4 @@
-import type { Machine } from '@/sync/storageTypes';
+import type { Machine } from '@/catalog';
 import { PairedMachine } from './PairedMachine';
 
 export function isMachineOnline(machine: Machine): boolean {

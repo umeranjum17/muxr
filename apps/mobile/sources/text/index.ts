@@ -9,7 +9,7 @@ import { zhHans } from '@/text/translations/zh-Hans';
 import { zhHant } from '@/text/translations/zh-Hant';
 import { ja } from '@/text/translations/ja';
 import * as Localization from 'expo-localization';
-import { loadSettings } from '@/sync/persistence';
+import { loadSettings } from '@/catalog/application/persistence';
 import { type SupportedLanguage, SUPPORTED_LANGUAGES, SUPPORTED_LANGUAGE_CODES, DEFAULT_LANGUAGE } from '@/text/_all';
 
 /**

@@ -1,6 +1,6 @@
 import { getRepoPath, isWorktreePath, landWorktree } from '../infrastructure/worktree';
-import { machineSpawnNewSession } from '@/sync/ops';
-import { sync } from '@/sync/sync';
+import { machineSpawnNewSession } from '@/catalog/ops';
+import { sync } from '@/catalog/sync';
 
 export type LandWorktreeCommand = {
     worktreePath: string;

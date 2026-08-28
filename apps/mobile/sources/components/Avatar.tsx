@@ -4,7 +4,7 @@ import { Image } from "expo-image";
 import { AvatarSkia } from "@/components/AvatarSkia";
 import { AvatarGradient } from "@/components/AvatarGradient";
 import { AvatarBrutalist } from "@/components/AvatarBrutalist";
-import { useSetting } from '@/sync/storage';
+import { useSetting } from '@/catalog/store';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import type { GeneratedAvatarProps } from '@/components/generatedAvatar';
 

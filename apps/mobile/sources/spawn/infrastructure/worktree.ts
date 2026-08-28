@@ -2,8 +2,8 @@
  * Git worktree operations: create, list, remove
  */
 
-import { machineBash } from '@/sync/ops';
-import { sync } from '@/sync/sync';
+import { machineBash } from '@/catalog/ops';
+import { sync } from '@/catalog/sync';
 import type { LandWorktreeResult } from '@muxr/contract';
 
 /** Relative path prefix where worktrees are stored inside a repo */

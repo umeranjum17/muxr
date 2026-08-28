@@ -5,7 +5,7 @@ import { useRouter } from 'expo-router';
 import { useUnistyles } from 'react-native-unistyles';
 import { PLUGIN_CALL_CLIENT_TIMEOUT_MS } from '@muxr/contract';
 import { Modal } from '@/modal';
-import { sync } from '@/sync/sync';
+import { sync } from '@/catalog/sync';
 import { OptionSheet } from '@/components/OptionSheet';
 import { StatusDot } from '@/components/StatusDot';
 import { hapticsError, hapticsLight } from '@/components/haptics';

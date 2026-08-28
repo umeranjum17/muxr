@@ -2,7 +2,7 @@ import * as React from 'react';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { useUnistyles } from 'react-native-unistyles';
-import { getProviderIconKind } from '@/sync/rig';
+import { getProviderIconKind } from '@/catalog';
 
 const providerImages = {
     codex: require('@/assets/images/icon-gpt.png'),

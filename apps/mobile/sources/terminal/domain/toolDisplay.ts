@@ -1,6 +1,5 @@
-import { ToolCall } from '@/sync/typesMessage';
-import { Metadata } from '@/sync/storageTypes';
-import { rigCanReadFiles } from '@/sync/rig';
+import type { Metadata, ToolCall } from '@/catalog';
+import { rigCanReadFiles } from '@/catalog/rig';
 
 /**
  * Coarse buckets for the collapsed group header ("ran 3 commands", "read 2

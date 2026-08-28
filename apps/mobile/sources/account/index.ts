@@ -3,6 +3,8 @@ export {
     accountCredentialIsPresent,
     accountSessionFromHttpStatus,
     type AccountSessionState,
+    type AuthCredentials,
 } from './domain/accountSession';
+export { validateAccountCredential } from './application/validateAccountCredential';
 export { validateHostedAccountSession } from './application/accountSession';
-export { AuthProvider, useAuth } from './presentation/AuthContext';
+export { TokenStorage } from './application/tokenStorage';

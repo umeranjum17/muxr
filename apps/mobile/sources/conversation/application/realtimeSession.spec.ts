@@ -36,10 +36,10 @@ vi.mock('@/plugins/openPluginStream', () => ({
 }));
 vi.mock('react-native-live-audio-stream', () => ({ default: mocks.liveAudio }));
 vi.mock('@/../modules/voice-overlay', () => mocks.pcm);
-vi.mock('@/voice/vadStandby', () => mocks.vad);
-vi.mock('@/sync/sync', () => ({ sync: { request: mocks.controlRequest } }));
+vi.mock('./vadStandby', () => mocks.vad);
+vi.mock('@/catalog/sync', () => ({ sync: { request: mocks.controlRequest } }));
 
-import { startRealtimeSession } from '@/voice/realtimeSession';
+import { startRealtimeSession } from './realtimeSession';
 
 interface FakeStream {
     send: ReturnType<typeof vi.fn>;

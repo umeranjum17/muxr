@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { SessionListViewItem, useSessionListViewData, useSetting } from '@/sync/storage';
+import { SessionListViewItem, useSessionListViewData, useSetting } from '@/catalog/store';
 
 export function useVisibleSessionListViewData(forceShowInactive = false): SessionListViewItem[] | null {
     const data = useSessionListViewData();

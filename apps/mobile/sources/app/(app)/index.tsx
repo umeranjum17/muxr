@@ -1,10 +1,10 @@
 import { ActionButton } from "@/components/ActionButton";
-import { useAuth } from "@/auth/AuthContext";
+import { useAuth } from "@/account/ui";
 import { Text, View, Platform } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as React from 'react';
 import { encodeBase64 } from "@/encryption/base64";
-import { authGetToken } from "@/auth/authGetToken";
+import { authGetToken } from "@/account/application/authGetToken";
 import { router } from "expo-router";
 import { StyleSheet } from "react-native-unistyles";
 import { getRandomBytesAsync } from "expo-crypto";
@@ -15,8 +15,8 @@ import { MainView } from "@/herd/ui";
 import { Wordmark } from "@/components/Wordmark";
 import { t } from '@/text';
 import { Modal } from '@/modal';
-import { resumePendingHostedPairing } from '@/state/hostedE2ee';
-import { getCachedConnectionSettings, saveConnectionSettings } from '@/state/connectionSettings';
+import { resumePendingHostedPairing } from '@/pairing/e2ee';
+import { getCachedConnectionSettings, saveConnectionSettings } from '@/connection';
 import { useHostedPairing, usePairQrScanner } from '@/pairing';
 
 export default function Home() {

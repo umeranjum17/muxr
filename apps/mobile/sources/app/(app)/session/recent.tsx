@@ -1,8 +1,8 @@
 import React from 'react';
 import { Platform, View, FlatList } from 'react-native';
 import { Text } from '@/components/StyledText';
-import { useAllSessions } from '@/sync/storage';
-import { Session } from '@/sync/storageTypes';
+import { useAllSessions } from '@/catalog/store';
+import { Session } from '@/catalog';
 import { Avatar } from '@/components/Avatar';
 import { getSessionName, getSessionSubtitle, getSessionAvatarId } from '@/herd';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';

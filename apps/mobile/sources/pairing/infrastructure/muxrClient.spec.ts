@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { encodePayload } from '@muxr/contract';
 
-vi.mock('@/state/hostedE2ee', () => ({
+vi.mock('../application/hostedE2ee', () => ({
     refreshHostedGrant: vi.fn(async () => undefined),
     DeviceV2Crypto: class {},
 }));

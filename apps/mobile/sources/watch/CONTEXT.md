@@ -11,7 +11,7 @@ _Avoid_: status tick, attention row
 ## Ownership
 
 - Domain owns Lifecycle Event predicates and Voice Report parse/admit rules. Parse fails closed. Spoken Human Name must not be an internal id.
-- Application owns Agent Watch persistence, scope, and Voice Report admission.
+- Application owns Agent Watch persistence, scope, and Voice Report admission. Named use cases: [USE_CASES.md](../USE_CASES.md).
 
 ## Invariants
 

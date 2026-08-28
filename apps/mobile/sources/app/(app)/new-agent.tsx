@@ -19,7 +19,7 @@ import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { sync } from '@/sync/sync';
+import { sync } from '@/catalog/sync';
 import { type HerdrTreeWorkspace } from '@muxr/contract';
 import { Text } from '@/components/StyledText';
 import { StatusDot } from '@/components/StatusDot';
@@ -29,9 +29,9 @@ import { DirectoryPicker } from '@/spawn/ui';
 import { agentStatusColor } from '@/herd';
 import {
     getCachedConnectionSettings,
-} from '@/state/connectionSettings';
+} from '@/connection';
 
-import { FALLBACK_AGENT_KINDS, resolveAgentCatalog, type AgentCatalogOption } from '@/sync/agentKinds';
+import { FALLBACK_AGENT_KINDS, resolveAgentCatalog, type AgentCatalogOption } from '@/catalog';
 import { useDeviceAuthority } from '@/pairing';
 import {
     agentAvailabilityLabel,

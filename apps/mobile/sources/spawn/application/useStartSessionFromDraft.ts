@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { useAllMachines } from '@/sync/storage';
+import { useAllMachines } from '@/catalog/store';
 import { useNavigateToSession } from '@/herd';
 import { startSessionFromDraft } from './startSessionFromDraft';
 

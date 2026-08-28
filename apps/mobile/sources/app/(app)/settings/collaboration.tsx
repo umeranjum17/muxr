@@ -7,8 +7,8 @@ import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
 import { ItemList } from '@/components/ItemList';
 import { Modal } from '@/modal';
-import { useAllMachines } from '@/sync/storage';
-import { listPairedGrants, type StoredHostedGrant } from '@/state/hostedE2ee';
+import { useAllMachines } from '@/catalog/store';
+import { listPairedGrants, type StoredHostedGrant } from '@/pairing/e2ee';
 import {
     applyCollaboration,
     grantPeerAuthority,

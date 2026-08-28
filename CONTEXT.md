@@ -181,3 +181,6 @@ _Avoid_: plugin folder, plugin name, package name
 **Provider Secret**:
 An owner-only API key for a realtime voice provider, stored under ~/.muxr. Display labels never authorize it.
 _Avoid_: API key file, settings key, voice credential
+
+Named application operations for mobile UI and runtime live in
+[apps/mobile/sources/USE_CASES.md](apps/mobile/sources/USE_CASES.md).

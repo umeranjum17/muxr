@@ -4,7 +4,7 @@ import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useRouter } from 'expo-router';
 import { Modal } from '@/modal';
 import { t } from '@/text';
-import { useSession } from '@/sync/storage';
+import { useSession } from '@/catalog/store';
 import { useAsyncAction } from '@/hooks/useAsyncAction';
 import { getDuplicateSheetFrame } from './duplicateSheetLayout';
 import {
@@ -12,7 +12,7 @@ import {
     claudeListRewindPoints,
     codexListRewindPoints,
     type ForkSource,
-} from '@/sync/ops';
+} from '@/catalog/ops';
 import { getSessionForkSource } from '@/herd';
 import { MobileGlassSurface } from '@/components/MobileGlass';
 

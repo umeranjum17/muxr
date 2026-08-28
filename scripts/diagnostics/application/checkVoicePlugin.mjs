@@ -30,7 +30,7 @@ result = run('status');
 assert.deepEqual(JSON.parse(result.stdout), { configured: false, statusLabel: 'No key set' });
 result = run('unknown');
 assert.notEqual(result.status, 0);
-const realtimeActions = readFileSync(join(root, 'apps/mobile/sources/realtime/realtimeActions.ts'), 'utf8');
+const realtimeActions = readFileSync(join(root, 'apps/mobile/sources/conversation/application/realtimeActions.ts'), 'utf8');
 assert.equal(realtimeActions.includes('Modal.prompt('), false, 'kernel must not collect provider secrets');
 const voiceManifest = readFileSync(join(root, 'plugins/voice/muxr-ui.json'), 'utf8');
 assert.match(voiceManifest, /"type":\s*"secure-prompt"/, 'provider secret must use attributed plugin prompt');
@@ -39,7 +39,7 @@ const oversizedAudio = 'A'.repeat(160 * 1024);
 const audioChunks = chunkAudio(oversizedAudio);
 assert.equal(audioChunks.join(''), oversizedAudio);
 assert.ok(audioChunks.length > 1 && audioChunks.every((chunk) => chunk.length <= 96 * 1024 && chunk.length % 4 === 0), 'provider audio must fit public realtime frame bounds');
-const mobileRealtime = readFileSync(join(root, 'apps/mobile/sources/voice/realtimeSession.ts'), 'utf8');
+const mobileRealtime = readFileSync(join(root, 'apps/mobile/sources/conversation/application/realtimeSession.ts'), 'utf8');
 assert.doesNotMatch(mobileRealtime, /OpenAI|xAI|Grok|Gemini|api\.[a-z]+\.ai|gpt-|grok-/i, 'mobile realtime transport must stay provider-blind');
 for (const adapter of ['plugins/voice/stream.mjs', 'plugins/voice-openai/stream.mjs', 'plugins/voice-gemini/stream.mjs']) {
     const source = readFileSync(join(root, adapter), 'utf8');

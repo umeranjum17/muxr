@@ -7,20 +7,20 @@ import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
 import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
-import { getCachedConnectionSettings, pairingTransport, saveConnectionSettings } from '@/state/connectionSettings';
-import { getCachedHostedGrant, listPairedGrants, removeHostedGrant } from '@/state/hostedE2ee';
-import { useAuth } from '@/auth/AuthContext';
+import { getCachedConnectionSettings, pairingTransport, saveConnectionSettings } from '@/connection';
+import { getCachedHostedGrant, listPairedGrants, removeHostedGrant } from '@/pairing/e2ee';
+import { forgetMachine as forgetPairedMachine, isMachineOnline } from '@/pairing';
+import { useAuth } from '@/account/ui';
 import { ItemList } from '@/components/ItemList';
-import { useLocalSettingMutable } from '@/sync/storage';
+import { useLocalSettingMutable } from '@/catalog/store';
 import { Modal } from '@/modal';
 import { useMultiClick } from '@/hooks/useMultiClick';
-import { useAllMachines } from '@/sync/storage';
-import { isMachineOnline } from '@/pairing';
+import { useAllMachines } from '@/catalog/store';
 import { useUnistyles } from 'react-native-unistyles';
 import { layout } from '@/components/layout';
 import { t } from '@/text';
 import { requestPermissionAndSubscribe, refreshPushState, type PushState } from '@/utils/pushNotifications';
-import { loadAppConfig } from '@/sync/appConfig';
+import { loadAppConfig } from '@/catalog/infrastructure/appConfig';
 import { knownHostVersion } from '@/utils/versionStatus';
 import { requestNotificationPermission } from '@/utils/microphonePermissions';
 import { registerNativePushNotifications } from '@/utils/nativePushNotifications';
@@ -37,7 +37,7 @@ import {
     loadCollaborationIntent,
     type CollaborationIntent,
 } from '@/collaboration';
-import { realtimeMachineSwitchGuard, stopRealtimeSession } from '@/realtime/realtimeSessionState';
+import { realtimeMachineSwitchGuard, stopRealtimeSession } from '@/conversation/session';
 
 type BuildConfig = {
     buildCommitSha?: unknown;
@@ -196,7 +196,9 @@ export const SettingsView = React.memo(function SettingsView({
         );
         if (!confirmed) return;
         if (voiceActive) stopRealtimeSession();
-        const remaining = await removeHostedGrant(machineId);
+        const forgotten = await forgetPairedMachine({ machineId }, { removeGrant: removeHostedGrant });
+        if (!forgotten.ok) return;
+        const remaining = forgotten.remaining;
         setPairedGrants(remaining);
         if (machineId !== getCachedConnectionSettings().machineId) return;
         const next = remaining[0];

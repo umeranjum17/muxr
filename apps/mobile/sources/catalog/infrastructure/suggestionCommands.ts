@@ -4,7 +4,7 @@
  */
 
 import Fuse from 'fuse.js';
-import { storage } from '@/sync/storage';
+import { storage } from '../application/storage';
 
 export interface CommandItem {
     command: string;        // The command without slash (e.g., "compact")

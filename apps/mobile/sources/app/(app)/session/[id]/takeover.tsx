@@ -6,8 +6,8 @@ import { useLocalSearchParams } from 'expo-router';
 import { Text } from '@/components/StyledText';
 import { Typography } from '@/constants/Typography';
 import { Modal } from '@/modal';
-import { machineBash } from '@/sync/ops';
-import { useSession, useSocketStatus } from '@/sync/storage';
+import { machineBash } from '@/catalog/ops';
+import { useSession, useSocketStatus } from '@/catalog/store';
 import { mapDisplayToInput, type Size, type StreamFrameMetadata } from '@/takeover';
 import { codeForKey, keyMessage, openTakeover, parseStreamFrame, touchMessage } from '@/takeover';
 

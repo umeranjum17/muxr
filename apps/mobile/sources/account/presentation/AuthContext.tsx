@@ -2,11 +2,11 @@ import React, { createContext, useCallback, useContext, useState, useEffect, typ
 import { Platform } from 'react-native';
 import * as Updates from 'expo-updates';
 import { relayControlUrl } from '@muxr/contract';
-import { TokenStorage, type AuthCredentials } from '@/auth/tokenStorage';
-import { setAccountCredentialRejectedHandler, syncCreate } from '@/sync/sync';
-import { clearPersistence } from '@/sync/persistence';
-import { getCachedConnectionSettings } from '@/state/connectionSettings';
-import { clearHostedE2ee } from '@/state/hostedE2ee';
+import { TokenStorage, type AuthCredentials } from '../application/tokenStorage';
+import { setAccountCredentialRejectedHandler, syncCreate } from '@/catalog/sync';
+import { clearPersistence } from '@/catalog';
+import { getCachedConnectionSettings } from '@/connection';
+import { clearHostedE2ee } from '@/pairing/e2ee';
 import { unregisterNativePushNotifications } from '@/utils/nativePushNotifications';
 
 interface AuthContextType {

@@ -1,4 +1,4 @@
-import type { SessionListViewItem, SessionRowData } from '@/sync/storage';
+import type { SessionListViewItem, SessionRowData } from '@/catalog/store';
 
 export interface SessionDisplayMachine {
     id: string;

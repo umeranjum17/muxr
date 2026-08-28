@@ -9,8 +9,8 @@ import {
     realtimeSessionSnapshot,
     startRealtimeSession,
     type RealtimeTarget,
-} from '@/realtime/realtimeSessionState';
-import { voiceDiagnostic } from '@/voice/voiceDiagnostics';
+} from './realtimeSessionState';
+import { voiceDiagnostic } from '../infrastructure/voiceDiagnostics';
 import { callPlugin } from '@/plugins/callPlugin';
 import { registerNativePushNotifications } from '@/utils/nativePushNotifications';
 

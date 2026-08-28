@@ -3,8 +3,8 @@
  * Fetches all tracked + untracked files and stores them in Zustand.
  */
 
-import { sessionBash } from '@/sync/ops';
-import { storage } from '@/sync/storage';
+import { sessionBash } from '../application/ops';
+import { storage } from '../application/storage';
 
 export interface ProjectFile {
     fileName: string;

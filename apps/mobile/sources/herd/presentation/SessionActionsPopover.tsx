@@ -5,7 +5,7 @@ import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
 import { Typography } from '@/constants/Typography';
 import { useSessionQuickActions, SessionActionItem } from '../application/useSessionQuickActions';
-import { useSession } from '@/sync/storage';
+import { useSession } from '@/catalog/store';
 import {
     formatShortcutChord,
     getPreferredShortcutModifier,

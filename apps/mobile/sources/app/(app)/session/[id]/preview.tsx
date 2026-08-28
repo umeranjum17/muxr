@@ -6,7 +6,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams } from 'expo-router';
 import { Text } from '@/components/StyledText';
 import { Typography } from '@/constants/Typography';
-import { useSession, useSocketStatus } from '@/sync/storage';
+import { useSession, useSocketStatus } from '@/catalog/store';
 import * as Device from 'expo-device';
 import { openPreview, type OpenPreview } from '@/preview';
 

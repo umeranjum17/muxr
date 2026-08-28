@@ -8,7 +8,7 @@ import {
     getMouseNavigationDirection,
 } from '@/navigation/browserNavigation';
 import { useBrowserNavigationStore } from '@/navigation/browserNavigationStore';
-import { storage } from '@/sync/storage';
+import { storage } from '@/catalog/store';
 import { useGlobalSearchParams, usePathname, useRouter } from 'expo-router';
 import * as React from 'react';
 import { Platform } from 'react-native';

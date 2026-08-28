@@ -1,5 +1,5 @@
 import React from 'react';
-import { UserProfile, getDisplayName } from '@/sync/friendTypes';
+import { UserProfile, getDisplayName } from '@/catalog';
 import { Item } from '@/components/Item';
 import { Avatar } from '@/components/Avatar';
 

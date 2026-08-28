@@ -25,14 +25,14 @@ import { layout } from '@/components/layout';
 import { t } from '@/text';
 import { useNewSessionDraft } from '../application/useNewSessionDraft';
 import { PluginSlot } from '@/plugins/ui';
-import { useAllMachines, useSessions, useSocketStatus } from '@/sync/storage';
+import { useAllMachines, useSessions, useSocketStatus } from '@/catalog/store';
 import { isMachineOnline } from '@/pairing';
 import { resolveAbsolutePath } from '@/utils/pathUtils';
 import { listWorktrees } from '../infrastructure/worktree';
-import { type NewSessionAgentType } from '@/sync/persistence';
+import { type NewSessionAgentType } from '@/catalog/application/persistence';
 import { useImagePicker } from '@/hooks/useImagePicker';
-import { sync } from '@/sync/sync';
-import { resolveAgentCatalog } from '@/sync/agentKinds';
+import { sync } from '@/catalog/sync';
+import { resolveAgentCatalog } from '@/catalog';
 import {
     applyWorktreeSelection,
     agentTypeIfHostDisallows,

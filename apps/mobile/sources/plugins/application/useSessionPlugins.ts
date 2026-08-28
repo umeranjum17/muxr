@@ -1,7 +1,7 @@
 import * as React from 'react';
 import type { PluginSummary, PluginToolbarButton } from '@muxr/contract';
 
-import { useSocketStatus } from '@/sync/storage';
+import { useSocketStatus } from '@/catalog/store';
 import { pluginSnapshot, refreshPlugins, subscribePlugins } from './pluginStore';
 
 export type SessionPluginButton = PluginToolbarButton & Pick<PluginSummary, 'pluginId' | 'name'> & { manifestHash: string; capabilities: Record<string, string> };

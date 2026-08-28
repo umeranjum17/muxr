@@ -23,3 +23,5 @@ _Avoid_: pane title, terminal title
 **Provider Kind**:
 Which coding-agent program is running.
 _Avoid_: agent name, model
+
+Use cases: [USE_CASES.md](../USE_CASES.md).

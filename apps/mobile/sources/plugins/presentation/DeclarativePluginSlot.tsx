@@ -8,7 +8,7 @@ import { useUnistyles } from 'react-native-unistyles';
 import type { PluginDataCard, PluginNativeContribution, PluginNavigationItem, PluginTerminalKeyRow } from '@muxr/contract';
 import { MAX_RPC_DISPLAY_BYTES, PLUGIN_CALL_CLIENT_TIMEOUT_MS, capUtf8Bytes, sanitizeDisplayText } from '@muxr/contract';
 import type { PluginTerminalChannel } from '../domain/slotTypes';
-import { sync } from '@/sync/sync';
+import { sync } from '@/catalog/sync';
 import { useSlotContributions } from '../application/useSlotContributions';
 import { pluginSnapshot } from '../application/pluginStore';
 import { pluginHref } from '../domain/pluginHref';

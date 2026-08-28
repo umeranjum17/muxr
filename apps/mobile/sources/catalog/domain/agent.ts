@@ -1,10 +1,10 @@
 import { isSessionIdle, type SessionInfo, type SessionStatus } from '@muxr/contract';
-import type { Session } from '@/sync/storageTypes';
+import type { Session } from '../infrastructure/storageTypes';
 import {
     lifecycleIsBusy,
     lifecycleNeedsApproval,
     lifecycleSince,
-} from '@/sync/lifecycle';
+} from '@/watch';
 
 /**
  * How long a quiet Agent keeps counting as listed. Pi sessions never report

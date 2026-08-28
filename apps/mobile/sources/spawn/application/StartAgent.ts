@@ -1,11 +1,11 @@
 import { MISSING_CWD_ERROR_PREFIX, type RequestParams } from '@muxr/contract';
-import { sync } from '@/sync/sync';
-import { refreshUntilSessionVisible } from '@/sync/ops';
+import { sync } from '@/catalog/sync';
+import { refreshUntilSessionVisible } from '@/catalog/ops';
 import {
     getCachedConnectionSettings,
     rememberSessionCwd,
     saveConnectionSettings,
-} from '@/state/connectionSettings';
+} from '@/connection';
 import { SpawnRequest, type SpawnMember } from '../domain/SpawnRequest';
 
 export type StartAgentCommand = {

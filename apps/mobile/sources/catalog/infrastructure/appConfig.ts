@@ -41,7 +41,6 @@ export function loadAppConfig(): AppConfig {
             const appConfig = exponentManifest?.extra?.app;
             if (appConfig && typeof appConfig === 'object') {
                 Object.assign(config, appConfig);
-                console.log('[loadAppConfig] Loaded from ExponentConstants:', Object.keys(config));
             }
         }
     } catch (e) {
@@ -54,19 +53,15 @@ export function loadAppConfig(): AppConfig {
             const appConfig = Constants.expoConfig.extra.app;
             if (typeof appConfig === 'object') {
                 Object.assign(config, appConfig);
-                console.log('[loadAppConfig] Loaded from Constants.expoConfig:', Object.keys(config));
             }
         }
     } catch (e) {
         console.warn('[loadAppConfig] Error accessing Constants.expoConfig:', e);
     }
 
-    console.log('[loadAppConfig] Final merged config:', JSON.stringify(config, null, 2));
-
     // Non-secret developer server override only. Distribution flags and public
     // billing/setup origins are baked into the signed build configuration.
     if (process.env.EXPO_PUBLIC_SERVER_URL && config.serverUrl !== process.env.EXPO_PUBLIC_SERVER_URL) {
-        console.log('[loadAppConfig] Override serverUrl from EXPO_PUBLIC_SERVER_URL');
         config.serverUrl = process.env.EXPO_PUBLIC_SERVER_URL;
     }
 

@@ -27,12 +27,12 @@ vi.mock('expo-notifications', () => ({ scheduleNotificationAsync: vi.fn() }));
 vi.mock('react-native', () => ({ AppState: { currentState: 'active' }, Platform: { OS: 'android' } }));
 vi.mock('@/modal', () => ({ Modal: {} }));
 vi.mock('@/utils/sessionUtils', () => ({ getSessionName: () => 'session' }));
-vi.mock('@/state/connectionSettings', () => ({
+vi.mock('@/connection', () => ({
     DEFAULT_CONNECTION: { ...harness.connection },
     getCachedConnectionSettings: () => harness.connection,
     loadConnectionSettingsAsync: async () => harness.connection,
 }));
-vi.mock('@/state/hostedE2ee', () => ({
+vi.mock('@/pairing/e2ee', () => ({
     getOrCreateHostedDeviceKey: vi.fn(async () => ({
         publicKey: 'device-public',
         secretKey: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
@@ -41,7 +41,7 @@ vi.mock('@/state/hostedE2ee', () => ({
     loadHostedGrant: async () => harness.grant,
     refreshHostedGrant: async () => harness.grant,
 }));
-vi.mock('@/client/muxrClient', () => ({
+vi.mock('@/pairing/infrastructure/muxrClient', () => ({
     MuxrClient: class {
         state = 'closed';
         private listeners: Array<(state: string) => void> = [];
@@ -66,15 +66,15 @@ vi.mock('@/client/muxrClient', () => ({
         }
     },
 }));
-vi.mock('@/sync/encryption/encryption', () => ({
+vi.mock('../../catalog/infrastructure/encryption/encryption', () => ({
     Encryption: { create: async () => ({ anonID: 'account-device' }) },
 }));
-vi.mock('@/sync/sessionMapping', () => ({
+vi.mock('../../catalog/infrastructure/sessionMapping', () => ({
     applyStatusToSession: (session: unknown) => session,
     machineInfoToMachine: (machine: unknown) => machine,
     sessionInfoToSession: (session: unknown) => session,
 }));
-vi.mock('@/sync/storage', () => ({
+vi.mock('../../catalog/application/storage', () => ({
     storage: {
         getState: () => ({
             sessions: {},
@@ -95,13 +95,13 @@ vi.mock('@/sync/storage', () => ({
     },
 }));
 
-import { finishHostedEmailLogin } from '@/auth/hostedEmailLogin';
+import { finishHostedEmailLogin } from './hostedEmailLogin';
 import {
     setAccountCredentialRejectedHandler,
     sync,
     syncCreate,
     syncReconnect,
-} from '@/sync/sync';
+} from '@/catalog/sync';
 
 const originalFetch = globalThis.fetch;
 

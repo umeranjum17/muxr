@@ -10,4 +10,4 @@ export {
     workingAgentSwipeIds,
     type LiveTerminalOrderCard,
     type LiveTerminalOrderState,
-} from '@/herd';
+} from '@/herd/live';

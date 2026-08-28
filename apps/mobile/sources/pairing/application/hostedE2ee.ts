@@ -20,24 +20,19 @@ import {
     type V2SenderState,
 } from '@muxr/crypto';
 import { relayControlUrl } from '@muxr/contract';
-import { deleteWebSecret, getWebSecret, listWebSecretNames, setWebSecret } from '@/state/webSecureStore';
-import { deleteNativeSecret, getNativeSecret, setNativeSecret } from '@/state/nativeSecretStore';
-import { getCachedConnectionSettings, loadConnectionSettingsAsync, saveConnectionSettings } from '@/state/connectionSettings';
+import { deleteWebSecret, getWebSecret, listWebSecretNames, setWebSecret } from '../infrastructure/webSecureStore';
+import { deleteNativeSecret, getNativeSecret, setNativeSecret } from '../infrastructure/nativeSecretStore';
+import { getCachedConnectionSettings, loadConnectionSettingsAsync, saveConnectionSettings } from '@/connection';
 import {
     expandCompactPairingPayload,
     hostedPairingDisplayName,
     pairingSearchParams,
     prepareHostedPairingInput,
-} from '@/state/hostedPairingUrl';
-import {
-    acceptVerifiedGrant,
-    connectionShouldAdoptGrant,
-    grantRejectsDowngrade,
-    pickGrantForConnection,
-    type DeviceAuthority,
-} from '../domain/hostedGrant';
+} from '../domain/pairingString';
+import { acceptVerifiedGrant, grantRejectsDowngrade, type DeviceAuthority } from '../domain/hostedGrant';
+import { restoreConnection } from './restoreConnection';
 
-export { hostedPairingAuthority, hostedPairingDisplayName, prepareHostedPairingInput } from '@/state/hostedPairingUrl';
+export { hostedPairingAuthority, hostedPairingDisplayName, prepareHostedPairingInput } from '../domain/pairingString';
 
 const DEVICE_KEY = 'muxr.hosted-e2ee.device.v2';
 const REPLAY_KEY = 'muxr.hosted-e2ee.replay.v2';
@@ -231,19 +226,18 @@ export async function refreshHostedGrant(
 /** Restore an active pairing from secure storage; the grant, not discovery or AsyncStorage, owns authority. */
 export async function restoreHostedConnection(): Promise<StoredHostedGrant | undefined> {
     const settings = await loadConnectionSettingsAsync();
-    if (settings.mode !== 'hosted') return undefined;
     const paired = await listPairedGrants();
-    const grant = pickGrantForConnection(settings, paired);
-    if (grant === undefined) return undefined;
-    if (connectionShouldAdoptGrant(settings, grant)) {
+    const result = restoreConnection(settings, paired);
+    if (!result.ok) return undefined;
+    if (result.adopt) {
         await saveConnectionSettings({
             ...settings,
-            relayUrl: grant.relayUrl,
-            machineId: grant.machineId,
-            selfhost: grant.source === 'selfhost' ? true : undefined,
+            relayUrl: result.grant.relayUrl,
+            machineId: result.grant.machineId,
+            selfhost: result.grant.source === 'selfhost' ? true : undefined,
         });
     }
-    return grant;
+    return result.grant;
 }
 
 /** Verify a discovered locator with the stored grant before switching the active transport. */

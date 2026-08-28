@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
-import { useSocketStatus } from '@/sync/storage';
+import { useSocketStatus } from '@/catalog/store';
 import { useSplitViewLayout } from '@/utils/responsive';
 import { useRouter } from 'expo-router';
 import { TabBar, TabType } from './TabBar';
@@ -34,14 +34,14 @@ import { MOBILE_GLASS_HEADER_HEIGHT } from '@/components/navigation/headerMetric
 import { MobileGlassSurface } from '@/components/MobileGlass';
 import { useNewSessionDraft } from '@/spawn';
 import { useStartSessionFromDraft } from '@/spawn';
-import { listPairedGrants, type StoredHostedGrant } from '@/state/hostedE2ee';
-import { getCachedConnectionSettings, pairingTransport, saveConnectionSettings } from '@/state/connectionSettings';
+import { listPairedGrants, type StoredHostedGrant } from '@/pairing/e2ee';
+import { getCachedConnectionSettings, pairingTransport, saveConnectionSettings } from '@/connection';
 import { useDeviceAuthority } from '@/pairing';
-import { useAuth } from '@/auth/AuthContext';
+import { useAuth } from '@/account/ui';
 import { useVisibleSessionListViewData } from '../application/useVisibleSessionListViewData';
 import { OptionSheet, type ModelMode } from '@/components/OptionSheet';
 import { Modal } from '@/modal';
-import { realtimeMachineSwitchGuard, stopRealtimeSession } from '@/realtime/realtimeSessionState';
+import { realtimeMachineSwitchGuard, stopRealtimeSession } from '@/conversation/session';
 import { connectionStatusPresentation, homeHeaderTitle, pairedMachineTitle } from '@/pairing/ui';
 
 

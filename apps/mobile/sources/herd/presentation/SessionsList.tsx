@@ -2,7 +2,7 @@ import React from 'react';
 import { View, Pressable, FlatList, NativeScrollEvent, NativeSyntheticEvent, Platform } from 'react-native';
 import { Text } from '@/components/StyledText';
 import { usePathname } from 'expo-router';
-import { SessionListViewItem, SessionRowData } from '@/sync/storage';
+import { SessionListViewItem, SessionRowData } from '@/catalog/store';
 import { Ionicons } from '@expo/vector-icons';
 import { sessionStateColors, unreadStateColors, vibingMessages } from '../application/sessionUtils';
 import { Avatar } from '@/components/Avatar';

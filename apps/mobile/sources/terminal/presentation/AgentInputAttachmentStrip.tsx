@@ -8,7 +8,7 @@ import { ScrollView, View, Pressable } from 'react-native';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
-import type { AttachmentPreview } from '@/sync/attachmentTypes';
+import type { AttachmentPreview } from '@/catalog/infrastructure/attachmentTypes';
 import { thumbhashToDataUri } from '@/utils/thumbhash';
 
 const THUMB_SIZE = 64;

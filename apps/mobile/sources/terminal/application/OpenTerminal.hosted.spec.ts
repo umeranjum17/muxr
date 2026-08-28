@@ -29,7 +29,7 @@ const mocks = vi.hoisted(() => ({
     fetch: vi.fn(),
 }));
 
-vi.mock('@/state/connectionSettings', () => ({
+vi.mock('@/connection', () => ({
     getCachedConnectionSettings: () => ({
         mode: 'hosted',
         relayUrl: 'ws://relay.test',
@@ -38,11 +38,11 @@ vi.mock('@/state/connectionSettings', () => ({
     }),
 }));
 
-vi.mock('@/sync/sync', () => ({
+vi.mock('@/catalog/sync', () => ({
     sync: { request: mocks.request },
 }));
 
-vi.mock('@/state/hostedE2ee', () => ({
+vi.mock('@/pairing/e2ee', () => ({
     getCachedHostedGrant: () => grant,
     refreshHostedGrant: async () => grant,
     DeviceV2Crypto: class {

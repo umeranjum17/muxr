@@ -47,8 +47,8 @@ cd "$MOBILE"
 node "$ROOT/scripts/diagnostics/application/verifyNativePatches.mjs"
 (cd "$ROOT" && yarn build)
 (cd "$ROOT" && npx vitest run \
-  apps/mobile/sources/terminal/ghosttyPatch.spec.ts \
-  apps/mobile/sources/voice/realtimeSession.spec.ts \
+  apps/mobile/sources/terminal/application/ghosttyPatch.spec.ts \
+  apps/mobile/sources/conversation/application/realtimeSession.spec.ts \
   apps/mobile/sources/utils/dictation.spec.ts \
   --root "$ROOT") || {
   echo "required native audio/terminal patch or voice checks failed -- refusing to build" >&2

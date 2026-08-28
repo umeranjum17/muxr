@@ -1,8 +1,8 @@
 import * as React from 'react';
 import { AppState, Platform } from 'react-native';
 import type { AgentLifecycle } from '@muxr/contract';
-import { useAuth } from '@/auth/AuthContext';
-import { useHerdrTree, useLifecycleCatalogAvailable, useLocalSetting, useLocalSettingMutable, useSessions, useSocketStatus } from '@/sync/storage';
+import { useAuth } from '@/account/ui';
+import { useHerdrTree, useLifecycleCatalogAvailable, useLocalSetting, useLocalSettingMutable, useSessions, useSocketStatus } from '@/catalog/store';
 import {
     canPostPromotedNotifications,
     clearVoiceNotification,
@@ -16,7 +16,7 @@ import {
 import { requestNotificationPermission } from '@/utils/microphonePermissions';
 import { completionNotificationState, completionTransition, herdNotificationState, sortHerd } from '../domain/herd';
 import { lifecycleTree } from '../domain/herdTree';
-import { boundRealtimeSession, configureVadStandby, useRealtimeMuted, useRealtimeSessionState } from '@/realtime/realtimeSessionState';
+import { boundRealtimeSession, configureVadStandby, useRealtimeMuted, useRealtimeSessionState } from '@/conversation/session';
 import { Modal } from '@/modal';
 import { registerNativePushNotifications } from '@/utils/nativePushNotifications';
 

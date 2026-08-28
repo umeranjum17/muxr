@@ -1,7 +1,8 @@
 # Contributing
 
 muxr is a small, opinionated codebase. This file is the whole contract
-between you and it.
+between you and it. Architecture checks in `yarn check` enforce the package,
+mobile UI, and mobile runtime rules below; they are not optional style.
 
 ## Set up
 
@@ -51,6 +52,13 @@ node packages/checkArchitecture.mjs
 node packages/contract/dist/selfCheck.js
 node packages/crypto/dist/selfCheck.js
 npx vitest run packages/contract --root .
+```
+
+Focused commands while iterating on mobile UI or runtime:
+
+```bash
+yarn check:architecture
+yarn workspace @muxr/mobile typecheck
 ```
 
 ## Architecture
@@ -107,34 +115,34 @@ fails nested ternaries.
 **Tests.** Flow-level only. Default to zero new test files. One flow test per
 feature is the norm. Heavily mocked tests that would pass if the real code
 broke are worse than none. Crypto and security paths keep their coverage.
-`apps/mobile/sources/sync/sessionSync.integration.spec.ts` is the reference.
+`apps/mobile/sources/catalog/application/sessionSync.integration.spec.ts` is the reference.
 Do not add a test matrix because a brief asked for one.
 
 ## Mobile UI architecture
 
 Phone features under `apps/mobile/sources/` are split by what the person is doing, then by layer. Expo Router `app/` is the composition root. Shared chrome (`components/`, `modal/`, `theme`, `text`) is not a fake context.
 
-**In scope:** `herd`, `spawn`, `pairing`, `plugins`, `terminal`, `collaboration`, `preview`, `takeover`, `changelog`, `settings`. **Leave alone:** `sync/`, `state/`, `realtime/`, `voice/`, `auth/`, `encryption/`.
+**UI contexts:** `herd`, `spawn`, `pairing`, `plugins`, `terminal`, `collaboration`, `preview`, `takeover`, `changelog`, `settings`. **Runtime contexts:** `catalog`, `watch`, `connection`, `pairing`, `conversation`, `playback`, `account`. Encryption under `apps/mobile/sources/encryption/` is a shared kernel, not a context. Do not reintroduce `sync/`, `state/`, `realtime/`, `voice/`, or `auth/` folders.
 
 ### Dependency direction
 
-Outsiders import `@/<context>` (domain + use cases) or `@/<context>/ui` (screens). Never `@/<context>/domain/…`. Domain is pure TypeScript (type-only React types allowed). Domain never imports application, presentation, infrastructure, or `@/*/ui`.
+Outsiders import `@/<context>` (domain + use cases), `@/<context>/ui` (screens), or a documented public entry (`@/herd/model`, `@/herd/live`, `@/catalog/store`, `@/catalog/sync`, `@/catalog/ops`, `@/catalog/rig`, `@/watch/store`, `@/account/session`, `@/pairing/client`, `@/pairing/e2ee`, `@/pairing/grant`, `@/pairing/secrets`, `@/plugins/events`, `@/conversation/diagnostics`, `@/conversation/session`, `@/playback/interrupt`). Never `@/<context>/domain/…`. Domain is pure TypeScript (type-only React types allowed). Domain never imports application, presentation, infrastructure, or `@/*/ui`.
 
 ### Ubiquitous names
 
-Use [CONTEXT.md](CONTEXT.md). Agent Route authorizes. Human Name, Task Title, and computer display names never authorize. Do not introduce chat-era names into new code.
+Use [CONTEXT.md](CONTEXT.md). Agent Route authorizes. Human Name, Task Title, and computer display names never authorize. Do not introduce chat-era names into new code. Do not reintroduce internal ids in UI or speech (`pp_*`, pane ids, session ids).
 
 ### Use cases
 
-One PascalCase module per real operation (`StartAgent.ts`, `OpenTerminal.ts`, …). Command in, explicit result out. The module orchestrates domain entities and existing ports (`@/sync`, `@/state`). It contains no React, `expo-router`, or `@/modal`. Routes, hooks, and plugin slots are thin adapters. Map: [apps/mobile/sources/USE_CASES.md](apps/mobile/sources/USE_CASES.md). No `services/` folder. No use case that does not exist in the product.
+One intent-revealing module per real operation. Phone UI uses PascalCase files (`StartAgent.ts`, `OpenTerminal.ts`). Runtime uses camelCase files (`promptAgent.ts`, `interruptPlayback.ts`). Command in, explicit result out. The module orchestrates domain entities and existing ports. It contains no React, `expo-router`, or `@/modal`. Routes, hooks, plugin slots, and host adapters are thin adapters. Map: [apps/mobile/sources/USE_CASES.md](apps/mobile/sources/USE_CASES.md). No `services/` folder. No use case that does not exist in the product.
 
 ### Rich domain
 
-Invariants and transitions live on domain objects (`Agent.lifecycle()`, `SpawnRequest.rejection()`, `PairedMachine.isOnline()`, `WorktreeSelection`, `Collaboration`). Do not add BaseEntity, generic repositories, a DI container, CQRS, or empty layers.
+Invariants and transitions live on domain objects (`Agent.lifecycle()`, `SpawnRequest.rejection()`, `PairedMachine.isOnline()`, `WorktreeSelection`, `Collaboration`, Voice Report parse, Pairing String constructors, Mic Ownership exclusivity, Account Credential empty-vs-401). Do not add BaseEntity, generic repositories, a DI container, CQRS, or empty layers.
 
 ### Compatibility
 
-Do not add shims for old internal import paths. Frozen re-exports under `utils/` and `hooks/` exist only because excluded runtime still imports them. Do not grow that set.
+Do not add shims for old internal import paths (`@/sync`, `@/state`, `@/realtime`, `@/voice`, `@/auth`, `@/client`). When a file moves, delete the old path. Callers import the context that owns the behavior.
 
 ### Readability
 
@@ -264,7 +272,8 @@ Maps:
 - `packages/USE_CASES.md` — capability → use case → domain owner → adapters
 - `apps/host` — the herdr bridge; `src/herdr/` is the backend
 - `apps/relay` — envelope routing, replay, terminal/preview channels, push
-- `apps/mobile` — the app; `sources/terminal/` is the terminal layer
+- `apps/mobile` — the app; runtime and UI bounded contexts under `sources/<context>/`
+- `apps/mobile/sources/USE_CASES.md` — capability → use case → adapters
 - `docs/ARCHITECTURE.md` — the herdr facts this code depends on; read it before
   touching `apps/host/src/herdr/`
 

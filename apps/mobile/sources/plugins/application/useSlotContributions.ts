@@ -1,6 +1,6 @@
 import * as React from 'react';
 import type { PluginNativeContribution, PluginNativeSlot, PluginScreenContribution } from '@muxr/contract';
-import { useSocketStatus } from '@/sync/storage';
+import { useSocketStatus } from '@/catalog/store';
 import { pluginSnapshot, refreshPlugins, subscribePlugins } from './pluginStore';
 
 export type SlotContribution = (PluginNativeContribution | PluginScreenContribution) & { pluginId: string; pluginName: string; manifestHash: string };

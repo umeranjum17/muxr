@@ -1,4 +1,4 @@
-import type { Message } from '@/sync/typesMessage';
+import type { Message } from './typesMessage';
 
 export function buildMessagesMap(messages: readonly Message[]): Record<string, Message> {
     const map: Record<string, Message> = {};

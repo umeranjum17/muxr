@@ -8,4 +8,4 @@ export {
     workspaceName,
     type HerdRow,
     type HerdSpaceRow,
-} from '@/herd';
+} from '@/herd/model';

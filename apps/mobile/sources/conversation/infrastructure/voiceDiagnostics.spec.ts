@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { voiceDiagnostic } from '@/voice/voiceDiagnostics';
+import { voiceDiagnostic } from './voiceDiagnostics';
 
 describe('voice diagnostics', () => {
     afterEach(() => {

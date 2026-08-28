@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import React from 'react';
 import TestRenderer from 'react-test-renderer';
-import type { Session } from '@/sync/storageTypes';
+import type { Session } from '@/catalog';
 import {
     nextWorkingAgentId,
     useLiveTerminalOrder,

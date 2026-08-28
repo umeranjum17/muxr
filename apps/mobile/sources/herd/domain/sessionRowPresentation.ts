@@ -3,7 +3,7 @@
  * SessionsList renders; this module decides what each row says.
  */
 
-import { SessionListViewItem, SessionRowData } from '@/sync/storage';
+import { SessionListViewItem, SessionRowData } from '@/catalog/store';
 import { formatLastSeen } from './sessionIdentity';
 import { t } from '@/text';
 

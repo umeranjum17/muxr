@@ -9,7 +9,7 @@ import Animated, {
     withRepeat,
     withTiming,
 } from 'react-native-reanimated';
-import type { RealtimeSessionState } from '@/realtime/realtimeSessionState';
+import type { RealtimeSessionState } from '../application/realtimeSessionState';
 
 /**
  * The realtime control: a live line, not a second microphone. The mic beside it

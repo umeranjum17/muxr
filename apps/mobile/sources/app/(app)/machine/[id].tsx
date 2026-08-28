@@ -5,21 +5,21 @@ import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
 import { ItemList } from '@/components/ItemList';
 import { Typography } from '@/constants/Typography';
-import { useSessions, useAllMachines, useMachine, useLocalSetting } from '@/sync/storage';
+import { useSessions, useAllMachines, useMachine, useLocalSetting } from '@/catalog/store';
 import { Ionicons } from '@expo/vector-icons';
-import type { Session } from '@/sync/storageTypes';
+import type { Session } from '@/catalog';
 import { Modal } from '@/modal';
 import { formatPathRelativeToHome, getSessionName, getSessionSubtitle } from '@/herd';
 import { isMachineOnline } from '@/pairing';
-import { sync } from '@/sync/sync';
+import { sync } from '@/catalog/sync';
 import { useUnistyles, StyleSheet } from 'react-native-unistyles';
 import { t } from '@/text';
 import { useNavigateToSession } from '@/herd';
-import { machineSpawnNewSession } from '@/sync/ops';
+import { machineSpawnNewSession } from '@/catalog/ops';
 import { resolveAbsolutePath } from '@/utils/pathUtils';
 import { MultiTextInput, type MultiTextInputHandle } from '@/components/MultiTextInput';
-import { getCachedHostedGrant } from '@/state/hostedE2ee';
-import { getCachedConnectionSettings, pairingTransport } from '@/state/connectionSettings';
+import { getCachedHostedGrant } from '@/pairing/e2ee';
+import { getCachedConnectionSettings, pairingTransport } from '@/connection';
 import { loadCollaborationIntent } from '@/collaboration';
 
 function formatNames(names: string[]): string {

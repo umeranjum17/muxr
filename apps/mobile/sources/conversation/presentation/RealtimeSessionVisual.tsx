@@ -14,8 +14,8 @@ import Animated, {
     withTiming,
     type SharedValue,
 } from 'react-native-reanimated';
-import { subscribeEnergy } from '@/realtime/audioEnergy';
-import type { RealtimeSessionState } from '@/realtime/realtimeSessionState';
+import { subscribeEnergy } from '../infrastructure/audioEnergy';
+import type { RealtimeSessionState } from '../application/realtimeSessionState';
 
 /**
  * A cloud of dust with a light in the middle of it.

@@ -6,13 +6,13 @@
  */
 import * as React from 'react';
 import { Platform } from 'react-native';
-import { sync } from '@/sync/sync';
-import { downloadEncryptedAttachment } from '@/sync/apiAttachments';
+import { sync } from '@/catalog/sync';
+import { downloadEncryptedAttachment } from '@/catalog/infrastructure/apiAttachments';
 import {
     createAttachmentDiagnostic,
     formatAttachmentDiagnosticForLog,
     getAttachmentDiagnostic,
-} from '@/sync/attachmentDiagnostics';
+} from '@/catalog/infrastructure/attachmentDiagnostics';
 import { decryptBlob } from '@/encryption/blob';
 import { encodeBase64 } from '@/encryption/base64';
 

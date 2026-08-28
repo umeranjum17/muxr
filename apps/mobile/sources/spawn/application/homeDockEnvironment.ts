@@ -4,8 +4,8 @@
  * what they are.
  */
 
-import type { Machine, Session } from '@/sync/storageTypes';
-import { AGENT_TYPES, type NewSessionAgentType, type NewSessionSessionType } from '@/sync/persistence';
+import type { Machine, Session } from '@/catalog';
+import { AGENT_TYPES, type NewSessionAgentType, type NewSessionSessionType } from '@/catalog/application/persistence';
 import { formatLastSeen, formatPathRelativeToHome } from '@/herd';
 import { isMachineOnline, PairedMachine } from '@/pairing';
 import { t } from '@/text';

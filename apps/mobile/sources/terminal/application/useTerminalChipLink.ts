@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { router } from 'expo-router';
-import { sync } from '@/sync/sync';
+import { sync } from '@/catalog/sync';
 import { openExternalUrl } from '@/utils/openExternalUrl';
 import { subscribeTerminalLinks, viewportTerminalLinks } from './recentOutput';
 import { chipKindFromContentType, loopbackPort } from '../domain/TerminalLink';

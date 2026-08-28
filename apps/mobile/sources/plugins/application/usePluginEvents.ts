@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { PLUGIN_CALL_CLIENT_TIMEOUT_MS, type LifecycleEvent, type PluginEventTrigger, type PluginManifestV1, type PluginSummary } from '@muxr/contract';
-import { sync } from '@/sync/sync';
-import { storage } from '@/sync/storage';
+import { sync } from '@/catalog/sync';
+import { storage } from '@/catalog/store';
 import { capabilityFor } from './capabilityRegistry';
 import { firedTriggers } from '../domain/pluginEvents';
 import { pluginSnapshot } from './pluginStore';

@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
-import { storage } from '@/sync/storage';
-import { getCachedConnectionSettings } from '@/state/connectionSettings';
+import { storage } from '@/catalog/store';
+import { getCachedConnectionSettings } from '@/connection';
 import { useNewSessionDraft } from '@/hooks/useNewSessionDraft';
 import { startSessionFromDraft } from '@/hooks/startSessionFromDraft';
 import { isMachineOnline } from '@/utils/machineUtils';
@@ -10,13 +10,13 @@ import {
     ensureRealtimeProviderConfigured,
     requestRealtimePermission,
     startRealtimeWithPermission,
-} from '@/realtime/realtimeActions';
+} from './realtimeActions';
 import {
     openRealtimeConversation,
     realtimeSessionSnapshot,
     resolveRealtimeTarget,
     registerRealtimeNotificationStart,
-} from '@/realtime/realtimeSessionState';
+} from './realtimeSessionState';
 
 let starting = false;
 
@@ -36,8 +36,9 @@ async function startConfiguredBlankSession(): Promise<string | null> {
 }
 
 /**
- * App-level realtime capability. It works from a mounted control, a cold
- * shortcut, or the Android notification action and has no Home dependency.
+ * App-level adapter for FocusAgent then StartRealtimeConversation.
+ * It works from a mounted control, a cold shortcut, or the Android
+ * notification action and has no Home dependency.
  */
 export async function startRealtimeCapability(input: { sessionId?: string } = {}): Promise<void> {
     if (realtimeSessionSnapshot().state !== 'disconnected') {

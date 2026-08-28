@@ -93,8 +93,8 @@ if (!localizedXml.includes('>Abrir<') || !localizedXml.includes('>iniciar<') || 
     failed += 1;
 }
 
-const guardedFiles = [join(root, 'apps/mobile/sources/plugins/primitiveRegistry.tsx')];
-const realtimeState = join(root, 'apps/mobile/sources/realtime/realtimeSessionState.ts');
+const guardedFiles = [join(root, 'apps/mobile/sources/plugins/presentation/primitiveRegistry.tsx')];
+const realtimeState = join(root, 'apps/mobile/sources/conversation/application/realtimeSessionState.ts');
 function collect(directory) {
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
         const path = join(directory, entry.name);
@@ -102,12 +102,12 @@ function collect(directory) {
         else if (/\.(ts|tsx)$/.test(entry.name)) guardedFiles.push(path);
     }
 }
-collect(join(root, 'apps/mobile/sources/plugins/primitives'));
+collect(join(root, 'apps/mobile/sources/plugins/presentation/primitives'));
 const forbidden = [
     ['Inbox product view', /@\/components\/InboxView/],
     ['product voice module', /@\/voice\//],
     ['direct herdr tree store', /@\/utils\/(herd|herdTree)/],
-    ['mobile product session store', /@\/sync\/(storage|agentKinds)/],
+    ['mobile product session store', /@\/(?:sync|catalog)\/(?:store|application\/storage|domain\/agentKinds)/],
     ['direct herdr tree request', /herdr\.tree|useHerdrTree/],
     ['preview product module', /from\s+['"][^'"]*(?:@\/preview|\/preview\/)[^'"]*['"]/],
     ['preview product primitive', /PreviewHeader|url-chip/],

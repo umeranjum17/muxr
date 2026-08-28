@@ -1,9 +1,9 @@
 import axios from 'axios';
 import { decodeBase64, encodeBase64 } from '@/encryption/base64';
-import { getServerUrl } from '@/sync/serverConfig';
-import { QRAuthKeyPair } from '@/auth/authQRStart';
+import { getServerUrl } from '@/catalog';
+import { QRAuthKeyPair } from './authQRStart';
 import { decryptBox } from '@/encryption/libsodium';
-import { getMuxrClientId } from '@/sync/apiSocket';
+import { getMuxrClientId } from '@/catalog';
 
 export interface AuthCredentials {
     secret: Uint8Array;

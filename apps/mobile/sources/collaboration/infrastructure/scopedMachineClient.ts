@@ -1,8 +1,8 @@
 import type { PeerRequestMap, PeerRequestType } from '@muxr/contract';
 import { MuxrClient, MuxrRequestError } from '@/pairing';
-import type { StoredHostedGrant } from '@/state/hostedE2ee';
-import { getCachedConnectionSettings } from '@/state/connectionSettings';
-import { sync } from '@/sync/sync';
+import type { StoredHostedGrant } from '@/pairing/e2ee';
+import { getCachedConnectionSettings } from '@/connection';
+import { sync } from '@/catalog/sync';
 import { PeerHostResponseError } from '../application/computerCollaboration';
 
 /** Request one paired machine without changing the app's active connection. */

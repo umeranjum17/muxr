@@ -1,29 +1,32 @@
 import * as React from 'react';
-import { storage } from '@/sync/storage';
-import { sync } from '@/sync/sync';
-import { getCachedConnectionSettings } from '@/state/connectionSettings';
+import { storage } from '@/catalog/store';
+import { sync } from '@/catalog/sync';
+import { getCachedConnectionSettings } from '@/connection';
 import {
     addVoiceNotificationActionListener,
     startVoiceService,
     stopVoiceService,
 } from '@/../modules/voice-overlay';
-import { startRealtimeSession as openRealtimeTransport, type RealtimeHandle, type RealtimeStatus } from '@/voice/realtimeSession';
-import { voiceDiagnostic } from '@/voice/voiceDiagnostics';
+import { startRealtimeSession as openRealtimeTransport, type RealtimeHandle, type RealtimeStatus } from './realtimeSession';
+import { voiceDiagnostic } from '../infrastructure/voiceDiagnostics';
 import {
     cancelVadStandbyStart,
     rearmVadStandby,
     startVadStandby,
     stopVadStandby,
     vadStandbyOwnsMicrophone,
-} from '@/voice/vadStandby';
+} from './vadStandby';
 
 import {
-    decideRealtimeStart,
     exclusiveMicOwners,
     machineSwitchAllowed,
     type RealtimeMachineSwitchGuard as MicSwitchGuard,
 } from '../domain/micOwnership';
-import { lifecycleIsDeskFocus } from '@/sync/lifecycle';
+import { startRealtimeConversation } from './startRealtimeConversation';
+import { startDictation } from './startDictation';
+import { stopRealtimeConversation } from './stopRealtimeConversation';
+import { focusAgent } from './focusAgent';
+import { interruptPlayback } from '@/playback/interrupt';
 
 export type RealtimeSessionState = RealtimeStatus;
 export interface RealtimeTarget { machineId: string; sessionId: string }
@@ -111,20 +114,24 @@ export async function resolveRealtimeTarget(): Promise<RealtimeTarget | null> {
         .flatMap((workspace) => workspace.tabs.filter((tab) => tab.focused))
         .flatMap((tab) => tab.panes)
         .find((pane) => pane.focused && pane.sessionId !== undefined);
-    if (focused?.sessionId !== undefined && lifecycleIsDeskFocus(focused.agentStatus)) {
-        return { machineId, sessionId: focused.sessionId };
-    }
-
-    if (getCachedConnectionSettings().machineId !== machineId) return null;
     const sessions = Object.values(storage.getState().sessions);
-    const remembered = realtimeTarget;
-    if (remembered?.machineId === machineId
-        && sessions.some((candidate) => candidate.id === remembered.sessionId)) return { ...remembered };
-    const sessionId = [...sessions]
-        .sort((left, right) => (right.activeAt || right.updatedAt) - (left.activeAt || left.updatedAt))[0]
-        ?.id ?? focused?.sessionId;
-    if (sessionId === undefined) return null;
-    return { machineId, sessionId };
+    const focusedRoute = focusAgent({
+        machineId,
+        deskFocus: focused?.sessionId === undefined
+            ? undefined
+            : { agentRoute: focused.sessionId, agentStatus: focused.agentStatus },
+        remembered: realtimeTarget === null
+            ? null
+            : { machineId: realtimeTarget.machineId, agentRoute: realtimeTarget.sessionId },
+        listed: sessions.map((session) => ({
+            agentRoute: session.id,
+            activeAt: session.activeAt || 0,
+            updatedAt: session.updatedAt,
+        })),
+    });
+    if (!focusedRoute.ok) return null;
+    if (getCachedConnectionSettings().machineId !== machineId) return null;
+    return { machineId: focusedRoute.machineId, sessionId: focusedRoute.agentRoute };
 }
 
 export function registerRealtimeNotificationStart(handler: () => void | Promise<void>): () => void {
@@ -139,8 +146,8 @@ addVoiceNotificationActionListener((action) => {
 });
 
 export async function claimDictation(): Promise<'granted' | 'busy' | 'already'> {
-    if (dictating) return 'already';
-    if (session !== null || starting) return 'busy';
+    const result = startDictation({ dictating, realtimeLive: session !== null || starting });
+    if (!result.ok) return result.reason;
     vadEpoch += 1;
     const pendingVad = vadArming;
     stopVadStandby();
@@ -312,14 +319,15 @@ export function startRealtimeSession(input: RealtimeTarget | string): boolean {
         ? { machineId: getCachedConnectionSettings().machineId, sessionId: input }
         : { ...input };
     voiceDiagnostic('startVoice.enter');
-    const decision = decideRealtimeStart({
+    const decision = startRealtimeConversation({
+        machineId: target.machineId,
+        agentRoute: target.sessionId,
         dictating,
         realtimeLive: starting || session !== null,
-        bound,
-        target,
+        bound: bound === null ? null : { machineId: bound.machineId, agentRoute: bound.sessionId },
     });
-    if (decision !== 'ok') {
-        voiceDiagnostic(`startVoice.guard:${decision}`);
+    if (!decision.ok) {
+        voiceDiagnostic(`startVoice.guard:${decision.reason}`);
         return false;
     }
     vadEpoch += 1;
@@ -439,7 +447,7 @@ function sleepRealtimeSession(): void {
     realtimeEpoch++;
     const active = session;
     clearLiveState();
-    active?.stop();
+    interruptPlayback({ stop: () => active?.stop() });
     state = 'disconnected';
     detail = undefined;
     notify();
@@ -447,11 +455,15 @@ function sleepRealtimeSession(): void {
 }
 
 export function stopRealtimeSession(): void {
-    watching = false;
-    vadEpoch += 1;
-    storage.getState().applyLocalSettings({ vadStandbyEnabled: false });
-    stopVadStandby();
-    sleepRealtimeSession();
+    stopRealtimeConversation({
+        endWatch: () => {
+            watching = false;
+            vadEpoch += 1;
+            storage.getState().applyLocalSettings({ vadStandbyEnabled: false });
+            stopVadStandby();
+        },
+        interruptPlayback: () => sleepRealtimeSession(),
+    });
 }
 
 export function toggleRealtimeMuted(): void {

@@ -3,7 +3,7 @@ import { Platform, View, Text, ScrollView, TextInput, Pressable } from 'react-na
 import { useRouter, useLocalSearchParams, useNavigation } from 'expo-router';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { retrieveTempText } from '@/sync/persistence';
+import { retrieveTempText } from '@/catalog/application/persistence';
 import { Typography } from '@/constants/Typography';
 import { t } from '@/text';
 import * as Clipboard from 'expo-clipboard';

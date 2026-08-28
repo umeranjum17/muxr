@@ -6,9 +6,9 @@ import * as Haptics from 'expo-haptics';
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 import { Text } from '@/components/StyledText';
 import { Typography } from '@/constants/Typography';
-import { useSession } from '@/sync/storage';
-import { getRigActivityIndicators, getRigIdentity } from '@/sync/rig';
-import { RealtimeSessionVisual } from '@/realtime/RealtimeSessionVisual';
+import { useSession } from '@/catalog/store';
+import { getRigActivityIndicators, getRigIdentity } from '@/catalog';
+import { RealtimeSessionVisual } from './RealtimeSessionVisual';
 import {
     rememberedRealtimeSession,
     startRealtimeSession,
@@ -18,7 +18,7 @@ import {
     useRealtimeSessionState,
     useRealtimeTurns,
     useRealtimeWatching,
-} from '@/realtime/realtimeSessionState';
+} from '../application/realtimeSessionState';
 import { realtimeCallLabel } from '../domain/micOwnership';
 
 export const RealtimeConversation = React.memo(function RealtimeConversation({

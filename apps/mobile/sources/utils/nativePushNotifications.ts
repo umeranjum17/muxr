@@ -2,11 +2,11 @@ import Constants from 'expo-constants';
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 import { relayControlUrl } from '@muxr/contract';
-import { TokenStorage, type AuthCredentials } from '@/auth/tokenStorage';
-import { getCachedConnectionSettings } from '@/state/connectionSettings';
-import { clearRegisteredPushToken, loadRegisteredPushToken, saveRegisteredPushToken } from '@/sync/persistence';
+import { TokenStorage, type AuthCredentials } from '@/account';
+import { getCachedConnectionSettings } from '@/connection';
+import { clearRegisteredPushToken, loadRegisteredPushToken, saveRegisteredPushToken } from '@/catalog/application/persistence';
 import { requestNotificationPermission } from '@/utils/microphonePermissions';
-import { storage } from '@/sync/storage';
+import { storage } from '@/catalog/store';
 
 let registering: Promise<boolean> | null = null;
 

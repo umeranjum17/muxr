@@ -1,5 +1,5 @@
 import type { AgentLifecycle, HerdrTreeWorkspace, LifecycleEvent } from '@muxr/contract';
-import type { Session } from '@/sync/storageTypes';
+import type { Session } from '@/catalog';
 import { paneDisplayName, paneTaskTitle } from './herdTree';
 import { Agent } from './Agent';
 

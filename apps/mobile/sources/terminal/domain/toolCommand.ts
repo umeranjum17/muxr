@@ -1,4 +1,4 @@
-import type { ToolCall } from '@/sync/typesMessage';
+import type { ToolCall } from '@/catalog/infrastructure/typesMessage';
 
 const SHELL_WRAPPERS = new Set([
     'bash',

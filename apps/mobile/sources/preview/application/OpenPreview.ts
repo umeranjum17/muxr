@@ -11,8 +11,8 @@
 
 import { newPreviewKey } from '@muxr/crypto';
 import { issueWsTicket, newPreviewChannel, previewSocketUrl, ticketSocketUrl } from '@muxr/contract';
-import { getCachedConnectionSettings } from '@/state/connectionSettings';
-import { sync } from '@/sync/sync';
+import { getCachedConnectionSettings } from '@/connection';
+import { sync } from '@/catalog/sync';
 
 const READY_TIMEOUT_MS = 15_000;
 

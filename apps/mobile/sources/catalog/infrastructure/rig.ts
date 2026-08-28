@@ -1,4 +1,4 @@
-import type { Metadata } from '@/sync/storageTypes';
+import type { Metadata } from './storageTypes';
 
 export type ProviderIconKind = 'codex' | 'claude' | 'grok' | 'kimi' | 'generic';
 

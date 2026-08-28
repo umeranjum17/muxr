@@ -1,5 +1,5 @@
 import { PLUGIN_CALL_CLIENT_TIMEOUT_MS, type PluginShortcut } from '@muxr/contract';
-import { sync } from '@/sync/sync';
+import { sync } from '@/catalog/sync';
 import { capabilityFor } from './capabilityRegistry';
 import { pluginSnapshot, refreshPlugins } from './pluginStore';
 import baked from '../bundledShortcuts.json';

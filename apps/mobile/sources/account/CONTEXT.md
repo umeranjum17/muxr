@@ -11,7 +11,7 @@ _Avoid_: token, pairing, device grant
 ## Ownership
 
 - Domain interprets presence and HTTP status: empty proof is unavailability; 401 is rejection.
-- Application fetches `/v1/session` and maps once through that domain decision.
+- Application fetches `/v1/session` and maps once through that domain decision. Named use cases: [USE_CASES.md](../USE_CASES.md).
 - Presentation owns React auth.
 
 ## Invariants

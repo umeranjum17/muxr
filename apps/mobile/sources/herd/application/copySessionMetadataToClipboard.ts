@@ -1,6 +1,6 @@
 import * as Clipboard from 'expo-clipboard';
 import { Modal } from '@/modal';
-import { Session } from '@/sync/storageTypes';
+import { Session } from '@/catalog';
 import { t } from '@/text';
 import { log } from '@/log';
 

@@ -10,13 +10,13 @@
  *   2. PUT encrypted blob to uploadUrl
  *   3. Embed ref in the file event sent to the CLI
  */
-import { AuthCredentials } from '@/auth/tokenStorage';
+import { AuthCredentials } from '@/account';
 import {
     createAttachmentDiagnosticError,
     errorMessageFromUnknown,
-} from '@/sync/attachmentDiagnostics';
-import { getServerUrl } from '@/sync/serverConfig';
-import { appendFormFile } from '@/sync/uploadFormFile';
+} from './attachmentDiagnostics';
+import { getServerUrl } from './serverConfig';
+import { appendFormFile } from './uploadFormFile';
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 

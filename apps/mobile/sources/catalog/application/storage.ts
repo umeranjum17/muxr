@@ -1,37 +1,38 @@
 import { create } from 'zustand';
 import { useShallow } from 'zustand/react/shallow';
 import React from 'react';
-import type { Session, Machine, SessionAgentModesPatch } from '@/sync/storageTypes';
-import type { Settings } from '@/sync/settings';
-import { settingsDefaults } from '@/sync/settings';
-import type { LocalSettings } from '@/sync/localSettings';
-import type { Profile } from '@/sync/profile';
+import type { Session, Machine, SessionAgentModesPatch } from '../infrastructure/storageTypes';
+import type { Settings } from './settings';
+import { settingsDefaults } from './settings';
+import type { LocalSettings } from './localSettings';
+import type { Profile } from './profile';
 import {
     loadSettings,
     loadLocalSettings,
     loadProfile,
     saveSettings,
     saveLocalSettings,
-} from '@/sync/persistence';
+} from './persistence';
 import {
     createAgentWatch,
     type PersistedVoiceReport,
     type VoiceAdmission,
     type WatchSnapshot,
-} from '@/sync/agentWatch';
-import { boundSessionFileCache } from '@/sync/sessionFileCache';
-import type { Message } from '@/sync/typesMessage';
-import type { GitStatus } from '@/sync/storageTypes';
-import type { GitStatusFiles } from '@/sync/gitStatusFiles';
-import type { ProjectFilesList } from '@/sync/projectFiles';
-import type { DecryptedArtifact } from '@/sync/artifactTypes';
-import type { UserProfile, RelationshipUpdatedEvent } from '@/sync/friendTypes';
-import type { FeedItem } from '@/sync/feedTypes';
+} from '@/watch/store';
+import { boundSessionFileCache } from './sessionFileCache';
+import type { Message } from '../infrastructure/typesMessage';
+import type { GitStatus } from '../infrastructure/storageTypes';
+import type { GitStatusFiles } from '../infrastructure/gitStatusFiles';
+import type { ProjectFilesList } from '../infrastructure/projectFiles';
+import type { DecryptedArtifact } from '../infrastructure/artifactTypes';
+import type { UserProfile, RelationshipUpdatedEvent } from '../infrastructure/friendTypes';
+import type { FeedItem } from '../infrastructure/feedTypes';
 import type { AttentionEntry, AttentionReason, HerdrTreeWorkspace, LifecycleCatalog, LifecycleEvent } from '@muxr/contract';
-import { buildMessagesMap } from '@/sync/messageAdapter';
-import { getRigActivityIndicators, getRigIdentity } from '@/sync/rig';
+import { buildMessagesMap } from '../infrastructure/messageAdapter';
+import { getRigActivityIndicators, getRigIdentity } from '../infrastructure/rig';
 import { getSessionName, getSessionSubtitle, getSessionAvatarId, type SessionState } from '@/utils/sessionUtils';
 import { agentRowAttention, mergeCatalogAgent } from '../domain/agent';
+import { readAgentSession } from './readAgentSession';
 
 function resolveSessionOnlineState(session: { active: boolean; activeAt: number }): 'online' | number {
     return session.active ? 'online' : session.activeAt;
@@ -491,7 +492,10 @@ export function useHerdrTree(): { workspaces: HerdrTreeWorkspace[]; loaded: bool
 }
 
 export function useSession(id: string): Session | null {
-    return storage(useShallow((state) => state.sessions[id] ?? null));
+    return storage(useShallow((state) => {
+        const result = readAgentSession({ agentRoute: id }, { listed: (route) => state.sessions[route] });
+        return result.ok ? result.agent : null;
+    }));
 }
 
 export function useSessionMessages(sessionId: string): {

@@ -2,11 +2,11 @@ import * as React from 'react';
 import { useAsyncAction } from '@/hooks/useAsyncAction';
 import { useNavigateToSession } from './useNavigateToSession';
 import { Modal } from '@/modal';
-import { machineResumeSession, sessionSetAgentModes, forkAndSpawn, type ForkSource } from '@/sync/ops';
-import { useLocalSetting, useMachine } from '@/sync/storage';
-import { Machine, Session } from '@/sync/storageTypes';
-import { sync } from '@/sync/sync';
-import { resolveMessageModeMeta } from '@/sync/messageMeta';
+import { machineResumeSession, sessionSetAgentModes, forkAndSpawn, type ForkSource } from '@/catalog/ops';
+import { useLocalSetting, useMachine } from '@/catalog/store';
+import { Machine, Session } from '@/catalog';
+import { sync } from '@/catalog/sync';
+import { resolveMessageModeMeta } from '@/catalog/infrastructure/messageMeta';
 import { t } from '@/text';
 import { ActionError } from '@/utils/errors';
 import { copySessionMetadataToClipboard, copySessionMetadataAndLogsToClipboard } from './copySessionMetadataToClipboard';
@@ -16,7 +16,7 @@ import { getSessionForkSource } from './sessionFork';
 import { useRouter } from 'expo-router';
 import { DuplicateSheet } from '@/spawn/ui';
 import type { SessionActionShortcutId } from '@/keyboard/shortcuts';
-import { isRigMetadata } from '@/sync/rig';
+import { isRigMetadata } from '@/catalog';
 import { ResumeEligibility, type ResumeAvailability } from '../domain/ResumeEligibility';
 
 export interface SessionActionItem {

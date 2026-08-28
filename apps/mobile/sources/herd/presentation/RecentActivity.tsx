@@ -3,7 +3,7 @@ import { View } from 'react-native';
 import { StyleSheet } from 'react-native-unistyles';
 import type { AgentLifecycle } from '@muxr/contract';
 import { Text } from '@/components/StyledText';
-import { useLifecycleEvents } from '@/sync/storage';
+import { useLifecycleEvents } from '@/catalog/store';
 import { Typography } from '@/constants/Typography';
 
 const labels: Record<AgentLifecycle, string> = {

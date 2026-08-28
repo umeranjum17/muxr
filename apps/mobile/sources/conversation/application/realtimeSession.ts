@@ -1,11 +1,11 @@
 import { realtimePcm16ByteLength, type RealtimeHostFrame } from '@muxr/contract';
-import { reportEnergy, resetEnergy } from '@/realtime/audioEnergy';
+import { reportEnergy, resetEnergy } from '../infrastructure/audioEnergy';
 import {
     capturePluginStreamSnapshot, openPluginStream, refreshPluginStreamSnapshot, type PluginStream,
 } from '@/plugins/openPluginStream';
-import { acquireRealtimeCapture, type RealtimeCaptureLease } from '@/voice/vadStandby';
-import { createRealtimePlayback } from '@/voice/realtimePlayback';
-import { sync } from '@/sync/sync';
+import { acquireRealtimeCapture, type RealtimeCaptureLease } from './vadStandby';
+import { createRealtimePlayback } from '@/playback';
+import { sync } from '@/catalog/sync';
 
 export type RealtimeStatus = 'connecting' | 'connected' | 'thinking' | 'speaking' | 'disconnected';
 

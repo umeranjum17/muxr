@@ -1,7 +1,7 @@
 import { randomUUID } from 'expo-crypto';
 import { relayControlUrl } from '@muxr/contract';
-import { DEFAULT_CONNECTION } from '@/state/connectionSettings';
-import { getOrCreateHostedDeviceKey } from '@/state/hostedE2ee';
+import { DEFAULT_CONNECTION } from '@/connection';
+import { getOrCreateHostedDeviceKey } from '@/pairing/e2ee';
 import { firstRestorableMachine } from '@/commercialization';
 
 interface EmailLoginFlow {

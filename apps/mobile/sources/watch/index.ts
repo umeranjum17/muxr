@@ -1,3 +1,5 @@
+export { watchAgentLifecycle } from './application/watchAgentLifecycle';
+export { reportAgentOutcome } from './application/reportAgentOutcome';
 export {
     lifecycleIsBusy,
     lifecycleIsDeskFocus,
@@ -17,11 +19,3 @@ export {
     type VoiceReport,
     type VoiceReportParse,
 } from './domain/voiceReport';
-export {
-    createAgentWatch,
-    isTrustedVoiceName,
-    type AgentWatch,
-    type PersistedVoiceReport,
-    type WatchSnapshot,
-} from './application/agentWatch';
-export { wakeAndReport } from './application/wakeAndReport';

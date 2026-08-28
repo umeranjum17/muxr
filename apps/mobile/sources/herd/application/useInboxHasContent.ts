@@ -1,5 +1,5 @@
 import { useUpdates } from '@/hooks/useUpdates';
-import { useAttentionEntries } from '@/sync/storage';
+import { useAttentionEntries } from '@/catalog/store';
 import { useChangelog } from '@/changelog';
 
 /** Tab dot: a session needs you, an app update, or an unread changelog entry. */

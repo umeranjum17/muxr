@@ -1,10 +1,10 @@
-import { useAuth } from '@/auth/AuthContext';
+import { useAuth } from '@/account/ui';
 import * as React from 'react';
 import { Drawer } from 'expo-router/drawer';
 import { sidebarWidth, useSplitViewLayout, useHeaderHeight } from '@/utils/responsive';
 import { SidebarView } from './SidebarView';
 import { useWindowDimensions, View, Pressable, Platform } from 'react-native';
-import { useLocalSetting, useLocalSettingMutable } from '@/sync/storage';
+import { useLocalSetting, useLocalSettingMutable } from '@/catalog/store';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';

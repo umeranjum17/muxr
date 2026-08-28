@@ -1,5 +1,5 @@
 import type { PluginsInvalidatedFrame } from '@muxr/contract';
-import { registerPluginInvalidationHandler } from '@/sync/sync';
+import { registerPluginInvalidationHandler } from '@/catalog/sync';
 
 type Listener = (frame: PluginsInvalidatedFrame) => void;
 type CacheInvalidator = (pluginIds: readonly string[] | undefined) => void;

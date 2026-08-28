@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { HerdrTreeWorkspace } from '@muxr/contract';
 import { herdDigest, herdNotificationState, paneStatus, sortHerd } from './herd';
-import type { Session } from '@/sync/storageTypes';
+import type { Session } from '@/catalog';
 
 const pane = (id: string, overrides: Partial<Session> = {}): Session => ({
     id,

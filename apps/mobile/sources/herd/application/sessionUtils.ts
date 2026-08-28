@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Session } from '@/sync/storageTypes';
+import { Session } from '@/catalog';
 import { t } from '@/text';
 import { useUnistyles } from 'react-native-unistyles';
 import type { Theme } from '@/theme';

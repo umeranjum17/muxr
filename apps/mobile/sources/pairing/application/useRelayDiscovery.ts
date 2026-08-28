@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { Platform } from 'react-native';
-import { useAuth } from '@/auth/AuthContext';
+import { useAuth } from '@/account/ui';
 import { reconnectMachine } from './ReconnectMachine';
 
 export interface DiscoveredRelay {

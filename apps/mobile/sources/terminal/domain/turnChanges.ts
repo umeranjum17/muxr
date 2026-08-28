@@ -9,7 +9,7 @@
  * content length is the addition count.
  */
 
-import { Message, ToolCall } from '@/sync/typesMessage';
+import { Message, ToolCall } from '@/catalog/infrastructure/typesMessage';
 import { getPatchDiffStats } from '@/components/diff/calculateDiff';
 
 export interface TurnFileChange {

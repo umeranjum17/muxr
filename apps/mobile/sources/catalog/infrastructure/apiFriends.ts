@@ -1,7 +1,7 @@
-import { AuthCredentials } from '@/auth/tokenStorage';
+import { AuthCredentials } from '@/account';
 import { backoff } from '@/utils/time';
-import { getServerUrl } from '@/sync/serverConfig';
-import { getMuxrClientId } from '@/sync/apiSocket';
+import { getServerUrl } from './serverConfig';
+import { getMuxrClientId } from './apiSocket';
 import {
     UserProfile,
     UserResponse,
@@ -10,7 +10,7 @@ import {
     UserResponseSchema,
     FriendsResponseSchema,
     UsersSearchResponseSchema
-} from '@/sync/friendTypes';
+} from './friendTypes';
 
 /**
  * Search for users by username (returns multiple results)

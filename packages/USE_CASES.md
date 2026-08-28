@@ -14,7 +14,7 @@ A package module exists only when the packages own the behavior. Product operati
 | Parse a plugin manifest | [`parsePluginManifest`](./contract/src/plugins/application/parsePluginManifest.ts) | Plugin Identity, manifest graph | host plugin catalog, mobile `parseManifest` |
 | Bound the realtime public Agent map | [`boundRealtimePublicContext`](./contract/src/realtime/application/boundRealtimePublicContext.ts) | Agent Route, Human Name | `apps/host/src/herdr/pluginStreamManager.ts`, `herdrSessionSource.ts` |
 | Interpret a worktree landing | [`interpretWorktreeLanding`](./contract/src/worktree/application/interpretWorktreeLanding.ts) | Worktree Landing | `apps/host/src/requests/landWorktree.ts`, `apps/mobile/sources/utils/worktree.ts` |
-| Pair a machine | [`pairMachine`](./crypto/src/e2ee/application/pairMachine.ts) | Pairing Code | `apps/mobile/sources/state/hostedE2ee.ts`, `usePairing.ts` |
+| Pair a machine | [`pairMachine`](./crypto/src/e2ee/application/pairMachine.ts) | Pairing Code | `apps/mobile/sources/pairing/application/hostedE2ee.ts`, `usePairing.ts` |
 | Grant or verify device authority | [`deviceGrant`](./crypto/src/e2ee/application/deviceGrant.ts) | Device Grant | `apps/host/src/peer/runtime.ts`, `hostedE2ee.ts` (`createDeviceGrant` / `verifyDeviceGrant`) |
 | Sign a peer descriptor | [`signPeerDescriptor`](./crypto/src/e2ee/application/signPeerDescriptor.ts) | Signed Peer Descriptor | host peer prepare/install |
 | Install a peer bundle | [`installPeerBundle`](./crypto/src/e2ee/application/installPeerBundle.ts) | Device Grant, Peer Descriptor | `peer.install` in `apps/host/src/peer/runtime.ts` |
@@ -27,18 +27,18 @@ A package module exists only when the packages own the behavior. Product operati
 
 | Capability | Request / entry | Domain owner | Adapters |
 |---|---|---|---|
-| Start Agent | `session.start` | Herd (Agent Route, Human Name, Provider Kind) | `apps/host/src/requests/createRequestDispatcher.ts`, `apps/mobile/sources/sync/ops.ts` |
-| Prompt Agent | `session.prompt` | Herd | dispatcher, `apps/mobile/sources/sync/sync.ts` |
+| Start Agent | `session.start` | Herd (Agent Route, Human Name, Provider Kind) | `apps/host/src/requests/createRequestDispatcher.ts`, `apps/mobile/sources/catalog/application/ops.ts` |
+| Prompt Agent | `session.prompt` | Herd | dispatcher, `apps/mobile/sources/catalog/application/sync.ts` |
 | Read Agent Session | `pane.read` | Herd, control-plane | dispatcher, `TerminalPreview.tsx` |
-| Watch Agent Lifecycle | `agent.watch` | Agent Watch, Lifecycle Event | dispatcher, `apps/mobile/sources/sync/agentWatch.ts` |
+| Watch Agent Lifecycle | `agent.watch` | Agent Watch, Lifecycle Event | dispatcher, `apps/mobile/sources/watch/application/agentWatch.ts` |
 | Focus Agent | `pane.focus` | Agent Route | dispatcher, `herdrSessionSource.ts` |
 | Reconnect Machine | stored Device Grant refresh | Device Grant | `hostedE2ee.ts` (`refreshHostedGrant`), `sync.ts` |
 | Grant Peer Authority | `peer.authorize` | Peer Allowlist, Device Grant | `apps/host/src/peer/runtime.ts` |
 | Revoke Peer Authority | `peer.revoke` | Peer relationship | `runtime.ts`, `apps/mobile/sources/collaboration/computerCollaboration.ts` |
 | Start Dictation | on-device dictation | Realtime (phone capture only) | `apps/mobile/sources/utils/dictation.ts` |
-| Start Realtime Conversation | `voice.session` stream | Realtime frames | `apps/mobile/sources/voice/realtimeSession.ts` |
-| Interrupt Playback | `pause_output` / `stop` | Realtime control | `apps/mobile/sources/voice/realtimePlayback.ts` |
-| Report Agent Outcome | `voice.report` | Voice Report, Agent Lifecycle | `apps/mobile/sources/voice/wakeAndReport.ts` |
+| Start Realtime Conversation | `voice.session` stream | Realtime frames | `apps/mobile/sources/conversation/application/realtimeSession.ts` |
+| Interrupt Playback | `pause_output` / `stop` | Realtime control | `apps/mobile/sources/playback/infrastructure/realtimePlayback.ts` |
+| Report Agent Outcome | `voice.report` | Voice Report, Agent Lifecycle | `apps/mobile/sources/watch/application/wakeAndReport.ts` |
 | Open Terminal | terminal channel | Routing Channel `terminal` | `apps/mobile/sources/terminal/openTerminal.ts`, `apps/host/src/herdr/terminalManager.ts` |
 | Open Preview | preview channel | Routing Channel `attachment` / preview | `openPreview.ts`, host `preview.ts` |
 | Run Plugin Action | `plugin.call` / `plugin.invoke` | Plugin Identity | dispatcher, `screenModel.ts`, `usePluginEvents.ts` |

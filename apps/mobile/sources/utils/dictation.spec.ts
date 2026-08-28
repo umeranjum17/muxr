@@ -3,9 +3,9 @@ import React from 'react';
 import TestRenderer from 'react-test-renderer';
 import { useDictation } from '@/utils/dictation';
 import { pcm16ChunksToArrayBuffer } from '@/utils/transcription';
-import { wakeAndReport } from '@/voice/wakeAndReport';
-import { usePluginEvents } from '@/plugins';
-import { cancelRealtimeReportWait, micOwners, realtimeGeneration, realtimeWatchTarget, registerRealtimeNotificationStart, releaseDictation, resolveRealtimeTarget, startRealtimeSession, stopRealtimeSession } from '@/realtime/realtimeSessionState';
+import { wakeAndReport } from '@/watch/application/wakeAndReport';
+import { usePluginEvents } from '@/plugins/events';
+import { cancelRealtimeReportWait, micOwners, realtimeGeneration, realtimeWatchTarget, registerRealtimeNotificationStart, releaseDictation, resolveRealtimeTarget, startRealtimeSession, stopRealtimeSession } from '@/conversation/session';
 
 const mocks = vi.hoisted(() => ({
     sessions: {} as Record<string, { id: string; activeAt: number; updatedAt: number }>,
@@ -39,15 +39,16 @@ const mocks = vi.hoisted(() => ({
 vi.mock('react-native', () => ({ Platform: { OS: 'android' }, AppState: { addEventListener: vi.fn() } }));
 vi.mock('react-native-live-audio-stream', () => ({ default: mocks.liveAudio }));
 vi.mock('@/utils/localTranscription', () => ({ transcribePcm16: mocks.transcribe }));
-vi.mock('@/sync/sync', () => ({ sync: { request: mocks.syncRequest } }));
+vi.mock('@/catalog/sync', () => ({ sync: { request: mocks.syncRequest } }));
+vi.mock('@/connection', () => ({ getCachedConnectionSettings: () => ({ machineId: '' }) }));
 vi.mock('@/plugins/callPlugin', () => ({ callPlugin: mocks.callPlugin }));
 vi.mock('@/modal', () => ({ Modal: { alert: mocks.modalAlert } }));
-vi.mock('@/plugins/pluginStore', () => ({ pluginSnapshot: () => mocks.pluginSnapshot }));
-vi.mock('@/plugins/capabilityRegistry', () => ({ capabilityFor: () => mocks.capability }));
-vi.mock('@/sync/agentWatch', () => ({
+vi.mock('../plugins/application/pluginStore', () => ({ pluginSnapshot: () => mocks.pluginSnapshot }));
+vi.mock('../plugins/application/capabilityRegistry', () => ({ capabilityFor: () => mocks.capability }));
+vi.mock('@/watch/store', () => ({
     sanitizePersistedVoiceReport: (report: Record<string, unknown>) => report,
 }));
-vi.mock('@/sync/storage', () => ({
+vi.mock('@/catalog/store', () => ({
     storage: {
     subscribe: vi.fn((listener: (state: Record<string, unknown>, previous: Record<string, unknown>) => void) => {
         mocks.storageListeners.add(listener);
@@ -87,7 +88,7 @@ vi.mock('@/utils/microphonePermissions', () => ({
     requestMicrophonePermission: mocks.permission,
     showMicrophonePermissionDeniedAlert: mocks.showDenied,
 }));
-vi.mock('../voice/realtimeSession', () => ({ startRealtimeSession: mocks.startRealtimeSession }));
+vi.mock('../conversation/application/realtimeSession', () => ({ startRealtimeSession: mocks.startRealtimeSession }));
 vi.mock('@/../modules/voice-overlay', () => ({
     startVoiceService: mocks.startVoiceService,
     stopVoiceService: mocks.stopVoiceService,

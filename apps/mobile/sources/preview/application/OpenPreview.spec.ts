@@ -10,10 +10,10 @@ const harness = vi.hoisted(() => ({
     },
 }));
 
-vi.mock('@/state/connectionSettings', () => ({
+vi.mock('@/connection', () => ({
     getCachedConnectionSettings: () => harness.connection,
 }));
-vi.mock('@/sync/sync', () => ({ sync: { request: harness.request } }));
+vi.mock('@/catalog/sync', () => ({ sync: { request: harness.request } }));
 
 import { openPreview } from './OpenPreview';
 

@@ -1,14 +1,14 @@
 import { z } from 'zod';
 import {
-    ApiMessageSchema,
-    ApiUpdateMachineStateSchema,
-    ApiUpdateNewMessageSchema,
-    ApiUpdateSessionStateSchema,
-    type ApiMessage,
-} from '@muxr/wire';
-import { GitHubProfileSchema, ImageRefSchema } from '@/sync/profile';
-import { RelationshipStatusSchema, UserProfileSchema } from '@/sync/friendTypes';
-import { FeedBodySchema } from '@/sync/feedTypes';
+    EncryptedSessionMessageSchema as ApiMessageSchema,
+    MachineStateUpdateSchema as ApiUpdateMachineStateSchema,
+    NewMessageUpdateSchema as ApiUpdateNewMessageSchema,
+    SessionStateUpdateSchema as ApiUpdateSessionStateSchema,
+    type EncryptedSessionMessage as ApiMessage,
+} from '@muxr/contract';
+import { GitHubProfileSchema, ImageRefSchema } from '../application/profile';
+import { RelationshipStatusSchema, UserProfileSchema } from './friendTypes';
+import { FeedBodySchema } from './feedTypes';
 
 export {
     ApiMessageSchema,

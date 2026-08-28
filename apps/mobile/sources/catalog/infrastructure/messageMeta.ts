@@ -1,4 +1,4 @@
-import type { Session } from '@/sync/storageTypes';
+import type { Session } from './storageTypes';
 type PermissionModeKey = string;
 import {
     getRigCurrentModel,
@@ -7,7 +7,7 @@ import {
     getRigReasoningSelection,
     getRigSelectedModelKey,
     isRigMetadataV1,
-} from '@/sync/rig';
+} from './rig';
 
 export type MessageModeMeta = {
     permissionMode?: PermissionModeKey;

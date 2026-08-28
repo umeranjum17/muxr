@@ -12,9 +12,9 @@
  */
 
 import { issueWsTicket, newTerminalChannel, terminalSocketUrl, ticketSocketUrl, type Envelope, type TerminalHostFrame } from '@muxr/contract';
-import { getCachedConnectionSettings } from '@/state/connectionSettings';
-import { sync } from '@/sync/sync';
-import { DeviceV2Crypto, getCachedHostedGrant, refreshHostedGrant } from '@/state/hostedE2ee';
+import { getCachedConnectionSettings } from '@/connection';
+import { sync } from '@/catalog/sync';
+import { DeviceV2Crypto, getCachedHostedGrant, refreshHostedGrant } from '@/pairing/e2ee';
 
 export type TerminalChannelState = 'live' | 'reconnecting';
 

@@ -3,7 +3,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
 import { ItemList } from '@/components/ItemList';
-import { useSettingMutable, useLocalSettingMutable } from '@/sync/storage';
+import { useSettingMutable, useLocalSettingMutable } from '@/catalog/store';
 import { Switch } from '@/components/Switch';
 import { t } from '@/text';
 

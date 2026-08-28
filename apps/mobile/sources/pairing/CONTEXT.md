@@ -15,3 +15,5 @@ _Avoid_: token, pairing cache, device record
 **Device Authority**:
 Control or observe permission stored on the Hosted Grant. Comes from the Pairing String, never from a machine display name.
 _Avoid_: role, browser flag
+
+Use cases: Pair Machine / restore Connection / forget Machine — [USE_CASES.md](../USE_CASES.md).

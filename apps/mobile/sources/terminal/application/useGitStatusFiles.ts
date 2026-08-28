@@ -9,8 +9,8 @@
 
 import * as React from 'react';
 import { useFocusEffect } from 'expo-router';
-import { getGitStatusFiles, GitStatusFiles } from '@/sync/gitStatusFiles';
-import { storage, useSessionGitStatusFiles } from '@/sync/storage';
+import { getGitStatusFiles, GitStatusFiles } from '@/catalog/infrastructure/gitStatusFiles';
+import { storage, useSessionGitStatusFiles } from '@/catalog/store';
 
 export function useGitStatusFiles(sessionId: string) {
     const cached = useSessionGitStatusFiles(sessionId);

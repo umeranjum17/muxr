@@ -6,7 +6,7 @@ import { ActionError } from '@/utils/errors';
 import { useAsyncAction } from '@/hooks/useAsyncAction';
 import { isWorktreePath } from '../infrastructure/worktree';
 import { getSessionName } from '@/herd';
-import type { Session } from '@/sync/storageTypes';
+import type { Session } from '@/catalog';
 import { landWorktreeBranch } from './LandWorktree';
 
 export function useLandWorktree(session: Session | null | undefined) {

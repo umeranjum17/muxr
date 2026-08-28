@@ -1,11 +1,16 @@
-import { sync } from '@/sync/sync';
-import { storage } from '@/sync/storage';
-import { applyStatusToSession } from '@/sync/sessionMapping';
 import { MISSING_CWD_ERROR_PREFIX, type SessionStatus } from '@muxr/contract';
-import type { SessionAgentModesPatch } from '@/sync/storageTypes';
-import type { NewSessionAgentType } from '@/sync/persistence';
+import { applyStatusToSession } from '../infrastructure/sessionMapping';
+import type { SessionAgentModesPatch } from '../infrastructure/storageTypes';
+import { startAgent } from './startAgent';
+import { readAgentFile } from './readAgentFile';
+import { stopAgent } from './stopAgent';
+import type { NewSessionAgentType } from './persistence';
+import { storage } from './storage';
+import { sync } from './sync';
 
 export type { SessionAgentModesPatch };
+
+/** Catalog host adapter. Named use cases live beside this file. */
 
 export type SpawnSessionResult =
     | { type: 'success'; sessionId: string }
@@ -129,12 +134,19 @@ interface SessionKillResponse {
 }
 
 export async function sessionAbort(sessionId: string): Promise<void> {
-    await sync.request('session.abort', { sessionId });
+    await stopAgent({ agentRoute: sessionId, kind: 'abort' }, {
+        abort: (agentRoute) => sync.request('session.abort', { sessionId: agentRoute }),
+        stop: (agentRoute) => sync.request('session.stop', { sessionId: agentRoute }),
+        refreshCatalog: () => sync.refreshSessions(),
+    });
 }
 
 export async function sessionKill(sessionId: string): Promise<SessionKillResponse> {
-    await sync.request('session.stop', { sessionId });
-    await sync.refreshSessions();
+    await stopAgent({ agentRoute: sessionId, kind: 'stop' }, {
+        abort: (agentRoute) => sync.request('session.abort', { sessionId: agentRoute }),
+        stop: (agentRoute) => sync.request('session.stop', { sessionId: agentRoute }),
+        refreshCatalog: () => sync.refreshSessions(),
+    });
     return { success: true, message: 'stopped' };
 }
 
@@ -186,12 +198,11 @@ export async function sessionRipgrep(
 }
 
 export async function sessionReadFile(sessionId: string, path: string): Promise<SessionReadFileResponse> {
-    try {
-        const result = await sync.request('session.readFile', { sessionId, path });
-        return { success: true, content: result.content };
-    } catch (error) {
-        return { success: false, error: error instanceof Error ? error.message : String(error) };
-    }
+    const result = await readAgentFile({ agentRoute: sessionId, path }, {
+        read: (agentRoute, filePath) => sync.request('session.readFile', { sessionId: agentRoute, path: filePath }),
+    });
+    if (!result.ok) return { success: false, error: result.message };
+    return { success: true, content: result.content };
 }
 
 export async function sessionWriteFile(
@@ -224,30 +235,28 @@ export async function refreshUntilSessionVisible(sessionId: string): Promise<voi
 }
 
 export async function machineSpawnNewSession(options: SpawnSessionOptions): Promise<SpawnSessionResult> {
-    try {
-        const snapshot = await sync.request('session.start', {
-            cwd: options.directory,
-            ...(options.approvedNewDirectoryCreation === true ? { createCwd: true } : {}),
-            ...(options.parentSessionId === undefined ? {} : { parentSessionId: options.parentSessionId }),
-            ...(options.agent === undefined ? {} : { kind: options.agent }),
-            ...(options.displayName?.trim() ? { displayName: options.displayName.trim() } : {}),
-        });
-        if (!('info' in snapshot)) {
-            return {
-                type: 'error',
-                errorMessage: `${snapshot.acceptance.displayName.trim() || 'Agent'} could not start.`,
-            };
-        }
-        const sessionId = snapshot.info.id;
-        await refreshUntilSessionVisible(sessionId);
-        return { type: 'success', sessionId };
-    } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        if (message.includes(MISSING_CWD_ERROR_PREFIX)) {
-            return { type: 'requestToApproveDirectoryCreation', directory: options.directory };
-        }
-        return { type: 'error', errorMessage: 'Agent could not start. Try again.' };
+    const result = await startAgent({
+        directory: options.directory,
+        createDirectory: options.approvedNewDirectoryCreation,
+        parentAgentRoute: options.parentSessionId,
+        kind: options.agent,
+        humanName: options.displayName,
+    }, {
+        startOnHost: async (input) => sync.request('session.start', {
+            cwd: input.directory,
+            ...(input.createDirectory === true ? { createCwd: true } : {}),
+            ...(input.parentAgentRoute === undefined ? {} : { parentSessionId: input.parentAgentRoute }),
+            ...(input.kind === undefined ? {} : { kind: input.kind }),
+            ...(input.humanName === undefined ? {} : { displayName: input.humanName }),
+        }),
+        waitUntilListed: refreshUntilSessionVisible,
+        missingDirectory: (message) => message.includes(MISSING_CWD_ERROR_PREFIX),
+    });
+    if (result.ok) return { type: 'success', sessionId: result.agentRoute };
+    if (result.reason === 'missing-directory') {
+        return { type: 'requestToApproveDirectoryCreation', directory: result.directory };
     }
+    return { type: 'error', errorMessage: result.message };
 }
 
 export async function machineResumeSession(

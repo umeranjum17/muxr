@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { collectTurnChanges, getTurnAssignments } from './turnChanges';
-import { Message, ToolCall } from '@/sync/typesMessage';
+import { Message, ToolCall } from '@/catalog/infrastructure/typesMessage';
 
 function toolCall(id: string, name: string, input: unknown, state: ToolCall['state'] = 'completed', details?: unknown): Message {
     return { kind: 'tool-call', id, localId: null, createdAt: 0, children: [], tool: { name, input, state, createdAt: 0, startedAt: null, completedAt: null, description: null, details } } as unknown as Message;

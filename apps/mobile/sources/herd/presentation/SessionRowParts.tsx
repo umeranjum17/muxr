@@ -8,7 +8,7 @@ import * as React from 'react';
 import { StyleProp, Text, TextStyle } from 'react-native';
 import { useUnistyles } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
-import type { SessionRowData } from '@/sync/storage';
+import type { SessionRowData } from '@/catalog/store';
 
 /** Work that already landed steps back; only what is working or blocked stays bright. */
 export function isSettledSession(session: Pick<SessionRowData, 'state' | 'hasUnread'>): boolean {

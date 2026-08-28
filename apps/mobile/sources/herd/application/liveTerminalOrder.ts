@@ -1,6 +1,6 @@
 import * as React from 'react';
 import type { AgentLifecycle } from '@muxr/contract';
-import type { Session } from '@/sync/storageTypes';
+import type { Session } from '@/catalog';
 import { HERD_ORDER, paneStatus, type HerdPane } from '../domain/herd';
 
 export const LIVE_TERMINAL_REEVALUATION_MS = 30_000;

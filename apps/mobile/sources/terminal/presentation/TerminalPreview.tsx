@@ -11,7 +11,7 @@
 
 import * as React from 'react';
 import { AppState, Text, View } from 'react-native';
-import { sync } from '@/sync/sync';
+import { sync } from '@/catalog/sync';
 
 // ponytail: fixed interval, no backoff. Make it adaptive if tile counts grow
 // enough that the polling itself shows up in host CPU.
