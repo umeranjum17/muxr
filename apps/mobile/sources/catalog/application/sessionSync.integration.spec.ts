@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AgentLifecycle, HerdrTreeWorkspace, LifecycleEvent } from '@muxr/contract';
 import type { Session } from '../infrastructure/storageTypes';
+import { ApiUpdateContainerSchema } from '../infrastructure/apiTypes';
+import { normalizeRawMessage } from '../infrastructure/typesRaw';
 import { completionAlerts, completionNotificationState, completionTransition, herdNotificationState, HERD_STATUS_LABELS, lifecycleNotificationCopy, lifecycleNotificationState, sortHerd } from '@/utils/herd';
 import { normalizeRequestFailure, requestRequiresE2ee } from '@muxr/contract';
 import { buildSpaceRows, paneDisplayName, paneTaskTitle } from '@/utils/herdTree';
@@ -95,6 +97,83 @@ describe('session sync flow', () => {
         storage.getState().setLifecycleScope('test-authority:machine');
         storage.getState().resetLifecycleCatalog();
         mmkvValues.clear();
+    });
+
+    it('admits encrypted updates and removes task control envelopes at the mobile boundary', () => {
+        const updates = [
+            {
+                id: 'upd-1',
+                seq: 1,
+                body: {
+                    t: 'new-message',
+                    sid: 'session-1',
+                    message: {
+                        id: 'msg-1',
+                        seq: 1,
+                        localId: null,
+                        content: { t: 'encrypted', c: 'x' },
+                        createdAt: 1,
+                        updatedAt: 1,
+                    },
+                },
+                createdAt: 1,
+            },
+            {
+                id: 'upd-2',
+                seq: 2,
+                body: {
+                    t: 'update-session',
+                    id: 'session-1',
+                    metadata: { version: 2, value: 'abc' },
+                    agentState: { version: 3, value: null },
+                },
+                createdAt: 2,
+            },
+            {
+                id: 'upd-3',
+                seq: 3,
+                body: {
+                    t: 'update-machine',
+                    machineId: 'machine-1',
+                    metadata: { version: 1, value: 'abc' },
+                    daemonState: { version: 2, value: 'def' },
+                    active: true,
+                    activeAt: 12345,
+                },
+                createdAt: 3,
+            },
+        ];
+        expect(updates.every((update) => ApiUpdateContainerSchema.safeParse(update).success)).toBe(true);
+
+        const notification = `<task-notification>
+<task-id>agent-123</task-id>
+<status>completed</status>
+<summary>Background agent completed</summary>
+<result>Useful but already-rendered result</result>
+</task-notification>`;
+        const normalizeText = (text: string) => normalizeRawMessage('stored-id', null, 0, {
+            role: 'session',
+            content: {
+                id: 'event-id',
+                time: 1,
+                role: 'user',
+                ev: { t: 'text', text },
+            },
+        });
+
+        expect(normalizeText(notification)).toBeNull();
+        expect(normalizeText(`${notification}\n${notification}\nContinue with the fix`)).toMatchObject({
+            role: 'user',
+            content: { type: 'text', text: 'Continue with the fix' },
+        });
+        const nested = `<task-notification>outer ${notification}</task-notification>\nVisible`;
+        expect(normalizeText(nested)).toMatchObject({ content: { text: 'Visible' } });
+        expect(normalizeText('<task-notification>unfinished')).toMatchObject({
+            content: { text: '<task-notification>unfinished' },
+        });
+        expect(normalizeText('Explain <task-notification> wrappers')).toMatchObject({
+            content: { text: 'Explain <task-notification> wrappers' },
+        });
     });
 
     it('maps a raw herdr pane and starts the session without leaking host-owned model options', async () => {

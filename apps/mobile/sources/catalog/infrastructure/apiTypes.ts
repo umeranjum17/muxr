@@ -1,22 +1,52 @@
 import { z } from 'zod';
-import {
-    EncryptedSessionMessageSchema as ApiMessageSchema,
-    MachineStateUpdateSchema as ApiUpdateMachineStateSchema,
-    NewMessageUpdateSchema as ApiUpdateNewMessageSchema,
-    SessionStateUpdateSchema as ApiUpdateSessionStateSchema,
-    type EncryptedSessionMessage as ApiMessage,
-} from '@muxr/contract';
 import { GitHubProfileSchema, ImageRefSchema } from '../application/profile';
 import { RelationshipStatusSchema, UserProfileSchema } from './friendTypes';
 import { FeedBodySchema } from './feedTypes';
 
-export {
-    ApiMessageSchema,
-    ApiUpdateMachineStateSchema,
-    ApiUpdateNewMessageSchema,
-    ApiUpdateSessionStateSchema,
-};
-export type { ApiMessage };
+const versionedEncryptedValueSchema = z.object({
+    version: z.number(),
+    value: z.string(),
+});
+
+const versionedNullableEncryptedValueSchema = z.object({
+    version: z.number(),
+    value: z.string().nullable(),
+});
+
+export const ApiMessageSchema = z.object({
+    id: z.string(),
+    seq: z.number(),
+    localId: z.string().nullish(),
+    content: z.object({
+        c: z.string(),
+        t: z.literal('encrypted'),
+    }),
+    createdAt: z.number(),
+    updatedAt: z.number(),
+});
+export type ApiMessage = z.infer<typeof ApiMessageSchema>;
+
+export const ApiUpdateNewMessageSchema = z.object({
+    t: z.literal('new-message'),
+    sid: z.string(),
+    message: ApiMessageSchema,
+});
+
+export const ApiUpdateSessionStateSchema = z.object({
+    t: z.literal('update-session'),
+    id: z.string(),
+    metadata: versionedEncryptedValueSchema.nullish(),
+    agentState: versionedNullableEncryptedValueSchema.nullish(),
+});
+
+export const ApiUpdateMachineStateSchema = z.object({
+    t: z.literal('update-machine'),
+    machineId: z.string(),
+    metadata: versionedEncryptedValueSchema.nullish(),
+    daemonState: versionedEncryptedValueSchema.nullish(),
+    active: z.boolean().optional(),
+    activeAt: z.number().optional(),
+});
 
 //
 // Updates

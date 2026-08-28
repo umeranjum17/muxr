@@ -48,25 +48,3 @@ export { newTerminalChannel, terminalSocketUrl } from './infrastructure/terminal
 export { relayControlUrl, isWebSocketRelayUrl, relayChannelSocketUrl } from './infrastructure/controlPlaneUrl.js';
 export type { WsTransport } from './infrastructure/wsTickets.js';
 export { issueWsTicket, ticketSocketUrl, WsTicketError } from './infrastructure/wsTickets.js';
-export { stripLeadingTaskNotificationWrappers } from './infrastructure/controlMessages.js';
-
-export type {
-    EncryptedSessionMessage,
-    MachineStateUpdate,
-    NewMessageUpdate,
-    SessionStateUpdate,
-    SessionSyncUpdate,
-    SessionSyncUpdateContainer,
-    VersionedEncryptedValue,
-    VersionedNullableEncryptedValue,
-} from './infrastructure/sessionSync.js';
-export {
-    EncryptedSessionMessageSchema,
-    MachineStateUpdateSchema,
-    NewMessageUpdateSchema,
-    SessionStateUpdateSchema,
-    SessionSyncUpdateContainerSchema,
-    SessionSyncUpdateSchema,
-    VersionedEncryptedValueSchema,
-    VersionedNullableEncryptedValueSchema,
-} from './infrastructure/sessionSync.js';

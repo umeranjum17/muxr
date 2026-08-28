@@ -82,14 +82,6 @@ export type {
     TerminalClientFrame,
     TerminalHostFrame,
     WsTransport,
-    EncryptedSessionMessage,
-    MachineStateUpdate,
-    NewMessageUpdate,
-    SessionStateUpdate,
-    SessionSyncUpdate,
-    SessionSyncUpdateContainer,
-    VersionedEncryptedValue,
-    VersionedNullableEncryptedValue,
 } from './control-plane/index.js';
 export {
     MISSING_CWD_ERROR_PREFIX,
@@ -121,15 +113,6 @@ export {
     issueWsTicket,
     ticketSocketUrl,
     WsTicketError,
-    stripLeadingTaskNotificationWrappers,
-    EncryptedSessionMessageSchema,
-    MachineStateUpdateSchema,
-    NewMessageUpdateSchema,
-    SessionStateUpdateSchema,
-    SessionSyncUpdateContainerSchema,
-    SessionSyncUpdateSchema,
-    VersionedEncryptedValueSchema,
-    VersionedNullableEncryptedValueSchema,
 } from './control-plane/index.js';
 
 export type {
