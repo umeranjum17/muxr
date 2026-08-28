@@ -1,6 +1,12 @@
 # packages
 
-`@muxr/contract` is the domain language. `@muxr/crypto` is the E2EE context that seals it. Apps import the package barrels or a context entry (`@muxr/contract/herd`, `@muxr/crypto/e2ee`). They must not import context internals. E2EE imports `@muxr/contract/peer`, `@muxr/contract/control-plane`, and `@muxr/contract/shared` rather than the contract barrel, so seal/open does not load plugin or session-sync schemas.
+`@muxr/contract` exists so host, mobile, relay, and plugins use one implementation of cross-process wire shapes, admission and limit rules, and invariant vocabulary. It is the compatibility boundary between processes, not a general utility package. Apps import its public barrel or a focused entry point such as `@muxr/contract/herd`; they do not import context internals.
+
+Code belongs in `@muxr/contract` when multiple processes must agree on its exact shape or rule: wire envelopes and request maps, boundary admission, shared limits, and vocabulary whose meaning must not drift. Mobile parsing or presentation, host adapters, single-consumer transport DTOs, storage models, crypto implementation, and convenience helpers do not belong here.
+
+The name is deliberate. **Contract** says callers depend on an enforced cross-process agreement. **Shared** would invite unrelated reusable code, **core** would imply a central dependency bucket, and **protocol** would be too narrow for admission, limits, and invariant vocabulary that are not byte-level protocol.
+
+`@muxr/crypto` similarly provides one shared implementation of E2EE envelopes, authenticated context, replay rejection, and device/peer grant rules for the endpoints that seal or open payloads. The relay does not import it: the relay routes on envelope headers while encrypted payloads remain opaque, so it does not own keys, open payloads, or enforce replay and grant policy.
 
 Navigate by intent in [USE_CASES.md](./USE_CASES.md). Glossary: [CONTEXT.md](../CONTEXT.md). Contributor rules: [CONTRIBUTING.md](../CONTRIBUTING.md).
 
@@ -44,13 +50,12 @@ Start / prompt / watch / focus are host and mobile adapters over this domain (`s
 
 ## Control plane
 
-**Owns**: Envelope, Routing Channel, client/host frames, request map, preview/terminal/ticket URLs, encrypted session-log DTOs.
+**Owns**: Envelope, Routing Channel, client/host frames, request map, preview/terminal/ticket URLs.
 
 **Invariants**:
 - The relay reads only the Envelope header. Payload is opaque.
 - Routing Channel is the same vocabulary as E2EE context.
 - Client frames fail closed at `admitClientFrame` (`tryParseClientFrame` / `parseClientFrame` remain adapter aliases).
-- Session-sync Zod schemas are transport DTOs, distinct from live Session Events.
 
 ## Peer
 
