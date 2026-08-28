@@ -6,7 +6,7 @@ import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import { describe, expect, it } from 'vitest';
-import { RealtimeCodingCoordinator } from '../../apps/host/src/herdr/realtimeCoordinator.ts';
+import { RealtimeCodingCoordinator } from '../../apps/host/src/agent/infrastructure/realtimeCoordinator.ts';
 import { providerTools as geminiTools } from '../voice-gemini/stream.mjs';
 import { providerTools as openaiTools } from '../voice-openai/stream.mjs';
 import { providerError, providerRefusal, providerTools as xaiTools } from './stream.mjs';

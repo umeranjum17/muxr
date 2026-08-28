@@ -50,7 +50,7 @@ assert.match(voiceManifest, /foregroundServiceType="microphone\|dataSync"/);
 assert.equal(existsSync(join(mobile, 'sources', 'app', '(app)', 'settings', 'account.tsx')), false, 'stale hosted-account screen is still shipped');
 for (const path of [
     join(mobile, 'sources', 'app', '(app)', '_layout.tsx'),
-    join(mobile, 'sources', 'components', 'SettingsView.tsx'),
+    join(mobile, 'sources', 'settings', 'presentation', 'SettingsView.tsx'),
     join(mobile, 'sources', 'components', 'CommandPalette', 'CommandPaletteProvider.tsx'),
 ]) {
     assert.doesNotMatch(readFileSync(path, 'utf8'), /settings\/account|Account and preferences|Email, hosted status|Manage your account/, `${path} still exposes hosted-account UX`);

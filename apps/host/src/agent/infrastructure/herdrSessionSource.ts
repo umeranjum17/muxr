@@ -154,6 +154,8 @@ interface AgentRecord {
     workspace_id?: string;
     cwd?: string;
     foreground_cwd?: string;
+    launch_pending?: boolean;
+    interactive_ready?: boolean;
     terminal_title?: string;
     terminal_title_stripped?: string;
 }
@@ -705,6 +707,17 @@ export async function createHerdrSessionSource(
         void refreshSnapshot().then(emitAllStates).catch(() => {});
     });
 
+    async function waitForInteractiveAgent(agentName: string, timeoutMs: number): Promise<void> {
+        const result = await client.call<{ agent?: AgentRecord }>(
+            'agent.wait',
+            { target: agentName, until: ['idle', 'working', 'blocked', 'done'], timeout_ms: timeoutMs },
+            timeoutMs + 10_000,
+        );
+        if (result.agent?.interactive_ready !== true || result.agent.launch_pending === true) {
+            throw new Error('herdr agent did not become interactive');
+        }
+    }
+
     client.onEvent((event) => {
         // Wire kinds arrive dot-style per the subscription schema; tolerate snake_case too.
         const kind = event.type.replace(/_/g, '.');
@@ -986,12 +999,12 @@ export async function createHerdrSessionSource(
             return snapshotFor(record, true);
         }
 
-        // agent.start blocks until detection (up to 60s); answer now, land the
-        // detection as events. The socket timeout must outlive herdr's own
-        // timeout_ms or every slow-booting agent is reported as a failed start
-        // it then silently recovers from.
+        // agent.start acknowledges launch admission before the process becomes
+        // interactive. Publish session.created only after Herdr confirms the
+        // stable Agent Route can accept prompts.
         void client
             .call('agent.start', { name: record.sessionId, kind, pane_id: paneId, timeout_ms: 60_000 }, 70_000)
+            .then(() => waitForInteractiveAgent(record.sessionId, 60_000))
             .then(() => {
                 const current = identity.bindRoute(record.sessionId, record.sessionId);
                 if (current === undefined) return;
@@ -1054,7 +1067,10 @@ export async function createHerdrSessionSource(
 
     async function promptSession(sessionId: string, text: string): Promise<void> {
         const record = await resolvePane(sessionId);
-        await client.call('agent.prompt', { target: record.paneId, text });
+        if (record.agentName === undefined) {
+            throw new Error(`${record.displayName} is not ready for prompts.`);
+        }
+        await client.call('agent.prompt', { target: record.agentName, text });
     }
 
     async function readSessionOutput(sessionId: string): Promise<{ text: string; truncated: boolean }> {
