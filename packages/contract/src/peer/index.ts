@@ -20,6 +20,7 @@ export {
     PEER_MUTATION_MAX_TTL_MS,
     PEER_MUTATION_TTL_MS,
     parseDeviceKind,
+    deviceIsPeer,
     parsePeerAllowlist,
     peerCapabilityForRequest,
     peerMayDispatch,

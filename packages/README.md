@@ -1,6 +1,6 @@
 # packages
 
-`@muxr/contract` is the domain language. `@muxr/crypto` is the E2EE context that seals it. Apps import the package barrels or a context entry (`@muxr/contract/herd`). They must not import context internals.
+`@muxr/contract` is the domain language. `@muxr/crypto` is the E2EE context that seals it. Apps import the package barrels or a context entry (`@muxr/contract/herd`, `@muxr/crypto/e2ee`). They must not import context internals. E2EE imports `@muxr/contract/peer`, `@muxr/contract/control-plane`, and `@muxr/contract/shared` rather than the contract barrel, so seal/open does not load plugin or session-sync schemas.
 
 ## Tree
 

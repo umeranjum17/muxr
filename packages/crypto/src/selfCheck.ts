@@ -28,6 +28,7 @@ import {
     verifySignedPeerDescriptor,
     grantAuthority,
     grantIsPeer,
+    grantHasExpired,
     hostedRoutingContext,
     parsePairingCode,
     type V2Context,
@@ -218,6 +219,7 @@ assert.equal(openedPeerGrant.deviceKind, 'peer');
 assert.deepEqual(openedPeerGrant.capabilities, ['list', 'read', 'status', 'watch', 'prompt']);
 assert.equal(openedPeerGrant.authority, undefined, 'peer grants never carry broad control authority');
 assert.equal(grantIsPeer(openedPeerGrant), true);
+assert.equal(grantHasExpired(openedPeerGrant, Date.now() - 1), false, 'fresh peer grant has not expired');
 assert.equal(grantAuthority(openedPeerGrant), undefined, 'peer grants never carry broad control authority');
 assert.throws(() => createDeviceGrant({
     machineId: 'm2', machineSigningSecretKey: targetSigning.secretKey, machineKey: machineX,

@@ -1,5 +1,5 @@
 export type { DeviceAuthority, DeviceGrant, SealedDeviceGrant } from './domain/deviceGrant.js';
-export { grantAuthority, grantIsPeer, peerConstraintMessage } from './domain/deviceGrant.js';
+export { grantAuthority, grantHasExpired, grantIsPeer, parseDeviceAuthority, peerConstraintMessage } from './domain/deviceGrant.js';
 
 export type { KeyPair } from './infrastructure/keys.js';
 export { generateKeyPair } from './infrastructure/keys.js';

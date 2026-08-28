@@ -2,9 +2,9 @@
  * Contract selfCheck: the wire carries the full event vocabulary, and every
  * declared type round-trips through the payload codec byte-identically.
  */
-import { decodePayload, encodePayload, isPluginsInvalidatedFrame, parseClientFrame, tryParseClientFrame } from './control-plane/index.js';
+import { decodePayload, encodePayload, envelopeIsHosted, isPluginsInvalidatedFrame, parseClientFrame, tryParseClientFrame } from './control-plane/index.js';
 import { SESSION_EVENT_TYPES, type SessionEventBody } from './herd/index.js';
-import { isPeerCapabilities, peerCapabilityForRequest, peerMayDispatch, inspectPeerGrantConstraints, inspectPeerMutation } from './peer/index.js';
+import { deviceIsPeer, inspectPeerGrantConstraints, inspectPeerMutation, isPeerCapabilities, peerCapabilityForRequest, peerMayDispatch } from './peer/index.js';
 import { parseRealtimeClientFrame, realtimePcm16ByteLength, MAX_REALTIME_PUBLIC_SESSIONS, realtimePluginPublicContext } from './realtime/index.js';
 import {
     agentIsWorking,
@@ -121,6 +121,7 @@ function demo(): void {
     }
     assert(parseClientFrame({ type: 'client.hello', clientId: 'fresh-client' }).type === 'client.hello', 'valid client hello passes');
     assert(tryParseClientFrame({ type: 'client.hello', clientId: 'fresh-client' }).ok, 'client hello is an expected-success outcome');
+    assert(!envelopeIsHosted({ machineId: 'm1', seq: 1, at: 0 }), 'local envelopes are not hosted');
     assert(!tryParseClientFrame(null).ok, 'malformed client frame is an expected rejection');
     for (const malformed of [null, { type: 'session.list', requestId: 'bad', params: null }]) {
         let rejected = false;
@@ -133,6 +134,7 @@ function demo(): void {
     assert(!attentionReasonStillHolds('done', ATTENTION_DONE_TTL_MS + 1), 'done attention ages out');
     assert(parseHumanName('Maria 2').ok && !parsePublicAgentRoute('bad/path').ok, 'human name is display-only; routes reject path characters');
     assert(peerMayDispatch(['prompt'], 'session.prompt') && !peerMayDispatch(['prompt'], 'session.start'), 'peer dispatch uses the signed allowlist');
+    assert(deviceIsPeer('peer') && !deviceIsPeer('native'), 'peer device kind is the only peer');
     assert(!inspectPeerGrantConstraints({ deviceKind: 'native', capabilities: ['list'] }).ok, 'peer constraints cannot ride on a native grant');
     assert(inspectPeerMutation({ operationId: 'op-1', notValidAfter: Date.now() + 60_000 }, Date.now()).ok, 'fresh peer mutation is accepted');
     assert(!inspectPeerMutation({ operationId: 'op-1', notValidAfter: Date.now() - 1 }, Date.now()).ok, 'expired peer mutation is rejected');

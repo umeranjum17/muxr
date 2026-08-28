@@ -1,4 +1,5 @@
-import type { DeviceKind, PeerCapability, PeerGrantConstraintError } from '@muxr/contract';
+import { fail, ok, type Outcome } from '@muxr/contract/shared';
+import { deviceIsPeer, type DeviceKind, type PeerCapability, type PeerGrantConstraintError } from '@muxr/contract/peer';
 
 export type DeviceAuthority = 'control' | 'observe';
 
@@ -40,7 +41,16 @@ export interface SealedDeviceGrant {
 }
 
 export function grantIsPeer(grant: { deviceKind?: DeviceKind }): boolean {
-    return grant.deviceKind === 'peer';
+    return deviceIsPeer(grant.deviceKind);
+}
+
+export function parseDeviceAuthority(value: unknown): Outcome<DeviceAuthority> {
+    if (value !== 'control' && value !== 'observe') return fail('grant: invalid authority');
+    return ok(value);
+}
+
+export function grantHasExpired(grant: { expiresAt: number }, now = Date.now()): boolean {
+    return grant.expiresAt <= now;
 }
 
 /** Broad host authority. Peers never carry it; native/browser default to control. */

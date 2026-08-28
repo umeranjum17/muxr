@@ -36,6 +36,7 @@ export {
     generateKeyPair,
     generateSigningKeyPair,
     grantAuthority,
+    grantHasExpired,
     grantIsPeer,
     hostedRoutingContext,
     isV2Envelope,

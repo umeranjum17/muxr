@@ -1,7 +1,7 @@
 import nacl from 'tweetnacl';
-import { inspectPeerGrantConstraints, parseDeviceKind, type DeviceKind, type PeerCapability } from '@muxr/contract';
+import { inspectPeerGrantConstraints, parseDeviceKind, type DeviceKind, type PeerCapability } from '@muxr/contract/peer';
 import { concatBytes, decodeUtf8, encodeUtf8, fromBase64, toBase64 } from './encoding.js';
-import { grantAuthority, peerConstraintMessage, type DeviceAuthority, type DeviceGrant, type SealedDeviceGrant } from '../domain/deviceGrant.js';
+import { grantAuthority, grantHasExpired, parseDeviceAuthority, peerConstraintMessage, type DeviceAuthority, type DeviceGrant, type SealedDeviceGrant } from '../domain/deviceGrant.js';
 import { signDetached, verifyDetached } from './identity.js';
 import { toKeyBytes, type KeyPair } from './keys.js';
 
@@ -141,9 +141,8 @@ export function verifyDeviceGrant(
     if (parsed.devicePublicKey !== opts.deviceKey.publicKey) throw new Error('grant: device binding mismatch');
     if (opts.deviceId !== undefined && parsed.deviceId !== opts.deviceId) throw new Error('grant: device id mismatch');
     if (typeof parsed.expiresAt !== 'number' || !Number.isFinite(parsed.expiresAt)) throw new Error('grant: invalid expiry');
-    if (parsed.expiresAt <= Date.now()) throw new Error('grant: expired');
-    const authorityIsUnknown = parsed.authority !== undefined && parsed.authority !== 'control' && parsed.authority !== 'observe';
-    if (authorityIsUnknown) throw new Error('grant: invalid authority');
+    if (grantHasExpired(parsed)) throw new Error('grant: expired');
+    if (parsed.authority !== undefined && !parseDeviceAuthority(parsed.authority).ok) throw new Error('grant: invalid authority');
     if (parsed.deviceKind !== undefined && !parseDeviceKind(parsed.deviceKind).ok) throw new Error('grant: invalid device kind');
     assertPeerConstraints(parsed, 'verify');
     if (!Number.isInteger(parsed.keyVersion) || parsed.keyVersion < 1) throw new Error('grant: invalid key generation');

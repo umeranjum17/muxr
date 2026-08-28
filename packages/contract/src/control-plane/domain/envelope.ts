@@ -1,5 +1,5 @@
 /**
- * Relay wire format.
+ * Envelope routing.
  *
  * The relay routes `Envelope`s. It reads ONLY the routing header. `payload` is
  * opaque to it -- in production it is ciphertext the relay cannot read, and the
@@ -8,10 +8,8 @@
  */
 
 import { fail, ok, unwrapOrThrow, type Outcome } from '../../shared/outcome.js';
-import type { SessionEvent } from '../../herd/index.js';
-import type { MachineInfo } from '../../herd/index.js';
+import type { MachineInfo, SessionEvent, SessionInfo } from '../../herd/index.js';
 import type { ClientRequest, RequestResponse } from './requests.js';
-import type { SessionInfo } from '../../herd/index.js';
 import { isValidPluginId } from '../../plugins/index.js';
 
 /**
@@ -60,6 +58,21 @@ export interface Envelope {
      * Encrypted in production; plain JSON in local/dev.
      */
     payload: string;
+}
+
+/** Hosted Envelopes carry sender, recipient, channel, stream, and key generation. Local/dev omit them. */
+export function envelopeIsHosted(header: EnvelopeHeader): header is EnvelopeHeader & {
+    senderId: string;
+    recipientId: string;
+    channel: RoutingChannel;
+    streamId: string;
+    keyVersion: number;
+} {
+    return header.senderId !== undefined
+        && header.recipientId !== undefined
+        && header.channel !== undefined
+        && header.streamId !== undefined
+        && header.keyVersion !== undefined;
 }
 
 // --- machine host -> client -------------------------------------------------

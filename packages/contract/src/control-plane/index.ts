@@ -22,6 +22,7 @@ export type { ClientFrame, Envelope, EnvelopeHeader, PluginsInvalidatedFrame, Ho
 export {
     decodePayload,
     encodePayload,
+    envelopeIsHosted,
     isPluginsInvalidatedFrame,
     isRoutingChannel,
     nextRequestId,

@@ -34,6 +34,10 @@
         "./worktree": {
             "types": "./dist/worktree/index.d.ts",
             "default": "./dist/worktree/index.js"
+        },
+        "./shared": {
+            "types": "./dist/shared/index.d.ts",
+            "default": "./dist/shared/index.js"
         }
     },
     "dependencies": {

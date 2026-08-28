@@ -19,6 +19,10 @@ export function parseDeviceKind(value: unknown): Outcome<DeviceKind> {
     return ok(value);
 }
 
+export function deviceIsPeer(deviceKind?: DeviceKind): boolean {
+    return deviceKind === 'peer';
+}
+
 export interface PeerMutationMetadata {
     /** Stable across retries; the target persists the first result until expiry. */
     operationId: string;
@@ -151,7 +155,7 @@ export function inspectPeerGrantConstraints(input: {
     capabilities?: unknown;
     allowedCwds?: unknown;
 }): Outcome<{ capabilities?: PeerCapability[]; allowedCwds?: string[] }, PeerGrantConstraintError> {
-    const isPeerDevice = input.deviceKind === 'peer';
+    const isPeerDevice = deviceIsPeer(input.deviceKind);
     if (!isPeerDevice) {
         if (input.capabilities !== undefined || input.allowedCwds !== undefined) {
             return fail('constraints-on-non-peer');
