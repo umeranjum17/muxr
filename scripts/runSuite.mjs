@@ -16,7 +16,6 @@ const hasHerdr = existsSync(herdrSocket);
 
 const checks = [
     ['typecheck: workspace (strict)', 'npx', ['tsc', '--build', '--force']],
-    ['build: private wire types', 'yarn', ['workspace', '@muxr/wire', 'build']],
     ['typecheck: mobile (expo/RN)', 'npx', ['tsc', '--noEmit', '--project', 'apps/mobile/tsconfig.json']],
     ['unit: crypto (strict v2/replay/grants/adversarial)', 'node', ['packages/crypto/dist/selfCheck.js']],
     ['unit: host domain (unread/attention/restart)', 'node', ['apps/host/dist/domain/selfCheck.js']],

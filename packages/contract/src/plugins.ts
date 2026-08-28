@@ -665,7 +665,10 @@ export function capUtf8Bytes(text: string, maxBytes: number): string {
     let index = 0;
     while (index < text.length) {
         const codePoint = text.codePointAt(index)!;
-        const size = codePoint > 0xffff ? 4 : codePoint > 0x7ff ? 3 : codePoint > 0x7f ? 2 : 1;
+        let size = 1;
+        if (codePoint > 0xffff) size = 4;
+        else if (codePoint > 0x7ff) size = 3;
+        else if (codePoint > 0x7f) size = 2;
         if (bytes + size > maxBytes) break;
         bytes += size;
         index += codePoint > 0xffff ? 2 : 1;

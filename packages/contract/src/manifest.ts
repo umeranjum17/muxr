@@ -74,6 +74,11 @@ function presentation(value: unknown): 'card' | 'sheet' {
     return value;
 }
 
+function pluginCallSource(value: unknown, label: string): { type: 'plugin.call'; contributionId: string } {
+    if (!isRecord(value) || value.type !== 'plugin.call') throw new Error(`invalid ${label}`);
+    return { type: 'plugin.call', contributionId: id(value.contributionId) };
+}
+
 function text(value: unknown, max: number): string {
     if (typeof value !== 'string') throw new Error('invalid plugin text');
     const clean = sanitizeDisplayText(value).replace(/[\0-\x1F\x7F]/g, '').trim();
@@ -195,11 +200,7 @@ function parseScreenContribution(item: Record<string, unknown>): PluginScreenCon
         id: id(item.id),
         type: 'screen',
         ...(item.title === undefined ? {} : { title: pluginText(item.title, 80) }),
-        ...(item.data === undefined ? {} : {
-            data: isRecord(item.data) && item.data.type === 'plugin.call'
-                ? { type: 'plugin.call' as const, contributionId: id(item.data.contributionId) }
-                : (() => { throw new Error('invalid plugin screen data'); })(),
-        }),
+        ...(item.data === undefined ? {} : { data: pluginCallSource(item.data, 'plugin screen data') }),
         children,
     };
 }
@@ -300,11 +301,7 @@ function parseScreenNode(item: Record<string, unknown>, depth: number, budget: {
                 ...(item.title === undefined ? {} : { title: pluginText(item.title, 80) }),
                 ...(item.emptyText === undefined ? {} : { emptyText: pluginText(item.emptyText, 120) }),
                 ...(item.selectionField === undefined ? {} : { selectionField: id(item.selectionField) }),
-                ...(item.source === undefined ? {} : {
-                    source: isRecord(item.source) && item.source.type === 'plugin.call'
-                        ? { type: 'plugin.call' as const, contributionId: id(item.source.contributionId) }
-                        : (() => { throw new Error('invalid plugin screen tree source'); })(),
-                }),
+                ...(item.source === undefined ? {} : { source: pluginCallSource(item.source, 'plugin screen tree source') }),
                 ...(item.action === undefined ? {} : { action: parsePluginAction(item.action) }),
             };
         case 'list': {
@@ -399,12 +396,14 @@ export function parsePluginAction(value: unknown): PluginAction {
     if (value.type === 'attachment') {
         const size = number(value.size);
         if (!Number.isSafeInteger(size) || size < 0 || size > 1024 * 1024 * 1024) throw new Error('invalid plugin attachment size');
+        const attachmentId = actionString(value.id, 255, 'attachment id');
+        const isPathLikeId = attachmentId === '..' || attachmentId.includes('/') || attachmentId.includes('\\');
+        if (isPathLikeId) throw new Error('invalid plugin action attachment id');
         return {
-            type: 'attachment', id: (() => {
-                const attachmentId = actionString(value.id, 255, 'attachment id');
-                if (attachmentId === '..' || attachmentId.includes('/') || attachmentId.includes('\\')) throw new Error('invalid plugin action attachment id');
-                return attachmentId;
-            })(), name: actionString(value.name, 255, 'attachment name'), size,
+            type: 'attachment',
+            id: attachmentId,
+            name: actionString(value.name, 255, 'attachment name'),
+            size,
             ...(value.mimeType === undefined ? {} : { mimeType: actionString(value.mimeType, 120, 'attachment MIME type') }),
         };
     }
@@ -459,12 +458,20 @@ function collectScreenFieldIds(nodes: PluginScreenNode[], fieldIds: string[]): v
     }
 }
 function screenButtons(nodes: PluginScreenNode[]): PluginScreenButtonNode[] {
-    return nodes.flatMap((node) => node.type === 'button' ? [node] : node.type === 'section' ? screenButtons(node.children) : []);
+    const buttons: PluginScreenButtonNode[] = [];
+    for (const node of nodes) {
+        if (node.type === 'button') buttons.push(node);
+        else if (node.type === 'section') buttons.push(...screenButtons(node.children));
+    }
+    return buttons;
 }
 function screenTreeSelectionFields(nodes: PluginScreenNode[]): string[] {
-    return nodes.flatMap((node) => node.type === 'tree' && node.selectionField !== undefined
-        ? [node.selectionField]
-        : node.type === 'section' ? screenTreeSelectionFields(node.children) : []);
+    const fieldIds: string[] = [];
+    for (const node of nodes) {
+        if (node.type === 'tree' && node.selectionField !== undefined) fieldIds.push(node.selectionField);
+        else if (node.type === 'section') fieldIds.push(...screenTreeSelectionFields(node.children));
+    }
+    return fieldIds;
 }
 
 function parseCapabilities(value: unknown): Record<string, string> | undefined {
@@ -483,9 +490,12 @@ function containsLocalizedText(value: unknown, parentKey?: string): boolean {
 }
 
 function usesDynamicScreenNodes(nodes: PluginScreenNode[]): boolean {
-    return nodes.some((node) => node.type === 'chart'
-        || node.type === 'progress' && node.path !== undefined
-        || node.type === 'section' && (node.columns !== undefined || usesDynamicScreenNodes(node.children)));
+    for (const node of nodes) {
+        if (node.type === 'chart') return true;
+        if (node.type === 'progress' && node.path !== undefined) return true;
+        if (node.type === 'section' && (node.columns !== undefined || usesDynamicScreenNodes(node.children))) return true;
+    }
+    return false;
 }
 
 function assertFiniteNumbers(value: unknown): void {
@@ -504,150 +514,139 @@ function assertFiniteNumbers(value: unknown): void {
 
 export { MAX_PLUGIN_CONTEXT_BYTES, MAX_RPC_INPUT_BYTES, MAX_RPC_STDOUT_BYTES } from './plugins.js';
 
-export function parseManifest(value: unknown): PluginManifestV1 {
-    assertFiniteNumbers(value);
-    if (!isRecord(value) || value.schemaVersion !== 1 || typeof value.pluginId !== 'string' || !Array.isArray(value.contributions)) {
-        throw new Error('invalid muxr plugin manifest');
+function parseHostModuleEntry(value: unknown, kind: 'stream' | 'RPC'): string {
+    const entry = text(value, 80);
+    if (!/^[a-zA-Z0-9._-]+\.mjs$/.test(entry)) throw new Error(`invalid plugin ${kind} entry`);
+    return entry;
+}
+
+function parseRpcContribution(item: Record<string, unknown>): PluginContribution {
+    const entry = parseHostModuleEntry(item.entry, 'RPC');
+    const modeDeclared = item.mode !== undefined;
+    let mode: PluginRpcMode;
+    if (item.mode === 'write') mode = 'write';
+    else if (item.mode === undefined || item.mode === 'read') mode = 'read';
+    else throw new Error('invalid plugin RPC mode');
+    let context: PluginContextRequest[] | undefined;
+    if (item.context !== undefined) {
+        if (!Array.isArray(item.context) || item.context.length === 0 || item.context.length > PLUGIN_CONTEXT_REQUESTS.length) {
+            throw new Error('invalid plugin RPC context');
+        }
+        context = item.context.map((entry) => {
+            if (typeof entry !== 'string' || !(PLUGIN_CONTEXT_REQUESTS as readonly string[]).includes(entry)) {
+                throw new Error('unknown plugin RPC context');
+            }
+            return entry as PluginContextRequest;
+        });
+        if (new Set(context).size !== context.length) throw new Error('duplicate plugin RPC context');
     }
-    const pluginId = id(value.pluginId);
-    const minMuxrVersion = value.minMuxrVersion;
-    if (minMuxrVersion !== undefined
-        && (typeof minMuxrVersion !== 'number' || !Number.isInteger(minMuxrVersion) || minMuxrVersion < 1)) {
-        throw new Error('invalid minMuxrVersion');
+    return { slot: 'host.rpc', id: id(item.id), type: 'rpc', method: id(item.method), entry, mode, modeDeclared, ...(context === undefined ? {} : { context }) };
+}
+
+function parseNativeContribution(item: Record<string, unknown>): PluginContribution | undefined {
+    const primitive = typeof item.primitive === 'string' ? item.primitive : undefined;
+    if (primitive === undefined || !PRIMITIVE_SET.has(primitive)) return undefined;
+    const spec = PRIMITIVE_SPECS[primitive as keyof typeof PRIMITIVE_SPECS];
+    if (!(spec.slots as readonly string[]).includes(item.slot as string)) {
+        throw new Error(`plugin primitive ${primitive} is not available in slot ${item.slot}`);
     }
-    const capabilities = parseCapabilities(value.capabilities);
-    if (value.contributions.length > MAX_CONTRIBUTIONS) throw new Error('too many plugin contributions');
-    const contributions: PluginContribution[] = [];
-    const contributionIds = new Set<string>();
-    const rpcModes = new Map<string, PluginRpcMode>();
-    for (const item of value.contributions) {
-        if (!isRecord(item)) continue;
-        if (item.slot === 'settings.sections') {
-            if (!Array.isArray(item.children) || item.children.length > MAX_ROWS) throw new Error('invalid plugin settings rows');
-            contributions.push({
-                slot: 'settings.sections', id: id(item.id), title: pluginText(item.title, 80),
-                children: item.children.flatMap((child) => {
-                    if (!isRecord(child) || child.type !== 'row') return [];
-                    return [{ type: 'row' as const, title: pluginText(child.title, 80), ...(child.subtitle === undefined ? {} : { subtitle: pluginText(child.subtitle, MAX_TEXT) }) }];
-                }),
-            });
+    for (const required of spec.requires) {
+        if (!(NATIVE_SLOT_CONTEXT_KEYS[item.slot as PluginNativeSlot] as readonly string[]).includes(required)) {
+            throw new Error(`plugin primitive ${primitive} requires ${required}, unavailable in slot ${item.slot}`);
+        }
+    }
+    if (item.source !== undefined || item.capability !== undefined || item.title !== undefined) {
+        throw new Error(`plugin primitive ${primitive} parameters must be under params`);
+    }
+    const params = item.params === undefined ? {} : item.params;
+    if (!isRecord(params)) throw new Error(`invalid params for plugin primitive ${primitive}`);
+    for (const name of Object.keys(params)) {
+        if (!(name in spec.params)) throw new Error(`unknown parameter ${name} for plugin primitive ${primitive}`);
+    }
+    let title: PluginText | undefined;
+    let emptyTitle: PluginText | undefined;
+    let emptyMessage: PluginText | undefined;
+    let source: { type: 'plugin.call'; contributionId: string } | undefined;
+    let capability: string | undefined;
+    let icon: string | undefined;
+    let accessibilityLabel: PluginText | undefined;
+    let refreshIntervalMs: number | undefined;
+    let indicator: 'realtime-session' | undefined;
+    for (const [name, rule] of Object.entries(spec.params)) {
+        const raw = params[name];
+        if (raw === undefined) {
+            if (rule.required === true) throw new Error(`plugin primitive ${primitive} requires ${name}`);
             continue;
         }
-        if (item.slot === 'session.toolbar' && item.type === 'button' && isRecord(item.action) && item.action.type === 'plugin.invoke') {
-            contributions.push({ slot: 'session.toolbar', id: id(item.id), type: 'button', label: pluginText(item.label, 40), action: { type: 'plugin.invoke', actionId: id(item.action.actionId) } });
-            continue;
+        if (rule.type === 'text') {
+            const parsed = pluginText(raw, rule.maxLength);
+            if (name === 'title') title = parsed;
+            else if (name === 'emptyTitle') emptyTitle = parsed;
+            else if (name === 'emptyMessage') emptyMessage = parsed;
+            else if (name === 'accessibilityLabel') accessibilityLabel = parsed;
+            else throw new Error(`unsupported text parameter ${name} for plugin primitive ${primitive}`);
+        } else if (rule.type === 'id') {
+            const parsed = id(raw);
+            if (name === 'icon') icon = parsed;
+            else throw new Error(`unsupported id parameter ${name} for plugin primitive ${primitive}`);
+        } else if (rule.type === 'enum') {
+            if (typeof raw !== 'string' || !(rule.values as readonly string[]).includes(raw)) throw new Error(`invalid ${name} for plugin primitive ${primitive}`);
+            if (name === 'indicator' && raw === 'realtime-session') indicator = raw;
+            else throw new Error(`unsupported enum parameter ${name} for plugin primitive ${primitive}`);
+        } else if (rule.type === 'integer') {
+            if (typeof raw !== 'number' || !Number.isSafeInteger(raw) || raw < rule.min || raw > rule.max) {
+                throw new Error(`invalid ${name} for plugin primitive ${primitive}`);
+            }
+            if (name === 'refreshIntervalMs') refreshIntervalMs = raw;
+            else throw new Error(`unsupported integer parameter ${name} for plugin primitive ${primitive}`);
+        } else if (rule.type === 'capability') capability = id(raw);
+        else {
+            if (!isRecord(raw) || raw.type !== 'plugin.call') throw new Error(`invalid ${name} for plugin primitive ${primitive}`);
+            source = { type: 'plugin.call', contributionId: id(raw.contributionId) };
         }
-        if (item.slot === 'host.stream' && item.type === 'stream') {
-            const entry = text(item.entry, 80);
-            if (!/^[a-zA-Z0-9._-]+\.mjs$/.test(entry)) throw new Error('invalid plugin stream entry');
-            contributions.push({ slot: 'host.stream', id: id(item.id), type: 'stream', entry });
-            continue;
-        }
-        if (item.slot === 'host.rpc' && item.type === 'rpc') {
-            const entry = text(item.entry, 80);
-            if (!/^[a-zA-Z0-9._-]+\.mjs$/.test(entry)) throw new Error('invalid plugin RPC entry');
-            let mode: PluginRpcMode;
-            const modeDeclared = item.mode !== undefined;
-            if (item.mode === 'write') mode = 'write';
-            else if (item.mode === undefined || item.mode === 'read') mode = 'read';
-            else throw new Error('invalid plugin RPC mode');
-            let context: PluginContextRequest[] | undefined;
-            if (item.context !== undefined) {
-                if (!Array.isArray(item.context) || item.context.length === 0 || item.context.length > PLUGIN_CONTEXT_REQUESTS.length) {
-                    throw new Error('invalid plugin RPC context');
-                }
-                context = item.context.map((entry) => {
-                    if (typeof entry !== 'string' || !(PLUGIN_CONTEXT_REQUESTS as readonly string[]).includes(entry)) {
-                        throw new Error('unknown plugin RPC context');
-                    }
-                    return entry as PluginContextRequest;
-                });
-                if (new Set(context).size !== context.length) throw new Error('duplicate plugin RPC context');
-            }
-            contributions.push({ slot: 'host.rpc', id: id(item.id), type: 'rpc', method: id(item.method), entry, mode, modeDeclared, ...(context === undefined ? {} : { context }) });
-            continue;
-        }
-        if (item.type === 'native' && typeof item.slot === 'string' && NATIVE_SLOT_SET.has(item.slot)) {
-            const primitive = typeof item.primitive === 'string' ? item.primitive : undefined;
-            if (primitive === undefined || !PRIMITIVE_SET.has(primitive)) continue;
-            const spec = PRIMITIVE_SPECS[primitive as keyof typeof PRIMITIVE_SPECS];
-            if (!(spec.slots as readonly string[]).includes(item.slot)) {
-                throw new Error(`plugin primitive ${primitive} is not available in slot ${item.slot}`);
-            }
-            for (const required of spec.requires) {
-                if (!(NATIVE_SLOT_CONTEXT_KEYS[item.slot as PluginNativeSlot] as readonly string[]).includes(required)) {
-                    throw new Error(`plugin primitive ${primitive} requires ${required}, unavailable in slot ${item.slot}`);
-                }
-            }
-            if (item.source !== undefined || item.capability !== undefined || item.title !== undefined) {
-                throw new Error(`plugin primitive ${primitive} parameters must be under params`);
-            }
-            const params = item.params === undefined ? {} : item.params;
-            if (!isRecord(params)) throw new Error(`invalid params for plugin primitive ${primitive}`);
-            for (const name of Object.keys(params)) {
-                if (!(name in spec.params)) throw new Error(`unknown parameter ${name} for plugin primitive ${primitive}`);
-            }
-            let title: PluginText | undefined;
-            let emptyTitle: PluginText | undefined;
-            let emptyMessage: PluginText | undefined;
-            let source: { type: 'plugin.call'; contributionId: string } | undefined;
-            let capability: string | undefined;
-            let icon: string | undefined;
-            let accessibilityLabel: PluginText | undefined;
-            let refreshIntervalMs: number | undefined;
-            let indicator: 'realtime-session' | undefined;
-            for (const [name, rule] of Object.entries(spec.params)) {
-                const raw = params[name];
-                if (raw === undefined) {
-                    if (rule.required === true) throw new Error(`plugin primitive ${primitive} requires ${name}`);
-                    continue;
-                }
-                if (rule.type === 'text') {
-                    const parsed = pluginText(raw, rule.maxLength);
-                    if (name === 'title') title = parsed;
-                    else if (name === 'emptyTitle') emptyTitle = parsed;
-                    else if (name === 'emptyMessage') emptyMessage = parsed;
-                    else if (name === 'accessibilityLabel') accessibilityLabel = parsed;
-                    else throw new Error(`unsupported text parameter ${name} for plugin primitive ${primitive}`);
-                } else if (rule.type === 'id') {
-                    const parsed = id(raw);
-                    if (name === 'icon') icon = parsed;
-                    else throw new Error(`unsupported id parameter ${name} for plugin primitive ${primitive}`);
-                } else if (rule.type === 'enum') {
-                    if (typeof raw !== 'string' || !(rule.values as readonly string[]).includes(raw)) throw new Error(`invalid ${name} for plugin primitive ${primitive}`);
-                    if (name === 'indicator' && raw === 'realtime-session') indicator = raw;
-                    else throw new Error(`unsupported enum parameter ${name} for plugin primitive ${primitive}`);
-                } else if (rule.type === 'integer') {
-                    if (typeof raw !== 'number' || !Number.isSafeInteger(raw) || raw < rule.min || raw > rule.max) {
-                        throw new Error(`invalid ${name} for plugin primitive ${primitive}`);
-                    }
-                    if (name === 'refreshIntervalMs') refreshIntervalMs = raw;
-                    else throw new Error(`unsupported integer parameter ${name} for plugin primitive ${primitive}`);
-                } else if (rule.type === 'capability') capability = id(raw);
-                else {
-                    if (!isRecord(raw) || raw.type !== 'plugin.call') throw new Error(`invalid ${name} for plugin primitive ${primitive}`);
-                    source = { type: 'plugin.call', contributionId: id(raw.contributionId) };
-                }
-            }
-            contributions.push({
-                slot: item.slot as PluginNativeSlot,
-                id: id(item.id),
-                type: 'native',
-                primitive: primitive as typeof PRIMITIVES[number],
-                ...(title === undefined ? {} : { title }),
-                ...(emptyTitle === undefined ? {} : { emptyTitle }),
-                ...(emptyMessage === undefined ? {} : { emptyMessage }),
-                ...(source === undefined ? {} : { source }),
-                ...(capability === undefined ? {} : { capability }),
-                ...(icon === undefined ? {} : { icon }),
-                ...(accessibilityLabel === undefined ? {} : { accessibilityLabel }),
-                ...(refreshIntervalMs === undefined ? {} : { refreshIntervalMs }),
-                ...(indicator === undefined ? {} : { indicator }),
-            });
-            continue;
-        }
-        if (item.slot === 'terminal.key-row' && item.type === 'key-row' && Array.isArray(item.keys) && item.keys.length <= 16) {
-            contributions.push({ slot: 'terminal.key-row', id: id(item.id), type: 'key-row', keys: item.keys.map((key) => {
+    }
+    return {
+        slot: item.slot as PluginNativeSlot,
+        id: id(item.id),
+        type: 'native',
+        primitive: primitive as typeof PRIMITIVES[number],
+        ...(title === undefined ? {} : { title }),
+        ...(emptyTitle === undefined ? {} : { emptyTitle }),
+        ...(emptyMessage === undefined ? {} : { emptyMessage }),
+        ...(source === undefined ? {} : { source }),
+        ...(capability === undefined ? {} : { capability }),
+        ...(icon === undefined ? {} : { icon }),
+        ...(accessibilityLabel === undefined ? {} : { accessibilityLabel }),
+        ...(refreshIntervalMs === undefined ? {} : { refreshIntervalMs }),
+        ...(indicator === undefined ? {} : { indicator }),
+    };
+}
+
+/** Unknown slots/types return undefined (skipped). Known shapes with bad fields throw. */
+function parseContribution(item: Record<string, unknown>): PluginContribution | undefined {
+    if (item.slot === 'settings.sections') {
+        if (!Array.isArray(item.children) || item.children.length > MAX_ROWS) throw new Error('invalid plugin settings rows');
+        return {
+            slot: 'settings.sections', id: id(item.id), title: pluginText(item.title, 80),
+            children: item.children.flatMap((child) => {
+                if (!isRecord(child) || child.type !== 'row') return [];
+                return [{ type: 'row' as const, title: pluginText(child.title, 80), ...(child.subtitle === undefined ? {} : { subtitle: pluginText(child.subtitle, MAX_TEXT) }) }];
+            }),
+        };
+    }
+    if (item.slot === 'session.toolbar' && item.type === 'button' && isRecord(item.action) && item.action.type === 'plugin.invoke') {
+        return { slot: 'session.toolbar', id: id(item.id), type: 'button', label: pluginText(item.label, 40), action: { type: 'plugin.invoke', actionId: id(item.action.actionId) } };
+    }
+    if (item.slot === 'host.stream' && item.type === 'stream') {
+        return { slot: 'host.stream', id: id(item.id), type: 'stream', entry: parseHostModuleEntry(item.entry, 'stream') };
+    }
+    if (item.slot === 'host.rpc' && item.type === 'rpc') return parseRpcContribution(item);
+    if (item.type === 'native' && typeof item.slot === 'string' && NATIVE_SLOT_SET.has(item.slot)) {
+        return parseNativeContribution(item);
+    }
+    if (item.slot === 'terminal.key-row' && item.type === 'key-row' && Array.isArray(item.keys) && item.keys.length <= 16) {
+        return {
+            slot: 'terminal.key-row', id: id(item.id), type: 'key-row', keys: item.keys.map((key) => {
                 if (!isRecord(key)) throw new Error('invalid terminal key');
                 return {
                     label: pluginText(key.label, 8), accessibilityLabel: pluginText(key.accessibilityLabel, 40), send: keySequence(key.send),
@@ -655,42 +654,52 @@ export function parseManifest(value: unknown): PluginManifestV1 {
                     ...(key.shift === undefined ? {} : { shift: keySequence(key.shift) }),
                     ...(key.ctrlShift === undefined ? {} : { ctrlShift: keySequence(key.ctrlShift) }),
                 };
-            }) });
-            continue;
-        }
-        if (typeof item.slot === 'string' && DATA_CARD_SLOT_SET.has(item.slot) && item.type === 'data-card' && isRecord(item.source) && item.source.type === 'plugin.call') {
-            contributions.push({ slot: item.slot as PluginDataCard['slot'], id: id(item.id), type: 'data-card', title: pluginText(item.title, 80), source: { type: 'plugin.call', contributionId: id(item.source.contributionId) }, ...(item.emptyText === undefined ? {} : { emptyText: pluginText(item.emptyText, 120) }), ...(item.presentation === undefined ? {} : { presentation: presentation(item.presentation) }), ...(item.icon === undefined ? {} : { icon: id(item.icon) }) });
-            continue;
-        }
-        if (item.slot === 'session.header.trailing' && item.type === 'screen-button') {
-            contributions.push({ slot: 'session.header.trailing', id: id(item.id), type: 'screen-button', title: pluginText(item.title, 40), icon: id(item.icon), contentContributionId: id(item.contentContributionId) });
-            continue;
-        }
-        if (item.slot === 'shortcuts') {
-            contributions.push(parseShortcut(item));
-            continue;
-        }
-        if (item.slot === 'events') {
-            contributions.push(parseEventTrigger(item));
-            continue;
-        }
-        if (item.slot === 'navigation.content' && item.type === 'screen') {
-            contributions.push(parseScreenContribution(item));
-            continue;
-        }
-        if (item.slot === 'navigation.primary' && item.type === 'navigation-item') {
-            const badge = item.badge === undefined ? undefined : (() => {
-                if (!isRecord(item.badge) || item.badge.type !== 'plugin.call') throw new Error('invalid navigation badge source');
-                return { type: 'plugin.call' as const, contributionId: id(item.badge.contributionId) };
-            })();
-            contributions.push({ slot: 'navigation.primary', id: id(item.id), type: 'navigation-item', label: pluginText(item.label, 40), icon: id(item.icon), contentContributionId: id(item.contentContributionId), ...(badge === undefined ? {} : { badge }) });
-            continue;
-        }
-        if (item.slot === 'settings.items' && item.type === 'settings-item') {
-            contributions.push({ slot: 'settings.items', id: id(item.id), type: 'settings-item', label: pluginText(item.label, 60), ...(item.subtitle === undefined ? {} : { subtitle: pluginText(item.subtitle, 160) }), icon: id(item.icon), action: parsePluginAction(item.action) });
-        }
+            }),
+        };
     }
+    if (typeof item.slot === 'string' && DATA_CARD_SLOT_SET.has(item.slot) && item.type === 'data-card' && isRecord(item.source) && item.source.type === 'plugin.call') {
+        return {
+            slot: item.slot as PluginDataCard['slot'], id: id(item.id), type: 'data-card',
+            title: pluginText(item.title, 80),
+            source: { type: 'plugin.call', contributionId: id(item.source.contributionId) },
+            ...(item.emptyText === undefined ? {} : { emptyText: pluginText(item.emptyText, 120) }),
+            ...(item.presentation === undefined ? {} : { presentation: presentation(item.presentation) }),
+            ...(item.icon === undefined ? {} : { icon: id(item.icon) }),
+        };
+    }
+    if (item.slot === 'session.header.trailing' && item.type === 'screen-button') {
+        return { slot: 'session.header.trailing', id: id(item.id), type: 'screen-button', title: pluginText(item.title, 40), icon: id(item.icon), contentContributionId: id(item.contentContributionId) };
+    }
+    if (item.slot === 'shortcuts') return parseShortcut(item);
+    if (item.slot === 'events') return parseEventTrigger(item);
+    if (item.slot === 'navigation.content' && item.type === 'screen') return parseScreenContribution(item);
+    if (item.slot === 'navigation.primary' && item.type === 'navigation-item') {
+        const badge = item.badge === undefined ? undefined : pluginCallSource(item.badge, 'navigation badge source');
+        return {
+            slot: 'navigation.primary', id: id(item.id), type: 'navigation-item',
+            label: pluginText(item.label, 40), icon: id(item.icon), contentContributionId: id(item.contentContributionId),
+            ...(badge === undefined ? {} : { badge }),
+        };
+    }
+    if (item.slot === 'settings.items' && item.type === 'settings-item') {
+        return { slot: 'settings.items', id: id(item.id), type: 'settings-item', label: pluginText(item.label, 60), ...(item.subtitle === undefined ? {} : { subtitle: pluginText(item.subtitle, 160) }), icon: id(item.icon), action: parsePluginAction(item.action) };
+    }
+    return undefined;
+}
 
+function requireReadRpc(rpcModes: Map<string, PluginRpcMode>, contributionId: string, missing: string, wrongMode: string): void {
+    const mode = rpcModes.get(contributionId);
+    if (mode === undefined) throw new Error(missing);
+    if (mode !== 'read') throw new Error(wrongMode);
+}
+
+function validateManifestGraph(
+    contributions: PluginContribution[],
+    capabilities: Record<string, string> | undefined,
+    minMuxrVersion: number | undefined,
+): void {
+    const contributionIds = new Set<string>();
+    const rpcModes = new Map<string, PluginRpcMode>();
     for (const contribution of contributions) {
         if (contributionIds.has(contribution.id)) throw new Error(`duplicate plugin contribution id: ${contribution.id}`);
         contributionIds.add(contribution.id);
@@ -699,31 +708,46 @@ export function parseManifest(value: unknown): PluginManifestV1 {
     for (const contribution of contributions) {
         if ((contribution.slot === 'events' || contribution.slot === 'shortcuts')
             && contribution.action.type === 'plugin.call') {
-            const mode = rpcModes.get(contribution.action.contributionId);
-            if (mode === undefined) throw new Error(`plugin event RPC is not declared: ${contribution.action.contributionId}`);
-            if (mode !== 'read') throw new Error(`plugin event RPC must be read mode: ${contribution.action.contributionId}`);
+            requireReadRpc(
+                rpcModes,
+                contribution.action.contributionId,
+                `plugin event RPC is not declared: ${contribution.action.contributionId}`,
+                `plugin event RPC must be read mode: ${contribution.action.contributionId}`,
+            );
         }
         if (!('type' in contribution)) continue;
         if (contribution.type === 'data-card') {
-            const mode = rpcModes.get(contribution.source.contributionId);
-            if (mode === undefined) throw new Error(`data card source is not declared: ${contribution.source.contributionId}`);
-            if (mode !== 'read') throw new Error(`data card source must be read mode: ${contribution.source.contributionId}`);
+            requireReadRpc(
+                rpcModes,
+                contribution.source.contributionId,
+                `data card source is not declared: ${contribution.source.contributionId}`,
+                `data card source must be read mode: ${contribution.source.contributionId}`,
+            );
         }
         if (contribution.type === 'native' && contribution.source !== undefined) {
-            const mode = rpcModes.get(contribution.source.contributionId);
-            if (mode === undefined) throw new Error(`native source is not declared: ${contribution.source.contributionId}`);
-            if (mode !== 'read') throw new Error(`native source must be read mode: ${contribution.source.contributionId}`);
+            requireReadRpc(
+                rpcModes,
+                contribution.source.contributionId,
+                `native source is not declared: ${contribution.source.contributionId}`,
+                `native source must be read mode: ${contribution.source.contributionId}`,
+            );
         }
         if (contribution.type === 'screen') {
             if (contribution.data !== undefined) {
-                const mode = rpcModes.get(contribution.data.contributionId);
-                if (mode === undefined) throw new Error(`screen RPC is not declared: ${contribution.data.contributionId}`);
-                if (mode !== 'read') throw new Error(`screen data RPC must be read mode: ${contribution.data.contributionId}`);
+                requireReadRpc(
+                    rpcModes,
+                    contribution.data.contributionId,
+                    `screen RPC is not declared: ${contribution.data.contributionId}`,
+                    `screen data RPC must be read mode: ${contribution.data.contributionId}`,
+                );
             }
             for (const source of screenTreeSources(contribution.children)) {
-                const mode = rpcModes.get(source.contributionId);
-                if (mode === undefined) throw new Error(`screen tree source is not declared: ${source.contributionId}`);
-                if (mode !== 'read') throw new Error(`screen tree source must be read mode: ${source.contributionId}`);
+                requireReadRpc(
+                    rpcModes,
+                    source.contributionId,
+                    `screen tree source is not declared: ${source.contributionId}`,
+                    `screen tree source must be read mode: ${source.contributionId}`,
+                );
             }
             for (const action of screenActions(contribution)) validateActionReferences(action, contributions, rpcModes, 'screen');
         }
@@ -741,30 +765,60 @@ export function parseManifest(value: unknown): PluginManifestV1 {
                 throw new Error(`navigation content is not declared: ${contribution.contentContributionId}`);
             }
             if (contribution.badge !== undefined) {
-                const mode = rpcModes.get(contribution.badge.contributionId);
-                if (mode === undefined) throw new Error(`navigation badge source is not declared: ${contribution.badge.contributionId}`);
-                if (mode !== 'read') throw new Error(`navigation badge source must be read mode: ${contribution.badge.contributionId}`);
+                requireReadRpc(
+                    rpcModes,
+                    contribution.badge.contributionId,
+                    `navigation badge source is not declared: ${contribution.badge.contributionId}`,
+                    `navigation badge source must be read mode: ${contribution.badge.contributionId}`,
+                );
             }
         }
     }
     for (const [capability, contributionId] of Object.entries(capabilities ?? {})) {
         if (!contributionIds.has(contributionId)) throw new Error(`plugin capability ${capability} names an unknown contribution`);
     }
+    const declaredMinVersion = minMuxrVersion ?? 1;
     if (contributions.some((contribution) => containsLocalizedText(contribution))
-        && (minMuxrVersion ?? 1) < PLUGIN_TEXT_MIN_UI_VERSION) {
+        && declaredMinVersion < PLUGIN_TEXT_MIN_UI_VERSION) {
         throw new Error(`localized plugin text requires minMuxrVersion ${PLUGIN_TEXT_MIN_UI_VERSION}`);
     }
     if (contributions.some((contribution) => 'type' in contribution && contribution.type === 'screen' && usesDynamicScreenNodes(contribution.children))
-        && (minMuxrVersion ?? 1) < DYNAMIC_SCREEN_MIN_UI_VERSION) {
+        && declaredMinVersion < DYNAMIC_SCREEN_MIN_UI_VERSION) {
         throw new Error(`dynamic plugin screen nodes require minMuxrVersion ${DYNAMIC_SCREEN_MIN_UI_VERSION}`);
     }
+}
+
+export function parseManifest(value: unknown): PluginManifestV1 {
+    assertFiniteNumbers(value);
+    if (!isRecord(value) || value.schemaVersion !== 1 || typeof value.pluginId !== 'string' || !Array.isArray(value.contributions)) {
+        throw new Error('invalid muxr plugin manifest');
+    }
+    const pluginId = id(value.pluginId);
+    const minMuxrVersion = value.minMuxrVersion;
+    if (minMuxrVersion !== undefined
+        && (typeof minMuxrVersion !== 'number' || !Number.isInteger(minMuxrVersion) || minMuxrVersion < 1)) {
+        throw new Error('invalid minMuxrVersion');
+    }
+    const capabilities = parseCapabilities(value.capabilities);
+    if (value.contributions.length > MAX_CONTRIBUTIONS) throw new Error('too many plugin contributions');
+    const contributions: PluginContribution[] = [];
+    for (const item of value.contributions) {
+        if (!isRecord(item)) continue;
+        const contribution = parseContribution(item);
+        if (contribution === undefined) continue;
+        contributions.push(contribution);
+    }
+    validateManifestGraph(contributions, capabilities, typeof minMuxrVersion === 'number' ? minMuxrVersion : undefined);
     return { schemaVersion: 1, pluginId, ...(minMuxrVersion === undefined ? {} : { minMuxrVersion }), ...(capabilities === undefined ? {} : { capabilities }), contributions };
 }
 
 function screenTreeSources(nodes: PluginScreenNode[]): Array<{ contributionId: string }> {
-    return nodes.flatMap((node) => node.type === 'tree' && node.source !== undefined
-        ? [node.source]
-        : node.type === 'section' ? screenTreeSources(node.children) : []);
+    const sources: Array<{ contributionId: string }> = [];
+    for (const node of nodes) {
+        if (node.type === 'tree' && node.source !== undefined) sources.push(node.source);
+        else if (node.type === 'section') sources.push(...screenTreeSources(node.children));
+    }
+    return sources;
 }
 
 /** Actions declared by rows/buttons, including repeat templates. */

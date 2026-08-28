@@ -1,4 +1,4 @@
-import { stripTrailingSlashes } from './controlPlaneUrl.js';
+import { relayChannelSocketUrl } from './controlPlaneUrl.js';
 
 /**
  * Browser preview: the wire format for tunnelling a dev server to the device.
@@ -55,20 +55,11 @@ export function previewSocketUrl(
     relayUrl: string,
     options: { machineId: string; channel: string; role: 'machine' | 'client'; token?: string; bridge?: boolean },
 ): string {
-    // Hand-built rather than URLSearchParams: this runs on React Native too,
-    // where that polyfill is partial.
-    const base = stripTrailingSlashes(relayUrl);
-    const parts = [
-        `role=${options.role}`,
-        `machineId=${encodeURIComponent(options.machineId)}`,
-        `channel=${encodeURIComponent(options.channel)}`,
-    ];
-    if (options.token !== undefined && options.token !== '') {
-        parts.push(`token=${encodeURIComponent(options.token)}`);
-    }
     // A bridging client holds its own listener, so the relay must not open one:
     // an ephemeral relay port is unreachable behind a tunnel that only proxies
     // 443, and it would be plain HTTP across the internet if it were.
-    if (options.bridge === true) parts.push('bridge=1');
-    return `${base}/preview?${parts.join('&')}`;
+    if (options.bridge === true) {
+        return relayChannelSocketUrl(relayUrl, 'preview', { ...options, extraQuery: ['bridge=1'] });
+    }
+    return relayChannelSocketUrl(relayUrl, 'preview', options);
 }

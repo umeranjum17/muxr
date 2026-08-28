@@ -1,4 +1,4 @@
-import { stripTrailingSlashes } from './controlPlaneUrl.js';
+import { relayChannelSocketUrl } from './controlPlaneUrl.js';
 
 /**
  * Live terminal channel: the wire format for driving a herdr pane from a client.
@@ -73,16 +73,5 @@ export function terminalSocketUrl(
     relayUrl: string,
     options: { machineId: string; channel: string; role: 'machine' | 'client'; token?: string },
 ): string {
-    // Hand-built rather than URLSearchParams: this runs on React Native too,
-    // where that polyfill is partial.
-    const base = stripTrailingSlashes(relayUrl);
-    const parts = [
-        `role=${options.role}`,
-        `machineId=${encodeURIComponent(options.machineId)}`,
-        `channel=${encodeURIComponent(options.channel)}`,
-    ];
-    if (options.token !== undefined && options.token !== '') {
-        parts.push(`token=${encodeURIComponent(options.token)}`);
-    }
-    return `${base}/terminal?${parts.join('&')}`;
+    return relayChannelSocketUrl(relayUrl, 'terminal', options);
 }

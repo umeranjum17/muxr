@@ -1,6 +1,6 @@
 import * as z from 'zod';
 import { isCuid } from '@paralleldrive/cuid2';
-import { stripLeadingTaskNotificationWrappers } from '@muxr/wire';
+import { stripLeadingTaskNotificationWrappers } from '@muxr/contract';
 import { MessageMetaSchema, type MessageMeta } from './typesMessageMeta';
 
 const usageDataSchema = z.object({

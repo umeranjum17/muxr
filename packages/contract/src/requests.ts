@@ -513,8 +513,18 @@ export type RequestResponse =
 export const MISSING_CWD_ERROR_PREFIX = 'cwd-does-not-exist:';
 
 /** Normalize both old-host crashes and current structured result errors. */
+const E2EE_REQUEST_TYPES = new Set([
+    'plugin.approve',
+    'plugin.invoke',
+    'plugin.call',
+    'plugin.stream',
+    'voice.provider.select',
+    'herdr.cli',
+]);
+
 export function requestRequiresE2ee(type: string): boolean {
-    return type.startsWith('peer.') || type === 'plugin.approve' || type === 'plugin.invoke' || type === 'plugin.call' || type === 'plugin.stream' || type === 'voice.provider.select' || type === 'herdr.cli';
+    const isPeerRequest = type.startsWith('peer.');
+    return isPeerRequest || E2EE_REQUEST_TYPES.has(type);
 }
 
 export function normalizeRequestFailure(

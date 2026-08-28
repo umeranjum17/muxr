@@ -8,7 +8,7 @@ import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 const ROOT = new URL('..', import.meta.url).pathname;
-const CORE_DIRS = ['apps/relay/src', 'apps/host/src', 'packages/contract/src', 'packages/crypto/src', 'packages/wire/src'];
+const CORE_DIRS = ['apps/relay/src', 'apps/host/src', 'packages/contract/src', 'packages/crypto/src'];
 const FORBIDDEN = /\b(mongodb|MongoControlRepository|MemoryControlRepository|ControlPlane|CommerceService|StripeGateway|betaCodeAdmin|stripeSecret|MUXR_STRIPE_|MUXR_MONGODB|MUXR_OTP_PEPPER|entitlementAllowsHosted|elevenUserId|subscription_required|voice_hard_limit_reached|limitSeconds|conversationLimit)\b/;
 // Public docs may state that hosted services are separate. They may not publish
 // private billing/control-plane implementation or roadmap instructions.

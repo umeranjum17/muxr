@@ -179,6 +179,27 @@ export {
 } from './plugins.js';
 
 export { parseManifest, parsePluginAction, parsePluginScreenParams } from './manifest.js';
+export { stripLeadingTaskNotificationWrappers } from './controlMessages.js';
+export type {
+    EncryptedSessionMessage,
+    MachineStateUpdate,
+    NewMessageUpdate,
+    SessionStateUpdate,
+    SessionSyncUpdate,
+    SessionSyncUpdateContainer,
+    VersionedEncryptedValue,
+    VersionedNullableEncryptedValue,
+} from './sessionSync.js';
+export {
+    EncryptedSessionMessageSchema,
+    MachineStateUpdateSchema,
+    NewMessageUpdateSchema,
+    SessionStateUpdateSchema,
+    SessionSyncUpdateContainerSchema,
+    SessionSyncUpdateSchema,
+    VersionedEncryptedValueSchema,
+    VersionedNullableEncryptedValueSchema,
+} from './sessionSync.js';
 
 export type { LandWorktreeResult } from './worktree.js';
 
@@ -208,9 +229,9 @@ export {
     realtimeSocketUrl,
 } from './realtimeStream.js';
 
-export { relayControlUrl } from './controlPlaneUrl.js';
+export { relayControlUrl, isWebSocketRelayUrl, relayChannelSocketUrl } from './controlPlaneUrl.js';
 export type { WsTransport } from './wsTickets.js';
 export { issueWsTicket, ticketSocketUrl, WsTicketError } from './wsTickets.js';
 
 export type { ClientFrame, Envelope, EnvelopeHeader, PluginsInvalidatedFrame, HostFrame, RoutingChannel } from './wire.js';
-export { decodePayload, encodePayload, isPluginsInvalidatedFrame, isValidPluginId, nextRequestId, parseClientFrame, RELAY_CLOSE_REPLACED } from './wire.js';
+export { decodePayload, encodePayload, isPluginsInvalidatedFrame, isRoutingChannel, isValidPluginId, nextRequestId, parseClientFrame, RELAY_CLOSE_REPLACED, ROUTING_CHANNELS } from './wire.js';

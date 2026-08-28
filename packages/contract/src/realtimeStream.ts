@@ -1,4 +1,4 @@
-import { stripTrailingSlashes } from './controlPlaneUrl.js';
+import { relayChannelSocketUrl } from './controlPlaneUrl.js';
 
 /**
  * Provider-neutral realtime voice channel.
@@ -111,6 +111,9 @@ export type RealtimeHostFrame =
     | RealtimeTranscriptFrame
     | RealtimeClosedFrame;
 
+const REALTIME_CONTROL_ACTIONS = new Set<RealtimeControlAction>(['mute', 'unmute', 'stop', 'pause_output', 'resume_output', 'output_drained']);
+const REALTIME_STATES = new Set<RealtimeState>(['connecting', 'connected', 'thinking', 'speaking']);
+
 function record(value: unknown): Record<string, unknown> {
     if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new Error('invalid realtime frame');
     return value as Record<string, unknown>;
@@ -130,9 +133,13 @@ export function realtimePcm16ByteLength(value: unknown): number {
         || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value)) {
         throw new Error('invalid realtime audio');
     }
-    const padding = value.endsWith('==') ? 2 : value.endsWith('=') ? 1 : 0;
+    let padding = 0;
+    if (value.endsWith('==')) padding = 2;
+    else if (value.endsWith('=')) padding = 1;
     const trailingSextet = BASE64_ALPHABET.indexOf(value.charAt(value.length - padding - 1));
-    const nonCanonicalPadding = padding === 2 ? (trailingSextet & 15) !== 0 : padding === 1 && (trailingSextet & 3) !== 0;
+    let nonCanonicalPadding = false;
+    if (padding === 2) nonCanonicalPadding = (trailingSextet & 15) !== 0;
+    else if (padding === 1) nonCanonicalPadding = (trailingSextet & 3) !== 0;
     const bytes = value.length / 4 * 3 - padding;
     if (nonCanonicalPadding || bytes === 0 || bytes % 2 !== 0) throw new Error('invalid realtime audio');
     return bytes;
@@ -154,11 +161,10 @@ export function parseRealtimeClientFrame(value: unknown): RealtimeClientFrame {
     const frame = record(value);
     if (frame.type === 'realtime.audio') return { type: 'realtime.audio', data: audio(frame.data) };
     if (frame.type === 'realtime.control') {
-        if (frame.action !== 'mute' && frame.action !== 'unmute' && frame.action !== 'stop'
-            && frame.action !== 'pause_output' && frame.action !== 'resume_output' && frame.action !== 'output_drained') {
+        if (typeof frame.action !== 'string' || !REALTIME_CONTROL_ACTIONS.has(frame.action as RealtimeControlAction)) {
             throw new Error('invalid realtime control');
         }
-        return { type: 'realtime.control', action: frame.action };
+        return { type: 'realtime.control', action: frame.action as RealtimeControlAction };
     }
     if (frame.type === 'realtime.say') return { type: 'realtime.say', text: boundedText(frame.text, MAX_REALTIME_TEXT_BYTES, 'speech') };
     throw new Error('unknown realtime client frame');
@@ -170,11 +176,11 @@ export function parseRealtimeHostFrame(value: unknown): RealtimeHostFrame {
     if (frame.type === 'realtime.audio') return { type: 'realtime.audio', data: audio(frame.data) };
     if (frame.type === 'realtime.audio.clear') return { type: 'realtime.audio.clear' };
     if (frame.type === 'realtime.state') {
-        if (frame.state !== 'connecting' && frame.state !== 'connected' && frame.state !== 'thinking' && frame.state !== 'speaking') {
+        if (typeof frame.state !== 'string' || !REALTIME_STATES.has(frame.state as RealtimeState)) {
             throw new Error('invalid realtime state');
         }
         return {
-            type: 'realtime.state', state: frame.state,
+            type: 'realtime.state', state: frame.state as RealtimeState,
             ...(frame.detail === undefined ? {} : { detail: boundedText(frame.detail, 500, 'state detail') }),
         };
     }
@@ -202,12 +208,5 @@ export function realtimeSocketUrl(
     relayUrl: string,
     options: { machineId: string; channel: string; role: 'machine' | 'client'; token?: string },
 ): string {
-    const base = stripTrailingSlashes(relayUrl);
-    const parts = [
-        `role=${options.role}`,
-        `machineId=${encodeURIComponent(options.machineId)}`,
-        `channel=${encodeURIComponent(options.channel)}`,
-    ];
-    if (options.token !== undefined && options.token !== '') parts.push(`token=${encodeURIComponent(options.token)}`);
-    return `${base}/stream?${parts.join('&')}`;
+    return relayChannelSocketUrl(relayUrl, 'stream', options);
 }

@@ -19,10 +19,15 @@ import type { SessionInfo } from './sessionState.js';
 export const RELAY_CLOSE_REPLACED = 4000;
 
 /**
- * Strict hosted-mode routing channel. Mirrors `V2Channel` in @muxr/crypto so
- * the relay can route without ever parsing `payload`.
+ * Strict hosted-mode routing channel. The same vocabulary binds relay routing
+ * and the E2EE envelope context so those two modules cannot drift.
  */
-export type RoutingChannel = 'session' | 'terminal' | 'attachment' | 'stream' | 'pairing' | 'grant';
+export const ROUTING_CHANNELS = ['session', 'terminal', 'attachment', 'stream', 'pairing', 'grant'] as const;
+export type RoutingChannel = (typeof ROUTING_CHANNELS)[number];
+
+export function isRoutingChannel(value: unknown): value is RoutingChannel {
+    return typeof value === 'string' && (ROUTING_CHANNELS as readonly string[]).includes(value);
+}
 
 /** Cleartext routing header. The only part the relay is allowed to read. */
 export interface EnvelopeHeader {
@@ -78,14 +83,18 @@ export function isValidPluginId(value: unknown): value is string {
 }
 
 /** Runtime guard for the additive machine frame; malformed peer data is ignored. */
+const PLUGIN_INVALIDATION_REASONS = ['linked', 'unlinked', 'enabled', 'disabled', 'changed'] as const;
+
 export function isPluginsInvalidatedFrame(value: unknown): value is PluginsInvalidatedFrame {
     if (typeof value !== 'object' || value === null) return false;
     const frame = value as Record<string, unknown>;
-    return frame.type === 'plugins.invalidated'
-        && (frame.reason === 'linked' || frame.reason === 'unlinked' || frame.reason === 'enabled' || frame.reason === 'disabled' || frame.reason === 'changed')
-        && Array.isArray(frame.pluginIds)
+    const isInvalidation = frame.type === 'plugins.invalidated';
+    const reasonIsKnown = typeof frame.reason === 'string'
+        && (PLUGIN_INVALIDATION_REASONS as readonly string[]).includes(frame.reason);
+    const pluginIdsAreBounded = Array.isArray(frame.pluginIds)
         && frame.pluginIds.length <= 32
         && frame.pluginIds.every(isValidPluginId);
+    return isInvalidation && reasonIsKnown && pluginIdsAreBounded;
 }
 
 // --- client -> machine host -------------------------------------------------

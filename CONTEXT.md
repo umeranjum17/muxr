@@ -49,3 +49,17 @@ _Avoid_: epoch, reconnect id, session id
 **Output Drain**:
 The ordered wait until native playback of admitted PCM has finished, before queued speech or a connected status for that turn may proceed.
 _Avoid_: flush, complete, EOS
+
+## Control plane
+
+**Envelope**:
+The unit the relay routes: a cleartext routing header plus an opaque payload the relay must never parse.
+_Avoid_: packet, wire message, frame (for this unit)
+
+**Routing Channel**:
+Which encrypted stream an Envelope belongs to. The same vocabulary binds relay routing and E2EE context.
+_Avoid_: V2Channel, transport, socket kind
+
+**Device Grant**:
+A machine-signed, device-sealed credential that names the data and ingress roots a device may use.
+_Avoid_: token, certificate, pairing ticket

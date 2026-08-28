@@ -230,7 +230,8 @@ export interface SessionStatus {
 
 /** True when nothing is running. herdr's lifecycle is the authority. */
 export function isSessionIdle(status: SessionStatus): boolean {
-    return status.agentStatus !== undefined ? status.agentStatus !== 'working' : !status.isStreaming;
+    if (status.agentStatus !== undefined) return status.agentStatus !== 'working';
+    return !status.isStreaming;
 }
 
 export interface SessionActivity {

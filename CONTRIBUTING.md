@@ -73,8 +73,8 @@ node apps/probe/dist/main.js
 
 ## Where things live
 
-- `packages/wire` — private app wire schemas
-- `packages/contract` — the host/mobile contract vocabulary
+- `packages/contract` — the host/mobile/relay contract vocabulary
+- `packages/crypto` — E2EE that the relay never holds keys for
 - `apps/host` — the herdr bridge; `src/herdr/` is the backend
 - `apps/relay` — envelope routing, replay, terminal/preview channels, push
 - `apps/mobile` — the app; `sources/terminal/` is the terminal layer
