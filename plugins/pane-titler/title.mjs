@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 /**
  * Rename a pane after the work inside it. Runs on every agent status change,
- * so it must be cheap and quiet: it reads a little scrollback, asks the first
- * model with capacity for a few words, and renames only panes that still carry
- * a generated or first-prompt name.
+ * so it must be cheap and quiet: preserve Herdr Agent Names, assign an animal
+ * only when the real name is absent/internal, and update generated Task Titles.
  */
 import { execFileSync } from 'node:child_process';
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, join } from 'node:path';
+import { ensureAgentName } from './agent-name.mjs';
 
 const MODELS = [
     'opencode-go/deepseek-v4-flash',
@@ -85,12 +85,13 @@ function ask(agent, prompt) {
 try {
     if (!paneId) process.exit(0);
     const pane = JSON.parse(run(['pane', 'get', paneId])).result.pane;
+    ensureAgentName(run, paneId);
     const current = (pane.label ?? pane.title ?? '').trim();
     const tabId = typeof pane.tab_id === 'string' ? pane.tab_id : undefined;
     const tabLabel = tabId === undefined ? '' : (JSON.parse(run(['tab', 'get', tabId])).result.tab.label ?? '').trim();
     let context = {};
     try { context = JSON.parse(process.env.HERDR_PLUGIN_CONTEXT_JSON ?? '{}'); } catch {}
-    const agent = kindName(context.focused_pane_agent || pane.agent || pane.display_agent);
+    const provider = kindName(context.focused_pane_agent || pane.agent || pane.display_agent);
 
     const seen = join(STATE, 'named.json');
     let named = {};
@@ -109,8 +110,8 @@ try {
     const text = run(['pane', 'read', paneId, '--source', 'recent-unwrapped', '--lines', '60']);
     if (text.trim().length < 80) process.exit(0);
 
-    const title = ask(agent, `Below is terminal output from a coding agent. Reply with exactly 2 to 4 words in Title Case naming only the feature or task. Do not include the agent/provider name, quotes, punctuation, commands, paths, or explanation.\n\n${text.slice(-2500)}`)
-        ?? formatTitle(agent, fallbackFeature(text));
+    const title = ask(provider, `Below is terminal output from a coding agent. Reply with exactly 2 to 4 words in Title Case naming only the feature or task. Do not include the agent/provider name, quotes, punctuation, commands, paths, or explanation.\n\n${text.slice(-2500)}`)
+        ?? formatTitle(provider, fallbackFeature(text));
     if (title === undefined) process.exit(0);
 
     run(['pane', 'rename', paneId, title]);

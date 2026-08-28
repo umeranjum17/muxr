@@ -32,10 +32,10 @@ Dependency direction: domain is pure TypeScript; application may import same-con
 
 ## Herd
 
-**Owns**: Agent, Agent Route, Human Name, Task Title, Provider Kind, Agent Lifecycle, Lifecycle Event, Attention, session snapshot.
+**Owns**: Agent, Agent Route, Agent Name, Task Title, Provider Kind, Agent Lifecycle, Lifecycle Event, Attention, session snapshot.
 
 **Invariants**:
-- Agent Route is the only key that authorizes prompt, watch, or focus. Human Name and Task Title never do.
+- Agent Route is the only key that authorizes prompt, watch, or focus. Agent Name and Task Title never do.
 - `working` is the only busy lifecycle; when herdr reports a lifecycle it outranks the streaming flag.
 - Waiting Attention never ages out. Done ages out after ten minutes. Everything except waiting dies after six hours.
 - Public Agent Routes (plugin/stream boundaries) are a subset of host-internal routes.
@@ -78,7 +78,7 @@ Start / prompt / watch / focus are host and mobile adapters over this domain (`s
 **Owns**: realtime frames, PCM16 admission, the public session map that may leave the host process.
 
 **Invariants**:
-- Only a parsed public Agent Route and Human Name cross the stream boundary (`boundRealtimePublicContext`).
+- Only a parsed public Agent Route and Agent Name cross the stream boundary (`boundRealtimePublicContext`).
 - Task titles are stripped of provider/name prefixes and secret-like text before crossing.
 
 ## Worktree

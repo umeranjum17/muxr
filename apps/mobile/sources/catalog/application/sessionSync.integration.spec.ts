@@ -71,7 +71,7 @@ vi.mock('@/utils/sessionUtils', () => ({
 import { applyStatusToSession, sessionInfoToSession } from '../infrastructure/sessionMapping';
 import { storage } from './storage';
 
-async function spawn(options: { modelMode?: string; effortLevel?: string; displayName?: string }) {
+async function spawn(options: { modelMode?: string; effortLevel?: string }) {
     const { machineSpawnNewSession } = await import('./ops');
     return machineSpawnNewSession({ machineId: 'm', directory: '/tmp', ...options });
 }
@@ -138,11 +138,11 @@ describe('session sync flow', () => {
             throw new Error(`unexpected request: ${method}`);
         });
 
-        await expect(spawn({ modelMode: 'moonshot:kimi-k3', effortLevel: 'high', displayName: 'Maria' })).resolves.toEqual({
+        await expect(spawn({ modelMode: 'moonshot:kimi-k3', effortLevel: 'high' })).resolves.toEqual({
             type: 'success',
             sessionId: 's1',
         });
-        expect(request.mock.calls).toEqual([['session.start', { cwd: '/tmp', displayName: 'Maria' }]]);
+        expect(request.mock.calls).toEqual([['session.start', { cwd: '/tmp' }]]);
 
         request.mockResolvedValue({
             acceptance: {
@@ -150,7 +150,7 @@ describe('session sync flow', () => {
                 code: 'start-launch-failed', message: 'unsafe backend detail',
             },
         });
-        await expect(spawn({ displayName: 'Maria' })).resolves.toEqual({
+        await expect(spawn({})).resolves.toEqual({
             type: 'error', errorMessage: 'Maria could not start.',
         });
     });

@@ -6,12 +6,11 @@ import {
     rememberSessionCwd,
     saveConnectionSettings,
 } from '@/connection';
-import { SpawnRequest, type SpawnMember } from '../domain/SpawnRequest';
+import { SpawnRequest } from '../domain/SpawnRequest';
 
 export type StartAgentCommand = {
     directory: string;
     kinds: readonly string[];
-    namedMembers: readonly SpawnMember[];
     squad: boolean;
     worktree: boolean;
     createCwd?: boolean;
@@ -21,12 +20,11 @@ export type StartAgentResult =
     | { ok: true; agentRoute: string }
     | { ok: false; reason: 'rejected' | 'needs-directory' | 'failed'; message?: string };
 
-/** Start one Agent or a squad on the paired Machine. Display names never authorize. */
+/** Start one Agent or a squad on the paired Machine. */
 export async function startAgent(command: StartAgentCommand): Promise<StartAgentResult> {
     const request = new SpawnRequest(
         command.directory,
         command.kinds,
-        command.namedMembers,
         command.squad,
         command.worktree,
     );

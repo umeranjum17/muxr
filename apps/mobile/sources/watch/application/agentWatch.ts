@@ -5,7 +5,7 @@ import {
     MAX_VOICE_IDENTITY_LENGTH,
     isTrustedVoiceScopeKey,
     sanitizePersistedVoiceReport,
-    spokenNameIsTrusted,
+    agentNameIsTrusted,
     voiceReportIsRoutine,
     type VoiceAdmission,
     type VoiceReport,
@@ -13,7 +13,7 @@ import {
 
 export type PersistedVoiceReport = VoiceReport;
 export type { VoiceAdmission };
-export const isTrustedVoiceName = spokenNameIsTrusted;
+export const isTrustedVoiceAgentName = agentNameIsTrusted;
 export { sanitizePersistedVoiceReport };
 
 const mmkv = new MMKV();
