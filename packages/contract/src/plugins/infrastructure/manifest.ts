@@ -42,7 +42,7 @@ import {
 
 /**
  * Single source of truth for manifest parsing and validation. The host catalog
- * (`apps/host`) and the CLI (`scripts/plugin.mjs`) both call this so
+ * (`apps/host`) and the CLI (`scripts/plugin/index.mjs`) both call this so
  * `muxr plugin check` accepts and rejects exactly what the runtime does.
  *
  * Unknown slots/types/nodes are skipped, not fatal; known shapes with invalid

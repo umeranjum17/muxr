@@ -7,12 +7,12 @@
  * Agents (or humans) then run `muxr`/`herdr`/`npm` inside `env` to act like a
  * fresh user on a fresh machine.
  *
- *   node scripts/sandbox.mjs up [name]        create + start (default name: gauntlet)
- *   node scripts/sandbox.mjs env [name]       print a fully isolated fresh-user environment
- *   node scripts/sandbox.mjs agent-env [name] isolate muxr/herdr/npm but keep HOME for agent config
- *   node scripts/sandbox.mjs status [name]    sandbox server status
- *   node scripts/sandbox.mjs down [name]      stop server, keep files
- *   node scripts/sandbox.mjs destroy [name]   stop server, delete everything
+ *   node scripts/diagnostics/application/sandbox.mjs up [name]        create + start (default name: gauntlet)
+ *   node scripts/diagnostics/application/sandbox.mjs env [name]       print a fully isolated fresh-user environment
+ *   node scripts/diagnostics/application/sandbox.mjs agent-env [name] isolate muxr/herdr/npm but keep HOME for agent config
+ *   node scripts/diagnostics/application/sandbox.mjs status [name]    sandbox server status
+ *   node scripts/diagnostics/application/sandbox.mjs down [name]      stop server, keep files
+ *   node scripts/diagnostics/application/sandbox.mjs destroy [name]   stop server, delete everything
  */
 import { execFileSync, spawn } from 'node:child_process';
 import { existsSync, mkdirSync, openSync, rmSync } from 'node:fs';

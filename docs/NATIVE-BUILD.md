@@ -168,7 +168,7 @@ stuck disconnected.
 | Gradle daemon disappears/type-tag errors | JVM memory exhaustion | Apply the Gradle memory settings above |
 | App installs but never connects | Missing baked connection values | Check the secrets file or Settings → Connection |
 | App remains disconnected over HTTPS | Self-signed or invalid TLS chain | Install a trusted certificate |
-| Native recorder/terminal verifier fails | `patch-package` output is stale | Run `yarn install`, then `node scripts/verifyNativePatches.mjs` |
+| Native recorder/terminal verifier fails | `patch-package` output is stale | Run `yarn install`, then `node scripts/diagnostics/application/verifyNativePatches.mjs` |
 
 ## OTA updates
 

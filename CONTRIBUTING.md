@@ -30,13 +30,14 @@ The exact check path CI runs:
 yarn check
 ```
 
-That is `node scripts/runSuite.mjs`. It includes `yarn typecheck`
-(`tsc --build --force`), mobile `tsc --noEmit`, package self-checks, and
-`node packages/checkArchitecture.mjs`.
+That invokes `scripts/diagnostics/application/runSuite.mjs`. It includes
+workspace and mobile typechecks, package self-checks, architecture guards, and
+flow tests.
 
-After native dependency changes also run `node scripts/verifyNativePatches.mjs`.
-If you changed the contract, run the probe — it asserts every event type
-survives the wire end to end:
+After native dependency changes also run
+`node scripts/diagnostics/application/verifyNativePatches.mjs`. If you changed
+the contract, run the probe — it asserts every event type survives the wire end
+to end:
 
 ```bash
 yarn probe

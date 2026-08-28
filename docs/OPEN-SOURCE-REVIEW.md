@@ -82,11 +82,11 @@ Method: six parallel deep-dive reviews (host/relay, mobile, plugin SDK, packages
    `session.removed` was added to fix (`herdrSessionSource.ts:599-603`).
 
 3. **The documented host/APK compatibility gate is stale and would fail if run.**
-   `scripts/checkHostContract.mjs:26` requires `herdr.plugin.list` and `herdr.plugin.invoke`;
+   `scripts/diagnostics/application/checkHostContract.mjs` requires `herdr.plugin.list` and `herdr.plugin.invoke`;
    neither exists in `RequestMap` (`packages/contract/src/requests.ts` — 41 keys, none named
    `herdr.plugin.*`) nor in the dispatcher (`apps/host/src/requests/createRequestDispatcher.ts`).
    `docs/HOST-CONTRACT-COMPATIBILITY.md` describes the bridge as `plugin.*` — doc, gate, and code
-   all disagree. The gate is wired into neither `scripts/runSuite.mjs` nor CI, so the drift was
+   all disagree. The gate is wired into neither `scripts/diagnostics/application/runSuite.mjs` nor CI, so the drift was
    invisible. Same class: `packages/contract/src/requests.ts:49-51` has a broken spliced comment
    in the file the gate parses.
 
@@ -215,17 +215,17 @@ Method: six parallel deep-dive reviews (host/relay, mobile, plugin SDK, packages
    discover that `docker compose up` exists. Pick one (recommend Dockerfile), document it, delete
    or justify the rest.
 
-9. **The open-core boundary leaks through `scripts/`.** `scripts/cloud-enroll.mjs` is Tier-3
+9. **The open-core boundary leaks through `scripts/`.** `scripts/setup/application/hosted.mjs` is Tier-3
    cloud control-plane enrollment (`MUXR_CONTROL_URL`, `MUXR_BOOTSTRAP_TOKEN`) shipped in the OSS
-   repo and bundled into the npm package (`scripts/pack.mjs:112`). `checkCorePurity.mjs` only
+   repo and bundled into the npm package (`scripts/release/application/pack.mjs`). `scripts/diagnostics/application/checkCorePurity.mjs` only
    greps `apps/relay/src apps/host/src packages/*/src`, so scripts/ escapes the purity gate.
    Either document it as intentional or move it out.
 
 10. **scripts/ sprawl: 38 files, ~5,768 lines, one `--help` between them** (`cli.mjs` only).
-    Orphaned (zero references): `serveWebExport.mjs`, `genBrand.sh`. Manual-only, never run by CI:
-    `checkHostContract.mjs` (see Correctness #3), `packageAudit.mjs`. Setup logic is split across
-    six overlapping files (`cli.mjs`, `local-setup.mjs` at 1,562 lines, `setup-wizard.mjs`,
-    `setup-ui.mjs`, `host-up.mjs`, `up.mjs`) knowable only by reading cli.mjs.
+    Orphaned (zero references): `scripts/diagnostics/application/serveWebExport.mjs`, `scripts/genBrand.sh`. Manual-only, never run by CI:
+    `scripts/diagnostics/application/checkHostContract.mjs` (see Correctness #3), `scripts/release/infrastructure/audit.mjs`. Setup logic is split across
+    six overlapping files (`cli.mjs`, `setup/application/hosted.mjs`, `setup/application/wizard.mjs`,
+    `setup/presentation/ui.mjs`, `setup/presentation/hostUp.mjs`, `setup/presentation/up.mjs`) knowable only by reading cli.mjs.
 
 11. **Error-handling inconsistency across plugin RPC backends.** `example-ui/rpc.mjs:5-8` guards
     `JSON.parse(MUXR_PLUGIN_INPUT)`; `ports/rpc.mjs`, `git-history/rpc.mjs`, `runbook/rpc.mjs`,
@@ -246,19 +246,19 @@ Method: six parallel deep-dive reviews (host/relay, mobile, plugin SDK, packages
     - `docs/SELF-HOSTING.md` names the email seam `TransactionalEmail`; code calls it
       `NotificationEmail` (`apps/relay/src/email.ts:9`). SELF-HOSTING covers maybe half the
       `MUXR_*` knobs; there is no single env-var reference.
-    - README says "Linux host"; SELF-HOSTING says "Linux, macOS, WSL" (`local-setup.mjs:534` has a
+    - README says "Linux host"; SELF-HOSTING says "Linux, macOS, WSL" (`scripts/setup/application/hosted.mjs` has a
       darwin branch — README is stale).
     - README layout lists `deploy  TLS proxy` — no `deploy/` directory exists.
     - `docs/license-inventory.md` claims the npm artifact excludes relay source and `web-push` —
-      false (`pack.mjs:56-57` bundles relay.js; `dist-npm/package.json` declares web-push).
+      false (`scripts/release/application/pack.mjs` bundles relay.js; `dist-npm/package.json` declares web-push).
 
-13. **Pack pipeline is solid, reproducibility is partial.** `scripts/pack.mjs` bundles with
+13. **Pack pipeline is solid, reproducibility is partial.** `scripts/release/application/pack.mjs` bundles with
     esbuild, rewrites the plugin validator's `@muxr/contract` import with a tripwire, verifies web
     export freshness, fails on copyleft/unknown licenses. Gaps: artifact varies with
     `MUXR_PACKAGE_CONTROL_URL` (no single reproducible tarball), no npm-publish automation or
     provenance attestation, packed `dependencies` use caret ranges with no lockfile shipped — two
     installs a week apart can resolve different `ws`/`web-push` minors. (The plugin-install path
-    `scripts/package.mjs` is much stricter — exact versions, `--ignore-scripts`, provenance — than
+    `scripts/plugin/application/registry.mjs` is much stricter — exact versions, `--ignore-scripts`, provenance — than
     the pipeline that ships muxr itself.)
 
 14. **Packages can't build themselves.** `@muxr/contract` and `@muxr/crypto` have no `scripts`
@@ -321,7 +321,7 @@ Method: six parallel deep-dive reviews (host/relay, mobile, plugin SDK, packages
   JSON Schema for `muxr-ui.json` — today authors get validation only by running
   `muxr plugin check` and reading thrown strings.
 - CI gate running `muxr plugin check` over all 17 bundled plugins (7 can ship broken undetected;
-  `checkPackageSmoke.mjs:39-48` link-tests only a hardcoded 10). Wire `checkHostContract.mjs` into
+  `scripts/diagnostics/application/checkPackageSmoke.mjs` link-tests only a hardcoded 10). Wire `scripts/diagnostics/application/checkHostContract.mjs` into
   CI/runSuite too.
 - Per-plugin READMEs for file-viewer, git-history, ports, runbook, vitals (the repo's own rule);
   fix `plugins/README.md` (lists 10 of 17 plugins; links nonexistent `docs/EXTENSIONS.md`;
@@ -360,9 +360,9 @@ Method: six parallel deep-dive reviews (host/relay, mobile, plugin SDK, packages
   scrub `EXPO_PUBLIC_MUXR_TOKEN`/`E2EE_KEY`. The AGENTS.md microphone-FGS invariant is enforced in
   code (`realtime/realtimeSessionState.ts` gates `startRealtimeSession` on `startVoiceService()`), not just
   documented.
-- **`scripts/runSuite.mjs` + single CI job:** one gate, every check runs even after failure,
+- **`scripts/diagnostics/application/runSuite.mjs` + single CI job:** one gate, every check runs even after failure,
   herdr-dependent checks degrade gracefully, env scrubbing against inherited deployment
-  credentials; `checkNoSecrets.mjs` + `.gitleaks.toml` in CI; `checkCorePurity.mjs` enforces the
+  credentials; `scripts/diagnostics/application/checkNoSecrets.mjs` + `.gitleaks.toml` in CI; `scripts/diagnostics/application/checkCorePurity.mjs` enforces the
   open-core boundary mechanically.
 - **Legal scaffolding more complete than most projects at this stage:** Apache-2.0 LICENSE,
   NOTICE with Happy/pi-web attribution, LICENSES/, license-inventory, DCO, TRADEMARK, GOVERNANCE,
@@ -389,7 +389,7 @@ Method: six parallel deep-dive reviews (host/relay, mobile, plugin SDK, packages
 (Checked and cleared during the review — listed so they are not re-litigated.)
 
 - No committed secrets found (bounded scan of all 332 commits for key shapes; only a false
-  positive `TextInput` placeholder). `checkNoSecrets.mjs` covers 1,159 tracked files.
+  positive `TextInput` placeholder). `scripts/diagnostics/application/checkNoSecrets.mjs` covers 1,159 tracked files.
 - `dist-npm/` is NOT committed — it is gitignored local pack output (`.gitignore:23`).
 - `.pi-subagents/` is correctly untracked.
 - License fields are uniformly Apache-2.0 across package.json files; root LICENSE present.

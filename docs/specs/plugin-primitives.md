@@ -63,7 +63,7 @@ UI version 12 allows generic `item-list` rows to omit actions for read-only stat
 - `apps/mobile/sources/plugins/primitives/` — the compiled widgets
 - `apps/mobile/sources/voice/realtimeSession.ts` — token `url` + `transport`
 - `plugins/voice*/stream.mjs` — self-contained xAI, OpenAI Realtime, and Gemini Live adapters for the public provider-neutral `voice.session` stream; each `rpc.mjs` owns only its key lifecycle and report wording
-- `scripts/local-setup.mjs` — xAI defaults on, Gemini/OpenAI default off, and setup preserves every existing enabled/disabled choice across npm upgrades
+- `scripts/setup/infrastructure/herdr.mjs` — xAI defaults on, Gemini/OpenAI default off, and setup preserves every existing enabled/disabled choice across npm upgrades
 - `plugins/*/muxr-ui.json` plus RPC sources, including Inbox, Workspace Hierarchy, and `plugins/run-server/rpc.mjs`
 - `apps/host/src/herdr/pluginPublicContext.ts` — sanitized bounded public context snapshots
 - `apps/host/src/herdr/herdrSessionSource.ts` — session context on `plugin.call`; stop pushing attachment/change events
@@ -72,7 +72,7 @@ UI version 12 allows generic `item-list` rows to omit actions for read-only stat
 
 ## Verification
 
-- `node scripts/runSuite.mjs` passes 29/29, including the structured Usage agent-item flow and actionless read-only item-list rows; `node scripts/checkBundledPlugins.mjs` validates all 12 bundled plugins and rejects wrong target/primitive/parameter combinations.
+- `node scripts/diagnostics/application/runSuite.mjs` passes 29/29, including the structured Usage agent-item flow and actionless read-only item-list rows; `node scripts/diagnostics/application/checkBundledPlugins.mjs` validates all 12 bundled plugins and rejects wrong target/primitive/parameter combinations.
 - The mobile typecheck, focused manifest/tokenization flow, web export, and Android production JS bundle all pass with the v11 `code` node.
 - Workspace and mobile typechecks pass; focused Android acceptance checks pass 62/62.
 - Existing host/mobile flow tests cover catalog snapshots, explicit disable/revoke, event/action modes, write refresh, timeout isolation, cache invalidation, and process-group cleanup.

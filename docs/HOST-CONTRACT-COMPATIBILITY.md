@@ -5,10 +5,10 @@ The mobile client and host share `packages/contract/src/requests.ts`. Release ca
 The compatibility gate is:
 
 ```bash
-node scripts/checkHostContract.mjs <full-candidate-commit> ~/.muxr/releases/host/<full-host-commit>
+node scripts/diagnostics/application/checkHostContract.mjs <full-candidate-commit> ~/.muxr/releases/host/<full-host-commit>
 ```
 
-CI also runs `scripts/checkPluginBridge.mjs`, which only asserts those five
+CI also runs `scripts/diagnostics/application/checkPluginBridge.mjs`, which only asserts those five
 types exist in `RequestMap` (no host release dir required).
 
 It fails closed unless:
