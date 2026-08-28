@@ -61,5 +61,5 @@ echo "architectures: $ORG_GRADLE_PROJECT_reactNativeArchitectures"
 if [ "$EXPO_PUBLIC_MUXR_MODE" = local ]; then echo "local token len: ${#EXPO_PUBLIC_MUXR_TOKEN}"; fi
 
 OUTPUT="${MUXR_APK_OUTPUT:-$ROOT/muxr-preview.apk}"
-npx eas-cli@21.6.0 build --platform android --profile preview --local --non-interactive \
+npx --yes eas-cli@22.6.0 build --platform android --profile preview --local --non-interactive \
   --output "$OUTPUT"
