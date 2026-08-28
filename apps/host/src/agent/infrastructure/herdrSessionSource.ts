@@ -159,6 +159,16 @@ interface AgentRecord {
     terminal_title?: string;
     terminal_title_stripped?: string;
 }
+export async function sendKeysToLiveAgent(
+    client: Pick<HerdrClient, 'call'>,
+    agentsByPane: ReadonlyMap<string, unknown>,
+    record: Pick<AgentIdentity, 'paneId' | 'displayName'>,
+    keys: string[],
+): Promise<void> {
+    if (!agentsByPane.has(record.paneId)) throw new Error(`${record.displayName} is not ready for keys.`);
+    await client.call('agent.send_keys', { target: record.paneId, keys });
+}
+
 
 interface PaneRecord {
     pane_id: string;
@@ -247,6 +257,7 @@ export async function createHerdrSessionSource(
             list: listRealtimeAgents,
             activity: async () => options.lifecycle?.catalog().events ?? [],
             start: startRealtimeAgent,
+            sendKeys: sendSessionKeys,
             prompt: promptSession,
             read: readSessionOutput,
             status: async (sessionId) => statusFor(sessionId).agentStatus ?? 'unknown',
@@ -1043,13 +1054,11 @@ export async function createHerdrSessionSource(
 
     async function startRealtimeAgent(input: {
         cwd: string;
-        displayName: string;
         taskTitle: string;
         kind: string;
     }): Promise<{ accepted: boolean; agent?: RealtimeCodingAgent }> {
         const result = await startSession({
             cwd: input.cwd,
-            displayName: input.displayName,
             taskTitle: input.taskTitle,
             label: input.taskTitle,
             kind: input.kind,
@@ -1068,6 +1077,11 @@ export async function createHerdrSessionSource(
         }
         await client.call('agent.prompt', { target: record.paneId, text });
     }
+    async function sendSessionKeys(sessionId: string, keys: string[]): Promise<void> {
+        const record = await resolvePane(sessionId);
+        await sendKeysToLiveAgent(client, agentsByPane, record, keys);
+    }
+
 
     async function readSessionOutput(sessionId: string): Promise<{ text: string; truncated: boolean }> {
         const record = await resolvePane(sessionId);
@@ -1908,10 +1922,7 @@ export async function createHerdrSessionSource(
                 .catch(() => undefined);
         },
 
-        async sendKeys(sessionId: string, keys: string[]): Promise<void> {
-            const record = await resolvePane(sessionId);
-            await client.call('agent.send_keys', { target: record.paneId, keys });
-        },
+        sendKeys: sendSessionKeys,
 
         async paneZoom(zoomOptions: {
             sessionId: string;
