@@ -22,7 +22,7 @@ import { SidebarNavigator } from '@/herd/ui';
 import sodium from '@/encryption/libsodium.lib';
 import { View, Platform, AppState, Pressable, Text } from 'react-native';
 import { ModalProvider } from '@/modal';
-import { syncRestore } from '@/catalog/sync';
+import { syncReconnect, syncRestore } from '@/catalog/sync';
 import { FaviconPermissionIndicator } from '@/components/web/FaviconPermissionIndicator';
 import { CommandPaletteProvider } from '@/components/CommandPalette/CommandPaletteProvider';
 import { StatusBarProvider } from '@/components/StatusBarProvider';
@@ -322,6 +322,17 @@ export default function RootLayout() {
             }, 100);
         }
     }, [initState]);
+
+    React.useEffect(() => {
+        if (initState?.credentials === undefined || Platform.OS === 'web') return;
+        let previous = AppState.currentState;
+        const subscription = AppState.addEventListener('change', (next) => {
+            const resumed = next === 'active' && previous !== 'active';
+            previous = next;
+            if (resumed) void syncReconnect().catch(() => undefined);
+        });
+        return () => subscription.remove();
+    }, [initState?.credentials]);
 
     const handledNotificationIds = React.useRef<Set<string>>(new Set());
     const handleNotificationResponse = React.useCallback(async (response: Notifications.NotificationResponse | null) => {
