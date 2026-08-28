@@ -1,8 +1,7 @@
-/** Public API of the plugins context. Import this, not internals. */
+/** Public API of the plugins context. Screens live in `./ui`. */
 export * from './application/capabilityRegistry';
 export * from './application/pluginActions';
 export * from './application/pluginDataInvalidation';
-export * from './application/pluginEvents';
 export * from './application/pluginStore';
 export * from './application/primitivePresence';
 export * from './application/runShortcut';
@@ -14,6 +13,7 @@ export * from './domain/chartModel';
 export * from './domain/collectionModel';
 export * from './domain/fileIcon';
 export * from './domain/itemListModel';
+export * from './domain/pluginEvents';
 export * from './domain/pluginHref';
 export * from './domain/pluginText';
 export * from './domain/pluginTone';
@@ -23,10 +23,3 @@ export * from './domain/screenTreeModel';
 export * from './domain/slotTypes';
 export * from './domain/treeModel';
 export * from './openPluginStream';
-export * from './presentation/DeclarativePluginSlot';
-export * from './presentation/DeclarativeScreen';
-export * from './presentation/PluginSlot';
-export * from './presentation/pluginScreenLayout';
-export * from './presentation/primitiveRegistry';
-export * from './presentation/screenCharts';
-export * from './presentation/screenTree';

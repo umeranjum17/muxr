@@ -7,7 +7,7 @@ import { OptionSheet } from '@/components/OptionSheet';
 import { useUnistyles } from 'react-native-unistyles';
 import type { PluginDataCard, PluginNativeContribution, PluginNavigationItem, PluginTerminalKeyRow } from '@muxr/contract';
 import { MAX_RPC_DISPLAY_BYTES, PLUGIN_CALL_CLIENT_TIMEOUT_MS, capUtf8Bytes, sanitizeDisplayText } from '@muxr/contract';
-import type { TerminalChannel } from '@/terminal';
+import type { PluginTerminalChannel } from '../domain/slotTypes';
 import { sync } from '@/sync/sync';
 import { useSlotContributions } from '../application/useSlotContributions';
 import { pluginSnapshot } from '../application/pluginStore';
@@ -27,7 +27,7 @@ function keyRowSend(key: PluginTerminalKeyRow['keys'][number], ctrl: boolean, sh
     return key.send;
 }
 
-function KeyRow({ contribution, channel }: { contribution: PluginTerminalKeyRow; channel?: TerminalChannel }) {
+function KeyRow({ contribution, channel }: { contribution: PluginTerminalKeyRow; channel?: PluginTerminalChannel }) {
     const { theme } = useUnistyles();
     const [ctrl, setCtrl] = React.useState(false);
     const [shift, setShift] = React.useState(false);
@@ -197,7 +197,7 @@ function DataCard({ contribution, pluginId, manifestHash, pluginName }: { contri
     return <View style={cardStyle}>{card}</View>;
 }
 
-export function DeclarativeTerminalKeySlot({ channel }: { channel?: TerminalChannel }) {
+export function DeclarativeTerminalKeySlot({ channel }: { channel?: PluginTerminalChannel }) {
     useSlotContributions('terminal.key-row');
     return <>{pluginSnapshot().flatMap(({ summary, manifest }) => manifest.contributions.flatMap((contribution) => 'type' in contribution && contribution.type === 'key-row' ? [<KeyRow key={`${summary.pluginId}:${contribution.id}`} contribution={contribution} channel={channel} />] : []))}</>;
 }

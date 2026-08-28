@@ -3,7 +3,7 @@ import { PLUGIN_CALL_CLIENT_TIMEOUT_MS, type LifecycleEvent, type PluginEventTri
 import { sync } from '@/sync/sync';
 import { storage } from '@/sync/storage';
 import { capabilityFor } from './capabilityRegistry';
-import { firedTriggers } from './pluginEvents';
+import { firedTriggers } from '../domain/pluginEvents';
 import { pluginSnapshot } from './pluginStore';
 
 const REPORT_LINES = 20;

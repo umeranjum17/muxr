@@ -7,9 +7,9 @@
 import type { Machine, Session } from '@/sync/storageTypes';
 import { AGENT_TYPES, type NewSessionAgentType, type NewSessionSessionType } from '@/sync/persistence';
 import { formatLastSeen, formatPathRelativeToHome } from '@/herd';
-import { isMachineOnline } from '@/pairing';
+import { isMachineOnline, PairedMachine } from '@/pairing';
 import { t } from '@/text';
-import { WorktreeSelection } from './WorktreeSelection';
+import { WorktreeSelection } from '../domain/WorktreeSelection';
 
 export interface DockOption {
     key: string;
@@ -44,7 +44,12 @@ export function resolveDockOption(options: DockOption[], preferred: Array<string
 }
 
 export function machineDisplayName(machine: Machine): string {
-    return machine.metadata?.displayName || machine.metadata?.host || 'Unknown machine';
+    return new PairedMachine({
+        id: machine.id,
+        active: machine.active,
+        displayName: machine.metadata?.displayName,
+        host: machine.metadata?.host,
+    }).title();
 }
 
 export function machineDockOptions(machines: readonly Machine[]): DockOption[] {

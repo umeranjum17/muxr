@@ -24,7 +24,7 @@ import { loadAppConfig } from '@/sync/appConfig';
 import { knownHostVersion } from '@/utils/versionStatus';
 import { requestNotificationPermission } from '@/utils/microphonePermissions';
 import { registerNativePushNotifications } from '@/utils/nativePushNotifications';
-import { DeclarativeSettingsItems } from '@/plugins';
+import { DeclarativeSettingsItems } from '@/plugins/ui';
 import {
     canPostPromotedNotifications,
     openBackgroundActivitySettings,

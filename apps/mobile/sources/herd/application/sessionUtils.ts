@@ -3,7 +3,6 @@ import { Session } from '@/sync/storageTypes';
 import { t } from '@/text';
 import { useUnistyles } from 'react-native-unistyles';
 import type { Theme } from '@/theme';
-export { formatLastSeen, formatPathRelativeToHome } from '../domain/sessionIdentity';
 import { formatLastSeen, formatPathRelativeToHome } from '../domain/sessionIdentity';
 
 export type SessionState = 'disconnected' | 'thinking' | 'waiting' | 'permission_required';

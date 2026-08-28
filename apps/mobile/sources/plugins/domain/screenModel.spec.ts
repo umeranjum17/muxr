@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { PluginEventTrigger, PluginManifestV1, PluginScreenButtonNode, PluginScreenContribution } from '@muxr/contract';
 import { defaultPluginText, parseManifest, parsePluginAction, resolvePluginText } from '@muxr/contract';
-import { firedTriggers } from '../application/pluginEvents';
+import { firedTriggers } from './pluginEvents';
 import { asPluginCollection } from './collectionModel';
 import { asPluginTree } from './treeModel';
 import { bindText, buttonInput, initialFieldValues, loadScreenData, runScreenButton, shouldReloadAfterAction, WriteKeyStore } from './screenModel';

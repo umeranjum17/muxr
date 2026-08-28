@@ -1,4 +1,4 @@
-/** Public API of the terminal context. Import this, not internals. */
+/** Public API of the terminal context. Screens live in `./ui`. */
 export * from './application/openTerminal';
 export * from './application/recentOutput';
 export * from './application/sessionOverlayNav';
@@ -14,8 +14,3 @@ export * from './domain/toolCommand';
 export * from './domain/toolDisplay';
 export * from './domain/toolErrorParser';
 export * from './domain/turnChanges';
-export * from './presentation/AgentInputAttachmentStrip';
-export * from './presentation/GitStatusBadge';
-export * from './presentation/TerminalPreview';
-export * from './presentation/TerminalScreen';
-export * from './presentation/TerminalView';

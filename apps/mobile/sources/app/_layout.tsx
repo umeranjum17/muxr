@@ -16,7 +16,7 @@ import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { initialWindowMetrics, SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { PluginSlot } from '@/plugins';
+import { PluginSlot } from '@/plugins/ui';
 import { usePluginEvents } from '@/plugins';
 import { SidebarNavigator } from '@/herd/ui';
 import sodium from '@/encryption/libsodium.lib';

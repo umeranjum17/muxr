@@ -25,7 +25,7 @@ import { Text } from '@/components/StyledText';
 import { StatusDot } from '@/components/StatusDot';
 import { Switch } from '@/components/Switch';
 import { AgentGlyph } from '@/components/AgentGlyph';
-import { DirectoryPicker } from '@/spawn';
+import { DirectoryPicker } from '@/spawn/ui';
 import { agentStatusColor } from '@/herd';
 import {
     getCachedConnectionSettings,

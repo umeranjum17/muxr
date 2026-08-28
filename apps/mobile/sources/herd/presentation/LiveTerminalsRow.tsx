@@ -16,7 +16,7 @@ import { HERD_STATUS_LABELS, sortHerd } from '../domain/herd';
 import { lifecycleTree } from '../domain/herdTree';
 import { selectLiveTerminalCards, useLiveTerminalOrder, type LiveTerminalOrderCard } from '../application/liveTerminalOrder';
 import { StatusDot } from '@/components/StatusDot';
-import { TerminalPreview } from '@/terminal';
+import { TerminalPreview } from '@/terminal/ui';
 import { useNavigateToSession } from '../application/useNavigateToSession';
 import { t } from '@/text';
 

@@ -16,7 +16,7 @@ import { useRouter } from 'expo-router';
 import { Text } from '@/components/StyledText';
 import { StatusDot } from '@/components/StatusDot';
 import { ACCENT } from '@/components/AgentGlyph';
-import { TerminalPreview } from '@/terminal';
+import { TerminalPreview } from '@/terminal/ui';
 import { sync } from '@/sync/sync';
 import { agentStatusColor, type AgentLifecycleStatus } from '../application/sessionUtils';
 import { paneDisplayName, paneTaskTitle } from '../domain/herdTree';

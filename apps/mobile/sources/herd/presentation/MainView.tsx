@@ -16,10 +16,9 @@ import { useSocketStatus } from '@/sync/storage';
 import { useSplitViewLayout } from '@/utils/responsive';
 import { useRouter } from 'expo-router';
 import { TabBar, TabType } from './TabBar';
-import { PluginSlot } from '@/plugins';
-import { DeclarativeHomeCards, DeclarativeNavigationItems, DeclarativePhoneNavRow } from '@/plugins';
+import { PluginSlot, DeclarativeHomeCards, DeclarativeNavigationItems, DeclarativePhoneNavRow } from '@/plugins/ui';
 import { pluginHref } from '@/plugins';
-import { HomeDock, MOBILE_HOME_DOCK_CONTENT_INSET } from '@/spawn';
+import { HomeDock, MOBILE_HOME_DOCK_CONTENT_INSET } from '@/spawn/ui';
 import { SettingsViewWrapper } from '@/settings';
 import { HerdView } from './HerdView';
 import { LiveTerminalsRow } from './LiveTerminalsRow';
@@ -43,7 +42,7 @@ import { useVisibleSessionListViewData } from '../application/useVisibleSessionL
 import { OptionSheet, type ModelMode } from '@/components/OptionSheet';
 import { Modal } from '@/modal';
 import { realtimeMachineSwitchGuard, stopRealtimeSession } from '@/realtime/realtimeSessionState';
-import { connectionStatusPresentation, homeHeaderTitle, pairedMachineTitle } from '@/pairing';
+import { connectionStatusPresentation, homeHeaderTitle, pairedMachineTitle } from '@/pairing/ui';
 
 
 const styles = StyleSheet.create((theme) => ({

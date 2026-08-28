@@ -14,7 +14,7 @@ import { useSessionStatus } from './sessionUtils';
 import { isMachineOnline } from '@/pairing';
 import { getSessionForkSource } from './sessionFork';
 import { useRouter } from 'expo-router';
-import { DuplicateSheet } from '@/spawn';
+import { DuplicateSheet } from '@/spawn/ui';
 import type { SessionActionShortcutId } from '@/keyboard/shortcuts';
 import { isRigMetadata } from '@/sync/rig';
 import { ResumeEligibility, type ResumeAvailability } from '../domain/ResumeEligibility';

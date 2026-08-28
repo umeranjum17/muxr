@@ -19,12 +19,12 @@ import { OptionSheet } from '@/components/OptionSheet';
 import { BubblePressable } from '@/components/BubblePressable';
 import { NativeSettingsMenu } from '@/settings';
 import type { NativeSettingsMenuGroup } from '@/settings';
-import { AgentInputAttachmentStrip } from '@/terminal';
+import { AgentInputAttachmentStrip } from '@/terminal/ui';
 import { Typography } from '@/constants/Typography';
 import { layout } from '@/components/layout';
 import { t } from '@/text';
 import { useNewSessionDraft } from '../application/useNewSessionDraft';
-import { PluginSlot } from '@/plugins';
+import { PluginSlot } from '@/plugins/ui';
 import { useAllMachines, useSessions, useSocketStatus } from '@/sync/storage';
 import { isMachineOnline } from '@/pairing';
 import { resolveAbsolutePath } from '@/utils/pathUtils';
@@ -44,7 +44,7 @@ import {
     visibleDockAgents,
     worktreeDockOptions,
     type DockOption,
-} from '../domain/homeDockEnvironment';
+} from '../application/homeDockEnvironment';
 
 export const MOBILE_HOME_DOCK_CONTENT_INSET = 108;
 

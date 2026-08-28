@@ -6,7 +6,7 @@ import { Modal } from '@/modal';
 import { t } from '@/text';
 import { useSession } from '@/sync/storage';
 import { useAsyncAction } from '@/hooks/useAsyncAction';
-import { getDuplicateSheetFrame } from '../domain/duplicateSheetLayout';
+import { getDuplicateSheetFrame } from './duplicateSheetLayout';
 import {
     forkAndSpawn,
     claudeListRewindPoints,

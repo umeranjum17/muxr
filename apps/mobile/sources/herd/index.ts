@@ -14,4 +14,5 @@ export * from './domain/ResumeEligibility';
 export * from './domain/herd';
 export * from './domain/herdTree';
 export * from './domain/sessionDisplayOrder';
+export * from './domain/sessionIdentity';
 export * from './domain/sessionRowPresentation';

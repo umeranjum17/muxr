@@ -11,7 +11,7 @@ import { Typography } from '@/constants/Typography';
 import { ShortcutHintBadge, useShortcutHints } from '@/components/ShortcutHints';
 import { useDeviceAuthority } from '@/pairing';
 import { useHerdTreeLive } from '../application/useHerdTreeLive';
-import { DeclarativeNavigationItems } from '@/plugins';
+import { DeclarativeNavigationItems } from '@/plugins/ui';
 import { pluginHref } from '@/plugins';
 
 const stylesheet = StyleSheet.create((theme) => ({

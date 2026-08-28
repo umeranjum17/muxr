@@ -1,6 +1,5 @@
 import { NATIVE_SLOT_CONTEXT_KEYS, type PluginNativeSlot } from '@muxr/contract';
 import type { NativeScrollEvent, NativeSyntheticEvent } from 'react-native';
-import type { TerminalChannel } from '@/terminal';
 
 export interface SessionMenuItem {
     label: string;
@@ -16,6 +15,11 @@ export interface SessionMenu {
     note?: string;
     items: SessionMenuItem[];
 }
+
+/** Live terminal handle: plugins only send keystrokes; they never own the pane. */
+export type PluginTerminalChannel = {
+    sendText: (text: string) => void;
+};
 
 export interface PluginSlotContexts {
     'app.overlay': {};
@@ -34,7 +38,7 @@ export interface PluginSlotContexts {
     };
     'session.pills': { sessionId: string };
     'session.composer.trailing': { sessionId: string; getText: () => string; setText: (text: string) => void };
-    'terminal.key-row': { channel: TerminalChannel | undefined };
+    'terminal.key-row': { channel: PluginTerminalChannel | undefined };
     'settings.items': {};
 }
 

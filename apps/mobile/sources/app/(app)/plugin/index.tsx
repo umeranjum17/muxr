@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { ActivityIndicator, View, Text, Pressable } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
-import { PluginSlot } from '@/plugins';
+import { PluginSlot } from '@/plugins/ui';
 import { pluginCatalogLoaded, pluginSnapshot, pluginUnavailableReason } from '@/plugins';
 import { resolvePluginText } from '@/plugins';
 import { useSlotContributions } from '@/plugins';

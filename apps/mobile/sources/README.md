@@ -14,25 +14,33 @@ apps/mobile/sources/
     index.ts                    domain + use cases
     ui.ts                       screens
   spawn/
-    domain/                     SpawnRequest, WorktreeSelection, dock environment
-    application/                startNewAgent, startSessionFromDraft
+    domain/                     SpawnRequest, WorktreeSelection
+    application/                startNewAgent, dock environment, drafts
     infrastructure/             git worktree RPCs
     presentation/               HomeDock, directory picker
+    index.ts                    domain + use cases
+    ui.ts                       screens
   pairing/
     domain/                     PairedMachine, ConnectionStatus
     application/                pairing hooks, relay discovery
     infrastructure/             MuxrClient
     presentation/               connection chrome, QR
+    index.ts                    domain + use cases
+    ui.ts                       screens
   plugins/
     domain/                     screen/collection/tree models (untrusted host UI)
     application/                catalog, actions, events
     presentation/               declarative screens and slots
+    index.ts                    domain + use cases
+    ui.ts                       screens
     callPlugin.ts               frozen public port for voice/realtime
     openPluginStream.ts         frozen public port for voice
   terminal/
     domain/                     TerminalLink, file links, status bar
     application/                open terminal, chip probe, recent output
     presentation/               live terminal screen
+    index.ts                    domain + use cases
+    ui.ts                       screens
   collaboration/
     domain/                     Collaboration mesh
     application/                setup/disconnect orchestration
@@ -59,4 +67,4 @@ See root `CONTEXT.md`. Agent Route authorizes. Human Name, Task Title, and compu
 
 ## Dependency direction
 
-Outsiders import `@/<context>` or `@/herd/ui`. Never `@/<context>/domain/…`. Domain is pure TypeScript (type-only React types allowed). `architecture.spec.ts` rejects forbidden direction and nested ternaries in domain.
+Outsiders import `@/<context>` for domain and use cases, or `@/<context>/ui` for screens. Never `@/<context>/domain/…`. Domain is pure TypeScript (type-only React types allowed). `architecture.spec.ts` rejects forbidden direction, presentation on public barrels, and nested ternaries in domain.

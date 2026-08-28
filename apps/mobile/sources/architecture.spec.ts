@@ -10,6 +10,7 @@ const contexts = [
 ] as const;
 const layers = ['domain', 'application', 'infrastructure', 'presentation'] as const;
 const excluded = new Set(['sync', 'state', 'realtime', 'voice', 'auth', 'encryption']);
+const presentationOnly = new Set(['settings']);
 
 function walk(dir: string): string[] {
     const out: string[] = [];
@@ -69,9 +70,26 @@ describe('mobile UI bounded contexts', () => {
                 if (/from ['"]expo-router['"]/.test(trimmed)) {
                     failures.push(`${rel}: domain imports expo-router`);
                 }
-                if (ctx && new RegExp(`from ['"]\\./\\.\\./(application|presentation)/`).test(trimmed)) {
+                if (/\.\.\/(application|presentation|infrastructure)\//.test(trimmed) && /from ['"]/.test(trimmed)) {
                     failures.push(`${rel}: domain imports ${trimmed}`);
                 }
+                if (/from ['"]@\/[a-z]+\/ui['"]/.test(trimmed)) {
+                    failures.push(`${rel}: domain imports presentation barrel ${trimmed}`);
+                }
+            }
+        }
+        expect(failures).toEqual([]);
+    });
+
+    it('keeps presentation off public context barrels except settings', () => {
+        const failures: string[] = [];
+        for (const ctx of contexts) {
+            if (presentationOnly.has(ctx)) continue;
+            const index = path.join(sources, ctx, 'index.ts');
+            if (!fs.existsSync(index)) continue;
+            const src = fs.readFileSync(index, 'utf8');
+            if (src.includes("from './presentation/")) {
+                failures.push(`${ctx}/index.ts exports presentation`);
             }
         }
         expect(failures).toEqual([]);
