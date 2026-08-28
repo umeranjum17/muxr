@@ -1,10 +1,10 @@
 import * as React from 'react';
 import { ActivityIndicator, View, Text, Pressable } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
-import { PluginSlot } from '@/plugins/PluginSlot';
-import { pluginCatalogLoaded, pluginSnapshot, pluginUnavailableReason } from '@/plugins/pluginStore';
-import { resolvePluginText } from '@/plugins/pluginText';
-import { useSlotContributions } from '@/plugins/useSlotContributions';
+import { PluginSlot } from '@/plugins';
+import { pluginCatalogLoaded, pluginSnapshot, pluginUnavailableReason } from '@/plugins';
+import { resolvePluginText } from '@/plugins';
+import { useSlotContributions } from '@/plugins';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useRouter } from 'expo-router';
 import { Typography } from '@/constants/Typography';

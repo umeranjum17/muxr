@@ -7,7 +7,7 @@ import { useLocalSearchParams } from 'expo-router';
 import { Text } from '@/components/StyledText';
 import { Typography } from '@/constants/Typography';
 import { useSession, useSocketStatus } from '@/sync/storage';
-import { openPreview, type OpenPreview } from '@/preview/openPreview';
+import { openPreview, type OpenPreview } from '@/preview';
 
 function selectedPort(value: string | undefined): number | undefined {
     if (value === undefined || !/^\d{1,5}$/.test(value)) return undefined;

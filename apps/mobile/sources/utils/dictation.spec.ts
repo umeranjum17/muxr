@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import React from 'react';
 import TestRenderer from 'react-test-renderer';
-import { useDictation } from './dictation';
-import { pcm16ChunksToArrayBuffer } from './transcription';
-import { wakeAndReport } from '../voice/wakeAndReport';
-import { usePluginEvents } from '../plugins/usePluginEvents';
-import { cancelRealtimeReportWait, micOwners, realtimeGeneration, realtimeWatchTarget, registerRealtimeNotificationStart, releaseDictation, resolveRealtimeTarget, startRealtimeSession, stopRealtimeSession } from '../realtime/realtimeSessionState';
+import { useDictation } from '@/utils/dictation';
+import { pcm16ChunksToArrayBuffer } from '@/utils/transcription';
+import { wakeAndReport } from '@/voice/wakeAndReport';
+import { usePluginEvents } from '@/plugins';
+import { cancelRealtimeReportWait, micOwners, realtimeGeneration, realtimeWatchTarget, registerRealtimeNotificationStart, releaseDictation, resolveRealtimeTarget, startRealtimeSession, stopRealtimeSession } from '@/realtime/realtimeSessionState';
 
 const mocks = vi.hoisted(() => ({
     sessions: {} as Record<string, { id: string; activeAt: number; updatedAt: number }>,

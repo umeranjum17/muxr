@@ -1,21 +1,21 @@
-import { parseMarkdown } from './parseMarkdown';
-import type { MarkdownSpan } from './markdownTypes';
+import { parseMarkdown } from '@/components/markdown/parseMarkdown';
+import type { MarkdownSpan } from '@/components/markdown/markdownTypes';
 import * as React from 'react';
 import { Image, Pressable, View, Platform } from 'react-native';
-import { HorizontalScrollView } from '../HorizontalScrollView';
+import { HorizontalScrollView } from '@/components/HorizontalScrollView';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { StyleSheet } from 'react-native-unistyles';
-import { Text } from '../StyledText';
+import { Text } from '@/components/StyledText';
 import { Typography } from '@/constants/Typography';
-import { SimpleSyntaxHighlighter } from '../SimpleSyntaxHighlighter';
+import { SimpleSyntaxHighlighter } from '@/components/SimpleSyntaxHighlighter';
 import { Modal } from '@/modal';
 import { storeTempText } from '@/sync/persistence';
 import { useRouter } from 'expo-router';
 import * as Clipboard from 'expo-clipboard';
 import * as WebBrowser from 'expo-web-browser';
-import { MermaidRenderer } from './MermaidRenderer';
+import { MermaidRenderer } from '@/components/markdown/MermaidRenderer';
 import { t } from '@/text';
-import { isHttpMarkdownLink } from './linkUtils';
+import { isHttpMarkdownLink } from '@/components/markdown/linkUtils';
 import { openExternalUrl } from '@/utils/openExternalUrl';
 
 // Option type for callback

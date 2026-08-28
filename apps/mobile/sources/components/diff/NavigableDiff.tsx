@@ -2,7 +2,7 @@ import * as React from 'react';
 import { Pressable, ScrollView, Text, View, useWindowDimensions } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
-import { PierreDiffView } from './PierreDiffView';
+import { PierreDiffView } from '@/components/diff/PierreDiffView';
 
 interface PatchFile {
     key: string;

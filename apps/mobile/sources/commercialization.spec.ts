@@ -14,7 +14,7 @@ import {
     firstRestorableMachine,
     MOBILE_ONBOARDING_CHOICES,
     setupEmptyState,
-} from './commercialization';
+} from '@/commercialization';
 
 describe('open-source mobile onboarding flow', () => {
     it('keeps pairing semantics, the no-machine handoff, and every commerce surface absent', () => {
@@ -47,7 +47,7 @@ describe('open-source mobile onboarding flow', () => {
             settings: { realtimeApiKey: 'sk-stale-mobile', preferredLanguage: 'en' },
         }));
         mmkvValues.set('pending-settings', JSON.stringify({ realtimeApiKey: 'sk-stale-pending', avatarStyle: 'brutalist' }));
-        const persistence = await import('./sync/persistence');
+        const persistence = await import('@/sync/persistence');
 
         const loaded = persistence.loadSettings();
         expect(loaded.settings.preferredLanguage).toBe('en');

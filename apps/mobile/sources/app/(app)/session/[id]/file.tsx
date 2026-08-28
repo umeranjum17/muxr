@@ -14,7 +14,7 @@ import { t } from '@/text';
 import { Ionicons } from '@expo/vector-icons';
 import { FileIcon } from '@/components/FileIcon';
 import { PierreDiffView } from '@/components/diff/PierreDiffView';
-import { resolveSessionFilePath } from '@/utils/sessionFileLinks';
+import { resolveSessionFilePath } from '@/terminal';
 import { MobileGlassSurface } from '@/components/MobileGlass';
 import { syntaxLanguage } from '@/components/code/syntaxHighlighting';
 

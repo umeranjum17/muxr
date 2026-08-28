@@ -8,8 +8,8 @@ import { Typography } from '@/constants/Typography';
 import { Modal } from '@/modal';
 import { machineBash } from '@/sync/ops';
 import { useSession, useSocketStatus } from '@/sync/storage';
-import { mapDisplayToInput, type Size, type StreamFrameMetadata } from '@/takeover/coordinates';
-import { codeForKey, keyMessage, openTakeover, parseStreamFrame, touchMessage } from '@/takeover/openTakeover';
+import { mapDisplayToInput, type Size, type StreamFrameMetadata } from '@/takeover';
+import { codeForKey, keyMessage, openTakeover, parseStreamFrame, touchMessage } from '@/takeover';
 
 function selectedPort(value: string | undefined): number | undefined {
     if (value === undefined || !/^\d{1,5}$/.test(value)) return undefined;

@@ -1,6 +1,6 @@
 import * as React from "react";
 import { Image } from "expo-image";
-import { avatarHash, type GeneratedAvatarProps } from './generatedAvatar';
+import { avatarHash, type GeneratedAvatarProps } from '@/components/generatedAvatar';
 
 
 // Array of all 100 gradient images

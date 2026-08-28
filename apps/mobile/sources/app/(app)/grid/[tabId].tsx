@@ -11,7 +11,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
 import { sync } from '@/sync/sync';
-import { PaneGridView } from '@/components/PaneGridView';
+import { PaneGridView } from '@/herd/ui';
 
 export default React.memo(() => {
     const route = useRoute();

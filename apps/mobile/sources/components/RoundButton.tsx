@@ -3,8 +3,8 @@ import { ActivityIndicator, Platform, Pressable, StyleProp, Text, TextStyle, Vie
 import { iOSUIKit } from 'react-native-typography';
 import { Typography } from '@/constants/Typography';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
-import { MobileGlassSurface } from './MobileGlass';
-import { hapticsLight } from './haptics';
+import { MobileGlassSurface } from '@/components/MobileGlass';
+import { hapticsLight } from '@/components/haptics';
 
 export type RoundButtonSize = 'large' | 'normal' | 'small';
 const sizes: { [key in RoundButtonSize]: { height: number, fontSize: number, hitSlop: number, pad: number } } = {

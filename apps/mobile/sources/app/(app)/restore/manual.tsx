@@ -13,7 +13,7 @@ import { layout } from '@/components/layout';
 import { Modal } from '@/modal';
 import { t } from '@/text';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
-import { QRCode } from '@/components/qr/QRCode';
+import { QRCode } from '@/pairing';
 import { MobileGlassSurface } from '@/components/MobileGlass';
 
 const stylesheet = StyleSheet.create((theme) => ({

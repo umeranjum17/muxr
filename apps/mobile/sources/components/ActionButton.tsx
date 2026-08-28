@@ -3,7 +3,7 @@ import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
-import { hapticsLight } from './haptics';
+import { hapticsLight } from '@/components/haptics';
 
 /**
  * The one button style used across onboarding, pairing and empty states:

@@ -1,9 +1,9 @@
 import React from 'react';
 import { View, StyleSheet, Platform } from 'react-native';
-import { CommandPaletteInput } from './CommandPaletteInput';
-import { CommandPaletteResults } from './CommandPaletteResults';
-import { useCommandPalette } from './useCommandPalette';
-import { Command } from './types';
+import { CommandPaletteInput } from '@/components/CommandPalette/CommandPaletteInput';
+import { CommandPaletteResults } from '@/components/CommandPalette/CommandPaletteResults';
+import { useCommandPalette } from '@/components/CommandPalette/useCommandPalette';
+import { Command } from '@/components/CommandPalette/types';
 
 interface CommandPaletteProps {
     commands: Command[];

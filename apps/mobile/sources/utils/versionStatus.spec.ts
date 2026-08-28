@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { knownHostVersion, versionsMismatch } from './versionStatus';
+import { knownHostVersion, versionsMismatch } from '@/utils/versionStatus';
 
 describe('versionStatus', () => {
     it('flags a mismatch only when both versions are known and differ', () => {

@@ -13,9 +13,9 @@ import { useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
 import type { HerdrTreeWorkspace } from '@muxr/contract';
 import { sync } from '@/sync/sync';
-import { TerminalPreview } from '@/terminal/TerminalPreview';
-import { agentStatusColor } from '@/utils/sessionUtils';
-import { paneDisplayName, paneTaskTitle } from '@/utils/herdTree';
+import { TerminalPreview } from '@/terminal';
+import { agentStatusColor } from '@/herd';
+import { paneDisplayName, paneTaskTitle } from '@/herd';
 
 export default React.memo(function WorkspaceScreen() {
     const { id } = useLocalSearchParams<{ id: string }>();

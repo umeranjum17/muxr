@@ -10,26 +10,20 @@ import { StyleSheet } from "react-native-unistyles";
 import { getRandomBytesAsync } from "expo-crypto";
 import { useIsLandscape } from "@/utils/responsive";
 import { Typography } from "@/constants/Typography";
-import { HomeHeaderNotAuth } from "@/components/HomeHeader";
-import { MainView } from "@/components/MainView";
+import { HomeHeaderNotAuth } from "@/herd/ui";
+import { MainView } from "@/herd/ui";
 import { Wordmark } from "@/components/Wordmark";
 import { t } from '@/text';
 import { Modal } from '@/modal';
 import { resumePendingHostedPairing } from '@/state/hostedE2ee';
 import { getCachedConnectionSettings, saveConnectionSettings } from '@/state/connectionSettings';
-import { useHostedPairing, usePairQrScanner } from '@/hooks/usePairing';
+import { useHostedPairing, usePairQrScanner } from '@/pairing';
 
 export default function Home() {
     const auth = useAuth();
     if (!auth.isAuthenticated) {
         return <NotAuthenticated />;
     }
-    return (
-        <Authenticated />
-    )
-}
-
-function Authenticated() {
     return <MainView />;
 }
 

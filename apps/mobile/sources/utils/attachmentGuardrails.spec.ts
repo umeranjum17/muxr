@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { estimateBase64Bytes, planAttachmentHeal } from '@/sync/attachmentSupport';
-import { boundText } from './boundedText';
+import { boundText } from '@/utils/boundedText';
 import { estimateStoredBlobBytes, blobUri, readBlobText, pruneBlobs, saveBlob } from './attachmentBlobs.web';
 import { boundSessionFileCache } from '@/sync/sessionFileCache';
 

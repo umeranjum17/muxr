@@ -18,7 +18,7 @@ import {
     refreshHostedGrant,
     type StoredHostedGrant,
 } from '@/state/hostedE2ee';
-import { pluginSnapshot, refreshPlugins } from './pluginStore';
+import { pluginSnapshot, refreshPlugins } from './application/pluginStore';
 
 export interface PluginStream {
     onFrame: (listener: (frame: RealtimeHostFrame) => void) => () => void;

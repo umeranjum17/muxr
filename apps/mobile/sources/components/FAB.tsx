@@ -3,8 +3,8 @@ import * as React from 'react';
 import { Platform, View, Pressable } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
-import { MobileGlassSurface } from './MobileGlass';
-import { hapticsLight } from './haptics';
+import { MobileGlassSurface } from '@/components/MobileGlass';
+import { hapticsLight } from '@/components/haptics';
 import { t } from '@/text';
 
 const stylesheet = StyleSheet.create((theme, runtime) => ({

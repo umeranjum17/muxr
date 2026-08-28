@@ -20,23 +20,29 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { sync } from '@/sync/sync';
-import { refreshUntilSessionVisible } from '@/sync/ops';
-import { MISSING_CWD_ERROR_PREFIX, type HerdrTreeWorkspace } from '@muxr/contract';
-import { Modal } from '@/modal';
+import { type HerdrTreeWorkspace } from '@muxr/contract';
 import { Text } from '@/components/StyledText';
 import { StatusDot } from '@/components/StatusDot';
 import { Switch } from '@/components/Switch';
 import { AgentGlyph } from '@/components/AgentGlyph';
-import { DirectoryPicker } from '@/components/DirectoryPicker';
-import { agentStatusColor } from '@/utils/sessionUtils';
+import { DirectoryPicker } from '@/spawn';
+import { agentStatusColor } from '@/herd';
 import {
     getCachedConnectionSettings,
-    rememberSessionCwd,
-    saveConnectionSettings,
 } from '@/state/connectionSettings';
 
 import { FALLBACK_AGENT_KINDS, resolveAgentCatalog, type AgentCatalogOption } from '@/sync/agentKinds';
-import { useDeviceAuthority } from '@/hooks/useDeviceAuthority';
+import { useDeviceAuthority } from '@/pairing';
+import {
+    agentAvailabilityLabel,
+    agentAvailabilitySpoken,
+    catalogSourceLabel,
+    namedMembersHaveDuplicates,
+    startButtonLabel,
+    startNewAgent,
+    workspaceJoinPath,
+    type CatalogSource,
+} from '@/spawn';
 
 const MAX_SQUAD = 4;
 const MAX_RECENT_CHIPS = 6;
@@ -263,7 +269,7 @@ export default function NewAgentScreen() {
     const [catalog, setCatalog] = React.useState<readonly AgentOption[]>(
         FALLBACK_AGENT_KINDS.map((kind) => ({ kind, availability: 'unknown' })),
     );
-    const [catalogSource, setCatalogSource] = React.useState<'loading' | 'host' | 'unknown' | 'fallback'>('loading');
+    const [catalogSource, setCatalogSource] = React.useState<CatalogSource>('loading');
     const [selected, setSelected] = React.useState<ReadonlySet<string>>(new Set());
     const [names, setNames] = React.useState<Record<string, string>>({});
     const [showUnavailableAgents, setShowUnavailableAgents] = React.useState(false);
@@ -326,11 +332,7 @@ export default function NewAgentScreen() {
         : catalog.filter((option) => option.availability !== 'unavailable');
     const directory = cwd.trim();
     const namedMembers = kinds.map((kind) => ({ kind, displayName: names[kind]?.trim() || undefined }));
-    const normalizedNames = namedMembers
-        .flatMap((member) => member.displayName === undefined
-            ? []
-            : [member.displayName.replace(/\s+/g, ' ').toLocaleLowerCase()]);
-    const hasDuplicateNames = new Set(normalizedNames).size !== normalizedNames.length;
+    const hasDuplicateNames = namedMembersHaveDuplicates(namedMembers);
 
     const start = React.useCallback(async () => {
         if (kinds.length === 0) {
@@ -348,47 +350,18 @@ export default function NewAgentScreen() {
         setBusy(true);
         setError(undefined);
         try {
-            let createCwd = false;
-            for (;;) {
-                try {
-                    const snapshot = await sync.request('session.start', {
-                        cwd: directory,
-                        ...(createCwd ? { createCwd: true } : {}),
-                        ...(squad
-                            ? { kinds, members: namedMembers }
-                            : { kind: kinds[0], ...(namedMembers[0]?.displayName === undefined ? {} : { displayName: namedMembers[0].displayName }) }),
-                        ...(worktree ? { worktree: {} } : {}),
-                    });
-                    if (!('info' in snapshot)) {
-                        setError(`${snapshot.acceptance.displayName.trim() || 'Agent'} could not start.`);
-                        return;
-                    }
-                    await saveConnectionSettings(rememberSessionCwd(getCachedConnectionSettings(), directory));
-                    await refreshUntilSessionVisible(snapshot.info.id);
-                    router.replace(`/session/${snapshot.info.id}`);
-                    return;
-                } catch (caught: unknown) {
-                    const message = caught instanceof Error ? caught.message : String(caught);
-                    // Missing cwd is not an error, it's a question: create it?
-                    if (!createCwd && message.includes(MISSING_CWD_ERROR_PREFIX)) {
-                        setBusy(false);
-                        createCwd = await Modal.confirm(
-                            'Create directory?',
-                            `${directory} does not exist. Create it?`,
-                            { confirmText: 'Create', cancelText: 'Cancel' },
-                        );
-                        if (createCwd) {
-                            setBusy(true);
-                            continue;
-                        }
-                        setError(undefined);
-                        return;
-                    }
-                    setError('Agent could not start. Try again.');
-                    setBusy(false);
-                    return;
-                }
+            const result = await startNewAgent({
+                directory,
+                kinds,
+                namedMembers,
+                squad,
+                worktree,
+            });
+            if (result.cancelled) {
+                setError(undefined);
+                return;
             }
+            if (result.error !== undefined) setError(result.error);
         } finally {
             setBusy(false);
         }
@@ -437,7 +410,7 @@ export default function NewAgentScreen() {
                         <Text style={styles.sectionLabel}>AGENT</Text>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                             <Text style={styles.squadBadgeText}>
-                                {catalogSource === 'host' ? 'FROM HERDR' : catalogSource === 'loading' ? 'CHECKING HOST' : catalogSource === 'unknown' ? 'HOST AVAILABILITY UNKNOWN' : 'OFFLINE FALLBACK'}
+                                {catalogSourceLabel(catalogSource)}
                             </Text>
                             {squad && (
                                 <View style={styles.squadBadge}>
@@ -451,13 +424,14 @@ export default function NewAgentScreen() {
                         {visibleCatalog.map((option) => {
                             const isSelected = selected.has(option.kind);
                             const available = option.availability !== 'unavailable';
+                            const availability = agentAvailabilityLabel(option.availability, catalogSource);
                             return (
                                 <Pressable
                                     key={option.kind}
                                     onPress={() => toggleKind(option)}
                                     disabled={!available}
                                     accessibilityRole="button"
-                                    accessibilityLabel={`${option.kind}, ${option.availability === 'installed' ? 'installed' : option.availability === 'unavailable' ? 'not installed' : catalogSource === 'loading' ? 'checking installation' : 'installation status unknown'}`}
+                                    accessibilityLabel={`${option.kind}, ${agentAvailabilitySpoken(option.availability, catalogSource)}`}
                                     accessibilityState={{ disabled: !available, selected: isSelected }}
                                     style={[
                                         styles.agentCard,
@@ -473,9 +447,9 @@ export default function NewAgentScreen() {
                                     <Text numberOfLines={1} style={styles.agentName}>
                                         {option.kind}
                                     </Text>
-                                    {(option.availability !== 'unknown' || catalogSource === 'loading') && (
+                                    {availability !== undefined && (
                                         <Text numberOfLines={1} style={styles.agentAvailability}>
-                                            {option.availability === 'installed' ? 'Installed' : option.availability === 'unavailable' ? 'Not installed' : 'Checking host'}
+                                            {availability}
                                         </Text>
                                     )}
                                 </Pressable>
@@ -549,11 +523,7 @@ export default function NewAgentScreen() {
                             {workspaces.slice(0, MAX_WORKSPACE_ROWS).map((workspace) => {
                                 const paneCount = workspace.tabs.reduce((total, tab) => total + tab.panes.length, 0);
                                 const label = workspace.label ?? workspace.workspaceId;
-                                const target =
-                                    workspace.worktree?.path ??
-                                    (workspace.label !== undefined && workspace.label.startsWith('/')
-                                        ? workspace.label
-                                        : undefined);
+                                const target = workspaceJoinPath(workspace);
                                 const pulsing =
                                     workspace.agentStatus === 'working' || workspace.agentStatus === 'blocked';
                                 return (
@@ -618,7 +588,7 @@ export default function NewAgentScreen() {
                         <ActivityIndicator color={theme.colors.button.primary.tint} />
                     ) : (
                         <Text style={styles.startButtonText}>
-                            {kinds.length === 0 ? 'Select an installed agent' : squad ? `Start squad (${kinds.length})` : `Start ${kinds[0]}`}
+                            {startButtonLabel(kinds)}
                         </Text>
                     )}
                 </Pressable>

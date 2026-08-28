@@ -1,5 +1,5 @@
 import { useModal } from '@/modal';
-import { useOverlayNav } from '@/utils/sessionOverlayNav';
+import { useOverlayNav } from '@/terminal';
 import {
     canRouteForward,
     canUseRouteBack,

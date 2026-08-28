@@ -20,8 +20,8 @@ import {
     type CollaborationMachine,
     type CollaborationReport,
     type PeerRequester,
-} from '@/collaboration/computerCollaboration';
-import { requestPairedMachine } from '@/collaboration/scopedMachineClient';
+} from '@/collaboration';
+import { requestPairedMachine } from '@/collaboration';
 
 function showCollaborationError(cause: unknown) {
     Modal.alert('Collaboration unavailable', cause instanceof Error ? cause.message : String(cause));

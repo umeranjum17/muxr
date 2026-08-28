@@ -11,14 +11,14 @@ import { AuthCredentials, TokenStorage } from '@/auth/tokenStorage';
 import { AuthProvider } from '@/auth/AuthContext';
 import { restoreHostedConnection } from '@/state/hostedE2ee';
 import { resetWebSecureStore } from '@/state/webSecureStore';
-import { RelayDiscoveryReconnect } from '@/discovery/useRelayDiscovery';
+import { RelayDiscoveryReconnect } from '@/pairing';
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { initialWindowMetrics, SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { PluginSlot } from '@/plugins/PluginSlot';
-import { usePluginEvents } from '@/plugins/usePluginEvents';
-import { SidebarNavigator } from '@/components/SidebarNavigator';
+import { PluginSlot } from '@/plugins';
+import { usePluginEvents } from '@/plugins';
+import { SidebarNavigator } from '@/herd/ui';
 import sodium from '@/encryption/libsodium.lib';
 import { View, Platform, AppState, Pressable, Text } from 'react-native';
 import { ModalProvider } from '@/modal';
@@ -31,12 +31,12 @@ import { initConsoleLogging, setConsoleOutputEnabled } from '@/utils/consoleLogg
 import { useLocalSetting } from '@/sync/storage';
 import { useUnistyles } from 'react-native-unistyles';
 import { AsyncLock } from '@/utils/lock';
-import { getSessionRouteFromNotificationResponse } from '@/utils/notificationRouting';
-import { navigateToSession } from '@/hooks/useNavigateToSession';
+import { getSessionRouteFromNotificationResponse } from '@/herd';
+import { navigateToSession } from '@/herd';
 import { useTauriZoom } from '@/hooks/useTauriZoom';
 import { useTauriDrag } from '@/hooks/useTauriDrag';
 import { BrowserNavigationShortcuts } from '@/hooks/useBrowserNavigationShortcuts';
-import { KernelNotifications } from '@/components/KernelNotifications';
+import { KernelNotifications } from '@/herd/ui';
 import { acknowledgeLifecyclePush } from '@/utils/nativePushNotifications';
 
 // Configure notification handler — suppress push display when app is in foreground

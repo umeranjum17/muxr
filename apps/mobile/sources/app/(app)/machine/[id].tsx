@@ -9,18 +9,18 @@ import { useSessions, useAllMachines, useMachine, useLocalSetting } from '@/sync
 import { Ionicons } from '@expo/vector-icons';
 import type { Session } from '@/sync/storageTypes';
 import { Modal } from '@/modal';
-import { formatPathRelativeToHome, getSessionName, getSessionSubtitle } from '@/utils/sessionUtils';
-import { isMachineOnline } from '@/utils/machineUtils';
+import { formatPathRelativeToHome, getSessionName, getSessionSubtitle } from '@/herd';
+import { isMachineOnline } from '@/pairing';
 import { sync } from '@/sync/sync';
 import { useUnistyles, StyleSheet } from 'react-native-unistyles';
 import { t } from '@/text';
-import { useNavigateToSession } from '@/hooks/useNavigateToSession';
+import { useNavigateToSession } from '@/herd';
 import { machineSpawnNewSession } from '@/sync/ops';
 import { resolveAbsolutePath } from '@/utils/pathUtils';
 import { MultiTextInput, type MultiTextInputHandle } from '@/components/MultiTextInput';
 import { getCachedHostedGrant } from '@/state/hostedE2ee';
 import { getCachedConnectionSettings, pairingTransport } from '@/state/connectionSettings';
-import { loadCollaborationIntent } from '@/collaboration/computerCollaboration';
+import { loadCollaborationIntent } from '@/collaboration';
 
 function formatNames(names: string[]): string {
     if (names.length < 2) return names[0] ?? '';

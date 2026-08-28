@@ -10,7 +10,7 @@ import { claimHostedPairing, hostedPairingAuthority, hostedPairingDisplayName, p
 import { getCachedConnectionSettings, saveConnectionSettings } from '@/state/connectionSettings';
 import { ActionButton } from '@/components/ActionButton';
 import { Typography } from '@/constants/Typography';
-import { usePairQrScanner } from '@/hooks/usePairing';
+import { usePairQrScanner } from '@/pairing';
 import { Modal } from '@/modal';
 import { realtimeMachineSwitchGuard, stopRealtimeSession } from '@/realtime/realtimeSessionState';
 

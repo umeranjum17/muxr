@@ -1,5 +1,5 @@
-import type { MarkdownBlock, MarkdownSpan } from "./markdownTypes";
-import { parseMarkdownSpans } from "./parseMarkdownSpans";
+import type { MarkdownBlock, MarkdownSpan } from "@/components/markdown/markdownTypes";
+import { parseMarkdownSpans } from "@/components/markdown/parseMarkdownSpans";
 
 // Split a pipe-delimited table row into cells, stripping only the leading/trailing
 // empty strings caused by outer pipes while preserving interior empty cells.

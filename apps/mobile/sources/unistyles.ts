@@ -1,6 +1,6 @@
 import { StyleSheet, UnistylesRuntime } from 'react-native-unistyles';
-import { darkTheme, lightTheme } from './theme';
-import { loadThemePreference } from './sync/persistence';
+import { darkTheme, lightTheme } from '@/theme';
+import { loadThemePreference } from '@/sync/persistence';
 import { Appearance, Platform } from 'react-native';
 import * as SystemUI from 'expo-system-ui';
 
