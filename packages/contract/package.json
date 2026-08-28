@@ -39,8 +39,5 @@
             "types": "./dist/shared/index.d.ts",
             "default": "./dist/shared/index.js"
         }
-    },
-    "dependencies": {
-        "zod": "4.4.3"
     }
 }

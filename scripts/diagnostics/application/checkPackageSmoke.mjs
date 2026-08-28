@@ -386,6 +386,8 @@ try {
     assert.doesNotMatch(`${hostBundle}\n${cryptoBundle}`, /(?:apps|packages)\/(?:host|wire|contract|crypto)\/(?:src|dist)\//, 'bundle leaked proprietary source paths');
     const licenseInventory = JSON.parse(run('tar', ['-xOf', tarball, 'package/THIRD_PARTY_LICENSES.json']).stdout);
     const packageJson = JSON.parse(run('tar', ['-xOf', tarball, 'package/package.json']).stdout);
+    assert.equal(packageJson.dependencies.zod, undefined, 'packed CLI must not depend on Zod');
+    assert.ok(!licenseInventory.dependencies.some((dependency) => dependency.name === 'zod'), 'host bundle must not include Zod');
     assert.equal(licenseInventory.bundledInputs, undefined);
     assert.ok(!JSON.stringify(licenseInventory).includes(`${root}/`), 'license inventory leaked a repository path');
     for (const dependency of licenseInventory.dependencies) {
