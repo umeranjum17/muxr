@@ -1,11 +1,32 @@
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import * as ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 
 const SRC = dirname(fileURLToPath(import.meta.url));
 const CONTEXTS = ['agent', 'machine', 'peer', 'requests', 'diagnostics'] as const;
 const COMPOSITION = new Set(['main.ts', 'host.ts', 'host.test.ts', 'architecture.test.ts']);
+const HOST_USE_CASES = [
+    'agent/application/startAgent.ts',
+    'agent/application/promptAgent.ts',
+    'agent/application/openAgent.ts',
+    'agent/application/readAgentSession.ts',
+    'agent/application/watchAgentLifecycle.ts',
+    'agent/application/focusAgent.ts',
+    'agent/application/stopAgent.ts',
+    'agent/application/answerAgent.ts',
+    'agent/application/listAgents.ts',
+    'agent/application/reportAgentOutcome.ts',
+    'agent/application/runPluginAction.ts',
+    'agent/application/openTerminal.ts',
+    'machine/application/reconnectMachine.ts',
+    'machine/application/listMachines.ts',
+    'peer/application/grantPeerAuthority.ts',
+    'peer/application/revokePeerAuthority.ts',
+    'peer/application/admitPeerRequest.ts',
+    'requests/application/openPreview.ts',
+];
 
 function walk(dir: string, out: string[] = []): string[] {
     for (const name of readdirSync(dir)) {
@@ -41,10 +62,23 @@ describe('host runtime architecture', () => {
     it('rejects nested ternaries', () => {
         const offenders: string[] = [];
         for (const file of files) {
-            const rel = relative(SRC, file);
-            readFileSync(file, 'utf8').split('\n').forEach((line, index) => {
-                if (/ \? [^\n;{]+ \? /.test(line)) offenders.push(`${rel}:${index + 1}`);
-            });
+            const source = ts.createSourceFile(file, readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true);
+            const containsConditional = (node: ts.Node): boolean => {
+                let found = false;
+                ts.forEachChild(node, (child) => {
+                    if (ts.isConditionalExpression(child) || containsConditional(child)) found = true;
+                });
+                return found;
+            };
+            const visit = (node: ts.Node): void => {
+                if (ts.isConditionalExpression(node)
+                    && (containsConditional(node.whenTrue) || containsConditional(node.whenFalse))) {
+                    const line = source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1;
+                    offenders.push(`${relative(SRC, file)}:${line}`);
+                }
+                ts.forEachChild(node, visit);
+            };
+            visit(source);
         }
         expect(offenders).toEqual([]);
     });
@@ -77,5 +111,27 @@ describe('host runtime architecture', () => {
             }
         }
         expect(offenders).toEqual([]);
+    });
+
+    it('exposes named use cases and forbids a services folder', () => {
+        const missing = HOST_USE_CASES.filter((file) => !existsSync(join(SRC, file)));
+        expect(missing).toEqual([]);
+        const services = files.filter((file) => relative(SRC, file).replaceAll('\\', '/').includes('/services/'));
+        expect(services).toEqual([]);
+        const applicationIo: string[] = [];
+        for (const file of files) {
+            const layer = layerOf(file);
+            if (layer !== 'application') continue;
+            const rel = relative(SRC, file).replaceAll('\\', '/');
+            if (rel.endsWith('.test.ts')) continue;
+            if (rel.endsWith('/sessionSource.ts') || rel.endsWith('/watchStores.ts') || rel.endsWith('/runtime.ts')
+                || rel.endsWith('/createRequestDispatcher.ts') || rel.endsWith('/outboundPeerService.ts')
+                || rel.endsWith('/receiptExecutor.ts')) continue;
+            const source = readFileSync(file, 'utf8');
+            if (/from ['"]ws['"]/.test(source) || /from ['"]node:(http|net)['"]/.test(source)) {
+                applicationIo.push(rel);
+            }
+        }
+        expect(applicationIo).toEqual([]);
     });
 });

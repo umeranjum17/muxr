@@ -159,22 +159,25 @@ export class PeerStore {
 
     list(): { peers: PeerRelationship[]; revision: number } {
         const pending = this.state.pendingAuthorization;
+        const relationships = [...this.state.relationships];
+        const pendingAlreadyListed = pending === undefined
+            || relationships.some((entry) => entry.relationshipId === pending.relationshipId);
+        if (pending !== undefined && !pendingAlreadyListed) {
+            relationships.push({
+                relationshipId: pending.relationshipId,
+                direction: 'inbound',
+                machineId: pending.sourceMachineId,
+                ...(pending.sourceName === undefined ? {} : { machineName: pending.sourceName }),
+                ...(pending.sourcePlatform === undefined ? {} : { platform: pending.sourcePlatform }),
+                state: 'repair-needed',
+                capabilities: [...pending.capabilities],
+                ...(pending.issued === undefined ? {} : { peerDeviceId: pending.issued.peerDeviceId }),
+                createdAt: pending.createdAt,
+                updatedAt: pending.createdAt,
+            });
+        }
         return {
-            peers: [
-                ...this.state.relationships,
-                ...(pending === undefined || this.state.relationships.some((entry) => entry.relationshipId === pending.relationshipId) ? [] : [{
-                    relationshipId: pending.relationshipId,
-                    direction: 'inbound' as const,
-                    machineId: pending.sourceMachineId,
-                    ...(pending.sourceName === undefined ? {} : { machineName: pending.sourceName }),
-                    ...(pending.sourcePlatform === undefined ? {} : { platform: pending.sourcePlatform }),
-                    state: 'repair-needed' as const,
-                    capabilities: [...pending.capabilities],
-                    ...(pending.issued === undefined ? {} : { peerDeviceId: pending.issued.peerDeviceId }),
-                    createdAt: pending.createdAt,
-                    updatedAt: pending.createdAt,
-                }]),
-            ].map((entry) => ({
+            peers: relationships.map((entry) => ({
                 relationshipId: entry.relationshipId,
                 direction: entry.direction,
                 machineId: entry.machineId,

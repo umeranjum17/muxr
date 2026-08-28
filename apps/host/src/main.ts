@@ -586,21 +586,25 @@ async function main(): Promise<void> {
         ...(process.env.HERDR_BIN === undefined ? {} : { herdrBin: process.env.HERDR_BIN }),
         ...(hostedE2ee === undefined ? {} : { hostedE2ee }),
     });
-    const source = useFake
-        ? (assertFakeSourceCoversContract(), createFakeSessionSource())
-        : await createHerdrSessionSource({
-              dataDir,
-              attention: domain.attention,
-              lifecycle: domain.lifecycle,
-              identity,
-              relayUrl,
-              machineId,
-              attachmentsDir: join(stateRoot, 'attachments', 'pane'),
-              hostHttpPort: Number(env('MUXR_HOST_HTTP_PORT') ?? 8793),
-              ...(token === undefined ? {} : { token }),
-              ...(hostedE2ee === undefined ? {} : { hostedE2ee }),
-              ...(peerBroker === undefined ? {} : { peerBroker }),
-          });
+    let source;
+    if (useFake) {
+        assertFakeSourceCoversContract();
+        source = createFakeSessionSource();
+    } else {
+        source = await createHerdrSessionSource({
+            dataDir,
+            attention: domain.attention,
+            lifecycle: domain.lifecycle,
+            identity,
+            relayUrl,
+            machineId,
+            attachmentsDir: join(stateRoot, 'attachments', 'pane'),
+            hostHttpPort: Number(env('MUXR_HOST_HTTP_PORT') ?? 8793),
+            ...(token === undefined ? {} : { token }),
+            ...(hostedE2ee === undefined ? {} : { hostedE2ee }),
+            ...(peerBroker === undefined ? {} : { peerBroker }),
+        });
+    }
 
     startHost({
         ...(hostedE2ee === undefined ? {} : { hostedE2ee }),

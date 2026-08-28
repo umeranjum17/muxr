@@ -1,7 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { get as httpGet } from 'node:http';
 import type { RelayE2eeMode } from './config.js';
-import { extractBearerToken, isValidPublicKey, type PairingRequests, type MachineRegistry } from './admission/index.js';
+import { extractBearerToken, isValidPublicKey, pairMachine, approveMachinePairing, type PairingRequests, type MachineRegistry } from './admission/index.js';
 import type { OfflineBuffer, PeerTable, ReplayLog } from './routing/index.js';
 import { parsePushNotification, type PushService } from './push/index.js';
 
@@ -157,11 +157,9 @@ export async function handleHttpRequest(
             return;
         }
         if (ctx.registry.resolveClientMachines(token, [machineId]) === undefined) {
-            console.log('[attachment-download] 401 bad token');
             writeJson(res, 401, { error: 'unauthorized' });
             return;
         }
-        console.log(`[attachment-download] start range=${req.headers.range ?? 'none'}`);
         if (ctx.e2eeMode === 'on') {
             // The relay cannot synthesize requests into an E2EE machine link.
             // Attachments flow over the encrypted envelope channel instead.
@@ -176,13 +174,11 @@ export async function handleHttpRequest(
             timeoutMs: 30_000,
         });
         if (!outcome.ok) {
-            console.log(`[attachment-download] machineRequest failed: ${outcome.status} ${outcome.error ?? ''}`);
             writeJson(res, outcome.status, { error: outcome.error ?? 'machine request failed' });
             return;
         }
         const found = outcome.data as { token?: unknown; name?: unknown; mimeType?: unknown } | null;
         if (found === null || found === undefined || typeof found.token !== 'string') {
-            console.log('[attachment-download] 404 prepare returned null');
             writeJson(res, 404, { error: 'attachment not found' });
             return;
         }
@@ -207,17 +203,9 @@ export async function handleHttpRequest(
             });
         });
         if (upstream === null || (upstream.statusCode !== 200 && upstream.statusCode !== 206)) {
-            console.log(`[attachment-download] upstream failed: ${upstream === null ? 'unreachable' : upstream.statusCode}`);
             writeJson(res, 502, { error: 'host download server unreachable' });
             return;
         }
-        console.log(`[attachment-download] piping status=${upstream.statusCode} length=${upstream.headers['content-length'] ?? '?'}`);
-        let piped = 0;
-        upstream.on('data', (chunk: Buffer) => {
-            piped += chunk.length;
-        });
-        res.on('finish', () => console.log(`[attachment-download] FINISH bytes=${piped}`));
-        res.on('close', () => console.log(`[attachment-download] CLOSE bytes=${piped} complete=${piped === Number(upstream.headers['content-length'] ?? -1)}`));
         res.writeHead(upstream.statusCode, {
             'content-type': attachmentContentType(found.mimeType),
             ...(upstream.headers['content-length'] === undefined
@@ -247,12 +235,12 @@ export async function handleHttpRequest(
             writeJson(res, 400, { error: 'publicKey must be 32 bytes, base64' });
             return;
         }
-        const state = ctx.pairing.request(body.publicKey);
-        if (state === undefined) {
+        const paired = pairMachine(ctx.pairing, { publicKey: body.publicKey }, isValidPublicKey);
+        if (!paired.ok) {
             writeJson(res, 429, { error: 'too many pending pairing requests' });
             return;
         }
-        writeJson(res, 200, state);
+        writeJson(res, 200, paired.state);
         return;
     }
 
@@ -278,7 +266,12 @@ export async function handleHttpRequest(
             writeJson(res, 400, { error: 'publicKey and sealed response required' });
             return;
         }
-        if (!ctx.pairing.approve(body.publicKey, body.response, account.token)) {
+        const approved = approveMachinePairing(
+            ctx.pairing,
+            { publicKey: body.publicKey, sealedResponse: body.response, accountToken: account.token },
+            isValidPublicKey,
+        );
+        if (!approved.ok) {
             writeJson(res, 404, { error: 'no pending pairing request' });
             return;
         }

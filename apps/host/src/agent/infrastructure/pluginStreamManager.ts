@@ -27,7 +27,7 @@ import {
 import { v2EnvelopeSequence } from '@muxr/crypto';
 import { HostV2Crypto, type HostedMachineKeys, ticketWsCredential } from '../../machine/index.js';
 import type { PeerBroker } from '../../peer/index.js';
-import type { RealtimeCodingCoordinator } from './realtimeCoordinator.js';
+import type { RealtimeCodingCoordinator, RealtimeCoordinatorAccess } from './realtimeCoordinator.js';
 
 const ATTACH_TIMEOUT_MS = 10_000;
 const STREAM_IDLE_TIMEOUT_MS = 10 * 60_000;
@@ -115,14 +115,16 @@ export class PluginStreamManager {
         mkdirSync(params.stateDir, { recursive: true, mode: 0o700 });
 
         const credential = ticketWsCredential(this.options.token);
-        const socketUrl = credential === undefined
-            ? realtimeSocketUrl(this.options.relayUrl, {
+        let socketUrl: string;
+        if (credential === undefined) {
+            socketUrl = realtimeSocketUrl(this.options.relayUrl, {
                 machineId: this.options.machineId,
                 channel: params.channel,
                 role: 'machine',
                 ...(this.options.token === undefined ? {} : { token: this.options.token }),
-            })
-            : ticketSocketUrl(this.options.relayUrl, await issueWsTicket({
+            });
+        } else {
+            socketUrl = ticketSocketUrl(this.options.relayUrl, await issueWsTicket({
                 relayUrl: this.options.relayUrl,
                 credential,
                 machineId: this.options.machineId,
@@ -130,6 +132,7 @@ export class PluginStreamManager {
                 transport: 'stream',
                 channel: params.channel,
             }), 'stream');
+        }
         const socket = new WebSocket(socketUrl);
         await new Promise<void>((resolve, reject) => {
             const timer = setTimeout(() => {
@@ -149,12 +152,13 @@ export class PluginStreamManager {
         // this token. Enabled backends still run as the host user and are trusted
         // local code; the token is not isolation from a malicious enabled plugin.
         const peerAccess = params.target.peerBroker === true ? this.options.peerBroker?.issueCapability() : undefined;
-        const codingAccess = params.target.codingCoordinator === true
-            ? this.options.codingCoordinator?.issueCapability({
+        let codingAccess: RealtimeCoordinatorAccess | undefined;
+        if (params.target.codingCoordinator === true) {
+            codingAccess = this.options.codingCoordinator?.issueCapability({
                 ...(params.sessionId === undefined ? {} : { sessionId: params.sessionId }),
                 ...(params.cwd === undefined ? {} : { cwd: params.cwd }),
-            })
-            : undefined;
+            });
+        }
         let child: ChildProcessWithoutNullStreams;
         try {
             child = spawn(process.execPath, [join(params.target.pluginRoot, params.target.entry)], {

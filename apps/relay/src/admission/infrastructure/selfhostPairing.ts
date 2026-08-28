@@ -389,7 +389,8 @@ export class SelfhostPairing {
             const credentialHash = hash(credential);
             const device = this.state.devices.find((d) => d.credentialHash === credentialHash && d.revokedAt === undefined
                 && (d.expiresAt === undefined || d.expiresAt > Date.now()));
-            return device === undefined ? undefined : {
+            if (device === undefined) return undefined;
+            return {
                 deviceId: device.deviceId,
                 machineSlug: device.machineSlug,
                 deviceKind: device.deviceKind ?? 'native',

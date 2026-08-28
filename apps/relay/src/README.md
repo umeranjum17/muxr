@@ -15,9 +15,13 @@ src/
 
 Each context exposes `index.ts`. Other contexts import that file, not internals.
 
+Use cases: [USE_CASES.md](./USE_CASES.md).
+
 ## Aggregates and invariants
 
 **Peer Identity** (`admission/domain`): ticket admission always carries `transport`. Loopback query-string admission has no transport and lives in the `local` tenant. Display names never admit a socket.
+
+**Pairing rendezvous** (`admission/domain`): owns expiry, flood bounds, and the sealed response state. It never sees the account secret inside the response.
 
 **Envelope route** (`routing/domain`): delivery vs tenant-mismatch vs target-unavailable is decided from delivered count and whether another tenant can see the Machine. The relay never opens `envelope.payload`.
 

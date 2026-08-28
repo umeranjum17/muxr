@@ -1,23 +1,38 @@
 import { existsSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
-import { MISSING_CWD_ERROR_PREFIX } from '@muxr/contract';
 import type {
     ClientRequest,
     PeerClientRequest,
     PeerRequestType,
+    PluginManifestV1,
     RequestMap,
     RequestResponse,
     RequestResult,
     RequestType,
 } from '@muxr/contract';
 import type { AgentWatchStores, SessionSource, TerminalManager } from '../../agent/index.js';
+import {
+    answerAgent,
+    closeTerminal,
+    focusAgent,
+    listAgents,
+    openAgent,
+    openTerminal,
+    promptAgent,
+    readAgentSession,
+    runPluginAction,
+    startAgent,
+    stopAgent,
+    watchAgentLifecycle,
+} from '../../agent/index.js';
 import type { PeerDeviceContext, PeerRuntime } from '../../peer/index.js';
-import { grantMayAdministerPeers, hostPlatformLabel, observerGrantIsViewOnly } from '../../machine/index.js';
+import { grantMayAdministerPeers, hostPlatformLabel, listMachines, observerGrantIsViewOnly } from '../../machine/index.js';
 import { attachPreview, probePreviewPort } from '../infrastructure/preview.js';
 import { landWorktree } from '../infrastructure/landWorktree.js';
 import { listDir } from '../infrastructure/listDir.js';
 import { runMachineShell } from '../infrastructure/runMachineShell.js';
 import { runHerdrCli } from '../infrastructure/runHerdrCli.js';
+import { openPreview, probePreview } from './openPreview.js';
 
 export interface RequestDispatcherOptions {
     source: SessionSource;
@@ -39,6 +54,28 @@ export interface RequestDispatcherOptions {
 
 type Handler<T extends RequestType> = (params: RequestMap[T]['params']) => Promise<RequestResult<T>>;
 type NonPeerRequestType = Exclude<RequestType, PeerRequestType>;
+type PluginExecutionRequest = Extract<ClientRequest, {
+    type: 'plugin.approve' | 'plugin.invoke' | 'plugin.call' | 'plugin.stream';
+}>;
+
+const VIEW_ONLY_REQUESTS: ReadonlySet<RequestType> = new Set([
+    'session.list', 'session.open', 'session.status',
+    'herdr.tree', 'herdr.agentKinds', 'herdr.layout', 'pane.read', 'plugin.list', 'plugin.manifest', 'voice.provider.list',
+    'attachment.fetch', 'attachment.read', 'unread.catalog',
+    'attention.catalog', 'lifecycle.catalog', 'machines.list', 'terminal.attach',
+]);
+
+function isPluginExecutionRequest(request: ClientRequest): request is PluginExecutionRequest {
+    switch (request.type) {
+        case 'plugin.approve':
+        case 'plugin.invoke':
+        case 'plugin.call':
+        case 'plugin.stream':
+            return true;
+        default:
+            return false;
+    }
+}
 
 function ok(requestId: string, data: unknown): RequestResponse {
     return { type: 'result', requestId, ok: true, data };
@@ -55,35 +92,47 @@ function fromCaught(requestId: string, error: unknown): RequestResponse {
     return fail(requestId, error, typeof code === 'string' ? code : undefined);
 }
 
+type UseCaseResult<T> = { ok: true; data: T } | { ok: false; error: string; code?: string };
+
+function useCaseData<T>(result: UseCaseResult<T>): T {
+    if (result.ok) return result.data;
+    const error = new Error(result.error) as Error & { code?: string };
+    if (result.code !== undefined) error.code = result.code;
+    throw error;
+}
+
+function fromUseCase(requestId: string, result: UseCaseResult<unknown>): RequestResponse {
+    if (result.ok) return ok(requestId, result.data);
+    return fail(requestId, result.error, result.code);
+}
+
 export function createRequestDispatcher(options: RequestDispatcherOptions): {
     dispatch(request: ClientRequest, authenticatedSenderId?: string): Promise<RequestResponse>;
 } {
     const { source, domain, machineId, hostVersion } = options;
 
     const handlers: { [K in NonPeerRequestType]: Handler<K> } = {
-        'session.list': (params) =>
-            source.list(params.cwd === undefined ? {} : { cwd: params.cwd }),
+        'session.list': async (params) => useCaseData(
+            await listAgents(source, params.cwd === undefined ? {} : { cwd: params.cwd }),
+        ),
         'session.start': async (params) => {
             const { peerMutation: _peerMutation, ...start } = params;
-            // Pi journals a new session under the requested cwd's slug and only
-            // later refuses to run in a directory that never existed, leaving an
-            // orphan session file behind. Settle the directory before starting.
-            if (!existsSync(start.cwd)) {
-                if (start.createCwd !== true) {
-                    throw new Error(`${MISSING_CWD_ERROR_PREFIX}${start.cwd}`);
-                }
-                await mkdir(start.cwd, { recursive: true });
-            }
-            return source.start(start);
+            return useCaseData(await startAgent({
+                exists: existsSync,
+                create: async (cwd) => { await mkdir(cwd, { recursive: true }); },
+                start: (command) => source.start(command),
+            }, start));
         },
-        'session.open': (params) => source.open(params),
+        'session.open': async (params) => useCaseData(await openAgent(source, params)),
         'herdr.tree': async () => source.herdrTree(),
         'herdr.agentKinds': async () => {
             const kinds = await source.agentKinds();
             return { kinds, installed: await source.installedAgentKinds(kinds) };
         },
         'plugin.list': () => { throw new Error('authenticated device context required'); },
-        'plugin.manifest': (params) => source.pluginManifest(params),
+        'plugin.manifest': async (params) => useCaseData(
+            await runPluginAction(source, { action: 'manifest', ...params }),
+        ) as PluginManifestV1,
         'plugin.approve': () => { throw new Error('authenticated device context required'); },
         'plugin.invoke': () => { throw new Error('authenticated device context required'); },
         'plugin.call': () => { throw new Error('authenticated device context required'); },
@@ -98,26 +147,27 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         },
         'herdr.layout': async (params) => ({ layout: await source.herdrLayout(params.tabId) }),
         'pane.split': (params) => source.paneSplit(params),
-        'pane.read': (params) => source.paneRead(params),
-        'agent.watch': ({ peerMutation: _peerMutation, ...params }) => source.agentWatch(params),
+        'pane.read': async (params) => useCaseData(await readAgentSession(source, {
+            view: 'pane',
+            sessionId: params.sessionId,
+            ...(params.lines === undefined ? {} : { lines: params.lines }),
+            ...(params.source === undefined ? {} : { source: params.source }),
+            ...(params.ansi === undefined ? {} : { ansi: params.ansi }),
+        })) as { text: string; truncated: boolean },
+        'agent.watch': async ({ peerMutation: _peerMutation, ...params }) =>
+            useCaseData(await watchAgentLifecycle(source, params)) as { watching: boolean },
         'layout.export': (params) => source.layoutExport(params.sessionId),
         'layout.apply': (params) => source.layoutApply(params),
-        'pane.focus': async (params) => {
-            await source.paneFocus(params.sessionId);
-            return null;
-        },
-        'pane.focusNeighbor': async (params) => {
-            await source.focusNeighbor(params.sessionId, params.direction);
-            return null;
-        },
-        'tab.focusNeighbor': async (params) => {
-            await source.focusTabNeighbor(params.sessionId, params.direction);
-            return null;
-        },
-        'workspace.focusNeighbor': async (params) => {
-            await source.focusWorkspaceNeighbor(params.sessionId, params.direction);
-            return null;
-        },
+        'pane.focus': async (params) => useCaseData(await focusAgent(source, { target: 'pane', sessionId: params.sessionId })),
+        'pane.focusNeighbor': async (params) => useCaseData(await focusAgent(source, {
+            target: 'pane-neighbor', sessionId: params.sessionId, direction: params.direction,
+        })),
+        'tab.focusNeighbor': async (params) => useCaseData(await focusAgent(source, {
+            target: 'tab-neighbor', sessionId: params.sessionId, direction: params.direction,
+        })),
+        'workspace.focusNeighbor': async (params) => useCaseData(await focusAgent(source, {
+            target: 'workspace-neighbor', sessionId: params.sessionId, direction: params.direction,
+        })),
         'tab.create': async (params) => {
             await source.createTab(params.sessionId, { ...(params.kind === undefined ? {} : { kind: params.kind }), ...(params.label === undefined ? {} : { label: params.label }) });
             return null;
@@ -134,32 +184,27 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
             await source.closeWorkspace(params.workspaceId);
             return null;
         },
-        'session.answer': async (params) => {
-            // The agent's y/n prompt is answered by typing the literal key.
-            await source.sendKeys(params.sessionId, [params.answer]);
-            return null;
-        },
+        'session.answer': async (params) => useCaseData(await answerAgent(source, params)),
         'pane.zoom': (params) => source.paneZoom(params),
-        'session.stop': async (params) => {
-            options.terminals?.detachSession(params.sessionId);
-            await source.stop(params.sessionId);
-            return null;
-        },
-        'session.abort': async (params) => {
-            await source.abort(params.sessionId);
-            return null;
-        },
-        'session.reload': async (params) => {
-            await source.reload(params.sessionId);
-            return null;
-        },
-        'session.prompt': async ({ peerMutation: _peerMutation, ...params }) => {
-            await source.prompt(params);
-            return null;
-        },
-        'session.status': (params) => source.status(params.sessionId),
+        'session.stop': async (params) => useCaseData(await stopAgent(
+            { sessions: source, detachSession: (sessionId) => options.terminals?.detachSession(sessionId) },
+            { sessionId: params.sessionId, action: 'stop' },
+        )),
+        'session.abort': async (params) => useCaseData(await stopAgent(
+            { sessions: source }, { sessionId: params.sessionId, action: 'abort' },
+        )),
+        'session.reload': async (params) => useCaseData(await stopAgent(
+            { sessions: source }, { sessionId: params.sessionId, action: 'reload' },
+        )),
+        'session.prompt': async ({ peerMutation: _peerMutation, ...params }) =>
+            useCaseData(await promptAgent(source, params)),
+        'session.status': async (params) => useCaseData(
+            await readAgentSession(source, { view: 'status', sessionId: params.sessionId }),
+        ) as Awaited<ReturnType<SessionSource['status']>>,
         'session.shell': (params) => source.shell(params),
-        'session.readFile': (params) => source.readFile(params),
+        'session.readFile': async (params) => useCaseData(
+            await readAgentSession(source, { view: 'file', sessionId: params.sessionId, path: params.path }),
+        ) as { content: string },
         'session.saveAttachments': (params) => source.saveAttachments(params),
         'attachment.fetch': (params) => source.attachmentFetch(params),
         'attachment.prepare': (params) => {
@@ -171,108 +216,94 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         'unread.acknowledge': async (params) => domain.unread.acknowledge(params.sessionId, params.throughSeq),
         'attention.catalog': async () => domain.attention.catalog(),
         'lifecycle.catalog': async () => domain.lifecycle.catalog(),
-        'machines.list': async () => [
-            {
-                machineId,
-                ...(options.machineName?.trim() ? { name: options.machineName.trim() } : {}),
-                online: true,
-                hostVersion,
-                platform: hostPlatformLabel(),
-                lastSeenAt: new Date().toISOString(),
-            },
-        ],
+        'machines.list': async () => listMachines({
+            machineId,
+            ...(options.machineName === undefined ? {} : { machineName: options.machineName }),
+            hostVersion,
+            platform: hostPlatformLabel(),
+        }).data,
         'machine.shell': (params) => runMachineShell(params.command, params.cwd),
         'machine.listDir': (params) => listDir(params.path),
         'worktree.land': (params) => landWorktree(params.worktreePath, params.message, params.stash),
-        'preview.probe': async (params) => ({ contentType: await probePreviewPort(params.port) }),
-        'preview.attach': (params) => {
-            if (options.relayUrl === undefined) {
-                throw new Error('preview: host has no relay url');
-            }
-            if (options.requirePreviewEncryption === true && params.key === undefined) {
-                throw new Error('preview: update the app to use encrypted preview');
-            }
-            return attachPreview({
-                relayUrl: options.relayUrl,
-                machineId,
-                channel: params.channel,
-                port: params.port,
-                ...(params.key === undefined ? {} : { key: params.key }),
-                ...(options.token === undefined ? {} : { token: options.token }),
-            });
+        'preview.probe': async (params) => {
+            const result = await probePreview(probePreviewPort, params);
+            return result.data;
         },
-        'terminal.attach': (params) => {
-            if (options.terminals === undefined) throw new Error('terminal: not available on this host');
-            return options.terminals.attach(params);
-        },
+        'preview.attach': async (params) => useCaseData(await openPreview({
+            ...(options.relayUrl === undefined ? {} : { relayUrl: options.relayUrl }),
+            machineId,
+            ...(options.token === undefined ? {} : { token: options.token }),
+            ...(options.requirePreviewEncryption === undefined ? {} : { requireEncryption: options.requirePreviewEncryption }),
+            attach: attachPreview,
+        }, params)),
+        'terminal.attach': async (params) => useCaseData(await openTerminal(options.terminals, params)),
         'terminal.detach': async (params) => {
-            options.terminals?.detach(params.channel);
+            await closeTerminal(options.terminals, params);
             return null;
         },
     };
 
     async function dispatchCore(request: ClientRequest, authenticatedSenderId?: string): Promise<RequestResponse> {
-            const deviceId = authenticatedSenderId ?? 'local';
-            const isViewOnlyDevice = observerGrantIsViewOnly(
-                options.getDeviceContext?.(deviceId)?.kind,
-                options.canMutateDevice?.(deviceId) !== false,
+        const deviceId = authenticatedSenderId ?? 'local';
+        const isViewOnlyDevice = observerGrantIsViewOnly(
+            options.getDeviceContext?.(deviceId)?.kind,
+            options.canMutateDevice?.(deviceId) !== false,
+        );
+        const viewOnlyPluginRead = isViewOnlyDevice && request.type === 'plugin.call'
+            && source.pluginRpcMode?.(request.params) === 'read';
+        if (isViewOnlyDevice && !VIEW_ONLY_REQUESTS.has(request.type) && !viewOnlyPluginRead) {
+            return fail(request.requestId, 'this device grant is view-only; pair a control browser or use the native app');
+        }
+        if (isViewOnlyDevice && request.type === 'terminal.attach') {
+            request = { ...request, params: { ...request.params, mode: 'observe' } } as ClientRequest;
+        }
+        if (isViewOnlyDevice && request.type === 'session.open') {
+            try {
+                const result = await openAgent(source, { ...request.params, acknowledgeAttention: false });
+                return fromUseCase(request.requestId, result);
+            } catch (error) {
+                return fromCaught(request.requestId, error);
+            }
+        }
+        if (request.type === 'plugin.list') {
+            try {
+                return fromUseCase(request.requestId, await runPluginAction(source, { action: 'list', deviceId }));
+            } catch (error) {
+                return fromCaught(request.requestId, error);
+            }
+        }
+        if (isPluginExecutionRequest(request)) {
+            try {
+                if (request.type === 'plugin.approve') {
+                    return fromUseCase(request.requestId, await runPluginAction(source, { action: 'approve', deviceId, ...request.params }));
+                }
+                if (request.type === 'plugin.invoke') {
+                    return fromUseCase(request.requestId, await runPluginAction(source, { action: 'invoke', deviceId, ...request.params }));
+                }
+                if (request.type === 'plugin.stream') {
+                    return fromUseCase(request.requestId, await runPluginAction(source, { action: 'stream', deviceId, ...request.params }));
+                }
+                return fromUseCase(request.requestId, await runPluginAction(source, { action: 'call', deviceId, ...request.params }));
+            } catch (error) {
+                return fromCaught(request.requestId, error);
+            }
+        }
+        if (request.type === 'terminal.detach' && authenticatedSenderId !== undefined) {
+            try {
+                await closeTerminal(options.terminals, { channel: request.params.channel, deviceId: authenticatedSenderId });
+                return ok(request.requestId, null);
+            } catch (error) {
+                return fromCaught(request.requestId, error);
+            }
+        }
+        const handler = handlers[request.type as NonPeerRequestType] as Handler<typeof request.type> | undefined;
+        if (handler === undefined) {
+            return fail(
+                request.requestId,
+                `host/APK contract mismatch: host has no handler for request type '${String(request.type)}'`,
+                'host-contract-mismatch',
             );
-            const readOnlyRequests = new Set<RequestType>([
-                'session.list', 'session.open', 'session.status',
-                'herdr.tree', 'herdr.agentKinds', 'herdr.layout', 'pane.read', 'plugin.list', 'plugin.manifest', 'voice.provider.list',
-                'attachment.fetch', 'attachment.read', 'unread.catalog',
-                'attention.catalog', 'lifecycle.catalog', 'machines.list', 'terminal.attach',
-            ]);
-            const viewOnlyPluginRead = isViewOnlyDevice && request.type === 'plugin.call'
-                && source.pluginRpcMode?.(request.params) === 'read';
-            if (isViewOnlyDevice && !readOnlyRequests.has(request.type) && !viewOnlyPluginRead) {
-                return fail(request.requestId, 'this device grant is view-only; pair a control browser or use the native app');
-            }
-            if (isViewOnlyDevice && request.type === 'terminal.attach') {
-                request = { ...request, params: { ...request.params, mode: 'observe' } } as ClientRequest;
-            }
-            if (isViewOnlyDevice && request.type === 'session.open') {
-                try { return ok(request.requestId, await source.open({ ...request.params, acknowledgeAttention: false })); }
-                catch (error) { return fromCaught(request.requestId, error); }
-            }
-            if (request.type === 'plugin.list') {
-                try { return ok(request.requestId, await source.pluginList(deviceId)); }
-                catch (error) { return fromCaught(request.requestId, error); }
-            }
-            if (request.type === 'plugin.approve' || request.type === 'plugin.invoke' || request.type === 'plugin.call' || request.type === 'plugin.stream') {
-                try {
-                    if (request.type === 'plugin.approve') {
-                        await source.pluginApprove({ ...request.params, deviceId });
-                        return ok(request.requestId, null);
-                    }
-                    if (request.type === 'plugin.invoke') {
-                        await source.pluginInvoke({ ...request.params, deviceId });
-                        return ok(request.requestId, null);
-                    }
-                    if (request.type === 'plugin.stream') {
-                        return ok(request.requestId, await source.pluginStream({ ...request.params, deviceId }));
-                    }
-                    return ok(request.requestId, await source.pluginCall({ ...request.params, deviceId }));
-                } catch (error) {
-                    return fromCaught(request.requestId, error);
-                }
-            }
-            if (request.type === 'terminal.detach' && authenticatedSenderId !== undefined) {
-                try {
-                    options.terminals?.detach(request.params.channel, authenticatedSenderId);
-                    return ok(request.requestId, null);
-                } catch (error) {
-                    return fromCaught(request.requestId, error);
-                }
-            }
-            const handler = handlers[request.type as NonPeerRequestType] as Handler<typeof request.type> | undefined;
-            if (handler === undefined) {
-                return fail(
-                    request.requestId,
-                    `host/APK contract mismatch: host has no handler for request type '${String(request.type)}'`,
-                    'host-contract-mismatch',
-                );
-            }
+        }
         try {
             const data = await handler(request.params);
             return ok(request.requestId, data);
@@ -283,8 +314,8 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
 
     async function dispatchPeerWatch(request: Extract<ClientRequest, { type: 'agent.watch' }>): Promise<RequestResponse> {
         const { peerMutation: _peerMutation, ...params } = request.params;
-        const settlement = await source.agentWait(params);
-        return ok(request.requestId, { watching: true, settlement });
+        const result = await watchAgentLifecycle(source, { ...params, correlatedWait: true });
+        return fromUseCase(request.requestId, result);
     }
 
     return {

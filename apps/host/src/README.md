@@ -17,6 +17,8 @@ src/
 
 Each context exposes `index.ts`. Other contexts import that file, not internals.
 
+Use cases: [USE_CASES.md](./USE_CASES.md).
+
 ## Aggregates and invariants
 
 **Agent** (`agent/domain`): Agent Route authorizes. Human Name and Task Title never authorize. Layout snapshots carry Provider Kind, not pane identity as a routing key. Lifecycle rollup is rank, not a display label.

@@ -1,8 +1,14 @@
 export {
-    authenticateWebSocket,
+    admitSocket,
+    admitSocketFromUrl,
     extractBearerToken,
-    type AuthInput,
-} from './application/authenticate.js';
+    type AdmitSocketCommand,
+    type AdmitSocketResult,
+} from './application/admitSocket.js';
+export {
+    pairMachine,
+    approveMachinePairing,
+} from './application/pairMachine.js';
 export {
     admittedByTicket,
     identityFromTicket,
@@ -15,6 +21,6 @@ export { isLoopbackAddress, isLoopbackHost } from './domain/loopback.js';
 export { secureEqual } from './infrastructure/secureEqual.js';
 export { FileTicketStore } from './infrastructure/selfhostTickets.js';
 export { SelfhostPairing } from './infrastructure/selfhostPairing.js';
-export { isValidPublicKey, PairingRequests, type PairingState } from './infrastructure/pairing.js';
+export { isValidPublicKey, PairingRequests, type PairingState } from './domain/pairing.js';
 export { MachineAuthority, enrollmentProofMessage, enrolledMachineSlug } from './infrastructure/machineAuthority.js';
 export { MachineRegistry, type MachineRecord } from './infrastructure/registry.js';

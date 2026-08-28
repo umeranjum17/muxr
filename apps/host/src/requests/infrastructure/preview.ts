@@ -59,14 +59,16 @@ export interface AttachPreviewOptions {
  */
 export async function attachPreview(options: AttachPreviewOptions): Promise<null> {
     const credential = ticketWsCredential(options.token);
-    const socketUrl = credential === undefined
-        ? previewSocketUrl(options.relayUrl, {
+    let socketUrl: string;
+    if (credential === undefined) {
+        socketUrl = previewSocketUrl(options.relayUrl, {
             machineId: options.machineId,
             channel: options.channel,
             role: 'machine',
             ...(options.token === undefined ? {} : { token: options.token }),
-        })
-        : ticketSocketUrl(options.relayUrl, await issueWsTicket({
+        });
+    } else {
+        socketUrl = ticketSocketUrl(options.relayUrl, await issueWsTicket({
             relayUrl: options.relayUrl,
             credential,
             machineId: options.machineId,
@@ -74,6 +76,7 @@ export async function attachPreview(options: AttachPreviewOptions): Promise<null
             transport: 'preview',
             channel: options.channel,
         }), 'preview');
+    }
     const socket = new WebSocket(socketUrl);
     socket.binaryType = 'nodebuffer';
 

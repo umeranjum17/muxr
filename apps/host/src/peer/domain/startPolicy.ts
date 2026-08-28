@@ -1,4 +1,10 @@
-import type { ClientRequest } from '@muxr/contract';
+import type { ClientRequest, PeerCapability } from '@muxr/contract';
+
+export interface PeerDeviceContext {
+    kind: 'native' | 'browser' | 'peer';
+    capabilities?: readonly PeerCapability[];
+    allowedCwds?: readonly string[];
+}
 
 export function peerStartUsesUnapprovedOptions(params: {
     parentSessionId?: unknown;

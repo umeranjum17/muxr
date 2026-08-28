@@ -57,7 +57,6 @@ export class AttachmentDownloadServer {
             size: found.size,
             expiresAt: Date.now() + TICKET_TTL_MS,
         });
-        console.log(`[attachment-download] ticket minted name=${name} size=${found.size}`);
         return { token, name, mimeType: found.mimeType, size: found.size };
     }
 
@@ -106,14 +105,10 @@ export class AttachmentDownloadServer {
                 res.writeHead(404).end('file gone');
                 return;
             }
-            console.log(`[attachment-download] serve ${ticket.name} (${size}B) range=${req.headers.range ?? 'none'}`);
-            let sent = 0;
-            res.on('finish', () => console.log(`[attachment-download] serve done ${ticket.name} bytes=${sent}`));
-            res.on('close', () => console.log(`[attachment-download] serve closed early ${ticket.name} bytes=${sent}/${size}`));
             const headers: Record<string, string | number> = {
-            'content-type': ticket.mimeType === 'application/vnd.android.package-archive'
-                ? 'application/octet-stream'
-                : ticket.mimeType,
+                'content-type': ticket.mimeType === 'application/vnd.android.package-archive'
+                    ? 'application/octet-stream'
+                    : ticket.mimeType,
                 'accept-ranges': 'bytes',
                 'content-disposition': `attachment; filename="${ticket.name.replace(/[^A-Za-z0-9._-]/g, '_')}"`,
             };
@@ -133,11 +128,11 @@ export class AttachmentDownloadServer {
                     'content-range': `bytes ${start}-${end}/${size}`,
                     'content-length': end - start + 1,
                 });
-                createReadStream(normalized, { start, end }).on('data', (chunk) => { sent += chunk.length; }).pipe(res);
+                createReadStream(normalized, { start, end }).pipe(res);
                 return;
             }
             res.writeHead(200, { ...headers, 'content-length': size });
-            createReadStream(normalized).on('data', (chunk) => { sent += chunk.length; }).pipe(res);
+            createReadStream(normalized).pipe(res);
         });
         // Loopback only: the relay pipes from here, nothing else may reach it.
         this.server.on('error', () => {

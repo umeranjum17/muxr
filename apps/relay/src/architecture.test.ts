@@ -1,11 +1,17 @@
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import * as ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 
 const SRC = dirname(fileURLToPath(import.meta.url));
 const CONTEXTS = ['admission', 'routing', 'push'] as const;
 const COMPOSITION = new Set(['main.ts', 'relay.ts', 'httpHandlers.ts', 'config.ts', 'index.ts', 'selfCheck.ts', 'architecture.test.ts']);
+const RELAY_USE_CASES = [
+    'admission/application/admitSocket.ts',
+    'admission/application/pairMachine.ts',
+    'routing/application/routeEnvelope.ts',
+];
 
 function walk(dir: string, out: string[] = []): string[] {
     for (const name of readdirSync(dir)) {
@@ -40,10 +46,23 @@ describe('relay runtime architecture', () => {
     it('rejects nested ternaries', () => {
         const offenders: string[] = [];
         for (const file of files) {
-            const rel = relative(SRC, file);
-            readFileSync(file, 'utf8').split('\n').forEach((line, index) => {
-                if (/ \? [^\n;{]+ \? /.test(line)) offenders.push(`${rel}:${index + 1}`);
-            });
+            const source = ts.createSourceFile(file, readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true);
+            const containsConditional = (node: ts.Node): boolean => {
+                let found = false;
+                ts.forEachChild(node, (child) => {
+                    if (ts.isConditionalExpression(child) || containsConditional(child)) found = true;
+                });
+                return found;
+            };
+            const visit = (node: ts.Node): void => {
+                if (ts.isConditionalExpression(node)
+                    && (containsConditional(node.whenTrue) || containsConditional(node.whenFalse))) {
+                    const line = source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1;
+                    offenders.push(`${relative(SRC, file)}:${line}`);
+                }
+                ts.forEachChild(node, visit);
+            };
+            visit(source);
         }
         expect(offenders).toEqual([]);
     });
@@ -76,5 +95,23 @@ describe('relay runtime architecture', () => {
             }
         }
         expect(offenders).toEqual([]);
+    });
+
+    it('exposes named use cases and forbids a services folder', () => {
+        const missing = RELAY_USE_CASES.filter((file) => !existsSync(join(SRC, file)));
+        expect(missing).toEqual([]);
+        const services = files.filter((file) => relative(SRC, file).replaceAll('\\', '/').includes('/services/'));
+        expect(services).toEqual([]);
+        const applicationIo: string[] = [];
+        for (const file of files) {
+            if (layerOf(file) !== 'application') continue;
+            const rel = relative(SRC, file).replaceAll('\\', '/');
+            if (rel.endsWith('.test.ts')) continue;
+            const source = readFileSync(file, 'utf8');
+            if (/from ['"]ws['"]/.test(source) || /from ['"]node:(http|net)['"]/.test(source)) {
+                applicationIo.push(rel);
+            }
+        }
+        expect(applicationIo).toEqual([]);
     });
 });

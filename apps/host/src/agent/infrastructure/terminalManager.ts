@@ -98,14 +98,16 @@ export class TerminalManager {
         }
 
         const credential = ticketWsCredential(this.options.token);
-        const socketUrl = credential === undefined
-            ? terminalSocketUrl(this.options.relayUrl, {
+        let socketUrl: string;
+        if (credential === undefined) {
+            socketUrl = terminalSocketUrl(this.options.relayUrl, {
                 machineId: this.options.machineId,
                 channel: params.channel,
                 role: 'machine',
                 ...(this.options.token === undefined ? {} : { token: this.options.token }),
-            })
-            : ticketSocketUrl(this.options.relayUrl, await issueWsTicket({
+            });
+        } else {
+            socketUrl = ticketSocketUrl(this.options.relayUrl, await issueWsTicket({
                 relayUrl: this.options.relayUrl,
                 credential,
                 machineId: this.options.machineId,
@@ -113,6 +115,7 @@ export class TerminalManager {
                 transport: 'terminal',
                 channel: params.channel,
             }), 'terminal');
+        }
         const socket = new WebSocket(socketUrl);
         await new Promise<void>((resolve, reject) => {
             const timer = setTimeout(() => {

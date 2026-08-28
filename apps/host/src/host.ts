@@ -9,7 +9,7 @@
 import type { ClientFrame, ClientRequest, SessionEvent, SessionEventBody } from '@muxr/contract';
 import { connectToRelay, deviceTableCanMutate, type RelayLink, type HostedMachineKeys } from './machine/index.js';
 import { createRequestDispatcher } from './requests/index.js';
-import type { AgentWatchStores, SessionSource, TerminalManager } from './agent/index.js';
+import { listAgents, type AgentWatchStores, type SessionSource, type TerminalManager } from './agent/index.js';
 import type { PeerRuntime } from './peer/index.js';
 import type { DiagnosticClientKind, HostDiagnosticsJournal } from './diagnostics/index.js';
 
@@ -61,6 +61,25 @@ export function startHost(options: HostOptions): Host {
     const seqBySession = new Map<string, number>();
     let link: RelayLink | undefined;
 
+    let hostedDispatcherOptions = {};
+    if (options.hostedE2ee !== undefined) {
+        const hosted = options.hostedE2ee;
+        hostedDispatcherOptions = {
+            requirePreviewEncryption: true,
+            canMutateDevice: (deviceId: string) => deviceTableCanMutate(hosted.deviceAuthorities, deviceId),
+            getDeviceContext: (deviceId: string) => {
+                const kind = hosted.deviceKinds?.[deviceId];
+                if (kind === undefined) return undefined;
+                const capabilities = hosted.deviceCapabilities?.[deviceId];
+                const allowedCwds = hosted.deviceAllowedCwds?.[deviceId];
+                return {
+                    kind,
+                    ...(capabilities === undefined ? {} : { capabilities }),
+                    ...(allowedCwds === undefined ? {} : { allowedCwds }),
+                };
+            },
+        };
+    }
     const dispatcher = createRequestDispatcher({
         source,
         domain,
@@ -71,18 +90,7 @@ export function startHost(options: HostOptions): Host {
         ...(options.terminals === undefined ? {} : { terminals: options.terminals }),
         ...(options.token === undefined ? {} : { token: options.token }),
         ...(options.peerRuntime === undefined ? {} : { peerRuntime: options.peerRuntime }),
-        ...(options.hostedE2ee === undefined ? {} : {
-            requirePreviewEncryption: true,
-            canMutateDevice: (deviceId: string) => deviceTableCanMutate(options.hostedE2ee!.deviceAuthorities, deviceId),
-            getDeviceContext: (deviceId: string) => {
-                const kind = options.hostedE2ee!.deviceKinds?.[deviceId];
-                return kind === undefined ? undefined : {
-                    kind,
-                    ...(options.hostedE2ee!.deviceCapabilities?.[deviceId] === undefined ? {} : { capabilities: options.hostedE2ee!.deviceCapabilities![deviceId] }),
-                    ...(options.hostedE2ee!.deviceAllowedCwds?.[deviceId] === undefined ? {} : { allowedCwds: options.hostedE2ee!.deviceAllowedCwds![deviceId] }),
-                };
-            },
-        }),
+        ...hostedDispatcherOptions,
     });
 
     function nextSeq(sessionId: string): number {
@@ -103,7 +111,10 @@ export function startHost(options: HostOptions): Host {
             const peerMayList = peerRecipient === undefined
                 || options.hostedE2ee?.deviceCapabilities?.[peerRecipient]?.includes('list') === true;
             if (peerMayList) {
-                link?.send({ type: 'session.list', sessions: await source.list({}) }, undefined, 'session', peerRecipient);
+                const listed = await listAgents(source, {});
+                if (listed.ok) {
+                    link?.send({ type: 'session.list', sessions: listed.data }, undefined, 'session', peerRecipient);
+                }
             }
             if (peerRecipient === undefined) source.resendCumulativeState?.();
             return;
@@ -120,9 +131,6 @@ export function startHost(options: HostOptions): Host {
         options.diagnostics?.request(frame.type, clientKind, outcome, Date.now() - startedAt, response.ok ? undefined : response.code);
         if (frame.type.startsWith('peer.') && options.peerRuntime !== undefined) {
             options.diagnostics?.relationships(options.peerRuntime.store.list().peers);
-        }
-        if (frame.type === 'attachment.prepare') {
-            console.log(`[attachment-download] host answering req=${frame.requestId} ok=${response.ok}`);
         }
         link?.send(response, sessionIdFrom(frame), responseChannel(frame.type), peerRecipient);
     }

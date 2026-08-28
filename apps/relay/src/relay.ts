@@ -19,7 +19,7 @@ import {
     type Envelope,
     type HostFrame,
 } from '@muxr/contract';
-import { authenticateWebSocket, extractBearerToken, secureEqual, admittedByTicket, type PeerIdentity, type Ticket } from './admission/index.js';
+import { admitSocketFromUrl, extractBearerToken, secureEqual, admittedByTicket, type PeerIdentity, type Ticket } from './admission/index.js';
 import { handleHttpRequest, isExpoPushToken, readJsonBody, writeJson, writeJsonError, type PushActionOutcome } from './httpHandlers.js';
 import { OfflineBuffer, PeerTable, parseLastSeq, peerMayRoute, sendEnvelope, type ConnectedPeer, PreviewChannels, TerminalChannels, ReplayLog, deliverReplayAndOffline, routeEnvelope, type PeerRouteOutcome } from './routing/index.js';
 import { type RelayConfig, clientIp, isLoopbackAddress, loadRelayConfig } from './config.js';
@@ -522,18 +522,22 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
                     writeJsonError(res, 403, 'machine is revoked or expired');
                     return;
                 }
+                let deviceClaims = {};
+                if (device !== undefined) {
+                    deviceClaims = {
+                        deviceId: device.deviceId,
+                        deviceKind: device.deviceKind,
+                        credentialVersion: device.credentialVersion,
+                        ...(device.capabilities === undefined ? {} : { capabilities: device.capabilities }),
+                    };
+                }
                 const ticket = await localTickets.issue({
                     role,
                     machineSlug,
                     accountId: `local:${machineSlug}`,
                     transport,
                     ...(typeof body?.channel === 'string' && body.channel !== '' && body.channel.length <= 128 ? { channel: body.channel } : {}),
-                    ...(device !== undefined ? {
-                        deviceId: device.deviceId,
-                        deviceKind: device.deviceKind,
-                        credentialVersion: device.credentialVersion,
-                        ...(device.capabilities === undefined ? {} : { capabilities: device.capabilities }),
-                    } : {}),
+                    ...deviceClaims,
                     ...(authority.machine !== undefined ? { machineCredentialId: authority.machine.credentialId } : {}),
                 });
                 writeJson(res, 200, { ticket, expires_in: 60 });
@@ -973,8 +977,7 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
             rejectConnection(1008, 'origin not allowed');
             return;
         }
-        const identity = await authenticateWebSocket({
-            req,
+        const identity = await admitSocketFromUrl({
             url,
             authMode,
             remoteAddress: req.socket.remoteAddress,
@@ -986,7 +989,6 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
                     if (consumed !== undefined && !(await machineAuthority?.isMachineAllowed(consumed.machineSlug))) return undefined;
                     return consumed;
                 }),
-            // Legacy registry tokens exist only for the loopback dev harness.
         });
 
         if (!identity) {

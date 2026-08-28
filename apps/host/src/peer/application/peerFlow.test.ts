@@ -260,11 +260,12 @@ describe('host peer collaboration flow', () => {
             canMutateDevice: () => false,
             getDeviceContext: (deviceId) => {
                 const device = targetKeys.current().devices.find((entry) => entry.deviceId === deviceId);
-                return device?.kind === 'peer' ? {
+                if (device?.kind !== 'peer') return undefined;
+                return {
                     kind: 'peer',
                     ...(device.capabilities === undefined ? {} : { capabilities: device.capabilities }),
                     ...(device.allowedCwds === undefined ? {} : { allowedCwds: device.allowedCwds }),
-                } : undefined;
+                };
             },
         });
         targetDispatch = makeTargetDispatcher(targetRuntime).dispatch;

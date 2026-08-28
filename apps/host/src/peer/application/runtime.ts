@@ -3,8 +3,6 @@ import { realpathSync } from 'node:fs';
 import { isAbsolute, relative, resolve } from 'node:path';
 import {
     DEFAULT_PEER_CAPABILITIES,
-    isPeerCapabilities,
-    peerCapabilityForRequest,
     relayControlUrl,
     type ClientRequest,
     type PeerCapability,
@@ -20,7 +18,6 @@ import {
     openPeerInstallBundle,
     sealPeerInstallBundle,
     verifyDeviceGrant,
-    verifySignedPeerDescriptor,
     type PeerInstallBundlePayload,
 } from '@muxr/crypto';
 import type { PeerAuthority } from '../infrastructure/authority.js';
@@ -30,15 +27,14 @@ import { PeerReceiptExecutor } from './receiptExecutor.js';
 import { PeerStore, type StoredPendingAuthorization, type StoredPeerRelationship } from '../infrastructure/store.js';
 import type { MachineCryptoAdapter, MachineCryptoState, MachineDeviceRecord, MachinePendingRotation } from '../../machine/index.js';
 import { DeviceGrant } from '../../machine/index.js';
-import { peerGrantAllowsRequest, peerRequestRequiresMutationReceipt, peerStartUsesUnapprovedOptions } from '../domain/startPolicy.js';
+import { type PeerDeviceContext } from '../domain/startPolicy.js';
+import { admitPeerRequest } from './admitPeerRequest.js';
+import { grantPeerAuthority } from './grantPeerAuthority.js';
+import { revokePeerAuthority } from './revokePeerAuthority.js';
 
 const PEER_CREDENTIAL_EXPIRES_AT = Date.UTC(9999, 11, 31, 23, 59, 59, 999);
 
-export interface PeerDeviceContext {
-    kind: 'native' | 'browser' | 'peer';
-    capabilities?: readonly PeerCapability[];
-    allowedCwds?: readonly string[];
-}
+export type { PeerDeviceContext };
 
 export interface PeerRuntimeOptions {
     dataDir: string;
@@ -161,10 +157,10 @@ export class PeerRuntime {
         if (mutates) this.assertRecoveryReady();
         try {
             if (isRemotePeerRequest(request)) return await this.outboundService.handle(request, signal);
-            if (request.type === 'peer.authorize') return await this.withCryptoLock(() => this.authorize(request.params));
+            if (request.type === 'peer.authorize') return await this.withCryptoLock(() => grantPeerAuthority(this.grantFleet(), request.params));
             // Revocation is authenticated, destructive only to access, and idempotent. It must never
             // compete with attacker-controlled mutation receipts for admission.
-            if (request.type === 'peer.revoke') return await this.withCryptoLock(() => this.revoke(request.params));
+            if (request.type === 'peer.revoke') return await this.withCryptoLock(() => revokePeerAuthority(this.revokeFleet(), request.params));
             const mutation = request.params.mutation;
             return await this.receipts.execute(`control:${authenticatedDeviceId}`, request.type, mutation, request.params, async () => {
                 switch (request.type) {
@@ -185,39 +181,12 @@ export class PeerRuntime {
         context: PeerDeviceContext,
         execute: () => Promise<RequestResponse>,
     ): Promise<RequestResponse> {
-        const capability = peerCapabilityForRequest(request.type);
-        if (!peerGrantAllowsRequest(context.kind, capability, context.capabilities)) {
-            return { type: 'result', requestId: request.requestId, ok: false, error: 'peer grant forbids this request', code: 'peer-forbidden' };
-        }
-        if (request.type === 'session.start' && (peerStartUsesUnapprovedOptions(request.params) || !this.startAllowed(request.params.cwd, context.allowedCwds))) {
-            return { type: 'result', requestId: request.requestId, ok: false, error: 'peer start is outside its approved surface', code: 'peer-forbidden' };
-        }
-        if (!peerRequestRequiresMutationReceipt(request)) {
-            return execute();
-        }
-        const mutation = request.params.peerMutation;
-        if (mutation === undefined) {
-            return { type: 'result', requestId: request.requestId, ok: false, error: 'peer mutation metadata is required', code: 'peer-mutation-required' };
-        }
-        try {
-            this.assertRecoveryReady();
-            const outcome = await this.receipts.execute(deviceId, request.type, mutation, request.params, async () => {
-                const response = await execute();
-                return response.ok
-                    ? { ok: true as const, data: response.data }
-                    : { ok: false as const, error: response.error, ...(response.code === undefined ? {} : { code: response.code }) };
-            });
-            return outcome.ok
-                ? { type: 'result', requestId: request.requestId, ok: true, data: outcome.data }
-                : { type: 'result', requestId: request.requestId, ok: false, error: outcome.error, ...(outcome.code === undefined ? {} : { code: outcome.code }) };
-        } catch (error) {
-            this.noteRecoveryWork();
-            return {
-                type: 'result', requestId: request.requestId, ok: false,
-                error: error instanceof Error ? error.message : String(error),
-                ...((error as { code?: unknown }).code === undefined ? {} : { code: String((error as { code: unknown }).code) }),
-            };
-        }
+        return admitPeerRequest({
+            startAllowed: (cwd, allowed) => this.startAllowed(cwd, allowed),
+            assertRecoveryReady: () => this.assertRecoveryReady(),
+            noteRecoveryWork: () => this.noteRecoveryWork(),
+            executeReceipt: (id, type, mutation, params, run) => this.receipts.execute(id, type, mutation, params, run),
+        }, request, deviceId, context, execute);
     }
 
     private async prepare(params: Extract<PeerClientRequest, { type: 'peer.prepare' }>['params']): Promise<PeerRequestResult<'peer.prepare'>> {
@@ -249,74 +218,20 @@ export class PeerRuntime {
         return { preparationId, descriptor, expiresAt };
     }
 
-    private async authorize(params: Extract<PeerClientRequest, { type: 'peer.authorize' }>['params']): Promise<PeerRequestResult<'peer.authorize'>> {
-        const descriptorHash = createHash('sha256').update(JSON.stringify(params.descriptor)).digest('base64url');
-        const completed = this.store.authorization(descriptorHash);
-        if (completed !== undefined) {
-            if (params.relationshipId !== undefined && params.relationshipId !== completed.relationshipId) {
-                throw operationError('peer descriptor was reused with a different relationship', 'peer-operation-conflict');
-            }
-            const pending = this.store.pendingAuthorization();
-            if (completed.state === 'connected') {
-                if (pending?.descriptorHash === descriptorHash) await this.store.putPendingAuthorization(undefined);
-                return this.authorizationResult(completed);
-            }
-            if (pending === undefined) throw operationError('peer authorization recovery journal is missing', 'peer-operation-uncertain');
-            return this.finishAuthorization(pending);
-        }
-        const pending = this.store.pendingAuthorization();
-        if (pending !== undefined) {
-            if (pending.descriptorHash === descriptorHash) return this.finishAuthorization(pending);
-            await this.finishAuthorization(pending);
-        }
-        const crypto = this.readyCrypto();
-        const claims = verifySignedPeerDescriptor(params.descriptor, {
-            targetMachineId: this.options.machineId,
-            targetMachineSigningPublicKey: crypto.signingPublicKey,
-            now: this.now(),
-        });
-        if (!isPeerCapabilities(params.capabilities)) throw operationError('invalid peer capabilities', 'peer-invalid-capabilities');
-        const allowedCwds = this.validateStartDirectories(params.capabilities, params.allowedCwds);
-        let targetRelayUrl: string;
-        try {
-            targetRelayUrl = canonicalRelayUrl(this.options.relayUrl);
-            if (params.targetRelayUrl !== undefined && canonicalRelayUrl(params.targetRelayUrl) !== targetRelayUrl) {
-                throw operationError('target relay assertion does not match this computer', 'peer-bundle-invalid');
-            }
-        } catch (error) {
-            if ((error as { code?: unknown }).code === 'peer-bundle-invalid') throw error;
-            throw operationError('invalid target relay endpoint', 'peer-bundle-invalid');
-        }
-        if (crypto.devices.some((device) => device.devicePublicKey === claims.peerPublicKey)) {
-            await this.repairOrphanDevices();
-        }
-        const current = this.readyCrypto();
-        if (current.devices.some((device) => device.devicePublicKey === claims.peerPublicKey)) {
-            throw operationError('peer key is already authorized', 'peer-already-authorized');
-        }
-        if (DeviceGrant.peerLimitReached(current.devices)) {
-            throw operationError('peer limit reached for this personal fleet', 'peer-limit');
-        }
-        const relationshipId = params.relationshipId ?? `rel_${descriptorHash.slice(0, 32)}`;
-        if (this.store.relationship(relationshipId) !== undefined) {
-            throw operationError('peer relationship id is already in use', 'peer-operation-conflict');
-        }
-        const authorization: StoredPendingAuthorization = {
-            version: 1,
-            relationshipId,
-            descriptor: params.descriptor,
-            descriptorHash,
-            sourceMachineId: claims.sourceMachineId,
-            ...(claims.sourceName === undefined ? {} : { sourceName: claims.sourceName.trim().slice(0, 120) }),
-            ...(claims.sourcePlatform === undefined ? {} : { sourcePlatform: claims.sourcePlatform }),
-            peerPublicKey: claims.peerPublicKey,
-            capabilities: [...params.capabilities],
-            ...(allowedCwds === undefined ? {} : { allowedCwds }),
-            relayUrl: targetRelayUrl,
-            createdAt: this.now(),
+    private grantFleet() {
+        return {
+            now: this.now,
+            machineId: this.options.machineId,
+            relayUrl: this.options.relayUrl,
+            readyCrypto: () => this.readyCrypto(),
+            store: this.store,
+            validateStartDirectories: (capabilities: readonly PeerCapability[], value: string[] | undefined) => this.validateStartDirectories(capabilities, value),
+            repairOrphanDevices: () => this.repairOrphanDevices(),
+            canonicalRelayUrl,
+            fail: operationError,
+            finishAuthorization: (pending: StoredPendingAuthorization) => this.finishAuthorization(pending),
+            authorizationResult: (relationship: StoredPeerRelationship) => this.authorizationResult(relationship),
         };
-        await this.store.putPendingAuthorization(authorization);
-        return this.finishAuthorization(authorization);
     }
 
     private async finishAuthorization(initial: StoredPendingAuthorization): Promise<PeerRequestResult<'peer.authorize'>> {
@@ -516,37 +431,18 @@ export class PeerRuntime {
         return publicRelationship(relationship);
     }
 
-    private async revoke(params: Extract<PeerClientRequest, { type: 'peer.revoke' }>['params']): Promise<PeerRequestResult<'peer.revoke'>> {
-        const authorization = this.store.pendingAuthorization();
-        if (authorization?.relationshipId === params.relationshipId) {
-            return this.cancelPendingAuthorization(authorization);
-        }
-        const relationship = this.store.relationship(params.relationshipId);
-        if (relationship === undefined || relationship.state === 'revoked') {
-            return { state: 'already-revoked', revokedAt: this.now() };
-        }
-        const recovery = this.options.crypto.get().pendingRotation;
-        if (recovery?.kind === 'peer-revoke-v1' && recovery.revokedDeviceId === relationship.peerDeviceId) {
-            await this.finishPeerRevocation(recovery);
-            await this.store.putRelationship({ ...relationship, state: 'revoked', updatedAt: this.now() });
-            return { state: 'revoked', revokedAt: this.now(), ...(relationship.authority === undefined ? {} : { authority: relationship.authority }) };
-        }
-        if (relationship.direction === 'outbound') {
-            if (params.peerDeviceId !== relationship.peerDeviceId) {
-                throw operationError('target revocation must be confirmed before deleting the outbound bundle', 'peer-revoke-unconfirmed');
-            }
-            this.outboundService.closeRelationship(relationship.relationshipId);
-            const { credential: _credential, peerKey: _peerKey, sealedGrant: _sealedGrant, ...revoked } = relationship;
-            await this.store.putRelationship({ ...revoked, state: 'revoked', updatedAt: this.now() });
-            return { state: 'revoked', revokedAt: this.now(), ...(relationship.authority === undefined ? {} : { authority: relationship.authority }) };
-        }
-        if (relationship.peerDeviceId === undefined) throw operationError('peer relationship has no device binding', 'peer-revoke-invalid');
-        const pending = this.buildPeerRevocation(relationship);
-        await this.fencePeerRevocation(pending);
-        await this.store.putRelationship({ ...relationship, state: 'disconnecting', updatedAt: this.now() });
-        await this.finishPeerRevocation(pending);
-        await this.store.putRelationship({ ...relationship, state: 'revoked', updatedAt: this.now() });
-        return { state: 'revoked', revokedAt: this.now(), ...(relationship.authority === undefined ? {} : { authority: relationship.authority }) };
+    private revokeFleet() {
+        return {
+            now: this.now,
+            store: this.store,
+            pendingRotation: () => this.options.crypto.get().pendingRotation,
+            cancelPendingAuthorization: (pending: StoredPendingAuthorization) => this.cancelPendingAuthorization(pending),
+            finishPeerRevocation: (pending: MachinePendingRotation) => this.finishPeerRevocation(pending),
+            closeOutbound: (relationshipId: string) => this.outboundService.closeRelationship(relationshipId),
+            buildPeerRevocation: (relationship: StoredPeerRelationship) => this.buildPeerRevocation(relationship),
+            fencePeerRevocation: (pending: MachinePendingRotation) => this.fencePeerRevocation(pending),
+            fail: operationError,
+        };
     }
 
     private async cancelPendingAuthorization(initial: StoredPendingAuthorization): Promise<PeerRequestResult<'peer.revoke'>> {

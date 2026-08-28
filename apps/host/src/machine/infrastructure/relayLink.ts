@@ -8,7 +8,8 @@
 import WebSocket from 'ws';
 import { v2EnvelopeSequence } from '@muxr/crypto';
 import { HostV2Crypto, type HostedMachineKeys } from './hostedE2ee.js';
-import { loopbackMachineSocketUrl, ticketWsCredential } from './loopbackWsAuth.js';
+import { loopbackMachineSocketUrl } from './loopbackWsAuth.js';
+import { reconnectMachine } from '../application/reconnectMachine.js';
 import type { DiagnosticPeerIngressOutcome } from '../../diagnostics/index.js';
 import {
     decodePayload,
@@ -101,13 +102,15 @@ export function connectToRelay(options: RelayLinkOptions): RelayLink {
         options.onStateChange?.('connecting');
         let url: string;
         try {
-            const credential = ticketWsCredential(options.token);
-            if (credential === undefined) {
-                url = loopbackMachineSocketUrl(options.relayUrl, options.machineId, options.token);
+            const admission = reconnectMachine({
+                ...(options.token === undefined ? {} : { token: options.token }),
+            });
+            if (admission.admission === 'loopback') {
+                url = loopbackMachineSocketUrl(options.relayUrl, options.machineId, admission.token);
             } else {
                 url = ticketSocketUrl(options.relayUrl, await issueWsTicket({
                     relayUrl: options.relayUrl,
-                    credential,
+                    credential: admission.credential,
                     machineId: options.machineId,
                     role: 'machine',
                     transport: 'relay',

@@ -19,6 +19,7 @@ import type {
     HerdrTreeWorkspace,
     LayoutSnapshot,
     PromptAttachment,
+    RealtimePluginPublicContext,
     SessionEventBody,
     SessionInfo,
     SessionSnapshot,
@@ -61,7 +62,8 @@ import {
     toSnapshot,
     type HerdrLayoutNode,
 } from '../domain/layout.js';
-import { lifecycleReasonForObservation, rollupLifecycle } from '../domain/lifecycle.js';
+import { rollupLifecycle } from '../domain/lifecycle.js';
+import { reportAgentOutcome } from '../application/reportAgentOutcome.js';
 
 const PLUGIN_CALL_QUEUE_TIMEOUT_MS = 8_000;
 const MAX_PLUGIN_INVOCATIONS_PER_SCOPE = 64;
@@ -184,6 +186,20 @@ interface TabRecord {
     label?: string;
 }
 
+function mappedWorktree(
+    worktree: WorkspaceRecord['worktree'],
+    branch: string | undefined,
+): { worktree?: { repo: string; branch?: string; path: string } } {
+    if (worktree?.checkout_path === undefined) return {};
+    return {
+        worktree: {
+            repo: worktree.repo_name ?? worktree.repo_root ?? 'repo',
+            ...(branch === undefined ? {} : { branch }),
+            path: worktree.checkout_path,
+        },
+    };
+}
+
 const EVENT_KINDS = [
     // pane.agent_status_changed is deliberately NOT here: it is a filtered
     // subscription (pane_id required) and one invalid kind rejects the whole
@@ -222,9 +238,10 @@ export async function createHerdrSessionSource(
     const pluginApprovals = new PluginApprovals(options.dataDir);
     await pluginApprovals.load();
     const pluginInvocations = new Map<string, Promise<void>>();
-    const codingCoordinator = options.relayUrl === undefined || options.machineId === undefined
-        ? undefined
-        : new RealtimeCodingCoordinator(join(options.dataDir, 'realtime-coding.sock'), {
+    let codingCoordinator: RealtimeCodingCoordinator | undefined;
+    let pluginStreams: PluginStreamManager | undefined;
+    if (options.relayUrl !== undefined && options.machineId !== undefined) {
+        codingCoordinator = new RealtimeCodingCoordinator(join(options.dataDir, 'realtime-coding.sock'), {
             list: listRealtimeAgents,
             start: startRealtimeAgent,
             prompt: promptSession,
@@ -233,17 +250,16 @@ export async function createHerdrSessionSource(
             watch: waitForAgent,
             focus: focusSession,
         });
-    await codingCoordinator?.start();
-    const pluginStreams = options.relayUrl === undefined || options.machineId === undefined
-        ? undefined
-        : new PluginStreamManager({
+        await codingCoordinator.start();
+        pluginStreams = new PluginStreamManager({
             relayUrl: options.relayUrl,
             machineId: options.machineId,
             ...(options.token === undefined ? {} : { token: options.token }),
             ...(options.hostedE2ee === undefined ? {} : { hostedE2ee: options.hostedE2ee }),
             ...(options.peerBroker === undefined ? {} : { peerBroker: options.peerBroker }),
-            ...(codingCoordinator === undefined ? {} : { codingCoordinator }),
+            codingCoordinator,
         });
+    }
     /** Write-mode RPC replay fence: successful outcomes retained five minutes; rejections dropped; pending writes never evicted. */
     const writeReplayFence = new WriteReplayFence();
     /** Global cap plus admission caps so one plugin or device cannot fill its queue. */
@@ -350,6 +366,23 @@ export async function createHerdrSessionSource(
         if (event !== undefined) publish(record.sessionId, { type: 'lifecycle.update', event });
     }
 
+    function reportObserved(record: AgentIdentity, state: AgentLifecycle): void {
+        if (options.lifecycle === undefined) return;
+        const result = reportAgentOutcome(options.lifecycle, {
+            sessionId: record.sessionId,
+            displayName: record.displayName,
+            state,
+            ...(agentsByPane.get(record.paneId)?.agent_status === undefined
+                ? {}
+                : { liveAgentStatus: agentsByPane.get(record.paneId)!.agent_status }),
+            ...(options.lifecycle.latestFor(record.sessionId)?.reasonCode === undefined
+                ? {}
+                : { previousReason: options.lifecycle.latestFor(record.sessionId)!.reasonCode }),
+            taskTitle: record.taskTitle,
+        });
+        if (result.data !== undefined) publish(record.sessionId, { type: 'lifecycle.update', event: result.data });
+    }
+
     function statusFor(sessionId: string): SessionStatus {
         const record = identity.get(sessionId);
         const agentStatus = record === undefined ? 'unknown' : lifecycleOf(record.paneId);
@@ -394,15 +427,7 @@ export async function createHerdrSessionSource(
             ...(tabLabel === undefined ? {} : { tabLabel }),
             ...(spawnedBy === undefined ? {} : { spawnedBy }),
             ...(safeTerminalTitle === undefined ? {} : { terminalTitle: safeTerminalTitle }),
-            ...(worktree?.checkout_path === undefined
-                ? {}
-                : {
-                      worktree: {
-                          repo: worktree.repo_name ?? worktree.repo_root ?? 'repo',
-                          ...(workspace?.label === undefined ? {} : { branch: workspace.label }),
-                          path: worktree.checkout_path,
-                      },
-                  }),
+            ...mappedWorktree(worktree, workspace?.label),
         };
     }
 
@@ -526,11 +551,7 @@ export async function createHerdrSessionSource(
             lastInfoSignature.set(sessionId, signature);
             publish(sessionId, { type: 'session.updated', session: info });
         }
-        transition(record, agentStatus, lifecycleReasonForObservation(
-            agentStatus,
-            agentsByPane.get(record.paneId)?.agent_status,
-            options.lifecycle?.latestFor(record.sessionId)?.reasonCode,
-        ));
+        reportObserved(record, agentStatus);
         applyAttention(sessionId, agentStatus, record.displayName);
     }
 
@@ -1359,6 +1380,18 @@ export async function createHerdrSessionSource(
                 const latestTarget = catalog.streamTarget(pluginId, manifestHash, contributionId);
                 if (latestTarget.pluginRoot !== target.pluginRoot || latestTarget.entry !== target.entry) throw agentUnavailable();
                 const voiceSession = catalog.streamClaimsCapability(pluginId, manifestHash, contributionId, 'voice.session');
+                let publicContext: RealtimePluginPublicContext | undefined;
+                if (voiceSession) {
+                    publicContext = realtimePluginPublicContext(identity.all().map((session) => {
+                        const info = infoFor(session);
+                        return {
+                            sessionId: session.sessionId,
+                            displayName: session.displayName,
+                            ...(info.taskTitle === undefined ? {} : { taskTitle: info.taskTitle }),
+                            ...(session.kind === undefined ? {} : { agentKind: session.kind }),
+                        };
+                    }));
+                }
                 await pluginStreams.attach({
                     target: {
                         pluginId,
@@ -1373,17 +1406,7 @@ export async function createHerdrSessionSource(
                         paneId: record.paneId,
                         cwd: cwdForSession(record.sessionId) ?? record.cwd,
                     }),
-                    ...(voiceSession ? {
-                        publicContext: realtimePluginPublicContext(identity.all().map((session) => {
-                            const info = infoFor(session);
-                            return {
-                                sessionId: session.sessionId,
-                                displayName: session.displayName,
-                                ...(info.taskTitle === undefined ? {} : { taskTitle: info.taskTitle }),
-                                ...(session.kind === undefined ? {} : { agentKind: session.kind }),
-                            };
-                        })),
-                    } : {}),
+                    ...(publicContext === undefined ? {} : { publicContext }),
                     deviceId,
                     signal: approval.signal,
                     onClosed: approval.release,
@@ -1427,56 +1450,31 @@ export async function createHerdrSessionSource(
             // Admission happens before the global queue, so one plugin/device
             // cannot reserve every future slot while other plugins are healthy.
             const run = async () => {
-                const queuedAt = Date.now();
-                let startedAt: number | undefined;
-                let outcome = 'error';
                 const pluginActive = activePluginCalls.get(pluginId) ?? 0;
                 const deviceActive = activeDeviceCalls.get(deviceId) ?? 0;
                 if (pluginActive >= MAX_RPC_PER_PLUGIN || deviceActive >= MAX_RPC_PER_DEVICE) {
-                    outcome = pluginActive >= MAX_RPC_PER_PLUGIN ? 'plugin-busy' : 'device-busy';
-                    console.log(`[plugin-rpc] plugin=${pluginId} method=${call.method} mode=${call.mode} queue=0ms run=0ms outcome=${outcome}`);
                     throw new Error(`plugin ${pluginId} is busy, retry`);
                 }
                 activePluginCalls.set(pluginId, pluginActive + 1);
                 activeDeviceCalls.set(deviceId, deviceActive + 1);
                 try {
-                    return await pluginCallConcurrency.run(async () => {
-                        startedAt = Date.now();
-                        try {
-                            const result = await pluginApprovals.whileApproved(deviceId, pluginId, async (signal) => {
-                                let currentInput = serializedInput;
-                                if (requestedSessionId !== undefined && payload !== null && typeof payload === 'object' && !Array.isArray(payload)) {
-                                    const record = await resolvePane(requestedSessionId);
-                                    currentInput = JSON.stringify({
-                                        ...(payload as Record<string, unknown>),
-                                        paneId: record.paneId,
-                                        cwd: cwdForSession(requestedSessionId) ?? record.cwd,
-                                    });
-                                    if (Buffer.byteLength(currentInput, 'utf8') > MAX_RPC_INPUT_BYTES) throw new Error('plugin call input is too large');
-                                }
-                                const target = catalog.callTarget(pluginId, manifestHash, contributionId);
-                                return runPluginCall(pluginId, target, currentInput, signal, requestedSessionId);
+                    return await pluginCallConcurrency.run(async () => pluginApprovals.whileApproved(deviceId, pluginId, async (signal) => {
+                        let currentInput = serializedInput;
+                        if (requestedSessionId !== undefined && payload !== null && typeof payload === 'object' && !Array.isArray(payload)) {
+                            const record = await resolvePane(requestedSessionId);
+                            currentInput = JSON.stringify({
+                                ...(payload as Record<string, unknown>),
+                                paneId: record.paneId,
+                                cwd: cwdForSession(requestedSessionId) ?? record.cwd,
                             });
-                            outcome = 'ok';
-                            return result;
-                        } catch (error) {
-                            outcome = error instanceof Error && error.name === 'PluginCallDeadlineError'
-                                ? 'deadline'
-                                : error instanceof Error && error.name === 'PluginCallQueueTimeoutError'
-                                  ? 'queue-timeout'
-                                  : error instanceof Error && error.name === 'AbortError'
-                                    ? 'revoked'
-                                    : 'error';
-                            throw error;
+                            if (Buffer.byteLength(currentInput, 'utf8') > MAX_RPC_INPUT_BYTES) throw new Error('plugin call input is too large');
                         }
-                    }, PLUGIN_CALL_QUEUE_TIMEOUT_MS);
+                        const target = catalog.callTarget(pluginId, manifestHash, contributionId);
+                        return runPluginCall(pluginId, target, currentInput, signal, requestedSessionId);
+                    }), PLUGIN_CALL_QUEUE_TIMEOUT_MS);
                 } finally {
                     decrement(activePluginCalls, pluginId);
                     decrement(activeDeviceCalls, deviceId);
-                    const endedAt = Date.now();
-                    const queueMs = startedAt === undefined ? 0 : startedAt - queuedAt;
-                    const runMs = startedAt === undefined ? 0 : endedAt - startedAt;
-                    console.log(`[plugin-rpc] plugin=${pluginId} method=${call.method} mode=${call.mode} queue=${queueMs}ms run=${runMs}ms outcome=${outcome}`);
                 }
             };
             if (call.mode === 'write') {
@@ -1608,15 +1606,7 @@ export async function createHerdrSessionSource(
                     ...(workspace.label === undefined ? {} : { label: workspace.label }),
                     focused: workspace.focused === true,
                     agentStatus: rollupLifecycle(tabs.map((t) => t.agentStatus)),
-                    ...(worktree?.checkout_path === undefined
-                        ? {}
-                        : {
-                              worktree: {
-                                  repo: worktree.repo_name ?? worktree.repo_root ?? 'repo',
-                                  ...(workspace.label === undefined ? {} : { branch: workspace.label }),
-                                  path: worktree.checkout_path,
-                              },
-                          }),
+                    ...mappedWorktree(worktree, workspace.label),
                     tabs,
                 });
             }
@@ -2078,7 +2068,6 @@ export async function createHerdrSessionSource(
             // force a full mobile catalog reconciliation.
             const pluginFrame: PluginsInvalidatedFrame = { type: 'plugins.invalidated', reason: 'changed', pluginIds: [] };
             for (const listener of machineListeners) listener(pluginFrame);
-            console.log('[attachment-download] re-sending active attachment lists to clients');
             void attachments.resendAll(identity.all().map((record) => record.paneId));
         },
 

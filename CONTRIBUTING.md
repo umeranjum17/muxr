@@ -195,6 +195,33 @@ broke are worse than none. Security and crypto paths keep their coverage.
 `apps/mobile/sources/sync/sessionSync.integration.spec.ts` is the reference
 style.
 
+## Backend architecture
+
+Context first, layers second. Host and relay live under
+`<bounded-context>/{domain,application,infrastructure}` — only layers that
+contain real code. Composition stays at `apps/host/src/{main,host}.ts` and
+`apps/relay/src/{main,relay,httpHandlers}.ts`.
+
+- **Domain** is pure TypeScript. Rich entities and value objects own invariants,
+  validation, and transitions. No `BaseEntity`, generic repository, DI container,
+  CQRS, or empty folders.
+- **Application** is named use cases (`startAgent`, `grantPeerAuthority`,
+  `admitSocket`, …), not a `services/` folder. Each use case takes a small
+  command, orchestrates domain + ports, and returns an explicit result. No
+  WebSocket, HTTP, or React inside a use case.
+- **Infrastructure** maps relay/socket/storage/native/Herdr DTOs.
+- **Presentation** is the process entry and socket/HTTP adapters. They invoke
+  named use cases.
+
+Cross-context code imports the context `index.ts`, never internals.
+Stable IDs authorize; display metadata never does. DTOs stay at boundaries.
+
+Maps:
+
+- [apps/host/src/USE_CASES.md](apps/host/src/USE_CASES.md)
+- [apps/relay/src/USE_CASES.md](apps/relay/src/USE_CASES.md)
+- [CONTEXT.md](CONTEXT.md) — ubiquitous language
+
 ## The rules that keep this codebase small
 
 1. **One vocabulary.** The app speaks herdr's words: herd, agents, workspaces
