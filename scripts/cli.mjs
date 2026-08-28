@@ -5,17 +5,35 @@ import { spawnSync } from 'node:child_process';
 import { dirname, join, relative } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { runIntegrations } from './herdrLifecycle.mjs';
-import { runDoctor, runFullUninstall } from './local-setup.mjs';
-import { daemonIsRunning, runDaemon } from './muxrDaemon.mjs';
-import { browserHostingCanEnable, browserHostingReady, enableBrowserHosting, hasPendingRemoteConnect, runDevices, runMachines, runPair, runRemoteConnect, runSelfHost } from './selfhostRuntime.mjs';
-import { runMachineManagement, runRemoteRelaySetup, runSetup, runSharedRelaySetup } from './setup-wizard.mjs';
-import { runPlugin } from './plugin.mjs';
-import { runPackage } from './package.mjs';
-import { runPeers } from './peers.mjs';
-import { runDiagnostics } from './diagnostics.mjs';
-import { runUpdate } from './update.mjs';
-import { BACK, heading, prompt, select, status } from './setup-ui.mjs';
+import {
+    BACK,
+    browserHostingCanEnable,
+    browserHostingReady,
+    daemonIsRunning,
+    enableBrowserHosting,
+    hasPendingRemoteConnect,
+    heading,
+    prompt,
+    runDaemon,
+    runDevices,
+    runDoctor,
+    runFullUninstall,
+    runIntegrations,
+    runMachineManagement,
+    runMachines,
+    runPair,
+    runPeers,
+    runRemoteConnect,
+    runRemoteRelaySetup,
+    runSelfHost,
+    runSetup,
+    runSharedRelaySetup,
+    select,
+    status,
+} from './setup/index.mjs';
+import { runPackage, runPlugin } from './plugin/index.mjs';
+import { runDiagnostics } from './diagnostics/index.mjs';
+import { runUpdate } from './release/index.mjs';
 
 const HELP = `muxr — every coding agent on your phone
 
@@ -269,7 +287,7 @@ async function dispatch(command, args = []) {
         }
     }
     if (command === 'up') {
-        await import('./host-up.mjs');
+        await import('./setup/presentation/hostUp.mjs');
         return 0;
     }
     if (command === 'setup') return runSetup(args);

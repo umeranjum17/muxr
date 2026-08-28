@@ -44,3 +44,20 @@ Encryption primitives under `apps/mobile/sources/encryption/` are a shared kerne
 - **Conversation → Watch / Catalog / Connection**: desk focus and mic claim read Agent Route and Connection
 - **Account → Pairing**: hosted transport authorization uses machine id on the Hosted Grant, never a display name
 - **Pairing → Connection**: restoring a grant may rewrite the active Connection to match the grant
+
+## Tooling contexts
+
+
+- [Setup](./scripts/setup/README.md): Machine identity, pairing, Self-host Connection, Ingress, daemon, wizard, hosted login, doctor
+- [Plugin](./scripts/plugin/README.md): Plugin Id, bundled catalog, clone, npm registry, `muxr plugin`
+- [Release](./scripts/release/README.md): pack the npm CLI and update an installed package
+- [Diagnostics](./scripts/diagnostics/README.md): flow checks, doctor entry, diagnostics dump
+- Bundled Herdr plugins (`plugins/*`): Voice Report, Provider Secret, Inbox lifecycle, workspace tree. Herdr invokes `rpc.mjs` / `stream.mjs` at the plugin root.
+
+## Relationships
+
+- **CLI → each context public index**: `scripts/cli.mjs` imports only `scripts/<context>/index.mjs`
+- **Setup → Plugin (public)**: linking bundled plugins reads Plugin Id from the plugin public index
+- **Release → Setup / Plugin trees**: pack copies compiled context folders into the npm artifact
+- **Diagnostics → Setup (public)**: self-host and Tailscale checks call setup use cases through the public index
+- **Plugin clone → Voice**: cloned adapters vendor `../voice/*` files so they stay self-contained

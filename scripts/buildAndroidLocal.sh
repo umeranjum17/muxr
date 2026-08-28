@@ -44,7 +44,7 @@ cd "$MOBILE"
 # Apply from the workspace root: running patch-package from apps/mobile is a
 # successful no-op and can let stale native code reach a build.
 (cd "$ROOT" && npx patch-package --error-on-fail >/dev/null)
-node "$ROOT/scripts/verifyNativePatches.mjs"
+node "$ROOT/scripts/diagnostics/application/verifyNativePatches.mjs"
 (cd "$ROOT" && yarn build)
 (cd "$ROOT" && npx vitest run \
   apps/mobile/sources/terminal/ghosttyPatch.spec.ts \

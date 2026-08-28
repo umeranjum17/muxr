@@ -297,7 +297,9 @@ function relativeReset(seconds) {
 }
 
 function limitTone(remaining) {
-  return remaining <= 10 ? 'danger' : remaining <= 25 ? 'warning' : 'positive';
+  if (remaining <= 10) return 'danger';
+  if (remaining <= 25) return 'warning';
+  return 'positive';
 }
 
 function codexItems(result) {

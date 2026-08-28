@@ -123,3 +123,43 @@ _Avoid_: tunnel, proxy, advertise URL
 **Self-host**:
 A machine-owned relay and pairing authority, as opposed to the hosted cloud control plane.
 _Avoid_: local mode, selfhost.json, standalone
+
+**Machine**:
+The computer running muxr, identified by a stable Machine Id derived from its key material. Display names never identify it.
+_Avoid_: host, node, box, computer name
+
+**Machine Id**:
+The durable identifier of a Machine. The only key used to enroll, revoke, or publish grants for that computer.
+_Avoid_: hostname, machine name, slug label
+
+**Device Id**:
+The durable identifier of a paired phone or browser. The only key that authorizes a grant, revocation, or rotation.
+_Avoid_: device name, phone name, display name
+
+**Device Authority**:
+Whether a paired Device may control agents (`control`) or only watch (`observe`). Native pairings are always control.
+_Avoid_: role, permission, access level
+
+**Client Kind**:
+Whether the paired client is the native app or a browser. Browser grants last eight hours; native grants are durable.
+_Avoid_: platform, client type, device type
+
+**Pairing Intent**:
+The decision to mint a grant for a Client Kind and Device Authority, including lifetime and the locator the client opens.
+_Avoid_: pairing flags, --browser, QR options
+
+**Enrollment**:
+A one-time claim a Machine presents to join a shared Self-host relay. It is not a Device grant.
+_Avoid_: invite, join code, pairing string
+
+**Connection**:
+How phones reach this Machine's relay: mode, location, role, advertised URL, and whether browser hosting is allowed.
+_Avoid_: network settings, advertise bag, selfhost state
+
+**Plugin Id**:
+The stable identity of a bundled or installed plugin. Folder names are filesystem paths only.
+_Avoid_: plugin folder, plugin name, package name
+
+**Provider Secret**:
+An owner-only API key for a realtime voice provider, stored under ~/.muxr. Display labels never authorize it.
+_Avoid_: API key file, settings key, voice credential

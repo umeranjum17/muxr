@@ -22,10 +22,10 @@ function context() {
 }
 
 function tone(status) {
-    return status === 'blocked' ? 'danger'
-        : status === 'working' ? 'warning'
-        : status === 'done' ? 'positive'
-        : 'secondary';
+    if (status === 'blocked') return 'danger';
+    if (status === 'working') return 'warning';
+    if (status === 'done') return 'positive';
+    return 'secondary';
 }
 
 const sessionId = clean(input().sessionId, 80);
@@ -53,7 +53,8 @@ const nodes = tabs.map((tab, tabIndex) => {
     const first = sessions[0];
     const shell = first === undefined;
     const base = baseNames[tabIndex];
-    const title = `${duplicate(base) ? `${base} · tab ${tabIndex + 1}` : base}${shell ? ' · shell' : ''}`;
+    const title = duplicate(base) ? `${base} · tab ${tabIndex + 1}` : base;
+    const labeled = shell ? `${title} · shell` : title;
     const children = sessions.flatMap((session, sessionIndex) => {
         const id = clean(session?.sessionId, 80);
         if (id === undefined) return [];
@@ -71,7 +72,7 @@ const nodes = tabs.map((tab, tabIndex) => {
     const firstId = clean(first?.sessionId, 80);
     return {
         id: `tab-${tabIndex + 1}`,
-        title,
+        title: labeled,
         status: tone(clean(tab?.agentStatus, 20)),
         pulsing: tab?.agentStatus === 'working' || tab?.agentStatus === 'blocked',
         current: sessions.some((session) => session?.sessionId === sessionId),

@@ -19,6 +19,6 @@ jobs:
       - run: yarn install --frozen-lockfile --non-interactive
       - run: yarn build
       - name: Full suite (typecheck, crypto, pairing, e2e, package smoke, purity, secrets)
-        run: node scripts/runSuite.mjs
+        run: node scripts/diagnostics/application/runSuite.mjs
       - name: Core purity guard
-        run: node scripts/checkCorePurity.mjs
+        run: node scripts/diagnostics/application/checkCorePurity.mjs
