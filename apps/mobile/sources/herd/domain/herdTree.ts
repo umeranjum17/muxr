@@ -15,34 +15,18 @@ export function hasAgent(ws: HerdrTreeWorkspace): boolean {
     return ws.tabs.some((tab) => tab.panes.some((pane) => pane.agentKind !== undefined));
 }
 
-/** Human-facing pane name. Stable ids and terminal content are never display fallbacks. */
+/** Human Name only. Herdr's agent name is an internal route, not display identity. */
 export function paneDisplayName(pane: HerdrTreePane): string {
-    const explicit = pane.displayName?.trim();
-    if (explicit) return explicit;
-    const existing = pane.agentName?.trim();
-    if (existing) return existing;
-    return 'Agent';
+    return pane.displayName?.trim() || 'Agent';
 }
 
 export function paneTaskTitle(pane: HerdrTreePane): string {
-    return pane.taskTitle?.trim() || 'Current task';
+    return pane.taskTitle?.trim() || 'Untitled task';
 }
 
-/** The shared lifecycle projection used by Spaces, Live Terminals and notifications. */
-export function lifecycleTree(
-    workspaces: readonly HerdrTreeWorkspace[],
-    connected: boolean,
-): HerdrTreeWorkspace[] {
-    if (connected) return workspaces as HerdrTreeWorkspace[];
-    return workspaces.map((workspace) => ({
-        ...workspace,
-        agentStatus: 'unknown',
-        tabs: workspace.tabs.map((tab) => ({
-            ...tab,
-            agentStatus: 'unknown',
-            panes: tab.panes.map((pane) => ({ ...pane, agentStatus: 'unknown' })),
-        })),
-    }));
+/** A transport blip does not rewrite the last observed agent lifecycle. */
+export function lifecycleTree(workspaces: readonly HerdrTreeWorkspace[], _connected?: boolean): HerdrTreeWorkspace[] {
+    return workspaces as HerdrTreeWorkspace[];
 }
 
 /** Long cwd paths collapse around a midline ellipsis, like a shell prompt. */
@@ -79,7 +63,7 @@ export function buildSpaceRows(
 ): HerdSpaceRow[] {
     const query = searchQuery.trim().toLocaleLowerCase();
     const matches = (pane: HerdrTreePane): boolean =>
-        query === '' || [pane.taskTitle, pane.displayName, pane.agentName, pane.agentKind, pane.label]
+        query === '' || [pane.taskTitle, pane.displayName, pane.agentKind, pane.label]
             .some((value) => value !== undefined && value.toLocaleLowerCase().includes(query));
 
     const rows: HerdSpaceRow[] = [];

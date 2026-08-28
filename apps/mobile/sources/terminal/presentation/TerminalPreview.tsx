@@ -26,7 +26,7 @@ function tail(text: string): string {
     return lines.slice(-MAX_LINES).join('\n');
 }
 
-export const TerminalPreview = React.memo((props: { sessionId: string }) => {
+export const TerminalPreview = React.memo((props: { sessionId: string; paused?: boolean }) => {
     const [text, setText] = React.useState('');
 
     React.useEffect(() => {
@@ -57,11 +57,11 @@ export const TerminalPreview = React.memo((props: { sessionId: string }) => {
             timer = undefined;
         };
 
-        // Tiles stay mounted behind a backgrounded app; polling there is pure
-        // battery and relay traffic for pixels nobody can see.
-        if (AppState.currentState === 'active') start();
+        // Tiles stay mounted behind a backgrounded app or outside the strip's
+        // viewport; polling there is pure battery and relay traffic.
+        if (AppState.currentState === 'active' && props.paused !== true) start();
         const subscription = AppState.addEventListener('change', (next) => {
-            if (next === 'active') start();
+            if (next === 'active' && props.paused !== true) start();
             else stop();
         });
 
@@ -70,7 +70,7 @@ export const TerminalPreview = React.memo((props: { sessionId: string }) => {
             stop();
             subscription.remove();
         };
-    }, [props.sessionId]);
+    }, [props.paused, props.sessionId]);
 
     return (
         <View style={{ flex: 1, backgroundColor: '#0c0c0b', overflow: 'hidden' }} pointerEvents="none">

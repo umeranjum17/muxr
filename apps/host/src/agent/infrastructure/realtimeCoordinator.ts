@@ -2,6 +2,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { chmodSync, existsSync, lstatSync, mkdirSync, unlinkSync } from 'node:fs';
 import { createServer, type Server, type Socket } from 'node:net';
 import { dirname, isAbsolute } from 'node:path';
+import type { LifecycleEvent } from '@muxr/contract';
 
 const MAX_REQUEST_BYTES = 32 * 1024;
 const MAX_PROVIDER_TEXT_BYTES = 8 * 1024;
@@ -17,6 +18,7 @@ export interface RealtimeCodingAgent {
     taskTitle: string;
     kind: string;
     status: string;
+    changedAt?: number;
 }
 
 export interface RealtimeCodingStartResult {
@@ -26,6 +28,7 @@ export interface RealtimeCodingStartResult {
 
 export interface RealtimeCodingHandlers {
     list(): Promise<RealtimeCodingAgent[]>;
+    activity(): Promise<LifecycleEvent[]>;
     start(input: { cwd: string; displayName: string; taskTitle: string; kind: string }): Promise<RealtimeCodingStartResult>;
     prompt(sessionId: string, text: string): Promise<void>;
     read(sessionId: string): Promise<{ text: string; truncated: boolean }>;
@@ -40,7 +43,8 @@ export interface RealtimeCoordinatorAccess {
 }
 
 type CodingRequest =
-    | { method: 'list' }
+    | { method: 'list'; kind?: string; limit?: number }
+    | { method: 'activity'; limit?: number }
     | { method: 'start'; name: string; taskTitle: string; kind: string; operationId: string }
     | { method: 'prompt'; agent?: string; text: string; operationId: string }
     | { method: 'read'; agent?: string }
@@ -75,6 +79,12 @@ function optionalString(value: unknown, field: string): string | undefined {
     return value === undefined ? undefined : string(value, field, 160);
 }
 
+function optionalLimit(value: unknown): number | undefined {
+    if (value === undefined) return undefined;
+    if (typeof value !== 'number' || !Number.isInteger(value) || value < 1 || value > 20) throw new Error('limit is invalid');
+    return value;
+}
+
 function operationId(value: unknown): string {
     const clean = string(value, 'operationId', 200);
     if (!/^[A-Za-z0-9._:-]{1,160}$/.test(clean)) throw new Error('operationId is invalid');
@@ -85,8 +95,15 @@ function parseRequest(value: unknown): CodingRequest {
     const request = record(value, 'realtime coding request');
     switch (request.method) {
         case 'list':
-            only(request, ['method']);
-            return { method: 'list' };
+            only(request, ['method', 'kind', 'limit']);
+            return {
+                method: 'list',
+                ...(request.kind === undefined ? {} : { kind: optionalString(request.kind, 'kind')! }),
+                ...(request.limit === undefined ? {} : { limit: optionalLimit(request.limit)! }),
+            };
+        case 'activity':
+            only(request, ['method', 'limit']);
+            return { method: 'activity', ...(request.limit === undefined ? {} : { limit: optionalLimit(request.limit)! }) };
         case 'start':
             only(request, ['method', 'name', 'taskTitle', 'kind', 'operationId']);
             return {
@@ -150,6 +167,7 @@ function publicAgent(agent: RealtimeCodingAgent): RealtimeCodingAgent {
         taskTitle: title(agent),
         kind: KIND.test(agent.kind) ? agent.kind : 'agent',
         status: cleanHuman(agent.status, 'unknown', 32).toLocaleLowerCase(),
+        ...(Number.isFinite(agent.changedAt) ? { changedAt: agent.changedAt } : {}),
     };
 }
 
@@ -161,10 +179,15 @@ function aliases(agents: RealtimeCodingAgent[]): Map<string, RealtimeCodingAgent
         byName.set(nameKey, [...(byName.get(nameKey) ?? []), agent]);
     }
     for (const agent of agents) {
-        const sameName = byName.get(key(agent.displayName)) ?? [];
-        const candidates = sameName.length === 1
-            ? [agent.displayName]
-            : [agent.displayName, `${agent.displayName}, ${title(agent)}`, `${agent.displayName}, ${title(agent)}, ${agent.kind}`];
+        const taskTitle = title(agent);
+        const candidates = [
+            agent.displayName,
+            agent.kind,
+            taskTitle,
+            `${agent.displayName}, ${taskTitle}`,
+            `${taskTitle}, ${agent.displayName}`,
+            `${agent.displayName}, ${taskTitle}, ${agent.kind}`,
+        ];
         for (const alias of candidates) result.set(key(alias), [...(result.get(key(alias)) ?? []), agent]);
     }
     return result;
@@ -276,8 +299,11 @@ export class RealtimeCodingCoordinator {
             return { clarification: `More than one agent is named ${publicSpoken}. Which one: ${choices}?` };
         }
         const matches = aliases(agents).get(key(clean)) ?? [];
-        if (matches.length === 0) return { clarification: `I could not find an agent named ${publicSpoken}. Ask me to list agents.` };
-        if (matches.length > 1) return { clarification: `More than one agent matches ${publicSpoken}. Please use its task title too.` };
+        if (matches.length === 0) return { clarification: `I could not find an agent or task matching ${publicSpoken}. Ask me to list agents.` };
+        if (matches.length > 1) {
+            const choices = matches.map((agent) => `${agent.displayName}, ${title(agent)}`).join('; or ');
+            return { clarification: `More than one agent or task matches ${publicSpoken}. Did you mean ${choices}?` };
+        }
         return { agent: matches[0]! };
     }
 
@@ -309,10 +335,32 @@ export class RealtimeCodingCoordinator {
 
     private async invoke(state: CapabilityState, request: CodingRequest): Promise<string> {
         if (request.method === 'list') {
-            const agents = await this.currentAgents();
-            if (agents.length === 0) return 'No named coding agents are available.';
+            const requestedKind = request.kind === undefined ? undefined : key(cleanHuman(request.kind, '', 32));
+            const agents = (await this.currentAgents())
+                .filter((agent) => requestedKind === undefined || key(agent.kind) === requestedKind)
+                .sort((left, right) => (right.changedAt ?? 0) - (left.changedAt ?? 0) || left.displayName.localeCompare(right.displayName))
+                .slice(0, request.limit ?? 20);
+            if (agents.length === 0) return requestedKind === undefined
+                ? 'No named coding agents are available.'
+                : `No ${safeProviderText(request.kind!, 32)} agents are available.`;
             const names = agents.map((agent) => `${agent.displayName} — ${title(agent)}; ${kindLabel(agent.kind)}; ${cleanHuman(agent.status, 'unknown', 32)}`);
-            return `Named agents: ${names.join('. ')}.`;
+            return `Named agents, most recent first: ${names.join('. ')}.`;
+        }
+        if (request.method === 'activity') {
+            const seen = new Set<string>();
+            const events = (await this.handlers.activity()).filter((event) => {
+                if (seen.has(event.sessionId)) return false;
+                seen.add(event.sessionId);
+                return true;
+            }).slice(0, request.limit ?? 10);
+            if (events.length === 0) return 'No recent agent activity is available.';
+            const activity = events.map((event) => {
+                const name = cleanHuman(event.displayName, 'Agent', 80);
+                const task = cleanTaskTitle(event.taskTitle) ?? 'Untitled task';
+                const state = cleanHuman(event.state, 'unknown', 32).toLocaleLowerCase();
+                return `${name} — ${task}; ${state}`;
+            });
+            return `Recent agent activity, newest first: ${activity.join('. ')}.`;
         }
         if (request.method === 'start') return this.replay(state, request, async () => {
             const displayName = cleanHuman(request.name, '', 80);

@@ -115,15 +115,11 @@ export function useSessionStatus(session: Session | undefined): SessionStatus {
     };
 }
 
-/**
- * Extracts a display name from a session's metadata path.
- * Returns the last segment of the path, or 'unknown' if no path is available.
- */
+/** Task Title is the primary label everywhere a session is scanned. */
 export function getSessionName(session: Session): string {
-    if (session.metadata?.summary) {
-        return session.metadata.summary.text;
-    }
-    return t('session.newChat');
+    return session.metadata?.taskTitle?.trim()
+        || session.metadata?.displayName?.trim()
+        || t('session.newChat');
 }
 
 /** herdr lifecycle status, shared across dots, kanban and grid tiles. */
@@ -159,23 +155,14 @@ export function getSessionAvatarId(session: Session): string {
     return session.id;
 }
 
-/**
- * Returns the session path for the subtitle.
- */
+/** Human Name is secondary; one workspace/path context may follow it. */
 export function getSessionSubtitle(session: Session): string {
-    if (session.metadata) {
-        // herdr-native subtitle: the workspace the agent lives in, plus the tab
-        // inside it -- the desk layout, not a chat path. The tab's LABEL only:
-        // tabId is an internal identifier and never belongs on screen.
-        const workspace = session.metadata.workspaceLabel;
-        const tab = session.metadata.tabLabel;
-        if (typeof workspace === 'string' && workspace.trim() !== '') {
-            if (typeof tab === 'string' && tab.trim() !== '') return `${workspace} · ${tab}`;
-            return workspace;
-        }
-        return formatPathRelativeToHome(session.metadata.path, session.metadata.homeDir);
-    }
-    return t('status.unknown');
+    const metadata = session.metadata;
+    if (metadata === null) return '';
+    const humanName = metadata.displayName?.trim();
+    const workspace = metadata.workspaceLabel?.trim();
+    const context = workspace || formatPathRelativeToHome(metadata.path, metadata.homeDir);
+    return [humanName, context].filter((value) => value !== undefined && value !== '').join(' · ');
 }
 
 /**

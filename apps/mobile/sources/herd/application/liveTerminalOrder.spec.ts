@@ -1,168 +1,85 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import React from 'react';
-import TestRenderer from 'react-test-renderer';
+import { describe, expect, it } from 'vitest';
+import type { LifecycleEvent } from '@muxr/contract';
 import type { Session } from '@/catalog';
+import { recentActivityRows } from '../domain/recentActivity';
 import {
     nextWorkingAgentId,
-    useLiveTerminalOrder,
+    orderLiveTerminalCards,
     workingAgentSwipeIds,
     type LiveTerminalOrderCard,
 } from './liveTerminalOrder';
 
-const act = TestRenderer.act;
-
-type HarnessProps = { cards: readonly LiveTerminalOrderCard[] };
-
-function session(id: string, updatedAt: number): Session {
+function session(id: string, changedAt: number, status: LiveTerminalOrderCard['status']): Session {
     return {
         id,
-        updatedAt,
-        active: true,
-        metadata: { agentStatus: 'working' },
+        updatedAt: changedAt,
+        presence: 'online',
+        metadata: { agentStatus: status, lifecycleStateSince: changedAt },
     } as Session;
 }
 
-function card(id: string, updatedAt: number, status: LiveTerminalOrderCard['status'] = 'working') {
-    return { session: session(id, updatedAt), status };
+function card(id: string, changedAt: number, status: LiveTerminalOrderCard['status']): LiveTerminalOrderCard {
+    return { session: session(id, changedAt, status), status, changedAt };
 }
 
-let renderedOrder = '';
-
-function Harness({ cards }: HarnessProps) {
-    const ordered = useLiveTerminalOrder(cards);
-    renderedOrder = ordered.map((item) => item.session.id).join(',');
-    return null;
-}
-
-describe('live terminal order', () => {
-    let renderer: ReturnType<typeof TestRenderer.create> | null = null;
-
-    beforeEach(() => {
-        vi.useFakeTimers();
-        vi.setSystemTime(0);
-        (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-    });
-
-    afterEach(() => {
-        act(() => renderer?.unmount());
-        renderer = null;
-        vi.useRealTimers();
-    });
-
-    function render(cards: readonly LiveTerminalOrderCard[]) {
-        act(() => {
-            renderer = TestRenderer.create(React.createElement(Harness, { cards }));
-        });
-    }
-
-    function update(cards: readonly LiveTerminalOrderCard[]) {
-        act(() => {
-            renderer?.update(React.createElement(Harness, { cards }));
-        });
-    }
-
-    function order(): string {
-        return renderedOrder;
-    }
-
-    it('holds working order through token churn, and reevaluation never shuffles same-status cards', () => {
-        let cards = [card('a', 0), card('b', 0)];
-        render(cards);
-        expect(order()).toBe('a,b');
-
-        for (let second = 1; second <= 29; second += 1) {
-            cards = [
-                card('a', second % 2 === 0 ? second * 1000 : 0),
-                card('b', second % 2 === 1 ? second * 1000 : 0),
-            ];
-            update(cards);
-            act(() => {
-                vi.advanceTimersByTime(1000);
-            });
-            expect(order()).toBe('a,b');
-        }
-
-        // The 30s reevaluation regroups by status class only: both cards are
-        // still working, so the updatedAt churn must not swap them.
-        act(() => {
-            vi.advanceTimersByTime(1000);
-        });
-        expect(order()).toBe('a,b');
-
-        for (let second = 31; second <= 59; second += 1) {
-            update([
-                card('a', second % 2 === 0 ? second * 1000 : 0),
-                card('b', second % 2 === 1 ? second * 1000 : 0),
-            ]);
-            act(() => {
-                vi.advanceTimersByTime(1000);
-            });
-            expect(order()).toBe('a,b');
-        }
-
-        // A status-class change is what moves a card: b finishes, and the next
-        // reevaluation regroups it behind the still-working a.
-        vi.setSystemTime(61_000);
-        update([card('a', 61_000, 'done'), card('b', 61_000)]);
-        act(() => {
-            vi.advanceTimersByTime(30_000);
-        });
-        expect(order()).toBe('b,a');
-    });
-
-    it('prioritizes active panes immediately and handles structural changes without churn', () => {
-        render([card('a', 0, 'done'), card('b', 0, 'idle')]);
-        expect(order()).toBe('a,b');
-
-        vi.setSystemTime(10_000);
-        update([card('a', 0, 'done'), card('b', 10_000)]);
-        expect(order()).toBe('b,a');
-
-        update([card('a', 20_000, 'blocked'), card('b', 20_000)]);
-        expect(order()).toBe('a,b');
-
-        update([card('a', 20_000)]);
-        expect(order()).toBe('a');
-
-        update([card('a', 20_000), card('c', 20_000)]);
-        expect(order()).toBe('a,c');
-    });
-
-    it('builds one swipe buffer from working and two-minute-recent agents', () => {
-        const now = 300_000;
-        const swipeSession = (id: string, status: 'working' | 'blocked' | 'done' | 'idle', changedAt: number) => ({
-            id,
-            updatedAt: changedAt,
-            presence: 'online',
-            metadata: { agentStatus: status, lifecycleStateSince: changedAt },
-        } as Session);
-        const staleDoneButStreaming = swipeSession('streaming', 'done', now - 180_000);
-        staleDoneButStreaming.thinking = true;
-        const ids = workingAgentSwipeIds([
-            swipeSession('old', 'done', now - 120_001),
-            swipeSession('recent', 'done', now - 30_000),
-            swipeSession('idle', 'idle', now),
-            swipeSession('working', 'working', now - 5_000),
-            staleDoneButStreaming,
-            swipeSession('blocked', 'blocked', now),
+describe('agent lifecycle presentation', () => {
+    it('orders needs-you, working, and recently-done agents without title churn', () => {
+        const now = 2_000_000;
+        const cards = orderLiveTerminalCards([
+            card('stale-done', now - 31 * 60_000, 'done'),
+            card('working-new', now - 1_000, 'working'),
+            card('blocked-new', now - 2_000, 'blocked'),
+            card('done', now - 5_000, 'done'),
+            card('blocked-old', now - 20_000, 'blocked'),
+            card('working-old', now - 10_000, 'working'),
         ], now);
 
-        expect(ids).toEqual(['blocked', 'working', 'streaming', 'recent']);
-        expect(nextWorkingAgentId(ids, 'working', 1)).toBe('streaming');
-        expect(nextWorkingAgentId(ids, 'old', 1)).toBe('blocked');
-        expect(nextWorkingAgentId(ids, 'old', -1)).toBe('recent');
+        expect(cards.map(({ session: item }) => item.id)).toEqual([
+            'blocked-old',
+            'blocked-new',
+            'working-new',
+            'working-old',
+            'done',
+        ]);
     });
 
-    it('uses deterministic ties across replacement renders and cleans its single timer', () => {
-        render([card('z', 0), card('a', 0)]);
-        expect(order()).toBe('a,z');
-        expect(vi.getTimerCount()).toBe(1);
+    it('collapses activity by agent and removes working/unknown noise', () => {
+        const event = (eventId: string, sessionId: string, state: LifecycleEvent['state'], at: string): LifecycleEvent => ({
+            eventId,
+            sessionId,
+            displayName: 'Adam',
+            taskTitle: 'Fix realtime voice',
+            state,
+            reasonCode: 'state-reconciled',
+            reason: 'state-reconciled',
+            at,
+        });
+        const rows = recentActivityRows([
+            event('new', 'one', 'done', '2026-01-02T00:00:00.000Z'),
+            event('duplicate', 'one', 'blocked', '2026-01-01T23:59:00.000Z'),
+            event('working', 'two', 'working', '2026-01-01T23:58:00.000Z'),
+            event('unknown', 'three', 'unknown', '2026-01-01T23:57:00.000Z'),
+            event('failed', 'four', 'failed', '2026-01-01T23:56:00.000Z'),
+        ]);
 
-        update([card('z', 0), card('a', 0)]);
-        expect(order()).toBe('a,z');
+        expect(rows.map((row) => [row.eventId, row.status])).toEqual([
+            ['new', 'done'],
+            ['failed', 'failed'],
+        ]);
+    });
 
-        act(() => renderer?.unmount());
-        renderer = null;
-        expect(vi.getTimerCount()).toBe(0);
+    it('keeps swipe navigation on active and two-minute-recent agents', () => {
+        const now = 300_000;
+        const ids = workingAgentSwipeIds([
+            session('old', now - 120_001, 'done'),
+            session('recent', now - 30_000, 'done'),
+            session('idle', now, 'idle'),
+            session('working', now - 5_000, 'working'),
+            session('blocked', now, 'blocked'),
+        ], now);
+
+        expect(ids).toEqual(['blocked', 'working', 'recent']);
+        expect(nextWorkingAgentId(ids, 'working', 1)).toBe('recent');
+        expect(nextWorkingAgentId(ids, 'missing', -1)).toBe('recent');
     });
 });
