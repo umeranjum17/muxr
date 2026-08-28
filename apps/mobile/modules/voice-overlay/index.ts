@@ -23,6 +23,7 @@ interface VoiceNative {
     isRealtimePcmDrained: () => boolean;
     stopRealtimePcm: () => RealtimePcmStats;
     startService: () => boolean;
+    isServiceReady: () => boolean;
     stopService: () => boolean;
     startHerdService: () => boolean;
     stopHerdService: () => boolean;
@@ -57,6 +58,15 @@ export function startVoiceService(): boolean {
     if (native === null) return true;
     try {
         return native.startService();
+    } catch {
+        return false;
+    }
+}
+
+export function isVoiceServiceReady(): boolean {
+    if (Platform.OS !== 'android') return true;
+    try {
+        return native?.isServiceReady() ?? false;
     } catch {
         return false;
     }
