@@ -24,7 +24,7 @@ process.stdin.once('data', () => {
         out += JSON.stringify({ type: 'realtime.audio', data: chunk.toString('base64') }) + '\\n';
     }
     process.stdout.write(out, () => {
-        process.stdout.write(JSON.stringify({ type: 'realtime.closed', reason: 'burst done XAI_API_KEY=secret-value /home/reviewer/private' }) + '\\n');
+        process.stdout.write(JSON.stringify({ type: 'realtime.closed', reason: 'burst done XAI_API_KEY=secret-value Bearer bearer-private-value 123e4567-e89b-12d3-a456-426614174000 /home/reviewer/private' }) + '\\n');
     });
 });
 `);
@@ -77,7 +77,11 @@ it('delivers a bursty provider reply completely and in order through a slow rela
     expect(closedReason).toContain('burst done');
     expect(closedReason).toContain('[credential redacted]');
     expect(closedReason).toContain('[path hidden]');
+    expect(closedReason).toContain('Bearer [redacted]');
+    expect(closedReason).toContain('[internal reference]');
     expect(closedReason).not.toContain('secret-value');
+    expect(closedReason).not.toContain('bearer-private-value');
+    expect(closedReason).not.toContain('123e4567');
     expect(closedReason).not.toContain('/home/reviewer');
     expect(received).toHaveLength(FRAME_COUNT);
     const sequence = received.map((data) => Buffer.from(data, 'base64')[0]);
