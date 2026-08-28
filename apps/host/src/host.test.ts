@@ -6,7 +6,7 @@ const relay = vi.hoisted(() => ({
     options: undefined as { onClientFrame: (...args: never[]) => void; onStateChange: (state: 'connecting' | 'open' | 'closed' | 'replaced') => void } | undefined,
 }));
 
-vi.mock('./relayLink.js', () => ({
+vi.mock('./machine/index.js', () => ({
     connectToRelay: vi.fn((options: typeof relay.options) => {
         relay.options = options;
         return { send: relay.send, close: relay.close };
@@ -14,7 +14,7 @@ vi.mock('./relayLink.js', () => ({
 }));
 
 import { startHost } from './host.js';
-import type { SessionSource } from './sessionSource.js';
+import type { SessionSource } from './agent/index.js';
 
 describe('host machine plugin invalidation flow', () => {
     beforeEach(() => {

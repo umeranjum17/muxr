@@ -2,6 +2,24 @@
 
 muxr lets a person direct coding agents running on their computers. Human-facing identity, lifecycle reporting, proactive voice, and realtime conversation remain separate from internal routing and provider mechanics.
 
+## Machines
+
+**Machine**:
+A computer whose Agents a person directs. Distinct from the phone, browser, or peer that holds a Device Grant to it.
+_Avoid_: host box, node, computer
+
+**Device Grant**:
+Keyed admission a phone, browser, or peer holds to a Machine.
+_Avoid_: client token, paired device
+
+**Peer Identity**:
+Who a socket is after admission: ticket-backed or loopback. Agent Route still authorizes Agents; Peer Identity authorizes the wire.
+_Avoid_: client token, legacy identity, account token
+
+**Ticket**:
+Short-lived proof that mints a WebSocket. Presence of transport means ticket admission.
+_Avoid_: session cookie, API key, machine token
+
 ## Agents
 
 **Agent**:

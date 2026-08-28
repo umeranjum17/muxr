@@ -1,13 +1,9 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { get as httpGet } from 'node:http';
 import type { RelayE2eeMode } from './config.js';
-import { extractAccountToken, extractBearerToken } from './auth.js';
-import { isValidPublicKey, type PairingRequests } from './pairing.js';
-import type { MachineRegistry } from './registry.js';
-import type { OfflineBuffer } from './buffer.js';
-import type { PeerTable } from './peers.js';
-import type { ReplayLog } from './replay.js';
-import { parsePushNotification, type PushService } from './push.js';
+import { extractBearerToken, isValidPublicKey, type PairingRequests, type MachineRegistry } from './admission/index.js';
+import type { OfflineBuffer, PeerTable, ReplayLog } from './routing/index.js';
+import { parsePushNotification, type PushService } from './push/index.js';
 
 export interface PushActionOutcome {
     ok: boolean;
@@ -80,6 +76,11 @@ export function readJsonBody(req: IncomingMessage): Promise<unknown> {
 export function writeJson(res: ServerResponse, status: number, body: unknown): void {
     res.writeHead(status, { 'content-type': 'application/json' });
     res.end(JSON.stringify(body));
+}
+
+export function writeJsonError(res: ServerResponse, status: number, message: string): void {
+    res.writeHead(status, { 'cache-control': 'no-store', 'content-type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify({ error: message }));
 }
 
 export function isExpoPushToken(value: unknown): value is string {
@@ -218,9 +219,7 @@ export async function handleHttpRequest(
         res.on('finish', () => console.log(`[attachment-download] FINISH bytes=${piped}`));
         res.on('close', () => console.log(`[attachment-download] CLOSE bytes=${piped} complete=${piped === Number(upstream.headers['content-length'] ?? -1)}`));
         res.writeHead(upstream.statusCode, {
-            'content-type': found.mimeType === 'application/vnd.android.package-archive'
-                ? 'application/octet-stream'
-                : typeof found.mimeType === 'string' ? found.mimeType : 'application/octet-stream',
+            'content-type': attachmentContentType(found.mimeType),
             ...(upstream.headers['content-length'] === undefined
                 ? {}
                 : { 'content-length': upstream.headers['content-length'] }),
@@ -258,7 +257,7 @@ export async function handleHttpRequest(
     }
 
     if (req.method === 'POST' && path === '/v1/auth/account/response') {
-        const token = extractAccountToken(req, url);
+        const token = extractBearerToken(req);
         if (!token) {
             writeJson(res, 401, { error: 'account token required' });
             return;
@@ -294,7 +293,7 @@ export async function handleHttpRequest(
     }
 
     if (req.method === 'POST' && path === '/v1/machines') {
-        const token = extractAccountToken(req, url);
+        const token = extractBearerToken(req);
         if (!token) {
             writeJson(res, 401, { error: 'account token required' });
             return;
@@ -316,7 +315,7 @@ export async function handleHttpRequest(
     }
 
     if (req.method === 'GET' && path === '/v1/machines') {
-        const token = extractAccountToken(req, url);
+        const token = extractBearerToken(req);
         if (!token) {
             writeJson(res, 401, { error: 'account token required' });
             return;
@@ -331,7 +330,7 @@ export async function handleHttpRequest(
     }
 
     if (req.method === 'GET' && path === '/v1/push/vapid-public') {
-        const token = extractAccountToken(req, url);
+        const token = extractBearerToken(req);
         if (!token) {
             writeJson(res, 401, { error: 'account token required' });
             return;
@@ -345,7 +344,7 @@ export async function handleHttpRequest(
     }
 
     if (req.method === 'POST' && path === '/v1/push/subscribe') {
-        const token = extractAccountToken(req, url);
+        const token = extractBearerToken(req);
         if (!token) {
             writeJson(res, 401, { error: 'account token required' });
             return;
@@ -372,7 +371,7 @@ export async function handleHttpRequest(
     }
 
     if ((req.method === 'POST' || req.method === 'DELETE') && path === '/v1/push/expo-subscribe') {
-        const token = extractAccountToken(req, url);
+        const token = extractBearerToken(req);
         if (!token) {
             writeJson(res, 401, { error: 'account token required' });
             return;
@@ -440,7 +439,7 @@ export async function handleHttpRequest(
     }
 
     if (req.method === 'POST' && path === '/v1/push/action') {
-        const token = extractAccountToken(req, url);
+        const token = extractBearerToken(req);
         if (!token) {
             writeJson(res, 401, { error: 'account token required' });
             return;
@@ -490,4 +489,10 @@ export async function handleHttpRequest(
     }
 
     writeJson(res, 404, { error: 'not found' });
+}
+
+function attachmentContentType(mimeType: unknown): string {
+    if (mimeType === 'application/vnd.android.package-archive') return 'application/octet-stream';
+    if (typeof mimeType === 'string') return mimeType;
+    return 'application/octet-stream';
 }

@@ -8,6 +8,6 @@ export {
     type RelayConfig,
     type RelayE2eeMode,
 } from './config.js';
-export type { Ticket } from './auth.js';
-export { FileTicketStore } from './selfhostTickets.js';
+export type { Ticket } from './admission/index.js';
+export { FileTicketStore } from './admission/index.js';
 export { readJsonBody, writeJson } from './httpHandlers.js';

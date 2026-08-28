@@ -102,6 +102,30 @@ function handleSessionList(sessions: SessionInfo[], socket: WebSocket): void {
     if (sessionId === undefined) promptSession(socket, sessions[0]!.id);
 }
 
+function handleResult(frame: Extract<HostFrame, { type: 'result' }>, socket: WebSocket): void {
+    if (!frame.ok) {
+        process.stdout.write(`  (request error) ${frame.error}\n`);
+        maybePass(socket);
+        return;
+    }
+    if (listRoundTripDone && Array.isArray(frame.data)) {
+        listRoundTripOk = true;
+        maybePass(socket);
+        return;
+    }
+    if (listRoundTripDone) {
+        maybePass(socket);
+        return;
+    }
+    if (isSessionSnapshot(frame.data)) {
+        promptSession(socket, frame.data.info.id);
+        maybePass(socket);
+        return;
+    }
+    if (Array.isArray(frame.data)) handleSessionList(frame.data as SessionInfo[], socket);
+    maybePass(socket);
+}
+
 const socket = new WebSocket(`${relayUrl}?role=client&machineId=${encodeURIComponent(machineId)}`);
 
 const timer = setTimeout(() => {
@@ -129,18 +153,7 @@ socket.on('message', (raw) => {
     const frame = decodePayload<HostFrame>(envelope.payload);
 
     if (frame.type === 'result') {
-        if (frame.ok) {
-            if (listRoundTripDone && Array.isArray(frame.data)) {
-                listRoundTripOk = true;
-            } else if (!listRoundTripDone && isSessionSnapshot(frame.data)) {
-                promptSession(socket, frame.data.info.id);
-            } else if (!listRoundTripDone && Array.isArray(frame.data)) {
-                handleSessionList(frame.data as SessionInfo[], socket);
-            }
-        } else {
-            process.stdout.write(`  (request error) ${frame.error}\n`);
-        }
-        maybePass(socket);
+        handleResult(frame, socket);
         return;
     }
 

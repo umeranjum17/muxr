@@ -7,21 +7,40 @@
  */
 
 import type { ClientFrame, ClientRequest, SessionEvent, SessionEventBody } from '@muxr/contract';
-import { connectToRelay, type RelayLink } from './relayLink.js';
-import { createRequestDispatcher } from './requests/createRequestDispatcher.js';
-import type { DomainStores } from './domain/index.js';
-import type { TerminalManager } from './herdr/terminalManager.js';
-import type { SessionSource } from './sessionSource.js';
-import type { HostedMachineKeys } from './hostedE2ee.js';
-import type { PeerRuntime } from './peer/runtime.js';
-import type { DiagnosticClientKind, HostDiagnosticsJournal } from './diagnostics/journal.js';
+import { connectToRelay, deviceTableCanMutate, type RelayLink, type HostedMachineKeys } from './machine/index.js';
+import { createRequestDispatcher } from './requests/index.js';
+import type { AgentWatchStores, SessionSource, TerminalManager } from './agent/index.js';
+import type { PeerRuntime } from './peer/index.js';
+import type { DiagnosticClientKind, HostDiagnosticsJournal } from './diagnostics/index.js';
+
+function sessionIdFrom(frame: { type?: string; params?: unknown } | null | undefined): string | undefined {
+    if (frame === null || typeof frame !== 'object') return undefined;
+    if (typeof frame.params !== 'object' || frame.params === null) return undefined;
+    if (!('sessionId' in frame.params) || typeof frame.params.sessionId !== 'string') return undefined;
+    return frame.params.sessionId;
+}
+
+function peerRecipientFor(senderId: string | undefined, hostedE2ee: HostedMachineKeys | undefined): string | undefined {
+    if (senderId === undefined) return undefined;
+    if (hostedE2ee?.deviceKinds?.[senderId] !== 'peer') return undefined;
+    return senderId;
+}
+
+function responseChannel(frameType: string): 'attachment' | 'session' {
+    return frameType === 'attachment.read' ? 'attachment' : 'session';
+}
+
+function diagnosticClientKind(senderId: string | undefined, hostedE2ee: HostedMachineKeys | undefined): DiagnosticClientKind {
+    if (senderId === undefined) return 'local';
+    return hostedE2ee?.deviceKinds?.[senderId] ?? 'unknown';
+}
 
 export interface HostOptions {
     relayUrl: string;
     machineId: string;
     machineName?: string;
     source: SessionSource;
-    domain: DomainStores;
+    domain: AgentWatchStores;
     terminals?: TerminalManager;
     hostVersion?: string;
     onStateChange?: (state: 'connecting' | 'open' | 'closed' | 'replaced') => void;
@@ -54,7 +73,7 @@ export function startHost(options: HostOptions): Host {
         ...(options.peerRuntime === undefined ? {} : { peerRuntime: options.peerRuntime }),
         ...(options.hostedE2ee === undefined ? {} : {
             requirePreviewEncryption: true,
-            canMutateDevice: (deviceId: string) => options.hostedE2ee!.deviceAuthorities?.[deviceId] !== 'observe',
+            canMutateDevice: (deviceId: string) => deviceTableCanMutate(options.hostedE2ee!.deviceAuthorities, deviceId),
             getDeviceContext: (deviceId: string) => {
                 const kind = options.hostedE2ee!.deviceKinds?.[deviceId];
                 return kind === undefined ? undefined : {
@@ -73,17 +92,17 @@ export function startHost(options: HostOptions): Host {
     }
 
     async function handleClientFrame(frame: ClientFrame, authenticatedSenderId?: string): Promise<void> {
-        const deviceKind = authenticatedSenderId === undefined ? 'local' : options.hostedE2ee?.deviceKinds?.[authenticatedSenderId] ?? 'unknown';
-        const clientKind: DiagnosticClientKind = deviceKind;
+        const clientKind = diagnosticClientKind(authenticatedSenderId, options.hostedE2ee);
         options.diagnostics?.client(authenticatedSenderId ?? 'local', clientKind, frame.type === 'client.hello');
-        const peerRecipient = authenticatedSenderId !== undefined
-            && options.hostedE2ee?.deviceKinds?.[authenticatedSenderId] === 'peer' ? authenticatedSenderId : undefined;
+        const peerRecipient = peerRecipientFor(authenticatedSenderId, options.hostedE2ee);
         if (options.hostedE2ee !== undefined && frame.type === 'terminal.attach'
             && frame.params.deviceId !== authenticatedSenderId) {
             throw new Error('terminal: device grant does not match the authenticated client');
         }
         if (frame.type === 'client.hello') {
-            if (peerRecipient === undefined || options.hostedE2ee?.deviceCapabilities?.[peerRecipient]?.includes('list') === true) {
+            const peerMayList = peerRecipient === undefined
+                || options.hostedE2ee?.deviceCapabilities?.[peerRecipient]?.includes('list') === true;
+            if (peerMayList) {
                 link?.send({ type: 'session.list', sessions: await source.list({}) }, undefined, 'session', peerRecipient);
             }
             if (peerRecipient === undefined) source.resendCumulativeState?.();
@@ -97,16 +116,15 @@ export function startHost(options: HostOptions): Host {
             options.diagnostics?.request(frame.type, clientKind, 'unavailable', Date.now() - startedAt);
             throw error;
         }
-        options.diagnostics?.request(frame.type, clientKind, response.ok ? 'ok' : 'rejected', Date.now() - startedAt, response.ok ? undefined : response.code);
+        const outcome = response.ok ? 'ok' : 'rejected';
+        options.diagnostics?.request(frame.type, clientKind, outcome, Date.now() - startedAt, response.ok ? undefined : response.code);
         if (frame.type.startsWith('peer.') && options.peerRuntime !== undefined) {
             options.diagnostics?.relationships(options.peerRuntime.store.list().peers);
         }
-        const sessionId = 'params' in frame && typeof frame.params === 'object' && frame.params !== null
-            && 'sessionId' in frame.params && typeof frame.params.sessionId === 'string' ? frame.params.sessionId : undefined;
         if (frame.type === 'attachment.prepare') {
             console.log(`[attachment-download] host answering req=${frame.requestId} ok=${response.ok}`);
         }
-        link?.send(response, sessionId, frame.type === 'attachment.read' ? 'attachment' : 'session', peerRecipient);
+        link?.send(response, sessionIdFrom(frame), responseChannel(frame.type), peerRecipient);
     }
 
     link = connectToRelay({
@@ -137,28 +155,16 @@ export function startHost(options: HostOptions): Host {
         onClientFrame: (frame, authenticatedSenderId) => {
             void handleClientFrame(frame, authenticatedSenderId).catch((error: unknown) => {
                 const message = error instanceof Error ? error.message : String(error);
+                const sessionId = sessionIdFrom(frame);
                 if (typeof frame === 'object' && frame !== null && 'requestId' in frame && typeof frame.requestId === 'string') {
-                    const errorSessionId = 'params' in frame && typeof frame.params === 'object' && frame.params !== null
-                        && 'sessionId' in frame.params && typeof frame.params.sessionId === 'string' ? frame.params.sessionId : undefined;
-                    const peerRecipient = authenticatedSenderId !== undefined
-                        && options.hostedE2ee?.deviceKinds?.[authenticatedSenderId] === 'peer' ? authenticatedSenderId : undefined;
                     link?.send(
                         { type: 'result', requestId: frame.requestId, ok: false, error: message },
-                        errorSessionId,
-                        frame.type === 'attachment.read' ? 'attachment' : 'session',
-                        peerRecipient,
+                        sessionId,
+                        responseChannel(frame.type),
+                        peerRecipientFor(authenticatedSenderId, options.hostedE2ee),
                     );
                     return;
                 }
-                const sessionId =
-                    typeof frame === 'object' && frame !== null &&
-                    'params' in frame &&
-                    typeof frame.params === 'object' &&
-                    frame.params !== null &&
-                    'sessionId' in frame.params &&
-                    typeof frame.params.sessionId === 'string'
-                        ? frame.params.sessionId
-                        : undefined;
                 if (sessionId !== undefined) forward(sessionId, { type: 'session.error', message });
             });
         },
