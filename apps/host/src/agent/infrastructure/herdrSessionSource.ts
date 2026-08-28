@@ -64,10 +64,12 @@ import {
 } from '../domain/layout.js';
 import { rollupLifecycle } from '../domain/lifecycle.js';
 import { reportAgentOutcome } from '../application/reportAgentOutcome.js';
+import { agentKindsFromManifests } from '../domain/agentKinds.js';
 
 const PLUGIN_CALL_QUEUE_TIMEOUT_MS = 8_000;
 const MAX_PLUGIN_INVOCATIONS_PER_SCOPE = 64;
 const MAX_PLUGIN_INVOCATIONS_TOTAL = 1_024;
+
 const moduleRoot = dirname(fileURLToPath(import.meta.url));
 function bundledPluginsDirectory(start: string): string | undefined {
     let dir = start;
@@ -1565,10 +1567,10 @@ export async function createHerdrSessionSource(
 
         async agentKinds(): Promise<string[]> {
             const result = await client.call<{ manifests?: Array<{ agent?: string }> }>('server.agent_manifests', {});
-            return [...new Set((result.manifests ?? [])
-                .map((manifest) => manifest.agent?.trim())
-                .filter((agent): agent is string => agent !== undefined && /^[a-z][a-z0-9_-]{0,31}$/.test(agent)))]
-                .slice(0, 64);
+            // Herdr's endpoint lists screen-detection manifests, not every
+            // launchable integration. OMP and MastraCode report state through
+            // hooks, so include them before probing the host PATH.
+            return agentKindsFromManifests(result.manifests ?? []);
         },
 
         async installedAgentKinds(kinds: readonly string[]): Promise<string[]> {
