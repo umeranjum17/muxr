@@ -4,7 +4,7 @@
  *   node scripts/checkHostContract.mjs <candidateCommit> <hostReleaseDir>
  *
  * Compares the full client request-type set of an exact APK candidate commit
- * (packages/contract/src/requests.ts in git) against the request-type set the
+ * (packages/contract/src/control-plane/domain/requests.ts in git) against the request-type set the
  * host's BUILT dispatcher actually exports in an exact immutable release
  * directory (~/.muxr/releases/host/<sha>/). Fails if the APK asks for
  * anything the host cannot answer, including the generic plugin bridge.
@@ -20,7 +20,7 @@ import { basename, join, resolve } from 'node:path';
 import { execFileSync } from 'node:child_process';
 
 const RELEASE_JSON = 'release.json';
-const CONTRACT_PATH = 'packages/contract/src/requests.ts';
+const CONTRACT_PATH = 'packages/contract/src/control-plane/domain/requests.ts';
 const DISPATCHER_PATH = 'apps/host/dist/requests/createRequestDispatcher.js';
 // Generic plugin control must exist on both the candidate and built host.
 const REQUIRED_TYPES = ['plugin.list', 'plugin.manifest', 'plugin.approve', 'plugin.invoke', 'plugin.call'];

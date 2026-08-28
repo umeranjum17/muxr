@@ -1,4 +1,5 @@
-import type { AgentLifecycle } from './sessionState.js';
+import { unwrapOrThrow, fail, ok, type Outcome } from '../../shared/outcome.js';
+import type { AgentLifecycle } from '../../herd/index.js';
 import type {
     PluginAction,
     PluginContribution,
@@ -16,7 +17,7 @@ import type {
     PluginScreenNode,
     PluginScreenRowNode,
     PluginScreenTone,
-} from './plugins.js';
+} from '../domain/plugins.js';
 import {
     MAX_RPC_INPUT_BYTES,
     MAX_SCREEN_DEPTH,
@@ -36,7 +37,8 @@ import {
     PLUGIN_TEXT_MIN_UI_VERSION,
     DYNAMIC_SCREEN_MIN_UI_VERSION,
     sanitizeDisplayText,
-} from './plugins.js';
+    parsePluginId,
+} from '../domain/plugins.js';
 
 /**
  * Single source of truth for manifest parsing and validation. The host catalog
@@ -61,8 +63,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 function id(value: unknown): string {
-    if (typeof value !== 'string' || !/^[a-z0-9][a-z0-9._-]{0,63}$/.test(value)) throw new Error('invalid plugin id');
-    return value;
+    return unwrapOrThrow(parsePluginId(value));
 }
 /** Screen params name RPC input fields, which are camelCase, not plugin ids. */
 function paramKey(value: unknown): string {
@@ -284,7 +285,13 @@ function parseScreenNode(item: Record<string, unknown>, depth: number, budget: {
             const fields = item.fields === undefined ? undefined : ids(item.fields);
             if (fields !== undefined && action.type !== 'plugin.call') throw new Error('plugin screen button fields require plugin.call');
             if (action.type === 'plugin.call' && action.input !== undefined) throw new Error('plugin screen button input comes from fields and screen params');
-            return { type: 'button', label: pluginText(item.label, 40), action, ...(fields === undefined ? {} : { fields }), ...(item.variant === undefined ? {} : { variant: variant(item.variant) }) };
+            return {
+                type: 'button',
+                label: pluginText(item.label, 40),
+                action,
+                ...(fields === undefined ? {} : { fields }),
+                ...(item.variant === undefined ? {} : { variant: variant(item.variant) }),
+            };
         }
         case 'section': {
             const columns = item.columns === undefined ? undefined : number(item.columns);
@@ -511,8 +518,6 @@ function assertFiniteNumbers(value: unknown): void {
         for (const entry of Object.values(value)) assertFiniteNumbers(entry);
     }
 }
-
-export { MAX_PLUGIN_CONTEXT_BYTES, MAX_RPC_INPUT_BYTES, MAX_RPC_STDOUT_BYTES } from './plugins.js';
 
 function parseHostModuleEntry(value: unknown, kind: 'stream' | 'RPC'): string {
     const entry = text(value, 80);
@@ -809,7 +814,21 @@ export function parseManifest(value: unknown): PluginManifestV1 {
         contributions.push(contribution);
     }
     validateManifestGraph(contributions, capabilities, typeof minMuxrVersion === 'number' ? minMuxrVersion : undefined);
-    return { schemaVersion: 1, pluginId, ...(minMuxrVersion === undefined ? {} : { minMuxrVersion }), ...(capabilities === undefined ? {} : { capabilities }), contributions };
+    return {
+        schemaVersion: 1,
+        pluginId,
+        ...(minMuxrVersion === undefined ? {} : { minMuxrVersion }),
+        ...(capabilities === undefined ? {} : { capabilities }),
+        contributions,
+    };
+}
+
+export function tryParseManifest(value: unknown): Outcome<PluginManifestV1> {
+    try {
+        return ok(parseManifest(value));
+    } catch (error) {
+        return fail(error instanceof Error ? error.message : 'invalid muxr plugin manifest');
+    }
 }
 
 function screenTreeSources(nodes: PluginScreenNode[]): Array<{ contributionId: string }> {

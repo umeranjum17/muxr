@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 const REQUIRED = ['plugin.list', 'plugin.manifest', 'plugin.approve', 'plugin.invoke', 'plugin.call'];
 const KEY_LINE = /^\s*'([A-Za-z0-9.]+)':/;
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = readFileSync(join(root, 'packages/contract/src/requests.ts'), 'utf8');
+const source = readFileSync(join(root, 'packages/contract/src/control-plane/domain/requests.ts'), 'utf8');
 
 const keys = new Set();
 let capturing = false;

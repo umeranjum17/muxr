@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { previewSocketUrl } from './preview.js';
 import { terminalSocketUrl } from './terminal.js';
-import { realtimeSocketUrl } from './realtimeStream.js';
+import { realtimeSocketUrl } from '../../realtime/index.js';
 import { relayControlUrl } from './controlPlaneUrl.js';
 import { issueWsTicket, ticketSocketUrl } from './wsTickets.js';
 

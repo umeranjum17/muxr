@@ -21,6 +21,7 @@ const checks = [
     ['unit: host domain (unread/attention/restart)', 'node', ['apps/host/dist/domain/selfCheck.js']],
     ['unit: contract vocabulary round-trip', 'node', ['packages/contract/dist/selfCheck.js']],
     ['policy: plugin bridge types in RequestMap', 'node', ['scripts/checkPluginBridge.mjs']],
+    ['policy: package architecture (contexts, no nested ternaries)', 'node', ['packages/checkArchitecture.mjs']],
     ['policy: bundled plugin manifests', 'node', ['scripts/checkBundledPlugins.mjs']],
     ['unit: relay pairing (expiry, cap, validation)', 'node', ['apps/relay/dist/selfCheck.js']],
     ['unit: layout snapshot round-trip', 'node', ['apps/host/dist/herdr/layoutSelfCheck.js']],

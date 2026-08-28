@@ -29,17 +29,17 @@ import type {
     SessionSnapshot,
     SessionStartResult,
     UnreadCatalog,
-} from './sessionDomain.js';
-import type { PluginManifestV1, PluginSource, PluginSummary } from './plugins.js';
-import type { LandWorktreeResult } from './worktree.js';
-import type { AttentionCatalog, HerdrTreeWorkspace, LifecycleCatalog, SessionInfo, SessionShellOutcome, SessionStatus } from './sessionState.js';
+} from '../../herd/index.js';
+import type { PluginManifestV1, PluginSource, PluginSummary } from '../../plugins/index.js';
+import type { LandWorktreeResult } from '../../worktree/index.js';
+import type { AttentionCatalog, HerdrTreeWorkspace, LifecycleCatalog, SessionInfo, SessionShellOutcome, SessionStatus } from '../../herd/index.js';
 import type {
     PeerAuthorityMetadata,
     PeerCapability,
     PeerMutationMetadata,
     PeerRelationship,
     SignedPeerDescriptor,
-} from './peer.js';
+} from '../../peer/index.js';
 
 export interface PromptAttachment {
     name: string;
@@ -523,8 +523,7 @@ const E2EE_REQUEST_TYPES = new Set([
 ]);
 
 export function requestRequiresE2ee(type: string): boolean {
-    const isPeerRequest = type.startsWith('peer.');
-    return isPeerRequest || E2EE_REQUEST_TYPES.has(type);
+    return type.startsWith('peer.') || E2EE_REQUEST_TYPES.has(type);
 }
 
 export function normalizeRequestFailure(

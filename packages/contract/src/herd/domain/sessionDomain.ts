@@ -56,6 +56,10 @@ export type SessionStartResult = SessionSnapshot | {
     };
 };
 
+export function startWasAccepted(result: SessionStartResult): result is SessionSnapshot {
+    return result.acceptance === undefined || result.acceptance.outcome === 'accepted';
+}
+
 // --- machines ---------------------------------------------------------------
 
 export interface MachineInfo {

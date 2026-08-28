@@ -1,91 +1,24 @@
 import nacl from 'tweetnacl';
-import { isPeerCapabilities, type DeviceKind, type PeerCapability } from '@muxr/contract';
+import { inspectPeerGrantConstraints, parseDeviceKind, type DeviceKind, type PeerCapability } from '@muxr/contract';
 import { concatBytes, decodeUtf8, encodeUtf8, fromBase64, toBase64 } from './encoding.js';
+import { grantAuthority, peerConstraintMessage, type DeviceAuthority, type DeviceGrant, type SealedDeviceGrant } from '../domain/deviceGrant.js';
 import { signDetached, verifyDetached } from './identity.js';
 import { toKeyBytes, type KeyPair } from './keys.js';
 
-export type DeviceAuthority = 'control' | 'observe';
+export type { DeviceAuthority, DeviceGrant, SealedDeviceGrant } from '../domain/deviceGrant.js';
+export { grantAuthority, grantIsPeer } from '../domain/deviceGrant.js';
 
-export interface DeviceGrant {
-    machineId: string;
-    /** Machine ed25519 signing public key, base64; cross-checked against the pinned key. */
-    machineSigningPublicKey: string;
-    deviceId: string;
-    /** Device X25519 public key the grant was encrypted to, base64. */
-    devicePublicKey: string;
-    keyVersion: number;
-    /** Durable grants remain valid until explicit revocation. */
-    expiresAt: number;
-    /** Host-enforced device role. Legacy grants omit it and are interpreted by device kind. */
-    authority?: DeviceAuthority;
-    /** Distinguishes constrained peers from native and browser clients. Legacy grants omit it. */
-    deviceKind?: DeviceKind;
-    /** Signed, host-enforced peer allowlist. Present only when deviceKind is peer. */
-    capabilities?: PeerCapability[];
-    /** Signed start roots. Required only when a peer has the advanced start capability. */
-    allowedCwds?: string[];
-    /** 32-byte root for host->device data, base64. */
-    dataKey: string;
-    /** 32-byte root for device->host ingress, base64. */
-    ingressKey: string;
-}
-
-export interface SealedDeviceGrant {
-    // Wire-stable grant schema. This is unrelated to the retired shared-key transport.
-    v: 1;
-    /** Machine X25519 public key that sealed the box, base64. */
-    sender: string;
-    /** base64(nonce || ciphertext), encrypted to the device X25519 public key. */
-    box: string;
-    /** Machine ed25519 signing public key, base64; must equal the pinned key. */
-    signer: string;
-    /** base64 detached ed25519 signature over the exact grant plaintext bytes. */
-    sig: string;
-}
-
-function assertCreatedPeerConstraints(
-    deviceKind: DeviceKind | undefined,
-    authority: DeviceAuthority | undefined,
-    capabilities: PeerCapability[] | undefined,
-    allowedCwds: string[] | undefined,
+function assertPeerConstraints(
+    input: {
+        deviceKind?: DeviceKind;
+        authority?: string;
+        capabilities?: unknown;
+        allowedCwds?: unknown;
+    },
+    phase: 'create' | 'verify',
 ): void {
-    const isPeerDevice = deviceKind === 'peer';
-    if (!isPeerDevice) {
-        if (capabilities !== undefined || allowedCwds !== undefined) {
-            throw new Error('grant: peer constraints are valid only for peer devices');
-        }
-        return;
-    }
-    if (!isPeerCapabilities(capabilities)) throw new Error('grant: peer capabilities required');
-    if (authority !== undefined) throw new Error('grant: peer devices cannot carry broad authority');
-    const canStart = capabilities.includes('start');
-    if (canStart) {
-        const directoriesAreMissing = allowedCwds === undefined || allowedCwds.length === 0
-            || allowedCwds.some((cwd) => typeof cwd !== 'string' || cwd.trim() === '');
-        if (directoriesAreMissing) throw new Error('grant: peer start requires allowed directories');
-        return;
-    }
-    if (allowedCwds !== undefined) throw new Error('grant: allowed directories require peer start');
-}
-
-function assertOpenedPeerConstraints(parsed: DeviceGrant): void {
-    const isPeerDevice = parsed.deviceKind === 'peer';
-    if (!isPeerDevice) {
-        if (parsed.capabilities !== undefined || parsed.allowedCwds !== undefined) {
-            throw new Error('grant: peer constraints are valid only for peer devices');
-        }
-        return;
-    }
-    if (parsed.authority !== undefined) throw new Error('grant: peer devices cannot carry broad authority');
-    if (!isPeerCapabilities(parsed.capabilities)) throw new Error('grant: invalid peer capabilities');
-    const canStart = parsed.capabilities.includes('start');
-    if (canStart) {
-        const directoriesAreInvalid = !Array.isArray(parsed.allowedCwds) || parsed.allowedCwds.length === 0
-            || parsed.allowedCwds.some((cwd) => typeof cwd !== 'string' || cwd.trim() === '');
-        if (directoriesAreInvalid) throw new Error('grant: invalid peer start directories');
-        return;
-    }
-    if (parsed.allowedCwds !== undefined) throw new Error('grant: allowed directories require peer start');
+    const inspected = inspectPeerGrantConstraints(input);
+    if (!inspected.ok) throw new Error(peerConstraintMessage(inspected.error, phase));
 }
 
 /**
@@ -127,10 +60,18 @@ export function createDeviceGrant(params: {
     }
     const capabilities = params.capabilities === undefined ? undefined : [...params.capabilities];
     const allowedCwds = params.allowedCwds === undefined ? undefined : [...params.allowedCwds];
-    assertCreatedPeerConstraints(params.deviceKind, params.authority, capabilities, allowedCwds);
+    assertPeerConstraints({
+        ...(params.deviceKind === undefined ? {} : { deviceKind: params.deviceKind }),
+        ...(params.authority === undefined ? {} : { authority: params.authority }),
+        ...(capabilities === undefined ? {} : { capabilities }),
+        ...(allowedCwds === undefined ? {} : { allowedCwds }),
+    }, 'create');
     // tweetnacl ed25519 secret keys append the public key in the last 32 bytes.
     const machineSigningPublicKey = toBase64(signingSecret.subarray(nacl.sign.publicKeyLength));
-    const isPeerDevice = params.deviceKind === 'peer';
+    const authority = grantAuthority({
+        ...(params.deviceKind === undefined ? {} : { deviceKind: params.deviceKind }),
+        ...(params.authority === undefined ? {} : { authority: params.authority }),
+    });
     const grant: DeviceGrant = {
         machineId,
         machineSigningPublicKey,
@@ -141,7 +82,7 @@ export function createDeviceGrant(params: {
         ...(params.deviceKind === undefined ? {} : { deviceKind: params.deviceKind }),
         ...(capabilities === undefined ? {} : { capabilities }),
         ...(allowedCwds === undefined ? {} : { allowedCwds }),
-        ...(isPeerDevice ? {} : { authority: params.authority ?? 'control' }),
+        ...(authority === undefined ? {} : { authority }),
         dataKey: toBase64(toKeyBytes(params.dataKey, 'grant dataKey')),
         ingressKey: toBase64(toKeyBytes(params.ingressKey, 'grant ingressKey')),
     };
@@ -203,12 +144,8 @@ export function verifyDeviceGrant(
     if (parsed.expiresAt <= Date.now()) throw new Error('grant: expired');
     const authorityIsUnknown = parsed.authority !== undefined && parsed.authority !== 'control' && parsed.authority !== 'observe';
     if (authorityIsUnknown) throw new Error('grant: invalid authority');
-    const kindIsUnknown = parsed.deviceKind !== undefined
-        && parsed.deviceKind !== 'native'
-        && parsed.deviceKind !== 'browser'
-        && parsed.deviceKind !== 'peer';
-    if (kindIsUnknown) throw new Error('grant: invalid device kind');
-    assertOpenedPeerConstraints(parsed);
+    if (parsed.deviceKind !== undefined && !parseDeviceKind(parsed.deviceKind).ok) throw new Error('grant: invalid device kind');
+    assertPeerConstraints(parsed, 'verify');
     if (!Number.isInteger(parsed.keyVersion) || parsed.keyVersion < 1) throw new Error('grant: invalid key generation');
     if (typeof parsed.dataKey !== 'string' || toKeyBytes(parsed.dataKey, 'grant dataKey').length !== 32) throw new Error('grant: invalid dataKey');
     if (typeof parsed.ingressKey !== 'string' || toKeyBytes(parsed.ingressKey, 'grant ingressKey').length !== 32) throw new Error('grant: invalid ingressKey');

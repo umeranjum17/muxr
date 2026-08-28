@@ -5,6 +5,8 @@
  * honestly and leaves the rest at defaults. Nothing here is reshaped per transport.
  */
 
+import { fail, ok, type Outcome } from '../../shared/outcome.js';
+
 export interface SessionRef {
     id: string;
     cwd: string;
@@ -165,7 +167,68 @@ export interface SessionWarning {
 }
 
 /** Canonical user-facing lifecycle. `idle` remains for older herdr providers. */
-export type AgentLifecycle = 'starting' | 'idle' | 'working' | 'blocked' | 'done' | 'failed' | 'unknown';
+export const AGENT_LIFECYCLES = ['starting', 'idle', 'working', 'blocked', 'done', 'failed', 'unknown'] as const;
+export type AgentLifecycle = (typeof AGENT_LIFECYCLES)[number];
+
+export function parseAgentLifecycle(value: unknown): Outcome<AgentLifecycle> {
+    if (typeof value !== 'string' || !(AGENT_LIFECYCLES as readonly string[]).includes(value)) {
+        return fail('invalid agent status');
+    }
+    return ok(value as AgentLifecycle);
+}
+
+export function agentIsWorking(state: AgentLifecycle): boolean {
+    return state === 'working';
+}
+
+/**
+ * Spoken first name. Display-only: it never authorizes a prompt, watch, or focus.
+ * Optional trailing digit is a homonym disambiguator (Maria 2), not a route.
+ */
+const HUMAN_NAME = /^[\p{L}\p{M}][\p{L}\p{M}' -]{0,72}(?: \d+)?$/u;
+
+export function parseHumanName(value: unknown): Outcome<string> {
+    if (typeof value !== 'string') return fail('invalid human name');
+    const name = value.normalize('NFKC').replace(/[\0-\x1F\x7F]/g, '').replace(/\s+/g, ' ').trim();
+    if (!HUMAN_NAME.test(name)) return fail('invalid human name');
+    return ok(name);
+}
+
+/**
+ * Agent Route that may cross a plugin/stream process boundary.
+ * Host-internal routes can be richer; this is the public subset.
+ */
+const PUBLIC_AGENT_ROUTE = /^[A-Za-z0-9._:-]{1,80}$/;
+
+export function parsePublicAgentRoute(value: unknown): Outcome<string> {
+    if (typeof value !== 'string') return fail('invalid agent route');
+    const route = value.replace(/[\0-\x1F\x7F]/g, '').trim();
+    if (!PUBLIC_AGENT_ROUTE.test(route)) return fail('invalid agent route');
+    return ok(route);
+}
+
+const PROVIDER_KIND = /^[a-z][a-z0-9_-]{0,31}$/;
+
+export function parseProviderKind(value: unknown): Outcome<string> {
+    if (typeof value !== 'string') return fail('invalid provider kind');
+    const kind = value.trim().toLowerCase();
+    if (!PROVIDER_KIND.test(kind)) return fail('invalid provider kind');
+    return ok(kind);
+}
+
+/** The only key that authorizes prompt, watch, or focus. */
+export function agentRoute(agent: { id: string }): string {
+    return agent.id;
+}
+
+/** Lifecycle Event's routing key. Human Name and Task Title on the same record never authorize. */
+export function lifecycleEventRoute(event: LifecycleEvent): string {
+    return event.sessionId;
+}
+
+export function lifecycleEventHumanName(event: LifecycleEvent): string {
+    return event.displayName;
+}
 
 export type LifecycleReasonCode =
     | 'start-requested'
@@ -230,7 +293,7 @@ export interface SessionStatus {
 
 /** True when nothing is running. herdr's lifecycle is the authority. */
 export function isSessionIdle(status: SessionStatus): boolean {
-    if (status.agentStatus !== undefined) return status.agentStatus !== 'working';
+    if (status.agentStatus !== undefined) return !agentIsWorking(status.agentStatus);
     return !status.isStreaming;
 }
 
@@ -251,8 +314,25 @@ export const ATTENTION_REASONS = ['waiting', 'blocked', 'failed', 'done'] as con
 
 export type AttentionReason = (typeof ATTENTION_REASONS)[number];
 
+/** 'done' rows are noise after ten minutes: the work is finished, the row isn't. */
+export const ATTENTION_DONE_TTL_MS = 10 * 60_000;
+/** Nothing except a parked question survives past six hours. */
+export const ATTENTION_HARD_CAP_MS = 6 * 60 * 60_000;
+
 export function attentionRank(reason: AttentionReason): number {
     return ATTENTION_REASONS.indexOf(reason);
+}
+
+export function attentionOutranks(candidate: AttentionReason, incumbent: AttentionReason): boolean {
+    return attentionRank(candidate) < attentionRank(incumbent);
+}
+
+/** Waiting is a parked question and never decays. Other reasons age out. */
+export function attentionReasonStillHolds(reason: AttentionReason, ageMs: number): boolean {
+    if (reason === 'waiting') return true;
+    if (ageMs > ATTENTION_HARD_CAP_MS) return false;
+    if (reason === 'done' && ageMs > ATTENTION_DONE_TTL_MS) return false;
+    return true;
 }
 
 /**

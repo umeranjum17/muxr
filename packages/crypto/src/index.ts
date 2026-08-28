@@ -13,40 +13,52 @@
  * than carrying a second, downgrade-prone encryption protocol.
  */
 
-export type { KeyPair } from './keys.js';
-export { generateKeyPair } from './keys.js';
-export {
-    PAIRING_CODE_ALPHABET,
-    formatPairingCode,
-    normalizePairingCode,
-    openPairingCodePayload,
-    pairingCodeHash,
-    sealPairingCodePayload,
-} from './pairing.js';
-export { newPreviewKey, openPreviewPayload, sealPreviewPayload } from './preview.js';
 export type {
+    DeviceAuthority,
+    DeviceGrant,
+    KeyPair,
+    PeerInstallBundlePayload,
+    SealedDeviceGrant,
+    SigningKeyPair,
     V2Context,
     V2Direction,
     V2ReplaySnapshot,
     V2ReplayTracker,
     V2SenderState,
-} from './envelope.js';
+} from './e2ee/index.js';
 export {
+    PAIRING_CODE_ALPHABET,
+    PEER_DESCRIPTOR_MAX_TTL_MS,
+    createDeviceGrant,
+    createSignedPeerDescriptor,
     deriveV2Key,
+    formatPairingCode,
+    generateKeyPair,
+    generateSigningKeyPair,
+    grantAuthority,
+    grantIsPeer,
+    hostedRoutingContext,
     isV2Envelope,
+    newPreviewKey,
     newV2ReplayTracker,
     newV2SenderState,
+    normalizePairingCode,
+    openPairingCodePayload,
+    openPeerInstallBundle,
+    openPreviewPayload,
     openV2,
+    pairingCodeHash,
+    parsePairingCode,
+    sealPairingCodePayload,
+    sealPeerInstallBundle,
+    sealPreviewPayload,
     sealV2,
+    signDetached,
     v2EnvelopeSequence,
     v2ReplayFromSnapshot,
     v2SenderFromSnapshot,
     v2SenderToSnapshot,
-} from './envelope.js';
-export type { SigningKeyPair } from './identity.js';
-export { generateSigningKeyPair, signDetached, verifyDetached } from './identity.js';
-export type { DeviceAuthority, DeviceGrant, SealedDeviceGrant } from './grants.js';
-export { createDeviceGrant, verifyDeviceGrant } from './grants.js';
-export { PEER_DESCRIPTOR_MAX_TTL_MS, createSignedPeerDescriptor, verifySignedPeerDescriptor } from './peerDescriptor.js';
-export type { PeerInstallBundlePayload } from './peerBundle.js';
-export { openPeerInstallBundle, sealPeerInstallBundle } from './peerBundle.js';
+    verifyDetached,
+    verifyDeviceGrant,
+    verifySignedPeerDescriptor,
+} from './e2ee/index.js';

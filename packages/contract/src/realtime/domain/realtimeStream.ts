@@ -1,4 +1,5 @@
-import { relayChannelSocketUrl } from './controlPlaneUrl.js';
+import { parseHumanName, parseProviderKind, parsePublicAgentRoute } from '../../herd/index.js';
+import { relayChannelSocketUrl } from '../../control-plane/index.js';
 
 /**
  * Provider-neutral realtime voice channel.
@@ -34,31 +35,35 @@ export interface RealtimePluginOpenFrame {
     publicContext?: RealtimePluginPublicContext;
 }
 
+function publicTaskTitle(raw: string | undefined, displayName: string, providerKind: string | undefined): string | undefined {
+    let taskTitle = raw?.replace(/[\0-\x1F\x7F]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120);
+    if (taskTitle === undefined) return undefined;
+    for (const prefix of [displayName, providerKind]) {
+        if (prefix === undefined || prefix === '') continue;
+        const escaped = prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        taskTitle = taskTitle.replace(new RegExp(`^${escaped}\\s*[-–—:|]\\s*`, 'i'), '').trim();
+    }
+    const looksLikeASecret = /[\\/`]|&&|\|\||\b(?:token|password|secret|credential)\s*=/i.test(taskTitle);
+    if (taskTitle === '' || taskTitle.split(/\s+/).length > 8 || looksLikeASecret) return undefined;
+    return taskTitle;
+}
+
 /** Bound and sanitize the stable-id/name map before it crosses the stream process boundary. */
 export function realtimePluginPublicContext(input: readonly RealtimePluginPublicSession[]): RealtimePluginPublicContext {
     const sessions: RealtimePluginPublicSession[] = [];
     const ids = new Set<string>();
     for (const entry of input) {
-        const sessionId = entry.sessionId.replace(/[\0-\x1F\x7F]/g, '').trim();
-        const displayName = entry.displayName.normalize('NFKC').replace(/[\0-\x1F\x7F]/g, '').replace(/\s+/g, ' ').trim();
-        if (!/^[A-Za-z0-9._:-]{1,80}$/.test(sessionId) || ids.has(sessionId)) continue;
-        if (!/^[\p{L}\p{M}][\p{L}\p{M}' -]{0,72}(?: \d+)?$/u.test(displayName)) continue;
-        const agentKind = entry.agentKind?.trim().toLowerCase();
-        let taskTitle = entry.taskTitle?.replace(/[\0-\x1F\x7F]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120);
-        if (taskTitle !== undefined) {
-            for (const prefix of [displayName, agentKind]) {
-                if (prefix === undefined || prefix === '') continue;
-                const escaped = prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                taskTitle = taskTitle.replace(new RegExp(`^${escaped}\\s*[-–—:|]\\s*`, 'i'), '').trim();
-            }
-            if (taskTitle === '' || taskTitle.split(/\s+/).length > 8 || /[\\/`]|&&|\|\||\b(?:token|password|secret|credential)\s*=/i.test(taskTitle)) taskTitle = undefined;
-        }
-        ids.add(sessionId);
+        const sessionId = parsePublicAgentRoute(entry.sessionId);
+        const displayName = parseHumanName(entry.displayName);
+        if (!sessionId.ok || ids.has(sessionId.value) || !displayName.ok) continue;
+        const providerKind = entry.agentKind === undefined ? undefined : parseProviderKind(entry.agentKind);
+        const taskTitle = publicTaskTitle(entry.taskTitle, displayName.value, providerKind?.ok ? providerKind.value : undefined);
+        ids.add(sessionId.value);
         sessions.push({
-            sessionId,
-            displayName,
+            sessionId: sessionId.value,
+            displayName: displayName.value,
             ...(taskTitle === undefined ? {} : { taskTitle }),
-            ...(agentKind === undefined || !/^[a-z][a-z0-9_-]{0,31}$/.test(agentKind) ? {} : { agentKind }),
+            ...(providerKind === undefined || !providerKind.ok ? {} : { agentKind: providerKind.value }),
         });
         if (sessions.length === MAX_REALTIME_PUBLIC_SESSIONS) break;
     }

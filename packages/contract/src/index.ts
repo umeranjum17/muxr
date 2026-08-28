@@ -1,3 +1,6 @@
+export type { Outcome } from './shared/index.js';
+export { fail, ok, unwrapOrThrow } from './shared/index.js';
+
 export type {
     AttentionCatalog,
     AttentionEntry,
@@ -19,20 +22,37 @@ export type {
     SessionStatus,
     SessionTokens,
     SessionWarning,
-} from './sessionState.js';
-export { attentionRank, ATTENTION_REASONS, isSessionIdle } from './sessionState.js';
-
-export type { SessionEvent, SessionEventBody, SessionEventType } from './sessionEvent.js';
-export { SESSION_EVENT_TYPES } from './sessionEvent.js';
-
-export type {
+    SessionShellOutcome,
+    SessionEvent,
+    SessionEventBody,
+    SessionEventType,
     MachineInfo,
     MessagePage,
     SessionSnapshot,
     SessionStartResult,
     SessionUnreadEntry,
     UnreadCatalog,
-} from './sessionDomain.js';
+} from './herd/index.js';
+export {
+    AGENT_LIFECYCLES,
+    ATTENTION_DONE_TTL_MS,
+    ATTENTION_HARD_CAP_MS,
+    ATTENTION_REASONS,
+    SESSION_EVENT_TYPES,
+    agentIsWorking,
+    agentRoute,
+    attentionOutranks,
+    attentionRank,
+    attentionReasonStillHolds,
+    isSessionIdle,
+    lifecycleEventHumanName,
+    lifecycleEventRoute,
+    parseAgentLifecycle,
+    parseHumanName,
+    parseProviderKind,
+    parsePublicAgentRoute,
+    startWasAccepted,
+} from './herd/index.js';
 
 export type {
     ClientRequest,
@@ -50,32 +70,39 @@ export type {
     StreamingBehavior,
     VoiceProviderOption,
     WatchSettlement,
-} from './requests.js';
-export { MISSING_CWD_ERROR_PREFIX, normalizeRequestFailure, requestRequiresE2ee } from './requests.js';
-export type { LayoutSnapshot } from './requests.js';
-
-export type {
-    DeviceKind,
-    PeerAuthorityMetadata,
-    PeerCapability,
-    PeerDescriptorClaims,
-    PeerMutationMetadata,
-    PeerRelationship,
-    PeerRelationshipState,
-    SignedPeerDescriptor,
-} from './peer.js';
+    LayoutSnapshot,
+    ClientFrame,
+    Envelope,
+    EnvelopeHeader,
+    PluginsInvalidatedFrame,
+    HostFrame,
+    RoutingChannel,
+    PreviewFrame,
+    TerminalClientFrame,
+    TerminalHostFrame,
+    WsTransport,
+    EncryptedSessionMessage,
+    MachineStateUpdate,
+    NewMessageUpdate,
+    SessionStateUpdate,
+    SessionSyncUpdate,
+    SessionSyncUpdateContainer,
+    VersionedEncryptedValue,
+    VersionedNullableEncryptedValue,
+} from './control-plane/index.js';
 export {
-    DEFAULT_PEER_CAPABILITIES,
-    isPeerCapabilities,
-    PEER_CAPABILITIES,
-    PEER_MUTATION_CLOCK_SKEW_MS,
-    PEER_MUTATION_MAX_TTL_MS,
-    PEER_MUTATION_TTL_MS,
-    peerCapabilityForRequest,
-} from './peer.js';
-
-export type { PreviewFrame } from './preview.js';
-export {
+    MISSING_CWD_ERROR_PREFIX,
+    normalizeRequestFailure,
+    requestRequiresE2ee,
+    decodePayload,
+    encodePayload,
+    isPluginsInvalidatedFrame,
+    isRoutingChannel,
+    nextRequestId,
+    parseClientFrame,
+    tryParseClientFrame,
+    RELAY_CLOSE_REPLACED,
+    ROUTING_CHANNELS,
     decodePreviewFrame,
     encodePreviewFrame,
     newPreviewChannel,
@@ -83,7 +110,54 @@ export {
     PREVIEW_CLOSE,
     PREVIEW_DATA,
     PREVIEW_HEADER_BYTES,
-} from './preview.js';
+    newTerminalChannel,
+    terminalSocketUrl,
+    relayControlUrl,
+    isWebSocketRelayUrl,
+    relayChannelSocketUrl,
+    issueWsTicket,
+    ticketSocketUrl,
+    WsTicketError,
+    stripLeadingTaskNotificationWrappers,
+    EncryptedSessionMessageSchema,
+    MachineStateUpdateSchema,
+    NewMessageUpdateSchema,
+    SessionStateUpdateSchema,
+    SessionSyncUpdateContainerSchema,
+    SessionSyncUpdateSchema,
+    VersionedEncryptedValueSchema,
+    VersionedNullableEncryptedValueSchema,
+} from './control-plane/index.js';
+
+export type {
+    DeviceKind,
+    PeerAuthorityMetadata,
+    PeerCapability,
+    PeerDescriptorClaims,
+    PeerGrantConstraintError,
+    PeerMutationMetadata,
+    PeerMutationRejection,
+    PeerRelationship,
+    PeerRelationshipState,
+    SignedPeerDescriptor,
+} from './peer/index.js';
+export {
+    DEFAULT_PEER_CAPABILITIES,
+    inspectPeerGrantConstraints,
+    inspectPeerMutation,
+    isPeerCapabilities,
+    PEER_CAPABILITIES,
+    PEER_MUTATION_CLOCK_SKEW_MS,
+    PEER_MUTATION_MAX_TTL_MS,
+    PEER_MUTATION_TTL_MS,
+    parseDeviceKind,
+    parsePeerAllowlist,
+    peerCapabilityForRequest,
+    peerMayDispatch,
+} from './peer/index.js';
+
+export type { LandWorktreeResult } from './worktree/index.js';
+export { landNeedsConsent, landSucceeded } from './worktree/index.js';
 
 export type {
     PluginContribution,
@@ -130,10 +204,12 @@ export type {
     PluginScreenRowNode,
     PluginScreenTreeNode,
     PluginScreenTone,
-} from './plugins.js';
+} from './plugins/index.js';
 export {
     defaultPluginText,
     resolvePluginText,
+    isValidPluginId,
+    parsePluginId,
     MAX_PLUGIN_LOCALE_TAG_LENGTH,
     MAX_PLUGIN_TEXT_LOCALES,
     PLUGIN_TEXT_MIN_UI_VERSION,
@@ -175,36 +251,14 @@ export {
     capUtf8Bytes,
     boundRpcDisplay,
     pluginCompatibilityError,
+    pluginIsCompatible,
     sanitizeDisplayText,
-} from './plugins.js';
+    parseManifest,
+    parsePluginAction,
+    parsePluginScreenParams,
+    tryParseManifest,
+} from './plugins/index.js';
 
-export { parseManifest, parsePluginAction, parsePluginScreenParams } from './manifest.js';
-export { stripLeadingTaskNotificationWrappers } from './controlMessages.js';
-export type {
-    EncryptedSessionMessage,
-    MachineStateUpdate,
-    NewMessageUpdate,
-    SessionStateUpdate,
-    SessionSyncUpdate,
-    SessionSyncUpdateContainer,
-    VersionedEncryptedValue,
-    VersionedNullableEncryptedValue,
-} from './sessionSync.js';
-export {
-    EncryptedSessionMessageSchema,
-    MachineStateUpdateSchema,
-    NewMessageUpdateSchema,
-    SessionStateUpdateSchema,
-    SessionSyncUpdateContainerSchema,
-    SessionSyncUpdateSchema,
-    VersionedEncryptedValueSchema,
-    VersionedNullableEncryptedValueSchema,
-} from './sessionSync.js';
-
-export type { LandWorktreeResult } from './worktree.js';
-
-export type { TerminalClientFrame, TerminalHostFrame } from './terminal.js';
-export { newTerminalChannel, terminalSocketUrl } from './terminal.js';
 export type {
     RealtimeClientFrame,
     RealtimeControlAction,
@@ -213,7 +267,7 @@ export type {
     RealtimePluginPublicContext,
     RealtimePluginPublicSession,
     RealtimeState,
-} from './realtimeStream.js';
+} from './realtime/index.js';
 export {
     encodeRealtimeFrame,
     MAX_REALTIME_AUDIO_BASE64_BYTES,
@@ -227,11 +281,4 @@ export {
     REALTIME_OUTPUT_RATE,
     realtimePcm16ByteLength,
     realtimeSocketUrl,
-} from './realtimeStream.js';
-
-export { relayControlUrl, isWebSocketRelayUrl, relayChannelSocketUrl } from './controlPlaneUrl.js';
-export type { WsTransport } from './wsTickets.js';
-export { issueWsTicket, ticketSocketUrl, WsTicketError } from './wsTickets.js';
-
-export type { ClientFrame, Envelope, EnvelopeHeader, PluginsInvalidatedFrame, HostFrame, RoutingChannel } from './wire.js';
-export { decodePayload, encodePayload, isPluginsInvalidatedFrame, isRoutingChannel, isValidPluginId, nextRequestId, parseClientFrame, RELAY_CLOSE_REPLACED, ROUTING_CHANNELS } from './wire.js';
+} from './realtime/index.js';

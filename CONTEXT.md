@@ -36,6 +36,40 @@ _Avoid_: inbox, notification store, voice queue, catalog cache
 A spoken update about a trusted Agent and Task Title, admitted only after current-schema validation.
 _Avoid_: TTS job, announcement, completion chime
 
+**Agent Lifecycle**:
+Whether an Agent is starting, idle, working, blocked, done, failed, or unknown. Working is the only busy state.
+_Avoid_: status string, agentStatus, streaming flag
+
+**Attention**:
+Why an Agent currently needs its person, most urgent first: waiting, blocked, failed, then done. Waiting is a parked question and never ages out.
+_Avoid_: inbox row, notification, badge event
+
+## Collaboration
+
+**Peer Allowlist**:
+The signed capabilities a peer machine may use: list, read, status, watch, prompt, and optionally start. Missing from the list means denied.
+_Avoid_: permission bits, ACL, role, scope
+
+**Peer Mutation**:
+A time-bounded, idempotent write a peer sends (prompt, start, watch). The operation id authorizes retry; expiry rejects dispatch.
+_Avoid_: request id, receipt, job
+
+**Pairing Code**:
+Ten unambiguous characters a person reads aloud so two devices can seal a pairing payload. The spoken code never authorizes after pairing.
+_Avoid_: OTP, pin, invite token
+
+## Plugins
+
+**Plugin Identity**:
+The stable plugin id that authorizes linking, invoking, and invalidation. Display names never do.
+_Avoid_: plugin name, extension id, package label
+
+## Worktrees
+
+**Worktree Landing**:
+The outcome of merging a herdr-managed checkout back onto its base: landed, already landed, blocked on dirty base files, or rebase conflict.
+_Avoid_: merge result, git status, apply
+
 ## Realtime voice
 
 **Realtime Playback**:

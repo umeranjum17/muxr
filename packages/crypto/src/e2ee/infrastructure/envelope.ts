@@ -14,7 +14,7 @@
  */
 
 import nacl from 'tweetnacl';
-import { isRoutingChannel, type RoutingChannel } from '@muxr/contract';
+import { isRoutingChannel, type EnvelopeHeader, type RoutingChannel } from '@muxr/contract';
 import { concatBytes, decodeUtf8, encodeUtf8, fromBase64, toBase64 } from './encoding.js';
 import { toKeyBytes } from './keys.js';
 
@@ -79,6 +79,23 @@ function validateV2Context(ctx: V2Context): void {
     if (!isRoutingChannel(ctx.channel)) throw new Error('v2: unknown channel');
     requireNonEmptyString(ctx.streamId, 'streamId');
     if (!Number.isInteger(ctx.keyVersion) || ctx.keyVersion < 1) throw new Error('v2: key generation must be a positive integer');
+}
+
+/** Map a hosted Envelope routing header onto the E2EE context. Local/dev headers omit these fields. */
+export function hostedRoutingContext(header: EnvelopeHeader): V2Context | undefined {
+    if (header.senderId === undefined || header.recipientId === undefined
+        || header.channel === undefined || header.streamId === undefined
+        || header.keyVersion === undefined) {
+        return undefined;
+    }
+    return {
+        machineId: header.machineId,
+        senderId: header.senderId,
+        recipientId: header.recipientId,
+        channel: header.channel,
+        streamId: header.streamId,
+        keyVersion: header.keyVersion,
+    };
 }
 
 function writeU64BE(value: number, out: Uint8Array, offset: number): void {

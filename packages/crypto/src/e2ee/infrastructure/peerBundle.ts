@@ -1,7 +1,7 @@
 import nacl from 'tweetnacl';
 import { isPeerCapabilities, isWebSocketRelayUrl, type PeerAuthorityMetadata, type PeerCapability } from '@muxr/contract';
 import { concatBytes, decodeUtf8, encodeUtf8, fromBase64, toBase64 } from './encoding.js';
-import type { SealedDeviceGrant } from './grants.js';
+import type { SealedDeviceGrant } from '../domain/deviceGrant.js';
 import { signDetached, verifyDetached } from './identity.js';
 import { toKeyBytes, type KeyPair } from './keys.js';
 

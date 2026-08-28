@@ -36,13 +36,14 @@ export async function issueWsTicket(input: {
     }
     const body = await response.json() as { ticket?: unknown; error?: unknown };
     if (!response.ok || typeof body.ticket !== 'string') {
-        throw new WsTicketError(response.status, typeof body.error === 'string' ? body.error : `ticket request failed (${response.status})`);
+        const message = typeof body.error === 'string' ? body.error : `ticket request failed (${response.status})`;
+        throw new WsTicketError(response.status, message);
     }
     return body.ticket;
 }
 
 export function ticketSocketUrl(relayUrl: string, ticket: string, transport: WsTransport, bridge = false): string {
     const path = transport === 'relay' ? '' : `/${transport}`;
-    const query = `ticket=${encodeURIComponent(ticket)}${bridge ? '&bridge=1' : ''}`;
+    const query = bridge ? `ticket=${encodeURIComponent(ticket)}&bridge=1` : `ticket=${encodeURIComponent(ticket)}`;
     return `${stripTrailingSlashes(relayUrl)}${path}?${query}`;
 }

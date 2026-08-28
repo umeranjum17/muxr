@@ -1,17 +1,23 @@
 import nacl from 'tweetnacl';
+import { fail, ok, unwrapOrThrow, type Outcome } from '@muxr/contract';
 import { concatBytes, decodeUtf8, encodeUtf8, fromBase64, toBase64 } from './encoding.js';
 
 const PAIRING_CODE_PREFIX = 'muxr:pair-code:v1:';
 const PAIRING_CODE_DOMAIN = encodeUtf8('muxr.pair-code.v1');
 export const PAIRING_CODE_ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
 
-export function normalizePairingCode(value: string): string {
+export function parsePairingCode(value: unknown): Outcome<string> {
+    if (typeof value !== 'string') return fail('pairing code must contain ten unambiguous letters or numbers');
     const normalized = value.toUpperCase().replace(/[\s-]/g, '');
     const hasDisallowedCharacter = [...normalized].some((character) => !PAIRING_CODE_ALPHABET.includes(character));
     if (normalized.length !== 10 || hasDisallowedCharacter) {
-        throw new Error('pairing code must contain ten unambiguous letters or numbers');
+        return fail('pairing code must contain ten unambiguous letters or numbers');
     }
-    return normalized;
+    return ok(normalized);
+}
+
+export function normalizePairingCode(value: string): string {
+    return unwrapOrThrow(parsePairingCode(value));
 }
 
 export function formatPairingCode(value: string): string {

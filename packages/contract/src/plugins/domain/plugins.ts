@@ -1,4 +1,17 @@
-import type { AgentLifecycle } from './sessionState.js';
+import { fail, ok, type Outcome } from '../../shared/outcome.js';
+import type { AgentLifecycle, AttentionReason } from '../../herd/index.js';
+
+const PLUGIN_ID = /^[a-z0-9][a-z0-9._-]{0,63}$/;
+
+/** Stable plugin identity. Display names never authorize linking, invoking, or invalidation. */
+export function parsePluginId(value: unknown): Outcome<string> {
+    if (typeof value !== 'string' || !PLUGIN_ID.test(value)) return fail('invalid plugin id');
+    return ok(value);
+}
+
+export function isValidPluginId(value: unknown): value is string {
+    return parsePluginId(value).ok;
+}
 
 export const MAX_PLUGIN_TEXT_LOCALES = 16;
 export const MAX_PLUGIN_LOCALE_TAG_LENGTH = 35;
@@ -71,7 +84,7 @@ export interface PluginPublicSessionContext {
 
 export interface PluginPublicAttentionContext {
     sessionId: string;
-    reason: 'waiting' | 'blocked' | 'failed' | 'done';
+    reason: AttentionReason;
     detail: string;
     at: string;
 }
@@ -713,9 +726,12 @@ export interface PluginManifestV1 {
 /** A host may forward a newer manifest; the rendering phone is authoritative. */
 export function pluginCompatibilityError(manifest: PluginManifestV1, supportedVersion = MUXR_UI_VERSION): string | undefined {
     const required = manifest.minMuxrVersion ?? 1;
-    return required > supportedVersion
-        ? `Plugin requires muxr UI ${required}; this app supports ${supportedVersion}. Update muxr to use it.`
-        : undefined;
+    if (required <= supportedVersion) return undefined;
+    return `Plugin requires muxr UI ${required}; this app supports ${supportedVersion}. Update muxr to use it.`;
+}
+
+export function pluginIsCompatible(manifest: PluginManifestV1, supportedVersion = MUXR_UI_VERSION): boolean {
+    return pluginCompatibilityError(manifest, supportedVersion) === undefined;
 }
 
 export interface PluginSummary {

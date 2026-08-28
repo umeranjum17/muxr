@@ -7,10 +7,12 @@
  * about sessions" request is a design error; route it or buffer it, don't parse it.
  */
 
-import type { SessionEvent } from './sessionEvent.js';
-import type { MachineInfo } from './sessionDomain.js';
+import { fail, ok, unwrapOrThrow, type Outcome } from '../../shared/outcome.js';
+import type { SessionEvent } from '../../herd/index.js';
+import type { MachineInfo } from '../../herd/index.js';
 import type { ClientRequest, RequestResponse } from './requests.js';
-import type { SessionInfo } from './sessionState.js';
+import type { SessionInfo } from '../../herd/index.js';
+import { isValidPluginId } from '../../plugins/index.js';
 
 /**
  * Close code the relay sends to a machine peer it retires because a newer host
@@ -76,12 +78,6 @@ export type HostFrame =
     | PluginsInvalidatedFrame
     | RequestResponse;
 
-const EXTENSION_ID = /^[a-z0-9][a-z0-9._-]{0,63}$/;
-
-export function isValidPluginId(value: unknown): value is string {
-    return typeof value === 'string' && EXTENSION_ID.test(value);
-}
-
 /** Runtime guard for the additive machine frame; malformed peer data is ignored. */
 const PLUGIN_INVALIDATION_REASONS = ['linked', 'unlinked', 'enabled', 'disabled', 'changed'] as const;
 
@@ -102,19 +98,24 @@ export function isPluginsInvalidatedFrame(value: unknown): value is PluginsInval
 export type ClientFrame = ClientRequest | { type: 'client.hello'; clientId: string };
 
 /** Validate the common client-frame boundary before host code reads request fields. */
-export function parseClientFrame(value: unknown): ClientFrame {
-    if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new Error('client frame must be an object');
+export function tryParseClientFrame(value: unknown): Outcome<ClientFrame> {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) return fail('client frame must be an object');
     const frame = value as Record<string, unknown>;
-    if (typeof frame.type !== 'string' || frame.type === '' || frame.type.length > 80) throw new Error('client frame type is invalid');
+    if (typeof frame.type !== 'string' || frame.type === '' || frame.type.length > 80) return fail('client frame type is invalid');
     if (frame.type === 'client.hello') {
-        if (typeof frame.clientId !== 'string' || frame.clientId === '' || frame.clientId.length > 160) throw new Error('client hello is invalid');
-        return value as ClientFrame;
+        if (typeof frame.clientId !== 'string' || frame.clientId === '' || frame.clientId.length > 160) {
+            return fail('client hello is invalid');
+        }
+        return ok(value as ClientFrame);
     }
-    if (typeof frame.requestId !== 'string' || frame.requestId === '' || frame.requestId.length > 160
-        || typeof frame.params !== 'object' || frame.params === null || Array.isArray(frame.params)) {
-        throw new Error('client request shape is invalid');
-    }
-    return value as ClientFrame;
+    const requestIdIsInvalid = typeof frame.requestId !== 'string' || frame.requestId === '' || frame.requestId.length > 160;
+    const paramsAreInvalid = typeof frame.params !== 'object' || frame.params === null || Array.isArray(frame.params);
+    if (requestIdIsInvalid || paramsAreInvalid) return fail('client request shape is invalid');
+    return ok(value as ClientFrame);
+}
+
+export function parseClientFrame(value: unknown): ClientFrame {
+    return unwrapOrThrow(tryParseClientFrame(value));
 }
 
 export function encodePayload(frame: HostFrame | ClientFrame): string {
