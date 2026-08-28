@@ -78,7 +78,16 @@ export function createLifecycleStore(dataDir: string, now: () => Date = () => ne
         transition(sessionId, displayName, state, reason, taskTitle) {
             taskTitle = safeTaskTitle(taskTitle);
             const previous = this.current(sessionId);
-            if (previous?.state === state && previous.reasonCode === reason && previous.displayName === displayName && previous.taskTitle === taskTitle) return undefined;
+            if (previous?.state === state && previous.reasonCode === reason && previous.displayName === displayName) {
+                if (previous.taskTitle !== taskTitle) {
+                    const updated = { ...previous };
+                    if (taskTitle === undefined) delete updated.taskTitle;
+                    else updated.taskTitle = taskTitle;
+                    current.set(sessionId, updated);
+                    save();
+                }
+                return undefined;
+            }
             const event: LifecycleEvent = {
                 eventId: randomUUID(),
                 sessionId,

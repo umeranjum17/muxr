@@ -8,6 +8,7 @@ export interface HerdPane {
     name: string;
     taskTitle: string;
     status: AgentLifecycle;
+    changedAt: number;
     doing: string;
 }
 
@@ -40,7 +41,7 @@ export const HERD_STATUS_LABELS: Record<AgentLifecycle, string> = {
     blocked: 'Needs you',
     done: 'Done',
     failed: 'Failed',
-    idle: 'Waiting',
+    idle: 'Idle',
     unknown: 'Offline',
 };
 
@@ -102,12 +103,13 @@ export function sortHerd(sessions: Session[], workspaces: readonly HerdrTreeWork
                 name: pane.displayName?.trim() || nameOf(session, paneDisplayName(pane)),
                 taskTitle: pane.taskTitle?.trim() || session?.metadata?.taskTitle?.trim() || paneTaskTitle(pane),
                 status: pane.agentStatus,
+                changedAt: session?.metadata?.lifecycleStateSince ?? session?.updatedAt ?? 0,
                 doing: '',
             }];
         })
         .sort((left, right) => HERD_ORDER[left.status] - HERD_ORDER[right.status]
-            || left.taskTitle.localeCompare(right.taskTitle)
-            || left.name.localeCompare(right.name));
+            || (left.status === 'blocked' ? left.changedAt - right.changedAt : right.changedAt - left.changedAt)
+            || left.id.localeCompare(right.id));
 }
 
 /** Structured notification state; native never has to parse display prose. */

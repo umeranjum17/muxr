@@ -247,6 +247,7 @@ export async function createHerdrSessionSource(
     if (options.relayUrl !== undefined && options.machineId !== undefined) {
         codingCoordinator = new RealtimeCodingCoordinator(join(options.dataDir, 'realtime-coding.sock'), {
             list: listRealtimeAgents,
+            activity: async () => options.lifecycle?.catalog().events ?? [],
             start: startRealtimeAgent,
             prompt: promptSession,
             read: readSessionOutput,
@@ -1032,6 +1033,7 @@ export async function createHerdrSessionSource(
 
     function realtimeAgentFor(record: AgentIdentity): RealtimeCodingAgent {
         const info = infoFor(record);
+        const changedAt = Date.parse(options.lifecycle?.latestFor(record.sessionId)?.at ?? record.createdAt);
         return {
             sessionId: record.sessionId,
             cwd: info.cwd,
@@ -1039,6 +1041,7 @@ export async function createHerdrSessionSource(
             taskTitle: record.taskTitle,
             kind: record.kind ?? 'agent',
             status: statusFor(record.sessionId).agentStatus ?? 'unknown',
+            ...(Number.isFinite(changedAt) ? { changedAt } : {}),
         };
     }
 
