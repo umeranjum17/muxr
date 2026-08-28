@@ -1,8 +1,10 @@
 /**
- * Agent identity rules. Agent Route authorizes; Human Name and Task Title never do.
+ * Agent identity rules. Agent Route authorizes; Agent Name and Task Title never do.
  */
 
-const HUMAN_NAME = /^[\p{L}\p{M}][\p{L}\p{M}' -]{0,72}(?: \d+)?$/u;
+import { normalizeAgentName } from '@muxr/contract';
+export { normalizeAgentName };
+
 const PROVIDER_KINDS = new Set([
     'pi', 'claude', 'codex', 'opencode', 'gemini', 'grok', 'cursor', 'amp', 'copilot',
     'droid', 'kimi', 'kilo', 'devin', 'hermes', 'omp', 'cline', 'kiro', 'maki',
@@ -18,7 +20,7 @@ export interface AgentIdentity {
     workspaceId: string;
     tabId: string;
     cwd: string;
-    /** Human Name. Secondary, spoken, never a routing key. */
+    /** Canonical Herdr Agent Name, mirrored as displayName for wire compatibility. */
     displayName: string;
     /** Task Title. Primary work identity, never a routing key. */
     taskTitle: string;
@@ -48,30 +50,12 @@ export interface AgentAdoptInput {
     workspaceId: string;
     tabId: string;
     cwd: string;
-    displayName: string;
     taskTitle?: string | undefined;
     kind?: string | undefined;
     agentName?: string | undefined;
     ours: boolean;
 }
 
-export interface NameReservation {
-    sessionId: string;
-    displayName: string;
-    release(): void;
-}
-
-export function normalizeHuman(value: string): string {
-    return value.normalize('NFKC').replace(/\s+/g, ' ').trim();
-}
-
-export function humanKey(value: string): string {
-    return normalizeHuman(value).toLocaleLowerCase('und').replace(/ß/g, 'ss').replace(/ς/g, 'σ');
-}
-
-export function isValidHumanName(value: string): boolean {
-    return HUMAN_NAME.test(value);
-}
 
 export function genericTaskTitle(kind?: string): string {
     const cleanKind = kind?.normalize('NFKC').replace(/[^a-z0-9_-]/gi, '').slice(0, 32);
@@ -80,10 +64,10 @@ export function genericTaskTitle(kind?: string): string {
 }
 
 /** Task Title from live chrome. Rejects provider kinds, handles, greetings, and paths. */
-export function parseTaskTitle(value: string | undefined, kind?: string, humanName?: string): string | undefined {
+export function parseTaskTitle(value: string | undefined, kind?: string, agentName?: string): string | undefined {
     let clean = value?.replace(/^[◐◑◒◓⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]\s*/, '').replace(/[\0-\x1F\x7F]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120);
     if (clean === undefined || clean === '') return undefined;
-    for (const prefix of [kind, humanName]) {
+    for (const prefix of [kind, agentName]) {
         if (prefix === undefined || prefix.trim() === '') continue;
         const escaped = prefix.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         clean = clean.replace(new RegExp(`^${escaped}\\s*[-–—:|]\\s*`, 'i'), '').trim();
@@ -98,8 +82,8 @@ export function parseTaskTitle(value: string | undefined, kind?: string, humanNa
 }
 
 /** Always a Task Title: accepted chrome, else a generic title from Provider Kind. */
-export function taskTitleFor(value?: string, kind?: string, humanName?: string): string {
-    const parsed = parseTaskTitle(value, kind, humanName);
+export function taskTitleFor(value?: string, kind?: string, agentName?: string): string {
+    const parsed = parseTaskTitle(value, kind, agentName);
     if (parsed !== undefined) return parsed;
     return genericTaskTitle(kind);
 }
@@ -113,11 +97,11 @@ export function parseAgentIdentity(value: unknown): AgentIdentity | undefined {
     if (typeof row.cwd !== 'string' || row.cwd.trim() === '') return undefined;
     if (typeof row.createdAt !== 'string' || typeof row.ours !== 'boolean') return undefined;
     if (typeof row.displayName !== 'string' || typeof row.taskTitle !== 'string') return undefined;
-    const displayName = normalizeHuman(row.displayName);
-    const taskTitle = row.taskTitle.normalize('NFKC').replace(/\s+/g, ' ').trim();
-    if (!isValidHumanName(displayName) || taskTitle === '') return undefined;
-    const kind = typeof row.kind === 'string' && row.kind.trim() !== '' ? row.kind : undefined;
     const agentName = typeof row.agentName === 'string' && row.agentName.trim() !== '' ? row.agentName : undefined;
+    const displayName = normalizeAgentName(agentName);
+    const taskTitle = row.taskTitle.normalize('NFKC').replace(/\s+/g, ' ').trim();
+    if (taskTitle === '') return undefined;
+    const kind = typeof row.kind === 'string' && row.kind.trim() !== '' ? row.kind : undefined;
     return {
         sessionId: row.sessionId,
         paneId: row.paneId,

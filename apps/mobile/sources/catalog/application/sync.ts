@@ -27,7 +27,7 @@ import {
     machineInfoToMachine,
     sessionInfoToSession,
 } from '../infrastructure/sessionMapping';
-import { agentStatusUnchanged, applyHostInfoToAgent, humanNameForNotice } from '../domain/agent';
+import { agentStatusUnchanged, applyHostInfoToAgent, agentNameForNotice } from '../domain/agent';
 import { lifecycleIsWorking, lifecycleWatchOutcome, watchAgentLifecycle } from '@/watch';
 import { promptAgent } from './promptAgent';
 import type { Settings } from './settings';
@@ -314,10 +314,10 @@ class MuxrSync {
         }
 
         if (event.type === 'watch.settled') {
-            const displayName = humanNameForNotice(storage.getState().sessions[sessionId]);
+            const agentName = agentNameForNotice(storage.getState().sessions[sessionId]);
             const rawStatus = event.timedOut === true ? 'timeout' : event.status.toLowerCase();
             const status = ['blocked', 'failed', 'done', 'idle', 'timeout', 'error'].includes(rawStatus) ? rawStatus : 'error';
-            void this.scheduleSessionNotification(sessionId, `${displayName} ${lifecycleWatchOutcome(status)}.`);
+            void this.scheduleSessionNotification(sessionId, `${agentName} ${lifecycleWatchOutcome(status)}.`);
         }
 
         if (event.type === 'session.removed') {

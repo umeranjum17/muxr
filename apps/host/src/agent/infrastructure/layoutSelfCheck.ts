@@ -1,6 +1,6 @@
 /**
- * Layout snapshot round-trip plus the IdentityStore flow: current schema only,
- * Human Name allocation, Agent Route across pane moves, voice replay fence.
+ * Layout snapshot round-trip plus canonical Herdr Agent Name and stable Agent
+ * Route behavior across pane moves.
  */
 
 import {
@@ -41,9 +41,9 @@ async function ask(
 
 async function demo(): Promise<void> {
     const identity = new IdentityStore(mkdtempSync(join(tmpdir(), 'pph-layout-check-')));
-    const john = identity.adopt({ paneId: 'w1:p1', workspaceId: 'w1', tabId: 'w1:t1', cwd: '/repo', displayName: 'John', kind: 'pi', ours: true });
-    const maria = identity.adopt({ paneId: 'w1:p3', workspaceId: 'w1', tabId: 'w1:t1', cwd: '/repo', displayName: 'Maria', kind: 'claude', ours: true });
-    assert(john.taskTitle === 'Pi task' && maria.taskTitle === 'Claude task', 'adopt fills a generic Task Title from Provider Kind');
+    const reviewer = identity.adopt({ paneId: 'w1:p1', workspaceId: 'w1', tabId: 'w1:t1', cwd: '/repo', agentName: 'reviewer', kind: 'pi', ours: true });
+    const planner = identity.adopt({ paneId: 'w1:p3', workspaceId: 'w1', tabId: 'w1:t1', cwd: '/repo', agentName: 'planner', kind: 'claude', ours: true });
+    assert(reviewer.taskTitle === 'Pi task' && planner.taskTitle === 'Claude task', 'adopt fills a generic Task Title from Provider Kind');
 
     const live: HerdrLayoutNode = {
         type: 'split',
@@ -120,64 +120,53 @@ async function demo(): Promise<void> {
     assert(parseTaskTitle('pi') === undefined && parseTaskTitle('hi') === undefined && parseTaskTitle('pp_hidden') === undefined, 'provider kinds, greetings, and handles are not Task Titles');
     assert(parseTaskTitle('Falcon') === 'Falcon' && parseTaskTitle('Review monitoring') === 'Review monitoring', 'a real work phrase is a Task Title');
 
-    const names = new IdentityStore(mkdtempSync(join(tmpdir(), 'pph-name-pool-')));
-    const taken: string[] = [];
-    for (let index = 0; index < 40; index += 1) {
-        const reserved = names.reserve();
-        assert(!taken.map((name) => name.toLocaleLowerCase()).includes(reserved.displayName.toLocaleLowerCase()), 'Human Names stay unique while reserved');
-        names.adopt({
-            sessionId: reserved.sessionId,
-            paneId: `w1:p${index}`,
-            workspaceId: 'w1',
-            tabId: 'w1:t1',
-            cwd: '/repo',
-            displayName: reserved.displayName,
-            kind: 'pi',
-            ours: true,
-        });
-        reserved.release();
-        taken.push(reserved.displayName);
-    }
-    assert(new Set(taken.map((name) => name.toLocaleLowerCase())).size === 40, 'the Human Name pool does not collide');
-
     const stableDir = mkdtempSync(join(tmpdir(), 'pph-stable-identity-check-'));
     const started = new IdentityStore(stableDir);
-    const reserved = started.reserve('John');
+    const route = started.allocateRoute();
     started.adopt({
-        sessionId: reserved.sessionId,
+        sessionId: route,
         paneId: 'w1:p1',
         workspaceId: 'w1',
         tabId: 'w1:t1',
         cwd: '/repo',
-        agentName: reserved.sessionId,
-        displayName: reserved.displayName,
+        agentName: route,
         taskTitle: 'Stabilize realtime voice',
         kind: 'codex',
         ours: true,
     });
-    reserved.release();
+    assert(started.get(route)?.displayName === 'Agent', 'internal Herdr names stay hidden');
+    started.observe({ paneId: 'w1:p1', agentName: 'falcon', kind: 'codex' });
     await started.flush();
     const rediscovered = new IdentityStore(stableDir);
     await rediscovered.load();
-    const matched = rediscovered.byRoute(reserved.sessionId, 'w9:p7');
-    assert(matched?.sessionId === reserved.sessionId, 'Agent Route wins before a changed pane id');
     const moved = rediscovered.observe({
         paneId: 'w9:p7',
         previousPaneId: 'w1:p1',
         workspaceId: 'w9',
         tabId: 'w9:t4',
         cwd: '/repo/worktree',
-        agentName: reserved.sessionId,
+        agentName: 'falcon',
         kind: 'codex',
         terminalTitle: 'Stabilize realtime voice',
     });
-    assert(moved.identity.displayName === 'John', 'observation never promotes a Human Name');
+    assert(moved.identity.displayName === 'falcon', 'observation mirrors the real Herdr Agent Name');
+    const other = rediscovered.adopt({
+        paneId: 'w1:p2',
+        workspaceId: 'w1',
+        tabId: 'w1:t2',
+        cwd: '/repo',
+        agentName: 'eagle',
+        kind: 'pi',
+        ours: false,
+    });
+    const reused = rediscovered.observe({ paneId: 'w1:p2', agentName: 'falcon', kind: 'pi' });
+    assert(reused.identity.sessionId === other.sessionId && rediscovered.get(route)?.paneId === 'w9:p7', 'Agent Name reuse cannot capture or swap Agent Routes');
     await rediscovered.flush();
     const afterMove = new IdentityStore(stableDir);
     await afterMove.load();
-    const stable = afterMove.get(reserved.sessionId);
+    const stable = afterMove.get(route);
     assert(stable?.paneId === 'w9:p7' && stable.workspaceId === 'w9' && stable.tabId === 'w9:t4' && stable.cwd === '/repo/worktree', 'rediscovery persists coherent moved topology');
-    assert(stable?.sessionId === reserved.sessionId && stable.displayName === 'John' && stable.taskTitle === 'Stabilize realtime voice' && stable.kind === 'codex', 'restart and move preserve Human Name, Agent Route, Task Title, and Provider Kind');
+    assert(stable?.sessionId === route && stable.displayName === 'falcon' && stable.taskTitle === 'Stabilize realtime voice' && stable.kind === 'codex', 'restart and move preserve Agent Name, Agent Route, Task Title, and Provider Kind');
 
     const socketDir = mkdtempSync(join(tmpdir(), 'pph-coord-check-'));
     const socketPath = join(socketDir, 'realtime-coding.sock');
@@ -198,7 +187,7 @@ async function demo(): Promise<void> {
     const replayed = await ask(socketPath, access.capability, { method: 'prompt', agent: 'John', text: 'Keep going.', operationId: 'op-0' });
     assert(first.ok === true && replayed.ok === true && prompts === 1, 'an accepted operation id replays without rerunning the mutation');
     const taskStatus = await ask(socketPath, access.capability, { method: 'status', agent: 'Harden audio' });
-    assert(taskStatus.data === 'John is idle.', 'a unique Task Title resolves to its Human Name');
+    assert(taskStatus.data === 'John is idle.', 'a unique Task Title resolves to its Agent Name');
     const idleWatch = await ask(socketPath, access.capability, { method: 'watch', agent: 'John', operationId: 'watch-idle' });
     assert(idleWatch.data === 'Confirmed: John is idle.', 'idle is spoken as idle, without duplicated watch wording or finished');
     assert(idleWatch.data !== undefined && !/finish/i.test(idleWatch.data), 'idle is not spoken as finished');

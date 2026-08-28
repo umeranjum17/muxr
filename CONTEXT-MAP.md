@@ -14,7 +14,7 @@ muxr is one product with several bounded contexts. The glossary lives in [CONTEX
 
 ## Relationships
 
-- **Herd → Plugins / Realtime**: public snapshots copy Agent Route, Human Name, Task Title, and Agent Lifecycle; only Agent Route authorizes.
+- **Herd → Plugins / Realtime**: public snapshots copy Agent Route, Agent Name, Task Title, and Agent Lifecycle; only Agent Route authorizes.
 - **Control plane → Herd / Peer / Plugins / Worktree**: requests and host frames name those types; they do not re-decide their invariants.
 - **Peer → E2EE**: Device Grant crypto enforces Peer Allowlist constraints already decided in Peer.
 - **Control plane → E2EE**: hosted Envelope headers (`envelopeIsHosted`) map once onto v2 context; Routing Channel is shared vocabulary.

@@ -16,11 +16,11 @@ export const AGENT_STILL_LISTED_MS = 30 * 60 * 1000;
 const FALLBACK_TASK_TITLE = 'Current task';
 
 /**
- * Undefined means "no Human Name yet", not "use the folder name": falling back
- * to the cwd basename gave every Agent in a repo the same name, and each
- * catalog refresh overwrote a real Human Name with it.
+ * Undefined means \"no Agent Name yet\", not \"use the folder name\": falling
+ * back to the cwd basename gave every Agent in a repo the same name, and each
+ * catalog refresh overwrote the real Herdr Agent Name.
  */
-export function humanNameFromHost(info: Pick<SessionInfo, 'displayName' | 'name'>): string | undefined {
+export function agentNameFromHost(info: Pick<SessionInfo, 'displayName' | 'name'>): string | undefined {
     if (info.displayName !== undefined && info.displayName.trim().length > 0) return info.displayName.trim();
     if (info.name !== undefined && info.name.trim().length > 0) return info.name.trim();
     return undefined;
@@ -65,7 +65,7 @@ export function approvalAgentState(spokenName: string): NonNullable<Session['age
     };
 }
 
-export function humanNameForNotice(session: Session | undefined): string {
+export function agentNameForNotice(session: Session | undefined): string {
     const name = session?.metadata?.displayName?.trim();
     return name && name.length > 0 ? name : 'Agent';
 }

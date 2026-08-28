@@ -1,4 +1,4 @@
-import { parseHumanName, parseProviderKind, parsePublicAgentRoute } from '../../herd/index.js';
+import { parseAgentName, parseProviderKind, parsePublicAgentRoute } from '../../herd/index.js';
 import {
     MAX_REALTIME_PUBLIC_SESSIONS,
     type RealtimePluginPublicContext,
@@ -18,7 +18,7 @@ function publicTaskTitle(raw: string | undefined, displayName: string, providerK
     return taskTitle;
 }
 
-/** Bound the public Agent map before it crosses a stream process. Agent Route authorizes; Human Name never does. */
+/** Bound the public Agent map before it crosses a stream process. Agent Route authorizes; Agent Name never does. */
 export function boundRealtimePublicContext(command: {
     sessions: readonly RealtimePluginPublicSession[];
 }): RealtimePluginPublicContext {
@@ -26,14 +26,14 @@ export function boundRealtimePublicContext(command: {
     const ids = new Set<string>();
     for (const entry of command.sessions) {
         const sessionId = parsePublicAgentRoute(entry.sessionId);
-        const displayName = parseHumanName(entry.displayName);
-        if (!sessionId.ok || ids.has(sessionId.value) || !displayName.ok) continue;
+        const agentName = parseAgentName(entry.displayName);
+        if (!sessionId.ok || ids.has(sessionId.value) || !agentName.ok) continue;
         const providerKind = entry.agentKind === undefined ? undefined : parseProviderKind(entry.agentKind);
-        const taskTitle = publicTaskTitle(entry.taskTitle, displayName.value, providerKind?.ok ? providerKind.value : undefined);
+        const taskTitle = publicTaskTitle(entry.taskTitle, agentName.value, providerKind?.ok ? providerKind.value : undefined);
         ids.add(sessionId.value);
         sessions.push({
             sessionId: sessionId.value,
-            displayName: displayName.value,
+            displayName: agentName.value,
             ...(taskTitle === undefined ? {} : { taskTitle }),
             ...(providerKind === undefined || !providerKind.ok ? {} : { agentKind: providerKind.value }),
         });

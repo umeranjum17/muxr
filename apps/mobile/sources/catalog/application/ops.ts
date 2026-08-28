@@ -23,7 +23,6 @@ export interface SpawnSessionOptions {
     approvedNewDirectoryCreation?: boolean;
     token?: string;
     agent?: NewSessionAgentType;
-    displayName?: string;
     permissionMode?: string;
     modelMode?: string;
     effortLevel?: string;
@@ -240,14 +239,12 @@ export async function machineSpawnNewSession(options: SpawnSessionOptions): Prom
         createDirectory: options.approvedNewDirectoryCreation,
         parentAgentRoute: options.parentSessionId,
         kind: options.agent,
-        humanName: options.displayName,
     }, {
         startOnHost: async (input) => sync.request('session.start', {
             cwd: input.directory,
             ...(input.createDirectory === true ? { createCwd: true } : {}),
             ...(input.parentAgentRoute === undefined ? {} : { parentSessionId: input.parentAgentRoute }),
             ...(input.kind === undefined ? {} : { kind: input.kind }),
-            ...(input.humanName === undefined ? {} : { displayName: input.humanName }),
         }),
         waitUntilListed: refreshUntilSessionVisible,
         missingDirectory: (message) => message.includes(MISSING_CWD_ERROR_PREFIX),
