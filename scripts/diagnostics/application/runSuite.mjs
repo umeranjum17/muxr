@@ -63,6 +63,7 @@ function run(name, cmd, args, timeoutMs = 150000) {
         for (const key of ['RELAY_TOKEN', 'RELAY_URL', 'MACHINE_ID', 'RELAY_AUTH']) {
             delete env[`MUXR_${key}`];
         }
+        if (cmd === 'npx' && args[0] === 'vitest') env.NODE_ENV = 'test';
         const child = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'], env });
         let out = '';
         child.stdout.on('data', (d) => { out += d; });
