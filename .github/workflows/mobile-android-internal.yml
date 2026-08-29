@@ -123,7 +123,19 @@ jobs:
           test -x "$apksigner"
           test -x "$apkanalyzer"
           "$apksigner" verify --verbose --print-certs "$apk"
-          jarsigner -verify -strict "$aab" >/dev/null
+          if aab_verify_output="$(jarsigner -verify -strict "$aab" 2>&1)"; then
+            aab_verify_status=0
+          else
+            aab_verify_status=$?
+          fi
+          printf '%s\n' "$aab_verify_output"
+          grep -q 'jar verified' <<<"$aab_verify_output"
+          # A self-signed upload certificate is expected; jarsigner reports it as bit 4.
+          if [ "$aab_verify_status" -ne 0 ]; then
+            test "$aab_verify_status" -eq 4
+            grep -qi 'self-signed' <<<"$aab_verify_output"
+            ! grep -Eqi 'expired|not yet valid|algorithm.*disabled' <<<"$aab_verify_output"
+          fi
           test "$("$apkanalyzer" manifest version-name "$apk")" = "$APP_VERSION"
           test "$("$apkanalyzer" manifest version-code "$apk")" = "$ANDROID_VERSION_CODE"
           curl -fsSL https://github.com/google/bundletool/releases/download/1.18.3/bundletool-all-1.18.3.jar -o "$RUNNER_TEMP/bundletool.jar"
