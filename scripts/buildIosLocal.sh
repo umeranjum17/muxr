@@ -21,12 +21,14 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 [[ "$IOS_IPA_OUTPUT" = *.ipa ]] || { echo "IOS_IPA_OUTPUT must end in .ipa" >&2; exit 1; }
 [ -f "$IOS_CERTIFICATE_PATH" ] || { echo "IOS_CERTIFICATE_PATH does not exist" >&2; exit 1; }
 [ -f "$IOS_PROVISIONING_PROFILE_PATH" ] || { echo "IOS_PROVISIONING_PROFILE_PATH does not exist" >&2; exit 1; }
-for command in xcodebuild security node yarn ruby bundle pod openssl unzip plutil; do
+for command in xcodebuild security node yarn ruby bundle pod openssl unzip plutil shasum git awk; do
   command -v "$command" >/dev/null || { echo "$command is required" >&2; exit 1; }
 done
+[ -z "$(git -C "$ROOT" status --porcelain)" ] || { echo "The repository must be clean before iOS validation" >&2; exit 1; }
 node_major="$(node -p 'process.versions.node.split(".")[0]')"
 [ "$node_major" -ge 22 ] || { echo "Node.js 22 or newer is required" >&2; exit 1; }
-xcodebuild -version | grep -q '^Xcode 26\.' || { echo "Xcode 26 is required" >&2; exit 1; }
+xcode_version="$(xcodebuild -version)"
+grep -q '^Xcode 26\.' <<< "$xcode_version" || { echo "Xcode 26 is required" >&2; exit 1; }
 if [[ "$IOS_IPA_OUTPUT" != /* ]]; then
   IOS_IPA_OUTPUT="$PWD/$IOS_IPA_OUTPUT"
   export IOS_IPA_OUTPUT
@@ -110,3 +112,18 @@ unzip -p "$IOS_IPA_OUTPUT" "$mapfile_entry" > "$mapfile_path"
 [ "$(plutil -extract CFBundleIdentifier raw "$mapfile_path")" = com.trymuxr.app ]
 [ "$(plutil -extract CFBundleShortVersionString raw "$mapfile_path")" = "$APP_VERSION" ]
 [ "$(plutil -extract CFBundleVersion raw "$mapfile_path")" = "$IOS_BUILD_NUMBER" ]
+
+ipa_sha256="$(shasum -a 256 "$IOS_IPA_OUTPUT" | awk '{print $1}')"
+podfile_lock="$ROOT/apps/mobile/ios/Podfile.lock"
+[ -f "$podfile_lock" ] || { echo "pod install did not produce Podfile.lock" >&2; exit 1; }
+podfile_lock_sha256="$(shasum -a 256 "$podfile_lock" | awk '{print $1}')"
+commit_sha="$(git -C "$ROOT" rev-parse HEAD)"
+printf '%s\n' \
+  "iOS archive validation passed" \
+  "commit: $commit_sha" \
+  "version: $APP_VERSION" \
+  "build: $IOS_BUILD_NUMBER" \
+  "xcode: ${xcode_version//$'\n'/; }" \
+  "ipa_sha256: $ipa_sha256" \
+  "podfile_lock_sha256: $podfile_lock_sha256" \
+  "ipa: $IOS_IPA_OUTPUT"
