@@ -8,10 +8,30 @@ import * as React from 'react';
 import { Text, View } from 'react-native';
 import { Image } from 'expo-image';
 import { useUnistyles } from 'react-native-unistyles';
+import { agentImageKind, type AgentImageKind } from './agentImageKind';
 
 const agentImages = {
+    amp: require('@/assets/agents/amp.png'),
+    antigravity: require('@/assets/agents/antigravity.png'),
+    claude: require('@/assets/agents/claude.png'),
+    cline: require('@/assets/agents/cline.png'),
+    codex: require('@/assets/agents/codex.png'),
+    copilot: require('@/assets/agents/copilot.png'),
+    cursor: require('@/assets/agents/cursor.png'),
+    devin: require('@/assets/agents/devin.png'),
+    droid: require('@/assets/agents/droid.png'),
+    gemini: require('@/assets/agents/gemini.png'),
+    grok: require('@/assets/agents/grok.png'),
+    hermes: require('@/assets/agents/hermes.png'),
+    kilocode: require('@/assets/agents/kilocode.png'),
+    kimi: require('@/assets/agents/kimi.png'),
+    kiro: require('@/assets/agents/kiro.png'),
+    maki: require('@/assets/agents/maki.png'),
+    mastracode: require('@/assets/agents/mastracode.png'),
     omp: require('@/assets/agents/omp.png'),
-} as const;
+    opencode: require('@/assets/agents/opencode.png'),
+    qoder: require('@/assets/agents/qoder.png'),
+} as const satisfies Record<Exclude<AgentImageKind, 'pi'>, unknown>;
 
 const themedAgentImages = {
     pi: {
@@ -19,9 +39,6 @@ const themedAgentImages = {
         dark: require('@/assets/agents/pi-dark.png'),
     },
 } as const;
-
-type KnownAgent = keyof typeof agentImages;
-type ThemedAgent = keyof typeof themedAgentImages;
 
 export const ACCENT = '#cba6f7'; // kept for components not wired to the theme; prefer theme.colors.accent
 
@@ -33,8 +50,10 @@ export const AgentGlyph = React.memo(
         const letter = name.charAt(0).toUpperCase() || '·';
         const selected = props.selected === true;
         const accent = theme.colors.accent;
-        const themed = themedAgentImages[name as ThemedAgent];
-        const image = themed?.[theme.dark ? 'dark' : 'light'] ?? agentImages[name as KnownAgent];
+        const kind = agentImageKind(name);
+        const image = kind === 'pi'
+            ? themedAgentImages.pi[theme.dark ? 'dark' : 'light']
+            : kind === undefined ? undefined : agentImages[kind];
         return (
             <View
                 style={{
