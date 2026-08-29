@@ -357,7 +357,7 @@ describe('on-device dictation flow', () => {
 
         const working = {
             eventId: 'observer-working', sessionId: 'session-a', state: 'working',
-            displayName: 'Elle', taskTitle: 'Retry queued report',
+            agentName: 'Elle', taskTitle: 'Retry queued report',
         };
         const otherWorking = { ...working, eventId: 'observer-other-working', sessionId: 'session-b' };
         mocks.lifecycleEvents = [otherWorking, working];

@@ -12,11 +12,8 @@ export {
     agentRowAttention,
     applyHostInfoToAgent,
     approvalAgentState,
-    agentNameForNotice,
-    agentNameFromHost,
     mergeCatalogAgent,
     providerKindFromHost,
-    taskTitleFromHost,
 } from './domain/agent';
 export { dropSessionEnvelope, usageHeartbeat } from './domain/sessionEnvelope';
 export { indexSessionsById } from './domain/sessionIdentity';

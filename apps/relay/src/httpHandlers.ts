@@ -411,7 +411,7 @@ export async function handleHttpRequest(
             writeJson(res, 403, { error: 'invalid machine token' });
             return;
         }
-        let body: { machineId?: unknown; sessionId?: unknown; eventId?: unknown; kind?: unknown; reasonCode?: unknown; displayName?: unknown; taskTitle?: unknown };
+        let body: { machineId?: unknown; sessionId?: unknown; eventId?: unknown; kind?: unknown; reasonCode?: unknown; agentName?: unknown; taskTitle?: unknown };
         try {
             body = (await readJsonBody(req)) as typeof body;
         } catch {

@@ -424,7 +424,6 @@ export class PeerRuntime {
             sealedGrant: opened.grant,
             ...(opened.grantPath === undefined ? {} : { grantPath: opened.grantPath }),
             ...(grant.allowedCwds === undefined ? {} : { allowedCwds: grant.allowedCwds }),
-            agentNames: {},
         };
         await this.store.putRelationship(relationship);
         await this.store.removePreparation(preparation.preparationId);

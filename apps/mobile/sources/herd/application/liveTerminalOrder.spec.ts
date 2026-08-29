@@ -69,7 +69,7 @@ describe('agent lifecycle presentation', () => {
         expect(agentStateLabel(treeOnly[1]!.status, treeOnly[1]!.changedAt, 1_000_000)).toBe('Needs you');
         expect(agentLabels({
             taskTitle: treeOnly[0]!.title,
-            displayName: treeOnly[0]!.name,
+            agentName: treeOnly[0]!.name,
             agentKind: treeOnly[0]!.agentKind,
         }, treeOnly[0]!.session).agentName).toBe('first agent');
 
@@ -80,7 +80,7 @@ describe('agent lifecycle presentation', () => {
         }])[0]!;
         const shellLabels = agentLabels({
             taskTitle: shell.title,
-            displayName: shell.name,
+            agentName: shell.name,
             agentKind: shell.agentKind,
         }, shell.session);
         expect(shellLabels).toMatchObject({ taskTitle: 'shell task', agentName: 'Shell' });
@@ -88,11 +88,10 @@ describe('agent lifecycle presentation', () => {
 
         const pending = session('pending', 300, 'starting');
         pending.metadata!.agentKind = 'omp';
-        pending.metadata!.agentName = 'Otter';
-        pending.metadata!.taskTitle = 'Starting OMP';
+        Object.assign(pending.metadata!, { agentName: 'Stale Otter', taskTitle: 'Stale task' });
         expect(agentLabels(undefined, pending)).toMatchObject({
-            taskTitle: 'Starting OMP',
-            agentName: 'Otter',
+            taskTitle: 'Untitled task',
+            agentName: 'Agent',
             agentKind: 'omp',
         });
 
@@ -116,7 +115,7 @@ describe('agent lifecycle presentation', () => {
         const event = (eventId: string, sessionId: string, state: LifecycleEvent['state'], at: string): LifecycleEvent => ({
             eventId,
             sessionId,
-            displayName: 'Otter',
+            agentName: 'Otter',
             taskTitle: 'Fix realtime voice',
             state,
             reasonCode: 'state-reconciled',

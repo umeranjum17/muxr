@@ -5,7 +5,7 @@ import { isPeerCapabilities, relayControlUrl } from '@muxr/contract';
 import { homedir, hostname } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { assertFakeSourceCoversContract, createFakeSessionSource, createHerdrSessionSource, IdentityStore, TerminalManager, createAgentWatchStores } from './agent/index.js';
+import { assertFakeSourceCoversContract, createFakeSessionSource, createHerdrSessionSource, AgentRouteStore, TerminalManager, createAgentWatchStores } from './agent/index.js';
 import { startHost } from './host.js';
 import { createPersistQueue } from './platform/persistedJson.js';
 import { HttpPeerAuthority, PeerBroker, PeerRuntime } from './peer/index.js';
@@ -577,15 +577,7 @@ async function main(): Promise<void> {
         }
     }
     const domain = createAgentWatchStores({ dataDir });
-    const identity = new IdentityStore(dataDir);
-    const terminals = new TerminalManager({
-        relayUrl,
-        machineId,
-        identity,
-        ...(token === undefined ? {} : { token }),
-        ...(process.env.HERDR_BIN === undefined ? {} : { herdrBin: process.env.HERDR_BIN }),
-        ...(hostedE2ee === undefined ? {} : { hostedE2ee }),
-    });
+    const routes = new AgentRouteStore(dataDir);
     let source;
     if (useFake) {
         assertFakeSourceCoversContract();
@@ -595,7 +587,7 @@ async function main(): Promise<void> {
             dataDir,
             attention: domain.attention,
             lifecycle: domain.lifecycle,
-            identity,
+            routes,
             relayUrl,
             machineId,
             attachmentsDir: join(stateRoot, 'attachments', 'pane'),
@@ -610,9 +602,23 @@ async function main(): Promise<void> {
                     event.resolvedAgentName,
                     event.outcome,
                 ),
+                onAgentReadinessDiagnostic: (reason, promptable) =>
+                    diagnostics.agentReadiness(reason, promptable),
             }),
         });
     }
+    const terminals = new TerminalManager({
+        relayUrl,
+        machineId,
+        resolvePane: async (sessionId) => {
+            const snapshot = await source.open({ sessionId, acknowledgeAttention: false });
+            if (snapshot.info.paneId === undefined) throw new Error('That session has no current Herdr pane.');
+            return snapshot.info.paneId;
+        },
+        ...(token === undefined ? {} : { token }),
+        ...(process.env.HERDR_BIN === undefined ? {} : { herdrBin: process.env.HERDR_BIN }),
+        ...(hostedE2ee === undefined ? {} : { hostedE2ee }),
+    });
 
     startHost({
         ...(hostedE2ee === undefined ? {} : { hostedE2ee }),

@@ -25,8 +25,6 @@ export interface StoredPeerRelationship extends PeerRelationship {
     allowedCwds?: string[];
     /** Stable, non-secret selector exposed to voice/tool callers. */
     machineAlias?: string;
-    /** Canonical Agent Names cached by Agent Route for peer responses. */
-    agentNames?: Record<string, string>;
     authorizationDescriptorHash?: string;
     sealedInstallBundle?: string;
 }
@@ -106,8 +104,6 @@ function validState(value: unknown): value is PeerState {
                 || entry.state === 'disconnecting' || entry.state === 'revoked')
             && (entry.relayUrl === undefined || typeof entry.relayUrl === 'string' && entry.relayUrl !== '')
             && (entry.machineAlias === undefined || typeof entry.machineAlias === 'string' && entry.machineAlias !== '')
-            && (entry.agentNames === undefined || typeof entry.agentNames === 'object' && entry.agentNames !== null
-                && Object.values(entry.agentNames).every((agentName) => typeof agentName === 'string' && agentName !== ''))
             && typeof entry.createdAt === 'number' && typeof entry.updatedAt === 'number')
         && state.receipts.every((entry) => typeof entry?.deviceId === 'string' && typeof entry?.operationId === 'string'
             && typeof entry?.requestHash === 'string' && Number.isFinite(entry?.notValidAfter)

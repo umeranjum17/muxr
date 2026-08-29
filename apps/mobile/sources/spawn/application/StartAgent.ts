@@ -38,7 +38,7 @@ export async function startAgent(command: StartAgentCommand): Promise<StartAgent
             return {
                 ok: false,
                 reason: 'failed',
-                message: `${snapshot.acceptance.displayName.trim() || 'Agent'} could not start.`,
+                message: 'Agent could not start.',
             };
         }
         await saveConnectionSettings(rememberSessionCwd(getCachedConnectionSettings(), command.directory));

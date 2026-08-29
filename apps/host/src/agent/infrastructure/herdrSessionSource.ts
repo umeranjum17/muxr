@@ -7,11 +7,13 @@
  * row, which is the point of a multiplexer backend.
  */
 
+import { randomBytes } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { accessSync, constants, existsSync, mkdirSync, realpathSync } from 'node:fs';
 import { mkdir, open, readFile, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import type {
     AgentLifecycle,
@@ -42,7 +44,12 @@ import type {
     SessionStartOptions,
 } from '../application/sessionSource.js';
 import { HerdrClient } from './socketClient.js';
-import { IdentityStore, normalizeAgentName, parseTaskTitle, taskTitleFor, type AgentIdentity } from './identity.js';
+import {
+    AgentRouteStore,
+    herdrAgentSessionKey,
+    parseHerdrAgentSession,
+    type HerdrAgentSessionRef,
+} from './agentRouteStore.js';
 import { pluginInvalidationFrame, PluginCatalog, PluginRefreshGate, WriteReplayFence, Semaphore, rpcInputDigest, rpcReplayKey, runPluginProcess, type HerdrPlugin } from './pluginCatalog.js';
 import { PluginApprovals } from './pluginApprovals.js';
 import { PluginStreamManager } from './pluginStreamManager.js';
@@ -137,7 +144,7 @@ export interface CreateHerdrSessionSourceOptions {
     dataDir: string;
     attention?: AgentWatchStores['attention'];
     lifecycle?: AgentWatchStores['lifecycle'];
-    identity?: IdentityStore;
+    routes?: AgentRouteStore;
     /** Relay HTTP base for best-effort push notify (ws://... -> http://...). */
     relayUrl?: string;
     machineId?: string;
@@ -151,39 +158,60 @@ export interface CreateHerdrSessionSourceOptions {
     peerBroker?: PeerBroker;
     /** Writes bounded semantic prompt outcomes to the owner-only host diagnostics journal. */
     onRealtimePromptDiagnostic?: (event: RealtimePromptDiagnostic) => void;
+    /** Privacy-safe route-generation and readiness outcomes only. */
+    onAgentReadinessDiagnostic?: (reason: 'starting' | 'ready' | 'not-promptable', promptable: boolean) => void;
 }
 
-/** herdr agent record (agent.list / snapshot.agents / agent.start result). */
-interface AgentRecord {
-    agent?: string;
-    name?: string;
+export interface AgentRecord {
+    agent?: string | null;
+    name?: string | null;
+    agent_session?: HerdrAgentSessionRef | null;
     agent_status?: string;
     pane_id: string;
     tab_id?: string;
     workspace_id?: string;
-    cwd?: string;
-    foreground_cwd?: string;
+    cwd?: string | null;
+    foreground_cwd?: string | null;
     launch_pending?: boolean;
     interactive_ready?: boolean;
-    terminal_title?: string;
-    terminal_title_stripped?: string;
+    title?: string | null;
+    terminal_title?: string | null;
+    terminal_title_stripped?: string | null;
+}
+
+/** Partial events preserve readiness unless Herdr explicitly supplies a replacement value. */
+export function mergeHerdrAgentEvent(
+    current: AgentRecord | undefined,
+    incoming: AgentRecord,
+): AgentRecord {
+    return { ...current, ...incoming };
+}
+
+interface CurrentSession {
+    sessionId: string;
+    paneId: string;
+    pane: PaneRecord;
+    agent?: AgentRecord;
+}
+
+export interface RouteTarget {
+    sessionId: string;
+    paneId: string;
 }
 export async function sendKeysToLiveAgent(
     client: Pick<HerdrClient, 'call'>,
-    agentsByPane: ReadonlyMap<string, unknown>,
-    record: Pick<AgentIdentity, 'paneId' | 'agentName'>,
+    target: RouteTarget,
     keys: string[],
 ): Promise<void> {
-    if (!agentsByPane.has(record.paneId)) throw new Error(`${record.agentName} is not ready for keys.`);
-    await client.call('agent.send_keys', { target: record.paneId, keys });
+    await client.call('agent.send_keys', { target: target.paneId, keys });
 }
 
 export async function promptHerdrAgent(
     client: Pick<HerdrClient, 'call'>,
-    record: Pick<AgentIdentity, 'paneId' | 'agentName'>,
+    target: RouteTarget,
     text: string,
 ): Promise<void> {
-    const receipt = await client.call<unknown>('agent.prompt', { target: record.paneId, text });
+    const receipt = await client.call<unknown>('agent.prompt', { target: target.paneId, text });
     const result = typeof receipt === 'object' && receipt !== null && !Array.isArray(receipt)
         ? receipt as Record<string, unknown>
         : undefined;
@@ -200,16 +228,26 @@ export async function promptHerdrAgent(
         || typeof agent.revision !== 'number'
         || !Number.isSafeInteger(agent.revision)
         || agent.revision < 0
-        || agent.pane_id !== record.paneId) {
-        throw new Error(`${record.agentName} prompt was not queued by Herdr.`);
+        || agent.pane_id !== target.paneId) {
+        throw new Error('Herdr did not queue the prompt.');
     }
 }
 
-function agentRouteError(code: 'agent-unavailable' | 'agent-route-ambiguous'): Error {
-    const message = code === 'agent-route-ambiguous'
-        ? 'That Agent Route is ambiguous. Refresh and select the agent again.'
+function agentRouteError(code: 'agent-unavailable' | 'agent-not-ready'): Error {
+    const message = code === 'agent-not-ready'
+        ? 'Agent is not ready yet.'
         : 'That agent is no longer available. Refresh and try again.';
     return Object.assign(new Error(message), { code });
+}
+
+export async function promptPromptableHerdrAgent(
+    client: Pick<HerdrClient, 'call'>,
+    target: RouteTarget,
+    promptable: boolean,
+    text: string,
+): Promise<void> {
+    if (!promptable) throw agentRouteError('agent-not-ready');
+    await promptHerdrAgent(client, target, text);
 }
 
 /** Close one pane only when Herdr can preserve its tab and workspace. */
@@ -277,24 +315,15 @@ export async function closeExactWorkspace(
     await client.call('workspace.close', { workspace_id: workspaceId });
 }
 
-/** Close exactly the live pane or sole-pane tab selected by one stable Agent Route. */
+/** Close exactly the live pane or sole-pane tab selected by one current route. */
 export async function closeAgentRoute(
     client: Pick<HerdrClient, 'call'>,
-    sessionId: string,
-    identities: readonly Pick<AgentIdentity, 'sessionId' | 'paneId'>[],
-    liveAgents: Pick<ReadonlyMap<string, unknown>, 'has'>,
+    target: RouteTarget,
     panes: ReadonlyMap<string, Pick<PaneRecord, 'tab_id'>>,
     tabs: ReadonlyMap<string, Pick<TabRecord, 'workspace_id'>>,
-    afterClose: (record: Pick<AgentIdentity, 'sessionId' | 'paneId'>) => void,
+    afterClose: (target: RouteTarget) => void,
 ): Promise<void> {
-    let match: Pick<AgentIdentity, 'sessionId' | 'paneId'> | undefined;
-    for (const identity of identities) {
-        if (identity.sessionId !== sessionId) continue;
-        if (match !== undefined) throw agentRouteError('agent-route-ambiguous');
-        match = identity;
-    }
-    if (match === undefined || !liveAgents.has(match.paneId)) throw agentRouteError('agent-unavailable');
-    const tabId = panes.get(match.paneId)?.tab_id;
+    const tabId = panes.get(target.paneId)?.tab_id;
     if (tabId === undefined) throw agentRouteError('agent-unavailable');
     let paneCount = 0;
     for (const pane of panes.values()) {
@@ -302,14 +331,14 @@ export async function closeAgentRoute(
     }
     if (paneCount === 0) throw agentRouteError('agent-unavailable');
     try {
-        if (paneCount > 1) await closeExactPane(client, match.paneId, panes);
+        if (paneCount > 1) await closeExactPane(client, target.paneId, panes);
         else await closeExactTab(client, tabId, tabs);
     } catch (error) {
         if (error !== null && typeof error === 'object' && 'code' in error
             && (error.code === 'pane-close-would-widen' || error.code === 'tab-close-would-widen')) throw error;
         throw agentRouteError('agent-unavailable');
     }
-    afterClose(match);
+    afterClose(target);
 }
 
 
@@ -317,12 +346,12 @@ interface PaneRecord {
     pane_id: string;
     tab_id?: string;
     workspace_id?: string;
-    cwd?: string;
-    foreground_cwd?: string;
+    cwd?: string | null;
+    foreground_cwd?: string | null;
     agent_status?: string;
-    terminal_title?: string;
-    terminal_title_stripped?: string;
-    label?: string;
+    terminal_title?: string | null;
+    terminal_title_stripped?: string | null;
+    label?: string | null;
     focused?: boolean;
     /** herdr display tokens; muxr stores lineage in `spawned_by`. */
     tokens?: Record<string, string>;
@@ -382,8 +411,7 @@ const EVENT_KINDS = [
 
 const EMPTY_TOKENS = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 };
 
-/** How long an app-started session survives before herdr must have detected its agent. */
-const START_GRACE_MS = 90_000;
+const SHELL_ROUTE_PREFIX = 'shell:';
 const DEFAULT_WATCH_MS = 30 * 60_000;
 // ponytail: hard ceiling so a forgotten watch cannot hold a herdr connection
 // open forever. Raise it if real turns routinely run longer than an hour.
@@ -393,8 +421,8 @@ export async function createHerdrSessionSource(
     options: CreateHerdrSessionSourceOptions,
 ): Promise<SessionSource> {
     const socketPath = options.socketPath ?? join(homedir(), '.config', 'herdr', 'herdr.sock');
-    const identity = options.identity ?? new IdentityStore(options.dataDir);
-    await identity.load();
+    const routes = options.routes ?? new AgentRouteStore(options.dataDir);
+    await routes.load();
     const catalog = new PluginCatalog();
     const pluginApprovals = new PluginApprovals(options.dataDir);
     await pluginApprovals.load();
@@ -445,6 +473,7 @@ export async function createHerdrSessionSource(
     const statusWatches = new Map<string, () => void>();
 
     /** Stamp a freshly spawned pane with who asked for it. Best effort. */
+    const lastPromptableBySession = new Map<string, boolean>();
     async function tagSpawn(paneId: string, parentSessionId: string): Promise<void> {
         await client
             .call('pane.report_metadata', {
@@ -460,6 +489,92 @@ export async function createHerdrSessionSource(
     let pluginDigests: Map<string, string> | undefined;
     let pluginEnabled = new Map<string, boolean>();
 
+    const knownShells = new Set<string>();
+
+    function agentSession(agent: AgentRecord | undefined): HerdrAgentSessionRef | undefined {
+        return parseHerdrAgentSession(agent?.agent_session);
+    }
+
+    function namedAgent(agent: AgentRecord | undefined): agent is AgentRecord {
+        return agentSession(agent) !== undefined && typeof agent?.name === 'string' && agent.name.length > 0
+            && !/^pph?_/i.test(agent.name);
+    }
+
+    function shellRoute(paneId: string): string {
+        return `${SHELL_ROUTE_PREFIX}${paneId}`;
+    }
+
+    function currentAgentFor(agentSessionRef: HerdrAgentSessionRef): AgentRecord | undefined {
+        const expectedKey = herdrAgentSessionKey(agentSessionRef);
+        let match: AgentRecord | undefined;
+        for (const agent of agentsByPane.values()) {
+            const ref = agentSession(agent);
+            if (ref === undefined || herdrAgentSessionKey(ref) !== expectedKey) continue;
+            if (match !== undefined) return undefined;
+            match = agent;
+        }
+        return namedAgent(match) ? match : undefined;
+    }
+
+    function currentSessions(): CurrentSession[] {
+        const sessions: CurrentSession[] = [];
+        for (const binding of routes.all()) {
+            const agent = currentAgentFor(binding.agentSession);
+            const pane = agent === undefined ? undefined : panesById.get(agent.pane_id);
+            if (agent !== undefined && pane !== undefined) {
+                sessions.push({ sessionId: binding.route, paneId: pane.pane_id, pane, agent });
+            }
+        }
+        for (const pane of panesById.values()) {
+            if (!agentsByPane.has(pane.pane_id)) {
+                sessions.push({ sessionId: shellRoute(pane.pane_id), paneId: pane.pane_id, pane });
+            }
+        }
+        return sessions;
+    }
+
+    function currentSession(sessionId: string): CurrentSession | undefined {
+        if (sessionId.startsWith(SHELL_ROUTE_PREFIX)) {
+            const paneId = sessionId.slice(SHELL_ROUTE_PREFIX.length);
+            const pane = panesById.get(paneId);
+            return pane === undefined || agentsByPane.has(paneId)
+                ? undefined
+                : { sessionId, paneId, pane };
+        }
+        const expected = routes.get(sessionId);
+        if (expected === undefined) return undefined;
+        const agent = currentAgentFor(expected);
+        const pane = agent === undefined ? undefined : panesById.get(agent.pane_id);
+        return agent === undefined || pane === undefined
+            ? undefined
+            : { sessionId, paneId: pane.pane_id, pane, agent };
+    }
+
+    function currentSessionByPane(paneId: string): CurrentSession | undefined {
+        return currentSessions().find((session) => session.paneId === paneId);
+    }
+
+    function agentPromptable(session: CurrentSession | undefined): boolean {
+        if (session?.agent === undefined) return false;
+        const ref = agentSession(session.agent);
+        const bound = routes.get(session.sessionId);
+        return ref !== undefined
+            && bound !== undefined
+            && herdrAgentSessionKey(ref) === herdrAgentSessionKey(bound)
+            && session.agent.interactive_ready === true
+            && session.agent.launch_pending !== true;
+    }
+
+    function taskTitleForSession(session: CurrentSession): string | undefined {
+        if (session.agent?.title !== undefined && session.agent.title !== null && session.agent.title !== '') {
+            return session.agent.title;
+        }
+        if (session.pane.label !== undefined && session.pane.label !== null && session.pane.label !== '') return session.pane.label;
+        const tabId = session.agent?.tab_id ?? session.pane.tab_id;
+        const tabLabel = tabId === undefined ? undefined : tabsById.get(tabId)?.label;
+        return tabLabel === '' ? undefined : tabLabel;
+    }
+
     function setLifecycle(paneId: string, agentStatus: string): void {
         const agent = agentsByPane.get(paneId);
         if (agent !== undefined) agentsByPane.set(paneId, { ...agent, agent_status: agentStatus });
@@ -472,10 +587,8 @@ export async function createHerdrSessionSource(
         if (statusWatches.has(paneId)) return;
         const close = client.watchPaneStatus(paneId, (agentStatus) => {
             setLifecycle(paneId, agentStatus);
-            const record = identity.byPane(paneId);
-            if (record !== undefined) {
-                emitState(record.sessionId);
-            }
+            const session = currentSessionByPane(paneId);
+            if (session !== undefined) emitState(session.sessionId);
         });
         statusWatches.set(paneId, close);
     }
@@ -488,18 +601,17 @@ export async function createHerdrSessionSource(
     }
 
     function cwdForSession(sessionId: string): string | undefined {
-        const record = identity.get(sessionId);
-        if (record === undefined) return undefined;
-        const agent = agentsByPane.get(record.paneId);
-        const pane = panesById.get(record.paneId);
-        return agent?.foreground_cwd ?? pane?.foreground_cwd ?? pane?.cwd ?? record.cwd;
+        const session = currentSession(sessionId);
+        return session?.agent?.foreground_cwd
+            ?? session?.pane.foreground_cwd
+            ?? session?.agent?.cwd
+            ?? session?.pane.cwd
+            ?? undefined;
     }
 
     /** Agent-dropped artifacts in the pane's dump dir. Listed on demand through the attachments plugin. */
     const attachmentsDir = options.attachmentsDir ?? join(homedir(), '.muxr', 'attachments', 'pane');
     const attachments = new AttachmentWatcher(attachmentsDir, () => {
-        // Bytes stay pull-only, but the phone must discard its cached count
-        // when the directory changes or a newly written file stays at 0 until reconnect.
         const frame: PluginsInvalidatedFrame = { type: 'plugins.invalidated', reason: 'changed', pluginIds: [] };
         for (const listener of machineListeners) listener(frame);
     });
@@ -509,87 +621,89 @@ export async function createHerdrSessionSource(
     const attachmentDownloads = new AttachmentDownloadServer(attachmentsDir, options.hostHttpPort ?? 8793, attachments);
     attachmentDownloads.start();
 
-    function lifecycleOf(paneId: string): AgentLifecycle {
-        const sessionId = identity.byPane(paneId)?.sessionId;
-        const canonical = sessionId === undefined ? undefined : options.lifecycle?.current(sessionId)?.state;
-        if (!agentsByPane.has(paneId) && (canonical === 'starting' || canonical === 'failed')) return canonical;
-        const raw = agentsByPane.get(paneId)?.agent_status ?? panesById.get(paneId)?.agent_status;
+    function lifecycleOf(session: CurrentSession): AgentLifecycle {
+        const raw = session.agent?.agent_status ?? session.pane.agent_status;
         if (raw === 'idle' || raw === 'working' || raw === 'blocked' || raw === 'done' || raw === 'failed') return raw;
-        return canonical ?? 'unknown';
+        const historical = options.lifecycle?.current(session.sessionId)?.state;
+        return historical === 'starting' || historical === 'failed' ? historical : 'unknown';
     }
 
-    function transition(record: AgentIdentity, state: AgentLifecycle, reason: Parameters<NonNullable<CreateHerdrSessionSourceOptions['lifecycle']>['transition']>[3]): void {
+    function lifecycleForPane(paneId: string): AgentLifecycle {
+        const session = currentSessionByPane(paneId);
+        if (session !== undefined) return lifecycleOf(session);
+        const raw = agentsByPane.get(paneId)?.agent_status ?? panesById.get(paneId)?.agent_status;
+        return raw === 'idle' || raw === 'working' || raw === 'blocked' || raw === 'done' || raw === 'failed'
+            ? raw
+            : 'unknown';
+    }
+
+    function transition(session: CurrentSession, state: AgentLifecycle, reason: Parameters<NonNullable<CreateHerdrSessionSourceOptions['lifecycle']>['transition']>[3]): void {
+        if (session.agent?.name === undefined || session.agent.name === null) return;
         const event = options.lifecycle?.transition(
-            record.sessionId,
-            record.agentName,
+            session.sessionId,
+            session.agent.name,
             state,
             reason,
-            record.taskTitle,
+            taskTitleForSession(session),
         );
-        if (event !== undefined) publish(record.sessionId, { type: 'lifecycle.update', event });
+        if (event !== undefined) publish(session.sessionId, { type: 'lifecycle.update', event });
     }
 
-    function reportObserved(record: AgentIdentity, state: AgentLifecycle): void {
-        if (options.lifecycle === undefined) return;
+    function reportObserved(session: CurrentSession, state: AgentLifecycle): void {
+        if (options.lifecycle === undefined || session.agent?.name === undefined || session.agent.name === null) return;
+        const taskTitle = taskTitleForSession(session);
         const result = reportAgentOutcome(options.lifecycle, {
-            sessionId: record.sessionId,
-            agentName: record.agentName,
+            sessionId: session.sessionId,
+            agentName: session.agent.name,
             state,
-            ...(agentsByPane.get(record.paneId)?.agent_status === undefined
+            ...(session.agent.agent_status === undefined ? {} : { liveAgentStatus: session.agent.agent_status }),
+            ...(options.lifecycle.latestFor(session.sessionId)?.reasonCode === undefined
                 ? {}
-                : { liveAgentStatus: agentsByPane.get(record.paneId)!.agent_status }),
-            ...(options.lifecycle.latestFor(record.sessionId)?.reasonCode === undefined
-                ? {}
-                : { previousReason: options.lifecycle.latestFor(record.sessionId)!.reasonCode }),
-            taskTitle: record.taskTitle,
+                : { previousReason: options.lifecycle.latestFor(session.sessionId)!.reasonCode }),
+            ...(taskTitle === undefined ? {} : { taskTitle }),
         });
-        if (result.data !== undefined) publish(record.sessionId, { type: 'lifecycle.update', event: result.data });
+        if (result.data !== undefined) publish(session.sessionId, { type: 'lifecycle.update', event: result.data });
     }
 
     function statusFor(sessionId: string): SessionStatus {
-        const record = identity.get(sessionId);
-        const agentStatus = record === undefined ? 'unknown' : lifecycleOf(record.paneId);
-
+        const session = currentSession(sessionId);
+        const agentStatus = session === undefined ? 'unknown' : lifecycleOf(session);
         return {
             sessionId,
             persisted: true,
             agentStatus,
+            promptable: agentPromptable(session),
             isStreaming: agentStatus === 'working',
             tokens: { ...EMPTY_TOKENS },
         };
     }
 
-    function infoFor(record: AgentIdentity): SessionInfo {
-        const pane = panesById.get(record.paneId);
-        const agent = agentsByPane.get(record.paneId);
-        const name = normalizeAgentName(agent?.name);
-        const agentKind = publicAgentKind(record.kind ?? agent?.agent);
-        const terminalTitle = agent?.terminal_title_stripped ?? pane?.terminal_title_stripped;
-        const workspace = workspacesById.get(record.workspaceId);
+    function infoFor(session: CurrentSession): SessionInfo {
+        const workspaceId = session.agent?.workspace_id ?? session.pane.workspace_id;
+        const tabId = session.agent?.tab_id ?? session.pane.tab_id;
+        const workspace = workspaceId === undefined ? undefined : workspacesById.get(workspaceId);
+        const tabLabel = tabId === undefined ? undefined : tabsById.get(tabId)?.label;
         const worktree = workspace?.worktree;
-        const tabLabel = tabsById.get(record.tabId)?.label;
-        const taskTitle = record.taskTitle;
-        const safeTerminalTitle = parseTaskTitle(terminalTitle, agentKind, name);
-        const spawnedBy = pane?.tokens?.spawned_by;
+        const taskTitle = taskTitleForSession(session);
+        const agentKind = publicAgentKind(session.agent?.agent ?? undefined);
+        const terminalTitle = session.agent?.terminal_title_stripped ?? session.pane.terminal_title_stripped ?? undefined;
+        const spawnedBy = session.pane.tokens?.spawned_by;
         return {
-            id: record.sessionId,
-            cwd: agent?.foreground_cwd ?? pane?.foreground_cwd ?? pane?.cwd ?? record.cwd,
-            path: record.paneId,
-            name,
-            displayName: name,
-            ...(taskTitle === undefined ? {} : { taskTitle }),
-            created: record.createdAt,
-            modified: modifiedBySession.get(record.sessionId) ?? record.createdAt,
+            id: session.sessionId,
+            cwd: cwdForSession(session.sessionId) ?? '',
             messageCount: 0,
             firstMessage: '',
+            promptable: agentPromptable(session),
+            ...(session.agent?.name === undefined || session.agent.name === null ? {} : { agentName: session.agent.name }),
+            ...(taskTitle === undefined ? {} : { taskTitle }),
             ...(agentKind === undefined ? {} : { agentKind }),
-            paneId: record.paneId,
-            workspaceId: record.workspaceId,
+            paneId: session.paneId,
+            ...(workspaceId === undefined ? {} : { workspaceId }),
             ...(workspace?.label === undefined ? {} : { workspaceLabel: workspace.label }),
-            tabId: record.tabId,
+            ...(tabId === undefined ? {} : { tabId }),
             ...(tabLabel === undefined ? {} : { tabLabel }),
             ...(spawnedBy === undefined ? {} : { spawnedBy }),
-            ...(safeTerminalTitle === undefined ? {} : { terminalTitle: safeTerminalTitle }),
+            ...(terminalTitle === undefined ? {} : { terminalTitle }),
             ...mappedWorktree(worktree, workspace?.label),
         };
     }
@@ -614,7 +728,7 @@ export async function createHerdrSessionSource(
             eventId,
             kind,
             ...(lifecycle === undefined ? {} : { reasonCode: lifecycle.reasonCode }),
-            displayName: lifecycle?.displayName ?? 'Agent',
+            ...(lifecycle?.agentName === undefined ? {} : { agentName: lifecycle.agentName }),
             ...(lifecycle?.taskTitle === undefined ? {} : { taskTitle: lifecycle.taskTitle }),
         });
         void fetch(pushNotifyUrl, {
@@ -628,17 +742,14 @@ export async function createHerdrSessionSource(
         }).catch(() => {});
     }
 
-    function applyAttention(sessionId: string, agentStatus: AgentLifecycle, label: string | undefined): void {
+    function applyAttention(sessionId: string, agentStatus: AgentLifecycle): void {
         const attention = options.attention;
         if (attention === undefined) return;
-        const name = label ?? 'Agent';
         let changed = false;
         switch (agentStatus) {
             case 'blocked':
-                // A live lifecycle disproves a recorded start failure.
                 changed = attention.clear(sessionId, 'failed') || changed;
-                // Push only on the transition INTO waiting, not on every publish.
-                if (attention.set(sessionId, 'waiting', `${name} needs attention.`)) {
+                if (attention.set(sessionId, 'waiting', 'Agent needs attention.')) {
                     changed = true;
                     const eventId = options.lifecycle?.current(sessionId)?.eventId;
                     if (eventId !== undefined) notifyAttention(sessionId, eventId, 'blocked');
@@ -646,7 +757,7 @@ export async function createHerdrSessionSource(
                 break;
             case 'done':
                 changed = attention.clear(sessionId, 'waiting', 'failed') || changed;
-                if (attention.set(sessionId, 'done', `${name} finished.`)) {
+                if (attention.set(sessionId, 'done', 'Agent finished.')) {
                     changed = true;
                     const eventId = options.lifecycle?.current(sessionId)?.eventId;
                     if (eventId !== undefined) notifyAttention(sessionId, eventId, 'done');
@@ -657,21 +768,16 @@ export async function createHerdrSessionSource(
                 changed = attention.clear(sessionId, 'waiting', 'done', 'failed') || changed;
                 break;
             case 'unknown':
-                // unknown is exactly what a failed start looks like; clearing
-                // 'failed' here would erase the failure it reports.
                 changed = attention.clear(sessionId, 'waiting', 'done') || changed;
                 break;
-            case 'failed': {
+            case 'failed':
                 changed = attention.clear(sessionId, 'waiting', 'done') || changed;
-                const runtime = options.lifecycle?.current(sessionId)?.reasonCode === 'agent-runtime-failed';
-                const detail = runtime ? `${name} failed.` : `${name} could not start.`;
-                if (attention.set(sessionId, 'failed', detail)) {
+                if (attention.set(sessionId, 'failed', 'Agent failed.')) {
                     changed = true;
                     const eventId = options.lifecycle?.current(sessionId)?.eventId;
                     if (eventId !== undefined) notifyAttention(sessionId, eventId, 'failed');
                 }
                 break;
-            }
             case 'starting':
                 break;
         }
@@ -686,11 +792,31 @@ export async function createHerdrSessionSource(
         }
     }
 
+    function removeRouteState(sessionId: string): void {
+        const watch = watches.get(sessionId);
+        if (watch !== undefined) clearTimeout(watch);
+        watches.delete(sessionId);
+        pluginStreams?.closeSession(sessionId);
+        options.lifecycle?.remove(sessionId);
+        clearAttention(sessionId);
+        lastStateSignature.delete(sessionId);
+        lastInfoSignature.delete(sessionId);
+        lastPromptableBySession.delete(sessionId);
+        publish(sessionId, { type: 'session.removed' });
+    }
+
     function emitState(sessionId: string): void {
-        const record = identity.get(sessionId);
-        if (record === undefined) return;
-        const agentStatus = lifecycleOf(record.paneId);
-        const stateSignature = agentStatus;
+        const session = currentSession(sessionId);
+        if (session === undefined) return;
+        const agentStatus = lifecycleOf(session);
+        if (session.agent !== undefined) {
+            const promptable = agentPromptable(session);
+            if (lastPromptableBySession.get(sessionId) !== promptable) {
+                lastPromptableBySession.set(sessionId, promptable);
+                options.onAgentReadinessDiagnostic?.(promptable ? 'ready' : 'starting', promptable);
+            }
+        }
+        const stateSignature = `${agentStatus}|${String(agentPromptable(session))}`;
         if (lastStateSignature.get(sessionId) !== stateSignature) {
             lastStateSignature.set(sessionId, stateSignature);
             publish(sessionId, { type: 'status.update', status: statusFor(sessionId) });
@@ -704,113 +830,76 @@ export async function createHerdrSessionSource(
                 },
             });
         }
-        // Terminal title / worktree / pane changes ride their own event so list
-        // rows and preview cards can refresh without a status churn. Herdr's
-        // animated leading spinner is decoration, not a semantic title change.
-        const info = infoFor(record);
-        const stableTitle = (info.terminalTitle ?? '').replace(/^[◐◑◒◓]\s*/, '');
-        const signature = `${stableTitle}|${info.taskTitle ?? ''}|${info.worktree?.path ?? ''}|${info.paneId ?? ''}|${info.name ?? ''}`;
+        const info = infoFor(session);
+        const signature = JSON.stringify(info);
         if (lastInfoSignature.get(sessionId) !== signature) {
             lastInfoSignature.set(sessionId, signature);
             publish(sessionId, { type: 'session.updated', session: info });
         }
-        reportObserved(record, agentStatus);
-        applyAttention(sessionId, agentStatus, record.agentName);
-    }
-
-    function singlePaneTabLabel(tabId: string | undefined): string | undefined {
-        if (tabId === undefined) return undefined;
-        const tabPaneCount = [...panesById.values()].filter((pane) => pane.tab_id === tabId).length;
-        if (tabPaneCount > 1) return undefined;
-        return tabsById.get(tabId)?.label;
-    }
-
-    function applyLiveIdentity(live: Parameters<IdentityStore['observe']>[0]): AgentIdentity {
-        const result = identity.observe(live);
-        if (result.displaced !== undefined) {
-            options.lifecycle?.remove(result.displaced.sessionId);
-            clearAttention(result.displaced.sessionId);
-            publish(result.displaced.sessionId, { type: 'session.removed' });
+        if (session.agent !== undefined) {
+            reportObserved(session, agentStatus);
+            applyAttention(sessionId, agentStatus);
         }
-        if (result.previousPaneId !== undefined && result.previousPaneId !== result.identity.paneId) {
-            statusWatches.get(result.previousPaneId)?.();
-            statusWatches.delete(result.previousPaneId);
-            lifecycleEpochByPane.delete(result.previousPaneId);
-            attachments.dropPane(result.previousPaneId);
-        }
-        if (result.created) publish(result.identity.sessionId, { type: 'session.created', session: infoFor(result.identity) });
-        return result.identity;
     }
 
-    /** Reconcile identity with what herdr currently reports. */
+    /** Bind routes to current Herdr generations and remove every vanished generation first. */
     async function syncDiscovery(): Promise<void> {
+        const liveRefs = [...agentsByPane.values()].flatMap((agent) => {
+            const ref = agentSession(agent);
+            return ref === undefined ? [] : [ref];
+        });
+        for (const binding of routes.reconcile(liveRefs)) removeRouteState(binding.route);
+
+        const createdRoutes: string[] = [];
         for (const agent of agentsByPane.values()) {
-            if (agent.pane_id === undefined) continue;
             ensureStatusWatch(agent.pane_id);
-            const pane = panesById.get(agent.pane_id);
-            applyLiveIdentity({
-                paneId: agent.pane_id,
-                workspaceId: agent.workspace_id ?? pane?.workspace_id,
-                tabId: agent.tab_id ?? pane?.tab_id,
-                cwd: agent.foreground_cwd ?? pane?.foreground_cwd ?? agent.cwd ?? pane?.cwd,
-                agentName: agent.name,
-                kind: agent.agent,
-                paneLabel: pane?.label,
-                tabLabel: singlePaneTabLabel(agent.tab_id ?? pane?.tab_id),
-                terminalTitle: agent.terminal_title_stripped ?? pane?.terminal_title_stripped,
-            });
+            if (!namedAgent(agent)) continue;
+            const ref = agentSession(agent)!;
+            const bound = routes.bind(ref);
+            if (bound.created) createdRoutes.push(bound.route);
         }
-        // Shell panes (no agent in them) get sessions too: the phone should be
-        // able to open and type into ANY pane, and a split-out shell is dead
-        // weight otherwise. A shell session lives exactly as long as its pane.
-        for (const pane of panesById.values()) {
-            if (agentsByPane.has(pane.pane_id)) continue;
-            applyLiveIdentity({
-                paneId: pane.pane_id,
-                workspaceId: pane.workspace_id,
-                tabId: pane.tab_id,
-                agentName: undefined,
-                cwd: pane.foreground_cwd ?? pane.cwd,
-                paneLabel: pane.label,
-                tabLabel: singlePaneTabLabel(pane.tab_id),
-                terminalTitle: pane.terminal_title_stripped,
-            });
+        for (const [paneId, close] of statusWatches) {
+            if (agentsByPane.has(paneId)) continue;
+            close();
+            statusWatches.delete(paneId);
+            lifecycleEpochByPane.delete(paneId);
+            if (!panesById.has(paneId)) attachments.dropPane(paneId);
         }
-        // A session dies with its PANE, not with its agent. An agent that exits
-        // leaves a working shell behind, which stays openable until the pane
-        // itself closes in herdr (resnapshots drop closed panes from panesById).
-        for (const record of identity.all()) {
-            if (agentsByPane.has(record.paneId)) continue;
-            if (panesById.has(record.paneId)) continue;
-            const starting =
-                record.ours && Date.now() - Date.parse(record.createdAt) < START_GRACE_MS;
-            if (starting) continue;
-            statusWatches.get(record.paneId)?.();
-            statusWatches.delete(record.paneId);
-            lifecycleEpochByPane.delete(record.paneId);
-            lastStateSignature.delete(record.sessionId);
-            lastInfoSignature.delete(record.sessionId);
-            attachments.dropPane(record.paneId);
-            identity.remove(record.sessionId);
-            options.lifecycle?.remove(record.sessionId);
-            clearAttention(record.sessionId);
-            // session.error left the row in the list as a corpse that opened a
-            // blank terminal. The event stream is the only way the phone ever
-            // learns a session is gone.
-            publish(record.sessionId, { type: 'session.removed' });
+        await routes.flush();
+
+        const currentShells = new Set(
+            [...panesById.values()]
+                .filter((pane) => !agentsByPane.has(pane.pane_id))
+                .map((pane) => shellRoute(pane.pane_id)),
+        );
+        for (const route of knownShells) {
+            if (!currentShells.has(route)) removeRouteState(route);
         }
-        // Attention outlives its session on disk (herdr restarts, panes close while
-        // the host is down), which leaves an inbox badge pointing at nothing.
+        for (const route of currentShells) {
+            if (knownShells.has(route)) continue;
+            const session = currentSession(route);
+            if (session !== undefined) publish(route, { type: 'session.created', session: infoFor(session) });
+        }
+        knownShells.clear();
+        for (const route of currentShells) knownShells.add(route);
+
+        for (const route of createdRoutes) {
+            const session = currentSession(route);
+            if (session === undefined) continue;
+            publish(route, { type: 'session.created', session: infoFor(session) });
+            emitState(route);
+        }
+
+        const liveSessionIds = new Set(currentSessions().map((session) => session.sessionId));
         const attention = options.attention;
         if (attention !== undefined) {
             for (const entry of attention.catalog().entries) {
-                if (identity.get(entry.sessionId) !== undefined) continue;
+                if (liveSessionIds.has(entry.sessionId)) continue;
                 if (attention.clear(entry.sessionId)) {
                     publish(entry.sessionId, { type: 'attention.update', catalog: attention.catalog() });
                 }
             }
         }
-        await identity.flush();
     }
 
     async function refreshSnapshot(): Promise<void> {
@@ -861,13 +950,24 @@ export async function createHerdrSessionSource(
     }
 
     function emitAllStates(): void {
-        for (const record of identity.all()) emitState(record.sessionId);
+        for (const session of currentSessions()) emitState(session.sessionId);
     }
 
     const client = new HerdrClient(socketPath, () => {
         void client.subscribeEvents(EVENT_KINDS).catch(() => {});
         void refreshSnapshot().then(emitAllStates).catch(() => {});
     });
+
+    async function waitForPublishedAgent(paneId: string, timeoutMs: number): Promise<CurrentSession> {
+        const deadline = Date.now() + timeoutMs;
+        while (Date.now() < deadline) {
+            await refreshSnapshot();
+            const session = currentSessionByPane(paneId);
+            if (session?.agent !== undefined) return session;
+            await sleep(200);
+        }
+        throw new Error('Herdr did not publish the current Agent Name and session.');
+    }
 
     async function waitForInteractiveAgent(paneId: string, timeoutMs: number): Promise<void> {
         const result = await client.call<{ agent?: AgentRecord }>(
@@ -891,23 +991,22 @@ export async function createHerdrSessionSource(
                 ...pane,
                 ...(currentPaneStatus === undefined ? {} : { agent_status: currentPaneStatus }),
             });
-            if ('agent' in pane || 'name' in pane) {
-                const currentAgentStatus = agentsByPane.get(pane.pane_id)?.agent_status;
+            if ('agent' in pane || 'name' in pane || 'agent_session' in pane) {
+                const current = agentsByPane.get(pane.pane_id);
+                const merged = mergeHerdrAgentEvent(current, pane as AgentRecord);
                 agentsByPane.set(pane.pane_id, {
-                    ...agentsByPane.get(pane.pane_id),
-                    ...(pane as AgentRecord),
-                    ...(currentAgentStatus === undefined ? {} : { agent_status: currentAgentStatus }),
+                    ...merged,
+                    pane_id: pane.pane_id,
+                    ...(current?.agent_status === undefined ? {} : { agent_status: current.agent_status }),
                 });
             }
         }
         switch (kind) {
             case 'pane.updated': {
-                // Some herdr versions require a filtered subscription for this;
-                // if it does arrive, reconcile labels rather than only repainting.
                 const paneId = typeof event.pane_id === 'string' ? event.pane_id : pane?.pane_id;
-                const record = paneId === undefined ? undefined : identity.byPane(paneId);
                 scheduleResnapshot();
-                if (record !== undefined) emitState(record.sessionId);
+                const session = paneId === undefined ? undefined : currentSessionByPane(paneId);
+                if (session !== undefined) emitState(session.sessionId);
                 return;
             }
             case 'pane.agent.status.changed':
@@ -915,32 +1014,17 @@ export async function createHerdrSessionSource(
                 const paneId = typeof event.pane_id === 'string' ? event.pane_id : pane?.pane_id;
                 const agentStatus = typeof event.agent_status === 'string' ? event.agent_status : pane?.agent_status;
                 if (paneId !== undefined && agentStatus !== undefined) setLifecycle(paneId, agentStatus);
-                const record = paneId === undefined ? undefined : identity.byPane(paneId);
-                if (record !== undefined) {
-                    scheduleResnapshot();
-                    emitState(record.sessionId);
-                    return;
-                }
+                const session = paneId === undefined ? undefined : currentSessionByPane(paneId);
+                if (session !== undefined) emitState(session.sessionId);
                 scheduleResnapshot();
                 return;
             }
             case 'pane.moved': {
                 const previous = typeof event.previous_pane_id === 'string' ? event.previous_pane_id : undefined;
-                const nextId = pane?.pane_id;
-                if (previous !== undefined && nextId !== undefined && identity.byPane(previous) !== undefined) {
-                    const observedKind = pane !== undefined && 'agent' in pane ? pane.agent : undefined;
-                    applyLiveIdentity({
-                        paneId: nextId,
-                        previousPaneId: previous,
-                        workspaceId: pane?.workspace_id,
-                        tabId: pane?.tab_id,
-                        cwd: pane?.foreground_cwd ?? pane?.cwd,
-                        kind: observedKind,
-                    });
-                    void identity.flush().catch(() => scheduleResnapshot());
+                if (previous !== undefined) {
                     statusWatches.get(previous)?.();
                     statusWatches.delete(previous);
-                    ensureStatusWatch(nextId);
+                    lifecycleEpochByPane.delete(previous);
                 }
                 scheduleResnapshot();
                 return;
@@ -980,6 +1064,7 @@ export async function createHerdrSessionSource(
         await client.start();
         await client.subscribeEvents(EVENT_KINDS);
         await refreshSnapshot();
+        emitAllStates();
     } catch (cause) {
         process.stderr.write(`${cause instanceof Error ? cause.message : String(cause)}\n`);
     }
@@ -988,32 +1073,34 @@ export async function createHerdrSessionSource(
         return agentRouteError('agent-unavailable');
     }
 
-    async function resolvePane(sessionId: string): Promise<AgentIdentity> {
+    async function resolvePane(sessionId: string): Promise<CurrentSession> {
         try { await refreshSnapshot(); } catch { throw agentUnavailable(); }
-        const record = identity.get(sessionId);
-        if (record === undefined || !panesById.has(record.paneId)) throw agentUnavailable();
-        return record;
+        const session = currentSession(sessionId);
+        if (session === undefined) throw agentUnavailable();
+        return session;
     }
 
-    function snapshotFor(record: AgentIdentity, accepted = false): SessionSnapshot {
+    function snapshotFor(session: CurrentSession, accepted = false): SessionSnapshot {
+        let acceptance: SessionSnapshot['acceptance'];
+        if (accepted) {
+            acceptance = { outcome: 'accepted', state: lifecycleOf(session) };
+            const agentName = session.agent?.name;
+            if (agentName !== undefined && agentName !== null) acceptance.agentName = agentName;
+        }
         return {
-            info: infoFor(record),
-            status: statusFor(record.sessionId),
+            info: infoFor(session),
+            status: statusFor(session.sessionId),
             page: { messages: [], hasMore: false },
-            ...(accepted ? { acceptance: { outcome: 'accepted' as const, state: lifecycleOf(record.paneId), displayName: record.agentName } } : {}),
+            ...(acceptance === undefined ? {} : { acceptance }),
         };
     }
 
     async function startSession(startOptions: SessionStartOptions & { kind?: string; label?: string }): Promise<SessionStartResult> {
-        // Squad mode: one tab per kind. workspace-per-cwd dedup lands them
-        // all in the same workspace; the first session answers the request,
-        // the rest land through discovery events. Wire displayName is ignored:
-        // plugins/pane-titler owns Herdr Agent Names.
-        const squad: Array<{ kind: string; displayName?: string }> | undefined =
+        const squad: Array<{ kind: string }> | undefined =
             startOptions.members ?? startOptions.kinds?.map((kind) => ({ kind }));
         if (squad !== undefined && squad.length > 1) {
             let first: SessionStartResult | undefined;
-            const started: AgentIdentity[] = [];
+            const started: CurrentSession[] = [];
             for (const member of squad.slice(0, 4)) {
                 const snapshot = await startSession({
                     cwd: startOptions.cwd,
@@ -1021,20 +1108,17 @@ export async function createHerdrSessionSource(
                     ...(startOptions.taskTitle === undefined ? {} : { taskTitle: startOptions.taskTitle }),
                 });
                 if (!('info' in snapshot)) {
-                    for (const record of started.reverse()) {
-                        transition(record, 'failed', 'squad-rolled-back');
-                        pluginStreams?.closeSession(record.sessionId);
-                        await client.call('pane.close', { pane_id: record.paneId }).catch(() => undefined);
-                        statusWatches.get(record.paneId)?.();
-                        statusWatches.delete(record.paneId);
-                        identity.remove(record.sessionId);
-                        clearAttention(record.sessionId);
-                        publish(record.sessionId, { type: 'session.removed' });
+                    for (const session of started.reverse()) {
+                        transition(session, 'failed', 'squad-rolled-back');
+                        await client.call('pane.close', { pane_id: session.paneId }).catch(() => undefined);
+                        removeRouteState(session.sessionId);
+                        routes.remove(session.sessionId);
                     }
+                    await routes.flush();
                     return snapshot;
                 }
-                const record = identity.get(snapshot.info.id);
-                if (record !== undefined) started.push(record);
+                const session = currentSession(snapshot.info.id);
+                if (session !== undefined) started.push(session);
                 first = first ?? snapshot;
             }
             if (first === undefined) throw new Error('herdr: squad start produced nothing');
@@ -1042,66 +1126,52 @@ export async function createHerdrSessionSource(
         }
 
         const kind = startOptions.kind ?? 'pi';
-        const requestedLabel = startOptions.label?.trim();
-        const sessionId = identity.allocateRoute();
-        const agentName = 'Agent';
-        const taskTitle = taskTitleFor(startOptions.taskTitle ?? requestedLabel, kind, agentName);
-        const starting = options.lifecycle?.transition(sessionId, agentName, 'starting', 'start-requested', taskTitle);
-        if (starting !== undefined) publish(sessionId, { type: 'lifecycle.update', event: starting });
-        const earlyFailure = (): SessionStartResult => {
-            const event = options.lifecycle?.transition(sessionId, agentName, 'failed', 'start-launch-failed', taskTitle);
-            if (event !== undefined) {
-                publish(sessionId, { type: 'lifecycle.update', event });
-                notifyAttention(sessionId, event.eventId, 'failed');
-            }
-            return {
-                acceptance: {
-                    outcome: 'failed', state: 'failed', displayName: agentName,
-                    code: 'start-launch-failed', message: 'Agent could not start.',
-                },
-            };
-        };
+        const requestedLabel = startOptions.label?.trim() || startOptions.taskTitle?.trim();
+        const earlyFailure = (): SessionStartResult => ({
+            acceptance: {
+                outcome: 'failed',
+                state: 'failed',
+                code: 'start-launch-failed',
+                message: 'Agent could not start.',
+            },
+        });
 
-        // Worktree sessions: herdr forks the checkout and groups it under the project.
         let cwd = startOptions.cwd;
         let workspaceId: string | undefined;
         try {
-        if (startOptions.worktree !== undefined) {
-            const created = await client.call<{
-                workspace?: { workspace_id?: string; worktree?: { checkout_path?: string } };
-            }>(
-                'worktree.create',
-                {
-                    cwd,
-                    focus: false,
-                    ...(startOptions.worktree.branch === undefined ? {} : { branch: startOptions.worktree.branch }),
-                    ...(startOptions.worktree.base === undefined ? {} : { base: startOptions.worktree.base }),
-                },
-            );
-            // Result shape (verified live): { type:'worktree_created', workspace: {
-            //   workspace_id, worktree: { checkout_path } }, tab: { tab_id } }
-            workspaceId = created.workspace?.workspace_id;
-            const checkout = created.workspace?.worktree?.checkout_path;
-            if (checkout !== undefined) cwd = checkout;
-        }
-
-        if (workspaceId === undefined) {
-            // One workspace per project directory: phone and desk see the same herd.
-            const workspaces = await client.call<{ workspaces?: { workspace_id: string; label?: string }[] }>(
-                'workspace.list',
-            );
-            const existing = (workspaces.workspaces ?? []).find((workspace) => workspace.label === cwd);
-            if (existing !== undefined) {
-                workspaceId = existing.workspace_id;
-            } else {
-                const created = await client.call<{ workspace?: { workspace_id: string } }>('workspace.create', {
-                    cwd,
-                    label: cwd,
-                    focus: false,
-                });
+            if (startOptions.worktree !== undefined) {
+                const created = await client.call<{
+                    workspace?: { workspace_id?: string; worktree?: { checkout_path?: string } };
+                }>(
+                    'worktree.create',
+                    {
+                        cwd,
+                        focus: false,
+                        ...(startOptions.worktree.branch === undefined ? {} : { branch: startOptions.worktree.branch }),
+                        ...(startOptions.worktree.base === undefined ? {} : { base: startOptions.worktree.base }),
+                    },
+                );
                 workspaceId = created.workspace?.workspace_id;
+                const checkout = created.workspace?.worktree?.checkout_path;
+                if (checkout !== undefined) cwd = checkout;
             }
-        }
+
+            if (workspaceId === undefined) {
+                const workspaces = await client.call<{ workspaces?: { workspace_id: string; label?: string }[] }>(
+                    'workspace.list',
+                );
+                const existing = (workspaces.workspaces ?? []).find((workspace) => workspace.label === cwd);
+                if (existing !== undefined) {
+                    workspaceId = existing.workspace_id;
+                } else {
+                    const created = await client.call<{ workspace?: { workspace_id: string } }>('workspace.create', {
+                        cwd,
+                        label: cwd,
+                        focus: false,
+                    });
+                    workspaceId = created.workspace?.workspace_id;
+                }
+            }
         } catch {
             return earlyFailure();
         }
@@ -1112,91 +1182,69 @@ export async function createHerdrSessionSource(
             tab = await client.call('tab.create', {
                 workspace_id: workspaceId,
                 cwd,
-                ...(requestedLabel === undefined || requestedLabel === '' ? {} : { label: requestedLabel }),
+                ...(requestedLabel === undefined ? {} : { label: requestedLabel }),
                 focus: false,
             });
         } catch {
             return earlyFailure();
         }
         const paneId = tab.root_pane?.pane_id;
-        const tabId = tab.tab?.tab_id;
-        if (paneId === undefined || tabId === undefined) return earlyFailure();
+        if (paneId === undefined || tab.tab?.tab_id === undefined) return earlyFailure();
 
-        const record = identity.adopt({
-            sessionId,
-            paneId,
-            workspaceId,
-            tabId,
-            cwd,
-            kind: publicAgentKind(kind),
-            taskTitle,
-            ours: true,
-        });
+        if (kind === 'shell') {
+            await refreshSnapshot();
+            const shell = currentSession(shellRoute(paneId));
+            if (shell === undefined) return earlyFailure();
+            emitState(shell.sessionId);
+            return snapshotFor(shell, true);
+        }
+
         try {
-            await identity.flush();
+            const launchName = `pp_${randomBytes(8).toString('hex')}`;
+            await client.call('agent.start', { name: launchName, kind, pane_id: paneId, timeout_ms: 60_000 }, 70_000);
+            const session = await waitForPublishedAgent(paneId, 5_000);
+            const expectedRef = agentSession(session.agent)!;
+            transition(session, 'starting', 'start-requested');
+            emitState(session.sessionId);
+            void waitForInteractiveAgent(paneId, 60_000)
+                .then(async () => {
+                    await refreshSnapshot();
+                    const current = currentSession(session.sessionId);
+                    const currentRef = agentSession(current?.agent);
+                    if (current === undefined || currentRef === undefined
+                        || herdrAgentSessionKey(currentRef) !== herdrAgentSessionKey(expectedRef)) return;
+                    emitState(current.sessionId);
+                })
+                .catch(() => {
+                    const current = currentSession(session.sessionId);
+                    if (current !== undefined) {
+                        transition(current, 'failed', 'start-launch-failed');
+                        emitState(current.sessionId);
+                    }
+                });
+            return snapshotFor(session, true);
         } catch {
-            identity.remove(record.sessionId);
             await client.call('pane.close', { pane_id: paneId }).catch(() => undefined);
             return earlyFailure();
         }
-        transition(record, 'starting', 'start-requested');
-
-        // tab.create already left the pane at an interactive shell, which IS the
-        // session when no agent is wanted. 'shell' is not a herdr kind, so
-        // starting one would just fail.
-        if (kind === 'shell') {
-            publish(record.sessionId, { type: 'session.created', session: infoFor(record) });
-            transition(record, 'working', 'agent-working');
-            emitState(record.sessionId);
-            return snapshotFor(record, true);
-        }
-
-        // agent.start acknowledges launch admission before the process becomes
-        // interactive. Publish session.created only after Herdr confirms the
-        // stable Agent Route can accept prompts.
-        void client
-            .call('agent.start', { name: record.sessionId, kind, pane_id: paneId, timeout_ms: 60_000 }, 70_000)
-            .then(() => waitForInteractiveAgent(paneId, 60_000))
-            .then(() => {
-                const current = identity.get(record.sessionId);
-                if (current === undefined) return;
-                setLifecycle(current.paneId, 'working');
-                publish(current.sessionId, { type: 'session.created', session: infoFor(current) });
-                emitState(current.sessionId);
-            })
-            .catch((error: unknown) => {
-                const current = identity.get(record.sessionId);
-                if (current !== undefined) transition(current, 'failed', error instanceof Error && /timed?\s*out/i.test(error.message) ? 'start-timeout' : 'start-launch-failed');
-                const friendly = current?.agentName ?? agentName;
-                publish(record.sessionId, { type: 'session.error', message: `${friendly} could not start.` });
-                const attention = options.attention;
-                if (attention !== undefined && attention.set(record.sessionId, 'failed', `${friendly} could not start.`)) {
-                    const eventId = options.lifecycle?.current(record.sessionId)?.eventId;
-                    if (eventId !== undefined) notifyAttention(record.sessionId, eventId, 'failed');
-                    publish(record.sessionId, { type: 'attention.update', catalog: attention.catalog() });
-                }
-            });
-
-        return snapshotFor(record, true);
     }
 
-    function realtimeAgentFor(record: AgentIdentity): RealtimeCodingAgent {
-        const info = infoFor(record);
-        const changedAt = Date.parse(options.lifecycle?.latestFor(record.sessionId)?.at ?? record.createdAt);
+    function realtimeAgentFor(session: CurrentSession): RealtimeCodingAgent {
+        const changedAt = Date.parse(options.lifecycle?.latestFor(session.sessionId)?.at ?? '');
         return {
-            sessionId: record.sessionId,
-            cwd: info.cwd,
-            displayName: record.agentName,
-            taskTitle: record.taskTitle,
-            kind: record.kind ?? 'agent',
-            status: statusFor(record.sessionId).agentStatus ?? 'unknown',
+            sessionId: session.sessionId,
+            cwd: cwdForSession(session.sessionId) ?? '',
+            displayName: session.agent?.name ?? '',
+            taskTitle: taskTitleForSession(session) ?? '',
+            kind: publicAgentKind(session.agent?.agent ?? undefined) ?? 'agent',
+            status: statusFor(session.sessionId).agentStatus ?? 'unknown',
             ...(Number.isFinite(changedAt) ? { changedAt } : {}),
         };
     }
 
     async function listRealtimeAgents(): Promise<RealtimeCodingAgent[]> {
         await refreshSnapshot();
-        return identity.all().map(realtimeAgentFor);
+        return currentSessions().filter((session) => session.agent !== undefined).map(realtimeAgentFor);
     }
 
     async function startRealtimeAgent(input: {
@@ -1211,22 +1259,23 @@ export async function createHerdrSessionSource(
             kind: input.kind,
         });
         if (!('info' in result)) return { accepted: false };
-        const record = identity.get(result.info.id);
-        return record === undefined
+        const session = currentSession(result.info.id);
+        return session?.agent === undefined
             ? { accepted: false }
-            : { accepted: true, agent: realtimeAgentFor(record) };
+            : { accepted: true, agent: realtimeAgentFor(session) };
     }
 
     async function promptSession(sessionId: string, text: string): Promise<void> {
-        const record = await resolvePane(sessionId);
-        if (!agentsByPane.has(record.paneId)) {
-            throw new Error(`${record.agentName} is not ready for prompts.`);
-        }
-        await promptHerdrAgent(client, record, text);
+        const session = await resolvePane(sessionId);
+        const promptable = agentPromptable(session);
+        if (!promptable) options.onAgentReadinessDiagnostic?.('not-promptable', false);
+        await promptPromptableHerdrAgent(client, session, promptable, text);
     }
+
     async function sendSessionKeys(sessionId: string, keys: string[]): Promise<void> {
-        const record = await resolvePane(sessionId);
-        await sendKeysToLiveAgent(client, agentsByPane, record, keys);
+        const session = await resolvePane(sessionId);
+        if (session.agent === undefined) throw agentUnavailable();
+        await sendKeysToLiveAgent(client, session, keys);
     }
 
 
@@ -1251,7 +1300,7 @@ export async function createHerdrSessionSource(
                 timeoutMs + 10_000,
             );
             const status = result.agent?.agent_status ?? 'settled';
-            return { status, detail: `${record.agentName} is ${status}` };
+            return { status, detail: `${record.agent?.name ?? 'Agent'} is ${status}` };
         } catch (error) {
             const timedOut = (error instanceof Error ? error.message : String(error)).includes('timed out');
             return {
@@ -1365,24 +1414,23 @@ export async function createHerdrSessionSource(
     function pluginPublicContext(requests: readonly PluginContextRequest[] | undefined, preferredSessionId?: string): string | undefined {
         if (requests === undefined || requests.length === 0) return undefined;
         const source: PublicContextSource = {
-            sessions: identity.all().map((record) => {
-                const pane = panesById.get(record.paneId);
-                const agent = agentsByPane.get(record.paneId);
-                const workspace = workspacesById.get(record.workspaceId);
-                const tab = tabsById.get(record.tabId);
-                const cwd = cwdForSession(record.sessionId) ?? record.cwd;
+            sessions: currentSessions().map((session) => {
+                const info = infoFor(session);
+                const workspace = info.workspaceId === undefined ? undefined : workspacesById.get(info.workspaceId);
+                const tab = info.tabId === undefined ? undefined : tabsById.get(info.tabId);
+                const cwd = info.cwd;
                 const base = cwd.replace(/\/+$/, '').split('/').pop();
                 return {
-                    sessionId: record.sessionId,
-                    label: record.taskTitle ?? agent?.name ?? pane?.terminal_title_stripped ?? tab?.label ?? base,
-                    displayName: record.agentName,
-                    taskTitle: record.taskTitle,
+                    sessionId: session.sessionId,
+                    label: info.taskTitle ?? session.agent?.name ?? session.pane.terminal_title_stripped ?? tab?.label ?? base,
+                    displayName: session.agent?.name ?? undefined,
+                    taskTitle: info.taskTitle,
                     cwd,
                     workspaceLabel: workspace?.label,
                     tabLabel: tab?.label,
-                    agentKind: publicAgentKind(record.kind ?? agent?.agent),
-                    agentStatus: lifecycleOf(record.paneId),
-                    activeAt: modifiedBySession.get(record.sessionId) ?? record.createdAt,
+                    agentKind: info.agentKind,
+                    agentStatus: lifecycleOf(session),
+                    activeAt: modifiedBySession.get(session.sessionId),
                 };
             }),
             attention: options.attention?.catalog().entries ?? [],
@@ -1394,18 +1442,17 @@ export async function createHerdrSessionSource(
                     return {
                         label: tabsById.get(tabId)?.label,
                         focused: tabPanes.some((pane) => pane.focused === true),
-                        agentStatus: rollupLifecycle(tabPanes.map((pane) => lifecycleOf(pane.pane_id))),
+                        agentStatus: rollupLifecycle(tabPanes.map((pane) => lifecycleForPane(pane.pane_id))),
                         sessions: tabPanes.map((pane) => {
-                            const agent = agentsByPane.get(pane.pane_id);
-                            const session = identity.byPane(pane.pane_id);
-                            const agentKind = publicAgentKind(agent?.agent ?? session?.kind);
+                            const session = currentSessionByPane(pane.pane_id);
+                            const info = session === undefined ? undefined : infoFor(session);
                             return {
                                 ...(session === undefined ? {} : { sessionId: session.sessionId }),
-                                label: pane.label ?? agent?.name ?? pane.terminal_title_stripped ?? session?.taskTitle,
-                                displayName: session?.agentName,
-                                taskTitle: session?.taskTitle ?? taskTitleFor(undefined, agentKind),
-                                agentKind,
-                                agentStatus: lifecycleOf(pane.pane_id),
+                                label: info?.taskTitle ?? pane.label ?? session?.agent?.name ?? pane.terminal_title_stripped ?? undefined,
+                                displayName: session?.agent?.name ?? undefined,
+                                taskTitle: info?.taskTitle,
+                                agentKind: info?.agentKind,
+                                agentStatus: lifecycleForPane(pane.pane_id),
                             };
                         }),
                     };
@@ -1451,12 +1498,15 @@ export async function createHerdrSessionSource(
         const installed = (plugins.plugins ?? []).find((plugin) => plugin.plugin_id === pluginId && plugin.enabled);
         if (!installed?.actions?.some((action) => action.id === actionId)) throw new Error(`plugin action unavailable: ${pluginId}.${actionId}`);
         const record = await resolvePane(sessionId);
+        const workspaceId = record.agent?.workspace_id ?? record.pane.workspace_id;
+        const tabId = record.agent?.tab_id ?? record.pane.tab_id;
+        if (workspaceId === undefined || tabId === undefined) throw agentUnavailable();
         await client.call('plugin.action.invoke', {
             plugin_id: pluginId,
             action_id: actionId,
             context: {
-                workspace_id: record.workspaceId,
-                tab_id: record.tabId,
+                workspace_id: workspaceId,
+                tab_id: tabId,
                 focused_pane_id: record.paneId,
                 focused_pane_cwd: infoFor(record).cwd,
                 invocation_source: 'muxr',
@@ -1556,16 +1606,19 @@ export async function createHerdrSessionSource(
                 const voiceSession = catalog.streamClaimsCapability(pluginId, manifestHash, contributionId, 'voice.session');
                 let publicContext: RealtimePluginPublicContext | undefined;
                 if (voiceSession) {
-                    publicContext = realtimePluginPublicContext(identity.all().map((session) => {
-                        const info = infoFor(session);
-                        const agentKind = publicAgentKind(session.kind);
-                        return {
-                            sessionId: session.sessionId,
-                            displayName: session.agentName,
-                            ...(info.taskTitle === undefined ? {} : { taskTitle: info.taskTitle }),
-                            ...(agentKind === undefined ? {} : { agentKind }),
-                        };
-                    }));
+                    publicContext = realtimePluginPublicContext(
+                        currentSessions()
+                            .filter((session) => session.agent !== undefined)
+                            .map((session) => {
+                                const info = infoFor(session);
+                                return {
+                                    sessionId: session.sessionId,
+                                    displayName: session.agent!.name!,
+                                    ...(info.taskTitle === undefined ? {} : { taskTitle: info.taskTitle }),
+                                    ...(info.agentKind === undefined ? {} : { agentKind: info.agentKind }),
+                                };
+                            }),
+                    );
                 }
                 await pluginStreams.attach({
                     target: {
@@ -1579,7 +1632,7 @@ export async function createHerdrSessionSource(
                     ...(record === undefined ? {} : {
                         sessionId: record.sessionId,
                         paneId: record.paneId,
-                        cwd: cwdForSession(record.sessionId) ?? record.cwd,
+                        cwd: cwdForSession(record.sessionId) ?? '',
                     }),
                     ...(publicContext === undefined ? {} : { publicContext }),
                     deviceId,
@@ -1616,7 +1669,7 @@ export async function createHerdrSessionSource(
                 if (typeof trustedPayload.sessionId === 'string') {
                     requestedSessionId = trustedPayload.sessionId;
                     const record = await resolvePane(trustedPayload.sessionId);
-                    payload = { ...trustedPayload, paneId: record.paneId, cwd: cwdForSession(trustedPayload.sessionId) ?? record.cwd };
+                    payload = { ...trustedPayload, paneId: record.paneId, cwd: cwdForSession(trustedPayload.sessionId) ?? '' };
                 }
             }
             const serializedInput = JSON.stringify(payload);
@@ -1640,7 +1693,7 @@ export async function createHerdrSessionSource(
                             currentInput = JSON.stringify({
                                 ...(payload as Record<string, unknown>),
                                 paneId: record.paneId,
-                                cwd: cwdForSession(requestedSessionId) ?? record.cwd,
+                                cwd: cwdForSession(requestedSessionId) ?? '',
                             });
                             if (Buffer.byteLength(currentInput, 'utf8') > MAX_RPC_INPUT_BYTES) throw new Error('plugin call input is too large');
                         }
@@ -1663,9 +1716,6 @@ export async function createHerdrSessionSource(
 
 
         async list(listOptions?: SessionListOptions): Promise<SessionInfo[]> {
-            // A failed refresh must mark herdr down; serving the on-disk map
-            // as if it were fresh is what makes the ghost convincing. A
-            // successful snapshot is positive proof herdr is reachable again.
             await refreshSnapshot().then(
                 () => {
                     client.connected = true;
@@ -1674,11 +1724,15 @@ export async function createHerdrSessionSource(
                     client.connected = false;
                 },
             );
-            let records = identity.all();
+            let sessions = currentSessions();
             if (listOptions?.cwd !== undefined) {
-                records = records.filter((record) => record.cwd === listOptions.cwd);
+                sessions = sessions.filter((session) => cwdForSession(session.sessionId) === listOptions.cwd);
             }
-            return records.map(infoFor).sort((a, b) => b.modified.localeCompare(a.modified));
+            return sessions
+                .sort((left, right) =>
+                    (modifiedBySession.get(right.sessionId) ?? '').localeCompare(modifiedBySession.get(left.sessionId) ?? '')
+                )
+                .map(infoFor);
         },
 
         start: startSession,
@@ -1735,33 +1789,31 @@ export async function createHerdrSessionSource(
         },
 
         async herdrTree(): Promise<{ workspaces: HerdrTreeWorkspace[]; connected: boolean }> {
-            // Cached maps are event-fresh; a snapshot call here would work too but
-            // the Spaces screen polls, so keep this free.
             const workspaces: HerdrTreeWorkspace[] = [];
             for (const workspace of workspacesById.values()) {
-                const panes = [...panesById.values()].filter((p) => p.workspace_id === workspace.workspace_id);
-                const tabIds = [...new Set(panes.map((p) => p.tab_id).filter((t): t is string => t !== undefined))];
+                const panes = [...panesById.values()].filter((pane) => pane.workspace_id === workspace.workspace_id);
+                const tabIds = [...new Set(panes.map((pane) => pane.tab_id).filter((tabId): tabId is string => tabId !== undefined))];
                 const tabs = tabIds.map((tabId) => {
                     const tabLabel = tabsById.get(tabId)?.label;
-                    const tabPanes = panes.filter((p) => p.tab_id === tabId);
+                    const tabPanes = panes.filter((pane) => pane.tab_id === tabId);
                     const treePanes = tabPanes.map((pane) => {
-                        const agent = agentsByPane.get(pane.pane_id);
-                        const session = identity.byPane(pane.pane_id);
-                        const agentKind = publicAgentKind(agent?.agent ?? session?.kind);
-                        const taskTitle = session?.taskTitle ?? taskTitleFor(undefined, agentKind);
-                        const agentName = normalizeAgentName(agent?.name);
+                        const session = currentSessionByPane(pane.pane_id);
+                        const taskTitle = session === undefined ? pane.label ?? tabLabel : taskTitleForSession(session);
+                        const agentKind = publicAgentKind(session?.agent?.agent ?? undefined);
+                        const cwd = pane.foreground_cwd ?? pane.cwd ?? undefined;
                         return {
                             paneId: pane.pane_id,
                             tabId,
-                            ...(pane.label === undefined ? {} : { label: pane.label }),
-                            ...(pane.foreground_cwd === undefined && pane.cwd === undefined
-                                ? {}
-                                : { cwd: pane.foreground_cwd ?? pane.cwd }),
-                            ...(agentKind === undefined ? {} : { agentKind }),
-                            ...(agentName === 'Agent' ? {} : { displayName: agentName }),
-                            ...(taskTitle === undefined ? {} : { taskTitle }),
-                            agentStatus: lifecycleOf(pane.pane_id),
-                            ...(pane.terminal_title_stripped === undefined
+                            ...(pane.label === undefined || pane.label === null ? {} : { label: pane.label }),
+                            ...(cwd === undefined ? {} : { cwd }),
+                            ...(session?.agent === undefined || agentKind === undefined ? {} : {
+                                agentKind,
+                                agentName: session.agent.name!,
+                            }),
+                            ...(taskTitle === undefined || taskTitle === null ? {} : { taskTitle }),
+                            agentStatus: lifecycleForPane(pane.pane_id),
+                            promptable: agentPromptable(session),
+                            ...(pane.terminal_title_stripped === undefined || pane.terminal_title_stripped === null
                                 ? {}
                                 : { terminalTitle: pane.terminal_title_stripped }),
                             focused: pane.focused === true,
@@ -1771,8 +1823,8 @@ export async function createHerdrSessionSource(
                     return {
                         tabId,
                         ...(tabLabel === undefined ? {} : { label: tabLabel }),
-                        focused: tabPanes.some((p) => p.focused === true),
-                        agentStatus: rollupLifecycle(treePanes.map((p) => p.agentStatus)),
+                        focused: tabPanes.some((pane) => pane.focused === true),
+                        agentStatus: rollupLifecycle(treePanes.map((pane) => pane.agentStatus)),
                         panes: treePanes,
                     };
                 });
@@ -1781,7 +1833,7 @@ export async function createHerdrSessionSource(
                     workspaceId: workspace.workspace_id,
                     ...(workspace.label === undefined ? {} : { label: workspace.label }),
                     focused: workspace.focused === true,
-                    agentStatus: rollupLifecycle(tabs.map((t) => t.agentStatus)),
+                    agentStatus: rollupLifecycle(tabs.map((tab) => tab.agentStatus)),
                     ...mappedWorktree(worktree, workspace.label),
                     tabs,
                 });
@@ -1802,30 +1854,24 @@ export async function createHerdrSessionSource(
             });
             const newPaneId = result.pane?.pane_id;
             if (newPaneId === undefined) throw new Error('herdr: pane.split returned no pane');
-            if (splitOptions.kind === undefined) return { paneId: newPaneId };
-            // Record lineage in herdr itself so the app can show who spawned
-            // whom. herdr has no parent/child field; a metadata token is its
-            // sanctioned place for this and survives a host restart.
-            await tagSpawn(newPaneId, splitOptions.sessionId);
-            // Agent start blocks until detection; the name makes the session
-            // recognisable on the other side.
-            const name = `pph_${splitOptions.kind}_${newPaneId.replace(/[^a-z0-9]/gi, '').toLowerCase()}`.slice(0, 32);
-            void client
-                .call('agent.start', {
-                    name,
-                    kind: splitOptions.kind,
-                    pane_id: newPaneId,
-                    timeout_ms: 30_000,
-                }, 40_000)
-                .catch(() => {});
-            // Give discovery a beat so the caller can navigate to a live session.
-            const deadline = Date.now() + 30_000;
-            while (Date.now() < deadline) {
-                const found = identity.byPane(newPaneId);
-                if (found !== undefined) return { paneId: newPaneId, sessionId: found.sessionId };
-                await new Promise((resolve) => setTimeout(resolve, 400));
+            if (splitOptions.kind === undefined) {
+                await refreshSnapshot();
+                return { paneId: newPaneId, sessionId: shellRoute(newPaneId) };
             }
-            return { paneId: newPaneId };
+            await tagSpawn(newPaneId, splitOptions.sessionId);
+            const launchName = `pp_${randomBytes(8).toString('hex')}`;
+            await client.call('agent.start', {
+                name: launchName,
+                kind: splitOptions.kind,
+                pane_id: newPaneId,
+                timeout_ms: 30_000,
+            }, 40_000);
+            try {
+                const found = await waitForPublishedAgent(newPaneId, 30_000);
+                return { paneId: newPaneId, sessionId: found.sessionId };
+            } catch {
+                return { paneId: newPaneId };
+            }
         },
 
         async paneRead(readOptions: {
@@ -1852,31 +1898,31 @@ export async function createHerdrSessionSource(
             timeoutMs?: number;
         }): Promise<{ watching: boolean }> {
             const record = await resolvePane(watchOptions.sessionId);
+            if (record.agent === undefined) throw agentUnavailable();
+            const watchedRef = agentSession(record.agent)!;
             const timeoutMs = Math.min(watchOptions.timeoutMs ?? DEFAULT_WATCH_MS, MAX_WATCH_MS);
             const until = watchOptions.until ?? ['idle', 'done', 'blocked'];
-            const existing = watches.get(watchOptions.sessionId);
-            if (existing !== undefined) clearTimeout(existing);
-            // Only one watch per session: re-arming replaces rather than stacking
-            // duplicate notifications for the same agent.
+            clearTimeout(watches.get(watchOptions.sessionId));
             const guard = setTimeout(() => watches.delete(watchOptions.sessionId), timeoutMs + 5_000);
             watches.set(watchOptions.sessionId, guard);
 
-            // Deliberately not awaited: herdr blocks until the agent settles,
-            // which is far longer than the caller's request timeout.
             void client
                 .call<{ agent?: { agent_status?: string } }>(
                     'agent.wait',
                     { target: record.paneId, until, timeout_ms: timeoutMs },
                     timeoutMs + 10_000,
                 )
-                .then((result) => {
+                .then(async (result) => {
+                    await refreshSnapshot();
+                    const watched = currentSession(watchOptions.sessionId);
+                    const currentRef = agentSession(watched?.agent);
+                    if (watched?.agent?.name === undefined || currentRef === undefined
+                        || herdrAgentSessionKey(currentRef) !== herdrAgentSessionKey(watchedRef)) return;
                     const status = result.agent?.agent_status ?? 'settled';
-                    const watched = identity.get(watchOptions.sessionId);
-                    const label = watched?.agentName ?? 'Agent';
                     publish(watchOptions.sessionId, {
                         type: 'watch.settled',
                         status,
-                        detail: `${label} is ${status}`,
+                        detail: `${watched.agent.name} is ${status}`,
                     });
                 })
                 .catch((error: unknown) => {
@@ -1884,15 +1930,14 @@ export async function createHerdrSessionSource(
                     publish(watchOptions.sessionId, {
                         type: 'watch.settled',
                         status: 'unknown',
-                        detail: message.includes('timed out') ? 'Watch timed out' : `Watch ended: ${message}`,
+                        detail: message.includes('timed out') ? 'Watch timed out' : 'Watch ended before completion',
                         timedOut: message.includes('timed out'),
                     });
                 })
                 .finally(() => {
-                    clearTimeout(guard);
+                    clearTimeout(watches.get(watchOptions.sessionId));
                     watches.delete(watchOptions.sessionId);
                 });
-
             return { watching: true };
         },
 
@@ -1931,7 +1976,7 @@ export async function createHerdrSessionSource(
             });
             const root = exported.layout?.root;
             if (root === undefined) throw new Error('herdr: layout.export returned no root');
-            return { snapshot: toSnapshot(root, (paneId) => identity.byPane(paneId)?.kind) };
+            return { snapshot: toSnapshot(root, (paneId) => currentSessionByPane(paneId)?.agent?.agent ?? undefined) };
         },
 
         async layoutApply(applyOptions: {
@@ -1987,15 +2032,11 @@ export async function createHerdrSessionSource(
             await client.call('pane.focus_direction', { pane_id: record.paneId, direction });
         },
 
-        // Cached pane records are fresher than the identity map (pane.moved
-        // updates paneId but not the workspace/tab on the identity record);
-        // identity fields are the fallback for sessions herdr has not re-reported.
         async focusTabNeighbor(sessionId: string, direction: 'next' | 'prev'): Promise<void> {
             const record = await resolvePane(sessionId);
-            const pane = panesById.get(record.paneId);
-            const workspaceId = pane?.workspace_id ?? record.workspaceId;
-            const currentTabId = pane?.tab_id ?? record.tabId;
-            if (workspaceId === '' || currentTabId === '') return;
+            const workspaceId = record.agent?.workspace_id ?? record.pane.workspace_id;
+            const currentTabId = record.agent?.tab_id ?? record.pane.tab_id;
+            if (workspaceId === undefined || currentTabId === undefined) return;
             const result = await client.call<{ tabs?: { tab_id?: string }[] }>('tab.list', {
                 workspace_id: workspaceId,
             });
@@ -2009,9 +2050,8 @@ export async function createHerdrSessionSource(
 
         async focusWorkspaceNeighbor(sessionId: string, direction: 'next' | 'prev'): Promise<void> {
             const record = await resolvePane(sessionId);
-            const pane = panesById.get(record.paneId);
-            const workspaceId = pane?.workspace_id ?? record.workspaceId;
-            if (workspaceId === '') return;
+            const workspaceId = record.agent?.workspace_id ?? record.pane.workspace_id;
+            if (workspaceId === undefined) return;
             const result = await client.call<{ workspaces?: { workspace_id?: string }[] }>('workspace.list');
             const workspaces = (result.workspaces ?? [])
                 .map((workspace) => workspace.workspace_id)
@@ -2040,36 +2080,26 @@ export async function createHerdrSessionSource(
 
         async createTab(sessionId: string, options: { kind?: string; label?: string }): Promise<void> {
             const record = await resolvePane(sessionId);
-            const pane = panesById.get(record.paneId);
-            const workspaceId = pane?.workspace_id ?? record.workspaceId;
-            if (workspaceId === '') throw new Error('herdr: session has no workspace');
-            const cwd = pane?.foreground_cwd ?? pane?.cwd ?? record.cwd;
+            const workspaceId = record.agent?.workspace_id ?? record.pane.workspace_id;
+            const cwd = cwdForSession(sessionId);
+            if (workspaceId === undefined || cwd === undefined) throw new Error('herdr: session has no workspace');
             const requestedLabel = options.label?.trim();
-            const createdSessionId = identity.allocateRoute();
             const tab = await client.call<{ tab?: { tab_id: string }; root_pane?: { pane_id: string } }>(
                 'tab.create',
                 { workspace_id: workspaceId, cwd, ...(requestedLabel === undefined ? {} : { label: requestedLabel }), focus: false },
             );
             const paneId = tab.root_pane?.pane_id;
-            const tabId = tab.tab?.tab_id;
-            if (paneId === undefined || tabId === undefined) throw new Error('herdr: tab.create returned no root pane');
-
-            const created = identity.adopt({
-                sessionId: createdSessionId,
-                paneId,
-                workspaceId,
-                tabId,
-                cwd,
-                kind: publicAgentKind(options.kind),
-                taskTitle: requestedLabel,
-                ours: true,
-            });
+            if (paneId === undefined || tab.tab?.tab_id === undefined) throw new Error('herdr: tab.create returned no root pane');
             if (options.kind === undefined) {
-                publish(created.sessionId, { type: 'session.created', session: infoFor(created) });
+                await refreshSnapshot();
+                emitState(shellRoute(paneId));
                 return;
             }
+            const launchName = `pp_${randomBytes(8).toString('hex')}`;
             void client
-                .call('agent.start', { name: created.sessionId, kind: options.kind, pane_id: paneId, timeout_ms: 60_000 })
+                .call('agent.start', { name: launchName, kind: options.kind, pane_id: paneId, timeout_ms: 60_000 })
+                .then(() => refreshSnapshot())
+                .then(emitAllStates)
                 .catch(() => undefined);
         },
 
@@ -2094,20 +2124,17 @@ export async function createHerdrSessionSource(
         },
 
         async stop(sessionId: string): Promise<void> {
-            try { await refreshSnapshot(); } catch { throw agentUnavailable(); }
-            await closeAgentRoute(client, sessionId, identity.all(), agentsByPane, panesById, tabsById, (record) => {
-                pluginStreams?.closeSession(record.sessionId);
-                statusWatches.get(record.paneId)?.();
-                statusWatches.delete(record.paneId);
-                lifecycleEpochByPane.delete(record.paneId);
-                lastStateSignature.delete(record.sessionId);
-                lastInfoSignature.delete(record.sessionId);
-                attachments.dropPane(record.paneId);
-                identity.remove(record.sessionId);
-                options.lifecycle?.remove(record.sessionId);
-                clearAttention(record.sessionId);
-                publish(record.sessionId, { type: 'session.removed' });
+            const record = await resolvePane(sessionId);
+            await closeAgentRoute(client, record, panesById, tabsById, (closed) => {
+                statusWatches.get(closed.paneId)?.();
+                statusWatches.delete(closed.paneId);
+                lifecycleEpochByPane.delete(closed.paneId);
+                attachments.dropPane(closed.paneId);
+                if (closed.sessionId.startsWith(SHELL_ROUTE_PREFIX)) knownShells.delete(closed.sessionId);
+                else routes.remove(closed.sessionId);
+                removeRouteState(closed.sessionId);
             });
+            await routes.flush();
         },
 
         async abort(sessionId: string): Promise<void> {
@@ -2136,11 +2163,13 @@ export async function createHerdrSessionSource(
 
         async shell(shellOptions: SessionShellOptions): Promise<SessionShellOutcome | null> {
             const record = await resolvePane(shellOptions.sessionId);
+            const cwd = cwdForSession(record.sessionId);
+            if (cwd === undefined) throw agentUnavailable();
             return await new Promise((resolve) => {
                 execFile(
                     '/bin/sh',
                     ['-c', shellOptions.command],
-                    { cwd: record.cwd, timeout: 30_000, maxBuffer: 8 * 1024 * 1024 },
+                    { cwd, timeout: 30_000, maxBuffer: 8 * 1024 * 1024 },
                     (error, stdout, stderr) => {
                         const output = `${stdout}${stderr}`;
                         const exitCode = execFileExitCode(error);
@@ -2209,7 +2238,7 @@ export async function createHerdrSessionSource(
         },
 
         async attachmentFetch({ sessionId, attachmentId }: { sessionId: string; attachmentId: string }) {
-            const record = identity.get(sessionId);
+            const record = currentSession(sessionId);
             if (record === undefined) return null;
             const found = await attachments.fetch(record.paneId, attachmentId);
             if (found?.data === undefined) return null;
@@ -2217,13 +2246,13 @@ export async function createHerdrSessionSource(
         },
 
         async attachmentPrepare({ sessionId, attachmentId }: { sessionId: string; attachmentId: string }) {
-            const record = identity.get(sessionId);
+            const record = currentSession(sessionId);
             if (record === undefined) return null;
             return attachmentDownloads.prepare(record.paneId, attachmentId);
         },
 
         async attachmentRead({ sessionId, attachmentId, offset, length }: { sessionId: string; attachmentId: string; offset: number; length: number }) {
-            const record = identity.get(sessionId);
+            const record = currentSession(sessionId);
             if (record === undefined) return null;
             return attachments.read(record.paneId, attachmentId, offset, length);
         },
@@ -2237,7 +2266,7 @@ export async function createHerdrSessionSource(
             // force a full mobile catalog reconciliation.
             const pluginFrame: PluginsInvalidatedFrame = { type: 'plugins.invalidated', reason: 'changed', pluginIds: [] };
             for (const listener of machineListeners) listener(pluginFrame);
-            void attachments.resendAll(identity.all().map((record) => record.paneId));
+            void attachments.resendAll(currentSessions().map((session) => session.paneId));
         },
 
         subscribe(listener: (sessionId: string, event: SessionEventBody) => void): () => void {
@@ -2260,7 +2289,7 @@ export async function createHerdrSessionSource(
             for (const close of statusWatches.values()) close();
             statusWatches.clear();
             client.close();
-            await identity.flush();
+            await routes.flush();
         },
     };
 }

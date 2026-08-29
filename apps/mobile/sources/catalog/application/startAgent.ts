@@ -7,7 +7,7 @@ export type StartAgentCommand = {
 
 export type StartAgentHostSnapshot =
     | { info: { id: string } }
-    | { acceptance?: { displayName?: string } };
+    | { acceptance?: object };
 
 export type StartAgentResult =
     | { ok: true; agentRoute: string }
@@ -38,7 +38,7 @@ export async function startAgent(command: StartAgentCommand, ports: StartAgentPo
             return {
                 ok: false,
                 reason: 'rejected',
-                message: `${snapshot.acceptance?.displayName?.trim() || 'Agent'} could not start.`,
+                message: 'Agent could not start.',
             };
         }
         await ports.waitUntilListed(snapshot.info.id);

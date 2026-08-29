@@ -34,12 +34,11 @@ export interface SessionStartOptions {
     /** herdr agent kind: pi, claude, codex, opencode, gemini, grok, ... */
     kind?: string;
     label?: string;
-    displayName?: string;
     taskTitle?: string;
     worktree?: { branch?: string; base?: string };
     /** Squad mode: one workspace, one tab per kind (max 4). Ignores kind. */
     kinds?: string[];
-    members?: Array<{ kind: string; displayName?: string }>;
+    members?: Array<{ kind: string }>;
 }
 
 export interface SessionOpenOptions {

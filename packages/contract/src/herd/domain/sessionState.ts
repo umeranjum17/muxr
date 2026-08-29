@@ -20,38 +20,28 @@ export interface SessionModel {
 }
 
 export interface SessionInfo extends SessionRef {
-    path: string;
-    name?: string;
-    created: string;
-    modified: string;
+    path?: string;
+    created?: string;
+    modified?: string;
     messageCount: number;
     firstMessage: string;
     parentSessionPath?: string;
-    /** herdr agent kind for sessions backed by a live agent (pi, claude, ...). */
+    /** Current Herdr provider for a live Agent. */
     agentKind?: string;
-    /** Agent Name compatibility field. Never used as a routing key. */
-    displayName?: string;
-    /** Concise dynamic description of the current work. */
+    /** Current Herdr agent.name. Never used as a routing key. */
+    agentName?: string;
+    /** Current Herdr agent title, pane label, or tab label. */
     taskTitle?: string;
-    /** herdr pane id backing this session, when live. */
+    /** True only while this exact Herdr agent_session can accept a prompt. */
+    promptable: boolean;
     paneId?: string;
-    /** Latest OSC title from the pane -- the "what it is doing" breadcrumb. */
     terminalTitle?: string;
-    /** Worktree provenance when the session lives in a herdr-managed checkout. */
     worktree?: { repo: string; branch?: string; path: string };
-    /** herdr topology: which workspace/tab this session's pane lives in. */
     workspaceId?: string;
     workspaceLabel?: string;
     tabId?: string;
-    /** herdr's tab label ('1', 'pi', 'review'...) — the grouping level below a workspace. */
     tabLabel?: string;
-    /**
-     * Session id of the agent that spawned this one, when known.
-     *
-     * herdr has no parent/child concept, so this rides in a herdr pane metadata
-     * token (`spawned_by`). That keeps lineage in herdr rather than in a private
-     * muxr map: it survives host restarts and shows up at the desk too.
-     */
+    /** Agent Route of the spawning Agent, stored in current Herdr pane metadata. */
     spawnedBy?: string;
 }
 
@@ -111,21 +101,20 @@ export interface SessionChangeAttribution {
     schemaVersion?: 1;
 }
 
-/** One pane in the herdr tree, with its agent (when it has one). */
+/** One current Herdr pane and its Agent, when that Agent has a publishable generation. */
 export interface HerdrTreePane {
     paneId: string;
     tabId: string;
     label?: string;
     cwd?: string;
     agentKind?: string;
-    /** Agent Name compatibility field. Never used as a routing key. */
-    displayName?: string;
-    /** Concise dynamic description of the current work. */
+    agentName?: string;
     taskTitle?: string;
     agentStatus: AgentLifecycle;
+    promptable: boolean;
     terminalTitle?: string;
     focused: boolean;
-    /** muxr session id when this pane hosts a known agent. */
+    /** Agent Route, or an explicit ephemeral Shell route for a bare pane. */
     sessionId?: string;
 }
 
@@ -195,18 +184,13 @@ export function agentIsWorking(state: AgentLifecycle): boolean {
     return state === 'working';
 }
 
-/**
- * Canonical user-facing Agent Name. Wire records still call this displayName
- * for protocol compatibility; it never authorizes routing.
- */
-export function normalizeAgentName(value: string | undefined): string {
-    const name = value?.normalize('NFKC').replace(/[\0-\x1F\x7F]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80);
-    return name === undefined || name === '' || /^pph?_/i.test(name) ? 'Agent' : name;
-}
-
+/** Validate a current Herdr Agent Name without changing its presentation value. */
 export function parseAgentName(value: unknown): Outcome<string> {
-    if (typeof value !== 'string') return fail('invalid Agent Name');
-    return ok(normalizeAgentName(value));
+    if (typeof value !== 'string' || value.length === 0 || value.length > 80
+        || /[\0-\x1F\x7F]/.test(value) || /^pph?_/i.test(value)) {
+        return fail('invalid Agent Name');
+    }
+    return ok(value);
 }
 
 /**
@@ -242,7 +226,7 @@ export function lifecycleEventRoute(event: LifecycleEvent): string {
 }
 
 export function lifecycleEventAgentName(event: LifecycleEvent): string {
-    return normalizeAgentName(event.displayName);
+    return event.agentName;
 }
 export type LifecycleReasonCode =
     | 'start-requested'
@@ -261,7 +245,7 @@ export interface LifecycleEvent {
     eventId: string;
     /** Stable transport key. Clients must not render it. */
     sessionId: string;
-    displayName: string;
+    agentName: string;
     /** Bounded privacy-safe work context captured with the transition. */
     taskTitle?: string;
     state: AgentLifecycle;
@@ -292,6 +276,8 @@ export interface SessionStatus {
     persisted?: boolean;
     /** Live agent lifecycle from herdr. */
     agentStatus?: AgentLifecycle;
+    /** Current Herdr generation can accept an agent.prompt call. */
+    promptable: boolean;
     /** agentStatus === 'working'. Kept for clients that render a busy state. */
     isStreaming: boolean;
     tokens: SessionTokens;

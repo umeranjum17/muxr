@@ -30,6 +30,7 @@ import { usePaneGestures } from '../application/usePaneGestures';
 import { StatusDot } from '@/components/StatusDot';
 import { AnimatedPopup } from '@/components/AnimatedOverlay';
 import { agentLabels, agentStatusColor } from '@/herd';
+import { terminalPaneCanSend, terminalPaneStatus } from '../domain/promptAvailability';
 import type { TerminalChannel } from '../application/OpenTerminal';
 import { useImagePicker } from '@/hooks/useImagePicker';
 import { readFileBytes } from '@/utils/readFileBytes';
@@ -201,6 +202,12 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
             })
             .catch(() => undefined);
     }, [tabId, session?.metadata?.workspaceId]);
+    React.useEffect(() => {
+        loadSiblings();
+    }, [loadSiblings, session?.metadata?.promptable]);
+    const currentTab = tabs.find((tab) => tab.tabId === tabId);
+    const currentPane = currentTab?.panes.find((pane) => pane.sessionId === props.id);
+    const panePromptable = currentPane?.promptable === true;
 
     // Transient hint so a gesture that found no neighbour doesn't feel dead.
     const [gestureHint, setGestureHint] = React.useState<string | null>(null);
@@ -266,10 +273,12 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     // lands it in the middle of whatever you were typing, so paths ride as
     // chips and are appended once, at send.
     const sendPrompt = React.useCallback(() => {
+        if (!panePromptable) {
+            Modal.alert('Not ready', 'Agent is not ready yet');
+            return;
+        }
         const text = [draftRef.current.trim(), ...attachedPaths].filter((part) => part !== '').join(' ');
         if (text === '') return;
-        // Empty the composer before the request so a second tap (or Enter plus
-        // the send button) cannot double-submit. Restore on failure.
         const previousDraft = draftRef.current;
         const previousPaths = attachedPaths;
         draftRef.current = '';
@@ -281,7 +290,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
             setAttachedPaths(previousPaths);
             Modal.alert('Send failed', error instanceof Error ? error.message : String(error));
         });
-    }, [attachedPaths, props.id]);
+    }, [attachedPaths, panePromptable, props.id]);
 
     const handleDraftChange = React.useCallback((text: string) => setDraft(text), []);
 
@@ -347,8 +356,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
         ]);
     }, [props.id, siblings]);
 
-    // Mirrors sendPrompt's early return: nothing to send, nothing to press.
-    const canSend = draft.trim() !== '' || attachedPaths.length > 0;
+    const canSend = terminalPaneCanSend(currentPane, draft.trim() !== '' || attachedPaths.length > 0);
 
     // Where this session sits and how it is allowed to act, in one quiet row.
     // Connection stays out of it: the header dot and the reconnect pill above
@@ -358,8 +366,6 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const linesAdded = gitStatus !== null && gitStatus.linesAdded > 0 ? `+${gitStatus.linesAdded}` : null;
     const linesRemoved = gitStatus !== null && gitStatus.linesRemoved > 0 ? `−${gitStatus.linesRemoved}` : null;
     const hasStatusRow = branch !== null || linesAdded !== null || linesRemoved !== null || permission !== null;
-    const currentTab = tabs.find((tab) => tab.tabId === tabId);
-    const currentPane = currentTab?.panes.find((pane) => pane.sessionId === props.id);
     const labels = agentLabels(currentPane, session ?? undefined);
     const contextTitle = sessionContextTitle({
         paneLabel: currentPane?.label,
@@ -367,7 +373,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
         agentName: labels.agentName,
         agentKind: labels.agentKind,
     });
-    const headerDot = agentStatusColor(currentTab?.agentStatus ?? 'unknown', theme);
+    const headerDot = agentStatusColor(terminalPaneStatus(currentPane), theme);
     const paneIndex = siblings.indexOf(props.id);
     const showConnectingStatus = status !== 'live' && gestureHint === null && status === 'connecting';
     const showRetryStatus = status !== 'live' && gestureHint === null && status !== 'connecting';
@@ -656,17 +662,18 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                     backgroundColor: theme.colors.surface,
                 }}
             >
-                <Pressable onPress={attachPhotos} hitSlop={8} disabled={attaching} accessibilityRole="button" accessibilityLabel="Add attachment" accessibilityState={{ disabled: attaching }}>
+                <Pressable onPress={attachPhotos} hitSlop={8} disabled={attaching || !panePromptable} accessibilityRole="button" accessibilityLabel="Add attachment" accessibilityState={{ disabled: attaching || !panePromptable }} style={{ opacity: panePromptable ? 1 : 0.4 }}>
                     <Ionicons name={attaching ? 'hourglass-outline' : 'image-outline'} size={24} color={theme.colors.textSecondary} />
                 </Pressable>
                 <TextInput
                     value={draft}
                     onChangeText={handleDraftChange}
+                    editable={panePromptable}
                     onSubmitEditing={sendPrompt}
                     returnKeyType="send"
                     blurOnSubmit
                     submitBehavior="blurAndSubmit"
-                    placeholder="Type a prompt…"
+                    placeholder={panePromptable ? 'Type a prompt…' : 'Agent is not ready yet'}
                     placeholderTextColor={theme.colors.textSecondary}
                     style={{
                         flex: 1,

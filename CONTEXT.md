@@ -39,19 +39,19 @@ An isolated checkout herdr creates so Agents can work in parallel on one repo.
 _Avoid_: branch folder, clone
 
 **Agent Name**:
-The user-editable Herdr `agent.name` (`falcon`, `reviewer`). Display-only, never a routing key.
-_Avoid_: label, display label, pane title
+The current Herdr `agent.name` (`falcon`, `reviewer`). Every surface renders it directly; muxr never aliases or persists it.
+_Avoid_: label, display label, pane title, cached name
 
 **Task Title**:
-The work the Agent is doing. Primary identity for people scanning a herd.
-_Avoid_: label, pane title, terminal title, name
+The current Herdr Agent title, falling back to its pane label and then tab label. Muxr never restores a prior generation's title.
+_Avoid_: cached title, terminal title, name
 
 **Provider Kind**:
-Which coding-agent program is running (pi, claude, codex). Separate from Agent Name and Task Title.
+The current Herdr Agent provider (`pi`, `claude`, `codex`). Separate from Agent Name and Task Title.
 _Avoid_: agent name, kind label, model
 
 **Agent Route**:
-The stable internal route that identifies an Agent across pane moves. The only key used to prompt, watch, or focus. On mobile that route is the host session id.
+An opaque authorization route bound to exactly one Herdr `agent_session` generation. It survives that generation's pane moves and host restarts; a new generation receives a new route.
 _Avoid_: pane id, spoken name, label, Herdr agent name
 
 **Lifecycle Event**:

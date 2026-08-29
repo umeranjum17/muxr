@@ -1,6 +1,10 @@
-export type { AgentIdentity, AgentObservation, AgentAdoptInput } from './domain/identity.js';
-export { parseTaskTitle, taskTitleFor } from './domain/identity.js';
-export { IdentityStore } from './infrastructure/identity.js';
+export {
+    AgentRouteStore,
+    herdrAgentSessionKey,
+    parseHerdrAgentSession,
+    type AgentRouteBinding,
+    type HerdrAgentSessionRef,
+} from './infrastructure/agentRouteStore.js';
 export {
     collectKinds,
     collectPaneIds,

@@ -89,7 +89,7 @@ const LiveTerminalCard = React.memo(({ card, width, height, paused, disconnected
     const navigateToSession = useNavigateToSession();
     const labels = agentLabels({
         taskTitle: card.title,
-        displayName: card.name,
+        agentName: card.name,
         agentKind: card.agentKind,
     }, card.session);
     const dot = agentStatusColor(card.status, theme);

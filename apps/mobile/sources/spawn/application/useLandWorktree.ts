@@ -5,12 +5,14 @@ import { t } from '@/text';
 import { ActionError } from '@/utils/errors';
 import { useAsyncAction } from '@/hooks/useAsyncAction';
 import { isWorktreePath } from '../infrastructure/worktree';
-import { getSessionName } from '@/herd';
+import { getSessionName, herdrPaneForSession } from '@/herd';
+import { useHerdrTree } from '@/catalog/store';
 import type { Session } from '@/catalog';
 import { landWorktreeBranch } from './LandWorktree';
 
 export function useLandWorktree(session: Session | null | undefined) {
     const router = useRouter();
+    const { workspaces } = useHerdrTree();
     const path = session?.metadata?.path;
     const canLand = !!session && !!path && isWorktreePath(path);
 
@@ -19,7 +21,7 @@ export function useLandWorktree(session: Session | null | undefined) {
         const message = await Modal.prompt(
             t('sessionInfo.landWorktree'),
             t('sessionInfo.landWorktreeMessage'),
-            { defaultValue: getSessionName(session!), confirmText: t('sessionInfo.landWorktree') },
+            { defaultValue: getSessionName(session!, herdrPaneForSession(workspaces, session!.id)), confirmText: t('sessionInfo.landWorktree') },
         );
         const trimmed = message?.trim();
         if (!trimmed) return;

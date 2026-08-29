@@ -33,6 +33,7 @@ import { buildMessagesMap } from '../infrastructure/messageAdapter';
 import { getRigActivityIndicators, getRigIdentity } from '../infrastructure/rig';
 import { getSessionName, getSessionSubtitle, getSessionAvatarId, type SessionState } from '@/utils/sessionUtils';
 import { agentRowAttention, mergeCatalogAgent } from '../domain/agent';
+import { herdrPaneForSession } from '@/herd/domain/agentPresentation';
 import { readAgentSession } from './readAgentSession';
 
 function resolveSessionOnlineState(session: { active: boolean; activeAt: number }): 'online' | number {
@@ -83,13 +84,14 @@ function sessionRowState(session: Session): SessionState {
     return agentRowAttention(session);
 }
 
-function buildSessionRowData(session: Session): SessionRowData {
+function buildSessionRowData(session: Session, workspaces: readonly HerdrTreeWorkspace[]): SessionRowData {
     const rigIdentity = getRigIdentity(session.metadata);
     const rigActivity = getRigActivityIndicators(session.metadata);
+    const pane = herdrPaneForSession(workspaces, session.id);
     return {
         id: session.id,
-        name: getSessionName(session),
-        subtitle: getSessionSubtitle(session),
+        name: getSessionName(session, pane),
+        subtitle: getSessionSubtitle(session, pane),
         avatarId: getSessionAvatarId(session),
         flavor: session.metadata?.flavor ?? null,
         clientId: session.metadata?.client?.id ?? null,
@@ -117,7 +119,10 @@ function buildSessionRowData(session: Session): SessionRowData {
     };
 }
 
-function buildSessionListViewData(sessions: Record<string, Session>): SessionListViewItem[] {
+function buildSessionListViewData(
+    sessions: Record<string, Session>,
+    workspaces: readonly HerdrTreeWorkspace[],
+): SessionListViewItem[] {
     const activeSessions: Session[] = [];
     const inactiveSessions: Session[] = [];
     for (const session of Object.values(sessions)) {
@@ -135,11 +140,11 @@ function buildSessionListViewData(sessions: Record<string, Session>): SessionLis
     if (activeSessions.length > 0) {
         listData.push({
             type: 'active-sessions',
-            sessions: activeSessions.map((s) => buildSessionRowData(s)),
+            sessions: activeSessions.map((session) => buildSessionRowData(session, workspaces)),
         });
     }
     for (const session of inactiveSessions) {
-        listData.push({ type: 'session', session: buildSessionRowData(session) });
+        listData.push({ type: 'session', session: buildSessionRowData(session, workspaces) });
     }
     return listData;
 }
@@ -312,12 +317,19 @@ export const storage = create<StorageState>()((set, get) => ({
             merged[session.id] = mergeCatalogSession(state.sessions[session.id], merged[session.id], session, replace);
         }
         if (deepEqual(merged, state.sessions)) return state;
-        return { sessions: merged, sessionListViewData: buildSessionListViewData(merged) };
+        return {
+            sessions: merged,
+            sessionListViewData: buildSessionListViewData(merged, state.herdrWorkspaces),
+        };
     }),
     applyHerdrTree: (herdrWorkspaces) => set((state) =>
         state.herdrTreeLoaded && deepEqual(herdrWorkspaces, state.herdrWorkspaces)
             ? state
-            : { herdrWorkspaces, herdrTreeLoaded: true }),
+            : {
+                  herdrWorkspaces,
+                  herdrTreeLoaded: true,
+                  sessionListViewData: buildSessionListViewData(state.sessions, herdrWorkspaces),
+              }),
     applyMachines: (machines, replace = false) => set((state) => {
         const next = replace ? {} as Record<string, Machine> : { ...state.machines };
         for (const machine of machines) next[machine.id] = machine;
@@ -353,7 +365,7 @@ export const storage = create<StorageState>()((set, get) => ({
         const existing = state.sessions[sessionId];
         if (existing === undefined) return state;
         const sessions = { ...state.sessions, [sessionId]: { ...existing, ...patch } };
-        return { sessions, sessionListViewData: buildSessionListViewData(sessions) };
+        return { sessions, sessionListViewData: buildSessionListViewData(sessions, state.herdrWorkspaces) };
     }),
     setSocketStatus: (socketStatus) => set({ socketStatus }),
     setSocketError: (socketError) => set({ socketError }),
@@ -378,7 +390,7 @@ export const storage = create<StorageState>()((set, get) => ({
         const existing = state.sessions[sessionId];
         if (existing === undefined) return state;
         const sessions = { ...state.sessions, [sessionId]: { ...existing, draft } };
-        return { sessions, sessionListViewData: buildSessionListViewData(sessions) };
+        return { sessions, sessionListViewData: buildSessionListViewData(sessions, state.herdrWorkspaces) };
     }),
     setCurrentViewingSession: (sessionId) => set({ currentViewingSessionId: sessionId }),
     getSessionPathKey: (sessionId) => {
@@ -428,7 +440,7 @@ export const storage = create<StorageState>()((set, get) => ({
         const sessionFileCache = { ...state.sessionFileCache };
         delete sessions[sessionId];
         delete sessionFileCache[sessionId];
-        return { sessions, sessionFileCache, sessionListViewData: buildSessionListViewData(sessions) };
+        return { sessions, sessionFileCache, sessionListViewData: buildSessionListViewData(sessions, state.herdrWorkspaces) };
     }),
     applyFriends: (friends) => set((state) => {
         const next = { ...state.friends };
@@ -611,19 +623,21 @@ export function useLifecycleCatalogAvailable(): boolean {
 export function useAttentionRows(): AttentionRowData[] {
     const sessions = useSessions();
     const attentionEntries = useAttentionEntries();
+    const { workspaces } = useHerdrTree();
     return React.useMemo(
         () =>
             attentionEntries.map((entry) => {
                 const session = sessions.find((candidate) => candidate.id === entry.sessionId);
+                const pane = herdrPaneForSession(workspaces, entry.sessionId);
                 return {
                     sessionId: entry.sessionId,
-                    name: session !== undefined ? getSessionName(session) : 'Agent',
+                    name: session !== undefined ? getSessionName(session, pane) : pane?.taskTitle ?? pane?.agentName ?? 'Agent',
                     reason: entry.reason,
                     detail: entry.detail,
                     at: Date.parse(entry.at) || 0,
                 };
             }),
-        [sessions, attentionEntries],
+        [sessions, attentionEntries, workspaces],
     );
 }
 

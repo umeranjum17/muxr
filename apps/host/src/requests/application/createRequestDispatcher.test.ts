@@ -47,17 +47,16 @@ describe('session.start cwd guard', () => {
 });
 
 describe('agent lifecycle request flow', () => {
-    it('forwards wire Agent Names on starts and routes stale-target failures only by session id', async () => {
+    it('forwards provider-only starts and routes stale-target failures only by Agent Route', async () => {
         const cwd = mkdtempSync(join(tmpdir(), 'muxr-start-'));
         const starts: unknown[] = [];
         const routed: string[] = [];
         const source = {
             async start(options: unknown) {
                 starts.push(options);
-                const named = options as { displayName?: string; members?: Array<{ displayName?: string }> };
                 return {
                     info: { id: 'stable-session' },
-                    acceptance: { outcome: 'accepted', state: 'starting', displayName: named.displayName ?? named.members?.[0]?.displayName },
+                    acceptance: { outcome: 'accepted', state: 'starting', agentName: 'Herdr Name' },
                 };
             },
             async paneFocus(sessionId: string) {
@@ -76,20 +75,20 @@ describe('agent lifecycle request flow', () => {
         });
 
         const single = await dispatch({
-            type: 'session.start', requestId: 'single', params: { cwd, kind: 'codex', displayName: 'Maria' },
+            type: 'session.start', requestId: 'single', params: { cwd, kind: 'codex' },
         } as never);
         const squad = await dispatch({
             type: 'session.start', requestId: 'squad', params: {
                 cwd,
-                members: [{ kind: 'codex', displayName: 'John' }, { kind: 'claude', displayName: 'Maria' }],
+                members: [{ kind: 'codex' }, { kind: 'claude' }],
             },
         } as never);
         expect(starts).toEqual([
-            { cwd, kind: 'codex', displayName: 'Maria' },
-            { cwd, members: [{ kind: 'codex', displayName: 'John' }, { kind: 'claude', displayName: 'Maria' }] },
+            { cwd, kind: 'codex' },
+            { cwd, members: [{ kind: 'codex' }, { kind: 'claude' }] },
         ]);
-        expect(single).toMatchObject({ ok: true, data: { acceptance: { outcome: 'accepted', state: 'starting', displayName: 'Maria' } } });
-        expect(squad).toMatchObject({ ok: true, data: { acceptance: { outcome: 'accepted', state: 'starting', displayName: 'John' } } });
+        expect(single).toMatchObject({ ok: true, data: { acceptance: { outcome: 'accepted', agentName: 'Herdr Name' } } });
+        expect(squad).toMatchObject({ ok: true, data: { acceptance: { outcome: 'accepted', agentName: 'Herdr Name' } } });
 
         const stale = await dispatch({
             type: 'pane.focus', requestId: 'focus', params: { sessionId: 'stable-session' },

@@ -5,11 +5,11 @@ import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
 import { ItemList } from '@/components/ItemList';
 import { Typography } from '@/constants/Typography';
-import { useSessions, useAllMachines, useMachine, useLocalSetting } from '@/catalog/store';
+import { useSessions, useAllMachines, useMachine, useLocalSetting, useHerdrTree } from '@/catalog/store';
 import { Ionicons } from '@expo/vector-icons';
 import type { Session } from '@/catalog';
 import { Modal } from '@/modal';
-import { formatPathRelativeToHome, getSessionName, getSessionSubtitle } from '@/herd';
+import { formatPathRelativeToHome, getSessionName, getSessionSubtitle, herdrPaneForSession } from '@/herd';
 import { isMachineOnline } from '@/pairing';
 import { sync } from '@/catalog/sync';
 import { useUnistyles, StyleSheet } from 'react-native-unistyles';
@@ -77,6 +77,7 @@ export default function MachineDetailScreen() {
     const { id: machineId } = useLocalSearchParams<{ id: string }>();
     const router = useRouter();
     const sessions = useSessions();
+    const { workspaces } = useHerdrTree();
     const machine = useMachine(machineId!);
     const devModeEnabled = useLocalSetting('devModeEnabled');
     const navigateToSession = useNavigateToSession();
@@ -429,8 +430,8 @@ export default function MachineDetailScreen() {
                         {previousSessions.map(session => (
                             <Item
                                 key={session.id}
-                                title={getSessionName(session)}
-                                subtitle={getSessionSubtitle(session)}
+                                title={getSessionName(session, herdrPaneForSession(workspaces, session.id))}
+                                subtitle={getSessionSubtitle(session, herdrPaneForSession(workspaces, session.id))}
                                 onPress={() => navigateToSession(session.id)}
                                 rightElement={<Ionicons name="chevron-forward" size={20} color={theme.colors.groupped.chevron} />}
                             />

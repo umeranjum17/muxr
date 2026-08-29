@@ -42,7 +42,7 @@ export interface SessionSnapshot {
     acceptance?: {
         outcome: 'accepted';
         state: AgentLifecycle;
-        displayName: string;
+        agentName?: string;
     };
 }
 
@@ -50,7 +50,6 @@ export type SessionStartResult = SessionSnapshot | {
     acceptance: {
         outcome: 'failed';
         state: 'failed';
-        displayName: string;
         code: 'start-launch-failed';
         message: string;
     };

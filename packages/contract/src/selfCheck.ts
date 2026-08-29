@@ -13,7 +13,6 @@ import {
     ATTENTION_DONE_TTL_MS,
     ATTENTION_HARD_CAP_MS,
     isSessionIdle,
-    normalizeAgentName,
     parseAgentName,
     parsePublicAgentRoute,
     type SessionInfo,
@@ -34,6 +33,7 @@ const session: SessionInfo = {
     modified: '2026-01-01T00:00:00.000Z',
     messageCount: 0,
     firstMessage: '',
+    promptable: true,
     agentKind: 'pi',
     paneId: 'w1:p1',
     workspaceId: 'w1',
@@ -45,6 +45,7 @@ const session: SessionInfo = {
 const status: SessionStatus = {
     sessionId: session.id,
     agentStatus: 'working',
+    promptable: true,
     isStreaming: true,
     tokens: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0, total: 3 },
     cost: 0,
@@ -66,7 +67,7 @@ const events: SessionEventBody[] = [
         event: {
             eventId: 'event-check',
             sessionId: session.id,
-            displayName: 'Maria',
+            agentName: 'Maria',
             state: 'working',
             reasonCode: 'agent-working',
             reason: 'agent-working',
@@ -104,15 +105,16 @@ function demo(): void {
         'shell and raw herdr stay outside the peer surface');
     const publicContext = boundRealtimePublicContext({
         sessions: [
-            { sessionId: 'pp_voice', displayName: 'pp_internal', taskTitle: 'pi - Realtime Stability', agentKind: 'pi' },
+            { sessionId: 'pp_voice', displayName: 'Maria', taskTitle: 'pi - Realtime Stability', agentKind: 'pi' },
+            { sessionId: 'pp_internal', displayName: 'pp_internal', taskTitle: 'hidden' },
             { sessionId: 'bad/path', displayName: 'leaked', taskTitle: '/private/work' },
             ...Array.from({ length: MAX_REALTIME_PUBLIC_SESSIONS + 4 }, (_, index) => ({ sessionId: `pp_${index}`, displayName: `agent-${index}` })),
         ],
     });
     assert(publicContext.sessions.length === MAX_REALTIME_PUBLIC_SESSIONS, 'realtime public session map is bounded');
     assert(publicContext.sessions[0]?.taskTitle === 'Realtime Stability', 'realtime public task title strips provider prefix');
-    assert(publicContext.sessions[0]?.displayName === 'Agent', 'internal or absent Agent Names remain present behind the unified fallback');
-    assert(!publicContext.sessions.some((entry) => entry.sessionId === 'bad/path'), 'realtime public session map rejects unsafe routing ids');
+    assert(publicContext.sessions[0]?.displayName === 'Maria', 'realtime public context preserves the current Herdr Agent Name');
+    assert(!publicContext.sessions.some((entry) => entry.sessionId === 'bad/path' || entry.sessionId === 'pp_internal'), 'realtime public session map rejects unsafe routes and internal Agent Names');
     for (const action of ['pause_output', 'resume_output', 'output_drained'] as const) {
         const frame = parseRealtimeClientFrame({ type: 'realtime.control', action });
         assert(frame.type === 'realtime.control' && frame.action === action, `${action} control validates`);
@@ -147,8 +149,8 @@ function demo(): void {
     assert(!isSessionIdle(status) && isSessionIdle({ ...status, agentStatus: 'done', isStreaming: true }), 'herdr lifecycle outranks the streaming flag');
     assert(attentionOutranks('waiting', 'done') && attentionReasonStillHolds('waiting', ATTENTION_HARD_CAP_MS + 1), 'waiting outranks done and never decays');
     assert(!attentionReasonStillHolds('done', ATTENTION_DONE_TTL_MS + 1), 'done attention ages out');
-    const internalName = parseAgentName('pp_hidden');
-    assert(internalName.ok && internalName.value === 'Agent' && normalizeAgentName('pph_hidden') === 'Agent' && normalizeAgentName('Мария') === 'Мария' && !parsePublicAgentRoute('bad/path').ok, 'Agent Name normalization preserves real names, hides pp_ and pph_ names, and never authorizes routes');
+    const exactName = parseAgentName('Мария');
+    assert(exactName.ok && exactName.value === 'Мария' && !parseAgentName('bad\u0000name').ok && !parsePublicAgentRoute('bad/path').ok, 'Agent Names preserve exact Herdr presentation values and never authorize routes');
     assert(peerMayDispatch(['prompt'], 'session.prompt') && !peerMayDispatch(['prompt'], 'session.start'), 'peer dispatch uses the signed allowlist');
     assert(authorizePeerDispatch({ allowlist: ['prompt'], requestType: 'session.prompt' }).ok, 'authorize peer dispatch admits a signed capability');
     assert(!authorizePeerDispatch({ allowlist: ['prompt'], requestType: 'session.start' }).ok, 'authorize peer dispatch denies start without start');

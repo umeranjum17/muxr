@@ -22,7 +22,7 @@ export interface PushPayload {
     eventId: string;
     kind: PushNotificationKind;
     reasonCode: LifecycleReasonCode;
-    displayName: string;
+    agentName: string;
     taskTitle?: string;
     sessionId: string;
     machineId: string;
@@ -51,21 +51,23 @@ export function parsePushNotification(value: {
     eventId?: unknown;
     kind?: unknown;
     reasonCode?: unknown;
-    displayName?: unknown;
+    agentName?: unknown;
     taskTitle?: unknown;
-}): Pick<PushPayload, 'eventId' | 'kind' | 'reasonCode' | 'displayName' | 'taskTitle'> | undefined {
+}): Pick<PushPayload, 'eventId' | 'kind' | 'reasonCode' | 'agentName' | 'taskTitle'> | undefined {
     if (typeof value.eventId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/.test(value.eventId)) return undefined;
     if (value.kind !== 'blocked' && value.kind !== 'done' && value.kind !== 'failed') return undefined;
     if (typeof value.reasonCode !== 'string' || !REASON_CODES.has(value.reasonCode as LifecycleReasonCode)) return undefined;
     const reasonCode = value.reasonCode as LifecycleReasonCode;
-    if (typeof value.displayName !== 'string') return undefined;
-    const displayName = value.displayName.normalize('NFKC').replace(/\s+/g, ' ').trim();
-    if (displayName.length > 80 || !/^[\p{L}\p{M}][\p{L}\p{M}' -]*(?: [2-9][0-9]*)?$/u.test(displayName)) return undefined;
-    if (value.taskTitle === undefined) return { eventId: value.eventId, kind: value.kind, reasonCode, displayName };
+    if (typeof value.agentName !== 'string') return undefined;
+    const agentName = value.agentName;
+    if (agentName.length === 0 || agentName.length > 80 || /[\0-\x1F\x7F]/.test(agentName)) return undefined;
+    if (value.taskTitle === undefined) return { eventId: value.eventId, kind: value.kind, reasonCode, agentName };
     if (typeof value.taskTitle !== 'string') return undefined;
-    const taskTitle = value.taskTitle.normalize('NFKC').replace(/[\0-\x1F\x7F]/g, ' ').replace(/\s+/g, ' ').trim();
-    if (taskTitle === '' || taskTitle.length > 120 || /^(?:\/|[A-Za-z]:\\)|\b(?:token|password|secret|credential)\s*=/i.test(taskTitle)) return undefined;
-    return { eventId: value.eventId, kind: value.kind, reasonCode, displayName, taskTitle };
+    const taskTitle = value.taskTitle;
+    if (taskTitle === '' || taskTitle.length > 120 || /[\0-\x1F\x7F]/.test(taskTitle)) return undefined;
+    const privacyProbe = taskTitle.normalize('NFKC').trimStart();
+    if (/^(?:\/|[A-Za-z]:\\)|\b(?:token|password|secret|credential)\s*=/i.test(privacyProbe)) return undefined;
+    return { eventId: value.eventId, kind: value.kind, reasonCode, agentName, taskTitle };
 }
 
 interface ExpoPushTokenRecord {
@@ -194,7 +196,7 @@ export class PushService {
         const suffix = payload.kind === 'failed' && START_FAILURE_REASONS.has(payload.reasonCode)
             ? ' could not start.'
             : COPY_SUFFIX[payload.kind];
-        const bodyText = `${payload.displayName}${suffix}`;
+        const bodyText = `${payload.agentName}${suffix}`;
         const list = this.subs[accountId] ?? [];
         const body = JSON.stringify({ ...payload, title, body: bodyText, presentationOwner: 'relay-push' });
         const results = await Promise.allSettled(list.map((sub) => webpush.sendNotification(sub, body)));
@@ -223,7 +225,7 @@ export class PushService {
                             eventId: payload.eventId,
                             kind: payload.kind,
                             reasonCode: payload.reasonCode,
-                            displayName: payload.displayName,
+                            agentName: payload.agentName,
                             ...(payload.taskTitle === undefined ? {} : { taskTitle: payload.taskTitle }),
                             sessionId: payload.sessionId,
                             machineId: payload.machineId,

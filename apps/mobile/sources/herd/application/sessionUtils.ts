@@ -4,6 +4,7 @@ import { t } from '@/text';
 import { useUnistyles } from 'react-native-unistyles';
 import type { Theme } from '@/theme';
 import { formatLastSeen, formatPathRelativeToHome } from '../domain/sessionIdentity';
+import type { HerdrTreePane } from '@muxr/contract';
 
 export type SessionState = 'disconnected' | 'thinking' | 'waiting' | 'permission_required';
 
@@ -115,11 +116,10 @@ export function useSessionStatus(session: Session | undefined): SessionStatus {
     };
 }
 
-/** Task Title is the primary label everywhere a session is scanned. */
-export function getSessionName(session: Session): string {
-    return session.metadata?.taskTitle?.trim()
-        || session.metadata?.agentName?.trim()
-        || t('session.newChat');
+/** Generic sessions may carry their own summary; Herdr Agent titles come from the tree. */
+export function getSessionName(session: Session, pane?: HerdrTreePane): string {
+    if (pane !== undefined) return pane.taskTitle ?? pane.agentName ?? t('session.newChat');
+    return session.metadata?.summary?.text?.trim() || t('session.newChat');
 }
 
 /** herdr lifecycle status, shared across dots, kanban and grid tiles. */
@@ -155,9 +155,9 @@ export function getSessionAvatarId(session: Session): string {
     return session.id;
 }
 
-/** Canonical Agent Name only; task cards own their context. */
-export function getSessionSubtitle(session: Session): string {
-    return session.metadata?.agentName?.trim() ?? '';
+/** Herdr Agent Names come from the current tree, never session metadata. */
+export function getSessionSubtitle(_session: Session, pane?: HerdrTreePane): string {
+    return pane?.agentName ?? '';
 }
 
 /**

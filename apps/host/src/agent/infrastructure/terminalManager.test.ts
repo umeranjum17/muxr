@@ -2,7 +2,6 @@ import { EventEmitter } from 'node:events';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { deriveV2Key, newV2SenderState, sealV2, v2EnvelopeSequence } from '@muxr/crypto';
 import type { Envelope } from '@muxr/contract';
-import type { IdentityStore } from './identity.js';
 
 interface FakeInput extends EventEmitter {
     destroyed: boolean;
@@ -94,14 +93,12 @@ describe('TerminalManager stream exit', () => {
     });
 
     it('moves same-pane control to the newest device without dropping observers or stealing back', async () => {
-        const identity = {
-            get: vi.fn(() => ({ paneId: 'workspace:pane' })),
-        } as unknown as IdentityStore;
+        const resolvePane = vi.fn(async () => 'workspace:pane');
         const root = Buffer.alloc(32).toString('base64');
         const manager = new TerminalManager({
             relayUrl: 'ws://relay.test',
             machineId: 'machine',
-            identity,
+            resolvePane,
             hostedE2ee: {
                 machineId: 'machine', keyVersion: 2, dataKey: root,
                 ingressKeys: { 'device-a': root, 'device-b': root },
@@ -116,6 +113,7 @@ describe('TerminalManager stream exit', () => {
         })).rejects.toThrow(/explicit takeover required/);
         expect(fakes.sockets).toHaveLength(2);
         await manager.attach({ sessionId: 'session', channel: 'phone-b', cols: 100, rows: 30, mode: 'control', deviceId: 'device-b', takeover: true });
+        expect(resolvePane).toHaveBeenCalledTimes(4);
 
         const [phoneA, preview, phoneB] = fakes.sockets;
         const [childA, previewChild, childB] = fakes.children;
@@ -146,13 +144,11 @@ describe('TerminalManager stream exit', () => {
     });
 
     it('rejects attach when Herdr cannot start instead of leaving the phone reconnecting', async () => {
-        const identity = {
-            get: vi.fn(() => ({ paneId: 'workspace:pane' })),
-        } as unknown as IdentityStore;
+        const resolvePane = vi.fn(async () => 'workspace:pane');
         const manager = new TerminalManager({
             relayUrl: 'ws://relay.test',
             machineId: 'machine',
-            identity,
+            resolvePane,
         });
         fakes.failSpawn = true;
 
@@ -162,13 +158,11 @@ describe('TerminalManager stream exit', () => {
     });
 
     it('does not write a late client frame into a cleanly exited stream', async () => {
-        const identity = {
-            get: vi.fn(() => ({ paneId: 'workspace:pane' })),
-        } as unknown as IdentityStore;
+        const resolvePane = vi.fn(async () => 'workspace:pane');
         const manager = new TerminalManager({
             relayUrl: 'ws://relay.test',
             machineId: 'machine',
-            identity,
+            resolvePane,
         });
 
         await manager.attach({ sessionId: 'session', channel: 'channel', cols: 100, rows: 30 });

@@ -7,7 +7,6 @@ import {
     type LifecycleNotificationLevel,
 } from '@muxr/contract';
 import type { Session } from '@/catalog';
-import { Agent } from './Agent';
 import { agentLabels, HERD_STATUS_LABELS } from './agentPresentation';
 
 export { HERD_STATUS_LABELS } from './agentPresentation';
@@ -73,20 +72,16 @@ export const HERD_ORDER: Record<AgentLifecycle, number> = {
     unknown: 6,
 };
 
-export function agentFromSession(session: Session): Agent {
-    return new Agent({
-        route: session.id,
-        agentName: session.metadata?.agentName?.trim() || 'Agent',
-        taskTitle: session.metadata?.taskTitle?.trim() || 'Current task',
-        recordedStatus: session.metadata?.agentStatus,
-        online: session.presence === 'online',
-        thinking: session.thinking === true,
-        permissionRequestCount: Object.keys(session.agentState?.requests ?? {}).length,
-    });
-}
-
 export function paneStatus(session: Session): AgentLifecycle {
-    return agentFromSession(session).lifecycle();
+    const raw = session.metadata?.agentStatus;
+    if (raw === 'blocked' || raw === 'failed' || raw === 'starting') return raw;
+    if (raw === 'idle' || raw === 'working' || raw === 'done') {
+        if (raw !== 'working' && session.presence === 'online' && session.thinking) return 'working';
+        return raw;
+    }
+    if (session.presence !== 'online') return 'unknown';
+    if (Object.keys(session.agentState?.requests ?? {}).length > 0) return 'blocked';
+    return session.thinking ? 'working' : 'done';
 }
 
 export function lifecycleNotificationState(event: LifecycleEvent): HerdNotificationState {

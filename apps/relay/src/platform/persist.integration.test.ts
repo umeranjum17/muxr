@@ -216,13 +216,20 @@ it('hardens every relay state path in a custom data directory', async () => {
         });
         vi.stubGlobal('fetch', fetchMock);
         const notification = parsePushNotification({
-            eventId: 'event-done', kind: 'done', reasonCode: 'agent-done', displayName: 'Maria', taskTitle: 'Prepare release notes',
+            eventId: 'event-done', kind: 'done', reasonCode: 'agent-done', agentName: 'Maria', taskTitle: 'Prepare release notes',
         });
         expect(notification).toEqual({
-            eventId: 'event-done', kind: 'done', reasonCode: 'agent-done', displayName: 'Maria', taskTitle: 'Prepare release notes',
+            eventId: 'event-done', kind: 'done', reasonCode: 'agent-done', agentName: 'Maria', taskTitle: 'Prepare release notes',
         });
         expect(parsePushNotification({
-            eventId: 'event-unknown', kind: 'failed', reasonCode: 'unknown-prose', displayName: 'Maria',
+            eventId: 'event-unknown', kind: 'failed', reasonCode: 'unknown-prose', agentName: 'Maria',
+        })).toBeUndefined();
+        expect(parsePushNotification({
+            eventId: 'event-private',
+            kind: 'done',
+            reasonCode: 'agent-done',
+            agentName: 'Maria',
+            taskTitle: '\u00a0/Users/owner/private/task',
         })).toBeUndefined();
         if (notification === undefined) throw new Error('fixture lifecycle notification rejected');
         const completed = {
@@ -267,10 +274,10 @@ it('hardens every relay state path in a custom data directory', async () => {
         await expect(restartedPush.notify(expoAccount.accountId, retryable)).resolves.toEqual({ sent: 0 });
         await expect(restartedPush.notify(expoAccount.accountId, retryable)).resolves.toEqual({ sent: 1 });
         const startFailure = parsePushNotification({
-            eventId: 'event-start-failed', kind: 'failed', reasonCode: 'start-timeout', displayName: 'John',
+            eventId: 'event-start-failed', kind: 'failed', reasonCode: 'start-timeout', agentName: 'John',
         });
         const runtimeFailure = parsePushNotification({
-            eventId: 'event-runtime-failed', kind: 'failed', reasonCode: 'agent-runtime-failed', displayName: 'Maria',
+            eventId: 'event-runtime-failed', kind: 'failed', reasonCode: 'agent-runtime-failed', agentName: 'Maria',
         });
         if (startFailure === undefined || runtimeFailure === undefined) throw new Error('fixture failure notification rejected');
         await expect(restartedPush.notify(expoAccount.accountId, {

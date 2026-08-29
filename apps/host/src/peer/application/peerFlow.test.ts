@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
@@ -39,6 +39,7 @@ import { HostDiagnosticsJournal } from '../../diagnostics/index.js';
 import type { SessionSource } from '../../agent/index.js';
 import { HttpPeerAuthority, type PeerAuthority } from '../infrastructure/authority.js';
 import { NodePeerClient, type PeerClientRequestType, type PeerClientTransport, type PeerConnectionDiagnostic } from '../infrastructure/client.js';
+import { PeerStore } from '../infrastructure/store.js';
 import { PeerBroker } from '../infrastructure/broker.js';
 import { PeerRuntime } from './runtime.js';
 
@@ -174,6 +175,27 @@ async function brokerReady(socketPath: string, capability: string): Promise<bool
 }
 
 describe('host peer collaboration flow', () => {
+    it('rejects persisted non-string machine aliases', () => {
+        const root = mkdtempSync(join(tmpdir(), 'muxr-peer-alias-'));
+        writeFileSync(join(root, 'peers.json'), JSON.stringify({
+            version: 1,
+            revision: 0,
+            preparations: [],
+            relationships: [{
+                relationshipId: 'relationship',
+                machineId: 'machine',
+                capabilities: [...DEFAULT_PEER_CAPABILITIES],
+                direction: 'outbound',
+                state: 'connected',
+                relayUrl: 'ws://relay.test',
+                machineAlias: 123,
+                createdAt: 1,
+                updatedAt: 1,
+            }],
+            receipts: [],
+        }), { mode: 0o600 });
+        expect(() => new PeerStore(root)).toThrow('unsupported peer schema');
+    });
     it('prepares, authorizes, installs, executes one fresh prompt, rejects unsafe work, and revokes', async () => {
         const root = mkdtempSync(join(tmpdir(), 'muxr-peer-flow-'));
         const sourceKeys = machineCrypto();
@@ -186,20 +208,25 @@ describe('host peer collaboration flow', () => {
             id: 'muxr-session-ios',
             cwd: '/work/app',
             path: 'internal-pane-path',
-            name: 'iOS builder',
-            displayName: 'iOS builder',
+            agentName: 'iOS builder',
             created: new Date().toISOString(),
             modified: new Date().toISOString(),
             messageCount: 0,
             firstMessage: '',
+            promptable: true,
             agentKind: 'pi',
         };
         let remoteSessions = [session];
         let controlWaits = false;
+        let dropSessionsAfterPrompt = false;
         const pendingWaits: Array<(value: { status: string; detail: string }) => void> = [];
         const targetSource = {
             async list() { return remoteSessions; },
-            async prompt(options: { text: string }) { prompts += 1; promptTexts.push(options.text); },
+            async prompt(options: { text: string }) {
+                prompts += 1;
+                promptTexts.push(options.text);
+                if (dropSessionsAfterPrompt) remoteSessions = [];
+            },
             async paneRead() { return { text: 'build complete PWD=/Users/owner/private path:/private/tmp/work HOME=C:\\Users\\owner\\private pp_secret token=remote-secret-value', truncated: false }; },
             async status(sessionId: string) {
                 return { sessionId, agentStatus: 'idle', isStreaming: false, tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }, cost: 0, usageLimits: { capturedAt: new Date().toISOString(), windows: [] } };
@@ -330,6 +357,10 @@ describe('host peer collaboration flow', () => {
         });
         const listed = await call(sourceRuntime, 'peer.remote.list', { relationshipId: installed.relationshipId });
         expect(listed).toEqual({ machineAlias: 'Build Mac', sessions: [{ sessionId: 'muxr-session-ios', agentName: 'iOS builder' }] });
+        remoteSessions = [{ ...session, agentName: undefined, displayName: 'iOS builder' }] as unknown as typeof remoteSessions;
+        await expect(call(sourceRuntime, 'peer.remote.list', { relationshipId: installed.relationshipId }))
+            .resolves.toEqual({ machineAlias: 'Build Mac', sessions: [{ sessionId: 'muxr-session-ios', agentName: 'iOS builder' }] });
+        remoteSessions = [session];
         const promptMutation = fresh('prompt-once');
         await call(sourceRuntime, 'peer.remote.prompt', {
             relationshipId: installed.relationshipId,
@@ -497,8 +528,18 @@ describe('host peer collaboration flow', () => {
         expect(promptedFromCli).toMatchObject({ code: 0, stderr: '' });
         expect(JSON.parse(promptedFromCli.stdout)).toEqual({ machine: 'Build Mac', agent: 'iOS builder', delivered: true });
         expect(prompts).toBe(4);
+        dropSessionsAfterPrompt = true;
+        await expect(call(sourceRuntime, 'peer.remote.prompt', {
+            relationshipId: installed.relationshipId,
+            sessionId: 'muxr-session-ios',
+            text: 'Exit after queue',
+            mutation: fresh('prompt-fast-exit'),
+        })).resolves.toMatchObject({ agentName: 'iOS builder', delivered: true });
+        expect(prompts).toBe(5);
+        dropSessionsAfterPrompt = false;
+        remoteSessions = [session];
         remoteSessions = [session, { ...session, id: 'another-internal-session' }];
-        const { machineAlias: _machineAlias, agentNames: _agentNames, ...outboundCopy } = sourceRuntime.store.relationship(installed.relationshipId)!;
+        const { machineAlias: _machineAlias, ...outboundCopy } = sourceRuntime.store.relationship(installed.relationshipId)!;
         const duplicateMachine = {
             ...outboundCopy,
             relationshipId: 'second-build-mac',
@@ -524,6 +565,9 @@ describe('host peer collaboration flow', () => {
         diagnostics.peerConnection('socket-open', 'ok', 4);
         diagnostics.peerConnection('liveness-proof', 'timeout', 20_000, 'liveness-timeout');
         diagnostics.request('peer.prepare', 'native', 'rejected', 1, 'peer-recovery-pending');
+        diagnostics.agentReadiness('starting', false);
+        diagnostics.agentReadiness('ready', true);
+        diagnostics.agentReadiness('not-promptable', false);
         for (let index = 0; index < 600; index += 1) diagnostics.request('herdr.tree', 'native', 'ok', 1);
         await broker.close();
         await diagnostics.flush();
@@ -531,11 +575,16 @@ describe('host peer collaboration flow', () => {
         const diagnosticsPath = join(root, 'source', 'diagnostics.json');
         expect(statSync(diagnosticsPath).mode & 0o077).toBe(0);
         const diagnosticOutput = readFileSync(diagnosticsPath, 'utf8');
-        const diagnosticEvents = (JSON.parse(diagnosticOutput) as { events: Array<{ event: string; operation?: string; request?: string; phase?: string; outcome?: string; code?: string }> }).events;
+        const diagnosticEvents = (JSON.parse(diagnosticOutput) as { events: Array<{ event: string; operation?: string; request?: string; phase?: string; outcome?: string; code?: string; reason?: string; promptable?: boolean }> }).events;
         expect(diagnosticEvents).toContainEqual(expect.objectContaining({ event: 'peer.broker', operation: 'list', outcome: 'ok' }));
         expect(diagnosticEvents).toContainEqual(expect.objectContaining({ event: 'peer.broker', operation: 'prompt', outcome: 'ok' }));
         expect(diagnosticEvents).toContainEqual(expect.objectContaining({ event: 'peer.connection', phase: 'liveness-proof', outcome: 'timeout' }));
         expect(diagnosticEvents).toContainEqual(expect.objectContaining({ event: 'client.request', request: 'peer.prepare', code: 'peer-recovery-pending' }));
+        expect(diagnosticEvents).toEqual(expect.arrayContaining([
+            expect.objectContaining({ event: 'agent.readiness', reason: 'starting', promptable: false }),
+            expect.objectContaining({ event: 'agent.readiness', reason: 'ready', promptable: true }),
+            expect.objectContaining({ event: 'agent.readiness', reason: 'not-promptable', promptable: false }),
+        ]));
         expect(diagnosticEvents).not.toContainEqual(expect.objectContaining({ event: 'client.request', request: 'herdr.tree', outcome: 'ok' }));
         expect(diagnosticOutput).not.toMatch(/target-machine|muxr-session|internal-pane-path|Report Xcode status|machineId|sessionId|relationshipId|operationId/);
         let diagnosticNow = Date.parse('2026-08-26T00:00:00.000Z');

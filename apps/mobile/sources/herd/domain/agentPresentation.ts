@@ -1,4 +1,4 @@
-import { normalizeAgentName, type AgentLifecycle, type HerdrTreePane } from '@muxr/contract';
+import { type AgentLifecycle, type HerdrTreePane, type HerdrTreeWorkspace } from '@muxr/contract';
 import type { Session } from '@/catalog';
 
 export interface AgentLabels {
@@ -7,7 +7,20 @@ export interface AgentLabels {
     agentKind?: string;
 }
 
-type AgentLabelPane = Pick<HerdrTreePane, 'agentKind' | 'displayName' | 'taskTitle'>;
+type AgentLabelPane = Pick<HerdrTreePane, 'agentKind' | 'agentName' | 'taskTitle'>;
+
+export function herdrPaneForSession(
+    workspaces: readonly HerdrTreeWorkspace[],
+    sessionId: string,
+): HerdrTreePane | undefined {
+    for (const workspace of workspaces) {
+        for (const tab of workspace.tabs) {
+            const pane = tab.panes.find((candidate) => candidate.sessionId === sessionId);
+            if (pane !== undefined) return pane;
+        }
+    }
+    return undefined;
+}
 
 export const HERD_STATUS_LABELS: Record<AgentLifecycle, string> = {
     working: 'Working',
@@ -21,13 +34,10 @@ export const HERD_STATUS_LABELS: Record<AgentLifecycle, string> = {
 
 /** One display vocabulary: Task Title, then canonical Agent Name or Shell. */
 export function agentLabels(pane?: AgentLabelPane, session?: Session): AgentLabels {
-    const metadata = session?.metadata;
-    const agentKind = pane?.agentKind?.trim() || metadata?.agentKind?.trim() || undefined;
+    const agentKind = pane === undefined ? session?.metadata?.agentKind : pane.agentKind;
     return {
-        taskTitle: pane?.taskTitle?.trim() || metadata?.taskTitle?.trim() || 'Untitled task',
-        agentName: agentKind === undefined
-            ? 'Shell'
-            : metadata?.agentName?.trim() || normalizeAgentName(pane?.displayName),
+        taskTitle: pane?.taskTitle ?? 'Untitled task',
+        agentName: agentKind === undefined ? 'Shell' : pane?.agentName ?? 'Agent',
         ...(agentKind === undefined ? {} : { agentKind }),
     };
 }

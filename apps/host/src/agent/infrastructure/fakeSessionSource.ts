@@ -32,6 +32,7 @@ function statusFor(sessionId: string, isStreaming: boolean): SessionStatus {
         sessionId,
         persisted: true,
         agentStatus: isStreaming ? 'working' : 'idle',
+        promptable: true,
         isStreaming,
         tokens: { input: 1200, output: 340, cacheRead: 0, cacheWrite: 0, total: 1540 },
         cost: 0.021,
@@ -70,7 +71,7 @@ function scriptedTurn(sessionId: string, session: SessionInfo, demoWrite: { path
             event: {
                 eventId: 'fake-working',
                 sessionId,
-                displayName: 'Maria',
+                agentName: 'Maria',
             state: 'working',
             reasonCode: 'agent-working',
             reason: 'agent-working',
@@ -237,6 +238,7 @@ export function createFakeSessionSource(): SessionSource {
                 modified: now,
                 messageCount: 0,
                 firstMessage: '',
+                promptable: true,
             };
             sessions.set(id, session);
             emit(id, { type: 'session.created', session });
@@ -361,6 +363,7 @@ export function assertFakeSourceCoversContract(): void {
             modified: '',
             messageCount: 0,
             firstMessage: '',
+            promptable: true,
         }, { path: '/tmp/demo-change.ts', content: '' }).map((event) => event.type),
     );
     const missing = SESSION_EVENT_TYPES.filter((type) => !emitted.has(type));
