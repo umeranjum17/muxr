@@ -1,0 +1,33 @@
+name: mobile iOS internal
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Marketing version
+        required: true
+        type: string
+      build_number:
+        description: iOS build number
+        required: true
+        type: string
+      confirmation:
+        description: Local Mac validation confirmation
+        required: true
+        type: string
+
+concurrency:
+  group: mobile-ios-internal-${{ inputs.version }}-${{ inputs.build_number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  blocked:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require local Mac validation
+        run: |
+          echo "The iOS workflow remains disabled until the local Mac build path is validated." >&2
+          exit 1
