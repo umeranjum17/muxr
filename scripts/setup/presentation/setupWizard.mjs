@@ -10,7 +10,7 @@ import { enrollMachine } from '../application/enrollMachine.mjs';
 import { listMachines } from '../application/listMachines.mjs';
 import { revokeMachine } from '../application/revokeMachine.mjs';
 import { selfhostPublicSummary, sharedMachineCount } from '../infrastructure/selfhostRelay.mjs';
-import { runTailscale, tailscaleBin } from '../infrastructure/selfhost.mjs';
+import { inspectTailscaleServeRoot, runTailscale, tailscaleBin } from '../infrastructure/selfhost.mjs';
 import { advertisedUrlForMode, connectionLabel, ingressPlan, modeAllowsBrowserHosting } from '../domain/dist/index.js';
 
 function command(name, args = []) {
@@ -227,13 +227,30 @@ const RELAY_KIND = {
 };
 const relayKind = (mode) => RELAY_KIND[mode] ?? mode;
 
-function choices(found, tailscalePlanned = false) {
+function choices(found, tailscalePlanned = false, serveRoot = { status: 'unknown' }) {
     // The relay is the one real choice in setup: it is how the phone reaches
     // the host. Never delete an option silently — show it disabled with the
     // reason and remedy attached, so the user sees what is standing in the way.
     const options = [];
+    const serveOccupied = serveRoot.status === 'occupied';
     if (found.tailscale.connected || tailscalePlanned) {
-        options.push({ value: 'tailscale', title: 'Tailscale · recommended', description: tailscalePlanned ? 'connect during Apply · private access from anywhere' : 'private connection · works from anywhere · nothing exposed publicly' });
+        if (serveOccupied) {
+            options.push({
+                value: 'tailscale',
+                title: 'Tailscale Serve',
+                description: 'already used by another service · left unchanged',
+                disabled: true,
+            });
+            options.push({
+                value: 'tailscale-direct',
+                title: 'Tailscale · recommended',
+                description: tailscalePlanned
+                    ? 'connect during Apply · reach this computer over the tailnet address'
+                    : 'private tailnet address · leaves the existing Serve service unchanged',
+            });
+        } else {
+            options.push({ value: 'tailscale', title: 'Tailscale · recommended', description: tailscalePlanned ? 'connect during Apply · private access from anywhere' : 'private connection · works from anywhere · nothing exposed publicly' });
+        }
     } else {
         options.push({ value: 'tailscale', title: 'Tailscale', description: found.tailscale.detail, disabled: true });
     }
@@ -252,6 +269,156 @@ function choices(found, tailscalePlanned = false) {
 }
 
 const aborted = (value) => value === undefined || value === BACK;
+
+export function continueWithDirectTailscale(plan) {
+    const browserPair = plan.pairing === 'browser' || plan.pairing === 'browser-view' || plan.pairing === 'both';
+    return {
+        mode: 'tailscale-direct',
+        port: plan.port,
+        endpoint: plan.endpoint,
+        web: false,
+        pairing: browserPair ? 'phone' : plan.pairing,
+    };
+}
+
+export function selfhostArgsFromSetupPlan({ mode, port, web, pairing, found, endpoint }) {
+    const selfhostArgs = ['--port', String(port), '--connection-mode', mode, '--reconfigure'];
+    if (mode === 'lan') selfhostArgs.push('--advertise', `ws://${found.lan}:${port}`);
+    if (mode === 'external') selfhostArgs.push('--advertise', endpoint);
+    if (mode === 'cloudflare') selfhostArgs.push('--tunnel');
+    if (mode === 'tailscale-direct') selfhostArgs.push('--tailscale-direct');
+    if (web) selfhostArgs.push('--web', '--yes');
+    if (pairing === 'browser') selfhostArgs.push('--pair-browser');
+    if (pairing === 'browser-view') selfhostArgs.push('--pair-browser-view');
+    if (pairing === 'none') selfhostArgs.push('--no-pair');
+    return selfhostArgs;
+}
+
+function serveRootFor(found, port) {
+    if (!found.tailscale.connected && !found.tailscale.dnsName) return { status: 'unknown' };
+    return inspectTailscaleServeRoot(port, found.tailscale.dnsName);
+}
+
+async function chooseMachineConnection({ found, current, tailscalePlanned, requestedMode, args }) {
+    const plannedPort = Number(value(args, '--port')) || current?.relayPort || 8792;
+    const serveRoot = serveRootFor(found, plannedPort);
+    let mode = requestedMode;
+    if (mode === 'selfhost') mode = undefined;
+    if (!mode) {
+        heading('muxr runs on this computer');
+        const connectionChoices = choices(found, tailscalePlanned, serveRoot).map((choice) => {
+            if (choice.value !== current?.connectionMode) return choice;
+            return { ...choice, title: `${choice.title} · current` };
+        });
+        const initial = Math.max(0, connectionChoices.findIndex((choice) => choice.value === current?.connectionMode));
+        mode = await select('How should your phone connect?', connectionChoices, initial);
+    }
+    if (aborted(mode)) return undefined;
+    if (!['tailscale', 'tailscale-direct', 'lan', 'external', 'cloudflare'].includes(mode)) {
+        process.stderr.write(`unknown setup mode: ${mode}\n`);
+        return 1;
+    }
+    if ((mode === 'tailscale' || mode === 'tailscale-direct') && !found.tailscale.connected && !tailscalePlanned) {
+        process.stderr.write(`Tailscale is unavailable: ${found.tailscale.detail}; or pick a different relay\n`);
+        return 1;
+    }
+    if (mode === 'lan' && !found.lan) {
+        process.stderr.write('no local network address was found; pick a different relay\n');
+        return 1;
+    }
+    if (mode === 'cloudflare' && !found.cloudflared.ok) {
+        process.stderr.write(`cloudflared is unavailable: ${found.cloudflared.detail}; pick a different relay\n`);
+        return 1;
+    }
+
+    let port = current === undefined && value(args, '--port') === undefined ? 8792 : undefined;
+    while (port === undefined) {
+        setupStep(2, 5, 'Choose connection port');
+        const portText = await prompt('Local connection port', value(args, '--port') ?? String(current.relayPort));
+        if (portText === undefined) return undefined;
+        const parsed = Number(portText);
+        if (Number.isInteger(parsed) && parsed >= 1024 && parsed <= 65535) port = parsed;
+        else status('Relay port', 'enter an integer from 1024 to 65535', 'warn');
+    }
+    let endpoint;
+    if (mode === 'external') {
+        while (endpoint === undefined) {
+            setupStep(2, 5, 'Enter your server address');
+            const entered = await prompt('External relay URL (wss://...)', current?.connectionMode === 'external' ? current.relayUrl : '');
+            if (entered === undefined) return undefined;
+            try {
+                const parsed = new URL(entered);
+                if (parsed.protocol === 'wss:' && parsed.hostname && !parsed.username && !parsed.password && parsed.pathname === '/' && !parsed.search && !parsed.hash) endpoint = parsed.toString().replace(/\/$/, '');
+                else status('External relay URL', 'use a root wss://host URL without credentials, query, or fragment', 'warn');
+            } catch {
+                status('External relay URL', 'use a valid wss:// URL', 'warn');
+            }
+        }
+    }
+
+    setupStep(2, 5, 'Choose app access');
+    let web = false;
+    if (modeAllowsBrowserHosting(mode)) {
+        web = await select('Host the browser client too?', [
+            { value: false, title: 'Native app only', description: 'do not expose the browser client' },
+            { value: true, title: 'Host the browser client', description: 'serve it over the selected HTTPS/WSS connection' },
+        ], current?.webEnabled ? 1 : 0);
+        if (aborted(web)) return undefined;
+    } else {
+        status('Browser client', 'requires Tailscale Serve, External WSS, or Cloudflare; native app only', 'off');
+    }
+    const desiredUrl = advertisedUrlForMode({ mode, found, current, port, endpoint, web, tailscalePlanned });
+    const connectionChanged = current === undefined || desiredUrl === undefined || current.relayUrl !== desiredUrl;
+    const pairingChoices = [
+        ...(current !== undefined ? [{
+            value: 'none',
+            title: 'Keep paired devices',
+            description: connectionChanged
+                ? 'same-LAN devices can adopt it through local discovery; remote devices must pair once with the new endpoint'
+                : 'no new QR; existing devices keep working',
+        }] : []),
+        { value: 'phone', title: 'Phone', description: 'pair the native app first' },
+        ...(web ? [
+            { value: 'browser', title: 'Control browser', description: 'full terminal and agent control for eight hours' },
+            { value: 'browser-view', title: 'View-only browser', description: 'observe agents without control for eight hours' },
+            { value: 'both', title: 'Phone, then control browser', description: 'complete both pairing steps' },
+        ] : []),
+    ];
+    setupStep(2, 5, 'Choose what to pair');
+    const pairing = pairingChoices.length === 1 ? pairingChoices[0].value : await select(connectionChanged && current !== undefined
+        ? 'The connection changed. Keep existing devices or pair another one?'
+        : 'Pair a client?', pairingChoices);
+    if (aborted(pairing)) return undefined;
+    return { mode, port, endpoint, web, pairing };
+}
+
+async function recoverOccupiedServe({ plan, found, current, tailscalePlanned, args }) {
+    if (plan.mode !== 'tailscale') return plan;
+    if (serveRootFor(found, plan.port).status !== 'occupied') return plan;
+    setupStep(5, 5, 'Tailscale Serve is already in use');
+    heading('Tailscale Serve is already in use');
+    note([
+        'Another service already owns the Tailscale Serve root.',
+        'muxr left that service unchanged.',
+        'You can use direct Tailscale networking, or go back and choose a different connection.',
+    ]);
+    const action = await select('How do you want to continue?', [
+        { value: 'direct', title: 'Use direct Tailscale networking', description: 'reach this computer over its tailnet address · leaves the other service unchanged' },
+        { value: 'back', title: 'Change how your phone connects', description: 'go back and pick a different connection' },
+    ]);
+    if (aborted(action)) return undefined;
+    if (action === 'direct') {
+        const next = continueWithDirectTailscale(plan);
+        if (plan.web) status('Browser client', 'needs Tailscale Serve or HTTPS; continuing with the native app only', 'warn');
+        status('Connection', connectionLabel(next.mode, next.endpoint, next.port), 'ok');
+        return next;
+    }
+    setupStep(2, 5, 'Choose how your phone connects');
+    const chosen = await chooseMachineConnection({ found, current, tailscalePlanned, requestedMode: undefined, args });
+    if (chosen === undefined) return undefined;
+    if (chosen === 1) return 1;
+    return chosen;
+}
 
 // Any abort before Apply must say so; a silent exit reads as "something ran".
 function cancelled() {
@@ -326,92 +493,11 @@ export async function applyMachineSetup(args = []) {
     const current = await selfhostPublicSummary();
 
     setupStep(2, 5, 'Choose how your phone connects');
-    let mode = requestedMode;
-    if (mode === 'selfhost') mode = undefined;
-    if (!mode) {
-        heading('muxr runs on this computer');
-        const connectionChoices = choices(found, tailscalePlanned).map((choice) => choice.value === current?.connectionMode
-            ? { ...choice, title: `${choice.title} · current` }
-            : choice);
-        const initial = Math.max(0, connectionChoices.findIndex((choice) => choice.value === current?.connectionMode));
-        mode = await select('How should your phone connect?', connectionChoices, initial);
-    }
-    if (aborted(mode)) return cancelSetup();
-    if (!['tailscale', 'tailscale-direct', 'lan', 'external', 'cloudflare'].includes(mode)) {
-        process.stderr.write(`unknown setup mode: ${mode}\n`);
-        return 1;
-    }
-    if ((mode === 'tailscale' || mode === 'tailscale-direct') && !found.tailscale.connected && !tailscalePlanned) {
-        process.stderr.write(`Tailscale is unavailable: ${found.tailscale.detail}; or pick a different relay\n`);
-        return 1;
-    }
-    if (mode === 'lan' && !found.lan) {
-        process.stderr.write('no local network address was found; pick a different relay\n');
-        return 1;
-    }
-    if (mode === 'cloudflare' && !found.cloudflared.ok) {
-        process.stderr.write(`cloudflared is unavailable: ${found.cloudflared.detail}; pick a different relay\n`);
-        return 1;
-    }
-
-    let port = current === undefined && value(args, '--port') === undefined ? 8792 : undefined;
-    while (port === undefined) {
-        setupStep(2, 5, 'Choose connection port');
-        const portText = await prompt('Local connection port', value(args, '--port') ?? String(current.relayPort));
-        if (portText === undefined) return cancelSetup();
-        const parsed = Number(portText);
-        if (Number.isInteger(parsed) && parsed >= 1024 && parsed <= 65535) port = parsed;
-        else status('Relay port', 'enter an integer from 1024 to 65535', 'warn');
-    }
-    let endpoint;
-    if (mode === 'external') {
-        while (endpoint === undefined) {
-            setupStep(2, 5, 'Enter your server address');
-            const entered = await prompt('External relay URL (wss://...)', current?.connectionMode === 'external' ? current.relayUrl : '');
-            if (entered === undefined) return cancelSetup();
-            try {
-                const parsed = new URL(entered);
-                if (parsed.protocol === 'wss:' && parsed.hostname && !parsed.username && !parsed.password && parsed.pathname === '/' && !parsed.search && !parsed.hash) endpoint = parsed.toString().replace(/\/$/, '');
-                else status('External relay URL', 'use a root wss://host URL without credentials, query, or fragment', 'warn');
-            } catch {
-                status('External relay URL', 'use a valid wss:// URL', 'warn');
-            }
-        }
-    }
-
-    setupStep(2, 5, 'Choose app access');
-    let web = false;
-    if (modeAllowsBrowserHosting(mode)) {
-        web = await select('Host the browser client too?', [
-            { value: false, title: 'Native app only', description: 'do not expose the browser client' },
-            { value: true, title: 'Host the browser client', description: 'serve it over the selected HTTPS/WSS connection' },
-        ], current?.webEnabled ? 1 : 0);
-        if (aborted(web)) return cancelSetup();
-    } else {
-        status('Browser client', 'requires Tailscale Serve, External WSS, or Cloudflare; native app only', 'off');
-    }
-    const desiredUrl = advertisedUrlForMode({ mode, found, current, port, endpoint, web, tailscalePlanned });
+    let plan = await chooseMachineConnection({ found, current, tailscalePlanned, requestedMode, args });
+    if (plan === undefined) return cancelSetup();
+    if (plan === 1) return 1;
+    const desiredUrl = advertisedUrlForMode({ ...plan, found, current, tailscalePlanned });
     const connectionChanged = current === undefined || desiredUrl === undefined || current.relayUrl !== desiredUrl;
-    const pairingChoices = [
-        ...(current !== undefined ? [{
-            value: 'none',
-            title: 'Keep paired devices',
-            description: connectionChanged
-                ? 'same-LAN devices can adopt it through local discovery; remote devices must pair once with the new endpoint'
-                : 'no new QR; existing devices keep working',
-        }] : []),
-        { value: 'phone', title: 'Phone', description: 'pair the native app first' },
-        ...(web ? [
-            { value: 'browser', title: 'Control browser', description: 'full terminal and agent control for eight hours' },
-            { value: 'browser-view', title: 'View-only browser', description: 'observe agents without control for eight hours' },
-            { value: 'both', title: 'Phone, then control browser', description: 'complete both pairing steps' },
-        ] : []),
-    ];
-    setupStep(2, 5, 'Choose what to pair');
-    const pairing = pairingChoices.length === 1 ? pairingChoices[0].value : await select(connectionChanged && current !== undefined
-        ? 'The connection changed. Keep existing devices or pair another one?'
-        : 'Pair a client?', pairingChoices);
-    if (aborted(pairing)) return cancelSetup();
 
     setupStep(3, 5, 'Connect agents and add-ons');
     const syncIntegrations = await select(found.agents.checked
@@ -427,14 +513,14 @@ export async function applyMachineSetup(args = []) {
 
     setupStep(4, 5, 'Review setup');
     note([
-        `Connection: ${connectionLabel(mode, endpoint, port)}`,
+        `Connection: ${connectionLabel(plan.mode, plan.endpoint, plan.port)}`,
         `Herdr: ${found.herdr.installed ? 'adopt existing installation and ensure its server is running' : 'download, install, and start during setup'}`,
         'Bundled plugins: link the public muxr plugins into Herdr',
         `Agent integrations: ${syncIntegrations ? 'sync detected lifecycle providers; leave agent prompt files unchanged' : 'leave lifecycle integrations unchanged'}`,
         `Optional add-ons: ${plugins.length ? plugins.map((plugin) => plugin.title).join(', ') : 'none'}`,
-        `Browser client: ${web ? 'host the web app; browser keys stay WebCrypto-wrapped on this device' : 'off'}`,
-        `Pairing: ${pairingChoiceLabel(pairing)}${browserGrantNote(pairing, { planned: true })}`,
-        `Ingress: ${ingressPlan(mode, tailscalePlanned)}`,
+        `Browser client: ${plan.web ? 'host the web app; browser keys stay WebCrypto-wrapped on this device' : 'off'}`,
+        `Pairing: ${pairingChoiceLabel(plan.pairing)}${browserGrantNote(plan.pairing, { planned: true })}`,
+        `Ingress: ${ingressPlan(plan.mode, tailscalePlanned)}`,
         'Services: register or restart the relay and host with systemd/launchd',
         `Existing connections: ${connectionChanged ? 'stored grants stay authoritative and adopt the advertised endpoint automatically' : 'keep working; restart only if a reviewed runtime setting changed'}`,
         'No change is made until you choose Apply setup.',
@@ -446,7 +532,7 @@ export async function applyMachineSetup(args = []) {
     if (apply !== true) return cancelSetup();
 
     setupStep(5, 5, 'Install, start, and pair');
-    if ((mode === 'tailscale' || mode === 'tailscale-direct') && tailscalePlanned && !(await applyTailscaleConnect(found))) {
+    if ((plan.mode === 'tailscale' || plan.mode === 'tailscale-direct') && tailscalePlanned && !(await applyTailscaleConnect(found))) {
         process.stderr.write('Tailscale did not connect; fix the reported issue, then rerun setup\n');
         return 1;
     }
@@ -458,17 +544,17 @@ export async function applyMachineSetup(args = []) {
     const prerequisites = await runLocalPrerequisites(prerequisiteArgs);
     if (prerequisites !== 0) return prerequisites;
     const pluginResult = await installPlugins(plugins);
-    const selfhostArgs = ['--port', String(port), '--connection-mode', mode, '--reconfigure'];
-    if (mode === 'lan') selfhostArgs.push('--advertise', `ws://${found.lan}:${port}`);
-    if (mode === 'external') selfhostArgs.push('--advertise', endpoint);
-    if (mode === 'cloudflare') selfhostArgs.push('--tunnel');
-    if (mode === 'tailscale-direct') selfhostArgs.push('--tailscale-direct');
-    if (web) selfhostArgs.push('--web', '--yes');
-    if (pairing === 'browser') selfhostArgs.push('--pair-browser');
-    if (pairing === 'browser-view') selfhostArgs.push('--pair-browser-view');
-    if (pairing === 'none') selfhostArgs.push('--no-pair');
-    const result = await startSelfHost(selfhostArgs);
-    if (result !== 0) return result;
+    let result = 1;
+    for (;;) {
+        const recovered = await recoverOccupiedServe({ plan, found, current, tailscalePlanned, args });
+        if (recovered === undefined) return cancelSetup();
+        if (recovered === 1) return 1;
+        plan = recovered;
+        result = await startSelfHost(selfhostArgsFromSetupPlan({ ...plan, found }));
+        if (result === 0) break;
+        if (plan.mode !== 'tailscale' || serveRootFor(found, plan.port).status !== 'occupied') return result;
+    }
+    const { mode, endpoint, port, pairing } = plan;
     const browserPairFailed = pairing === 'both' && (await pairDevice(['--browser'])) !== 0;
     const doctor = await inspectSetup();
     if (doctor !== 0) return doctor;
