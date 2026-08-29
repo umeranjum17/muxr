@@ -7,6 +7,7 @@ import { hostedPairingAuthority, hostedPairingDisplayName } from './hostedE2ee';
 import { getCachedConnectionSettings } from '@/connection';
 import { useCheckScannerPermissions } from './useCheckCameraPermissions';
 import { pairMachine } from './PairMachine';
+import { deliverScannedPairingLink } from './deliverScannedPairing';
 
 const PAIR_LINK = /^https:\/\/[^#]+\/pair#|^muxr:\/\/pair[?#]|^wss?:\/\/[^?\s]+\?[^#\s]*\bpair=|^http:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?\/pair#/i;
 
@@ -80,8 +81,9 @@ function ensureScanSubscription(): void {
         const handler = pendingScan;
         if (handler === null || !PAIR_LINK.test(event.data)) return;
         pendingScan = null;
-        void CameraView.dismissScanner().catch(() => undefined);
-        handler(event.data);
+        void deliverScannedPairingLink(event.data, handler, {
+            dismissScanner: () => CameraView.dismissScanner(),
+        });
     });
 }
 
