@@ -5,8 +5,10 @@ import { ApiUpdateContainerSchema } from '../infrastructure/apiTypes';
 import { normalizeRawMessage } from '../infrastructure/typesRaw';
 import { completionAlerts, completionNotificationState, completionTransition, herdNotificationState, HERD_STATUS_LABELS, lifecycleNotificationCopy, lifecycleNotificationState, sortHerd } from '@/utils/herd';
 import { normalizeRequestFailure, requestRequiresE2ee } from '@muxr/contract';
-import { buildSpaceRows, paneDisplayName, paneTaskTitle } from '@/utils/herdTree';
+import { buildSpaceRows } from '@/utils/herdTree';
 import { selectLiveTerminalCards } from '../../herd/application/liveTerminalOrder';
+import { herdPanes } from '../../herd/domain/herd';
+import { agentLabels } from '../../herd/domain/agentPresentation';
 
 const request = vi.fn();
 const refreshSessions = vi.fn();
@@ -321,7 +323,8 @@ describe('session sync flow', () => {
 
         const working = stage('working');
         const pane = canonicalTree('working')[0].tabs[0].panes[0];
-        expect({ primary: paneTaskTitle(pane), secondary: paneDisplayName(pane), kind: pane.agentKind }).toEqual({
+        const labels = agentLabels(pane);
+        expect({ primary: labels.taskTitle, secondary: labels.agentName, kind: labels.agentKind }).toEqual({
             primary: 'Stabilizing realtime voice', secondary: 'Maria', kind: 'pi',
         });
         expect(working[0]).toMatchObject({ name: 'Maria', taskTitle: 'Stabilizing realtime voice' });
@@ -330,6 +333,42 @@ describe('session sync flow', () => {
         const workingNotification = herdNotificationState(working, 'connected');
         expect(workingNotification).toMatchObject({ mode: 'working', count: 1, eventKey: `working:${encodeURIComponent(session.id)}` });
         expect(completionAlerts(working, { [session.id]: 'done' })).toEqual([]);
+
+        const mixedTree = canonicalTree('working');
+        const canonicalPane = mixedTree[0].tabs[0].panes[0];
+        mixedTree[0].tabs[0].panes.push(
+            { ...canonicalPane, paneId: 'duplicate-pane' },
+            {
+                paneId: 'shell-pane',
+                tabId: 'tab-a',
+                sessionId: 'shell-route',
+                taskTitle: 'verify-cards',
+                agentStatus: 'unknown',
+                focused: false,
+            },
+        );
+        const space = buildSpaceRows(mixedTree, new Set(['workspace-a']), '')[0];
+        const cards = selectLiveTerminalCards([session], herdPanes([session], mixedTree));
+        expect({
+            agentCount: space.agentCount,
+            expandedPaneCount: space.panes.length,
+            terminalCards: cards.map((card) => [
+                card.id,
+                agentLabels({
+                    taskTitle: card.title,
+                    displayName: card.name,
+                    agentKind: card.agentKind,
+                }, card.session).agentName,
+                card.agentKind,
+            ]),
+        }).toEqual({
+            agentCount: 1,
+            expandedPaneCount: 3,
+            terminalCards: [
+                ['session-a', 'Maria', 'pi'],
+                ['shell-route', 'Shell', undefined],
+            ],
+        });
 
         const blocked = stage('blocked');
         expect(HERD_STATUS_LABELS[blocked[0].status]).toBe('Needs you');

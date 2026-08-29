@@ -70,6 +70,10 @@ const PLUGIN_CALL_QUEUE_TIMEOUT_MS = 8_000;
 const MAX_PLUGIN_INVOCATIONS_PER_SCOPE = 64;
 const MAX_PLUGIN_INVOCATIONS_TOTAL = 1_024;
 
+function publicAgentKind(kind: string | undefined): string | undefined {
+    return kind === undefined || kind === 'shell' ? undefined : kind;
+}
+
 const moduleRoot = dirname(fileURLToPath(import.meta.url));
 function bundledPluginsDirectory(start: string): string | undefined {
     let dir = start;
@@ -529,7 +533,7 @@ export async function createHerdrSessionSource(
         const pane = panesById.get(record.paneId);
         const agent = agentsByPane.get(record.paneId);
         const name = normalizeAgentName(agent?.name);
-        const agentKind = record.kind ?? agent?.agent;
+        const agentKind = publicAgentKind(record.kind ?? agent?.agent);
         const terminalTitle = agent?.terminal_title_stripped ?? pane?.terminal_title_stripped;
         const workspace = workspacesById.get(record.workspaceId);
         const worktree = workspace?.worktree;
@@ -1094,7 +1098,7 @@ export async function createHerdrSessionSource(
             workspaceId,
             tabId,
             cwd,
-            kind,
+            kind: publicAgentKind(kind),
             taskTitle,
             ours: true,
         });
@@ -1346,7 +1350,7 @@ export async function createHerdrSessionSource(
                     cwd,
                     workspaceLabel: workspace?.label,
                     tabLabel: tab?.label,
-                    agentKind: record.kind ?? agent?.agent,
+                    agentKind: publicAgentKind(record.kind ?? agent?.agent),
                     agentStatus: lifecycleOf(record.paneId),
                     activeAt: modifiedBySession.get(record.sessionId) ?? record.createdAt,
                 };
@@ -1364,12 +1368,13 @@ export async function createHerdrSessionSource(
                         sessions: tabPanes.map((pane) => {
                             const agent = agentsByPane.get(pane.pane_id);
                             const session = identity.byPane(pane.pane_id);
+                            const agentKind = publicAgentKind(agent?.agent ?? session?.kind);
                             return {
                                 ...(session === undefined ? {} : { sessionId: session.sessionId }),
                                 label: pane.label ?? agent?.name ?? pane.terminal_title_stripped ?? session?.taskTitle,
                                 displayName: session?.agentName,
-                                taskTitle: session?.taskTitle ?? taskTitleFor(undefined, agent?.agent ?? session?.kind),
-                                agentKind: agent?.agent ?? session?.kind,
+                                taskTitle: session?.taskTitle ?? taskTitleFor(undefined, agentKind),
+                                agentKind,
                                 agentStatus: lifecycleOf(pane.pane_id),
                             };
                         }),
@@ -1523,11 +1528,12 @@ export async function createHerdrSessionSource(
                 if (voiceSession) {
                     publicContext = realtimePluginPublicContext(identity.all().map((session) => {
                         const info = infoFor(session);
+                        const agentKind = publicAgentKind(session.kind);
                         return {
                             sessionId: session.sessionId,
                             displayName: session.agentName,
                             ...(info.taskTitle === undefined ? {} : { taskTitle: info.taskTitle }),
-                            ...(session.kind === undefined ? {} : { agentKind: session.kind }),
+                            ...(agentKind === undefined ? {} : { agentKind }),
                         };
                     }));
                 }
@@ -1711,7 +1717,8 @@ export async function createHerdrSessionSource(
                     const treePanes = tabPanes.map((pane) => {
                         const agent = agentsByPane.get(pane.pane_id);
                         const session = identity.byPane(pane.pane_id);
-                        const taskTitle = session?.taskTitle ?? taskTitleFor(undefined, agent?.agent ?? session?.kind);
+                        const agentKind = publicAgentKind(agent?.agent ?? session?.kind);
+                        const taskTitle = session?.taskTitle ?? taskTitleFor(undefined, agentKind);
                         const agentName = normalizeAgentName(agent?.name);
                         return {
                             paneId: pane.pane_id,
@@ -1720,7 +1727,7 @@ export async function createHerdrSessionSource(
                             ...(pane.foreground_cwd === undefined && pane.cwd === undefined
                                 ? {}
                                 : { cwd: pane.foreground_cwd ?? pane.cwd }),
-                            ...(agent?.agent === undefined ? {} : { agentKind: agent.agent }),
+                            ...(agentKind === undefined ? {} : { agentKind }),
                             ...(agentName === 'Agent' ? {} : { displayName: agentName }),
                             ...(taskTitle === undefined ? {} : { taskTitle }),
                             agentStatus: lifecycleOf(pane.pane_id),
@@ -2023,7 +2030,7 @@ export async function createHerdrSessionSource(
                 workspaceId,
                 tabId,
                 cwd,
-                kind: options.kind ?? 'shell',
+                kind: publicAgentKind(options.kind),
                 taskTitle: requestedLabel,
                 ours: true,
             });

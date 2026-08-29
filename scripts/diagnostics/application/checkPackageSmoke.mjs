@@ -54,6 +54,7 @@ case "$*" in
     else echo '{"result":{"plugins":[]}}'; fi ;;
   "plugin link "*) printf '%s\n' "$*" >> "$FAKE_HERDR_LOG" ;;
   "plugin unlink "*) echo plugin-unlink >> "$FAKE_HERDR_LOG" ;;
+  "agent list") echo '{"result":{"agents":[]}}' ;;
   "integration status")
     if [ -f "$FAKE_HERDR_STATE" ]; then echo "pi: current (v8) ($HOME/.pi/agent/extensions/herdr-agent-state.ts)";
     else echo "pi: not installed ($HOME/.pi/agent/extensions/herdr-agent-state.ts)"; fi ;;
@@ -647,10 +648,10 @@ try {
     const existingProviders = {
         result: {
             plugins: [
-                { plugin_id: 'muxr.voice', plugin_root: join(pluginRoot, 'voice'), enabled: false },
-                { plugin_id: 'muxr.voice-codex', plugin_root: join(pluginRoot, 'voice-codex'), enabled: false },
-                { plugin_id: 'muxr.voice-gemini', plugin_root: join(pluginRoot, 'voice-gemini'), enabled: false },
-                { plugin_id: 'muxr.voice-openai', plugin_root: join(pluginRoot, 'voice-openai'), enabled: true },
+                { plugin_id: 'muxr.voice', plugin_root: join(pluginRoot, 'voice'), version: '0.1.0', enabled: false },
+                { plugin_id: 'muxr.voice-codex', plugin_root: join(pluginRoot, 'voice-codex'), version: '0.1.0', enabled: false },
+                { plugin_id: 'muxr.voice-gemini', plugin_root: join(pluginRoot, 'voice-gemini'), version: '0.1.0', enabled: false },
+                { plugin_id: 'muxr.voice-openai', plugin_root: join(pluginRoot, 'voice-openai'), version: '0.1.0', enabled: true },
             ],
         },
     };

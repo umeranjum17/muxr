@@ -120,6 +120,7 @@ async function demo(): Promise<void> {
 
     assert(parseTaskTitle('pi') === undefined && parseTaskTitle('hi') === undefined && parseTaskTitle('pp_hidden') === undefined, 'provider kinds, greetings, and handles are not Task Titles');
     assert(parseTaskTitle('Falcon') === 'Falcon' && parseTaskTitle('Review monitoring') === 'Review monitoring', 'a real work phrase is a Task Title');
+    assert(parseTaskTitle('π ⠼ Restore full-size terminal cards', 'omp') === 'Restore full-size terminal cards', 'OMP live chrome becomes a canonical Task Title');
 
 
     const stableDir = mkdtempSync(join(tmpdir(), 'pph-stable-identity-check-'));

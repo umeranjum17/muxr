@@ -46,8 +46,7 @@ function animalFor(rows, seed) {
     return undefined;
 }
 
-export function ensureAgentName(run, paneId) {
-    const rows = agents(run);
+function ensureAgentNameFrom(rows, run, paneId) {
     const agent = rows.find((candidate) => candidate?.pane_id === paneId);
     if (agent === undefined) return undefined;
     const existing = displayAgentName(agent.name);
@@ -57,7 +56,22 @@ export function ensureAgentName(run, paneId) {
     const fallback = animalFor(rows, paneId);
     if (fallback === undefined) return undefined;
     run(['agent', 'rename', paneId, fallback]);
+    agent.name = fallback;
     return fallback;
+}
+
+export function ensureAgentName(run, paneId) {
+    return ensureAgentNameFrom(agents(run), run, paneId);
+}
+
+export function backfillAgentNames(run) {
+    const rows = agents(run);
+    return rows.flatMap((agent) => {
+        const paneId = typeof agent?.pane_id === 'string' ? agent.pane_id : undefined;
+        if (paneId === undefined || displayAgentName(agent.name) !== undefined) return [];
+        const assigned = ensureAgentNameFrom(rows, run, paneId);
+        return assigned === undefined ? [] : [{ paneId, agentName: assigned }];
+    });
 }
 
 export function renameAgent(run, paneId, value) {

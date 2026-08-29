@@ -149,28 +149,11 @@ Verify a downloaded APK with `sha256sum --ignore-missing -c SHA256SUMS`, then ru
 muxr connects to sessions [Herdr](https://github.com/herdrdev/herdr) already runs. Your CLIs, subscriptions, configuration, skills, and MCP servers stay as they are. muxr never edits agent instruction files; load the compact `muxr --skill`, then request one focused topic with `muxr skill <topic>` only when needed.
 
 <p>
-  <img src="docs/agents/icons/pi.svg" width="28" alt="Pi" title="Pi" />
-  <img src="docs/agents/icons/claude.svg" width="28" alt="Claude Code" title="Claude Code" />
-  <img src="docs/agents/icons/codex.svg" width="28" alt="Codex" title="Codex" />
-  <img src="docs/agents/icons/gemini.svg" width="28" alt="Gemini CLI" title="Gemini CLI" />
-  <img src="docs/agents/icons/cursor.svg" width="28" alt="Cursor" title="Cursor" />
-  <img src="docs/agents/icons/opencode.svg" width="28" alt="OpenCode" title="OpenCode" />
-  <img src="docs/agents/icons/copilot.svg" width="28" alt="GitHub Copilot CLI" title="GitHub Copilot CLI" />
-  <img src="docs/agents/icons/kimi.svg" width="28" alt="Kimi Code" title="Kimi Code" />
-  <img src="docs/agents/icons/grok.svg" width="28" alt="Grok" title="Grok" />
-  <img src="docs/agents/icons/hermes.svg" width="28" alt="Hermes Agent" title="Hermes Agent" />
-  <img src="docs/agents/icons/amp.svg" width="28" alt="Amp" title="Amp" />
-  <img src="docs/agents/icons/droid.svg" width="28" alt="Factory Droid" title="Factory Droid" />
-  <img src="docs/agents/icons/devin.svg" width="28" alt="Devin" title="Devin" />
-  <img src="docs/agents/icons/cline.svg" width="28" alt="Cline" title="Cline" />
-  <img src="docs/agents/icons/kiro.svg" width="28" alt="Kiro" title="Kiro" />
-  <img src="docs/agents/icons/kilocode.svg" width="28" alt="Kilo Code" title="Kilo Code" />
-  <img src="docs/agents/icons/qoder.svg" width="28" alt="Qoder CLI" title="Qoder CLI" />
-  <img src="docs/agents/icons/omp.svg" width="28" alt="OMP (Oh My Pi)" title="OMP (Oh My Pi)" />
-  <img src="docs/agents/icons/antigravity.svg" width="28" alt="Antigravity" title="Antigravity" />
-  <img src="docs/agents/icons/mastracode.svg" width="28" alt="MastraCode" title="MastraCode" />
-  <img src="docs/agents/icons/maki.svg" width="28" alt="Maki" title="Maki" />
+  <img src="docs/agents/icons/pi-badge.svg" width="28" alt="Pi" title="Pi" />
+  <img src="docs/agents/icons/omp-badge.svg" width="28" alt="OMP (Oh My Pi)" title="OMP (Oh My Pi)" />
 </p>
+
+Pi · OMP · Claude Code · Codex · Gemini CLI · Cursor · OpenCode · GitHub Copilot CLI · Kimi Code · Grok · Hermes Agent · Amp · Factory Droid · Devin · Cline · Kiro · Kilo Code · Qoder CLI · Antigravity · MastraCode · Maki
 
 ## Extensions
 

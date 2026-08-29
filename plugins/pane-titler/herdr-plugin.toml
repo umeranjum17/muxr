@@ -1,6 +1,6 @@
 id = "muxr.pane-titler"
 name = "Pane titler"
-version = "0.1.0"
+version = "0.1.1"
 min_herdr_version = "0.8.0"
 platforms = ["linux", "macos"]
 description = "Names each pane after the work happening inside it, using whichever cheap model has capacity"

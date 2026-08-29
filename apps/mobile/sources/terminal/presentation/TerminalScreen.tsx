@@ -29,7 +29,7 @@ import { TerminalView } from './TerminalView';
 import { usePaneGestures } from '../application/usePaneGestures';
 import { StatusDot } from '@/components/StatusDot';
 import { AnimatedPopup } from '@/components/AnimatedOverlay';
-import { agentStatusColor, paneDisplayName } from '@/herd';
+import { agentLabels, agentStatusColor } from '@/herd';
 import type { TerminalChannel } from '../application/OpenTerminal';
 import { useImagePicker } from '@/hooks/useImagePicker';
 import { readFileBytes } from '@/utils/readFileBytes';
@@ -360,11 +360,12 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const hasStatusRow = branch !== null || linesAdded !== null || linesRemoved !== null || permission !== null;
     const currentTab = tabs.find((tab) => tab.tabId === tabId);
     const currentPane = currentTab?.panes.find((pane) => pane.sessionId === props.id);
+    const labels = agentLabels(currentPane, session ?? undefined);
     const contextTitle = sessionContextTitle({
         paneLabel: currentPane?.label,
         tabLabel: currentTab?.label,
-        agentName: session?.metadata?.agentName ?? (currentPane === undefined ? undefined : paneDisplayName(currentPane)),
-        agentKind: currentPane?.agentKind,
+        agentName: labels.agentName,
+        agentKind: labels.agentKind,
     });
     const headerDot = agentStatusColor(currentTab?.agentStatus ?? 'unknown', theme);
     const paneIndex = siblings.indexOf(props.id);

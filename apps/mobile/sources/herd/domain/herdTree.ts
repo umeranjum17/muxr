@@ -2,7 +2,7 @@
  * Pure helpers for the Herd tab's herdr-tree rendering (no react-native imports).
  */
 
-import { normalizeAgentName, type HerdrTreePane, type HerdrTreeWorkspace } from '@muxr/contract';
+import type { HerdrTreePane, HerdrTreeWorkspace } from '@muxr/contract';
 
 /** A path label becomes its folder; anything else is already a name. */
 export function workspaceName(ws: HerdrTreeWorkspace): string {
@@ -13,15 +13,6 @@ export function workspaceName(ws: HerdrTreeWorkspace): string {
 
 export function hasAgent(ws: HerdrTreeWorkspace): boolean {
     return ws.tabs.some((tab) => tab.panes.some((pane) => pane.agentKind !== undefined));
-}
-
-/** Canonical Agent Name from the compatibility wire field. */
-export function paneDisplayName(pane: HerdrTreePane): string {
-    return normalizeAgentName(pane.displayName);
-}
-
-export function paneTaskTitle(pane: HerdrTreePane): string {
-    return pane.taskTitle?.trim() || 'Untitled task';
 }
 
 
@@ -65,7 +56,8 @@ export function buildSpaceRows(
     const rows: HerdSpaceRow[] = [];
     for (const ws of workspaces) {
         const allPanes = ws.tabs.flatMap((tab) => tab.panes);
-        const agents = allPanes.filter((pane) => pane.agentKind !== undefined);
+        const agentRoutes = new Set(allPanes.flatMap((pane) =>
+            pane.agentKind === undefined || pane.sessionId === undefined ? [] : [pane.sessionId]));
         if (query !== '' && !allPanes.some(matches)) continue;
 
         const isExpanded = expanded.has(ws.workspaceId);
@@ -73,7 +65,7 @@ export function buildSpaceRows(
             type: 'workspace',
             workspace: ws,
             expanded: isExpanded,
-            agentCount: agents.length,
+            agentCount: agentRoutes.size,
             panes: isExpanded ? allPanes.filter(matches) : [],
         });
     }

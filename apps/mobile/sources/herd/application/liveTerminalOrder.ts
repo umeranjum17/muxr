@@ -13,6 +13,7 @@ export interface LiveTerminalOrderCard {
     status: AgentLifecycle;
     title: string;
     name: string;
+    agentKind?: string;
     changedAt?: number;
     createdAt?: number;
 }
@@ -31,6 +32,7 @@ export function selectLiveTerminalCards(
             status: pane.status,
             title: pane.taskTitle,
             name: pane.name,
+            ...(pane.agentKind === undefined ? {} : { agentKind: pane.agentKind }),
             changedAt: pane.changedAt,
             createdAt: session?.createdAt,
         };
@@ -74,6 +76,7 @@ export function reconcileLiveTerminalCards(
             && card.status === before.status
             && card.title === before.title
             && card.name === before.name
+            && card.agentKind === before.agentKind
             && card.changedAt === before.changedAt
             && card.createdAt === before.createdAt;
     });

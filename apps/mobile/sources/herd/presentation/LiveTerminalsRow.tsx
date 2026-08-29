@@ -4,6 +4,7 @@ import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useIsFocused } from '@react-navigation/native';
 import { Text } from '@/components/StyledText';
 import { useHerdrTree, useLifecycleEvents, useSessions, useSocketStatus } from '@/catalog/store';
+import { t } from '@/text';
 import { agentStatusColor } from '../application/sessionUtils';
 import { herdPanes } from '../domain/herd';
 import {
@@ -14,16 +15,16 @@ import {
     type LiveTerminalOrderCard,
 } from '../application/liveTerminalOrder';
 import { useActivityAcknowledgements } from '../application/useActivityAcknowledgements';
-import { agentAccessibilityLabel, agentStateLabel } from '../domain/agentPresentation';
+import { agentAccessibilityLabel, agentLabels, agentStateLabel } from '../domain/agentPresentation';
 import { unseenActivityRows, type RecentActivityRow } from '../domain/recentActivity';
 import { StatusDot } from '@/components/StatusDot';
 import { TerminalPreview } from '@/terminal/ui';
 import { useNavigateToSession } from '../application/useNavigateToSession';
 import { RecentActivity } from './RecentActivity';
 
-const CARD_WIDTH = 208;
-const CARD_HEIGHT = 152;
-const CARD_GAP = 10;
+const CARD_WIDTH = 300;
+const CARD_HEIGHT = 200;
+const CARD_GAP = 12;
 const STRIP_GUTTER = 16;
 
 const stylesheet = StyleSheet.create((theme) => ({
@@ -86,7 +87,11 @@ function terminalIsLive(card: LiveTerminalOrderCard): boolean {
 const LiveTerminalCard = React.memo(({ card, width, height, paused, disconnected }: CardProps) => {
     const { theme } = useUnistyles();
     const navigateToSession = useNavigateToSession();
-    const labels = { taskTitle: card.title, agentName: card.name };
+    const labels = agentLabels({
+        taskTitle: card.title,
+        displayName: card.name,
+        agentKind: card.agentKind,
+    }, card.session);
     const dot = agentStatusColor(card.status, theme);
     const live = terminalIsLive(card);
     return (
@@ -107,7 +112,7 @@ const LiveTerminalCard = React.memo(({ card, width, height, paused, disconnected
                 <Text numberOfLines={1} style={stylesheet.title}>{card.title}</Text>
                 <View style={stylesheet.footerMeta}>
                     <StatusDot color={dot.color} isPulsing={dot.pulsing} size={7} />
-                    <Text numberOfLines={1} style={stylesheet.agentName}>{card.name}</Text>
+                    <Text numberOfLines={1} style={stylesheet.agentName}>{labels.agentName}</Text>
                     <Text numberOfLines={1} style={[stylesheet.state, { color: dot.color }]}>
                         {agentStateLabel(card.status, card.changedAt)}
                     </Text>
@@ -140,6 +145,7 @@ export const LiveTerminalsRow = React.memo(({
     const [stripWidth, setStripWidth] = React.useState(0);
     const [scrollX, setScrollX] = React.useState(0);
     const handleLayout = React.useCallback((event: LayoutChangeEvent) => setStripWidth(event.nativeEvent.layout.width), []);
+    const cardWidth = Math.min(CARD_WIDTH, Math.max(240, stripWidth - STRIP_GUTTER - 24));
     const panes = React.useMemo(() => herdPanes(sessions, workspaces), [sessions, workspaces]);
     const candidateCards = React.useMemo(
         () => selectLiveTerminalCards(sessions, panes),
@@ -162,16 +168,16 @@ export const LiveTerminalsRow = React.memo(({
         return () => subscription.remove();
     }, []);
     const attentionIndex = cards.findIndex((card) => liveTerminalBucket(card.status) === 'attention');
-    const firstVisible = Math.max(0, Math.floor(scrollX / (CARD_WIDTH + CARD_GAP)));
+    const firstVisible = Math.max(0, Math.floor(scrollX / (cardWidth + CARD_GAP)));
     const onScroll = React.useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
         setScrollX(event.nativeEvent.contentOffset.x);
     }, []);
     const scrollToCard = React.useCallback((sessionId: string): boolean => {
         const index = cards.findIndex((card) => card.id === sessionId);
         if (index === -1) return false;
-        scrollRef.current?.scrollTo({ x: index * (CARD_WIDTH + CARD_GAP), animated: true });
+        scrollRef.current?.scrollTo({ x: index * (cardWidth + CARD_GAP), animated: true });
         return true;
-    }, [cards]);
+    }, [cardWidth, cards]);
     const selectActivity = React.useCallback((row: RecentActivityRow) => {
         markSeen([row.eventId]);
         if (!scrollToCard(row.sessionId)) navigateToSession(row.sessionId);
@@ -193,7 +199,7 @@ export const LiveTerminalsRow = React.memo(({
                     stripHeight,
                     scrollX,
                     stripWidth,
-                    cardWidth: CARD_WIDTH,
+                    cardWidth,
                     cardGap: CARD_GAP,
                     gutter: STRIP_GUTTER,
                 });
@@ -204,13 +210,13 @@ export const LiveTerminalsRow = React.memo(({
             cancelled = true;
             clearTimeout(timer);
         };
-    }, [activityRows, cards, foreground, markSeen, screenFocused, scrollX, stripWidth, visibilityBottomInset, visibilityTop, windowHeight]);
+    }, [activityRows, cardWidth, cards, foreground, markSeen, screenFocused, scrollX, stripWidth, visibilityBottomInset, visibilityTop, windowHeight]);
 
     const renderedCards = cards.map((card, index) => (
         <LiveTerminalCard
             key={card.id}
             card={card}
-            width={CARD_WIDTH}
+            width={cardWidth}
             height={CARD_HEIGHT}
             paused={Math.abs(index - firstVisible) > 2}
             disconnected={socketStatus !== 'connected'}
@@ -220,7 +226,7 @@ export const LiveTerminalsRow = React.memo(({
     return (
         <View style={stylesheet.strip} onLayout={handleLayout}>
             <View style={stylesheet.header}>
-                <Text style={stylesheet.heading}>AGENTS</Text>
+                <Text style={stylesheet.heading}>{t('liveTerminals.title')}</Text>
                 {attentionIndex === -1 ? null : (
                     <Pressable
                         accessibilityRole="button"
@@ -236,7 +242,7 @@ export const LiveTerminalsRow = React.memo(({
             {cards.length === 0 ? (
                 showZeroState ? (
                     <View style={stylesheet.zeroState}>
-                        <Text style={stylesheet.zeroText}>No agents running · Start one below</Text>
+                        <Text style={stylesheet.zeroText}>No live terminals · Start an agent below</Text>
                     </View>
                 ) : null
             ) : (
@@ -246,7 +252,7 @@ export const LiveTerminalsRow = React.memo(({
                     showsHorizontalScrollIndicator={false}
                     onScroll={onScroll}
                     scrollEventThrottle={100}
-                    snapToInterval={CARD_WIDTH + CARD_GAP}
+                    snapToInterval={cardWidth + CARD_GAP}
                     decelerationRate="fast"
                     contentContainerStyle={{ gap: CARD_GAP, paddingHorizontal: STRIP_GUTTER }}
                 >

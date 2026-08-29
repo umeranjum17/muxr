@@ -1,12 +1,15 @@
 import { lifecycleEventAgentName, type AgentLifecycle, type HerdrTreeWorkspace, type LifecycleEvent } from '@muxr/contract';
 import type { Session } from '@/catalog';
-import { paneDisplayName, paneTaskTitle } from './herdTree';
 import { Agent } from './Agent';
+import { agentLabels, HERD_STATUS_LABELS } from './agentPresentation';
+
+export { HERD_STATUS_LABELS } from './agentPresentation';
 
 export interface HerdPane {
     id: string;
     name: string;
     taskTitle: string;
+    agentKind?: string;
     status: AgentLifecycle;
     changedAt?: number;
     doing: string;
@@ -33,16 +36,6 @@ export const HERD_ORDER: Record<AgentLifecycle, number> = {
     done: 4,
     idle: 5,
     unknown: 6,
-};
-
-export const HERD_STATUS_LABELS: Record<AgentLifecycle, string> = {
-    working: 'Working',
-    starting: 'Starting',
-    blocked: 'Needs you',
-    done: 'Done',
-    failed: 'Failed',
-    idle: 'Idle',
-    unknown: 'Offline',
 };
 
 export function agentFromSession(session: Session): Agent {
@@ -85,23 +78,23 @@ export function lifecycleNotificationCopy(event: LifecycleEvent): string {
     return `${name} needs attention.`;
 }
 
-function nameOf(session: Session | undefined, fallback: string): string {
-    return session?.metadata?.agentName?.trim() || fallback;
-}
-
-/** The same tree panes Spaces renders, enriched only with canonical Agent Names. */
+/** The same tree panes Spaces renders, using the shared agent label vocabulary. */
 export function herdPanes(sessions: Session[], workspaces: readonly HerdrTreeWorkspace[]): HerdPane[] {
     const sessionsById = new Map(sessions.map((session) => [session.id, session]));
+    const routes = new Set<string>();
     return workspaces
         .flatMap((workspace) => workspace.tabs)
         .flatMap((tab) => tab.panes)
         .flatMap((pane) => {
-            if (pane.sessionId === undefined) return [];
+            if (pane.sessionId === undefined || routes.has(pane.sessionId)) return [];
+            routes.add(pane.sessionId);
             const session = sessionsById.get(pane.sessionId);
+            const labels = agentLabels(pane, session);
             return [{
                 id: pane.sessionId,
-                name: pane.displayName?.trim() || nameOf(session, paneDisplayName(pane)),
-                taskTitle: pane.taskTitle?.trim() || session?.metadata?.taskTitle?.trim() || paneTaskTitle(pane),
+                name: labels.agentName,
+                ...(labels.agentKind === undefined ? {} : { agentKind: labels.agentKind }),
+                taskTitle: labels.taskTitle,
                 status: pane.agentStatus,
                 changedAt: session?.metadata?.lifecycleStateSince ?? session?.updatedAt,
                 doing: '',
