@@ -26,13 +26,14 @@ import { daemonIsRunning } from './daemon.mjs';
 import {
     advertisedRelayHealthy,
     cloudflaredAlive,
+    inspectTailscaleServeRoot,
     readSelfhostState,
     runTailscale,
     selfhostControlBase,
     selfhostCredential,
     selfhostRelayHealthy,
+    SERVE_OWNED_ERROR,
     stopOwnedSelfhostRelay,
-    tailscaleRootProxy,
     writeSelfhostState,
 } from './selfhost.mjs';
 
@@ -133,21 +134,18 @@ export async function resolveAdvertise(args, port, tailscale) {
         };
     }
     if (tailscale) {
-        const current = runTailscale(['serve', 'status', '--json'], { encoding: 'utf8' });
-        if (current.status !== 0) throw new Error(`cannot inspect Tailscale Serve ownership: ${current.stderr.trim() || 'status failed'}`);
-        let rootProxy;
-        try { rootProxy = tailscaleRootProxy(JSON.parse(current.stdout || '{}'), tailscale.dnsName); }
-        catch { throw new Error('Tailscale Serve returned invalid status JSON'); }
+        const ownership = inspectTailscaleServeRoot(port, tailscale.dnsName);
+        if (ownership.status === 'unknown') throw new Error(ownership.reason);
+        if (ownership.status === 'occupied') throw new Error(SERVE_OWNED_ERROR);
         const expected = `http://127.0.0.1:${port}`;
-        if (rootProxy !== undefined && rootProxy !== expected) throw new Error('Tailscale Serve root is already owned by another service; use --tailscale-direct or remove it yourself');
-        const serve = rootProxy === expected
+        const serve = ownership.status === 'ours'
             ? { status: 0, stdout: '', stderr: '' }
             : runTailscale(['serve', '--yes', '--bg', '--https=443', expected], { encoding: 'utf8' });
         if (serve.status !== 0) throw new Error(`tailscale serve failed: ${serve.stderr.trim() || serve.stdout.trim() || 'check operator permissions'}; use --tailscale-direct for direct tailnet mode`);
         return {
             url: `wss://${tailscale.dnsName}`,
             note: 'Tailscale Serve (private tailnet HTTPS)',
-            ingress: { kind: 'tailscale-serve', port, dnsName: tailscale.dnsName },
+            ingress: { kind: 'tailscale-serve', port, dnsName: tailscale.dnsName, proxy: expected },
         };
     }
     const status = runTailscale(['status', '--json'], { encoding: 'utf8' });

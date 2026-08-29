@@ -139,6 +139,30 @@ export function tailscaleRootProxy(value, dnsName) {
     return roots.length === 1 ? roots[0] : undefined;
 }
 
+export const SERVE_OWNED_ERROR = 'Tailscale Serve root is already owned by another service; use --tailscale-direct or remove it yourself';
+
+export function inspectTailscaleServeRoot(port, dnsName, expectedProxy) {
+    const expected = expectedProxy ?? `http://127.0.0.1:${port}`;
+    const current = runTailscale(['serve', 'status', '--json'], { encoding: 'utf8' });
+    if (current.error?.code === 'ENOENT') return { status: 'unknown', missing: true, reason: 'tailscale not found' };
+    if (current.status !== 0) {
+        return { status: 'unknown', reason: `cannot inspect Tailscale Serve ownership: ${current.stderr.trim() || 'status failed'}` };
+    }
+    let rootProxy;
+    try { rootProxy = tailscaleRootProxy(JSON.parse(current.stdout || '{}'), dnsName); }
+    catch { return { status: 'unknown', reason: 'Tailscale Serve returned invalid status JSON' }; }
+    if (rootProxy === undefined) return { status: 'free' };
+    if (rootProxy === expected) return { status: 'ours' };
+    return { status: 'occupied' };
+}
+
+export function persistOwnedServeIngress(state, ingress) {
+    if (ingress?.kind !== 'tailscale-serve') return state;
+    const next = { ...state, ingress };
+    writeSelfhostState(next);
+    return next;
+}
+
 export function cloudflaredAlive(ingress) {
     if (ingress?.kind !== 'cloudflare-quick') return false;
     const pid = Number(ingress.pid);
@@ -153,16 +177,12 @@ export function cleanupManagedIngress(state) {
         return;
     }
     if (ingress?.kind !== 'tailscale-serve') return;
-    const current = runTailscale(['serve', 'status', '--json'], { encoding: 'utf8' });
-    if (current.error?.code === 'ENOENT') return;
-    if (current.status !== 0) throw new Error('cannot inspect the previous muxr Tailscale Serve route; leaving it unchanged');
-    let parsed;
-    try { parsed = JSON.parse(current.stdout || '{}'); }
-    catch { throw new Error('Tailscale Serve returned invalid status JSON; leaving it unchanged'); }
-    const expected = `http://127.0.0.1:${ingress.port}`;
-    const rootProxy = tailscaleRootProxy(parsed, ingress.dnsName);
-    if (rootProxy === undefined) return;
-    if (rootProxy !== expected) throw new Error('the previous Tailscale Serve route changed outside muxr; leaving it unchanged');
+    const expected = typeof ingress.proxy === 'string' ? ingress.proxy : `http://127.0.0.1:${ingress.port}`;
+    const ownership = inspectTailscaleServeRoot(ingress.port, ingress.dnsName, expected);
+    if (ownership.missing || ownership.status === 'free' || ownership.status === 'occupied') return;
+    if (ownership.status === 'unknown') {
+        throw new Error('cannot inspect the previous muxr Tailscale Serve route; leaving it unchanged');
+    }
     const disabled = runTailscale(['serve', '--https=443', 'off'], { encoding: 'utf8' });
     if (disabled.status !== 0) throw new Error(`could not remove the previous muxr Tailscale Serve route: ${disabled.stderr.trim() || disabled.stdout.trim()}`);
 }

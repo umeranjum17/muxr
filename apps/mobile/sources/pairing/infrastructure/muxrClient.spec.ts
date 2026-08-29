@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { encodePayload } from '@muxr/contract';
+import type { AppStateLike } from '../application/deliverScannedPairing';
 
+vi.mock('react-native', () => ({
+    AppState: { currentState: 'active', addEventListener: vi.fn() },
+}));
 vi.mock('../application/hostedE2ee', () => ({
     refreshHostedGrant: vi.fn(async () => undefined),
     DeviceV2Crypto: class {},
@@ -51,5 +55,41 @@ describe('mobile plugin invalidation dispatch', () => {
         expect(received).toEqual([{ type: 'plugins.invalidated', reason: 'changed', pluginIds: ['example.ui'] }]);
         expect(client.state).toBe('open');
         client.close();
+    });
+});
+
+describe('scanned pairing delivery', () => {
+    it('holds the pairing confirm until the scanner Activity returns the app to the foreground', async () => {
+        const { deliverScannedPairingLink } = await import('../application/deliverScannedPairing');
+        const handled: string[] = [];
+        let dismissReleased: (() => void) | undefined;
+        const dismissScanner = vi.fn(() => new Promise<void>((resolve) => { dismissReleased = resolve; }));
+        let currentState: AppStateLike['currentState'] = 'inactive';
+        const listeners = new Set<(state: AppStateLike['currentState']) => void>();
+        const appState: AppStateLike = {
+            get currentState() { return currentState; },
+            addEventListener(_type, listener) {
+                listeners.add(listener);
+                return { remove: () => { listeners.delete(listener); } };
+            },
+        };
+        const delivery = deliverScannedPairingLink(
+            'ws://10.0.2.2:28793?pair=TESTCODE12',
+            (url) => { handled.push(url); },
+            { dismissScanner, appState },
+        );
+
+        await Promise.resolve();
+        expect(handled).toEqual([]);
+        dismissReleased?.();
+        await Promise.resolve();
+        expect(handled).toEqual([]);
+        expect(listeners.size).toBe(1);
+
+        currentState = 'active';
+        for (const listener of [...listeners]) listener('active');
+        await delivery;
+        expect(handled).toEqual(['ws://10.0.2.2:28793?pair=TESTCODE12']);
+        expect(listeners.size).toBe(0);
     });
 });
