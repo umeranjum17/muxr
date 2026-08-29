@@ -30,7 +30,7 @@ import { usePaneGestures } from '../application/usePaneGestures';
 import { StatusDot } from '@/components/StatusDot';
 import { AgentGlyph } from '@/components/AgentGlyph';
 import { AnimatedPopup } from '@/components/AnimatedOverlay';
-import { agentIdentityLine, agentLabels, agentStatusColor } from '@/herd';
+import { agentKindLabel, agentLabels, agentNameLine, agentStatusColor } from '@/herd';
 import { terminalPaneCanSend, terminalPaneStatus } from '../domain/promptAvailability';
 import type { TerminalChannel } from '../application/OpenTerminal';
 import { useImagePicker } from '@/hooks/useImagePicker';
@@ -425,11 +425,16 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                     <StatusDot color={headerDot.color} isPulsing={headerDot.pulsing} size={7} />
                     {labels.agentKind !== undefined && <AgentGlyph name={labels.agentKind} size={18} />}
                     <View style={{ flex: 1, minWidth: 0 }}>
-                        <Text numberOfLines={1} style={{ color: theme.colors.text, fontSize: 13, fontWeight: '600' }}>
-                            {contextTitle}
-                        </Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                            <Text numberOfLines={1} style={{ flex: 1, color: theme.colors.text, fontSize: 13, fontWeight: '600' }}>
+                                {contextTitle}
+                            </Text>
+                            {labels.agentKind !== undefined && <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 10, fontWeight: '600', textTransform: 'capitalize' }}>
+                                {agentKindLabel(labels.agentKind)}
+                            </Text>}
+                        </View>
                         <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 11 }}>
-                            {agentIdentityLine(labels)}
+                            {agentNameLine(labels)}
                         </Text>
                     </View>
                     {paneIndex !== -1 && siblings.length > 1 && (

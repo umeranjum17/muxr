@@ -14,7 +14,7 @@ export interface LifecycleStore {
     current(sessionId: string): LifecycleEvent | undefined;
     latestFor(sessionId: string): LifecycleEvent | undefined;
     remove(sessionId: string): void;
-    transition(sessionId: string, agentName: string, state: AgentLifecycle, reason: LifecycleReasonCode, taskTitle?: string): LifecycleEvent | undefined;
+    transition(sessionId: string, agentName: string, state: AgentLifecycle, reason: LifecycleReasonCode, taskTitle?: string, agentKind?: string): LifecycleEvent | undefined;
 }
 
 const MAX_EVENTS = 50;
@@ -27,6 +27,10 @@ function safeTaskTitle(value: string | undefined): string | undefined {
     const privacyProbe = value.normalize('NFKC').trimStart();
     if (/^(?:\/|[A-Za-z]:\\)|\b(?:token|password|secret|credential)\s*=/i.test(privacyProbe)) return undefined;
     return value;
+}
+
+function safeAgentKind(value: string | undefined): string | undefined {
+    return value !== undefined && /^[a-z][a-z0-9_-]{0,31}$/.test(value) ? value : undefined;
 }
 
 function valid(value: unknown): value is LifecycleFile {
@@ -43,11 +47,15 @@ export function createLifecycleStore(dataDir: string, now: () => Date = () => ne
         typeof event.eventId === 'string' && typeof event.sessionId === 'string'
         && typeof event.agentName === 'string' && STATES.has(event.state)
         && (event.taskTitle === undefined || safeTaskTitle(event.taskTitle) === event.taskTitle)
+        && (event.agentKind === undefined || safeAgentKind(event.agentKind) === event.agentKind)
         && Number.isFinite(Date.parse(event.at)) && now().getTime() - Date.parse(event.at) <= MAX_AGE_MS,
     ).slice(-MAX_EVENTS);
     const restoredCurrent = loaded.current === undefined ? events : Object.values(loaded.current);
     const current = new Map(restoredCurrent
-        .filter((event) => typeof event.sessionId === 'string' && typeof event.eventId === 'string' && STATES.has(event.state))
+        .filter((event) => typeof event.sessionId === 'string' && typeof event.eventId === 'string'
+            && typeof event.agentName === 'string' && STATES.has(event.state)
+            && (event.taskTitle === undefined || safeTaskTitle(event.taskTitle) === event.taskTitle)
+            && (event.agentKind === undefined || safeAgentKind(event.agentKind) === event.agentKind))
         .sort((left, right) => left.at.localeCompare(right.at))
         .slice(-MAX_CURRENT)
         .map((event) => [event.sessionId, event]));
@@ -76,16 +84,21 @@ export function createLifecycleStore(dataDir: string, now: () => Date = () => ne
         remove(sessionId) {
             if (current.delete(sessionId)) save();
         },
-        transition(sessionId, agentName, state, reason, taskTitle) {
+        transition(sessionId, agentName, state, reason, taskTitle, agentKind) {
             taskTitle = safeTaskTitle(taskTitle);
+            agentKind = safeAgentKind(agentKind);
             const previous = this.current(sessionId);
             if (previous?.state === state && previous.reasonCode === reason && previous.agentName === agentName) {
-                if (previous.taskTitle !== taskTitle) {
+                if (previous.taskTitle !== taskTitle || previous.agentKind !== agentKind) {
                     const updated = { ...previous };
                     if (taskTitle === undefined) delete updated.taskTitle;
                     else updated.taskTitle = taskTitle;
+                    if (agentKind === undefined) delete updated.agentKind;
+                    else updated.agentKind = agentKind;
                     current.set(sessionId, updated);
+                    events = events.map((event) => event.eventId === updated.eventId ? updated : event);
                     save();
+                    return updated;
                 }
                 return undefined;
             }
@@ -94,6 +107,7 @@ export function createLifecycleStore(dataDir: string, now: () => Date = () => ne
                 sessionId,
                 agentName,
                 ...(taskTitle === undefined ? {} : { taskTitle }),
+                ...(agentKind === undefined ? {} : { agentKind }),
                 state,
                 reasonCode: reason,
                 reason,

@@ -170,7 +170,7 @@ function key(value: string): string {
 }
 
 function taskLabel(agent: RealtimeCodingAgent): string {
-    return agent.taskTitle ?? 'Untitled task';
+    return agent.taskTitle ?? agent.agentName ?? 'Unnamed agent';
 }
 
 function agentNameLabel(agent: RealtimeCodingAgent): string {
@@ -240,7 +240,7 @@ function spokenAgentName(agent: RealtimeCodingAgent): string {
 }
 
 function spokenTaskTitle(agent: RealtimeCodingAgent): string {
-    return safeProviderText(taskLabel(agent), 120) || 'Untitled task';
+    return safeProviderText(taskLabel(agent), 120) || 'Unnamed agent';
 }
 
 export class RealtimeCodingCoordinator {
@@ -419,7 +419,7 @@ export class RealtimeCodingCoordinator {
             if (events.length === 0) return 'No recent agent activity is available.';
             const activity = events.map((event) => {
                 const name = cleanHuman(lifecycleEventAgentName(event), 'Agent', 80);
-                const task = cleanTaskTitle(event.taskTitle) ?? 'Untitled task';
+                const task = cleanTaskTitle(event.taskTitle) ?? name;
                 const state = cleanHuman(event.state, 'unknown', 32).toLocaleLowerCase();
                 return `${name} — ${task}; ${state}`;
             });

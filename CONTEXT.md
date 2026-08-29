@@ -46,7 +46,7 @@ _Avoid_: label, display label, pane title, cached name
 The current Herdr Agent title for the live generation. Every surface renders it directly; muxr never derives it from navigation labels or restores a prior generation's title.
 _Avoid_: cached title, terminal title, name
 
-**Provider Kind**:
+**Agent Kind**:
 The current Herdr Agent provider (`pi`, `claude`, `codex`). Separate from Agent Name and Task Title.
 _Avoid_: agent name, kind label, model
 
@@ -91,7 +91,7 @@ Starting one Agent or a squad on a Machine, in a directory, optionally on a Work
 _Avoid_: new session, create chat
 
 **Dock**:
-Home chrome that picks Machine, project path, Worktree, and Provider Kind for the next Spawn.
+Home chrome that picks Machine, project path, Worktree, and Agent Kind for the next Spawn.
 _Avoid_: composer, launcher, FAB sheet
 
 **Terminal Link**:

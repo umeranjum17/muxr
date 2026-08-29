@@ -27,7 +27,7 @@ A package module exists only when the packages own the behavior. Product operati
 
 | Capability | Request / entry | Domain owner | Adapters |
 |---|---|---|---|
-| Start Agent | `session.start` | Herd (Agent Route, Agent Name, Provider Kind) | `apps/host/src/requests/createRequestDispatcher.ts`, `apps/mobile/sources/catalog/application/ops.ts` |
+| Start Agent | `session.start` | Herd (Agent Route, Agent Name, Agent Kind) | `apps/host/src/requests/createRequestDispatcher.ts`, `apps/mobile/sources/catalog/application/ops.ts` |
 | Prompt Agent | `session.prompt` | Herd | dispatcher, `apps/mobile/sources/catalog/application/sync.ts` |
 | Read Agent Session | `pane.read` | Herd, control-plane | dispatcher, `TerminalPreview.tsx` |
 | Watch Agent Lifecycle | `agent.watch` | Agent Watch, Lifecycle Event | dispatcher, `apps/mobile/sources/watch/application/agentWatch.ts` |

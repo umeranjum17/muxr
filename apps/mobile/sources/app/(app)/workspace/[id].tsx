@@ -15,7 +15,7 @@ import type { HerdrTreeWorkspace } from '@muxr/contract';
 import { sync } from '@/catalog/sync';
 import { TerminalPreview } from '@/terminal/ui';
 import { AgentGlyph } from '@/components/AgentGlyph';
-import { agentIdentityLine, agentLabels, agentStatusColor } from '@/herd';
+import { agentKindLabel, agentLabels, agentNameLine, agentStatusColor } from '@/herd';
 
 export default React.memo(function WorkspaceScreen() {
     const { id } = useLocalSearchParams<{ id: string }>();
@@ -100,7 +100,7 @@ export default React.memo(function WorkspaceScreen() {
                                             </View>
                                         );
                                     }
-                                    const paneIdentity = agentIdentityLine(labels);
+                                    const paneIdentity = agentNameLine(labels);
                                     return (
                                         <Pressable
                                             key={pane.paneId}
@@ -117,10 +117,15 @@ export default React.memo(function WorkspaceScreen() {
                                                 <TerminalPreview sessionId={pane.sessionId} />
                                             </View>
                                             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 8, paddingVertical: 5 }}>
-                                                {labels.agentKind !== undefined && <AgentGlyph name={labels.agentKind} size={14} />}
                                                 <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 11, flex: 1 }}>
                                                     {labels.taskTitle}
                                                 </Text>
+                                                {labels.agentKind !== undefined && <>
+                                                    <AgentGlyph name={labels.agentKind} size={14} />
+                                                    <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 9, fontWeight: '600' }}>
+                                                        {agentKindLabel(labels.agentKind)}
+                                                    </Text>
+                                                </>}
                                             </View>
                                             <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 10, paddingHorizontal: 8, paddingBottom: 5 }}>
                                                 {paneIdentity}

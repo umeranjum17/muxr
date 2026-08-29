@@ -9,9 +9,9 @@ Owns two Herdr fields and nothing else.
 - **Task Title** is Herdr `AgentInfo.title`. When that title is missing,
   generated chrome, or semantically equal to `name`, this plugin derives a
   bounded 2–4 word title from the current generation's output and writes it
-  with `herdr pane report-metadata` (`--source muxr.pane-titler`,
-  `--applies-to-source` = current `agent_session.source`, `--seq` when Herdr
-  exposes `state_change_seq` or `revision`, `--title` only). It never uses
+  with `herdr pane report-metadata` (`--source muxr.pane-titler.v3`,
+  `--agent` = current Agent Kind, `--seq` when Herdr exposes
+  `state_change_seq` or `revision`, `--title` only). It never uses
   `pane rename` or `tab rename`.
 - Provider `agent` and optional `display_agent` stay untouched.
 
@@ -30,21 +30,23 @@ and applies the same backfill to new agents. It reads current `AgentInfo`,
 about 60 lines of current scrollback, and recomputes a Task Title only while
 `title` is missing, generated chrome, or equal to `name`. Immediately before
 `report-metadata` it re-reads the agent session; a replaced generation does not
-receive the previous output's title. Herdr's `--applies-to-source` binds the
-write to the current session `source`; it is not a unique process id.
+receive the previous output's title. Herdr's `--agent` guard keeps the title
+visible after lifecycle authority becomes idle while rejecting a different
+Agent Kind.
 
 ## Which model
 
-The existing bounded model chain runs through Pi, cheapest first:
-
-1. `opencode-go/deepseek-v4-flash`
-2. `opencode-go/glm-5.1`
-3. `opencode-go/mimo-v2.5`
-4. `kimi-coding/k3-256k`
-
-If Pi, credentials, or every model is unavailable, the bounded current-output
-fallback still reports a Task Title without a network model. The plugin always
-writes Herdr metadata; it never renames pane or tab navigation.
+The hook reads the live Herdr `agent` kind and uses that provider's own command
+path. Claude and Codex use the packaged minimal ACP bridge to invoke their
+installed provider CLI with bounded low-cost, no-tool/read-only settings.
+Cursor uses its native ACP server with Auto, OpenCode uses its native ACP server
+with a low-cost model selected through the ACP session configuration, and Pi
+sessions call Pi directly. No provider is bridged through Pi. Each attempt is
+bounded to 12 seconds.
+Unsupported kinds, missing credentials, and unavailable providers fall through
+to the bounded current-output title, so title generation never depends on a
+model. The plugin always writes Herdr metadata; it never renames pane or tab
+navigation.
 
 ## Where it stores data
 
@@ -62,5 +64,5 @@ Task Title fallback.
 
 ## Requires
 
-Herdr 0.8.0 and Node on Linux or macOS. Pi is optional; it improves title
-quality when available.
+Herdr 0.8.0 and Node on Linux or macOS. The detected provider CLI is optional;
+when unavailable, the deterministic fallback still supplies a Task Title.

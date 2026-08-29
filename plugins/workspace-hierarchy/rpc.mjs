@@ -62,7 +62,7 @@ function runTree() {
             const displayAgent = clean(session.displayAgent, 80);
             return [{
                 id: `session-${tabIndex + 1}-${sessionIndex + 1}`,
-                title: clean(session.taskTitle, 120) ?? 'Untitled task',
+                title: clean(session.taskTitle, 120) ?? agentName,
                 subtitle: [agentName, agentKind, displayAgent].filter(Boolean).join(' · '),
                 icon: 'terminal-outline',
                 status: tone(clean(session.agentStatus, 20)),

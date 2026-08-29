@@ -1,6 +1,6 @@
 /**
  * Herdr split-tree projection. Pane ids stay on the live tree; snapshots carry
- * Provider Kind and cwd so a layout can be reapplied after panes move.
+ * Agent Kind and cwd so a layout can be reapplied after panes move.
  */
 
 import type { LayoutSnapshot } from '@muxr/contract';

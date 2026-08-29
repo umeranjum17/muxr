@@ -4,18 +4,18 @@ import { createConnection } from 'node:net';
 const agentProperty = {
     agent: {
         type: 'string',
-        description: 'Agent Name, Task Title, or provider kind. Omit only for the active agent.',
+        description: 'Agent Name, Task Title, or Agent Kind. Omit only for the active agent.',
     },
 };
 
 export const codingTools = [
     {
         type: 'function', name: 'list_agents',
-        description: 'List coding agents with Agent Name, Task Title, status, and provider kind, newest first.',
+        description: 'List coding agents with Agent Name, Task Title, status, and Agent Kind, newest first.',
         parameters: {
             type: 'object',
             properties: {
-                kind: { type: 'string', description: 'Optional provider kind, such as pi, codex, or claude.' },
+                kind: { type: 'string', description: 'Optional Agent Kind, such as pi, codex, or claude.' },
                 limit: { type: 'number', minimum: 1, maximum: 20, description: 'Maximum agents to return.' },
             },
             additionalProperties: false,
@@ -122,8 +122,8 @@ export const voiceCoordinationInstructions = `- Speak about the team naturally, 
 - Before a long-running tool call, say one short spoken preamble, then call it immediately.
 - Ask for confirmation only before destructive actions. No destructive actions are available here, so do not ask for confirmation.
 - For prompt_agent, always provide a nonempty explicit Agent Name or Task Title. Never omit it or substitute the active agent.
-- A provider kind such as Pi may identify several agents. Use list_agents with kind and limit to summarize their Task Titles and statuses, then ask which Agent Name or Task Title the user means before mutating anything.
-- Use Agent Names, Task Titles, or provider kinds returned by the tools. If a prompt target is missing, unknown, or ambiguous, repeat the tool's short clarification and take no other action.
+- An Agent Kind such as Pi may identify several agents. Use list_agents with kind and limit to summarize their Task Titles and statuses, then ask which Agent Name or Task Title the user means before mutating anything.
+- Use Agent Names, Task Titles, or Agent Kinds returned by the tools. If a prompt target is missing, unknown, or ambiguous, repeat the tool's short clarification and take no other action.
 - Use recent_agent_activity when the user asks what recently finished, failed, or needed attention. Do not invent activity beyond the tool result.
 - Agent Names are backend-owned. Never ask for, choose, or invent one when starting an agent.
 - For interrupt, cancel, or escape requests, use send_agent_keybinding with the allowlisted Escape key. Never turn spoken text into arbitrary keys.

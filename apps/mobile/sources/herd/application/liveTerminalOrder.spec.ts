@@ -110,6 +110,7 @@ describe('agent lifecycle presentation', () => {
             sessionId,
             agentName: 'Otter',
             taskTitle: 'Fix realtime voice',
+            agentKind: 'codex',
             state,
             reasonCode: 'state-reconciled',
             reason: 'state-reconciled',
@@ -124,9 +125,9 @@ describe('agent lifecycle presentation', () => {
             event('failed', 'four', 'failed', '2026-01-01T23:56:00.000Z'),
         ], new Set(['seen']), now);
 
-        expect(rows.map((row) => [row.eventId, row.sessionId, row.agentName, row.status])).toEqual([
-            ['latest', 'one', 'Otter', 'done'],
-            ['failed', 'four', 'Otter', 'failed'],
+        expect(rows.map((row) => [row.eventId, row.sessionId, row.agentName, row.agentKind, row.status])).toEqual([
+            ['latest', 'one', 'Otter', 'codex', 'done'],
+            ['failed', 'four', 'Otter', 'codex', 'failed'],
         ]);
 
         expect(unseenActivityRows([

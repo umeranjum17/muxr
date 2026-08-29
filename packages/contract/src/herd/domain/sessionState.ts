@@ -206,9 +206,9 @@ export function parsePublicAgentRoute(value: unknown): Outcome<string> {
 const PROVIDER_KIND = /^[a-z][a-z0-9_-]{0,31}$/;
 
 export function parseProviderKind(value: unknown): Outcome<string> {
-    if (typeof value !== 'string') return fail('invalid provider kind');
+    if (typeof value !== 'string') return fail('invalid Agent Kind');
     const kind = value.trim().toLowerCase();
-    if (!PROVIDER_KIND.test(kind)) return fail('invalid provider kind');
+    if (!PROVIDER_KIND.test(kind)) return fail('invalid Agent Kind');
     return ok(kind);
 }
 
@@ -292,6 +292,8 @@ export interface LifecycleEvent {
     agentName: string;
     /** Bounded privacy-safe work context captured with the transition. */
     taskTitle?: string;
+    /** Agent Kind captured with the transition for presentation. */
+    agentKind?: string;
     state: AgentLifecycle;
     reasonCode: LifecycleReasonCode;
     /** @deprecated Read reasonCode. Kept for older clients during rollout. */

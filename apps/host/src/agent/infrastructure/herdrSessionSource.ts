@@ -729,6 +729,7 @@ export async function createHerdrSessionSource(
             state,
             reason,
             taskTitleForSession(session),
+            session.agent.agent ?? undefined,
         );
         if (event !== undefined) publish(session.sessionId, { type: 'lifecycle.update', event });
     }
@@ -745,6 +746,7 @@ export async function createHerdrSessionSource(
                 ? {}
                 : { previousReason: options.lifecycle.latestFor(session.sessionId)!.reasonCode }),
             ...(taskTitle === undefined ? {} : { taskTitle }),
+            ...(session.agent.agent === undefined || session.agent.agent === null ? {} : { agentKind: session.agent.agent }),
         });
         if (result.data !== undefined) publish(session.sessionId, { type: 'lifecycle.update', event: result.data });
     }

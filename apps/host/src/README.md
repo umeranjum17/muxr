@@ -21,7 +21,7 @@ Use cases: [USE_CASES.md](./USE_CASES.md).
 
 ## Aggregates and invariants
 
-**Agent** (`agent/domain`): Agent Route authorizes. Agent Name and Task Title never authorize. Layout snapshots carry Provider Kind, not pane identity as a routing key. Lifecycle rollup is rank, not a display label.
+**Agent** (`agent/domain`): Agent Route authorizes. Agent Name and Task Title never authorize. Layout snapshots carry Agent Kind, not pane identity as a routing key. Lifecycle rollup is rank, not a display label.
 
 **Device Grant** (`machine/domain`): omitted kind means native. Peer grants observe. Browser without an explicit authority observes. A peer fleet is capped at 16. Observer browser/native grants cannot mutate; peers take the peer admission path instead. Tables overlay runtime keys; display metadata is not in the key.
 

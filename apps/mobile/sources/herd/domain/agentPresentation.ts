@@ -31,6 +31,20 @@ export const HERD_STATUS_LABELS: Record<AgentLifecycle, string> = {
     unknown: 'Offline',
 };
 
+const AGENT_KIND_LABELS: Readonly<Record<string, string>> = {
+    claude: 'Claude',
+    codex: 'Codex',
+    cursor: 'Cursor',
+    opencode: 'OpenCode',
+    pi: 'Pi',
+};
+
+export function agentKindLabel(kind?: string): string | undefined {
+    const value = kind?.trim();
+    if (value === undefined || value === '') return undefined;
+    return AGENT_KIND_LABELS[value.toLocaleLowerCase('und')] ?? value;
+}
+
 
 
 /** One-to-one live Herdr DTO presentation. Only absent-value placeholders are local. */
@@ -39,18 +53,39 @@ export function agentLabels(pane?: AgentInfo): AgentLabels {
         || pane?.taskTitle !== undefined
         || pane?.agentKind !== undefined
         || pane?.displayAgent !== undefined;
+    const agentName = pane?.agentName?.trim() || (hasAgent ? 'Unnamed agent' : 'Shell');
     return {
-        taskTitle: pane?.taskTitle ?? 'Untitled task',
-        agentName: pane?.agentName ?? (hasAgent ? 'Unnamed agent' : 'Shell'),
+        taskTitle: pane?.taskTitle?.trim() || (hasAgent ? agentName : 'Untitled task'),
+        agentName,
         ...(pane?.agentKind === undefined ? {} : { agentKind: pane.agentKind }),
         ...(pane?.displayAgent === undefined ? {} : { displayAgent: pane.displayAgent }),
     };
 }
 
+function uniqueLabels(values: readonly (string | undefined)[]): string[] {
+    const seen = new Set<string>();
+    return values.flatMap((value) => {
+        const label = value?.trim();
+        if (label === undefined || label === '') return [];
+        const key = label.normalize('NFKC').toLocaleLowerCase('und');
+        if (seen.has(key)) return [];
+        seen.add(key);
+        return [label];
+    });
+}
+
+export function agentNameLine(labels: AgentLabels): string {
+    const name = labels.agentName.localeCompare(labels.taskTitle, undefined, { sensitivity: 'accent' }) === 0
+        ? undefined
+        : labels.agentName;
+    return uniqueLabels([name, labels.displayAgent]).join(' · ');
+}
+
 export function agentIdentityLine(labels: AgentLabels): string {
-    return [labels.agentName, labels.agentKind, labels.displayAgent]
-        .filter((value): value is string => value !== undefined)
-        .join(' · ');
+    const name = labels.agentName.localeCompare(labels.taskTitle, undefined, { sensitivity: 'accent' }) === 0
+        ? undefined
+        : labels.agentName;
+    return uniqueLabels([name, agentKindLabel(labels.agentKind), labels.displayAgent]).join(' · ');
 }
 
 export function agentStateLabel(status: AgentLifecycle, changedAt?: number, now = Date.now()): string {
@@ -61,7 +96,7 @@ export function agentStateLabel(status: AgentLifecycle, changedAt?: number, now 
 
 export function agentAccessibilityLabel(labels: AgentLabels, status: AgentLifecycle, changedAt?: number): string {
     const state = changedAt === undefined ? HERD_STATUS_LABELS[status] : agentStateLabel(status, changedAt);
-    return [labels.taskTitle, state, labels.agentName, labels.agentKind, labels.displayAgent]
+    return [labels.taskTitle, state, agentIdentityLine(labels)]
         .filter((value): value is string => value !== undefined && value !== '')
         .join('. ');
 }

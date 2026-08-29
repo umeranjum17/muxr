@@ -565,7 +565,7 @@ async function demo(): Promise<void> {
     const unknownKey = await ask(socketPath, keyAccess.capability, { method: 'key', agent: 'John', key: 'ctrl-x', operationId: 'key-unknown' });
     assert(unknownKey.data?.includes('not available') === true && sentKeys.length === 0, 'unknown key clarifies without mutation');
     const providerKindKey = await ask(socketPath, keyAccess.capability, { method: 'key', agent: 'pi', key: 'escape', operationId: 'key-provider-kind' });
-    assert(providerKindKey.data?.includes('could not find') === true && sentKeys.length === 0, 'provider kind never substitutes for Agent Name or Task Title');
+    assert(providerKindKey.data?.includes('could not find') === true && sentKeys.length === 0, 'Agent Kind never substitutes for Agent Name or Task Title');
     const uniqueKey = await ask(socketPath, keyAccess.capability, { method: 'key', agent: 'Harden audio', key: 'Escape', operationId: 'key-unique' });
     assert(uniqueKey.data === 'Confirmed: Escape was sent to John.'
         && JSON.stringify(sentKeys) === JSON.stringify([{ sessionId: 'pp_john', keys: ['escape'] }]), 'unique Task Title sends an allowlisted key through its Agent Route');

@@ -79,6 +79,14 @@ async function runSelfCheck(): Promise<void> {
         assert(stores.attention.catalog().entries.length === 1, 'clearing a session drops its row');
 
         stores.lifecycle.transition('stable', 'Maria', 'working', 'agent-working', 'Realtime Stability');
+        const titleless = stores.lifecycle.transition('metadata', 'Otter', 'done', 'agent-done', undefined, 'codex');
+        const titled = stores.lifecycle.transition('metadata', 'Otter', 'done', 'agent-done', 'Review agent close', 'codex');
+        assert(titleless?.eventId === titled?.eventId, 'late lifecycle presentation enriches the existing transition');
+        assert(
+            stores.lifecycle.catalog().events.find((event) => event.eventId === titled?.eventId)?.taskTitle === 'Review agent close'
+            && titled?.agentKind === 'codex',
+            'lifecycle catalog keeps the current Task Title and Agent Kind',
+        );
         const privateTitle = stores.lifecycle.transition(
             'private-title',
             'Maria',

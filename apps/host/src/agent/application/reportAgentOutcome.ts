@@ -8,6 +8,7 @@ export type ReportAgentOutcomeCommand = {
     liveAgentStatus?: string;
     previousReason?: LifecycleReasonCode;
     taskTitle?: string;
+    agentKind?: string;
 };
 
 export interface AgentOutcomeJournal {
@@ -17,6 +18,7 @@ export interface AgentOutcomeJournal {
         state: AgentLifecycle,
         reason: LifecycleReasonCode,
         taskTitle?: string,
+        agentKind?: string,
     ): LifecycleEvent | undefined;
 }
 
@@ -34,6 +36,7 @@ export function reportAgentOutcome(
         command.state,
         reason,
         command.taskTitle,
+        command.agentKind,
     );
     return { ok: true, data: event };
 }

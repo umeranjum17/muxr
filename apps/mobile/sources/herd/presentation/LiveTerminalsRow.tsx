@@ -15,7 +15,7 @@ import {
     type LiveTerminalOrderCard,
 } from '../application/liveTerminalOrder';
 import { useActivityAcknowledgements } from '../application/useActivityAcknowledgements';
-import { agentAccessibilityLabel, agentIdentityLine, agentLabels, agentStateLabel } from '../domain/agentPresentation';
+import { agentAccessibilityLabel, agentKindLabel, agentLabels, agentNameLine, agentStateLabel } from '../domain/agentPresentation';
 import { unseenActivityRows, type RecentActivityRow } from '../domain/recentActivity';
 import { StatusDot } from '@/components/StatusDot';
 import { AgentGlyph } from '@/components/AgentGlyph';
@@ -67,7 +67,9 @@ const stylesheet = StyleSheet.create((theme) => ({
     cardBody: { flex: 1, backgroundColor: '#0c0c0b' },
     endedBody: { opacity: 0.48 },
     cardFooter: { height: 48, paddingHorizontal: 9, paddingVertical: 6, gap: 2 },
-    title: { color: theme.colors.text, fontSize: 12, lineHeight: 15, fontWeight: '600' },
+    titleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+    title: { flex: 1, color: theme.colors.text, fontSize: 12, lineHeight: 15, fontWeight: '600' },
+    kind: { color: theme.colors.textSecondary, fontSize: 9, lineHeight: 12, fontWeight: '600' },
     footerMeta: { flexDirection: 'row', alignItems: 'center', gap: 5 },
     agentName: { flex: 1, color: theme.colors.textSecondary, fontSize: 10, lineHeight: 13 },
     state: { color: theme.colors.textSecondary, fontSize: 10, lineHeight: 13, fontWeight: '600' },
@@ -106,11 +108,16 @@ const LiveTerminalCard = React.memo(({ card, width, height, paused, disconnected
                 <TerminalPreview sessionId={card.id} paused={paused} live={live} />
             </View>
             <View style={stylesheet.cardFooter}>
-                <Text numberOfLines={1} style={stylesheet.title}>{labels.taskTitle}</Text>
+                <View style={stylesheet.titleRow}>
+                    <Text numberOfLines={1} style={stylesheet.title}>{labels.taskTitle}</Text>
+                    {labels.agentKind !== undefined && <>
+                        <AgentGlyph name={labels.agentKind} size={14} />
+                        <Text numberOfLines={1} style={stylesheet.kind}>{agentKindLabel(labels.agentKind)}</Text>
+                    </>}
+                </View>
                 <View style={stylesheet.footerMeta}>
                     <StatusDot color={dot.color} isPulsing={dot.pulsing} size={7} />
-                    {labels.agentKind !== undefined && <AgentGlyph name={labels.agentKind} size={14} />}
-                    <Text numberOfLines={1} style={stylesheet.agentName}>{agentIdentityLine(labels)}</Text>
+                    <Text numberOfLines={1} style={stylesheet.agentName}>{agentNameLine(labels)}</Text>
                     <Text numberOfLines={1} style={[stylesheet.state, { color: dot.color }]}>
                         {agentStateLabel(card.agentStatus, card.changedAt)}
                     </Text>

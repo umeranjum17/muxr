@@ -51,7 +51,7 @@ Herdr keeps `rpc.mjs` / `stream.mjs` at the plugin root. Those files are adapter
 
 | Capability | Use case | Domain owner | Adapters |
 |---|---|---|---|
-| Start an Agent | `startAgent` | Agent, Task Title, Provider Kind | voice coordinator tools |
+| Start an Agent | `startAgent` | Agent, Task Title, Agent Kind | voice coordinator tools |
 | Prompt an Agent | `promptAgent` | Agent Route | voice + `muxr peers prompt` |
 | List Agents | `listAgents` | Agent | voice `list_agents` |
 | Read Agent output | `readAgentSession` | Agent | voice `read_agent_output` |

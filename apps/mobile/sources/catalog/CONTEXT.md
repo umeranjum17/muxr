@@ -17,10 +17,10 @@ The current Herdr `agent.name`, rendered directly without a mobile alias or cach
 _Avoid_: label, pane title, cached name
 
 **Task Title**:
-The current Herdr Agent title, pane label, or tab label in that order.
-_Avoid_: cached title, terminal title
+The current Herdr Agent title. When absent, presentation may show Agent Name; navigation labels are never task identity.
+_Avoid_: cached title, terminal title, pane label, tab label
 
-**Provider Kind**:
+**Agent Kind**:
 The current Herdr Agent provider.
 _Avoid_: agent name, model
 

@@ -174,7 +174,7 @@ export function herdDigest(panes: HerdPane[]): string {
         '',
         ...panes.map((pane) => {
             const doing = pane.doing === '' ? '' : ` (${pane.doing.slice(0, 60)})`;
-            return `${pane.agentName ?? 'Unnamed agent'} — ${HERD_STATUS_LABELS[pane.agentStatus].toLowerCase()}: ${pane.taskTitle ?? 'Untitled task'}${doing}`;
+            return `${pane.agentName ?? 'Unnamed agent'} — ${HERD_STATUS_LABELS[pane.agentStatus].toLowerCase()}: ${pane.taskTitle ?? pane.agentName ?? 'Unnamed agent'}${doing}`;
         }),
     ].join('\n');
 }
