@@ -603,6 +603,14 @@ async function main(): Promise<void> {
             ...(token === undefined ? {} : { token }),
             ...(hostedE2ee === undefined ? {} : { hostedE2ee }),
             ...(peerBroker === undefined ? {} : { peerBroker }),
+            ...(diagnostics === undefined ? {} : {
+                onRealtimePromptDiagnostic: (event) => diagnostics.realtimePrompt(
+                    event.provider,
+                    event.requestedAgentName,
+                    event.resolvedAgentName,
+                    event.outcome,
+                ),
+            }),
         });
     }
 

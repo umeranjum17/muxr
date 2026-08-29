@@ -22,6 +22,9 @@ import {
 } from '../voice/coordinatorPolicy.mjs';
 
 const MODEL = 'gemini-3.1-flash-live-preview';
+const ENDPOINT = process.env.NODE_ENV === 'test' && process.env.MUXR_TEST_GEMINI_REALTIME_URL
+    ? process.env.MUXR_TEST_GEMINI_REALTIME_URL
+    : 'wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent';
 const INPUT_RATE = 16_000;
 const OUTPUT_RATE = 24_000;
 const root = process.env.MUXR_HOME?.trim() || join(homedir(), '.muxr');
@@ -351,8 +354,7 @@ function connectProvider(key) {
     if (stopped) return;
     providerReady = false;
     state('connecting', providerReconnects === 0 ? undefined : 'Voice provider reconnecting');
-    const endpoint = 'wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent';
-    const current = new WebSocket(`${endpoint}?key=${encodeURIComponent(key)}`, { maxPayload: 4 * 1024 * 1024 });
+    const current = new WebSocket(`${ENDPOINT}?key=${encodeURIComponent(key)}`, { maxPayload: 4 * 1024 * 1024 });
     ws = current;
     const onDown = (reason) => {
         if (stopped || ws !== current) return;

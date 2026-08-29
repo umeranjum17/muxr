@@ -38,12 +38,13 @@ const MAX_STREAM_BUFFER_BYTES = 512 * 1024;
 
 function safeStreamReason(value: unknown): string {
     return String(value ?? 'Voice stream unavailable.')
+        .normalize('NFKC')
         .replace(/\b(Bearer)\s+[A-Za-z0-9._~+/-]{12,}/gi, '$1 [redacted]')
         .replace(/\b(?:[A-Za-z][A-Za-z0-9]*_)+(?:api_key|token|secret|password)\s*[:=]\s*[^\s,;]+/gi, '[credential redacted]')
         .replace(/\b(api[_-]?key|token|secret|password)\s*[:=]\s*[^\s,;]+/gi, '$1=[redacted]')
         .replace(/\bsk-[A-Za-z0-9_-]{8,}\b/gi, '[credential redacted]')
         .replace(/\beyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/gi, '[credential redacted]')
-        .replace(/\b(?:pph?_[a-z0-9]+|(?:w\d+[A-Za-z]?):(?:p|t)\d+|(?:machine|device|session|pane|rel|peer)[-_][a-z0-9_-]{6,})\b/gi, '[internal reference]')
+        .replace(/\b(?:pph?_[a-z0-9]+|w[0-9A-Za-z]+:(?:p|t)[0-9A-Za-z]+|(?:machine|device|session|pane|rel|peer)[-_][a-z0-9_-]{6,})\b/gi, '[internal reference]')
         .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/gi, '[internal reference]')
         .replace(/file:\/\/\S+/g, '[path hidden]')
         .replace(/(?<![A-Za-z0-9_/])\/(?!\/)(?:[^\s\/<>'"]+\/)+[^\s\/<>'"]+/g, '[path hidden]')
@@ -155,6 +156,7 @@ export class PluginStreamManager {
         let codingAccess: RealtimeCoordinatorAccess | undefined;
         if (params.target.codingCoordinator === true) {
             codingAccess = this.options.codingCoordinator?.issueCapability({
+                provider: params.target.pluginId,
                 ...(params.sessionId === undefined ? {} : { sessionId: params.sessionId }),
                 ...(params.cwd === undefined ? {} : { cwd: params.cwd }),
             });

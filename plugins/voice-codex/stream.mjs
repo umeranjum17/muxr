@@ -17,7 +17,6 @@ import { fileURLToPath } from 'node:url';
 import {
     cleanProviderProse,
     isExplicitHangup,
-    runCodingTool,
 } from '../voice/coordinatorPolicy.mjs';
 
 const CODEX_CLIENT_VERSION = '0.144.1';
@@ -212,9 +211,7 @@ async function delegate(event) {
         : '';
     if (!id || !request.trim()) return;
     state('thinking');
-    let result;
-    try { result = await runCodingTool('prompt_agent', { text: request }, id); }
-    catch { result = 'Voice coordination could not confirm that request. Please continue in the agent.'; }
+    const result = 'Codex Voice could not queue that instruction. An explicit Agent Name or Task Title is required.';
     if (!stopped) appendContext(result, id);
 }
 

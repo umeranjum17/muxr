@@ -1,6 +1,6 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
@@ -8,10 +8,12 @@ import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import { describe, expect, it } from 'vitest';
 import { RealtimeCodingCoordinator } from '../../apps/host/src/agent/infrastructure/realtimeCoordinator.ts';
+import { HostDiagnosticsJournal } from '../../apps/host/src/diagnostics/infrastructure/journal.ts';
 import { parseRealtimeHostFrame } from '../../packages/contract/src/realtime/domain/realtimeStream.ts';
 import { chunkAudio as chunkGeminiAudio, providerTools as geminiTools } from '../voice-gemini/stream.mjs';
 import { providerTools as openaiTools } from '../voice-openai/stream.mjs';
 import { providerError, providerRefusal, providerTools as xaiTools } from './stream.mjs';
+import { cleanProviderProse } from './coordinatorPolicy.mjs';
 import { approvedSignalingUrl } from '../voice-codex/stream.mjs';
 
 const waitFor = async (predicate, message, timeoutMs = 4_000) => {
@@ -70,6 +72,11 @@ describe('providerRefusal', () => {
         expect(message).toContain('[path hidden]');
         expect(message).not.toContain('provider-private');
         expect(message).not.toContain('/home/user');
+        const folded = providerRefusal(502, 'ＸＡＩ＿ＡＰＩ＿ＫＥＹ＝fullwidth-private');
+        expect(folded).toContain('[credential redacted]');
+        expect(folded).not.toContain('fullwidth-private');
+        expect(cleanProviderProse('wAG:p9S w1AK:p1 w1BS:t6', '', 200))
+            .toBe('[internal reference] [internal reference] [internal reference]');
     });
 
     it('does not retry a provider billing event after the socket opens', () => {
@@ -79,6 +86,174 @@ describe('providerRefusal', () => {
         });
         expect(providerError('API key not valid. Please pass a valid API key.').terminal).toBe(true);
     });
+
+    it('queues Gemini prompts only for one explicit semantic target', async () => {
+        const muxrHome = await mkdtemp(join(tmpdir(), 'muxr-gemini-prompt-'));
+        await writeFile(join(muxrHome, 'gemini.key'), 'test-only-key\n', { mode: 0o600 });
+        const privateProject = join(muxrHome, 'private-project');
+        const prompts = [];
+        const agents = [
+            { sessionId: 'pp_alpha', cwd: privateProject, displayName: 'Alpha', taskTitle: 'Active voice', kind: 'pi', status: 'idle' },
+            { sessionId: 'pp_beta', cwd: privateProject, displayName: 'Beta', taskTitle: 'Receive handover', kind: 'codex', status: 'idle' },
+            { sessionId: 'pp_gamma', cwd: privateProject, displayName: 'Gamma', taskTitle: 'Fail receipt', kind: 'pi', status: 'idle' },
+        ];
+        const diagnostics = new HostDiagnosticsJournal(join(muxrHome, 'host'), 'test-version');
+        let listFails = false;
+        const coordinator = new RealtimeCodingCoordinator(join(muxrHome, 'coding.sock'), {
+            list: async () => {
+                if (listFails) throw new Error('token=list-private w1AK:p1');
+                return agents;
+            },
+            activity: async () => [],
+            start: async () => ({ accepted: false }),
+            prompt: async (sessionId, text) => {
+                if (sessionId === 'pp_gamma') throw new Error('Herdr receipt was malformed.');
+                prompts.push({ sessionId, text });
+            },
+            sendKeys: async () => undefined,
+            read: async () => ({ text: '', truncated: false }),
+            status: async () => 'idle',
+            watch: async () => ({ status: 'idle', detail: 'idle' }),
+            focus: async () => undefined,
+        }, (event) => diagnostics.realtimePrompt(
+            event.provider,
+            event.requestedAgentName,
+            event.resolvedAgentName,
+            event.outcome,
+        ));
+        await coordinator.start();
+        const access = coordinator.issueCapability({
+            sessionId: 'pp_alpha',
+            cwd: privateProject,
+            provider: 'muxr.voice-gemini',
+        });
+        const server = new WebSocketServer({ host: '127.0.0.1', port: 0 });
+        await new Promise((resolve, reject) => {
+            server.once('listening', resolve);
+            server.once('error', reject);
+        });
+        const address = server.address();
+        if (address === null || typeof address === 'string') throw new Error('Gemini provider fixture did not bind a TCP port');
+        const connections = [];
+        server.on('connection', (socket) => {
+            const connection = { socket, frames: [] };
+            connections.push(connection);
+            socket.on('message', (data) => connection.frames.push(JSON.parse(String(data))));
+        });
+        const child = spawn(process.execPath, [fileURLToPath(new URL('../voice-gemini/stream.mjs', import.meta.url))], {
+            cwd: fileURLToPath(new URL('../..', import.meta.url)),
+            env: {
+                ...process.env,
+                NODE_ENV: 'test',
+                MUXR_HOME: muxrHome,
+                MUXR_TEST_GEMINI_REALTIME_URL: `ws://127.0.0.1:${address.port}`,
+                MUXR_VOICE_COORDINATOR_SOCKET: access.socketPath,
+                MUXR_VOICE_COORDINATOR_CAPABILITY: access.capability,
+            },
+            stdio: ['pipe', 'pipe', 'pipe'],
+        });
+        const stderr = [];
+        createInterface({ input: child.stderr }).on('line', (line) => stderr.push(line));
+
+        try {
+            child.stdin.write(`${JSON.stringify({ type: 'realtime.open', sessionId: 'private', cwd: privateProject })}\n`);
+            const connection = await waitFor(() => connections[0], 'Gemini provider connection was not opened');
+            const setup = await waitFor(() => connection.frames.find((frame) => frame.setup), 'Gemini provider session was not configured');
+            const promptTool = setup.setup.tools[0].functionDeclarations.find((tool) => tool.name === 'prompt_agent');
+            expect(promptTool.parameters.required).toEqual(['agent', 'text']);
+            connection.socket.send(JSON.stringify({ setupComplete: {} }));
+
+            const call = async (id, args) => {
+                connection.socket.send(JSON.stringify({
+                    toolCall: { functionCalls: [{ id, name: 'prompt_agent', args }] },
+                }));
+                const frame = await waitFor(
+                    () => connection.frames.find((candidate) => candidate.toolResponse?.functionResponses?.some((entry) => entry.id === id)),
+                    `Gemini prompt tool ${id} did not return`,
+                );
+                return frame.toolResponse.functionResponses.find((entry) => entry.id === id).response.result;
+            };
+
+            const queued = await call('prompt-beta', { agent: 'Beta', text: 'Gemini marker body' });
+            const missing = await call('prompt-missing', { text: 'must not reach Alpha' });
+            const ambiguous = await call('prompt-ambiguous', { agent: 'pi', text: 'must not reach either Pi agent' });
+            const privateRejected = await call('prompt-private', {
+                agent: 'ｔｏｋｅｎ＝diagnostic-private ＡＰＩ＿ＫＥＹ＝key-private /home/user/private pp_secret wAG:p9S w1AK:p1 w1BS:t6',
+                text: 'private prompt body',
+            });
+            listFails = true;
+            const resolveFailed = await call('prompt-resolve-failed', { agent: 'Beta', text: 'must not survive list failure' });
+            listFails = false;
+            const failed = await call('prompt-failed', { agent: 'Gamma', text: 'must not report queued' });
+
+            expect(queued).toBe('Queued: instruction for Beta.');
+            expect(queued).not.toMatch(/sent|delivered/i);
+            expect(missing).toBe('Which named agent should I prompt? Ask me to list agents.');
+            expect(ambiguous).toContain('More than one agent or task matches pi');
+            expect(privateRejected).toContain('[internal reference]');
+            expect(privateRejected).not.toMatch(/diagnostic-private|key-private|wAG:p9S|w1AK:p1|w1BS:t6/);
+            expect(resolveFailed).not.toMatch(/Queued:|list-private|w1AK:p1/);
+            expect(failed).not.toContain('Queued:');
+            expect(prompts).toHaveLength(1);
+            expect(prompts).toEqual([{
+                sessionId: 'pp_beta',
+                text: 'Gemini marker body\n\ncame from a real-time agent',
+            }]);
+
+            await diagnostics.flush();
+            const diagnosticOutput = await readFile(join(muxrHome, 'host', 'diagnostics.json'), 'utf8');
+            const promptEvents = JSON.parse(diagnosticOutput).events.filter((event) => event.event === 'realtime.prompt');
+            expect(promptEvents).toEqual([
+                expect.objectContaining({
+                    at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T.*Z$/),
+                    provider: 'muxr.voice-gemini',
+                    action: 'prompt',
+                    requestedAgentName: 'Beta',
+                    resolvedAgentName: 'Beta',
+                    outcome: 'queued',
+                }),
+                expect.objectContaining({
+                    provider: 'muxr.voice-gemini',
+                    action: 'prompt',
+                    requestedAgentName: 'pi',
+                    resolvedAgentName: null,
+                    outcome: 'rejected',
+                }),
+                expect.objectContaining({
+                    provider: 'muxr.voice-gemini',
+                    action: 'prompt',
+                    requestedAgentName: 'token=[redacted] API_KEY=[redacted] [path hidden] [internal reference] [internal reference] [internal reference] [internal reference]',
+                    resolvedAgentName: null,
+                    outcome: 'rejected',
+                }),
+                expect.objectContaining({
+                    provider: 'muxr.voice-gemini',
+                    action: 'prompt',
+                    requestedAgentName: 'Beta',
+                    resolvedAgentName: null,
+                    outcome: 'failed',
+                }),
+                expect.objectContaining({
+                    provider: 'muxr.voice-gemini',
+                    action: 'prompt',
+                    requestedAgentName: 'Gamma',
+                    resolvedAgentName: 'Gamma',
+                    outcome: 'failed',
+                }),
+            ]);
+            expect(diagnosticOutput).not.toMatch(/Gemini marker body|must not reach|must not survive|private prompt body|diagnostic-private|key-private|list-private|pp_alpha|pp_beta|pp_gamma|pp_secret|private-project|wAG:p9S|w1AK:p1|w1BS:t6|\/home\/user/);
+            expect(diagnosticOutput).not.toContain(access.capability);
+        } finally {
+            if (child.exitCode === null) child.kill('SIGKILL');
+            for (const connection of connections) connection.socket.terminate();
+            await new Promise((resolve) => server.close(resolve));
+            coordinator.revokeCapability(access.capability);
+            await coordinator.close();
+            await diagnostics.flush();
+            await rm(muxrHome, { recursive: true, force: true });
+            if (stderr.length > 0 && child.exitCode !== null && child.exitCode !== 0) throw new Error(stderr.join('\n'));
+        }
+    }, 10_000);
 
     it('routes provider tools through trusted name, task, kind, and activity coordination', async () => {
         const muxrHome = await mkdtemp(join(tmpdir(), 'muxr-voice-coordinator-'));
@@ -133,7 +308,7 @@ describe('providerRefusal', () => {
             focus: async (sessionId) => { calls.focuses.push(sessionId); },
         });
         await coordinator.start();
-        const access = coordinator.issueCapability({ sessionId: 'pp_john_private', cwd: privateProject });
+        const access = coordinator.issueCapability({ sessionId: 'pp_john_private', cwd: privateProject, provider: 'muxr.voice' });
 
         const server = new WebSocketServer({ host: '127.0.0.1', port: 0 });
         await new Promise((resolve, reject) => {
@@ -192,6 +367,9 @@ describe('providerRefusal', () => {
             expect(update.session.tools.find((tool) => tool.name === 'start_agent').parameters.properties).not.toHaveProperty('name');
             expect(update.session.tools.find((tool) => tool.name === 'send_agent_keybinding').parameters.properties.key.enum).toEqual(['escape']);
             for (const tools of [xaiTools, openaiTools, geminiTools]) {
+                const promptTool = tools.find((tool) => tool.name === 'prompt_agent');
+                expect(promptTool.parameters.required).toEqual(['agent', 'text']);
+                expect(tools.find((tool) => tool.name === 'read_agent_output').parameters.required).toBeUndefined();
                 const surface = JSON.stringify(tools);
                 expect(surface).not.toMatch(/herdr_cli|list_machines|end_conversation|list_panes|focus_pane|shell|close/);
             }
@@ -270,7 +448,7 @@ describe('providerRefusal', () => {
             expect(await call('agent_status', { agent: 'John' })).toBe('John is idle.');
             expect(activatedApp.output).toBe('Activated Realtime voice.');
             const promptReceipt = await call('prompt_agent', { agent: 'ＪＯＨＮ', text: 'Fix the realtime routing.' });
-            expect(promptReceipt).toBe('Confirmed: your instruction was delivered to John.');
+            expect(promptReceipt).toBe('Queued: instruction for John.');
             expect(calls.prompts).toEqual([{ sessionId: 'pp_john_private', text: 'Fix the realtime routing.\n\ncame from a real-time agent' }]);
 
             const unknownKey = await call('send_agent_keybinding', { agent: 'John', key: 'ctrl-x' });
@@ -569,6 +747,30 @@ describe('providerRefusal', () => {
             expect(JSON.stringify(flow.frames)).not.toContain(token);
             expect(JSON.stringify(flow.frames)).not.toContain(account);
             expect(JSON.stringify(flow.frames)).not.toContain('rtc_private');
+            flow.send({
+                type: 'realtime.webrtc.data',
+                data: JSON.stringify({
+                    type: 'delegation.created',
+                    item: { id: 'delegation-no-target', content: [{ type: 'input_text', text: 'Inspect the build.' }] },
+                }),
+            });
+            const delegationFrame = await waitFor(
+                () => flow.frames.find((frame) => {
+                    if (frame.type !== 'realtime.webrtc.data') return false;
+                    const data = JSON.parse(frame.data);
+                    return data.type === 'delegation.context.append' && data.delegation_item_id === 'delegation-no-target';
+                }),
+                'Codex delegation did not return a speakable failure',
+            );
+            const delegationContext = JSON.parse(delegationFrame.data);
+            expect(delegationContext).toMatchObject({
+                channel: 'speakable',
+                content: [{
+                    type: 'input_text',
+                    text: 'Codex Voice could not queue that instruction. An explicit Agent Name or Task Title is required.',
+                }],
+            });
+            expect(delegationFrame.data).not.toMatch(/Queued:|sent|delivered/i);
             flow.send({ type: 'realtime.control', action: 'stop' });
             await waitFor(() => flow.frames.some((frame) => frame.type === 'realtime.closed'), 'Codex provider did not close');
             await waitFor(() => flow.child.exitCode !== null, `Codex provider did not exit: ${flow.errors.join('\n')}`);

@@ -49,6 +49,7 @@ import { PluginStreamManager } from './pluginStreamManager.js';
 import {
     RealtimeCodingCoordinator,
     type RealtimeCodingAgent,
+    type RealtimePromptDiagnostic,
 } from './realtimeCoordinator.js';
 import type { HostedMachineKeys } from '../../machine/index.js';
 import type { PeerBroker } from '../../peer/index.js';
@@ -148,6 +149,8 @@ export interface CreateHerdrSessionSourceOptions {
     hostedE2ee?: HostedMachineKeys;
     /** Issues one revocable capability only to an approved voice.session child. */
     peerBroker?: PeerBroker;
+    /** Writes bounded semantic prompt outcomes to the owner-only host diagnostics journal. */
+    onRealtimePromptDiagnostic?: (event: RealtimePromptDiagnostic) => void;
 }
 
 /** herdr agent record (agent.list / snapshot.agents / agent.start result). */
@@ -173,6 +176,33 @@ export async function sendKeysToLiveAgent(
 ): Promise<void> {
     if (!agentsByPane.has(record.paneId)) throw new Error(`${record.agentName} is not ready for keys.`);
     await client.call('agent.send_keys', { target: record.paneId, keys });
+}
+
+export async function promptHerdrAgent(
+    client: Pick<HerdrClient, 'call'>,
+    record: Pick<AgentIdentity, 'paneId' | 'agentName'>,
+    text: string,
+): Promise<void> {
+    const receipt = await client.call<unknown>('agent.prompt', { target: record.paneId, text });
+    const result = typeof receipt === 'object' && receipt !== null && !Array.isArray(receipt)
+        ? receipt as Record<string, unknown>
+        : undefined;
+    const agent = typeof result?.agent === 'object' && result.agent !== null && !Array.isArray(result.agent)
+        ? result.agent as Record<string, unknown>
+        : undefined;
+    if (result?.type !== 'agent_prompted'
+        || typeof agent?.terminal_id !== 'string'
+        || typeof agent.agent_status !== 'string'
+        || typeof agent.workspace_id !== 'string'
+        || typeof agent.tab_id !== 'string'
+        || typeof agent.pane_id !== 'string'
+        || typeof agent.focused !== 'boolean'
+        || typeof agent.revision !== 'number'
+        || !Number.isSafeInteger(agent.revision)
+        || agent.revision < 0
+        || agent.pane_id !== record.paneId) {
+        throw new Error(`${record.agentName} prompt was not queued by Herdr.`);
+    }
 }
 
 function agentRouteError(code: 'agent-unavailable' | 'agent-route-ambiguous'): Error {
@@ -382,7 +412,7 @@ export async function createHerdrSessionSource(
             status: async (sessionId) => statusFor(sessionId).agentStatus ?? 'unknown',
             watch: waitForAgent,
             focus: focusSession,
-        });
+        }, options.onRealtimePromptDiagnostic);
         await codingCoordinator.start();
         pluginStreams = new PluginStreamManager({
             relayUrl: options.relayUrl,
@@ -1192,7 +1222,7 @@ export async function createHerdrSessionSource(
         if (!agentsByPane.has(record.paneId)) {
             throw new Error(`${record.agentName} is not ready for prompts.`);
         }
-        await client.call('agent.prompt', { target: record.paneId, text });
+        await promptHerdrAgent(client, record, text);
     }
     async function sendSessionKeys(sessionId: string, keys: string[]): Promise<void> {
         const record = await resolvePane(sessionId);

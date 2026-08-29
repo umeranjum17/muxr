@@ -25,6 +25,16 @@ export interface RealtimeCodingStartResult {
     agent?: RealtimeCodingAgent;
 }
 
+export type RealtimePromptOutcome = 'queued' | 'rejected' | 'failed';
+
+export interface RealtimePromptDiagnostic {
+    provider: string;
+    action: 'prompt';
+    requestedAgentName: string;
+    resolvedAgentName: string | null;
+    outcome: RealtimePromptOutcome;
+}
+
 export interface RealtimeCodingHandlers {
     list(): Promise<RealtimeCodingAgent[]>;
     activity(): Promise<LifecycleEvent[]>;
@@ -46,7 +56,7 @@ type CodingRequest =
     | { method: 'list'; kind?: string; limit?: number }
     | { method: 'activity'; limit?: number }
     | { method: 'start'; taskTitle: string; kind: string; operationId: string }
-    | { method: 'prompt'; agent?: string; text: string; operationId: string }
+    | { method: 'prompt'; agent: string; text: string; operationId: string }
     | { method: 'key'; agent?: string; key: string; operationId: string }
     | { method: 'read'; agent?: string }
     | { method: 'status'; agent?: string }
@@ -54,6 +64,7 @@ type CodingRequest =
     | { method: 'focus'; agent?: string; operationId: string };
 
 interface CapabilityState {
+    provider: string;
     activeSessionId?: string;
     cwd?: string;
     sockets: Set<Socket>;
@@ -114,7 +125,7 @@ function parseRequest(value: unknown): CodingRequest {
         case 'prompt':
             only(request, ['method', 'agent', 'text', 'operationId']);
             return {
-                method: 'prompt', ...(request.agent === undefined ? {} : { agent: optionalString(request.agent, 'agent')! }),
+                method: 'prompt', agent: string(request.agent, 'agent', 160),
                 text: string(request.text, 'text'), operationId: operationId(request.operationId),
             };
         case 'key':
@@ -202,6 +213,7 @@ function aliases(agents: RealtimeCodingAgent[]): Map<string, RealtimeCodingAgent
 
 function safeProviderText(value: unknown, maxBytes = MAX_PROVIDER_TEXT_BYTES): string {
     const clean = String(value ?? '')
+        .normalize('NFKC')
         .replace(/\u001B\[[0-?]*[ -/]*[@-~]/g, '')
         .replace(/-----BEGIN [^-]{1,40}-----[\s\S]*?-----END [^-]{1,40}-----/g, '[credential redacted]')
         .replace(/\b(Bearer)\s+[A-Za-z0-9._~+/-]{12,}/gi, '$1 [redacted]')
@@ -209,7 +221,7 @@ function safeProviderText(value: unknown, maxBytes = MAX_PROVIDER_TEXT_BYTES): s
         .replace(/\b(api[_-]?key|token|secret|password)\s*[:=]\s*[^\s,;]+/gi, '$1=[redacted]')
         .replace(/\bsk-[A-Za-z0-9_-]{8,}\b/gi, '[credential redacted]')
         .replace(/\beyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/gi, '[credential redacted]')
-        .replace(/\b(?:pph?_[a-z0-9]+|(?:w\d+[A-Za-z]?):(?:p|t)\d+|(?:machine|device|session|pane|rel|peer)[-_][a-z0-9_-]{6,})\b/gi, '[internal reference]')
+        .replace(/\b(?:pph?_[a-z0-9]+|w[0-9A-Za-z]+:(?:p|t)[0-9A-Za-z]+|(?:machine|device|session|pane|rel|peer)[-_][a-z0-9_-]{6,})\b/gi, '[internal reference]')
         .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/gi, '[internal reference]')
         .replace(/\bfile:\/\/\/(?:[^\s/]+\/)+[^\s]*/g, '[path hidden]')
         .replace(/(?<![A-Za-z0-9_/])\/(?!\/)(?:[^\s\/<>"']+\/)+[^\s\/<>"']+/gm, '[path hidden]')
@@ -236,7 +248,11 @@ export class RealtimeCodingCoordinator {
     private server: Server | undefined;
     private readonly capabilities = new Map<string, CapabilityState>();
 
-    constructor(readonly socketPath: string, private readonly handlers: RealtimeCodingHandlers) {}
+    constructor(
+        readonly socketPath: string,
+        private readonly handlers: RealtimeCodingHandlers,
+        private readonly onPromptDiagnostic?: (event: RealtimePromptDiagnostic) => void,
+    ) {}
 
     async start(): Promise<void> {
         if (this.server !== undefined) return;
@@ -259,12 +275,14 @@ export class RealtimeCodingCoordinator {
         });
     }
 
-    issueCapability(target: { sessionId?: string; cwd?: string }): RealtimeCoordinatorAccess {
+    issueCapability(target: { sessionId?: string; cwd?: string; provider: string }): RealtimeCoordinatorAccess {
         if (this.server === undefined) throw new Error('realtime coordinator is unavailable');
         const capability = randomBytes(32).toString('base64url');
         const sessionId = typeof target.sessionId === 'string' && PRIVATE_ID.test(target.sessionId) ? target.sessionId : undefined;
         const cwd = typeof target.cwd === 'string' && isAbsolute(target.cwd) && target.cwd.length <= 4_096 ? target.cwd : undefined;
+        const provider = /^[a-z0-9.-]{1,80}$/.test(target.provider) ? target.provider : 'unknown';
         this.capabilities.set(capability, {
+            provider,
             ...(sessionId === undefined ? {} : { activeSessionId: sessionId }),
             ...(cwd === undefined ? {} : { cwd }),
             sockets: new Set(), replays: new Map(),
@@ -312,6 +330,41 @@ export class RealtimeCodingCoordinator {
             return { clarification: `More than one agent or task matches ${publicSpoken}. Did you mean ${choices}?` };
         }
         return { agent: matches[0]! };
+    }
+
+    private promptDiagnostic(
+        state: CapabilityState,
+        requestedAgentName: string,
+        resolvedAgentName: string | undefined,
+        outcome: RealtimePromptOutcome,
+    ): void {
+        this.onPromptDiagnostic?.({
+            provider: state.provider,
+            action: 'prompt',
+            requestedAgentName: safeProviderText(requestedAgentName, 160) || 'unspecified',
+            resolvedAgentName: resolvedAgentName === undefined ? null : safeProviderText(resolvedAgentName, 80) || null,
+            outcome,
+        });
+    }
+
+    private async queuePrompt(state: CapabilityState, requestedAgent: string, prompt: string): Promise<string> {
+        const resolved = await this.resolve(state, requestedAgent).catch((error) => {
+            this.promptDiagnostic(state, requestedAgent, undefined, 'failed');
+            throw error;
+        });
+        if (resolved.agent === undefined) {
+            this.promptDiagnostic(state, requestedAgent, undefined, 'rejected');
+            return resolved.clarification!;
+        }
+        try {
+            await this.handlers.prompt(resolved.agent.sessionId, `${prompt}\n\ncame from a real-time agent`);
+        } catch (error) {
+            this.promptDiagnostic(state, requestedAgent, resolved.agent.displayName, 'failed');
+            throw error;
+        }
+        this.promptDiagnostic(state, requestedAgent, resolved.agent.displayName, 'queued');
+        this.activate(state, resolved.agent);
+        return `Queued: instruction for ${resolved.agent.displayName}.`;
     }
 
     private activate(state: CapabilityState, agent: RealtimeCodingAgent): void {
@@ -395,13 +448,9 @@ export class RealtimeCodingCoordinator {
             this.activate(state, resolved.agent);
             return `Confirmed: Escape was sent to ${resolved.agent.displayName}.`;
         });
-        if (request.method === 'prompt') return this.replay(state, request, async () => {
-            const resolved = await this.resolve(state, request.agent);
-            if (resolved.agent === undefined) return resolved.clarification!;
-            await this.handlers.prompt(resolved.agent.sessionId, `${request.text}\n\ncame from a real-time agent`);
-            this.activate(state, resolved.agent);
-            return `Confirmed: your instruction was delivered to ${resolved.agent.displayName}.`;
-        });
+        if (request.method === 'prompt') {
+            return this.replay(state, request, () => this.queuePrompt(state, request.agent, request.text));
+        }
         if (request.method === 'focus') return this.replay(state, request, async () => {
             const resolved = await this.resolve(state, request.agent);
             if (resolved.agent === undefined) return resolved.clarification!;
@@ -457,7 +506,19 @@ export class RealtimeCodingCoordinator {
                     if (state === undefined) throw new Error('realtime coordinator capability rejected');
                     state.sockets.add(socket);
                     socket.once('close', () => state.sockets.delete(socket));
-                    const data = await this.invoke(state, parseRequest(message.request));
+                    let request: CodingRequest;
+                    try {
+                        request = parseRequest(message.request);
+                    } catch (error) {
+                        const raw = typeof message.request === 'object' && message.request !== null && !Array.isArray(message.request)
+                            ? message.request as Record<string, unknown>
+                            : undefined;
+                        if (raw?.method === 'prompt') {
+                            this.promptDiagnostic(state, typeof raw.agent === 'string' ? raw.agent : 'unspecified', undefined, 'rejected');
+                        }
+                        throw error;
+                    }
+                    const data = await this.invoke(state, request);
                     if (!socket.destroyed) socket.end(`${JSON.stringify({ id, ok: true, data: boundedProviderText(data) })}\n`);
                 } catch {
                     if (!socket.destroyed) socket.end(`${JSON.stringify({ id, ok: false, error: 'Voice coordination could not complete that request.' })}\n`);

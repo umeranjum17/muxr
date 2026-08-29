@@ -3,7 +3,7 @@ title: Plugins on primitives
 slug: plugin-primitives
 status: in-progress
 created: 2026-08-15
-updated: 2026-08-19
+updated: 2026-08-29
 owner: umer
 links:
   - ../decisions/0005-pi-like-extension-runtime.md
@@ -40,6 +40,8 @@ Enabled Herdr plugins remain intentionally trusted and default-on. Enabling or l
 
 `openPluginStream('voice.session')` resolves the single enabled provider and rejects ambiguous claims until the user disables all but one. The phone sends and receives only bounded generic PCM, control, state, and transcript frames over the encrypted stream. Provider URLs, authentication, models, prompts, tools, and event vocabularies stay in the backend adapter. A replacement provider reuses the same controls, overlay, settings actions, capability, and channel; it never requires a React Native branch.
 
+Realtime coordination mutations name their destination explicitly. `prompt_agent` requires a nonempty Agent Name or Task Title, refuses unknown or ambiguous targets without mutation, and reports only a queued receipt after Herdr returns a structurally valid receipt for the same resolved pane. The host journal records only provider, semantic requested/resolved agent names, and queued/rejected/failed outcomes.
+
 Attachments and changes list via `plugin.call` (metadata only). Actionable rows carry an explicit validated `PluginAction`; read-only item rows omit actions and render without fake tap behavior. There are no feature-specific tap fallbacks. The host no longer publishes `session.attachments` or `session.changes` onto the phone JS thread. `status.update` updates the session row only when the lifecycle word actually changes; it does not refetch the herdr tree.
 
 RPC contributions may explicitly request `sessions` and/or `workspace-tree`. Immediately before spawn, the host passes a fresh bounded `MUXR_PLUGIN_CONTEXT_JSON` with stable muxr session ids, labels, cwd/workspace/tab labels, agent kind/status, attention timestamps, and label-only tree relationships. It never includes secrets, terminal bytes, device ids, pane ids, workspace ids, tab ids, or other internal ids; records and bytes are capped. Inbox consumes `sessions` and owns grouping, ordering, wording, and the six-hour done TTL. Workspace Hierarchy consumes `workspace-tree` and owns tab/session labels, current state, status, and navigation actions. Its old New tab, split, tab-grid, save/restore layout, close/watch/focus operations are deliberately omitted until they fit declared write RPCs without exposing internal ids; they must not return as React Native product policy.
@@ -63,6 +65,8 @@ UI version 12 allows generic `item-list` rows to omit actions for read-only stat
 - `apps/mobile/sources/plugins/primitives/` — the compiled widgets
 - `apps/mobile/sources/voice/realtimeSession.ts` — token `url` + `transport`
 - `plugins/voice*/stream.mjs` — self-contained xAI, OpenAI Realtime, and Gemini Live adapters for the public provider-neutral `voice.session` stream; each `rpc.mjs` owns only its key lifecycle and report wording
+- `plugins/voice/coordinatorPolicy.mjs` and realtime adapters — explicit prompt target schema, clarification, and exact queued receipt wording; Codex delegation fails closed when it cannot supply a semantic target
+- `apps/host/src/agent/infrastructure/realtimeCoordinator.ts`, `herdrSessionSource.ts`, and `diagnostics/infrastructure/journal.ts` — strict prompt parsing, receipt-to-pane validation, and privacy-safe diagnostics
 - `scripts/setup/infrastructure/herdr.mjs` — xAI defaults on, Gemini/OpenAI default off, and setup preserves every existing enabled/disabled choice across npm upgrades
 - `plugins/*/muxr-ui.json` plus RPC sources, including Inbox, Workspace Hierarchy, and `plugins/run-server/rpc.mjs`
 - `apps/host/src/herdr/pluginPublicContext.ts` — sanitized bounded public context snapshots
@@ -82,11 +86,14 @@ UI version 12 allows generic `item-list` rows to omit actions for read-only stat
 - Item-list UI verification proves distinct Changes/Files pill icons, git-status and MIME-aware row icons, green additions/red deletions, file and attachment row dispatch, and an independent temporary plugin’s sheet-level action dispatch. A 177,321,373-byte APK also downloads fully over hosted E2EE chunks, matches its source SHA-256, and reaches Android’s share handoff without loading the blob into JS memory.
 - Live xAI backend smokes return PCM audio plus transcript and complete a real `list_panes` tool call. The phone receives only generic stream frames; provider authentication/model/prompt/tools/events remain in each backend adapter.
 - Gemini Live and OpenAI Realtime acceptance uses the same smoke: ready frame with provider rates, text/audio transcript, PCM output, `list_panes` tool completion, stop/close, and no provider vocabulary on the phone. Setup verification starts xAI enabled and Gemini/OpenAI disabled, then proves a user provider switch survives npm reinstall plus a later `muxr setup`.
+- Realtime prompt acceptance requires a named target in every normal provider schema, proves active Agent A cannot capture a Gemini prompt explicitly addressed to Agent B, rejects missing/unknown/ambiguous targets without mutation, journals pre-resolution failures, normalizes before credential/path/internal-id redaction, covers live Herdr route forms, rejects malformed or wrong-pane receipts, and completes a real two-agent Herdr prompt with B observing the marker and A not receiving it.
 - UI version 10 device acceptance proves File Viewer starts as a compact folder tree, lazily expands deep folders, collapses/expands loaded branches, and opens a text file. Runbook selects a non-default repository folder, executes there, and retains the selected folder after write refresh.
 - Independent architecture, performance, security, correctness, UX/accessibility, dead-code, public-core, Live Update, item-list, realtime-stream, and declarative-tree reviews have no unresolved blockers.
 - Final phone artifact: `muxr-preview-arm64-v8a.apk`, SHA-256 `717e6365adb7ed55f55cab41b755fc5393e58a15e805d17c570987e211cbdce7`; ARM64-only, target SDK 36, APK v2 signature verified.
 
 ## Revisions
+
+- 2026-08-29 — Reopen realtime prompt delivery after Gemini reported a prompt as sent while the target received nothing: require an explicit semantic target, validate Herdr's returned pane, say queued rather than delivered, normalize before privacy redaction, cover real Herdr route formats and pre-resolution failures, and make unnamed Codex delegation fail explicitly.
 
 - 2026-08-20 — Add separate default-off Gemini Live and OpenAI Realtime adapters beside default-on xAI, all claiming the same provider-neutral `voice.session`; preserve user enable/disable choices across npm upgrades and setup reruns.
 - 2026-08-20 — Encrypt each native Preview TCP payload with a per-preview key delivered through the existing E2EE control channel, allowing the relay to multiplex connection headers without reading frontend bytes.
