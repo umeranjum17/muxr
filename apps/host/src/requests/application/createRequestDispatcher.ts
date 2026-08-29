@@ -187,8 +187,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         'session.answer': async (params) => useCaseData(await answerAgent(source, params)),
         'pane.zoom': (params) => source.paneZoom(params),
         'session.stop': async (params) => useCaseData(await stopAgent(
-            { sessions: source, detachSession: (sessionId) => options.terminals?.detachSession(sessionId) },
-            { sessionId: params.sessionId, action: 'stop' },
+            { sessions: source }, { sessionId: params.sessionId, action: 'stop' },
         )),
         'session.abort': async (params) => useCaseData(await stopAgent(
             { sessions: source }, { sessionId: params.sessionId, action: 'abort' },

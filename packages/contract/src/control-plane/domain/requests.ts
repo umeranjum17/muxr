@@ -337,11 +337,11 @@ export interface RequestMap extends PeerRequestMap {
         params: { sessionId: string; kind?: string; label?: string };
         result: null;
     };
-    /** Close a tab in this session's workspace. The pane and process are gone. */
+    /** Close exactly the selected tab; if Herdr would widen to its workspace or worktree group, fail without mutation. */
     'tab.close': { params: { sessionId: string; tabId: string }; result: null };
-    /** Close one pane (and its process). Its tab survives if other panes remain. */
+    /** Close exactly the selected pane; if Herdr would widen to its tab, workspace, or worktree group, fail without mutation. */
     'pane.close': { params: { sessionId: string }; result: null };
-    /** Close a workspace (a space on the Herd screen) and everything in it. */
+    /** Close exactly the selected workspace; if Herdr would widen to its worktree group, fail and require the explicit group action. */
     'workspace.close': { params: { workspaceId: string }; result: null };
     /**
      * Zoom this session's pane to fill its tab. herdr no-ops on a single-pane
@@ -353,6 +353,7 @@ export interface RequestMap extends PeerRequestMap {
     };
     /** Attach to an existing Pi session (resume). */
     'session.open': { params: { sessionId: string; path?: string }; result: SessionSnapshot };
+    /** Close the selected live pane, or its sole-pane tab; if Herdr would widen to the workspace/group, fail without mutation. */
     'session.stop': { params: { sessionId: string }; result: null };
     'session.abort': { params: { sessionId: string }; result: null };
     'session.reload': { params: { sessionId: string }; result: null };

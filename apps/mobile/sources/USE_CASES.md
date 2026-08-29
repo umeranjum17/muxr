@@ -33,7 +33,7 @@ Navigate by capability. Domain language is in the root [CONTEXT.md](../../../CON
 | Prompt an Agent | `catalog/application/promptAgent.ts` | Agent | `catalog/application/sync.ts` (`sendMessage`), `TerminalScreen.tsx` |
 | Read an Agent's workspace file | `catalog/application/readAgentFile.ts` | Agent | `catalog/application/ops.ts` (`sessionReadFile`), `app/(app)/session/[id]/file.tsx` |
 | Read a listed Agent | `catalog/application/readAgentSession.ts` | Agent | Catalog store lookups by Agent Route |
-| Stop or abort an Agent | `catalog/application/stopAgent.ts` | Agent | `catalog/application/ops.ts` (`sessionKill`, `sessionAbort`) |
+| Stop or abort an Agent | `catalog/application/stopAgent.ts` | Agent | `catalog/application/ops.ts` (`sessionStop`, `sessionAbort`) |
 | Watch Agent lifecycle on this machine | `watch/application/watchAgentLifecycle.ts` | Agent Watch | `catalog/application/sync.ts` bootstrap |
 | Report an Agent outcome | `watch/application/reportAgentOutcome.ts` | Voice Report | `watch/application/wakeAndReport.ts`, plugin `speech.wake` |
 | Bind this device to a machine | `pairing/application/PairMachine.ts` | Pairing String, Hosted Grant, PairedMachine | `usePairing.ts`, `app/(app)/pair.tsx` |
