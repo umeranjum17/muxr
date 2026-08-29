@@ -1,19 +1,19 @@
-# muxr product decision review
+# muxr product decisions
 
-Product behavior must not be an accidental framework default or an implementation detail. Independent review happens before release; Umer remains the decider.
+Product behavior must not be an accidental framework default or an implementation detail. Umer remains the decider.
 
 ## Tiers
 
-| Tier | Scope | Review | Evidence |
+| Tier | Scope | Decision | Evidence |
 |---|---|---|---|
-| T0 | Implementing an already-approved rule; no behavior change | Normal code review | Existing gate |
-| T1 | Reversible UI detail: spacing, icon, local copy, animation | Independent review of one coherent batch before release | Screenshot/emulator capture + named UI/accessibility precedent |
-| T2 | Workflow, onboarding, default, feature boundary, vocabulary | Individual independent review | Alternatives + affected states + emulator or precedent |
-| T3 | Security, authority, pairing, protocol, persisted/transmitted data, privacy, and destructive behavior | Individual two-key approval plus explicit owner decision | Failure scenario + rollback + live/flow check |
+| T0 | Implementing an already-accepted rule; no behavior change | Normal code review | Existing gate |
+| T1 | Reversible UI detail: spacing, icon, local copy, animation | One coherent batch before release | Screenshot/emulator capture + named UI/accessibility precedent |
+| T2 | Workflow, onboarding, default, feature boundary, vocabulary | Individual decision record | Alternatives + affected states + emulator or precedent |
+| T3 | Security, authority, pairing, protocol, persisted/transmitted data, privacy, and destructive behavior | Two-key approval plus an explicit owner decision | Failure scenario + rollback + live/flow check |
 
 Use the highest applicable tier. A small diff can still be T3. Applying an accepted design token is T0; choosing the token is T1/T2.
 
-## Review lenses
+## Lenses
 
 - **Fit — does this belong?** Product fit, comprehension, workflow, accessibility, architecture, and simpler alternatives.
 - **Hold — does this hold?** Integration states, reconnect/restart/offline behavior, abuse, compatibility, and executable validation.
@@ -32,4 +32,4 @@ A decision record contains: decision, alternatives, standards/evidence, resolved
 
 ## Reopening
 
-Observed evidence outranks prior consensus. A reproducible emulator/live-stack failure or credible user report reopens the affected decision. Re-review only what the evidence contradicts; do not reopen unrelated architecture. Security/privacy/data behavior reverts to the prior safe state while a reopened T3 decision is unresolved.
+Observed evidence outranks prior consensus. A reproducible emulator/live-stack failure or credible user report reopens the affected decision. Reopen only what the evidence contradicts; do not reopen unrelated architecture. Security/privacy/data behavior reverts to the prior safe state while a reopened T3 decision is unresolved.

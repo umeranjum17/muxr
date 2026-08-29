@@ -56,9 +56,9 @@ kotlin.daemon.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=2g
 Without this, Kotlin/Gradle can fail with misleading type-tag errors after JVM
 metaspace exhaustion.
 
-## Hosted connection configuration
+## Relay URL baked into a build
 
-Hosted builds compile only the public relay origin; device credentials and E2EE
+A grant-backed build compiles only the public relay origin; device credentials and E2EE
 keys are created at runtime and live in platform SecureStore:
 
 ```json
@@ -90,7 +90,7 @@ has no default and must be the HTTPS origin that will host activation plus iOS
 Universal Link and Android App Link association files.
 
 Set `MUXR_EAS_PROJECT_ID` only after creating or transferring the owner’s muxr
-project. Signed store releases use the manual EAS Cloud workflow documented in
+project. Signed store releases use remote EAS builds documented in
 `RELEASING.md`; do not distribute a direct Gradle build, which has no owner
 release credential. Local EAS profiles remain available for development APKs.
 Changing the production app identifier creates a separate store identity unless

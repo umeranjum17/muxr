@@ -59,5 +59,5 @@ Remove the documented convenience URL and `install.sh`; npm installation and `mu
 
 ## Revisions
 
-- 2026-08-20 — Replaced the initially proposed `trymuxr.com/install.sh` endpoint after review proved that URL is not deployed by this repository. GitHub raw `main/install.sh` is published by the same reviewed source merge; release verification byte-compares it to the repository file.
-- 2026-08-21 — Fable review: moved PATH repair guidance before handoff, named the stale binary, required prefix-first ordering, and isolated the README cleanup trap in a subshell.
+- 2026-08-20 — Replaced the initially proposed `trymuxr.com/install.sh` endpoint because that URL is not deployed by this repository. GitHub raw `main/install.sh` is published by the same source merge; release verification byte-compares it to the repository file.
+- 2026-08-21 — Moved PATH repair guidance before handoff, named the stale binary, required prefix-first ordering, and isolated the README cleanup trap in a subshell.

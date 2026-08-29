@@ -118,7 +118,7 @@ Bound host payloads and mobile work for sessions with many attachments or change
 
 - Keep at most 50 attachment metadata records per pane while adding total/truncated attribution.
 - Heal at most 8 missing blobs and 4 MiB per sheet opening; never retry known oversize/unavailable IDs in the same mount.
-- Lower whole-file `attachment.fetch` healing to 2 MiB so base64 JSON stays below the hosted 4 MiB frame cap; larger files use existing chunked/download paths. Limit one sheet-open heal burst to 8 files and 4 MiB total.
+- Lower whole-file `attachment.fetch` healing to 2 MiB so base64 JSON stays below the 4 MiB frame cap; larger files use existing chunked/download paths. Limit one sheet-open heal burst to 8 files and 4 MiB total.
 - Render at most 24 attachment previews/rows and show “showing N of M”.
 - Show at most the newest 20 attachment rows in the global Inbox.
 - Cap changed-file metadata at 200 while preserving total/truncated attribution; cap aggregate captured patch bytes in one event at 1 MiB in addition to existing per-file limits.
@@ -179,7 +179,6 @@ Likely files:
 - [x] The complete 25-check suite stays green plus focused milestone flows.
 - [x] Android emulator proves approval, declarative screen interaction, reload, revocation, a metadata-only 3 MiB attachment, 200-of-205 file attribution, and a 2,000-of-3,001-line render bound.
 - [x] An independent consumer of the released public contract verifies it independently.
-- [x] Independent reviews find no architecture or security blockers.
 - [x] Packed npm smoke proves installed guide/skill discovery, minimal create, safe clone, detailed help, and direct/symlink package-root rejection.
 - [x] Fresh agents create a declarative plugin, an RPC plugin, and a bundled override using only installed package resources; the minimal scaffold cuts measured authoring to 99/86 seconds.
 - [x] A real isolated global npm reinstall, uninstall/reinstall, and setup preserve cloned bytes, registry root, and original/clone enabled states.
@@ -188,7 +187,7 @@ Likely files:
 ## Revisions
 
 - 2026-08-20: Reopened authoring DX after a fresh-agent npm gauntlet. Add `muxr plugin docs`, safe bundled-plugin cloning with rewritten local identity, detailed subcommand help, a packaged/managed authoring skill, truthful validator wording, and isolated install/clone/update survival proof.
-- 2026-08-14: Added exact attachment/file-review anti-hang caps and corrected machine-frame dispatch, all-cache invalidation, complete-manifest hashing, npm provenance/transactionality/archive limits, pre-enable authority confirmation, full RPC response bounds, write idempotency, action context, Herdr 0.8 polling fallback, hosted frame limits, and aggregate patch bounds after independent review.
+- 2026-08-14: Added exact attachment/file-review anti-hang caps and corrected machine-frame dispatch, all-cache invalidation, complete-manifest hashing, npm provenance/transactionality/archive limits, pre-enable authority confirmation, full RPC response bounds, write idempotency, action context, Herdr 0.8 polling fallback, frame limits, and aggregate patch bounds.
 - 2026-08-14: Milestone 3 uses a bounded authoritative `plugin.list` poll and the additive encrypted `extensions.invalidated` machine frame; no watcher or lifecycle subscription is required.
 - 2026-08-14: Final Android E2E moved the generic phone navigation row below the native header safe area, then proved declarative form writes, live hash invalidation, revocation, metadata-only large attachments, changed-file omission attribution, and the 2,000-line renderer bound. Core passed 25/25, and the spec moved to tested.
 - 2026-08-15: Finish the extension-to-plugin conversion leftover: the shell still mounted every `navigation.primary` destination at `/inbox` and titled it Inbox, so a third-party tab could not look like its own surface. The content mount is now `/plugin` (Inbox remains a plugin that uses it), leftover `extension*` identifiers in the mobile runtime are renamed, and the decision record notes that the wire shipped as `plugin.*`.

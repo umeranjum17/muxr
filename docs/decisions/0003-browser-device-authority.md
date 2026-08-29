@@ -7,7 +7,7 @@ Decider: Umer
 
 ## Decision
 
-A hosted muxr browser is a distinct, short-lived device. It does not reuse a phone credential, persist a native device grant in `localStorage`, or terminate end-to-end encryption at the relay.
+A muxr browser is a distinct, short-lived device. It does not reuse a phone credential, persist a native device grant in `localStorage`, or terminate end-to-end encryption at the relay.
 
 The browser generates its own device key. Pairing requires confirmation from the machine or an already-paired phone, and the machine seals the grant to that browser key. Browser grants expire after eight hours and are read-only observation grants. Terminal mutation remains native-only until a separately reviewed short-lived escalation is implemented. Closing or idling the browser drops unwrapped key material; revocation closes its sockets and rotates the machine data key.
 
@@ -32,7 +32,6 @@ A non-extractable AES-GCM WebCrypto key stored in IndexedDB wraps the browser de
 - Baking `EXPO_PUBLIC_MUXR_TOKEN` into an Expo export.
 - Relay-side decryption for browsers.
 - Durable browser grants matching native phone lifetime.
-- A managed-only client capability unavailable to self-hosters.
 
 ## Rollback
 

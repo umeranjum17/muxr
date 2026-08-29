@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { backfillAgentNames, ensureAgentName, readAgentName, renameAgent } from './agent-name.mjs';
 
 const agents = [
-    { pane_id: 'p-real', name: 'reviewer' },
+    { pane_id: 'p-real', name: 'atlas' },
     { pane_id: 'p-weird', name: 'Мария' },
     { pane_id: 'p-internal', name: 'pp_deadbeef' },
     { pane_id: 'p-existing', name: undefined, agent: 'omp' },
@@ -25,7 +25,7 @@ assert.deepEqual(renames, [], 'read mode hides internal names without mutating H
 assert.equal(readAgentName(run, 'p-weird'), 'Мария');
 assert.equal(renameAgent(run, 'p-weird', 'Мария'), 'Мария');
 assert.deepEqual(renames, [], 'submitting an unchanged nonconforming real name is a no-op');
-assert.equal(ensureAgentName(run, 'p-real'), 'reviewer');
+assert.equal(ensureAgentName(run, 'p-real'), 'atlas');
 assert.deepEqual(renames, [], 'a real existing Herdr Agent Name is preserved');
 const fallback = ensureAgentName(run, 'p-internal');
 assert.match(fallback, /^\p{L}+$/u, 'an available animal has no numeric suffix');
