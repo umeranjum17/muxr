@@ -5,8 +5,19 @@ import {
     type AuthCredentials,
 } from '@/account/session';
 import { accountSurfaceApplies, hostedTransportReady } from '@/pairing/grant';
-import type { AttentionEntry, HerdrTreeWorkspace, LifecycleEvent, PluginsInvalidatedFrame, PromptAttachment, SessionEvent, SessionStatus } from '@muxr/contract';
-import { MAX_RPC_PER_DEVICE, MAX_RPC_PER_PLUGIN } from '@muxr/contract';
+import {
+    lifecycleNotificationAllowed,
+    MAX_RPC_PER_DEVICE,
+    MAX_RPC_PER_PLUGIN,
+    type AgentLifecycle,
+    type AttentionEntry,
+    type HerdrTreeWorkspace,
+    type LifecycleEvent,
+    type PluginsInvalidatedFrame,
+    type PromptAttachment,
+    type SessionEvent,
+    type SessionStatus,
+} from '@muxr/contract';
 import { decodeBase64, encodeBase64 } from '@/encryption/base64';
 import type { AttachmentPreview } from '../infrastructure/attachmentTypes';
 import { Modal } from '@/modal';
@@ -317,7 +328,10 @@ class MuxrSync {
             const agentName = agentNameForNotice(storage.getState().sessions[sessionId]);
             const rawStatus = event.timedOut === true ? 'timeout' : event.status.toLowerCase();
             const status = ['blocked', 'failed', 'done', 'idle', 'timeout', 'error'].includes(rawStatus) ? rawStatus : 'error';
-            void this.scheduleSessionNotification(sessionId, `${agentName} ${lifecycleWatchOutcome(status)}.`);
+            const notificationState: Extract<AgentLifecycle, 'blocked' | 'failed' | 'done'> = status === 'blocked'
+                ? 'blocked'
+                : status === 'done' || status === 'idle' ? 'done' : 'failed';
+            void this.scheduleSessionNotification(sessionId, notificationState, `${agentName} ${lifecycleWatchOutcome(status)}.`);
         }
 
         if (event.type === 'session.removed') {
@@ -342,10 +356,15 @@ class MuxrSync {
         if (storage.getState().lifecycleCatalogAvailable) return;
         if (AppState.currentState === 'active') return;
         for (const entry of entries) {
-            if (previous.has(entry.sessionId) || Platform.OS === 'ios' || (Platform.OS === 'android' && entry.reason === 'done')) continue;
+            const notificationState = entry.reason === 'waiting' ? null : entry.reason;
+            if (previous.has(entry.sessionId)
+                || Platform.OS === 'ios'
+                || notificationState === null
+                || (Platform.OS === 'android' && notificationState === 'done')) continue;
             const session = storage.getState().sessions[entry.sessionId];
             void this.scheduleSessionNotification(
                 entry.sessionId,
+                notificationState,
                 `${session?.metadata?.agentName?.trim() || 'Agent'} needs attention.`,
             );
         }
@@ -362,6 +381,14 @@ class MuxrSync {
             if (this.presentingLifecycleIds.has(event.eventId)) continue;
             this.presentingLifecycleIds.add(event.eventId);
             try {
+                if (!lifecycleNotificationAllowed(
+                    storage.getState().localSettings.lifecycleNotificationLevel,
+                    event.state,
+                )) {
+                    // Suppressed history stays claimed: enabling later must not release backlog alerts.
+                    storage.getState().markLifecyclePresented(event.eventId);
+                    continue;
+                }
                 if (Platform.OS !== 'web') {
                     await Notifications.scheduleNotificationAsync({
                         content: {
@@ -381,7 +408,12 @@ class MuxrSync {
         }
     }
 
-    private async scheduleSessionNotification(sessionId: string, body: string): Promise<void> {
+    private async scheduleSessionNotification(
+        sessionId: string,
+        state: Extract<AgentLifecycle, 'blocked' | 'failed' | 'done'>,
+        body: string,
+    ): Promise<void> {
+        if (!lifecycleNotificationAllowed(storage.getState().localSettings.lifecycleNotificationLevel, state)) return;
         // Android lifecycle notifications have one native owner and one stable
         // id. Posting the same attention/completion here through Expo created a
         // second notification for every transition.

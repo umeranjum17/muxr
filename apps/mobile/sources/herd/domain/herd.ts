@@ -1,4 +1,11 @@
-import { lifecycleEventAgentName, type AgentLifecycle, type HerdrTreeWorkspace, type LifecycleEvent } from '@muxr/contract';
+import {
+    lifecycleEventAgentName,
+    lifecycleNotificationAllowed,
+    type AgentLifecycle,
+    type HerdrTreeWorkspace,
+    type LifecycleEvent,
+    type LifecycleNotificationLevel,
+} from '@muxr/contract';
 import type { Session } from '@/catalog';
 import { Agent } from './Agent';
 import { agentLabels, HERD_STATUS_LABELS } from './agentPresentation';
@@ -25,6 +32,34 @@ export interface HerdNotificationState {
     names: string;
     /** Stable state identity used only to coalesce native updates. */
     eventKey: string;
+}
+
+const IDLE_NATIVE_NOTIFICATION: HerdNotificationState = {
+    mode: 'idle',
+    count: 0,
+    name: '',
+    names: '',
+    eventKey: 'idle',
+};
+
+/** Remove filtered lifecycle copy before it reaches Android's mode-based renderer. */
+export function nativeLifecycleNotificationState(
+    notification: HerdNotificationState,
+    level: LifecycleNotificationLevel,
+): HerdNotificationState {
+    if (notification.mode === 'finished' && !lifecycleNotificationAllowed(level, 'done')) {
+        return IDLE_NATIVE_NOTIFICATION;
+    }
+    if (notification.mode === 'attention' && !lifecycleNotificationAllowed(level, 'blocked')) {
+        return {
+            ...notification,
+            mode: 'working',
+            name: '',
+            names: '',
+            eventKey: `working:${notification.eventKey}`,
+        };
+    }
+    return notification;
 }
 
 /** Blocked first: it is the only status that needs the user right now. */

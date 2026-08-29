@@ -362,7 +362,12 @@ export const storage = create<StorageState>()((set, get) => ({
     applyLocalSettings: (patch) => set((state) => {
         const localSettings = { ...state.localSettings, ...patch };
         saveLocalSettings(localSettings);
-        return { localSettings };
+        return {
+            ...(patch.lifecycleNotificationLevel === undefined
+                ? {}
+                : watch.setNotificationLevel(localSettings.lifecycleNotificationLevel)),
+            localSettings,
+        };
     }),
     applySettingsLocal: (patch) => set((state) => {
         const settings = { ...state.settings, ...patch };
@@ -453,12 +458,12 @@ export const storage = create<StorageState>()((set, get) => ({
     // its condition resolved, never because this client hid it.
     applyAttentionCatalog: (entries) => set(() => ({ attentionEntries: entries })),
     applyLifecycleCatalog: (catalog) => {
-        const newAlerts = watch.applyCatalog(catalog);
+        const newAlerts = watch.applyCatalog(catalog, get().localSettings.lifecycleNotificationLevel);
         set(watch.snapshot());
         return newAlerts;
     },
     applyLifecycleEvent: (event) => {
-        const newAlerts = watch.applyEvent(event);
+        const newAlerts = watch.applyEvent(event, get().localSettings.lifecycleNotificationLevel);
         set(watch.snapshot());
         return newAlerts;
     },

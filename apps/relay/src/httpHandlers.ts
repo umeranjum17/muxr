@@ -1,3 +1,4 @@
+import { parseLifecycleNotificationLevel } from '@muxr/contract';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { get as httpGet } from 'node:http';
 import type { RelayE2eeMode } from './config.js';
@@ -374,9 +375,9 @@ export async function handleHttpRequest(
             writeJson(res, 403, { error: 'invalid account token' });
             return;
         }
-        let body: { token?: unknown };
+        let body: { token?: unknown; level?: unknown };
         try {
-            body = (await readJsonBody(req)) as { token?: unknown };
+            body = (await readJsonBody(req)) as { token?: unknown; level?: unknown };
         } catch {
             writeJson(res, 400, { error: 'invalid json body' });
             return;
@@ -385,8 +386,16 @@ export async function handleHttpRequest(
             writeJson(res, 400, { error: 'invalid Expo push token' });
             return;
         }
-        if (req.method === 'POST') await ctx.push.subscribeExpo(account.accountId, body.token);
-        else await ctx.push.removeExpoToken(account.accountId, body.token);
+        if (req.method === 'POST') {
+            const level = body.level === undefined ? 'important' : parseLifecycleNotificationLevel(body.level);
+            if (level === undefined) {
+                writeJson(res, 400, { error: 'invalid lifecycle notification level' });
+                return;
+            }
+            await ctx.push.subscribeExpo(account.accountId, body.token, level);
+        } else {
+            await ctx.push.removeExpoToken(account.accountId, body.token);
+        }
         writeJson(res, 200, { ok: true });
         return;
     }

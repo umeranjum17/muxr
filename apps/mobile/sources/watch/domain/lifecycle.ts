@@ -22,10 +22,6 @@ export function lifecycleIsDeskFocus(state: string | undefined): boolean {
     return lifecycleIsWorking(state) || lifecycleNeedsApproval(state);
 }
 
-/** Lifecycle Events that must interrupt: blocked, failed, or done. */
-export function lifecycleNeedsNotification(state: string): boolean {
-    return state === 'blocked' || state === 'failed' || state === 'done';
-}
 
 /** Idle and done Voice Reports are routine and share a tighter admission cap. */
 export function lifecycleIsRoutineVoice(status: string): boolean {

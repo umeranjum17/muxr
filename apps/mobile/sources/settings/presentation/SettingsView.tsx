@@ -98,11 +98,13 @@ export const SettingsView = React.memo(function SettingsView({
     const openPlugins = React.useCallback(() => router.push('/settings/plugins' as never), [router]);
     const openAppearance = React.useCallback(() => router.push('/settings/appearance' as never), [router]);
     const openPreferences = React.useCallback(() => router.push('/settings/features' as never), [router]);
+    const openNotifications = React.useCallback(() => router.push('/settings/notifications' as never), [router]);
     useRealtimeAppControl('Connection', openConnection, '/settings');
     useRealtimeAppControl('Realtime voice', openVoice, '/settings');
     useRealtimeAppControl('Plugins', openPlugins, '/settings');
     useRealtimeAppControl('Appearance', openAppearance, '/settings');
     useRealtimeAppControl('Preferences', openPreferences, '/settings');
+    useRealtimeAppControl('Agent notifications', openNotifications, '/settings');
     const runtimeVersion = typeof Constants.expoConfig?.runtimeVersion === 'string'
         ? Constants.expoConfig.runtimeVersion
         : undefined;
@@ -112,6 +114,7 @@ export const SettingsView = React.memo(function SettingsView({
     ].filter(Boolean).join(' / ');
     const versionSubtitle = formatBuildSubtitle(getBuildConfig());
     const [devModeEnabled, setDevModeEnabled] = useLocalSettingMutable('devModeEnabled');
+    const lifecycleNotificationLevel = useLocalSettingMutable('lifecycleNotificationLevel')[0];
     const [showOfflineMachines, setShowOfflineMachines] = React.useState(false);
     const allMachinesWithOffline = useAllMachines({ includeOffline: true });
     const offlineMachineCount = React.useMemo(
@@ -451,6 +454,20 @@ export const SettingsView = React.memo(function SettingsView({
                     icon={<Ionicons name="options-outline" size={29} color="#FF9500" />}
                     onPress={openPreferences}
                 />
+                {Platform.OS !== 'web' && (
+                    <Item
+                        title="Agent notifications"
+                        subtitle="Choose which lifecycle events may alert you"
+                        detail={lifecycleNotificationLevel === 'off'
+                            ? 'Off'
+                            : lifecycleNotificationLevel === 'important' ? 'Important' : 'All activity'}
+                        icon={<Ionicons name="notifications-outline" size={29} color="#FF9500" />}
+                        onPress={openNotifications}
+                        accessibilityLabel={`Agent notifications, ${lifecycleNotificationLevel === 'off'
+                            ? 'Off'
+                            : lifecycleNotificationLevel === 'important' ? 'Important' : 'All activity'}`}
+                    />
+                )}
                 {Platform.OS === 'android' && (
                     <Item
                         title="Background connection"
@@ -472,8 +489,8 @@ export const SettingsView = React.memo(function SettingsView({
                 )}
                 {Platform.OS === 'ios' && (
                     <Item
-                        title="Notifications"
-                        subtitle="Agent completion and attention alerts"
+                        title="Notification permission"
+                        subtitle="Allow lifecycle alerts in iOS Settings"
                         detail={iosNotificationsEnabled ? t('plugins.on') : t('plugins.off')}
                         icon={<Ionicons name="notifications-outline" size={29} color="#FF9500" />}
                         onPress={() => void handleIosNotifications()}

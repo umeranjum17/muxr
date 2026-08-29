@@ -16,6 +16,7 @@ import {
     isPeerCapabilities,
     encodePayload,
     nextRequestId,
+    parseLifecycleNotificationLevel,
     type Envelope,
     type HostFrame,
 } from '@muxr/contract';
@@ -891,9 +892,11 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
                 const device = presented === undefined ? undefined : await localPairing.resolveDeviceCredential(presented);
                 if (device === undefined || device.deviceKind === 'peer') { writeJsonError(res, 403, 'invalid device credential'); return; }
                 if (req.method === 'POST') {
-                    const body = (await readJsonBody(req).catch(() => undefined)) as { token?: unknown } | undefined;
+                    const body = (await readJsonBody(req).catch(() => undefined)) as { token?: unknown; level?: unknown } | undefined;
                     if (!isExpoPushToken(body?.token)) { writeJsonError(res, 400, 'invalid Expo push token'); return; }
-                    await push.subscribeExpo(`local:${device.machineSlug}`, body.token, device.deviceId);
+                    const level = body.level === undefined ? 'important' : parseLifecycleNotificationLevel(body.level);
+                    if (level === undefined) { writeJsonError(res, 400, 'invalid lifecycle notification level'); return; }
+                    await push.subscribeExpo(`local:${device.machineSlug}`, body.token, level, device.deviceId);
                 } else {
                     await push.removeExpoDevice(`local:${device.machineSlug}`, device.deviceId);
                 }

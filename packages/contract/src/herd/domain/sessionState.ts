@@ -169,6 +169,21 @@ export interface SessionWarning {
 export const AGENT_LIFECYCLES = ['starting', 'idle', 'working', 'blocked', 'done', 'failed', 'unknown'] as const;
 export type AgentLifecycle = (typeof AGENT_LIFECYCLES)[number];
 
+export const LIFECYCLE_NOTIFICATION_LEVELS = ['off', 'important', 'all'] as const;
+export type LifecycleNotificationLevel = (typeof LIFECYCLE_NOTIFICATION_LEVELS)[number];
+
+export function parseLifecycleNotificationLevel(value: unknown): LifecycleNotificationLevel | undefined {
+    return typeof value === 'string' && (LIFECYCLE_NOTIFICATION_LEVELS as readonly string[]).includes(value)
+        ? value as LifecycleNotificationLevel
+        : undefined;
+}
+
+/** One admission policy shared by device-local and relay-owned lifecycle alerts. */
+export function lifecycleNotificationAllowed(level: LifecycleNotificationLevel, state: AgentLifecycle): boolean {
+    if (level === 'off') return false;
+    return state === 'blocked' || state === 'failed' || (level === 'all' && state === 'done');
+}
+
 export function parseAgentLifecycle(value: unknown): Outcome<AgentLifecycle> {
     if (typeof value !== 'string' || !(AGENT_LIFECYCLES as readonly string[]).includes(value)) {
         return fail('invalid agent status');

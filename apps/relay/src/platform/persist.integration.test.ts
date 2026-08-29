@@ -205,7 +205,7 @@ it('hardens every relay state path in a custom data directory', async () => {
         });
         await push.subscribeExpo(account.accountId, 'ExpoPushToken[fixture-token]');
         const expoAccount = await registry.createAccount();
-        await push.subscribeExpo(expoAccount.accountId, 'ExpoPushToken[delivery-token]', 'device-1');
+        await push.subscribeExpo(expoAccount.accountId, 'ExpoPushToken[delivery-token]', 'all', 'device-1');
         let failNextExpoSend = false;
         const fetchMock = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) => {
             if (failNextExpoSend) {
