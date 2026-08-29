@@ -127,10 +127,6 @@ interface SessionWriteFileResponse {
     error?: string;
 }
 
-interface SessionKillResponse {
-    success: boolean;
-    message: string;
-}
 
 export async function sessionAbort(sessionId: string): Promise<void> {
     await stopAgent({ agentRoute: sessionId, kind: 'abort' }, {
@@ -140,13 +136,12 @@ export async function sessionAbort(sessionId: string): Promise<void> {
     });
 }
 
-export async function sessionKill(sessionId: string): Promise<SessionKillResponse> {
+export async function sessionStop(sessionId: string): Promise<void> {
     await stopAgent({ agentRoute: sessionId, kind: 'stop' }, {
         abort: (agentRoute) => sync.request('session.abort', { sessionId: agentRoute }),
         stop: (agentRoute) => sync.request('session.stop', { sessionId: agentRoute }),
         refreshCatalog: () => sync.refreshSessions(),
     });
-    return { success: true, message: 'stopped' };
 }
 
 export function sessionSetAgentModes(_sessionId: string, _patch: SessionAgentModesPatch): void {

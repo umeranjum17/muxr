@@ -18,6 +18,7 @@ import { router, useFocusEffect } from 'expo-router';
 import { Modal } from '@/modal';
 import * as Clipboard from 'expo-clipboard';
 import { storage, useSession, useSessionGitStatus, useSessions } from '@/catalog/store';
+import { sessionStop } from '@/catalog/ops';
 import { sync } from '@/catalog/sync';
 import { resolveMessageModeMeta } from '@/catalog/infrastructure/messageMeta';
 import { permissionModeChip, resolveStatusBarGitBranch } from '../domain/sessionStatusBar';
@@ -322,19 +323,15 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     }, [selectedImages, attaching, clearImages, props.id]);
 
     const stopSession = React.useCallback(() => {
-        Modal.alert('Stop agent?', 'Closes this agent pane in herdr. The pane and its process are gone.', [
+        Modal.alert('Stop agent?', 'Closes only this agent pane, or its tab when the pane is alone. Other panes, tabs, and the workspace stay open; if they cannot, nothing closes.', [
             { text: 'Cancel', style: 'cancel' },
             {
                 text: 'Stop',
                 style: 'destructive',
                 onPress: () => {
                     setStopping(true);
-                    void sync
-                        .request('session.stop', { sessionId: props.id })
+                    void sessionStop(props.id)
                         .then(() => {
-                            // Closing one pane of a tab should leave you in that
-                            // tab, not eject you to the list. Prefer the pane
-                            // after this one, fall back to the one before.
                             const index = siblings.indexOf(props.id);
                             const remaining = siblings.filter((id) => id !== props.id);
                             const next = remaining[index] ?? remaining[remaining.length - 1];

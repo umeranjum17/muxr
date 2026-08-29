@@ -171,6 +171,113 @@ export async function sendKeysToLiveAgent(
     await client.call('agent.send_keys', { target: record.paneId, keys });
 }
 
+function agentRouteError(code: 'agent-unavailable' | 'agent-route-ambiguous'): Error {
+    const message = code === 'agent-route-ambiguous'
+        ? 'That Agent Route is ambiguous. Refresh and select the agent again.'
+        : 'That agent is no longer available. Refresh and try again.';
+    return Object.assign(new Error(message), { code });
+}
+
+/** Close one pane only when Herdr can preserve its tab and workspace. */
+export async function closeExactPane(
+    client: Pick<HerdrClient, 'call'>,
+    paneId: string,
+    panes: ReadonlyMap<string, Pick<PaneRecord, 'tab_id'>>,
+): Promise<void> {
+    const tabId = panes.get(paneId)?.tab_id;
+    if (tabId === undefined) {
+        throw Object.assign(new Error('That pane is no longer available. Refresh and try again.'), { code: 'pane-unavailable' });
+    }
+    let paneCount = 0;
+    for (const pane of panes.values()) {
+        if (pane.tab_id === tabId) paneCount += 1;
+    }
+    if (paneCount <= 1) {
+        throw Object.assign(new Error('Closing this pane would also close its tab. Use Close tab instead.'), { code: 'pane-close-would-widen' });
+    }
+    await client.call('pane.close', { pane_id: paneId });
+}
+
+/** Close one tab only when Herdr can preserve its workspace. */
+export async function closeExactTab(
+    client: Pick<HerdrClient, 'call'>,
+    tabId: string,
+    tabs: ReadonlyMap<string, Pick<TabRecord, 'workspace_id'>>,
+): Promise<void> {
+    const workspaceId = tabs.get(tabId)?.workspace_id;
+    if (workspaceId === undefined) {
+        throw Object.assign(new Error('That tab is no longer available. Refresh and try again.'), { code: 'tab-unavailable' });
+    }
+    let tabCount = 0;
+    for (const tab of tabs.values()) {
+        if (tab.workspace_id === workspaceId) tabCount += 1;
+    }
+    if (tabCount <= 1) {
+        throw Object.assign(new Error('Closing this tab would also close its workspace. Use Close workspace instead.'), { code: 'tab-close-would-widen' });
+    }
+    await client.call('tab.close', { tab_id: tabId });
+}
+
+/** Close one workspace, refusing Herdr's implicit parent-worktree group widening. */
+export async function closeExactWorkspace(
+    client: Pick<HerdrClient, 'call'>,
+    workspaceId: string,
+    workspaces: ReadonlyMap<string, WorkspaceRecord>,
+): Promise<void> {
+    const workspace = workspaces.get(workspaceId);
+    if (workspace === undefined) {
+        throw Object.assign(new Error('That workspace is no longer available. Refresh and try again.'), { code: 'workspace-unavailable' });
+    }
+    const worktree = workspace.worktree;
+    if (worktree?.is_linked_worktree === false && worktree.repo_key !== undefined) {
+        let groupSize = 0;
+        for (const candidate of workspaces.values()) {
+            if (candidate.worktree?.repo_key === worktree.repo_key) groupSize += 1;
+        }
+        if (groupSize >= 2) {
+            throw Object.assign(new Error('Closing this workspace would close its worktree group. Use the explicit Close worktree group action instead.'), {
+                code: 'worktree-group-confirmation-required',
+            });
+        }
+    }
+    await client.call('workspace.close', { workspace_id: workspaceId });
+}
+
+/** Close exactly the live pane or sole-pane tab selected by one stable Agent Route. */
+export async function closeAgentRoute(
+    client: Pick<HerdrClient, 'call'>,
+    sessionId: string,
+    identities: readonly Pick<AgentIdentity, 'sessionId' | 'paneId'>[],
+    liveAgents: Pick<ReadonlyMap<string, unknown>, 'has'>,
+    panes: ReadonlyMap<string, Pick<PaneRecord, 'tab_id'>>,
+    tabs: ReadonlyMap<string, Pick<TabRecord, 'workspace_id'>>,
+    afterClose: (record: Pick<AgentIdentity, 'sessionId' | 'paneId'>) => void,
+): Promise<void> {
+    let match: Pick<AgentIdentity, 'sessionId' | 'paneId'> | undefined;
+    for (const identity of identities) {
+        if (identity.sessionId !== sessionId) continue;
+        if (match !== undefined) throw agentRouteError('agent-route-ambiguous');
+        match = identity;
+    }
+    if (match === undefined || !liveAgents.has(match.paneId)) throw agentRouteError('agent-unavailable');
+    const tabId = panes.get(match.paneId)?.tab_id;
+    if (tabId === undefined) throw agentRouteError('agent-unavailable');
+    let paneCount = 0;
+    for (const pane of panes.values()) {
+        if (pane.tab_id === tabId) paneCount += 1;
+    }
+    if (paneCount === 0) throw agentRouteError('agent-unavailable');
+    try {
+        if (paneCount > 1) await closeExactPane(client, match.paneId, panes);
+        else await closeExactTab(client, tabId, tabs);
+    } catch (error) {
+        if (error !== null && typeof error === 'object' && 'code' in error
+            && (error.code === 'pane-close-would-widen' || error.code === 'tab-close-would-widen')) throw error;
+        throw agentRouteError('agent-unavailable');
+    }
+    afterClose(match);
+}
+
 
 interface PaneRecord {
     pane_id: string;
@@ -191,7 +298,13 @@ interface WorkspaceRecord {
     workspace_id: string;
     label?: string;
     focused?: boolean;
-    worktree?: { repo_name?: string; repo_root?: string; checkout_path?: string };
+    worktree?: {
+        repo_key?: string;
+        repo_name?: string;
+        repo_root?: string;
+        checkout_path?: string;
+        is_linked_worktree?: boolean;
+    };
 }
 
 interface TabRecord {
@@ -838,9 +951,7 @@ export async function createHerdrSessionSource(
     }
 
     function agentUnavailable(): Error {
-        const error = new Error('That agent is no longer available. Refresh and try again.') as Error & { code: string };
-        error.code = 'agent-unavailable';
-        return error;
+        return agentRouteError('agent-unavailable');
     }
 
     async function resolvePane(sessionId: string): Promise<AgentIdentity> {
@@ -1875,16 +1986,19 @@ export async function createHerdrSessionSource(
 
         async closeTab(sessionId: string, tabId: string): Promise<void> {
             await resolvePane(sessionId);
-            await client.call('tab.close', { tab_id: tabId });
+            await closeExactTab(client, tabId, tabsById);
         },
 
         async closePane(sessionId: string): Promise<void> {
             const record = await resolvePane(sessionId);
-            await client.call('pane.close', { pane_id: record.paneId });
+            await closeExactPane(client, record.paneId, panesById);
         },
 
         async closeWorkspace(workspaceId: string): Promise<void> {
-            await client.call('workspace.close', { workspace_id: workspaceId });
+            try { await refreshSnapshot(); } catch {
+                throw Object.assign(new Error('That workspace is no longer available. Refresh and try again.'), { code: 'workspace-unavailable' });
+            }
+            await closeExactWorkspace(client, workspaceId, workspacesById);
         },
 
         async createTab(sessionId: string, options: { kind?: string; label?: string }): Promise<void> {
@@ -1943,17 +2057,20 @@ export async function createHerdrSessionSource(
         },
 
         async stop(sessionId: string): Promise<void> {
-            pluginStreams?.closeSession(sessionId);
-            const record = await resolvePane(sessionId);
-            await client.call('pane.close', { pane_id: record.paneId }).catch(() => {});
-            // Close the pane's status watch BEFORE removing the identity record --
-            // the syncDiscovery cleanup only walks live records, so a watch
-            // orphaned here leaks a socket (and its reconnect loop) forever.
-            statusWatches.get(record.paneId)?.();
-            statusWatches.delete(record.paneId);
-            identity.remove(sessionId);
-            options.lifecycle?.remove(sessionId);
-            clearAttention(sessionId);
+            try { await refreshSnapshot(); } catch { throw agentUnavailable(); }
+            await closeAgentRoute(client, sessionId, identity.all(), agentsByPane, panesById, tabsById, (record) => {
+                pluginStreams?.closeSession(record.sessionId);
+                statusWatches.get(record.paneId)?.();
+                statusWatches.delete(record.paneId);
+                lifecycleEpochByPane.delete(record.paneId);
+                lastStateSignature.delete(record.sessionId);
+                lastInfoSignature.delete(record.sessionId);
+                attachments.dropPane(record.paneId);
+                identity.remove(record.sessionId);
+                options.lifecycle?.remove(record.sessionId);
+                clearAttention(record.sessionId);
+                publish(record.sessionId, { type: 'session.removed' });
+            });
         },
 
         async abort(sessionId: string): Promise<void> {

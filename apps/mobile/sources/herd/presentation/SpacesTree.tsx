@@ -363,7 +363,7 @@ export const SpacesTree = React.memo(({
 
     const confirmCloseWorkspace = React.useCallback((workspace: HerdrTreeWorkspace) => {
         const name = workspaceName(workspace);
-        Modal.alert('Close space?', `Closes "${name}" in herdr — its tabs, panes, and their processes are gone.`, [
+        Modal.alert('Close workspace?', `Closes only the "${name}" workspace in herdr. If that would close its worktree group, nothing closes.`, [
             { text: 'Cancel', style: 'cancel' },
             {
                 text: 'Close',
@@ -388,7 +388,7 @@ export const SpacesTree = React.memo(({
         if (sessionId === undefined) return;
         const labels = agentLabels(pane);
         const identity = labels.agentName === undefined ? '' : ` (${labels.agentName})`;
-        Modal.alert('Close pane?', `Closes "${labels.taskTitle}"${identity} in herdr — its process is gone.`, [
+        Modal.alert('Close pane?', `Closes only the pane for "${labels.taskTitle}"${identity} in herdr. If that would also close its tab, nothing closes.`, [
             { text: 'Cancel', style: 'cancel' },
             {
                 text: 'Close',

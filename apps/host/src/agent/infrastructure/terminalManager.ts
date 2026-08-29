@@ -349,12 +349,6 @@ export class TerminalManager {
         attachment.close();
     }
 
-    /** Kill every stream bound to a session (session.stop, host shutdown). */
-    detachSession(sessionId: string): void {
-        for (const [channel, attachment] of this.attachments) {
-            if (attachment.sessionId === sessionId) this.detach(channel);
-        }
-    }
 
     closeAll(): void {
         for (const channel of [...this.attachments.keys()]) this.detach(channel);

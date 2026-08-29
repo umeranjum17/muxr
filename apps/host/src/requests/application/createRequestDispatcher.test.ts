@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { MISSING_CWD_ERROR_PREFIX } from '@muxr/contract';
 import { createRequestDispatcher } from './createRequestDispatcher.js';
-import type { SessionSource } from '../../agent/index.js';
+import { createFakeSessionSource, type SessionSource } from '../../agent/index.js';
 import { hostPlatformLabel } from '../../machine/index.js';
 
 function dispatcherWithSpy(): { dispatch: ReturnType<typeof createRequestDispatcher>['dispatch']; started: string[] } {
@@ -100,6 +100,103 @@ describe('agent lifecycle request flow', () => {
             error: 'That agent is no longer available. Refresh and try again.',
         });
         expect(JSON.stringify(stale)).not.toMatch(/\/|prompt|pane-|stable-session/);
+    });
+});
+
+describe('session.stop dispatcher flow', () => {
+    it('forwards only the Agent Route through SessionSource and preserves safe failures', async () => {
+        const stops: string[] = [];
+        const source = {
+            async stop(sessionId: string) {
+                stops.push(sessionId);
+                if (sessionId === 'route-selected') return;
+                const ambiguous = sessionId === 'route-ambiguous';
+                const error = Object.assign(new Error(ambiguous
+                    ? 'That Agent Route is ambiguous. Refresh and select the agent again.'
+                    : 'That agent is no longer available. Refresh and try again.'), {
+                    code: ambiguous ? 'agent-route-ambiguous' : 'agent-unavailable',
+                });
+                throw error;
+            },
+        } as unknown as SessionSource;
+        const { dispatch } = createRequestDispatcher({
+            source,
+            domain: {} as never,
+            machineId: 'm1',
+            hostVersion: '0.0.0',
+        });
+
+        await expect(dispatch({
+            type: 'session.stop', requestId: 'stop-live', params: { sessionId: 'route-selected' },
+        } as never)).resolves.toMatchObject({ ok: true, data: null });
+        const stale = await dispatch({
+            type: 'session.stop', requestId: 'stop-stale', params: { sessionId: 'route-stale' },
+        } as never);
+        expect(stale).toMatchObject({ ok: false, code: 'agent-unavailable', error: 'That agent is no longer available. Refresh and try again.' });
+        const ambiguous = await dispatch({
+            type: 'session.stop', requestId: 'stop-ambiguous', params: { sessionId: 'route-ambiguous' },
+        } as never);
+        expect(ambiguous).toMatchObject({ ok: false, code: 'agent-route-ambiguous', error: 'That Agent Route is ambiguous. Refresh and select the agent again.' });
+        expect(stops).toEqual(['route-selected', 'route-stale', 'route-ambiguous']);
+        expect([stale, ambiguous].map((result) => 'error' in result ? result.error : '').join(' ')).not.toMatch(/w\d+:p\d+|route-(?:stale|ambiguous)/);
+    });
+
+    it('fake mode closes only the selected session layout and preserves its sibling', async () => {
+        const source = createFakeSessionSource();
+        await source.start({ cwd: '/tmp/fake-stop' });
+        await source.start({ cwd: '/tmp/fake-stop' });
+        const before = await source.list();
+        const selected = before[0]!;
+        const sibling = before[1]!;
+        const events: Array<{ sessionId: string; type: string }> = [];
+        source.subscribe((sessionId, event) => events.push({ sessionId, type: event.type }));
+        const { dispatch } = createRequestDispatcher({
+            source,
+            domain: {} as never,
+            machineId: 'm1',
+            hostVersion: '0.0.0',
+        });
+
+        await expect(dispatch({
+            type: 'session.stop', requestId: 'stop-fake', params: { sessionId: selected.id },
+        } as never)).resolves.toMatchObject({ ok: true, data: null });
+        await expect(source.list()).resolves.toEqual([sibling]);
+        await expect(source.open({ sessionId: sibling.id })).resolves.toMatchObject({ info: { id: sibling.id } });
+        await expect(source.open({ sessionId: selected.id })).rejects.toThrow('unknown session');
+        expect(events).toContainEqual({ sessionId: selected.id, type: 'session.removed' });
+        await source.dispose();
+    });
+});
+
+describe('explicit layout close dispatcher flow', () => {
+    it('forwards each named target without widening or narrowing its scope', async () => {
+        const closes: unknown[] = [];
+        const source = {
+            async closePane(sessionId: string) { closes.push({ type: 'pane', sessionId }); },
+            async closeTab(sessionId: string, tabId: string) { closes.push({ type: 'tab', sessionId, tabId }); },
+            async closeWorkspace(workspaceId: string) { closes.push({ type: 'workspace', workspaceId }); },
+        } as unknown as SessionSource;
+        const { dispatch } = createRequestDispatcher({
+            source,
+            domain: {} as never,
+            machineId: 'm1',
+            hostVersion: '0.0.0',
+        });
+
+        await expect(dispatch({
+            type: 'pane.close', requestId: 'close-pane', params: { sessionId: 'route-pane' },
+        } as never)).resolves.toMatchObject({ ok: true, data: null });
+        await expect(dispatch({
+            type: 'tab.close', requestId: 'close-tab', params: { sessionId: 'route-tab', tabId: 'tab-selected' },
+        } as never)).resolves.toMatchObject({ ok: true, data: null });
+        await expect(dispatch({
+            type: 'workspace.close', requestId: 'close-workspace', params: { workspaceId: 'workspace-selected' },
+        } as never)).resolves.toMatchObject({ ok: true, data: null });
+        expect(closes).toEqual([
+            { type: 'pane', sessionId: 'route-pane' },
+            { type: 'tab', sessionId: 'route-tab', tabId: 'tab-selected' },
+            { type: 'workspace', workspaceId: 'workspace-selected' },
+        ]);
     });
 });
 

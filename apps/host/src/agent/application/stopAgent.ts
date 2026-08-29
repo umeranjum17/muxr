@@ -9,12 +9,10 @@ export type StopAgentResult = { ok: true; data: null } | { ok: false; error: str
 
 export interface StopAgentPorts {
     sessions: Pick<SessionSource, 'stop' | 'abort' | 'reload'>;
-    detachSession?: (sessionId: string) => void;
 }
 
 export async function stopAgent(ports: StopAgentPorts, command: StopAgentCommand): Promise<StopAgentResult> {
     if (command.action === 'stop') {
-        ports.detachSession?.(command.sessionId);
         await ports.sessions.stop(command.sessionId);
         return { ok: true, data: null };
     }

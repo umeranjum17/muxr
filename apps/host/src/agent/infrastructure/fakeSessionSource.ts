@@ -334,7 +334,9 @@ export function createFakeSessionSource(): SessionSource {
 
         async abort() {},
         async stop(sessionId) {
+            requireSession(sessionId);
             sessions.delete(sessionId);
+            emit(sessionId, { type: 'session.removed' });
         },
         async reload() {},
         subscribe(listener) {

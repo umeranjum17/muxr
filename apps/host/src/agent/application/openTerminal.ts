@@ -15,7 +15,6 @@ export type OpenTerminalResult =
 export interface TerminalPort {
     attach(command: OpenTerminalCommand): Promise<{ paneId: string }>;
     detach(channel: string, deviceId?: string): void;
-    detachSession?(sessionId: string): void;
 }
 
 export async function openTerminal(port: TerminalPort | undefined, command: OpenTerminalCommand): Promise<OpenTerminalResult> {
