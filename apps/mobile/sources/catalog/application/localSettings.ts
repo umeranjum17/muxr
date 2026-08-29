@@ -14,7 +14,7 @@ export const LocalSettingsSchema = z.object({
     zenMode: z.boolean().describe('Hide all sidebars and non-essential UI for focused work'),
     promotedNotificationsPrompted: z.boolean().describe('Whether Android Live Updates access was already explained'),
     backgroundConnectionPrompted: z.boolean().describe('Whether Android background activity settings were already explained'),
-    vadStandbyEnabled: z.boolean().describe('Wake realtime voice from bounded local speech activity standby'),
+    vadStandbyEnabled: z.boolean().describe('Persistently wake realtime voice from local speech activity standby'),
     // Herd tab: bucket the agents section under workspace subheaders (herdr's "grouped" toggle).
     // Saved herdr tab layouts (split tree + agent kind per pane), newest first.
     savedLayouts: z

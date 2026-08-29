@@ -564,11 +564,15 @@ describe('session sync flow', () => {
             };
         }
         mmkvValues.set('lifecycle-voice-reports-v1', JSON.stringify(persistedVoice));
+        state.applyLocalSettings({ vadStandbyEnabled: true });
 
         // Module re-evaluation simulates the store/app restarting while MMKV remains.
         vi.resetModules();
         const restarted = (await import('./storage')).storage;
         restarted.getState().setLifecycleScope('test-authority:machine');
+        expect(restarted.getState().localSettings.vadStandbyEnabled).toBe(true);
+        restarted.getState().applyLocalSettings({ vadStandbyEnabled: false });
+        expect(JSON.parse(mmkvValues.get('local-settings')!).vadStandbyEnabled).toBe(false);
         expect(restarted.getState().voicePendingReports).toEqual([durableReport]);
         expect(restarted.getState().voiceDeliveredReportIds).not.toContain('voice-collision');
         restarted.getState().setLifecycleScope('x'.repeat(201));

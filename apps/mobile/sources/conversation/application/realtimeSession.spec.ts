@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RealtimeWebRtcCallbacks } from '../infrastructure/realtimeWebRtc';
+import type * as VadStandbyModule from './vadStandby';
 
 const mocks = vi.hoisted(() => ({
     openStream: vi.fn(),
@@ -25,6 +26,7 @@ const mocks = vi.hoisted(() => ({
         routeVoiceAudio: vi.fn(() => true),
         releaseVoiceAudio: vi.fn(),
         startVoiceService: vi.fn(() => true),
+        setVoiceNetworkActive: vi.fn(),
         stopVoiceService: vi.fn(),
     },
     webRtc: {
@@ -224,7 +226,7 @@ describe('generic realtime stream session', () => {
         await new Promise((resolve) => setTimeout(resolve, 30));
         expect(mocks.pcm.playRealtimePcm.mock.calls.filter(([data]) => data === 'c3RhbGUh')).toHaveLength(1);
 
-        const burst = Array.from({ length: 4 }, (_, index) => Buffer.alloc(20_000, index + 1).toString('base64'));
+        const burst = Array.from({ length: 180 }, (_, index) => Buffer.alloc(960, index + 1).toString('base64'));
         const pausesBefore = stream.send.mock.calls.filter(([frame]) => frame.action === 'pause_output').length;
         const resumesBefore = stream.send.mock.calls.filter(([frame]) => frame.action === 'resume_output').length;
         mocks.pcm.playRealtimePcm.mockReturnValue(false);
@@ -396,10 +398,18 @@ describe('generic realtime stream session', () => {
         expect(stream.close).toHaveBeenCalledOnce();
     });
 
-    it('arms locally after two speech-energy chunks and keeps silence off the provider path', async () => {
-        const vad = await vi.importActual<typeof import('./vadStandby')>('./vadStandby');
+    it('arms locally without an expiry and keeps silence off the provider path', async () => {
+        vi.useFakeTimers();
+        const timeout = vi.spyOn(globalThis, 'setTimeout');
+        const vad = await vi.importActual<typeof VadStandbyModule>('./vadStandby');
         const wake = vi.fn();
-        await expect(vad.startVadStandby(wake, vi.fn())).resolves.toBe(true);
+        await expect(vad.startVadStandby(wake)).resolves.toBe(true);
+        expect(timeout).not.toHaveBeenCalledWith(expect.any(Function), 30 * 60_000);
+        expect(mocks.pcm.startVoiceService.mock.invocationCallOrder[0])
+            .toBeLessThan(mocks.liveAudio.init.mock.invocationCallOrder[0]!);
+        expect(mocks.pcm.setVoiceNetworkActive).toHaveBeenCalledWith(false);
+        await vi.advanceTimersByTimeAsync(31 * 60_000);
+        expect(vad.vadStandbyOwnsMicrophone()).toBe(true);
         const inspect = mocks.liveAudio.on.mock.calls.at(-1)![1] as (data: string) => void;
         inspect(Buffer.alloc(4_800).toString('base64'));
         expect(wake).not.toHaveBeenCalled();
@@ -410,16 +420,18 @@ describe('generic realtime stream session', () => {
         inspect(speech.toString('base64'));
         expect(wake).toHaveBeenCalledOnce();
         vad.stopVadStandby();
+        expect(vad.vadStandbyOwnsMicrophone()).toBe(false);
+        vi.useRealTimers();
 
         let finishInit!: () => void;
         mocks.liveAudio.init.mockImplementationOnce(() => new Promise<boolean>((resolve) => {
             finishInit = () => resolve(true);
         }));
         const startsBeforeCancellation = mocks.liveAudio.start.mock.calls.length;
-        const arming = vad.startVadStandby(vi.fn(), vi.fn());
+        const arming = vad.startVadStandby(vi.fn());
         await vi.waitFor(() => expect(finishInit).toBeTypeOf('function'));
         vad.cancelVadStandbyStart();
-        const newerArming = vad.startVadStandby(vi.fn(), vi.fn());
+        const newerArming = vad.startVadStandby(vi.fn());
         finishInit();
         await expect(arming).resolves.toBe(false);
         await expect(newerArming).resolves.toBe(true);

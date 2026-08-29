@@ -51,6 +51,7 @@ public final class VoiceOverlayModule: Module {
     // iOS has no Android-style foreground service. These keep the shared JS
     // lifecycle platform-blind while APNs owns background agent notifications.
     Function("startService") { true }
+    Function("setNetworkActive") { (_: Bool) -> Bool in true }
     Function("stopService") { true }
     Function("startHerdService") { false }
     Function("stopHerdService") { true }

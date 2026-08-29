@@ -9,7 +9,7 @@ import { WebSocketServer } from 'ws';
 import { describe, expect, it } from 'vitest';
 import { RealtimeCodingCoordinator } from '../../apps/host/src/agent/infrastructure/realtimeCoordinator.ts';
 import { parseRealtimeHostFrame } from '../../packages/contract/src/realtime/domain/realtimeStream.ts';
-import { providerTools as geminiTools } from '../voice-gemini/stream.mjs';
+import { chunkAudio as chunkGeminiAudio, providerTools as geminiTools } from '../voice-gemini/stream.mjs';
 import { providerTools as openaiTools } from '../voice-openai/stream.mjs';
 import { providerError, providerRefusal, providerTools as xaiTools } from './stream.mjs';
 import { approvedSignalingUrl } from '../voice-codex/stream.mjs';
@@ -37,6 +37,17 @@ describe('providerRefusal', () => {
         expect(providerRefusal(403, body)).toBe(
             'Voice provider refused the connection (HTTP 403): Your team has either used all available credits or reached its monthly spending limit.',
         );
+    });
+
+    it('preserves a provider-shaped Gemini burst in native-paced frames', () => {
+        const pcm = Buffer.concat(Array.from({ length: 400 }, (_, index) => Buffer.alloc(960, index)));
+        const burst = pcm.toString('base64');
+        const frames = chunkGeminiAudio(burst);
+        expect(frames).toHaveLength(400);
+        expect(frames.map((frame) => Buffer.from(frame, 'base64')[0])).toEqual(
+            Array.from({ length: 400 }, (_, index) => index & 0xff),
+        );
+        expect(Buffer.from(frames.join(''), 'base64')).toEqual(pcm);
     });
 
     it('falls back to code when there is no error field', () => {

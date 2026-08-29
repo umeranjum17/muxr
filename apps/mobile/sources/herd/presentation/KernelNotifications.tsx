@@ -15,7 +15,7 @@ import {
 } from '@/../modules/voice-overlay';
 import { requestNotificationPermission } from '@/utils/microphonePermissions';
 import { completionNotificationState, completionTransition, herdNotificationState, sortHerd, type HerdNotificationState } from '../domain/herd';
-import { boundRealtimeSession, configureVadStandby, useRealtimeMuted, useRealtimeSessionState } from '@/conversation/session';
+import { boundRealtimeSession, retryVadStandby, useRealtimeMuted, useRealtimeSessionState } from '@/conversation/session';
 import { Modal } from '@/modal';
 import { registerNativePushNotifications } from '@/utils/nativePushNotifications';
 
@@ -117,7 +117,7 @@ export function KernelNotifications() {
 
     React.useEffect(() => {
         if (isAuthenticated && appActive && vadStandbyEnabled && sessionCount > 0) {
-            void configureVadStandby(true);
+            void retryVadStandby();
         }
     }, [appActive, isAuthenticated, sessionCount, vadStandbyEnabled]);
 
