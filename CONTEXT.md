@@ -39,7 +39,7 @@ An isolated checkout herdr creates so Agents can work in parallel on one repo.
 _Avoid_: branch folder, clone
 
 **Agent Name**:
-The current Herdr `agent.name` (`falcon`, `reviewer`). Every surface renders it directly; muxr never aliases or persists it.
+The current Herdr `agent.name`. Every surface renders it directly; muxr never aliases or persists it.
 _Avoid_: label, display label, pane title, cached name
 
 **Task Title**:
@@ -102,26 +102,22 @@ _Avoid_: chip URL, detected hyperlink
 The intended mesh of paired Machines that can reach each other. Machine ids authorize; computer names never do.
 _Avoid_: peer graph, computer sharing
 
-## Hosted pairing
+## Pairing
 
 **Pairing String**:
-The URL a person pastes or scans to bind this device to a machine. Distinct from account login.
+The URL a person pastes or scans to bind this device to a Machine.
 _Avoid_: claim, ticket, QR payload
 
-**Hosted Grant**:
-The verified machine permission this device stores after pairing. It owns authority, the relay, and the keys used to open sealed traffic.
-_Avoid_: token, pairing cache, device record
-
 **Device Authority**:
-Control or observe permission stored on the Hosted Grant. Comes from the Pairing String, never from a machine display name.
+Control or observe permission stored on the Device Grant. Comes from the Pairing String, never from a machine display name.
 _Avoid_: role, browser flag
 
 **Connection**:
-Hosted (grant-backed) or local (dev fixture) reachability for one machine id.
+Grant-backed or local (dev fixture) reachability for one machine id.
 _Avoid_: settings blob, relay config
 
 **Account Credential**:
-Proof of the person's muxr account. Independent of any Hosted Grant.
+Optional login proof, independent of any Device Grant.
 _Avoid_: token, pairing, device grant
 
 **Mic Ownership**:
@@ -143,7 +139,7 @@ The published path phones use to reach a Self-host relay: Tailscale Serve, a Clo
 _Avoid_: tunnel, proxy, advertise URL
 
 **Self-host**:
-A machine-owned relay and pairing authority, as opposed to the hosted cloud control plane.
+A machine-owned relay and pairing authority.
 _Avoid_: local mode, selfhost.json, standalone
 
 **Machine**:

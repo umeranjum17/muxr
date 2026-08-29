@@ -107,7 +107,7 @@ The VPS menu includes **Machines** with friendly names and list-number selection
 - [x] Clickable read-only browser pairing retains server-bound authority and secure-context checks.
 - [x] Final summaries expose URLs and health, never ids, credentials, claims, or keys.
 - [x] Existing local self-host flow, 30-gate suite, and package smoke are green.
-- [x] The EAS Cloud Android 0.1.11 emulator build accepted a live Tailscale pairing string, completed the grant handoff, deleted relay lookup state, and reached the connected Herd screen.
+- [x] An Android emulator build accepted a live Tailscale pairing string, completed the grant handoff, deleted relay lookup state, and reached the connected Herd screen.
 
 ## Revisions
 

@@ -1,8 +1,7 @@
 # Native Android build
 
-muxr Android builds run locally with EAS. Do not use cloud EAS build
-credits. Phone artifacts default to `arm64-v8a`; build `x86_64` only when an
-emulator explicitly needs it.
+muxr Android builds run locally with EAS. Phone artifacts default to
+`arm64-v8a`; build `x86_64` only when an emulator explicitly needs it.
 
 **Expo Go will not work.** The app ships custom native modules
 (`voice-overlay`, `plugin-shortcuts`) and `patch-package` patches. Use a native
@@ -56,9 +55,9 @@ kotlin.daemon.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=2g
 Without this, Kotlin/Gradle can fail with misleading type-tag errors after JVM
 metaspace exhaustion.
 
-## Hosted connection configuration
+## Relay URL baked into a build
 
-Hosted builds compile only the public relay origin; device credentials and E2EE
+A grant-backed build compiles only the public relay origin; device credentials and E2EE
 keys are created at runtime and live in platform SecureStore:
 
 ```json
@@ -67,7 +66,7 @@ keys are created at runtime and live in platform SecureStore:
 }
 ```
 
-`scripts/buildAndroidLocal.sh` defaults to `EXPO_PUBLIC_MUXR_MODE=hosted` and
+`scripts/buildAndroidLocal.sh` defaults to the grant-backed relay mode and
 unsets the public fixture token. For the internal LAN fixture only, set
 `EXPO_PUBLIC_MUXR_MODE=local` explicitly and provide its local connection
 values. Never distribute a build containing fixture credentials.
@@ -90,7 +89,7 @@ has no default and must be the HTTPS origin that will host activation plus iOS
 Universal Link and Android App Link association files.
 
 Set `MUXR_EAS_PROJECT_ID` only after creating or transferring the owner’s muxr
-project. Signed store releases use the manual EAS Cloud workflow documented in
+project. Signed store releases use remote EAS builds documented in
 `RELEASING.md`; do not distribute a direct Gradle build, which has no owner
 release credential. Local EAS profiles remain available for development APKs.
 Changing the production app identifier creates a separate store identity unless

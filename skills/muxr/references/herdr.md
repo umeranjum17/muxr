@@ -9,8 +9,8 @@ If that section is missing, run `herdr --skill` and follow its output.
 
 - Prefer a Herdr pane over an in-process subagent when work should stay running,
   run in parallel, or remain visible on the user's phone.
-- Every Herdr pane exports `HERDR_PANE_ID` (for example `w2A:p4`). Never guess
-  ids. The current workspace is `${HERDR_PANE_ID%%:*}`.
+- Every Herdr pane exports `HERDR_PANE_ID`. Never guess ids. The current
+  workspace is `${HERDR_PANE_ID%%:*}`.
 - Keep `HERDR_PANE_ID` private. User-facing messages use workspace, tab, pane,
   machine names, Agent Names, and Task Titles rather than internal ids.
 - Final user-facing files belong in

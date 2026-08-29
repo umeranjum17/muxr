@@ -1,44 +1,33 @@
 # Releasing muxr
 
-Pull requests and merges run the normal CI suite. Mobile builds are deliberately manual: one workflow builds and deploys to internal testers, and a separately protected workflow promotes those exact binaries to production. npm releases remain a third independent gate.
+Pull requests and merges run the normal CI suite. npm publishes from a
+protected tag workflow. Store binaries are built through remote EAS when a
+store release is needed; production promotes those exact binaries without
+rebuilding.
 
-## Mobile internal testing
+## Mobile
 
-Run `.github/workflows/mobile-internal.yml` from the GitHub Actions **Run workflow** button and choose Android, iOS, or all. It is not triggered by pushes or merges.
+Run `.github/workflows/mobile-internal.yml` from the GitHub Actions **Run
+workflow** button and choose Android, iOS, or all. It is not triggered by
+pushes or merges. The workflow runs remote EAS builds and submits them to Play
+Internal and TestFlight.
 
-The workflow:
+Production promotion uses `.github/workflows/mobile-production.yml` against the
+successful internal run. It does not rebuild: Android promotes the existing
+Play Internal release, and iOS submits the existing TestFlight build.
 
-1. runs the mobile release gate before spending cloud capacity;
-2. reserves unique EAS-managed `versionCode` and `buildNumber` values;
-3. builds production-signed Android and iOS binaries in EAS Cloud;
-4. auto-submits the newly created builds to Play Internal and TestFlight;
-5. waits for the linked EAS Build and EAS Submit jobs to finish;
-6. records native build identifiers plus EAS build and submission IDs in the GitHub summary.
-
-Runs are serialized so two manual releases cannot race. Build progress and logs appear in the EAS dashboard; orchestration and the final summary appear in GitHub Actions. Neither lane depends on a workstation or local native toolchain.
-
-The `stores` GitHub environment owns `EXPO_TOKEN` (preferred) or `EXPO_STATE_JSON` and `PLAY_SERVICE_ACCOUNT_JSON`. EAS owns the production signing credentials and App Store Connect submission key. Keep all credential material out of the repository.
-
-## Mobile Closed testing
-
-Run `.github/workflows/mobile-closed.yml` with the successful Android internal workflow run, marketing version, and exact Android version code. The workflow proves the Internal run succeeded on the same `main` commit, verifies the recorded EAS build and submission identifiers, confirms the version is available on Play Internal, then promotes that existing release to the `alpha` Closed-testing track. It verifies Closed-track availability after promotion and never rebuilds or uploads another binary.
-
-## Mobile production promotion
-
-Run `.github/workflows/mobile-production.yml` with the successful all-platform internal workflow run, exact Android version code, and exact iOS build number. The production workflow proves that run succeeded on the same `main` commit and that its recorded artifacts match every supplied version before the protected `production` approval gate opens.
-
-Production does not rebuild:
-
-- Android promotes the existing Play Internal release to Production with the selected staged rollout.
-- iOS selects the existing TestFlight build, uploads the supplied English release notes, and submits it for App Review. Automatic release after Apple approval is off by default.
-
-The `production` environment owns the Play and App Store Connect API credentials. Removing its required reviewer later turns production into a policy change; keep the no-rebuild promotion lanes unchanged.
+Keep signing and store credentials out of the repository.
 
 ## npm and GitHub releases
 
-After the mobile build has been tested, bump `package.json`, update release notes and version-pinned README downloads in a pull request, then publish the matching GitHub release tag (`vX.Y.Z`). `.github/workflows/publish.yml` verifies that the immutable tag matches the package version and publishes with npm trusted publishing and provenance.
+After the mobile build has been tested, bump `package.json`, update release
+notes and version-pinned README downloads in a pull request, then publish the
+matching GitHub release tag (`vX.Y.Z`). `.github/workflows/publish.yml`
+verifies that the immutable tag matches the package version and publishes with
+npm trusted publishing and provenance.
 
-If the release event is interrupted before npm publishes, rerun it for the existing tag:
+If the release event is interrupted before npm publishes, rerun it for the
+existing tag:
 
 ```bash
 gh workflow run publish.yml -f tag=vX.Y.Z
@@ -59,4 +48,4 @@ cmp install.sh "$tmp"
 rm -f "$tmp"
 ```
 
-The `npm` environment must keep its required reviewer and branch policy. All third-party GitHub Actions remain pinned to commit SHAs.
+All third-party GitHub Actions remain pinned to commit SHAs.

@@ -16,11 +16,9 @@ A verified phone remains paired until explicitly revoked. muxr MUST NOT require 
 
 ## Evidence and standards
 
-The grant is bound to a device key; expiry is not revocation. The current 30-day cliff drops the mobile grant and host ingress key with no recovery path. Self-hosted machines may be offline from any control plane. Security comes from per-device credentials, immediate socket/credential revocation, and key rotation excluding the revoked device.
+The grant is bound to a device key; expiry is not revocation. The current 30-day cliff drops the mobile grant and host ingress key with no recovery path. Self-hosted machines may be offline. Security comes from per-device credentials, immediate socket/credential revocation, and key rotation excluding the revoked device.
 
-Claude: APPROVE — routine 30-day re-pairing is security-shaped friction.  
-Codex: APPROVE WITH NOTE — self-host revocation must remove/rotate E2EE device keys, not only mark the relay credential revoked.  
-Owner: accepted.
+Owner: accepted. Self-host revocation must remove/rotate E2EE device keys, not only mark the relay credential revoked.
 
 ## Failure scenario
 
@@ -28,7 +26,7 @@ A paired phone reaches day 30 while its machine is healthy; both sides discard t
 
 ## Validation
 
-Implemented and independently approved by Claude and Codex. `scripts/diagnostics/application/checkSelfhostRevocation.mjs` pairs two devices through the real relay, revokes one, proves its live socket, credential, pre-minted ticket, and grant fail, rotates the shared/per-device keys for the survivor, restarts the relay, and proves revocation persists while the survivor reconnects. The forced workspace/mobile typechecks, crypto self-check, and focused mobile terminal/sync flows pass.
+Implemented. `scripts/diagnostics/application/checkSelfhostRevocation.mjs` pairs two devices through the real relay, revokes one, proves its live socket, credential, pre-minted ticket, and grant fail, rotates the shared/per-device keys for the survivor, restarts the relay, and proves revocation persists while the survivor reconnects. The forced workspace/mobile typechecks, crypto self-check, and focused mobile terminal/sync flows pass.
 
 ## Rollback and reopen trigger
 

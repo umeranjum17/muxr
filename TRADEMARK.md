@@ -16,4 +16,4 @@ You may not:
 - Use the marks in domain names, app store listings, or company names without
   written permission.
 
-The hosted muxr service (trymuxr.com) and its branding are not open source.
+The muxr website (trymuxr.com) and its branding are not open source.

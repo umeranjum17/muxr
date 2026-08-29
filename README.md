@@ -18,7 +18,7 @@
 
 <p align="center">
   <a href="https://play.google.com/apps/testing/com.trymuxr.app">Google Play testing</a> ·
-  <a href="https://testflight.apple.com/join/aJSbs8pN">TestFlight: pending Apple beta review</a> ·
+  <a href="https://testflight.apple.com/join/aJSbs8pN">iOS TestFlight</a> ·
   <a href="https://github.com/umeranjum17/muxr/releases/download/v0.1.22/muxr-android-0.1.12-build47.apk">Direct APK: 0.1.12 (build 47)</a> ·
   <a href="https://github.com/umeranjum17/muxr/releases/tag/v0.1.22">Release 0.1.22</a>
 </p>
@@ -114,13 +114,11 @@ Parallel agents work like a party: each has a job, a state, and moments when it 
 
 ![muxr as an RPG party command center with the Herd, terminal, changes, Inbox, and voice](docs/art/rpg-cover.png)
 
-## Cloud without a cloud computer
+## Your machines, your relay
 
-Your phone and computer need a secure way to stay connected across networks. They do not need us to run your agents.
+Your phone and computer stay connected over Wi-Fi, Tailscale, or a VPS you run. Nobody else runs your agents.
 
-**muxr Cloud** helps paired devices reach each other and wakes your phone when an agent needs attention. Terminal text, prompts, responses, keystrokes, files, pairing secrets, and credentials remain end-to-end encrypted. Agents, repositories, model subscriptions, and encryption keys stay on your computer.
-
-muxr Cloud is rolling out to testers now. Self-hosting is available to everyone today over Wi-Fi, Tailscale, or a VPS. The app and features are the same either way.
+Terminal text, prompts, responses, keystrokes, files, pairing secrets, and credentials remain end-to-end encrypted. Agents, repositories, model subscriptions, and encryption keys stay on your computer.
 
 [Privacy and trust →](https://trymuxr.com/docs/privacy) · [Self-hosting →](docs/SELF-HOSTING.md)
 
@@ -136,7 +134,7 @@ muxr
 Then install the mobile companion:
 
 - **Android:** [join Google Play testing](https://play.google.com/apps/testing/com.trymuxr.app) · [download the signed APK (0.1.12 build 47)](https://github.com/umeranjum17/muxr/releases/download/v0.1.22/muxr-android-0.1.12-build47.apk) · [SHA256SUMS](https://github.com/umeranjum17/muxr/releases/download/v0.1.22/SHA256SUMS)
-- **iOS:** [TestFlight](https://testflight.apple.com/join/aJSbs8pN) — build 0.1.12 (43) is pending Apple beta review and is not accepting testers yet
+- **iOS:** [open the public TestFlight link](https://testflight.apple.com/join/aJSbs8pN) — Apple is not accepting new testers right now
 - **Web:** pair an eight-hour read-only browser during self-hosted setup
 - **All builds:** [muxr 0.1.22 release](https://github.com/umeranjum17/muxr/releases/tag/v0.1.22)
 

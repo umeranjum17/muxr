@@ -51,7 +51,7 @@ The shared contract adds four host-owned operations:
 
 The phone may keep a non-authoritative pending plan so the screen can retry after an offline machine returns. Host records and target authority remain the truth.
 
-Hosted and self-hosted authorities must implement equivalent peer issue, refresh, rotation, and revoke semantics. A peer is a distinct device kind, not a native phone disguised as `control`.
+Each self-host relay must implement equivalent peer issue, refresh, rotation, and revoke semantics. A peer is a distinct device kind, not a native phone disguised as `control`.
 
 ## Capability enforcement
 
@@ -149,9 +149,9 @@ Only the pinned voice host needs a configured provider. Other peers do not need 
 The release implementation adds the following security and recovery invariants:
 
 - peer mutations expire after five minutes and each device has a strict 64-receipt admission cap; authenticated revocation is idempotent and bypasses attacker-controlled receipts
-- `peer.authorize` journals before authority issuance, checkpoints hosted pair-session recovery, uploads the grant before local crypto activation, persists a repair-visible relationship, and resumes every phase after restart
+- `peer.authorize` journals before authority issuance, checkpoints pair-session recovery, uploads the grant before local crypto activation, persists a repair-visible relationship, and resumes every phase after restart
 - legacy peer crypto devices without a relationship are discovered and revoked through key rotation instead of consuming fleet slots forever
-- hosted issuance uses the deployed generic pair-session claim and grant flow, device revoke, and machine key rotation APIs; self-host keeps its dedicated peer routes
+- issuance uses the pair-session claim and grant flow, device revoke, and machine key rotation APIs
 - a peer client sends mutations only after a fresh random liveness request receives its correlated encrypted result
 - decrypted client frames are validated before host access and malformed-frame errors are null-safe
 - voice adapters expose no raw Herdr CLI or close tool; remote output is bounded and redacts credentials, internal ids, and private paths before provider access
@@ -167,9 +167,9 @@ The optional **Start agents** permission remains deferred. It returns only when 
 4. Add the Settings collaboration flow, convergence states, repair, and disconnect UX.
 5. Make realtime targets machine-aware and pin reconnect state.
 6. Add constrained peer tools to the voice host without exposing credentials to provider plugins.
-7. Exercise hosted and self-hosted flows, then finish adversarial review and release evidence.
+7. Exercise the pairing and relay flows on a user-owned relay.
 
-The work lands as one cohesive feature PR with reviewable internal commits.
+The work lands as one cohesive feature PR.
 
 ## Primary files
 
@@ -195,22 +195,6 @@ The work lands as one cohesive feature PR with reviewable internal commits.
 
 ## Revisions
 
-- 2026-08-25: hardened the release after hostile review: receipt admission and security-first revoke, crash-recoverable authorization, correlated liveness, strict frame validation, deployed hosted generic pairing APIs, immutable voice grant refresh, pairing guards, destructive voice-tool removal, and remote-output redaction.
-- 2026-08-25: reopened after owner review to add directed watch settlement, per-stream voice broker capabilities and strict parsing, retryable recovery fencing, canonical mobile authority reconciliation, stable user-facing names, and focused PeerRuntime responsibility extraction.
-- 2026-08-25: reopened after independent Sol review for active capability abort, exact private watch settlement, reconnect-safe semantic mutations, security-first local revocation, alias churn, deep mobile intent normalization, and precise trusted-local-plugin documentation.
-- 2026-08-26: reopened after live owner testing because machine checkmarks looked persisted before confirmation, the permission card was not interactive, and ordinary offline setup was mislabeled `Needs attention`; replace the fixed card with a real revoking switch, reserve the warning for repair, and keep interrupted authorization and pending disconnect retries convergent.
-- 2026-08-26: reopened after the third owner iteration and a Fable HOLD: add an ordinary-agent peer CLI, preserve outdated/offline/authorization causes through Settings with an explicit Connected receipt, and make CLI skill loading progressive instead of dumping every reference.
-- 2026-08-26: reopened after live owner evidence showed the collaboration screen falsely rendered an empty pairing state while remote checks were pending; render saved grants immediately and add a bounded host diagnostic journal plus `muxr diagnostics` so local agents can inspect client, relay, peer, and broker history without raw log dumps.
-- 2026-08-26: the real Android, Linux, and Hetzner journey exposed active-socket contention, owner-authority gaps, stale remote credentials, loopback peer bundles, incomplete peer-state validation, and revoked alias churn; v0.1.20 fixes each root cause and is implemented pending the remaining macOS and live voice acceptance.
-- 2026-08-26: reopened after the first real Linux and macOS ceremony produced an asymmetric relationship: Linux installed outbound Mac access, but Mac rejected its reciprocal preparation step. Preserve the safe one-way edge, expose the failing machine and phase accurately, and make repair converge without weakening peer authority.
-- 2026-08-26: instrumented Linux-to-Mac transport proved grant refresh, ticket issue, and socket open succeed before liveness times out. Upgraded local self-host state can retain a legacy machine credential that puts the host and peer sockets in different relay tenants; prefer local owner authority automatically, reject target/grant machine mismatches, preserve bounded phase diagnostics, attribute mobile failures only to the computer handling the failed phase, and prefix delivered prompts with the sanitized source-computer name so receiving agents know which peer spoke.
-- 2026-08-26: both current runtimes proved a pre-migration relationship can remain canonically connected while liveness fails. Settings now probes each fully connected directed edge, marks only the broken direction for repair, and Retry revokes and recreates that peer device and relationship without deleting files or disturbing the healthy reverse direction.
-- 2026-08-26: fresh reciprocal relationships still left Linux-to-Mac liveness blocked after successful grant refresh, ticket issue, and socket open while Mac-to-Linux passed. Target hosts now retain redacted `peer.ingress` received, decrypt-rejected, and decoded boundaries so one correlated attempt distinguishes relay delivery from ingress decryption without recording sender ids, keys, envelopes, or payloads.
-- 2026-08-26: the correlated target window contained no peer ingress event, ruling out target-host decryption. The relay now retains 15 minutes / 64 owner-only redacted peer route outcomes (`delivered`, `tenant-mismatch`, or `target-unavailable`) and regression coverage reproduces a Linux peer ticket in the wrong self-host tenant while the Mac target socket is online.
-- 2026-08-26: cross-relay evidence proved the Linux outbound peer opened against the wrong relay: the source relay delivered locally while the target Mac relay and host saw nothing. The target host now canonically signs only its own relay endpoint into the install bundle; an optional caller endpoint is an equality assertion that fails closed and can never select routing. The source persists that signed endpoint and uses it for grant refresh, ticket issue, and WebSocket creation. Local Tailscale hosts derive their owned public relay endpoint from current ingress instead of stale copied relay state. Distinct target/source/stale-relay coverage proves stale caller state is rejected, source and stale relays receive zero sockets, and the target receives and completes liveness.
-- 2026-08-26: a failed authorization followed by matching revocation could clear the durable recovery journal but leave the runtime's cached recovery fence set, causing an immediate retry to fail in 1 ms. Successful cancellation now recomputes and clears the cache/timer when no work remains; `peer-recovery-pending` is allowlisted and rendered as a bounded retry message. Regression proves revoke followed immediately by prepare succeeds.
-- 2026-08-26: real Linux-to-Mac and Mac-to-Linux list, status, bounded read, prompt, and completed watch all pass on identical packaged runtimes. A gated-auth experiment proved the target relay could drop immediate liveness frames before its asynchronous ticket check installed the message handler; relay sockets now pause before authentication and resume only after authorization, routing, and detach handlers are installed.
-- 2026-08-26: thermonuclear restart and revocation review fenced disposed peer clients and relationships before durable cleanup, prevented stale socket callbacks and shutdown retries from recreating access, made daemon start/restart wait for the peer broker, retried transient launchd bootstrap error 5, and raised Linux's bounded service start burst to 20 per minute. Ten cold restart-to-first-list cycles pass in each direction.
 - 2026-08-28: completed the Agent Name vocabulary cutover so Herdr `agent.name` is canonical, Agent Route alone authorizes, and `displayName` survives only at compatibility wire boundaries.
 
 ## Verification
@@ -229,19 +213,4 @@ The work lands as one cohesive feature PR with reviewable internal commits.
 - [x] Internal ids, raw terminal output, credentials, and private paths are never displayed, spoken, or exported through diagnostics.
 - [x] `muxr diagnostics` shows bounded relay, recently-seen client, peer relationship, collaboration request, and broker history after restart without prompts, paths, secrets, or raw/internal ids.
 - [x] Existing local Herdr, pairing, plugin, voice, Android, iOS, and relay isolation flows remain green.
-
-## Review evidence
-
-- 2026-08-25: directed peer watch, broker capability/closed-union rejection, recovery retry/fencing, stable aliases, and canonical mobile reconciliation passed in the two existing flow suites (5 flow tests across 2 files).
-- 2026-08-25: voice/provider checks passed (29 assertions across realtime session, provider refusal, and plugin catalog flows; bundled plugin policy and voice RPC lifecycle also passed).
-- 2026-08-25: strict workspace typecheck passed. `scripts/diagnostics/application/runSuite.mjs` passed 30/30 once; a final rerun passed 29/30 with only the live Herdr check timing out while scanning 95 sessions, and that exact check passed immediately when rerun alone.
-- 2026-08-25: independent-review repairs passed the existing peer/mobile flow suites (5 flow tests): concurrent private watch correlation, watch and prompt reconnect with the same operation id, active broker-call revocation, local-first revocation recovery, alias churn, and malformed/duplicate intent normalization.
-- 2026-08-25: the latest strict typecheck, voice/provider checks, bundled-plugin policy, voice RPC lifecycle, and `scripts/diagnostics/application/runSuite.mjs` all passed; the full suite finished 30/30 including live Herdr and package smoke checks.
-- 2026-08-25: `git diff --check` passed.
-- 2026-08-26: Fable first returned HOLD because terminal agents had no peer CLI and Settings swallowed compatibility errors. After the owner-only `muxr peers` path, actionable state model, progressive skill loading, real CLI flow assertions, package smoke, and 30/30 suite landed, Fable returned RELEASE conditional only on preserving the prior deterministic wait fix and tracking `scripts/setup/application/promptPeerAgent.mjs`; both conditions are satisfied after rebase.
-- 2026-08-26: a standalone Android build paired this Linux host and a fresh Hetzner self-host relay, rendered both saved computers immediately, reached the explicit **Computers connected** receipt, and left symmetric connected host relationships.
-- 2026-08-26: with the phone force-stopped, the ordinary local CLI listed the VPS and exercised status, read, prompt, and watch; `muxr diagnostics` recorded bounded successful broker operations. Host restart preserved the relationship.
-- 2026-08-26: mobile revocation made the CLI unavailable immediately, converged to an empty peer list, and a new authorization succeeded afterward. Final Fable review returned **SHIP**, the full suite passed 30/30, and npm v0.1.20 was published.
-- 2026-08-26: PR #138 phase instrumentation isolated Linux-to-Mac failure to encrypted liveness after successful grant refresh, ticket issue, and WebSocket open. The target/grant machine invariant, liveness-timeout category, native polling suppression, one-machine error attribution, stale local machine-credential upgrade path, source-computer prompt provenance, and automatic one-direction relationship repair pass focused flows, strict typecheck, package smoke, and the full 30/30 suite.
-- 2026-08-26: identical packaged Mac and Linux runtimes passed both reciprocal 5/5 matrices, including completed idle watches and readable output. Linux and macOS each passed 10/10 daemon restart → immediate first peer-list cycles; the full 30/30 suite, package smoke, strict typecheck, hosted authority rotation flow, revocation, relay isolation, voice lifecycle, and secret scan pass.
-- Remaining live acceptance: cross-machine native voice with a real provider. Its pinned-stream, explicit-switch guard, per-stream broker capability, remote prompt/read/watch, output redaction, and capability revocation paths pass deterministic flows, but the spec remains `in-progress` until that real-provider ceremony runs.
+- [ ] Remaining live acceptance: cross-machine native voice with a real provider.

@@ -21,7 +21,7 @@ Primary gate: clean Linux VM plus a fresh API 36 Android emulator. Follow-up doc
    - Confirm relay health, host connection, owner-only state permissions, and a visible QR plus short two-minute pairing string.
 4. **Pair a fresh phone**
    - Install the exact release build on a factory-reset emulator.
-   - Complete QR/pair-string consent. Confirm the app discovers or reaches only the chosen relay and reaches the Herd without email, checkout, or managed-tier UI.
+   - Complete QR/pair-string consent. Confirm the app discovers or reaches only the chosen relay and reaches the Herd without email or checkout.
 5. **Control real work**
    - Create a disposable git repository and start one real Herdr agent.
    - From the app: see working/waiting/done state, open its real terminal, send input, answer a prompt, stop/restart, and confirm the phone reflects Herdr truth.
