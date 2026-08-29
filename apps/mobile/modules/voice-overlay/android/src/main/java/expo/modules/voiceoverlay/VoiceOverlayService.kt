@@ -38,6 +38,11 @@ class VoiceOverlayService : Service() {
     private const val HERD_GROUP_KEY = "muxr.herd"
     @Volatile private var voiceForegroundReady = false
     internal fun isVoiceForegroundReady(): Boolean = voiceForegroundReady
+    @Volatile private var voiceNetworkActive = true
+    internal fun setNetworkActive(active: Boolean) {
+      voiceNetworkActive = active
+      instance?.get()?.applyNetworkLock(active)
+    }
 
     private var instance: WeakReference<VoiceOverlayService>? = null
     private var herdMode = "offline"
@@ -59,9 +64,8 @@ class VoiceOverlayService : Service() {
     private var voiceMuted = false
     private var voiceStartedAt = 0L
     /**
-     * Held only while a voice session is live: keeps the CPU and the Wi-Fi
-     * radio responsive with the screen off so the realtime socket and PCM
-     * playback do not stall. Both are released on stop/destroy/timeout.
+     * The CPU lock keeps background microphone detection alive. The Wi-Fi
+     * low-latency lock is held separately only for connected realtime traffic.
      */
     private var voiceWakeLock: PowerManager.WakeLock? = null
     private var voiceWifiLock: WifiManager.WifiLock? = null
@@ -535,6 +539,14 @@ class VoiceOverlayService : Service() {
         ?.apply { setReferenceCounted(false) }
     }
     runCatching { if (voiceWakeLock?.isHeld == false) voiceWakeLock?.acquire() }
+    applyNetworkLock(voiceNetworkActive)
+  }
+
+  private fun applyNetworkLock(active: Boolean) {
+    if (!active) {
+      runCatching { if (voiceWifiLock?.isHeld == true) voiceWifiLock?.release() }
+      return
+    }
     if (voiceWifiLock == null) {
       val wifi = applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
       voiceWifiLock = wifi?.createWifiLock(WifiManager.WIFI_MODE_FULL_LOW_LATENCY, "muxr:voice")

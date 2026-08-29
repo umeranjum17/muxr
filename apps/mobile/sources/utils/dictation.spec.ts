@@ -5,10 +5,11 @@ import { useDictation } from '@/utils/dictation';
 import { pcm16ChunksToArrayBuffer } from '@/utils/transcription';
 import { wakeAndReport } from '@/watch/application/wakeAndReport';
 import { usePluginEvents } from '@/plugins/events';
-import { cancelRealtimeReportWait, micOwners, realtimeGeneration, realtimeWatchTarget, registerRealtimeNotificationStart, releaseDictation, resolveRealtimeTarget, startRealtimeSession, stopRealtimeSession } from '@/conversation/session';
+import { cancelRealtimeReportWait, configureVadStandby, micOwners, realtimeGeneration, realtimeWatchTarget, registerRealtimeNotificationStart, releaseDictation, resolveRealtimeTarget, retryVadStandby, startRealtimeSession, stopRealtimeSession } from '@/conversation/session';
 
 const mocks = vi.hoisted(() => ({
     sessions: {} as Record<string, { id: string; activeAt: number; updatedAt: number }>,
+    vadStandbyEnabled: false,
     applyLocalSettings: vi.fn(),
     modalAlert: vi.fn(),
     permission: vi.fn(),
@@ -17,6 +18,7 @@ const mocks = vi.hoisted(() => ({
     transcribe: vi.fn(),
     startRealtimeSession: vi.fn(),
     startVoiceService: vi.fn(),
+    setVoiceNetworkActive: vi.fn(),
     stopVoiceService: vi.fn(),
     notificationAction: null as ((action: 'start' | 'stop' | 'mute') => void) | null,
     addVoiceNotificationActionListener: vi.fn((listener: (action: 'start' | 'stop' | 'mute') => void) => {
@@ -56,8 +58,11 @@ vi.mock('@/catalog/store', () => ({
     }),
     getState: () => ({
         sessions: mocks.sessions,
-        localSettings: { vadStandbyEnabled: false },
-        applyLocalSettings: mocks.applyLocalSettings,
+        localSettings: { vadStandbyEnabled: mocks.vadStandbyEnabled },
+        applyLocalSettings: (patch: { vadStandbyEnabled?: boolean }) => {
+            if (patch.vadStandbyEnabled !== undefined) mocks.vadStandbyEnabled = patch.vadStandbyEnabled;
+            mocks.applyLocalSettings(patch);
+        },
         voicePendingReports: mocks.voicePending,
         voiceDeliveredReportIds: mocks.voiceDelivered,
         voiceReportScope: 'scope-a',
@@ -91,6 +96,9 @@ vi.mock('@/utils/microphonePermissions', () => ({
 vi.mock('../conversation/application/realtimeSession', () => ({ startRealtimeSession: mocks.startRealtimeSession }));
 vi.mock('@/../modules/voice-overlay', () => ({
     startVoiceService: mocks.startVoiceService,
+    setVoiceNetworkActive: mocks.setVoiceNetworkActive,
+    routeVoiceAudio: vi.fn(() => true),
+    releaseVoiceAudio: vi.fn(),
     stopVoiceService: mocks.stopVoiceService,
     addVoiceNotificationActionListener: mocks.addVoiceNotificationActionListener,
 }));
@@ -124,6 +132,7 @@ beforeEach(() => {
     appended = [];
     base = 'hello';
     onData = undefined;
+    mocks.vadStandbyEnabled = false;
     mocks.sessions = {
         'session-a': { id: 'session-a', activeAt: 1, updatedAt: 1 },
         'session-b': { id: 'session-b', activeAt: 2, updatedAt: 2 },
@@ -206,6 +215,32 @@ describe('on-device dictation flow', () => {
 
         mocks.notificationAction?.('mute');
         expect(setMuted).toHaveBeenCalledWith(true);
+    });
+
+    it('keeps live-session standby enabled and arms it once realtime ends', async () => {
+        const live = { stop: vi.fn(), setMuted: vi.fn(), speak: vi.fn() };
+        mocks.startRealtimeSession.mockReturnValue(live);
+        startRealtimeSession('session-a');
+        const provider = mocks.startRealtimeSession.mock.calls[0]![0] as {
+            onStatus: (status: 'disconnected', detail?: string) => void;
+        };
+
+        await expect(configureVadStandby(true)).resolves.toBe(true);
+        await expect(retryVadStandby()).resolves.toBe(false);
+        await expect(retryVadStandby()).resolves.toBe(false);
+        expect(mocks.vadStandbyEnabled).toBe(true);
+        expect(mocks.applyLocalSettings).not.toHaveBeenCalledWith({ vadStandbyEnabled: false });
+
+        provider.onStatus('disconnected', 'ended');
+        await vi.waitFor(() => expect(mocks.liveAudio.start).toHaveBeenCalledOnce());
+        expect(mocks.vadStandbyEnabled).toBe(true);
+        expect(mocks.setVoiceNetworkActive).toHaveBeenLastCalledWith(false);
+
+        await expect(configureVadStandby(false)).resolves.toBe(true);
+        expect(mocks.vadStandbyEnabled).toBe(false);
+        mocks.startVoiceService.mockReturnValue(false);
+        await expect(configureVadStandby(true)).resolves.toBe(false);
+        expect(mocks.vadStandbyEnabled).toBe(false);
     });
 
     it('retains and serializes prioritized reports until delivery, then sleeps after drain', async () => {

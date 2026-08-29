@@ -24,6 +24,7 @@ interface VoiceNative {
     stopRealtimePcm: () => RealtimePcmStats;
     startService: () => boolean;
     isServiceReady: () => boolean;
+    setNetworkActive: (active: boolean) => boolean;
     stopService: () => boolean;
     startHerdService: () => boolean;
     stopHerdService: () => boolean;
@@ -69,6 +70,15 @@ export function isVoiceServiceReady(): boolean {
         return native?.isServiceReady() ?? false;
     } catch {
         return false;
+    }
+}
+
+/** Wi-Fi latency is needed only while realtime provider traffic is active. */
+export function setVoiceNetworkActive(active: boolean): void {
+    try {
+        native?.setNetworkActive(active);
+    } catch {
+        // The CPU/microphone foreground service remains the standby fallback.
     }
 }
 

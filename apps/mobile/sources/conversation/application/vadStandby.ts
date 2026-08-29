@@ -1,17 +1,16 @@
-import { AppState } from 'react-native';
 import LiveAudioStream from 'react-native-live-audio-stream';
 import { REALTIME_INPUT_RATE, realtimePcm16ByteLength } from '@muxr/contract';
 import { chunkEnergy } from '../infrastructure/audioEnergy';
 import {
     releaseVoiceAudio,
     routeVoiceAudio,
+    setVoiceNetworkActive,
     startVoiceService,
     stopVoiceService,
 } from '@/../modules/voice-overlay';
 
 const PRE_ROLL_CHUNKS = 20;
 const TRIGGER_BUFFER_CHUNKS = 200;
-export const VAD_STANDBY_MS = 30 * 60_000;
 
 type CaptureOwner = { id: number; kind: 'vad' | 'realtime' };
 export interface RealtimeCaptureLease {
@@ -29,9 +28,6 @@ let buffered: string[] = [];
 let loudFrames = 0;
 let noiseFloor = 0.02;
 let wake: (() => void) | undefined;
-let expires: ReturnType<typeof setTimeout> | undefined;
-let expiresAt = 0;
-let expiryCallback: (() => void) | undefined;
 
 const enqueue = <T>(transition: () => Promise<T>): Promise<T> => {
     const result = transitions.then(transition, transition);
@@ -47,33 +43,16 @@ const clearVadState = (): void => {
     triggered = false;
     wake = undefined;
     buffered = [];
-    if (expires !== undefined) clearTimeout(expires);
-    expires = undefined;
-    expiresAt = 0;
-    expiryCallback = undefined;
 };
 
-function expireVadStandby(): void {
-    const callback = expiryCallback;
-    stopVadStandby();
-    callback?.();
-}
 
-function resetExpiry(onExpire: () => void): void {
-    if (expires !== undefined) clearTimeout(expires);
-    expiresAt = Date.now() + VAD_STANDBY_MS;
-    expiryCallback = onExpire;
-    expires = setTimeout(expireVadStandby, VAD_STANDBY_MS);
-}
-
-AppState.addEventListener('change', (state) => {
-    if (state === 'active' && active && Date.now() >= expiresAt) expireVadStandby();
-});
-
-/** Explicit, bounded local standby. No audio leaves the phone before speech wins the gate. */
-export async function startVadStandby(onWake: () => void, onExpire: () => void): Promise<boolean> {
+/** Persistent local standby. No audio leaves the phone before speech wins the gate. */
+export async function startVadStandby(onWake: () => void): Promise<boolean> {
     wake = onWake;
-    if (active) return true;
+    if (active) {
+        setVoiceNetworkActive(false);
+        return true;
+    }
     const candidate: CaptureOwner = { id: ++ownerSequence, kind: 'vad' };
     owner = candidate;
     return enqueue(async () => {
@@ -85,6 +64,7 @@ export async function startVadStandby(onWake: () => void, onExpire: () => void):
             clearVadState();
             return false;
         }
+        setVoiceNetworkActive(false);
         if (!routeVoiceAudio()) {
             if (isOwner(candidate)) {
                 owner = undefined;
@@ -120,7 +100,6 @@ export async function startVadStandby(onWake: () => void, onExpire: () => void):
                 if (owner === undefined) { stopVoiceService(); releaseVoiceAudio(); }
                 return false;
             }
-            resetExpiry(onExpire);
             return true;
         } catch {
             if (isOwner(candidate)) {
@@ -158,6 +137,7 @@ function inspect(data: string): void {
 
 /** Reuse an armed VAD recorder, or serialize opening a realtime-owned recorder. */
 export function acquireRealtimeCapture(sampleRate: number, onData: (data: string) => void): RealtimeCaptureLease {
+    setVoiceNetworkActive(true);
     const candidate: CaptureOwner = { id: ++ownerSequence, kind: 'realtime' };
     const claimed = active && owner?.kind === 'vad' && sampleRate === REALTIME_INPUT_RATE;
     const pending = claimed ? buffered : [];
@@ -192,6 +172,7 @@ export function acquireRealtimeCapture(sampleRate: number, onData: (data: string
 /** A provider/configuration failure leaves the local recorder alive; listen again. */
 export function rearmVadStandby(): void {
     if (!active) return;
+    setVoiceNetworkActive(false);
     triggered = false;
     loudFrames = 0;
     if (buffered.length > PRE_ROLL_CHUNKS) buffered = buffered.slice(-PRE_ROLL_CHUNKS);

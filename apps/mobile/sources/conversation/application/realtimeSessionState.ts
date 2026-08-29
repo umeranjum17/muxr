@@ -4,6 +4,7 @@ import { sync } from '@/catalog/sync';
 import { getCachedConnectionSettings } from '@/connection';
 import {
     addVoiceNotificationActionListener,
+    setVoiceNetworkActive,
     startVoiceService,
     stopVoiceService,
 } from '@/../modules/voice-overlay';
@@ -77,7 +78,8 @@ let reportSpeech: {
     timer: ReturnType<typeof setTimeout>;
 } | null = null;
 let idleTimer: ReturnType<typeof setTimeout> | null = null;
-let vadArming: Promise<boolean> | null = null;
+type VadArmResult = 'armed' | 'retry' | 'failed';
+let vadArming: Promise<VadArmResult> | null = null;
 let vadEpoch = 0;
 /** Local completion watch; unlike `session`, this owns no provider connection. */
 let watching = false;
@@ -364,6 +366,7 @@ function startRealtimeAfterService(target: RealtimeTarget, epoch: number): void 
         stopVoiceService();
         return;
     }
+    setVoiceNetworkActive(true);
     const liveEpoch = epoch;
     let handle!: RealtimeHandle;
     try {
@@ -393,33 +396,27 @@ function startRealtimeAfterService(target: RealtimeTarget, epoch: number): void 
     starting = false;
 }
 
-async function armVadStandby(): Promise<boolean> {
-    if (storage.getState().localSettings?.vadStandbyEnabled !== true || dictating || session !== null || starting) return false;
+async function armVadStandby(): Promise<VadArmResult> {
+    if (storage.getState().localSettings?.vadStandbyEnabled !== true || dictating || session !== null || starting) return 'retry';
     if (vadArming !== null) return vadArming;
     const epoch = vadEpoch;
-    const task = (async () => {
+    const task = (async (): Promise<VadArmResult> => {
         const target = realtimeTarget?.machineId === getCachedConnectionSettings().machineId
             ? realtimeTarget
             : await resolveRealtimeTarget();
         if (target === null || epoch !== vadEpoch || storage.getState().localSettings?.vadStandbyEnabled !== true
-            || dictating || session !== null || starting) return false;
+            || dictating || session !== null || starting) return 'retry';
         realtimeTarget = target;
         activateWatching();
-        const armed = await startVadStandby(
-            () => {
-                const wakeTarget = realtimeTarget;
-                if (wakeTarget !== null && session === null && !starting && !dictating) startRealtimeSession(wakeTarget);
-            },
-            () => {
-                storage.getState().applyLocalSettings({ vadStandbyEnabled: false });
-                notify();
-            },
-        );
+        const armed = await startVadStandby(() => {
+            const wakeTarget = realtimeTarget;
+            if (wakeTarget !== null && session === null && !starting && !dictating) startRealtimeSession(wakeTarget);
+        });
         if (epoch !== vadEpoch) {
             stopVadStandby();
-            return false;
+            return 'retry';
         }
-        return armed;
+        return armed ? 'armed' : 'failed';
     })();
     vadArming = task;
     try {
@@ -437,10 +434,16 @@ export async function configureVadStandby(enabled: boolean): Promise<boolean> {
         notify();
         return true;
     }
-    const armed = await armVadStandby();
-    if (!armed) storage.getState().applyLocalSettings({ vadStandbyEnabled: false });
+    const result = await armVadStandby();
+    if (result === 'failed') storage.getState().applyLocalSettings({ vadStandbyEnabled: false });
     notify();
-    return armed;
+    return result !== 'failed';
+}
+
+/** Retry a persisted preference without treating normal live/busy state as rejection. */
+export async function retryVadStandby(): Promise<boolean> {
+    if (storage.getState().localSettings?.vadStandbyEnabled !== true) return false;
+    return await armVadStandby() === 'armed';
 }
 
 function sleepRealtimeSession(): void {
@@ -455,11 +458,14 @@ function sleepRealtimeSession(): void {
 }
 
 export function stopRealtimeSession(): void {
+    if (storage.getState().localSettings?.vadStandbyEnabled === true) {
+        sleepRealtimeSession();
+        return;
+    }
     stopRealtimeConversation({
         endWatch: () => {
             watching = false;
             vadEpoch += 1;
-            storage.getState().applyLocalSettings({ vadStandbyEnabled: false });
             stopVadStandby();
         },
         interruptPlayback: () => sleepRealtimeSession(),

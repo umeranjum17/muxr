@@ -43,17 +43,89 @@ const GEMINI_TOOLS = [{
     functionDeclarations: providerTools.map(({ type: _type, ...tool }) => ({ ...tool, parameters: geminiSchema(tool.parameters) })),
 }];
 
-const emit = (frame) => process.stdout.write(`${JSON.stringify(frame)}\n`);
-// Provider deltas may exceed the public frame bound after tool calls. Base64 is
-// independently decodable when split on four-character boundaries.
+const OUTPUT_FRAME_MS = 20;
+const AUDIO_CHUNK_SIZE = OUTPUT_RATE * 2 * OUTPUT_FRAME_MS / 1000 * 4 / 3;
+const MAX_PENDING_OUTPUT_BYTES = 4 * 1024 * 1024;
+const outputQueue = [];
+let outputBytes = 0;
+let outputBlocked = false;
+let outputTimer;
+let outputDeadline = 0;
+let outputPausedByClient = false;
+
+function syncProviderReadState() {
+    if (ws?.readyState !== WebSocket.OPEN) return;
+    if (outputBlocked || outputQueue.length > 0 || outputPausedByClient) ws.pause();
+    else ws.resume();
+}
+function flushOutput() {
+    outputTimer = undefined;
+    if (outputBlocked || outputQueue.length === 0) {
+        if (outputQueue.length === 0) outputDeadline = 0;
+        syncProviderReadState();
+        return;
+    }
+    const index = outputPausedByClient ? outputQueue.findIndex((item) => item.force) : 0;
+    if (index === -1) {
+        syncProviderReadState();
+        return;
+    }
+    const [item] = outputQueue.splice(index, 1);
+    outputBytes -= item.line.length;
+    outputBlocked = !process.stdout.write(item.line, item.done);
+    if (item.delayMs > 0) {
+        if (outputDeadline === 0) outputDeadline = performance.now();
+        outputDeadline += item.delayMs;
+    }
+    const delayMs = item.delayMs > 0 ? Math.max(0, outputDeadline - performance.now()) : 0;
+    outputTimer = setTimeout(flushOutput, delayMs);
+    syncProviderReadState();
+}
+process.stdout.on('drain', () => {
+    outputBlocked = false;
+    outputDeadline = 0;
+    if (outputTimer === undefined) flushOutput();
+});
+const emit = (frame, done, force = false) => {
+    const line = `${JSON.stringify(frame)}\n`;
+    if (!force && outputBytes + line.length > MAX_PENDING_OUTPUT_BYTES) {
+        stopped = true;
+        ws?.close();
+        outputQueue.length = 0;
+        outputBytes = 0;
+        outputDeadline = 0;
+        close('Voice output buffer overflowed.', true);
+        return false;
+    }
+    const delayMs = frame.type === 'realtime.audio'
+        ? Math.max(1, Math.round(frame.data.length / 4 * 3 / (OUTPUT_RATE * 2) * 1000))
+        : 0;
+    outputQueue.push({ line, delayMs, done, force, audio: frame.type === 'realtime.audio' });
+    outputBytes += line.length;
+    if (outputTimer === undefined) outputTimer = setTimeout(flushOutput, 0);
+    syncProviderReadState();
+    return true;
+};
+function clearQueuedAudio() {
+    for (let index = outputQueue.length - 1; index >= 0; index -= 1) {
+        if (!outputQueue[index].audio) continue;
+        outputBytes -= outputQueue[index].line.length;
+        outputQueue.splice(index, 1);
+    }
+    if (!outputQueue.some((item) => item.audio)) outputDeadline = 0;
+}
+// Gemini can deliver several seconds in one provider event. Twenty-millisecond
+// frames keep native admission smooth while the paced queue backpressures the
+// provider WebSocket whenever the phone or app is not draining.
 export function chunkAudio(audio) {
     const chunks = [];
-    const chunkSize = 64 * 1024;
-    for (let offset = 0; offset < audio.length; offset += chunkSize) chunks.push(audio.slice(offset, offset + chunkSize));
+    for (let offset = 0; offset < audio.length; offset += AUDIO_CHUNK_SIZE) chunks.push(audio.slice(offset, offset + AUDIO_CHUNK_SIZE));
     return chunks;
 }
 const emitAudio = (audio) => {
-    for (const data of chunkAudio(audio)) emit({ type: 'realtime.audio', data });
+    for (const data of chunkAudio(audio)) {
+        if (!emit({ type: 'realtime.audio', data })) break;
+    }
 };
 const state = (value, detail) => emit(detail === undefined
     ? { type: 'realtime.state', state: value }
@@ -93,10 +165,10 @@ async function readKey() {
 }
 
 let closing = false;
-const close = (reason) => {
+const close = (reason, force = false) => {
     if (closing) return;
     closing = true;
-    process.stdout.write(`${JSON.stringify({ type: 'realtime.closed', reason })}\n`, () => process.exit(0));
+    emit({ type: 'realtime.closed', reason }, () => process.exit(0), force);
 };
 
 let ws;
@@ -134,7 +206,7 @@ function finishTurn() {
     if (endAfterResponse) {
         stopped = true;
         ws?.close();
-        close('ended');
+        close('ended', true);
     } else {
         state('connected');
     }
@@ -152,7 +224,10 @@ function handleGeminiEvent(raw) {
     }
     const content = message.serverContent;
     if (content) {
-        if (content.interrupted === true) emit({ type: 'realtime.audio.clear' });
+        if (content.interrupted === true) {
+            clearQueuedAudio();
+            emit({ type: 'realtime.audio.clear' }, undefined, true);
+        }
         if (typeof content.inputTranscription?.text === 'string') inputTranscript += content.inputTranscription.text;
         if (typeof content.outputTranscription?.text === 'string') outputTranscript += content.outputTranscription.text;
         for (const part of content.modelTurn?.parts ?? []) {
@@ -210,7 +285,7 @@ function handleGeminiEvent(raw) {
         if (!providerReady || terminal) {
             stopped = true;
             ws?.close();
-            close(`Voice provider error: ${detail}`);
+            close(`Voice provider error: ${detail}`, true);
         } else {
             state('connected', detail);
         }
@@ -218,6 +293,25 @@ function handleGeminiEvent(raw) {
 }
 
 function handleClientFrame(frame) {
+    if (frame.type === 'realtime.control') {
+        if (frame.action === 'stop') {
+            stopped = true;
+            ws?.close();
+            outputQueue.length = 0;
+            outputBytes = 0;
+            outputDeadline = 0;
+            close('ended', true);
+        } else if (frame.action === 'pause_output') {
+            outputPausedByClient = true;
+            outputDeadline = 0;
+            syncProviderReadState();
+        } else if (frame.action === 'resume_output') {
+            outputPausedByClient = false;
+            if (outputTimer === undefined) outputTimer = setTimeout(flushOutput, 0);
+            syncProviderReadState();
+        }
+        return;
+    }
     if (ws?.readyState !== WebSocket.OPEN) return;
     if (frame.type === 'realtime.audio') {
         ws.send(JSON.stringify({ realtimeInput: { audio: { data: frame.data, mimeType: `audio/pcm;rate=${INPUT_RATE}` } } }));
@@ -228,10 +322,6 @@ function handleClientFrame(frame) {
                 turnComplete: true,
             },
         }));
-    } else if (frame.type === 'realtime.control' && frame.action === 'stop') {
-        stopped = true;
-        ws.close();
-        close('ended');
     }
     // mute/unmute are enforced on the phone's capture side; nothing to forward.
 }
@@ -267,7 +357,7 @@ function connectProvider(key) {
     const onDown = (reason) => {
         if (stopped || ws !== current) return;
         if (providerReconnects >= 2) {
-            close(reason);
+            close(reason, true);
             return;
         }
         providerReconnects += 1;
@@ -302,7 +392,7 @@ function connectProvider(key) {
             current.terminate();
             if (stopped || ws !== current) return;
             const reason = providerRefusal(response.statusCode, body);
-            if (response.statusCode === 401 || response.statusCode === 403) close(reason);
+            if (response.statusCode === 401 || response.statusCode === 403) close(reason, true);
             else onDown(reason);
         });
     });
@@ -311,7 +401,7 @@ function connectProvider(key) {
         const detail = `The voice provider disconnected (${code})${reason ? `: ${reason}` : '.'}`;
         if (providerError(reason).terminal) {
             stopped = true;
-            close(detail);
+            close(detail, true);
         } else {
             onDown(detail);
         }
@@ -337,5 +427,5 @@ async function main() {
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-    main().catch((error) => close(cleanProviderProse(error instanceof Error ? error.message : error, 'Voice session could not start.', 300)));
+    main().catch((error) => close(cleanProviderProse(error instanceof Error ? error.message : error, 'Voice session could not start.', 300), true));
 }
