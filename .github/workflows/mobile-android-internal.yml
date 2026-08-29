@@ -113,7 +113,7 @@ jobs:
           ORG_GRADLE_PROJECT_releaseStorePassword: ${{ secrets.ANDROID_UPLOAD_STORE_PASSWORD }}
           ORG_GRADLE_PROJECT_releaseKeyAlias: ${{ secrets.ANDROID_UPLOAD_KEY_ALIAS }}
           ORG_GRADLE_PROJECT_releaseKeyPassword: ${{ secrets.ANDROID_UPLOAD_KEY_PASSWORD }}
-        run: ./gradlew :app:assembleRelease :app:bundleRelease
+        run: ./gradlew :app:assembleRelease :app:bundleRelease --max-workers=2
       - name: Verify signed artifacts and versions
         run: |
           apk="apps/mobile/android/app/build/outputs/apk/release/app-release.apk"
