@@ -174,7 +174,7 @@ process.stdin.on('end', () => {
 
         const preserved = runTitler({
             pane_id: 'pane',
-            name: 'reviewer',
+            name: 'operator',
             agent: 'pi',
             display_agent: 'Codex',
             title: 'Fix Auth Flow',
