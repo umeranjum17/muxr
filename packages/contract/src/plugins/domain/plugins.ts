@@ -1,5 +1,5 @@
 import { fail, ok, type Outcome } from '../../shared/outcome.js';
-import type { AgentLifecycle, AttentionReason } from '../../herd/index.js';
+import type { AgentInfo, AgentLifecycle, AttentionReason } from '../../herd/index.js';
 
 const PLUGIN_ID = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 
@@ -69,16 +69,12 @@ export type PluginRpcMode = 'read' | 'write';
 export const PLUGIN_CONTEXT_REQUESTS = ['sessions', 'workspace-tree'] as const;
 export type PluginContextRequest = typeof PLUGIN_CONTEXT_REQUESTS[number];
 
-export interface PluginPublicSessionContext {
+export interface PluginPublicSessionContext extends AgentInfo {
     sessionId: string;
     label: string;
-    displayName: string;
-    taskTitle?: string;
     cwd?: string;
     workspaceLabel?: string;
     tabLabel?: string;
-    agentKind?: string;
-    agentStatus: AgentLifecycle;
     activeAt: string;
 }
 
@@ -89,13 +85,9 @@ export interface PluginPublicAttentionContext {
     at: string;
 }
 
-export interface PluginPublicTreeSession {
+export interface PluginPublicTreeSession extends AgentInfo {
     sessionId?: string;
     label: string;
-    displayName: string;
-    taskTitle?: string;
-    agentKind?: string;
-    agentStatus: AgentLifecycle;
 }
 
 export interface PluginPublicTreeTab {
@@ -718,7 +710,8 @@ export interface PluginManifestV1 {
     pluginId: string;
     /** Lowest native UI vocabulary version the phone must understand. */
     minMuxrVersion?: number;
-    /** Semantic capability -> contribution id. Core surfaces never depend on plugin ids. */
+    /** Semantic capability -> contribution id. Generic surfaces do not depend on plugin ids;
+     * trusted kernel adapters may additionally pin a packaged plugin identity and root. */
     capabilities?: Record<string, string>;
     contributions: PluginContribution[];
 }

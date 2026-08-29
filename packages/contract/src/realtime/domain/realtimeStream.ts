@@ -1,4 +1,5 @@
 import { relayChannelSocketUrl } from '../../control-plane/index.js';
+import type { AgentInfo } from '../../herd/index.js';
 
 /**
  * Provider-neutral realtime voice channel.
@@ -17,11 +18,8 @@ export const MAX_REALTIME_SDP_BYTES = 128 * 1024;
 export const MAX_REALTIME_WEBRTC_DATA_BYTES = 32 * 1024;
 
 /** Trusted host metadata delivered to a stream plugin in realtime.open. */
-export interface RealtimePluginPublicSession {
+export interface RealtimePluginPublicSession extends AgentInfo {
     sessionId: string;
-    displayName: string;
-    taskTitle?: string;
-    agentKind?: string;
 }
 
 export interface RealtimePluginPublicContext {

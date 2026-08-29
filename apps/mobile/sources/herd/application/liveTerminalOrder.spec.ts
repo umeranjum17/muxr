@@ -17,7 +17,7 @@ import {
 function session(
     id: string,
     changedAt: number,
-    status: LiveTerminalOrderCard['status'],
+    status: LiveTerminalOrderCard['agentStatus'],
     createdAt = changedAt,
 ): Session {
     return {
@@ -32,10 +32,10 @@ function session(
 function card(
     id: string,
     changedAt: number,
-    status: LiveTerminalOrderCard['status'],
+    status: LiveTerminalOrderCard['agentStatus'],
     createdAt = changedAt,
 ): LiveTerminalOrderCard {
-    return { id, session: session(id, changedAt, status, createdAt), status, title: id, name: 'Otter', agentKind: 'pi', changedAt, createdAt };
+    return { id, session: session(id, changedAt, status, createdAt), agentStatus: status, taskTitle: id, agentName: 'Otter', agentKind: 'pi', promptable: true, changedAt, createdAt };
 }
 
 describe('agent lifecycle presentation', () => {
@@ -47,17 +47,18 @@ describe('agent lifecycle presentation', () => {
         ]);
 
         expect(cards.map((item) => item.id)).toEqual(['done', 'working', 'blocked']);
-        expect(orderLiveTerminalCards(cards.map((item) => ({ ...item, status: 'done' })))
+        expect(orderLiveTerminalCards(cards.map((item) => ({ ...item, agentStatus: 'done' })))
             .map((item) => item.id)).toEqual(['done', 'working', 'blocked']);
     });
 
     it('keeps terminal slots stable through catalog joins and equivalent snapshots', () => {
-        const pane = (id: string, status: HerdPane['status'], changedAt?: number): HerdPane => ({
+        const pane = (id: string, status: HerdPane['agentStatus'], changedAt?: number): HerdPane => ({
             id,
-            name: `${id} agent`,
+            agentName: `${id} agent`,
             taskTitle: `${id} task`,
             agentKind: 'pi',
-            status,
+            agentStatus: status,
+            promptable: true,
             changedAt,
             doing: '',
         });
@@ -66,40 +67,32 @@ describe('agent lifecycle presentation', () => {
             ['first', undefined],
             ['second', undefined],
         ]);
-        expect(agentStateLabel(treeOnly[1]!.status, treeOnly[1]!.changedAt, 1_000_000)).toBe('Needs you');
-        expect(agentLabels({
-            taskTitle: treeOnly[0]!.title,
-            agentName: treeOnly[0]!.name,
-            agentKind: treeOnly[0]!.agentKind,
-        }, treeOnly[0]!.session).agentName).toBe('first agent');
+        expect(agentStateLabel(treeOnly[1]!.agentStatus, treeOnly[1]!.changedAt, 1_000_000)).toBe('Needs you');
+        expect(agentLabels(treeOnly[0]).agentName).toBe('first agent');
 
         const shell = selectLiveTerminalCards([], [{
-            ...pane('shell', 'unknown'),
-            name: 'Agent',
-            agentKind: undefined,
+            id: 'shell',
+            agentStatus: 'unknown',
+            promptable: false,
+            doing: '',
         }])[0]!;
-        const shellLabels = agentLabels({
-            taskTitle: shell.title,
-            agentName: shell.name,
-            agentKind: shell.agentKind,
-        }, shell.session);
-        expect(shellLabels).toMatchObject({ taskTitle: 'shell task', agentName: 'Shell' });
-        expect(agentAccessibilityLabel(shellLabels, shell.status, shell.changedAt)).toBe('shell task. Offline. Shell');
+        const shellLabels = agentLabels(shell);
+        expect(shellLabels).toMatchObject({ taskTitle: 'Untitled task', agentName: 'Shell' });
+        expect(agentAccessibilityLabel(shellLabels, shell.agentStatus, shell.changedAt)).toBe('Untitled task. Offline. Shell');
 
         const pending = session('pending', 300, 'starting');
         pending.metadata!.agentKind = 'omp';
         Object.assign(pending.metadata!, { agentName: 'Stale Otter', taskTitle: 'Stale task' });
-        expect(agentLabels(undefined, pending)).toMatchObject({
+        expect(agentLabels()).toMatchObject({
             taskTitle: 'Untitled task',
-            agentName: 'Agent',
-            agentKind: 'omp',
+            agentName: 'Shell',
         });
 
         const joined = reconcileLiveTerminalCards(treeOnly, selectLiveTerminalCards([
             session('second', 200, 'done', 20),
             session('first', 200, 'blocked', 10),
         ], [pane('first', 'blocked', 200), pane('second', 'done', 200)]));
-        expect(joined.map((item) => [item.id, item.status, item.session?.id])).toEqual([
+        expect(joined.map((item) => [item.id, item.agentStatus, item.session?.id])).toEqual([
             ['first', 'blocked', 'first'],
             ['second', 'done', 'second'],
         ]);

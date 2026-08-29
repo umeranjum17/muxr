@@ -1,4 +1,4 @@
-import type { AgentLifecycle } from '@muxr/contract';
+import type { AgentInfo, AgentLifecycle } from '@muxr/contract';
 import type { Session } from '@/catalog';
 import { paneStatus, type HerdPane } from '../domain/herd';
 import type { RecentActivityRow } from '../domain/recentActivity';
@@ -7,13 +7,9 @@ export const RECENTLY_DONE_SWIPE_MS = 2 * 60_000;
 
 export type LiveTerminalBucket = 'attention' | 'working' | 'settled' | 'offline';
 
-export interface LiveTerminalOrderCard {
+export interface LiveTerminalOrderCard extends AgentInfo {
     id: string;
     session?: Session;
-    status: AgentLifecycle;
-    title: string;
-    name: string;
-    agentKind?: string;
     changedAt?: number;
     createdAt?: number;
 }
@@ -29,10 +25,12 @@ export function selectLiveTerminalCards(
         return {
             id: pane.id,
             session,
-            status: pane.status,
-            title: pane.taskTitle,
-            name: pane.name,
+            ...(pane.agentName === undefined ? {} : { agentName: pane.agentName }),
+            ...(pane.taskTitle === undefined ? {} : { taskTitle: pane.taskTitle }),
             ...(pane.agentKind === undefined ? {} : { agentKind: pane.agentKind }),
+            ...(pane.displayAgent === undefined ? {} : { displayAgent: pane.displayAgent }),
+            agentStatus: pane.agentStatus,
+            promptable: pane.promptable,
             changedAt: pane.changedAt,
             createdAt: session?.createdAt,
         };
@@ -73,10 +71,11 @@ export function reconcileLiveTerminalCards(
         const before = previous[index]!;
         return card.id === before.id
             && card.session === before.session
-            && card.status === before.status
-            && card.title === before.title
-            && card.name === before.name
+            && card.agentStatus === before.agentStatus
+            && card.taskTitle === before.taskTitle
+            && card.agentName === before.agentName
             && card.agentKind === before.agentKind
+            && card.displayAgent === before.displayAgent
             && card.changedAt === before.changedAt
             && card.createdAt === before.createdAt;
     });

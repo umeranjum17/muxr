@@ -103,19 +103,12 @@ describe('agent lifecycle request flow', () => {
 });
 
 describe('session.stop dispatcher flow', () => {
-    it('forwards only the Agent Route through SessionSource and preserves safe failures', async () => {
-        const stops: string[] = [];
+    it('threads confirmed scope and authenticated replay identity to the close flow', async () => {
+        const stops: unknown[] = [];
         const source = {
-            async stop(sessionId: string) {
-                stops.push(sessionId);
-                if (sessionId === 'route-selected') return;
-                const ambiguous = sessionId === 'route-ambiguous';
-                const error = Object.assign(new Error(ambiguous
-                    ? 'That Agent Route is ambiguous. Refresh and select the agent again.'
-                    : 'That agent is no longer available. Refresh and try again.'), {
-                    code: ambiguous ? 'agent-route-ambiguous' : 'agent-unavailable',
-                });
-                throw error;
+            async stop(sessionId: string, options: unknown) {
+                stops.push({ sessionId, options });
+                return { status: 'closed' };
             },
         } as unknown as SessionSource;
         const { dispatch } = createRequestDispatcher({
@@ -125,19 +118,16 @@ describe('session.stop dispatcher flow', () => {
             hostVersion: '0.0.0',
         });
 
-        await expect(dispatch({
-            type: 'session.stop', requestId: 'stop-live', params: { sessionId: 'route-selected' },
-        } as never)).resolves.toMatchObject({ ok: true, data: null });
-        const stale = await dispatch({
-            type: 'session.stop', requestId: 'stop-stale', params: { sessionId: 'route-stale' },
-        } as never);
-        expect(stale).toMatchObject({ ok: false, code: 'agent-unavailable', error: 'That agent is no longer available. Refresh and try again.' });
-        const ambiguous = await dispatch({
-            type: 'session.stop', requestId: 'stop-ambiguous', params: { sessionId: 'route-ambiguous' },
-        } as never);
-        expect(ambiguous).toMatchObject({ ok: false, code: 'agent-route-ambiguous', error: 'That Agent Route is ambiguous. Refresh and select the agent again.' });
-        expect(stops).toEqual(['route-selected', 'route-stale', 'route-ambiguous']);
-        expect([stale, ambiguous].map((result) => 'error' in result ? result.error : '').join(' ')).not.toMatch(/w\d+:p\d+|route-(?:stale|ambiguous)/);
+        const result = await dispatch({
+            type: 'session.stop',
+            requestId: 'stop-confirmed',
+            params: { sessionId: 'route-selected', confirmedScope: 'tab' },
+        } as never, 'device-control');
+        expect(result).toMatchObject({ ok: true, data: { status: 'closed' } });
+        expect(stops).toEqual([{
+            sessionId: 'route-selected',
+            options: { deviceId: 'device-control', idempotencyKey: 'stop-confirmed', confirmedScope: 'tab' },
+        }]);
     });
 
     it('fake mode closes only the selected session layout and preserves its sibling', async () => {
@@ -158,7 +148,7 @@ describe('session.stop dispatcher flow', () => {
 
         await expect(dispatch({
             type: 'session.stop', requestId: 'stop-fake', params: { sessionId: selected.id },
-        } as never)).resolves.toMatchObject({ ok: true, data: null });
+        } as never)).resolves.toMatchObject({ ok: true, data: { status: 'closed' } });
         await expect(source.list()).resolves.toEqual([sibling]);
         await expect(source.open({ sessionId: sibling.id })).resolves.toMatchObject({ info: { id: sibling.id } });
         await expect(source.open({ sessionId: selected.id })).rejects.toThrow('unknown session');

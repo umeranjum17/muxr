@@ -533,6 +533,30 @@ validates shape; `plugin call` proves wiring.
 { "slot": "host.stream", "id": "session", "type": "stream", "entry": "stream.mjs" }
 ```
 
+### Packaged Agent close policy
+
+`agent.close` is a reserved kernel capability, not a general extension claim. The host pins it to the packaged `muxr.workspace-hierarchy` root and this exact manifest tuple:
+
+```json
+"capabilities": {
+  "agent.close": "close"
+}
+```
+
+```json
+{ "slot": "host.rpc", "id": "close", "type": "rpc", "method": "close", "entry": "rpc.mjs", "mode": "write" }
+```
+
+The host rejects a mismatched package identity, root, capability mapping, contribution id, method, or mode. It never resolves an arbitrary enabled RPC named `close`, and disabling Workspace Hierarchy's optional UI does not disable the kernel's Agent close operation. Execution uses the guarded write path: bounded input/output sanitation, concurrency admission, replay/idempotency fencing, timeout/abort, and process-group cleanup.
+
+`session.stop` uses the selected Agent Route only inside the host to resolve authority. RPC input is exactly `{ "paneId": string, "confirmedScope"?: "tab" | "workspace" | "worktreeGroup" }`. A non-default Herdr socket path is supplied only to the validated packaged child as private `MUXR_HERDR_SOCKET_PATH` process context; it is excluded from RPC input, replay input digests, output, and errors. The RPC returns exactly one of:
+
+- `{ "status": "closed" }`, optionally with `"alreadyGone": true`;
+- `{ "status": "confirmationRequired", "scope": "tab" | "workspace" | "worktreeGroup", "label": string, "message": string }`;
+- `{ "status": "retryable", "message": string }`.
+
+The backend reads fresh Herdr topology before every mutation. Pane close needs no broader confirmation; tab, workspace, and worktree-group scopes each need their own explicit confirmation. If Herdr refuses an attempted scope after a race, the next confirmation must be strictly broader than both that attempt and the scope already confirmed. A failed revalidation returns Retry or an error, never `alreadyGone`; only a live snapshot that no longer contains the target may report it already closed. Cancel sends no request.
+
 A stream process receives one private `realtime.open` line followed by bounded provider-neutral NDJSON frames. A PCM provider exchanges ready/audio/state/transcript/control frames and keeps its provider socket on the host. A WebRTC signaling provider exchanges bounded offer/answer SDP plus opaque data-channel control while the mobile kernel owns the peer and direct media. The host enforces approval revocation, admission, process cleanup, frame bounds, and encrypted relay transport.
 
 The package ships xAI (`plugins/voice`, default on), Gemini Live (`plugins/voice-gemini`, default off), OpenAI Realtime (`plugins/voice-openai`, default off), and experimental Codex Voice (`plugins/voice-codex`, default off). All claim `voice.session`; choose one under **Settings → Realtime voice**, where the host serializes the switch. Existing PCM providers remain unchanged; Codex adds only the generic WebRTC transport kind.

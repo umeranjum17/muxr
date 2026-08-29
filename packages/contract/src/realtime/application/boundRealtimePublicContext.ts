@@ -1,14 +1,25 @@
-import { parseAgentName, parseProviderKind, parsePublicAgentRoute } from '../../herd/index.js';
+import { parseAgentLifecycle, parseAgentName, parseProviderKind, parsePublicAgentRoute } from '../../herd/index.js';
 import {
     MAX_REALTIME_PUBLIC_SESSIONS,
     type RealtimePluginPublicContext,
     type RealtimePluginPublicSession,
 } from '../domain/realtimeStream.js';
 
-function publicTaskTitle(raw: string | undefined, displayName: string, providerKind: string | undefined): string | undefined {
+function publicOptionalText(value: unknown, max: number): string | undefined {
+    if (value === undefined) return undefined;
+    if (typeof value !== 'string' || value === '' || value.length > max || /[\0-\x1F\x7F]/.test(value)) return undefined;
+    if (/[\\/`]|&&|\|\||\b(?:token|password|secret|credential)\s*=/i.test(value)) return undefined;
+    return value;
+}
+
+function publicTaskTitle(
+    raw: string | undefined,
+    agentName: string | undefined,
+    providerKind: string | undefined,
+): string | undefined {
     let taskTitle = raw?.replace(/[\0-\x1F\x7F]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120);
     if (taskTitle === undefined) return undefined;
-    for (const prefix of [displayName, providerKind]) {
+    for (const prefix of [agentName, providerKind]) {
         if (prefix === undefined || prefix === '') continue;
         const escaped = prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         taskTitle = taskTitle.replace(new RegExp(`^${escaped}\\s*[-–—:|]\\s*`, 'i'), '').trim();
@@ -18,7 +29,7 @@ function publicTaskTitle(raw: string | undefined, displayName: string, providerK
     return taskTitle;
 }
 
-/** Bound the public Agent map before it crosses a stream process. Agent Route authorizes; Agent Name never does. */
+/** Validate the one-to-one AgentInfo projection before it crosses a stream process. */
 export function boundRealtimePublicContext(command: {
     sessions: readonly RealtimePluginPublicSession[];
 }): RealtimePluginPublicContext {
@@ -26,16 +37,23 @@ export function boundRealtimePublicContext(command: {
     const ids = new Set<string>();
     for (const entry of command.sessions) {
         const sessionId = parsePublicAgentRoute(entry.sessionId);
-        const agentName = parseAgentName(entry.displayName);
-        if (!sessionId.ok || ids.has(sessionId.value) || !agentName.ok) continue;
-        const providerKind = entry.agentKind === undefined ? undefined : parseProviderKind(entry.agentKind);
-        const taskTitle = publicTaskTitle(entry.taskTitle, agentName.value, providerKind?.ok ? providerKind.value : undefined);
+        const agentStatus = parseAgentLifecycle(entry.agentStatus);
+        if (!sessionId.ok || ids.has(sessionId.value) || !agentStatus.ok || typeof entry.promptable !== 'boolean') continue;
+        const parsedAgentName = entry.agentName === undefined ? undefined : parseAgentName(entry.agentName);
+        const parsedAgentKind = entry.agentKind === undefined ? undefined : parseProviderKind(entry.agentKind);
+        const agentName = parsedAgentName?.ok ? parsedAgentName.value : undefined;
+        const agentKind = parsedAgentKind?.ok ? parsedAgentKind.value : undefined;
+        const taskTitle = publicTaskTitle(entry.taskTitle, agentName, agentKind);
+        const displayAgent = publicOptionalText(entry.displayAgent, 80);
         ids.add(sessionId.value);
         sessions.push({
             sessionId: sessionId.value,
-            displayName: agentName.value,
+            ...(agentName === undefined ? {} : { agentName }),
             ...(taskTitle === undefined ? {} : { taskTitle }),
-            ...(providerKind === undefined || !providerKind.ok ? {} : { agentKind: providerKind.value }),
+            ...(agentKind === undefined ? {} : { agentKind }),
+            ...(displayAgent === undefined ? {} : { displayAgent }),
+            agentStatus: agentStatus.value,
+            promptable: entry.promptable,
         });
         if (sessions.length === MAX_REALTIME_PUBLIC_SESSIONS) break;
     }

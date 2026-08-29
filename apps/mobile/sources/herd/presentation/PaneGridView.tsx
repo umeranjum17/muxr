@@ -15,11 +15,11 @@ import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useRouter } from 'expo-router';
 import { Text } from '@/components/StyledText';
 import { StatusDot } from '@/components/StatusDot';
-import { ACCENT } from '@/components/AgentGlyph';
+import { ACCENT, AgentGlyph } from '@/components/AgentGlyph';
 import { TerminalPreview } from '@/terminal/ui';
 import { sync } from '@/catalog/sync';
 import { agentStatusColor, type AgentLifecycleStatus } from '../application/sessionUtils';
-import { agentLabels } from '../domain/agentPresentation';
+import { agentIdentityLine, agentLabels } from '../domain/agentPresentation';
 import type { HerdrTreePane, HerdrTreeTab } from '@muxr/contract';
 
 const POLL_MS = 4_000;
@@ -184,12 +184,13 @@ const PaneTile = React.memo((props: { pane: HerdrTreePane; style: object; router
             <View style={{ paddingHorizontal: 8, paddingVertical: 5, gap: 1, backgroundColor: theme.colors.surface }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
                     <StatusDot color={color} isPulsing={status === 'working' || status === 'blocked'} size={7} />
+                    {labels.agentKind !== undefined && <AgentGlyph name={labels.agentKind} size={14} />}
                     <Text numberOfLines={1} style={{ color: theme.colors.text, fontSize: 12, fontWeight: '600', flexShrink: 1 }}>
                         {labels.taskTitle}
                     </Text>
                 </View>
                 <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 10, textTransform: 'capitalize' }}>
-                    {labels.agentKind === undefined ? labels.agentName : `${labels.agentName} · ${labels.agentKind}`}
+                    {agentIdentityLine(labels)}
                 </Text>
             </View>
         </Pressable>

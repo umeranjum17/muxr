@@ -15,9 +15,10 @@ import {
     type LiveTerminalOrderCard,
 } from '../application/liveTerminalOrder';
 import { useActivityAcknowledgements } from '../application/useActivityAcknowledgements';
-import { agentAccessibilityLabel, agentLabels, agentStateLabel } from '../domain/agentPresentation';
+import { agentAccessibilityLabel, agentIdentityLine, agentLabels, agentStateLabel } from '../domain/agentPresentation';
 import { unseenActivityRows, type RecentActivityRow } from '../domain/recentActivity';
 import { StatusDot } from '@/components/StatusDot';
+import { AgentGlyph } from '@/components/AgentGlyph';
 import { TerminalPreview } from '@/terminal/ui';
 import { useNavigateToSession } from '../application/useNavigateToSession';
 import { RecentActivity } from './RecentActivity';
@@ -81,27 +82,23 @@ interface CardProps {
 }
 
 function terminalIsLive(card: LiveTerminalOrderCard): boolean {
-    return card.status === 'working' || card.status === 'starting' || card.status === 'blocked';
+    return card.agentStatus === 'working' || card.agentStatus === 'starting' || card.agentStatus === 'blocked';
 }
 
 const LiveTerminalCard = React.memo(({ card, width, height, paused, disconnected }: CardProps) => {
     const { theme } = useUnistyles();
     const navigateToSession = useNavigateToSession();
-    const labels = agentLabels({
-        taskTitle: card.title,
-        agentName: card.name,
-        agentKind: card.agentKind,
-    }, card.session);
-    const dot = agentStatusColor(card.status, theme);
+    const labels = agentLabels(card);
+    const dot = agentStatusColor(card.agentStatus, theme);
     const live = terminalIsLive(card);
     return (
         <Pressable
             onPress={() => navigateToSession(card.id)}
             accessibilityRole="button"
-            accessibilityLabel={agentAccessibilityLabel(labels, card.status, card.changedAt)}
+            accessibilityLabel={agentAccessibilityLabel(labels, card.agentStatus, card.changedAt)}
             style={({ pressed }) => [
                 stylesheet.card,
-                liveTerminalBucket(card.status) === 'attention' && stylesheet.attentionCard,
+                liveTerminalBucket(card.agentStatus) === 'attention' && stylesheet.attentionCard,
                 { width, height, opacity: pressed ? 0.8 : disconnected ? 0.55 : 1 },
             ]}
         >
@@ -109,12 +106,13 @@ const LiveTerminalCard = React.memo(({ card, width, height, paused, disconnected
                 <TerminalPreview sessionId={card.id} paused={paused} live={live} />
             </View>
             <View style={stylesheet.cardFooter}>
-                <Text numberOfLines={1} style={stylesheet.title}>{card.title}</Text>
+                <Text numberOfLines={1} style={stylesheet.title}>{labels.taskTitle}</Text>
                 <View style={stylesheet.footerMeta}>
                     <StatusDot color={dot.color} isPulsing={dot.pulsing} size={7} />
-                    <Text numberOfLines={1} style={stylesheet.agentName}>{labels.agentName}</Text>
+                    {labels.agentKind !== undefined && <AgentGlyph name={labels.agentKind} size={14} />}
+                    <Text numberOfLines={1} style={stylesheet.agentName}>{agentIdentityLine(labels)}</Text>
                     <Text numberOfLines={1} style={[stylesheet.state, { color: dot.color }]}>
-                        {agentStateLabel(card.status, card.changedAt)}
+                        {agentStateLabel(card.agentStatus, card.changedAt)}
                     </Text>
                 </View>
             </View>
@@ -167,7 +165,7 @@ export const LiveTerminalsRow = React.memo(({
         const subscription = AppState.addEventListener('change', (state) => setForeground(state === 'active'));
         return () => subscription.remove();
     }, []);
-    const attentionIndex = cards.findIndex((card) => liveTerminalBucket(card.status) === 'attention');
+    const attentionIndex = cards.findIndex((card) => liveTerminalBucket(card.agentStatus) === 'attention');
     const firstVisible = Math.max(0, Math.floor(scrollX / (cardWidth + CARD_GAP)));
     const onScroll = React.useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
         setScrollX(event.nativeEvent.contentOffset.x);

@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 /**
- * Rename a pane after the work inside it. Runs on every agent status change,
- * so it must be cheap and quiet: preserve Herdr Agent Names, assign an animal
- * only when the real name is absent/internal, and update generated Task Titles.
+ * Preserve Herdr Agent Names, assign an animal only when the real name is
+ * absent/internal, and write a Task Title through pane report-metadata.
  */
 import { execFileSync } from 'node:child_process';
 import { appendFileSync, mkdirSync } from 'node:fs';
@@ -16,6 +15,7 @@ const MODELS = [
     'opencode-go/mimo-v2.5',
     'kimi-coding/k3-256k',
 ];
+const PLUGIN_SOURCE = 'muxr.pane-titler';
 const STATE = process.env.HERDR_PLUGIN_STATE_DIR || process.env.MUXR_PLUGIN_STATE_DIR || join(homedir(), '.muxr', 'plugin-state', 'muxr.pane-titler');
 const herdr = process.env.HERDR_BIN_PATH?.trim() || 'herdr';
 const paneId = process.env.HERDR_PANE_ID?.trim();
@@ -67,7 +67,6 @@ function fallbackFeature(text) {
     if (line === undefined) return 'Session';
     return line.replace(/[^\w\s]/g, ' ').split(/\s+/).filter(Boolean).slice(0, 4).join(' ');
 }
-
 function ask(agent, prompt) {
     for (const model of MODELS) {
         try {
@@ -82,29 +81,72 @@ function ask(agent, prompt) {
     return undefined;
 }
 
+function readAgent(id) {
+    const parsed = JSON.parse(run(['agent', 'list']));
+    const rows = Array.isArray(parsed?.result?.agents) ? parsed.result.agents : [];
+    return rows.find((candidate) => candidate?.pane_id === id);
+}
+
+function fold(value) {
+    return typeof value === 'string'
+        ? value.normalize('NFKC').replace(/\s+/g, ' ').trim().toLocaleLowerCase('und')
+        : '';
+}
+
+function needsTaskTitle(agent) {
+    const title = typeof agent?.title === 'string' ? agent.title.trim() : '';
+    if (title === '' || untitled(title)) return true;
+    const name = fold(agent?.name);
+    return name !== '' && fold(title) === name;
+}
+
+function sessionFence(agent) {
+    const session = agent?.agent_session;
+    if (session === null || typeof session !== 'object') return undefined;
+    const source = typeof session.source === 'string' ? session.source.trim() : '';
+    const value = typeof session.value === 'string' ? session.value.trim() : '';
+    if (source === '' || value === '') return undefined;
+    const kind = typeof session.kind === 'string' ? session.kind : '';
+    return { source, key: `${source}\0${kind}\0${value}` };
+}
+
+function seqOf(agent) {
+    if (Number.isInteger(agent?.state_change_seq)) return agent.state_change_seq;
+    if (Number.isInteger(agent?.revision)) return agent.revision;
+    return undefined;
+}
+
 try {
     if (!paneId) process.exit(0);
-    const pane = JSON.parse(run(['pane', 'get', paneId])).result.pane;
     ensureAgentName(run, paneId);
-    const current = (pane.label ?? pane.title ?? '').trim();
-    const tabId = typeof pane.tab_id === 'string' ? pane.tab_id : undefined;
-    const tabLabel = tabId === undefined ? '' : (JSON.parse(run(['tab', 'get', tabId])).result.tab.label ?? '').trim();
-    let context = {};
-    try { context = JSON.parse(process.env.HERDR_PLUGIN_CONTEXT_JSON ?? '{}'); } catch {}
-    const provider = kindName(context.focused_pane_agent || pane.agent || pane.display_agent);
-
-    if (!untitled(current)) process.exit(0);
+    const agent = readAgent(paneId);
+    if (agent === undefined || !needsTaskTitle(agent)) process.exit(0);
+    const origin = sessionFence(agent);
+    if (origin === undefined) process.exit(0);
 
     const text = run(['pane', 'read', paneId, '--source', 'recent-unwrapped', '--lines', '60']);
     if (text.trim().length < 80) process.exit(0);
 
+    const provider = kindName(agent.agent);
     const title = ask(provider, `Below is terminal output from a coding agent. Reply with exactly 2 to 4 words in Title Case naming only the feature or task. Do not include the agent/provider name, quotes, punctuation, commands, paths, or explanation.\n\n${text.slice(-2500)}`)
         ?? formatTitle(provider, fallbackFeature(text));
     if (title === undefined) process.exit(0);
 
-    run(['pane', 'rename', paneId, title]);
-    if (tabId !== undefined && untitled(tabLabel)) run(['tab', 'rename', tabId, title]);
-    log(`renamed ${paneId} -> ${title}`);
+    const current = readAgent(paneId);
+    const fence = sessionFence(current);
+    if (current === undefined || fence === undefined || fence.key !== origin.key) process.exit(0);
+    if (!needsTaskTitle(current)) process.exit(0);
+
+    const args = [
+        'pane', 'report-metadata', paneId,
+        '--source', PLUGIN_SOURCE,
+        '--applies-to-source', fence.source,
+        '--title', title,
+    ];
+    const seq = seqOf(current);
+    if (seq !== undefined) args.push('--seq', String(seq));
+    run(args);
+    log(`titled ${paneId} -> ${title}`);
 } catch (error) {
     log(`failed: ${String(error.message).slice(0, 200)}`);
     process.exit(0);

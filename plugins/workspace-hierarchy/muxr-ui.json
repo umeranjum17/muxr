@@ -2,6 +2,9 @@
   "schemaVersion": 1,
   "pluginId": "muxr.workspace-hierarchy",
   "minMuxrVersion": 4,
+  "capabilities": {
+    "agent.close": "close"
+  },
   "contributions": [
     {
       "slot": "session.overlay",
@@ -21,6 +24,14 @@
       "entry": "rpc.mjs",
       "mode": "read",
       "context": ["workspace-tree"]
+    },
+    {
+      "slot": "host.rpc",
+      "id": "close",
+      "type": "rpc",
+      "method": "close",
+      "entry": "rpc.mjs",
+      "mode": "write"
     }
   ]
 }

@@ -2,21 +2,18 @@ import {
     lifecycleEventAgentName,
     lifecycleNotificationAllowed,
     type AgentLifecycle,
+    type AgentInfo,
     type HerdrTreeWorkspace,
     type LifecycleEvent,
     type LifecycleNotificationLevel,
 } from '@muxr/contract';
 import type { Session } from '@/catalog';
-import { agentLabels, HERD_STATUS_LABELS } from './agentPresentation';
+import { HERD_STATUS_LABELS } from './agentPresentation';
 
 export { HERD_STATUS_LABELS } from './agentPresentation';
 
-export interface HerdPane {
+export interface HerdPane extends AgentInfo {
     id: string;
-    name: string;
-    taskTitle: string;
-    agentKind?: string;
-    status: AgentLifecycle;
     changedAt?: number;
     doing: string;
 }
@@ -119,13 +116,14 @@ export function herdPanes(sessions: Session[], workspaces: readonly HerdrTreeWor
             if (pane.sessionId === undefined || routes.has(pane.sessionId)) return [];
             routes.add(pane.sessionId);
             const session = sessionsById.get(pane.sessionId);
-            const labels = agentLabels(pane, session);
             return [{
                 id: pane.sessionId,
-                name: labels.agentName,
-                ...(labels.agentKind === undefined ? {} : { agentKind: labels.agentKind }),
-                taskTitle: labels.taskTitle,
-                status: pane.agentStatus,
+                ...(pane.agentName === undefined ? {} : { agentName: pane.agentName }),
+                ...(pane.taskTitle === undefined ? {} : { taskTitle: pane.taskTitle }),
+                ...(pane.agentKind === undefined ? {} : { agentKind: pane.agentKind }),
+                ...(pane.displayAgent === undefined ? {} : { displayAgent: pane.displayAgent }),
+                agentStatus: pane.agentStatus,
+                promptable: pane.promptable,
                 changedAt: session?.metadata?.lifecycleStateSince ?? session?.updatedAt,
                 doing: '',
             }];
@@ -134,8 +132,8 @@ export function herdPanes(sessions: Session[], workspaces: readonly HerdrTreeWor
 
 export function sortHerd(sessions: Session[], workspaces: readonly HerdrTreeWorkspace[]): HerdPane[] {
     return herdPanes(sessions, workspaces)
-        .sort((left, right) => HERD_ORDER[left.status] - HERD_ORDER[right.status]
-            || (left.status === 'blocked'
+        .sort((left, right) => HERD_ORDER[left.agentStatus] - HERD_ORDER[right.agentStatus]
+            || (left.agentStatus === 'blocked'
                 ? (left.changedAt ?? 0) - (right.changedAt ?? 0)
                 : (right.changedAt ?? 0) - (left.changedAt ?? 0))
             || left.id.localeCompare(right.id));
@@ -153,15 +151,15 @@ export function herdNotificationState(
         return { mode: 'offline', count: 0, name: '', names: '', eventKey: 'offline' };
     }
 
-    const blocked = panes.filter((pane) => pane.status === 'blocked');
-    const working = panes.filter((pane) => pane.status === 'working' || pane.status === 'starting');
+    const blocked = panes.filter((pane) => pane.agentStatus === 'blocked');
+    const working = panes.filter((pane) => pane.agentStatus === 'working' || pane.agentStatus === 'starting');
     const active = blocked.length > 0 ? blocked : working;
     const top = active[0];
     if (!top) return { mode: 'idle', count: 0, name: '', names: '', eventKey: 'idle' };
     const mode = blocked.length > 0 ? 'attention' : 'working';
-    const names = active.map((pane) => pane.name).join(', ');
+    const names = active.map((pane) => pane.agentName ?? 'Unnamed agent').join(', ');
     const ids = active.map((pane) => encodeURIComponent(pane.id)).sort().join(',');
-    return { mode, count: active.length, name: top.name, names, eventKey: `${mode}:${ids}` };
+    return { mode, count: active.length, name: top.agentName ?? 'Unnamed agent', names, eventKey: `${mode}:${ids}` };
 }
 
 /**
@@ -176,7 +174,7 @@ export function herdDigest(panes: HerdPane[]): string {
         '',
         ...panes.map((pane) => {
             const doing = pane.doing === '' ? '' : ` (${pane.doing.slice(0, 60)})`;
-            return `${pane.name} — ${HERD_STATUS_LABELS[pane.status].toLowerCase()}: ${pane.taskTitle}${doing}`;
+            return `${pane.agentName ?? 'Unnamed agent'} — ${HERD_STATUS_LABELS[pane.agentStatus].toLowerCase()}: ${pane.taskTitle ?? 'Untitled task'}${doing}`;
         }),
     ].join('\n');
 }
@@ -188,7 +186,7 @@ export function completionAlerts(
 ): HerdPane[] {
     return panes.filter((pane) => {
         const before = previous[pane.id];
-        return pane.status === 'done' && (before === 'working' || before === 'blocked');
+        return pane.agentStatus === 'done' && (before === 'working' || before === 'blocked');
     });
 }
 
@@ -204,18 +202,18 @@ export function completionTransition(
     previous: Record<string, AgentLifecycle> | null,
 ): { baseline: Record<string, AgentLifecycle> | null; completed: HerdPane[] } {
     if (!connected) return { baseline: previous, completed: [] };
-    const baseline = Object.fromEntries(panes.map((pane) => [pane.id, pane.status]));
+    const baseline = Object.fromEntries(panes.map((pane) => [pane.id, pane.agentStatus]));
     return { baseline, completed: previous === null ? [] : completionAlerts(panes, previous) };
 }
 
 /** Replace the current lifecycle notification with one grouped completion. */
 export function completionNotificationState(completed: readonly HerdPane[]): HerdNotificationState {
-    const names = completed.map((pane) => pane.name).join(', ');
+    const names = completed.map((pane) => pane.agentName ?? 'Unnamed agent').join(', ');
     const ids = completed.map((pane) => encodeURIComponent(pane.id)).sort().join(',');
     return {
         mode: 'finished',
         count: completed.length,
-        name: completed[0]?.name ?? 'Agent',
+        name: completed[0]?.agentName ?? 'Unnamed agent',
         names,
         eventKey: `finished:${ids}`,
     };

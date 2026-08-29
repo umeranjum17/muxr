@@ -43,11 +43,11 @@ describe('spoken herd flow', () => {
             pane('dead', { presence: 1_700_000_000 }),
         ], tree({ docs: 'done', host: 'working', mobile: 'blocked', busy: 'working' }));
         expect(panes.map((item) => item.id)).toEqual(['mobile', 'busy', 'host', 'docs']);
-        expect(panes.map(({ name, taskTitle }) => ({ name, taskTitle }))).toEqual([
-            { name: 'Maria', taskTitle: 'Fix mobile' },
-            { name: 'Sam', taskTitle: 'Build mobile' },
-            { name: 'John', taskTitle: 'Repair host' },
-            { name: 'Dana', taskTitle: 'Write docs' },
+        expect(panes.map(({ agentName, taskTitle }) => ({ agentName, taskTitle }))).toEqual([
+            { agentName: 'Maria', taskTitle: 'Fix mobile' },
+            { agentName: 'Sam', taskTitle: 'Build mobile' },
+            { agentName: 'John', taskTitle: 'Repair host' },
+            { agentName: 'Dana', taskTitle: 'Write docs' },
         ]);
         expect(paneStatus(pane('stale', {
             metadata: { summary: { text: 'stale', updatedAt: 0 }, agentStatus: 'done' },
@@ -60,7 +60,7 @@ describe('spoken herd flow', () => {
             mode: 'attention', count: 1, name: 'Maria', eventKey: `attention:${encodeURIComponent('mobile')}`,
         });
         expect(JSON.stringify(herdNotificationState(panes, 'connected'))).not.toContain('npm test');
-        expect(herdNotificationState(panes.filter((item) => item.status !== 'blocked'), 'connected')).toMatchObject({
+        expect(herdNotificationState(panes.filter((item) => item.agentStatus !== 'blocked'), 'connected')).toMatchObject({
             mode: 'working', count: 2, name: 'Sam', names: 'Sam, John',
         });
         expect(herdNotificationState([], 'connected').mode).toBe('idle');

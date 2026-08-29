@@ -239,6 +239,7 @@ export function createFakeSessionSource(): SessionSource {
                 messageCount: 0,
                 firstMessage: '',
                 promptable: true,
+                agentStatus: 'idle',
             };
             sessions.set(id, session);
             emit(id, { type: 'session.created', session });
@@ -339,6 +340,7 @@ export function createFakeSessionSource(): SessionSource {
             requireSession(sessionId);
             sessions.delete(sessionId);
             emit(sessionId, { type: 'session.removed' });
+            return { status: 'closed' };
         },
         async reload() {},
         subscribe(listener) {
@@ -364,6 +366,7 @@ export function assertFakeSourceCoversContract(): void {
             messageCount: 0,
             firstMessage: '',
             promptable: true,
+            agentStatus: 'idle',
         }, { path: '/tmp/demo-change.ts', content: '' }).map((event) => event.type),
     );
     const missing = SESSION_EVENT_TYPES.filter((type) => !emitted.has(type));

@@ -12,12 +12,14 @@ import {
 } from '../domain/layout.js';
 import { lifecycleReasonForObservation } from '../domain/lifecycle.js';
 import { AgentRouteStore, type HerdrAgentSessionRef } from './agentRouteStore.js';
+import { runPluginProcess } from './pluginCatalog.js';
 import { RealtimeCodingCoordinator } from './realtimeCoordinator.js';
-import { closeAgentRoute, closeExactPane, closeExactTab, closeExactWorkspace, mergeHerdrAgentEvent, promptHerdrAgent, promptPromptableHerdrAgent, sendKeysToLiveAgent } from './herdrSessionSource.js';
-import { createConnection } from 'node:net';
-import { mkdtempSync, statSync, writeFileSync } from 'node:fs';
+import { closeExactPane, closeExactTab, closeExactWorkspace, isRetryableCloseFailure, mergeHerdrAgentEvent, promptHerdrAgent, promptPromptableHerdrAgent, resolveClosePaneId, sendKeysToLiveAgent } from './herdrSessionSource.js';
+import { createConnection, createServer } from 'node:net';
+import { existsSync, mkdtempSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 function assert(condition: boolean, message: string): void {
     if (!condition) throw new Error(message);
@@ -156,6 +158,39 @@ async function demo(): Promise<void> {
     const routeB = routeStore.bind(sessionB).route;
     assert(removed[0]?.route === routeA && routeStore.get(routeA) === undefined && routeB !== routeA && pelican.name === 'Pelican',
         'Pelican session B removes Badger and receives a distinct current route');
+    const replacementPanes = new Set([pelican.pane_id]);
+    const occupiedPanes = new Set([pelican.pane_id]);
+    const replacementResolution = {
+        paneExists: (paneId: string) => replacementPanes.has(paneId),
+        paneHasAgent: (paneId: string) => occupiedPanes.has(paneId),
+    };
+    assert(resolveClosePaneId({
+        sessionId: routeA,
+        rememberedPaneId: movedBadger.pane_id,
+        ...replacementResolution,
+    }) === undefined, 'removed Badger route cannot close Pelican through its remembered pane');
+    assert(resolveClosePaneId({
+        sessionId: `shell:${pelican.pane_id}`,
+        ...replacementResolution,
+    }) === undefined, 'stale shell route cannot close a replacement agent occupying its pane');
+    let ambiguousCloseError: unknown;
+    let ambiguousFallbackReads = 0;
+    try {
+        resolveClosePaneId({
+            sessionId: routeB,
+            currentAgentPaneIds: ['w9:p7', 'w9:p8'],
+            rememberedPaneId: pelican.pane_id,
+            paneExists: () => { ambiguousFallbackReads += 1; return true; },
+            paneHasAgent: () => { ambiguousFallbackReads += 1; return false; },
+        });
+    } catch (error) {
+        ambiguousCloseError = error;
+    }
+    assert(ambiguousCloseError instanceof Error
+        && 'code' in ambiguousCloseError
+        && ambiguousCloseError.code === 'agent-route-ambiguous'
+        && ambiguousFallbackReads === 0,
+    'ambiguous Agent Route fails terminally before remembered-pane fallback or close mutation');
 
     const promptCalls: Array<{ method: string; params: Record<string, unknown> }> = [];
     const promptClient = {
@@ -204,101 +239,48 @@ async function demo(): Promise<void> {
     await sendKeysToLiveAgent(keyClient, { sessionId: routeB, paneId: pelican.pane_id }, ['escape']);
     assert(herdrKeyCalls[0]?.params.target === pelican.pane_id,
         'runtime controls resolve through current route B');
-    const stopCalls: Array<{ method: string; params: Record<string, unknown> }> = [];
-    let failStopClose = false;
-    const stopClient = {
-        call: async <T>(method: string, params: Record<string, unknown> = {}): Promise<T> => {
-            stopCalls.push({ method, params });
-            if (failStopClose) throw new Error('close failed');
-            return undefined as T;
-        },
-    };
-    const stopPanes = new Map([
-        ['w1:p2', { tab_id: 'w1:t1' }],
-        ['w1:p3', { tab_id: 'w1:t1' }],
-        ['w1:p4', { tab_id: 'w1:t2' }],
-    ]);
-    const stopTabs = new Map([
-        ['w1:t1', { workspace_id: 'w1' }],
-        ['w1:t2', { workspace_id: 'w1' }],
-    ]);
-    const cleanupCalls: string[] = [];
-    const recordCleanup = (target: { sessionId: string }): void => { cleanupCalls.push(target.sessionId); };
-    await closeAgentRoute(
-        stopClient,
-        { sessionId: 'route-selected', paneId: 'w1:p2' },
-        stopPanes,
-        stopTabs,
-        recordCleanup,
-    );
-    await closeAgentRoute(
-        stopClient,
-        { sessionId: 'route-sole', paneId: 'w1:p4' },
-        stopPanes,
-        stopTabs,
-        recordCleanup,
-    );
-    assert(JSON.stringify(stopCalls) === JSON.stringify([
-        { method: 'pane.close', params: { pane_id: 'w1:p2' } },
-        { method: 'tab.close', params: { tab_id: 'w1:t2' } },
-    ]), 'session.stop closes one selected pane in a split tab and one selected sole-pane tab');
-    assert(JSON.stringify(cleanupCalls) === JSON.stringify(['route-selected', 'route-sole']),
-        'route-owned state cleans up only after each successful exact close');
-    stopPanes.set('w2:p4', { tab_id: 'w2:t4' });
-    stopTabs.set('w2:t4', { workspace_id: 'w2' });
-    let lastTabStopError: unknown;
-    try {
-        await closeAgentRoute(
-            stopClient,
-            { sessionId: 'route-last-tab', paneId: 'w2:p4' },
-            stopPanes,
-            stopTabs,
-            recordCleanup,
-        );
-    } catch (error) {
-        lastTabStopError = error;
-    }
-    const lastTabStopCode = lastTabStopError !== null && typeof lastTabStopError === 'object' && 'code' in lastTabStopError
-        ? lastTabStopError.code
-        : undefined;
-    assert(lastTabStopCode === 'tab-close-would-widen' && stopCalls.length === 2 && cleanupCalls.length === 2,
-        'Stop agent refuses a sole last tab instead of closing its workspace');
-    stopPanes.set('w3:p1', { tab_id: 'w3:t1' });
-    stopTabs.set('w3:t1', { workspace_id: 'w3' });
-    stopTabs.set('w3:t2', { workspace_id: 'w3' });
-    failStopClose = true;
-    try {
-        await closeAgentRoute(
-            stopClient,
-            { sessionId: 'route-failed-close', paneId: 'w3:p1' },
-            stopPanes,
-            stopTabs,
-            recordCleanup,
-        );
-    } catch {}
-    assert(cleanupCalls.length === 2, 'failed exact close leaves route cleanup untouched');
     const explicitCloseCalls: Array<{ method: string; params: Record<string, unknown> }> = [];
+    const livePanes: Record<string, { pane_id: string; tab_id: string }> = {
+        'w4:p1': { pane_id: 'w4:p1', tab_id: 'w4:t1' },
+        'w4:p2': { pane_id: 'w4:p2', tab_id: 'w4:t1' },
+        'w7:p1': { pane_id: 'w7:p1', tab_id: 'w7:t1' },
+    };
+    const liveTabs: Record<string, { tab_id: string; workspace_id: string; pane_count: number; label: string }> = {
+        'w4:t1': { tab_id: 'w4:t1', workspace_id: 'w4', pane_count: 2, label: 'Code' },
+        'w4:t2': { tab_id: 'w4:t2', workspace_id: 'w4', pane_count: 1, label: 'Review' },
+        'w4:t3': { tab_id: 'w4:t3', workspace_id: 'w4', pane_count: 1, label: 'Docs' },
+        'w7:t1': { tab_id: 'w7:t1', workspace_id: 'w7', pane_count: 1, label: 'Solo' },
+        'w8:t1': { tab_id: 'w8:t1', workspace_id: 'w8', pane_count: 1, label: 'Last' },
+    };
+    const liveWorkspaces: Record<string, {
+        workspace_id: string;
+        tab_count: number;
+        label: string;
+        worktree?: { repo_key: string; is_linked_worktree: boolean };
+    }> = {
+        w4: { workspace_id: 'w4', tab_count: 3, label: 'App' },
+        w5: { workspace_id: 'w5', tab_count: 1, label: 'Parent', worktree: { repo_key: 'repo', is_linked_worktree: false } },
+        w6: { workspace_id: 'w6', tab_count: 1, label: 'Linked', worktree: { repo_key: 'repo', is_linked_worktree: true } },
+        w7: { workspace_id: 'w7', tab_count: 1, label: 'One' },
+        w8: { workspace_id: 'w8', tab_count: 1, label: 'One' },
+    };
     const explicitCloseClient = {
         call: async <T>(method: string, params: Record<string, unknown> = {}): Promise<T> => {
             explicitCloseCalls.push({ method, params });
+            if (method === 'pane.get') return { pane: livePanes[String(params.pane_id)] } as T;
+            if (method === 'tab.get') return { tab: liveTabs[String(params.tab_id)] } as T;
+            if (method === 'workspace.get') return { workspace: liveWorkspaces[String(params.workspace_id)] } as T;
+            if (method === 'workspace.list') return { workspaces: Object.values(liveWorkspaces) } as T;
             return undefined as T;
         },
     };
-    const explicitPanes = new Map([
-        ['w4:p1', { tab_id: 'w4:t1' }],
-        ['w4:p2', { tab_id: 'w4:t1' }],
-    ]);
-    const explicitTabs = new Map([
-        ['w4:t2', { workspace_id: 'w4' }],
-        ['w4:t3', { workspace_id: 'w4' }],
-    ]);
-    await closeExactPane(explicitCloseClient, 'w4:p1', explicitPanes);
-    await closeExactTab(explicitCloseClient, 'w4:t2', explicitTabs);
+    await closeExactPane(explicitCloseClient, 'w4:p1');
+    await closeExactTab(explicitCloseClient, 'w4:t2');
     let paneWidenError: unknown;
-    try { await closeExactPane(explicitCloseClient, 'w7:p1', new Map([['w7:p1', { tab_id: 'w7:t1' }]])); }
+    try { await closeExactPane(explicitCloseClient, 'w7:p1'); }
     catch (error) { paneWidenError = error; }
     let tabWidenError: unknown;
-    try { await closeExactTab(explicitCloseClient, 'w8:t1', new Map([['w8:t1', { workspace_id: 'w8' }]])); }
+    try { await closeExactTab(explicitCloseClient, 'w8:t1'); }
     catch (error) { tabWidenError = error; }
     const paneWidenCode = paneWidenError !== null && typeof paneWidenError === 'object' && 'code' in paneWidenError
         ? paneWidenError.code
@@ -307,27 +289,220 @@ async function demo(): Promise<void> {
         ? tabWidenError.code
         : undefined;
     assert(paneWidenCode === 'pane-close-would-widen' && tabWidenCode === 'tab-close-would-widen'
-        && explicitCloseCalls.length === 2, 'Close pane and Close tab refuse hidden widening without mutation');
-    await closeExactWorkspace(explicitCloseClient, 'w4', new Map([['w4', { workspace_id: 'w4' }]]));
-    const groupedWorkspaces = new Map([
-        ['w5', { workspace_id: 'w5', worktree: { repo_key: 'repo', is_linked_worktree: false } }],
-        ['w6', { workspace_id: 'w6', worktree: { repo_key: 'repo', is_linked_worktree: true } }],
-    ]);
-    await closeExactWorkspace(explicitCloseClient, 'w6', groupedWorkspaces);
-    assert(JSON.stringify(explicitCloseCalls) === JSON.stringify([
+        && !explicitCloseCalls.some((call) => call.method === 'pane.close' && call.params.pane_id === 'w7:p1')
+        && !explicitCloseCalls.some((call) => call.method === 'tab.close' && call.params.tab_id === 'w8:t1'),
+        'Close pane and Close tab refuse hidden widening without mutation');
+    await closeExactWorkspace(explicitCloseClient, 'w4');
+    await closeExactWorkspace(explicitCloseClient, 'w6');
+    assert(JSON.stringify(explicitCloseCalls.filter((call) => call.method.endsWith('.close'))) === JSON.stringify([
         { method: 'pane.close', params: { pane_id: 'w4:p1' } },
         { method: 'tab.close', params: { tab_id: 'w4:t2' } },
         { method: 'workspace.close', params: { workspace_id: 'w4' } },
         { method: 'workspace.close', params: { workspace_id: 'w6' } },
-    ]), 'Close pane, Close tab, and Close workspace each issue exactly their named Herdr RPC');
+    ]), 'Close pane, Close tab, and Close workspace each issue exactly their named live Herdr RPC');
     let groupCloseError: unknown;
-    try { await closeExactWorkspace(explicitCloseClient, 'w5', groupedWorkspaces); }
+    try { await closeExactWorkspace(explicitCloseClient, 'w5'); }
     catch (error) { groupCloseError = error; }
     const groupCloseCode = groupCloseError !== null && typeof groupCloseError === 'object' && 'code' in groupCloseError
         ? groupCloseError.code
         : undefined;
-    assert(groupCloseCode === 'worktree-group-confirmation-required' && explicitCloseCalls.length === 4, 'parent worktree workspace requires an explicit group action without mutation');
+    assert(groupCloseCode === 'worktree-group-confirmation-required'
+        && !explicitCloseCalls.some((call) => call.method === 'workspace.close' && call.params.workspace_id === 'w5'),
+        'parent worktree workspace requires an explicit group action without mutation');
     assert(explicitCloseCalls.every(({ method }) => !method.startsWith('worktree.')), 'no ordinary close action can close a worktree group');
+
+    let closeModuleDir = dirname(fileURLToPath(import.meta.url));
+    let closeModulePath: string | undefined;
+    for (let depth = 0; depth < 8; depth += 1) {
+        const candidate = join(closeModuleDir, 'plugins', 'workspace-hierarchy', 'close.mjs');
+        if (existsSync(candidate)) { closeModulePath = candidate; break; }
+        const parent = dirname(closeModuleDir);
+        if (parent === closeModuleDir) break;
+        closeModuleDir = parent;
+    }
+    assert(closeModulePath !== undefined, 'workspace-hierarchy close.mjs is present for the live close ladder');
+    // The packaged plugin root is resolved at runtime; it is not a TypeScript module dependency.
+    const { closeAgent, createSocketCall, isRetryableHerdr } = await import(pathToFileURL(closeModulePath!).href) as {
+        closeAgent: (options: {
+            paneId: string;
+            confirmedScope?: 'tab' | 'workspace' | 'worktreeGroup';
+            call: (method: string, params?: Record<string, unknown>) => Promise<unknown>;
+        }) => Promise<
+            | { status: 'closed'; alreadyGone?: true }
+            | { status: 'confirmationRequired'; scope: 'tab' | 'workspace' | 'worktreeGroup'; label: string; message: string }
+            | { status: 'retryable'; message: string }
+        >;
+        createSocketCall: (
+            socketPath?: string,
+            timeoutMs?: number,
+        ) => (method: string, params?: Record<string, unknown>) => Promise<unknown>;
+        isRetryableHerdr: (error: unknown) => boolean;
+    };
+    const sanitizedRetryCodes = ['EACCES', 'ECONNRESET', 'ETIMEDOUT'];
+    assert(sanitizedRetryCodes.every((code) => {
+        const error = new Error(`herdr: session.snapshot: ${code}`);
+        return isRetryableHerdr(error) && isRetryableCloseFailure(error);
+    }), 'sanitized socket permission, reset, and timeout codes stay retryable at plugin and host boundaries');
+    type ClosePhase = 'split' | 'two-tabs' | 'last-tab' | 'group' | 'herdr-group' | 'revalidation-outage' | 'empty' | 'outage';
+    let closePhase: ClosePhase = 'split';
+    let revalidationSnapshots = 0;
+    const pluginCalls: Array<{ method: string; params: Record<string, unknown> }> = [];
+    const snapshots: Record<Exclude<ClosePhase, 'outage' | 'revalidation-outage'>, Record<string, unknown>> = {
+        split: {
+            panes: [{ pane_id: 'w1:p1', tab_id: 'w1:t1', workspace_id: 'w1' }],
+            tabs: [{ tab_id: 'w1:t1', workspace_id: 'w1', pane_count: 2, label: 'Code' }],
+            workspaces: [{ workspace_id: 'w1', tab_count: 1, label: 'App' }],
+        },
+        'two-tabs': {
+            panes: [{ pane_id: 'w1:p1', tab_id: 'w1:t1', workspace_id: 'w1' }],
+            tabs: [
+                { tab_id: 'w1:t1', workspace_id: 'w1', pane_count: 1, label: 'Review' },
+                { tab_id: 'w1:t2', workspace_id: 'w1', pane_count: 1, label: 'Docs' },
+            ],
+            workspaces: [{ workspace_id: 'w1', tab_count: 2, label: 'App' }],
+        },
+        'last-tab': {
+            panes: [{ pane_id: 'w1:p1', tab_id: 'w1:t1', workspace_id: 'w1' }],
+            tabs: [{ tab_id: 'w1:t1', workspace_id: 'w1', pane_count: 1, label: 'Review' }],
+            workspaces: [{ workspace_id: 'w1', tab_count: 1, label: 'App' }],
+        },
+        group: {
+            panes: [{ pane_id: 'w1:p1', tab_id: 'w1:t1', workspace_id: 'w1' }],
+            tabs: [{ tab_id: 'w1:t1', workspace_id: 'w1', pane_count: 1, label: 'Review' }],
+            workspaces: [
+                { workspace_id: 'w1', tab_count: 1, label: 'App', worktree: { repo_key: 'repo', repo_name: 'repo', is_linked_worktree: false } },
+                { workspace_id: 'w2', tab_count: 1, label: 'Linked', worktree: { repo_key: 'repo', repo_name: 'repo', is_linked_worktree: true } },
+            ],
+        },
+        empty: { panes: [], tabs: [], workspaces: [] },
+        'herdr-group': {
+            panes: [{ pane_id: 'w1:p1', tab_id: 'w1:t1', workspace_id: 'w1' }],
+            tabs: [
+                { tab_id: 'w1:t1', workspace_id: 'w1', pane_count: 1, label: 'Review' },
+                { tab_id: 'w1:t2', workspace_id: 'w1', pane_count: 1, label: 'Docs' },
+            ],
+            workspaces: [{ workspace_id: 'w1', tab_count: 2, label: 'App' }],
+        },
+    };
+    const pluginCall = async (method: string, params: Record<string, unknown> = {}): Promise<unknown> => {
+        pluginCalls.push({ method, params });
+        if (closePhase === 'outage') throw new Error('herdr: session.snapshot: connect ECONNREFUSED');
+        if (method === 'session.snapshot') {
+            if (closePhase === 'revalidation-outage') {
+                revalidationSnapshots += 1;
+                if (revalidationSnapshots > 1) throw new Error('herdr: session.snapshot: connect ECONNREFUSED');
+                return { snapshot: snapshots['herdr-group'] };
+            }
+            return { snapshot: snapshots[closePhase] };
+        }
+        if (method === 'tab.close' && (closePhase === 'herdr-group' || closePhase === 'revalidation-outage')) {
+            throw new Error('herdr: confirmation_required: closing this tab would close a worktree group');
+        }
+        if (method === 'pane.close' || method === 'tab.close' || method === 'workspace.close') return {};
+        throw new Error(`unexpected ${method}`);
+    };
+
+    closePhase = 'split';
+    const paneClosed = await closeAgent({ paneId: 'w1:p1', call: pluginCall });
+    assert(paneClosed.status === 'closed' && pluginCalls.some((call) => call.method === 'pane.close'),
+        'unconfirmed split-pane close issues exact pane.close');
+
+    closePhase = 'two-tabs';
+    const beforeTabAsk = pluginCalls.length;
+    const tabAsk = await closeAgent({ paneId: 'w1:p1', call: pluginCall });
+    assert(tabAsk.status === 'confirmationRequired' && tabAsk.scope === 'tab' && tabAsk.label === 'Review'
+        && !pluginCalls.slice(beforeTabAsk).some((call) => call.method.endsWith('.close')),
+        'last pane in a multi-tab workspace asks for tab confirmation without mutation');
+    assert(!pluginCalls.some((call) => call.method === 'tab.close' || call.method === 'workspace.close'),
+        'cancel is no additional request: unconfirmed close never widens');
+
+    closePhase = 'last-tab';
+    const beforeWorkspaceAsk = pluginCalls.length;
+    const workspaceAsk = await closeAgent({ paneId: 'w1:p1', confirmedScope: 'tab', call: pluginCall });
+    assert(workspaceAsk.status === 'confirmationRequired' && workspaceAsk.scope === 'workspace' && workspaceAsk.label === 'App'
+        && !pluginCalls.slice(beforeWorkspaceAsk).some((call) => call.method === 'tab.close'),
+        'confirmed tab after topology change to a last tab returns the newly required workspace scope');
+
+    closePhase = 'group';
+    const beforeGroupAsk = pluginCalls.length;
+    const groupAsk = await closeAgent({ paneId: 'w1:p1', confirmedScope: 'workspace', call: pluginCall });
+    assert(groupAsk.status === 'confirmationRequired' && groupAsk.scope === 'worktreeGroup' && groupAsk.label === 'repo'
+        && !pluginCalls.slice(beforeGroupAsk).some((call) => call.method === 'workspace.close'),
+        'confirmed workspace on a parent worktree group asks for worktreeGroup without mutation');
+
+    const groupClosed = await closeAgent({ paneId: 'w1:p1', confirmedScope: 'worktreeGroup', call: pluginCall });
+    assert(groupClosed.status === 'closed'
+        && pluginCalls.some((call) => call.method === 'workspace.close' && call.params.workspace_id === 'w1'),
+        'confirmed worktreeGroup invokes exact workspace.close');
+
+    closePhase = 'herdr-group';
+    const herdrGroup = await closeAgent({ paneId: 'w1:p1', confirmedScope: 'tab', call: pluginCall });
+    assert(herdrGroup.status === 'confirmationRequired' && herdrGroup.scope === 'workspace',
+        'a raced Herdr tab no-widen response asks for the exact next workspace scope');
+    const beyondConfirmed = await closeAgent({ paneId: 'w1:p1', confirmedScope: 'workspace', call: pluginCall });
+    assert(beyondConfirmed.status === 'confirmationRequired' && beyondConfirmed.scope === 'worktreeGroup',
+        'a Herdr refusal asks strictly beyond both the attempted tab and confirmed workspace');
+
+    closePhase = 'revalidation-outage';
+    revalidationSnapshots = 0;
+    const revalidationDown = await closeAgent({ paneId: 'w1:p1', confirmedScope: 'tab', call: pluginCall });
+    assert(revalidationDown.status === 'retryable',
+        'temporary outage while revalidating a Herdr refusal never reports the pane already gone');
+
+    closePhase = 'empty';
+    const gone = await closeAgent({ paneId: 'w1:p1', call: pluginCall });
+    assert(gone.status === 'closed' && gone.alreadyGone === true
+        && !pluginCalls.slice(-2).some((call) => call.method.endsWith('.close')),
+        'already missing pane maps to closed alreadyGone');
+
+    closePhase = 'outage';
+    const down = await closeAgent({ paneId: 'w1:p1', call: pluginCall });
+    assert(down.status === 'retryable', 'temporary Herdr socket failure is retryable');
+
+    const closeRpcDir = mkdtempSync(join(tmpdir(), 'muxr-close-rpc-'));
+    const closeRpcSocket = join(closeRpcDir, 'herdr.sock');
+    const closeRpcServer = createServer((socket) => {
+        let request = '';
+        socket.on('data', (chunk) => {
+            request += chunk.toString('utf8');
+            const newline = request.indexOf('\n');
+            if (newline === -1) return;
+            const message = JSON.parse(request.slice(0, newline)) as { id: string };
+            socket.end(`${JSON.stringify({
+                id: message.id,
+                result: { snapshot: { panes: [], tabs: [], workspaces: [] } },
+            })}\n`);
+        });
+    });
+    await new Promise<void>((resolve, reject) => {
+        closeRpcServer.once('error', reject);
+        closeRpcServer.listen(closeRpcSocket, resolve);
+    });
+    let closeRpcResult: unknown;
+    try {
+        closeRpcResult = await runPluginProcess({
+            pluginId: 'self-check',
+            method: 'close',
+            script: join(dirname(closeModulePath!), 'rpc.mjs'),
+            serializedInput: JSON.stringify({ paneId: 'w1:p1' }),
+            stateDir: closeRpcDir,
+            trustedHerdrSocketPath: closeRpcSocket,
+        });
+    } finally {
+        await new Promise<void>((resolve) => closeRpcServer.close(() => resolve()));
+    }
+    assert(JSON.stringify(closeRpcResult) === JSON.stringify({ status: 'closed', alreadyGone: true })
+        && !JSON.stringify(closeRpcResult).includes(closeRpcSocket),
+    'packaged close RPC receives the non-default Herdr socket only through private process context');
+    const missingPrivateSocket = join(closeRpcDir, 'private-missing.sock');
+    let privateSocketError: unknown;
+    try {
+        await createSocketCall(missingPrivateSocket, 100)('session.snapshot');
+    } catch (error) {
+        privateSocketError = error;
+    }
+    assert(privateSocketError instanceof Error && !privateSocketError.message.includes(missingPrivateSocket),
+        'close transport errors never expose the private Herdr socket path');
 
     const socketDir = mkdtempSync(join(tmpdir(), 'pph-coord-check-'));
     const socketPath = join(socketDir, 'realtime-coding.sock');
@@ -352,8 +527,8 @@ async function demo(): Promise<void> {
         },
     };
     const coordinatorAgents = [
-        { sessionId: 'pp_john', cwd: '/repo', displayName: 'John', taskTitle: 'Harden audio', kind: 'pi', status: 'idle' },
-        { sessionId: 'pp_maria', cwd: '/repo', displayName: 'Maria', taskTitle: 'Ship settings', kind: 'pi', status: 'working' },
+        { sessionId: 'pp_john', cwd: '/repo', agentName: 'John', taskTitle: 'Harden audio', agentKind: 'pi', agentStatus: 'idle' as const, promptable: true },
+        { sessionId: 'pp_maria', cwd: '/repo', agentName: 'Maria', taskTitle: 'Ship settings', agentKind: 'pi', agentStatus: 'working' as const, promptable: true },
     ];
     const coordinator = new RealtimeCodingCoordinator(socketPath, {
         list: async () => coordinatorAgents,
@@ -389,8 +564,8 @@ async function demo(): Promise<void> {
     const keyAccess = coordinator.issueCapability({ cwd: '/repo', sessionId: 'pp_john', provider: 'gemini' });
     const unknownKey = await ask(socketPath, keyAccess.capability, { method: 'key', agent: 'John', key: 'ctrl-x', operationId: 'key-unknown' });
     assert(unknownKey.data?.includes('not available') === true && sentKeys.length === 0, 'unknown key clarifies without mutation');
-    const ambiguousKey = await ask(socketPath, keyAccess.capability, { method: 'key', agent: 'pi', key: 'escape', operationId: 'key-ambiguous' });
-    assert(ambiguousKey.data?.includes('More than one') === true && sentKeys.length === 0, 'ambiguous provider kind clarifies without sending a key');
+    const providerKindKey = await ask(socketPath, keyAccess.capability, { method: 'key', agent: 'pi', key: 'escape', operationId: 'key-provider-kind' });
+    assert(providerKindKey.data?.includes('could not find') === true && sentKeys.length === 0, 'provider kind never substitutes for Agent Name or Task Title');
     const uniqueKey = await ask(socketPath, keyAccess.capability, { method: 'key', agent: 'Harden audio', key: 'Escape', operationId: 'key-unique' });
     assert(uniqueKey.data === 'Confirmed: Escape was sent to John.'
         && JSON.stringify(sentKeys) === JSON.stringify([{ sessionId: 'pp_john', keys: ['escape'] }]), 'unique Task Title sends an allowlisted key through its Agent Route');

@@ -313,24 +313,24 @@ const safeTail = (value) => redactCredentials(value)
     .trim().slice(-1500);
 
 export function parseVoiceReport(value) {
-    const displayName = cleanProviderProse(value?.displayName, 'The watched agent', 80);
+    const agentName = cleanProviderProse(value?.agentName, 'The watched agent', 80);
     const taskTitle = cleanProviderProse(value?.taskTitle, 'coding task', 120);
     const status = cleanProviderProse(value?.outcome ?? value?.status, 'settled', 32).toLocaleLowerCase();
     if (status === 'idle') {
-        return { confirmed: true, sentence: `${displayName} is idle.` };
+        return { confirmed: true, sentence: `${agentName} is idle.` };
     }
     if (status === 'done') {
-        return { confirmed: true, sentence: `${displayName} has finished ${taskTitle}.` };
+        return { confirmed: true, sentence: `${agentName} has finished ${taskTitle}.` };
     }
     if (status === 'blocked') {
-        return { confirmed: true, sentence: `${displayName} is blocked on ${taskTitle} and is waiting for the user.` };
+        return { confirmed: true, sentence: `${agentName} is blocked on ${taskTitle} and is waiting for the user.` };
     }
     if (status === 'failed') {
-        return { confirmed: true, sentence: `${displayName} could not finish ${taskTitle}.` };
+        return { confirmed: true, sentence: `${agentName} could not finish ${taskTitle}.` };
     }
     return {
         confirmed: false,
-        sentence: `Unconfirmed report: ${displayName}'s ${taskTitle} has no confirmed host outcome. Do not describe it as finished, failed, or blocked.`,
+        sentence: `Unconfirmed report: ${agentName}'s ${taskTitle} has no confirmed host outcome. Do not describe it as finished, failed, or blocked.`,
     };
 }
 

@@ -37,14 +37,6 @@ export class TerminalLink {
     }
 }
 
-export function sessionContextTitle(input: {
-    paneLabel?: string;
-    tabLabel?: string;
-    agentName?: string;
-    agentKind?: string;
-}): string {
-    return input.paneLabel ?? input.tabLabel ?? input.agentName ?? input.agentKind ?? 'session';
-}
 
 export function displayLink(url: string, maxLength: number): string {
     return new TerminalLink(url).display(maxLength);

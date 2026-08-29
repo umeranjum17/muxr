@@ -40,6 +40,12 @@ type PluginCall = { method: string; entry: string; mode: PluginRpcMode; modeDecl
 type PluginStream = { entry: string };
 type Snapshot = { pluginRoot: string; manifest: PluginManifestV1; summary: Omit<PluginSummary, 'approved'>; actions: Map<string, string>; calls: Map<string, PluginCall>; streams: Map<string, PluginStream> };
 type ParsedProjection = { pluginRoot: string; manifest: PluginManifestV1; canonical: string };
+export interface PluginBackendCallTarget extends PluginCall {
+    pluginId: string;
+    manifestHash: string;
+    contributionId: string;
+    pluginRoot: string;
+}
 
 export type PluginDigestSnapshot = {
     digests: ReadonlyMap<string, string>;
@@ -195,6 +201,31 @@ export class PluginCatalog {
         const call = snapshot.calls.get(contributionId);
         if (call === undefined) throw new Error('plugin call unavailable or changed');
         return { ...call, pluginRoot: snapshot.pluginRoot };
+    }
+
+    /** Resolve a kernel capability only from its exact packaged identity and root.
+     * Installed snapshots remain available while their user-facing UI is disabled. */
+    trustedCapabilityCallTarget(options: {
+        pluginRoot: string;
+        capability: string;
+        mode: PluginRpcMode;
+        manifestHash?: string;
+    }): PluginBackendCallTarget {
+        const matches = [...this.installed].filter(([, installed]) => installed.snapshot.pluginRoot === options.pluginRoot);
+        if (matches.length !== 1) throw new Error('packaged plugin is unavailable or ambiguous');
+        const [pluginId, installed] = matches[0]!;
+        const snapshot = installed.snapshot;
+        const manifestHash = snapshot.summary.manifestHash;
+        if (manifestHash === undefined || (options.manifestHash !== undefined && options.manifestHash !== manifestHash)) {
+            throw new Error('packaged plugin changed');
+        }
+        const contributionId = snapshot.manifest.capabilities?.[options.capability];
+        if (contributionId === undefined) throw new Error(`packaged capability ${options.capability} is unavailable`);
+        const call = snapshot.calls.get(contributionId);
+        if (call === undefined || !call.modeDeclared || call.mode !== options.mode) {
+            throw new Error(`packaged capability ${options.capability} has an invalid RPC contract`);
+        }
+        return { pluginId, manifestHash, contributionId, pluginRoot: snapshot.pluginRoot, ...call };
     }
 
     /** Return the validated stream contribution and plugin root from one active catalog snapshot. */
@@ -437,6 +468,8 @@ export interface RunPluginProcessOptions {
     deadlineMs?: number;
     killGraceMs?: number;
     signal?: AbortSignal;
+    /** Host-only transport context for the pinned Agent close implementation. */
+    trustedHerdrSocketPath?: string;
 }
 
 /** Run one bounded plugin process and escape even when descendants retain stdio. */
@@ -455,6 +488,9 @@ export function runPluginProcess(options: RunPluginProcessOptions): Promise<unkn
                 HOME: process.env.HOME,
                 ...(process.env.MUXR_HOME ? { MUXR_HOME: process.env.MUXR_HOME } : {}),
                 ...(options.publicContext === undefined ? {} : { MUXR_PLUGIN_CONTEXT_JSON: options.publicContext }),
+                ...(options.trustedHerdrSocketPath === undefined
+                    ? {}
+                    : { MUXR_HERDR_SOCKET_PATH: options.trustedHerdrSocketPath }),
                 MUXR_PLUGIN_ID: options.pluginId,
                 MUXR_PLUGIN_STATE_DIR: options.stateDir,
             },

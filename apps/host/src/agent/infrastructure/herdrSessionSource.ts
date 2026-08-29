@@ -12,11 +12,12 @@ import { execFile } from 'node:child_process';
 import { accessSync, constants, existsSync, mkdirSync, realpathSync } from 'node:fs';
 import { mkdir, open, readFile, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { delimiter, dirname, join } from 'node:path';
+import { basename, delimiter, dirname, join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import type {
     AgentLifecycle,
+    CloseResult,
     PluginsInvalidatedFrame,
     HerdrTreeWorkspace,
     LayoutSnapshot,
@@ -29,7 +30,7 @@ import type {
     SessionStatus,
     VoiceProviderOption,
 } from '@muxr/contract';
-import { ATTENTION_REASONS, realtimePluginPublicContext, relayControlUrl } from '@muxr/contract';
+import { ATTENTION_REASONS, parseCloseResult, realtimePluginPublicContext, relayControlUrl } from '@muxr/contract';
 import { AttachmentWatcher } from './attachmentWatcher.js';
 import { AttachmentDownloadServer } from './attachmentDownloads.js';
 import type { AgentWatchStores } from '../application/watchStores.js';
@@ -42,6 +43,7 @@ import type {
     SessionShellOutcome,
     SessionSource,
     SessionStartOptions,
+    SessionStopOptions,
 } from '../application/sessionSource.js';
 import { HerdrClient } from './socketClient.js';
 import {
@@ -50,7 +52,7 @@ import {
     parseHerdrAgentSession,
     type HerdrAgentSessionRef,
 } from './agentRouteStore.js';
-import { pluginInvalidationFrame, PluginCatalog, PluginRefreshGate, WriteReplayFence, Semaphore, rpcInputDigest, rpcReplayKey, runPluginProcess, type HerdrPlugin } from './pluginCatalog.js';
+import { pluginInvalidationFrame, PluginCatalog, PluginRefreshGate, WriteReplayFence, Semaphore, rpcInputDigest, rpcReplayKey, runPluginProcess, type HerdrPlugin, type PluginBackendCallTarget } from './pluginCatalog.js';
 import { PluginApprovals } from './pluginApprovals.js';
 import { PluginStreamManager } from './pluginStreamManager.js';
 import {
@@ -95,6 +97,15 @@ function bundledPluginsDirectory(start: string): string | undefined {
     return undefined;
 }
 const BROWSER_RPC_PLUGINS_ROOT = bundledPluginsDirectory(moduleRoot);
+const AGENT_CLOSE_CAPABILITY = 'agent.close';
+const AGENT_CLOSE_CONTRIBUTION_ID = 'close';
+const AGENT_CLOSE_METHOD = 'close';
+function packagedWorkspaceHierarchyRoot(): string | undefined {
+    if (BROWSER_RPC_PLUGINS_ROOT === undefined) return undefined;
+    const candidate = join(BROWSER_RPC_PLUGINS_ROOT, 'workspace-hierarchy');
+    return existsSync(candidate) ? realpathSync(candidate) : undefined;
+}
+const WORKSPACE_HIERARCHY_PLUGIN_ROOT = packagedWorkspaceHierarchyRoot();
 
 const COMMAND_ALIASES: Record<string, string[]> = {
     qodercli: ['qodercli', 'qoder'],
@@ -165,6 +176,7 @@ export interface CreateHerdrSessionSourceOptions {
 export interface AgentRecord {
     agent?: string | null;
     name?: string | null;
+    display_agent?: string | null;
     agent_session?: HerdrAgentSessionRef | null;
     agent_status?: string;
     pane_id: string;
@@ -233,10 +245,12 @@ export async function promptHerdrAgent(
     }
 }
 
-function agentRouteError(code: 'agent-unavailable' | 'agent-not-ready'): Error {
-    const message = code === 'agent-not-ready'
-        ? 'Agent is not ready yet.'
-        : 'That agent is no longer available. Refresh and try again.';
+function agentRouteError(code: 'agent-unavailable' | 'agent-not-ready' | 'agent-route-ambiguous'): Error {
+    let message = 'That agent is no longer available. Refresh and try again.';
+    if (code === 'agent-not-ready') message = 'Agent is not ready yet.';
+    if (code === 'agent-route-ambiguous') {
+        message = 'That Agent Route is ambiguous. Refresh and select the agent again.';
+    }
     return Object.assign(new Error(message), { code });
 }
 
@@ -250,42 +264,91 @@ export async function promptPromptableHerdrAgent(
     await promptHerdrAgent(client, target, text);
 }
 
-/** Close one pane only when Herdr can preserve its tab and workspace. */
+function herdrFailureCode(error: unknown): string | undefined {
+    const message = error instanceof Error ? error.message : String(error);
+    return /herdr: ([a-z0-9_]+):/i.exec(message)?.[1];
+}
+
+function unavailable(kind: 'pane' | 'tab' | 'workspace'): Error {
+    return Object.assign(new Error(`That ${kind} is no longer available. Refresh and try again.`), {
+        code: `${kind}-unavailable`,
+    });
+}
+
+type LiveWorkspace = {
+    workspace_id: string;
+    tab_count?: number;
+    worktree?: {
+        repo_key?: string;
+        repo_name?: string;
+        is_linked_worktree?: boolean;
+    };
+};
+
+function isParentWorktreeGroup(workspace: LiveWorkspace, workspaces: readonly LiveWorkspace[]): boolean {
+    const worktree = workspace.worktree;
+    if (worktree?.is_linked_worktree !== false || worktree.repo_key === undefined) return false;
+    let size = 0;
+    for (const candidate of workspaces) {
+        if (candidate.worktree?.repo_key === worktree.repo_key) size += 1;
+    }
+    return size >= 2;
+}
+
+/** Close one pane only when live Herdr can preserve its tab and workspace. */
 export async function closeExactPane(
     client: Pick<HerdrClient, 'call'>,
     paneId: string,
-    panes: ReadonlyMap<string, Pick<PaneRecord, 'tab_id'>>,
 ): Promise<void> {
-    const tabId = panes.get(paneId)?.tab_id;
-    if (tabId === undefined) {
-        throw Object.assign(new Error('That pane is no longer available. Refresh and try again.'), { code: 'pane-unavailable' });
+    let pane: { tab_id?: string } | undefined;
+    try {
+        pane = (await client.call<{ pane?: { tab_id?: string } }>('pane.get', { pane_id: paneId })).pane;
+    } catch (error) {
+        if (herdrFailureCode(error) === 'pane_not_found') throw unavailable('pane');
+        throw error;
     }
+    if (pane?.tab_id === undefined) throw unavailable('pane');
     let paneCount = 0;
-    for (const pane of panes.values()) {
-        if (pane.tab_id === tabId) paneCount += 1;
+    try {
+        paneCount = (await client.call<{ tab?: { pane_count?: number } }>('tab.get', { tab_id: pane.tab_id })).tab?.pane_count ?? 0;
+    } catch (error) {
+        if (herdrFailureCode(error) === 'tab_not_found') throw unavailable('pane');
+        throw error;
     }
     if (paneCount <= 1) {
-        throw Object.assign(new Error('Closing this pane would also close its tab. Use Close tab instead.'), { code: 'pane-close-would-widen' });
+        throw Object.assign(new Error('Closing this pane would also close its tab. Use Close tab instead.'), {
+            code: 'pane-close-would-widen',
+        });
     }
     await client.call('pane.close', { pane_id: paneId });
 }
 
-/** Close one tab only when Herdr can preserve its workspace. */
+/** Close one tab only when live Herdr can preserve its workspace. */
 export async function closeExactTab(
     client: Pick<HerdrClient, 'call'>,
     tabId: string,
-    tabs: ReadonlyMap<string, Pick<TabRecord, 'workspace_id'>>,
 ): Promise<void> {
-    const workspaceId = tabs.get(tabId)?.workspace_id;
-    if (workspaceId === undefined) {
-        throw Object.assign(new Error('That tab is no longer available. Refresh and try again.'), { code: 'tab-unavailable' });
+    let tab: { workspace_id?: string } | undefined;
+    try {
+        tab = (await client.call<{ tab?: { workspace_id?: string } }>('tab.get', { tab_id: tabId })).tab;
+    } catch (error) {
+        if (herdrFailureCode(error) === 'tab_not_found') throw unavailable('tab');
+        throw error;
     }
+    if (tab?.workspace_id === undefined) throw unavailable('tab');
     let tabCount = 0;
-    for (const tab of tabs.values()) {
-        if (tab.workspace_id === workspaceId) tabCount += 1;
+    try {
+        tabCount = (await client.call<{ workspace?: { tab_count?: number } }>('workspace.get', {
+            workspace_id: tab.workspace_id,
+        })).workspace?.tab_count ?? 0;
+    } catch (error) {
+        if (herdrFailureCode(error) === 'workspace_not_found') throw unavailable('tab');
+        throw error;
     }
     if (tabCount <= 1) {
-        throw Object.assign(new Error('Closing this tab would also close its workspace. Use Close workspace instead.'), { code: 'tab-close-would-widen' });
+        throw Object.assign(new Error('Closing this tab would also close its workspace. Use Close workspace instead.'), {
+            code: 'tab-close-would-widen',
+        });
     }
     await client.call('tab.close', { tab_id: tabId });
 }
@@ -294,53 +357,25 @@ export async function closeExactTab(
 export async function closeExactWorkspace(
     client: Pick<HerdrClient, 'call'>,
     workspaceId: string,
-    workspaces: ReadonlyMap<string, WorkspaceRecord>,
 ): Promise<void> {
-    const workspace = workspaces.get(workspaceId);
-    if (workspace === undefined) {
-        throw Object.assign(new Error('That workspace is no longer available. Refresh and try again.'), { code: 'workspace-unavailable' });
+    let workspace: LiveWorkspace | undefined;
+    try {
+        workspace = (await client.call<{ workspace?: LiveWorkspace }>('workspace.get', {
+            workspace_id: workspaceId,
+        })).workspace;
+    } catch (error) {
+        if (herdrFailureCode(error) === 'workspace_not_found') throw unavailable('workspace');
+        throw error;
     }
-    const worktree = workspace.worktree;
-    if (worktree?.is_linked_worktree === false && worktree.repo_key !== undefined) {
-        let groupSize = 0;
-        for (const candidate of workspaces.values()) {
-            if (candidate.worktree?.repo_key === worktree.repo_key) groupSize += 1;
-        }
-        if (groupSize >= 2) {
-            throw Object.assign(new Error('Closing this workspace would close its worktree group. Use the explicit Close worktree group action instead.'), {
-                code: 'worktree-group-confirmation-required',
-            });
-        }
+    if (workspace === undefined) throw unavailable('workspace');
+    const workspaces = (await client.call<{ workspaces?: LiveWorkspace[] }>('workspace.list')).workspaces ?? [];
+    if (isParentWorktreeGroup(workspace, workspaces)) {
+        throw Object.assign(new Error('Closing this workspace would close its worktree group. Use the explicit Close worktree group action instead.'), {
+            code: 'worktree-group-confirmation-required',
+        });
     }
     await client.call('workspace.close', { workspace_id: workspaceId });
 }
-
-/** Close exactly the live pane or sole-pane tab selected by one current route. */
-export async function closeAgentRoute(
-    client: Pick<HerdrClient, 'call'>,
-    target: RouteTarget,
-    panes: ReadonlyMap<string, Pick<PaneRecord, 'tab_id'>>,
-    tabs: ReadonlyMap<string, Pick<TabRecord, 'workspace_id'>>,
-    afterClose: (target: RouteTarget) => void,
-): Promise<void> {
-    const tabId = panes.get(target.paneId)?.tab_id;
-    if (tabId === undefined) throw agentRouteError('agent-unavailable');
-    let paneCount = 0;
-    for (const pane of panes.values()) {
-        if (pane.tab_id === tabId) paneCount += 1;
-    }
-    if (paneCount === 0) throw agentRouteError('agent-unavailable');
-    try {
-        if (paneCount > 1) await closeExactPane(client, target.paneId, panes);
-        else await closeExactTab(client, tabId, tabs);
-    } catch (error) {
-        if (error !== null && typeof error === 'object' && 'code' in error
-            && (error.code === 'pane-close-would-widen' || error.code === 'tab-close-would-widen')) throw error;
-        throw agentRouteError('agent-unavailable');
-    }
-    afterClose(target);
-}
-
 
 interface PaneRecord {
     pane_id: string;
@@ -417,6 +452,36 @@ const DEFAULT_WATCH_MS = 30 * 60_000;
 // open forever. Raise it if real turns routinely run longer than an hour.
 const MAX_WATCH_MS = 60 * 60_000;
 
+export function resolveClosePaneId(options: {
+    sessionId: string;
+    currentAgentPaneIds?: readonly string[];
+    rememberedPaneId?: string;
+    paneExists: (paneId: string) => boolean;
+    paneHasAgent: (paneId: string) => boolean;
+}): string | undefined {
+    const unownedPane = (paneId: string | undefined): string | undefined =>
+        paneId !== undefined && options.paneExists(paneId) && !options.paneHasAgent(paneId)
+            ? paneId
+            : undefined;
+    if (options.sessionId.startsWith(SHELL_ROUTE_PREFIX)) {
+        return unownedPane(options.sessionId.slice(SHELL_ROUTE_PREFIX.length));
+    }
+    const currentAgentPaneIds = options.currentAgentPaneIds ?? [];
+    if (currentAgentPaneIds.length > 1) throw agentRouteError('agent-route-ambiguous');
+    const currentAgentPaneId = currentAgentPaneIds[0];
+    if (currentAgentPaneId !== undefined && options.paneExists(currentAgentPaneId)) {
+        return currentAgentPaneId;
+    }
+    return unownedPane(options.rememberedPaneId);
+}
+
+export function isRetryableCloseFailure(error: unknown): boolean {
+    const name = error instanceof Error ? error.name : '';
+    if (name === 'PluginCallDeadlineError' || name === 'PluginCallQueueTimeoutError') return true;
+    const message = error instanceof Error ? error.message : String(error);
+    return /busy, retry|timed out|EACCES|ECONNREFUSED|ECONNRESET|ENOENT|ETIMEDOUT|server_not_running|connection closed|client closed|not running|EPIPE|connect E/i.test(message);
+}
+
 export async function createHerdrSessionSource(
     options: CreateHerdrSessionSourceOptions,
 ): Promise<SessionSource> {
@@ -462,6 +527,9 @@ export async function createHerdrSessionSource(
     const machineListeners = new Set<(frame: PluginsInvalidatedFrame) => void>();
     const agentsByPane = new Map<string, AgentRecord>();
     const panesById = new Map<string, PaneRecord>();
+    /** Last pane authorized by an Agent Route. It survives a vanished agent
+     * record while that pane remains live, so close can ask Herdr for truth. */
+    const paneByAgentRoute = new Map<string, string>();
     const workspacesById = new Map<string, WorkspaceRecord>();
     const tabsById = new Map<string, TabRecord>();
     /** Local lifecycle epochs stop an older in-flight snapshot replacing a newer status event. */
@@ -504,16 +572,37 @@ export async function createHerdrSessionSource(
         return `${SHELL_ROUTE_PREFIX}${paneId}`;
     }
 
-    function currentAgentFor(agentSessionRef: HerdrAgentSessionRef): AgentRecord | undefined {
+    function currentAgentRecordsFor(agentSessionRef: HerdrAgentSessionRef): AgentRecord[] {
         const expectedKey = herdrAgentSessionKey(agentSessionRef);
-        let match: AgentRecord | undefined;
-        for (const agent of agentsByPane.values()) {
+        return [...agentsByPane.values()].filter((agent) => {
             const ref = agentSession(agent);
-            if (ref === undefined || herdrAgentSessionKey(ref) !== expectedKey) continue;
-            if (match !== undefined) return undefined;
-            match = agent;
-        }
+            return ref !== undefined && herdrAgentSessionKey(ref) === expectedKey;
+        });
+    }
+
+    function currentAgentRecordFor(agentSessionRef: HerdrAgentSessionRef): AgentRecord | undefined {
+        const matches = currentAgentRecordsFor(agentSessionRef);
+        return matches.length === 1 ? matches[0] : undefined;
+    }
+
+    function currentAgentFor(agentSessionRef: HerdrAgentSessionRef): AgentRecord | undefined {
+        const match = currentAgentRecordFor(agentSessionRef);
         return namedAgent(match) ? match : undefined;
+    }
+
+    function closePaneId(sessionId: string): string | undefined {
+        const expected = routes.get(sessionId);
+        const currentPaneIds = expected === undefined
+            ? []
+            : currentAgentRecordsFor(expected).map((agent) => agent.pane_id);
+        const rememberedPaneId = paneByAgentRoute.get(sessionId);
+        return resolveClosePaneId({
+            sessionId,
+            currentAgentPaneIds: currentPaneIds,
+            ...(rememberedPaneId === undefined ? {} : { rememberedPaneId }),
+            paneExists: (paneId) => panesById.has(paneId),
+            paneHasAgent: (paneId) => agentsByPane.has(paneId),
+        });
     }
 
     function currentSessions(): CurrentSession[] {
@@ -565,14 +654,9 @@ export async function createHerdrSessionSource(
             && session.agent.launch_pending !== true;
     }
 
+    /** Herdr boundary adapter: Task Title comes only from current AgentInfo.title. */
     function taskTitleForSession(session: CurrentSession): string | undefined {
-        if (session.agent?.title !== undefined && session.agent.title !== null && session.agent.title !== '') {
-            return session.agent.title;
-        }
-        if (session.pane.label !== undefined && session.pane.label !== null && session.pane.label !== '') return session.pane.label;
-        const tabId = session.agent?.tab_id ?? session.pane.tab_id;
-        const tabLabel = tabId === undefined ? undefined : tabsById.get(tabId)?.label;
-        return tabLabel === '' ? undefined : tabLabel;
+        return session.agent?.title ?? undefined;
     }
 
     function setLifecycle(paneId: string, agentStatus: string): void {
@@ -685,7 +769,8 @@ export async function createHerdrSessionSource(
         const tabLabel = tabId === undefined ? undefined : tabsById.get(tabId)?.label;
         const worktree = workspace?.worktree;
         const taskTitle = taskTitleForSession(session);
-        const agentKind = publicAgentKind(session.agent?.agent ?? undefined);
+        const agentKind = session.agent?.agent ?? undefined;
+        const displayAgent = session.agent?.display_agent ?? undefined;
         const terminalTitle = session.agent?.terminal_title_stripped ?? session.pane.terminal_title_stripped ?? undefined;
         const spawnedBy = session.pane.tokens?.spawned_by;
         return {
@@ -694,9 +779,11 @@ export async function createHerdrSessionSource(
             messageCount: 0,
             firstMessage: '',
             promptable: agentPromptable(session),
+            agentStatus: lifecycleOf(session),
             ...(session.agent?.name === undefined || session.agent.name === null ? {} : { agentName: session.agent.name }),
             ...(taskTitle === undefined ? {} : { taskTitle }),
             ...(agentKind === undefined ? {} : { agentKind }),
+            ...(displayAgent === undefined ? {} : { displayAgent }),
             paneId: session.paneId,
             ...(workspaceId === undefined ? {} : { workspaceId }),
             ...(workspace?.label === undefined ? {} : { workspaceLabel: workspace.label }),
@@ -856,7 +943,11 @@ export async function createHerdrSessionSource(
             if (!namedAgent(agent)) continue;
             const ref = agentSession(agent)!;
             const bound = routes.bind(ref);
+            paneByAgentRoute.set(bound.route, agent.pane_id);
             if (bound.created) createdRoutes.push(bound.route);
+        }
+        for (const [route, paneId] of paneByAgentRoute) {
+            if (!panesById.has(paneId)) paneByAgentRoute.delete(route);
         }
         for (const [paneId, close] of statusWatches) {
             if (agentsByPane.has(paneId)) continue;
@@ -1080,6 +1171,22 @@ export async function createHerdrSessionSource(
         return session;
     }
 
+    function forgetClosedSession(sessionId: string, paneId?: string): void {
+        const resolvedPaneId = paneId ?? closePaneId(sessionId);
+        if (resolvedPaneId !== undefined) {
+            statusWatches.get(resolvedPaneId)?.();
+            statusWatches.delete(resolvedPaneId);
+            lifecycleEpochByPane.delete(resolvedPaneId);
+            attachments.dropPane(resolvedPaneId);
+        }
+        if (sessionId.startsWith(SHELL_ROUTE_PREFIX)) knownShells.delete(sessionId);
+        else {
+            paneByAgentRoute.delete(sessionId);
+            routes.remove(sessionId);
+        }
+        removeRouteState(sessionId);
+    }
+
     function snapshotFor(session: CurrentSession, accepted = false): SessionSnapshot {
         let acceptance: SessionSnapshot['acceptance'];
         if (accepted) {
@@ -1231,13 +1338,17 @@ export async function createHerdrSessionSource(
 
     function realtimeAgentFor(session: CurrentSession): RealtimeCodingAgent {
         const changedAt = Date.parse(options.lifecycle?.latestFor(session.sessionId)?.at ?? '');
+        const taskTitle = taskTitleForSession(session);
+        const displayAgent = session.agent?.display_agent ?? undefined;
         return {
             sessionId: session.sessionId,
             cwd: cwdForSession(session.sessionId) ?? '',
-            displayName: session.agent?.name ?? '',
-            taskTitle: taskTitleForSession(session) ?? '',
-            kind: publicAgentKind(session.agent?.agent ?? undefined) ?? 'agent',
-            status: statusFor(session.sessionId).agentStatus ?? 'unknown',
+            ...(session.agent?.name === undefined || session.agent.name === null ? {} : { agentName: session.agent.name }),
+            ...(taskTitle === undefined ? {} : { taskTitle }),
+            ...(session.agent?.agent === undefined || session.agent.agent === null ? {} : { agentKind: session.agent.agent }),
+            ...(displayAgent === undefined ? {} : { displayAgent }),
+            agentStatus: lifecycleOf(session),
+            promptable: agentPromptable(session),
             ...(Number.isFinite(changedAt) ? { changedAt } : {}),
         };
     }
@@ -1422,14 +1533,16 @@ export async function createHerdrSessionSource(
                 const base = cwd.replace(/\/+$/, '').split('/').pop();
                 return {
                     sessionId: session.sessionId,
-                    label: info.taskTitle ?? session.agent?.name ?? session.pane.terminal_title_stripped ?? tab?.label ?? base,
-                    displayName: session.agent?.name ?? undefined,
-                    taskTitle: info.taskTitle,
+                    label: session.pane.label ?? tab?.label ?? base,
+                    ...(info.agentName === undefined ? {} : { agentName: info.agentName }),
+                    ...(info.taskTitle === undefined ? {} : { taskTitle: info.taskTitle }),
                     cwd,
                     workspaceLabel: workspace?.label,
                     tabLabel: tab?.label,
-                    agentKind: info.agentKind,
-                    agentStatus: lifecycleOf(session),
+                    ...(info.agentKind === undefined ? {} : { agentKind: info.agentKind }),
+                    ...(info.displayAgent === undefined ? {} : { displayAgent: info.displayAgent }),
+                    agentStatus: info.agentStatus,
+                    promptable: info.promptable,
                     activeAt: modifiedBySession.get(session.sessionId),
                 };
             }),
@@ -1448,11 +1561,13 @@ export async function createHerdrSessionSource(
                             const info = session === undefined ? undefined : infoFor(session);
                             return {
                                 ...(session === undefined ? {} : { sessionId: session.sessionId }),
-                                label: info?.taskTitle ?? pane.label ?? session?.agent?.name ?? pane.terminal_title_stripped ?? undefined,
-                                displayName: session?.agent?.name ?? undefined,
-                                taskTitle: info?.taskTitle,
-                                agentKind: info?.agentKind,
+                                label: pane.label ?? undefined,
+                                ...(info?.agentName === undefined ? {} : { agentName: info.agentName }),
+                                ...(info?.taskTitle === undefined ? {} : { taskTitle: info.taskTitle }),
+                                ...(info?.agentKind === undefined ? {} : { agentKind: info.agentKind }),
+                                ...(info?.displayAgent === undefined ? {} : { displayAgent: info.displayAgent }),
                                 agentStatus: lifecycleForPane(pane.pane_id),
+                                promptable: info?.promptable === true,
                             };
                         }),
                     };
@@ -1475,6 +1590,7 @@ export async function createHerdrSessionSource(
         serializedInput: string,
         signal: AbortSignal,
         preferredSessionId?: string,
+        trustedHerdrSocketPath?: string,
     ): Promise<unknown> {
         const stateDir = join(process.env.MUXR_HOME?.trim() || join(homedir(), '.muxr'), 'plugin-state', pluginId);
         try { mkdirSync(stateDir, { recursive: true, mode: 0o700 }); } catch { /* a plugin that needs it will fail loudly */ }
@@ -1486,8 +1602,126 @@ export async function createHerdrSessionSource(
             serializedInput,
             stateDir,
             ...(publicContext === undefined ? {} : { publicContext }),
+            ...(trustedHerdrSocketPath === undefined ? {} : { trustedHerdrSocketPath }),
             signal,
         });
+    }
+
+    function publicPluginCallTarget(
+        pluginId: string,
+        manifestHash: string,
+        contributionId: string,
+    ): PluginBackendCallTarget {
+        return {
+            pluginId,
+            manifestHash,
+            contributionId,
+            ...catalog.callTarget(pluginId, manifestHash, contributionId),
+        };
+    }
+
+    function serializePluginCallInput(input: unknown): string {
+        const serialized = JSON.stringify(input);
+        if (serialized === undefined || Buffer.byteLength(serialized, 'utf8') > MAX_RPC_INPUT_BYTES) {
+            throw new Error('plugin call input is too large');
+        }
+        return serialized;
+    }
+
+    async function guardedPluginCall(options: {
+        deviceId: string;
+        idempotencyKey?: string;
+        target: PluginBackendCallTarget;
+        targetAtExecution: () => PluginBackendCallTarget;
+        input: unknown;
+        inputAtExecution?: () => Promise<unknown>;
+        preferredSessionId?: string;
+        trustedHerdrSocketPath?: string;
+        requireApproval: boolean;
+    }): Promise<unknown> {
+        const { deviceId, target } = options;
+        if (options.requireApproval && !pluginApprovals.has(deviceId, target.pluginId)) {
+            throw new Error('plugin is not approved for this device');
+        }
+        serializePluginCallInput(options.input);
+        const inputDigest = rpcInputDigest(options.input);
+        const run = async () => {
+            const pluginActive = activePluginCalls.get(target.pluginId) ?? 0;
+            const deviceActive = activeDeviceCalls.get(deviceId) ?? 0;
+            if (pluginActive >= MAX_RPC_PER_PLUGIN || deviceActive >= MAX_RPC_PER_DEVICE) {
+                throw new Error(`plugin ${target.pluginId} is busy, retry`);
+            }
+            activePluginCalls.set(target.pluginId, pluginActive + 1);
+            activeDeviceCalls.set(deviceId, deviceActive + 1);
+            try {
+                return await pluginCallConcurrency.run(async () => {
+                    const execute = async (signal: AbortSignal): Promise<unknown> => {
+                        const input = options.inputAtExecution === undefined
+                            ? options.input
+                            : await options.inputAtExecution();
+                        const serializedInput = serializePluginCallInput(input);
+                        const currentTarget = options.targetAtExecution();
+                        return runPluginCall(
+                            target.pluginId,
+                            currentTarget,
+                            serializedInput,
+                            signal,
+                            options.preferredSessionId,
+                            options.trustedHerdrSocketPath,
+                        );
+                    };
+                    if (options.requireApproval) {
+                        return pluginApprovals.whileApproved(deviceId, target.pluginId, execute);
+                    }
+                    // Kernel capabilities are not user-disableable plugin UI,
+                    // but still enter the same bounded process path.
+                    return execute(new AbortController().signal);
+                }, PLUGIN_CALL_QUEUE_TIMEOUT_MS);
+            } finally {
+                decrement(activePluginCalls, target.pluginId);
+                decrement(activeDeviceCalls, deviceId);
+            }
+        };
+        if (target.mode !== 'write') return run();
+        const idempotencyKey = options.idempotencyKey;
+        if (typeof idempotencyKey !== 'string' || idempotencyKey.length === 0 || idempotencyKey.length > 64) {
+            throw new Error('write plugin call requires an idempotency key');
+        }
+        const key = rpcReplayKey(
+            deviceId,
+            target.pluginId,
+            target.manifestHash,
+            target.contributionId,
+            idempotencyKey,
+        );
+        return writeReplayFence.run(`${deviceId}\0${target.pluginId}`, key, inputDigest, run);
+    }
+
+    function hostContractMismatch(message: string): Error {
+        return Object.assign(new Error(message), { code: 'host-contract-mismatch' });
+    }
+
+    function trustedCloseTarget(manifestHash?: string): PluginBackendCallTarget {
+        if (WORKSPACE_HIERARCHY_PLUGIN_ROOT === undefined) {
+            throw hostContractMismatch('Agent close plugin RPC is missing.');
+        }
+        let target: PluginBackendCallTarget;
+        try {
+            target = catalog.trustedCapabilityCallTarget({
+                pluginRoot: WORKSPACE_HIERARCHY_PLUGIN_ROOT,
+                capability: AGENT_CLOSE_CAPABILITY,
+                mode: 'write',
+                ...(manifestHash === undefined ? {} : { manifestHash }),
+            });
+        } catch {
+            throw hostContractMismatch('Agent close plugin RPC is unavailable or changed.');
+        }
+        if (target.contributionId !== AGENT_CLOSE_CONTRIBUTION_ID || target.method !== AGENT_CLOSE_METHOD
+            || target.pluginId !== `muxr.${basename(WORKSPACE_HIERARCHY_PLUGIN_ROOT)}`
+            || !existsSync(join(target.pluginRoot, target.entry))) {
+            throw hostContractMismatch('Agent close plugin RPC has an invalid contract.');
+        }
+        return target;
     }
 
     async function invokeHerdrAction({ sessionId, pluginId, actionId }: { sessionId: string; pluginId: string; actionId: string }): Promise<void> {
@@ -1613,9 +1847,12 @@ export async function createHerdrSessionSource(
                                 const info = infoFor(session);
                                 return {
                                     sessionId: session.sessionId,
-                                    displayName: session.agent!.name!,
+                                    ...(info.agentName === undefined ? {} : { agentName: info.agentName }),
                                     ...(info.taskTitle === undefined ? {} : { taskTitle: info.taskTitle }),
                                     ...(info.agentKind === undefined ? {} : { agentKind: info.agentKind }),
+                                    ...(info.displayAgent === undefined ? {} : { displayAgent: info.displayAgent }),
+                                    agentStatus: info.agentStatus,
+                                    promptable: info.promptable,
                                 };
                             }),
                     );
@@ -1660,7 +1897,7 @@ export async function createHerdrSessionSource(
             // process queue. The active hash is checked again at dequeue.
             await refreshPlugins();
             if (!pluginApprovals.has(deviceId, pluginId)) throw new Error('plugin is not approved for this device');
-            const call = catalog.call(pluginId, manifestHash, contributionId);
+            const target = publicPluginCallTarget(pluginId, manifestHash, contributionId);
             let payload: unknown = input ?? null;
             let requestedSessionId: string | undefined;
             if (payload !== null && typeof payload === 'object' && !Array.isArray(payload)) {
@@ -1672,45 +1909,26 @@ export async function createHerdrSessionSource(
                     payload = { ...trustedPayload, paneId: record.paneId, cwd: cwdForSession(trustedPayload.sessionId) ?? '' };
                 }
             }
-            const serializedInput = JSON.stringify(payload);
-            if (Buffer.byteLength(serializedInput, 'utf8') > MAX_RPC_INPUT_BYTES) throw new Error('plugin call input is too large');
-            const inputDigest = rpcInputDigest(payload);
-            // Admission happens before the global queue, so one plugin/device
-            // cannot reserve every future slot while other plugins are healthy.
-            const run = async () => {
-                const pluginActive = activePluginCalls.get(pluginId) ?? 0;
-                const deviceActive = activeDeviceCalls.get(deviceId) ?? 0;
-                if (pluginActive >= MAX_RPC_PER_PLUGIN || deviceActive >= MAX_RPC_PER_DEVICE) {
-                    throw new Error(`plugin ${pluginId} is busy, retry`);
-                }
-                activePluginCalls.set(pluginId, pluginActive + 1);
-                activeDeviceCalls.set(deviceId, deviceActive + 1);
-                try {
-                    return await pluginCallConcurrency.run(async () => pluginApprovals.whileApproved(deviceId, pluginId, async (signal) => {
-                        let currentInput = serializedInput;
-                        if (requestedSessionId !== undefined && payload !== null && typeof payload === 'object' && !Array.isArray(payload)) {
-                            const record = await resolvePane(requestedSessionId);
-                            currentInput = JSON.stringify({
-                                ...(payload as Record<string, unknown>),
-                                paneId: record.paneId,
-                                cwd: cwdForSession(requestedSessionId) ?? '',
-                            });
-                            if (Buffer.byteLength(currentInput, 'utf8') > MAX_RPC_INPUT_BYTES) throw new Error('plugin call input is too large');
-                        }
-                        const target = catalog.callTarget(pluginId, manifestHash, contributionId);
-                        return runPluginCall(pluginId, target, currentInput, signal, requestedSessionId);
-                    }), PLUGIN_CALL_QUEUE_TIMEOUT_MS);
-                } finally {
-                    decrement(activePluginCalls, pluginId);
-                    decrement(activeDeviceCalls, deviceId);
-                }
-            };
-            if (call.mode === 'write') {
-                if (typeof idempotencyKey !== 'string' || idempotencyKey.length === 0 || idempotencyKey.length > 64) throw new Error('write plugin call requires an idempotency key');
-                const key = rpcReplayKey(deviceId, pluginId, manifestHash, contributionId, idempotencyKey);
-                return writeReplayFence.run(`${deviceId}\0${pluginId}`, key, inputDigest, run);
-            }
-            return run();
+            const inputAtExecution = requestedSessionId === undefined
+                ? undefined
+                : async (): Promise<unknown> => {
+                    const record = await resolvePane(requestedSessionId);
+                    return {
+                        ...(payload as Record<string, unknown>),
+                        paneId: record.paneId,
+                        cwd: cwdForSession(requestedSessionId) ?? '',
+                    };
+                };
+            return guardedPluginCall({
+                deviceId,
+                target,
+                targetAtExecution: () => publicPluginCallTarget(pluginId, manifestHash, contributionId),
+                input: payload,
+                ...(inputAtExecution === undefined ? {} : { inputAtExecution }),
+                ...(requestedSessionId === undefined ? {} : { preferredSessionId: requestedSessionId }),
+                ...(idempotencyKey === undefined ? {} : { idempotencyKey }),
+                requireApproval: true,
+            });
         },
 
 
@@ -1798,19 +2016,22 @@ export async function createHerdrSessionSource(
                     const tabPanes = panes.filter((pane) => pane.tab_id === tabId);
                     const treePanes = tabPanes.map((pane) => {
                         const session = currentSessionByPane(pane.pane_id);
-                        const taskTitle = session === undefined ? pane.label ?? tabLabel : taskTitleForSession(session);
-                        const agentKind = publicAgentKind(session?.agent?.agent ?? undefined);
+                        const taskTitle = session === undefined ? undefined : taskTitleForSession(session);
+                        const agentKind = session?.agent?.agent ?? undefined;
                         const cwd = pane.foreground_cwd ?? pane.cwd ?? undefined;
                         return {
                             paneId: pane.pane_id,
                             tabId,
                             ...(pane.label === undefined || pane.label === null ? {} : { label: pane.label }),
                             ...(cwd === undefined ? {} : { cwd }),
-                            ...(session?.agent === undefined || agentKind === undefined ? {} : {
-                                agentKind,
-                                agentName: session.agent.name!,
-                            }),
-                            ...(taskTitle === undefined || taskTitle === null ? {} : { taskTitle }),
+                            ...(agentKind === undefined ? {} : { agentKind }),
+                            ...(session?.agent?.name === undefined || session.agent.name === null
+                                ? {}
+                                : { agentName: session.agent.name }),
+                            ...(session?.agent?.display_agent === undefined || session.agent.display_agent === null
+                                ? {}
+                                : { displayAgent: session.agent.display_agent }),
+                            ...(taskTitle === undefined ? {} : { taskTitle }),
                             agentStatus: lifecycleForPane(pane.pane_id),
                             promptable: agentPromptable(session),
                             ...(pane.terminal_title_stripped === undefined || pane.terminal_title_stripped === null
@@ -2063,19 +2284,19 @@ export async function createHerdrSessionSource(
 
         async closeTab(sessionId: string, tabId: string): Promise<void> {
             await resolvePane(sessionId);
-            await closeExactTab(client, tabId, tabsById);
+            await closeExactTab(client, tabId);
         },
 
         async closePane(sessionId: string): Promise<void> {
             const record = await resolvePane(sessionId);
-            await closeExactPane(client, record.paneId, panesById);
+            await closeExactPane(client, record.paneId);
         },
 
         async closeWorkspace(workspaceId: string): Promise<void> {
             try { await refreshSnapshot(); } catch {
                 throw Object.assign(new Error('That workspace is no longer available. Refresh and try again.'), { code: 'workspace-unavailable' });
             }
-            await closeExactWorkspace(client, workspaceId, workspacesById);
+            await closeExactWorkspace(client, workspaceId);
         },
 
         async createTab(sessionId: string, options: { kind?: string; label?: string }): Promise<void> {
@@ -2123,18 +2344,55 @@ export async function createHerdrSessionSource(
             };
         },
 
-        async stop(sessionId: string): Promise<void> {
-            const record = await resolvePane(sessionId);
-            await closeAgentRoute(client, record, panesById, tabsById, (closed) => {
-                statusWatches.get(closed.paneId)?.();
-                statusWatches.delete(closed.paneId);
-                lifecycleEpochByPane.delete(closed.paneId);
-                attachments.dropPane(closed.paneId);
-                if (closed.sessionId.startsWith(SHELL_ROUTE_PREFIX)) knownShells.delete(closed.sessionId);
-                else routes.remove(closed.sessionId);
-                removeRouteState(closed.sessionId);
-            });
-            await routes.flush();
+        async stop(sessionId: string, options: SessionStopOptions): Promise<CloseResult> {
+            try {
+                await refreshSnapshot();
+            } catch {
+                return { status: 'retryable', message: 'Herdr is temporarily unavailable. Try again.' };
+            }
+            const paneId = closePaneId(sessionId);
+            if (paneId === undefined) {
+                forgetClosedSession(sessionId);
+                await routes.flush();
+                return { status: 'closed', alreadyGone: true };
+            }
+            try {
+                await refreshPlugins();
+            } catch {
+                return { status: 'retryable', message: 'Herdr is temporarily unavailable. Try again.' };
+            }
+            const target = trustedCloseTarget();
+            const input = {
+                paneId,
+                ...(options.confirmedScope === undefined ? {} : { confirmedScope: options.confirmedScope }),
+            };
+            let raw: unknown;
+            try {
+                raw = await guardedPluginCall({
+                    deviceId: options.deviceId,
+                    idempotencyKey: rpcInputDigest({ operation: 'session.stop', requestId: options.idempotencyKey }),
+                    target,
+                    targetAtExecution: () => trustedCloseTarget(target.manifestHash),
+                    input,
+                    trustedHerdrSocketPath: socketPath,
+                    requireApproval: false,
+                });
+            } catch (error) {
+                if ((error as { code?: unknown }).code === 'host-contract-mismatch') throw error;
+                if (isRetryableCloseFailure(error)) {
+                    return { status: 'retryable', message: 'Herdr is temporarily unavailable. Try again.' };
+                }
+                throw hostContractMismatch('Agent close plugin RPC failed.');
+            }
+            const parsed = parseCloseResult(raw);
+            if (!parsed.ok) {
+                throw hostContractMismatch('Agent close plugin RPC returned an invalid result.');
+            }
+            if (parsed.value.status === 'closed') {
+                forgetClosedSession(sessionId, paneId);
+                await routes.flush();
+            }
+            return parsed.value;
         },
 
         async abort(sessionId: string): Promise<void> {

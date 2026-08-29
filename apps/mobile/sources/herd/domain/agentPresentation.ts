@@ -1,13 +1,12 @@
-import { type AgentLifecycle, type HerdrTreePane, type HerdrTreeWorkspace } from '@muxr/contract';
-import type { Session } from '@/catalog';
+import { type AgentInfo, type AgentLifecycle, type HerdrTreePane, type HerdrTreeWorkspace } from '@muxr/contract';
 
 export interface AgentLabels {
     taskTitle: string;
     agentName: string;
     agentKind?: string;
+    displayAgent?: string;
 }
 
-type AgentLabelPane = Pick<HerdrTreePane, 'agentKind' | 'agentName' | 'taskTitle'>;
 
 export function herdrPaneForSession(
     workspaces: readonly HerdrTreeWorkspace[],
@@ -32,14 +31,26 @@ export const HERD_STATUS_LABELS: Record<AgentLifecycle, string> = {
     unknown: 'Offline',
 };
 
-/** One display vocabulary: Task Title, then canonical Agent Name or Shell. */
-export function agentLabels(pane?: AgentLabelPane, session?: Session): AgentLabels {
-    const agentKind = pane === undefined ? session?.metadata?.agentKind : pane.agentKind;
+
+
+/** One-to-one live Herdr DTO presentation. Only absent-value placeholders are local. */
+export function agentLabels(pane?: AgentInfo): AgentLabels {
+    const hasAgent = pane?.agentName !== undefined
+        || pane?.taskTitle !== undefined
+        || pane?.agentKind !== undefined
+        || pane?.displayAgent !== undefined;
     return {
         taskTitle: pane?.taskTitle ?? 'Untitled task',
-        agentName: agentKind === undefined ? 'Shell' : pane?.agentName ?? 'Agent',
-        ...(agentKind === undefined ? {} : { agentKind }),
+        agentName: pane?.agentName ?? (hasAgent ? 'Unnamed agent' : 'Shell'),
+        ...(pane?.agentKind === undefined ? {} : { agentKind: pane.agentKind }),
+        ...(pane?.displayAgent === undefined ? {} : { displayAgent: pane.displayAgent }),
     };
+}
+
+export function agentIdentityLine(labels: AgentLabels): string {
+    return [labels.agentName, labels.agentKind, labels.displayAgent]
+        .filter((value): value is string => value !== undefined)
+        .join(' · ');
 }
 
 export function agentStateLabel(status: AgentLifecycle, changedAt?: number, now = Date.now()): string {
@@ -50,7 +61,7 @@ export function agentStateLabel(status: AgentLifecycle, changedAt?: number, now 
 
 export function agentAccessibilityLabel(labels: AgentLabels, status: AgentLifecycle, changedAt?: number): string {
     const state = changedAt === undefined ? HERD_STATUS_LABELS[status] : agentStateLabel(status, changedAt);
-    return [labels.taskTitle, state, labels.agentName]
+    return [labels.taskTitle, state, labels.agentName, labels.agentKind, labels.displayAgent]
         .filter((value): value is string => value !== undefined && value !== '')
         .join('. ');
 }

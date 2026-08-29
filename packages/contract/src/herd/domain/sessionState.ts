@@ -12,6 +12,16 @@ export interface SessionRef {
     cwd: string;
 }
 
+/** One-to-one Herdr AgentInfo projection used by mobile and realtime tools. */
+export interface AgentInfo {
+    agentName?: string;
+    taskTitle?: string;
+    agentKind?: string;
+    displayAgent?: string;
+    agentStatus: AgentLifecycle;
+    promptable: boolean;
+}
+
 export interface SessionModel {
     provider: string;
     id: string;
@@ -19,21 +29,13 @@ export interface SessionModel {
     contextWindow?: number;
 }
 
-export interface SessionInfo extends SessionRef {
+export interface SessionInfo extends SessionRef, AgentInfo {
     path?: string;
     created?: string;
     modified?: string;
     messageCount: number;
     firstMessage: string;
     parentSessionPath?: string;
-    /** Current Herdr provider for a live Agent. */
-    agentKind?: string;
-    /** Current Herdr agent.name. Never used as a routing key. */
-    agentName?: string;
-    /** Current Herdr agent title, pane label, or tab label. */
-    taskTitle?: string;
-    /** True only while this exact Herdr agent_session can accept a prompt. */
-    promptable: boolean;
     paneId?: string;
     terminalTitle?: string;
     worktree?: { repo: string; branch?: string; path: string };
@@ -102,16 +104,11 @@ export interface SessionChangeAttribution {
 }
 
 /** One current Herdr pane and its Agent, when that Agent has a publishable generation. */
-export interface HerdrTreePane {
+export interface HerdrTreePane extends AgentInfo {
     paneId: string;
     tabId: string;
     label?: string;
     cwd?: string;
-    agentKind?: string;
-    agentName?: string;
-    taskTitle?: string;
-    agentStatus: AgentLifecycle;
-    promptable: boolean;
     terminalTitle?: string;
     focused: boolean;
     /** Agent Route, or an explicit ephemeral Shell route for a bare pane. */
@@ -213,6 +210,53 @@ export function parseProviderKind(value: unknown): Outcome<string> {
     const kind = value.trim().toLowerCase();
     if (!PROVIDER_KIND.test(kind)) return fail('invalid provider kind');
     return ok(kind);
+}
+
+export const CLOSE_SCOPES = ['tab', 'workspace', 'worktreeGroup'] as const;
+export type CloseScope = (typeof CLOSE_SCOPES)[number];
+
+export type CloseResult =
+    | { status: 'closed'; alreadyGone?: true }
+    | { status: 'confirmationRequired'; scope: CloseScope; label: string; message: string }
+    | { status: 'retryable'; message: string };
+
+export function parseCloseScope(value: unknown): Outcome<CloseScope> {
+    if (value === 'tab' || value === 'workspace' || value === 'worktreeGroup') return ok(value);
+    return fail('invalid close scope');
+}
+
+export function parseCloseResult(value: unknown): Outcome<CloseResult> {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) return fail('invalid close result');
+    const record = value as Record<string, unknown>;
+    if (record.status === 'closed') {
+        if (record.alreadyGone === true) return ok({ status: 'closed', alreadyGone: true });
+        if (record.alreadyGone !== undefined) return fail('invalid close result');
+        return ok({ status: 'closed' });
+    }
+    if (record.status === 'retryable') {
+        if (typeof record.message !== 'string') return fail('invalid close result');
+        const message = record.message.trim();
+        if (message === '' || message.length > 320) return fail('invalid close result');
+        return ok({ status: 'retryable', message });
+    }
+    if (record.status === 'confirmationRequired') {
+        const scope = parseCloseScope(record.scope);
+        if (!scope.ok || typeof record.label !== 'string' || typeof record.message !== 'string') {
+            return fail('invalid close result');
+        }
+        const label = record.label.trim();
+        const message = record.message.trim();
+        if (label === '' || label.length > 160 || message === '' || message.length > 320) {
+            return fail('invalid close result');
+        }
+        return ok({
+            status: 'confirmationRequired',
+            scope: scope.value,
+            label,
+            message,
+        });
+    }
+    return fail('invalid close result');
 }
 
 /** The only key that authorizes prompt, watch, or focus. */

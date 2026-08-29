@@ -43,7 +43,7 @@ The current Herdr `agent.name` (`falcon`, `reviewer`). Every surface renders it 
 _Avoid_: label, display label, pane title, cached name
 
 **Task Title**:
-The current Herdr Agent title, falling back to its pane label and then tab label. Muxr never restores a prior generation's title.
+The current Herdr Agent title for the live generation. Every surface renders it directly; muxr never derives it from navigation labels or restores a prior generation's title.
 _Avoid_: cached title, terminal title, name
 
 **Provider Kind**:
@@ -53,6 +53,10 @@ _Avoid_: agent name, kind label, model
 **Agent Route**:
 An opaque authorization route bound to exactly one Herdr `agent_session` generation. It survives that generation's pane moves and host restarts; a new generation receives a new route.
 _Avoid_: pane id, spoken name, label, Herdr agent name
+
+**Close Scope**:
+The smallest live Herdr container that can be closed safely: pane, tab, workspace, or worktree group. Moving to a broader Close Scope always requires a separate person confirmation.
+_Avoid_: inferred target, automatic escalation, Stop Agent scope
 
 **Lifecycle Event**:
 A host-emitted change in an Agent's working, blocked, done, or failed state, keyed by Agent Route.

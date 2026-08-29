@@ -199,6 +199,7 @@ describe('session sync flow', () => {
             agentName: 'Maria',
             taskTitle: 'Stabilizing realtime voice',
             promptable: true,
+            agentStatus: 'working',
         });
         expect(mapped.metadata?.paneId).toBe('%1');
         expect(mapped.metadata).not.toHaveProperty('summary');
@@ -228,6 +229,7 @@ describe('session sync flow', () => {
             taskTitle: 'Stabilizing realtime voice',
             terminalTitle: 'volatile terminal output',
             promptable: true,
+            agentStatus: 'working',
         });
         const applied = applyHostInfoToAgent(stableExisting, outputOnlyUpdate);
         expect(applied.metadata?.terminalTitle).toBe('volatile terminal output');
@@ -333,8 +335,8 @@ describe('session sync flow', () => {
             const tree = canonicalTree(status);
             const spacesStatus = buildSpaceRows(tree, new Set(['workspace-a']), '')[0].panes[0].agentStatus;
             const notificationPanes = sortHerd([session], tree);
-            const liveStatus = selectLiveTerminalCards([session], notificationPanes)[0].status;
-            expect({ spacesStatus, liveStatus, notificationStatus: notificationPanes[0].status }).toEqual({
+            const liveStatus = selectLiveTerminalCards([session], notificationPanes)[0].agentStatus;
+            expect({ spacesStatus, liveStatus, notificationStatus: notificationPanes[0].agentStatus }).toEqual({
                 spacesStatus: status,
                 liveStatus: status,
                 notificationStatus: status,
@@ -348,9 +350,9 @@ describe('session sync flow', () => {
         expect({ primary: labels.taskTitle, secondary: labels.agentName, kind: labels.agentKind }).toEqual({
             primary: 'Stabilizing realtime voice', secondary: 'Maria', kind: 'pi',
         });
-        expect(working[0]).toMatchObject({ name: 'Maria', taskTitle: 'Stabilizing realtime voice' });
-        expect(selectLiveTerminalCards([session], working)[0].title).toBe('Stabilizing realtime voice');
-        expect(HERD_STATUS_LABELS[working[0].status]).toBe('Working');
+        expect(working[0]).toMatchObject({ agentName: 'Maria', taskTitle: 'Stabilizing realtime voice' });
+        expect(selectLiveTerminalCards([session], working)[0].taskTitle).toBe('Stabilizing realtime voice');
+        expect(HERD_STATUS_LABELS[working[0].agentStatus]).toBe('Working');
         storage.setState({
             sessions: { [session.id]: session },
             herdrWorkspaces: [],
@@ -392,7 +394,6 @@ describe('session sync flow', () => {
                 paneId: 'shell-pane',
                 tabId: 'tab-a',
                 sessionId: 'shell-route',
-                taskTitle: 'verify-cards',
                 agentStatus: 'unknown',
                 promptable: false,
                 focused: false,
@@ -405,11 +406,7 @@ describe('session sync flow', () => {
             expandedPaneCount: space.panes.length,
             terminalCards: cards.map((card) => [
                 card.id,
-                agentLabels({
-                    taskTitle: card.title,
-                    agentName: card.name,
-                    agentKind: card.agentKind,
-                }, card.session).agentName,
+                agentLabels(card).agentName,
                 card.agentKind,
             ]),
         }).toEqual({
@@ -422,16 +419,16 @@ describe('session sync flow', () => {
         });
 
         const blocked = stage('blocked');
-        expect(HERD_STATUS_LABELS[blocked[0].status]).toBe('Needs you');
+        expect(HERD_STATUS_LABELS[blocked[0].agentStatus]).toBe('Needs you');
         const blockedNotification = herdNotificationState(blocked, 'connected');
         expect(blockedNotification).toMatchObject({ mode: 'attention', count: 1, eventKey: `attention:${encodeURIComponent(session.id)}` });
 
         const waiting = stage('idle');
-        expect(HERD_STATUS_LABELS[waiting[0].status]).toBe('Idle');
+        expect(HERD_STATUS_LABELS[waiting[0].agentStatus]).toBe('Idle');
         expect(herdNotificationState(waiting, 'connected').mode).toBe('idle');
 
         const done = stage('done');
-        expect(HERD_STATUS_LABELS[done[0].status]).toBe('Done');
+        expect(HERD_STATUS_LABELS[done[0].agentStatus]).toBe('Done');
         const completed = completionAlerts(done, { [session.id]: 'blocked' });
         expect(completed.map((pane) => pane.id)).toEqual([session.id]);
         expect(completionAlerts(done, { [session.id]: 'idle' })).toEqual([]);
@@ -445,7 +442,7 @@ describe('session sync flow', () => {
         expect(JSON.stringify([workingNotification, blockedNotification, finishedNotification].map(({ name, names }) => ({ name, names })))).not.toContain(session.id);
 
         const offline = stage('done');
-        expect(HERD_STATUS_LABELS[offline[0].status]).toBe('Done');
+        expect(HERD_STATUS_LABELS[offline[0].agentStatus]).toBe('Done');
         expect(herdNotificationState(offline, 'error').mode).toBe('offline');
 
         // A reconnect blip between working and done must still produce exactly

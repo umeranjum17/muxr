@@ -17,14 +17,16 @@ export interface PublicContextSource {
     sessions: Array<{
         sessionId: string;
         label?: string | undefined;
-        displayName?: string | undefined;
+        agentName?: string | undefined;
         taskTitle?: string | undefined;
         cwd?: string | undefined;
         workspaceLabel?: string | undefined;
         tabLabel?: string | undefined;
         agentKind?: string | undefined;
+        displayAgent?: string | undefined;
         activeAt?: string | undefined;
         agentStatus?: string | undefined;
+        promptable: boolean;
     }>;
     attention: Array<{ sessionId: string; reason: string; detail?: string | undefined; at: string }>;
     workspaces: Array<{
@@ -35,7 +37,7 @@ export interface PublicContextSource {
             label?: string | undefined;
             focused: boolean;
             agentStatus?: string | undefined;
-            sessions: Array<{ sessionId?: string | undefined; label?: string | undefined; displayName?: string | undefined; taskTitle?: string | undefined; agentKind?: string | undefined; agentStatus?: string | undefined }>;
+            sessions: Array<{ sessionId?: string | undefined; label?: string | undefined; agentName?: string | undefined; taskTitle?: string | undefined; agentKind?: string | undefined; displayAgent?: string | undefined; agentStatus?: string | undefined; promptable: boolean }>;
         }>;
     }>;
 }
@@ -82,17 +84,21 @@ export function buildPluginPublicContext(
             const workspaceLabel = text(session.workspaceLabel, 80);
             const tabLabel = text(session.tabLabel, 80);
             const agentKind = text(session.agentKind, 40);
+            const displayAgent = text(session.displayAgent, 80);
+            const agentName = text(session.agentName, 80);
             const taskTitle = text(session.taskTitle, 120);
             return {
                 sessionId: session.sessionId,
                 label: text(session.label, 80) ?? 'session',
-                displayName: text(session.displayName, 80) ?? text(session.label, 80) ?? 'Agent',
+                ...(agentName === undefined ? {} : { agentName }),
                 ...(taskTitle === undefined ? {} : { taskTitle }),
                 ...(cwd === undefined ? {} : { cwd }),
                 ...(workspaceLabel === undefined ? {} : { workspaceLabel }),
                 ...(tabLabel === undefined ? {} : { tabLabel }),
                 ...(agentKind === undefined ? {} : { agentKind }),
+                ...(displayAgent === undefined ? {} : { displayAgent }),
                 agentStatus: lifecycle(session.agentStatus),
+                promptable: session.promptable === true,
                 activeAt: iso(session.activeAt),
             };
         })
@@ -129,14 +135,18 @@ export function buildPluginPublicContext(
                     const id = session.sessionId === undefined ? undefined : sessionId(session.sessionId);
                     if (session.sessionId !== undefined && id === undefined) return [];
                     const agentKind = text(session.agentKind, 40);
+                    const displayAgent = text(session.displayAgent, 80);
+                    const agentName = text(session.agentName, 80);
                     const taskTitle = text(session.taskTitle, 120);
                     return [{
                         ...(id === undefined ? {} : { sessionId: id }),
                         label: text(session.label, 80) ?? 'session',
-                        displayName: text(session.displayName, 80) ?? text(session.label, 80) ?? 'Agent',
+                        ...(agentName === undefined ? {} : { agentName }),
                         ...(taskTitle === undefined ? {} : { taskTitle }),
                         ...(agentKind === undefined ? {} : { agentKind }),
+                        ...(displayAgent === undefined ? {} : { displayAgent }),
                         agentStatus: lifecycle(session.agentStatus),
+                        promptable: session.promptable === true,
                     }];
                 }),
             })),

@@ -12,6 +12,8 @@ import type {
     LayoutSnapshot,
     PromptAttachment,
     SessionEventBody,
+    CloseResult,
+    CloseScope,
     SessionInfo,
     SessionSnapshot,
     SessionStartResult,
@@ -69,6 +71,12 @@ export interface SessionShellOutcome {
     output: string;
     exitCode: number | null;
     isError: boolean;
+}
+
+export interface SessionStopOptions {
+    deviceId: string;
+    idempotencyKey: string;
+    confirmedScope?: CloseScope;
 }
 
 export interface SessionSaveAttachmentsOptions {
@@ -165,7 +173,7 @@ export interface SessionSource {
         zoomed: boolean;
         reason?: string;
     }>;
-    stop(sessionId: string): Promise<void>;
+    stop(sessionId: string, options: SessionStopOptions): Promise<CloseResult>;
     abort(sessionId: string): Promise<void>;
     reload(sessionId: string): Promise<void>;
     prompt(options: SessionPromptOptions): Promise<void>;

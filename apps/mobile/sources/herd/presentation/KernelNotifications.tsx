@@ -51,7 +51,7 @@ export function KernelNotifications() {
         () => lifecycleCatalogAvailable && herd.mode === 'attention' ? { ...herd, eventKey: 'attention:' } : herd,
         [herd, lifecycleCatalogAvailable],
     );
-    const voiceName = panes.find((pane) => pane.id === boundRealtimeSession())?.name ?? '';
+    const voiceName = panes.find((pane) => pane.id === boundRealtimeSession())?.agentName ?? 'Unnamed agent';
     const previous = React.useRef<Record<string, AgentLifecycle> | null>(null);
     const [presentation, setPresentation] = React.useState(herd);
     const [appActive, setAppActive] = React.useState(AppState.currentState === 'active');

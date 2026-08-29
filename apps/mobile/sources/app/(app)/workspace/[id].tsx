@@ -14,7 +14,8 @@ import { Ionicons } from '@expo/vector-icons';
 import type { HerdrTreeWorkspace } from '@muxr/contract';
 import { sync } from '@/catalog/sync';
 import { TerminalPreview } from '@/terminal/ui';
-import { agentLabels, agentStatusColor } from '@/herd';
+import { AgentGlyph } from '@/components/AgentGlyph';
+import { agentIdentityLine, agentLabels, agentStatusColor } from '@/herd';
 
 export default React.memo(function WorkspaceScreen() {
     const { id } = useLocalSearchParams<{ id: string }>();
@@ -99,9 +100,7 @@ export default React.memo(function WorkspaceScreen() {
                                             </View>
                                         );
                                     }
-                                    const paneIdentity = labels.agentKind === undefined
-                                        ? labels.agentName
-                                        : `${labels.agentName} · ${labels.agentKind}`;
+                                    const paneIdentity = agentIdentityLine(labels);
                                     return (
                                         <Pressable
                                             key={pane.paneId}
@@ -117,9 +116,12 @@ export default React.memo(function WorkspaceScreen() {
                                             <View style={{ height: 110 }} pointerEvents="none">
                                                 <TerminalPreview sessionId={pane.sessionId} />
                                             </View>
-                                            <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 11, paddingHorizontal: 8, paddingVertical: 5 }}>
-                                                {labels.taskTitle}
-                                            </Text>
+                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 8, paddingVertical: 5 }}>
+                                                {labels.agentKind !== undefined && <AgentGlyph name={labels.agentKind} size={14} />}
+                                                <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 11, flex: 1 }}>
+                                                    {labels.taskTitle}
+                                                </Text>
+                                            </View>
                                             <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 10, paddingHorizontal: 8, paddingBottom: 5 }}>
                                                 {paneIdentity}
                                             </Text>
