@@ -44,7 +44,7 @@ One end-to-end flow must prove: browser key generation → machine-confirmed cla
 
 ## Evidence and standards
 
-Claude and Codex independently reviewed the existing Expo web target. Both rejected the current `localStorage` credential path and native-guard bypass, and converged on a distinct short-lived browser device, machine-issued grants, dedicated origin, strict CSP, read-only default, explicit authority escalation, and self-host parity.
+The existing Expo web target stored credentials in `localStorage` and bypassed native guards. This record rejects that path and requires a distinct short-lived browser device, machine-issued grants, a dedicated origin, strict CSP, a read-only default, explicit authority escalation, and self-host parity.
 
 ## Reopen trigger
 

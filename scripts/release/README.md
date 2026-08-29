@@ -11,4 +11,4 @@ scripts/release/
   infrastructure/           license audit of bundled dependencies
 ```
 
-Pack copies compiled setup/plugin/release/diagnostics trees (JavaScript only), rewrites the plugin contract import for the packed layout, and stamps the hosted control URL.
+Pack copies compiled setup/plugin/release/diagnostics trees (JavaScript only), rewrites the plugin contract import for the packed layout, and stamps the optional packaged control URL.

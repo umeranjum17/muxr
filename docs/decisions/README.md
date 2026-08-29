@@ -28,7 +28,7 @@ Verdicts: `APPROVE`, `APPROVE WITH NOTES`, or `CHANGES REQUIRED` (maximum three 
 - T2/T3: `docs/decisions/NNNN-slug.md`, one decision per file.
 - Chat transcripts are evidence, not the source of truth.
 
-A decision record contains: decision, alternatives, standards/evidence, review verdicts, owner decision, validation, rollback/reopen trigger, and revisions.
+A decision record contains: decision, alternatives, standards/evidence, review outcome, owner decision, validation, rollback/reopen trigger, and revisions.
 
 ## Reopening
 

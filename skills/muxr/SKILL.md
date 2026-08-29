@@ -92,7 +92,7 @@ they preview natively.
   assuming the default path.
 - Secrets belong in plugin write-RPC input only — never in manifests,
   declarative state, or rendered output.
-- The pane id contains a colon (`w2A:p4`) — always quote paths built from it.
+- The pane id contains a colon — always quote paths built from it.
 - Never expose the relay through Tailscale Funnel; muxr refuses it by design.
 
 ## Verify

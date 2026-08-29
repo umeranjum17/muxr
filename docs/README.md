@@ -29,9 +29,4 @@ Start here, then follow one path.
 ## Maintainers
 
 - [Release automation](RELEASING.md) — tag gate, npm trusted publishing, and provenance
-- [Distribution runway](DISTRIBUTION-RUNWAY.md) — exactly what the owner must do for Play/iOS
-- [Google Play launch plan](PLAY-STORE-PLAN.md)
 - [Clean-room new-user smoke](NEW-USER-SMOKE.md)
-- [Public flip checklist](FLIP-CHECKLIST.md)
-
-Archived working notes live in [archive/](archive/).

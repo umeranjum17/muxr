@@ -174,27 +174,9 @@ Inbox ships as a bundled extension using this protocol. A third party may add a 
 
 The extension wire protocol is additive. Older apps ignore it; newer apps tolerate an absent catalog. Rollback does not migrate pairing, E2EE, sessions, or Herdr state.
 
-## Peer review
+## Review outcome
 
-### Claude
-
-Verdict before resolution: **CHANGES REQUIRED**. The reviewers supported the package/registry model but required:
-
-1. an explicit distinction between bundled native renderers and external declarative extensions;
-2. verified manifest discovery instead of assuming Herdr forwards unknown fields;
-3. a practical author loop and closed response/action model.
-
-This record resolves those design blockers by defining two renderer classes, a sidecar snapshot chain, and required author tooling/docs. Final review approved the executable slice after host-bound approval, manifest hashing, revoke fencing, emulator E2E, and the full suite passed.
-
-### Codex
-
-Verdict before resolution: **CHANGES REQUIRED**. The reviewer required:
-
-1. immutable source-to-render trust rather than mutable `plugin_root` reads;
-2. independent action/data authority and anti-phishing boundaries;
-3. explicit versioning, quotas, reconciliation, revocation, and kill switches.
-
-This record adopts a separate `extension.*` protocol, hash-addressed current snapshots, explicit authority, and bounded failure/rollback rules. Final Codex review approved the executable slice after its authority and lifecycle blockers were fixed.
+This record requires two renderer classes, verified sidecar manifest discovery, a closed author/response model, immutable source-to-render trust, independent action/data authority, anti-phishing boundaries, and explicit versioning, quotas, reconciliation, revocation, and kill switches. The executable slice landed after host-bound approval, manifest hashing, revoke fencing, emulator E2E, and the full suite passed.
 
 ## Validation
 
