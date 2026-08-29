@@ -14,6 +14,7 @@ import { daemonIsRunning, runDaemon, startMuxrDaemon } from '../infrastructure/d
 import {
     cleanupManagedIngress,
     cloudflaredAlive,
+    persistOwnedServeIngress,
     readSelfhostState,
     selfhostPath,
     selfhostStateUnreadable,
@@ -95,6 +96,7 @@ export async function startSelfHost(args = []) {
             ? { url: state.relayUrl, note: 'existing Cloudflare quick tunnel', ingress: state.ingress }
             : await resolveAdvertise(args, port, tailscale);
         pendingIngress = advertise.ingress?.kind === 'cloudflare-quick' ? advertise.ingress : undefined;
+        if (advertise.ingress?.kind === 'tailscale-serve') state = persistOwnedServeIngress(state, advertise.ingress);
         if (web && !advertise.url.startsWith('wss://')) throw new Error('--web requires HTTPS (Tailscale Serve, a named HTTPS tunnel, or --advertise wss://...)');
         const bindHost = tailscale || args.includes('--tunnel') || web || explicitAdvertise?.startsWith('wss://') ? '127.0.0.1' : '0.0.0.0';
         const webOrigin = web ? advertise.url.replace(/^wss/, 'https') : undefined;

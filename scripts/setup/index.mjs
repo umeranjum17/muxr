@@ -53,14 +53,18 @@ export {
 export {
     applyMachineSetup,
     connectRemoteRelay,
+    continueWithDirectTailscale,
     hostSharedRelay,
     manageMachines,
+    selfhostArgsFromSetupPlan,
 } from './presentation/setupWizard.mjs';
 
 export {
     advertisedRelayHealthy,
     cleanupManagedIngress,
     cloudflaredAlive,
+    inspectTailscaleServeRoot,
+    persistOwnedServeIngress,
     readSelfhostState,
     runTailscale,
     selfhostConfigured,
@@ -69,6 +73,7 @@ export {
     selfhostPath,
     selfhostRelayHealthy,
     selfhostStateUnreadable,
+    SERVE_OWNED_ERROR,
     stopOwnedSelfhostRelay,
     tailscaleBin,
     tailscaleIngress,
