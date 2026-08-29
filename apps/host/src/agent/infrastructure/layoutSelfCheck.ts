@@ -13,7 +13,7 @@ import {
 import { lifecycleReasonForObservation } from '../domain/lifecycle.js';
 import { IdentityStore, parseTaskTitle } from './identity.js';
 import { RealtimeCodingCoordinator } from './realtimeCoordinator.js';
-import { closeAgentRoute, closeExactPane, closeExactTab, closeExactWorkspace, sendKeysToLiveAgent } from './herdrSessionSource.js';
+import { closeAgentRoute, closeExactPane, closeExactTab, closeExactWorkspace, promptHerdrAgent, sendKeysToLiveAgent } from './herdrSessionSource.js';
 import { createConnection } from 'node:net';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -316,6 +316,24 @@ async function demo(): Promise<void> {
     const socketPath = join(socketDir, 'realtime-coding.sock');
     const prompts: string[] = [];
     const sentKeys: Array<{ sessionId: string; keys: string[] }> = [];
+    const herdrPromptClient = {
+        call: async <T>(_method: string, params: Record<string, unknown> = {}): Promise<T> => {
+            const prompt = String(params.text ?? '');
+            if (prompt.startsWith('malformed')) return { type: 'agent_prompted', agent: { pane_id: 'w1:p1' } } as T;
+            return {
+                type: 'agent_prompted',
+                agent: {
+                    terminal_id: 'terminal-one',
+                    agent_status: 'idle',
+                    workspace_id: 'w1',
+                    tab_id: 'w1:t1',
+                    pane_id: prompt.startsWith('wrong pane') ? 'w1:p2' : 'w1:p1',
+                    focused: false,
+                    revision: 1,
+                },
+            } as T;
+        },
+    };
     const coordinatorAgents = [
         { sessionId: 'pp_john', cwd: '/repo', displayName: 'John', taskTitle: 'Harden audio', kind: 'pi', status: 'idle' },
         { sessionId: 'pp_maria', cwd: '/repo', displayName: 'Maria', taskTitle: 'Ship settings', kind: 'pi', status: 'working' },
@@ -324,7 +342,10 @@ async function demo(): Promise<void> {
         list: async () => coordinatorAgents,
         activity: async () => [],
         start: async () => ({ accepted: false }),
-        prompt: async (_sessionId, text) => { prompts.push(text); },
+        prompt: async (_sessionId, text) => {
+            await promptHerdrAgent(herdrPromptClient, { paneId: 'w1:p1', agentName: 'John' }, text);
+            prompts.push(text);
+        },
         sendKeys: async (sessionId, keys) => { sentKeys.push({ sessionId, keys }); },
         read: async () => ({ text: '', truncated: false }),
         status: async () => 'idle',
@@ -332,17 +353,23 @@ async function demo(): Promise<void> {
         focus: async () => undefined,
     });
     await coordinator.start();
-    const access = coordinator.issueCapability({ cwd: '/repo', sessionId: 'pp_john' });
+    const access = coordinator.issueCapability({ cwd: '/repo', sessionId: 'pp_john', provider: 'gemini' });
     const first = await ask(socketPath, access.capability, { method: 'prompt', agent: 'John', text: 'Keep going.', operationId: 'op-0' });
     const replayed = await ask(socketPath, access.capability, { method: 'prompt', agent: 'John', text: 'Keep going.', operationId: 'op-0' });
-    assert(first.ok === true && replayed.ok === true && prompts.length === 1, 'an accepted operation id replays without rerunning the mutation');
-    assert(prompts[0] === 'Keep going.\n\ncame from a real-time agent', 'only the realtime transport stamps its delivered prompt at the message-origin boundary');
+    assert(first.data === 'Queued: instruction for John.' && replayed.data === first.data && prompts.length === 1,
+        'an accepted operation id replays the exact queued receipt without rerunning the mutation');
+    assert(prompts[0] === 'Keep going.\n\ncame from a real-time agent', 'only the realtime transport stamps its queued prompt at the message-origin boundary');
+    const missingTarget = await ask(socketPath, access.capability, { method: 'prompt', text: 'missing target', operationId: 'op-missing' });
+    const wrongPane = await ask(socketPath, access.capability, { method: 'prompt', agent: 'John', text: 'wrong pane', operationId: 'op-wrong-pane' });
+    const malformed = await ask(socketPath, access.capability, { method: 'prompt', agent: 'John', text: 'malformed receipt', operationId: 'op-malformed' });
+    assert(missingTarget.ok === false && wrongPane.ok === false && malformed.ok === false && prompts.length === 1,
+        'missing targets and malformed or wrong-pane Herdr receipts cannot produce a queued confirmation');
     const taskStatus = await ask(socketPath, access.capability, { method: 'status', agent: 'Harden audio' });
     assert(taskStatus.data === 'John is idle.', 'a unique Task Title resolves to its Agent Name');
     const idleWatch = await ask(socketPath, access.capability, { method: 'watch', agent: 'John', operationId: 'watch-idle' });
     assert(idleWatch.data === 'Confirmed: John is idle.', 'idle is spoken as idle, without duplicated watch wording or finished');
     assert(idleWatch.data !== undefined && !/finish/i.test(idleWatch.data), 'idle is not spoken as finished');
-    const keyAccess = coordinator.issueCapability({ cwd: '/repo', sessionId: 'pp_john' });
+    const keyAccess = coordinator.issueCapability({ cwd: '/repo', sessionId: 'pp_john', provider: 'gemini' });
     const unknownKey = await ask(socketPath, keyAccess.capability, { method: 'key', agent: 'John', key: 'ctrl-x', operationId: 'key-unknown' });
     assert(unknownKey.data?.includes('not available') === true && sentKeys.length === 0, 'unknown key clarifies without mutation');
     const ambiguousKey = await ask(socketPath, keyAccess.capability, { method: 'key', agent: 'pi', key: 'escape', operationId: 'key-ambiguous' });

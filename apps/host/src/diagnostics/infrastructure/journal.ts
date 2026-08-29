@@ -14,6 +14,8 @@ export type DiagnosticRelayState = 'connecting' | 'open' | 'closed' | 'replaced'
 export type DiagnosticBrokerOperation = 'list' | 'read' | 'status' | 'watch' | 'prompt';
 export type DiagnosticPeerConnectionPhase = 'grant-refresh' | 'ticket-issue' | 'socket-open' | 'liveness-proof';
 export type DiagnosticPeerIngressOutcome = 'received' | 'decrypt-rejected' | 'decoded';
+export type DiagnosticRealtimePromptOutcome = 'queued' | 'rejected' | 'failed';
+
 
 type ClientCounts = Record<DiagnosticClientKind, number>;
 type RelationshipCounts = Record<'pending' | 'connected' | 'repair-needed' | 'disconnecting' | 'revoked', number>;
@@ -26,7 +28,8 @@ export type HostDiagnosticEvent =
     | { at: string; event: 'client.request'; clientKind: DiagnosticClientKind; request: RequestType; outcome: DiagnosticOutcome; durationMs: number; code?: string }
     | { at: string; event: 'peer.connection'; direction: 'outbound'; phase: DiagnosticPeerConnectionPhase; outcome: DiagnosticOutcome; durationMs: number; code?: string }
     | { at: string; event: 'peer.ingress'; direction: 'inbound'; outcome: DiagnosticPeerIngressOutcome }
-    | { at: string; event: 'peer.broker'; operation: DiagnosticBrokerOperation; outcome: DiagnosticOutcome; durationMs: number; code?: string };
+    | { at: string; event: 'peer.broker'; operation: DiagnosticBrokerOperation; outcome: DiagnosticOutcome; durationMs: number; code?: string }
+    | { at: string; event: 'realtime.prompt'; provider: string; action: 'prompt'; requestedAgentName: string; resolvedAgentName: string | null; outcome: DiagnosticRealtimePromptOutcome };
 
 interface HostDiagnosticState {
     version: 1;
@@ -63,6 +66,25 @@ function safeCode(value: string | undefined): string | undefined {
     if (value === undefined) return undefined;
     if (safeCodes.has(value)) return value;
     return 'rejected';
+}
+
+function safeSemanticName(value: string | null, fallback: string): string | null {
+    if (value === null) return null;
+    const clean = value
+        .normalize('NFKC')
+        .replace(/\b(Bearer)\s+[A-Za-z0-9._~+/-]{12,}/gi, '$1 [redacted]')
+        .replace(/\b(?:[A-Za-z][A-Za-z0-9]*_)+(?:api_key|token|secret|password)\s*[:=]\s*[^\s,;]+/gi, '[credential redacted]')
+        .replace(/\b(api[_-]?key|token|secret|password)\s*[:=]\s*[^\s,;]+/gi, '$1=[redacted]')
+        .replace(/\bsk-[A-Za-z0-9_-]{8,}\b/gi, '[credential redacted]')
+        .replace(/\beyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/gi, '[credential redacted]')
+        .replace(/\b(?:pph?_[a-z0-9]+|w[0-9A-Za-z]+:(?:p|t)[0-9A-Za-z]+|(?:machine|device|session|pane|rel|peer)[-_][a-z0-9_-]{6,})\b/gi, '[internal reference]')
+        .replace(/(?<![A-Za-z0-9_/])\/(?!\/)(?:[^\s\/<>"']+\/)+[^\s\/<>"']+/gm, '[path hidden]')
+        .replace(/\b[A-Za-z]:\\(?:[^\s\\]+\\)+[^\s,;]*/g, '[path hidden]')
+        .replace(/[\u0000-\u001F\u007F<>`{}\\/]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 160);
+    return clean || fallback;
 }
 
 function validState(value: unknown): value is HostDiagnosticState {
@@ -155,6 +177,23 @@ export class HostDiagnosticsJournal {
             at: this.timestamp(), event: 'peer.broker', operation, outcome,
             durationMs: Math.max(0, Math.min(Math.round(durationMs), 10 * 60_000)),
             ...(normalizedCode === undefined ? {} : { code: normalizedCode }),
+        });
+    }
+
+    realtimePrompt(
+        provider: string,
+        requestedAgentName: string,
+        resolvedAgentName: string | null,
+        outcome: DiagnosticRealtimePromptOutcome,
+    ): void {
+        this.record({
+            at: this.timestamp(),
+            event: 'realtime.prompt',
+            provider: /^[a-z0-9.-]{1,80}$/.test(provider) ? provider : 'unknown',
+            action: 'prompt',
+            requestedAgentName: safeSemanticName(requestedAgentName, 'unspecified')!,
+            resolvedAgentName: safeSemanticName(resolvedAgentName, 'unknown'),
+            outcome,
         });
     }
 
