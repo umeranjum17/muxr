@@ -5,23 +5,23 @@ The listed Agents on this device and the transcript envelopes that belong to the
 ## Language
 
 **Agent**:
-A coding-agent session muxr tracks. It is the person-shaped row in the herd, not a pane, process, or provider binary.
-_Avoid_: pane, tab, process, session row
+One current Herdr `agent_session` generation projected into the herd. A bare Shell is a separate pane path, not an Agent.
+_Avoid_: pane, tab, provider binary, prior generation
 
 **Agent Route**:
-The stable internal route that identifies an Agent across pane moves. On this device that is the host session id.
+The opaque authorization route bound to exactly one Herdr `agent_session` generation. It survives pane moves; a replacement process receives a new route.
 _Avoid_: pane id, spoken name, label
 
 **Agent Name**:
-The user-editable Herdr Agent Name. Display-only, never a routing key.
-_Avoid_: label, pane title
+The current Herdr `agent.name`, rendered directly without a mobile alias or cached fallback.
+_Avoid_: label, pane title, cached name
 
 **Task Title**:
-The work the Agent is doing.
-_Avoid_: pane title, terminal title
+The current Herdr Agent title, pane label, or tab label in that order.
+_Avoid_: cached title, terminal title
 
 **Provider Kind**:
-Which coding-agent program is running.
+The current Herdr Agent provider.
 _Avoid_: agent name, model
 
 Use cases: [USE_CASES.md](../USE_CASES.md).

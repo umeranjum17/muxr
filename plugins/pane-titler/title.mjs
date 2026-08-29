@@ -5,7 +5,7 @@
  * only when the real name is absent/internal, and update generated Task Titles.
  */
 import { execFileSync } from 'node:child_process';
-import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { ensureAgentName } from './agent-name.mjs';
@@ -93,19 +93,7 @@ try {
     try { context = JSON.parse(process.env.HERDR_PLUGIN_CONTEXT_JSON ?? '{}'); } catch {}
     const provider = kindName(context.focused_pane_agent || pane.agent || pane.display_agent);
 
-    const seen = join(STATE, 'named.json');
-    let named = {};
-    try { named = JSON.parse(readFileSync(seen, 'utf8')); } catch {}
-
     if (!untitled(current)) process.exit(0);
-
-    const previous = named[paneId];
-    if (typeof previous === 'string' && previous !== '' && !untitled(previous)) {
-        run(['pane', 'rename', paneId, previous]);
-        if (tabId !== undefined && untitled(tabLabel)) run(['tab', 'rename', tabId, previous]);
-        log(`restored ${paneId} -> ${previous}`);
-        process.exit(0);
-    }
 
     const text = run(['pane', 'read', paneId, '--source', 'recent-unwrapped', '--lines', '60']);
     if (text.trim().length < 80) process.exit(0);
@@ -116,8 +104,6 @@ try {
 
     run(['pane', 'rename', paneId, title]);
     if (tabId !== undefined && untitled(tabLabel)) run(['tab', 'rename', tabId, title]);
-    mkdirSync(STATE, { recursive: true });
-    writeFileSync(seen, JSON.stringify({ ...named, [paneId]: title }), { mode: 0o600 });
     log(`renamed ${paneId} -> ${title}`);
 } catch (error) {
     log(`failed: ${String(error.message).slice(0, 200)}`);

@@ -79,6 +79,14 @@ async function runSelfCheck(): Promise<void> {
         assert(stores.attention.catalog().entries.length === 1, 'clearing a session drops its row');
 
         stores.lifecycle.transition('stable', 'Maria', 'working', 'agent-working', 'Realtime Stability');
+        const privateTitle = stores.lifecycle.transition(
+            'private-title',
+            'Maria',
+            'working',
+            'agent-working',
+            '\u00a0/Users/owner/private/task',
+        );
+        assert(privateTitle?.taskTitle === undefined, 'leading whitespace cannot bypass lifecycle Task Title path rejection');
         const firstFailure = stores.lifecycle.transition('corrected', 'John', 'failed', 'start-launch-failed');
         assert(firstFailure !== undefined, 'first lifecycle outcome is recorded');
         assert(

@@ -29,7 +29,8 @@ export type HostDiagnosticEvent =
     | { at: string; event: 'peer.connection'; direction: 'outbound'; phase: DiagnosticPeerConnectionPhase; outcome: DiagnosticOutcome; durationMs: number; code?: string }
     | { at: string; event: 'peer.ingress'; direction: 'inbound'; outcome: DiagnosticPeerIngressOutcome }
     | { at: string; event: 'peer.broker'; operation: DiagnosticBrokerOperation; outcome: DiagnosticOutcome; durationMs: number; code?: string }
-    | { at: string; event: 'realtime.prompt'; provider: string; action: 'prompt'; requestedAgentName: string; resolvedAgentName: string | null; outcome: DiagnosticRealtimePromptOutcome };
+    | { at: string; event: 'realtime.prompt'; provider: string; action: 'prompt'; requestedAgentName: string; resolvedAgentName: string | null; outcome: DiagnosticRealtimePromptOutcome }
+    | { at: string; event: 'agent.readiness'; reason: 'starting' | 'ready' | 'not-promptable'; promptable: boolean };
 
 interface HostDiagnosticState {
     version: 1;
@@ -53,7 +54,7 @@ const safeCodes = new Set([
     'peer-mutation-unresolved', 'peer-recovery-pending', 'peer-operation-uncertain',
     'grant-refresh-failed', 'ticket-issue-failed', 'socket-error', 'socket-closed',
     'socket-timeout', 'liveness-closed', 'liveness-timeout',
-    'timeout', 'unavailable',
+    'agent-not-ready', 'timeout', 'unavailable',
 ]);
 const loggedRequests = new Set<RequestType>([
     'machines.list', 'herdr.tree', 'terminal.attach', 'terminal.detach',
@@ -195,6 +196,10 @@ export class HostDiagnosticsJournal {
             resolvedAgentName: safeSemanticName(resolvedAgentName, 'unknown'),
             outcome,
         });
+    }
+
+    agentReadiness(reason: 'starting' | 'ready' | 'not-promptable', promptable: boolean): void {
+        this.record({ at: this.timestamp(), event: 'agent.readiness', reason, promptable });
     }
 
     relationships(peers: Array<{ state: keyof RelationshipCounts }>): void {

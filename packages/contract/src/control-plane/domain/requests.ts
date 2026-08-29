@@ -151,8 +151,6 @@ export interface PeerRequestMap {
             cwd: string;
             kind?: string;
             label?: string;
-            /** Agent Name compatibility field. Agent Route alone authorizes. */
-            displayName?: string;
             mutation: PeerMutationMetadata;
         };
         result: { machineAlias: string; sessionId: string; agentName: string };
@@ -185,16 +183,14 @@ export interface RequestMap extends PeerRequestMap {
             kind?: string;
             /** Display label; also names the herdr tab. */
             label?: string;
-            /** Agent Name compatibility field. Agent Route alone authorizes. */
-            displayName?: string;
             /** Explicit concise task identity. Never derived from terminal output. */
             taskTitle?: string;
             /** Create the session inside a new git worktree of the repo at cwd. */
             worktree?: { branch?: string; base?: string };
             /** Squad mode: one workspace, one tab per kind (max 4). Ignores kind. */
             kinds?: string[];
-            /** Named squad form. Takes precedence over `kinds`. */
-            members?: Array<{ kind: string; displayName?: string }>;
+            /** Squad form. Takes precedence over `kinds`. */
+            members?: Array<{ kind: string }>;
             /** Required by the peer dispatcher; ordinary trusted clients omit it. */
             peerMutation?: PeerMutationMetadata;
         };

@@ -1,4 +1,4 @@
-import { isSessionIdle, normalizeAgentName, type SessionInfo, type SessionStatus } from '@muxr/contract';
+import { isSessionIdle, type SessionInfo, type SessionStatus } from '@muxr/contract';
 import deepEqual from 'fast-deep-equal';
 import type { Session } from '../infrastructure/storageTypes';
 import {
@@ -14,22 +14,6 @@ import {
  */
 export const AGENT_STILL_LISTED_MS = 30 * 60 * 1000;
 
-const FALLBACK_TASK_TITLE = 'Current task';
-
-/**
- * Undefined means \"no Agent Name yet\", not \"use the folder name\": falling
- * back to the cwd basename gave every Agent in a repo the same name, and each
- * catalog refresh overwrote the real Herdr Agent Name.
- */
-export function agentNameFromHost(info: Pick<SessionInfo, 'displayName'>): string | undefined {
-    if (info.displayName === undefined || info.displayName.trim() === '') return undefined;
-    return normalizeAgentName(info.displayName);
-}
-
-export function taskTitleFromHost(raw: string | undefined): string {
-    const trimmed = raw?.trim();
-    return trimmed && trimmed.length > 0 ? trimmed : FALLBACK_TASK_TITLE;
-}
 
 export function providerKindFromHost(raw: string | undefined): { kind: string; name: string } {
     const kind = raw === undefined || raw === '' ? 'agent' : raw;
@@ -49,7 +33,9 @@ export function agentStillListed(busy: boolean, updatedAt: number, now: number):
 }
 
 export function agentStatusUnchanged(session: Session, status: SessionStatus): boolean {
-    return session.thinking === !isSessionIdle(status) && session.metadata?.agentStatus === status.agentStatus;
+    return session.thinking === !isSessionIdle(status)
+        && session.metadata?.agentStatus === status.agentStatus
+        && session.metadata?.promptable === status.promptable;
 }
 
 /**
@@ -63,11 +49,6 @@ export function approvalAgentState(spokenName: string): NonNullable<Session['age
         usageLimits: { capturedAt: Date.now(), windows: [] },
         requests: { herdr: { tool: `${spokenName} is waiting for you`, arguments: {}, createdAt: Date.now() } },
     };
-}
-
-export function agentNameForNotice(session: Session | undefined): string {
-    const name = session?.metadata?.agentName?.trim();
-    return name && name.length > 0 ? name : 'Agent';
 }
 
 export function agentHasOpenApproval(session: Pick<Session, 'agentState'>): boolean {
@@ -92,6 +73,18 @@ export function lifecycleSinceForAgent(
     return lifecycleSince(metadata.agentStatus, metadata.lifecycleStateSince, nextStatus, now);
 }
 
+/** Drop pre-cutover display copies while preserving generic non-Herdr session metadata. */
+function withoutCopiedHerdrIdentity(metadata: Session['metadata']): Session['metadata'] {
+    if (metadata?.client?.id !== 'herdr') return metadata;
+    const {
+        agentName: _agentName,
+        taskTitle: _taskTitle,
+        summary: _summary,
+        ...current
+    } = metadata;
+    return current;
+}
+
 /**
  * Catalog refresh replaces metadata wholesale and carries neither a Task Title
  * nor live lifecycle. Carry those over or a refresh briefly turns working or
@@ -106,9 +99,10 @@ export function mergeCatalogAgent(
     onlineState: (session: { active: boolean; activeAt: number }) => 'online' | number,
 ): Session {
     const previous = replace ? storePrevious : mergedPrevious;
-    const known = previous?.metadata;
-    const metadata = session.metadata === null
-        ? session.metadata
+    const known = withoutCopiedHerdrIdentity(previous?.metadata ?? null);
+    const incoming = withoutCopiedHerdrIdentity(session.metadata);
+    const metadata = incoming === null
+        ? incoming
         : {
             ...(known?.summary === undefined ? {} : { summary: known.summary }),
             ...(known?.currentModelCode === undefined ? {} : {
@@ -124,9 +118,9 @@ export function mergeCatalogAgent(
                       agentStatus: known.agentStatus,
                       lifecycleStateSince: known.lifecycleStateSince,
                   }),
-            ...session.metadata,
+            ...incoming,
         };
-    const catalogHasLifecycle = session.metadata?.agentStatus !== undefined;
+    const catalogHasLifecycle = incoming?.agentStatus !== undefined;
     const liveStatus = previous !== undefined && !catalogHasLifecycle
         ? {
               thinking: previous.thinking,
@@ -146,7 +140,8 @@ export function mergeCatalogAgent(
 
 /** Live info churn carries a fresh host DTO but no status; keep status-derived fields. */
 export function applyHostInfoToAgent(existing: Session, fresh: Session): Session {
-    const known = existing.metadata;
+    const known = withoutCopiedHerdrIdentity(existing.metadata);
+    const incoming = withoutCopiedHerdrIdentity(fresh.metadata);
     const merged: Session = {
         ...existing,
         ...fresh,
@@ -155,13 +150,10 @@ export function applyHostInfoToAgent(existing: Session, fresh: Session): Session
         agentState: existing.agentState,
         agentStateVersion: existing.agentStateVersion,
         metadata: known === null
-            ? fresh.metadata
+            ? incoming
             : {
                   ...known,
-                  ...fresh.metadata,
-                  ...(known.summary === undefined ? {} : { summary: known.summary }),
-                  ...(known.taskTitle === undefined ? {} : { taskTitle: known.taskTitle }),
-                  ...(known.terminalTitle === undefined ? {} : { terminalTitle: known.terminalTitle }),
+                  ...incoming,
               },
     };
     const withoutOutputTimestamps: Session = {

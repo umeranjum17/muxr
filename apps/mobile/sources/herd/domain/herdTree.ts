@@ -50,7 +50,7 @@ export function buildSpaceRows(
 ): HerdSpaceRow[] {
     const query = searchQuery.trim().toLocaleLowerCase();
     const matches = (pane: HerdrTreePane): boolean =>
-        query === '' || [pane.taskTitle, pane.displayName, pane.agentKind, pane.label]
+        query === '' || [pane.taskTitle, pane.agentName, pane.agentKind, pane.label]
             .some((value) => value !== undefined && value.toLocaleLowerCase().includes(query));
 
     const rows: HerdSpaceRow[] = [];

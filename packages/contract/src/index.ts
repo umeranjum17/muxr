@@ -51,7 +51,6 @@ export {
     lifecycleNotificationAllowed,
     lifecycleEventRoute,
     parseAgentLifecycle,
-    normalizeAgentName,
     parseLifecycleNotificationLevel,
     parseAgentName,
     parseProviderKind,

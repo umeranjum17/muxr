@@ -38,7 +38,7 @@ import {
     machineInfoToMachine,
     sessionInfoToSession,
 } from '../infrastructure/sessionMapping';
-import { agentStatusUnchanged, applyHostInfoToAgent, agentNameForNotice } from '../domain/agent';
+import { agentStatusUnchanged, applyHostInfoToAgent } from '../domain/agent';
 import { lifecycleIsWorking, lifecycleWatchOutcome, watchAgentLifecycle } from '@/watch';
 import { promptAgent } from './promptAgent';
 import type { Settings } from './settings';
@@ -52,6 +52,16 @@ const LIFECYCLE_CATALOG_UNAVAILABLE_CODES = new Set([
     'method-not-found',
     'unsupported',
 ]);
+
+function currentAgentName(sessionId: string): string {
+    for (const workspace of storage.getState().herdrWorkspaces) {
+        for (const tab of workspace.tabs) {
+            const pane = tab.panes.find((candidate) => candidate.sessionId === sessionId);
+            if (pane?.agentName !== undefined) return pane.agentName;
+        }
+    }
+    return 'Agent';
+}
 
 function lifecycleCatalogUnavailable(error: unknown): boolean {
     return typeof error === 'object' && error !== null && 'code' in error
@@ -325,7 +335,7 @@ class MuxrSync {
         }
 
         if (event.type === 'watch.settled') {
-            const agentName = agentNameForNotice(storage.getState().sessions[sessionId]);
+            const agentName = currentAgentName(sessionId);
             const rawStatus = event.timedOut === true ? 'timeout' : event.status.toLowerCase();
             const status = ['blocked', 'failed', 'done', 'idle', 'timeout', 'error'].includes(rawStatus) ? rawStatus : 'error';
             const notificationState: Extract<AgentLifecycle, 'blocked' | 'failed' | 'done'> = status === 'blocked'
@@ -361,11 +371,10 @@ class MuxrSync {
                 || Platform.OS === 'ios'
                 || notificationState === null
                 || (Platform.OS === 'android' && notificationState === 'done')) continue;
-            const session = storage.getState().sessions[entry.sessionId];
             void this.scheduleSessionNotification(
                 entry.sessionId,
                 notificationState,
-                `${session?.metadata?.agentName?.trim() || 'Agent'} needs attention.`,
+                `${currentAgentName(entry.sessionId)} needs attention.`,
             );
         }
     }
@@ -419,8 +428,7 @@ class MuxrSync {
         // second notification for every transition.
         if (Platform.OS === 'android') return;
         try {
-            const session = storage.getState().sessions[sessionId];
-            const title = session?.metadata?.agentName?.trim() || 'Agent';
+            const title = currentAgentName(sessionId);
             await Notifications.scheduleNotificationAsync({
                 content: {
                     title,
@@ -509,20 +517,26 @@ class MuxrSync {
         // rebuilt catalog would otherwise show stale statuses until the next
         // real transition. The herd tree fetched alongside is the same host
         // truth the Spaces/notification surfaces use; fold it in.
-        const statusBySession = new Map<string, SessionStatus['agentStatus']>();
+        const stateBySession = new Map<string, Pick<SessionStatus, 'agentStatus' | 'promptable'>>();
         for (const workspace of tree?.workspaces ?? []) {
             for (const tab of workspace.tabs) {
                 for (const pane of tab.panes) {
-                    if (pane.sessionId !== undefined) statusBySession.set(pane.sessionId, pane.agentStatus);
+                    if (pane.sessionId !== undefined) {
+                        stateBySession.set(pane.sessionId, {
+                            agentStatus: pane.agentStatus,
+                            promptable: pane.promptable,
+                        });
+                    }
                 }
             }
         }
         storage.getState().applySessions(sessions.map((info) => {
-            const agentStatus = statusBySession.get(info.id);
-            return sessionInfoToSession(info, agentStatus === undefined ? undefined : {
+            const state = stateBySession.get(info.id);
+            return sessionInfoToSession(info, state === undefined ? undefined : {
                 sessionId: info.id,
-                agentStatus,
-                isStreaming: lifecycleIsWorking(agentStatus),
+                agentStatus: state.agentStatus,
+                promptable: state.promptable,
+                isStreaming: lifecycleIsWorking(state.agentStatus),
                 tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
             });
         }), true);
@@ -626,6 +640,9 @@ class MuxrSync {
     async sendMessage(sessionId: string, text: string, options?: SendMessageOptions): Promise<void> {
         const previews = options?.attachments ?? [];
         if (text.trim().length === 0 && previews.length === 0) return;
+        if (storage.getState().sessions[sessionId]?.metadata?.promptable !== true) {
+            throw new Error('Agent is not ready yet');
+        }
         const client = this.ensureClient();
         // No optimistic echo: the host emits message.append for the prompt, so the
         // transcript fold owns ordering and there is nothing to reconcile.

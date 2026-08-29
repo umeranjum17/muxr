@@ -1,10 +1,10 @@
 import React from 'react';
 import { Platform, View, FlatList } from 'react-native';
 import { Text } from '@/components/StyledText';
-import { useAllSessions } from '@/catalog/store';
+import { useAllSessions, useHerdrTree } from '@/catalog/store';
 import { Session } from '@/catalog';
 import { Avatar } from '@/components/Avatar';
-import { getSessionName, getSessionSubtitle, getSessionAvatarId } from '@/herd';
+import { getSessionName, getSessionSubtitle, getSessionAvatarId, herdrPaneForSession } from '@/herd';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StyleSheet } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
@@ -170,6 +170,7 @@ function groupSessionsByDate(sessions: Session[]): SessionHistoryItem[] {
 export default function SessionHistory() {
     const safeArea = useSafeAreaInsets();
     const allSessions = useAllSessions();
+    const { workspaces } = useHerdrTree();
     const navigateToSession = useNavigateToSession();
     
     const groupedItems = React.useMemo(() => {
@@ -189,8 +190,9 @@ export default function SessionHistory() {
         
         if (item.type === 'session' && item.session) {
             const session = item.session;
-            const sessionName = getSessionName(session);
-            const sessionSubtitle = getSessionSubtitle(session);
+            const pane = herdrPaneForSession(workspaces, session.id);
+            const sessionName = getSessionName(session, pane);
+            const sessionSubtitle = getSessionSubtitle(session, pane);
             const avatarId = getSessionAvatarId(session);
             
             // Determine card styling based on position within date group
@@ -231,7 +233,7 @@ export default function SessionHistory() {
         }
         
         return null;
-    }, [groupedItems, navigateToSession]);
+    }, [groupedItems, navigateToSession, workspaces]);
     
     const keyExtractor = React.useCallback((item: SessionHistoryItem, index: number) => {
         if (item.type === 'date-header') {

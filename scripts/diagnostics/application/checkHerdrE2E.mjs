@@ -169,18 +169,25 @@ async function run() {
     }
     console.log('ok: phone-started and terminal-opened Shell omit agentKind');
 
-    // 2. session.start (async agent.start: the answer must beat the 20s client timeout)
+    // 2. session.start publishes the Herdr generation before it becomes promptable.
     const started = await request(socket, 'session.start', { cwd: workdir, kind: 'pi', label: 'e2e' });
     const newId = started?.info?.id;
     createdWorkspaceId = started?.info?.workspaceId;
     if (typeof newId !== 'string') fail('session.start returned no session id');
-    console.log(`ok: session.start -> ${newId} (status ${started?.status?.agentStatus ?? '?'})`);
+    console.log(`ok: session.start returned current generation (promptable ${String(started?.status?.promptable)})`);
     await waitFor(
         () => events.some((entry) => entry.sessionId === newId && entry.event.type === 'session.created'),
         'session.created event',
         40_000,
     );
-    console.log('ok: session.created event landed after herdr detected the agent');
+    const readyDeadline = Date.now() + 60_000;
+    while (true) {
+        const current = await request(socket, 'session.status', { sessionId: newId });
+        if (current?.promptable === true) break;
+        if (Date.now() >= readyDeadline) fail('started Herdr generation never became promptable');
+        await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+    console.log('ok: current Herdr generation became promptable');
 
     // 3. terminal.attach -> frames
     const channel = newTerminalChannel();

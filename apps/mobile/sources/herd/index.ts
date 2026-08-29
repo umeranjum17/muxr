@@ -10,7 +10,6 @@ export * from './application/useInboxHasContent';
 export * from './application/useNavigateToSession';
 export * from './application/useSessionQuickActions';
 export * from './application/useVisibleSessionListViewData';
-export * from './domain/Agent';
 export * from './domain/ResumeEligibility';
 export * from './domain/agentPresentation';
 export * from './domain/herd';

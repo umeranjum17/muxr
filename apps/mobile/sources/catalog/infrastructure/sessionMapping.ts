@@ -7,10 +7,8 @@ import {
     agentNeedsApproval,
     agentStillListed,
     approvalAgentState,
-    agentNameFromHost,
     lifecycleSinceForAgent,
     providerKindFromHost,
-    taskTitleFromHost,
 } from '@/catalog/domain/agent';
 
 export const ACTIVE_SESSION_MS = AGENT_STILL_LISTED_MS;
@@ -28,14 +26,10 @@ export function sessionInfoToSession(info: SessionInfo, status?: SessionStatus):
     const updatedAt = parseTime(info.modified, createdAt);
     const now = Date.now();
     const busy = agentIsBusy(status);
-    const cwd = info.cwd;
-    const agentName = agentNameFromHost(info);
-    const taskTitle = taskTitleFromHost(info.taskTitle);
     const machineId = getCachedConnectionSettings().machineId;
     const provider = providerKindFromHost(info.agentKind);
     const listed = agentStillListed(busy, updatedAt, now);
     const blocked = agentNeedsApproval(status);
-    const spokenName = agentName ?? provider.name;
     return {
         id: info.id,
         seq: 0,
@@ -44,9 +38,6 @@ export function sessionInfoToSession(info: SessionInfo, status?: SessionStatus):
         active: listed,
         activeAt: updatedAt,
         metadata: sessionMetadataFromInfo(info, {
-            cwd,
-            agentName,
-            taskTitle,
             machineId,
             kind: provider.kind,
             kindName: provider.name,
@@ -54,7 +45,7 @@ export function sessionInfoToSession(info: SessionInfo, status?: SessionStatus):
             updatedAt,
         }),
         metadataVersion: 1,
-        agentState: blocked ? approvalAgentState(spokenName) : null,
+        agentState: blocked ? approvalAgentState(provider.name) : null,
         agentStateVersion: 0,
         thinking: busy,
         thinkingAt: busy ? now : 0,
@@ -66,9 +57,6 @@ export function sessionInfoToSession(info: SessionInfo, status?: SessionStatus):
 function sessionMetadataFromInfo(
     info: SessionInfo,
     fields: {
-        cwd: string;
-        agentName: string | undefined;
-        taskTitle: string;
         machineId: string;
         kind: string;
         kindName: string;
@@ -77,8 +65,8 @@ function sessionMetadataFromInfo(
     },
 ): Session['metadata'] {
     return {
-        path: fields.cwd,
-        homeDir: fields.cwd,
+        path: info.cwd,
+        homeDir: info.cwd,
         host: fields.machineId,
         machineId: fields.machineId,
         flavor: 'pi',
@@ -87,11 +75,10 @@ function sessionMetadataFromInfo(
         ...(fields.status?.agentStatus === undefined
             ? {}
             : { agentStatus: fields.status.agentStatus, lifecycleStateSince: fields.updatedAt }),
+        promptable: fields.status?.promptable ?? info.promptable,
         ...(info.agentKind === undefined || info.agentKind === '' ? {} : { agentKind: info.agentKind }),
         ...(info.paneId === undefined || info.paneId === '' ? {} : { paneId: info.paneId }),
         ...(info.terminalTitle === undefined || info.terminalTitle === '' ? {} : { terminalTitle: info.terminalTitle }),
-        ...(fields.agentName === undefined ? {} : { agentName: fields.agentName }),
-        taskTitle: fields.taskTitle,
         ...(info.worktree === undefined
             ? {}
             : {
@@ -107,7 +94,6 @@ function sessionMetadataFromInfo(
         ...(info.tabLabel === undefined || info.tabLabel === '' ? {} : { tabLabel: info.tabLabel }),
         ...(info.spawnedBy === undefined || info.spawnedBy === '' ? {} : { spawnedBy: info.spawnedBy }),
         startedBy: 'daemon',
-        summary: { text: fields.taskTitle, updatedAt: fields.updatedAt },
         rigMetadataVersion: 1,
         capabilities: {
             abort: true,
@@ -175,6 +161,7 @@ export function applyStatusToSession(session: Session, status: SessionStatus): S
             ? session.metadata
             : {
                 ...session.metadata,
+                promptable: status.promptable,
                 ...(status.agentStatus === undefined
                     ? {}
                     : {

@@ -6,17 +6,17 @@ pane/tab label is Task Title.
 ## What appears in muxr
 
 The session Actions menu includes a native Agent Name editor backed by bounded
-host RPCs. It reads and renames the real Herdr agent; wire `displayName` remains
-only as compatibility metadata.
+host RPCs. It reads and renames the real Herdr agent; every muxr surface reads
+that current Herdr value.
 
 ## What runs on the host
 
 On install or update, `backfill.mjs` backfills every existing unnamed/internal
 agent with an available deterministic animal through `herdr agent rename`.
 After that, `pane.agent_status_changed` preserves every public Herdr Agent Name
-and applies the same backfill to new agents. It then reads about 60 lines of
-scrollback and uses `herdr pane rename` only when the Task Title still carries
-generated chrome. Neither an explicit Agent Name nor Task Title is overwritten.
+and applies the same backfill to new agents. It reads about 60 lines of current
+scrollback and recomputes a Task Title only while the current Herdr pane label
+still carries generated chrome. A prior process generation is never restored.
 
 ## Which model
 
@@ -33,8 +33,8 @@ logged to the user.
 
 ## Where it stores data
 
-`$MUXR_PLUGIN_STATE_DIR`, falling back to `~/.muxr/plugin-state/muxr.pane-titler`:
-`named.json` (panes it has titled) and `titler.log` (which model answered).
+Diagnostic model outcomes go to `$MUXR_PLUGIN_STATE_DIR/titler.log`. Agent Names
+and Task Titles live only in Herdr.
 
 ## Offline
 

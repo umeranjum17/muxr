@@ -2,7 +2,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { chmodSync, existsSync, lstatSync, mkdirSync, unlinkSync } from 'node:fs';
 import { createServer, type Server, type Socket } from 'node:net';
 import { dirname, isAbsolute } from 'node:path';
-import { lifecycleEventAgentName, normalizeAgentName, type LifecycleEvent } from '@muxr/contract';
+import { lifecycleEventAgentName, type LifecycleEvent } from '@muxr/contract';
 
 const MAX_REQUEST_BYTES = 32 * 1024;
 const MAX_PROVIDER_TEXT_BYTES = 8 * 1024;
@@ -181,7 +181,7 @@ function publicAgent(agent: RealtimeCodingAgent): RealtimeCodingAgent {
     return {
         sessionId: PRIVATE_ID.test(agent.sessionId) ? agent.sessionId : '',
         cwd: isAbsolute(agent.cwd) && agent.cwd.length <= 4_096 ? agent.cwd : '',
-        displayName: normalizeAgentName(cleanHuman(agent.displayName, 'Agent', 80)),
+        displayName: cleanHuman(agent.displayName, 'Agent', 80),
         taskTitle: title(agent),
         kind: KIND.test(agent.kind) ? agent.kind : 'agent',
         status: cleanHuman(agent.status, 'unknown', 32).toLocaleLowerCase(),

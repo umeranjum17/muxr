@@ -270,11 +270,12 @@ describe('providerRefusal', () => {
             { sessionId: 'pp_john_private', cwd: privateProject, displayName: 'John', taskTitle: 'Harden audio', kind: 'pi', status: 'idle', changedAt: 1 },
             { sessionId: 'pp_maria_one', cwd: privateProject, displayName: 'Maria', taskTitle: 'Fix auth', kind: 'codex', status: 'working', changedAt: 3 },
             { sessionId: 'pp_maria_two', cwd: privateProject, displayName: 'Maria', taskTitle: 'Ship sync', kind: 'claude', status: 'blocked', changedAt: 2 },
+            { sessionId: 'pp_unsafe', cwd: privateProject, displayName: 'Unsafe<script>', taskTitle: 'Review boundary', kind: 'gemini', status: 'idle', changedAt: 1 },
         ];
         const coordinator = new RealtimeCodingCoordinator(join(muxrHome, 'coding.sock'), {
             list: async () => agents,
             activity: async () => [{
-                eventId: 'activity-one', sessionId: 'pp_john_private', displayName: 'John', taskTitle: 'Harden audio',
+                eventId: 'activity-one', sessionId: 'pp_john_private', agentName: 'John', taskTitle: 'Harden audio',
                 state: 'done', reasonCode: 'agent-done', reason: 'agent-done', at: '2026-08-28T00:00:00.000Z',
             }],
             start: async (input) => {
@@ -427,6 +428,9 @@ describe('providerRefusal', () => {
             const piAgents = await call('list_agents', { kind: 'pi', limit: 3 });
             expect(piAgents).toContain('John — Harden audio; Pi; idle');
             expect(piAgents).not.toContain('Fix auth');
+            const providerSafeName = await call('list_agents', { kind: 'gemini', limit: 3 });
+            expect(providerSafeName).toContain('Unsafe script');
+            expect(providerSafeName).not.toContain('<script>');
             const recentActivity = await call('recent_agent_activity', { limit: 3 });
             expect(recentActivity).toContain('John — Harden audio; done');
 

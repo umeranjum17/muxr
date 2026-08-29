@@ -23,9 +23,10 @@ const MAX_AGE_MS = 7 * 24 * 60 * 60_000;
 const STATES = new Set<AgentLifecycle>(['starting', 'idle', 'working', 'blocked', 'done', 'failed', 'unknown']);
 
 function safeTaskTitle(value: string | undefined): string | undefined {
-    const clean = value?.replace(/[\0-\x1F\x7F]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120);
-    if (clean === undefined || clean === '' || /^(?:\/|[A-Za-z]:\\)|\b(?:token|password|secret|credential)\s*=/i.test(clean)) return undefined;
-    return clean;
+    if (value === undefined || value === '' || value.length > 120 || /[\0-\x1F\x7F]/.test(value)) return undefined;
+    const privacyProbe = value.normalize('NFKC').trimStart();
+    if (/^(?:\/|[A-Za-z]:\\)|\b(?:token|password|secret|credential)\s*=/i.test(privacyProbe)) return undefined;
+    return value;
 }
 
 function valid(value: unknown): value is LifecycleFile {
@@ -40,7 +41,7 @@ export function createLifecycleStore(dataDir: string, now: () => Date = () => ne
     let revision = loaded.revision;
     let events = loaded.events.filter((event) =>
         typeof event.eventId === 'string' && typeof event.sessionId === 'string'
-        && typeof event.displayName === 'string' && STATES.has(event.state)
+        && typeof event.agentName === 'string' && STATES.has(event.state)
         && (event.taskTitle === undefined || safeTaskTitle(event.taskTitle) === event.taskTitle)
         && Number.isFinite(Date.parse(event.at)) && now().getTime() - Date.parse(event.at) <= MAX_AGE_MS,
     ).slice(-MAX_EVENTS);
@@ -78,7 +79,7 @@ export function createLifecycleStore(dataDir: string, now: () => Date = () => ne
         transition(sessionId, agentName, state, reason, taskTitle) {
             taskTitle = safeTaskTitle(taskTitle);
             const previous = this.current(sessionId);
-            if (previous?.state === state && previous.reasonCode === reason && previous.displayName === agentName) {
+            if (previous?.state === state && previous.reasonCode === reason && previous.agentName === agentName) {
                 if (previous.taskTitle !== taskTitle) {
                     const updated = { ...previous };
                     if (taskTitle === undefined) delete updated.taskTitle;
@@ -91,7 +92,7 @@ export function createLifecycleStore(dataDir: string, now: () => Date = () => ne
             const event: LifecycleEvent = {
                 eventId: randomUUID(),
                 sessionId,
-                displayName: agentName,
+                agentName,
                 ...(taskTitle === undefined ? {} : { taskTitle }),
                 state,
                 reasonCode: reason,

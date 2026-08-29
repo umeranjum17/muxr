@@ -3,13 +3,13 @@ import { buildSpaceRows, middleTruncate, workspaceName } from './herdTree';
 import type { HerdrTreePane as ContractPane, HerdrTreeTab, HerdrTreeWorkspace as ContractWorkspace } from '@muxr/contract';
 import { agentLabels } from './agentPresentation';
 
-const pane = (id: string, agentKind?: string, extra: Partial<ContractPane> = {}): ContractPane => ({ paneId: id, tabId: 't1', agentStatus: 'idle', focused: false, agentKind, ...extra });
+const pane = (id: string, agentKind?: string, extra: Partial<ContractPane> = {}): ContractPane => ({ paneId: id, tabId: 't1', agentStatus: 'idle', promptable: false, focused: false, agentKind, ...extra });
 const ws = (id: string, label: string | undefined, tabs: HerdrTreeTab[]): ContractWorkspace => ({ workspaceId: id, label, focused: false, agentStatus: 'idle', tabs });
 const tab = (tabId: string, label: string | undefined, panes: ContractPane[]): HerdrTreeTab => ({ tabId, label, focused: false, agentStatus: 'idle', panes });
 const agent = pane('p-a', 'pi', {
     sessionId: 's-a',
     cwd: '/home/umer/proj',
-    displayName: 'Maria',
+    agentName: 'Maria',
     taskTitle: 'Review monitoring stability',
 });
 const shell = pane('p-s', undefined, { cwd: '/tmp' });

@@ -11,11 +11,11 @@ import {
     type HerdrLayoutNode,
 } from '../domain/layout.js';
 import { lifecycleReasonForObservation } from '../domain/lifecycle.js';
-import { IdentityStore, parseTaskTitle } from './identity.js';
+import { AgentRouteStore, type HerdrAgentSessionRef } from './agentRouteStore.js';
 import { RealtimeCodingCoordinator } from './realtimeCoordinator.js';
-import { closeAgentRoute, closeExactPane, closeExactTab, closeExactWorkspace, promptHerdrAgent, sendKeysToLiveAgent } from './herdrSessionSource.js';
+import { closeAgentRoute, closeExactPane, closeExactTab, closeExactWorkspace, mergeHerdrAgentEvent, promptHerdrAgent, promptPromptableHerdrAgent, sendKeysToLiveAgent } from './herdrSessionSource.js';
 import { createConnection } from 'node:net';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -41,10 +41,10 @@ async function ask(
 }
 
 async function demo(): Promise<void> {
-    const identity = new IdentityStore(mkdtempSync(join(tmpdir(), 'pph-layout-check-')));
-    const reviewer = identity.adopt({ paneId: 'w1:p1', workspaceId: 'w1', tabId: 'w1:t1', cwd: '/repo', agentName: 'reviewer', kind: 'pi', ours: true });
-    const planner = identity.adopt({ paneId: 'w1:p3', workspaceId: 'w1', tabId: 'w1:t1', cwd: '/repo', agentName: 'planner', kind: 'claude', ours: true });
-    assert(reviewer.taskTitle === 'Pi task' && planner.taskTitle === 'Claude task', 'adopt fills a generic Task Title from Provider Kind');
+    const kindByPane: Record<string, string | undefined> = {
+        'w1:p1': 'pi',
+        'w1:p3': 'claude',
+    };
 
     const live: HerdrLayoutNode = {
         type: 'split',
@@ -60,7 +60,7 @@ async function demo(): Promise<void> {
         },
     };
 
-    const snapshot = toSnapshot(live, (paneId) => identity.byPane(paneId)?.kind);
+    const snapshot = toSnapshot(live, (paneId) => kindByPane[paneId]);
     assert(snapshot.type === 'split', 'root stays a split');
     assert(
         JSON.stringify(collectKinds(snapshot)) === JSON.stringify(['pi', undefined, 'claude']),
@@ -95,7 +95,7 @@ async function demo(): Promise<void> {
         `kind/pane pairing drifted: ${pairs.join(' ')}`,
     );
 
-    const solo = toSnapshot({ type: 'pane', pane_id: 'w1:p1' }, (paneId) => identity.byPane(paneId)?.kind);
+    const solo = toSnapshot({ type: 'pane', pane_id: 'w1:p1' }, (paneId) => kindByPane[paneId]);
     assert(collectKinds(solo).length === 1, 'single pane yields one slot');
     assert(
         lifecycleReasonForObservation('failed', undefined, 'start-timeout') === 'start-timeout',
@@ -110,60 +110,90 @@ async function demo(): Promise<void> {
         'an observed live agent failure is classified as runtime failure',
     );
 
-    const staleDir = mkdtempSync(join(tmpdir(), 'pph-stale-identity-check-'));
-    writeFileSync(join(staleDir, 'herdr-identity.json'), JSON.stringify({ sessions: [
-        { sessionId: 'stable-d', paneId: 'p4', workspaceId: 'w1', tabId: 'w1:t1', cwd: '/repo', createdAt: '', ours: true, label: 'Cart Fix', displayName: 'Cart Fix' },
-    ] }));
-    const stale = new IdentityStore(staleDir);
-    await stale.load();
-    assert(stale.all().length === 0, 'old or invalid identity files rebuild empty from Herdr');
-
-    assert(parseTaskTitle('pi') === undefined && parseTaskTitle('hi') === undefined && parseTaskTitle('pp_hidden') === undefined, 'provider kinds, greetings, and handles are not Task Titles');
-    assert(parseTaskTitle('Falcon') === 'Falcon' && parseTaskTitle('Review monitoring') === 'Review monitoring', 'a real work phrase is a Task Title');
-    assert(parseTaskTitle('π ⠼ Restore full-size terminal cards', 'omp') === 'Restore full-size terminal cards', 'OMP live chrome becomes a canonical Task Title');
-
-
-    const stableDir = mkdtempSync(join(tmpdir(), 'pph-stable-identity-check-'));
-    const started = new IdentityStore(stableDir);
-    const route = started.allocateRoute();
-    started.adopt({
-        sessionId: route,
-        paneId: 'w1:p1',
-        workspaceId: 'w1',
-        tabId: 'w1:t1',
-        cwd: '/repo',
-        agentName: route,
-        taskTitle: 'Stabilize realtime voice',
-        kind: 'codex',
-        ours: true,
+    const readyEventState = { pane_id: 'w1:p1', interactive_ready: true, launch_pending: false };
+    const partialStatusEvent = mergeHerdrAgentEvent(readyEventState, { pane_id: 'w1:p1', agent_status: 'idle' });
+    const explicitReadinessEvent = mergeHerdrAgentEvent(readyEventState, {
+        pane_id: 'w1:p1',
+        interactive_ready: false,
+        launch_pending: true,
     });
-    assert(started.get(route)?.agentName === 'Agent', 'internal Herdr names stay hidden');
-    started.observe({ paneId: 'w1:p1', agentName: 'falcon', kind: 'codex' });
-    await started.flush();
-    const rediscovered = new IdentityStore(stableDir);
-    await rediscovered.load();
-    const moved = rediscovered.observe({
-        paneId: 'w9:p7',
-        previousPaneId: 'w1:p1',
-        workspaceId: 'w9',
-        tabId: 'w9:t4',
-        cwd: '/repo/worktree',
-        agentName: 'falcon',
-        kind: 'codex',
-        terminalTitle: 'Stabilize realtime voice',
-    });
-    assert(moved.identity.agentName === 'falcon', 'observation mirrors the real Herdr Agent Name');
-    const other = rediscovered.adopt({
-        paneId: 'w1:p2',
-        workspaceId: 'w1',
-        tabId: 'w1:t2',
-        cwd: '/repo',
-        agentName: 'eagle',
-        kind: 'pi',
-        ours: false,
-    });
-    const reused = rediscovered.observe({ paneId: 'w1:p2', agentName: 'falcon', kind: 'pi' });
-    assert(reused.identity.sessionId === other.sessionId && rediscovered.get(route)?.paneId === 'w9:p7', 'Agent Name reuse cannot capture or swap Agent Routes');
+    assert(partialStatusEvent.interactive_ready === true && partialStatusEvent.launch_pending === false
+        && explicitReadinessEvent.interactive_ready === false && explicitReadinessEvent.launch_pending === true,
+    'partial Herdr events preserve readiness while explicit readiness replaces it');
+    const routeDir = mkdtempSync(join(tmpdir(), 'muxr-route-flow-'));
+    writeFileSync(join(routeDir, 'herdr-identity.json'), JSON.stringify({
+        sessions: [{ sessionId: 'stale', agentName: 'Badger' }],
+    }));
+    const routeStore = new AgentRouteStore(routeDir);
+    await routeStore.load();
+    assert(routeStore.all().length === 0, 'obsolete identity files are ignored without pane migration');
+    const sessionA: HerdrAgentSessionRef = {
+        source: 'herdr:pi',
+        agent: 'pi',
+        kind: 'id',
+        value: 'generation-a',
+    };
+    const sessionB: HerdrAgentSessionRef = {
+        source: 'herdr:pi',
+        agent: 'pi',
+        kind: 'id',
+        value: 'generation-b',
+    };
+    const badger = { name: 'Badger', agent_session: sessionA, pane_id: 'w1:p1' };
+    const routeA = routeStore.bind(sessionA).route;
+    const movedBadger = { ...badger, pane_id: 'w9:p7' };
+    assert(routeStore.bind(movedBadger.agent_session).route === routeA && movedBadger.name === 'Badger',
+        'Badger session A keeps its route across a pane move');
+
+    const removed = routeStore.reconcile([sessionB]);
+    const pelican = {
+        name: 'Pelican',
+        agent_session: sessionB,
+        pane_id: 'w9:p7',
+        interactive_ready: false,
+        launch_pending: true,
+    };
+    const routeB = routeStore.bind(sessionB).route;
+    assert(removed[0]?.route === routeA && routeStore.get(routeA) === undefined && routeB !== routeA && pelican.name === 'Pelican',
+        'Pelican session B removes Badger and receives a distinct current route');
+
+    const promptCalls: Array<{ method: string; params: Record<string, unknown> }> = [];
+    const promptClient = {
+        call: async <T>(method: string, params: Record<string, unknown> = {}): Promise<T> => {
+            promptCalls.push({ method, params });
+            return {
+                type: 'agent_prompted',
+                agent: {
+                    terminal_id: 'terminal',
+                    agent_status: 'idle',
+                    workspace_id: 'workspace',
+                    tab_id: 'tab',
+                    pane_id: pelican.pane_id,
+                    focused: false,
+                    revision: 1,
+                },
+            } as T;
+        },
+    };
+    let notReady = false;
+    try {
+        await promptPromptableHerdrAgent(promptClient, { sessionId: routeB, paneId: pelican.pane_id }, false, 'too early');
+    } catch (error) {
+        notReady = error instanceof Error && 'code' in error && error.code === 'agent-not-ready';
+    }
+    assert(notReady && promptCalls.length === 0, 'Pelican starting is not promptable and sends zero Herdr prompts');
+    pelican.interactive_ready = true;
+    pelican.launch_pending = false;
+    await promptPromptableHerdrAgent(promptClient, { sessionId: routeB, paneId: pelican.pane_id }, true, 'continue');
+    assert(promptCalls.length === 1, 'ready Pelican keeps route B and queues exactly one prompt');
+    await routeStore.flush();
+    const restartedRoutes = new AgentRouteStore(routeDir);
+    await restartedRoutes.load();
+    assert((statSync(join(routeDir, 'herdr-routes.json')).mode & 0o077) === 0,
+        'route bindings persist owner-only');
+    assert(restartedRoutes.route(sessionB) === routeB && restartedRoutes.route(sessionA) === undefined,
+        'host restart restores only current Pelican route B');
+
     const herdrKeyCalls: Array<{ method: string; params: Record<string, unknown> }> = [];
     const keyClient = {
         call: async <T>(method: string, params: Record<string, unknown> = {}): Promise<T> => {
@@ -171,10 +201,9 @@ async function demo(): Promise<void> {
             return undefined as T;
         },
     };
-    await sendKeysToLiveAgent(keyClient, new Map([[reused.identity.paneId, {}]]), reused.identity, ['escape']);
-    assert(JSON.stringify(herdrKeyCalls) === JSON.stringify([{
-        method: 'agent.send_keys', params: { target: 'w1:p2', keys: ['escape'] },
-    }]), 'runtime Agent Name reuse cannot redirect Escape or session.answer away from the authoritative pane');
+    await sendKeysToLiveAgent(keyClient, { sessionId: routeB, paneId: pelican.pane_id }, ['escape']);
+    assert(herdrKeyCalls[0]?.params.target === pelican.pane_id,
+        'runtime controls resolve through current route B');
     const stopCalls: Array<{ method: string; params: Record<string, unknown> }> = [];
     let failStopClose = false;
     const stopClient = {
@@ -184,76 +213,70 @@ async function demo(): Promise<void> {
             return undefined as T;
         },
     };
-    let stopIdentities = [
-        { sessionId: 'route-selected', paneId: 'w1:p2' },
-        { sessionId: 'route-sibling', paneId: 'w1:p3' },
-        { sessionId: 'route-sole', paneId: 'w1:p4' },
-    ];
-    const liveStopAgents = new Set(['w1:p2', 'w1:p3', 'w1:p4']);
     const stopPanes = new Map([
         ['w1:p2', { tab_id: 'w1:t1' }],
         ['w1:p3', { tab_id: 'w1:t1' }],
         ['w1:p4', { tab_id: 'w1:t2' }],
-        ['w1:p5', { tab_id: 'w1:t3' }],
     ]);
     const stopTabs = new Map([
         ['w1:t1', { workspace_id: 'w1' }],
         ['w1:t2', { workspace_id: 'w1' }],
-        ['w1:t3', { workspace_id: 'w1' }],
     ]);
     const cleanupCalls: string[] = [];
-    const recordCleanup = (record: { sessionId: string }): void => { cleanupCalls.push(record.sessionId); };
-    await closeAgentRoute(stopClient, 'route-selected', stopIdentities, liveStopAgents, stopPanes, stopTabs, recordCleanup);
-    await closeAgentRoute(stopClient, 'route-sole', stopIdentities, liveStopAgents, stopPanes, stopTabs, recordCleanup);
+    const recordCleanup = (target: { sessionId: string }): void => { cleanupCalls.push(target.sessionId); };
+    await closeAgentRoute(
+        stopClient,
+        { sessionId: 'route-selected', paneId: 'w1:p2' },
+        stopPanes,
+        stopTabs,
+        recordCleanup,
+    );
+    await closeAgentRoute(
+        stopClient,
+        { sessionId: 'route-sole', paneId: 'w1:p4' },
+        stopPanes,
+        stopTabs,
+        recordCleanup,
+    );
     assert(JSON.stringify(stopCalls) === JSON.stringify([
         { method: 'pane.close', params: { pane_id: 'w1:p2' } },
         { method: 'tab.close', params: { tab_id: 'w1:t2' } },
     ]), 'session.stop closes one selected pane in a split tab and one selected sole-pane tab');
-    assert(JSON.stringify(cleanupCalls) === JSON.stringify(['route-selected', 'route-sole']), 'route-owned plugin streams, status, and identity clean up only after each successful exact close');
-    stopIdentities = [{ sessionId: 'route-last-tab', paneId: 'w2:p4' }];
-    liveStopAgents.add('w2:p4');
+    assert(JSON.stringify(cleanupCalls) === JSON.stringify(['route-selected', 'route-sole']),
+        'route-owned state cleans up only after each successful exact close');
     stopPanes.set('w2:p4', { tab_id: 'w2:t4' });
     stopTabs.set('w2:t4', { workspace_id: 'w2' });
     let lastTabStopError: unknown;
-    try { await closeAgentRoute(stopClient, 'route-last-tab', stopIdentities, liveStopAgents, stopPanes, stopTabs, recordCleanup); }
-    catch (error) { lastTabStopError = error; }
+    try {
+        await closeAgentRoute(
+            stopClient,
+            { sessionId: 'route-last-tab', paneId: 'w2:p4' },
+            stopPanes,
+            stopTabs,
+            recordCleanup,
+        );
+    } catch (error) {
+        lastTabStopError = error;
+    }
     const lastTabStopCode = lastTabStopError !== null && typeof lastTabStopError === 'object' && 'code' in lastTabStopError
         ? lastTabStopError.code
         : undefined;
-    assert(lastTabStopCode === 'tab-close-would-widen' && stopCalls.length === 2 && cleanupCalls.length === 2, 'Stop agent refuses a sole last tab instead of closing its workspace');
-    assert(stopCalls.every(({ method }) => method !== 'workspace.close' && !method.startsWith('worktree.')), 'session.stop never closes a workspace or worktree group');
-    stopIdentities = [{ sessionId: 'route-stale', paneId: 'w9:p9' }];
-    liveStopAgents.clear();
-    let staleStopError: unknown;
-    try { await closeAgentRoute(stopClient, 'route-stale', stopIdentities, liveStopAgents, stopPanes, stopTabs, recordCleanup); }
-    catch (error) { staleStopError = error; }
-    const staleStopCode = staleStopError !== null && typeof staleStopError === 'object' && 'code' in staleStopError
-        ? staleStopError.code
-        : undefined;
-    assert(staleStopCode === 'agent-unavailable' && stopCalls.length === 2 && cleanupCalls.length === 2, 'stale Agent Route rejects without mutation or cleanup');
-    stopIdentities = [
-        { sessionId: 'route-ambiguous', paneId: 'w2:p1' },
-        { sessionId: 'route-ambiguous', paneId: 'w2:p2' },
-    ];
-    liveStopAgents.add('w2:p1');
-    liveStopAgents.add('w2:p2');
-    let ambiguousStopError: unknown;
-    try { await closeAgentRoute(stopClient, 'route-ambiguous', stopIdentities, liveStopAgents, stopPanes, stopTabs, recordCleanup); }
-    catch (error) { ambiguousStopError = error; }
-    const ambiguousStopCode = ambiguousStopError !== null && typeof ambiguousStopError === 'object' && 'code' in ambiguousStopError
-        ? ambiguousStopError.code
-        : undefined;
-    assert(ambiguousStopCode === 'agent-route-ambiguous' && stopCalls.length === 2 && cleanupCalls.length === 2, 'ambiguous Agent Route rejects without mutation or cleanup');
-    stopIdentities = [{ sessionId: 'route-failed-close', paneId: 'w3:p1' }];
-    liveStopAgents.clear();
-    liveStopAgents.add('w3:p1');
+    assert(lastTabStopCode === 'tab-close-would-widen' && stopCalls.length === 2 && cleanupCalls.length === 2,
+        'Stop agent refuses a sole last tab instead of closing its workspace');
     stopPanes.set('w3:p1', { tab_id: 'w3:t1' });
     stopTabs.set('w3:t1', { workspace_id: 'w3' });
     stopTabs.set('w3:t2', { workspace_id: 'w3' });
     failStopClose = true;
-    try { await closeAgentRoute(stopClient, 'route-failed-close', stopIdentities, liveStopAgents, stopPanes, stopTabs, recordCleanup); }
-    catch {}
-    assert(cleanupCalls.length === 2, 'failed exact close leaves plugin streams, status, and identity untouched');
+    try {
+        await closeAgentRoute(
+            stopClient,
+            { sessionId: 'route-failed-close', paneId: 'w3:p1' },
+            stopPanes,
+            stopTabs,
+            recordCleanup,
+        );
+    } catch {}
+    assert(cleanupCalls.length === 2, 'failed exact close leaves route cleanup untouched');
     const explicitCloseCalls: Array<{ method: string; params: Record<string, unknown> }> = [];
     const explicitCloseClient = {
         call: async <T>(method: string, params: Record<string, unknown> = {}): Promise<T> => {
@@ -305,12 +328,6 @@ async function demo(): Promise<void> {
         : undefined;
     assert(groupCloseCode === 'worktree-group-confirmation-required' && explicitCloseCalls.length === 4, 'parent worktree workspace requires an explicit group action without mutation');
     assert(explicitCloseCalls.every(({ method }) => !method.startsWith('worktree.')), 'no ordinary close action can close a worktree group');
-    await rediscovered.flush();
-    const afterMove = new IdentityStore(stableDir);
-    await afterMove.load();
-    const stable = afterMove.get(route);
-    assert(stable?.paneId === 'w9:p7' && stable.workspaceId === 'w9' && stable.tabId === 'w9:t4' && stable.cwd === '/repo/worktree', 'rediscovery persists coherent moved topology');
-    assert(stable?.sessionId === route && stable.agentName === 'falcon' && stable.taskTitle === 'Stabilize realtime voice' && stable.kind === 'codex', 'restart and move preserve Agent Name, Agent Route, Task Title, and Provider Kind');
 
     const socketDir = mkdtempSync(join(tmpdir(), 'pph-coord-check-'));
     const socketPath = join(socketDir, 'realtime-coding.sock');
@@ -343,7 +360,7 @@ async function demo(): Promise<void> {
         activity: async () => [],
         start: async () => ({ accepted: false }),
         prompt: async (_sessionId, text) => {
-            await promptHerdrAgent(herdrPromptClient, { paneId: 'w1:p1', agentName: 'John' }, text);
+            await promptHerdrAgent(herdrPromptClient, { sessionId: 'pp_john', paneId: 'w1:p1' }, text);
             prompts.push(text);
         },
         sendKeys: async (sessionId, keys) => { sentKeys.push({ sessionId, keys }); },

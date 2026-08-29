@@ -11,7 +11,6 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import WebSocket from 'ws';
 import { issueWsTicket, terminalSocketUrl, ticketSocketUrl, type Envelope } from '@muxr/contract';
-import type { IdentityStore } from './identity.js';
 import { v2EnvelopeSequence } from '@muxr/crypto';
 import { HostV2Crypto, type HostedMachineKeys, deviceTableIsObserve, ticketWsCredential } from '../../machine/index.js';
 
@@ -19,7 +18,7 @@ export interface TerminalManagerOptions {
     relayUrl: string;
     machineId: string;
     token?: string;
-    identity: IdentityStore;
+    resolvePane: (sessionId: string) => Promise<string>;
     herdrBin?: string;
     hostedE2ee?: HostedMachineKeys;
 }
@@ -57,20 +56,19 @@ export class TerminalManager {
         if (this.hosted !== undefined && (params.deviceId === undefined || this.options.hostedE2ee?.ingressKeys[params.deviceId] === undefined)) {
             throw new Error('terminal: hosted attach requires an active device grant');
         }
-        const record = this.options.identity.get(params.sessionId);
-        if (record === undefined) throw new Error(`unknown session: ${params.sessionId}`);
-        if ((params.mode ?? 'control') !== 'control') return this.attachNow(params);
+        const paneId = await this.options.resolvePane(params.sessionId);
+        if ((params.mode ?? 'control') !== 'control') return this.attachNow(params, paneId);
 
         // Linearize same-pane control requests. The previous controller stays
         // live until its successor has a relay channel and herdr process.
-        const previous = this.controlQueues.get(record.paneId) ?? Promise.resolve();
-        const run = previous.catch(() => undefined).then(() => this.attachNow(params));
+        const previous = this.controlQueues.get(paneId) ?? Promise.resolve();
+        const run = previous.catch(() => undefined).then(() => this.attachNow(params, paneId));
         const tail = run.then(() => undefined, () => undefined);
-        this.controlQueues.set(record.paneId, tail);
+        this.controlQueues.set(paneId, tail);
         try {
             return await run;
         } finally {
-            if (this.controlQueues.get(record.paneId) === tail) this.controlQueues.delete(record.paneId);
+            if (this.controlQueues.get(paneId) === tail) this.controlQueues.delete(paneId);
         }
     }
 
@@ -82,15 +80,13 @@ export class TerminalManager {
         mode?: 'control' | 'observe';
         deviceId?: string;
         takeover?: boolean;
-    }): Promise<{ paneId: string }> {
-        const record = this.options.identity.get(params.sessionId);
-        if (record === undefined) throw new Error(`unknown session: ${params.sessionId}`);
+    }, paneId: string): Promise<{ paneId: string }> {
         const mode = this.hosted !== undefined && deviceTableIsObserve(this.options.hostedE2ee?.deviceAuthorities, params.deviceId)
             ? 'observe'
             : params.mode ?? 'control';
         if (mode === 'control' && this.hosted !== undefined) {
             const controller = [...this.attachments.values()].find((attachment) =>
-                attachment.mode === 'control' && attachment.paneId === record.paneId,
+                attachment.mode === 'control' && attachment.paneId === paneId,
             );
             if (controller !== undefined && controller.deviceId !== params.deviceId && params.takeover !== true) {
                 throw new Error('terminal: pane is controlled by another device; explicit takeover required');
@@ -142,7 +138,7 @@ export class TerminalManager {
                 'terminal',
                 'session',
                 observe ? 'observe' : 'control',
-                record.paneId,
+                paneId,
                 ...(observe ? [] : ['--takeover']),
                 '--cols',
                 String(params.cols),
@@ -173,7 +169,7 @@ export class TerminalManager {
 
         const attachment: Attachment = {
             sessionId: params.sessionId,
-            paneId: record.paneId,
+            paneId,
             mode,
             ...(params.deviceId === undefined ? {} : { deviceId: params.deviceId }),
             process: child,
@@ -241,7 +237,7 @@ export class TerminalManager {
         if (replaced !== undefined) replaced.close();
         if (mode === 'control') {
             for (const current of this.attachments.values()) {
-                if (current.mode === 'control' && current.paneId === record.paneId) {
+                if (current.mode === 'control' && current.paneId === paneId) {
                     current.close('control moved to another device');
                 }
             }
@@ -337,7 +333,7 @@ export class TerminalManager {
             if (remote && child.exitCode === null) child.kill();
         });
 
-        return { paneId: record.paneId };
+        return { paneId };
     }
 
     detach(channel: string, authenticatedDeviceId?: string): void {

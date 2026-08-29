@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { AgentLifecycle, HerdrTreeWorkspace, LifecycleEvent } from '@muxr/contract';
+import type { AgentLifecycle, HerdrTreePane, HerdrTreeWorkspace, LifecycleEvent } from '@muxr/contract';
 import type { Session } from '../infrastructure/storageTypes';
 import { ApiUpdateContainerSchema } from '../infrastructure/apiTypes';
 import { normalizeRawMessage } from '../infrastructure/typesRaw';
@@ -9,6 +9,7 @@ import { buildSpaceRows } from '@/utils/herdTree';
 import { selectLiveTerminalCards } from '../../herd/application/liveTerminalOrder';
 import { herdPanes } from '../../herd/domain/herd';
 import { agentLabels } from '../../herd/domain/agentPresentation';
+import { terminalPaneCanSend, terminalPaneStatus } from '../../terminal/domain/promptAvailability';
 import { unseenActivityRows } from '../../herd/domain/recentActivity';
 import { loadLocalSettings } from './persistence';
 
@@ -70,8 +71,9 @@ vi.mock('react-native-mmkv', () => ({
 }));
 vi.mock('react-native', () => ({ Platform: { OS: 'web' } }));
 vi.mock('@/utils/sessionUtils', () => ({
-    getSessionName: (session: Session) => session.metadata?.summary?.text ?? session.id,
-    getSessionSubtitle: () => '',
+    getSessionName: (session: Session, pane?: HerdrTreePane) =>
+        pane?.taskTitle ?? pane?.agentName ?? session.metadata?.summary?.text ?? session.id,
+    getSessionSubtitle: (_session: Session, pane?: HerdrTreePane) => pane?.agentName ?? '',
     getSessionAvatarId: (session: Session) => session.id,
 }));
 import { applyStatusToSession, sessionInfoToSession } from '../infrastructure/sessionMapping';
@@ -194,17 +196,24 @@ describe('session sync flow', () => {
             modified: '2026-01-01T00:00:00Z',
             messageCount: 0,
             firstMessage: '',
-            displayName: 'Maria',
+            agentName: 'Maria',
             taskTitle: 'Stabilizing realtime voice',
+            promptable: true,
         });
         expect(mapped.metadata?.paneId).toBe('%1');
-        expect(mapped.metadata?.summary?.text).toBe('Stabilizing realtime voice');
-        expect(mapped.metadata?.agentName).toBe('Maria');
+        expect(mapped.metadata).not.toHaveProperty('summary');
+        expect(mapped.metadata).not.toHaveProperty('agentName');
         const metadata = mapped.metadata;
         if (metadata === null) throw new Error('mapped herdr session must have metadata');
         const stableExisting: Session = {
             ...mapped,
-            metadata: { ...metadata, terminalTitle: 'stable terminal title' },
+            metadata: {
+                ...metadata,
+                terminalTitle: 'stable terminal title',
+                agentName: 'Stale Badger',
+                taskTitle: 'Stale generation task',
+                summary: { text: 'Stale generation task', updatedAt: 1 },
+            },
         };
         const outputOnlyUpdate = sessionInfoToSession({
             id: 'session-a',
@@ -215,15 +224,21 @@ describe('session sync flow', () => {
             modified: '2026-01-01T00:00:01Z',
             messageCount: 0,
             firstMessage: '',
-            displayName: 'Maria',
+            agentName: 'Maria',
             taskTitle: 'Stabilizing realtime voice',
             terminalTitle: 'volatile terminal output',
+            promptable: true,
         });
-        expect(applyHostInfoToAgent(stableExisting, outputOnlyUpdate)).toBe(stableExisting);
+        const applied = applyHostInfoToAgent(stableExisting, outputOnlyUpdate);
+        expect(applied.metadata?.terminalTitle).toBe('volatile terminal output');
+        expect(applied.metadata).not.toHaveProperty('agentName');
+        expect(applied.metadata).not.toHaveProperty('taskTitle');
+        expect(applied.metadata).not.toHaveProperty('summary');
 
         const lifecycle = (agentStatus: 'working' | 'done') => ({
             sessionId: mapped.id,
             agentStatus,
+            promptable: true,
             isStreaming: agentStatus === 'working',
             tokens: { input: 0, output: 0, cacheWrite: 0, cacheRead: 0, total: 0 },
         });
@@ -253,12 +268,12 @@ describe('session sync flow', () => {
 
         request.mockResolvedValue({
             acceptance: {
-                outcome: 'failed', state: 'failed', displayName: 'Maria',
+                outcome: 'failed', state: 'failed',
                 code: 'start-launch-failed', message: 'unsafe backend detail',
             },
         });
         await expect(spawn({})).resolves.toEqual({
-            type: 'error', errorMessage: 'Maria could not start.',
+            type: 'error', errorMessage: 'Agent could not start.',
         });
     });
 
@@ -291,7 +306,7 @@ describe('session sync flow', () => {
                 provider: { id: 'pi', kind: 'pi', name: 'Pi' },
             },
         } as Session;
-        const canonicalTree = (agentStatus: AgentLifecycle): HerdrTreeWorkspace[] => [{
+        const canonicalTree = (agentStatus: AgentLifecycle, promptable = true): HerdrTreeWorkspace[] => [{
             workspaceId: 'workspace-a',
             label: '/work/muxr',
             focused: true,
@@ -305,9 +320,10 @@ describe('session sync flow', () => {
                     tabId: 'tab-a',
                     sessionId: session.id,
                     agentKind: 'pi',
-                    displayName: 'Maria',
+                    agentName: 'Maria',
                     taskTitle: 'Stabilizing realtime voice',
                     agentStatus,
+                    promptable,
                     focused: true,
                 }],
             }],
@@ -335,6 +351,35 @@ describe('session sync flow', () => {
         expect(working[0]).toMatchObject({ name: 'Maria', taskTitle: 'Stabilizing realtime voice' });
         expect(selectLiveTerminalCards([session], working)[0].title).toBe('Stabilizing realtime voice');
         expect(HERD_STATUS_LABELS[working[0].status]).toBe('Working');
+        storage.setState({
+            sessions: { [session.id]: session },
+            herdrWorkspaces: [],
+            herdrTreeLoaded: false,
+            sessionListViewData: null,
+        });
+        storage.getState().applyHerdrTree(canonicalTree('working'));
+        const activeRows = storage.getState().sessionListViewData?.find((item) => item.type === 'active-sessions');
+        expect(activeRows).toMatchObject({
+            sessions: [expect.objectContaining({
+                name: 'Stabilizing realtime voice',
+                subtitle: 'Maria',
+            })],
+        });
+        const notReadyPane = canonicalTree('working', false)[0].tabs[0].panes[0];
+        const readyPane = canonicalTree('working', true)[0].tabs[0].panes[0];
+        expect({
+            tabStatus: canonicalTree('working', false)[0].tabs[0].agentStatus,
+            paneStatus: terminalPaneStatus(notReadyPane),
+            canSend: terminalPaneCanSend(notReadyPane, true),
+            readyStatus: terminalPaneStatus(readyPane),
+            readyCanSend: terminalPaneCanSend(readyPane, true),
+        }).toEqual({
+            tabStatus: 'working',
+            paneStatus: 'unknown',
+            canSend: false,
+            readyStatus: 'working',
+            readyCanSend: true,
+        });
         const workingNotification = herdNotificationState(working, 'connected');
         expect(workingNotification).toMatchObject({ mode: 'working', count: 1, eventKey: `working:${encodeURIComponent(session.id)}` });
         expect(completionAlerts(working, { [session.id]: 'done' })).toEqual([]);
@@ -349,6 +394,7 @@ describe('session sync flow', () => {
                 sessionId: 'shell-route',
                 taskTitle: 'verify-cards',
                 agentStatus: 'unknown',
+                promptable: false,
                 focused: false,
             },
         );
@@ -361,7 +407,7 @@ describe('session sync flow', () => {
                 card.id,
                 agentLabels({
                     taskTitle: card.title,
-                    displayName: card.name,
+                    agentName: card.name,
                     agentKind: card.agentKind,
                 }, card.session).agentName,
                 card.agentKind,
@@ -459,7 +505,7 @@ describe('session sync flow', () => {
                 const event: LifecycleEvent = {
                     eventId: `${level}-${eventState}`,
                     sessionId: `${level}-${eventState}-session`,
-                    displayName: 'Maria',
+                    agentName: 'Maria',
                     state: eventState,
                     reasonCode: eventState === 'blocked' ? 'agent-blocked'
                         : eventState === 'failed' ? 'agent-runtime-failed' : 'agent-done',
@@ -478,7 +524,7 @@ describe('session sync flow', () => {
         const queuedBlocked: LifecycleEvent = {
             eventId: 'queued-blocked',
             sessionId: 'queued-blocked-session',
-            displayName: 'Maria',
+            agentName: 'Maria',
             state: 'blocked',
             reasonCode: 'agent-blocked',
             at: new Date(now).toISOString(),
@@ -512,7 +558,7 @@ describe('session sync flow', () => {
         const event = (eventId: string, state: AgentLifecycle, at: string): LifecycleEvent => ({
             eventId,
             sessionId: 'session-secret-42',
-            displayName: 'Maria',
+            agentName: 'Maria',
             state,
             reasonCode: state === 'starting' ? 'start-requested'
                 : state === 'working' ? 'agent-working'
