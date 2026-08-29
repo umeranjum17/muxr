@@ -39,7 +39,7 @@ An isolated checkout herdr creates so Agents can work in parallel on one repo.
 _Avoid_: branch folder, clone
 
 **Agent Name**:
-The current Herdr `agent.name` (`falcon`, `reviewer`). Every surface renders it directly; muxr never aliases or persists it.
+The current Herdr `agent.name`. Every surface renders it directly; muxr never aliases or persists it.
 _Avoid_: label, display label, pane title, cached name
 
 **Task Title**:
@@ -143,7 +143,7 @@ The published path phones use to reach a Self-host relay: Tailscale Serve, a Clo
 _Avoid_: tunnel, proxy, advertise URL
 
 **Self-host**:
-A machine-owned relay and pairing authority, as opposed to the hosted cloud control plane.
+A machine-owned relay and pairing authority.
 _Avoid_: local mode, selfhost.json, standalone
 
 **Machine**:

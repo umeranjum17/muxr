@@ -11,11 +11,11 @@ the decision to merge or to set direction stays with the maintainer.
 Architectural and product decisions are recorded as ADRs in
 [docs/decisions/](docs/decisions/). The process is described in
 [docs/decisions/README.md](docs/decisions/README.md): decisions are tiered by
-impact (T0 through T3), product behavior is reviewed by Claude and Codex before
-release, and security, authority, pairing, protocol, persisted data, privacy,
-pricing, and destructive behavior (T3) require two-key review plus an explicit
-owner decision. Chat transcripts are evidence, not the source of truth; the
-record is the ADR.
+impact (T0 through T3), product behavior is reviewed before release, and
+security, authority, pairing, protocol, persisted data, privacy, and
+destructive behavior (T3) require two-key review plus an explicit owner
+decision. Chat transcripts are evidence, not the source of truth; the record
+is the ADR.
 
 ## Extending the plugin vocabulary
 

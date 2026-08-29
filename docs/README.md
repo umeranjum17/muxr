@@ -33,6 +33,5 @@ Start here, then follow one path.
 - [Google Play launch plan](PLAY-STORE-PLAN.md)
 - [Clean-room new-user smoke](NEW-USER-SMOKE.md)
 - [Public flip checklist](FLIP-CHECKLIST.md)
-- [Historical open-source review](OPEN-SOURCE-REVIEW.md) (2026-08-15; superseded by the checklist and suite)
 
 Archived working notes live in [archive/](archive/).

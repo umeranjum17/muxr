@@ -157,8 +157,7 @@ detects becomes a session row. That is the point of a multiplexer backend.
 - **herdr repaints the whole screen in its first frames.** The relay buffers those
   until the client connects, or the terminal opens blank.
 - **Pane ids change on cross-workspace moves** and agent names are user-renameable, so
-  the host mints its own `pp_<hex>` session ids and keeps a map
-  (`apps/host/src/herdr/identity.ts`), updated on `pane.moved`.
+  the host mints its own session ids and keeps a map, updated on `pane.moved`.
 - **`done` means "idle and you haven't looked yet."** herdr clears it when the tab is
   focused — which would yank the desk user's focus — so opening the session in the app
   is the "seen" signal instead.
@@ -191,22 +190,18 @@ can serve a file the plugin listed.
 
 ## Push notifications
 
-The local fixture retains Web Push quick actions. Hosted notifications never
-synthesize a plaintext answer: they open the native app, which sends the normal
-strict-v2 encrypted request after ticket/grant checks.
+Notifications open the native app, which sends the normal strict-v2 encrypted
+request after ticket/grant checks. They never synthesize a plaintext answer.
 
 ## What the relay does
 
-The same private Node process serves `/activate`, the control API, readiness,
-and WebSockets. Production identity state uses a dedicated MongoDB database.
-Long-lived scoped credentials are sent only in HTTP Authorization headers to
-mint 60-second, one-use, machine/role/transport/channel-scoped tickets; hosted
-WebSockets consume only those tickets.
+The same Node process on your machine serves pairing, readiness, and WebSockets.
+Long-lived scoped credentials mint 60-second, one-use tickets; WebSockets consume
+only those tickets.
 
 The relay reads bounded `envelope.header` routing context and treats `payload` as
 opaque `e2ee:v2` ciphertext. Terminal frames stay off replay on the separate
-`/terminal` pipe, but use the same strict context/ciphertext contract. Hosted
-`/preview` is rejected by client, host, ticket API, and relay.
+`/terminal` pipe, but use the same strict context/ciphertext contract.
 
 ## Not built
 

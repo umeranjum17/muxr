@@ -1,8 +1,8 @@
 # Distribution and license inventory
 
 Scope: the `muxr` npm CLI/host artifact produced by `node scripts/release/application/pack.mjs`.
-The private relay/control plane, mobile app, development fixtures, APKs, and
-repository-only tooling are not included in that artifact.
+The mobile app, development fixtures, APKs, and repository-only tooling are
+not included in that artifact.
 
 ## Product source ownership
 

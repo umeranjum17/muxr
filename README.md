@@ -114,13 +114,11 @@ Parallel agents work like a party: each has a job, a state, and moments when it 
 
 ![muxr as an RPG party command center with the Herd, terminal, changes, Inbox, and voice](docs/art/rpg-cover.png)
 
-## Cloud without a cloud computer
+## Your machines, your relay
 
-Your phone and computer need a secure way to stay connected across networks. They do not need us to run your agents.
+Your phone and computer stay connected over Wi-Fi, Tailscale, or a VPS you run. Nobody else runs your agents.
 
-**muxr Cloud** helps paired devices reach each other and wakes your phone when an agent needs attention. Terminal text, prompts, responses, keystrokes, files, pairing secrets, and credentials remain end-to-end encrypted. Agents, repositories, model subscriptions, and encryption keys stay on your computer.
-
-muxr Cloud is rolling out to testers now. Self-hosting is available to everyone today over Wi-Fi, Tailscale, or a VPS. The app and features are the same either way.
+Terminal text, prompts, responses, keystrokes, files, pairing secrets, and credentials remain end-to-end encrypted. Agents, repositories, model subscriptions, and encryption keys stay on your computer.
 
 [Privacy and trust →](https://trymuxr.com/docs/privacy) · [Self-hosting →](docs/SELF-HOSTING.md)
 
