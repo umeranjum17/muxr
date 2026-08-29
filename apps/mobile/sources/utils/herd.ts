@@ -6,6 +6,7 @@ export {
     herdNotificationState,
     lifecycleNotificationCopy,
     lifecycleNotificationState,
+    nativeLifecycleNotificationState,
     paneStatus,
     sortHerd,
     HERD_ORDER,

@@ -3,12 +3,14 @@ import type { AgentLifecycle, HerdrTreeWorkspace, LifecycleEvent } from '@muxr/c
 import type { Session } from '../infrastructure/storageTypes';
 import { ApiUpdateContainerSchema } from '../infrastructure/apiTypes';
 import { normalizeRawMessage } from '../infrastructure/typesRaw';
-import { completionAlerts, completionNotificationState, completionTransition, herdNotificationState, HERD_STATUS_LABELS, lifecycleNotificationCopy, lifecycleNotificationState, sortHerd } from '@/utils/herd';
+import { completionAlerts, completionNotificationState, completionTransition, herdNotificationState, HERD_STATUS_LABELS, lifecycleNotificationCopy, lifecycleNotificationState, nativeLifecycleNotificationState, sortHerd } from '@/utils/herd';
 import { normalizeRequestFailure, requestRequiresE2ee } from '@muxr/contract';
 import { buildSpaceRows } from '@/utils/herdTree';
 import { selectLiveTerminalCards } from '../../herd/application/liveTerminalOrder';
 import { herdPanes } from '../../herd/domain/herd';
 import { agentLabels } from '../../herd/domain/agentPresentation';
+import { unseenActivityRows } from '../../herd/domain/recentActivity';
+import { loadLocalSettings } from './persistence';
 
 const request = vi.fn();
 const refreshSessions = vi.fn();
@@ -95,7 +97,10 @@ describe('session sync flow', () => {
         voiceMocks.watching = false;
         voiceMocks.generation = 0;
         voiceMocks.state = 'disconnected';
-        storage.setState({ sessions: {} });
+        storage.setState({
+            sessions: {},
+            localSettings: { ...storage.getState().localSettings, lifecycleNotificationLevel: 'important' },
+        });
         storage.getState().setLifecycleAuthority('test-authority');
         storage.getState().setLifecycleScope('test-authority:machine');
         storage.getState().resetLifecycleCatalog();
@@ -415,6 +420,94 @@ describe('session sync flow', () => {
         expect(requestRequiresE2ee('session.list')).toBe(false);
     });
 
+    it('persists lifecycle notification levels without changing recent activity', () => {
+        const state = storage.getState();
+        const now = Date.now();
+        const terminalStates = ['blocked', 'failed', 'done'] as const;
+        const levels = ['off', 'important', 'all'] as const;
+        const expected: Record<(typeof levels)[number], readonly AgentLifecycle[]> = {
+            off: [],
+            important: ['blocked', 'failed'],
+            all: terminalStates,
+        };
+
+        const idleNativeState = { mode: 'idle', count: 0, name: '', names: '', eventKey: 'idle' } as const;
+        const attentionNativeState = { mode: 'attention', count: 1, name: 'Maria', names: 'Maria', eventKey: 'attention:session' } as const;
+        const finishedNativeState = { mode: 'finished', count: 1, name: 'Maria', names: 'Maria', eventKey: 'finished:session' } as const;
+        const workingNativeState = { mode: 'working', count: 1, name: 'Maria', names: 'Maria', eventKey: 'working:session' } as const;
+        expect(nativeLifecycleNotificationState(attentionNativeState, 'off')).toEqual({
+            mode: 'working',
+            count: 1,
+            name: '',
+            names: '',
+            eventKey: 'working:attention:session',
+        });
+        expect(nativeLifecycleNotificationState(finishedNativeState, 'important')).toEqual(idleNativeState);
+        expect(nativeLifecycleNotificationState(workingNativeState, 'off')).toBe(workingNativeState);
+        expect(nativeLifecycleNotificationState(attentionNativeState, 'important')).toBe(attentionNativeState);
+        expect(nativeLifecycleNotificationState(finishedNativeState, 'all')).toBe(finishedNativeState);
+
+        expect(loadLocalSettings().lifecycleNotificationLevel).toBe('important');
+        state.applyLocalSettings({ lifecycleNotificationLevel: 'off' });
+        storage.setState({ localSettings: loadLocalSettings() });
+        expect(storage.getState().localSettings.lifecycleNotificationLevel).toBe('off');
+        expect(state.applyLifecycleCatalog({ revision: 1, events: [] })).toEqual([]);
+
+        for (const level of levels) {
+            state.applyLocalSettings({ lifecycleNotificationLevel: level });
+            for (const eventState of terminalStates) {
+                const event: LifecycleEvent = {
+                    eventId: `${level}-${eventState}`,
+                    sessionId: `${level}-${eventState}-session`,
+                    displayName: 'Maria',
+                    state: eventState,
+                    reasonCode: eventState === 'blocked' ? 'agent-blocked'
+                        : eventState === 'failed' ? 'agent-runtime-failed' : 'agent-done',
+                    at: new Date(now).toISOString(),
+                    taskTitle: 'Notification admission flow',
+                };
+                const admitted = state.applyLifecycleEvent(event);
+                expect(admitted, `${level}/${eventState}`).toEqual(
+                    expected[level].includes(eventState) ? [event] : [],
+                );
+                if (admitted.length > 0) state.markLifecyclePresented(event.eventId);
+            }
+        }
+
+        state.applyLocalSettings({ lifecycleNotificationLevel: 'all' });
+        const queuedBlocked: LifecycleEvent = {
+            eventId: 'queued-blocked',
+            sessionId: 'queued-blocked-session',
+            displayName: 'Maria',
+            state: 'blocked',
+            reasonCode: 'agent-blocked',
+            at: new Date(now).toISOString(),
+        };
+        const queuedDone: LifecycleEvent = {
+            ...queuedBlocked,
+            eventId: 'queued-done',
+            sessionId: 'queued-done-session',
+            state: 'done',
+            reasonCode: 'agent-done',
+        };
+        expect(state.applyLifecycleEvent(queuedBlocked)).toEqual([queuedBlocked]);
+        expect(state.applyLifecycleEvent(queuedDone)).toEqual([queuedDone]);
+        state.applyLocalSettings({ lifecycleNotificationLevel: 'important' });
+        expect(storage.getState().pendingLifecycleEvents).toEqual([queuedBlocked]);
+        state.applyLocalSettings({ lifecycleNotificationLevel: 'off' });
+        expect(storage.getState().pendingLifecycleEvents).toEqual([]);
+        state.applyLocalSettings({ lifecycleNotificationLevel: 'all' });
+        expect(state.applyLifecycleEvent(queuedBlocked)).toEqual([]);
+        expect(state.applyLifecycleEvent(queuedDone)).toEqual([]);
+
+        const activity = unseenActivityRows(storage.getState().lifecycleEvents, new Set(), now, 20);
+        expect(activity.map((row) => row.status).sort()).toEqual([
+            'blocked', 'blocked', 'blocked', 'blocked',
+            'done', 'done', 'done', 'done',
+            'failed', 'failed', 'failed',
+        ]);
+    });
+
     it('reconciles structured lifecycle activity once across live replay, reconnect and restart', async () => {
         const event = (eventId: string, state: AgentLifecycle, at: string): LifecycleEvent => ({
             eventId,
@@ -456,10 +549,9 @@ describe('session sync flow', () => {
         state.markLifecyclePresented(blocked.eventId);
 
         expect(state.applyLifecycleEvent(failed)).toEqual([failed]);
-        expect(state.applyLifecycleEvent(done)).toEqual([done]);
+        expect(state.applyLifecycleEvent(done)).toEqual([]);
         const pending = storage.getState().pendingLifecycleEvents;
-        expect(pending.find((entry) => entry.state !== 'done')).toEqual(failed);
-        expect(pending.map((entry) => entry.eventId)).toEqual(['event-done', 'event-failed']);
+        expect(pending).toEqual([failed]);
         const startFailed = { ...failed, eventId: 'event-start-failed', reasonCode: 'start-launch-failed' as const };
         expect([failed, startFailed, done].map(lifecycleNotificationCopy)).toEqual([
             'Maria failed.', 'Maria could not start.', 'Maria finished.',

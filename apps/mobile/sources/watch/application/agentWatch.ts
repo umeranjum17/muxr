@@ -1,6 +1,10 @@
 import { MMKV } from 'react-native-mmkv';
-import type { LifecycleCatalog, LifecycleEvent } from '@muxr/contract';
-import { lifecycleNeedsNotification } from '../domain/lifecycle';
+import {
+    lifecycleNotificationAllowed,
+    type LifecycleCatalog,
+    type LifecycleEvent,
+    type LifecycleNotificationLevel,
+} from '@muxr/contract';
 import {
     MAX_VOICE_IDENTITY_LENGTH,
     isTrustedVoiceScopeKey,
@@ -44,8 +48,9 @@ export interface AgentWatch {
     snapshot(): WatchSnapshot;
     setAuthority(authority: string): void;
     setScope(scope: string): WatchSnapshot;
-    applyCatalog(catalog: LifecycleCatalog): LifecycleEvent[];
-    applyEvent(event: LifecycleEvent): LifecycleEvent[];
+    applyCatalog(catalog: LifecycleCatalog, level: LifecycleNotificationLevel): LifecycleEvent[];
+    applyEvent(event: LifecycleEvent, level: LifecycleNotificationLevel): LifecycleEvent[];
+    setNotificationLevel(level: LifecycleNotificationLevel): WatchSnapshot;
     markPresented(eventId: string, at?: string): WatchSnapshot;
     acknowledgePush(eventId: string, machineId: string): WatchSnapshot;
     resetCatalog(): WatchSnapshot;
@@ -278,6 +283,37 @@ export function createAgentWatch(): AgentWatch {
         notifications = saveNotificationPersistence(notifications);
     }
 
+    function suppressNotifications(events: readonly LifecycleEvent[]): void {
+        if (events.length === 0) return;
+        const records = events.map((event) => {
+            presentedIds.add(event.eventId);
+            return { eventId: event.eventId, at: event.at };
+        });
+        notification.presented = boundPresented([...notification.presented, ...records]);
+        saveNotifications();
+    }
+
+    function admitNotifications(
+        events: readonly LifecycleEvent[],
+        level: LifecycleNotificationLevel,
+        pendingIds = new Set<string>(),
+    ): LifecycleEvent[] {
+        const admitted: LifecycleEvent[] = [];
+        const suppressed: LifecycleEvent[] = [];
+        for (const event of events) {
+            if (!lifecycleNotificationAllowed('all', event.state)
+                || presentedIds.has(event.eventId)
+                || pendingIds.has(event.eventId)) continue;
+            if (lifecycleNotificationAllowed(level, event.state)) {
+                admitted.push(event);
+            } else {
+                suppressed.push(event);
+            }
+        }
+        suppressNotifications(suppressed);
+        return admitted;
+    }
+
     function saveVoice(): void {
         if (scope === '') return;
         voice.updatedAt = Date.now();
@@ -340,7 +376,7 @@ export function createAgentWatch(): AgentWatch {
                 voiceReportScopeGeneration: voiceGeneration,
             });
         },
-        applyCatalog(catalog) {
+        applyCatalog(catalog, level) {
             if (catalog.revision < current.lifecycleRevision) return [];
             const eventsBeforeCatalog = current.prebaselineLifecycleEvents;
             const lifecycleEvents = boundLifecycleEvents([...eventsBeforeCatalog, ...catalog.events]);
@@ -353,9 +389,9 @@ export function createAgentWatch(): AgentWatch {
                 }
                 const presented = boundPresented([...notification.presented, ...catalogHistory]);
                 for (const record of presented) presentedIds.add(record.eventId);
-                const newAlerts = eventsBeforeCatalog.filter((event) => lifecycleNeedsNotification(event.state));
                 notification.initialized = true;
                 notification.presented = presented;
+                const newAlerts = admitNotifications(eventsBeforeCatalog, level);
                 saveNotifications();
                 replaceSnapshot({
                     lifecycleRevision: catalog.revision,
@@ -368,12 +404,7 @@ export function createAgentWatch(): AgentWatch {
                 return newAlerts;
             }
             const pendingIds = new Set(current.pendingLifecycleEvents.map((event) => event.eventId));
-            const newAlerts = lifecycleEvents.filter((event) => {
-                if (!lifecycleNeedsNotification(event.state)) return false;
-                if (presentedIds.has(event.eventId)) return false;
-                if (pendingIds.has(event.eventId)) return false;
-                return true;
-            });
+            const newAlerts = admitNotifications(lifecycleEvents, level, pendingIds);
             replaceSnapshot({
                 lifecycleRevision: catalog.revision,
                 lifecycleEvents,
@@ -382,7 +413,7 @@ export function createAgentWatch(): AgentWatch {
             });
             return newAlerts;
         },
-        applyEvent(event) {
+        applyEvent(event, level) {
             const lifecycleEvents = boundLifecycleEvents([event, ...current.lifecycleEvents]);
             if (!current.lifecycleCatalogInitialized) {
                 replaceSnapshot({
@@ -391,17 +422,24 @@ export function createAgentWatch(): AgentWatch {
                 });
                 return [];
             }
-            const alreadyPending = current.pendingLifecycleEvents.some((entry) => entry.eventId === event.eventId);
-            if (!lifecycleNeedsNotification(event.state) || presentedIds.has(event.eventId) || alreadyPending) {
-                replaceSnapshot({ lifecycleEvents });
-                return [];
-            }
-            const newAlerts = [event];
+            const pendingIds = new Set(current.pendingLifecycleEvents.map((entry) => entry.eventId));
+            const newAlerts = admitNotifications([event], level, pendingIds);
             replaceSnapshot({
                 lifecycleEvents,
                 pendingLifecycleEvents: boundLifecycleEvents([...newAlerts, ...current.pendingLifecycleEvents]),
             });
             return newAlerts;
+        },
+        setNotificationLevel(level) {
+            const retained: LifecycleEvent[] = [];
+            const suppressed: LifecycleEvent[] = [];
+            for (const event of current.pendingLifecycleEvents) {
+                if (lifecycleNotificationAllowed(level, event.state)) retained.push(event);
+                else suppressed.push(event);
+            }
+            // A downgrade claims suppressed events permanently; later enabling never releases backlog.
+            suppressNotifications(suppressed);
+            return replaceSnapshot({ pendingLifecycleEvents: retained });
         },
         markPresented(eventId, at) {
             const knownEvent = current.pendingLifecycleEvents.find((entry) => entry.eventId === eventId)

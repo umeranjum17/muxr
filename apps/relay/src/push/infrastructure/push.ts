@@ -4,7 +4,11 @@
  */
 
 import { join } from 'node:path';
-import type { LifecycleReasonCode } from '@muxr/contract';
+import {
+    lifecycleNotificationAllowed,
+    type LifecycleNotificationLevel,
+    type LifecycleReasonCode,
+} from '@muxr/contract';
 import webpush from 'web-push';
 import { readPrivateFile, writeJsonFileAtomic } from '../../platform/persist.js';
 
@@ -67,6 +71,7 @@ export function parsePushNotification(value: {
 interface ExpoPushTokenRecord {
     token: string;
     deviceId?: string;
+    level?: LifecycleNotificationLevel;
     createdAt: string;
 }
 
@@ -147,9 +152,14 @@ export class PushService {
         await this.persist();
     }
 
-    async subscribeExpo(accountId: string, token: string, deviceId?: string): Promise<void> {
+    async subscribeExpo(
+        accountId: string,
+        token: string,
+        level: LifecycleNotificationLevel = 'important',
+        deviceId?: string,
+    ): Promise<void> {
         const list = (this.expoSubs[accountId] ?? []).filter((entry) => entry.token !== token && (deviceId === undefined || entry.deviceId !== deviceId));
-        list.push({ token, ...(deviceId === undefined ? {} : { deviceId }), createdAt: new Date().toISOString() });
+        list.push({ token, level, ...(deviceId === undefined ? {} : { deviceId }), createdAt: new Date().toISOString() });
         this.expoSubs[accountId] = list;
         await this.persist();
     }
@@ -195,13 +205,15 @@ export class PushService {
         }
 
         const expo = this.expoSubs[accountId] ?? [];
+        const eligibleExpo = expo.filter((entry) =>
+            lifecycleNotificationAllowed(entry.level ?? 'important', payload.kind));
         let expoSent = 0;
-        if (expo.length > 0) {
+        if (eligibleExpo.length > 0) {
             try {
                 const response = await fetch('https://exp.host/--/api/v2/push/send', {
                     method: 'POST',
                     headers: { 'content-type': 'application/json' },
-                    body: JSON.stringify(expo.map(({ token }) => ({
+                    body: JSON.stringify(eligibleExpo.map(({ token }) => ({
                         to: token,
                         title,
                         body: bodyText,
@@ -224,7 +236,10 @@ export class PushService {
                     const receipt = await response.json() as { data?: Array<{ status?: string; details?: { error?: string } }> };
                     const tickets = receipt.data ?? [];
                     expoSent = tickets.filter((entry) => entry.status === 'ok').length;
-                    this.expoSubs[accountId] = expo.filter((_, index) => tickets[index]?.details?.error !== 'DeviceNotRegistered');
+                    const deadTokens = new Set(eligibleExpo
+                        .filter((_, index) => tickets[index]?.details?.error === 'DeviceNotRegistered')
+                        .map((entry) => entry.token));
+                    this.expoSubs[accountId] = expo.filter((entry) => !deadTokens.has(entry.token));
                 }
             } catch {}
         }

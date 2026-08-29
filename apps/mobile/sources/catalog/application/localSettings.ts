@@ -1,3 +1,4 @@
+import { LIFECYCLE_NOTIFICATION_LEVELS } from '@muxr/contract';
 import * as z from 'zod';
 
 //
@@ -15,6 +16,7 @@ export const LocalSettingsSchema = z.object({
     promotedNotificationsPrompted: z.boolean().describe('Whether Android Live Updates access was already explained'),
     backgroundConnectionPrompted: z.boolean().describe('Whether Android background activity settings were already explained'),
     vadStandbyEnabled: z.boolean().describe('Persistently wake realtime voice from local speech activity standby'),
+    lifecycleNotificationLevel: z.enum(LIFECYCLE_NOTIFICATION_LEVELS).describe('Which agent lifecycle events may emit notifications'),
     // Herd tab: bucket the agents section under workspace subheaders (herdr's "grouped" toggle).
     // Saved herdr tab layouts (split tree + agent kind per pane), newest first.
     savedLayouts: z
@@ -45,6 +47,7 @@ export const localSettingsDefaults: LocalSettings = {
     promotedNotificationsPrompted: false,
     backgroundConnectionPrompted: false,
     vadStandbyEnabled: false,
+    lifecycleNotificationLevel: 'important',
     savedLayouts: [],
 };
 Object.freeze(localSettingsDefaults);

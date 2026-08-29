@@ -14,7 +14,7 @@ import {
     updateVoiceNotification,
 } from '@/../modules/voice-overlay';
 import { requestNotificationPermission } from '@/utils/microphonePermissions';
-import { completionNotificationState, completionTransition, herdNotificationState, sortHerd, type HerdNotificationState } from '../domain/herd';
+import { completionNotificationState, completionTransition, herdNotificationState, nativeLifecycleNotificationState, sortHerd, type HerdNotificationState } from '../domain/herd';
 import { boundRealtimeSession, retryVadStandby, useRealtimeMuted, useRealtimeSessionState } from '@/conversation/session';
 import { Modal } from '@/modal';
 import { registerNativePushNotifications } from '@/utils/nativePushNotifications';
@@ -29,6 +29,7 @@ function sameNotification(
         && left.names === right.names
         && left.eventKey === right.eventKey;
 }
+
 
 /**
  * Unconditional kernel owner for Android's foreground service and baseline
@@ -57,6 +58,7 @@ export function KernelNotifications() {
     const [promotionPrompted, setPromotionPrompted] = useLocalSettingMutable('promotedNotificationsPrompted');
     const [backgroundPrompted, setBackgroundPrompted] = useLocalSettingMutable('backgroundConnectionPrompted');
     const vadStandbyEnabled = useLocalSetting('vadStandbyEnabled');
+    const lifecycleNotificationLevel = useLocalSetting('lifecycleNotificationLevel');
     const promotionPrompting = React.useRef(false);
     const backgroundPrompting = React.useRef(false);
     const keepalive = React.useRef(false);
@@ -92,11 +94,16 @@ export function KernelNotifications() {
         let live = true;
         void requestNotificationPermission(false).then(() => {
             if (!live) return;
-            updateVoiceNotification(herdActive ? nativeHerd : presentation, voiceState, voiceName, muted);
+            updateVoiceNotification(
+                nativeLifecycleNotificationState(herdActive ? nativeHerd : presentation, lifecycleNotificationLevel),
+                voiceState,
+                voiceName,
+                muted,
+            );
             if (herdActive && !keepalive.current) keepalive.current = startHerdKeepalive();
         });
         return () => { live = false; };
-    }, [appActive, herdActive, isAuthenticated, muted, nativeHerd, presentation, status, voiceName, voiceState]);
+    }, [appActive, herdActive, isAuthenticated, lifecycleNotificationLevel, muted, nativeHerd, presentation, status, voiceName, voiceState]);
 
     React.useEffect(() => {
         if (!isAuthenticated) return;

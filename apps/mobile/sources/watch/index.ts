@@ -6,7 +6,6 @@ export {
     lifecycleIsWorking,
     lifecycleIsRoutineVoice,
     lifecycleNeedsApproval,
-    lifecycleNeedsNotification,
     lifecycleSince,
     lifecycleWatchOutcome,
 } from './domain/lifecycle';
