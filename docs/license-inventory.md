@@ -43,7 +43,7 @@ ships:
 | Whisper Base English (`ggml-base.en-q5_1.bin`) | MIT | `NOTICE` (OpenAI / whisper.cpp / whisper.rn) |
 | xterm.js (+ addons) | MIT | packaged web terminal dependency, `NOTICE` |
 
-This inventory does not replace a store-release audit of native binaries.
+This inventory does not replace store-release verification of native binaries.
 
 ## Automated gate
 
@@ -60,4 +60,4 @@ The esbuild metafile and proprietary bundle input graph stay build-local and are
 not included in the npm artifact.
 
 The mobile/store distribution has a separate dependency and native-binary
-surface and must receive its own release audit before external store release.
+surface and must receive its own verification before external store release.

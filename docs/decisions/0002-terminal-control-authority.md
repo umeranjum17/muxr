@@ -19,7 +19,7 @@ The host, not the client, serializes same-pane attach requests and enforces take
 
 ## Evidence and standards
 
-Complete mediation at the host, per-pane mutual exclusion, and TOCTOU-safe serialization. `terminalManager.test.ts` proves automatic cross-device attach rejection, explicit displacement, observer survival, stale-input fencing, authenticated input, and device-bound detach. `openTerminal.hosted.spec.ts` proves automatic retry cannot steal back and visible explicit retry can.
+Complete mediation at the host, per-pane mutual exclusion, and TOCTOU-safe serialization. The terminal-control flows prove automatic cross-device attach rejection, explicit displacement, observer survival, stale-input fencing, authenticated input, device-bound detach, automatic retry cannot steal back, and visible explicit retry can.
 
 ## Reopen trigger
 

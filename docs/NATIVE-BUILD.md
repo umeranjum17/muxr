@@ -1,8 +1,7 @@
 # Native Android build
 
-muxr Android builds run locally with EAS. Do not use cloud EAS build
-credits. Phone artifacts default to `arm64-v8a`; build `x86_64` only when an
-emulator explicitly needs it.
+muxr Android builds run locally with EAS. Phone artifacts default to
+`arm64-v8a`; build `x86_64` only when an emulator explicitly needs it.
 
 **Expo Go will not work.** The app ships custom native modules
 (`voice-overlay`, `plugin-shortcuts`) and `patch-package` patches. Use a native
@@ -67,7 +66,7 @@ keys are created at runtime and live in platform SecureStore:
 }
 ```
 
-`scripts/buildAndroidLocal.sh` defaults to `EXPO_PUBLIC_MUXR_MODE=hosted` and
+`scripts/buildAndroidLocal.sh` defaults to the grant-backed relay mode and
 unsets the public fixture token. For the internal LAN fixture only, set
 `EXPO_PUBLIC_MUXR_MODE=local` explicitly and provide its local connection
 values. Never distribute a build containing fixture credentials.
