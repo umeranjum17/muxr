@@ -338,9 +338,9 @@ Allowed values are `"sessions"` and `"workspace-tree"`. Immediately before spawn
 ```json
 {
   "schemaVersion": 1,
-  "sessions": [{ "sessionId": "<id>", "label": "review", "cwd": "/work/repo", "workspaceLabel": "repo", "tabLabel": "review", "agentKind": "pi", "agentStatus": "working", "activeAt": "2026-08-15T12:00:00.000Z" }],
+  "sessions": [{ "sessionId": "<id>", "label": "auth", "cwd": "/work/repo", "workspaceLabel": "repo", "tabLabel": "auth", "agentKind": "pi", "agentStatus": "working", "activeAt": "2026-08-15T12:00:00.000Z" }],
   "attention": [{ "sessionId": "<id>", "reason": "waiting", "detail": "answer needed", "at": "2026-08-15T12:01:00.000Z" }],
-  "workspaces": [{ "label": "repo", "focused": true, "agentStatus": "working", "tabs": [{ "label": "review", "focused": true, "agentStatus": "working", "sessions": [{ "sessionId": "<id>", "label": "review", "agentKind": "pi", "agentStatus": "working" }] }] }]
+  "workspaces": [{ "label": "repo", "focused": true, "agentStatus": "working", "tabs": [{ "label": "auth", "focused": true, "agentStatus": "working", "sessions": [{ "sessionId": "<id>", "label": "task", "agentKind": "pi", "agentStatus": "working" }] }] }]
 }
 ```
 

@@ -174,7 +174,7 @@ Inbox ships as a bundled extension using this protocol. A third party may add a 
 
 The extension wire protocol is additive. Older apps ignore it; newer apps tolerate an absent catalog. Rollback does not migrate pairing, E2EE, sessions, or Herdr state.
 
-## Review outcome
+## Resolved constraints
 
 This record requires two renderer classes, verified sidecar manifest discovery, a closed author/response model, immutable source-to-render trust, independent action/data authority, anti-phishing boundaries, and explicit versioning, quotas, reconciliation, revocation, and kill switches. The executable slice landed after host-bound approval, manifest hashing, revoke fencing, emulator E2E, and the full suite passed.
 
