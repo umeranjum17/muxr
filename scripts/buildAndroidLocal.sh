@@ -1,6 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+android_app_version="${APP_VERSION-}"
+android_version_code="${ANDROID_VERSION_CODE-}"
+android_store_file="${ANDROID_UPLOAD_STORE_FILE-}"
+android_store_password="${ANDROID_UPLOAD_STORE_PASSWORD-}"
+android_key_alias="${ANDROID_UPLOAD_KEY_ALIAS-}"
+android_key_password="${ANDROID_UPLOAD_KEY_PASSWORD-}"
+unset APP_VERSION ANDROID_VERSION_CODE ANDROID_UPLOAD_STORE_FILE ANDROID_UPLOAD_STORE_PASSWORD ANDROID_UPLOAD_KEY_ALIAS ANDROID_UPLOAD_KEY_PASSWORD
+unset ORG_GRADLE_PROJECT_appVersion ORG_GRADLE_PROJECT_androidVersionCode ORG_GRADLE_PROJECT_releaseStoreFile ORG_GRADLE_PROJECT_releaseStorePassword ORG_GRADLE_PROJECT_releaseKeyAlias ORG_GRADLE_PROJECT_releaseKeyPassword
+
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 MOBILE="$ROOT/apps/mobile"
 SECRETS="${MUXR_SECRETS_FILE:-$HOME/.muxr/deploy-secrets.json}"
@@ -20,25 +29,24 @@ if [ -z "${JAVA_HOME:-}" ]; then
 fi
 export PATH="$JAVA_HOME/bin:$ANDROID_HOME/platform-tools:$PATH"
 
-export EXPO_PUBLIC_MUXR_RELAY_URL="${EXPO_PUBLIC_MUXR_RELAY_URL:-$(read_secret EXPO_PUBLIC_MUXR_RELAY_URL)}"
-export EXPO_PUBLIC_MUXR_MACHINE_ID="${EXPO_PUBLIC_MUXR_MACHINE_ID:-$(read_secret EXPO_PUBLIC_MUXR_MACHINE_ID)}"
-export EXPO_PUBLIC_MUXR_MODE="${EXPO_PUBLIC_MUXR_MODE:-hosted}"
-if [ "$EXPO_PUBLIC_MUXR_MODE" = local ]; then
-  export EXPO_PUBLIC_MUXR_TOKEN="${EXPO_PUBLIC_MUXR_TOKEN:-$(read_secret MUXR_TOKEN)}"
-else
-  unset EXPO_PUBLIC_MUXR_TOKEN
-fi
 export ORG_GRADLE_PROJECT_reactNativeArchitectures="${ORG_GRADLE_PROJECT_reactNativeArchitectures:-arm64-v8a}"
 export APP_ENV="${APP_ENV:-preview}"
+unset EXPO_PUBLIC_MUXR_MODE EXPO_PUBLIC_MUXR_RELAY_URL EXPO_PUBLIC_MUXR_TOKEN EXPO_PUBLIC_MUXR_MACHINE_ID
 
-for name in EXPO_PUBLIC_MUXR_RELAY_URL; do
-  [ -n "${!name}" ] || { echo "$name is required; set it or add it to $SECRETS" >&2; exit 1; }
+android_app_version="${android_app_version:-$(read_secret APP_VERSION)}"
+android_version_code="${android_version_code:-$(read_secret ANDROID_VERSION_CODE)}"
+android_store_file="${android_store_file:-$(read_secret ANDROID_UPLOAD_STORE_FILE)}"
+android_store_password="${android_store_password:-$(read_secret ANDROID_UPLOAD_STORE_PASSWORD)}"
+android_key_alias="${android_key_alias:-$(read_secret ANDROID_UPLOAD_KEY_ALIAS)}"
+android_key_password="${android_key_password:-$(read_secret ANDROID_UPLOAD_KEY_PASSWORD)}"
+
+for value in "$android_app_version" "$android_version_code" "$android_store_file" "$android_store_password" "$android_key_alias" "$android_key_password"; do
+  [ -n "$value" ] || { echo "Android version and upload signing values are required" >&2; exit 1; }
 done
-
-mkdir -p "$HOME/.cache"
-EAS_LOCAL_BUILD_WORKINGDIR="$(mktemp -d "$HOME/.cache/eas-local-build.XXXXXX")"
-export EAS_LOCAL_BUILD_WORKINGDIR
-trap 'rm -rf "$EAS_LOCAL_BUILD_WORKINGDIR"' EXIT
+[[ "$android_app_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "APP_VERSION must be semantic" >&2; exit 1; }
+[[ "$android_version_code" =~ ^[1-9][0-9]*$ ]] || { echo "ANDROID_VERSION_CODE must be positive" >&2; exit 1; }
+[ -f "$android_store_file" ] || { echo "ANDROID_UPLOAD_STORE_FILE must exist" >&2; exit 1; }
+android_store_file="$(cd "$(dirname "$android_store_file")" && pwd)/$(basename "$android_store_file")"
 
 cd "$MOBILE"
 # Apply from the workspace root: running patch-package from apps/mobile is a
@@ -56,10 +64,19 @@ node "$ROOT/scripts/diagnostics/application/verifyNativePatches.mjs"
 }
 
 echo "java: $(java -version 2>&1 | head -1)"
-echo "mode: $EXPO_PUBLIC_MUXR_MODE  relay: $EXPO_PUBLIC_MUXR_RELAY_URL"
 echo "architectures: $ORG_GRADLE_PROJECT_reactNativeArchitectures"
-if [ "$EXPO_PUBLIC_MUXR_MODE" = local ]; then echo "local token len: ${#EXPO_PUBLIC_MUXR_TOKEN}"; fi
 
 OUTPUT="${MUXR_APK_OUTPUT:-$ROOT/muxr-preview.apk}"
-npx --yes eas-cli@22.6.0 build --platform android --profile preview --local --non-interactive \
-  --output "$OUTPUT"
+rm -rf android/app/build/outputs/apk/release
+ORG_GRADLE_PROJECT_appVersion="$android_app_version" \
+ORG_GRADLE_PROJECT_androidVersionCode="$android_version_code" \
+ORG_GRADLE_PROJECT_releaseStoreFile="$android_store_file" \
+ORG_GRADLE_PROJECT_releaseStorePassword="$android_store_password" \
+ORG_GRADLE_PROJECT_releaseKeyAlias="$android_key_alias" \
+ORG_GRADLE_PROJECT_releaseKeyPassword="$android_key_password" \
+  android/gradlew -p android :app:assembleRelease
+unset android_store_password android_key_password
+mapfile -t apks < <(find android/app/build/outputs/apk/release -type f -name '*.apk')
+[ "${#apks[@]}" -eq 1 ] || { echo "expected exactly one release APK" >&2; exit 1; }
+mkdir -p "$(dirname "$OUTPUT")"
+install -m 600 "${apks[0]}" "$OUTPUT"

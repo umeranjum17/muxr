@@ -1,4 +1,5 @@
 opt_out_usage
+require "shellwords"
 
 
 def app_store_key
@@ -11,6 +12,24 @@ def app_store_key
 end
 
 platform :ios do
+  desc "Build a signed App Store archive"
+  lane :build_internal do
+    build_app(
+      workspace: "apps/mobile/ios/muxr.xcworkspace",
+      scheme: "muxr",
+      configuration: "Release",
+      export_method: "app-store",
+      output_directory: File.dirname(ENV.fetch("IOS_IPA_OUTPUT")),
+      output_name: File.basename(ENV.fetch("IOS_IPA_OUTPUT")),
+      export_options: {
+        signingStyle: "manual",
+        teamID: ENV.fetch("APPLE_TEAM_ID"),
+        provisioningProfiles: { "com.trymuxr.app" => ENV.fetch("IOS_PROFILE_NAME") }
+      },
+      xcargs: "MARKETING_VERSION=#{Shellwords.escape(ENV.fetch('APP_VERSION'))} CURRENT_PROJECT_VERSION=#{Shellwords.escape(ENV.fetch('IOS_BUILD_NUMBER'))} DEVELOPMENT_TEAM=#{Shellwords.escape(ENV.fetch('APPLE_TEAM_ID'))} CODE_SIGN_STYLE=Manual PROVISIONING_PROFILE_SPECIFIER=#{Shellwords.escape(ENV.fetch('IOS_PROFILE_NAME'))}"
+    )
+  end
+
   desc "Upload an internal build directly to TestFlight"
   lane :upload_internal do
     upload_to_testflight(
@@ -40,6 +59,21 @@ platform :ios do
 end
 
 platform :android do
+  desc "Upload a signed bundle to Play Internal"
+  lane :upload_internal do
+    upload_to_play_store(
+      package_name: "com.trymuxr.app",
+      json_key_data: ENV.fetch("PLAY_SERVICE_ACCOUNT_JSON"),
+      track: "internal",
+      release_status: "completed",
+      aab: ENV.fetch("AAB_PATH"),
+      skip_upload_metadata: true,
+      skip_upload_changelogs: true,
+      skip_upload_images: true,
+      skip_upload_screenshots: true
+    )
+  end
+
   desc "Prove the submitted build is completed on Play Internal"
   lane :verify_internal do
     expected = Integer(ENV.fetch("ANDROID_VERSION_CODE"))

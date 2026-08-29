@@ -80,6 +80,36 @@ def enableMinifyInReleaseBuilds = (findProperty('android.enableMinifyInReleaseBu
  * this variant is about 6MiB larger per architecture than default.
  */
 def jscFlavor = 'io.github.react-native-community:jsc-android:2026004.+'
+def releaseRequested = gradle.startParameter.taskNames.any { it.toLowerCase().contains('release') }
+def releaseVersionName = findProperty('appVersion')
+def releaseVersionCode = findProperty('androidVersionCode')
+def releaseStoreFile = findProperty('releaseStoreFile')
+def releaseStorePassword = findProperty('releaseStorePassword')
+def releaseKeyAlias = findProperty('releaseKeyAlias')
+def releaseKeyPassword = findProperty('releaseKeyPassword')
+def releaseSigningValues = [releaseStoreFile, releaseStorePassword, releaseKeyAlias, releaseKeyPassword]
+
+def validateReleaseConfiguration = {
+    if (!(releaseVersionName ==~ /\d+\.\d+\.\d+/)) {
+        throw new GradleException('A semantic appVersion is required for release builds')
+    }
+    if (!(releaseVersionCode ==~ /[1-9]\d*/)) {
+        throw new GradleException('A positive androidVersionCode is required for release builds')
+    }
+    if (releaseSigningValues.any { !it }) {
+        throw new GradleException('All release signing properties are required for release builds')
+    }
+    if (!file(releaseStoreFile).isFile()) {
+        throw new GradleException('The release signing store does not exist')
+    }
+}
+if (releaseRequested) validateReleaseConfiguration()
+def releaseConfigured = releaseVersionName ==~ /\d+\.\d+\.\d+/ &&
+    releaseVersionCode ==~ /[1-9]\d*/ && releaseSigningValues.every { it }
+
+gradle.taskGraph.whenReady { graph ->
+    if (graph.allTasks.any { it.name.toLowerCase().contains('release') }) validateReleaseConfiguration()
+}
 
 android {
     ndkVersion rootProject.ext.ndkVersion
@@ -93,8 +123,8 @@ android {
         resValue 'string', 'muxr_application_id', applicationId
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 12
-        versionName "0.1.12"
+        versionCode releaseConfigured ? releaseVersionCode.toInteger() : 12
+        versionName releaseConfigured ? releaseVersionName : "0.1.12"
 
         buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
     }
@@ -105,15 +135,21 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
+        if (releaseConfigured) {
+            release {
+                storeFile file(releaseStoreFile)
+                storePassword releaseStorePassword
+                keyAlias releaseKeyAlias
+                keyPassword releaseKeyPassword
+            }
+        }
     }
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
         }
         release {
-            // Caution! In production, you need to generate your own keystore file.
-            // see https://reactnative.dev/docs/signed-apk-android.
-            signingConfig signingConfigs.debug
+            signingConfig signingConfigs.findByName('release')
             def enableShrinkResources = findProperty('android.enableShrinkResourcesInReleaseBuilds') ?: 'false'
             shrinkResources enableShrinkResources.toBoolean()
             minifyEnabled enableMinifyInReleaseBuilds

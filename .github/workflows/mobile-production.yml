@@ -1,33 +1,19 @@
-name: mobile production promotion
+name: mobile Android production promotion
 
 on:
   workflow_dispatch:
     inputs:
-      platform:
-        description: Store target
-        required: true
-        default: all
-        type: choice
-        options: [all, android, ios]
-      internal_run_id:
-        description: Successful all-platform mobile internal workflow run for this exact main commit
+      android_internal_run_id:
+        description: Successful Android internal workflow run for this exact main commit
         required: true
         type: string
       version:
-        description: Tested marketing version, for example 0.1.9
+        description: Tested marketing version, for example 0.1.13
         required: true
         type: string
       android_version_code:
-        description: Exact versionCode already completed on Play Internal
-        required: false
-        type: string
-      ios_build_number:
-        description: Exact build already distributed through TestFlight
-        required: false
-        type: string
-      ios_release_notes:
-        description: English What's New text required for App Review
-        required: false
+        description: Exact versionCode completed on Play Internal
+        required: true
         type: string
       rollout_percent:
         description: Initial Google Play production rollout
@@ -35,14 +21,9 @@ on:
         default: "10"
         type: choice
         options: ["10", "25", "50", "100"]
-      automatic_ios_release:
-        description: Release automatically after Apple approval
-        required: true
-        default: false
-        type: boolean
 
 concurrency:
-  group: mobile-production
+  group: mobile-android-production-${{ inputs.android_version_code }}
   cancel-in-progress: false
 
 permissions:
@@ -53,41 +34,32 @@ jobs:
   validate:
     runs-on: ubuntu-latest
     steps:
-      - name: Validate exact tested build identifiers
+      - name: Validate tested build identifiers
         env:
-          PLATFORM: ${{ inputs.platform }}
+          INTERNAL_RUN_ID: ${{ inputs.android_internal_run_id }}
           APP_VERSION: ${{ inputs.version }}
-          INTERNAL_RUN_ID: ${{ inputs.internal_run_id }}
           ANDROID_VERSION_CODE: ${{ inputs.android_version_code }}
-          IOS_BUILD_NUMBER: ${{ inputs.ios_build_number }}
-          IOS_RELEASE_NOTES: ${{ inputs.ios_release_notes }}
         run: |
+          test "$GITHUB_REF" = refs/heads/main
           [[ "$INTERNAL_RUN_ID" =~ ^[1-9][0-9]*$ ]]
           [[ "$APP_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
-          if [ "$PLATFORM" != ios ]; then [[ "$ANDROID_VERSION_CODE" =~ ^[1-9][0-9]*$ ]]; fi
-          if [ "$PLATFORM" != android ]; then
-            [[ "$IOS_BUILD_NUMBER" =~ ^[1-9][0-9]*(\.[0-9]+)*$ ]]
-            test -n "$IOS_RELEASE_NOTES"
-          fi
-
+          [[ "$ANDROID_VERSION_CODE" =~ ^[1-9][0-9]*$ ]]
 
   provenance:
     needs: validate
     runs-on: ubuntu-latest
     steps:
-      - name: Prove the internal run and exact tested artifacts
+      - name: Prove the Android internal run and tested artifact
         env:
           GH_TOKEN: ${{ github.token }}
-          INTERNAL_RUN_ID: ${{ inputs.internal_run_id }}
-          PLATFORM: ${{ inputs.platform }}
+          INTERNAL_RUN_ID: ${{ inputs.android_internal_run_id }}
           APP_VERSION: ${{ inputs.version }}
           ANDROID_VERSION_CODE: ${{ inputs.android_version_code }}
-          IOS_BUILD_NUMBER: ${{ inputs.ios_build_number }}
         run: |
           gh api "repos/$GITHUB_REPOSITORY/actions/runs/$INTERNAL_RUN_ID" > "$RUNNER_TEMP/internal-run.json"
           jq -e --arg sha "$GITHUB_SHA" '
             .event == "workflow_dispatch"
-            and .name == "mobile internal testing"
+            and .name == "mobile Android internal"
             and .head_branch == "main"
             and .head_sha == $sha
             and .status == "completed"
@@ -96,90 +68,66 @@ jobs:
           mkdir -p "$RUNNER_TEMP/internal-artifact"
           gh run download "$INTERNAL_RUN_ID" \
             --repo "$GITHUB_REPOSITORY" \
-            --name eas-cloud-result-all \
+            --name android-internal \
             --dir "$RUNNER_TEMP/internal-artifact"
           jq -e \
             --arg sha "$GITHUB_SHA" \
-            --arg platform "$PLATFORM" \
             --arg version "$APP_VERSION" \
-            --arg android "$ANDROID_VERSION_CODE" \
-            --arg ios "$IOS_BUILD_NUMBER" '
-              length == 2
-              and all(.[];
-                .gitCommitHash == $sha
-                and .appVersion == $version
-                and (.id | length > 0)
-                and (.submissions | length > 0)
-              )
-              and ($platform == "ios" or any(.[]; .platform == "ANDROID" and .appBuildVersion == $android))
-              and ($platform == "android" or any(.[]; .platform == "IOS" and .appBuildVersion == $ios))
+            --arg android "$ANDROID_VERSION_CODE" '
+              .platform == "ANDROID"
+              and .gitCommitHash == $sha
+              and .appVersion == $version
+              and .appBuildVersion == $android
+              and .bundleIdentifier == "com.trymuxr.app"
+              and .submittedToInternal == true
+              and (.artifactSha256 | test("^[0-9a-f]{64}$"))
             ' "$RUNNER_TEMP/internal-artifact/result.json"
+          mapfile -t bundles < <(find "$RUNNER_TEMP/internal-artifact" -type f -name '*.aab')
+          test "${#bundles[@]}" -eq 1
+          test "$(sha256sum "${bundles[0]}" | cut -d ' ' -f 1)" = "$(jq -r .artifactSha256 "$RUNNER_TEMP/internal-artifact/result.json")"
 
-  android:
-    if: inputs.platform != 'ios'
+  promote:
     needs: [validate, provenance]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: production
     env:
-      PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
       APP_VERSION: ${{ inputs.version }}
       ANDROID_VERSION_CODE: ${{ inputs.android_version_code }}
       ROLLOUT_PERCENT: ${{ inputs.rollout_percent }}
     steps:
+      - name: Validate Play credential
+        env:
+          HAS_PLAY_CREDENTIAL: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON != '' }}
+        run: test "$HAS_PLAY_CREDENTIAL" = true
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0
         with:
           ruby-version: "3.3"
           bundler-cache: true
-      - name: Prove the exact build is on Play Internal
-        run: bundle exec fastlane android verify_internal
-      - name: Promote the tested build to Play Production
-        run: bundle exec fastlane android promote_production
-
-  ios:
-    if: inputs.platform != 'android'
-    needs: [validate, provenance]
-    runs-on: macos-15
-    timeout-minutes: 30
-    environment: production
-    env:
-      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
-      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
-      ASC_KEY_P8_BASE64: ${{ secrets.ASC_KEY_P8_BASE64 }}
-      APP_VERSION: ${{ inputs.version }}
-      IOS_BUILD_NUMBER: ${{ inputs.ios_build_number }}
-      RELEASE_NOTES: ${{ inputs.ios_release_notes }}
-      AUTOMATIC_RELEASE: ${{ inputs.automatic_ios_release }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0
-        with:
-          ruby-version: "3.3"
-          bundler-cache: true
-      - name: Submit the tested TestFlight build for App Review
-        run: bundle exec fastlane ios promote_production
+      - name: Promote tested build to Play Production
+        env:
+          PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+        run: |
+          bundle exec fastlane android verify_internal
+          bundle exec fastlane android promote_production
 
   summary:
     if: always()
-    needs: [validate, provenance, android, ios]
+    needs: [validate, provenance, promote]
     runs-on: ubuntu-latest
     steps:
       - name: Write production promotion summary
         env:
+          RESULT: ${{ needs.promote.result }}
           APP_VERSION: ${{ inputs.version }}
-          ANDROID: ${{ needs.android.result }}
           ANDROID_VERSION_CODE: ${{ inputs.android_version_code }}
-          IOS: ${{ needs.ios.result }}
-          IOS_BUILD_NUMBER: ${{ inputs.ios_build_number }}
         run: |
           {
-            echo "## Mobile production promotion"
+            echo "## Android production promotion"
             echo
             echo "Version: $APP_VERSION"
-            echo
-            echo "| Store | Result | Tested build |"
-            echo "| --- | --- | --- |"
-            echo "| Google Play | $ANDROID | versionCode ${ANDROID_VERSION_CODE:-—} |"
-            echo "| App Store | $IOS | build ${IOS_BUILD_NUMBER:-—} |"
+            echo "Android versionCode: $ANDROID_VERSION_CODE"
+            echo "Result: $RESULT"
+            echo "Source: exact Play Internal release; no rebuild"
           } >> "$GITHUB_STEP_SUMMARY"

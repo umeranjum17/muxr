@@ -52,7 +52,7 @@ jobs:
           gh api "repos/$GITHUB_REPOSITORY/actions/runs/$INTERNAL_RUN_ID" > "$RUNNER_TEMP/internal-run.json"
           jq -e --arg sha "$GITHUB_SHA" '
             .event == "workflow_dispatch"
-            and .name == "mobile internal testing"
+            and .name == "mobile Android internal"
             and .head_branch == "main"
             and .head_sha == $sha
             and .status == "completed"
@@ -61,20 +61,23 @@ jobs:
           mkdir -p "$RUNNER_TEMP/internal-artifact"
           gh run download "$INTERNAL_RUN_ID" \
             --repo "$GITHUB_REPOSITORY" \
-            --name eas-cloud-result-android \
+            --name android-internal \
             --dir "$RUNNER_TEMP/internal-artifact"
           jq -e \
             --arg sha "$GITHUB_SHA" \
             --arg version "$APP_VERSION" \
             --arg android "$ANDROID_VERSION_CODE" '
-              length == 1
-              and .[0].platform == "ANDROID"
-              and .[0].gitCommitHash == $sha
-              and .[0].appVersion == $version
-              and .[0].appBuildVersion == $android
-              and (.[0].id | length > 0)
-              and (.[0].submissions | length > 0)
+              .platform == "ANDROID"
+              and .gitCommitHash == $sha
+              and .appVersion == $version
+              and .appBuildVersion == $android
+              and .bundleIdentifier == "com.trymuxr.app"
+              and .submittedToInternal == true
+              and (.artifactSha256 | test("^[0-9a-f]{64}$"))
             ' "$RUNNER_TEMP/internal-artifact/result.json"
+          mapfile -t bundles < <(find "$RUNNER_TEMP/internal-artifact" -type f -name '*.aab')
+          test "${#bundles[@]}" -eq 1
+          test "$(sha256sum "${bundles[0]}" | cut -d ' ' -f 1)" = "$(jq -r .artifactSha256 "$RUNNER_TEMP/internal-artifact/result.json")"
 
   promote:
     needs: [validate, provenance]
