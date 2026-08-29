@@ -144,7 +144,7 @@ export async function mintDeviceGrant(state, requestedKind = 'native', requested
         if (!waiting.requiresWebHosting) {
             print('Open the muxr app on your phone before scanning.');
             print('  Android: https://github.com/umeranjum17/muxr/releases/latest');
-            print('  iPhone: install muxr from your TestFlight invitation');
+            print('  iPhone: https://testflight.apple.com/join/aJSbs8pN — pending Apple beta review; not accepting testers yet');
             print('Not ready? Press Ctrl-C and run `muxr pair` later.');
             print('');
         }

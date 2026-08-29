@@ -18,9 +18,9 @@
 
 <p align="center">
   <a href="https://play.google.com/apps/testing/com.trymuxr.app">Google Play testing</a> ·
-  <a href="https://github.com/umeranjum17/muxr/issues/new?template=mobile-access.yml">Request TestFlight</a> ·
-  <a href="https://github.com/umeranjum17/muxr/releases/download/v0.1.7/muxr-0.1.7.apk">Latest direct APK: 0.1.7</a> ·
-  <a href="https://github.com/umeranjum17/muxr/releases">All releases</a>
+  <a href="https://testflight.apple.com/join/aJSbs8pN">TestFlight: pending Apple beta review</a> ·
+  <a href="https://github.com/umeranjum17/muxr/releases/download/v0.1.22/muxr-android-0.1.12-build47.apk">Direct APK: 0.1.12 (build 47)</a> ·
+  <a href="https://github.com/umeranjum17/muxr/releases/tag/v0.1.22">Release 0.1.22</a>
 </p>
 
 <p align="center">
@@ -129,16 +129,16 @@ muxr Cloud is rolling out to testers now. Self-hosting is available to everyone 
 You need [Node.js 22 or newer](https://nodejs.org/) on Linux, macOS, or WSL. muxr installs [Herdr](https://herdr.dev) during setup if it is missing.
 
 ```bash
-npm install -g --ignore-scripts @trymuxr/cli
+npm install -g --ignore-scripts @trymuxr/cli@0.1.22
 muxr
 ```
 
 Then install the mobile companion:
 
-- **Android:** [join Google Play testing](https://play.google.com/apps/testing/com.trymuxr.app) · [download the latest direct APK (0.1.7)](https://github.com/umeranjum17/muxr/releases/download/v0.1.7/muxr-0.1.7.apk) · [SHA256SUMS](https://github.com/umeranjum17/muxr/releases/download/v0.1.7/SHA256SUMS)
-- **iOS:** [request TestFlight access](https://github.com/umeranjum17/muxr/issues/new?template=mobile-access.yml)
+- **Android:** [join Google Play testing](https://play.google.com/apps/testing/com.trymuxr.app) · [download the signed APK (0.1.12 build 47)](https://github.com/umeranjum17/muxr/releases/download/v0.1.22/muxr-android-0.1.12-build47.apk) · [SHA256SUMS](https://github.com/umeranjum17/muxr/releases/download/v0.1.22/SHA256SUMS)
+- **iOS:** [TestFlight](https://testflight.apple.com/join/aJSbs8pN) — build 0.1.12 (43) is pending Apple beta review and is not accepting testers yet
 - **Web:** pair an eight-hour read-only browser during self-hosted setup
-- **All builds:** [GitHub Releases](https://github.com/umeranjum17/muxr/releases)
+- **All builds:** [muxr 0.1.22 release](https://github.com/umeranjum17/muxr/releases/tag/v0.1.22)
 
 Verify a downloaded APK with `sha256sum --ignore-missing -c SHA256SUMS`, then run `muxr`, choose **Apply setup**, and scan the one-use QR from the phone. Start with LAN when both devices are on the same Wi-Fi.
 
