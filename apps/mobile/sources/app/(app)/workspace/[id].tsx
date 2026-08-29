@@ -14,8 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import type { HerdrTreeWorkspace } from '@muxr/contract';
 import { sync } from '@/catalog/sync';
 import { TerminalPreview } from '@/terminal/ui';
-import { agentStatusColor } from '@/herd';
-import { paneDisplayName, paneTaskTitle } from '@/herd';
+import { agentLabels, agentStatusColor } from '@/herd';
 
 export default React.memo(function WorkspaceScreen() {
     const { id } = useLocalSearchParams<{ id: string }>();
@@ -80,6 +79,7 @@ export default React.memo(function WorkspaceScreen() {
                             </View>
                             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
                                 {tab.panes.map((pane) => {
+                                    const labels = agentLabels(pane);
                                     if (pane.sessionId === undefined) {
                                         return (
                                             <View
@@ -95,12 +95,13 @@ export default React.memo(function WorkspaceScreen() {
                                                 }}
                                             >
                                                 <Ionicons name="terminal-outline" size={18} color={theme.colors.textSecondary} />
-                                                <Text style={{ color: theme.colors.textSecondary, fontSize: 11, marginTop: 4 }}>shell</Text>
+                                                <Text style={{ color: theme.colors.textSecondary, fontSize: 11, marginTop: 4 }}>{labels.agentName}</Text>
                                             </View>
                                         );
                                     }
-                                    const paneLabel = paneTaskTitle(pane);
-                                    const paneIdentity = `${paneDisplayName(pane)} · ${pane.agentKind ?? 'shell'}`;
+                                    const paneIdentity = labels.agentKind === undefined
+                                        ? labels.agentName
+                                        : `${labels.agentName} · ${labels.agentKind}`;
                                     return (
                                         <Pressable
                                             key={pane.paneId}
@@ -117,7 +118,7 @@ export default React.memo(function WorkspaceScreen() {
                                                 <TerminalPreview sessionId={pane.sessionId} />
                                             </View>
                                             <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 11, paddingHorizontal: 8, paddingVertical: 5 }}>
-                                                {paneLabel}
+                                                {labels.taskTitle}
                                             </Text>
                                             <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 10, paddingHorizontal: 8, paddingBottom: 5 }}>
                                                 {paneIdentity}

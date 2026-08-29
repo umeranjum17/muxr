@@ -45,10 +45,12 @@ export function bundledPlugins() {
     return readdirSync(dir, { withFileTypes: true })
         .filter((entry) => entry.isDirectory() && existsSync(join(dir, entry.name, 'herdr-plugin.toml')))
         .map((entry) => {
-            const id = readFileSync(join(dir, entry.name, 'herdr-plugin.toml'), 'utf8').match(/^id\s*=\s*"([^"]+)"/m)?.[1];
+            const manifest = readFileSync(join(dir, entry.name, 'herdr-plugin.toml'), 'utf8');
+            const id = manifest.match(/^id\s*=\s*"([^"]+)"/m)?.[1];
+            const version = manifest.match(/^version\s*=\s*"([^"]+)"/m)?.[1];
             const parsed = parseBundledPlugin(id, entry.name);
-            if (!parsed.ok) throw new Error(`plugins/${entry.name}/herdr-plugin.toml is missing id`);
-            return { id: parsed.value.id, name: parsed.value.folderName, enabledByDefault: parsed.value.enabledByDefault };
+            if (!parsed.ok || version === undefined) throw new Error(`plugins/${entry.name}/herdr-plugin.toml is missing id or version`);
+            return { id: parsed.value.id, name: parsed.value.folderName, version, enabledByDefault: parsed.value.enabledByDefault };
         })
         .sort((left, right) => left.name.localeCompare(right.name));
 }
@@ -141,6 +143,21 @@ export async function ensureHerdr({ dryRun, noInstall, installRequested }) {
     return binary;
 }
 
+function runBundledPluginBackfill(root, binary, enabled, dryRun) {
+    const script = join(root, 'backfill.mjs');
+    if (!enabled || !existsSync(script)) return;
+    if (dryRun) {
+        print(`  would run ${basename(root)} backfill`);
+        return;
+    }
+    const result = spawnSync(process.execPath, [script], {
+        encoding: 'utf8',
+        env: { ...process.env, HERDR_BIN_PATH: binary },
+        timeout: 30_000,
+    });
+    if (result.status !== 0) throw new Error(result.stderr || result.stdout || `failed to backfill ${basename(root)}`);
+}
+
 export async function ensureBundledPlugins(binary, dryRun) {
     const pluginList = run(binary, ['plugin', 'list', '--json']);
     if (!pluginList.ok) throw new Error(pluginList.stderr || pluginList.stdout || 'failed to list Herdr plugins');
@@ -154,6 +171,7 @@ export async function ensureBundledPlugins(binary, dryRun) {
     if (!Array.isArray(installed) || installed.some((plugin) =>
         typeof plugin?.plugin_id !== 'string' || plugin.plugin_id === ''
         || typeof plugin.plugin_root !== 'string' || plugin.plugin_root === ''
+        || typeof plugin.version !== 'string' || plugin.version === ''
         || typeof plugin.enabled !== 'boolean')) {
         throw new Error('Herdr returned an invalid plugin list');
     }
@@ -169,11 +187,12 @@ export async function ensureBundledPlugins(binary, dryRun) {
         const unlinked = run(binary, ['plugin', 'unlink', current.plugin_id]);
         print(`  ${unlinked.ok ? '✓' : 'warn:'} unlinked retired bundled plugin ${current.plugin_id}`);
     }
-    for (const { id, name, enabledByDefault } of bundled) {
+    for (const { id, name, version, enabledByDefault } of bundled) {
         const current = installed.find((plugin) => plugin.plugin_id === id);
         const expected = realpathSync(bundledPluginPath(name));
-        if (current && realpathOrUndefined(current.plugin_root) === expected) {
-            print(`  ✓ ${id} Herdr plugin ready${current.enabled === true ? '' : ' (disabled)'}`);
+        if (current && realpathOrUndefined(current.plugin_root) === expected && current.version === version) {
+            print(`  ✓ ${id} ${version} Herdr plugin ready${current.enabled === true ? '' : ' (disabled)'}`);
+            runBundledPluginBackfill(expected, binary, current.enabled === true, dryRun);
             continue;
         }
         const enabled = current ? current.enabled === true : enabledByDefault;
@@ -185,7 +204,8 @@ export async function ensureBundledPlugins(binary, dryRun) {
         if (!linked.ok) throw new Error(linked.stderr || linked.stdout || `failed to link ${id}`);
         const action = current ? 'updated' : 'installed';
         const disabledNote = enabled ? '' : ' (disabled)';
-        print(`  ✓ ${id} Herdr plugin ${action}${disabledNote}`);
+        print(`  ✓ ${id} ${version} Herdr plugin ${action}${disabledNote}`);
+        runBundledPluginBackfill(expected, binary, enabled, false);
     }
 }
 

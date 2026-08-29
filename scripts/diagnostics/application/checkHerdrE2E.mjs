@@ -152,6 +152,23 @@ async function run() {
         || !catalog.kinds.every((kind) => /^[a-z][a-z0-9_-]{0,31}$/.test(kind))) fail('herdr.agentKinds returned an invalid catalog');
     console.log(`ok: herdr.agentKinds returned ${catalog.kinds.length} host-supported kind(s)`);
 
+    const terminalOpenedShell = discovered.find((session) => session.agentKind === undefined);
+    const phoneShell = await request(socket, 'session.start', { cwd: workdir, kind: 'shell', label: 'shell-e2e' });
+    const shellId = phoneShell?.info?.id;
+    createdWorkspaceId = phoneShell?.info?.workspaceId;
+    if (typeof shellId !== 'string' || phoneShell.info.agentKind !== undefined) {
+        fail('phone-started Shell published an agentKind');
+    }
+    const shellTree = await request(socket, 'herdr.tree', {});
+    const treePanes = shellTree.workspaces.flatMap((workspace) => workspace.tabs.flatMap((tab) => tab.panes));
+    const phoneShellPane = treePanes.find((pane) => pane.sessionId === shellId);
+    if (phoneShellPane?.agentKind !== undefined) fail('phone-started Shell counted as an agent in herdr.tree');
+    if (terminalOpenedShell !== undefined) {
+        const terminalShellPane = treePanes.find((pane) => pane.sessionId === terminalOpenedShell.id);
+        if (terminalShellPane?.agentKind !== undefined) fail('terminal-opened Shell disagreed with phone-started Shell');
+    }
+    console.log('ok: phone-started and terminal-opened Shell omit agentKind');
+
     // 2. session.start (async agent.start: the answer must beat the 20s client timeout)
     const started = await request(socket, 'session.start', { cwd: workdir, kind: 'pi', label: 'e2e' });
     const newId = started?.info?.id;

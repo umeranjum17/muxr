@@ -211,7 +211,7 @@ const AgentRow = React.memo(({
     const dot = agentStatusColor(pane.agentStatus, theme);
     const labels = agentLabels(pane);
     const sessionId = pane.sessionId;
-    const subtitle = labels.agentName ?? '';
+    const subtitle = labels.agentName;
 
     return (
         <View style={[styles.agentRow, compact && styles.agentRowCompact]}>
@@ -234,7 +234,7 @@ const AgentRow = React.memo(({
                 <Avatar id={pane.paneId} size={compact ? 28 : 32} flavor={null} />
                 <View style={styles.agentText}>
                     <Text numberOfLines={1} style={[styles.agentName, compact && styles.agentNameCompact]}>{labels.taskTitle}</Text>
-                    {subtitle === '' ? null : <Text numberOfLines={1} style={[styles.agentSubtitle, compact && styles.agentSubtitleCompact]}>{subtitle}</Text>}
+                    <Text numberOfLines={1} style={[styles.agentSubtitle, compact && styles.agentSubtitleCompact]}>{subtitle}</Text>
                 </View>
                 <StatusDot color={dot.color} isPulsing={dot.pulsing} size={7} />
             </Pressable>
@@ -387,7 +387,7 @@ export const SpacesTree = React.memo(({
         const sessionId = pane.sessionId;
         if (sessionId === undefined) return;
         const labels = agentLabels(pane);
-        const identity = labels.agentName === undefined ? '' : ` (${labels.agentName})`;
+        const identity = ` (${labels.agentName})`;
         Modal.alert('Close pane?', `Closes only the pane for "${labels.taskTitle}"${identity} in herdr. If that would also close its tab, nothing closes.`, [
             { text: 'Cancel', style: 'cancel' },
             {

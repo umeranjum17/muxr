@@ -11,11 +11,12 @@ only as compatibility metadata.
 
 ## What runs on the host
 
-One command on `pane.agent_status_changed`: preserve every public Herdr Agent
-Name, or assign an available deterministic animal to an absent/internal name
-with `herdr agent rename`. It then reads about 60 lines of scrollback and uses
-`herdr pane rename` only when the Task Title still carries generated chrome.
-Neither an explicit Agent Name nor Task Title is overwritten.
+On install or update, `backfill.mjs` backfills every existing unnamed/internal
+agent with an available deterministic animal through `herdr agent rename`.
+After that, `pane.agent_status_changed` preserves every public Herdr Agent Name
+and applies the same backfill to new agents. It then reads about 60 lines of
+scrollback and uses `herdr pane rename` only when the Task Title still carries
+generated chrome. Neither an explicit Agent Name nor Task Title is overwritten.
 
 ## Which model
 

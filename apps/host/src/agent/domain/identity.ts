@@ -65,6 +65,7 @@ export function genericTaskTitle(kind?: string): string {
 /** Task Title from live chrome. Rejects provider kinds, handles, greetings, and paths. */
 export function parseTaskTitle(value: string | undefined, kind?: string, agentName?: string): string | undefined {
     let clean = value?.replace(/^[◐◑◒◓⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]\s*/, '').replace(/[\0-\x1F\x7F]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120);
+    if (kind?.toLocaleLowerCase() === 'omp') clean = clean?.replace(/^π\s*(?:[>◐◑◒◓⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏])?\s*/, '');
     if (clean === undefined || clean === '') return undefined;
     for (const prefix of [kind, agentName]) {
         if (prefix === undefined || prefix.trim() === '') continue;

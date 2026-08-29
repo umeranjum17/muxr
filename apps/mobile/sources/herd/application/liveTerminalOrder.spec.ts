@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { LifecycleEvent } from '@muxr/contract';
 import type { Session } from '@/catalog';
 import type { HerdPane } from '../domain/herd';
-import { agentStateLabel } from '../domain/agentPresentation';
+import { agentAccessibilityLabel, agentLabels, agentStateLabel } from '../domain/agentPresentation';
 import { unseenActivityRows, type RecentActivityRow } from '../domain/recentActivity';
 import {
     nextWorkingAgentId,
@@ -35,7 +35,7 @@ function card(
     status: LiveTerminalOrderCard['status'],
     createdAt = changedAt,
 ): LiveTerminalOrderCard {
-    return { id, session: session(id, changedAt, status, createdAt), status, title: id, name: 'Otter', changedAt, createdAt };
+    return { id, session: session(id, changedAt, status, createdAt), status, title: id, name: 'Otter', agentKind: 'pi', changedAt, createdAt };
 }
 
 describe('agent lifecycle presentation', () => {
@@ -56,6 +56,7 @@ describe('agent lifecycle presentation', () => {
             id,
             name: `${id} agent`,
             taskTitle: `${id} task`,
+            agentKind: 'pi',
             status,
             changedAt,
             doing: '',
@@ -66,6 +67,34 @@ describe('agent lifecycle presentation', () => {
             ['second', undefined],
         ]);
         expect(agentStateLabel(treeOnly[1]!.status, treeOnly[1]!.changedAt, 1_000_000)).toBe('Needs you');
+        expect(agentLabels({
+            taskTitle: treeOnly[0]!.title,
+            displayName: treeOnly[0]!.name,
+            agentKind: treeOnly[0]!.agentKind,
+        }, treeOnly[0]!.session).agentName).toBe('first agent');
+
+        const shell = selectLiveTerminalCards([], [{
+            ...pane('shell', 'unknown'),
+            name: 'Agent',
+            agentKind: undefined,
+        }])[0]!;
+        const shellLabels = agentLabels({
+            taskTitle: shell.title,
+            displayName: shell.name,
+            agentKind: shell.agentKind,
+        }, shell.session);
+        expect(shellLabels).toMatchObject({ taskTitle: 'shell task', agentName: 'Shell' });
+        expect(agentAccessibilityLabel(shellLabels, shell.status, shell.changedAt)).toBe('shell task. Offline. Shell');
+
+        const pending = session('pending', 300, 'starting');
+        pending.metadata!.agentKind = 'omp';
+        pending.metadata!.agentName = 'Otter';
+        pending.metadata!.taskTitle = 'Starting OMP';
+        expect(agentLabels(undefined, pending)).toMatchObject({
+            taskTitle: 'Starting OMP',
+            agentName: 'Otter',
+            agentKind: 'omp',
+        });
 
         const joined = reconcileLiveTerminalCards(treeOnly, selectLiveTerminalCards([
             session('second', 200, 'done', 20),
@@ -142,11 +171,11 @@ describe('agent lifecycle presentation', () => {
             viewportTop: 80,
             viewportBottom: 500,
             stripTop: 100,
-            stripHeight: 152,
+            stripHeight: 200,
             scrollX: 0,
             stripWidth: 390,
-            cardWidth: 208,
-            cardGap: 10,
+            cardWidth: 300,
+            cardGap: 12,
             gutter: 16,
         };
 

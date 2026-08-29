@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
-import { ensureAgentName, readAgentName, renameAgent } from './agent-name.mjs';
+import { backfillAgentNames, ensureAgentName, readAgentName, renameAgent } from './agent-name.mjs';
 
 const agents = [
     { pane_id: 'p-real', name: 'reviewer' },
     { pane_id: 'p-weird', name: 'Мария' },
     { pane_id: 'p-internal', name: 'pp_deadbeef' },
+    { pane_id: 'p-existing', name: undefined, agent: 'omp' },
 ];
 const renames = [];
 const run = (args) => {
@@ -29,7 +30,10 @@ assert.deepEqual(renames, [], 'a real existing Herdr Agent Name is preserved');
 const fallback = ensureAgentName(run, 'p-internal');
 assert.match(fallback, /^\p{L}+$/u, 'an available animal has no numeric suffix');
 assert.equal(renameAgent(run, 'p-internal', 'Nova Team'), 'nova-team');
+const backfilled = backfillAgentNames(run);
+assert.deepEqual(backfilled.map(({ paneId }) => paneId), ['p-existing'], 'setup backfills existing unnamed agents');
+assert.equal(agents[3].name, backfilled[0].agentName, 'backfill persists the deterministic available animal through Herdr');
 agents[2].pane_id = 'p-moved';
 assert.equal(ensureAgentName(run, 'p-moved'), 'nova-team');
-assert.equal(renames.length, 2, 'the real Herdr name survives a pane move without pane-local state');
+assert.equal(renames.length, 3, 'backfill and explicit rename persist in Herdr while pane moves preserve the name');
 console.log('pane-titler Agent Name flow: ok');

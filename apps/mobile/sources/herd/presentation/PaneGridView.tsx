@@ -19,7 +19,7 @@ import { ACCENT } from '@/components/AgentGlyph';
 import { TerminalPreview } from '@/terminal/ui';
 import { sync } from '@/catalog/sync';
 import { agentStatusColor, type AgentLifecycleStatus } from '../application/sessionUtils';
-import { paneDisplayName, paneTaskTitle } from '../domain/herdTree';
+import { agentLabels } from '../domain/agentPresentation';
 import type { HerdrTreePane, HerdrTreeTab } from '@muxr/contract';
 
 const POLL_MS = 4_000;
@@ -152,9 +152,7 @@ const PaneTile = React.memo((props: { pane: HerdrTreePane; style: object; router
     const status: AgentLifecycleStatus = pane.agentStatus ?? 'unknown';
     const color = agentStatusColor(status, theme).color;
     const hasSession = pane.sessionId !== undefined;
-    const kindName = pane.agentKind ?? 'shell';
-    const title = paneTaskTitle(pane);
-    const displayName = paneDisplayName(pane);
+    const labels = agentLabels(pane);
 
     return (
         <Pressable
@@ -179,7 +177,7 @@ const PaneTile = React.memo((props: { pane: HerdrTreePane; style: object; router
                     <TerminalPreview sessionId={pane.sessionId as string} />
                 ) : (
                     <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-                        <Text style={{ color: '#666666', fontSize: 13 }}>shell</Text>
+                        <Text style={{ color: '#666666', fontSize: 13 }}>{labels.agentName}</Text>
                     </View>
                 )}
             </View>
@@ -187,11 +185,11 @@ const PaneTile = React.memo((props: { pane: HerdrTreePane; style: object; router
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
                     <StatusDot color={color} isPulsing={status === 'working' || status === 'blocked'} size={7} />
                     <Text numberOfLines={1} style={{ color: theme.colors.text, fontSize: 12, fontWeight: '600', flexShrink: 1 }}>
-                        {title}
+                        {labels.taskTitle}
                     </Text>
                 </View>
                 <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 10, textTransform: 'capitalize' }}>
-                    {displayName} · {kindName}
+                    {labels.agentKind === undefined ? labels.agentName : `${labels.agentName} · ${labels.agentKind}`}
                 </Text>
             </View>
         </Pressable>
