@@ -125,11 +125,11 @@ phone.
 | session.start | workspace-per-cwd → tab → `agent.start` | `workspace.create` / `tab.create` / `agent.start --kind` |
 | session.prompt | submit text to the agent | `agent.prompt` |
 | session.abort | interrupt | `agent.send_keys esc` |
-| session.stop | close only the selected live Agent Route's pane, or its tab when it is the sole pane | `pane.close` / `tab.close`; refuse if that would also close the workspace/group |
+| session.stop | close the selected live Agent Route through an explicit pane → tab → workspace → worktree-group ladder | packaged `muxr.workspace-hierarchy` capability `agent.close`; guarded write, live revalidation, and confirmation for every broader scope |
 | pane.close | close only the selected pane | `pane.close`; refuse if its tab could not remain |
 | tab.close | close only the selected tab | `tab.close`; refuse if its workspace could not remain |
 | workspace.close | close only the selected workspace | `workspace.close`; refuse if its worktree group would also close |
-| Close worktree group | explicit Herdr group action and confirmation only | never inferred from pane, tab, workspace, or Stop agent |
+| Close worktree group | final explicit scope of `session.stop`, after its own confirmation | revalidate the parent workspace, then call Herdr `workspace.close`; Herdr has no separate group-close method |
 | status | `idle · working · blocked · done · unknown` | `pane.agent_status_changed` |
 | inbox / attention | blocked → needs you, done → finished | derived host-side |
 | live view | terminal frames over the `/terminal` channel | CLI `herdr terminal session control` (interactive, `--takeover`) / `observe` (read-only previews) |

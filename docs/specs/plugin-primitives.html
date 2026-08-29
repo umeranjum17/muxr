@@ -13,7 +13,7 @@
 <body><main>
   <div class="kicker">muxr spec</div>
   <h1>Plugins on primitives</h1>
-  <span class="badge" style="background:var(--accent)">in-progress</span>
+  <span class="badge">tested</span>
   <p class="meta">plugin-primitives.md · created 2026-08-15 · updated 2026-08-29 · umer</p>
   <p class="lead">Primitives, slots, actions, capabilities, and runtime contracts are the public platform. Inbox, Voice, Preview, Changes, Attachments, and future product features are plugins composed entirely from it.</p>
   <div class="card"><h2>Decision</h2><p>Enabled Herdr plugins remain trusted and default-on. Enabling or linking is the user's trust decision. Explicit disable and revoke remain authoritative. This rework strengthens the platform without adding per-device hash reapproval.</p></div>
@@ -31,9 +31,9 @@
     <li>Hard-kill stuck RPCs, isolate concurrency, and stop repeated full catalog reparsing.</li>
     <li>Publish schemas and prove bundled plus adversarial third-party plugins on Android.</li>
   </ol></div>
-  <div class="card"><h2>Latest revision</h2><p>Realtime prompting now requires an explicit Agent Name or Task Title at the trusted coordinator boundary. The host rejects missing, unknown, and ambiguous targets without mutation, validates Herdr's prompted-agent receipt against the resolved pane, reports only <strong>Queued</strong>, and writes privacy-safe semantic outcomes to the owner-only diagnostics journal. Sanitizers normalize before redaction and cover real alphanumeric Herdr routes. Pre-resolution failures are journaled; unnamed Codex delegation fails explicitly.</p></div>
+  <div class="card"><h2>Latest revision</h2><p>Kernel Agent close is pinned to packaged <code>muxr.workspace-hierarchy</code> capability <code>agent.close</code>, contribution <code>close</code>, backend method <code>close</code>, in write mode. It runs through the guarded write pipeline even when the optional Workspace Hierarchy UI is disabled; third-party <code>close</code> methods cannot claim it. The backend revalidates live Herdr topology before mutation, moves race-driven refusal prompts beyond both attempted and confirmed scopes, and reports failed revalidation as Retry or error rather than already closed.</p><p>Pane Titler writes canonical Herdr <code>name</code> and current <code>title</code>. One host adapter maps Herdr <code>name</code>, <code>title</code>, <code>agent</code>, <code>display_agent</code>, <code>agent_status</code>, and readiness one-to-one into the stable <code>AgentInfo</code> contract.</p></div>
   <div class="card"><h2>Verification</h2><ul class="check">
-    <li>Automation and all 14 bundled plugins, including the three mutually exclusive realtime providers, validate correctly.</li>
+    <li>Automation and all 15 bundled plugins, including the three mutually exclusive realtime providers, validate correctly.</li>
     <li>The v11 manifest/tokenization flow, mobile typecheck, web export, and Android production JS bundle pass.</li>
     <li>Workspace/mobile typechecks and 62 focused Android acceptance tests pass.</li>
     <li>Hung, oversized, incompatible, and rapidly changing plugins fail locally.</li>
@@ -42,8 +42,11 @@
     <li>Item-list device flows pass distinct trigger/row icons, green additions, red deletions, file/attachment actions, and an independent sheet action.</li>
     <li>File Viewer passes collapsed, lazy deep expansion, collapse/expand-all, and file preview. Runbook passes non-default folder selection, cwd execution, and selection retention.</li>
     <li>Hosted E2EE downloads pass a 177MB APK with exact SHA and Android handoff; backend xAI returns live audio/transcript and executes a real Herdr tool.</li>
+    <li>Backend Agent presentation proves missing/internal names receive one Herdr animal name, existing public names remain stable, current work is Herdr title metadata, Agent Kind stays visible, and replacement agent generations cannot inherit stale titles.</li>
+    <li>Backend close flows prove the pinned packaged capability uses guarded execution; pane, tab, workspace, and worktree-group escalation comes from live Herdr; every broader scope requires a distinct confirmation; refusal races cannot repeat an already-confirmed scope; and revalidation outages expose Retry rather than already closed.</li>
+    <li>Final API 36 emulator TerminalScreen Stop proof: E2E-Pane closed one split pane without confirmation; E2E-Tab confirmed Close tab?; E2E-Workspace confirmed Close tab? then Close workspace?; E2E worktree group confirmed tab, workspace, then Close worktree group?, with Cancel preserving both workspaces and retry/confirm removing both. Temporary EACCES/ECONNRESET/ETIMEDOUT stays retryable. The close-flow source fingerprint was unchanged during that proof; thirteen label-only close screenshots were archived.</li>
+    <li>Final API 36 x86_64 naming APK was rebuilt from the completed runtime source and installed byte-for-byte identically: 178,294,807 bytes, SHA-256 <code>75a9274aeb699d5d9d94ed9bc0c67b3b52065539316d1c9cef085f5acf6b2d9e</code>.</li>
     <li>Focused provider and host flows prove Gemini targets Agent B while voice is active on Agent A, missing and ambiguous targets produce zero prompts, pre-resolution and malformed/wrong-pane receipts cannot produce a queued confirmation, fullwidth credentials and live Herdr routes never reach speech or diagnostics, and a real two-agent Herdr run reaches B only.</li>
-    <li>Independent architecture, performance, security, correctness, UX/accessibility, dead-code, public-core, Live Update, item-list, realtime-stream, and tree reviews have no blockers.</li>
     <li>Final ARM64 APK SHA-256: <code>717e6365adb7ed55f55cab41b755fc5393e58a15e805d17c570987e211cbdce7</code>.</li>
   </ul></div>
 </main></body>

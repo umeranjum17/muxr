@@ -53,20 +53,40 @@ describe('plugin catalog flow', () => {
         expect(pluginInvalidationFrame(baseline, many)).toMatchObject({ reason: 'linked', pluginIds: [] });
     });
 
-    it('discovers a disabled capability provider and tracks when it becomes active', async () => {
+    it('resolves a disabled packaged capability by exact identity while ignoring a competing method', async () => {
         const root = await mkdtemp(join(tmpdir(), 'muxr-plugin-provider-'));
         await writeFile(join(root, 'muxr-ui.json'), JSON.stringify({
             schemaVersion: 1,
             pluginId: 'example.muxr-ui',
-            capabilities: { 'voice.session': 'session' },
-            contributions: [{ slot: 'host.stream', id: 'session', type: 'stream', entry: 'stream.mjs' }],
+            capabilities: { 'voice.session': 'session', 'agent.close': 'close' },
+            contributions: [
+                { slot: 'host.stream', id: 'session', type: 'stream', entry: 'stream.mjs' },
+                { slot: 'host.rpc', id: 'close', type: 'rpc', method: 'close', entry: 'rpc.mjs', mode: 'write' },
+            ],
+        }));
+        const competingRoot = await mkdtemp(join(tmpdir(), 'muxr-plugin-competing-'));
+        await writeFile(join(competingRoot, 'muxr-ui.json'), JSON.stringify({
+            schemaVersion: 1,
+            pluginId: 'example.competing',
+            capabilities: { 'agent.close': 'close' },
+            contributions: [{ slot: 'host.rpc', id: 'close', type: 'rpc', method: 'close', entry: 'rpc.mjs', mode: 'write' }],
         }));
         const catalog = new PluginCatalog();
-        await catalog.refresh([{ ...plugin(root), enabled: false }]);
-        expect(catalog.list(() => true)).toEqual([]);
+        await catalog.refresh([
+            { ...plugin(root), enabled: false },
+            { ...plugin(competingRoot), plugin_id: 'example.competing' },
+        ]);
+        expect(catalog.list(() => true).map(({ pluginId }) => pluginId)).toEqual(['example.competing']);
         expect(catalog.capabilityPlugins('voice.session')).toEqual([{
             pluginId: 'example.muxr-ui', name: 'Example muxr UI', enabled: false, source: { kind: 'local' }, hasBackend: true,
         }]);
+        expect(catalog.trustedCapabilityCallTarget({
+            pluginRoot: await realpath(root),
+            capability: 'agent.close',
+            mode: 'write',
+        })).toMatchObject({
+            pluginId: 'example.muxr-ui', contributionId: 'close', method: 'close', mode: 'write',
+        });
 
         await catalog.refresh([plugin(root)]);
         expect(catalog.capabilityPlugins('voice.session')[0]).toMatchObject({ enabled: true });
@@ -103,7 +123,7 @@ describe('plugin catalog flow', () => {
             attention: [{ sessionId: 'pp_1234abcd', reason: 'waiting', detail: 'answer needed', at: '2026-08-15T12:01:00.000Z', deviceId: 'secret' } as never],
             workspaces: [{
                 label: 'repo', focused: true, agentStatus: 'working', workspaceId: 'w1',
-                tabs: [{ label: 'review', focused: true, agentStatus: 'working', tabId: 'w1:t1', sessions: [{ sessionId: 'pp_1234abcd', label: 'review', agentKind: 'pi', agentStatus: 'working', paneId: 'w1:p1' }] } as never],
+                tabs: [{ label: 'review', focused: true, agentStatus: 'working', tabId: 'w1:t1', sessions: [{ sessionId: 'pp_1234abcd', label: 'review', agentKind: 'pi', agentStatus: 'working', promptable: true, paneId: 'w1:p1' }] } as never],
             } as never],
         }, 'pp_1234abcd');
         const serialized = JSON.stringify(context);
@@ -122,7 +142,7 @@ describe('plugin catalog flow', () => {
                 label: 'repo', focused: true, agentStatus: 'working',
                 tabs: Array.from({ length: 30 }, (_, index) => ({
                     label: `tab-${index}`, focused: false, agentStatus: 'idle',
-                    sessions: [{ sessionId: index === 29 ? 'pp_1234abcd' : undefined, label: `session-${index}`, agentStatus: 'idle' }],
+                    sessions: [{ sessionId: index === 29 ? 'pp_1234abcd' : undefined, label: `session-${index}`, agentStatus: 'idle', promptable: false }],
                 })),
             }],
         }, 'pp_1234abcd');

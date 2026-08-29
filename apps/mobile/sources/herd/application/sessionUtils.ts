@@ -118,7 +118,7 @@ export function useSessionStatus(session: Session | undefined): SessionStatus {
 
 /** Generic sessions may carry their own summary; Herdr Agent titles come from the tree. */
 export function getSessionName(session: Session, pane?: HerdrTreePane): string {
-    if (pane !== undefined) return pane.taskTitle ?? pane.agentName ?? t('session.newChat');
+    if (pane !== undefined) return pane.taskTitle ?? pane.agentName ?? (pane.agentKind === undefined ? 'Untitled task' : 'Unnamed agent');
     return session.metadata?.summary?.text?.trim() || t('session.newChat');
 }
 

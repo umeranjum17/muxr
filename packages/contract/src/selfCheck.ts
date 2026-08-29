@@ -34,6 +34,7 @@ const session: SessionInfo = {
     messageCount: 0,
     firstMessage: '',
     promptable: true,
+    agentStatus: 'working',
     agentKind: 'pi',
     paneId: 'w1:p1',
     workspaceId: 'w1',
@@ -105,16 +106,19 @@ function demo(): void {
         'shell and raw herdr stay outside the peer surface');
     const publicContext = boundRealtimePublicContext({
         sessions: [
-            { sessionId: 'pp_voice', displayName: 'Maria', taskTitle: 'pi - Realtime Stability', agentKind: 'pi' },
-            { sessionId: 'pp_internal', displayName: 'pp_internal', taskTitle: 'hidden' },
-            { sessionId: 'bad/path', displayName: 'leaked', taskTitle: '/private/work' },
-            ...Array.from({ length: MAX_REALTIME_PUBLIC_SESSIONS + 4 }, (_, index) => ({ sessionId: `pp_${index}`, displayName: `agent-${index}` })),
+            { sessionId: 'pp_voice', agentName: 'Maria', taskTitle: 'Maria - pi - Realtime Stability', agentKind: 'pi', displayAgent: 'Pi', agentStatus: 'idle', promptable: true },
+            { sessionId: 'pp_internal', agentName: 'pp_internal', taskTitle: 'hidden', agentStatus: 'idle', promptable: false },
+            { sessionId: 'bad/path', agentName: 'leaked', taskTitle: '/private/work', agentStatus: 'idle', promptable: false },
+            ...Array.from({ length: MAX_REALTIME_PUBLIC_SESSIONS + 4 }, (_, index) => ({
+                sessionId: `pp_${index}`, agentName: `agent-${index}`, agentStatus: 'idle' as const, promptable: true,
+            })),
         ],
     });
     assert(publicContext.sessions.length === MAX_REALTIME_PUBLIC_SESSIONS, 'realtime public session map is bounded');
-    assert(publicContext.sessions[0]?.taskTitle === 'Realtime Stability', 'realtime public task title strips provider prefix');
-    assert(publicContext.sessions[0]?.displayName === 'Maria', 'realtime public context preserves the current Herdr Agent Name');
-    assert(!publicContext.sessions.some((entry) => entry.sessionId === 'bad/path' || entry.sessionId === 'pp_internal'), 'realtime public session map rejects unsafe routes and internal Agent Names');
+    assert(publicContext.sessions[0]?.taskTitle === 'Realtime Stability', 'realtime public task title strips Agent Name and provider prefixes');
+    assert(publicContext.sessions[0]?.agentName === 'Maria', 'realtime public context preserves Herdr Agent Name');
+    assert(publicContext.sessions[0]?.displayAgent === 'Pi', 'realtime public context preserves optional display_agent');
+    assert(!publicContext.sessions.some((entry) => entry.sessionId === 'bad/path' || entry.agentName === 'pp_internal'), 'realtime public session map rejects unsafe routes and internal Agent Names');
     for (const action of ['pause_output', 'resume_output', 'output_drained'] as const) {
         const frame = parseRealtimeClientFrame({ type: 'realtime.control', action });
         assert(frame.type === 'realtime.control' && frame.action === action, `${action} control validates`);

@@ -3,6 +3,7 @@ export type {
     AttentionEntry,
     AttentionReason,
     AgentLifecycle,
+    AgentInfo,
     LifecycleCatalog,
     LifecycleEvent,
     LifecycleReasonCode,
@@ -17,6 +18,8 @@ export type {
     HerdrTreeWorkspace,
     SessionModel,
     SessionRef,
+    CloseResult,
+    CloseScope,
     SessionStatus,
     SessionTokens,
     SessionWarning,
@@ -40,8 +43,11 @@ export {
     parseAgentLifecycle,
     parseLifecycleNotificationLevel,
     parseAgentName,
+    parseCloseResult,
+    parseCloseScope,
     parseProviderKind,
     parsePublicAgentRoute,
+    CLOSE_SCOPES,
 } from './domain/sessionState.js';
 
 export type { SessionEvent, SessionEventBody, SessionEventType } from './domain/sessionEvent.js';

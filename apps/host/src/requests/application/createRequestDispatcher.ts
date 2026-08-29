@@ -52,7 +52,8 @@ export interface RequestDispatcherOptions {
     getDeviceContext?: (deviceId: string) => PeerDeviceContext | undefined;
 }
 
-type Handler<T extends RequestType> = (params: RequestMap[T]['params']) => Promise<RequestResult<T>>;
+type RequestContext = { deviceId: string; requestId: string };
+type Handler<T extends RequestType> = (params: RequestMap[T]['params'], context: RequestContext) => Promise<RequestResult<T>>;
 type NonPeerRequestType = Exclude<RequestType, PeerRequestType>;
 type PluginExecutionRequest = Extract<ClientRequest, {
     type: 'plugin.approve' | 'plugin.invoke' | 'plugin.call' | 'plugin.stream';
@@ -186,8 +187,14 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         },
         'session.answer': async (params) => useCaseData(await answerAgent(source, params)),
         'pane.zoom': (params) => source.paneZoom(params),
-        'session.stop': async (params) => useCaseData(await stopAgent(
-            { sessions: source }, { sessionId: params.sessionId, action: 'stop' },
+        'session.stop': async (params, context) => useCaseData(await stopAgent(
+            { sessions: source }, {
+                sessionId: params.sessionId,
+                action: 'stop',
+                deviceId: context.deviceId,
+                idempotencyKey: context.requestId,
+                ...(params.confirmedScope === undefined ? {} : { confirmedScope: params.confirmedScope }),
+            },
         )),
         'session.abort': async (params) => useCaseData(await stopAgent(
             { sessions: source }, { sessionId: params.sessionId, action: 'abort' },
@@ -304,7 +311,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
             );
         }
         try {
-            const data = await handler(request.params);
+            const data = await handler(request.params, { deviceId, requestId: request.requestId });
             return ok(request.requestId, data);
         } catch (error: unknown) {
             return fromCaught(request.requestId, error);

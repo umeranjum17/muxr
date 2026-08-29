@@ -38,7 +38,7 @@ Dependency direction: domain is pure TypeScript; application may import same-con
 
 ## Herd
 
-**Owns**: Agent, Agent Route, Agent Name, Task Title, Provider Kind, Agent Lifecycle, Lifecycle Event, Attention, session snapshot.
+**Owns**: Agent, Agent Route, Agent Name, Task Title, Agent Kind, Agent Lifecycle, Lifecycle Event, Attention, session snapshot.
 
 **Invariants**:
 - Agent Route is the only key that authorizes prompt, watch, or focus. Agent Name and Task Title never do.

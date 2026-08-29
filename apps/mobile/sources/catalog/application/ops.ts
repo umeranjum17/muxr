@@ -1,9 +1,20 @@
-import { MISSING_CWD_ERROR_PREFIX, type SessionStatus } from '@muxr/contract';
+import {
+    MISSING_CWD_ERROR_PREFIX,
+    parseCloseResult,
+    type CloseResult,
+    type CloseScope,
+    type RequestParams,
+    type SessionStatus,
+} from '@muxr/contract';
 import { applyStatusToSession } from '../infrastructure/sessionMapping';
 import type { SessionAgentModesPatch } from '../infrastructure/storageTypes';
 import { startAgent } from './startAgent';
 import { readAgentFile } from './readAgentFile';
-import { stopAgent } from './stopAgent';
+import {
+    stopAgent,
+    type StopAgentPorts,
+    type StopAgentResult,
+} from './stopAgent';
 import type { NewSessionAgentType } from './persistence';
 import { storage } from './storage';
 import { sync } from './sync';
@@ -127,20 +138,50 @@ interface SessionWriteFileResponse {
     error?: string;
 }
 
+function isTransportUnavailable(error: unknown): boolean {
+    if (!(error instanceof Error) || error.name === 'MuxrRequestError') return false;
+    return /^(?:not connected|connection lost|client closed|too many pending requests|machine transport unavailable|request timed out:)|\b(?:ECONNREFUSED|network request failed)\b/i
+        .test(error.message);
+}
+
+async function requestSessionStop(agentRoute: string, confirmedScope?: CloseScope): Promise<CloseResult> {
+    const params: RequestParams<'session.stop'> = { sessionId: agentRoute };
+    if (confirmedScope !== undefined) params.confirmedScope = confirmedScope;
+    try {
+        const parsed = parseCloseResult(await sync.request('session.stop', params));
+        if (!parsed.ok) {
+            throw Object.assign(new Error(`host/APK contract mismatch: ${parsed.error}`), {
+                code: 'host-contract-mismatch',
+            });
+        }
+        return parsed.value;
+    } catch (error) {
+        if (!isTransportUnavailable(error)) throw error;
+        return { status: 'retryable', message: 'Could not reach muxr. Try again.' };
+    }
+}
 
 export async function sessionAbort(sessionId: string): Promise<void> {
     await stopAgent({ agentRoute: sessionId, kind: 'abort' }, {
         abort: (agentRoute) => sync.request('session.abort', { sessionId: agentRoute }),
-        stop: (agentRoute) => sync.request('session.stop', { sessionId: agentRoute }),
+        stop: requestSessionStop,
         refreshCatalog: () => sync.refreshSessions(),
     });
 }
 
-export async function sessionStop(sessionId: string): Promise<void> {
-    await stopAgent({ agentRoute: sessionId, kind: 'stop' }, {
+export async function sessionStop(
+    sessionId: string,
+    ui: {
+        confirmClose: NonNullable<StopAgentPorts['confirmClose']>;
+        confirmRetry: NonNullable<StopAgentPorts['confirmRetry']>;
+    },
+): Promise<StopAgentResult> {
+    return stopAgent({ agentRoute: sessionId, kind: 'stop' }, {
         abort: (agentRoute) => sync.request('session.abort', { sessionId: agentRoute }),
-        stop: (agentRoute) => sync.request('session.stop', { sessionId: agentRoute }),
+        stop: requestSessionStop,
         refreshCatalog: () => sync.refreshSessions(),
+        confirmClose: ui.confirmClose,
+        confirmRetry: ui.confirmRetry,
     });
 }
 

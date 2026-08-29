@@ -4,8 +4,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Text } from '@/components/StyledText';
 import { Typography } from '@/constants/Typography';
-import { compactAge } from '../domain/agentPresentation';
+import { agentKindLabel, compactAge } from '../domain/agentPresentation';
 import { recentActivityStatus, type RecentActivityRow } from '../domain/recentActivity';
+import { AgentGlyph } from '@/components/AgentGlyph';
 
 const COLLAPSED_ROWS = 3;
 
@@ -31,7 +32,9 @@ const styles = StyleSheet.create((theme) => ({
         borderBottomColor: theme.colors.divider,
     },
     copy: { flex: 1, minWidth: 0, gap: 2 },
-    task: { color: theme.colors.text, fontSize: 12, ...Typography.default('semiBold') },
+    taskRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+    task: { flex: 1, color: theme.colors.text, fontSize: 12, ...Typography.default('semiBold') },
+    kind: { color: theme.colors.textSecondary, fontSize: 9, ...Typography.default('semiBold') },
     meta: { color: theme.colors.textSecondary, fontSize: 11, ...Typography.default() },
     more: { minHeight: 38, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', gap: 7 },
     moreText: { color: theme.colors.textSecondary, fontSize: 11, ...Typography.default('semiBold') },
@@ -61,18 +64,27 @@ export const RecentActivity = React.memo((props: {
             <View style={styles.card}>
                 {visible.map((row) => {
                     const color = row.status === 'done' ? theme.colors.status.done : theme.colors.status.error;
-                    const meta = [row.agentName, recentActivityStatus(row), compactAge(Date.now() - row.at)].filter(Boolean).join(' · ');
+                    const agentName = row.agentName?.localeCompare(row.taskTitle, undefined, { sensitivity: 'accent' }) === 0
+                        ? undefined
+                        : row.agentName;
+                    const meta = [agentName, recentActivityStatus(row), compactAge(Date.now() - row.at)].filter(Boolean).join(' · ');
                     return (
                         <Pressable
                             key={row.eventId}
                             accessibilityRole="button"
-                            accessibilityLabel={`${row.taskTitle}. ${meta}`}
+                            accessibilityLabel={`${row.taskTitle}. ${[agentKindLabel(row.agentKind), meta].filter(Boolean).join('. ')}`}
                             onPress={() => props.onSelect(row)}
                             style={({ pressed }) => [styles.row, pressed && { opacity: 0.7 }]}
                         >
                             <Ionicons name={icon(row)} size={16} color={color} />
                             <View style={styles.copy}>
-                                <Text numberOfLines={1} style={styles.task}>{row.taskTitle}</Text>
+                                <View style={styles.taskRow}>
+                                    <Text numberOfLines={1} style={styles.task}>{row.taskTitle}</Text>
+                                    {row.agentKind !== undefined && <>
+                                        <AgentGlyph name={row.agentKind} size={14} />
+                                        <Text numberOfLines={1} style={styles.kind}>{agentKindLabel(row.agentKind)}</Text>
+                                    </>}
+                                </View>
                                 <Text numberOfLines={1} style={styles.meta}>{meta}</Text>
                             </View>
                             <Ionicons name="arrow-forward" size={14} color={theme.colors.groupped.chevron} />

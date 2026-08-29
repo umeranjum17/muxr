@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildSpaceRows, middleTruncate, workspaceName } from './herdTree';
 import type { HerdrTreePane as ContractPane, HerdrTreeTab, HerdrTreeWorkspace as ContractWorkspace } from '@muxr/contract';
-import { agentLabels } from './agentPresentation';
+import { agentKindLabel, agentLabels } from './agentPresentation';
 
 const pane = (id: string, agentKind?: string, extra: Partial<ContractPane> = {}): ContractPane => ({ paneId: id, tabId: 't1', agentStatus: 'idle', promptable: false, focused: false, agentKind, ...extra });
 const ws = (id: string, label: string | undefined, tabs: HerdrTreeTab[]): ContractWorkspace => ({ workspaceId: id, label, focused: false, agentStatus: 'idle', tabs });
@@ -28,6 +28,18 @@ describe('visible herd tree flow', () => {
         expect({ primary: labels.taskTitle, secondary: labels.agentName, kind: labels.agentKind })
             .toEqual({ primary: 'Review monitoring stability', secondary: 'Maria', kind: 'pi' });
         expect(labels.taskTitle).not.toContain(labels.agentName);
+        expect(agentLabels(pane('p-review', 'codex', { agentName: 'opus-review' }))).toMatchObject({
+            taskTitle: 'opus-review',
+            agentName: 'opus-review',
+            agentKind: 'codex',
+        });
+        expect(agentKindLabel('opencode')).toBe('OpenCode');
+        expect(agentKindLabel('pi')).toBe('Pi');
+        expect(agentLabels(pane('p-unnamed', 'opencode'))).toMatchObject({
+            taskTitle: 'Unnamed agent',
+            agentName: 'Unnamed agent',
+            agentKind: 'opencode',
+        });
         expect(agentLabels(shell)).toMatchObject({ taskTitle: 'Untitled task', agentName: 'Shell' });
         expect(buildSpaceRows([ws('w2', 'repo-b', [tab('1', undefined, [shell])])], new Set(), '')[0])
             .toMatchObject({ agentCount: 0, expanded: false });

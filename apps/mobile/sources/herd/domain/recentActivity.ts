@@ -5,6 +5,7 @@ export interface RecentActivityRow {
     sessionId: string;
     taskTitle: string;
     agentName?: string;
+    agentKind?: string;
     status: Extract<AgentLifecycle, 'blocked' | 'done' | 'failed'>;
     reasonCode: string;
     at: number;
@@ -31,8 +32,9 @@ export function unseenActivityRows(
         rows.push({
             eventId: event.eventId,
             sessionId: event.sessionId,
-            taskTitle: event.taskTitle?.trim() || 'Untitled task',
+            taskTitle: event.taskTitle?.trim() || lifecycleEventAgentName(event),
             agentName: lifecycleEventAgentName(event),
+            ...(event.agentKind === undefined ? {} : { agentKind: event.agentKind }),
             status: event.state as RecentActivityRow['status'],
             reasonCode: event.reasonCode,
             at,

@@ -28,8 +28,9 @@ import type { HerdrTreeTab } from '@muxr/contract';
 import { TerminalView } from './TerminalView';
 import { usePaneGestures } from '../application/usePaneGestures';
 import { StatusDot } from '@/components/StatusDot';
+import { AgentGlyph } from '@/components/AgentGlyph';
 import { AnimatedPopup } from '@/components/AnimatedOverlay';
-import { agentLabels, agentStatusColor } from '@/herd';
+import { agentKindLabel, agentLabels, agentNameLine, agentStatusColor } from '@/herd';
 import { terminalPaneCanSend, terminalPaneStatus } from '../domain/promptAvailability';
 import type { TerminalChannel } from '../application/OpenTerminal';
 import { useImagePicker } from '@/hooks/useImagePicker';
@@ -45,7 +46,7 @@ import { openExternalUrl } from '@/utils/openExternalUrl';
 import { resolvePluginText } from '@/plugins';
 import { randomUUID } from 'expo-crypto';
 import { useDeviceAuthority } from '@/pairing';
-import { displayLink, sessionContextTitle } from '../domain/TerminalLink';
+import { displayLink } from '../domain/TerminalLink';
 import { useTerminalChipLink } from '../application/useTerminalChipLink';
 
 /**
@@ -332,28 +333,36 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     }, [selectedImages, attaching, clearImages, props.id]);
 
     const stopSession = React.useCallback(() => {
-        Modal.alert('Stop agent?', 'Closes only this agent pane, or its tab when the pane is alone. Other panes, tabs, and the workspace stay open; if they cannot, nothing closes.', [
-            { text: 'Cancel', style: 'cancel' },
-            {
-                text: 'Stop',
-                style: 'destructive',
-                onPress: () => {
-                    setStopping(true);
-                    void sessionStop(props.id)
-                        .then(() => {
-                            const index = siblings.indexOf(props.id);
-                            const remaining = siblings.filter((id) => id !== props.id);
-                            const next = remaining[index] ?? remaining[remaining.length - 1];
-                            if (next === undefined) router.back();
-                            else router.replace(`/session/${encodeURIComponent(next)}`);
-                        })
-                        .catch((error: unknown) => {
-                            setStopping(false);
-                            Modal.alert('Stop failed', error instanceof Error ? error.message : String(error));
-                        });
-                },
-            },
-        ]);
+        setStopping(true);
+        void sessionStop(props.id, {
+            confirmClose: (prompt) => Modal.confirm(`${prompt.confirmText}?`, prompt.message, {
+                cancelText: 'Cancel',
+                confirmText: prompt.confirmText,
+                destructive: true,
+            }),
+            confirmRetry: (message) => Modal.confirm('Could not stop agent', message, {
+                cancelText: 'Cancel',
+                confirmText: 'Retry',
+            }),
+        })
+            .then((result) => {
+                if (result.status !== 'closed') {
+                    setStopping(false);
+                    return;
+                }
+                const index = siblings.indexOf(props.id);
+                const remaining = siblings.filter((id) => id !== props.id);
+                const next = remaining[index] ?? remaining[remaining.length - 1];
+                if (next === undefined) router.back();
+                else router.replace(`/session/${encodeURIComponent(next)}`);
+            })
+            .catch((error: unknown) => {
+                setStopping(false);
+                Modal.alert('Could not stop agent', error instanceof Error ? error.message : String(error), [
+                    { text: 'Cancel', style: 'cancel' },
+                    { text: 'Retry', onPress: () => stopSession() },
+                ]);
+            });
     }, [props.id, siblings]);
 
     const canSend = terminalPaneCanSend(currentPane, draft.trim() !== '' || attachedPaths.length > 0);
@@ -366,13 +375,8 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const linesAdded = gitStatus !== null && gitStatus.linesAdded > 0 ? `+${gitStatus.linesAdded}` : null;
     const linesRemoved = gitStatus !== null && gitStatus.linesRemoved > 0 ? `−${gitStatus.linesRemoved}` : null;
     const hasStatusRow = branch !== null || linesAdded !== null || linesRemoved !== null || permission !== null;
-    const labels = agentLabels(currentPane, session ?? undefined);
-    const contextTitle = sessionContextTitle({
-        paneLabel: currentPane?.label,
-        tabLabel: currentTab?.label,
-        agentName: labels.agentName,
-        agentKind: labels.agentKind,
-    });
+    const labels = agentLabels(currentPane);
+    const contextTitle = labels.taskTitle;
     const headerDot = agentStatusColor(terminalPaneStatus(currentPane), theme);
     const paneIndex = siblings.indexOf(props.id);
     const showConnectingStatus = status !== 'live' && gestureHint === null && status === 'connecting';
@@ -419,9 +423,20 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                 <HeaderBackButton onPress={() => router.back()} style={{ marginLeft: -6 }} />
                 <Pressable onPress={() => hasOverlay && setTreeOpen(true)} disabled={!hasOverlay} hitSlop={6} accessibilityRole="button" accessibilityLabel={overlayLabel} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, minWidth: 0, paddingVertical: 4 }}>
                     <StatusDot color={headerDot.color} isPulsing={headerDot.pulsing} size={7} />
-                    <Text numberOfLines={1} style={{ color: theme.colors.text, fontSize: 13, fontWeight: '600', flexShrink: 1 }}>
-                        {contextTitle}
-                    </Text>
+                    {labels.agentKind !== undefined && <AgentGlyph name={labels.agentKind} size={18} />}
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                            <Text numberOfLines={1} style={{ flex: 1, color: theme.colors.text, fontSize: 13, fontWeight: '600' }}>
+                                {contextTitle}
+                            </Text>
+                            {labels.agentKind !== undefined && <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 10, fontWeight: '600', textTransform: 'capitalize' }}>
+                                {agentKindLabel(labels.agentKind)}
+                            </Text>}
+                        </View>
+                        <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 11 }}>
+                            {agentNameLine(labels)}
+                        </Text>
+                    </View>
                     {paneIndex !== -1 && siblings.length > 1 && (
                         <Text style={{ color: theme.colors.textSecondary, fontSize: 12, flexShrink: 0 }}>· {paneIndex + 1}/{siblings.length}</Text>
                     )}

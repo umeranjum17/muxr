@@ -16,10 +16,10 @@ import { sync } from '@/catalog/sync';
 import { useNavigateToSession } from '../application/useNavigateToSession';
 import { agentStatusColor } from '../application/sessionUtils';
 import { buildSpaceRows, workspaceName, type HerdRow } from '../domain/herdTree';
-import { agentLabels } from '../domain/agentPresentation';
+import { agentIdentityLine, agentLabels } from '../domain/agentPresentation';
 import { Typography } from '@/constants/Typography';
 import { StatusDot } from '@/components/StatusDot';
-import { Avatar } from '@/components/Avatar';
+import { AgentGlyph } from '@/components/AgentGlyph';
 import { layout } from '@/components/layout';
 import { useDeviceAuthority } from '@/pairing';
 
@@ -211,7 +211,7 @@ const AgentRow = React.memo(({
     const dot = agentStatusColor(pane.agentStatus, theme);
     const labels = agentLabels(pane);
     const sessionId = pane.sessionId;
-    const subtitle = labels.agentName;
+    const subtitle = agentIdentityLine(labels);
 
     return (
         <View style={[styles.agentRow, compact && styles.agentRowCompact]}>
@@ -229,9 +229,9 @@ const AgentRow = React.memo(({
                 android_ripple={{ color: theme.colors.surfaceRipple, foreground: true }}
                 accessibilityRole="button"
                 accessibilityState={{ selected }}
-                accessibilityLabel={[`Open ${labels.taskTitle}`, labels.agentName].filter(Boolean).join(', ')}
+                accessibilityLabel={[`Open ${labels.taskTitle}`, labels.agentName, labels.displayAgent].filter(Boolean).join(', ')}
             >
-                <Avatar id={pane.paneId} size={compact ? 28 : 32} flavor={null} />
+                <AgentGlyph name={labels.agentKind ?? ''} size={compact ? 28 : 32} />
                 <View style={styles.agentText}>
                     <Text numberOfLines={1} style={[styles.agentName, compact && styles.agentNameCompact]}>{labels.taskTitle}</Text>
                     <Text numberOfLines={1} style={[styles.agentSubtitle, compact && styles.agentSubtitleCompact]}>{subtitle}</Text>

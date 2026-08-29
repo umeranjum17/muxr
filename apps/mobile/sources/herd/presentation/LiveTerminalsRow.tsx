@@ -15,9 +15,10 @@ import {
     type LiveTerminalOrderCard,
 } from '../application/liveTerminalOrder';
 import { useActivityAcknowledgements } from '../application/useActivityAcknowledgements';
-import { agentAccessibilityLabel, agentLabels, agentStateLabel } from '../domain/agentPresentation';
+import { agentAccessibilityLabel, agentKindLabel, agentLabels, agentNameLine, agentStateLabel } from '../domain/agentPresentation';
 import { unseenActivityRows, type RecentActivityRow } from '../domain/recentActivity';
 import { StatusDot } from '@/components/StatusDot';
+import { AgentGlyph } from '@/components/AgentGlyph';
 import { TerminalPreview } from '@/terminal/ui';
 import { useNavigateToSession } from '../application/useNavigateToSession';
 import { RecentActivity } from './RecentActivity';
@@ -66,7 +67,9 @@ const stylesheet = StyleSheet.create((theme) => ({
     cardBody: { flex: 1, backgroundColor: '#0c0c0b' },
     endedBody: { opacity: 0.48 },
     cardFooter: { height: 48, paddingHorizontal: 9, paddingVertical: 6, gap: 2 },
-    title: { color: theme.colors.text, fontSize: 12, lineHeight: 15, fontWeight: '600' },
+    titleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+    title: { flex: 1, color: theme.colors.text, fontSize: 12, lineHeight: 15, fontWeight: '600' },
+    kind: { color: theme.colors.textSecondary, fontSize: 9, lineHeight: 12, fontWeight: '600' },
     footerMeta: { flexDirection: 'row', alignItems: 'center', gap: 5 },
     agentName: { flex: 1, color: theme.colors.textSecondary, fontSize: 10, lineHeight: 13 },
     state: { color: theme.colors.textSecondary, fontSize: 10, lineHeight: 13, fontWeight: '600' },
@@ -81,27 +84,23 @@ interface CardProps {
 }
 
 function terminalIsLive(card: LiveTerminalOrderCard): boolean {
-    return card.status === 'working' || card.status === 'starting' || card.status === 'blocked';
+    return card.agentStatus === 'working' || card.agentStatus === 'starting' || card.agentStatus === 'blocked';
 }
 
 const LiveTerminalCard = React.memo(({ card, width, height, paused, disconnected }: CardProps) => {
     const { theme } = useUnistyles();
     const navigateToSession = useNavigateToSession();
-    const labels = agentLabels({
-        taskTitle: card.title,
-        agentName: card.name,
-        agentKind: card.agentKind,
-    }, card.session);
-    const dot = agentStatusColor(card.status, theme);
+    const labels = agentLabels(card);
+    const dot = agentStatusColor(card.agentStatus, theme);
     const live = terminalIsLive(card);
     return (
         <Pressable
             onPress={() => navigateToSession(card.id)}
             accessibilityRole="button"
-            accessibilityLabel={agentAccessibilityLabel(labels, card.status, card.changedAt)}
+            accessibilityLabel={agentAccessibilityLabel(labels, card.agentStatus, card.changedAt)}
             style={({ pressed }) => [
                 stylesheet.card,
-                liveTerminalBucket(card.status) === 'attention' && stylesheet.attentionCard,
+                liveTerminalBucket(card.agentStatus) === 'attention' && stylesheet.attentionCard,
                 { width, height, opacity: pressed ? 0.8 : disconnected ? 0.55 : 1 },
             ]}
         >
@@ -109,12 +108,18 @@ const LiveTerminalCard = React.memo(({ card, width, height, paused, disconnected
                 <TerminalPreview sessionId={card.id} paused={paused} live={live} />
             </View>
             <View style={stylesheet.cardFooter}>
-                <Text numberOfLines={1} style={stylesheet.title}>{card.title}</Text>
+                <View style={stylesheet.titleRow}>
+                    <Text numberOfLines={1} style={stylesheet.title}>{labels.taskTitle}</Text>
+                    {labels.agentKind !== undefined && <>
+                        <AgentGlyph name={labels.agentKind} size={14} />
+                        <Text numberOfLines={1} style={stylesheet.kind}>{agentKindLabel(labels.agentKind)}</Text>
+                    </>}
+                </View>
                 <View style={stylesheet.footerMeta}>
                     <StatusDot color={dot.color} isPulsing={dot.pulsing} size={7} />
-                    <Text numberOfLines={1} style={stylesheet.agentName}>{labels.agentName}</Text>
+                    <Text numberOfLines={1} style={stylesheet.agentName}>{agentNameLine(labels)}</Text>
                     <Text numberOfLines={1} style={[stylesheet.state, { color: dot.color }]}>
-                        {agentStateLabel(card.status, card.changedAt)}
+                        {agentStateLabel(card.agentStatus, card.changedAt)}
                     </Text>
                 </View>
             </View>
@@ -167,7 +172,7 @@ export const LiveTerminalsRow = React.memo(({
         const subscription = AppState.addEventListener('change', (state) => setForeground(state === 'active'));
         return () => subscription.remove();
     }, []);
-    const attentionIndex = cards.findIndex((card) => liveTerminalBucket(card.status) === 'attention');
+    const attentionIndex = cards.findIndex((card) => liveTerminalBucket(card.agentStatus) === 'attention');
     const firstVisible = Math.max(0, Math.floor(scrollX / (cardWidth + CARD_GAP)));
     const onScroll = React.useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
         setScrollX(event.nativeEvent.contentOffset.x);

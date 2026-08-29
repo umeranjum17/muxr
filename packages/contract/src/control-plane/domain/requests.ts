@@ -32,7 +32,7 @@ import type {
 } from '../../herd/index.js';
 import type { PluginManifestV1, PluginSource, PluginSummary } from '../../plugins/index.js';
 import type { LandWorktreeResult } from '../../worktree/index.js';
-import type { AttentionCatalog, HerdrTreeWorkspace, LifecycleCatalog, SessionInfo, SessionShellOutcome, SessionStatus } from '../../herd/index.js';
+import type { AttentionCatalog, CloseResult, CloseScope, HerdrTreeWorkspace, LifecycleCatalog, SessionInfo, SessionShellOutcome, SessionStatus } from '../../herd/index.js';
 import type {
     PeerAuthorityMetadata,
     PeerCapability,
@@ -349,8 +349,15 @@ export interface RequestMap extends PeerRequestMap {
     };
     /** Attach to an existing Pi session (resume). */
     'session.open': { params: { sessionId: string; path?: string }; result: SessionSnapshot };
-    /** Close the selected live pane, or its sole-pane tab; if Herdr would widen to the workspace/group, fail without mutation. */
-    'session.stop': { params: { sessionId: string }; result: null };
+    /**
+     * Close the selected Agent. Broader Herdr scopes are never automatic: the
+     * first call tries an exact pane close, and every tab/workspace/worktree-group
+     * close requires `confirmedScope`. Cancel is no request.
+     */
+    'session.stop': {
+        params: { sessionId: string; confirmedScope?: CloseScope };
+        result: CloseResult;
+    };
     'session.abort': { params: { sessionId: string }; result: null };
     'session.reload': { params: { sessionId: string }; result: null };
 

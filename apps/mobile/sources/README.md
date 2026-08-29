@@ -69,7 +69,7 @@ See root `CONTEXT.md`. Agent Route authorizes. Agent Name, Task Title, and compu
 
 - **Agent**: `Agent.lifecycle()` is the only status the herd, live row, and notifications may show. Live thinking beats a stale `done` word. Display names are never keys. Catalog refresh must not clobber live lifecycle. Quiet Agents stay listed for 30 minutes.
 - **Herd**: blocked Agents first; notification `eventKey` uses Agent Routes, never spoken names.
-- **SpawnRequest**: rejects an empty Provider Kind or directory before `session.start`; pane-titler owns Agent Names.
+- **SpawnRequest**: rejects an empty Agent Kind or directory before `session.start`; pane-titler owns Agent Names.
 - **WorktreeSelection**: picker keys `__none__` / `__new__` / path; only the path is a checkout.
 - **PairedMachine**: `active` is online; display name is chrome.
 - **Pairing String**: constructors reject control characters, spoofed userinfo, and non-muxr URLs. Unknown authority defaults to control.

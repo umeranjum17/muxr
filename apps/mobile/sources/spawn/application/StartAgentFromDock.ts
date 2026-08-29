@@ -20,7 +20,7 @@ export type StartAgentFromDockResult =
     | { ok: true; agentRoute: string; promptFailed?: string }
     | { ok: false; reason: 'no-machine' | 'offline' | 'worktree-failed' | 'needs-directory' | 'failed'; message?: string; directory?: string };
 
-/** Spawn from the Dock: Machine, directory, Worktree, and Provider Kind are already chosen. */
+/** Spawn from the Dock: Machine, directory, Worktree, and Agent Kind are already chosen. */
 export async function startAgentFromDock(command: StartAgentFromDockCommand): Promise<StartAgentFromDockResult> {
     const machine = command.machine;
     if (!machine) return { ok: false, reason: 'no-machine', message: 'Please select a machine' };
