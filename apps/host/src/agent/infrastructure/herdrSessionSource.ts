@@ -1356,7 +1356,7 @@ export async function createHerdrSessionSource(
         try {
             const launchName = `pp_${randomBytes(8).toString('hex')}`;
             await client.call('agent.start', { name: launchName, kind, pane_id: paneId, timeout_ms: 60_000 }, 70_000);
-            const session = await waitForPublishedAgent(paneId, 30_000);
+            const session = await waitForPublishedAgent(paneId, 60_000);
             const expectedRef = agentSession(session.agent)!;
             transition(session, 'starting', 'start-requested');
             emitState(session.sessionId);
