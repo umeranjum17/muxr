@@ -19,7 +19,7 @@
 <p align="center">
   <a href="https://play.google.com/apps/testing/com.trymuxr.app">Google Play testing</a> ·
   <a href="https://testflight.apple.com/join/aJSbs8pN">iOS TestFlight</a> ·
-  <a href="https://github.com/umeranjum17/muxr/releases/download/v0.1.22/muxr-android-0.1.12-build47.apk">Direct APK: 0.1.12 (build 47)</a> ·
+  <a href="https://github.com/umeranjum17/muxr/releases/download/v0.1.22/muxr-android-0.1.22-build49.apk">Direct APK: 0.1.22 (build 49)</a> ·
   <a href="https://github.com/umeranjum17/muxr/releases/tag/v0.1.22">Release 0.1.22</a>
 </p>
 
@@ -133,7 +133,7 @@ muxr
 
 Then install the mobile companion:
 
-- **Android:** [join Google Play testing](https://play.google.com/apps/testing/com.trymuxr.app) · [download the signed APK (0.1.12 build 47)](https://github.com/umeranjum17/muxr/releases/download/v0.1.22/muxr-android-0.1.12-build47.apk) · [SHA256SUMS](https://github.com/umeranjum17/muxr/releases/download/v0.1.22/SHA256SUMS)
+- **Android:** [join Google Play testing](https://play.google.com/apps/testing/com.trymuxr.app) · [download the signed APK (0.1.22 build 49)](https://github.com/umeranjum17/muxr/releases/download/v0.1.22/muxr-android-0.1.22-build49.apk) · [SHA256SUMS](https://github.com/umeranjum17/muxr/releases/download/v0.1.22/SHA256SUMS)
 - **iOS:** [open the public TestFlight link](https://testflight.apple.com/join/aJSbs8pN) — Apple is not accepting new testers right now
 - **Web:** pair an eight-hour read-only browser during self-hosted setup
 - **All builds:** [muxr 0.1.22 release](https://github.com/umeranjum17/muxr/releases/tag/v0.1.22)
