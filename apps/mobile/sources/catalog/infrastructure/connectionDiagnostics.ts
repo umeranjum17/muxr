@@ -7,7 +7,7 @@
  * ticket, or error text.
  */
 
-export type ConnectionDiagnosticRequest = 'herdr.tree' | 'terminal.attach' | 'terminal.detach' | 'session.prompt';
+export type ConnectionDiagnosticRequest = 'herdr.tree' | 'terminal.attach' | 'terminal.detach' | 'session.prompt' | 'session.start';
 export type ConnectionDiagnosticOutcome = 'ok' | 'rejected' | 'timeout' | 'unavailable';
 export type ConnectionDiagnosticCode =
     | 'not-connected'
@@ -22,7 +22,8 @@ export type ConnectionDiagnosticCode =
     | 'stale'
     | 'takeover'
     | 'disconnected'
-    | 'unavailable';
+    | 'unavailable'
+    | 'start-launch-failed';
 export type ConnectionDiagnosticSocketState = 'connecting' | 'open' | 'stale' | 'closed';
 export type ConnectionDiagnosticReconnectReason = 'dead-socket' | 'stale' | 'closed';
 export type ConnectionDiagnosticChannelPhase = 'attach' | 'socket-open' | 'live' | 'reconnecting' | 'disconnected';
@@ -38,7 +39,7 @@ export type ConnectionDiagnosticEvent =
 
 const MAX_EVENTS = 64;
 const STORAGE_KEY = 'connection-diagnostics-v1';
-const TRACKED = new Set<string>(['herdr.tree', 'terminal.attach', 'terminal.detach', 'session.prompt']);
+const TRACKED = new Set<string>(['herdr.tree', 'terminal.attach', 'terminal.detach', 'session.prompt', 'session.start']);
 const SOCKET_STATES = new Set<string>(['connecting', 'open', 'stale', 'closed']);
 const RECONNECT_REASONS = new Set<string>(['dead-socket', 'stale', 'closed']);
 const CHANNEL_PHASES = new Set<string>(['attach', 'socket-open', 'live', 'reconnecting', 'disconnected']);
@@ -49,6 +50,7 @@ const CODES = new Set<string>([
     'not-connected', 'connection-lost', 'client-closed', 'request-timeout',
     'ticket-required', 'grant-expired', 'e2ee-required', 'agent-not-ready',
     'dead-socket', 'stale', 'takeover', 'disconnected', 'unavailable',
+    'start-launch-failed',
 ]);
 
 let events: ConnectionDiagnosticEvent[] = loadPersisted();

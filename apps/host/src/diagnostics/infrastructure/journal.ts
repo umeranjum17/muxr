@@ -15,7 +15,7 @@ export type DiagnosticBrokerOperation = 'list' | 'read' | 'status' | 'watch' | '
 export type DiagnosticPeerConnectionPhase = 'grant-refresh' | 'ticket-issue' | 'socket-open' | 'liveness-proof';
 export type DiagnosticPeerIngressOutcome = 'received' | 'decrypt-rejected' | 'decoded';
 export type DiagnosticRealtimePromptOutcome = 'queued' | 'rejected' | 'failed';
-export type DiagnosticReadinessGate = 'ready' | 'starting' | 'not-interactive' | 'unbound' | 'no-agent';
+export type DiagnosticReadinessGate = 'ready' | 'starting' | 'not-interactive' | 'unbound' | 'no-agent' | 'unnamed' | 'no-session';
 
 
 type ClientCounts = Record<DiagnosticClientKind, number>;
@@ -31,7 +31,8 @@ export type HostDiagnosticEvent =
     | { at: string; event: 'peer.ingress'; direction: 'inbound'; outcome: DiagnosticPeerIngressOutcome }
     | { at: string; event: 'peer.broker'; operation: DiagnosticBrokerOperation; outcome: DiagnosticOutcome; durationMs: number; code?: string }
     | { at: string; event: 'realtime.prompt'; provider: string; action: 'prompt'; requestedAgentName: string; resolvedAgentName: string | null; outcome: DiagnosticRealtimePromptOutcome }
-    | { at: string; event: 'agent.readiness'; reason: 'starting' | 'ready' | 'not-promptable'; promptable: boolean; kind?: string; lifecycle?: string; gate?: DiagnosticReadinessGate };
+    | { at: string; event: 'agent.readiness'; reason: 'starting' | 'ready' | 'not-promptable'; promptable: boolean; kind?: string; lifecycle?: string; gate?: DiagnosticReadinessGate }
+    | { at: string; event: 'agent.launch'; outcome: DiagnosticOutcome; kind?: string; gate?: DiagnosticReadinessGate };
 
 interface HostDiagnosticState {
     version: 1;
@@ -85,7 +86,7 @@ function safeLifecycle(value: string | undefined): string | undefined {
 }
 
 function safeReadinessGate(value: string | undefined): DiagnosticReadinessGate | undefined {
-    if (value === 'ready' || value === 'starting' || value === 'not-interactive' || value === 'unbound' || value === 'no-agent') {
+    if (value === 'ready' || value === 'starting' || value === 'not-interactive' || value === 'unbound' || value === 'no-agent' || value === 'unnamed' || value === 'no-session') {
         return value;
     }
     return undefined;
@@ -223,6 +224,21 @@ export class HostDiagnosticsJournal {
             requestedAgentName: safeSemanticName(requestedAgentName, 'unspecified')!,
             resolvedAgentName: safeSemanticName(resolvedAgentName, 'unknown'),
             outcome,
+        });
+    }
+
+    agentLaunch(
+        outcome: DiagnosticOutcome,
+        detail?: { kind?: string; gate?: DiagnosticReadinessGate },
+    ): void {
+        const kind = safeAgentKind(detail?.kind);
+        const gate = safeReadinessGate(detail?.gate);
+        this.record({
+            at: this.timestamp(),
+            event: 'agent.launch',
+            outcome,
+            ...(kind === undefined ? {} : { kind }),
+            ...(gate === undefined ? {} : { gate }),
         });
     }
 

@@ -604,6 +604,8 @@ async function main(): Promise<void> {
                 ),
                 onAgentReadinessDiagnostic: (reason, promptable, detail) =>
                     diagnostics.agentReadiness(reason, promptable, detail),
+                onAgentLaunchDiagnostic: (outcome, detail) =>
+                    diagnostics.agentLaunch(outcome, detail),
             }),
         });
     }

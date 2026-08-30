@@ -147,6 +147,10 @@ describe('connection diagnostic codes', () => {
             ok: false,
             error: Object.assign(new Error('Agent is not ready yet'), { code: 'agent-not-ready' }),
         }, 0);
+        recordTrackedRpc('session.start', {
+            ok: false,
+            error: Object.assign(new Error('Agent could not start.'), { code: 'start-launch-failed' }),
+        }, 30373);
         recordTerminalChannel('disconnected', { ok: false, code: 'disconnected' });
         recordAgentGate({ kind: 'omp', lifecycle: 'idle', promptable: false, gate: 'not-interactive' });
         recordAgentGate({ kind: 'w1EW:pH', lifecycle: 'idle', promptable: false, gate: 'missing' });
@@ -154,6 +158,7 @@ describe('connection diagnostic codes', () => {
             expect.objectContaining({ event: 'socket.reconnect', reason: 'dead-socket' }),
             expect.objectContaining({ event: 'rpc', request: 'terminal.attach', outcome: 'timeout', code: 'request-timeout' }),
             expect.objectContaining({ event: 'rpc', request: 'session.prompt', outcome: 'rejected', code: 'agent-not-ready' }),
+            expect.objectContaining({ event: 'rpc', request: 'session.start', outcome: 'rejected', code: 'start-launch-failed' }),
             expect.objectContaining({ event: 'terminal.channel', phase: 'disconnected', outcome: 'unavailable', code: 'disconnected' }),
             expect.objectContaining({ event: 'agent.gate', kind: 'omp', lifecycle: 'idle', promptable: false, gate: 'not-interactive' }),
             expect.objectContaining({ event: 'agent.gate', lifecycle: 'idle', promptable: false, gate: 'missing' }),
@@ -162,6 +167,7 @@ describe('connection diagnostic codes', () => {
         const report = formatConnectionDiagnosticsForReport();
         expect(report).toMatch(/socket\.reconnect dead-socket/);
         expect(report).toMatch(/rpc session\.prompt rejected agent-not-ready/);
+        expect(report).toMatch(/rpc session\.start rejected start-launch-failed/);
         expect(report).toMatch(/agent\.gate omp idle promptable=false not-interactive/);
         expect(report).not.toMatch(/pp_|pwt-|devtok_|machine-|session-|w1EW:pH/);
     });

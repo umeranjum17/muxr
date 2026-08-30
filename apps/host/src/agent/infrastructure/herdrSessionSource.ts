@@ -173,7 +173,12 @@ export interface CreateHerdrSessionSourceOptions {
     onAgentReadinessDiagnostic?: (
         reason: 'starting' | 'ready' | 'not-promptable',
         promptable: boolean,
-        detail?: { kind?: string; lifecycle?: string; gate?: 'ready' | 'starting' | 'not-interactive' | 'unbound' | 'no-agent' },
+        detail?: { kind?: string; lifecycle?: string; gate?: 'ready' | 'starting' | 'not-interactive' | 'unbound' | 'no-agent' | 'unnamed' | 'no-session' },
+    ) => void;
+    /** Privacy-safe start miss: whether Herdr published a named, bound Agent. */
+    onAgentLaunchDiagnostic?: (
+        outcome: 'ok' | 'rejected',
+        detail?: { kind?: string; gate?: 'ready' | 'starting' | 'not-interactive' | 'unbound' | 'no-agent' | 'unnamed' | 'no-session' },
     ) => void;
 }
 
@@ -1273,12 +1278,24 @@ export async function createHerdrSessionSource(
 
         const kind = startOptions.kind ?? 'pi';
         const requestedLabel = startOptions.label?.trim() || startOptions.taskTitle?.trim();
-        const earlyFailure = (): SessionStartResult => {
+        const launchMissGate = (paneId?: string): 'no-agent' | 'no-session' | 'unnamed' | 'unbound' => {
+            if (paneId === undefined) return 'no-agent';
+            const agent = agentsByPane.get(paneId);
+            if (agent === undefined) return 'no-agent';
+            if (agentSession(agent) === undefined) return 'no-session';
+            if (!namedAgent(agent)) return 'unnamed';
+            return 'unbound';
+        };
+        const earlyFailure = (gate: 'no-agent' | 'no-session' | 'unnamed' | 'unbound' = 'no-agent'): SessionStartResult => {
             const publishedKind = publicAgentKind(kind);
-            options.onAgentReadinessDiagnostic?.('not-promptable', false, {
+            const detail = {
                 ...(publishedKind === undefined ? {} : { kind: publishedKind }),
+                gate,
+            };
+            options.onAgentLaunchDiagnostic?.('rejected', detail);
+            options.onAgentReadinessDiagnostic?.('not-promptable', false, {
+                ...detail,
                 lifecycle: 'failed',
-                gate: 'no-agent',
             });
             return {
                 acceptance: {
@@ -1358,6 +1375,11 @@ export async function createHerdrSessionSource(
             await client.call('agent.start', { name: launchName, kind, pane_id: paneId, timeout_ms: 60_000 }, 70_000);
             const session = await waitForPublishedAgent(paneId, 60_000);
             const expectedRef = agentSession(session.agent)!;
+            const publishedKind = publicAgentKind(kind);
+            options.onAgentLaunchDiagnostic?.('ok', {
+                ...(publishedKind === undefined ? {} : { kind: publishedKind }),
+                gate: 'starting',
+            });
             transition(session, 'starting', 'start-requested');
             emitState(session.sessionId);
             void waitForInteractiveAgent(paneId, 60_000)
@@ -1378,8 +1400,10 @@ export async function createHerdrSessionSource(
                 });
             return snapshotFor(session, true);
         } catch {
+            await refreshSnapshot().catch(() => undefined);
+            const gate = launchMissGate(paneId);
             await client.call('pane.close', { pane_id: paneId }).catch(() => undefined);
-            return earlyFailure();
+            return earlyFailure(gate);
         }
     }
 
