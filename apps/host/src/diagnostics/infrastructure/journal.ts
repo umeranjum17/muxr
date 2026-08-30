@@ -60,6 +60,7 @@ const safeCodes = new Set([
     'agent-not-ready', 'timeout', 'unavailable',
     'not-connected', 'connection-lost', 'client-closed', 'request-timeout',
     'dead-socket', 'stale', 'disconnected', 'takeover',
+    'start-launch-failed',
 ]);
 const loggedRequests = new Set<RequestType>([
     'machines.list', 'herdr.tree', 'terminal.attach', 'terminal.detach',

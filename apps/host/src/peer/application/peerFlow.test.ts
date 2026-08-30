@@ -574,6 +574,7 @@ describe('host peer collaboration flow', () => {
         diagnostics.agentReadiness('not-promptable', false, { kind: 'omp', lifecycle: 'idle', gate: 'not-interactive' });
         diagnostics.agentReadiness('not-promptable', false, { kind: 'w1EW:pH', lifecycle: 'idle', gate: 'unbound' });
         diagnostics.request('session.prompt', 'native', 'rejected', 8, 'agent-not-ready');
+        diagnostics.request('session.start', 'native', 'rejected', 5300, 'start-launch-failed');
         diagnostics.request('terminal.attach', 'native', 'rejected', 11, 'socket-timeout');
         for (let index = 0; index < 600; index += 1) diagnostics.request('herdr.tree', 'native', 'ok', 1);
         await broker.close();
@@ -589,6 +590,7 @@ describe('host peer collaboration flow', () => {
         expect(diagnosticEvents).toContainEqual(expect.objectContaining({ event: 'peer.connection', phase: 'liveness-proof', outcome: 'timeout' }));
         expect(diagnosticEvents).toContainEqual(expect.objectContaining({ event: 'client.request', request: 'peer.prepare', code: 'peer-recovery-pending' }));
         expect(diagnosticEvents).toContainEqual(expect.objectContaining({ event: 'client.request', request: 'session.prompt', outcome: 'rejected', code: 'agent-not-ready' }));
+        expect(diagnosticEvents).toContainEqual(expect.objectContaining({ event: 'client.request', request: 'session.start', outcome: 'rejected', code: 'start-launch-failed' }));
         expect(diagnosticEvents).toEqual(expect.arrayContaining([
             expect.objectContaining({ event: 'agent.readiness', reason: 'starting', promptable: false }),
             expect.objectContaining({ event: 'agent.readiness', reason: 'ready', promptable: true }),

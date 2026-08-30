@@ -1273,14 +1273,22 @@ export async function createHerdrSessionSource(
 
         const kind = startOptions.kind ?? 'pi';
         const requestedLabel = startOptions.label?.trim() || startOptions.taskTitle?.trim();
-        const earlyFailure = (): SessionStartResult => ({
-            acceptance: {
-                outcome: 'failed',
-                state: 'failed',
-                code: 'start-launch-failed',
-                message: 'Agent could not start.',
-            },
-        });
+        const earlyFailure = (): SessionStartResult => {
+            const publishedKind = publicAgentKind(kind);
+            options.onAgentReadinessDiagnostic?.('not-promptable', false, {
+                ...(publishedKind === undefined ? {} : { kind: publishedKind }),
+                lifecycle: 'failed',
+                gate: 'no-agent',
+            });
+            return {
+                acceptance: {
+                    outcome: 'failed',
+                    state: 'failed',
+                    code: 'start-launch-failed',
+                    message: 'Agent could not start.',
+                },
+            };
+        };
 
         let cwd = startOptions.cwd;
         let workspaceId: string | undefined;
@@ -1348,7 +1356,7 @@ export async function createHerdrSessionSource(
         try {
             const launchName = `pp_${randomBytes(8).toString('hex')}`;
             await client.call('agent.start', { name: launchName, kind, pane_id: paneId, timeout_ms: 60_000 }, 70_000);
-            const session = await waitForPublishedAgent(paneId, 5_000);
+            const session = await waitForPublishedAgent(paneId, 30_000);
             const expectedRef = agentSession(session.agent)!;
             transition(session, 'starting', 'start-requested');
             emitState(session.sessionId);

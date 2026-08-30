@@ -1,11 +1,11 @@
-import { MISSING_CWD_ERROR_PREFIX, type SessionStartResult } from '@muxr/contract';
+import { MISSING_CWD_ERROR_PREFIX, startWasAccepted, type SessionStartResult } from '@muxr/contract';
 import type { SessionStartOptions } from './sessionSource.js';
 
 export type StartAgentCommand = SessionStartOptions;
 
 export type StartAgentResult =
     | { ok: true; data: SessionStartResult }
-    | { ok: false; error: string };
+    | { ok: false; error: string; code?: string };
 
 export interface StartAgentWorkspace {
     exists(cwd: string): boolean;
@@ -28,5 +28,9 @@ export async function startAgent(
         }
         await workspace.create(command.cwd);
     }
-    return { ok: true, data: await workspace.start(command) };
+    const data = await workspace.start(command);
+    if (!startWasAccepted(data)) {
+        return { ok: false, error: data.acceptance.message, code: data.acceptance.code };
+    }
+    return { ok: true, data };
 }
