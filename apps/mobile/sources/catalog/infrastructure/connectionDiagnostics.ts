@@ -96,9 +96,11 @@ export function connectionDiagnosticOutcome(error: unknown): ConnectionDiagnosti
     return 'rejected';
 }
 
-export function recordConnectionDiagnostic(
-    event: Omit<ConnectionDiagnosticEvent, 'at'> & { at?: string },
-): void {
+type ConnectionDiagnosticDraft = ConnectionDiagnosticEvent extends infer Event
+    ? Event extends { at: string } ? Omit<Event, 'at'> & { at?: string } : never
+    : never;
+
+export function recordConnectionDiagnostic(event: ConnectionDiagnosticDraft): void {
     const entry = { at: event.at ?? new Date().toISOString(), ...event } as ConnectionDiagnosticEvent;
     if (!isValidEvent(entry)) return;
     events = [...events, entry].slice(-MAX_EVENTS);
