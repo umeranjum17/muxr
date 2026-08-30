@@ -27,10 +27,9 @@ import { HeaderBackButton } from '@/components/navigation/HeaderBackButton';
 import type { HerdrTreeTab } from '@muxr/contract';
 import { TerminalView } from './TerminalView';
 import { usePaneGestures } from '../application/usePaneGestures';
-import { StatusDot } from '@/components/StatusDot';
 import { AgentGlyph } from '@/components/AgentGlyph';
 import { AnimatedPopup } from '@/components/AnimatedOverlay';
-import { agentAccessibilityLabel, agentKindLabel, agentLabels, agentNameLine, agentStateLabel, agentStatusColor } from '@/herd';
+import { agentAccessibilityLabel, agentLabels, agentNameLine, agentStateLabel, agentStatusColor, isShellLabels } from '@/herd';
 import { terminalPaneCanSend, terminalPaneStatus } from '../domain/promptAvailability';
 import type { TerminalChannel } from '../application/OpenTerminal';
 import { useImagePicker } from '@/hooks/useImagePicker';
@@ -368,17 +367,17 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const canSend = terminalPaneCanSend(currentPane, draft.trim() !== '' || attachedPaths.length > 0);
 
     // Where this session sits and how it is allowed to act, in one quiet row.
-    // Connection stays out of it: the header dot and the reconnect pill above
-    // the terminal already say it, and saying it twice makes neither read.
+    // Connection stays out of it: subtitle/send color and the reconnect pill
+    // already say it, and saying it twice makes neither read.
     const branch = resolveStatusBarGitBranch(gitStatus?.branch, session?.metadata?.worktree?.branch, session?.metadata?.path);
     const permission = permissionModeChip(session === null || session === undefined ? null : resolveMessageModeMeta(session).permissionMode);
     const linesAdded = gitStatus !== null && gitStatus.linesAdded > 0 ? `+${gitStatus.linesAdded}` : null;
     const linesRemoved = gitStatus !== null && gitStatus.linesRemoved > 0 ? `−${gitStatus.linesRemoved}` : null;
     const hasStatusRow = branch !== null || linesAdded !== null || linesRemoved !== null || permission !== null;
     const labels = agentLabels(currentPane);
-    const shell = labels.agentKind === undefined && labels.agentName === 'Shell';
+    const shell = isShellLabels(labels);
     const contextTitle = shell ? 'Shell' : labels.taskTitle;
-    const headerDot = agentStatusColor(terminalPaneStatus(currentPane), theme);
+    const headerStatus = agentStatusColor(terminalPaneStatus(currentPane), theme);
     const paneIndex = siblings.indexOf(props.id);
     const showConnectingStatus = status !== 'live' && gestureHint === null && status === 'connecting';
     const showRetryStatus = status !== 'live' && gestureHint === null && status !== 'connecting';
@@ -423,18 +422,12 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
             >
                 <HeaderBackButton onPress={() => router.back()} style={{ marginLeft: -6 }} />
                 <Pressable onPress={() => hasOverlay && setTreeOpen(true)} disabled={!hasOverlay} hitSlop={6} accessibilityRole="button" accessibilityLabel={overlayLabel} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, minWidth: 0, paddingVertical: 4 }}>
-                    <StatusDot color={headerDot.color} isPulsing={headerDot.pulsing} size={7} />
                     <AgentGlyph name={shell ? 'shell' : labels.agentKind ?? labels.agentName} size={18} />
-                    <View style={{ flex: 1, minWidth: 0 }}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-                            <Text numberOfLines={1} style={{ flex: 1, color: theme.colors.text, fontSize: 13, fontWeight: '600' }}>
-                                {contextTitle}
-                            </Text>
-                            {labels.agentKind !== undefined && <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 10, fontWeight: '600', textTransform: 'capitalize' }}>
-                                {agentKindLabel(labels.agentKind)}
-                            </Text>}
-                        </View>
-                        <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 11 }}>
+                    <View style={{ flex: 1, minWidth: 0, gap: 1 }}>
+                        <Text numberOfLines={1} style={{ color: theme.colors.text, fontSize: 13, fontWeight: '600' }}>
+                            {contextTitle}
+                        </Text>
+                        <Text numberOfLines={1} style={{ color: headerStatus.color, fontSize: 11 }}>
                             {shell ? 'Terminal' : agentNameLine(labels)}
                         </Text>
                     </View>
@@ -633,9 +626,9 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                     {siblings.map((siblingId) => {
                         const siblingPane = currentTab?.panes.find((pane) => pane.sessionId === siblingId);
                         const siblingLabels = agentLabels(siblingPane);
-                        const siblingShell = siblingLabels.agentKind === undefined && siblingLabels.agentName === 'Shell';
+                        const siblingShell = isShellLabels(siblingLabels);
                         const siblingStatus = terminalPaneStatus(siblingPane);
-                        const siblingDot = agentStatusColor(siblingStatus, theme);
+                        const siblingTone = agentStatusColor(siblingStatus, theme);
                         const active = siblingId === props.id;
                         return (
                             <Pressable
@@ -660,10 +653,9 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                                 })}
                             >
                                 <AgentGlyph name={siblingShell ? 'shell' : siblingLabels.agentKind ?? siblingLabels.agentName} size={16} />
-                                <Text numberOfLines={1} style={{ flexShrink: 1, color: active ? theme.colors.text : theme.colors.textSecondary, fontSize: 11, fontWeight: active ? '600' : '400' }}>
+                                <Text numberOfLines={1} style={{ flexShrink: 1, color: siblingTone.color, fontSize: 11, fontWeight: active ? '600' : '400' }}>
                                     {siblingShell ? 'Shell' : siblingLabels.taskTitle}
                                 </Text>
-                                <StatusDot color={siblingDot.color} isPulsing={siblingDot.pulsing} size={6} />
                             </Pressable>
                         );
                     })}
@@ -753,7 +745,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                     <PluginSlot slot="session.composer.trailing" context={{ sessionId: props.id, getText: () => draftRef.current, setText: setDraft }} />
                 </View>
                 <Pressable onPress={sendPrompt} hitSlop={8} disabled={!canSend} accessibilityRole="button" accessibilityLabel="Send" accessibilityState={{ disabled: !canSend }} style={{ opacity: canSend ? 1 : 0.4 }}>
-                    <Ionicons name="arrow-up-circle" size={30} color={theme.colors.text} />
+                    <Ionicons name="arrow-up-circle" size={30} color={headerStatus.color} />
                 </Pressable>
             </View>
             </View>}

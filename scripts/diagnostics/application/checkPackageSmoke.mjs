@@ -375,7 +375,6 @@ try {
     assert.ok(listing.includes('package/plugins/voice-gemini/rpc.mjs') && listing.includes('package/plugins/voice-gemini/stream.mjs'), 'Gemini Live plugin missing from npm artifact');
     assert.ok(listing.includes('package/plugins/voice-openai/rpc.mjs') && listing.includes('package/plugins/voice-openai/stream.mjs'), 'OpenAI Realtime plugin missing from npm artifact');
     assert.ok(listing.includes('package/plugins/voice-codex/rpc.mjs') && listing.includes('package/plugins/voice-codex/stream.mjs'), 'Codex Voice plugin missing from npm artifact');
-    assert.ok(listing.includes('package/plugins/pane-titler/provider-acp.mjs'), 'packaged provider ACP bridge missing');
     assert.ok(listing.includes('package/skills/muxr/SKILL.md'), 'muxr skill missing from npm artifact');
     assert.deepEqual(listing.filter((file) => /^package\/skills\/.*\/SKILL\.md$/.test(file)), ['package/skills/muxr/SKILL.md'], 'npm artifact must ship exactly one public skill');
     assert.ok(listing.includes('package/skills/muxr/references/plugins.md'), 'muxr skill references missing from npm artifact');
@@ -390,7 +389,7 @@ try {
     const licenseInventory = JSON.parse(run('tar', ['-xOf', tarball, 'package/THIRD_PARTY_LICENSES.json']).stdout);
     const packageJson = JSON.parse(run('tar', ['-xOf', tarball, 'package/package.json']).stdout);
     assert.equal(packageJson.dependencies.zod, undefined, 'packed CLI must not depend on Zod');
-    assert.equal(packageJson.dependencies['@agentclientprotocol/sdk'], undefined, 'packed Pane Titler must not require a separately installed ACP SDK');
+    assert.equal(packageJson.dependencies['@agentclientprotocol/sdk'], undefined, 'packed CLI must not require a separately installed ACP SDK');
     assert.equal(packageJson.dependencies['@agentclientprotocol/claude-agent-acp'], undefined, 'packed Claude bridge must invoke the installed CLI directly');
     assert.equal(packageJson.dependencies['@agentclientprotocol/codex-acp'], undefined, 'packed Codex bridge must invoke the installed CLI directly');
     assert.equal(licenseInventory.bundledInputs, undefined);
@@ -421,17 +420,6 @@ try {
     const cli = join(installDir, 'node_modules', '.bin', 'muxr');
     const installedPackage = join(installDir, 'node_modules', '@trymuxr', 'cli');
     const installedPlugins = join(installedPackage, 'plugins');
-    const packagedTitler = run(process.execPath, [join(installedPlugins, 'pane-titler', 'title.mjs')], {
-        cwd: installDir,
-        env: {
-            ...process.env,
-            PATH: `${binDir}:${process.env.PATH ?? ''}`,
-            HERDR_BIN_PATH: join(binDir, 'herdr'),
-            HERDR_PANE_ID: 'package-smoke-pane',
-            HERDR_PLUGIN_STATE_DIR: join(scratch, 'pane-titler-state'),
-        },
-    });
-    assert.equal(packagedTitler.status, 0, 'packed Pane Titler failed to load without workspace dependencies');
     assert.match(readFileSync(join(installedPackage, 'README.md'), 'utf8'), /muxr --skill\s+# print the compact agent skill/);
     const rootHelp = run(cli, ['--help'], { cwd: installDir }).stdout;
     assert.match(rootHelp, /muxr --skill \| muxr skill\s+print the compact muxr agent skill/);

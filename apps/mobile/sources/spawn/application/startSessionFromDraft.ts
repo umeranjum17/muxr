@@ -1,10 +1,17 @@
 import type { Machine } from '@/catalog';
+import { getCachedConnectionSettings } from '@/connection';
 import { useNewSessionDraft } from './useNewSessionDraft';
 import { resolveAbsolutePath } from '@/utils/pathUtils';
 import { Modal } from '@/modal';
 import { t } from '@/text';
 import { WorktreeSelection } from '../domain/WorktreeSelection';
 import { startAgentFromDock } from './StartAgentFromDock';
+
+function pathForeignToHome(path: string, homeDir: string): boolean {
+    if (path === '~' || (!path.startsWith('/') && !/^[A-Za-z]:[\\/]/.test(path))) return false;
+    const home = homeDir.replace(/[/\\]+$/, '');
+    return path !== home && !path.startsWith(`${home}/`) && !path.startsWith(`${home}\\`);
+}
 
 /** Adapter: Dock draft + confirmations around StartAgentFromDock. */
 export async function startSessionFromDraft(options: {
@@ -13,9 +20,16 @@ export async function startSessionFromDraft(options: {
     blank?: boolean;
 }): Promise<string | null> {
     const draft = useNewSessionDraft.getState();
-    const machine = options.machines.find((candidate) => candidate.id === draft.selectedMachineId);
+    const machineId = getCachedConnectionSettings().machineId || draft.selectedMachineId;
+    const machine = options.machines.find((candidate) => candidate.id === machineId);
     const blank = options.blank === true;
-    const absolutePath = resolveAbsolutePath(draft.selectedPath?.trim() || '~', machine?.metadata?.homeDir);
+    const homeDir = machine?.metadata?.homeDir;
+    let selectedPath = draft.selectedPath?.trim() || '~';
+    if (homeDir && pathForeignToHome(selectedPath, homeDir)) {
+        selectedPath = '~';
+        draft.setPath(null);
+    }
+    const absolutePath = resolveAbsolutePath(selectedPath, homeDir);
     const worktree = WorktreeSelection.fromPickerKey(
         draft.sessionType === 'worktree' ? draft.worktreeKey ?? '__new__' : '__none__',
     );

@@ -994,24 +994,27 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
                 }),
         });
 
+        const transport = websocketTransport(url.pathname);
         if (!admitted.ok) {
-            logUnauthorizedReject(admitted.reason, websocketTransport(url.pathname));
+            logUnauthorizedReject(admitted.reason, transport);
             rejectConnection(1008, 'unauthorized');
             return;
         }
         const identity = admitted.identity;
         if (config.localAuthority && localPairing !== undefined && admittedByTicket(identity)
             && identity.deviceId !== undefined && !(await localPairing.isDeviceActive(identity.deviceId, identity.credentialVersion))) {
+            logUnauthorizedReject('device-revoked', transport);
             rejectConnection(1008, 'revoked');
             return;
         }
-        const transport = websocketTransport(url.pathname);
         if (admittedByTicket(identity) && identity.transport !== transport) {
+            logUnauthorizedReject('ticket-scope-mismatch', transport);
             rejectConnection(1008, 'ticket scope mismatch');
             return;
         }
         if (config.e2eeMode === 'on' && transport === 'preview'
             && identity.role === 'client' && url.searchParams.get('bridge') !== '1') {
+            logUnauthorizedReject('preview-bridge-required', transport);
             rejectConnection(1008, 'encrypted preview requires the native bridge');
             return;
         }
@@ -1258,24 +1261,24 @@ function webSocketOriginAllowed(req: import('node:http').IncomingMessage, config
     return typeof origin === 'string' && config.allowedOrigins.has(origin);
 }
 
-const unauthorizedRejectLog = { key: '', at: 0, n: 0 };
+const unauthorizedRejectLogs = new Map<string, { reason: string; transport: string; at: number; n: number }>();
 
 function logUnauthorizedReject(reason: string, transport: 'preview' | 'terminal' | 'stream' | 'relay'): void {
     const key = `${reason}:${transport}`;
     const now = Date.now();
-    if (unauthorizedRejectLog.key === key && now - unauthorizedRejectLog.at < 5_000) {
-        unauthorizedRejectLog.n += 1;
+    const bucket = unauthorizedRejectLogs.get(key) ?? { reason, transport, at: 0, n: 0 };
+    if (bucket.n > 0 && now - bucket.at < 5_000) {
+        bucket.n += 1;
+        unauthorizedRejectLogs.set(key, bucket);
         return;
     }
-    if (unauthorizedRejectLog.n > 1) {
+    if (bucket.n > 1) {
         process.stderr.write(
-            `rejected unauthorized WebSocket reason=${unauthorizedRejectLog.key} repeats=${unauthorizedRejectLog.n}\n`,
+            `rejected unauthorized WebSocket reason=${bucket.reason} transport=${bucket.transport} repeats=${bucket.n}\n`,
         );
     }
     process.stderr.write(`rejected unauthorized WebSocket reason=${reason} transport=${transport}\n`);
-    unauthorizedRejectLog.key = key;
-    unauthorizedRejectLog.at = now;
-    unauthorizedRejectLog.n = 1;
+    unauthorizedRejectLogs.set(key, { reason, transport, at: now, n: 1 });
 }
 
 function websocketTransport(pathname: string): 'preview' | 'terminal' | 'stream' | 'relay' {

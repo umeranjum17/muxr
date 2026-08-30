@@ -3,14 +3,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
     request: vi.fn(),
     fetch: vi.fn(),
+    settings: { relayUrl: 'ws://relay.test', machineId: 'machine', token: 'devtok_test' },
 }));
 
 vi.mock('@/connection', () => ({
-    getCachedConnectionSettings: () => ({
-        relayUrl: 'ws://relay.test',
-        machineId: 'machine',
-        token: 'devtok_test',
-    }),
+    getCachedConnectionSettings: () => mocks.settings,
 }));
 
 vi.mock('@/catalog/sync', () => ({
@@ -64,6 +61,7 @@ describe('openTerminal reconnect ownership', () => {
     beforeEach(() => {
         mocks.request.mockReset();
         mocks.fetch.mockReset();
+        mocks.settings.token = 'devtok_test';
         mocks.fetch.mockResolvedValue({
             ok: true,
             status: 201,
@@ -74,6 +72,14 @@ describe('openTerminal reconnect ownership', () => {
 
     afterEach(() => {
         vi.useRealTimers();
+    });
+
+    it('fails closed before attach when an account token cannot mint a ticket', async () => {
+        mocks.settings.token = 'acctok_stale';
+        await expect(openTerminal({ agentRoute: 'session', size: { cols: 100, rows: 30 } }))
+            .rejects.toThrow('terminal: relay ticket required');
+        expect(mocks.request).not.toHaveBeenCalled();
+        expect(FakeWebSocket.instances).toHaveLength(0);
     });
 
     it('replays the first paint when it arrives before the native view subscribes', async () => {

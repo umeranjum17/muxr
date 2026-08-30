@@ -23,6 +23,7 @@ import { AgentInputAttachmentStrip } from '@/terminal/ui';
 import { Typography } from '@/constants/Typography';
 import { layout } from '@/components/layout';
 import { t } from '@/text';
+import { getCachedConnectionSettings } from '@/connection';
 import { useNewSessionDraft } from '../application/useNewSessionDraft';
 import { PluginSlot } from '@/plugins/ui';
 import { useAllMachines, useSessions, useSocketStatus } from '@/catalog/store';
@@ -37,7 +38,6 @@ import {
     applyWorktreeSelection,
     agentTypeIfHostDisallows,
     currentDockAgent,
-    machineDockOptions,
     projectDockOptions,
     resolveDockOption,
     selectedWorktreeKey,
@@ -48,7 +48,7 @@ import {
 
 export const MOBILE_HOME_DOCK_CONTENT_INSET = 108;
 
-type EnvironmentSetting = 'machine' | 'project' | 'worktree' | 'agent';
+type EnvironmentSetting = 'project' | 'worktree' | 'agent';
 
 const styles = StyleSheet.create((theme) => ({
     keyboardFollower: {
@@ -488,38 +488,49 @@ export const HomeDock = React.memo(({
     const [hostAgentKindsAuthoritative, setHostAgentKindsAuthoritative] = React.useState(false);
     const machines = useAllMachines({ includeOffline: true });
     const sessions = useSessions();
+    const connectionMachineId = getCachedConnectionSettings().machineId;
+    const activeMachineId = connectionMachineId || selectedMachineId;
     const selectedMachine = React.useMemo(
-        () => machines.find((machine) => machine.id === selectedMachineId) ?? null,
-        [machines, selectedMachineId],
+        () => machines.find((machine) => machine.id === activeMachineId) ?? null,
+        [machines, activeMachineId],
     );
-    const machineOptions = React.useMemo(() => machineDockOptions(machines), [machines]);
-    const currentMachine = resolveDockOption(machineOptions, [selectedMachineId]);
 
     React.useEffect(() => {
-        if (!selectedMachineId && machineOptions[0]) {
-            setMachineId(machineOptions[0].key);
+        if (connectionMachineId && connectionMachineId !== useNewSessionDraft.getState().selectedMachineId) {
+            setMachineId(connectionMachineId);
         }
-    }, [machineOptions, selectedMachineId, setMachineId]);
+    }, [connectionMachineId, setMachineId, socketStatus.status]);
+
+    React.useEffect(() => {
+        const path = selectedPath?.trim();
+        const homeDir = selectedMachine?.metadata?.homeDir;
+        if (!path || path === '~' || !homeDir) return;
+        if (!path.startsWith('/') && !/^[A-Za-z]:[\\/]/.test(path)) return;
+        const home = homeDir.replace(/[/\\]+$/, '');
+        if (path !== home && !path.startsWith(`${home}/`) && !path.startsWith(`${home}\\`)) {
+            setPath(null);
+        }
+    }, [selectedMachine, selectedPath, setPath]);
 
     const projectOptions = React.useMemo(() => projectDockOptions({
         selectedPath,
-        selectedMachineId,
+        selectedMachineId: activeMachineId,
         sessions,
         homeDir: selectedMachine?.metadata?.homeDir,
-    }), [selectedMachine, selectedMachineId, selectedPath, sessions]);
+    }), [selectedMachine, activeMachineId, selectedPath, sessions]);
     const currentProject = resolveDockOption(projectOptions, [selectedPath, '~']);
     const worktreeSelectionKey = selectedWorktreeKey(sessionType, worktreeKey);
     const [existingWorktrees, setExistingWorktrees] = React.useState<DockOption[]>([]);
 
     React.useEffect(() => {
         const path = resolveAbsolutePath(selectedPath ?? '~', selectedMachine?.metadata?.homeDir);
-        if (!selectedMachineId || !selectedMachine || !isMachineOnline(selectedMachine) || !path) {
+        if (!activeMachineId || !selectedMachine || !isMachineOnline(selectedMachine) || !path) {
             setExistingWorktrees([]);
             return;
         }
 
         let cancelled = false;
-        listWorktrees(selectedMachineId, path).then((worktrees) => {
+        listWorktrees(activeMachineId, path).then((worktrees) => {
             if (cancelled) return;
             setExistingWorktrees(worktrees.map((worktree) => ({
                 key: worktree.path,
@@ -530,7 +541,7 @@ export const HomeDock = React.memo(({
         return () => {
             cancelled = true;
         };
-    }, [selectedMachine, selectedMachineId, selectedPath]);
+    }, [selectedMachine, activeMachineId, selectedPath]);
 
     const worktreeOptions = React.useMemo(
         () => worktreeDockOptions(existingWorktrees, worktreeKey),
@@ -709,7 +720,6 @@ export const HomeDock = React.memo(({
 
     const environmentRows: SettingsRow[] = [
         { page: 'agent', label: 'AGENT', value: currentAgent.name, icon: 'hardware-chip-outline' },
-        { page: 'machine', label: 'MACHINE', value: currentMachine?.name ?? 'Select machine', icon: 'desktop-outline' },
         { page: 'project', label: 'PROJECT', value: currentProject?.name ?? '~', icon: 'folder-outline' },
         { page: 'worktree', label: 'WORKTREE', value: currentWorktree?.name ?? 'No worktree', icon: 'git-branch-outline' },
     ];
@@ -991,14 +1001,6 @@ export const HomeDock = React.memo(({
                         onSelect={(agent) => selectAgent(agent.key as NewSessionAgentType)}
                         onClose={() => setOpenSheet(null)}
                         searchPlaceholder="search agents"
-                    />
-                    <OptionSheet
-                        visible={openSheet === 'machine'}
-                        title="Machine"
-                        options={machineOptions}
-                        selectedKey={selectedMachineId}
-                        onSelect={(machine) => setMachineId(machine.key)}
-                        onClose={() => setOpenSheet(null)}
                     />
                     <OptionSheet
                         visible={openSheet === 'project'}

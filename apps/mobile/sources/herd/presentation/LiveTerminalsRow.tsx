@@ -15,9 +15,8 @@ import {
     type LiveTerminalOrderCard,
 } from '../application/liveTerminalOrder';
 import { useActivityAcknowledgements } from '../application/useActivityAcknowledgements';
-import { agentAccessibilityLabel, agentKindLabel, agentLabels, agentNameLine, agentStateLabel } from '../domain/agentPresentation';
+import { agentAccessibilityLabel, agentLabels, agentNameLine, agentStateLabel, isShellLabels } from '../domain/agentPresentation';
 import { unseenActivityRows, type RecentActivityRow } from '../domain/recentActivity';
-import { StatusDot } from '@/components/StatusDot';
 import { AgentGlyph } from '@/components/AgentGlyph';
 import { TerminalPreview } from '@/terminal/ui';
 import { useNavigateToSession } from '../application/useNavigateToSession';
@@ -66,13 +65,16 @@ const stylesheet = StyleSheet.create((theme) => ({
     attentionCard: { borderWidth: 1.5, borderColor: theme.colors.status.error },
     cardBody: { flex: 1, backgroundColor: '#0c0c0b' },
     endedBody: { opacity: 0.48 },
-    cardFooter: { height: 48, paddingHorizontal: 10, paddingVertical: 6, gap: 2 },
-    titleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-    title: { flex: 1, color: theme.colors.text, fontSize: 12, lineHeight: 15, fontWeight: '600' },
-    kind: { color: theme.colors.textSecondary, fontSize: 9, lineHeight: 12, fontWeight: '600' },
-    footerMeta: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-    agentName: { flex: 1, color: theme.colors.textSecondary, fontSize: 10, lineHeight: 13 },
-    state: { color: theme.colors.textSecondary, fontSize: 10, lineHeight: 13, fontWeight: '600' },
+    cardFooter: { minHeight: 48, paddingHorizontal: 10, paddingVertical: 6 },
+    titleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    footerCopy: { flex: 1, minWidth: 0, gap: 2 },
+    title: { color: theme.colors.text, fontSize: 12, lineHeight: 15, fontWeight: '600' },
+    identity: { color: theme.colors.textSecondary, fontSize: 10, lineHeight: 13 },
+    status: {
+        flexShrink: 0,
+        marginLeft: 8,
+    },
+    statusText: { fontSize: 10, lineHeight: 13, fontVariant: ['tabular-nums'] },
 }));
 
 interface CardProps {
@@ -93,7 +95,7 @@ const LiveTerminalCard = React.memo(({ card, width, height, paused, disconnected
     const labels = agentLabels(card);
     const dot = agentStatusColor(card.agentStatus, theme);
     const live = terminalIsLive(card);
-    const shell = labels.agentKind === undefined && labels.agentName === 'Shell';
+    const shell = isShellLabels(labels);
     return (
         <Pressable
             onPress={() => navigateToSession(card.id)}
@@ -113,17 +115,15 @@ const LiveTerminalCard = React.memo(({ card, width, height, paused, disconnected
             <View style={stylesheet.cardFooter}>
                 <View style={stylesheet.titleRow}>
                     <AgentGlyph name={shell ? 'shell' : labels.agentKind ?? labels.agentName} size={16} />
-                    <Text numberOfLines={1} style={stylesheet.title}>{shell ? 'Shell' : labels.taskTitle}</Text>
-                    {labels.agentKind !== undefined &&
-                        <Text numberOfLines={1} style={stylesheet.kind}>{agentKindLabel(labels.agentKind)}</Text>
-                    }
-                </View>
-                <View style={stylesheet.footerMeta}>
-                    <StatusDot color={dot.color} isPulsing={dot.pulsing} size={7} />
-                    <Text numberOfLines={1} style={stylesheet.agentName}>{shell ? 'Terminal' : agentNameLine(labels)}</Text>
-                    <Text numberOfLines={1} style={stylesheet.state}>
-                        {agentStateLabel(card.agentStatus, card.changedAt)}
-                    </Text>
+                    <View style={stylesheet.footerCopy}>
+                        <Text numberOfLines={1} style={stylesheet.title}>{shell ? 'Shell' : labels.taskTitle}</Text>
+                        <Text numberOfLines={1} style={stylesheet.identity}>{shell ? 'Terminal' : agentNameLine(labels)}</Text>
+                    </View>
+                    <View style={stylesheet.status}>
+                        <Text numberOfLines={1} style={[stylesheet.statusText, { color: dot.color }]}>
+                            {agentStateLabel(card.agentStatus, card.changedAt)}
+                        </Text>
+                    </View>
                 </View>
             </View>
         </Pressable>
@@ -165,9 +165,16 @@ export const LiveTerminalsRow = React.memo(({
         cardsRef.current = next;
         return next;
     }, [candidateCards]);
+    const liveTitles = React.useMemo(() => {
+        const titles = new Map<string, string>();
+        for (const pane of panes) {
+            if (pane.taskTitle !== undefined && pane.taskTitle !== '') titles.set(pane.id, pane.taskTitle);
+        }
+        return titles;
+    }, [panes]);
     const activityRows = React.useMemo(
-        () => ready ? unseenActivityRows(lifecycleEvents, seenEventIds) : [],
-        [lifecycleEvents, ready, seenEventIds],
+        () => ready ? unseenActivityRows(lifecycleEvents, seenEventIds, Date.now(), 8, liveTitles) : [],
+        [lifecycleEvents, liveTitles, ready, seenEventIds],
     );
 
     React.useEffect(() => {

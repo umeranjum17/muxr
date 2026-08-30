@@ -55,6 +55,7 @@ const safeCodes = new Set([
     'grant-refresh-failed', 'ticket-issue-failed', 'socket-error', 'socket-closed',
     'socket-timeout', 'liveness-closed', 'liveness-timeout',
     'ticket-required', 'ticket-invalid', 'local-identity-invalid',
+    'device-revoked', 'ticket-scope-mismatch', 'preview-bridge-required',
     'agent-not-ready', 'timeout', 'unavailable',
 ]);
 const loggedRequests = new Set<RequestType>([
