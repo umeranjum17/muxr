@@ -1,11 +1,19 @@
-import { MISSING_CWD_ERROR_PREFIX, type SessionStartResult } from '@muxr/contract';
+import { homedir } from 'node:os';
+import { MISSING_CWD_ERROR_PREFIX, startWasAccepted, type SessionStartResult } from '@muxr/contract';
 import type { SessionStartOptions } from './sessionSource.js';
+
+/** Clients that never learned the machine's home directory send a literal `~`. */
+export function expandHome(cwd: string, home = homedir()): string {
+    if (cwd === '~') return home;
+    if (cwd.startsWith('~/')) return `${home}/${cwd.slice(2)}`;
+    return cwd;
+}
 
 export type StartAgentCommand = SessionStartOptions;
 
 export type StartAgentResult =
     | { ok: true; data: SessionStartResult }
-    | { ok: false; error: string };
+    | { ok: false; error: string; code?: string };
 
 export interface StartAgentWorkspace {
     exists(cwd: string): boolean;
@@ -22,11 +30,16 @@ export async function startAgent(
     workspace: StartAgentWorkspace,
     command: StartAgentCommand,
 ): Promise<StartAgentResult> {
-    if (!workspace.exists(command.cwd)) {
+    const cwd = expandHome(command.cwd);
+    if (!workspace.exists(cwd)) {
         if (command.createCwd !== true) {
-            return { ok: false, error: `${MISSING_CWD_ERROR_PREFIX}${command.cwd}` };
+            return { ok: false, error: `${MISSING_CWD_ERROR_PREFIX}${cwd}` };
         }
-        await workspace.create(command.cwd);
+        await workspace.create(cwd);
     }
-    return { ok: true, data: await workspace.start(command) };
+    const data = await workspace.start({ ...command, cwd });
+    if (!startWasAccepted(data)) {
+        return { ok: false, error: data.acceptance.message, code: data.acceptance.code };
+    }
+    return { ok: true, data };
 }

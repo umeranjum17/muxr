@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { DropdownMenu, DropdownMenuItem } from '@expo/ui/jetpack-compose';
-import { View } from 'react-native';
+import { Text, View } from 'react-native';
 import type { NativeSettingsMenuProps } from './NativeSettingsMenu.types';
 
 export function NativeSettingsMenu({ groups, children, style, flat = false }: NativeSettingsMenuProps) {
@@ -14,7 +14,9 @@ export function NativeSettingsMenu({ groups, children, style, flat = false }: Na
                             onClick={() => group.onSelect(option.key)}
                         >
                             <DropdownMenuItem.Text>
-                                {`${flat ? '' : `${group.label}: `}${option.key === group.selectedKey ? '✓ ' : ''}${option.label}`}
+                                <Text>
+                                    {`${flat ? '' : `${group.label}: `}${option.key === group.selectedKey ? '✓ ' : ''}${option.label}`}
+                                </Text>
                             </DropdownMenuItem.Text>
                         </DropdownMenuItem>
                     )))}

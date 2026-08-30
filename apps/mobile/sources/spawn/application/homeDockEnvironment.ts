@@ -89,39 +89,14 @@ export function applyWorktreeSelection(key: string): { sessionType: NewSessionSe
 
 export function visibleDockAgents(
     hostAgentKinds: string[] | null,
-    authoritative: boolean,
+    _authoritative: boolean,
     agentType: NewSessionAgentType,
 ): DockOption[] {
     const visibleKeys = new Set(hostAgentKinds ?? ['shell', agentType]);
-    if (!authoritative) visibleKeys.add(agentType);
+    visibleKeys.add(agentType);
     return DOCK_AGENTS.filter((agent) => visibleKeys.has(agent.key));
 }
 
 export function currentDockAgent(available: DockOption[], agentType: NewSessionAgentType): DockOption {
     return available.find((agent) => agent.key === agentType) ?? available[0] ?? DOCK_AGENTS[0];
-}
-
-/** When the host catalog no longer includes the draft Agent, pick the first working one. */
-export function agentTypeIfHostDisallows(
-    agentType: NewSessionAgentType,
-    hostAgentKinds: string[] | null,
-    authoritative: boolean,
-    availableAgents: DockOption[],
-): NewSessionAgentType | null {
-    if (!authoritative) return null;
-
-    const hostHasWorkingAgent = hostAgentKinds !== null && hostAgentKinds.some((kind) => kind !== 'shell');
-    if (hostHasWorkingAgent && hostAgentKinds !== null && !hostAgentKinds.includes(agentType)) {
-        const hostPick = hostAgentKinds.find((kind) => kind !== 'shell');
-        if (hostPick !== undefined) return hostPick as NewSessionAgentType;
-    }
-
-    const catalogHasWorkingAgent = availableAgents.some((agent) => agent.key !== 'shell');
-    const currentIsVisible = availableAgents.some((agent) => agent.key === agentType);
-    if (catalogHasWorkingAgent && !currentIsVisible) {
-        const catalogPick = availableAgents.find((agent) => agent.key !== 'shell');
-        if (catalogPick !== undefined) return catalogPick.key as NewSessionAgentType;
-    }
-
-    return null;
 }

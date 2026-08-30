@@ -36,7 +36,6 @@ import { sync } from '@/catalog/sync';
 import { resolveAgentCatalog } from '@/catalog';
 import {
     applyWorktreeSelection,
-    agentTypeIfHostDisallows,
     currentDockAgent,
     projectDockOptions,
     resolveDockOption,
@@ -569,7 +568,11 @@ export const HomeDock = React.memo(({
         });
         return () => { cancelled = true; };
     }, [socketStatus.status]);
-    const availableAgents = visibleDockAgents(hostAgentKinds, hostAgentKindsAuthoritative, agentType);
+    // A fresh array each render re-renders the option list forever.
+    const availableAgents = React.useMemo(
+        () => visibleDockAgents(hostAgentKinds, hostAgentKindsAuthoritative, agentType),
+        [hostAgentKinds, hostAgentKindsAuthoritative, agentType],
+    );
     const currentAgent = currentDockAgent(availableAgents, agentType);
     const canSubmit = !isSubmitting && (prompt.trim().length > 0 || selectedImages.length > 0);
     const focusedComposerHeight = selectedImages.length > 0 ? 206 : 126;
@@ -705,11 +708,6 @@ export const HomeDock = React.memo(({
     const selectAgent = React.useCallback((agent: NewSessionAgentType) => {
         setAgentType(agent);
     }, [setAgentType]);
-
-    React.useEffect(() => {
-        const next = agentTypeIfHostDisallows(agentType, hostAgentKinds, hostAgentKindsAuthoritative, availableAgents);
-        if (next !== null) selectAgent(next);
-    }, [agentType, availableAgents, hostAgentKinds, hostAgentKindsAuthoritative, selectAgent]);
 
     type SettingsRow = {
         page: string;

@@ -36,6 +36,21 @@ export function herdrAgentSessionKey(value: HerdrAgentSessionRef): string {
     return JSON.stringify([value.source, value.agent, value.kind, value.value]);
 }
 
+export const MUXR_LAUNCH_SOURCE = 'muxr:launch';
+
+export function muxrLaunchSession(agent: string, launchName: string): HerdrAgentSessionRef {
+    return { source: MUXR_LAUNCH_SOURCE, agent, kind: 'id', value: launchName };
+}
+
+export function isMuxrLaunchSession(ref: HerdrAgentSessionRef): boolean {
+    return ref.source === MUXR_LAUNCH_SOURCE && ref.kind === 'id' && ref.value.length > 0;
+}
+
+/** Only adopt when Herdr published the same kind the launch asked for. */
+export function shouldAdoptPublishedLaunch(pending: HerdrAgentSessionRef, published: HerdrAgentSessionRef): boolean {
+    return isMuxrLaunchSession(pending) && !isMuxrLaunchSession(published) && pending.agent === published.agent;
+}
+
 /** Durable authorization only. Display identity and topology always come from Herdr. */
 export class AgentRouteStore {
     private readonly byRoute = new Map<string, AgentRouteBinding>();
@@ -93,6 +108,23 @@ export class AgentRouteStore {
         this.routeBySession.set(herdrAgentSessionKey(agentSession), route);
         this.persist();
         return { route, created: true };
+    }
+
+    /** Keep the phone's route when a launch generation later publishes its Herdr session. */
+    adopt(from: HerdrAgentSessionRef, to: HerdrAgentSessionRef): { route: string } | undefined {
+        const toRoute = this.route(to);
+        const fromRoute = this.route(from);
+        if (toRoute !== undefined) {
+            if (fromRoute !== undefined && fromRoute !== toRoute) this.remove(fromRoute);
+            return { route: toRoute };
+        }
+        if (fromRoute === undefined) return undefined;
+        this.routeBySession.delete(herdrAgentSessionKey(from));
+        const binding = { route: fromRoute, agentSession: to };
+        this.byRoute.set(fromRoute, binding);
+        this.routeBySession.set(herdrAgentSessionKey(to), fromRoute);
+        this.persist();
+        return { route: fromRoute };
     }
 
     remove(route: string): AgentRouteBinding | undefined {

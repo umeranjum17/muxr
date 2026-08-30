@@ -100,6 +100,38 @@ describe('agent lifecycle request flow', () => {
         });
         expect(JSON.stringify(stale)).not.toMatch(/\/|prompt|pane-|stable-session/);
     });
+
+    it('rejects a start that never published an agent so the journal can keep start-launch-failed', async () => {
+        const cwd = mkdtempSync(join(tmpdir(), 'muxr-start-fail-'));
+        const source = {
+            async start() {
+                return {
+                    acceptance: {
+                        outcome: 'failed',
+                        state: 'failed',
+                        code: 'start-launch-failed',
+                        message: 'Agent could not start.',
+                    },
+                };
+            },
+        } as unknown as SessionSource;
+        const { dispatch } = createRequestDispatcher({
+            source,
+            domain: {} as never,
+            machineId: 'm1',
+            hostVersion: '0.0.0',
+        });
+        const failed = await dispatch({
+            type: 'session.start', requestId: 'fail', params: { cwd, kind: 'pi' },
+        } as never);
+        expect(failed).toEqual({
+            type: 'result',
+            requestId: 'fail',
+            ok: false,
+            error: 'Agent could not start.',
+            code: 'start-launch-failed',
+        });
+    });
 });
 
 describe('session.stop dispatcher flow', () => {
