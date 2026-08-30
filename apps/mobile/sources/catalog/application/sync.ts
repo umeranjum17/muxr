@@ -20,6 +20,7 @@ import {
 } from '@muxr/contract';
 import { decodeBase64, encodeBase64 } from '@/encryption/base64';
 import type { AttachmentPreview } from '../infrastructure/attachmentTypes';
+import { recordSocketReconnect, recordSocketState, recordTrackedRpc } from '../infrastructure/connectionDiagnostics';
 import { Modal } from '@/modal';
 import { Encryption } from '../infrastructure/encryption/encryption';
 import type { DecryptedArtifact } from '../infrastructure/artifactTypes';
@@ -76,15 +77,27 @@ function socketStatusFromClient(state: string): 'connected' | 'connecting' | 'er
 }
 
 function waitUntilClientOpen(client: MuxrClient, timeoutMs: number): Promise<void> {
-    if (client.state === 'open') return Promise.resolve();
-    return new Promise<void>((resolve) => {
-        const timeout = setTimeout(resolve, timeoutMs);
-        const off = client.onStateChange((state) => {
-            if (state === 'open') {
-                clearTimeout(timeout);
-                off();
-                resolve();
-            }
+    if (client.isLive()) return Promise.resolve();
+    // Header can stay `open` after the socket dies without onclose. A new
+    // connect() is what unblocks herdr.tree / terminal.attach.
+    if (client.state === 'open' || client.state === 'stale' || client.state === 'closed') {
+        recordSocketReconnect(client.state, client.isLive());
+        client.connect();
+    }
+    return new Promise<void>((resolve, reject) => {
+        if (client.isLive()) {
+            resolve();
+            return;
+        }
+        const timeout = setTimeout(() => {
+            off();
+            reject(new Error('not connected'));
+        }, timeoutMs);
+        const off = client.onStateChange(() => {
+            if (!client.isLive()) return;
+            clearTimeout(timeout);
+            off();
+            resolve();
         });
     });
 }
@@ -274,6 +287,7 @@ class MuxrSync {
         });
         client.onPluginsInvalidated?.((frame) => reconcilePluginCaches(frame));
         client.onStateChange((state) => {
+            recordSocketState(state, client.isLive());
             storage.getState().setSocketStatus(socketStatusFromClient(state));
             // Events emitted while the socket was down are gone: nothing replays them.
             // Re-open from the host snapshot instead of leaving a stale transcript
@@ -481,7 +495,7 @@ class MuxrSync {
             await this.refreshAccountSession();
             return { workspaces: [], herdrConnected: undefined };
         }
-        const tree = await this.ensureClient().request('herdr.tree', {});
+        const tree = await this.request('herdr.tree', {});
         // Requests can cross when a done frame and a newer working frame arrive
         // close together. Only the latest canonical read may update the UI.
         if (request === this.herdrTreeRequest) storage.getState().applyHerdrTree(tree.workspaces);
@@ -502,7 +516,7 @@ class MuxrSync {
             return;
         }
         const client = this.ensureClient();
-        if (client.state !== 'open') await waitUntilClientOpen(client, 5000);
+        if (!client.isLive()) await waitUntilClientOpen(client, 5000);
         const [machines, sessions, attention, lifecycle, tree] = await Promise.all([
             client.request('machines.list', {}),
             client.request('session.list', {}),
@@ -645,9 +659,10 @@ class MuxrSync {
         const previews = options?.attachments ?? [];
         if (text.trim().length === 0 && previews.length === 0) return;
         if (storage.getState().sessions[sessionId]?.metadata?.promptable !== true) {
-            throw new Error('Agent is not ready yet');
+            const error = Object.assign(new Error('Agent is not ready yet'), { code: 'agent-not-ready' });
+            recordTrackedRpc('session.prompt', { ok: false, error }, 0);
+            throw error;
         }
-        const client = this.ensureClient();
         // No optimistic echo: the host emits message.append for the prompt, so the
         // transcript fold owns ordering and there is nothing to reconcile.
         // Steer, don't follow up: a message typed mid-turn is a correction, so it
@@ -658,7 +673,7 @@ class MuxrSync {
             {
                 markSent: (agentRoute) => storage.getState().updateSession(agentRoute, { lastMessageSentAt: Date.now() }),
                 attachments: () => toPromptAttachments(previews),
-                deliver: ({ agentRoute, text: prompt, streamingBehavior, attachments }) => client.request('session.prompt', {
+                deliver: ({ agentRoute, text: prompt, streamingBehavior, attachments }) => this.request('session.prompt', {
                     sessionId: agentRoute,
                     text: prompt,
                     streamingBehavior,
@@ -710,22 +725,29 @@ class MuxrSync {
         params: import('@muxr/contract').RequestParams<T>,
         timeoutMs?: number,
     ): Promise<import('@muxr/contract').RequestResult<T>> {
-        const client = this.ensureClient();
-        if (client.state !== 'open') {
-            // Cold starts (deep links, app relaunch straight into a session)
-            // raced the socket: requests fired while it was still connecting
-            // and failed with 'not connected'. Wait it out; the request's own
-            // timeout still bounds a relay that never comes up.
-            await waitUntilClientOpen(client, 10_000);
+        const started = Date.now();
+        try {
+            const client = this.ensureClient();
+            if (!client.isLive()) {
+                // Cold starts and a header that still says connected while the
+                // socket is dead both used to throw 'not connected' immediately.
+                await waitUntilClientOpen(client, 10_000);
+            }
+            const request = () => client.request(type, params, timeoutMs);
+            const data = type === 'plugin.call' || type === 'plugin.invoke'
+                ? await pluginExecutionGate.run(
+                    (params as import('@muxr/contract').RequestParams<'plugin.call'> | import('@muxr/contract').RequestParams<'plugin.invoke'>).pluginId,
+                    request,
+                ) as import('@muxr/contract').RequestResult<T>
+                : type === 'pane.read'
+                    ? await paneReadGate.run(request)
+                    : await request();
+            recordTrackedRpc(type, { ok: true }, Date.now() - started);
+            return data;
+        } catch (error) {
+            recordTrackedRpc(type, { ok: false, error }, Date.now() - started);
+            throw error;
         }
-        const request = () => client.request(type, params, timeoutMs);
-        if (type === 'plugin.call' || type === 'plugin.invoke') {
-            const pluginId = (params as import('@muxr/contract').RequestParams<'plugin.call'> | import('@muxr/contract').RequestParams<'plugin.invoke'>).pluginId;
-            return pluginExecutionGate.run(pluginId, request) as Promise<import('@muxr/contract').RequestResult<T>>;
-        }
-        return type === 'pane.read'
-            ? paneReadGate.run(request)
-            : request();
     }
 
     /**

@@ -56,6 +56,7 @@ vi.stubGlobal('WebSocket', FakeWebSocket);
 vi.stubGlobal('fetch', mocks.fetch);
 
 import { openTerminal } from './OpenTerminal';
+import { readConnectionDiagnostics, resetConnectionDiagnostics } from '@/catalog/infrastructure/connectionDiagnostics';
 
 describe('openTerminal reconnect ownership', () => {
     beforeEach(() => {
@@ -68,6 +69,7 @@ describe('openTerminal reconnect ownership', () => {
             json: async () => ({ ticket: 'pwt-test', expires_in: 60 }),
         });
         FakeWebSocket.instances.length = 0;
+        resetConnectionDiagnostics();
     });
 
     afterEach(() => {
@@ -80,6 +82,9 @@ describe('openTerminal reconnect ownership', () => {
             .rejects.toThrow('terminal: relay ticket required');
         expect(mocks.request).not.toHaveBeenCalled();
         expect(FakeWebSocket.instances).toHaveLength(0);
+        expect(readConnectionDiagnostics()).toEqual(expect.arrayContaining([
+            expect.objectContaining({ event: 'terminal.channel', phase: 'attach', code: 'ticket-required' }),
+        ]));
     });
 
     it('replays the first paint when it arrives before the native view subscribes', async () => {
@@ -150,6 +155,12 @@ describe('openTerminal reconnect ownership', () => {
         expect(replacement.close).toHaveBeenCalledTimes(1);
 
         channel.close();
+        expect(readConnectionDiagnostics()).toEqual(expect.arrayContaining([
+            expect.objectContaining({ event: 'terminal.channel', phase: 'attach', outcome: 'ok' }),
+            expect.objectContaining({ event: 'terminal.channel', phase: 'socket-open', outcome: 'ok' }),
+            expect.objectContaining({ event: 'terminal.channel', phase: 'live', outcome: 'ok' }),
+            expect.objectContaining({ event: 'terminal.channel', phase: 'reconnecting', outcome: 'ok' }),
+        ]));
     });
 });
 

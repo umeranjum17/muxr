@@ -15,6 +15,7 @@ export type DiagnosticBrokerOperation = 'list' | 'read' | 'status' | 'watch' | '
 export type DiagnosticPeerConnectionPhase = 'grant-refresh' | 'ticket-issue' | 'socket-open' | 'liveness-proof';
 export type DiagnosticPeerIngressOutcome = 'received' | 'decrypt-rejected' | 'decoded';
 export type DiagnosticRealtimePromptOutcome = 'queued' | 'rejected' | 'failed';
+export type DiagnosticReadinessGate = 'ready' | 'starting' | 'not-interactive' | 'unbound' | 'no-agent';
 
 
 type ClientCounts = Record<DiagnosticClientKind, number>;
@@ -30,7 +31,7 @@ export type HostDiagnosticEvent =
     | { at: string; event: 'peer.ingress'; direction: 'inbound'; outcome: DiagnosticPeerIngressOutcome }
     | { at: string; event: 'peer.broker'; operation: DiagnosticBrokerOperation; outcome: DiagnosticOutcome; durationMs: number; code?: string }
     | { at: string; event: 'realtime.prompt'; provider: string; action: 'prompt'; requestedAgentName: string; resolvedAgentName: string | null; outcome: DiagnosticRealtimePromptOutcome }
-    | { at: string; event: 'agent.readiness'; reason: 'starting' | 'ready' | 'not-promptable'; promptable: boolean };
+    | { at: string; event: 'agent.readiness'; reason: 'starting' | 'ready' | 'not-promptable'; promptable: boolean; kind?: string; lifecycle?: string; gate?: DiagnosticReadinessGate };
 
 interface HostDiagnosticState {
     version: 1;
@@ -57,6 +58,8 @@ const safeCodes = new Set([
     'ticket-required', 'ticket-invalid', 'local-identity-invalid',
     'device-revoked', 'ticket-scope-mismatch', 'preview-bridge-required',
     'agent-not-ready', 'timeout', 'unavailable',
+    'not-connected', 'connection-lost', 'client-closed', 'request-timeout',
+    'dead-socket', 'stale', 'disconnected', 'takeover',
 ]);
 const loggedRequests = new Set<RequestType>([
     'machines.list', 'herdr.tree', 'terminal.attach', 'terminal.detach',
@@ -64,6 +67,28 @@ const loggedRequests = new Set<RequestType>([
     'peer.prepare', 'peer.authorize', 'peer.install', 'peer.list', 'peer.revoke',
     'peer.remote.list', 'peer.remote.read', 'peer.remote.status', 'peer.remote.watch', 'peer.remote.prompt', 'peer.remote.start',
 ]);
+
+function safeAgentKind(value: string | undefined): string | undefined {
+    if (value === undefined) return undefined;
+    const kind = value.normalize('NFKC').trim().toLowerCase();
+    if (kind === 'shell' || !/^[a-z][a-z0-9._-]{0,31}$/.test(kind)) return undefined;
+    return kind;
+}
+
+function safeLifecycle(value: string | undefined): string | undefined {
+    if (value === 'idle' || value === 'working' || value === 'blocked' || value === 'done'
+        || value === 'failed' || value === 'starting' || value === 'unknown') {
+        return value;
+    }
+    return undefined;
+}
+
+function safeReadinessGate(value: string | undefined): DiagnosticReadinessGate | undefined {
+    if (value === 'ready' || value === 'starting' || value === 'not-interactive' || value === 'unbound' || value === 'no-agent') {
+        return value;
+    }
+    return undefined;
+}
 
 function safeCode(value: string | undefined): string | undefined {
     if (value === undefined) return undefined;
@@ -200,8 +225,23 @@ export class HostDiagnosticsJournal {
         });
     }
 
-    agentReadiness(reason: 'starting' | 'ready' | 'not-promptable', promptable: boolean): void {
-        this.record({ at: this.timestamp(), event: 'agent.readiness', reason, promptable });
+    agentReadiness(
+        reason: 'starting' | 'ready' | 'not-promptable',
+        promptable: boolean,
+        detail?: { kind?: string; lifecycle?: string; gate?: DiagnosticReadinessGate },
+    ): void {
+        const kind = safeAgentKind(detail?.kind);
+        const lifecycle = safeLifecycle(detail?.lifecycle);
+        const gate = safeReadinessGate(detail?.gate);
+        this.record({
+            at: this.timestamp(),
+            event: 'agent.readiness',
+            reason,
+            promptable,
+            ...(kind === undefined ? {} : { kind }),
+            ...(lifecycle === undefined ? {} : { lifecycle }),
+            ...(gate === undefined ? {} : { gate }),
+        });
     }
 
     relationships(peers: Array<{ state: keyof RelationshipCounts }>): void {

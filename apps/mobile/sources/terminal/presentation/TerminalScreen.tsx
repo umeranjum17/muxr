@@ -17,10 +17,11 @@ import { Ionicons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
 import { Modal } from '@/modal';
 import * as Clipboard from 'expo-clipboard';
-import { storage, useSession, useSessionGitStatus, useSessions } from '@/catalog/store';
+import { storage, useHerdrTree, useSession, useSessionGitStatus, useSessions } from '@/catalog/store';
 import { sessionStop } from '@/catalog/ops';
 import { sync } from '@/catalog/sync';
 import { resolveMessageModeMeta } from '@/catalog/infrastructure/messageMeta';
+import { recordAgentGate, recordTrackedRpc } from '@/catalog/infrastructure/connectionDiagnostics';
 import { permissionModeChip, resolveStatusBarGitBranch } from '../domain/sessionStatusBar';
 import { SessionMetaLine } from '@/herd/ui';
 import { HeaderBackButton } from '@/components/navigation/HeaderBackButton';
@@ -29,7 +30,7 @@ import { TerminalView } from './TerminalView';
 import { usePaneGestures } from '../application/usePaneGestures';
 import { AgentGlyph } from '@/components/AgentGlyph';
 import { AnimatedPopup } from '@/components/AnimatedOverlay';
-import { agentAccessibilityLabel, agentLabels, agentNameLine, agentStateLabel, agentStatusColor, isShellLabels } from '@/herd';
+import { agentAccessibilityLabel, agentLabels, agentNameLine, agentStateLabel, agentStatusColor, herdrPaneForSession, isShellLabels } from '@/herd';
 import { terminalPaneCanSend, terminalPaneStatus } from '../domain/promptAvailability';
 import type { TerminalChannel } from '../application/OpenTerminal';
 import { useImagePicker } from '@/hooks/useImagePicker';
@@ -75,6 +76,8 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const keyboardHeight = useKeyboardState().height;
     const session = useSession(props.id);
     const sessions = useSessions();
+    const { workspaces } = useHerdrTree();
+    const storedPane = herdrPaneForSession(workspaces, props.id);
     const gitStatus = useSessionGitStatus(props.id);
     const pluginButtons = useSessionPlugins();
     const [pluginActionBusy, setExtensionActionBusy] = React.useState<string>();
@@ -205,9 +208,32 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     React.useEffect(() => {
         loadSiblings();
     }, [loadSiblings, session?.metadata?.promptable]);
-    const currentTab = tabs.find((tab) => tab.tabId === tabId);
-    const currentPane = currentTab?.panes.find((pane) => pane.sessionId === props.id);
+    const storedWorkspaceTabs = workspaces.find((entry) => entry.workspaceId === session?.metadata?.workspaceId)?.tabs;
+    const currentTab = tabs.find((tab) => tab.tabId === tabId)
+        ?? storedWorkspaceTabs?.find((tab) => tab.tabId === tabId);
+    const fetchedPane = currentTab?.panes.find((pane) => pane.sessionId === props.id);
+    const currentPane = fetchedPane ?? storedPane;
     const panePromptable = currentPane?.promptable === true;
+    const paneKind = currentPane?.agentKind;
+    const paneLifecycle = currentPane?.agentStatus;
+    const paneMissing = currentPane === undefined || isShellLabels(agentLabels(currentPane));
+    React.useEffect(() => {
+        if (paneMissing) {
+            recordAgentGate({
+                ...(paneKind === undefined ? {} : { kind: paneKind }),
+                lifecycle: paneLifecycle,
+                promptable: false,
+                gate: 'missing',
+            });
+            return;
+        }
+        recordAgentGate({
+            ...(paneKind === undefined ? {} : { kind: paneKind }),
+            lifecycle: paneLifecycle,
+            promptable: panePromptable,
+            gate: panePromptable ? 'ready' : paneLifecycle === 'starting' ? 'starting' : 'not-interactive',
+        });
+    }, [paneKind, paneLifecycle, paneMissing, panePromptable]);
 
     // Transient hint so a gesture that found no neighbour doesn't feel dead.
     const [gestureHint, setGestureHint] = React.useState<string | null>(null);
@@ -274,6 +300,10 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     // chips and are appended once, at send.
     const sendPrompt = React.useCallback(() => {
         if (!panePromptable) {
+            recordTrackedRpc('session.prompt', {
+                ok: false,
+                error: Object.assign(new Error('Agent is not ready yet'), { code: 'agent-not-ready' }),
+            }, 0);
             Modal.alert('Not ready', 'Agent is not ready yet');
             return;
         }

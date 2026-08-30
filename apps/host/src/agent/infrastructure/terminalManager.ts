@@ -54,7 +54,7 @@ export class TerminalManager {
         takeover?: boolean;
     }): Promise<{ paneId: string }> {
         if (this.hosted !== undefined && (params.deviceId === undefined || this.options.hostedE2ee?.ingressKeys[params.deviceId] === undefined)) {
-            throw new Error('terminal: hosted attach requires an active device grant');
+            throw Object.assign(new Error('terminal: hosted attach requires an active device grant'), { code: 'e2ee-required' });
         }
         const paneId = await this.options.resolvePane(params.sessionId);
         if ((params.mode ?? 'control') !== 'control') return this.attachNow(params, paneId);
@@ -89,7 +89,7 @@ export class TerminalManager {
                 attachment.mode === 'control' && attachment.paneId === paneId,
             );
             if (controller !== undefined && controller.deviceId !== params.deviceId && params.takeover !== true) {
-                throw new Error('terminal: pane is controlled by another device; explicit takeover required');
+                throw Object.assign(new Error('terminal: pane is controlled by another device; explicit takeover required'), { code: 'takeover' });
             }
         }
 
@@ -116,7 +116,7 @@ export class TerminalManager {
         await new Promise<void>((resolve, reject) => {
             const timer = setTimeout(() => {
                 socket.close();
-                reject(new Error('terminal: relay did not accept the channel'));
+                reject(Object.assign(new Error('terminal: relay did not accept the channel'), { code: 'socket-timeout' }));
             }, ATTACH_TIMEOUT_MS);
             socket.once('open', () => {
                 clearTimeout(timer);
@@ -161,7 +161,7 @@ export class TerminalManager {
                 cleanup();
                 socket.close();
                 process.stderr.write(`terminal: could not start ${herdr}: ${error.message}\n`);
-                reject(new Error(`terminal: could not start Herdr: ${error.message}`));
+                reject(Object.assign(new Error(`terminal: could not start Herdr: ${error.message}`), { code: 'unavailable' }));
             };
             child.once('spawn', onSpawn);
             child.once('error', onError);
