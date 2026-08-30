@@ -276,6 +276,13 @@ function sessionFence(agent) {
     return { source, key: `${source}\0${kind}\0${value}` };
 }
 
+function generationFence(agent) {
+    const session = sessionFence(agent);
+    if (session !== undefined) return session.key;
+    const seq = seqOf(agent);
+    return seq !== undefined ? `seq:${seq}` : 'none';
+}
+
 function seqOf(agent) {
     if (Number.isInteger(agent?.state_change_seq)) return agent.state_change_seq;
     if (Number.isInteger(agent?.revision)) return agent.revision;
@@ -287,21 +294,17 @@ try {
     ensureAgentName(run, paneId);
     const agent = readAgent(paneId);
     if (agent === undefined || !needsTaskTitle(agent)) process.exit(0);
-    const origin = sessionFence(agent);
-    if (origin === undefined) process.exit(0);
+    const origin = generationFence(agent);
 
     const text = run(['pane', 'read', paneId, '--source', 'recent-unwrapped', '--lines', '60']);
-    if (text.trim().length < 80) process.exit(0);
-
     const provider = kindName(agent.agent);
-    const title = await ask(agent.agent, provider, `Below is terminal output from a coding agent. Reply with exactly 2 to 4 words in Title Case naming only the feature or task. Do not use tools. Do not include the agent/provider name, quotes, punctuation, commands, paths, or explanation.\n\n${text.slice(-2500)}`)
-        ?? terminalFeature(agent)
+    const title = terminalFeature(agent)
+        ?? await ask(agent.agent, provider, `Below is terminal output from a coding agent. Reply with exactly 2 to 4 words in Title Case naming only the feature or task. Do not use tools. Do not include the agent/provider name, quotes, punctuation, commands, paths, or explanation.\n\n${text.slice(-2500)}`)
         ?? formatTitle(provider, fallbackFeature(text));
     if (title === undefined) process.exit(0);
 
     const current = readAgent(paneId);
-    const fence = sessionFence(current);
-    if (current === undefined || fence === undefined || fence.key !== origin.key) process.exit(0);
+    if (current === undefined || generationFence(current) !== origin) process.exit(0);
     if (typeof current.agent !== 'string' || current.agent.trim() === '') process.exit(0);
     if (!needsTaskTitle(current)) process.exit(0);
 

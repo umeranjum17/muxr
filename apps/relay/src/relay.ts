@@ -980,7 +980,7 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
             rejectConnection(1008, 'origin not allowed');
             return;
         }
-        const identity = await admitSocketFromUrl({
+        const admitted = await admitSocketFromUrl({
             url,
             authMode,
             remoteAddress: req.socket.remoteAddress,
@@ -994,11 +994,12 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
                 }),
         });
 
-        if (!identity) {
-            process.stderr.write('rejected unauthorized WebSocket\n');
+        if (!admitted.ok) {
+            logUnauthorizedReject(admitted.reason, websocketTransport(url.pathname));
             rejectConnection(1008, 'unauthorized');
             return;
         }
+        const identity = admitted.identity;
         if (config.localAuthority && localPairing !== undefined && admittedByTicket(identity)
             && identity.deviceId !== undefined && !(await localPairing.isDeviceActive(identity.deviceId, identity.credentialVersion))) {
             rejectConnection(1008, 'revoked');
@@ -1255,6 +1256,26 @@ function webSocketOriginAllowed(req: import('node:http').IncomingMessage, config
     const origin = req.headers.origin;
     if (origin === undefined || (!config.publicEdge && config.allowedOrigins.size === 0)) return true;
     return typeof origin === 'string' && config.allowedOrigins.has(origin);
+}
+
+const unauthorizedRejectLog = { key: '', at: 0, n: 0 };
+
+function logUnauthorizedReject(reason: string, transport: 'preview' | 'terminal' | 'stream' | 'relay'): void {
+    const key = `${reason}:${transport}`;
+    const now = Date.now();
+    if (unauthorizedRejectLog.key === key && now - unauthorizedRejectLog.at < 5_000) {
+        unauthorizedRejectLog.n += 1;
+        return;
+    }
+    if (unauthorizedRejectLog.n > 1) {
+        process.stderr.write(
+            `rejected unauthorized WebSocket reason=${unauthorizedRejectLog.key} repeats=${unauthorizedRejectLog.n}\n`,
+        );
+    }
+    process.stderr.write(`rejected unauthorized WebSocket reason=${reason} transport=${transport}\n`);
+    unauthorizedRejectLog.key = key;
+    unauthorizedRejectLog.at = now;
+    unauthorizedRejectLog.n = 1;
 }
 
 function websocketTransport(pathname: string): 'preview' | 'terminal' | 'stream' | 'relay' {

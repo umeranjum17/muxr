@@ -1,6 +1,6 @@
 id = "muxr.pane-titler"
 name = "Pane titler"
-version = "0.1.4"
+version = "0.1.5"
 min_herdr_version = "0.8.0"
 platforms = ["linux", "macos"]
 description = "Preserves Agent Names and derives Task Titles through each detected provider's own ACP or CLI"

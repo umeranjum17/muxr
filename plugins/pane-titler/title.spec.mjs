@@ -253,5 +253,15 @@ process.stdin.on('end', () => {
         expect(replaced.herdr.some((entry) => entry[0] === 'pane' && entry[1] === 'report-metadata')).toBe(false);
         expect(replaced.herdr.some((entry) => entry[0] === 'pane' && entry[1] === 'rename')).toBe(false);
         expect(replaced.herdr.flat().join(' ')).not.toContain('generation-c');
+
+        const noSession = runTitler({
+            pane_id: 'pane',
+            name: 'fox',
+            agent: 'opencode',
+            title: 'OpenCode',
+            state_change_seq: 8,
+        });
+        expectTitleOnlyMetadata(noSession.herdr, 8, 'opencode');
+        expect(noSession.herdr.some((entry) => entry[0] === 'pane' && entry[1] === 'rename')).toBe(false);
     });
 });

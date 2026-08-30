@@ -3,7 +3,6 @@ import {
     newRealtimeChannel,
     parseRealtimeClientFrame,
     parseRealtimeHostFrame,
-    realtimeSocketUrl,
     ticketSocketUrl,
     type Envelope,
     type PluginStreamCapability,
@@ -128,30 +127,20 @@ export async function openPluginStream(
     if (getCachedConnectionSettings().machineId !== snapshot.machineId) throw new Error('End voice before switching computers.');
 
     const relayUrl = snapshot.relayUrl;
-    const url = grant !== undefined
-        ? ticketSocketUrl(relayUrl, await issueWsTicket({
-            relayUrl,
-            credential: grant.credential,
-            machineId: snapshot.machineId,
-            role: 'client',
-            transport: 'stream',
-            channel,
-        }), 'stream')
-        : snapshot.token === '' || snapshot.token.startsWith('acctok_')
-          ? realtimeSocketUrl(relayUrl, {
-              machineId: snapshot.machineId,
-              channel,
-              role: 'client',
-              ...(snapshot.token === '' ? {} : { token: snapshot.token }),
-          })
-          : ticketSocketUrl(relayUrl, await issueWsTicket({
-              relayUrl,
-              credential: snapshot.token,
-              machineId: snapshot.machineId,
-              role: 'client',
-              transport: 'stream',
-              channel,
-          }), 'stream');
+    const ticketInput = grant !== undefined
+        ? { credential: grant.credential }
+        : snapshot.token !== '' && !snapshot.token.startsWith('acctok_')
+            ? { credential: snapshot.token }
+            : undefined;
+    if (ticketInput === undefined) throw new Error('stream: relay ticket required');
+    const url = ticketSocketUrl(relayUrl, await issueWsTicket({
+        relayUrl,
+        credential: ticketInput.credential,
+        machineId: snapshot.machineId,
+        role: 'client',
+        transport: 'stream',
+        channel,
+    }), 'stream');
 
     const frameListeners = new Set<(frame: RealtimeHostFrame) => void>();
     const closeListeners = new Set<(reason?: string) => void>();

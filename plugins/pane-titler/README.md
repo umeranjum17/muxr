@@ -7,12 +7,15 @@ Owns two Herdr fields and nothing else.
   `herdr agent rename`. Every public name is left alone.
   `display_agent` is never identity and is never written.
 - **Task Title** is Herdr `AgentInfo.title`. When that title is missing,
-  generated chrome, or semantically equal to `name`, this plugin derives a
-  bounded 2–4 word title from the current generation's output and writes it
-  with `herdr pane report-metadata` (`--source muxr.pane-titler.v3`,
+  generated chrome, or semantically equal to `name`, this plugin prefers the
+  provider's own terminal title, then a bounded 2–4 word title from the
+  current generation's output, and writes it with
+  `herdr pane report-metadata` (`--source muxr.pane-titler.v3`,
   `--agent` = current Agent Kind, `--seq` when Herdr exposes
-  `state_change_seq` or `revision`, `--title` only). It never uses
-  `pane rename` or `tab rename`.
+  `state_change_seq` or `revision`, `--title` only). A missing
+  `agent_session` no longer skips the write; the current pane generation is
+  fenced with session identity when present, otherwise revision/seq.
+  It never uses `pane rename` or `tab rename`.
 - Provider `agent` and optional `display_agent` stay untouched.
 
 ## What appears in muxr
@@ -29,7 +32,7 @@ After that, `pane.agent_status_changed` preserves every public Herdr Agent Name
 and applies the same backfill to new agents. It reads current `AgentInfo`,
 about 60 lines of current scrollback, and recomputes a Task Title only while
 `title` is missing, generated chrome, or equal to `name`. Immediately before
-`report-metadata` it re-reads the agent session; a replaced generation does not
+`report-metadata` it re-reads the agent; a replaced generation does not
 receive the previous output's title. Herdr's `--agent` guard keeps the title
 visible after lifecycle authority becomes idle while rejecting a different
 Agent Kind.

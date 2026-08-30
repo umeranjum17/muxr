@@ -3,6 +3,7 @@ export {
     admitSocketFromUrl,
     extractBearerToken,
     type AdmitSocketCommand,
+    type AdmitSocketReason,
     type AdmitSocketResult,
 } from './application/admitSocket.js';
 export {
