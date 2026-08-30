@@ -146,12 +146,10 @@ Verify a downloaded APK with `sha256sum --ignore-missing -c SHA256SUMS`, then ru
 
 muxr connects to sessions [Herdr](https://github.com/herdrdev/herdr) already runs. Your CLIs, subscriptions, configuration, skills, and MCP servers stay as they are. muxr never edits agent instruction files; load the compact `muxr --skill`, then request one focused topic with `muxr skill <topic>` only when needed.
 
-<p>
-  <img src="docs/agents/icons/pi-badge.svg" width="28" alt="Pi" title="Pi" />
-  <img src="docs/agents/icons/omp-badge.svg" width="28" alt="OMP (Oh My Pi)" title="OMP (Oh My Pi)" />
+<p align="center">
+  <img src="docs/agents/icons/agent-grid-light.svg#gh-light-mode-only" width="760" alt="Pi, OMP, Claude Code, Codex, Gemini CLI, Cursor, OpenCode, GitHub Copilot CLI, Kimi Code, Grok, Hermes Agent, Amp, Factory Droid, Devin, Cline, Kiro, Kilo Code, Qoder CLI, Antigravity, MastraCode, Maki, and Shell" />
+  <img src="docs/agents/icons/agent-grid-dark.svg#gh-dark-mode-only" width="760" alt="Pi, OMP, Claude Code, Codex, Gemini CLI, Cursor, OpenCode, GitHub Copilot CLI, Kimi Code, Grok, Hermes Agent, Amp, Factory Droid, Devin, Cline, Kiro, Kilo Code, Qoder CLI, Antigravity, MastraCode, Maki, and Shell" />
 </p>
-
-Pi · OMP · Claude Code · Codex · Gemini CLI · Cursor · OpenCode · GitHub Copilot CLI · Kimi Code · Grok · Hermes Agent · Amp · Factory Droid · Devin · Cline · Kiro · Kilo Code · Qoder CLI · Antigravity · MastraCode · Maki
 
 ## Extensions
 

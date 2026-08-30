@@ -124,7 +124,7 @@ const stylesheet = StyleSheet.create((theme) => ({
     agentPressable: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 10,
+        gap: 9,
         minHeight: 56,
         paddingVertical: 8,
     },
@@ -163,7 +163,7 @@ const stylesheet = StyleSheet.create((theme) => ({
     separator: {
         height: StyleSheet.hairlineWidth,
         backgroundColor: theme.colors.divider,
-        marginLeft: 58,
+        marginLeft: 43,
     },
     empty: {
         paddingHorizontal: 16,
@@ -211,7 +211,9 @@ const AgentRow = React.memo(({
     const dot = agentStatusColor(pane.agentStatus, theme);
     const labels = agentLabels(pane);
     const sessionId = pane.sessionId;
-    const subtitle = agentIdentityLine(labels);
+    const shell = labels.agentKind === undefined && labels.agentName === 'Shell';
+    const title = shell ? 'Shell' : labels.taskTitle;
+    const subtitle = shell ? 'Terminal' : agentIdentityLine(labels);
 
     return (
         <View style={[styles.agentRow, compact && styles.agentRowCompact]}>
@@ -229,11 +231,11 @@ const AgentRow = React.memo(({
                 android_ripple={{ color: theme.colors.surfaceRipple, foreground: true }}
                 accessibilityRole="button"
                 accessibilityState={{ selected }}
-                accessibilityLabel={[`Open ${labels.taskTitle}`, labels.agentName, labels.displayAgent].filter(Boolean).join(', ')}
+                accessibilityLabel={[`Open ${title}`, subtitle].filter(Boolean).join(', ')}
             >
-                <AgentGlyph name={labels.agentKind ?? ''} size={compact ? 28 : 32} />
+                <AgentGlyph name={shell ? 'shell' : labels.agentKind ?? labels.agentName} size={16} />
                 <View style={styles.agentText}>
-                    <Text numberOfLines={1} style={[styles.agentName, compact && styles.agentNameCompact]}>{labels.taskTitle}</Text>
+                    <Text numberOfLines={1} style={[styles.agentName, compact && styles.agentNameCompact]}>{title}</Text>
                     <Text numberOfLines={1} style={[styles.agentSubtitle, compact && styles.agentSubtitleCompact]}>{subtitle}</Text>
                 </View>
                 <StatusDot color={dot.color} isPulsing={dot.pulsing} size={7} />
@@ -296,7 +298,7 @@ const WorkspaceCard = React.memo(({
                 <Text numberOfLines={1} style={[styles.cardTitle, compact && styles.cardTitleCompact]}>
                     {workspaceName(workspace)}
                 </Text>
-                {!compact && branch !== undefined && (
+                {branch !== undefined && (
                     <View style={styles.branchPill}>
                         <Text numberOfLines={1} style={styles.branchPillText}>{branch}</Text>
                     </View>

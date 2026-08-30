@@ -153,6 +153,7 @@ const PaneTile = React.memo((props: { pane: HerdrTreePane; style: object; router
     const color = agentStatusColor(status, theme).color;
     const hasSession = pane.sessionId !== undefined;
     const labels = agentLabels(pane);
+    const shell = labels.agentKind === undefined && labels.agentName === 'Shell';
 
     return (
         <Pressable
@@ -177,25 +178,25 @@ const PaneTile = React.memo((props: { pane: HerdrTreePane; style: object; router
                     <TerminalPreview sessionId={pane.sessionId as string} />
                 ) : (
                     <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-                        <Text style={{ color: '#666666', fontSize: 13 }}>{labels.agentName}</Text>
+                        <Text style={{ color: '#666666', fontSize: 13 }}>{shell ? 'Shell' : labels.taskTitle}</Text>
                     </View>
                 )}
             </View>
             <View style={{ paddingHorizontal: 8, paddingVertical: 5, gap: 1, backgroundColor: theme.colors.surface }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
                     <StatusDot color={color} isPulsing={status === 'working' || status === 'blocked'} size={7} />
+                    <AgentGlyph name={shell ? 'shell' : labels.agentKind ?? labels.agentName} size={16} />
                     <Text numberOfLines={1} style={{ color: theme.colors.text, fontSize: 12, fontWeight: '600', flexShrink: 1 }}>
-                        {labels.taskTitle}
+                        {shell ? 'Shell' : labels.taskTitle}
                     </Text>
-                    {labels.agentKind !== undefined && <>
-                        <AgentGlyph name={labels.agentKind} size={14} />
+                    {labels.agentKind !== undefined &&
                         <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 9, fontWeight: '600' }}>
                             {agentKindLabel(labels.agentKind)}
                         </Text>
-                    </>}
+                    }
                 </View>
                 <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 10, textTransform: 'capitalize' }}>
-                    {agentNameLine(labels)}
+                    {shell ? 'Terminal' : agentNameLine(labels)}
                 </Text>
             </View>
         </Pressable>

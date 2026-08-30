@@ -30,7 +30,7 @@ import { usePaneGestures } from '../application/usePaneGestures';
 import { StatusDot } from '@/components/StatusDot';
 import { AgentGlyph } from '@/components/AgentGlyph';
 import { AnimatedPopup } from '@/components/AnimatedOverlay';
-import { agentKindLabel, agentLabels, agentNameLine, agentStatusColor } from '@/herd';
+import { agentAccessibilityLabel, agentKindLabel, agentLabels, agentNameLine, agentStateLabel, agentStatusColor } from '@/herd';
 import { terminalPaneCanSend, terminalPaneStatus } from '../domain/promptAvailability';
 import type { TerminalChannel } from '../application/OpenTerminal';
 import { useImagePicker } from '@/hooks/useImagePicker';
@@ -252,7 +252,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
 
     React.useEffect(() => {
         const subscription = AppState.addEventListener('change', (next) => {
-            if (next === 'active') channelRef.current?.repaint();
+            if (next === 'active') channelRef.current?.reconnect();
         });
         return () => subscription.remove();
     }, []);
@@ -376,7 +376,8 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const linesRemoved = gitStatus !== null && gitStatus.linesRemoved > 0 ? `−${gitStatus.linesRemoved}` : null;
     const hasStatusRow = branch !== null || linesAdded !== null || linesRemoved !== null || permission !== null;
     const labels = agentLabels(currentPane);
-    const contextTitle = labels.taskTitle;
+    const shell = labels.agentKind === undefined && labels.agentName === 'Shell';
+    const contextTitle = shell ? 'Shell' : labels.taskTitle;
     const headerDot = agentStatusColor(terminalPaneStatus(currentPane), theme);
     const paneIndex = siblings.indexOf(props.id);
     const showConnectingStatus = status !== 'live' && gestureHint === null && status === 'connecting';
@@ -423,7 +424,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                 <HeaderBackButton onPress={() => router.back()} style={{ marginLeft: -6 }} />
                 <Pressable onPress={() => hasOverlay && setTreeOpen(true)} disabled={!hasOverlay} hitSlop={6} accessibilityRole="button" accessibilityLabel={overlayLabel} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, minWidth: 0, paddingVertical: 4 }}>
                     <StatusDot color={headerDot.color} isPulsing={headerDot.pulsing} size={7} />
-                    {labels.agentKind !== undefined && <AgentGlyph name={labels.agentKind} size={18} />}
+                    <AgentGlyph name={shell ? 'shell' : labels.agentKind ?? labels.agentName} size={18} />
                     <View style={{ flex: 1, minWidth: 0 }}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
                             <Text numberOfLines={1} style={{ flex: 1, color: theme.colors.text, fontSize: 13, fontWeight: '600' }}>
@@ -434,7 +435,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                             </Text>}
                         </View>
                         <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 11 }}>
-                            {agentNameLine(labels)}
+                            {shell ? 'Terminal' : agentNameLine(labels)}
                         </Text>
                     </View>
                     {paneIndex !== -1 && siblings.length > 1 && (
@@ -620,8 +621,55 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                 )}
             </View>
 
-            {canControl && <View onLayout={(event) => setBottomBlockHeight(event.nativeEvent.layout.height)}>
-            <View style={{ minHeight: 52, flexDirection: 'row', alignItems: 'center', backgroundColor: theme.colors.surface }}>
+            {canControl && <View onLayout={(event) => setBottomBlockHeight(event.nativeEvent.layout.height)} style={{ backgroundColor: theme.colors.surface, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.divider }}>
+            {siblings.length > 1 && (
+                <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    keyboardShouldPersistTaps="always"
+                    style={{ maxHeight: 44, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider }}
+                    contentContainerStyle={{ alignItems: 'center', paddingHorizontal: 8 }}
+                >
+                    {siblings.map((siblingId) => {
+                        const siblingPane = currentTab?.panes.find((pane) => pane.sessionId === siblingId);
+                        const siblingLabels = agentLabels(siblingPane);
+                        const siblingShell = siblingLabels.agentKind === undefined && siblingLabels.agentName === 'Shell';
+                        const siblingStatus = terminalPaneStatus(siblingPane);
+                        const siblingDot = agentStatusColor(siblingStatus, theme);
+                        const active = siblingId === props.id;
+                        return (
+                            <Pressable
+                                key={siblingId}
+                                onPress={active ? undefined : () => router.replace(`/session/${encodeURIComponent(siblingId)}`)}
+                                accessibilityRole="button"
+                                accessibilityLabel={`${active ? 'Current' : 'Open'} ${siblingShell
+                                    ? `Shell. ${agentStateLabel(siblingStatus)}. Terminal`
+                                    : agentAccessibilityLabel(siblingLabels, siblingStatus)}`}
+                                accessibilityState={{ selected: active }}
+                                style={({ pressed }) => ({
+                                    minHeight: 44,
+                                    maxWidth: 180,
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    gap: 6,
+                                    paddingHorizontal: 9,
+                                    borderBottomWidth: 2,
+                                    borderBottomColor: active ? theme.colors.accent : 'transparent',
+                                    backgroundColor: active ? theme.colors.surfaceSelected : 'transparent',
+                                    opacity: pressed ? 0.65 : 1,
+                                })}
+                            >
+                                <AgentGlyph name={siblingShell ? 'shell' : siblingLabels.agentKind ?? siblingLabels.agentName} size={16} />
+                                <Text numberOfLines={1} style={{ flexShrink: 1, color: active ? theme.colors.text : theme.colors.textSecondary, fontSize: 11, fontWeight: active ? '600' : '400' }}>
+                                    {siblingShell ? 'Shell' : siblingLabels.taskTitle}
+                                </Text>
+                                <StatusDot color={siblingDot.color} isPulsing={siblingDot.pulsing} size={6} />
+                            </Pressable>
+                        );
+                    })}
+                </ScrollView>
+            )}
+            <View style={{ minHeight: 52, flexDirection: 'row', alignItems: 'center' }}>
                 <ScrollView
                     horizontal
                     showsHorizontalScrollIndicator={false}
@@ -638,7 +686,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                     horizontal
                     showsHorizontalScrollIndicator={false}
                     keyboardShouldPersistTaps="always"
-                    style={{ maxHeight: 40, backgroundColor: theme.colors.surface }}
+                    style={{ maxHeight: 40, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.divider }}
                     contentContainerStyle={{ alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingBottom: 6 }}
                 >
                     {attachedPaths.map((path) => (
@@ -675,6 +723,8 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                     paddingVertical: 8,
                     paddingBottom: (keyboardVisible ? 0 : insets.bottom) + 8,
                     backgroundColor: theme.colors.surface,
+                    borderTopWidth: StyleSheet.hairlineWidth,
+                    borderTopColor: theme.colors.divider,
                 }}
             >
                 <Pressable onPress={attachPhotos} hitSlop={8} disabled={attaching || !panePromptable} accessibilityRole="button" accessibilityLabel="Add attachment" accessibilityState={{ disabled: attaching || !panePromptable }} style={{ opacity: panePromptable ? 1 : 0.4 }}>

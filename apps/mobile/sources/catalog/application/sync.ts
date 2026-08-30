@@ -208,6 +208,9 @@ async function toPromptAttachments(previews: readonly AttachmentPreview[]): Prom
 
 class MuxrSync {
     private client: MuxrClient | undefined;
+    private lifecycleWork: Promise<void> = Promise.resolve();
+    private reconnectWork: Promise<void> | undefined;
+    private resumeWork: Promise<void> | undefined;
     private credentials: AuthCredentials | undefined;
     private accountValidation: Promise<AccountSessionState> | undefined;
     private pendingShell = new Map<string, (outcome: ShellOutcome) => void>();
@@ -510,6 +513,7 @@ class MuxrSync {
             }),
             this.refreshHerdTree().catch(() => undefined),
         ]);
+        if (client !== this.client) return;
         storage.getState().applyMachines(machines.map((machine) =>
             machineInfoToMachine(machine, getCachedHostedGrant(machine.machineId)?.machineName)
         ), true);
@@ -730,15 +734,44 @@ class MuxrSync {
      * restarts, which is the whole reason the screen exists.
      */
     async reconnect(): Promise<void> {
-        this.client?.close();
-        this.client = undefined;
-        storage.getState().setSocketStatus(this.hasTransport() ? 'connecting' : 'disconnected');
-        const settings = this.getConnection();
-        watchAgentLifecycle(
-            { authority: this.anonID, machineId: settings.machineId },
-            { setScope: (scope) => storage.getState().setLifecycleScope(scope) },
-        );
-        await this.refreshCatalog();
+        if (this.reconnectWork !== undefined) return this.reconnectWork;
+        const work = this.enqueueLifecycle(async () => {
+            this.client?.close();
+            this.client = undefined;
+            storage.getState().setSocketStatus(this.hasTransport() ? 'connecting' : 'disconnected');
+            const settings = this.getConnection();
+            watchAgentLifecycle(
+                { authority: this.anonID, machineId: settings.machineId },
+                { setScope: (scope) => storage.getState().setLifecycleScope(scope) },
+            );
+            await this.refreshCatalog();
+        });
+        this.reconnectWork = work.finally(() => { this.reconnectWork = undefined; });
+        return this.reconnectWork;
+    }
+
+    async resume(): Promise<void> {
+        if (this.reconnectWork !== undefined) return this.reconnectWork;
+        if (this.resumeWork !== undefined) return this.resumeWork;
+        const work = this.enqueueLifecycle(async () => {
+            if (this.reconnectWork !== undefined) return;
+            if (this.client?.state === 'open' || this.client?.state === 'connecting') return;
+            if (this.client?.state === 'stale') {
+                this.client.close();
+                this.client = undefined;
+                storage.getState().setSocketStatus(this.hasTransport() ? 'connecting' : 'disconnected');
+            }
+            if (this.client?.state === 'closed') this.client.connect();
+            await this.refreshCatalog();
+        });
+        this.resumeWork = work.finally(() => { this.resumeWork = undefined; });
+        return this.resumeWork;
+    }
+
+    private enqueueLifecycle(operation: () => Promise<void>): Promise<void> {
+        const work = this.lifecycleWork.then(operation, operation);
+        this.lifecycleWork = work.catch(() => undefined);
+        return work;
     }
 }
 
@@ -773,6 +806,10 @@ export async function syncRestore(credentials: AuthCredentials): Promise<void> {
 
 export async function syncReconnect(): Promise<void> {
     await sync.reconnect();
+}
+
+export async function syncResume(): Promise<void> {
+    await sync.resume();
 }
 
 export { DEFAULT_CONNECTION };

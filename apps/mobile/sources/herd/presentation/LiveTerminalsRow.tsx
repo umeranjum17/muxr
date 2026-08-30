@@ -66,7 +66,7 @@ const stylesheet = StyleSheet.create((theme) => ({
     attentionCard: { borderWidth: 1.5, borderColor: theme.colors.status.error },
     cardBody: { flex: 1, backgroundColor: '#0c0c0b' },
     endedBody: { opacity: 0.48 },
-    cardFooter: { height: 48, paddingHorizontal: 9, paddingVertical: 6, gap: 2 },
+    cardFooter: { height: 48, paddingHorizontal: 10, paddingVertical: 6, gap: 2 },
     titleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
     title: { flex: 1, color: theme.colors.text, fontSize: 12, lineHeight: 15, fontWeight: '600' },
     kind: { color: theme.colors.textSecondary, fontSize: 9, lineHeight: 12, fontWeight: '600' },
@@ -93,11 +93,14 @@ const LiveTerminalCard = React.memo(({ card, width, height, paused, disconnected
     const labels = agentLabels(card);
     const dot = agentStatusColor(card.agentStatus, theme);
     const live = terminalIsLive(card);
+    const shell = labels.agentKind === undefined && labels.agentName === 'Shell';
     return (
         <Pressable
             onPress={() => navigateToSession(card.id)}
             accessibilityRole="button"
-            accessibilityLabel={agentAccessibilityLabel(labels, card.agentStatus, card.changedAt)}
+            accessibilityLabel={shell
+                ? `Shell. ${agentStateLabel(card.agentStatus, card.changedAt)}. Terminal`
+                : agentAccessibilityLabel(labels, card.agentStatus, card.changedAt)}
             style={({ pressed }) => [
                 stylesheet.card,
                 liveTerminalBucket(card.agentStatus) === 'attention' && stylesheet.attentionCard,
@@ -109,16 +112,16 @@ const LiveTerminalCard = React.memo(({ card, width, height, paused, disconnected
             </View>
             <View style={stylesheet.cardFooter}>
                 <View style={stylesheet.titleRow}>
-                    <Text numberOfLines={1} style={stylesheet.title}>{labels.taskTitle}</Text>
-                    {labels.agentKind !== undefined && <>
-                        <AgentGlyph name={labels.agentKind} size={14} />
+                    <AgentGlyph name={shell ? 'shell' : labels.agentKind ?? labels.agentName} size={16} />
+                    <Text numberOfLines={1} style={stylesheet.title}>{shell ? 'Shell' : labels.taskTitle}</Text>
+                    {labels.agentKind !== undefined &&
                         <Text numberOfLines={1} style={stylesheet.kind}>{agentKindLabel(labels.agentKind)}</Text>
-                    </>}
+                    }
                 </View>
                 <View style={stylesheet.footerMeta}>
                     <StatusDot color={dot.color} isPulsing={dot.pulsing} size={7} />
-                    <Text numberOfLines={1} style={stylesheet.agentName}>{agentNameLine(labels)}</Text>
-                    <Text numberOfLines={1} style={[stylesheet.state, { color: dot.color }]}>
+                    <Text numberOfLines={1} style={stylesheet.agentName}>{shell ? 'Terminal' : agentNameLine(labels)}</Text>
+                    <Text numberOfLines={1} style={stylesheet.state}>
                         {agentStateLabel(card.agentStatus, card.changedAt)}
                     </Text>
                 </View>

@@ -11,7 +11,14 @@ const harness = vi.hoisted(() => ({
     },
     grant: undefined as { machineId: string; relayUrl: string; credential: string } | undefined,
     clientOptions: [] as Array<{ token?: string; onTicketRejected?: () => void }>,
+    clients: [] as Array<{ state: string }>,
     clientConnects: 0,
+    clientCloses: 0,
+    blockNextMachines: false,
+    blockedMachines: undefined as Promise<void> | undefined,
+    blockedMachinesStarted: false,
+    blockedMachinesFinished: false,
+    machineSnapshots: [] as string[],
     socketStatus: 'disconnected',
     socketError: null as string | null,
     ready: false,
@@ -45,20 +52,33 @@ vi.mock('@/pairing/infrastructure/muxrClient', () => ({
     MuxrClient: class {
         state = 'closed';
         private listeners: Array<(state: string) => void> = [];
+        private readonly index: number;
         constructor(options: { token?: string; onTicketRejected?: () => void }) {
+            this.index = harness.clients.length;
             harness.clientOptions.push(options);
+            harness.clients.push(this);
         }
         connect() {
             harness.clientConnects += 1;
+            this.state = 'connecting';
             queueMicrotask(() => {
                 this.state = 'open';
                 for (const listener of this.listeners) listener('open');
             });
         }
-        close() { this.state = 'closed'; }
+        close() { harness.clientCloses += 1; this.state = 'closed'; }
         onStateChange(listener: (state: string) => void) { this.listeners.push(listener); return () => undefined; }
         onEvent() { return () => undefined; }
         async request(type: string) {
+            if (type === 'machines.list') {
+                if (harness.blockNextMachines) {
+                    harness.blockNextMachines = false;
+                    harness.blockedMachinesStarted = true;
+                    await harness.blockedMachines;
+                    harness.blockedMachinesFinished = true;
+                }
+                return [{ id: `client-${this.index}` }];
+            }
             if (type === 'herdr.tree') return { workspaces: [] };
             if (type === 'attention.catalog') return { revision: 0, entries: [] };
             if (type === 'lifecycle.catalog') throw harness.lifecycleCatalogError;
@@ -81,7 +101,11 @@ vi.mock('../../catalog/application/storage', () => ({
             sessionsLoaded: false,
             setSocketStatus: (status: string) => { harness.socketStatus = status; },
             setSocketError: (message: string | null) => { harness.socketError = message; },
-            applyMachines: (_machines: unknown[], replace = false) => { harness.machineReplaceFlags.push(replace); },
+            applyMachines: (machines: unknown[], replace = false) => {
+                harness.machineReplaceFlags.push(replace);
+                const id = (machines[0] as { id?: string } | undefined)?.id;
+                if (id !== undefined) harness.machineSnapshots.push(id);
+            },
             applySessions: (_sessions: unknown[], replace = false) => { harness.sessionReplaceFlags.push(replace); },
             applyHerdrTree: vi.fn(),
             markSessionsLoaded: vi.fn(),
@@ -101,6 +125,7 @@ import {
     sync,
     syncCreate,
     syncReconnect,
+    syncResume,
 } from '@/catalog/sync';
 
 const originalFetch = globalThis.fetch;
@@ -118,7 +143,14 @@ describe('hosted account-only lifecycle', () => {
         harness.connection.machineId = '';
         harness.grant = undefined;
         harness.clientOptions.length = 0;
+        harness.clients.length = 0;
         harness.clientConnects = 0;
+        harness.clientCloses = 0;
+        harness.blockNextMachines = false;
+        harness.blockedMachines = undefined;
+        harness.blockedMachinesStarted = false;
+        harness.blockedMachinesFinished = false;
+        harness.machineSnapshots.length = 0;
         harness.socketStatus = 'disconnected';
         harness.ready = false;
         harness.machineReplaceFlags.length = 0;
@@ -181,6 +213,54 @@ describe('hosted account-only lifecycle', () => {
         expect(harness.lifecycleScopes).toContain('account-device:account');
         expect(harness.lifecycleScopes).toContain('account-device:machine-a');
         expect(harness.lifecycleAuthorities).toEqual(['account-device', 'account-device']);
+
+        const connectedClient = harness.clients[0];
+        await syncResume();
+        connectedClient.state = 'connecting';
+        await syncResume();
+        expect(harness.clientOptions).toHaveLength(1);
+        expect(harness.clientConnects).toBe(1);
+        expect(harness.clientCloses).toBe(0);
+
+        connectedClient.state = 'stale';
+        await Promise.all([syncResume(), syncResume()]);
+        expect(harness.clientOptions).toHaveLength(2);
+        expect(harness.clientConnects).toBe(2);
+        expect(harness.clientCloses).toBe(1);
+
+        harness.clients[1].state = 'closed';
+        await Promise.all([syncResume(), syncResume()]);
+        expect(harness.clientOptions).toHaveLength(2);
+        expect(harness.clientConnects).toBe(3);
+        expect(harness.clientCloses).toBe(1);
+
+        await syncReconnect();
+        expect(harness.clientOptions).toHaveLength(3);
+        expect(harness.clientConnects).toBe(4);
+        expect(harness.clientCloses).toBe(2);
+
+        let releaseBlockedMachines!: () => void;
+        harness.blockedMachines = new Promise((resolve) => { releaseBlockedMachines = resolve; });
+        harness.blockNextMachines = true;
+        harness.clients.at(-1)!.state = 'closed';
+        const resume = syncResume();
+        await vi.waitFor(() => expect(harness.blockedMachinesStarted).toBe(true));
+        await Promise.all([resume, syncReconnect(), syncReconnect()]);
+        expect(harness.clientOptions).toHaveLength(4);
+        expect(harness.clientConnects).toBe(6);
+        expect(harness.clientCloses).toBe(3);
+        expect(harness.machineSnapshots.at(-1)).toBe('client-3');
+        expect(harness.clients.filter((client) => client.state !== 'closed')).toEqual([harness.clients[3]]);
+
+        releaseBlockedMachines();
+        await vi.waitFor(() => expect(harness.blockedMachinesFinished).toBe(true));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(harness.machineSnapshots.at(-1)).toBe('client-3');
+
+        await syncResume();
+        expect(harness.clientOptions).toHaveLength(4);
+        expect(harness.clientConnects).toBe(6);
+        expect(harness.clientCloses).toBe(3);
 
         harness.lifecycleCatalogError = new Error('relay temporarily offline');
         await expect(sync.refreshSessions()).rejects.toThrow('relay temporarily offline');

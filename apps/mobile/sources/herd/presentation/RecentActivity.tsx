@@ -77,13 +77,13 @@ export const RecentActivity = React.memo((props: {
                             style={({ pressed }) => [styles.row, pressed && { opacity: 0.7 }]}
                         >
                             <Ionicons name={icon(row)} size={16} color={color} />
+                            <AgentGlyph name={row.agentName === 'Shell' ? 'shell' : row.agentKind ?? row.agentName ?? row.taskTitle} size={16} />
                             <View style={styles.copy}>
                                 <View style={styles.taskRow}>
                                     <Text numberOfLines={1} style={styles.task}>{row.taskTitle}</Text>
-                                    {row.agentKind !== undefined && <>
-                                        <AgentGlyph name={row.agentKind} size={14} />
+                                    {row.agentKind !== undefined &&
                                         <Text numberOfLines={1} style={styles.kind}>{agentKindLabel(row.agentKind)}</Text>
-                                    </>}
+                                    }
                                 </View>
                                 <Text numberOfLines={1} style={styles.meta}>{meta}</Text>
                             </View>
