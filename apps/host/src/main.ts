@@ -602,8 +602,8 @@ async function main(): Promise<void> {
                     event.resolvedAgentName,
                     event.outcome,
                 ),
-                onAgentReadinessDiagnostic: (reason, promptable) =>
-                    diagnostics.agentReadiness(reason, promptable),
+                onAgentReadinessDiagnostic: (reason, promptable, detail) =>
+                    diagnostics.agentReadiness(reason, promptable, detail),
             }),
         });
     }
@@ -612,7 +612,9 @@ async function main(): Promise<void> {
         machineId,
         resolvePane: async (sessionId) => {
             const snapshot = await source.open({ sessionId, acknowledgeAttention: false });
-            if (snapshot.info.paneId === undefined) throw new Error('That session has no current Herdr pane.');
+            if (snapshot.info.paneId === undefined) {
+                throw Object.assign(new Error('That session has no current Herdr pane.'), { code: 'unavailable' });
+            }
             return snapshot.info.paneId;
         },
         ...(token === undefined ? {} : { token }),

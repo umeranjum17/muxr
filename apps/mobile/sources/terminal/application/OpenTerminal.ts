@@ -14,6 +14,7 @@
 import { issueWsTicket, newTerminalChannel, ticketSocketUrl, type Envelope, type TerminalHostFrame } from '@muxr/contract';
 import { getCachedConnectionSettings } from '@/connection';
 import { sync } from '@/catalog/sync';
+import { recordTerminalChannel } from '@/catalog/infrastructure/connectionDiagnostics';
 import { DeviceV2Crypto, getCachedHostedGrant, refreshHostedGrant } from '@/pairing/e2ee';
 
 export type TerminalChannelState = 'live' | 'reconnecting';
@@ -53,8 +54,14 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
     const options = command.mode === undefined ? undefined : { mode: command.mode };
     const settings = getCachedConnectionSettings();
     let grant = settings.mode === 'hosted' ? getCachedHostedGrant(settings.machineId) : undefined;
-    if (settings.mode === 'hosted' && grant === undefined) throw new Error('terminal: hosted machine grant is missing');
-    if (grant !== undefined && grant.expiresAt <= Date.now()) throw new Error('terminal: device grant expired; pair this browser again');
+    if (settings.mode === 'hosted' && grant === undefined) {
+        recordTerminalChannel('attach', { ok: false, code: 'e2ee-required' });
+        throw new Error('terminal: hosted machine grant is missing');
+    }
+    if (grant !== undefined && grant.expiresAt <= Date.now()) {
+        recordTerminalChannel('attach', { ok: false, code: 'grant-expired' });
+        throw new Error('terminal: device grant expired; pair this browser again');
+    }
     let hosted = grant === undefined ? undefined : new DeviceV2Crypto(grant);
     const channel = newTerminalChannel();
 
@@ -74,7 +81,7 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
         ...(options?.mode === undefined ? {} : { mode: options.mode }),
         ...(grant === undefined ? {} : { deviceId: grant.deviceId, takeover }),
     });
-    const attach = (takeover: boolean): Promise<unknown> => grant === undefined ? sendAttachRequest(takeover) : (async () => {
+    const attachOnce = (takeover: boolean): Promise<unknown> => grant === undefined ? sendAttachRequest(takeover) : (async () => {
         const latest = await refreshHostedGrant(settings.machineId, grant!.credential);
         if (latest !== undefined && latest.keyVersion >= grant!.keyVersion) {
             if (latest.expiresAt <= Date.now()) throw new Error('terminal: device grant expired; pair this browser again');
@@ -83,13 +90,26 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
         }
         return sendAttachRequest(takeover);
     })();
+    const attach = async (takeover: boolean): Promise<unknown> => {
+        try {
+            const result = await attachOnce(takeover);
+            recordTerminalChannel('attach', { ok: true });
+            return result;
+        } catch (error) {
+            recordTerminalChannel('attach', { ok: false, error });
+            throw error;
+        }
+    };
     const relayTicket = (): { relayUrl: string; credential: string } | undefined => grant !== undefined
         ? { relayUrl: grant.relayUrl, credential: grant.credential }
         : settings.token !== '' && !settings.token.startsWith('acctok_')
             ? { relayUrl: settings.relayUrl, credential: settings.token }
             : undefined;
     // Fail before attach: a ticketless socket is what produced the 1 Hz loop.
-    if (relayTicket() === undefined) throw new Error('terminal: relay ticket required');
+    if (relayTicket() === undefined) {
+        recordTerminalChannel('attach', { ok: false, code: 'ticket-required' });
+        throw new Error('terminal: relay ticket required');
+    }
     await attach(true);
 
     const dataListeners = new Set<(base64: string) => void>();
@@ -107,6 +127,7 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
     let takeoverRequested = false;
 
     const emitState = (state: TerminalChannelState): void => {
+        recordTerminalChannel(state, { ok: true });
         for (const listener of stateListeners) listener(state);
     };
 
@@ -114,6 +135,7 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
         if (closedByUser || retryTimer !== undefined) return;
         attempts += 1;
         if (attempts > MAX_ATTEMPTS) {
+            recordTerminalChannel('disconnected', { ok: false, code: 'disconnected' });
             for (const listener of closeListeners) listener('disconnected');
             return;
         }
@@ -188,7 +210,10 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
         // tokens cannot mint a channel ticket, so fail closed instead of
         // opening a 1 Hz unauthorized reconnect loop.
         const ticketInput = relayTicket();
-        if (ticketInput === undefined) throw new Error('terminal: relay ticket required');
+        if (ticketInput === undefined) {
+            recordTerminalChannel('attach', { ok: false, code: 'ticket-required' });
+            throw new Error('terminal: relay ticket required');
+        }
         const url = ticketSocketUrl(ticketInput.relayUrl, await issueWsTicket({
             relayUrl: ticketInput.relayUrl,
             credential: ticketInput.credential,
@@ -214,6 +239,7 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
             }
             opened = true;
             attempts = 0;
+            recordTerminalChannel('socket-open', { ok: true });
             emitState('live');
             for (const line of outbox.splice(0)) next.send(line);
         };
@@ -245,6 +271,10 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
                     // Only the user's visible retry action may reverse a takeover.
                     closedByTakeover = reason === 'control moved to another device';
                     closedByUser = true;
+                    recordTerminalChannel('disconnected', {
+                        ok: false,
+                        code: closedByTakeover ? 'takeover' : 'disconnected',
+                    });
                     for (const listener of closeListeners) listener(reason);
                 }
             } catch {

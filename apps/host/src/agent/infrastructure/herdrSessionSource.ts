@@ -170,7 +170,11 @@ export interface CreateHerdrSessionSourceOptions {
     /** Writes bounded semantic prompt outcomes to the owner-only host diagnostics journal. */
     onRealtimePromptDiagnostic?: (event: RealtimePromptDiagnostic) => void;
     /** Privacy-safe route-generation and readiness outcomes only. */
-    onAgentReadinessDiagnostic?: (reason: 'starting' | 'ready' | 'not-promptable', promptable: boolean) => void;
+    onAgentReadinessDiagnostic?: (
+        reason: 'starting' | 'ready' | 'not-promptable',
+        promptable: boolean,
+        detail?: { kind?: string; lifecycle?: string; gate?: 'ready' | 'starting' | 'not-interactive' | 'unbound' | 'no-agent' },
+    ) => void;
 }
 
 export interface AgentRecord {
@@ -550,7 +554,7 @@ export async function createHerdrSessionSource(
     const statusWatches = new Map<string, () => void>();
 
     /** Stamp a freshly spawned pane with who asked for it. Best effort. */
-    const lastPromptableBySession = new Map<string, boolean>();
+    const lastReadinessBySession = new Map<string, string>();
     async function tagSpawn(paneId: string, parentSessionId: string): Promise<void> {
         await client
             .call('pane.report_metadata', {
@@ -653,13 +657,32 @@ export async function createHerdrSessionSource(
     }
 
     function agentPromptable(session: CurrentSession | undefined): boolean {
-        if (session?.agent === undefined) return false;
+        return readinessGate(session) === 'ready';
+    }
+
+    function readinessGate(session: CurrentSession | undefined): 'ready' | 'starting' | 'not-interactive' | 'unbound' | 'no-agent' {
+        if (session?.agent === undefined) return 'no-agent';
+        const lifecycle = lifecycleOf(session);
+        if (lifecycle === 'starting') return 'starting';
         const ref = agentSession(session.agent);
         const bound = routes.get(session.sessionId);
-        return ref !== undefined
-            && bound !== undefined
-            && herdrAgentSessionKey(ref) === herdrAgentSessionKey(bound)
-            && herdrAgentIsPromptable(session.agent, lifecycleOf(session));
+        if (ref === undefined || bound === undefined || herdrAgentSessionKey(ref) !== herdrAgentSessionKey(bound)) {
+            return 'unbound';
+        }
+        return herdrAgentIsPromptable(session.agent, lifecycle) ? 'ready' : 'not-interactive';
+    }
+
+    function readinessDetail(session: CurrentSession): {
+        kind?: string;
+        lifecycle: ReturnType<typeof lifecycleOf>;
+        gate: ReturnType<typeof readinessGate>;
+    } {
+        const kind = publicAgentKind(session.agent?.agent ?? undefined);
+        return {
+            ...(kind === undefined ? {} : { kind }),
+            lifecycle: lifecycleOf(session),
+            gate: readinessGate(session),
+        };
     }
 
     /** Herdr boundary adapter: Task Title comes only from current AgentInfo.title. */
@@ -898,7 +921,7 @@ export async function createHerdrSessionSource(
         clearAttention(sessionId);
         lastStateSignature.delete(sessionId);
         lastInfoSignature.delete(sessionId);
-        lastPromptableBySession.delete(sessionId);
+        lastReadinessBySession.delete(sessionId);
         publish(sessionId, { type: 'session.removed' });
     }
 
@@ -908,9 +931,15 @@ export async function createHerdrSessionSource(
         const agentStatus = lifecycleOf(session);
         if (session.agent !== undefined) {
             const promptable = agentPromptable(session);
-            if (lastPromptableBySession.get(sessionId) !== promptable) {
-                lastPromptableBySession.set(sessionId, promptable);
-                options.onAgentReadinessDiagnostic?.(promptable ? 'ready' : 'starting', promptable);
+            const detail = readinessDetail(session);
+            const signature = `${detail.gate}|${detail.kind ?? ''}|${detail.lifecycle}|${String(promptable)}`;
+            if (lastReadinessBySession.get(sessionId) !== signature) {
+                lastReadinessBySession.set(sessionId, signature);
+                options.onAgentReadinessDiagnostic?.(
+                    promptable ? 'ready' : agentStatus === 'starting' ? 'starting' : 'not-promptable',
+                    promptable,
+                    detail,
+                );
             }
         }
         const stateSignature = `${agentStatus}|${String(agentPromptable(session))}`;
@@ -1389,7 +1418,7 @@ export async function createHerdrSessionSource(
     async function promptSession(sessionId: string, text: string): Promise<void> {
         const session = await resolvePane(sessionId);
         const promptable = agentPromptable(session);
-        if (!promptable) options.onAgentReadinessDiagnostic?.('not-promptable', false);
+        if (!promptable) options.onAgentReadinessDiagnostic?.('not-promptable', false, readinessDetail(session));
         await promptPromptableHerdrAgent(client, session, promptable, text);
     }
 

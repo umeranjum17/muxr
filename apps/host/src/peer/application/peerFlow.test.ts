@@ -571,7 +571,10 @@ describe('host peer collaboration flow', () => {
         diagnostics.request('peer.prepare', 'native', 'rejected', 1, 'peer-recovery-pending');
         diagnostics.agentReadiness('starting', false);
         diagnostics.agentReadiness('ready', true);
-        diagnostics.agentReadiness('not-promptable', false);
+        diagnostics.agentReadiness('not-promptable', false, { kind: 'omp', lifecycle: 'idle', gate: 'not-interactive' });
+        diagnostics.agentReadiness('not-promptable', false, { kind: 'w1EW:pH', lifecycle: 'idle', gate: 'unbound' });
+        diagnostics.request('session.prompt', 'native', 'rejected', 8, 'agent-not-ready');
+        diagnostics.request('terminal.attach', 'native', 'rejected', 11, 'socket-timeout');
         for (let index = 0; index < 600; index += 1) diagnostics.request('herdr.tree', 'native', 'ok', 1);
         await broker.close();
         await diagnostics.flush();
@@ -585,11 +588,16 @@ describe('host peer collaboration flow', () => {
         expect(diagnosticEvents).toContainEqual(expect.objectContaining({ event: 'peer.broker', operation: 'prompt', code: 'agent-not-ready' }));
         expect(diagnosticEvents).toContainEqual(expect.objectContaining({ event: 'peer.connection', phase: 'liveness-proof', outcome: 'timeout' }));
         expect(diagnosticEvents).toContainEqual(expect.objectContaining({ event: 'client.request', request: 'peer.prepare', code: 'peer-recovery-pending' }));
+        expect(diagnosticEvents).toContainEqual(expect.objectContaining({ event: 'client.request', request: 'session.prompt', outcome: 'rejected', code: 'agent-not-ready' }));
         expect(diagnosticEvents).toEqual(expect.arrayContaining([
             expect.objectContaining({ event: 'agent.readiness', reason: 'starting', promptable: false }),
             expect.objectContaining({ event: 'agent.readiness', reason: 'ready', promptable: true }),
             expect.objectContaining({ event: 'agent.readiness', reason: 'not-promptable', promptable: false }),
+            expect.objectContaining({ event: 'agent.readiness', reason: 'not-promptable', kind: 'omp', lifecycle: 'idle', gate: 'not-interactive' }),
         ]));
+        expect(diagnosticEvents).toContainEqual(expect.objectContaining({ event: 'client.request', request: 'terminal.attach', outcome: 'rejected', code: 'socket-timeout' }));
+        expect(diagnosticEvents).not.toContainEqual(expect.objectContaining({ kind: 'w1EW:pH' }));
+        expect(diagnosticEvents).not.toContainEqual(expect.objectContaining({ kind: 'w1ew:ph' }));
         expect(diagnosticEvents).not.toContainEqual(expect.objectContaining({ event: 'client.request', request: 'herdr.tree', outcome: 'ok' }));
         expect(diagnosticOutput).not.toMatch(/target-machine|muxr-session|internal-pane-path|Report Xcode status|machineId|sessionId|relationshipId|operationId/);
         let diagnosticNow = Date.parse('2026-08-26T00:00:00.000Z');

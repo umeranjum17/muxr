@@ -10,7 +10,7 @@ export type OpenTerminalCommand = {
 
 export type OpenTerminalResult =
     | { ok: true; data: { paneId: string } }
-    | { ok: false; error: string };
+    | { ok: false; error: string; code?: string };
 
 export interface TerminalPort {
     attach(command: OpenTerminalCommand): Promise<{ paneId: string }>;
@@ -18,8 +18,17 @@ export interface TerminalPort {
 }
 
 export async function openTerminal(port: TerminalPort | undefined, command: OpenTerminalCommand): Promise<OpenTerminalResult> {
-    if (port === undefined) return { ok: false, error: 'terminal: not available on this host' };
-    return { ok: true, data: await port.attach(command) };
+    if (port === undefined) return { ok: false, error: 'terminal: not available on this host', code: 'unavailable' };
+    try {
+        return { ok: true, data: await port.attach(command) };
+    } catch (error) {
+        const code = (error as { code?: unknown }).code;
+        return {
+            ok: false,
+            error: error instanceof Error ? error.message : String(error),
+            ...(typeof code === 'string' ? { code } : {}),
+        };
+    }
 }
 
 export type CloseTerminalCommand = { channel: string; deviceId?: string };

@@ -67,6 +67,7 @@ vi.mock('@/pairing/infrastructure/muxrClient', () => ({
             });
         }
         close() { harness.clientCloses += 1; this.state = 'closed'; }
+        isLive() { return this.state === 'open'; }
         onStateChange(listener: (state: string) => void) { this.listeners.push(listener); return () => undefined; }
         onEvent() { return () => undefined; }
         async request(type: string) {

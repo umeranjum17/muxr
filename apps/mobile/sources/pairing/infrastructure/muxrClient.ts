@@ -96,13 +96,29 @@ export class MuxrClient {
         return this.hosted !== undefined;
     }
 
+    /** Relay accepted us and a host frame arrived on this socket. */
+    isLive(): boolean {
+        return this.state === 'open'
+            && this.socket !== undefined
+            && this.socket.readyState === (WebSocket.OPEN ?? 1);
+    }
+
     connect(): void {
         void this.open();
     }
 
     private async open(): Promise<void> {
-        if (this.closed || (this.socket !== undefined
-            && (this.socket.readyState === WebSocket.CONNECTING || this.socket.readyState === WebSocket.OPEN))) return;
+        if (this.closed) return;
+        if (this.socket !== undefined
+            && this.socket.readyState !== (WebSocket.CONNECTING ?? 0)
+            && this.socket.readyState !== (WebSocket.OPEN ?? 1)) {
+            const stale = this.socket;
+            this.socket = undefined;
+            stale.onclose = () => {};
+            stale.close();
+        }
+        if (this.socket !== undefined
+            && (this.socket.readyState === (WebSocket.CONNECTING ?? 0) || this.socket.readyState === (WebSocket.OPEN ?? 1))) return;
         if (this.reconnectTimer !== undefined) {
             clearTimeout(this.reconnectTimer);
             this.reconnectTimer = undefined;
@@ -227,7 +243,7 @@ export class MuxrClient {
                 return;
             }
             const socket = this.socket;
-            if (socket === undefined || socket.readyState !== WebSocket.OPEN) {
+            if (!this.isLive() || socket === undefined) {
                 reject(new Error('not connected'));
                 return;
             }
