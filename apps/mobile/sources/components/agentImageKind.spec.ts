@@ -18,5 +18,7 @@ describe('agent glyph image mapping flow', () => {
         expect(agentImageKind('kilo')).toBe('kilocode');
         expect(agentImageKind('qoder')).toBe('qoder');
         expect(agentImageKind('qodercli')).toBe('qoder');
+        expect(agentImageKind('shell')).toBe('shell');
+        expect(agentImageKind('')).toBeUndefined();
     });
 });

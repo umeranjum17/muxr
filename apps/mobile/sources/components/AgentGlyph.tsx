@@ -1,8 +1,4 @@
-/**
- * Agent identity mark. One neutral tile for every agent kind — the brand is the
- * product, not a rainbow. Selected/active state is an accent ring, never a fill.
- * Linear/Notion-class: quiet until it has something to say.
- */
+/** Agent identity mark rendered as a neutral, tile-free glyph. */
 
 import * as React from 'react';
 import { Text, View } from 'react-native';
@@ -30,15 +26,10 @@ const agentImages = {
     mastracode: require('@/assets/agents/mastracode.png'),
     omp: require('@/assets/agents/omp.png'),
     opencode: require('@/assets/agents/opencode.png'),
+    pi: require('@/assets/agents/pi.png'),
     qoder: require('@/assets/agents/qoder.png'),
-} as const satisfies Record<Exclude<AgentImageKind, 'pi'>, unknown>;
-
-const themedAgentImages = {
-    pi: {
-        light: require('@/assets/agents/pi-light.png'),
-        dark: require('@/assets/agents/pi-dark.png'),
-    },
-} as const;
+    shell: require('@/assets/agents/shell.png'),
+} as const satisfies Record<AgentImageKind, unknown>;
 
 export const ACCENT = '#cba6f7'; // kept for components not wired to the theme; prefer theme.colors.accent
 
@@ -49,37 +40,36 @@ export const AgentGlyph = React.memo(
         const name = props.name.trim().toLowerCase();
         const letter = name.charAt(0).toUpperCase() || '·';
         const selected = props.selected === true;
-        const accent = theme.colors.accent;
         const kind = agentImageKind(name);
-        const image = kind === 'pi'
-            ? themedAgentImages.pi[theme.dark ? 'dark' : 'light']
-            : kind === undefined ? undefined : agentImages[kind];
+        const image = kind === undefined ? undefined : agentImages[kind];
+        const color = selected || theme.dark ? theme.colors.text : theme.colors.textSecondary;
         return (
             <View
                 style={{
                     width: size,
                     height: size,
-                    borderRadius: Math.max(6, size * 0.28),
                     alignItems: 'center',
                     justifyContent: 'center',
-                    backgroundColor: selected ? 'rgba(203, 166, 247, 0.10)' : theme.colors.surfaceHigh,
-                    borderWidth: 1,
-                    borderColor: selected ? accent : theme.colors.divider,
                     opacity: props.dim === true ? 0.55 : 1,
                 }}
             >
                 {image === undefined ? (
                     <Text
                         style={{
-                            color: selected ? accent : theme.colors.textSecondary,
-                            fontSize: size * 0.42,
+                            color,
+                            fontSize: size * 0.68,
                             fontWeight: '600',
                         }}
                     >
                         {letter}
                     </Text>
                 ) : (
-                    <Image source={image} contentFit="contain" style={{ width: size * 0.58, height: size * 0.58 }} />
+                    <Image
+                        source={image}
+                        contentFit="contain"
+                        tintColor={color}
+                        style={{ width: size, height: size }}
+                    />
                 )}
             </View>
         );

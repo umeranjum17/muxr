@@ -48,10 +48,10 @@ class FakeWebSocket {
         this.onclose?.();
     }
 
-    close(): void {
+    readonly close = vi.fn((): void => {
         if (this.readyState === FakeWebSocket.CLOSED) return;
         this.drop();
-    }
+    });
 }
 
 vi.stubGlobal('WebSocket', FakeWebSocket);
@@ -84,7 +84,7 @@ describe('openTerminal reconnect ownership', () => {
         channel.close();
     });
 
-    it('coalesces focus retries under a delayed attach and ignores a stale close', async () => {
+    it('keeps healthy reconnects stable, coalesces a dropped transport, and repaints through one replacement', async () => {
         let attachCalls = 0;
         let releaseDelayedAttach: (() => void) | undefined;
         const delayedAttach = new Promise<void>((resolve) => {
@@ -100,6 +100,13 @@ describe('openTerminal reconnect ownership', () => {
         const first = FakeWebSocket.instances[0];
         expect(first).toBeDefined();
         first!.open();
+
+        channel.reconnect();
+        channel.reconnect();
+        expect(attachCalls).toBe(1);
+        expect(FakeWebSocket.instances).toHaveLength(1);
+        expect(first!.close).not.toHaveBeenCalled();
+
         first!.drop();
 
         await vi.advanceTimersByTimeAsync(1_500);
@@ -121,6 +128,12 @@ describe('openTerminal reconnect ownership', () => {
         await vi.advanceTimersByTimeAsync(20_000);
         expect(attachCalls).toBe(2);
         expect(replacement!.readyState).toBe(FakeWebSocket.OPEN);
+
+        channel.repaint();
+        await vi.runAllTicks();
+        expect(attachCalls).toBe(3);
+        expect(FakeWebSocket.instances).toHaveLength(3);
+        expect(replacement!.close).toHaveBeenCalledTimes(1);
 
         channel.close();
     });

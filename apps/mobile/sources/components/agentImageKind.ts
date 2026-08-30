@@ -24,6 +24,7 @@ export const agentImageKinds = {
     pi: 'pi',
     qoder: 'qoder',
     qodercli: 'qoder',
+    shell: 'shell',
 } as const;
 
 export type AgentImageKind = (typeof agentImageKinds)[keyof typeof agentImageKinds];

@@ -22,7 +22,7 @@ import { SidebarNavigator } from '@/herd/ui';
 import sodium from '@/encryption/libsodium.lib';
 import { View, Platform, AppState, Pressable, Text } from 'react-native';
 import { ModalProvider } from '@/modal';
-import { syncReconnect, syncRestore } from '@/catalog/sync';
+import { syncRestore, syncResume } from '@/catalog/sync';
 import { FaviconPermissionIndicator } from '@/components/web/FaviconPermissionIndicator';
 import { CommandPaletteProvider } from '@/components/CommandPalette/CommandPaletteProvider';
 import { StatusBarProvider } from '@/components/StatusBarProvider';
@@ -329,7 +329,7 @@ export default function RootLayout() {
         const subscription = AppState.addEventListener('change', (next) => {
             const resumed = next === 'active' && previous !== 'active';
             previous = next;
-            if (resumed) void syncReconnect().catch(() => undefined);
+            if (resumed) void syncResume().catch(() => undefined);
         });
         return () => subscription.remove();
     }, [initState?.credentials]);
