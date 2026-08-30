@@ -134,7 +134,7 @@ muxr
 Then install the mobile companion:
 
 - **Android:** [join Google Play testing](https://play.google.com/apps/testing/com.trymuxr.app) · [download the latest signed APK](https://github.com/umeranjum17/muxr/releases/latest/download/muxr-android.apk) · [SHA256SUMS](https://github.com/umeranjum17/muxr/releases/latest/download/SHA256SUMS)
-- **iOS:** [open the public TestFlight link](https://testflight.apple.com/join/aJSbs8pN) — Apple is not accepting new testers right now
+- **iOS:** [open the public TestFlight link](https://testflight.apple.com/join/aJSbs8pN) — 0.1.24 (build 45); Apple is not accepting new testers right now
 - **Web:** pair an eight-hour read-only browser during self-hosted setup
 - **All builds:** [muxr 0.1.24 release](https://github.com/umeranjum17/muxr/releases/tag/v0.1.24)
 

@@ -17,7 +17,7 @@ The convenience installer at `https://raw.githubusercontent.com/umeranjum17/muxr
 
 First run:
 
-1. Install muxr on Android from Google Play testing or the [signed APK](https://github.com/umeranjum17/muxr/releases/latest/download/muxr-android.apk), verified by [SHA256SUMS](https://github.com/umeranjum17/muxr/releases/latest/download/SHA256SUMS). On iOS, open the [public TestFlight link](https://testflight.apple.com/join/aJSbs8pN); Apple is not accepting new testers right now.
+1. Install muxr on Android from Google Play testing or the [signed APK](https://github.com/umeranjum17/muxr/releases/latest/download/muxr-android.apk), verified by [SHA256SUMS](https://github.com/umeranjum17/muxr/releases/latest/download/SHA256SUMS). On iOS, open the [public TestFlight link](https://testflight.apple.com/join/aJSbs8pN) for 0.1.24 (build 45); Apple is not accepting new testers right now.
 2. Run `muxr`. It checks the computer, installs Herdr if needed, and asks how the phone should connect. Start with LAN when both devices use the same wifi.
 3. Review the short plan, choose **Apply setup**, then scan the one-use QR from the phone app.
 
