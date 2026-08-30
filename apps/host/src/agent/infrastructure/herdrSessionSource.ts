@@ -581,9 +581,17 @@ export async function createHerdrSessionSource(
         return parseHerdrAgentSession(agent?.agent_session);
     }
 
+    function listedAgent(agent: AgentRecord | undefined): agent is AgentRecord {
+        return agentSession(agent) !== undefined && typeof agent?.name === 'string' && agent.name.length > 0;
+    }
+
     function namedAgent(agent: AgentRecord | undefined): agent is AgentRecord {
-        return agentSession(agent) !== undefined && typeof agent?.name === 'string' && agent.name.length > 0
-            && !/^pph?_/i.test(agent.name);
+        return listedAgent(agent) && typeof agent.name === 'string' && !/^pph?_/i.test(agent.name);
+    }
+
+    function publicListedName(agent: AgentRecord | undefined): string | undefined {
+        if (agent === undefined || !namedAgent(agent)) return undefined;
+        return typeof agent.name === 'string' && agent.name.length > 0 ? agent.name : undefined;
     }
 
     function shellRoute(paneId: string): string {
@@ -605,7 +613,7 @@ export async function createHerdrSessionSource(
 
     function currentAgentFor(agentSessionRef: HerdrAgentSessionRef): AgentRecord | undefined {
         const match = currentAgentRecordFor(agentSessionRef);
-        return namedAgent(match) ? match : undefined;
+        return listedAgent(match) ? match : undefined;
     }
 
     function closePaneId(sessionId: string): string | undefined {
@@ -811,6 +819,7 @@ export async function createHerdrSessionSource(
         const displayAgent = session.agent?.display_agent ?? undefined;
         const terminalTitle = session.agent?.terminal_title_stripped ?? session.pane.terminal_title_stripped ?? undefined;
         const spawnedBy = session.pane.tokens?.spawned_by;
+        const listedName = publicListedName(session.agent);
         return {
             id: session.sessionId,
             cwd: cwdForSession(session.sessionId) ?? '',
@@ -818,7 +827,7 @@ export async function createHerdrSessionSource(
             firstMessage: '',
             promptable: agentPromptable(session),
             agentStatus: lifecycleOf(session),
-            ...(session.agent?.name === undefined || session.agent.name === null ? {} : { agentName: session.agent.name }),
+            ...(listedName === undefined ? {} : { agentName: listedName }),
             ...(taskTitle === undefined ? {} : { taskTitle }),
             ...(agentKind === undefined ? {} : { agentKind }),
             ...(displayAgent === undefined ? {} : { displayAgent }),
@@ -984,7 +993,7 @@ export async function createHerdrSessionSource(
         const createdRoutes: string[] = [];
         for (const agent of agentsByPane.values()) {
             ensureStatusWatch(agent.pane_id);
-            if (!namedAgent(agent)) continue;
+            if (!listedAgent(agent)) continue;
             const ref = agentSession(agent)!;
             const bound = routes.bind(ref);
             paneByAgentRoute.set(bound.route, agent.pane_id);
@@ -1093,13 +1102,34 @@ export async function createHerdrSessionSource(
         void refreshSnapshot().then(emitAllStates).catch(() => {});
     });
 
+    function bindListedPane(paneId: string): CurrentSession | undefined {
+        const agent = agentsByPane.get(paneId);
+        const pane = panesById.get(paneId);
+        const ref = agentSession(agent);
+        if (agent === undefined || pane === undefined || ref === undefined) return undefined;
+        const bound = routes.bind(ref);
+        paneByAgentRoute.set(bound.route, paneId);
+        return { sessionId: bound.route, paneId, pane, agent };
+    }
+
     async function waitForPublishedAgent(paneId: string, timeoutMs: number): Promise<CurrentSession> {
         const deadline = Date.now() + timeoutMs;
+        const interactive = waitForInteractiveAgent(paneId, timeoutMs).catch(() => undefined);
         while (Date.now() < deadline) {
             await refreshSnapshot();
-            const session = currentSessionByPane(paneId);
-            if (session?.agent !== undefined) return session;
-            await sleep(200);
+            const session = bindListedPane(paneId);
+            if (session !== undefined) {
+                await routes.flush();
+                return session;
+            }
+            await Promise.race([sleep(200), interactive]);
+        }
+        await interactive;
+        await refreshSnapshot();
+        const session = bindListedPane(paneId);
+        if (session !== undefined) {
+            await routes.flush();
+            return session;
         }
         throw new Error('Herdr did not publish the current Agent Name and session.');
     }
@@ -1235,8 +1265,8 @@ export async function createHerdrSessionSource(
         let acceptance: SessionSnapshot['acceptance'];
         if (accepted) {
             acceptance = { outcome: 'accepted', state: lifecycleOf(session) };
-            const agentName = session.agent?.name;
-            if (agentName !== undefined && agentName !== null) acceptance.agentName = agentName;
+            const agentName = publicListedName(session.agent);
+            if (agentName !== undefined) acceptance.agentName = agentName;
         }
         return {
             info: infoFor(session),
@@ -1411,10 +1441,11 @@ export async function createHerdrSessionSource(
         const changedAt = Date.parse(options.lifecycle?.latestFor(session.sessionId)?.at ?? '');
         const taskTitle = taskTitleForSession(session);
         const displayAgent = session.agent?.display_agent ?? undefined;
+        const listedName = publicListedName(session.agent);
         return {
             sessionId: session.sessionId,
             cwd: cwdForSession(session.sessionId) ?? '',
-            ...(session.agent?.name === undefined || session.agent.name === null ? {} : { agentName: session.agent.name }),
+            ...(listedName === undefined ? {} : { agentName: listedName }),
             ...(taskTitle === undefined ? {} : { taskTitle }),
             ...(session.agent?.agent === undefined || session.agent.agent === null ? {} : { agentKind: session.agent.agent }),
             ...(displayAgent === undefined ? {} : { displayAgent }),
@@ -2090,15 +2121,16 @@ export async function createHerdrSessionSource(
                         const taskTitle = session === undefined ? undefined : taskTitleForSession(session);
                         const agentKind = session?.agent?.agent ?? undefined;
                         const cwd = pane.foreground_cwd ?? pane.cwd ?? undefined;
+                        const listedName = publicListedName(session?.agent);
                         return {
                             paneId: pane.pane_id,
                             tabId,
                             ...(pane.label === undefined || pane.label === null ? {} : { label: pane.label }),
                             ...(cwd === undefined ? {} : { cwd }),
                             ...(agentKind === undefined ? {} : { agentKind }),
-                            ...(session?.agent?.name === undefined || session.agent.name === null
+                            ...(listedName === undefined
                                 ? {}
-                                : { agentName: session.agent.name }),
+                                : { agentName: listedName }),
                             ...(session?.agent?.display_agent === undefined || session.agent.display_agent === null
                                 ? {}
                                 : { displayAgent: session.agent.display_agent }),
