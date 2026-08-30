@@ -250,7 +250,7 @@ describe('host peer collaboration flow', () => {
             clientFactory: (relationship) => new class implements PeerClientTransport {
                 async connect(): Promise<void> {}
                 async request<T extends PeerClientRequestType>(type: T, params: RequestParams<T>, signal?: AbortSignal): Promise<RequestResult<T>> {
-                    if (forcedRemoteError !== undefined) {
+                    if (forcedRemoteError !== undefined && type === 'session.prompt') {
                         const error = forcedRemoteError;
                         forcedRemoteError = undefined;
                         throw error;
@@ -528,6 +528,10 @@ describe('host peer collaboration flow', () => {
         expect(promptedFromCli).toMatchObject({ code: 0, stderr: '' });
         expect(JSON.parse(promptedFromCli.stdout)).toEqual({ machine: 'Build Mac', agent: 'iOS builder', delivered: true });
         expect(prompts).toBe(4);
+        forcedRemoteError = Object.assign(new Error('Agent is not ready yet.'), { code: 'agent-not-ready' });
+        await expect(brokerCall(broker.socketPath, access.capability, {
+            method: 'prompt', machine: 'Build Mac', agent: 'iOS builder', text: 'Too early',
+        })).rejects.toThrow('Agent is not ready yet.');
         dropSessionsAfterPrompt = true;
         await expect(call(sourceRuntime, 'peer.remote.prompt', {
             relationshipId: installed.relationshipId,
@@ -578,6 +582,7 @@ describe('host peer collaboration flow', () => {
         const diagnosticEvents = (JSON.parse(diagnosticOutput) as { events: Array<{ event: string; operation?: string; request?: string; phase?: string; outcome?: string; code?: string; reason?: string; promptable?: boolean }> }).events;
         expect(diagnosticEvents).toContainEqual(expect.objectContaining({ event: 'peer.broker', operation: 'list', outcome: 'ok' }));
         expect(diagnosticEvents).toContainEqual(expect.objectContaining({ event: 'peer.broker', operation: 'prompt', outcome: 'ok' }));
+        expect(diagnosticEvents).toContainEqual(expect.objectContaining({ event: 'peer.broker', operation: 'prompt', code: 'agent-not-ready' }));
         expect(diagnosticEvents).toContainEqual(expect.objectContaining({ event: 'peer.connection', phase: 'liveness-proof', outcome: 'timeout' }));
         expect(diagnosticEvents).toContainEqual(expect.objectContaining({ event: 'client.request', request: 'peer.prepare', code: 'peer-recovery-pending' }));
         expect(diagnosticEvents).toEqual(expect.arrayContaining([

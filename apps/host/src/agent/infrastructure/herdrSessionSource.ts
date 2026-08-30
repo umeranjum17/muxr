@@ -254,6 +254,15 @@ function agentRouteError(code: 'agent-unavailable' | 'agent-not-ready' | 'agent-
     return Object.assign(new Error(message), { code });
 }
 
+/** Listed-agent gate. Omitted interactive_ready is ready when lifecycle is live. Starting stays closed. */
+export function herdrAgentIsPromptable(
+    agent: Pick<AgentRecord, 'interactive_ready' | 'launch_pending'>,
+    lifecycle: AgentLifecycle,
+): boolean {
+    if (agent.launch_pending === true || agent.interactive_ready === false) return false;
+    return lifecycle === 'idle' || lifecycle === 'working' || lifecycle === 'blocked' || lifecycle === 'done';
+}
+
 export async function promptPromptableHerdrAgent(
     client: Pick<HerdrClient, 'call'>,
     target: RouteTarget,
@@ -650,8 +659,7 @@ export async function createHerdrSessionSource(
         return ref !== undefined
             && bound !== undefined
             && herdrAgentSessionKey(ref) === herdrAgentSessionKey(bound)
-            && session.agent.interactive_ready === true
-            && session.agent.launch_pending !== true;
+            && herdrAgentIsPromptable(session.agent, lifecycleOf(session));
     }
 
     /** Herdr boundary adapter: Task Title comes only from current AgentInfo.title. */

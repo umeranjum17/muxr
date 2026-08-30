@@ -14,7 +14,7 @@ import { lifecycleReasonForObservation } from '../domain/lifecycle.js';
 import { AgentRouteStore, type HerdrAgentSessionRef } from './agentRouteStore.js';
 import { runPluginProcess } from './pluginCatalog.js';
 import { RealtimeCodingCoordinator } from './realtimeCoordinator.js';
-import { closeExactPane, closeExactTab, closeExactWorkspace, isRetryableCloseFailure, mergeHerdrAgentEvent, promptHerdrAgent, promptPromptableHerdrAgent, resolveClosePaneId, sendKeysToLiveAgent } from './herdrSessionSource.js';
+import { closeExactPane, closeExactTab, closeExactWorkspace, herdrAgentIsPromptable, isRetryableCloseFailure, mergeHerdrAgentEvent, promptHerdrAgent, promptPromptableHerdrAgent, resolveClosePaneId, sendKeysToLiveAgent } from './herdrSessionSource.js';
 import { createConnection, createServer } from 'node:net';
 import { existsSync, mkdtempSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -217,6 +217,17 @@ async function demo(): Promise<void> {
         notReady = error instanceof Error && 'code' in error && error.code === 'agent-not-ready';
     }
     assert(notReady && promptCalls.length === 0, 'Pelican starting is not promptable and sends zero Herdr prompts');
+    assert(
+        herdrAgentIsPromptable({}, 'idle')
+        && herdrAgentIsPromptable({}, 'working')
+        && herdrAgentIsPromptable({}, 'blocked')
+        && herdrAgentIsPromptable({}, 'done')
+        && !herdrAgentIsPromptable({}, 'starting')
+        && !herdrAgentIsPromptable({}, 'failed')
+        && !herdrAgentIsPromptable({}, 'unknown')
+        && !herdrAgentIsPromptable({ interactive_ready: false, launch_pending: true }, 'idle'),
+        'omitted interactive_ready is promptable when idle/working/blocked/done, not when starting or explicitly unready',
+    );
     pelican.interactive_ready = true;
     pelican.launch_pending = false;
     await promptPromptableHerdrAgent(promptClient, { sessionId: routeB, paneId: pelican.pane_id }, true, 'continue');
