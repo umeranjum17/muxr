@@ -129,6 +129,10 @@ describe('agent lifecycle presentation', () => {
             ['latest', 'one', 'Otter', 'codex', 'done'],
             ['failed', 'four', 'Otter', 'codex', 'failed'],
         ]);
+        const namedAsTitle = event('named', 'five', 'done', '2026-01-01T23:55:00.000Z');
+        namedAsTitle.taskTitle = 'Otter';
+        expect(unseenActivityRows([namedAsTitle], new Set(), now, 8, new Map([['five', 'Fix realtime voice']]))[0]?.taskTitle)
+            .toBe('Fix realtime voice');
 
         expect(unseenActivityRows([
             event('seen', 'seen-agent', 'done', '2026-01-01T23:59:30.000Z'),

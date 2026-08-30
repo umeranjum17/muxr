@@ -2,14 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
     request: vi.fn(),
+    fetch: vi.fn(),
+    settings: { relayUrl: 'ws://relay.test', machineId: 'machine', token: 'devtok_test' },
 }));
 
 vi.mock('@/connection', () => ({
-    getCachedConnectionSettings: () => ({
-        relayUrl: 'ws://relay.test',
-        machineId: 'machine',
-        token: '',
-    }),
+    getCachedConnectionSettings: () => mocks.settings,
 }));
 
 vi.mock('@/catalog/sync', () => ({
@@ -55,13 +53,20 @@ class FakeWebSocket {
 }
 
 vi.stubGlobal('WebSocket', FakeWebSocket);
+vi.stubGlobal('fetch', mocks.fetch);
 
 import { openTerminal } from './OpenTerminal';
 
 describe('openTerminal reconnect ownership', () => {
     beforeEach(() => {
-        vi.useFakeTimers();
         mocks.request.mockReset();
+        mocks.fetch.mockReset();
+        mocks.settings.token = 'devtok_test';
+        mocks.fetch.mockResolvedValue({
+            ok: true,
+            status: 201,
+            json: async () => ({ ticket: 'pwt-test', expires_in: 60 }),
+        });
         FakeWebSocket.instances.length = 0;
     });
 
@@ -69,13 +74,21 @@ describe('openTerminal reconnect ownership', () => {
         vi.useRealTimers();
     });
 
+    it('fails closed before attach when an account token cannot mint a ticket', async () => {
+        mocks.settings.token = 'acctok_stale';
+        await expect(openTerminal({ agentRoute: 'session', size: { cols: 100, rows: 30 } }))
+            .rejects.toThrow('terminal: relay ticket required');
+        expect(mocks.request).not.toHaveBeenCalled();
+        expect(FakeWebSocket.instances).toHaveLength(0);
+    });
+
     it('replays the first paint when it arrives before the native view subscribes', async () => {
         mocks.request.mockResolvedValue({});
         const channel = await openTerminal({ agentRoute: 'session', size: { cols: 100, rows: 30 } });
-        const socket = FakeWebSocket.instances[0];
-        expect(socket).toBeDefined();
-        socket!.open();
-        socket!.onmessage?.({ data: JSON.stringify({ type: 'terminal.frame', bytes: 'full-paint' }) });
+        await vi.waitFor(() => expect(FakeWebSocket.instances[0]).toBeDefined());
+        const socket = FakeWebSocket.instances[0]!;
+        socket.open();
+        socket.onmessage?.({ data: JSON.stringify({ type: 'terminal.frame', bytes: 'full-paint' }) });
 
         const frames: string[] = [];
         channel.onData((bytes) => frames.push(bytes));
@@ -97,18 +110,18 @@ describe('openTerminal reconnect ownership', () => {
         });
 
         const channel = await openTerminal({ agentRoute: 'session', size: { cols: 100, rows: 30 } });
-        const first = FakeWebSocket.instances[0];
-        expect(first).toBeDefined();
-        first!.open();
+        await vi.waitFor(() => expect(FakeWebSocket.instances[0]).toBeDefined());
+        const first = FakeWebSocket.instances[0]!;
+        first.open();
 
         channel.reconnect();
         channel.reconnect();
         expect(attachCalls).toBe(1);
         expect(FakeWebSocket.instances).toHaveLength(1);
-        expect(first!.close).not.toHaveBeenCalled();
+        expect(first.close).not.toHaveBeenCalled();
 
-        first!.drop();
-
+        vi.useFakeTimers();
+        first.drop();
         await vi.advanceTimersByTimeAsync(1_500);
         expect(attachCalls).toBe(2);
 
@@ -117,23 +130,24 @@ describe('openTerminal reconnect ownership', () => {
         expect(attachCalls).toBe(2);
 
         releaseDelayedAttach?.();
-        await vi.runAllTicks();
-        const replacement = FakeWebSocket.instances[1];
-        expect(replacement).toBeDefined();
-        replacement!.open();
+        vi.useRealTimers();
+        await vi.waitFor(() => expect(FakeWebSocket.instances[1]).toBeDefined());
+        const replacement = FakeWebSocket.instances[1]!;
+        replacement.open();
 
         // A late duplicate close from the old transport cannot schedule over
         // the live replacement.
-        first!.onclose?.();
+        vi.useFakeTimers();
+        first.onclose?.();
         await vi.advanceTimersByTimeAsync(20_000);
         expect(attachCalls).toBe(2);
-        expect(replacement!.readyState).toBe(FakeWebSocket.OPEN);
+        expect(replacement.readyState).toBe(FakeWebSocket.OPEN);
 
         channel.repaint();
-        await vi.runAllTicks();
+        vi.useRealTimers();
+        await vi.waitFor(() => expect(FakeWebSocket.instances).toHaveLength(3));
         expect(attachCalls).toBe(3);
-        expect(FakeWebSocket.instances).toHaveLength(3);
-        expect(replacement!.close).toHaveBeenCalledTimes(1);
+        expect(replacement.close).toHaveBeenCalledTimes(1);
 
         channel.close();
     });

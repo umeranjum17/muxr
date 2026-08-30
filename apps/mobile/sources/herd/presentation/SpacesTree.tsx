@@ -16,7 +16,7 @@ import { sync } from '@/catalog/sync';
 import { useNavigateToSession } from '../application/useNavigateToSession';
 import { agentStatusColor } from '../application/sessionUtils';
 import { buildSpaceRows, workspaceName, type HerdRow } from '../domain/herdTree';
-import { agentIdentityLine, agentLabels } from '../domain/agentPresentation';
+import { agentIdentityLine, agentLabels, isShellLabels } from '../domain/agentPresentation';
 import { Typography } from '@/constants/Typography';
 import { StatusDot } from '@/components/StatusDot';
 import { AgentGlyph } from '@/components/AgentGlyph';
@@ -211,7 +211,7 @@ const AgentRow = React.memo(({
     const dot = agentStatusColor(pane.agentStatus, theme);
     const labels = agentLabels(pane);
     const sessionId = pane.sessionId;
-    const shell = labels.agentKind === undefined && labels.agentName === 'Shell';
+    const shell = isShellLabels(labels);
     const title = shell ? 'Shell' : labels.taskTitle;
     const subtitle = shell ? 'Terminal' : agentIdentityLine(labels);
 

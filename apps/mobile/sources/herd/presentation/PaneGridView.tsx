@@ -19,7 +19,7 @@ import { ACCENT, AgentGlyph } from '@/components/AgentGlyph';
 import { TerminalPreview } from '@/terminal/ui';
 import { sync } from '@/catalog/sync';
 import { agentStatusColor, type AgentLifecycleStatus } from '../application/sessionUtils';
-import { agentKindLabel, agentLabels, agentNameLine } from '../domain/agentPresentation';
+import { agentLabels, agentNameLine, isShellLabels } from '../domain/agentPresentation';
 import type { HerdrTreePane, HerdrTreeTab } from '@muxr/contract';
 
 const POLL_MS = 4_000;
@@ -153,7 +153,7 @@ const PaneTile = React.memo((props: { pane: HerdrTreePane; style: object; router
     const color = agentStatusColor(status, theme).color;
     const hasSession = pane.sessionId !== undefined;
     const labels = agentLabels(pane);
-    const shell = labels.agentKind === undefined && labels.agentName === 'Shell';
+    const shell = isShellLabels(labels);
 
     return (
         <Pressable
@@ -184,20 +184,19 @@ const PaneTile = React.memo((props: { pane: HerdrTreePane; style: object; router
             </View>
             <View style={{ paddingHorizontal: 8, paddingVertical: 5, gap: 1, backgroundColor: theme.colors.surface }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-                    <StatusDot color={color} isPulsing={status === 'working' || status === 'blocked'} size={7} />
                     <AgentGlyph name={shell ? 'shell' : labels.agentKind ?? labels.agentName} size={16} />
-                    <Text numberOfLines={1} style={{ color: theme.colors.text, fontSize: 12, fontWeight: '600', flexShrink: 1 }}>
-                        {shell ? 'Shell' : labels.taskTitle}
-                    </Text>
-                    {labels.agentKind !== undefined &&
-                        <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 9, fontWeight: '600' }}>
-                            {agentKindLabel(labels.agentKind)}
+                    <View style={{ flex: 1, minWidth: 0, gap: 1 }}>
+                        <Text numberOfLines={1} style={{ color: theme.colors.text, fontSize: 12, fontWeight: '600' }}>
+                            {shell ? 'Shell' : labels.taskTitle}
                         </Text>
-                    }
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                            <StatusDot color={color} isPulsing={status === 'working' || status === 'blocked'} size={7} />
+                            <Text numberOfLines={1} style={{ flex: 1, color: theme.colors.textSecondary, fontSize: 10 }}>
+                                {shell ? 'Terminal' : agentNameLine(labels)}
+                            </Text>
+                        </View>
+                    </View>
                 </View>
-                <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 10, textTransform: 'capitalize' }}>
-                    {shell ? 'Terminal' : agentNameLine(labels)}
-                </Text>
             </View>
         </Pressable>
     );

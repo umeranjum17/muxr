@@ -15,9 +15,11 @@ export type AdmitSocketCommand = {
     remoteAddress?: string;
 };
 
+export type AdmitSocketReason = 'ticket-required' | 'ticket-invalid' | 'local-identity-invalid';
+
 export type AdmitSocketResult =
     | { ok: true; identity: PeerIdentity }
-    | { ok: false };
+    | { ok: false; reason: AdmitSocketReason };
 
 export interface AdmitSocketPorts {
     consumeTicket: (ticket: string) => Promise<Ticket | undefined>;
@@ -31,16 +33,17 @@ export async function admitSocket(
     const ticketValue = command.ticket?.trim();
     if (ticketValue !== undefined && ticketValue !== '') {
         const ticket = await ports.consumeTicket(ticketValue);
-        if (ticket === undefined) return { ok: false };
+        if (ticket === undefined) return { ok: false, reason: 'ticket-invalid' };
         return { ok: true, identity: identityFromTicket(ticket) };
     }
 
-    if (command.authMode !== 'permissive' || !isLoopbackAddress(command.remoteAddress)) return { ok: false };
+    if (command.authMode !== 'permissive') return { ok: false, reason: 'ticket-required' };
+    if (!isLoopbackAddress(command.remoteAddress)) return { ok: false, reason: 'local-identity-invalid' };
     const role = command.role;
     if ((role === 'machine' || role === 'client') && command.subscribedMachineIds.length > 0) {
         return { ok: true, identity: loopbackPeerIdentity(role, new Set(command.subscribedMachineIds)) };
     }
-    return { ok: false };
+    return { ok: false, reason: 'local-identity-invalid' };
 }
 
 export function extractBearerToken(req: { headers: { authorization?: unknown } }): string | undefined {
@@ -57,7 +60,7 @@ export async function admitSocketFromUrl(input: {
     authMode: 'permissive' | 'strict';
     remoteAddress: string | undefined;
     consumeTicket: (ticket: string) => Promise<Ticket | undefined>;
-}): Promise<PeerIdentity | undefined> {
+}): Promise<AdmitSocketResult> {
     const ticket = input.url.searchParams.get('ticket');
     const role = input.url.searchParams.get('role');
     const command: AdmitSocketCommand = {
@@ -67,7 +70,5 @@ export async function admitSocketFromUrl(input: {
     if (ticket !== null && ticket !== '') command.ticket = ticket;
     if (role !== null) command.role = role;
     if (input.remoteAddress !== undefined) command.remoteAddress = input.remoteAddress;
-    const result = await admitSocket({ consumeTicket: input.consumeTicket }, command);
-    if (!result.ok) return undefined;
-    return result.identity;
+    return admitSocket({ consumeTicket: input.consumeTicket }, command);
 }

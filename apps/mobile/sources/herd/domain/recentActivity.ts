@@ -14,12 +14,32 @@ export interface RecentActivityRow {
 const VISIBLE_STATES = new Set<AgentLifecycle>(['blocked', 'done', 'failed']);
 const MAX_AGE_MS = 24 * 60 * 60_000;
 
+function sameLabel(left?: string, right?: string): boolean {
+    return left !== undefined && right !== undefined
+        && left.localeCompare(right, undefined, { sensitivity: 'accent' }) === 0;
+}
+
+/** Prefer a work title. Animal names are identity, never the task line. */
+function resolveActivityTaskTitle(
+    event: { taskTitle?: string; agentName: string },
+    liveTitle?: string,
+): string {
+    const stored = event.taskTitle?.trim();
+    const name = event.agentName.trim();
+    const live = liveTitle?.trim();
+    if (stored !== undefined && stored !== '' && !sameLabel(stored, name)) return stored;
+    if (live !== undefined && live !== '' && !sameLabel(live, name)) return live;
+    return stored || name;
+}
+export { resolveActivityTaskTitle };
+
 /** Unseen meaningful transitions only; latest event wins when one agent changed repeatedly. */
 export function unseenActivityRows(
     events: readonly LifecycleEvent[],
     seenEventIds: ReadonlySet<string>,
     now = Date.now(),
     limit = 8,
+    liveTitles?: ReadonlyMap<string, string>,
 ): RecentActivityRow[] {
     const latestRoutes = new Set<string>();
     const rows: RecentActivityRow[] = [];
@@ -32,7 +52,7 @@ export function unseenActivityRows(
         rows.push({
             eventId: event.eventId,
             sessionId: event.sessionId,
-            taskTitle: event.taskTitle?.trim() || lifecycleEventAgentName(event),
+            taskTitle: resolveActivityTaskTitle(event, liveTitles?.get(event.sessionId)),
             agentName: lifecycleEventAgentName(event),
             ...(event.agentKind === undefined ? {} : { agentKind: event.agentKind }),
             status: event.state as RecentActivityRow['status'],

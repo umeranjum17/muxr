@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildSpaceRows, middleTruncate, workspaceName } from './herdTree';
 import type { HerdrTreePane as ContractPane, HerdrTreeTab, HerdrTreeWorkspace as ContractWorkspace } from '@muxr/contract';
-import { agentKindLabel, agentLabels } from './agentPresentation';
+import { agentIdentityLine, agentKindLabel, agentLabels, agentNameLine, isShellLabels } from './agentPresentation';
 
 const pane = (id: string, agentKind?: string, extra: Partial<ContractPane> = {}): ContractPane => ({ paneId: id, tabId: 't1', agentStatus: 'idle', promptable: false, focused: false, agentKind, ...extra });
 const ws = (id: string, label: string | undefined, tabs: HerdrTreeTab[]): ContractWorkspace => ({ workspaceId: id, label, focused: false, agentStatus: 'idle', tabs });
@@ -28,11 +28,15 @@ describe('visible herd tree flow', () => {
         expect({ primary: labels.taskTitle, secondary: labels.agentName, kind: labels.agentKind })
             .toEqual({ primary: 'Review monitoring stability', secondary: 'Maria', kind: 'pi' });
         expect(labels.taskTitle).not.toContain(labels.agentName);
+        expect(agentNameLine(labels)).toBe('pi/Maria');
+        expect(agentIdentityLine(labels)).toBe('pi/Maria');
         expect(agentLabels(pane('p-review', 'codex', { agentName: 'opus-review' }))).toMatchObject({
             taskTitle: 'opus-review',
             agentName: 'opus-review',
             agentKind: 'codex',
         });
+        expect(agentNameLine(agentLabels(pane('p-review', 'codex', { agentName: 'opus-review' })))).toBe('codex');
+        expect(agentNameLine(agentLabels(pane('p-fox', 'pi', { agentName: 'fox', taskTitle: 'Cursor Local Fast On' })))).toBe('pi/fox');
         expect(agentKindLabel('opencode')).toBe('OpenCode');
         expect(agentKindLabel('pi')).toBe('Pi');
         expect(agentLabels(pane('p-unnamed', 'opencode'))).toMatchObject({
@@ -41,6 +45,10 @@ describe('visible herd tree flow', () => {
             agentKind: 'opencode',
         });
         expect(agentLabels(shell)).toMatchObject({ taskTitle: 'Untitled task', agentName: 'Shell' });
+        const titledShell = agentLabels(pane('p-titled-shell', undefined, { taskTitle: 'vim ~/.bashrc' }));
+        expect(titledShell).toMatchObject({ taskTitle: 'vim ~/.bashrc', agentName: 'Shell' });
+        expect(isShellLabels(titledShell)).toBe(true);
+        expect(isShellLabels(labels)).toBe(false);
         expect(buildSpaceRows([ws('w2', 'repo-b', [tab('1', undefined, [shell])])], new Set(), '')[0])
             .toMatchObject({ agentCount: 0, expanded: false });
     });

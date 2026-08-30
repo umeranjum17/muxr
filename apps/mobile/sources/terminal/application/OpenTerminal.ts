@@ -11,7 +11,7 @@
  * closed when the host says the stream ended or retries run out.
  */
 
-import { issueWsTicket, newTerminalChannel, terminalSocketUrl, ticketSocketUrl, type Envelope, type TerminalHostFrame } from '@muxr/contract';
+import { issueWsTicket, newTerminalChannel, ticketSocketUrl, type Envelope, type TerminalHostFrame } from '@muxr/contract';
 import { getCachedConnectionSettings } from '@/connection';
 import { sync } from '@/catalog/sync';
 import { DeviceV2Crypto, getCachedHostedGrant, refreshHostedGrant } from '@/pairing/e2ee';
@@ -83,6 +83,13 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
         }
         return sendAttachRequest(takeover);
     })();
+    const relayTicket = (): { relayUrl: string; credential: string } | undefined => grant !== undefined
+        ? { relayUrl: grant.relayUrl, credential: grant.credential }
+        : settings.token !== '' && !settings.token.startsWith('acctok_')
+            ? { relayUrl: settings.relayUrl, credential: settings.token }
+            : undefined;
+    // Fail before attach: a ticketless socket is what produced the 1 Hz loop.
+    if (relayTicket() === undefined) throw new Error('terminal: relay ticket required');
     await attach(true);
 
     const dataListeners = new Set<(base64: string) => void>();
@@ -177,34 +184,19 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
 
     async function connectSocket(): Promise<void> {
         if (closedByUser) return;
-        // Hosted mode keeps no usable token in connection settings -- the device
-        // credential lives on the grant. A legacy no-token socket lands in the
-        // relay's anonymous 'local' namespace and never pairs with the host,
-        // which joins the channel by ticket under its account.
-        const url = grant !== undefined
-            ? ticketSocketUrl(grant.relayUrl, await issueWsTicket({
-                relayUrl: grant.relayUrl,
-                credential: grant.credential,
-                machineId: settings.machineId,
-                role: 'client',
-                transport: 'terminal',
-                channel,
-            }), 'terminal')
-            : settings.token === '' || settings.token.startsWith('acctok_')
-                ? terminalSocketUrl(settings.relayUrl, {
-                    machineId: settings.machineId,
-                    channel,
-                    role: 'client',
-                    ...(settings.token === '' ? {} : { token: settings.token }),
-                })
-                : ticketSocketUrl(settings.relayUrl, await issueWsTicket({
-                    relayUrl: settings.relayUrl,
-                    credential: settings.token,
-                    machineId: settings.machineId,
-                    role: 'client',
-                    transport: 'terminal',
-                    channel,
-                }), 'terminal');
+        // Strict relays reject ticketless sockets. Empty and account-scoped
+        // tokens cannot mint a channel ticket, so fail closed instead of
+        // opening a 1 Hz unauthorized reconnect loop.
+        const ticketInput = relayTicket();
+        if (ticketInput === undefined) throw new Error('terminal: relay ticket required');
+        const url = ticketSocketUrl(ticketInput.relayUrl, await issueWsTicket({
+            relayUrl: ticketInput.relayUrl,
+            credential: ticketInput.credential,
+            machineId: settings.machineId,
+            role: 'client',
+            transport: 'terminal',
+            channel,
+        }), 'terminal');
         if (closedByUser || socket !== undefined) return;
         const next = new WebSocket(url);
         socket = next;
@@ -270,7 +262,7 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
             scheduleRetry();
         };
     }
-    void connectSocket().catch(scheduleRetry);
+    await connectSocket();
 
     const send = (frame: Record<string, unknown>): void => {
         const plaintext = JSON.stringify(frame);

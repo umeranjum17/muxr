@@ -10,7 +10,7 @@
  */
 
 import { newPreviewKey } from '@muxr/crypto';
-import { issueWsTicket, newPreviewChannel, previewSocketUrl, ticketSocketUrl } from '@muxr/contract';
+import { issueWsTicket, newPreviewChannel, ticketSocketUrl } from '@muxr/contract';
 import { getCachedConnectionSettings } from '@/connection';
 import { sync } from '@/catalog/sync';
 
@@ -79,22 +79,17 @@ export async function attachPreviewTunnel(port: number): Promise<PreviewTunnel> 
     // sees connection ids for multiplexing, never the frontend bytes.
     await sync.request('preview.attach', { channel, port, ...(key === undefined ? {} : { key }) });
 
-    const socketUrl = settings.token === '' || settings.token.startsWith('acctok_')
-        ? previewSocketUrl(settings.relayUrl, {
-            machineId: settings.machineId,
-            channel,
-            role: 'client',
-            ...(settings.token === '' ? {} : { token: settings.token }),
-            ...(previewBridgeAvailable ? { bridge: true } : {}),
-        })
-        : ticketSocketUrl(settings.relayUrl, await issueWsTicket({
-            relayUrl: settings.relayUrl,
-            credential: settings.token,
-            machineId: settings.machineId,
-            role: 'client',
-            transport: 'preview',
-            channel,
-        }), 'preview', previewBridgeAvailable);
+    if (settings.token === '' || settings.token.startsWith('acctok_')) {
+        throw new Error('preview: relay ticket required');
+    }
+    const socketUrl = ticketSocketUrl(settings.relayUrl, await issueWsTicket({
+        relayUrl: settings.relayUrl,
+        credential: settings.token,
+        machineId: settings.machineId,
+        role: 'client',
+        transport: 'preview',
+        channel,
+    }), 'preview', previewBridgeAvailable);
     const socket = new WebSocket(socketUrl);
 
     if (previewBridgeAvailable) {

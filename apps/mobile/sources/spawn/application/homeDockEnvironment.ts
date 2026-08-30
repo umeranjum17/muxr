@@ -1,14 +1,12 @@
 /**
- * Home dock environment: which Agent, Machine, project path, and Worktree the
+ * Home dock environment: which Agent, project path, and Worktree the
  * next spawn will use. The dock view renders these options; this module decides
- * what they are.
+ * what they are. Machine comes from the header connection, not the dock.
  */
 
-import type { Machine, Session } from '@/catalog';
+import type { Session } from '@/catalog';
 import { AGENT_TYPES, type NewSessionAgentType, type NewSessionSessionType } from '@/catalog/application/persistence';
-import { formatLastSeen, formatPathRelativeToHome } from '@/herd';
-import { isMachineOnline, PairedMachine } from '@/pairing';
-import { t } from '@/text';
+import { formatPathRelativeToHome } from '@/herd';
 import { WorktreeSelection } from '../domain/WorktreeSelection';
 
 export interface DockOption {
@@ -41,27 +39,6 @@ export function resolveDockOption(options: DockOption[], preferred: Array<string
         if (option) return option;
     }
     return options[0] ?? null;
-}
-
-export function machineDisplayName(machine: Machine): string {
-    return new PairedMachine({
-        id: machine.id,
-        active: machine.active,
-        displayName: machine.metadata?.displayName,
-        host: machine.metadata?.host,
-    }).title();
-}
-
-export function machineDockOptions(machines: readonly Machine[]): DockOption[] {
-    return [...machines]
-        .sort((left, right) => Number(isMachineOnline(right)) - Number(isMachineOnline(left)))
-        .map((machine) => ({
-            key: machine.id,
-            name: machineDisplayName(machine),
-            description: isMachineOnline(machine)
-                ? t('status.online')
-                : t('status.lastSeen', { time: formatLastSeen(machine.activeAt, false) }),
-        }));
 }
 
 export function projectDockOptions(input: {

@@ -250,9 +250,10 @@ export class PeerBroker {
             access?.onSemanticResult?.(this.semanticRequest('peer.remote.prompt', relationship, params));
             return { machine: cleanAlias(result.machineAlias), agent: cleanAlias(result.agentName), delivered: result.delivered };
         } catch (error) {
-            if (error instanceof Error && (/^(No |Use one|The selected)/.test(error.message)
+            if (error instanceof Error && (/^(No |Use one|The selected|Agent is not ready yet\.)/.test(error.message)
                 || (error as { name?: unknown }).name === 'AbortError'
-                || (error as { code?: unknown }).code === 'peer-mutation-unresolved')) throw error;
+                || (error as { code?: unknown }).code === 'peer-mutation-unresolved'
+                || (error as { code?: unknown }).code === 'agent-not-ready')) throw error;
             throw new Error('The peer request failed on the selected computer.');
         }
     }

@@ -49,17 +49,20 @@ export function agentKindLabel(kind?: string): string | undefined {
 
 /** One-to-one live Herdr DTO presentation. Only absent-value placeholders are local. */
 export function agentLabels(pane?: AgentInfo): AgentLabels {
-    const hasAgent = pane?.agentName !== undefined
-        || pane?.taskTitle !== undefined
-        || pane?.agentKind !== undefined
-        || pane?.displayAgent !== undefined;
-    const agentName = pane?.agentName?.trim() || (hasAgent ? 'Unnamed agent' : 'Shell');
+    const named = pane?.agentName?.trim();
+    const kind = pane?.agentKind?.trim();
+    const hasAgent = named !== undefined && named !== '' || kind !== undefined && kind !== '';
+    const agentName = named || (hasAgent ? 'Unnamed agent' : 'Shell');
     return {
         taskTitle: pane?.taskTitle?.trim() || (hasAgent ? agentName : 'Untitled task'),
         agentName,
         ...(pane?.agentKind === undefined ? {} : { agentKind: pane.agentKind }),
         ...(pane?.displayAgent === undefined ? {} : { displayAgent: pane.displayAgent }),
     };
+}
+
+export function isShellLabels(labels: AgentLabels): boolean {
+    return labels.agentKind === undefined && labels.agentName === 'Shell';
 }
 
 function uniqueLabels(values: readonly (string | undefined)[]): string[] {
@@ -74,18 +77,29 @@ function uniqueLabels(values: readonly (string | undefined)[]): string[] {
     });
 }
 
+function distinctAgentName(labels: AgentLabels): string | undefined {
+    const name = labels.agentName.trim();
+    if (name === '') return undefined;
+    if (name.localeCompare(labels.taskTitle, undefined, { sensitivity: 'accent' }) === 0) return undefined;
+    return name;
+}
+
+function agentKindSlug(kind?: string): string | undefined {
+    const value = kind?.trim();
+    if (value === undefined || value === '') return undefined;
+    return value.toLocaleLowerCase('und');
+}
+
+/** Kind and animal name as one token, e.g. `pi/fox`. */
 export function agentNameLine(labels: AgentLabels): string {
-    const name = labels.agentName.localeCompare(labels.taskTitle, undefined, { sensitivity: 'accent' }) === 0
-        ? undefined
-        : labels.agentName;
-    return uniqueLabels([name, labels.displayAgent]).join(' · ');
+    const kind = agentKindSlug(labels.agentKind);
+    const name = distinctAgentName(labels);
+    const identity = kind !== undefined && name !== undefined ? `${kind}/${name}` : kind ?? name;
+    return uniqueLabels([identity, labels.displayAgent]).join(' · ');
 }
 
 export function agentIdentityLine(labels: AgentLabels): string {
-    const name = labels.agentName.localeCompare(labels.taskTitle, undefined, { sensitivity: 'accent' }) === 0
-        ? undefined
-        : labels.agentName;
-    return uniqueLabels([name, agentKindLabel(labels.agentKind), labels.displayAgent]).join(' · ');
+    return agentNameLine(labels);
 }
 
 export function agentStateLabel(status: AgentLifecycle, changedAt?: number, now = Date.now()): string {

@@ -11,11 +11,12 @@ These packages install into Herdr during muxr setup. Each can have an optional H
 | `terminal-keys` | none | declarative terminal key row |
 | `dictation` | none | home composer using `dictate` |
 | `workspace-hierarchy` | public workspace-tree context RPC | session overlay using source-driven `tree-sheet` |
-| `pane-titler` | rename panes from scrollback | backend only |
 | `code` | bounded repo tree/preview, `git status`, `git log`/`show`, saved commands | Files explorer, Changes pill, Git history screens, Runbook destination |
 | `status` | pinned offline ccusage + bounded Claude/Codex plan limits; disk/memory/load/uptime | Usage rows + chart detail screen; Home machine card |
 | `servers` | list/stop listeners; start the project's dev script | Ports destination; Preview `item-list` with validated port actions |
 | `example-ui` | echo list/save RPCs | settings example for SDK validation |
+
+Agent Names and Task Titles are Herdr fields. Muxr only displays them. Install a community Herdr plugin such as [`wyattjoh/herdr-plugin-renamer`](https://github.com/wyattjoh/herdr-plugin-renamer) (`herdr plugin install wyattjoh/herdr-plugin-renamer`) rather than bundling a title rewriter here. It writes pane `--title` from the first prompt for Claude, Codex, and Pi.
 
 Read [docs/PLUGINS.md](../docs/PLUGINS.md) before adding a package. Every plugin folder must contain a concise `README.md` covering its UI, backend execution, permissions, state/secrets, offline behavior, compatibility, and removal.
 
