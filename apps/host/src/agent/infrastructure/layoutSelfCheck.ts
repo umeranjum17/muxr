@@ -11,7 +11,7 @@ import {
     type HerdrLayoutNode,
 } from '../domain/layout.js';
 import { lifecycleReasonForObservation } from '../domain/lifecycle.js';
-import { AgentRouteStore, type HerdrAgentSessionRef } from './agentRouteStore.js';
+import { AgentRouteStore, isMuxrLaunchSession, shouldAdoptPublishedLaunch, type HerdrAgentSessionRef } from './agentRouteStore.js';
 import { runPluginProcess } from './pluginCatalog.js';
 import { RealtimeCodingCoordinator } from './realtimeCoordinator.js';
 import { closeExactPane, closeExactTab, closeExactWorkspace, herdrAgentIsPromptable, isRetryableCloseFailure, mergeHerdrAgentEvent, promptHerdrAgent, promptPromptableHerdrAgent, resolveClosePaneId, sendKeysToLiveAgent } from './herdrSessionSource.js';
@@ -146,6 +146,46 @@ async function demo(): Promise<void> {
     const movedBadger = { ...badger, pane_id: 'w9:p7' };
     assert(routeStore.bind(movedBadger.agent_session).route === routeA && movedBadger.name === 'Badger',
         'Badger session A keeps its route across a pane move');
+    const launchSession: HerdrAgentSessionRef = {
+        source: 'muxr:launch',
+        agent: 'cursor',
+        kind: 'id',
+        value: 'launch-generation',
+    };
+    const publishedLaunch: HerdrAgentSessionRef = {
+        source: 'herdr:cursor',
+        agent: 'cursor',
+        kind: 'id',
+        value: 'generation-cursor',
+    };
+    const launchRoute = routeStore.bind(launchSession).route;
+    assert(isMuxrLaunchSession(launchSession) === true, 'muxr launch identity is marked as a launch session');
+    assert(routeStore.reconcile([sessionA, launchSession]).length === 0
+        && routeStore.get(launchRoute)?.source === launchSession.source
+        && routeStore.get(launchRoute)?.value === launchSession.value,
+        'reconcile keeps an in-flight launch generation');
+    assert(routeStore.adopt(launchSession, publishedLaunch)?.route === launchRoute
+        && routeStore.route(publishedLaunch) === launchRoute
+        && routeStore.get(launchRoute)?.value === publishedLaunch.value,
+        'a launch generation keeps its route when Herdr publishes the session');
+    assert(routeStore.reconcile([sessionA, publishedLaunch]).length === 0
+        && routeStore.get(launchRoute)?.source === 'herdr:cursor',
+        'reconcile keeps the adopted Herdr session');
+    assert(routeStore.reconcile([sessionA])[0]?.route === launchRoute && routeStore.get(launchRoute) === undefined,
+        'reconcile drops a vanished launch route');
+    const mismatchedLaunch: HerdrAgentSessionRef = {
+        source: 'herdr:codex',
+        agent: 'codex',
+        kind: 'id',
+        value: 'generation-codex',
+    };
+    assert(shouldAdoptPublishedLaunch(launchSession, publishedLaunch) === true
+        && shouldAdoptPublishedLaunch(launchSession, mismatchedLaunch) === false,
+        'kind mismatch does not adopt a published session onto the launch route');
+    assert(herdrAgentIsPromptable({}, 'idle') === true
+        && herdrAgentIsPromptable({ launch_pending: true }, 'idle') === false
+        && herdrAgentIsPromptable({ interactive_ready: false }, 'idle') === false,
+        'a kind that never reports interactive_ready is still promptable once idle');
 
     const removed = routeStore.reconcile([sessionB]);
     const pelican = {

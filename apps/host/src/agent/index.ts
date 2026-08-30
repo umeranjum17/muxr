@@ -1,7 +1,11 @@
 export {
     AgentRouteStore,
     herdrAgentSessionKey,
+    isMuxrLaunchSession,
+    muxrLaunchSession,
     parseHerdrAgentSession,
+    shouldAdoptPublishedLaunch,
+    MUXR_LAUNCH_SOURCE,
     type AgentRouteBinding,
     type HerdrAgentSessionRef,
 } from './infrastructure/agentRouteStore.js';

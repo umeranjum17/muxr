@@ -32,7 +32,7 @@ export type HostDiagnosticEvent =
     | { at: string; event: 'peer.broker'; operation: DiagnosticBrokerOperation; outcome: DiagnosticOutcome; durationMs: number; code?: string }
     | { at: string; event: 'realtime.prompt'; provider: string; action: 'prompt'; requestedAgentName: string; resolvedAgentName: string | null; outcome: DiagnosticRealtimePromptOutcome }
     | { at: string; event: 'agent.readiness'; reason: 'starting' | 'ready' | 'not-promptable'; promptable: boolean; kind?: string; lifecycle?: string; gate?: DiagnosticReadinessGate }
-    | { at: string; event: 'agent.launch'; outcome: DiagnosticOutcome; kind?: string; gate?: DiagnosticReadinessGate };
+    | { at: string; event: 'agent.launch'; outcome: DiagnosticOutcome; kind?: string; detected?: string; gate?: DiagnosticReadinessGate };
 
 interface HostDiagnosticState {
     version: 1;
@@ -229,15 +229,17 @@ export class HostDiagnosticsJournal {
 
     agentLaunch(
         outcome: DiagnosticOutcome,
-        detail?: { kind?: string; gate?: DiagnosticReadinessGate },
+        detail?: { kind?: string; detected?: string; gate?: DiagnosticReadinessGate },
     ): void {
         const kind = safeAgentKind(detail?.kind);
+        const detected = safeAgentKind(detail?.detected);
         const gate = safeReadinessGate(detail?.gate);
         this.record({
             at: this.timestamp(),
             event: 'agent.launch',
             outcome,
             ...(kind === undefined ? {} : { kind }),
+            ...(detected === undefined ? {} : { detected }),
             ...(gate === undefined ? {} : { gate }),
         });
     }
