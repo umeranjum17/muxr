@@ -16,13 +16,18 @@ on:
         required: true
         default: false
         type: boolean
+      publish_github_release:
+        description: Publish the APK to the matching GitHub Release
+        required: true
+        default: true
+        type: boolean
       confirmation:
         description: Type release-VERSION-VERSION_CODE
         required: true
         type: string
 
 concurrency:
-  group: mobile-android-internal-${{ inputs.version }}-${{ inputs.version_code }}
+  group: mobile-android-internal-${{ inputs.version }}
   cancel-in-progress: true
 
 permissions:
@@ -156,14 +161,16 @@ jobs:
           mkdir -p "$output"
           install -m 600 apps/mobile/android/app/build/outputs/apk/release/app-release.apk "$output/muxr-$APP_VERSION-$ANDROID_VERSION_CODE.apk"
           install -m 600 apps/mobile/android/app/build/outputs/bundle/release/app-release.aab "$output/muxr-$APP_VERSION-$ANDROID_VERSION_CODE.aab"
+          apk_sha="$(sha256sum "$output/muxr-$APP_VERSION-$ANDROID_VERSION_CODE.apk" | cut -d ' ' -f 1)"
           aab_sha="$(sha256sum "$output/muxr-$APP_VERSION-$ANDROID_VERSION_CODE.aab" | cut -d ' ' -f 1)"
           jq -n \
             --arg gitCommitHash "$GITHUB_SHA" \
             --arg appVersion "$APP_VERSION" \
             --arg appBuildVersion "$ANDROID_VERSION_CODE" \
             --argjson submittedToInternal "$SUBMIT_TO_PLAY" \
+            --arg apkArtifactSha256 "$apk_sha" \
             --arg artifactSha256 "$aab_sha" \
-            '{platform:"ANDROID", $gitCommitHash, $appVersion, $appBuildVersion, bundleIdentifier:"com.trymuxr.app", $submittedToInternal, $artifactSha256}' \
+            '{platform:"ANDROID", $gitCommitHash, $appVersion, $appBuildVersion, bundleIdentifier:"com.trymuxr.app", $submittedToInternal, $apkArtifactSha256, $artifactSha256}' \
             > "$output/result.json"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -171,3 +178,50 @@ jobs:
           path: ${{ runner.temp }}/android-internal
           retention-days: 7
           if-no-files-found: error
+
+  publish:
+    if: github.ref == 'refs/heads/main' && inputs.publish_github_release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: write
+    env:
+      APP_VERSION: ${{ inputs.version }}
+      ANDROID_VERSION_CODE: ${{ inputs.version_code }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: android-internal
+          path: ${{ runner.temp }}/android-internal
+      - name: Verify and publish APK
+        run: |
+          artifact="$RUNNER_TEMP/android-internal"
+          apk="$artifact/muxr-$APP_VERSION-$ANDROID_VERSION_CODE.apk"
+          result="$artifact/result.json"
+          test -f "$apk"
+          test -f "$result"
+          test "$(find "$artifact" -type f -name '*.apk' | wc -l)" -eq 1
+          jq -e \
+            --arg gitCommitHash "$GITHUB_SHA" \
+            --arg appVersion "$APP_VERSION" \
+            --arg appBuildVersion "$ANDROID_VERSION_CODE" \
+            '.platform == "ANDROID" and .gitCommitHash == $gitCommitHash and .appVersion == $appVersion and .appBuildVersion == $appBuildVersion and .bundleIdentifier == "com.trymuxr.app" and (.apkArtifactSha256 | test("^[0-9a-f]{64}$"))' \
+            "$result" >/dev/null
+          test "$(sha256sum "$apk" | cut -d ' ' -f 1)" = "$(jq -r .apkArtifactSha256 "$result")"
+
+          tag="$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName)"
+          test "$tag" = "v$APP_VERSION"
+
+          publish="$RUNNER_TEMP/github-release"
+          mkdir -p "$publish"
+          install -m 644 "$apk" "$publish/muxr-android-$APP_VERSION-build$ANDROID_VERSION_CODE.apk"
+          install -m 644 "$apk" "$publish/muxr-android.apk"
+          (cd "$publish" && sha256sum muxr-android-$APP_VERSION-build$ANDROID_VERSION_CODE.apk muxr-android.apk > SHA256SUMS)
+          gh release upload "$tag" "$publish/muxr-android-$APP_VERSION-build$ANDROID_VERSION_CODE.apk" "$publish/muxr-android.apk" "$publish/SHA256SUMS" --clobber --repo "$GITHUB_REPOSITORY"
+
+          downloaded="$RUNNER_TEMP/published-release"
+          mkdir -p "$downloaded"
+          gh release download "$tag" --pattern "muxr-android-$APP_VERSION-build$ANDROID_VERSION_CODE.apk" --pattern muxr-android.apk --pattern SHA256SUMS --dir "$downloaded" --repo "$GITHUB_REPOSITORY"
+          (cd "$downloaded" && sha256sum --check SHA256SUMS)
