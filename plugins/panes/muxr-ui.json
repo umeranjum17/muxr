@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "pluginId": "muxr.panes",
+  "minMuxrVersion": 8,
+  "contributions": [
+    {
+      "slot": "host.rpc",
+      "id": "list",
+      "type": "rpc",
+      "method": "list",
+      "entry": "panes.mjs",
+      "mode": "read"
+    },
+    {
+      "slot": "host.rpc",
+      "id": "tools",
+      "type": "rpc",
+      "method": "tools",
+      "entry": "panes.mjs",
+      "mode": "read"
+    },
+    {
+      "slot": "host.rpc",
+      "id": "launch",
+      "type": "rpc",
+      "method": "launch",
+      "entry": "panes.mjs",
+      "mode": "write"
+    },
+    {
+      "slot": "session.header.trailing",
+      "id": "tools-sheet",
+      "type": "native",
+      "primitive": "item-list",
+      "params": {
+        "title": "Tools",
+        "icon": "construct-outline",
+        "accessibilityLabel": "Terminal tools",
+        "source": {
+          "type": "plugin.call",
+          "contributionId": "tools"
+        }
+      }
+    },
+    {
+      "slot": "navigation.primary",
+      "id": "nav",
+      "type": "navigation-item",
+      "label": "Panes",
+      "icon": "terminal-outline",
+      "contentContributionId": "browse"
+    },
+    {
+      "slot": "navigation.content",
+      "id": "browse",
+      "type": "native",
+      "primitive": "item-list",
+      "params": {
+        "title": "Panes",
+        "icon": "terminal-outline",
+        "source": {
+          "type": "plugin.call",
+          "contributionId": "list"
+        },
+        "refreshIntervalMs": 15000
+      }
+    }
+  ]
+}
