@@ -5,7 +5,6 @@
 import * as React from 'react';
 import { View } from 'react-native';
 import { FitAddon } from '@xterm/addon-fit';
-import { ImageAddon } from '@xterm/addon-image';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { Terminal } from '@xterm/xterm';
@@ -46,7 +45,6 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
         const fit = new FitAddon();
         term.loadAddon(fit);
         term.loadAddon(new WebLinksAddon());
-        term.loadAddon(new ImageAddon());
         term.open(element);
         fit.fit();
         setTerminalColumns(sessionId, term.cols);
@@ -75,24 +73,11 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
         let channel: TerminalChannel | undefined;
         let disposed = false;
         let graphicsActive = false;
-        const cellMetrics = (): { width: number; height: number } | undefined => {
-            const cell = (term as unknown as { _core?: { _renderService?: { dimensions?: { css?: { cell?: { width?: number; height?: number } } } } } })
-                ._core?._renderService?.dimensions?.css?.cell;
-            return cell?.width !== undefined && cell.height !== undefined && cell.width > 0 && cell.height > 0
-                ? { width: cell.width * window.devicePixelRatio, height: cell.height * window.devicePixelRatio }
-                : undefined;
-        };
-
         onStatus?.('connecting');
-        const initialCell = cellMetrics();
-        void openTerminal({
-            agentRoute: sessionId,
-            size: {
-                cols: term.cols,
-                rows: term.rows,
-                ...(initialCell === undefined ? {} : { cellWidthPx: initialCell.width, cellHeightPx: initialCell.height }),
-            },
-        })
+        // Web remains ANSI-only until xterm has a real Kitty APC renderer.
+        // Omitting physical cell metrics prevents host graphics registration
+        // and therefore prevents blank-but-clickable pointer mode.
+        void openTerminal({ agentRoute: sessionId, size: { cols: term.cols, rows: term.rows } })
             .then((opened) => {
                 if (disposed) {
                     opened.close();
@@ -144,7 +129,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                 if (disposed) return;
                 fit.fit();
                 setTerminalColumns(sessionId, term.cols);
-                channel?.resize(term.cols, term.rows, cellMetrics());
+                channel?.resize(term.cols, term.rows);
             });
         };
         const resizeObserver = new ResizeObserver(resize);
@@ -216,7 +201,6 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             channel.pointer(phase, clientX - rect.left, clientY - rect.top, rect.width, rect.height);
         };
         const onTouchStart = (event: TouchEvent): void => {
-            if (event.touches.length === 1) pointer('down', event.touches[0].clientX, event.touches[0].clientY);
             velocity = 0;
             momentumRunning = false;
             touchY = event.touches.length === 1 ? event.touches[0].clientY : null;
@@ -227,13 +211,12 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
         const onTouchMove = (event: TouchEvent): void => {
             if (touchY === null || event.touches.length !== 1) return;
             const y = event.touches[0].clientY;
-            pointer('move', event.touches[0].clientX, y);
             const now = performance.now();
             const dy = y - touchY; // finger down = content down = older output
             const dt = now - touchT;
             if (dt > 0 && dt < 100) velocity = velocity * 0.7 + (dy / dt) * 16.7 * 0.3; // smoothed px/frame
             scrollAcc += dy;
-            gesturePx += dy;
+            gesturePx += Math.abs(dy);
             touchY = y;
             touchT = now;
             if (Math.abs(gesturePx) < 8) return; // slop: taps stay taps
@@ -244,7 +227,10 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
         };
         const onTouchEnd = (event: TouchEvent): void => {
             const touch = event.changedTouches[0];
-            if (touch !== undefined) pointer('up', touch.clientX, touch.clientY);
+            if (graphicsActive && touch !== undefined && gesturePx < 8) {
+                pointer('down', touch.clientX, touch.clientY);
+                pointer('up', touch.clientX, touch.clientY);
+            }
             touchY = null;
             gesturePx = 0;
             if (!momentumRunning && Math.abs(velocity) >= 0.5) {

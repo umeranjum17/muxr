@@ -36,10 +36,15 @@ interface Attachment {
     rows: number;
     cellWidthPx: number | undefined;
     cellHeightPx: number | undefined;
+    pendingGraphics?: string;
+    graphicsFlushTimer?: ReturnType<typeof setTimeout>;
     close: (reason?: string) => void;
 }
 
 const ATTACH_TIMEOUT_MS = 10_000;
+const GRAPHICS_BUFFER_HIGH_BYTES = 512 * 1024;
+const GRAPHICS_BUFFER_LOW_BYTES = 128 * 1024;
+const GRAPHICS_DRAIN_POLL_MS = 16;
 
 export class TerminalManager {
     private readonly attachments = new Map<string, Attachment>();
@@ -203,6 +208,9 @@ export class TerminalManager {
             if (finished) return;
             finished = true;
             removeInput();
+            if (attachment.graphicsFlushTimer !== undefined) clearTimeout(attachment.graphicsFlushTimer);
+            delete attachment.graphicsFlushTimer;
+            delete attachment.pendingGraphics;
             if (reason !== undefined && socket.readyState === WebSocket.OPEN) {
                 const plaintext = JSON.stringify({ type: 'terminal.closed', reason });
                 if (this.hosted === undefined) {
@@ -288,7 +296,15 @@ export class TerminalManager {
                     }
                     text = this.hosted.open(params.deviceId!, 'terminal', params.channel, envelope.payload);
                 }
-                const frame = JSON.parse(text) as { type?: string; cols?: number; rows?: number; cellWidthPx?: number; cellHeightPx?: number } & Partial<HerdrGraphicsPointer>;
+                const frame = JSON.parse(text) as {
+                    type?: string;
+                    cols?: number;
+                    rows?: number;
+                    cellWidthPx?: number;
+                    cellHeightPx?: number;
+                    direction?: 'up' | 'down';
+                    lines?: number;
+                } & Partial<HerdrGraphicsPointer>;
                 if (frame.type === 'terminal.resize' && typeof frame.cols === 'number' && typeof frame.rows === 'number') {
                     this.activateGraphics(attachment, {
                         cols: frame.cols,
@@ -296,6 +312,16 @@ export class TerminalManager {
                         ...(frame.cellWidthPx === undefined ? {} : { cellWidthPx: frame.cellWidthPx }),
                         ...(frame.cellHeightPx === undefined ? {} : { cellHeightPx: frame.cellHeightPx }),
                     });
+                }
+                if (frame.type === 'terminal.scroll' && (frame.direction === 'up' || frame.direction === 'down')
+                    && typeof frame.lines === 'number') {
+                    const reports = this.graphics?.scrollInput(attachment.channel, frame.direction, frame.lines) ?? [];
+                    if (reports.length > 0) {
+                        for (const report of reports) {
+                            input.write(`${JSON.stringify({ type: 'terminal.input', bytes: report.toString('base64') })}\n`);
+                        }
+                        return;
+                    }
                 }
                 if (frame.type === 'terminal.pointer'
                     && (frame.phase === 'down' || frame.phase === 'move' || frame.phase === 'up')
@@ -374,9 +400,11 @@ export class TerminalManager {
             return;
         }
         if (this.graphicsOpening !== undefined) return;
-        const opening = HerdrGraphicsBridge.open(
-            this.options.herdrBin === undefined ? {} : { herdrBin: this.options.herdrBin },
-        )
+        const opening = HerdrGraphicsBridge.open({
+            cellWidthPx: size.cellWidthPx,
+            cellHeightPx: size.cellHeightPx,
+            ...(this.options.herdrBin === undefined ? {} : { herdrBin: this.options.herdrBin }),
+        })
             .then((graphics) => {
                 if (this.graphicsOpening !== opening) { graphics.close(); return; }
                 this.graphics = graphics;
@@ -400,9 +428,7 @@ export class TerminalManager {
             rows: attachment.rows,
             cellWidthPx: attachment.cellWidthPx,
             cellHeightPx: attachment.cellHeightPx,
-            write: (frame) => {
-                if (this.attachments.get(attachment.channel) === attachment) this.sendToPhone(attachment, frame);
-            },
+            write: (frame) => { this.sendGraphicsToPhone(attachment, frame); },
         });
     }
 
@@ -415,6 +441,33 @@ export class TerminalManager {
                 this.graphics = undefined;
             }
         }, 60_000);
+    }
+
+    private sendGraphicsToPhone(attachment: Attachment, frame: string): void {
+        if (this.attachments.get(attachment.channel) !== attachment || attachment.socket.readyState !== WebSocket.OPEN) return;
+        if (attachment.pendingGraphics === undefined && attachment.socket.bufferedAmount <= GRAPHICS_BUFFER_HIGH_BYTES) {
+            this.sendToPhone(attachment, frame);
+            return;
+        }
+        attachment.pendingGraphics = frame;
+        if (attachment.graphicsFlushTimer === undefined) {
+            attachment.graphicsFlushTimer = setTimeout(() => { this.flushGraphics(attachment); }, GRAPHICS_DRAIN_POLL_MS);
+        }
+    }
+
+    private flushGraphics(attachment: Attachment): void {
+        delete attachment.graphicsFlushTimer;
+        if (this.attachments.get(attachment.channel) !== attachment || attachment.socket.readyState !== WebSocket.OPEN) {
+            delete attachment.pendingGraphics;
+            return;
+        }
+        if (attachment.socket.bufferedAmount > GRAPHICS_BUFFER_LOW_BYTES) {
+            attachment.graphicsFlushTimer = setTimeout(() => { this.flushGraphics(attachment); }, GRAPHICS_DRAIN_POLL_MS);
+            return;
+        }
+        const frame = attachment.pendingGraphics;
+        delete attachment.pendingGraphics;
+        if (frame !== undefined) this.sendToPhone(attachment, frame);
     }
 
     private sendToPhone(attachment: Attachment, plaintext: string): void {

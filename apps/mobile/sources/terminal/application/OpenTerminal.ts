@@ -122,6 +122,11 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
     const closeListeners = new Set<(reason?: string) => void>();
     const graphicsListeners = new Set<(active: boolean) => void>();
     let graphicsActive = false;
+    const emitGraphics = (active: boolean): void => {
+        if (graphicsActive === active) return;
+        graphicsActive = active;
+        for (const listener of graphicsListeners) listener(active);
+    };
     const stateListeners = new Set<(state: TerminalChannelState) => void>();
     const outbox: string[] = [];
     let socket: WebSocket | undefined;
@@ -270,14 +275,13 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
                 const frame = JSON.parse(plaintext) as Partial<TerminalHostFrame> & { type?: string };
                 if (frame.type === 'terminal.frame' && typeof (frame as TerminalHostFrame & { bytes?: string }).bytes === 'string') {
                     const bytes = (frame as { bytes: string }).bytes;
-                    if ((frame as { graphics?: boolean }).graphics === true && !graphicsActive) {
-                        graphicsActive = true;
-                        for (const listener of graphicsListeners) listener(true);
-                    }
+                    const graphics = (frame as { graphics?: boolean }).graphics;
+                    if (typeof graphics === 'boolean') emitGraphics(graphics);
                     if (dataListeners.size === 0) pendingData.push(bytes);
                     else for (const listener of dataListeners) listener(bytes);
                 } else if (frame.type === 'terminal.closed') {
                     const reason = (frame as { reason?: string }).reason;
+                    emitGraphics(false);
                     // Automatic foreground/reconnect must not steal control back.
                     // Only the user's visible retry action may reverse a takeover.
                     closedByTakeover = reason === 'control moved to another device';
@@ -300,6 +304,7 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
             // Its cleanup owns only itself and must not schedule over the owner.
             if (socket !== next) return;
             socket = undefined;
+            emitGraphics(false);
             scheduleRetry();
         };
     }
@@ -389,6 +394,7 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
             });
         },
         close: () => {
+            emitGraphics(false);
             closedByUser = true;
             attachRequested = false;
             takeoverRequested = false;

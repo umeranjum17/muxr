@@ -27,7 +27,7 @@ export interface TerminalOutputFrame {
     width?: number;
     height?: number;
     encoding?: string;
-    /** True when bytes are Kitty graphics commands emitted by the generic bridge. */
+    /** Authoritative graphics pointer state: true on image frames, false on retire/detach. */
     graphics?: boolean;
 }
 

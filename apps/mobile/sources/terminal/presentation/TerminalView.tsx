@@ -5,14 +5,13 @@
  * Same contract as the old WebView path: base64 frames from herdr go in,
  * keystrokes come out. No ANSI parsing on the RN side.
  *
- * Scroll is Ghostty's alone. herdr's scroll re-renders the screen, which this
- * view would draw as fresh output at the bottom — so instead of forwarding
- * drags, we seed Ghostty with herdr's scrollback at attach and let its own
- * buffer hold the past. One scrollback, not two fighting.
+ * Herdr owns scrollback and repaints the viewport after scroll input. Ghostty
+ * only renders the current frame; keeping one history owner avoids stale local
+ * rows competing with the pane's real state.
  */
 
 import * as React from 'react';
-import { View } from 'react-native';
+import { Platform, View } from 'react-native';
 import { TerminalView as GhosttyView, type TerminalViewRef } from 'expo-libghostty';
 import { decodeBase64, encodeBase64 } from '@/encryption/base64';
 import { openTerminal, type TerminalChannel } from '../application/OpenTerminal';
@@ -192,13 +191,6 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                     // frame instead of one per message.
                     channel.onGraphics(setGraphicsActive);
                     channel.onData((base64) => {
-                        const bytes = decodeBase64(base64);
-                        for (let index = 0; index + 2 < bytes.length; index += 1) {
-                            if (bytes[index] === 0x1B && bytes[index + 1] === 0x5F && bytes[index + 2] === 0x47) {
-                                setGraphicsActive(true);
-                                break;
-                            }
-                        }
                         recordTerminalOutput(sessionId, base64);
                         settleScroll();
                         pendingWritesRef.current.push(base64);
@@ -241,7 +233,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             <GhosttyView
                 ref={termRef}
                 style={{ flex: 1 }}
-                pointerMode={graphicsActive}
+                pointerMode={Platform.OS === 'android' && graphicsActive}
                 fontSize={12}
                 theme={{ background: '#0c0c0b' }}
                 onInput={({ nativeEvent }) => {
@@ -249,10 +241,12 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                     else if (nativeEvent.text) channelRef.current?.sendText(nativeEvent.text);
                 }}
                 onResize={({ nativeEvent }) => {
-                    attach(nativeEvent.cols, nativeEvent.rows, nativeEvent.cellWidthPx, nativeEvent.cellHeightPx);
+                    attach(nativeEvent.cols, nativeEvent.rows,
+                        Platform.OS === 'android' ? nativeEvent.cellWidthPx : undefined,
+                        Platform.OS === 'android' ? nativeEvent.cellHeightPx : undefined);
                 }}
                 onTerminalPointer={({ nativeEvent }) => {
-                    if (graphicsActive) channelRef.current?.pointer(
+                    if (Platform.OS === 'android' && graphicsActive) channelRef.current?.pointer(
                         nativeEvent.phase, nativeEvent.x, nativeEvent.y, nativeEvent.width, nativeEvent.height,
                     );
                 }}
@@ -262,6 +256,8 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                 // Ghostty counts rows the way the finger moved, herdr counts
                 // them the way the text does, hence the negation.
                 onScroll={({ nativeEvent }) => {
+                    // Native pointer mode arbitrates taps from drags: a tap emits
+                    // pointer only, while a drag emits scroll only.
                     // The repaint herdr sends back is the new viewport; capture
                     // it for the link chip (see recentOutput.ts).
                     beginViewportCapture(sessionId);

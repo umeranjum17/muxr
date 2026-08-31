@@ -45,11 +45,14 @@ describe('expo-libghostty patch', () => {
 
     it('keeps the generic Kitty graphics, physical cell metrics, and pointer bridge applied together', () => {
         expect(contents).toContain('GHOSTTY_TERMINAL_OPT_KITTY_IMAGE_STORAGE_LIMIT');
+        expect(contents).toContain('nativeKittyGeneration');
         expect(contents).toContain('nativeKittySnapshot');
         expect(contents).toContain('cellWidthPx');
         expect(contents).toContain('onPointer');
         expect(readFileSync(native, 'utf8')).toContain('nativeKittySnapshot');
         expect(readFileSync(terminal, 'utf8')).toContain('drawKitty');
+        expect(readFileSync(terminal, 'utf8')).toContain('imageWidth.toLong() * imageHeight.toLong()');
+        expect(readFileSync(terminal, 'utf8')).toContain('copyPixelsFromBuffer');
         expect(readFileSync(terminal, 'utf8')).toContain('pointerMode');
         expect(readFileSync(view, 'utf8')).toContain('cellWidthPx');
     });

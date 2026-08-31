@@ -25,6 +25,7 @@ const call = (...args) => {
     return raw === '' ? {} : JSON.parse(raw).result ?? {};
 };
 const tilde = (path) => (path.startsWith(`${homedir()}/`) ? `~${path.slice(homedir().length)}` : path);
+const shellQuote = (value) => `'${value.replaceAll("'", "'\\''")}'`;
 
 /**
  * A terminal title is either a program announcing itself ("NVIM src/app.rs")
@@ -81,7 +82,7 @@ function catalog() {
             // not the session on the phone. Only global actions are safe here;
             // the rest belong on session.toolbar, which does pass the real pane.
             const contexts = action.contexts ?? [];
-            if (contexts.length > 0 && !contexts.includes('global')) continue;
+            if (!contexts.includes('global')) continue;
             entries.push({
                 id: `action:${plugin.plugin_id}:${actionId}`,
                 label: action.title ?? actionId,
@@ -163,8 +164,8 @@ if (method === 'list') {
         // The label is how `tools` finds this pane next time, and it names the tab on the desk.
         call('pane', 'rename', target, entry.label);
         call('pane', 'run', target, entry.command === ''
-            ? `cd ${JSON.stringify(cwd)}`
-            : `cd ${JSON.stringify(cwd)} && exec ${entry.command}`);
+            ? `cd ${shellQuote(cwd)}`
+            : `cd ${shellQuote(cwd)} && exec ${entry.command}`);
     }
     process.stdout.write(JSON.stringify({ opened: entry.label }));
 } else {

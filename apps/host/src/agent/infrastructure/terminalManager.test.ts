@@ -20,6 +20,7 @@ interface FakeSocket extends EventEmitter {
     OPEN: number;
     CLOSED: number;
     readyState: number;
+    bufferedAmount: number;
     close: ReturnType<typeof vi.fn>;
     send: ReturnType<typeof vi.fn>;
 }
@@ -67,6 +68,7 @@ vi.mock('ws', async () => {
         readonly OPEN = MockWebSocket.OPEN;
         readonly CLOSED = MockWebSocket.CLOSED;
         readyState = this.OPEN;
+        bufferedAmount = 0;
         readonly send = vi.fn();
         readonly close = vi.fn(() => {
             if (this.readyState === this.CLOSED) return;
@@ -155,6 +157,28 @@ describe('TerminalManager stream exit', () => {
         await expect(manager.attach({ sessionId: 'session', channel: 'channel', cols: 100, rows: 30 }))
             .rejects.toThrow('could not start Herdr');
         expect(fakes.sockets[0]?.close).toHaveBeenCalledOnce();
+    });
+
+    it('keeps only the latest graphics frame while the phone socket drains', async () => {
+        const manager = new TerminalManager({
+            relayUrl: 'ws://relay.test', machineId: 'machine', resolvePane: async () => 'workspace:pane',
+        });
+        await manager.attach({ sessionId: 'session', channel: 'channel', cols: 100, rows: 30 });
+        const socket = fakes.sockets[0]!;
+        const internal = manager as unknown as {
+            attachments: Map<string, unknown>;
+            sendGraphicsToPhone: (attachment: unknown, frame: string) => void;
+        };
+        const attachment = internal.attachments.get('channel');
+        socket.send.mockClear();
+        socket.bufferedAmount = 600 * 1024;
+        internal.sendGraphicsToPhone(attachment, 'old-frame');
+        internal.sendGraphicsToPhone(attachment, 'latest-frame');
+        expect(socket.send).not.toHaveBeenCalled();
+
+        socket.bufferedAmount = 0;
+        await vi.waitFor(() => expect(socket.send).toHaveBeenCalledOnce());
+        expect(socket.send).toHaveBeenCalledWith('latest-frame');
     });
 
     it('does not write a late client frame into a cleanly exited stream', async () => {

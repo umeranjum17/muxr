@@ -21,8 +21,8 @@ Terminal-driven tools in muxr, and every pane that has no agent.
 ## How a tool reaches your phone
 
 muxr already routes a pane with no agent as `shell:<paneId>`, so an ANSI TUI
-needs no new transport. Graphics panes use muxr's generic Herdr-to-Kitty bridge
-and the platform terminal renderer; the Panes plugin contains no graphics or
+needs no new transport. On Android, graphics panes use muxr's generic
+Herdr-to-Kitty bridge and libghostty renderer; the Panes plugin contains no graphics or
 terminal-browser-specific code. `launch` opens ordinary tools in their own tab,
 while a third-party action such as terminal-browser controls its own placement.
 The resulting agent-less pane is then discovered and opened through the same

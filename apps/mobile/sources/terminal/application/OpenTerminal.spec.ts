@@ -93,13 +93,21 @@ describe('openTerminal reconnect ownership', () => {
         await vi.waitFor(() => expect(FakeWebSocket.instances[0]).toBeDefined());
         const socket = FakeWebSocket.instances[0]!;
         socket.open();
-        socket.onmessage?.({ data: JSON.stringify({ type: 'terminal.frame', bytes: 'full-paint' }) });
+        socket.onmessage?.({ data: JSON.stringify({ type: 'terminal.frame', bytes: 'full-paint', graphics: true }) });
 
         const frames: string[] = [];
+        const graphics: boolean[] = [];
         channel.onData((bytes) => frames.push(bytes));
+        channel.onGraphics((active) => graphics.push(active));
         expect(frames).toEqual(['full-paint']);
+        expect(graphics).toEqual([true]);
 
+        socket.onmessage?.({ data: JSON.stringify({ type: 'terminal.frame', bytes: 'delete', graphics: false }) });
+        expect(graphics).toEqual([true, false]);
+
+        socket.onmessage?.({ data: JSON.stringify({ type: 'terminal.frame', bytes: 'next', graphics: true }) });
         channel.close();
+        expect(graphics).toEqual([true, false, true, false]);
     });
 
     it('keeps healthy reconnects stable, coalesces a dropped transport, and repaints through one replacement', async () => {

@@ -47,8 +47,10 @@ const checks = [
     ['Ghostty patch hides its accessory bar', ghosttyPatch.includes('accessoryBar.visibility = GONE') && ghosttyView.includes('accessoryBar.visibility = GONE')],
     ['Ghostty patch forwards scroll rows', ghosttyPatch.includes('onScrollRows') && ghosttyTerminal.includes('onScrollRows') && ghosttyView.includes('onScroll')],
     ['Ghostty patch renders Kitty graphics and forwards pointer geometry',
+        ghosttyPatch.includes('nativeKittyGeneration') && ghosttyNative.includes('nativeKittyGeneration') &&
         ghosttyPatch.includes('nativeKittySnapshot') && ghosttyNative.includes('nativeKittySnapshot') &&
-        ghosttyTerminal.includes('drawKitty') && ghosttyTerminal.includes('pointerMode') && ghosttyView.includes('cellWidthPx')],
+        ghosttyTerminal.includes('drawKitty') && ghosttyTerminal.includes('copyPixelsFromBuffer') &&
+        ghosttyTerminal.includes('pointerMode') && ghosttyView.includes('cellWidthPx')],
     [
         'dictation recorder releases AudioRecord only after the read loop exits',
         liveAudioPatch.includes('stopAndReleaseRecorder') &&
