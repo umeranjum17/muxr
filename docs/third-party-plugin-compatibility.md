@@ -95,14 +95,11 @@ Ok(ServerMessage::Graphics { .. }) => {}
 
 Only `ServerMessage::Terminal` is serialised to the `terminal.frame` NDJSON line muxr forwards (`client/mod.rs:955-968`).
 
-> **terminal-browser on the phone shows an empty pane.** Its entire output is graphics frames, and muxr's transport drops 100% of them. This is not a tuning problem or a bandwidth problem. The pixels are not on the wire.
+> **Without a graphics client, terminal-browser on the phone shows an empty pane.** Its output lives outside terminal cells, and Herdr's terminal-session helper drops that graphics message.
 
-**Runtime verification — Herdr 0.8.2, installed Android app.** This prediction was tested after upgrading both the CLI and live server. Herdr installed and enabled terminal-browser 0.1.1 at upstream commit `90ee8f5fc19d2e9b69c0a17988ee70aa154714ff`; muxr surfaced `open-split`, and invoking it started the real Electron process in an agent-less pane. Opening that pane on Android produced a black terminal with zero terminal bytes and zero scrollback. Tap, finger swipe, and key-bar input did not reveal or control browser content. Two independent transport requirements were observed:
+**Implemented and verified — Herdr 0.8.2, installed Android app.** muxr now keeps ordinary pane text/control on `herdr terminal session control` and opens one generic AppDirectGraphics client for graphics. It routes each `GraphicsFile` to channel/pane registrations using fresh `pane.layout` data, converts host-local RGBA files to zlib-compressed inline Kitty commands, and preserves the text cursor around placement. Android's existing libghostty parser now enables image storage and its Canvas renderer composites Kitty placements; iOS continues through GhosttyKit, and web loads xterm.js ImageAddon. Physical cell metrics and pointer events complete placement and input.
 
-1. `pane.graphics.info` returned `cell_size_unavailable`. `herdr terminal session control` starts with columns and rows only, while terminal-browser needs non-zero cell pixel dimensions before opening its graphics stream.
-2. Even after that prerequisite, muxr's Herdr subprocess still discards every `ServerMessage::Graphics` at `client/mod.rs:981`; no graphics frame type reaches the phone. Browser tap additionally needs pointer/mouse events, which muxr's current `expo-libghostty` surface does not expose.
-
-The old pre-upgrade version-gate screenshot is superseded by `06-pr195-terminal-browser-installed-enabled.png` (installation/action passes) and `07-pr195-terminal-browser-blank-graphics-limitation.png` (the honest post-upgrade result).
+Herdr installed/enabled terminal-browser 0.1.1 at upstream commit `90ee8f5fc19d2e9b69c0a17988ee70aa154714ff`. The rebuilt Android app rendered its real Chromium page. A phone tap travelled through native libghostty, the muxr channel, and the exact pane's SGR pixel-mouse input; tapping GitHub's hamburger visibly opened its menu. `07-pr195-terminal-browser-rendering-android.png` and `08-pr195-terminal-browser-touch-menu-android.png` supersede the former blank limitation proof.
 
 ### 1.2 `smarzban/herdr-file-viewer`
 
@@ -158,7 +155,7 @@ For herdr-file-viewer specifically, a naive reading suggests "just use the `tree
 
 And that rewrite already exists: `plugins/code` is muxr's bundled declarative file browser (8 RPCs, 6 screens, ~390 lines). Re-expressing herdr-file-viewer as JSON produces `plugins/code` again, minus the features people install herdr-file-viewer for.
 
-> **Honest statement: a `muxr-ui.json` cannot express what either of these plugins does.** For terminal-browser, additionally, *nothing* can — its bytes never leave the host.
+> **A `muxr-ui.json` cannot express either live surface.** ANSI panes use the existing terminal path; graphics panes use the generic Herdr graphics client added by this implementation.
 
 ### 2.2 For reaching them: yes, and this is the actual answer.
 
@@ -574,7 +571,7 @@ Would require: muxr's transport to carry `ServerMessage::Graphics` instead of dr
 
 **Option 1 + Option 2** (~2 days total). Option 1 is a one-line correctness fix with leverage far beyond these plugins. Option 2 is one deletable folder that delivers the owner's stated goal and is generic across every pane on the machine.
 
-Then stop and measure. Option 3 only if herdr-file-viewer proves it earns daily phone use; Option 4 only if touch is still the complaint after Options 1-2 ship; Option 5 never.
+Then measure. The implemented graphics bridge is the generic version of Option 5: it reuses Herdr's direct frame files and each platform's terminal renderer rather than building a terminal-browser-specific stream.
 
 ---
 
@@ -584,16 +581,16 @@ Then stop and measure. Option 3 only if herdr-file-viewer proves it earns daily 
 terminal-browser: 1 `[[build]]`, 1 `[[actions]]` (`open-split`, global), no `[[panes]]`; a launcher for a Chromium-in-terminal that paints via kitty graphics. herdr-file-viewer: 2 `[[build]]`, 1 `[[panes]]` (`file-viewer`, split), 4 `[[actions]]`; a keyboard-first ratatui TUI in the alternate screen. **Neither emits data. Both own a pane.**
 
 **Q2 — Is `muxr-ui.json` the cheapest path?**
-For their *content*, no — a declarative screen cannot express either, and for terminal-browser nothing can. For *reaching* them, yes: `kernel.navigate target: "session"` with `shell:<paneId>` plus an `item-list` is the answer, and it works unmodified today.
+For their *content*, no — a declarative screen cannot express either. For *reaching* them, yes: `kernel.navigate target: "session"` with `shell:<paneId>` plus an `item-list`. ANSI uses the existing stream; graphics bytes are now bridged generically.
 
 **Q3 — Can a plugin pane use the existing transport?**
-**Yes, with no change anywhere.** `terminal.attach` is pane-generic; `resolvePane` accepts `shell:<paneId>` (`herdrSessionSource.ts:747-753`); `currentSessions()` manufactures a session for every agent-less pane (`:738-741`); `herdr terminal session control` takes a pane id. It does **not** assume an agent.
+**Yes.** `terminal.attach` is pane-generic; `resolvePane` accepts `shell:<paneId>` (`herdrSessionSource.ts:747-753`); `currentSessions()` manufactures a session for every agent-less pane (`:738-741`). ANSI needs no special case. Graphics additionally use the process-wide AppDirectGraphics client and pane-bound routing implemented here.
 
 **Q4 — Touch?**
-Keys and IME work. Scroll works and Herdr correctly synthesises mouse-reporting events for alt-screen TUIs (`headless.rs:363-385`) — but muxr omits `column`/`row`, so every scroll lands at cell (0,0), i.e. the tree column. PageUp/PageDown are on the wire (`client/mod.rs:1081-1088`) but muxr never sends them; a JSON key row fixes that. **Click does not exist at any layer** — `expo-libghostty` exposes no pointer event, and Herdr's attach protocol has no mouse frame. That is the ceiling, and §5 prices removing it.
+Keys and IME work. Scroll now carries a target cell instead of landing at (0,0). Graphics activation switches the native terminal to pointer mode; Android reports physical geometry and touch, and the host sends pane-local SGR pixel mouse input through the existing control stream. Text terminals retain normal selection/scroll behavior.
 
 **Q5 — Ranked options?**
-§7. Recommendation: Option 1 (scroll coordinates, ~0.5 day) + Option 2 (Panes plugin, ~1-2 days). Do nothing about terminal-browser.
+§7 began with scroll coordinates + the Panes plugin. The final implementation also adds a generic Herdr graphics bridge and platform renderers, proven with terminal-browser on Android.
 
 ---
 
@@ -644,17 +641,11 @@ today. The review's §4 Gap 5 should be amended.
    generally. And `terminal.key-row` renders on every terminal with no session
    scoping (`DeclarativePluginSlot.tsx:201-202`), so a tool-specific key row would
    also appear on agent panes.
-4. **Do not pursue terminal-browser.** §1.1 stands: its output is graphics frames and
-   `herdr/src/client/mod.rs:981` discards them. `kernel.navigate target:"preview"`
-   already covers the real need.
+4. **Keep the graphics path generic.** The landed bridge routes Herdr graphics by channel/pane and feeds standard Kitty bytes to libghostty/GhosttyKit/xterm.js; terminal-browser is the proof case, not a hard-coded transport.
 
 ### 9.3 Not covered
 
-- **The phone UI was never exercised.** No tap on a row, no rendered Tools sheet, no
-  screenshot. The browser client could not be paired (browser hosting is off on this
-  machine) and the only Android APK available was `0.1.12` against a `0.1.25` host,
-  below this plugin's `minMuxrVersion: 8`. Everything above stops at the data the
-  client would render, validated against the client's real parsing code.
+- **The phone UI was exercised after this initial prototype.** The rebuilt installed Android app paired to an isolated PR #195 host, rendered the Tools sheet, drove nvim by touch, rendered terminal-browser's real Chromium page, and opened GitHub's menu with a phone tap. See the PR proof manifest and numbered PNGs.
 - **The scroll change has no device test.** Its behaviour is inferred from Herdr's
   source (`headless.rs:363-385`), not observed on a phone.
 - **iOS was not touched at all.**

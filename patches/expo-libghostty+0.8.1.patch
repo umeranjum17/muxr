@@ -1,41 +1,192 @@
+diff --git a/node_modules/expo-libghostty/android/src/main/cpp/ghostty_jni.cpp b/node_modules/expo-libghostty/android/src/main/cpp/ghostty_jni.cpp
+index b9c118e..715a025 100644
+--- a/node_modules/expo-libghostty/android/src/main/cpp/ghostty_jni.cpp
++++ b/node_modules/expo-libghostty/android/src/main/cpp/ghostty_jni.cpp
+@@ -66,6 +66,8 @@ struct Session {
+   GhosttyRenderStateRowCells cells = nullptr;
+   GhosttyKeyEncoder encoder = nullptr;
+   GhosttyKeyEvent keyEvent = nullptr;
++  GhosttyKittyGraphicsPlacementIterator kittyIter = nullptr;
++  uint64_t kittyGeneration = 0;
+   // Query responses emitted by the terminal during vt_write; forwarded to the
+   // PTY by the caller after each write.
+   std::vector<uint8_t> ptyOut;
+@@ -125,6 +127,7 @@ bool parseColor(JNIEnv* env, jstring str, GhosttyColorRgb* out) {
+ 
+ void destroySession(Session* session) {
+   if (session == nullptr) return;
++  ghostty_kitty_graphics_placement_iterator_free(session->kittyIter);
+   ghostty_key_event_free(session->keyEvent);
+   ghostty_key_encoder_free(session->encoder);
+   ghostty_render_state_row_cells_free(session->cells);
+@@ -243,7 +246,8 @@ Java_expo_modules_libghostty_GhosttyVt_nativeCreate(
+       ghostty_render_state_row_iterator_new(nullptr, &session->rowIter) != GHOSTTY_SUCCESS ||
+       ghostty_render_state_row_cells_new(nullptr, &session->cells) != GHOSTTY_SUCCESS ||
+       ghostty_key_encoder_new(nullptr, &session->encoder) != GHOSTTY_SUCCESS ||
+-      ghostty_key_event_new(nullptr, &session->keyEvent) != GHOSTTY_SUCCESS) {
++      ghostty_key_event_new(nullptr, &session->keyEvent) != GHOSTTY_SUCCESS ||
++      ghostty_kitty_graphics_placement_iterator_new(nullptr, &session->kittyIter) != GHOSTTY_SUCCESS) {
+     __android_log_print(ANDROID_LOG_ERROR, kLogTag, "failed to create terminal session");
+     destroySession(session);
+     return 0;
+@@ -262,6 +266,8 @@ Java_expo_modules_libghostty_GhosttyVt_nativeCreate(
+   // like the terminal apps users come from. DECSCUSR still overrides.
+   const bool blinkDefault = true;
+   ghostty_terminal_set(session->term, GHOSTTY_TERMINAL_OPT_DEFAULT_CURSOR_BLINK, &blinkDefault);
++  const uint64_t kittyLimit = 64ULL * 1024 * 1024;
++  ghostty_terminal_set(session->term, GHOSTTY_TERMINAL_OPT_KITTY_IMAGE_STORAGE_LIMIT, &kittyLimit);
+ 
+   return static_cast<jlong>(reinterpret_cast<intptr_t>(session));
+ }
+@@ -408,6 +414,16 @@ Java_expo_modules_libghostty_GhosttyVt_nativeSnapshot(
+   const auto cap = static_cast<size_t>(env->GetDirectBufferCapacity(buffer));
+   if (base == nullptr || cap < kHeaderBytes) return -1;
+ 
++  GhosttyKittyGraphics kitty = nullptr;
++  uint64_t kittyGeneration = 0;
++  if (ghostty_terminal_get(session->term, GHOSTTY_TERMINAL_DATA_KITTY_GRAPHICS, &kitty) == GHOSTTY_SUCCESS &&
++      kitty != nullptr && ghostty_kitty_graphics_get(
++          kitty, GHOSTTY_KITTY_GRAPHICS_DATA_GENERATION, &kittyGeneration) == GHOSTTY_SUCCESS &&
++      kittyGeneration != session->kittyGeneration) {
++    session->kittyGeneration = kittyGeneration;
++    markRenderDirtyFull(session);
++  }
++
+   if (ghostty_render_state_update(session->renderState, session->term) != GHOSTTY_SUCCESS) {
+     return -1;
+   }
+@@ -628,6 +644,75 @@ Java_expo_modules_libghostty_GhosttyVt_nativeSnapshot(
+   return rowCount;
+ }
+ 
++JNIEXPORT jbyteArray JNICALL
++Java_expo_modules_libghostty_GhosttyVt_nativeKittySnapshot(
++    JNIEnv* env, jobject, jlong handle) {
++  auto* session = fromHandle(handle);
++  if (session == nullptr) return nullptr;
++  std::vector<uint8_t> output(4, 0);
++  uint32_t count = 0;
++  GhosttyKittyGraphics graphics = nullptr;
++  if (ghostty_terminal_get(session->term, GHOSTTY_TERMINAL_DATA_KITTY_GRAPHICS, &graphics) != GHOSTTY_SUCCESS ||
++      graphics == nullptr || ghostty_kitty_graphics_get(
++          graphics, GHOSTTY_KITTY_GRAPHICS_DATA_PLACEMENT_ITERATOR, &session->kittyIter) != GHOSTTY_SUCCESS) {
++    return env->NewByteArray(0);
++  }
++  auto appendI32 = [&output](int32_t value) {
++    for (int shift = 0; shift < 32; shift += 8) output.push_back(static_cast<uint8_t>((value >> shift) & 0xFF));
++  };
++  while (ghostty_kitty_graphics_placement_next(session->kittyIter)) {
++    uint32_t imageId = 0;
++    int32_t z = 0;
++    uint32_t xOffset = 0;
++    uint32_t yOffset = 0;
++    if (ghostty_kitty_graphics_placement_get(session->kittyIter, GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_IMAGE_ID, &imageId) != GHOSTTY_SUCCESS ||
++        ghostty_kitty_graphics_placement_get(session->kittyIter, GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_Z, &z) != GHOSTTY_SUCCESS) continue;
++    ghostty_kitty_graphics_placement_get(session->kittyIter, GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_X_OFFSET, &xOffset);
++    ghostty_kitty_graphics_placement_get(session->kittyIter, GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_Y_OFFSET, &yOffset);
++    const auto image = ghostty_kitty_graphics_image(graphics, imageId);
++    if (image == nullptr) continue;
++    GhosttyKittyGraphicsPlacementRenderInfo info{};
++    info.size = sizeof(info);
++    if (ghostty_kitty_graphics_placement_render_info(session->kittyIter, image, session->term, &info) != GHOSTTY_SUCCESS ||
++        !info.viewport_visible) continue;
++    uint32_t imageWidth = 0;
++    uint32_t imageHeight = 0;
++    GhosttyKittyImageFormat format = GHOSTTY_KITTY_IMAGE_FORMAT_RGBA;
++    const uint8_t* pixels = nullptr;
++    size_t pixelsLength = 0;
++    if (ghostty_kitty_graphics_image_get(image, GHOSTTY_KITTY_IMAGE_DATA_WIDTH, &imageWidth) != GHOSTTY_SUCCESS ||
++        ghostty_kitty_graphics_image_get(image, GHOSTTY_KITTY_IMAGE_DATA_HEIGHT, &imageHeight) != GHOSTTY_SUCCESS ||
++        ghostty_kitty_graphics_image_get(image, GHOSTTY_KITTY_IMAGE_DATA_FORMAT, &format) != GHOSTTY_SUCCESS ||
++        ghostty_kitty_graphics_image_get(image, GHOSTTY_KITTY_IMAGE_DATA_DATA_PTR, &pixels) != GHOSTTY_SUCCESS ||
++        ghostty_kitty_graphics_image_get(image, GHOSTTY_KITTY_IMAGE_DATA_DATA_LEN, &pixelsLength) != GHOSTTY_SUCCESS || pixels == nullptr) continue;
++    const size_t pixelCount = static_cast<size_t>(imageWidth) * imageHeight;
++    if (pixelCount == 0 || pixelCount > 64ULL * 1024 * 1024 / 4) continue;
++    std::vector<uint8_t> rgba(pixelCount * 4);
++    if (format == GHOSTTY_KITTY_IMAGE_FORMAT_RGBA && pixelsLength >= rgba.size()) {
++      memcpy(rgba.data(), pixels, rgba.size());
++    } else if (format == GHOSTTY_KITTY_IMAGE_FORMAT_RGB && pixelsLength >= pixelCount * 3) {
++      for (size_t i = 0; i < pixelCount; i++) {
++        rgba[i * 4] = pixels[i * 3]; rgba[i * 4 + 1] = pixels[i * 3 + 1];
++        rgba[i * 4 + 2] = pixels[i * 3 + 2]; rgba[i * 4 + 3] = 0xFF;
++      }
++    } else continue;
++    appendI32(z); appendI32(info.viewport_col); appendI32(info.viewport_row);
++    appendI32(static_cast<int32_t>(xOffset)); appendI32(static_cast<int32_t>(yOffset));
++    appendI32(static_cast<int32_t>(info.pixel_width)); appendI32(static_cast<int32_t>(info.pixel_height));
++    appendI32(static_cast<int32_t>(info.source_x)); appendI32(static_cast<int32_t>(info.source_y));
++    appendI32(static_cast<int32_t>(info.source_width)); appendI32(static_cast<int32_t>(info.source_height));
++    appendI32(static_cast<int32_t>(imageWidth)); appendI32(static_cast<int32_t>(imageHeight));
++    appendI32(static_cast<int32_t>(rgba.size()));
++    output.insert(output.end(), rgba.begin(), rgba.end());
++    count++;
++  }
++  output[0] = count & 0xFF; output[1] = (count >> 8) & 0xFF;
++  output[2] = (count >> 16) & 0xFF; output[3] = (count >> 24) & 0xFF;
++  auto result = env->NewByteArray(static_cast<jsize>(output.size()));
++  if (result != nullptr) env->SetByteArrayRegion(result, 0, static_cast<jsize>(output.size()), reinterpret_cast<const jbyte*>(output.data()));
++  return result;
++}
++
+ JNIEXPORT jboolean JNICALL
+ Java_expo_modules_libghostty_GhosttyVt_nativeSelectWord(
+     JNIEnv*, jobject, jlong handle, jint col, jint row) {
 diff --git a/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/ExpoLibghosttyModule.kt b/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/ExpoLibghosttyModule.kt
-index 1516400..15db098 100644
+index 1516400..ea1a37a 100644
 --- a/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/ExpoLibghosttyModule.kt
 +++ b/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/ExpoLibghosttyModule.kt
-@@ -12,7 +12,7 @@ class ExpoLibghosttyModule : Module() {
+@@ -12,13 +12,17 @@ class ExpoLibghosttyModule : Module() {
      Name("ExpoLibghostty")
-
+ 
      View(ExpoLibghosttyView::class) {
 -      Events("onInput", "onResize")
-+      Events("onInput", "onResize", "onScroll")
-
++      Events("onInput", "onResize", "onScroll", "onTerminalPointer")
+ 
        // Base font size in dp (default 14); applied live, the grid reflows.
        Prop("fontSize") { view: ExpoLibghosttyView, size: Float ->
+         view.setFontSize(size)
+       }
+ 
++      Prop("pointerMode") { view: ExpoLibghosttyView, enabled: Boolean ->
++        view.setPointerMode(enabled)
++      }
++
+       // Theme colors (ghostty config syntax); null clears to the defaults.
+       Prop("theme") { view: ExpoLibghosttyView, theme: TerminalThemeRecord? ->
+         view.setTheme(theme)
 diff --git a/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/ExpoLibghosttyView.kt b/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/ExpoLibghosttyView.kt
-index 2d3ed62..0240d46 100644
+index 2d3ed62..774ef04 100644
 --- a/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/ExpoLibghosttyView.kt
 +++ b/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/ExpoLibghosttyView.kt
-@@ -19,6 +19,7 @@ class ExpoLibghosttyView(context: Context, appContext: AppContext) :
-
+@@ -19,6 +19,8 @@ class ExpoLibghosttyView(context: Context, appContext: AppContext) :
+ 
    private val onInput by EventDispatcher<Map<String, Any>>()
    private val onResize by EventDispatcher<Map<String, Any>>()
++  private val onTerminalPointer by EventDispatcher<Map<String, Any>>()
 +  private val onScroll by EventDispatcher<Map<String, Any>>()
-
+ 
    private val terminal = GhosttyTerminalView(context).also { view ->
      view.onInputBytes = { bytes ->
-@@ -32,6 +33,9 @@ class ExpoLibghosttyView(context: Context, appContext: AppContext) :
-     view.onGridResize = { cols, rows ->
-       onResize(mapOf("cols" to cols, "rows" to rows))
+@@ -29,8 +31,14 @@ class ExpoLibghosttyView(context: Context, appContext: AppContext) :
+         )
+       )
      }
+-    view.onGridResize = { cols, rows ->
+-      onResize(mapOf("cols" to cols, "rows" to rows))
++    view.onGridResize = { cols, rows, cellWidthPx, cellHeightPx ->
++      onResize(mapOf("cols" to cols, "rows" to rows, "cellWidthPx" to cellWidthPx, "cellHeightPx" to cellHeightPx))
++    }
++    view.onPointer = { phase, x, y, width, height ->
++      onTerminalPointer(mapOf("phase" to phase, "x" to x, "y" to y, "width" to width, "height" to height))
++    }
 +    view.onScrollRows = { rows ->
 +      onScroll(mapOf("rows" to rows))
-+    }
+     }
    }
-
-   private val accessoryBar = TerminalAccessoryBar(context).also { bar ->
-@@ -56,21 +60,12 @@ class ExpoLibghosttyView(context: Context, appContext: AppContext) :
+ 
+@@ -56,21 +64,12 @@ class ExpoLibghosttyView(context: Context, appContext: AppContext) :
    }
-
+ 
    private fun syncAccessoryBar(insets: WindowInsetsCompat) {
 -    val imeVisible = insets.isVisible(WindowInsetsCompat.Type.ime())
 -    accessoryBar.visibility = if (imeVisible) VISIBLE else GONE
@@ -59,23 +210,61 @@ index 2d3ed62..0240d46 100644
 +    // overlap to zero and it snaps back up.
 +    accessoryBar.visibility = GONE
    }
-
+ 
    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+@@ -82,6 +81,8 @@ class ExpoLibghosttyView(context: Context, appContext: AppContext) :
+   /** Base font size in dp; applied live (the grid reflows in place). */
+   fun setFontSize(dp: Float) = terminal.setFontSize(dp)
+ 
++  fun setPointerMode(enabled: Boolean) { terminal.pointerMode = enabled }
++
+   /** Apply theme colors; a null record clears back to the defaults. */
+   internal fun setTheme(theme: TerminalThemeRecord?) = terminal.setTheme(
+     foreground = theme?.foreground,
 diff --git a/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/GhosttyTerminalView.kt b/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/GhosttyTerminalView.kt
-index 9d6ad16..cb74be3 100644
+index 9d6ad16..b902368 100644
 --- a/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/GhosttyTerminalView.kt
 +++ b/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/GhosttyTerminalView.kt
-@@ -48,6 +48,9 @@ import kotlin.math.roundToInt
+@@ -9,6 +9,7 @@ import android.graphics.Canvas
+ import android.graphics.Paint
+ import android.graphics.Path
+ import android.graphics.Rect
++import android.graphics.RectF
+ import android.graphics.Typeface
+ import android.provider.Settings
+ import android.text.InputType
+@@ -47,7 +48,12 @@ import kotlin.math.roundToInt
+  */
  internal class GhosttyTerminalView(context: Context) : View(context) {
    var onInputBytes: ((ByteArray) -> Unit)? = null
-   var onGridResize: ((cols: Int, rows: Int) -> Unit)? = null
+-  var onGridResize: ((cols: Int, rows: Int) -> Unit)? = null
++  var onGridResize: ((cols: Int, rows: Int, cellWidthPx: Int, cellHeightPx: Int) -> Unit)? = null
++  var onPointer: ((phase: String, x: Float, y: Float, width: Int, height: Int) -> Unit)? = null
++  var pointerMode = false
 +  /** Set when scrollback lives on a server; suppresses the local buffer,
 +   *  which holds only repaint diffs and shows garbage when scrolled. */
 +  var onScrollRows: ((rows: Int) -> Unit)? = null
-
+ 
    /** Sticky-modifier source for accessory-bar keys and IME text (optional). */
    var accessoryBar: TerminalAccessoryBar? = null
-@@ -166,7 +169,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -72,6 +78,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+   }
+   private val fillPaint = Paint()
+   private val cursorPaint = Paint()
++  private val kittyPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { isFilterBitmap = true }
+   private var cellWidth = textPaint.measureText("M")
+   private var cellHeight = ceil(
+     textPaint.fontMetrics.descent - textPaint.fontMetrics.ascent
+@@ -146,6 +153,8 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+   }
+ 
+   private var scrollAccum = 0f
++  private var pointerLastY = 0f
++  private var pointerScrollAccum = 0f
+ 
+   // ── Scrollback state ──
+   private val scroller = OverScroller(context)
+@@ -166,7 +175,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
        val deltaRows = (scrollAccum / cellHeight).toInt()
        if (deltaRows != 0) {
          scrollAccum -= deltaRows * cellHeight
@@ -84,7 +273,7 @@ index 9d6ad16..cb74be3 100644
          markScrollActivity()
          scheduleFrame()
        }
-@@ -229,7 +232,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -229,7 +238,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
          val deltaRows = (scrollAccum / cellHeight).toInt()
          if (deltaRows != 0) {
            scrollAccum -= deltaRows * cellHeight
@@ -93,14 +282,159 @@ index 9d6ad16..cb74be3 100644
            markScrollActivity()
            scheduleFrame()
          }
+@@ -457,7 +466,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+     if (changed || force || bitmap == null) {
+       GhosttyVt.nativeResize(handle, cols, rows, cellWidth.roundToInt(), cellHeight)
+       allocateGridBuffers()
+-      onGridResize?.invoke(cols, rows)
++      onGridResize?.invoke(cols, rows, cellWidth.roundToInt(), cellHeight)
+     }
+     scheduleFrame()
+   }
+@@ -522,10 +531,50 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+ 
+     if (dirtyKind == DIRTY_FULL) canvas.drawColor(defaultBg)
+     repeat(rowCount) { drawRowRecord(buf, canvas, snapCols) }
++    drawKitty(canvas)
+     syncSelectionUi()
+     invalidate()
+   }
+ 
++  private fun drawKitty(canvas: Canvas) {
++    val bytes = GhosttyVt.nativeKittySnapshot(handle) ?: return
++    if (bytes.size < 4) return
++    val data = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
++    val count = data.int.coerceIn(0, 16)
++    repeat(count) {
++      if (data.remaining() < KITTY_PLACEMENT_HEADER_BYTES) return
++      data.int // z; current Canvas fallback composites images above cells.
++      val col = data.int
++      val row = data.int
++      val xOffset = data.int
++      val yOffset = data.int
++      val destWidth = data.int
++      val destHeight = data.int
++      val sourceX = data.int
++      val sourceY = data.int
++      val sourceWidth = data.int
++      val sourceHeight = data.int
++      val imageWidth = data.int
++      val imageHeight = data.int
++      val length = data.int
++      if (imageWidth <= 0 || imageHeight <= 0 || length != imageWidth * imageHeight * 4 || data.remaining() < length) return
++      val colors = IntArray(imageWidth * imageHeight)
++      for (index in colors.indices) {
++        val red = data.get().toInt() and 0xFF
++        val green = data.get().toInt() and 0xFF
++        val blue = data.get().toInt() and 0xFF
++        val alpha = data.get().toInt() and 0xFF
++        colors[index] = (alpha shl 24) or (red shl 16) or (green shl 8) or blue
++      }
++      val image = Bitmap.createBitmap(colors, imageWidth, imageHeight, Bitmap.Config.ARGB_8888)
++      val source = Rect(sourceX, sourceY, sourceX + sourceWidth, sourceY + sourceHeight)
++      val left = col * cellWidth + xOffset
++      val top = row * cellHeight.toFloat() + yOffset
++      canvas.drawBitmap(image, source, RectF(left, top, left + destWidth, top + destHeight), kittyPaint)
++      image.recycle()
++    }
++  }
++
+   // ── Selection ──
+ 
+   /** Top-left / bottom-right cells of the rendered selection, or null. */
+@@ -973,6 +1022,32 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+   // ── Input ──
+ 
+   override fun onTouchEvent(event: MotionEvent): Boolean {
++    if (pointerMode) {
++      val phase = when (event.actionMasked) {
++        MotionEvent.ACTION_DOWN -> "down"
++        MotionEvent.ACTION_MOVE -> "move"
++        MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> "up"
++        else -> return true
++      }
++      if (event.actionMasked == MotionEvent.ACTION_DOWN) {
++        requestFocus()
++        pointerLastY = event.y
++        pointerScrollAccum = 0f
++      } else if (event.actionMasked == MotionEvent.ACTION_MOVE) {
++        pointerScrollAccum += pointerLastY - event.y
++        pointerLastY = event.y
++        val rows = (pointerScrollAccum / cellHeight).toInt()
++        if (rows != 0) {
++          pointerScrollAccum -= rows * cellHeight
++          onScrollRows?.invoke(rows)
++        }
++      }
++      onPointer?.invoke(phase, event.x, event.y, width, height)
++      if (event.actionMasked == MotionEvent.ACTION_UP) {
++        postDelayed({ context.getSystemService(InputMethodManager::class.java)?.showSoftInput(this, 0) }, 150)
++      }
++      return true
++    }
+     if (event.actionMasked == MotionEvent.ACTION_DOWN) scroller.abortAnimation()
+     scaleDetector.onTouchEvent(event)
+     if (scaleDetector.isInProgress) {
+@@ -1131,6 +1206,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+     const val JUMP_CHIP_ARROW_COLOR = 0xFFE0E0E0.toInt()
+ 
+     const val HEADER_BYTES = 52
++    const val KITTY_PLACEMENT_HEADER_BYTES = 56
+     const val ROW_HEADER_BYTES = 16
+     const val CELL_RECORD_BYTES = 16
+     const val MAX_CELL_TEXT_UNITS = 32
+diff --git a/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/GhosttyVt.kt b/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/GhosttyVt.kt
+index 8cfe86e..fc43410 100644
+--- a/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/GhosttyVt.kt
++++ b/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/GhosttyVt.kt
+@@ -57,6 +57,7 @@ internal object GhosttyVt {
+    * of row records written, or -1 on error/too-small buffer.
+    */
+   external fun nativeSnapshot(handle: Long, buffer: ByteBuffer): Int
++  external fun nativeKittySnapshot(handle: Long): ByteArray?
+ 
+   /**
+    * Encode a key event ([action]: 0 release / 1 press / 2 repeat) into the
 diff --git a/node_modules/expo-libghostty/build/ExpoLibghostty.types.d.ts b/node_modules/expo-libghostty/build/ExpoLibghostty.types.d.ts
-index 0969f13..53d7bc8 100644
+index 0969f13..75a6250 100644
 --- a/node_modules/expo-libghostty/build/ExpoLibghostty.types.d.ts
 +++ b/node_modules/expo-libghostty/build/ExpoLibghostty.types.d.ts
-@@ -60,6 +60,11 @@ export type TerminalViewProps = {
+@@ -7,9 +7,18 @@ export type TerminalInputEvent = {
+     text: string;
+ };
+ export type TerminalResizeEvent = {
+-    /** New grid size in cells. */
++    /** New grid size in cells plus physical cell metrics. */
+     cols: number;
+     rows: number;
++    cellWidthPx?: number;
++    cellHeightPx?: number;
++};
++export type TerminalPointerEvent = {
++    phase: 'down' | 'move' | 'up';
++    x: number;
++    y: number;
++    width: number;
++    height: number;
+ };
+ export type TerminalViewRef = {
+     /** Feed base64-encoded PTY output into the terminal grid. */
+@@ -52,6 +61,8 @@ export type TerminalViewProps = {
+      * pass undefined fields to keep ghostty's defaults.
+      */
+     theme?: TerminalTheme;
++    /** Route touch through Herdr's graphics pixel-mouse path. */
++    pointerMode?: boolean;
+     /** User keyboard/IME input to forward to the PTY. */
+     onInput?: (event: {
+         nativeEvent: TerminalInputEvent;
+@@ -60,6 +71,14 @@ export type TerminalViewProps = {
      onResize?: (event: {
          nativeEvent: TerminalResizeEvent;
      }) => void;
++    onTerminalPointer?: (event: {
++        nativeEvent: TerminalPointerEvent;
++    }) => void;
 +    onScroll?: (event: {
 +        nativeEvent: {
 +            rows: number;
@@ -110,40 +444,63 @@ index 0969f13..53d7bc8 100644
      style?: StyleProp<ViewStyle>;
  };
 diff --git a/node_modules/expo-libghostty/ios/ExpoLibghosttyModule.swift b/node_modules/expo-libghostty/ios/ExpoLibghosttyModule.swift
-index 2f32970..6fbfe57 100644
+index 2f32970..69d9b2f 100644
 --- a/node_modules/expo-libghostty/ios/ExpoLibghosttyModule.swift
 +++ b/node_modules/expo-libghostty/ios/ExpoLibghosttyModule.swift
 @@ -5,7 +5,7 @@ public class ExpoLibghosttyModule: Module {
      Name("ExpoLibghostty")
-
+ 
      View(ExpoLibghosttyView.self) {
 -      Events("onInput", "onResize")
-+      Events("onInput", "onResize", "onScroll")
-
++      Events("onInput", "onResize", "onScroll", "onTerminalPointer")
+ 
        // Base font size in points (default 14). Changing it after mount
        // rebuilds the surface and resets the grid.
+@@ -13,6 +13,10 @@ public class ExpoLibghosttyModule: Module {
+         view.fontSize = size
+       }
+ 
++      Prop("pointerMode") { (view: ExpoLibghosttyView, enabled: Bool) in
++        view.pointerMode = enabled
++      }
++
+       // Theme colors (ghostty config syntax); nil clears to the defaults.
+       // App-wide on iOS: applied through the shared controller's config.
+       Prop("theme") { (view: ExpoLibghosttyView, theme: TerminalThemeRecord?) in
 diff --git a/node_modules/expo-libghostty/ios/ExpoLibghosttyView.swift b/node_modules/expo-libghostty/ios/ExpoLibghosttyView.swift
-index 12925b5..030a7ab 100644
+index 12925b5..9b23dba 100644
 --- a/node_modules/expo-libghostty/ios/ExpoLibghosttyView.swift
 +++ b/node_modules/expo-libghostty/ios/ExpoLibghosttyView.swift
-@@ -1,5 +1,6 @@
+@@ -1,10 +1,11 @@
  import ExpoModulesCore
  import GhosttyTerminal
 +import UIKit
-
+ 
  // Ghostty-backed terminal view. The JS side owns transport and session
  // lifecycle; this view only renders bytes pushed via `write` and reports
-@@ -44,6 +45,9 @@ class ExpoLibghosttyView: ExpoView {
-
+ // user input / grid resizes back through events.
+-class ExpoLibghosttyView: ExpoView {
++class ExpoLibghosttyView: ExpoView, UIGestureRecognizerDelegate {
+   private let terminalView = TerminalView(frame: .zero)
+   private var session: InMemoryTerminalSession?
+ 
+@@ -44,6 +45,15 @@ class ExpoLibghosttyView: ExpoView {
+ 
    let onInput = EventDispatcher()
    let onResize = EventDispatcher()
 +  let onScroll = EventDispatcher()
++  let onTerminalPointer = EventDispatcher()
++  private lazy var pointerTap = UITapGestureRecognizer(target: self, action: #selector(pointerTapped(_:)))
++  private lazy var pointerPan = UIPanGestureRecognizer(target: self, action: #selector(pointerPanned(_:)))
++  var pointerMode = false {
++    didSet { pointerTap.isEnabled = pointerMode; pointerPan.isEnabled = pointerMode }
++  }
 +  private var cellHeightPoints: CGFloat = 18
 +  private var scrollRemainder: CGFloat = 0
-
+ 
    required init(appContext: AppContext? = nil) {
      super.init(appContext: appContext)
-@@ -57,7 +61,11 @@ class ExpoLibghosttyView: ExpoView {
+@@ -57,7 +67,16 @@ class ExpoLibghosttyView: ExpoView {
          ])
        },
        resize: { [weak self] viewport in
@@ -152,13 +509,25 @@ index 12925b5..030a7ab 100644
 +        if viewport.cellHeightPixels > 0 {
 +          self.cellHeightPoints = CGFloat(viewport.cellHeightPixels) / UIScreen.main.scale
 +        }
-+        self.onResize(["cols": viewport.columns, "rows": viewport.rows])
++        self.onResize([
++          "cols": viewport.columns,
++          "rows": viewport.rows,
++          "cellWidthPx": viewport.cellWidthPixels,
++          "cellHeightPx": viewport.cellHeightPixels,
++        ])
        }
      )
      self.session = session
-@@ -67,6 +75,15 @@ class ExpoLibghosttyView: ExpoView {
+@@ -66,7 +85,54 @@ class ExpoLibghosttyView: ExpoView {
+     terminalView.controller = TerminalController.shared
      terminalView.configuration = TerminalSurfaceOptions(backend: .inMemory(session))
      terminalView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
++    for recognizer in [pointerTap, pointerPan] {
++      recognizer.cancelsTouchesInView = false
++      recognizer.delegate = self
++      recognizer.isEnabled = false
++      terminalView.addGestureRecognizer(recognizer)
++    }
      addSubview(terminalView)
 +    terminalView.hostScrollHandler = { [weak self] deltaY in
 +      guard let self else { return }
@@ -169,8 +538,40 @@ index 12925b5..030a7ab 100644
 +        self.onScroll(["rows": rows])
 +      }
 +    }
++  }
++
++  @objc private func pointerTapped(_ recognizer: UITapGestureRecognizer) {
++    let point = recognizer.location(in: terminalView)
++    emitPointer("down", point)
++    emitPointer("up", point)
++  }
++
++  @objc private func pointerPanned(_ recognizer: UIPanGestureRecognizer) {
++    let phase: String
++    switch recognizer.state {
++    case .began: phase = "down"
++    case .changed: phase = "move"
++    case .ended, .cancelled, .failed: phase = "up"
++    default: return
++    }
++    emitPointer(phase, recognizer.location(in: terminalView))
++  }
++
++  private func emitPointer(_ phase: String, _ point: CGPoint) {
++    onTerminalPointer([
++      "phase": phase,
++      "x": point.x,
++      "y": point.y,
++      "width": terminalView.bounds.width,
++      "height": terminalView.bounds.height,
++    ])
++  }
++
++  func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
++                         shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
++    true
    }
-
+ 
    /// Feed PTY output (terminal.output on the wire) into the grid.
 diff --git a/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView+Interaction.swift b/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView+Interaction.swift
 index 3f3eeb2..f77a398 100644
@@ -179,7 +580,7 @@ index 3f3eeb2..f77a398 100644
 @@ -532,12 +532,16 @@
                      "touch scroll changed translation=\(String(format: "%.2f", translation.x))x\(String(format: "%.2f", translation.y))"
                  )
-
+ 
 -                let scrollMods = TerminalScrollModifiers(precision: true)
 -                surface?.sendMouseScroll(
 -                    x: Double(translation.x * touchScrollMultiplier),
@@ -196,7 +597,7 @@ index 3f3eeb2..f77a398 100644
 +                        mods: scrollMods.rawValue
 +                    )
 +                }
-
+ 
              case .ended:
                  guard activePointerButton == nil else { return }
 @@ -546,7 +550,7 @@
@@ -205,7 +606,7 @@ index 3f3eeb2..f77a398 100644
                  )
 -                startMomentumScrolling(velocity: velocity)
 +                if hostScrollHandler == nil { startMomentumScrolling(velocity: velocity) }
-
+ 
              case .cancelled, .failed:
                  TerminalDebugLog.log(.input, "touch scroll cancelled")
 diff --git a/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView.swift b/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView.swift
@@ -217,17 +618,45 @@ index 7bb1e98..bf36967 100644
          weak var _inputDelegate: (any UITextInputDelegate)?
          var onFocusChange: ((Bool) -> Void)?
 +        open var hostScrollHandler: ((CGFloat) -> Void)?
-
+ 
          #if !targetEnvironment(macCatalyst)
              lazy var terminalInputAccessory = TerminalInputAccessoryView(terminalView: self)
 diff --git a/node_modules/expo-libghostty/src/ExpoLibghostty.types.ts b/node_modules/expo-libghostty/src/ExpoLibghostty.types.ts
-index cbd0ab4..cbab752 100644
+index cbd0ab4..61b4e3e 100644
 --- a/node_modules/expo-libghostty/src/ExpoLibghostty.types.ts
 +++ b/node_modules/expo-libghostty/src/ExpoLibghostty.types.ts
-@@ -61,6 +61,8 @@ export type TerminalViewProps = {
+@@ -9,9 +9,19 @@ export type TerminalInputEvent = {
+ };
+ 
+ export type TerminalResizeEvent = {
+-  /** New grid size in cells. */
++  /** New grid size in cells plus physical cell metrics. */
+   cols: number;
+   rows: number;
++  cellWidthPx?: number;
++  cellHeightPx?: number;
++};
++
++export type TerminalPointerEvent = {
++  phase: 'down' | 'move' | 'up';
++  x: number;
++  y: number;
++  width: number;
++  height: number;
+ };
+ 
+ export type TerminalViewRef = {
+@@ -57,10 +67,15 @@ export type TerminalViewProps = {
+    * pass undefined fields to keep ghostty's defaults.
+    */
+   theme?: TerminalTheme;
++  /** Route touch through Herdr's graphics pixel-mouse path. */
++  pointerMode?: boolean;
+   /** User keyboard/IME input to forward to the PTY. */
    onInput?: (event: { nativeEvent: TerminalInputEvent }) => void;
    /** Grid resized (layout, rotation, font change); forward to the PTY. */
    onResize?: (event: { nativeEvent: TerminalResizeEvent }) => void;
++  onTerminalPointer?: (event: { nativeEvent: TerminalPointerEvent }) => void;
 +  /** Scroll gesture in rows, when the host owns scrollback. */
 +  onScroll?: (event: { nativeEvent: { rows: number } }) => void;
    ref?: Ref<TerminalViewRef>;

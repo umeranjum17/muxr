@@ -27,6 +27,8 @@ export interface TerminalOutputFrame {
     width?: number;
     height?: number;
     encoding?: string;
+    /** True when bytes are Kitty graphics commands emitted by the generic bridge. */
+    graphics?: boolean;
 }
 
 /** host -> client: the underlying stream ended. */
@@ -46,6 +48,19 @@ export interface TerminalResizeFrame {
     type: 'terminal.resize';
     cols: number;
     rows: number;
+    /** Physical cell size enables Herdr's graphics placement and pixel mouse path. */
+    cellWidthPx?: number;
+    cellHeightPx?: number;
+}
+
+/** client -> host pointer over a graphics-capable terminal surface. */
+export interface TerminalPointerFrame {
+    type: 'terminal.pointer';
+    phase: 'down' | 'move' | 'up';
+    x: number;
+    y: number;
+    width: number;
+    height: number;
 }
 
 /** client -> host scroll. herdr owns the pane's scrollback, so the client
@@ -62,7 +77,7 @@ export interface TerminalScrollFrame {
     row?: number;
 }
 
-export type TerminalClientFrame = TerminalInputFrame | TerminalResizeFrame | TerminalScrollFrame;
+export type TerminalClientFrame = TerminalInputFrame | TerminalResizeFrame | TerminalScrollFrame | TerminalPointerFrame;
 export type TerminalHostFrame = TerminalOutputFrame | TerminalClosedFrame;
 
 /** Random channel id. The relay pairs the two sockets quoting the same one. */

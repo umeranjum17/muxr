@@ -23,11 +23,13 @@ export interface TerminalChannel {
     /** base64 ANSI chunks from the pane. */
     onData: (listener: (base64: string) => void) => () => void;
     onClose: (listener: (reason?: string) => void) => () => void;
+    onGraphics: (listener: (active: boolean) => void) => () => void;
     /** 'reconnecting' while a dropped socket is being re-attached, 'live' after. */
     onState: (listener: (state: TerminalChannelState) => void) => () => void;
     sendText: (text: string) => void;
     sendBytes: (base64: string) => void;
-    resize: (cols: number, rows: number) => void;
+    resize: (cols: number, rows: number, cell?: { width: number; height: number }) => void;
+    pointer: (phase: 'down' | 'move' | 'up', x: number, y: number, width: number, height: number) => void;
     /** Scroll the real pane. Positive lines go back (up), negative go forward.
      *  `at` is the cell the wheel lands on, for panes that report mouse events. */
     scroll: (lines: number, at?: { column: number; row: number }) => void;
@@ -41,7 +43,7 @@ export interface TerminalChannel {
 
 export type OpenTerminalCommand = {
     agentRoute: string;
-    size: { cols: number; rows: number };
+    size: { cols: number; rows: number; cellWidthPx?: number; cellHeightPx?: number };
     mode?: 'control' | 'observe';
 };
 
@@ -79,6 +81,8 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
         channel,
         cols: current.cols,
         rows: current.rows,
+        ...(current.cellWidthPx === undefined ? {} : { cellWidthPx: current.cellWidthPx }),
+        ...(current.cellHeightPx === undefined ? {} : { cellHeightPx: current.cellHeightPx }),
         ...(options?.mode === undefined ? {} : { mode: options.mode }),
         ...(grant === undefined ? {} : { deviceId: grant.deviceId, takeover }),
     });
@@ -116,6 +120,8 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
     const dataListeners = new Set<(base64: string) => void>();
     const pendingData: string[] = [];
     const closeListeners = new Set<(reason?: string) => void>();
+    const graphicsListeners = new Set<(active: boolean) => void>();
+    let graphicsActive = false;
     const stateListeners = new Set<(state: TerminalChannelState) => void>();
     const outbox: string[] = [];
     let socket: WebSocket | undefined;
@@ -264,6 +270,10 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
                 const frame = JSON.parse(plaintext) as Partial<TerminalHostFrame> & { type?: string };
                 if (frame.type === 'terminal.frame' && typeof (frame as TerminalHostFrame & { bytes?: string }).bytes === 'string') {
                     const bytes = (frame as { bytes: string }).bytes;
+                    if ((frame as { graphics?: boolean }).graphics === true && !graphicsActive) {
+                        graphicsActive = true;
+                        for (const listener of graphicsListeners) listener(true);
+                    }
                     if (dataListeners.size === 0) pendingData.push(bytes);
                     else for (const listener of dataListeners) listener(bytes);
                 } else if (frame.type === 'terminal.closed') {
@@ -325,6 +335,11 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
             closeListeners.add(listener);
             return () => closeListeners.delete(listener);
         },
+        onGraphics: (listener) => {
+            graphicsListeners.add(listener);
+            listener(graphicsActive);
+            return () => graphicsListeners.delete(listener);
+        },
         onState: (listener) => {
             stateListeners.add(listener);
             return () => stateListeners.delete(listener);
@@ -332,10 +347,20 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
         sendText: (text) => send({ type: 'terminal.input', text }),
         reconnect: reconnectNow,
         sendBytes: (base64) => send({ type: 'terminal.input', bytes: base64 }),
-        resize: (cols, rows) => {
-            current = { cols, rows };
-            send({ type: 'terminal.resize', cols, rows });
+        resize: (cols, rows, cell) => {
+            current = {
+                cols,
+                rows,
+                ...(cell === undefined ? {} : { cellWidthPx: cell.width, cellHeightPx: cell.height }),
+            };
+            send({
+                type: 'terminal.resize',
+                cols,
+                rows,
+                ...(cell === undefined ? {} : { cellWidthPx: cell.width, cellHeightPx: cell.height }),
+            });
         },
+        pointer: (phase, x, y, width, height) => send({ type: 'terminal.pointer', phase, x, y, width, height }),
         repaint: () => {
             // herdr sends a complete screen only on attach; everything after is
             // a diff against the screen it thinks we hold. So once the two

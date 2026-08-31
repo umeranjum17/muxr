@@ -13,6 +13,7 @@ import WebSocket from 'ws';
 import { issueWsTicket, terminalSocketUrl, ticketSocketUrl, type Envelope } from '@muxr/contract';
 import { v2EnvelopeSequence } from '@muxr/crypto';
 import { HostV2Crypto, type HostedMachineKeys, deviceTableIsObserve, ticketWsCredential } from '../../machine/index.js';
+import { HerdrGraphicsBridge, type HerdrGraphicsPointer } from './herdrGraphicsBridge.js';
 
 export interface TerminalManagerOptions {
     relayUrl: string;
@@ -24,12 +25,17 @@ export interface TerminalManagerOptions {
 }
 
 interface Attachment {
+    channel: string;
     sessionId: string;
     paneId: string;
     mode: 'control' | 'observe';
     deviceId?: string;
     process: ChildProcess;
     socket: WebSocket;
+    cols: number;
+    rows: number;
+    cellWidthPx: number | undefined;
+    cellHeightPx: number | undefined;
     close: (reason?: string) => void;
 }
 
@@ -39,6 +45,9 @@ export class TerminalManager {
     private readonly attachments = new Map<string, Attachment>();
     private readonly controlQueues = new Map<string, Promise<void>>();
     private readonly hosted: HostV2Crypto | undefined;
+    private graphics: HerdrGraphicsBridge | undefined;
+    private graphicsOpening: Promise<void> | undefined;
+    private graphicsCloseTimer: ReturnType<typeof setTimeout> | undefined;
 
     constructor(private readonly options: TerminalManagerOptions) {
         this.hosted = options.hostedE2ee === undefined ? undefined : new HostV2Crypto(options.hostedE2ee);
@@ -49,6 +58,8 @@ export class TerminalManager {
         channel: string;
         cols: number;
         rows: number;
+        cellWidthPx?: number;
+        cellHeightPx?: number;
         mode?: 'control' | 'observe';
         deviceId?: string;
         takeover?: boolean;
@@ -77,6 +88,8 @@ export class TerminalManager {
         channel: string;
         cols: number;
         rows: number;
+        cellWidthPx?: number;
+        cellHeightPx?: number;
         mode?: 'control' | 'observe';
         deviceId?: string;
         takeover?: boolean;
@@ -168,12 +181,17 @@ export class TerminalManager {
         });
 
         const attachment: Attachment = {
+            channel: params.channel,
             sessionId: params.sessionId,
             paneId,
             mode,
             ...(params.deviceId === undefined ? {} : { deviceId: params.deviceId }),
             process: child,
             socket,
+            cols: params.cols,
+            rows: params.rows,
+            cellWidthPx: params.cellWidthPx,
+            cellHeightPx: params.cellHeightPx,
             close: () => undefined,
         };
 
@@ -209,6 +227,8 @@ export class TerminalManager {
                 socket.close();
             }
             if (this.attachments.get(params.channel) === attachment) this.attachments.delete(params.channel);
+            this.graphics?.unregister(params.channel);
+            this.scheduleGraphicsClose();
         };
         attachment.close = (reason?: string): void => {
             if (finished) return;
@@ -243,6 +263,7 @@ export class TerminalManager {
             }
         }
         this.attachments.set(params.channel, attachment);
+        if (!observe) this.activateGraphics(attachment, params);
 
         const onInputError = (error: Error): void => {
             attachment.close(`herdr stream input failed: ${error.message}`);
@@ -267,6 +288,25 @@ export class TerminalManager {
                     }
                     text = this.hosted.open(params.deviceId!, 'terminal', params.channel, envelope.payload);
                 }
+                const frame = JSON.parse(text) as { type?: string; cols?: number; rows?: number; cellWidthPx?: number; cellHeightPx?: number } & Partial<HerdrGraphicsPointer>;
+                if (frame.type === 'terminal.resize' && typeof frame.cols === 'number' && typeof frame.rows === 'number') {
+                    this.activateGraphics(attachment, {
+                        cols: frame.cols,
+                        rows: frame.rows,
+                        ...(frame.cellWidthPx === undefined ? {} : { cellWidthPx: frame.cellWidthPx }),
+                        ...(frame.cellHeightPx === undefined ? {} : { cellHeightPx: frame.cellHeightPx }),
+                    });
+                }
+                if (frame.type === 'terminal.pointer'
+                    && (frame.phase === 'down' || frame.phase === 'move' || frame.phase === 'up')
+                    && typeof frame.x === 'number' && typeof frame.y === 'number'
+                    && typeof frame.width === 'number' && typeof frame.height === 'number') {
+                    const pointer = { phase: frame.phase, x: frame.x, y: frame.y, width: frame.width, height: frame.height };
+                    for (const report of this.graphics?.pointerInput(attachment.channel, pointer) ?? []) {
+                        input.write(`${JSON.stringify({ type: 'terminal.input', bytes: report.toString('base64') })}\n`);
+                    }
+                    return;
+                }
                 input.write(`${text}\n`);
             } catch (error) {
                 onInputError(error instanceof Error ? error : new Error(String(error)));
@@ -284,26 +324,8 @@ export class TerminalManager {
             const lines = buffer.split('\n');
             buffer = lines.pop() ?? '';
             for (const line of lines) {
-                if (line.trim().length === 0 || socket.readyState !== WebSocket.OPEN) continue;
-                if (this.hosted === undefined) {
-                    socket.send(line);
-                    continue;
-                }
-                const payload = this.hosted.seal('terminal', params.channel, line);
-                const envelope: Envelope = {
-                    header: {
-                        machineId: this.options.machineId,
-                        senderId: this.options.machineId,
-                        recipientId: '*',
-                        channel: 'terminal',
-                        streamId: params.channel,
-                        keyVersion: this.options.hostedE2ee!.keyVersion,
-                        seq: v2EnvelopeSequence(payload),
-                        at: Date.now(),
-                    },
-                    payload,
-                };
-                socket.send(JSON.stringify(envelope));
+                if (line.trim().length === 0) continue;
+                this.sendToPhone(attachment, line);
             }
         });
 
@@ -336,6 +358,88 @@ export class TerminalManager {
         return { paneId };
     }
 
+    private activateGraphics(attachment: Attachment, size: { cols: number; rows: number; cellWidthPx?: number; cellHeightPx?: number }): void {
+        attachment.cols = size.cols;
+        attachment.rows = size.rows;
+        attachment.cellWidthPx = size.cellWidthPx;
+        attachment.cellHeightPx = size.cellHeightPx;
+        if (size.cellWidthPx === undefined || size.cellHeightPx === undefined
+            || ![size.cols, size.rows, size.cellWidthPx, size.cellHeightPx].every((value) => Number.isFinite(value) && value > 0)) return;
+        if (this.graphicsCloseTimer !== undefined) {
+            clearTimeout(this.graphicsCloseTimer);
+            this.graphicsCloseTimer = undefined;
+        }
+        if (this.graphics !== undefined) {
+            this.registerGraphics(attachment, this.graphics);
+            return;
+        }
+        if (this.graphicsOpening !== undefined) return;
+        const opening = HerdrGraphicsBridge.open(
+            this.options.herdrBin === undefined ? {} : { herdrBin: this.options.herdrBin },
+        )
+            .then((graphics) => {
+                if (this.graphicsOpening !== opening) { graphics.close(); return; }
+                this.graphics = graphics;
+                for (const current of this.attachments.values()) {
+                    if (current.mode === 'control') this.registerGraphics(current, graphics);
+                }
+            })
+            .catch((error: unknown) => {
+                process.stderr.write(`terminal graphics unavailable: ${error instanceof Error ? error.message : String(error)}\n`);
+            })
+            .finally(() => { if (this.graphicsOpening === opening) this.graphicsOpening = undefined; });
+        this.graphicsOpening = opening;
+    }
+
+    private registerGraphics(attachment: Attachment, graphics: HerdrGraphicsBridge): void {
+        if (attachment.cellWidthPx === undefined || attachment.cellHeightPx === undefined) return;
+        graphics.register({
+            channel: attachment.channel,
+            paneId: attachment.paneId,
+            cols: attachment.cols,
+            rows: attachment.rows,
+            cellWidthPx: attachment.cellWidthPx,
+            cellHeightPx: attachment.cellHeightPx,
+            write: (frame) => {
+                if (this.attachments.get(attachment.channel) === attachment) this.sendToPhone(attachment, frame);
+            },
+        });
+    }
+
+    private scheduleGraphicsClose(): void {
+        if (this.graphics === undefined || this.graphics.hasRegistrations() || this.graphicsCloseTimer !== undefined) return;
+        this.graphicsCloseTimer = setTimeout(() => {
+            this.graphicsCloseTimer = undefined;
+            if (this.graphics?.hasRegistrations() === false) {
+                this.graphics.close();
+                this.graphics = undefined;
+            }
+        }, 60_000);
+    }
+
+    private sendToPhone(attachment: Attachment, plaintext: string): void {
+        if (attachment.socket.readyState !== WebSocket.OPEN) return;
+        if (this.hosted === undefined) {
+            attachment.socket.send(plaintext);
+            return;
+        }
+        const payload = this.hosted.seal('terminal', attachment.channel, plaintext);
+        const envelope: Envelope = {
+            header: {
+                machineId: this.options.machineId,
+                senderId: this.options.machineId,
+                recipientId: '*',
+                channel: 'terminal',
+                streamId: attachment.channel,
+                keyVersion: this.options.hostedE2ee!.keyVersion,
+                seq: v2EnvelopeSequence(payload),
+                at: Date.now(),
+            },
+            payload,
+        };
+        attachment.socket.send(JSON.stringify(envelope));
+    }
+
     detach(channel: string, authenticatedDeviceId?: string): void {
         const attachment = this.attachments.get(channel);
         if (attachment === undefined) return;
@@ -348,5 +452,9 @@ export class TerminalManager {
 
     closeAll(): void {
         for (const channel of [...this.attachments.keys()]) this.detach(channel);
+        if (this.graphicsCloseTimer !== undefined) clearTimeout(this.graphicsCloseTimer);
+        this.graphicsCloseTimer = undefined;
+        this.graphics?.close();
+        this.graphics = undefined;
     }
 }

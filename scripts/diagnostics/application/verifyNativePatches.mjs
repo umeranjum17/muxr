@@ -9,6 +9,7 @@ const read = (path) => readFileSync(new URL(path, root), 'utf8');
 const ghosttyPatch = read('patches/expo-libghostty+0.8.1.patch');
 const ghosttyView = read('node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/ExpoLibghosttyView.kt');
 const ghosttyTerminal = read('node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/GhosttyTerminalView.kt');
+const ghosttyNative = read('node_modules/expo-libghostty/android/src/main/cpp/ghostty_jni.cpp');
 const liveAudioPatch = read('patches/react-native-live-audio-stream+1.1.1.patch');
 const liveAudioModule = read(
     'node_modules/react-native-live-audio-stream/android/src/main/java/com/imxiqi/rnliveaudiostream/RNLiveAudioStreamModule.java',
@@ -45,6 +46,9 @@ const gradleBuild = androidBuild.indexOf(':app:assembleRelease');
 const checks = [
     ['Ghostty patch hides its accessory bar', ghosttyPatch.includes('accessoryBar.visibility = GONE') && ghosttyView.includes('accessoryBar.visibility = GONE')],
     ['Ghostty patch forwards scroll rows', ghosttyPatch.includes('onScrollRows') && ghosttyTerminal.includes('onScrollRows') && ghosttyView.includes('onScroll')],
+    ['Ghostty patch renders Kitty graphics and forwards pointer geometry',
+        ghosttyPatch.includes('nativeKittySnapshot') && ghosttyNative.includes('nativeKittySnapshot') &&
+        ghosttyTerminal.includes('drawKitty') && ghosttyTerminal.includes('pointerMode') && ghosttyView.includes('cellWidthPx')],
     [
         'dictation recorder releases AudioRecord only after the read loop exits',
         liveAudioPatch.includes('stopAndReleaseRecorder') &&

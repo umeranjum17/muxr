@@ -40,8 +40,9 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
     const { sessionId, onStatus, onChannel } = props;
     const termRef = React.useRef<TerminalViewRef>(null);
     const channelRef = React.useRef<TerminalChannel | undefined>(undefined);
+    const [graphicsActive, setGraphicsActive] = React.useState(false);
     const openedRef = React.useRef(false);
-    const lastSizeRef = React.useRef<{ cols: number; rows: number } | null>(null);
+    const lastSizeRef = React.useRef<{ cols: number; rows: number; cellWidthPx?: number; cellHeightPx?: number } | null>(null);
     const resizeTimerRef = React.useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
     const pendingWritesRef = React.useRef<string[]>([]);
     const writeRafRef = React.useRef<number | undefined>(undefined);
@@ -129,16 +130,23 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             channelRef.current = undefined;
             openedRef.current = false;
             lastSizeRef.current = null;
+            setGraphicsActive(false);
         },
         [onChannel, sessionId],
     );
 
     const attach = React.useCallback(
-        (cols: number, rows: number) => {
+        (cols: number, rows: number, cellWidthPx?: number, cellHeightPx?: number) => {
             setTerminalColumns(sessionId, cols);
             const last = lastSizeRef.current;
-            if (last !== null && last.cols === cols && last.rows === rows) return;
-            lastSizeRef.current = { cols, rows };
+            if (last !== null && last.cols === cols && last.rows === rows
+                && last.cellWidthPx === cellWidthPx && last.cellHeightPx === cellHeightPx) return;
+            lastSizeRef.current = {
+                cols,
+                rows,
+                ...(cellWidthPx === undefined ? {} : { cellWidthPx }),
+                ...(cellHeightPx === undefined ? {} : { cellHeightPx }),
+            };
 
             if (openedRef.current) {
                 if (resizeTimerRef.current !== undefined) clearTimeout(resizeTimerRef.current);
@@ -148,7 +156,9 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                     // draw the whole screen again. Ghostty reflows its grid on
                     // its own for a keyboard or a pinch, and herdr would keep
                     // sending diffs for a screen that no longer matches.
-                    channelRef.current?.resize(cols, rows);
+                    channelRef.current?.resize(cols, rows, cellWidthPx === undefined || cellHeightPx === undefined
+                        ? undefined
+                        : { width: cellWidthPx, height: cellHeightPx });
                     beginViewportCapture(sessionId);
                     channelRef.current?.repaint();
                 }, RESIZE_DEBOUNCE_MS);
@@ -162,7 +172,15 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             // -- seeded history, a repaint, a cleared screen -- lands those
             // diffs on the wrong cells and quietly eats lines.
             void Promise.resolve()
-                .then(() => openTerminal({ agentRoute: sessionId, size: { cols, rows } }))
+                .then(() => openTerminal({
+                    agentRoute: sessionId,
+                    size: {
+                        cols,
+                        rows,
+                        ...(cellWidthPx === undefined ? {} : { cellWidthPx }),
+                        ...(cellHeightPx === undefined ? {} : { cellHeightPx }),
+                    },
+                }))
                 .then((channel) => {
                     channelRef.current = channel;
                     // The first thing herdr sends is the whole screen, so this
@@ -172,7 +190,15 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                     // Same discipline as the web view: herdr repaint bursts
                     // arrive as many socket messages; one Ghostty write per
                     // frame instead of one per message.
+                    channel.onGraphics(setGraphicsActive);
                     channel.onData((base64) => {
+                        const bytes = decodeBase64(base64);
+                        for (let index = 0; index + 2 < bytes.length; index += 1) {
+                            if (bytes[index] === 0x1B && bytes[index + 1] === 0x5F && bytes[index + 2] === 0x47) {
+                                setGraphicsActive(true);
+                                break;
+                            }
+                        }
                         recordTerminalOutput(sessionId, base64);
                         settleScroll();
                         pendingWritesRef.current.push(base64);
@@ -192,7 +218,10 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                     if (latest !== null && (latest.cols !== cols || latest.rows !== rows)) {
                         if (resizeTimerRef.current !== undefined) clearTimeout(resizeTimerRef.current);
                         resizeTimerRef.current = undefined;
-                        channel.resize(latest.cols, latest.rows);
+                        channel.resize(latest.cols, latest.rows,
+                            latest.cellWidthPx === undefined || latest.cellHeightPx === undefined
+                                ? undefined
+                                : { width: latest.cellWidthPx, height: latest.cellHeightPx });
                         beginViewportCapture(sessionId);
                         channel.repaint();
                     }
@@ -212,6 +241,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             <GhosttyView
                 ref={termRef}
                 style={{ flex: 1 }}
+                pointerMode={graphicsActive}
                 fontSize={12}
                 theme={{ background: '#0c0c0b' }}
                 onInput={({ nativeEvent }) => {
@@ -219,7 +249,12 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                     else if (nativeEvent.text) channelRef.current?.sendText(nativeEvent.text);
                 }}
                 onResize={({ nativeEvent }) => {
-                    attach(nativeEvent.cols, nativeEvent.rows);
+                    attach(nativeEvent.cols, nativeEvent.rows, nativeEvent.cellWidthPx, nativeEvent.cellHeightPx);
+                }}
+                onTerminalPointer={({ nativeEvent }) => {
+                    if (graphicsActive) channelRef.current?.pointer(
+                        nativeEvent.phase, nativeEvent.x, nativeEvent.y, nativeEvent.width, nativeEvent.height,
+                    );
                 }}
                 // herdr owns the history, so a drag has to move herdr's
                 // viewport and be repainted back to us. Ghostty's own buffer

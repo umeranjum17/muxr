@@ -6,6 +6,7 @@ const root = join(import.meta.dirname, '../../../../../');
 const patch = join(root, 'patches/expo-libghostty+0.8.1.patch');
 const view = join(root, 'node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/ExpoLibghosttyView.kt');
 const terminal = join(root, 'node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/GhosttyTerminalView.kt');
+const native = join(root, 'node_modules/expo-libghostty/android/src/main/cpp/ghostty_jni.cpp');
 const iosModule = join(root, 'node_modules/expo-libghostty/ios/ExpoLibghosttyModule.swift');
 const iosView = join(root, 'node_modules/expo-libghostty/ios/ExpoLibghosttyView.swift');
 const iosTerminalView = join(root, 'node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView.swift');
@@ -37,8 +38,19 @@ describe('expo-libghostty patch', () => {
         expect(contents).toContain('onScrollRows');
         expect(readFileSync(terminal, 'utf8')).toContain('onScrollRows');
         expect(readFileSync(view, 'utf8')).toContain('onScroll');
-        expect(readFileSync(iosModule, 'utf8')).toContain('Events("onInput", "onResize", "onScroll")');
+        expect(readFileSync(iosModule, 'utf8')).toContain('Events("onInput", "onResize", "onScroll", "onTerminalPointer")');
         expect(readFileSync(iosView, 'utf8')).toContain('terminalView.hostScrollHandler');
         expect(readFileSync(iosTerminalView, 'utf8')).toContain('hostScrollHandler');
+    });
+
+    it('keeps the generic Kitty graphics, physical cell metrics, and pointer bridge applied together', () => {
+        expect(contents).toContain('GHOSTTY_TERMINAL_OPT_KITTY_IMAGE_STORAGE_LIMIT');
+        expect(contents).toContain('nativeKittySnapshot');
+        expect(contents).toContain('cellWidthPx');
+        expect(contents).toContain('onPointer');
+        expect(readFileSync(native, 'utf8')).toContain('nativeKittySnapshot');
+        expect(readFileSync(terminal, 'utf8')).toContain('drawKitty');
+        expect(readFileSync(terminal, 'utf8')).toContain('pointerMode');
+        expect(readFileSync(view, 'utf8')).toContain('cellWidthPx');
     });
 });
