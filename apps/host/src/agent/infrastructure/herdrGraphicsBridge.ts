@@ -119,7 +119,7 @@ export class HerdrGraphicsBridge {
     }
 
     register(registration: HerdrGraphicsRegistration): boolean {
-        if (!validRegistration(registration)) return false;
+        if (this.closed || !validRegistration(registration)) return false;
         this.registrations.set(registration.channel, registration);
         this.layoutCache.delete(registration.paneId);
         this.workspaceCache = undefined;

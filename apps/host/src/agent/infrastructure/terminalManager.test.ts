@@ -85,10 +85,12 @@ vi.mock('ws', async () => {
     return { default: MockWebSocket };
 });
 
+import { HerdrGraphicsBridge } from './herdrGraphicsBridge.js';
 import { TerminalManager } from './terminalManager.js';
 
 describe('TerminalManager stream exit', () => {
     beforeEach(() => {
+        vi.restoreAllMocks();
         fakes.children.length = 0;
         fakes.sockets.length = 0;
         fakes.failSpawn = false;
@@ -157,6 +159,31 @@ describe('TerminalManager stream exit', () => {
         await expect(manager.attach({ sessionId: 'session', channel: 'channel', cols: 100, rows: 30 }))
             .rejects.toThrow('could not start Herdr');
         expect(fakes.sockets[0]?.close).toHaveBeenCalledOnce();
+    });
+
+    it('reopens graphics after a dead bridge rejects registration', async () => {
+        const manager = new TerminalManager({
+            relayUrl: 'ws://relay.test', machineId: 'machine', resolvePane: async () => 'workspace:pane',
+        });
+        await manager.attach({ sessionId: 'session', channel: 'channel', cols: 100, rows: 30 });
+        const dead = { register: vi.fn(() => false) };
+        const replacement = { register: vi.fn(() => true), close: vi.fn(), hasRegistrations: vi.fn(() => true) };
+        vi.spyOn(HerdrGraphicsBridge, 'open').mockResolvedValue(replacement as unknown as HerdrGraphicsBridge);
+        const internal = manager as unknown as {
+            attachments: Map<string, unknown>;
+            graphics: unknown;
+            activateGraphics: (attachment: unknown, size: {
+                cols: number; rows: number; cellWidthPx: number; cellHeightPx: number;
+            }) => void;
+        };
+        internal.graphics = dead;
+        internal.activateGraphics(internal.attachments.get('channel'), {
+            cols: 100, rows: 30, cellWidthPx: 8, cellHeightPx: 16,
+        });
+
+        await vi.waitFor(() => expect(replacement.register).toHaveBeenCalledOnce());
+        expect(dead.register).toHaveBeenCalledOnce();
+        expect(internal.graphics).toBe(replacement);
     });
 
     it('keeps only the latest graphics frame while the phone socket drains', async () => {

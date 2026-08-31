@@ -67,5 +67,6 @@ describe('Herdr graphics flow', () => {
         (bridge as unknown as { retirePane: (paneId: string) => void }).retirePane('visible');
         expect(JSON.parse(replayed[1]!) as { graphics: boolean }).toMatchObject({ graphics: false });
         bridge.close();
+        expect(bridge.register(portrait)).toBe(false);
     });
 });

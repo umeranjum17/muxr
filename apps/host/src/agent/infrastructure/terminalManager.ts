@@ -396,8 +396,8 @@ export class TerminalManager {
             this.graphicsCloseTimer = undefined;
         }
         if (this.graphics !== undefined) {
-            this.registerGraphics(attachment, this.graphics);
-            return;
+            if (this.registerGraphics(attachment, this.graphics)) return;
+            this.graphics = undefined;
         }
         if (this.graphicsOpening !== undefined) return;
         const opening = HerdrGraphicsBridge.open({
@@ -419,9 +419,9 @@ export class TerminalManager {
         this.graphicsOpening = opening;
     }
 
-    private registerGraphics(attachment: Attachment, graphics: HerdrGraphicsBridge): void {
-        if (attachment.cellWidthPx === undefined || attachment.cellHeightPx === undefined) return;
-        graphics.register({
+    private registerGraphics(attachment: Attachment, graphics: HerdrGraphicsBridge): boolean {
+        if (attachment.cellWidthPx === undefined || attachment.cellHeightPx === undefined) return false;
+        return graphics.register({
             channel: attachment.channel,
             paneId: attachment.paneId,
             cols: attachment.cols,
