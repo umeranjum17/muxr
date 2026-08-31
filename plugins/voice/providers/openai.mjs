@@ -12,14 +12,13 @@ import { lstat, readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
-import { fileURLToPath } from 'node:url';
 import {
     cleanProviderProse,
     codingTools,
     isExplicitHangup,
     runCodingTool,
     voiceCoordinationInstructions,
-} from '../voice/coordinatorPolicy.mjs';
+} from '../coordinatorPolicy.mjs';
 
 const MODEL = 'gpt-realtime-2.1';
 const RATE = 24_000;
@@ -310,6 +309,7 @@ async function main() {
     connectProvider(key);
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
-    main().catch((error) => close(cleanProviderProse(error instanceof Error ? error.message : error, 'Voice session could not start.', 300)));
+/** Entry point; the plugin's stream.mjs selects and starts one adapter. */
+export function start() {
+    return main().catch((error) => close(cleanProviderProse(error instanceof Error ? error.message : error, 'Voice session could not start.', 300)));
 }

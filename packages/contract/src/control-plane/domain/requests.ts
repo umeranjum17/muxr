@@ -49,7 +49,6 @@ export interface PromptAttachment {
 }
 
 export type StreamingBehavior = 'steer' | 'followUp';
-export type VoiceProviderOption = { id: string; name: string; selected: boolean; source: PluginSource; hasBackend: boolean };
 
 export interface WatchSettlement {
     status: string;
@@ -228,16 +227,6 @@ export interface RequestMap extends PeerRequestMap {
     'plugin.stream': {
         params: { pluginId: string; manifestHash: string; contributionId: string; channel: string; sessionId?: string };
         result: null;
-    };
-    /** Installed realtime providers and the one currently active on this machine. */
-    'voice.provider.list': {
-        params: Record<string, never>;
-        result: VoiceProviderOption[];
-    };
-    /** Switch the machine to exactly one installed realtime provider. */
-    'voice.provider.select': {
-        params: { providerId: string };
-        result: VoiceProviderOption[];
     };
     /**
      * Full herdr CLI for trusted clients such as the realtime voice agent.
@@ -522,7 +511,6 @@ const E2EE_REQUEST_TYPES = new Set([
     'plugin.invoke',
     'plugin.call',
     'plugin.stream',
-    'voice.provider.select',
     'herdr.cli',
 ]);
 

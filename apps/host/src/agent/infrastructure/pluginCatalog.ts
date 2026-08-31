@@ -154,20 +154,6 @@ export class PluginCatalog {
         return digests;
     }
 
-    capabilityPlugins(capability: string): Array<{ pluginId: string; name: string; enabled: boolean; source: PluginSource; hasBackend: boolean }> {
-        return [...this.installed].flatMap(([pluginId, { snapshot, enabled }]) =>
-            snapshot.manifest.capabilities?.[capability] === undefined
-                ? []
-                : [{
-                    pluginId,
-                    name: snapshot.summary.name,
-                    enabled,
-                    source: snapshot.summary.source,
-                    hasBackend: snapshot.summary.hasBackend,
-                }],
-        ).sort((left, right) => left.name.localeCompare(right.name));
-    }
-
     list(isApproved: (pluginId: string, hash: string) => boolean): PluginSummary[] {
         return [...this.active]
             .map(([pluginId, hash]) => {

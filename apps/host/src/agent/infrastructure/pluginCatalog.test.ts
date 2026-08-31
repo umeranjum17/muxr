@@ -77,9 +77,6 @@ describe('plugin catalog flow', () => {
             { ...plugin(competingRoot), plugin_id: 'example.competing' },
         ]);
         expect(catalog.list(() => true).map(({ pluginId }) => pluginId)).toEqual(['example.competing']);
-        expect(catalog.capabilityPlugins('voice.session')).toEqual([{
-            pluginId: 'example.muxr-ui', name: 'Example muxr UI', enabled: false, source: { kind: 'local' }, hasBackend: true,
-        }]);
         expect(catalog.trustedCapabilityCallTarget({
             pluginRoot: await realpath(root),
             capability: 'agent.close',
@@ -89,7 +86,7 @@ describe('plugin catalog flow', () => {
         });
 
         await catalog.refresh([plugin(root)]);
-        expect(catalog.capabilityPlugins('voice.session')[0]).toMatchObject({ enabled: true });
+        expect(catalog.list(() => true).map(({ pluginId }) => pluginId)).toEqual(['example.muxr-ui']);
     });
 
     it('allow-lists and bounds public RPC context without internal ids', async () => {

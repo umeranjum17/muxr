@@ -10,11 +10,20 @@ import { describe, expect, it } from 'vitest';
 import { RealtimeCodingCoordinator } from '../../apps/host/src/agent/infrastructure/realtimeCoordinator.ts';
 import { HostDiagnosticsJournal } from '../../apps/host/src/diagnostics/infrastructure/journal.ts';
 import { parseRealtimeHostFrame } from '../../packages/contract/src/realtime/domain/realtimeStream.ts';
-import { chunkAudio as chunkGeminiAudio, providerTools as geminiTools } from '../voice-gemini/stream.mjs';
-import { providerTools as openaiTools } from '../voice-openai/stream.mjs';
-import { providerError, providerRefusal, providerTools as xaiTools } from './stream.mjs';
+import { chunkAudio as chunkGeminiAudio, providerTools as geminiTools } from './providers/gemini.mjs';
+import { providerTools as openaiTools } from './providers/openai.mjs';
+import { providerError, providerRefusal, providerTools as xaiTools } from './providers/xai.mjs';
 import { cleanProviderProse } from './coordinatorPolicy.mjs';
-import { approvedSignalingUrl } from '../voice-codex/stream.mjs';
+import { approvedSignalingUrl } from './providers/codex.mjs';
+
+const streamEntry = fileURLToPath(new URL('./stream.mjs', import.meta.url));
+
+/** stream.mjs dispatches on the selected adapter, which lives in the state dir. */
+async function providerStateDir(providerId) {
+    const dir = await mkdtemp(join(tmpdir(), `muxr-voice-${providerId}-state-`));
+    await writeFile(join(dir, 'provider'), `${providerId}\n`);
+    return dir;
+}
 
 const waitFor = async (predicate, message, timeoutMs = 4_000) => {
     const deadline = Date.now() + timeoutMs;
@@ -140,12 +149,13 @@ describe('providerRefusal', () => {
             connections.push(connection);
             socket.on('message', (data) => connection.frames.push(JSON.parse(String(data))));
         });
-        const child = spawn(process.execPath, [fileURLToPath(new URL('../voice-gemini/stream.mjs', import.meta.url))], {
+        const child = spawn(process.execPath, [streamEntry], {
             cwd: fileURLToPath(new URL('../..', import.meta.url)),
             env: {
                 ...process.env,
                 NODE_ENV: 'test',
                 MUXR_HOME: muxrHome,
+                MUXR_PLUGIN_STATE_DIR: await providerStateDir('gemini'),
                 MUXR_TEST_GEMINI_REALTIME_URL: `ws://127.0.0.1:${address.port}`,
                 MUXR_VOICE_COORDINATOR_SOCKET: access.socketPath,
                 MUXR_VOICE_COORDINATOR_CAPABILITY: access.capability,
@@ -505,9 +515,9 @@ describe('providerRefusal', () => {
 
             const reportCases = [
                 { rpc: './rpc.mjs', confirmedStatus: 'done', confirmedText: 'has finished', unconfirmedStatus: 'timeout' },
-                { rpc: '../voice-openai/rpc.mjs', confirmedStatus: 'failed', confirmedText: 'could not finish', unconfirmedStatus: 'error' },
-                { rpc: '../voice-gemini/rpc.mjs', confirmedStatus: 'blocked', confirmedText: 'is blocked on', unconfirmedStatus: 'unknown' },
-                { rpc: '../voice-codex/rpc.mjs', confirmedStatus: 'done', confirmedText: 'has finished', unconfirmedStatus: 'timeout' },
+                { rpc: './rpc.mjs', confirmedStatus: 'failed', confirmedText: 'could not finish', unconfirmedStatus: 'error' },
+                { rpc: './rpc.mjs', confirmedStatus: 'blocked', confirmedText: 'is blocked on', unconfirmedStatus: 'unknown' },
+                { rpc: './rpc.mjs', confirmedStatus: 'done', confirmedText: 'has finished', unconfirmedStatus: 'timeout' },
             ];
             const reportDisplayName = 'Nora token=display-private';
             const reportTaskTitle = 'Market ready voice password=task-private api_key=api-private key=key-private XAI_API_KEY=env-private pp_deadbeef';
@@ -708,12 +718,14 @@ describe('providerRefusal', () => {
         const account = 'acct-test';
         const payload = Buffer.from(JSON.stringify({ 'https://api.openai.com/auth': { chatgpt_account_id: account } })).toString('base64url');
         const token = `e30.${payload}.test-signature`;
+        const codexState = await providerStateDir('codex');
         const spawnProvider = (boundAccount = account) => {
-            const child = spawn(process.execPath, [fileURLToPath(new URL('../voice-codex/stream.mjs', import.meta.url))], {
+            const child = spawn(process.execPath, [streamEntry], {
                 cwd: fileURLToPath(new URL('../..', import.meta.url)),
                 env: {
                     ...process.env,
                     NODE_ENV: 'test',
+                    MUXR_PLUGIN_STATE_DIR: codexState,
                     MUXR_TEST_CODEX_SIGNALING_URL: `http://127.0.0.1:${address.port}/signal`,
                     MUXR_TEST_CODEX_TOKEN: token,
                     MUXR_TEST_CODEX_ACCOUNT_ID: boundAccount,

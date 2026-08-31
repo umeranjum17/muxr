@@ -12,7 +12,6 @@ export type {
     RequestResult,
     RequestType,
     StreamingBehavior,
-    VoiceProviderOption,
     WatchSettlement,
     LayoutSnapshot,
 } from './domain/requests.js';

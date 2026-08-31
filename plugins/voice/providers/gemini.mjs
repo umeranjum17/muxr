@@ -12,14 +12,13 @@ import { lstat, readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
-import { fileURLToPath } from 'node:url';
 import {
     cleanProviderProse,
     codingTools,
     isExplicitHangup,
     runCodingTool,
     voiceCoordinationInstructions,
-} from '../voice/coordinatorPolicy.mjs';
+} from '../coordinatorPolicy.mjs';
 
 const MODEL = 'gemini-3.1-flash-live-preview';
 const ENDPOINT = process.env.NODE_ENV === 'test' && process.env.MUXR_TEST_GEMINI_REALTIME_URL
@@ -428,6 +427,7 @@ async function main() {
     connectProvider(key);
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
-    main().catch((error) => close(cleanProviderProse(error instanceof Error ? error.message : error, 'Voice session could not start.', 300), true));
+/** Entry point; the plugin's stream.mjs selects and starts one adapter. */
+export function start() {
+    return main().catch((error) => close(cleanProviderProse(error instanceof Error ? error.message : error, 'Voice session could not start.', 300), true));
 }

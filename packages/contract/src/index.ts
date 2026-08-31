@@ -78,7 +78,6 @@ export type {
     RequestResult,
     RequestType,
     StreamingBehavior,
-    VoiceProviderOption,
     WatchSettlement,
     LayoutSnapshot,
     ClientFrame,

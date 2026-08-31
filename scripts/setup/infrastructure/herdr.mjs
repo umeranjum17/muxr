@@ -36,7 +36,7 @@ import {
     xml,
 } from './runtime.mjs';
 import { pluginFolder, pluginsRoot } from './paths.mjs';
-import { parseBundledPlugin, retiredSuccessor } from '../../plugin/index.mjs';
+import { parseBundledPlugin } from '../../plugin/index.mjs';
 
 const bundledPluginPath = (name) => pluginFolder(name);
 
@@ -50,7 +50,7 @@ export function bundledPlugins() {
             const version = manifest.match(/^version\s*=\s*"([^"]+)"/m)?.[1];
             const parsed = parseBundledPlugin(id, entry.name);
             if (!parsed.ok || version === undefined) throw new Error(`plugins/${entry.name}/herdr-plugin.toml is missing id or version`);
-            return { id: parsed.value.id, name: parsed.value.folderName, version, enabledByDefault: parsed.value.enabledByDefault };
+            return { id: parsed.value.id, name: parsed.value.folderName, version };
         })
         .sort((left, right) => left.name.localeCompare(right.name));
 }
@@ -176,18 +176,19 @@ export async function ensureBundledPlugins(binary, dryRun) {
         throw new Error('Herdr returned an invalid plugin list');
     }
     const bundled = bundledPlugins();
-    const bundledIds = new Set(bundled.map((plugin) => plugin.id));
     const bundledRoot = realpathSync(dirname(bundledPluginPath(bundled[0].name)));
+    // A registration pointing directly into our bundle directory that no longer
+    // names a shipped plugin is ours to retract, whether it was renamed, merged
+    // or removed. Anything the user linked from elsewhere stays untouched.
+    const shipped = new Set(bundled.map((plugin) => resolve(bundledRoot, plugin.name)));
     for (const current of installed) {
-        const retired = retiredSuccessor(current.plugin_id);
-        if (retired === undefined || !bundledIds.has(retired.successor)
-            || typeof current.plugin_root !== 'string'
-            || resolve(current.plugin_root) !== resolve(bundledRoot, retired.directory)) continue;
-        if (dryRun) { print(`  would unlink retired bundled plugin ${current.plugin_id}`); continue; }
+        const root = resolve(current.plugin_root);
+        if (dirname(root) !== bundledRoot || shipped.has(root)) continue;
+        if (dryRun) { print(`  would unlink removed bundled plugin ${current.plugin_id}`); continue; }
         const unlinked = run(binary, ['plugin', 'unlink', current.plugin_id]);
-        print(`  ${unlinked.ok ? '✓' : 'warn:'} unlinked retired bundled plugin ${current.plugin_id}`);
+        print(`  ${unlinked.ok ? '✓' : 'warn:'} unlinked removed bundled plugin ${current.plugin_id}`);
     }
-    for (const { id, name, version, enabledByDefault } of bundled) {
+    for (const { id, name, version } of bundled) {
         const current = installed.find((plugin) => plugin.plugin_id === id);
         const expected = realpathSync(bundledPluginPath(name));
         if (current && realpathOrUndefined(current.plugin_root) === expected && current.version === version) {
@@ -195,7 +196,7 @@ export async function ensureBundledPlugins(binary, dryRun) {
             runBundledPluginBackfill(expected, binary, current.enabled === true, dryRun);
             continue;
         }
-        const enabled = current ? current.enabled === true : enabledByDefault;
+        const enabled = current ? current.enabled === true : true;
         if (dryRun) {
             print(`  would link ${id} from ${expected} (${enabled ? 'enabled' : 'disabled'})`);
             continue;

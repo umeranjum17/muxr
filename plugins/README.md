@@ -6,15 +6,12 @@ These packages install into Herdr during muxr setup. Each can have an optional H
 |---|---|---|
 | `control` | muxr control command | setup/control surface |
 | `voice` | machine-held realtime provider adapter | generic capability buttons, provider-neutral realtime overlay, declarative settings + voice shortcut |
-| `inbox` | public session context RPC | Inbox tab using the source-driven `collection` primitive |
 | `attachments` | dump-dir list RPC | session pill using `item-list` |
 | `terminal-keys` | none | declarative terminal key row |
 | `dictation` | none | home composer using `dictate` |
 | `workspace-hierarchy` | public workspace-tree context RPC | session overlay using source-driven `tree-sheet` |
 | `code` | bounded repo tree/preview, `git status`, `git log`/`show`, saved commands | Files explorer, Changes pill, Git history screens, Runbook destination |
 | `status` | pinned offline ccusage + bounded Claude/Codex plan limits; disk/memory/load/uptime | Usage rows + chart detail screen; Home machine card |
-| `servers` | list/stop listeners; start the project's dev script | Ports destination; Preview `item-list` with validated port actions |
-| `example-ui` | echo list/save RPCs | settings example for SDK validation |
 
 Agent Names and Task Titles are Herdr fields. Muxr only displays them. Install a community Herdr plugin such as [`wyattjoh/herdr-plugin-renamer`](https://github.com/wyattjoh/herdr-plugin-renamer) (`herdr plugin install wyattjoh/herdr-plugin-renamer`) rather than bundling a title rewriter here. It writes pane `--title` from the first prompt for Claude, Codex, and Pi.
 

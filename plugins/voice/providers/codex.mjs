@@ -7,17 +7,17 @@
  * into this process for one signaling request and never enters muxr frames,
  * arguments, logs, environment, or storage.
  */
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import { lstatSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { lstat, readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
-import { fileURLToPath } from 'node:url';
 import {
     cleanProviderProse,
     isExplicitHangup,
-} from '../voice/coordinatorPolicy.mjs';
+} from '../coordinatorPolicy.mjs';
 
 const CODEX_CLIENT_VERSION = '0.144.1';
 const SIGNALING_URL = process.env.NODE_ENV === 'test' && process.env.MUXR_TEST_CODEX_SIGNALING_URL
@@ -301,6 +301,29 @@ async function main() {
     emit({ type: 'realtime.webrtc.start', dataChannelLabel: 'oai-events' });
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
-    main().catch((error) => close(error instanceof Error ? error.message : 'Codex Voice could not start.'));
+/** Entry point; the plugin's stream.mjs selects and starts one adapter. */
+export function start() {
+    return main().catch((error) => close(error instanceof Error ? error.message : 'Codex Voice could not start.'));
+}
+
+/**
+ * Codex authenticates through an existing ChatGPT CLI login, so there is no key
+ * to store; the settings screen reports the login instead.
+ */
+export function status() {
+    const binary = process.env.MUXR_CODEX_BIN?.trim() || 'codex';
+    const login = spawnSync(binary, ['login', 'status'], { encoding: 'utf8', timeout: 10_000, maxBuffer: 256 * 1024 });
+    const authenticated = login.status === 0 && /logged in using chatgpt/i.test(`${login.stdout}${login.stderr}`);
+    let privateStore = false;
+    try {
+        const root = lstatSync(codexHome);
+        const file = lstatSync(authFile);
+        const owner = typeof process.getuid === 'function' ? process.getuid() : file.uid;
+        privateStore = root.isDirectory() && !root.isSymbolicLink() && (root.mode & 0o022) === 0 && root.uid === owner
+            && file.isFile() && !file.isSymbolicLink() && (file.mode & 0o077) === 0 && file.uid === owner;
+    } catch { privateStore = false; }
+    let statusLabel = 'Experimental subscription access ready';
+    if (!authenticated) statusLabel = 'Run codex login with ChatGPT';
+    else if (!privateStore) statusLabel = 'Codex credential file is not owner-only';
+    return { configured: authenticated && privateStore, statusLabel };
 }

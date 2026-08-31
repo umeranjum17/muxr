@@ -370,11 +370,10 @@ try {
     assert.ok(listing.includes('package/setup/application/promptPeerAgent.mjs'), 'peer CLI client missing from npm artifact');
     assert.ok(listing.includes('package/diagnostics/application/dumpDiagnostics.mjs'), 'host diagnostics CLI missing from npm artifact');
     assert.ok(listing.includes('package/plugins/control/run.mjs'), 'control plugin missing from npm artifact');
-    assert.ok(listing.includes('package/plugins/servers/serve.mjs'), 'Preview discovery plugin missing from npm artifact');
-    assert.ok(listing.includes('package/plugins/voice/rpc.mjs'), 'xAI Voice plugin missing from npm artifact');
-    assert.ok(listing.includes('package/plugins/voice-gemini/rpc.mjs') && listing.includes('package/plugins/voice-gemini/stream.mjs'), 'Gemini Live plugin missing from npm artifact');
-    assert.ok(listing.includes('package/plugins/voice-openai/rpc.mjs') && listing.includes('package/plugins/voice-openai/stream.mjs'), 'OpenAI Realtime plugin missing from npm artifact');
-    assert.ok(listing.includes('package/plugins/voice-codex/rpc.mjs') && listing.includes('package/plugins/voice-codex/stream.mjs'), 'Codex Voice plugin missing from npm artifact');
+    assert.ok(listing.includes('package/plugins/voice/rpc.mjs'), 'Voice plugin missing from npm artifact');
+    for (const provider of ['xai', 'gemini', 'openai', 'codex']) {
+        assert.ok(listing.includes(`package/plugins/voice/providers/${provider}.mjs`), `${provider} voice adapter missing from npm artifact`);
+    }
     assert.ok(listing.includes('package/skills/muxr/SKILL.md'), 'muxr skill missing from npm artifact');
     assert.deepEqual(listing.filter((file) => /^package\/skills\/.*\/SKILL\.md$/.test(file)), ['package/skills/muxr/SKILL.md'], 'npm artifact must ship exactly one public skill');
     assert.ok(listing.includes('package/skills/muxr/references/plugins.md'), 'muxr skill references missing from npm artifact');

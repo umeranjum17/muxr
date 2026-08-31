@@ -374,7 +374,7 @@ An extension cannot silently submit terminal input, target whichever pane is foc
 
 ## Notifications
 
-Android foreground-service startup, keepalive ownership, notification permission, and the baseline authenticated notification are unconditional app-kernel infrastructure. They mount before optional plugin surfaces, so disabling Inbox or any other plugin cannot stop the service required before realtime microphone capture.
+Android foreground-service startup, keepalive ownership, notification permission, and the baseline authenticated notification are unconditional app-kernel infrastructure. They mount before optional plugin surfaces, so disabling any plugin cannot stop the service required before realtime microphone capture.
 
 Plugins do not own OS permission or foreground-service lifetime. A future notification-policy contract may supply attributed wording/grouping on top of this baseline, but `notifications.lifecycle` and `lifecycle-notify` are not extension points.
 
@@ -430,7 +430,7 @@ Every extension should explain:
 6. how to disable and unlink it;
 7. supported muxr UI and Herdr versions.
 
-Read [`../plugins/example-ui`](../plugins/example-ui) when you need a rich list/detail/form/RPC/chart example. The smaller `muxr plugin create` output is the faster starting point for ordinary plugins; both use the same validator and public manifest contract.
+`muxr plugin create` writes a minimal working plugin and is the fastest starting point. For a richer list/detail/form/RPC/chart example, clone a bundled one with `muxr plugin clone muxr.code ./my-plugin`; every bundled plugin uses the same validator and public manifest contract as yours.
 
 ## Lists of real things
 
@@ -475,8 +475,8 @@ different plugin's UI would be a way to hide trusted surfaces. Disabling is an e
 
 A button on a detail screen sends its declared `fields` **plus the params the
 screen was opened with**, so it can act on the record you tapped without making
-you retype it. Fields win on a key collision. `plugins/servers` is the worked
-example: list what is listening, tap one, stop it.
+you retype it. Fields win on a key collision. `plugins/code` is the worked
+example: list the commits, tap one, read the diff.
 
 ## What a backend RPC gets
 

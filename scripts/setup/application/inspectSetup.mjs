@@ -586,6 +586,27 @@ export async function inspectSetup() {
         } else {
             add('warn', 'integrations', `${integrations.stderr || 'status unavailable'} — run \`muxr integrations sync\``);
         }
+        // `muxr plugin dev` against a temp directory leaves a permanent
+        // registration. Once the directory goes the entry rots into an
+        // "Unavailable" row on every connected phone, and nothing retracts it.
+        const registered = run(binary, ['plugin', 'list', '--json']);
+        let missing = [];
+        if (registered.ok) {
+            try {
+                const parsed = JSON.parse(registered.stdout);
+                missing = (parsed.result?.plugins ?? parsed.plugins ?? [])
+                    .filter((plugin) => typeof plugin?.plugin_id === 'string' && typeof plugin.plugin_root === 'string'
+                        && !existsSync(join(plugin.plugin_root, 'herdr-plugin.toml')))
+                    .map((plugin) => plugin.plugin_id);
+            } catch { missing = []; }
+        }
+        add(missing.length ? 'warn' : 'ok', 'plugins', missing.length
+            ? `${missing.length} registered but no longer on disk: ${missing.slice(0, 4).join(', ')}${missing.length > 4 ? '…' : ''}`
+            : 'every registered plugin resolves',
+            missing.length ? {
+                label: `unlink ${missing.length} missing plugin${missing.length === 1 ? '' : 's'}`,
+                run: () => { for (const id of missing) run(binary, ['plugin', 'unlink', id]); },
+            } : undefined);
     }
     const manifest = loadManifest();
     const states = Object.entries(manifest.entries).map(([path, entry]) => `${path.startsWith(`${home()}/`) ? `~/${path.slice(home().length + 1)}` : basename(path)}:${entryStatus(path, entry)}`);
