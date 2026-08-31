@@ -20,13 +20,27 @@ Terminal-driven tools in muxr, and every pane that has no agent.
 
 ## How a tool reaches your phone
 
-muxr already routes a pane with no agent as `shell:<paneId>`, so a TUI needs no
-new transport. `launch` opens the tool in its own tab (a phone wants the whole
-viewport, not a split) and names the pane after the tool; the row's
-`kernel.navigate` action then opens that pane's existing live terminal.
+muxr already routes a pane with no agent as `shell:<paneId>`, so an ANSI TUI
+needs no new transport. Graphics panes use muxr's generic Herdr-to-Kitty bridge
+and the platform terminal renderer; the Panes plugin contains no graphics or
+terminal-browser-specific code. `launch` opens ordinary tools in their own tab,
+while a third-party action such as terminal-browser controls its own placement.
+The resulting agent-less pane is then discovered and opened through the same
+`kernel.navigate` route.
 
 The name on the pane is the only state this plugin keeps, and it is visible in
-Herdr rather than hidden in a private index.
+Herdr rather than hidden in a private index. An agent can discover and invoke an
+enabled global third-party action directly with:
+
+```bash
+herdr plugin list --json
+herdr plugin action invoke open-split --plugin zenbu-labs.terminal-browser
+```
+
+For graphics tools, attach/open a muxr terminal before launching the producer so
+the process-wide graphics client is registered. The normal phone flow does this
+naturally: open **Tools**, launch the action, then tap its new **Running** row (or
+open it from **Panes**).
 
 ## Permissions and data
 
@@ -42,9 +56,16 @@ program inherits the calling session's working directory.
 - **Plugin actions place their own pane.** Herdr resolves an action against the
   pane focused at the desk, not the session you are looking at on the phone.
   Plugin *panes* are unaffected — this plugin places those itself.
-- **Mouse-driven TUIs are only partly usable.** Keys and scroll work; there is no
-  tap-to-position, because neither the terminal view nor Herdr's attach protocol
-  carries a mouse click. Keyboard-first tools are fine.
+- **Graphics producers should start after muxr attaches.** A producer that emitted
+  its initial frame before muxr's process-wide graphics client registered may not
+  retry. If a later-opened pane is blank, restart the producer/action while the
+  muxr terminal is attached.
+- **Reading is visual, not DOM extraction.** muxr renders the browser pixels and
+  accepts touch/pointer, IME, and key-bar input. Herdr scrollback and terminal
+  observers do not expose browser DOM text, selectors, or accessibility nodes.
+- **Click behavior is terminal-mode dependent.** A real graphics frame enables
+  pane-scoped pointer mode. Ordinary text terminals retain their existing
+  selection/scroll behavior; keyboard-first TUIs remain the safest text tools.
 
 ## Offline
 
