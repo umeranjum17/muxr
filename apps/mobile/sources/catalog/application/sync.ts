@@ -658,11 +658,9 @@ class MuxrSync {
     async sendMessage(sessionId: string, text: string, options?: SendMessageOptions): Promise<void> {
         const previews = options?.attachments ?? [];
         if (text.trim().length === 0 && previews.length === 0) return;
-        if (storage.getState().sessions[sessionId]?.metadata?.promptable !== true) {
-            const error = Object.assign(new Error('Agent is not ready yet'), { code: 'agent-not-ready' });
-            recordTrackedRpc('session.prompt', { ok: false, error }, 0);
-            throw error;
-        }
+        // Readiness is the host's call: it waits for a starting agent to accept
+        // the prompt. Refusing here on cached metadata drops the first prompt
+        // during the seconds before the tree reports the agent promptable.
         // No optimistic echo: the host emits message.append for the prompt, so the
         // transcript fold owns ordering and there is nothing to reconcile.
         // Steer, don't follow up: a message typed mid-turn is a correction, so it
