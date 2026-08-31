@@ -44,14 +44,16 @@ export async function startSessionFromDraft(options: {
             prompt: blank ? '' : draft.input.trim(),
             attachments: blank ? [] : draft.attachments,
             createCwd,
+            onRouteReady: (sessionId) => {
+                if (!blank) {
+                    draft.setInput('');
+                    draft.setAttachments([]);
+                }
+                options.navigateToSession(sessionId);
+            },
         });
         if (result.ok) {
-            if (!blank) {
-                draft.setInput('');
-                draft.setAttachments([]);
-            }
             if (result.promptFailed) Modal.alert(t('common.error'), result.promptFailed);
-            options.navigateToSession(result.agentRoute);
             return result.agentRoute;
         }
         if (result.reason === 'needs-directory' && !createCwd) {
