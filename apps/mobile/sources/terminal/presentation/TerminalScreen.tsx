@@ -775,7 +775,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                     <PluginSlot slot="session.composer.trailing" context={{ sessionId: props.id, getText: () => draftRef.current, setText: setDraft }} />
                 </View>
                 <Pressable onPress={sendPrompt} hitSlop={8} disabled={!canSend} accessibilityRole="button" accessibilityLabel="Send" accessibilityState={{ disabled: !canSend }} style={{ opacity: canSend ? 1 : 0.4 }}>
-                    <Ionicons name="arrow-up-circle" size={30} color={headerStatus.color} />
+                    <Ionicons name="arrow-up-circle" size={30} color={theme.colors.accent} />
                 </Pressable>
             </View>
             </View>}
