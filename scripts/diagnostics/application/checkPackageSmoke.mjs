@@ -499,23 +499,25 @@ try {
     assert.equal(existsSync(join(installedPackage, 'alias-create')), false);
     const providerHome = join(scratch, 'provider-home');
     const providerRoot = join(providerHome, '.muxr');
-    for (const [directory, keyFile] of [['voice-gemini', 'gemini.key'], ['voice-openai', 'openai.key']]) {
-        const plugin = join(installedPlugins, directory);
-        run(cli, ['plugin', 'call', plugin, 'key-set', '--input', '{"key":"smoke-key"}'], { cwd: installDir, env: { ...cliEnv(providerHome), MUXR_HOME: providerRoot } });
-        assert.equal(statSync(providerRoot).mode & 0o777, 0o700);
-        assert.equal(statSync(join(providerRoot, keyFile)).mode & 0o777, 0o600);
-        assert.match(run(cli, ['plugin', 'call', plugin, 'status'], { cwd: installDir, env: { ...cliEnv(providerHome), MUXR_HOME: providerRoot } }).stdout, /"configured": true/);
-        run(cli, ['plugin', 'call', plugin, 'key-clear', '--input', 'null'], { cwd: installDir, env: { ...cliEnv(providerHome), MUXR_HOME: providerRoot } });
-    }
+    // The adapters share one providerSecret store, and `plugin call` gives each
+    // run a private state dir, so the selected adapter cannot persist between
+    // calls. Exercising the default adapter covers the same write/clear path.
+    const voicePlugin = join(installedPlugins, 'voice');
+    const providerEnv = { ...cliEnv(providerHome), MUXR_HOME: providerRoot };
+    run(cli, ['plugin', 'call', voicePlugin, 'key-set', '--input', '{"key":"smoke-key"}'], { cwd: installDir, env: providerEnv });
+    assert.equal(statSync(providerRoot).mode & 0o777, 0o700);
+    assert.equal(statSync(join(providerRoot, 'xai.key')).mode & 0o777, 0o600);
+    assert.match(run(cli, ['plugin', 'call', voicePlugin, 'status'], { cwd: installDir, env: providerEnv }).stdout, /"configured": true/);
+    run(cli, ['plugin', 'call', voicePlugin, 'key-clear', '--input', 'null'], { cwd: installDir, env: providerEnv });
     const symlinkTarget = join(scratch, 'provider-symlink-target');
     const symlinkRoot = join(scratch, 'provider-symlink-root');
     mkdirSync(symlinkTarget);
     symlinkSync(symlinkTarget, symlinkRoot, 'dir');
-    const symlinkWrite = run(cli, ['plugin', 'call', join(installedPlugins, 'voice-openai'), 'key-set', '--input', '{"key":"must-not-write"}'], {
+    const symlinkWrite = run(cli, ['plugin', 'call', join(installedPlugins, 'voice'), 'key-set', '--input', '{"key":"must-not-write"}'], {
         cwd: installDir, env: { ...cliEnv(providerHome), MUXR_HOME: symlinkRoot }, allowFailure: true,
     });
     assert.notEqual(symlinkWrite.status, 0, 'provider key write followed a symlinked MUXR_HOME');
-    assert.equal(existsSync(join(symlinkTarget, 'openai.key')), false);
+    assert.equal(existsSync(join(symlinkTarget, 'xai.key')), false);
     assert.ok(existsSync(join(installDir, 'node_modules', 'ccusage', 'src', 'cli.js')), 'ccusage wrapper missing from installed package');
     const ccusageTarget = ['linux', 'darwin'].includes(process.platform) && ['x64', 'arm64'].includes(process.arch)
         ? join(installDir, 'node_modules', '@ccusage', `ccusage-${process.platform}-${process.arch}`, 'bin', 'ccusage')
@@ -642,24 +644,23 @@ try {
     assert.equal(readdirSync(join(home, '.pi', 'agent')).some((name) => name.startsWith('AGENTS.md.muxr-backup-')), false, 'fresh setup backed up an instruction file it should not touch');
     const pluginRoot = join(installDir, 'node_modules', '@trymuxr', 'cli', 'plugins');
     const firstSetupLinks = readFileSync(fakeLog, 'utf8');
+    // One voice plugin ships now; the adapters live inside it.
     assert.match(firstSetupLinks, new RegExp(`plugin link ${join(pluginRoot, 'voice').replaceAll('\\', '\\\\')} --enabled`));
-    assert.match(firstSetupLinks, new RegExp(`plugin link ${join(pluginRoot, 'voice-codex').replaceAll('\\', '\\\\')} --disabled`));
-    assert.match(firstSetupLinks, new RegExp(`plugin link ${join(pluginRoot, 'voice-gemini').replaceAll('\\', '\\\\')} --disabled`));
-    assert.match(firstSetupLinks, new RegExp(`plugin link ${join(pluginRoot, 'voice-openai').replaceAll('\\', '\\\\')} --disabled`));
+    assert.doesNotMatch(firstSetupLinks, /plugins[/\\]voice-(?:codex|gemini|openai)/, 'setup linked a merged voice adapter as its own plugin');
     const existingProviders = {
         result: {
             plugins: [
                 { plugin_id: 'muxr.voice', plugin_root: join(pluginRoot, 'voice'), version: '0.1.0', enabled: false },
-                { plugin_id: 'muxr.voice-codex', plugin_root: join(pluginRoot, 'voice-codex'), version: '0.1.0', enabled: false },
-                { plugin_id: 'muxr.voice-gemini', plugin_root: join(pluginRoot, 'voice-gemini'), version: '0.1.0', enabled: false },
-                { plugin_id: 'muxr.voice-openai', plugin_root: join(pluginRoot, 'voice-openai'), version: '0.1.0', enabled: true },
+                // Left over from before the merge: rooted in our bundle directory
+                // but no longer shipped, so setup must retract them.
+                { plugin_id: 'muxr.voice-gemini', plugin_root: join(pluginRoot, 'voice-gemini'), version: '0.1.0', enabled: true },
             ],
         },
     };
     const logBeforeSecondSetup = readFileSync(fakeLog, 'utf8');
     run(cli, ['setup', ...setupArgs], { cwd: installDir, env: { ...env, FAKE_PLUGIN_LIST: JSON.stringify(existingProviders) } });
     const secondSetupLinks = readFileSync(fakeLog, 'utf8').slice(logBeforeSecondSetup.length);
-    assert.doesNotMatch(secondSetupLinks, /plugins[/\\]voice(?:-codex|-gemini|-openai)?(?:\s|[/\\])/, 'setup relinked an existing provider and changed its enabled state');
+    assert.doesNotMatch(secondSetupLinks, /plugin link .*plugins[/\\]voice(?:\s|[/\\])/, 'setup relinked an existing provider and changed its enabled state');
     const movedProviders = {
         result: {
             plugins: existingProviders.result.plugins.map((plugin) => ({ ...plugin, plugin_root: join(scratch, 'old-package', plugin.plugin_id) })),
@@ -669,9 +670,6 @@ try {
     run(cli, ['setup', ...setupArgs], { cwd: installDir, env: { ...env, FAKE_PLUGIN_LIST: JSON.stringify(movedProviders) } });
     const movedSetupLinks = readFileSync(fakeLog, 'utf8').slice(logBeforeMovedSetup.length);
     assert.match(movedSetupLinks, new RegExp(`plugin link ${join(pluginRoot, 'voice').replaceAll('\\', '\\\\')} --disabled`));
-    assert.match(movedSetupLinks, new RegExp(`plugin link ${join(pluginRoot, 'voice-codex').replaceAll('\\', '\\\\')} --disabled`));
-    assert.match(movedSetupLinks, new RegExp(`plugin link ${join(pluginRoot, 'voice-gemini').replaceAll('\\', '\\\\')} --disabled`));
-    assert.match(movedSetupLinks, new RegExp(`plugin link ${join(pluginRoot, 'voice-openai').replaceAll('\\', '\\\\')} --enabled`));
     assert.equal(readFileSync(join(home, '.muxr', 'setup-manifest.json'), 'utf8'), manifestAfterFirst);
     if (process.platform === 'darwin') {
         stopRelayFor(join(home, '.muxr', 'relay'));

@@ -77,8 +77,10 @@ try {
     assert.equal(output.todayTokens, '1.3M');
     assert.equal(output.todayCost, '$123');
     assert.equal(output.modelSeries[0]?.label, 'claude-opus-5');
-    assert.equal(output.weekSeries.length, 2);
-    assert.equal(output.weekSeries[1]?.valueLabel, '1.3M');
+    // The window is a fixed 7 days ending today, so an idle day cannot slide an
+    // older total into today's slot.
+    assert.equal(output.weekSeries.length, 7);
+    assert.equal(output.weekSeries.at(-1)?.valueLabel, '1.3M');
     assert.equal(output.limitLabel, 'Claude plan usage');
     assert.equal(output.fiveHourUsed, 21);
     assert.match(output.fiveHourLabel, /^21% used · resets in /);
@@ -90,7 +92,10 @@ try {
     const kimi = JSON.parse(run({ provider: 'kimi' }).stdout);
     assert.equal(kimi.provider, 'kimi');
     assert.equal(kimi.todayTokens, '2.5K');
-    assert.equal(kimi.weekSeries[0]?.valueLabel, '60.0K');
+    // Days sit at their own date, so the older total stays in the past and today
+    // reports its own figure.
+    assert.ok(kimi.weekSeries.some((day) => day.valueLabel === '60.0K'), 'older day must keep its total');
+    assert.equal(kimi.weekSeries.at(-1)?.valueLabel, '2.5K');
     assert.equal(kimi.limitLabel, '');
 
     // An installed but unmeasured provider still opens, empty and honest.
