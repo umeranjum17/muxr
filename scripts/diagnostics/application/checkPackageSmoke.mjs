@@ -53,7 +53,7 @@ case "$*" in
     if [ -n "$FAKE_PLUGIN_LIST" ]; then printf '%s\n' "$FAKE_PLUGIN_LIST";
     else echo '{"result":{"plugins":[]}}'; fi ;;
   "plugin link "*) printf '%s\n' "$*" >> "$FAKE_HERDR_LOG" ;;
-  "plugin unlink "*) echo plugin-unlink >> "$FAKE_HERDR_LOG" ;;
+  "plugin unlink "*) printf '%s\n' "$*" >> "$FAKE_HERDR_LOG" ;;
   "agent list") echo '{"result":{"agents":[]}}' ;;
   "integration status")
     if [ -f "$FAKE_HERDR_STATE" ]; then echo "pi: current (v8) ($HOME/.pi/agent/extensions/herdr-agent-state.ts)";
@@ -651,9 +651,9 @@ try {
         result: {
             plugins: [
                 { plugin_id: 'muxr.voice', plugin_root: join(pluginRoot, 'voice'), version: '0.1.0', enabled: false },
-                // Left over from before the merge: rooted in our bundle directory
-                // but no longer shipped, so setup must retract them.
-                { plugin_id: 'muxr.voice-gemini', plugin_root: join(pluginRoot, 'voice-gemini'), version: '0.1.0', enabled: true },
+                // Any stale direct child of our bundle directory must be retracted;
+                // this deliberately names no historical plugin or retirement map.
+                { plugin_id: 'muxr.removed-package-smoke', plugin_root: join(pluginRoot, 'removed-package-smoke'), version: '0.1.0', enabled: true },
             ],
         },
     };
@@ -661,6 +661,7 @@ try {
     run(cli, ['setup', ...setupArgs], { cwd: installDir, env: { ...env, FAKE_PLUGIN_LIST: JSON.stringify(existingProviders) } });
     const secondSetupLinks = readFileSync(fakeLog, 'utf8').slice(logBeforeSecondSetup.length);
     assert.doesNotMatch(secondSetupLinks, /plugin link .*plugins[/\\]voice(?:\s|[/\\])/, 'setup relinked an existing provider and changed its enabled state');
+    assert.match(secondSetupLinks, /plugin unlink muxr\.removed-package-smoke/, 'setup kept a bundled plugin it no longer ships');
     const movedProviders = {
         result: {
             plugins: existingProviders.result.plugins.map((plugin) => ({ ...plugin, plugin_root: join(scratch, 'old-package', plugin.plugin_id) })),
@@ -670,6 +671,7 @@ try {
     run(cli, ['setup', ...setupArgs], { cwd: installDir, env: { ...env, FAKE_PLUGIN_LIST: JSON.stringify(movedProviders) } });
     const movedSetupLinks = readFileSync(fakeLog, 'utf8').slice(logBeforeMovedSetup.length);
     assert.match(movedSetupLinks, new RegExp(`plugin link ${join(pluginRoot, 'voice').replaceAll('\\', '\\\\')} --disabled`));
+    assert.doesNotMatch(movedSetupLinks, /plugin unlink/, 'setup unlinked a plugin outside its own bundle directory');
     assert.equal(readFileSync(join(home, '.muxr', 'setup-manifest.json'), 'utf8'), manifestAfterFirst);
     if (process.platform === 'darwin') {
         stopRelayFor(join(home, '.muxr', 'relay'));
