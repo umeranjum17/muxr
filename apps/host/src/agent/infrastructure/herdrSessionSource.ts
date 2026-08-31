@@ -81,6 +81,21 @@ import { agentKindsFromManifests } from '../domain/agentKinds.js';
 const PROMPT_READY_TIMEOUT_MS = 30_000;
 const PROMPT_REBIND_TIMEOUT_MS = 10_000;
 const PLUGIN_CALL_QUEUE_TIMEOUT_MS = 8_000;
+/** How long to watch a started Herdr action before reporting it as merely started. */
+const HERDR_ACTION_REPORT_MS = 5_000;
+
+type HerdrCommandLog = { log_id: string; status: 'running' | 'succeeded' | 'failed'; stdout?: string; stderr?: string; error?: string };
+
+/** The reportable reason a finished Herdr action failed, or undefined if it did not. */
+export function herdrActionFailure(pluginId: string, log: HerdrCommandLog): string | undefined {
+    if (log.status !== 'failed') return undefined;
+    const detail = [log.error, log.stderr, log.stdout]
+        .map((value) => value?.trim())
+        .find((value) => value !== undefined && value !== '');
+    return detail === undefined
+        ? `plugin action failed: ${pluginId}`
+        : `plugin action failed: ${detail.split('\n').at(-1)!.slice(0, 200)}`;
+}
 const MAX_PLUGIN_INVOCATIONS_PER_SCOPE = 64;
 const MAX_PLUGIN_INVOCATIONS_TOTAL = 1_024;
 
@@ -2031,7 +2046,7 @@ export async function createHerdrSessionSource(
         const workspaceId = record.agent?.workspace_id ?? record.pane.workspace_id;
         const tabId = record.agent?.tab_id ?? record.pane.tab_id;
         if (workspaceId === undefined || tabId === undefined) throw agentUnavailable();
-        await client.call('plugin.action.invoke', {
+        const started = await client.call<{ log?: { log_id?: string } }>('plugin.action.invoke', {
             plugin_id: pluginId,
             action_id: actionId,
             context: {
@@ -2042,6 +2057,29 @@ export async function createHerdrSessionSource(
                 invocation_source: 'muxr',
             },
         });
+        await reportHerdrActionFailure(pluginId, started.log?.log_id);
+    }
+
+    /**
+     * Herdr starts an action and returns before it finishes, and publishes no
+     * completion event, so a failing action would otherwise be silent on the
+     * phone. Poll its log briefly and turn a non-zero exit into a real error.
+     * ponytail: a bounded wait, not a job runner. An action still running after
+     * the window is reported as started; its effects arrive as Herdr events.
+     */
+    async function reportHerdrActionFailure(pluginId: string, logId: string | undefined): Promise<void> {
+        if (logId === undefined) return;
+        const deadline = Date.now() + HERDR_ACTION_REPORT_MS;
+        for (let wait = 25; Date.now() < deadline; wait = Math.min(wait * 2, 250)) {
+            await new Promise((resolve) => setTimeout(resolve, wait));
+            const { logs } = await client.call<{ logs?: HerdrCommandLog[] }>('plugin.log.list', { plugin_id: pluginId, limit: 50 });
+            const log = (logs ?? []).find((entry) => entry.log_id === logId);
+            // Evicted from Herdr's rolling log before we read it: nothing to report.
+            if (log === undefined || log.status === 'running') continue;
+            const failure = herdrActionFailure(pluginId, log);
+            if (failure !== undefined) throw new Error(failure);
+            return;
+        }
     }
 
     return {

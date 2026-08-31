@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { pluginInvalidationFrame, PluginCatalog, PluginRefreshGate, WriteReplayFence, Semaphore, rpcReplayKey, runPluginProcess, type HerdrPlugin } from './pluginCatalog.js';
 import { buildPluginPublicContext } from '../application/pluginPublicContext.js';
+import { herdrActionFailure } from './herdrSessionSource.js';
 import { MAX_RPC_RESULT_STRING_BYTES, boundRpcDisplay, parseManifest, parsePluginAction, pluginCompatibilityError } from '@muxr/contract';
 
 function plugin(root: string, actions: HerdrPlugin['actions'] = []): HerdrPlugin {
@@ -809,5 +810,18 @@ describe('plugin catalog flow', () => {
                 contribution,
             ] })).toThrow('plugin event RPC must be read mode');
         }
+    });
+});
+
+describe('herdr action failure reporting', () => {
+    it('turns a failed action log into one reportable line and stays silent on success', () => {
+        expect(herdrActionFailure('muxr.control', { log_id: 'l1', status: 'succeeded', stdout: 'fine' })).toBeUndefined();
+        expect(herdrActionFailure('muxr.control', { log_id: 'l1', status: 'running' })).toBeUndefined();
+        // stderr wins over stdout, and only the last line reaches the phone.
+        expect(herdrActionFailure('muxr.control', {
+            log_id: 'l1', status: 'failed', stdout: 'ignored', stderr: 'noise\nmissing value for --direction\n',
+        })).toBe('plugin action failed: missing value for --direction');
+        expect(herdrActionFailure('muxr.control', { log_id: 'l1', status: 'failed' }))
+            .toBe('plugin action failed: muxr.control');
     });
 });
