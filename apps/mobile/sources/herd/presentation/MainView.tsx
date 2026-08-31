@@ -444,8 +444,11 @@ export const MainView = React.memo(() => {
     const handleHomePromptSubmit = React.useCallback(async (): Promise<boolean> => {
         const prompt = homePrompt.trim();
         const attachments = useNewSessionDraft.getState().attachments;
+        // No prompt is a deliberate choice: open the session and let the agent
+        // boot while you decide what to ask it.
         if (!prompt && attachments.length === 0) {
-            return false;
+            Keyboard.dismiss();
+            return await startHomeSession({ blank: true }) !== null;
         }
         useNewSessionDraft.getState().setInput(prompt);
         Keyboard.dismiss();

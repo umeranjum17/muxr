@@ -50,7 +50,7 @@ export async function startAgentFromDock(command: StartAgentFromDockCommand): Pr
         return { ok: false, reason: 'needs-directory', directory: result.directory, message: result.directory };
     }
 
-    await sync.refreshSessions();
+    // machineSpawnNewSession already refreshed until the session was listed.
     // The host holds the first prompt until the agent can accept it, which is
     // seconds for some kinds. Show the session now instead of a dead Dock.
     command.onRouteReady?.(result.sessionId);

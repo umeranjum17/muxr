@@ -574,7 +574,11 @@ export const HomeDock = React.memo(({
         [hostAgentKinds, hostAgentKindsAuthoritative, agentType],
     );
     const currentAgent = currentDockAgent(availableAgents, agentType);
-    const canSubmit = !isSubmitting && (prompt.trim().length > 0 || selectedImages.length > 0);
+    const hasPrompt = prompt.trim().length > 0 || selectedImages.length > 0;
+    // Without a prompt the button still starts the session; you write once the
+    // agent is up rather than composing against an agent that does not exist.
+    const canSubmit = !isSubmitting;
+    const submitIcon = hasPrompt ? 'arrow-up' : 'play';
     const focusedComposerHeight = selectedImages.length > 0 ? 206 : 126;
     const keyboardStyle = useAnimatedStyle(() => ({
         // Keyboard height includes the bottom safe area on iOS. The resting
@@ -807,13 +811,13 @@ export const HomeDock = React.memo(({
                     disabled={!canSubmit}
                     style={[styles.sendButton, canSubmit && styles.sendButtonActive]}
                     accessibilityRole="button"
-                    accessibilityLabel="Send"
+                    accessibilityLabel={hasPrompt ? 'Send' : 'Start session'}
                 >
                     {isSubmitting ? (
                         <ActivityIndicator size="small" color={theme.colors.textSecondary} />
                     ) : (
                         <Ionicons
-                            name="arrow-up"
+                            name={submitIcon}
                             size={16}
                             color={canSubmit ? theme.colors.fab.icon : theme.colors.textSecondary}
                         />
@@ -894,13 +898,13 @@ export const HomeDock = React.memo(({
                             disabled={!canSubmit}
                             style={[styles.sendButton, styles.focusedSendButton, canSubmit && styles.sendButtonActive]}
                             accessibilityRole="button"
-                            accessibilityLabel="Send"
+                            accessibilityLabel={hasPrompt ? 'Send' : 'Start session'}
                         >
                         {isSubmitting ? (
                             <ActivityIndicator size="small" color={theme.colors.textSecondary} />
                         ) : (
                             <Ionicons
-                                name="arrow-up"
+                                name={submitIcon}
                                 size={16}
                                 color={canSubmit ? theme.colors.fab.icon : theme.colors.textSecondary}
                             />
