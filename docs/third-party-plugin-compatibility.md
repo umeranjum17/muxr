@@ -97,6 +97,13 @@ Only `ServerMessage::Terminal` is serialised to the `terminal.frame` NDJSON line
 
 > **terminal-browser on the phone shows an empty pane.** Its entire output is graphics frames, and muxr's transport drops 100% of them. This is not a tuning problem or a bandwidth problem. The pixels are not on the wire.
 
+**Runtime verification — Herdr 0.8.2, installed Android app.** This prediction was tested after upgrading both the CLI and live server. Herdr installed and enabled terminal-browser 0.1.1 at upstream commit `90ee8f5fc19d2e9b69c0a17988ee70aa154714ff`; muxr surfaced `open-split`, and invoking it started the real Electron process in an agent-less pane. Opening that pane on Android produced a black terminal with zero terminal bytes and zero scrollback. Tap, finger swipe, and key-bar input did not reveal or control browser content. Two independent transport requirements were observed:
+
+1. `pane.graphics.info` returned `cell_size_unavailable`. `herdr terminal session control` starts with columns and rows only, while terminal-browser needs non-zero cell pixel dimensions before opening its graphics stream.
+2. Even after that prerequisite, muxr's Herdr subprocess still discards every `ServerMessage::Graphics` at `client/mod.rs:981`; no graphics frame type reaches the phone. Browser tap additionally needs pointer/mouse events, which muxr's current `expo-libghostty` surface does not expose.
+
+The old pre-upgrade version-gate screenshot is superseded by `06-pr195-terminal-browser-installed-enabled.png` (installation/action passes) and `07-pr195-terminal-browser-blank-graphics-limitation.png` (the honest post-upgrade result).
+
 ### 1.2 `smarzban/herdr-file-viewer`
 
 | Herdr field | Used |
