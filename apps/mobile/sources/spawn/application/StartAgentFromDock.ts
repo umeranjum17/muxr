@@ -14,6 +14,8 @@ export type StartAgentFromDockCommand = {
     prompt: string;
     attachments: unknown[];
     createCwd?: boolean;
+    /** Fires once the route exists, before the first prompt is delivered. */
+    onRouteReady?: (sessionId: string) => void;
 };
 
 export type StartAgentFromDockResult =
@@ -48,7 +50,10 @@ export async function startAgentFromDock(command: StartAgentFromDockCommand): Pr
         return { ok: false, reason: 'needs-directory', directory: result.directory, message: result.directory };
     }
 
-    await sync.refreshSessions();
+    // machineSpawnNewSession already refreshed until the session was listed.
+    // The host holds the first prompt until the agent can accept it, which is
+    // seconds for some kinds. Show the session now instead of a dead Dock.
+    command.onRouteReady?.(result.sessionId);
     if (command.prompt || command.attachments.length > 0) {
         try {
             await sync.sendMessage(result.sessionId, command.prompt, {

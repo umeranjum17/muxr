@@ -299,14 +299,8 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     // lands it in the middle of whatever you were typing, so paths ride as
     // chips and are appended once, at send.
     const sendPrompt = React.useCallback(() => {
-        if (!panePromptable) {
-            recordTrackedRpc('session.prompt', {
-                ok: false,
-                error: Object.assign(new Error('Agent is not ready yet'), { code: 'agent-not-ready' }),
-            }, 0);
-            Modal.alert('Not ready', 'Agent is not ready yet');
-            return;
-        }
+        // A booting agent is not a refusal: the host holds the prompt until it
+        // can accept it, so let the composer stay live and let the host answer.
         const text = [draftRef.current.trim(), ...attachedPaths].filter((part) => part !== '').join(' ');
         if (text === '') return;
         const previousDraft = draftRef.current;
@@ -407,7 +401,11 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const labels = agentLabels(currentPane);
     const shell = isShellLabels(labels);
     const contextTitle = shell ? 'Shell' : labels.taskTitle;
-    const headerStatus = agentStatusColor(terminalPaneStatus(currentPane), theme);
+    const headerLifecycle = terminalPaneStatus(currentPane);
+    const headerStatus = agentStatusColor(headerLifecycle, theme);
+    // Working and done carry their lifecycle colour. Idle shares the
+    // disconnected grey, which reads as dead on a ready agent.
+    const sendColor = headerLifecycle === 'idle' ? theme.colors.accent : headerStatus.color;
     const paneIndex = siblings.indexOf(props.id);
     const showConnectingStatus = status !== 'live' && gestureHint === null && status === 'connecting';
     const showRetryStatus = status !== 'live' && gestureHint === null && status !== 'connecting';
@@ -749,18 +747,17 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                     borderTopColor: theme.colors.divider,
                 }}
             >
-                <Pressable onPress={attachPhotos} hitSlop={8} disabled={attaching || !panePromptable} accessibilityRole="button" accessibilityLabel="Add attachment" accessibilityState={{ disabled: attaching || !panePromptable }} style={{ opacity: panePromptable ? 1 : 0.4 }}>
+                <Pressable onPress={attachPhotos} hitSlop={8} disabled={attaching} accessibilityRole="button" accessibilityLabel="Add attachment" accessibilityState={{ disabled: attaching }} style={{ opacity: attaching ? 0.4 : 1 }}>
                     <Ionicons name={attaching ? 'hourglass-outline' : 'image-outline'} size={24} color={theme.colors.textSecondary} />
                 </Pressable>
                 <TextInput
                     value={draft}
                     onChangeText={handleDraftChange}
-                    editable={panePromptable}
                     onSubmitEditing={sendPrompt}
                     returnKeyType="send"
                     blurOnSubmit
                     submitBehavior="blurAndSubmit"
-                    placeholder={panePromptable ? 'Type a prompt…' : 'Agent is not ready yet'}
+                    placeholder="Type a prompt…"
                     placeholderTextColor={theme.colors.textSecondary}
                     style={{
                         flex: 1,
@@ -775,7 +772,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                     <PluginSlot slot="session.composer.trailing" context={{ sessionId: props.id, getText: () => draftRef.current, setText: setDraft }} />
                 </View>
                 <Pressable onPress={sendPrompt} hitSlop={8} disabled={!canSend} accessibilityRole="button" accessibilityLabel="Send" accessibilityState={{ disabled: !canSend }} style={{ opacity: canSend ? 1 : 0.4 }}>
-                    <Ionicons name="arrow-up-circle" size={30} color={theme.colors.accent} />
+                    <Ionicons name="arrow-up-circle" size={30} color={sendColor} />
                 </Pressable>
             </View>
             </View>}

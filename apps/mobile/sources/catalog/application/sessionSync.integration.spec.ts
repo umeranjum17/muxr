@@ -378,7 +378,8 @@ describe('session sync flow', () => {
         }).toEqual({
             tabStatus: 'working',
             paneStatus: 'unknown',
-            canSend: false,
+            // A booting agent still accepts a prompt; the host holds it.
+            canSend: true,
             readyStatus: 'working',
             readyCanSend: true,
         });
