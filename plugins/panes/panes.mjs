@@ -76,6 +76,12 @@ function catalog() {
         for (const action of plugin.actions ?? []) {
             const actionId = action.action_id ?? action.id;
             if (actionId === undefined) continue;
+            // `herdr plugin action invoke` carries no context, so Herdr resolves a
+            // pane/tab/selection action against whatever is focused at the desk --
+            // not the session on the phone. Only global actions are safe here;
+            // the rest belong on session.toolbar, which does pass the real pane.
+            const contexts = action.contexts ?? [];
+            if (contexts.length > 0 && !contexts.includes('global')) continue;
             entries.push({
                 id: `action:${plugin.plugin_id}:${actionId}`,
                 label: action.title ?? actionId,
