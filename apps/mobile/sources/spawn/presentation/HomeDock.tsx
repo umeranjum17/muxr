@@ -247,6 +247,22 @@ const styles = StyleSheet.create((theme) => ({
     sendButtonActive: {
         backgroundColor: theme.colors.fab.background,
     },
+    // Starting without a prompt is its own action, not a mode of the send
+    // button, so it gets its own row under the pickers.
+    startRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 8,
+        height: 52,
+        borderRadius: 18,
+        backgroundColor: theme.colors.fab.background,
+    },
+    startRowText: {
+        color: theme.colors.fab.icon,
+        fontSize: 15,
+        fontWeight: '600',
+    },
     modalRoot: {
         flex: 1,
     },
@@ -448,11 +464,13 @@ export const HomeDock = React.memo(({
     prompt,
     onPromptChange,
     onSubmit,
+    onStartBlank,
     isSubmitting,
 }: {
     prompt: string;
     onPromptChange: (prompt: string) => void;
     onSubmit: () => Promise<boolean>;
+    onStartBlank: () => Promise<boolean>;
     isSubmitting: boolean;
 }) => {
     const { theme } = useUnistyles();
@@ -574,7 +592,8 @@ export const HomeDock = React.memo(({
         [hostAgentKinds, hostAgentKindsAuthoritative, agentType],
     );
     const currentAgent = currentDockAgent(availableAgents, agentType);
-    const canSubmit = !isSubmitting && (prompt.trim().length > 0 || selectedImages.length > 0);
+    const hasPrompt = prompt.trim().length > 0 || selectedImages.length > 0;
+    const canSubmit = !isSubmitting && hasPrompt;
     const focusedComposerHeight = selectedImages.length > 0 ? 206 : 126;
     const keyboardStyle = useAnimatedStyle(() => ({
         // Keyboard height includes the bottom safe area on iOS. The resting
@@ -838,6 +857,13 @@ export const HomeDock = React.memo(({
         void submit();
     };
 
+    const startBlankSession = () => {
+        if (isSubmitting) return;
+        setFocusModeVisible(false);
+        setIsFocused(false);
+        void onStartBlank();
+    };
+
     const renderFocusedComposer = () => (
         <Animated.View style={[styles.focusedComposerAnimationShell, focusedComposerAnimationStyle]}>
             <MobileGlassSurface
@@ -873,7 +899,7 @@ export const HomeDock = React.memo(({
                             accessibilityRole="button"
                             accessibilityLabel="Add image"
                         >
-                            <Ionicons name="add" size={26} color={theme.colors.text} />
+                            <Ionicons name="image-outline" size={24} color={theme.colors.text} />
                         </BubblePressable>
                         <NativeSettingsMenu groups={gearSettingsGroups} style={styles.nativeGearMenu}>
                             <View style={styles.sideButton}>
@@ -981,6 +1007,18 @@ export const HomeDock = React.memo(({
                         <View style={styles.focusConfig}>
                             <View style={styles.focusConfigGroup}>
                                 {renderEnvironmentPickers()}
+                                <FocusConfigRevealRow progress={focusPresentation} index={3}>
+                                    <BubblePressable
+                                        onPress={startBlankSession}
+                                        disabled={isSubmitting}
+                                        style={styles.startRow}
+                                        accessibilityRole="button"
+                                        accessibilityLabel={`Start ${currentAgent.name} without a prompt`}
+                                    >
+                                        <Ionicons name="play" size={16} color={theme.colors.fab.icon} />
+                                        <Text style={styles.startRowText}>Start {currentAgent.name}</Text>
+                                    </BubblePressable>
+                                </FocusConfigRevealRow>
                             </View>
                         </View>
                         <View style={[

@@ -454,6 +454,13 @@ export const MainView = React.memo(() => {
         return sessionId !== null;
     }, [homePrompt, startHomeSession]);
 
+    // Opening a session with no prompt is a deliberate choice: pick the agent,
+    // directory and worktree, then write once it is up.
+    const handleStartBlankSession = React.useCallback(async (): Promise<boolean> => {
+        Keyboard.dismiss();
+        return await startHomeSession({ blank: true }) !== null;
+    }, [startHomeSession]);
+
     const handleSearchPress = React.useCallback(() => {
         setSearchActive((currentValue) => {
             if (currentValue) {
@@ -598,6 +605,7 @@ export const MainView = React.memo(() => {
                             prompt={homePrompt}
                             onPromptChange={setHomePrompt}
                             onSubmit={handleHomePromptSubmit}
+                            onStartBlank={handleStartBlankSession}
                             isSubmitting={isStartingHomeSession}
                         />
                     )}
