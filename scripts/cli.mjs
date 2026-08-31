@@ -3,7 +3,7 @@ import { createRequire } from 'node:module';
 import { existsSync, realpathSync, readdirSync, readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { dirname, join, relative } from 'node:path';
-import { homedir } from 'node:os';
+import { homedir, release as kernelRelease } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import {
     BACK,
@@ -13,6 +13,7 @@ import {
     connectEnrollment,
     connectRemoteRelay,
     daemonIsRunning,
+    daemonMode,
     enableBrowserHosting,
     hasPendingRemoteConnect,
     heading,
@@ -46,7 +47,7 @@ import {
     showPluginDocs,
     updatePlugin,
 } from './plugin/index.mjs';
-import { dumpDiagnostics } from './diagnostics/index.mjs';
+import { dumpDiagnostics, readDiagnostics } from './diagnostics/index.mjs';
 import { updateCli } from './release/index.mjs';
 
 const HELP = `muxr — every coding agent on your phone
@@ -57,6 +58,7 @@ Get started
   muxr setup                     install, connect, and pair this machine
   muxr doctor                    check the complete local setup
   muxr diagnostics               show bounded redacted host history for agents
+  muxr report                    prepare a local redacted bug report draft
   muxr pair [--browser|--browser-view] pair a phone or control/view-only browser
   muxr connect --enrollment ...  connect this agent machine to a shared relay
   muxr shared-relay              host an always-on relay for other machines
@@ -103,6 +105,7 @@ const COMMAND_HELP = {
     pair: `muxr pair [--browser|--browser-view]\n\nCreate a two-minute native QR/string, an eight-hour control-browser link (--browser), or an eight-hour view-only browser link (--browser-view).\n`,
     doctor: `muxr doctor\n\nCheck Node, Herdr, integrations, managed files, and the self-host relay without printing secrets.\n`,
     diagnostics: `muxr diagnostics\n\nPrint seven days of bounded redacted host, client, relay, collaboration, and broker history as JSON. No prompts, terminal output, paths, secrets, or internal ids are recorded.\n`,
+    report: `muxr report > muxr-report.md\n\nPrepare a local GitHub issue draft with environment versions, redacted doctor check names, and the latest 50 bounded diagnostic events. The command only prints a draft. Review every line, add what happened, and explicitly decide whether to post it; muxr never opens or submits an issue.\n`,
     status: `muxr status\n\nAlias for muxr doctor.\n`,
     restart: `muxr restart\n\nRestart the supervised relay and host (same as muxr daemon restart).\n`,
     uninstall: `muxr uninstall [--yes|--resume]\n\nRemove all muxr-owned services, ingress, identity, pairings, grants, relay/plugin state, provider keys, logs, caches, and managed integrations. Herdr, its sessions, repositories, worktrees, exports, signing keys, and unrecognized files stay. The globally installed CLI can be removed last.\n`,
@@ -121,6 +124,49 @@ function printHelp(command) {
 function versionString() {
     const require = createRequire(import.meta.url);
     try { return require('./package.json').version; } catch { return require('../package.json').version; }
+}
+
+function commandVersion(command) {
+    const result = spawnSync(command, ['--version'], { encoding: 'utf8', timeout: 5_000 });
+    return `${result.stdout ?? ''}\n${result.stderr ?? ''}`.match(/\b\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?\b/)?.[0] ?? 'unavailable';
+}
+
+function operatingSystem() {
+    if (process.platform !== 'linux' || !existsSync('/etc/os-release')) return `${process.platform} ${process.arch} · kernel ${kernelRelease()}`;
+    const value = readFileSync('/etc/os-release', 'utf8').match(/^PRETTY_NAME=(.*)$/m)?.[1]?.trim();
+    const name = value?.replace(/^"|"$/g, '') || 'Linux';
+    return `${name} ${process.arch} · kernel ${kernelRelease()}`;
+}
+
+function issueReport() {
+    const doctor = spawnSync(process.execPath, [realpathSync(process.argv[1]), 'doctor'], {
+        encoding: 'utf8',
+        timeout: 90_000,
+        env: { ...process.env, MUXR_NO_TUI: '1' },
+    });
+    const checks = `${doctor.stdout ?? ''}\n${doctor.stderr ?? ''}`.split('\n').flatMap((line) => {
+        const match = line.match(/^\s*(ok|warn|FAIL)\s{2,}(.+?)\s{2,}/);
+        return match ? [`- ${match[1].toUpperCase()} ${match[2].trim()}`] : [];
+    });
+    if (checks.length === 0) checks.push(`- UNAVAILABLE ${doctor.error?.code === 'ETIMEDOUT' ? 'doctor timed out after 90 seconds' : 'doctor returned no checks'}`);
+
+    let diagnostics;
+    try {
+        const state = readDiagnostics();
+        diagnostics = JSON.stringify({
+            ...state,
+            note: `${state.note}; report includes the latest 50 events only`,
+            events: state.events.slice(-50).map(({
+                requestedAgentName: _requestedAgentName,
+                resolvedAgentName: _resolvedAgentName,
+                ...event
+            }) => event),
+        }, null, 2);
+    } catch (cause) {
+        diagnostics = JSON.stringify({ unavailable: cause instanceof Error ? cause.message : String(cause) }, null, 2);
+    }
+
+    process.stdout.write(`<!-- DRAFT ONLY: muxr never opens or submits an issue.\nReview every line for sensitive information. If an agent generated this draft, it must show it to the user and ask whether they want to post it before taking any external action.\n-->\n## What happened\n\n<!-- What did you do, what did you expect, and what happened instead? -->\n\n## Steps to reproduce\n\n1. \n\n## Expected behavior\n\n<!-- What should muxr have done? -->\n\n## Environment\n\n- muxr: ${versionString()}\n- Node: ${process.version}\n- OS: ${operatingSystem()}\n- Mode: ${daemonMode() ?? 'not configured'}\n- Herdr: ${commandVersion('herdr')}\n- Tailscale: ${commandVersion('tailscale')}\n\n## Health summary\n\nDoctor ${doctor.status === 0 ? 'completed without blocking failures' : 'found blocking problems or could not finish'}:\n\n${checks.join('\n')}\n\n## Redacted diagnostics\n\n\`\`\`json\n${diagnostics}\n\`\`\`\n`);
 }
 
 function muxrSkillDirectory() {
@@ -395,6 +441,10 @@ async function dispatch(command, args = []) {
     if (command === 'diagnostics') {
         try { dumpDiagnostics(); return 0; }
         catch (error) { process.stderr.write(`muxr diagnostics: ${error instanceof Error ? error.message : String(error)}\n`); return 1; }
+    }
+    if (command === 'report') {
+        try { issueReport(); return 0; }
+        catch (error) { process.stderr.write(`muxr report: ${error instanceof Error ? error.message : String(error)}\n`); return 1; }
     }
     if (command === 'update') return applyUpdate(args);
     if (command === 'daemon') return runDaemon(args);

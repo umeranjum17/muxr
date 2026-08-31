@@ -28,6 +28,7 @@ export function tailscaleBin() {
 export function runTailscale(args, options = {}) {
     const { env: childEnv, ...rest } = options;
     return spawnSync(tailscaleBin() || 'tailscale', args, {
+        timeout: 15_000,
         ...rest,
         env: { ...process.env, TAILSCALE_BE_CLI: '1', ...childEnv },
     });
@@ -77,9 +78,10 @@ export function selfhostCredential(state) {
     return state?.machineCredential;
 }
 
-export async function selfhostRelayHealthy(state) {
+export async function selfhostRelayHealthy(state, timeoutMs = 2_000) {
     if (state === undefined) return false;
-    return fetch(`${selfhostControlBase(state)}/health`).then((response) => response.ok).catch(() => false);
+    return fetch(`${selfhostControlBase(state)}/health`, { signal: AbortSignal.timeout(timeoutMs) })
+        .then((response) => response.ok).catch(() => false);
 }
 
 export async function advertisedRelayHealthy(state) {
@@ -105,8 +107,8 @@ export function tailscaleIngress(args) {
     const status = runTailscale(['status', '--json'], { encoding: 'utf8' });
     if (status.error?.code === 'ENOENT') return undefined;
     if (status.status !== 0) {
-        // A spawn error (EACCES, …) gives status:null and no stderr stream.
-        const detail = (status.stderr ?? status.error?.message ?? '').trim();
+        // A spawn error (EACCES, timeout, …) gives status:null and no stderr stream.
+        const detail = (status.stderr || status.error?.message || '').trim();
         throw new Error(`Tailscale is installed but unavailable: ${detail || 'sign in or use --advertise'}`);
     }
     try {
@@ -146,7 +148,8 @@ export function inspectTailscaleServeRoot(port, dnsName, expectedProxy) {
     const current = runTailscale(['serve', 'status', '--json'], { encoding: 'utf8' });
     if (current.error?.code === 'ENOENT') return { status: 'unknown', missing: true, reason: 'tailscale not found' };
     if (current.status !== 0) {
-        return { status: 'unknown', reason: `cannot inspect Tailscale Serve ownership: ${current.stderr.trim() || 'status failed'}` };
+        const detail = (current.stderr || current.error?.message || 'status failed').trim();
+        return { status: 'unknown', reason: `cannot inspect Tailscale Serve ownership: ${detail}` };
     }
     let rootProxy;
     try { rootProxy = tailscaleRootProxy(JSON.parse(current.stdout || '{}'), dnsName); }
@@ -191,7 +194,7 @@ export async function stopOwnedSelfhostRelay() {
     const state = readSelfhostState();
     if (state === undefined || state.relayLocation === 'remote') return undefined;
     const port = Number(state.relayPort);
-    const health = await fetch(`http://127.0.0.1:${port}/health`).then((response) => {
+    const health = await fetch(`http://127.0.0.1:${port}/health`, { signal: AbortSignal.timeout(2_000) }).then((response) => {
         if (!response.ok) return undefined;
         return response.json();
     }).catch(() => undefined);
@@ -210,7 +213,9 @@ export async function stopOwnedSelfhostRelay() {
         throw cause;
     }
     for (let attempt = 0; attempt < 30; attempt += 1) {
-        const stopped = await fetch(`http://127.0.0.1:${port}/health`).then(() => false).catch(() => true);
+        const stopped = await fetch(`http://127.0.0.1:${port}/health`, { signal: AbortSignal.timeout(500) })
+            .then(() => false)
+            .catch((cause) => cause?.name !== 'TimeoutError');
         if (stopped) return { state, health, port };
         await new Promise((resolve) => setTimeout(resolve, 100));
     }

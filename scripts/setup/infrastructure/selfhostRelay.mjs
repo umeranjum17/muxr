@@ -109,7 +109,8 @@ export async function resolveAdvertise(args, port, tailscale) {
         return { url: parsed.toString().replace(/\/$/, ''), note: 'explicit --advertise' };
     }
     if (args.includes('--tunnel')) {
-        const check = spawnSync('cloudflared', ['--version'], { encoding: 'utf8' });
+        const check = spawnSync('cloudflared', ['--version'], { encoding: 'utf8', timeout: 15_000 });
+        if (check.error?.code === 'ETIMEDOUT') throw new Error('cloudflared version check timed out after 15 seconds; restart it or choose another connection');
         if (check.error) throw new Error('cloudflared not found; install it or use --advertise=<url>');
         const logPath = join(stateDir(), 'logs', 'cloudflared.log');
         ensurePrivateDir(dirname(logPath));
@@ -141,7 +142,12 @@ export async function resolveAdvertise(args, port, tailscale) {
         const serve = ownership.status === 'ours'
             ? { status: 0, stdout: '', stderr: '' }
             : runTailscale(['serve', '--yes', '--bg', '--https=443', expected], { encoding: 'utf8' });
-        if (serve.status !== 0) throw new Error(`tailscale serve failed: ${serve.stderr.trim() || serve.stdout.trim() || 'check operator permissions'}; use --tailscale-direct for direct tailnet mode`);
+        if (serve.status !== 0) {
+            const detail = serve.error?.code === 'ETIMEDOUT'
+                ? 'command timed out after 15 seconds'
+                : (serve.stderr || serve.stdout || serve.error?.message || 'check operator permissions').trim();
+            throw new Error(`tailscale serve failed: ${detail}; use --tailscale-direct for direct tailnet mode`);
+        }
         return {
             url: `wss://${tailscale.dnsName}`,
             note: 'Tailscale Serve (private tailnet HTTPS)',
@@ -149,6 +155,7 @@ export async function resolveAdvertise(args, port, tailscale) {
         };
     }
     const status = runTailscale(['status', '--json'], { encoding: 'utf8' });
+    if (status.error?.code === 'ETIMEDOUT') throw new Error('Tailscale status timed out after 15 seconds; restart tailscaled or choose LAN');
     if (status.status === 0) {
         try {
             const ip = JSON.parse(status.stdout)?.Self?.TailscaleIPs?.find((value) => /^100\./.test(value));
@@ -170,7 +177,15 @@ export function relayDiscovery(state) {
 }
 
 export async function ensureSelfhostRelay(port, webRoot, host = '0.0.0.0', webOrigin, discovery) {
-    const health = await fetch(`http://127.0.0.1:${port}/health`).then((r) => r.ok ? r.json() : undefined).catch(() => undefined);
+    let health;
+    try {
+        health = await fetch(`http://127.0.0.1:${port}/health`, { signal: AbortSignal.timeout(2_000) })
+            .then((response) => response.ok ? response.json() : undefined);
+    } catch (cause) {
+        if (cause?.name === 'TimeoutError') {
+            throw new Error(`port ${port} accepts connections but did not answer muxr's health check; stop the process using it or rerun setup with --port <free-port>`);
+        }
+    }
     const healthy = health?.ok === true;
     const dataDir = join(stateDir(), 'relay');
     if (healthy) {
@@ -210,7 +225,8 @@ export async function ensureSelfhostRelay(port, webRoot, host = '0.0.0.0', webOr
     proc.unref();
     for (let i = 0; i < 25; i++) {
         await new Promise((resolve) => setTimeout(resolve, 400));
-        if (await fetch(`http://127.0.0.1:${port}/health`).then((r) => r.ok).catch(() => false)) return;
+        if (await fetch(`http://127.0.0.1:${port}/health`, { signal: AbortSignal.timeout(500) })
+            .then((response) => response.ok).catch(() => false)) return;
     }
     throw new Error(`self-host relay did not come up on :${port}; see ${logPath}`);
 }

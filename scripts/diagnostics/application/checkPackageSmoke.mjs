@@ -88,6 +88,7 @@ function run(command, args, options = {}) {
 function assertCompactSkillOutput(output) {
     assert.match(output, /^---\nname: muxr\ndescription: /);
     assert.match(output, /## Task router/);
+    assert.match(output, /checked safe repairs/);
     assert.match(output, /muxr skill collaboration/);
     assert.doesNotMatch(output, /muxr-skill-reference|# Cross-machine agent collaboration|## Installed Herdr CLI reference/);
 }
@@ -290,17 +291,34 @@ try {
     assert.match(sourceHelp, /muxr --skill \| muxr skill\s+print the compact muxr agent skill/);
     assert.match(sourceHelp, /muxr peers list\|read\|status\|watch\|prompt/);
     assert.match(sourceHelp, /muxr diagnostics\s+show bounded redacted host history/);
+    assert.match(sourceHelp, /muxr report\s+prepare a local redacted bug report draft/);
     const diagnosticsDir = join(home, '.muxr', 'host');
     mkdirSync(diagnosticsDir, { recursive: true });
     const diagnosticsPath = join(diagnosticsDir, 'diagnostics.json');
-    writeFileSync(diagnosticsPath, `${JSON.stringify({ version: 1, current: { updatedAt: '2026-08-26T00:00:00.000Z' }, events: [{ at: '2026-08-26T00:00:00.000Z', event: 'relay.state', state: 'open' }] })}\n`, { mode: 0o600 });
+    writeFileSync(diagnosticsPath, `${JSON.stringify({
+        version: 1,
+        current: { updatedAt: '2026-08-26T00:00:00.000Z' },
+        events: Array.from({ length: 60 }, (_, sequence) => ({
+            at: '2026-08-26T00:00:00.000Z', event: 'relay.state', state: 'open', sequence,
+            ...(sequence === 59 ? { requestedAgentName: 'private customer task', resolvedAgentName: 'private customer task' } : {}),
+        })),
+    })}\n`, { mode: 0o600 });
     chmodSync(diagnosticsPath, 0o600);
     const sourceDiagnostics = JSON.parse(run(process.execPath, ['scripts/cli.mjs', 'diagnostics'], { env: sourceEnv }).stdout);
     assert.equal(sourceDiagnostics.events[0].event, 'relay.state');
     assert.doesNotMatch(JSON.stringify(sourceDiagnostics), /machineId|deviceId|sessionId|prompt/i);
+    const sourceReport = run(process.execPath, ['scripts/cli.mjs', 'report'], { env: sourceEnv }).stdout;
+    assert.match(sourceReport, /## Environment[\s\S]*## Health summary[\s\S]*## Redacted diagnostics/);
+    assert.match(sourceReport, /relay\.state/);
+    const sourceReportDiagnostics = JSON.parse(sourceReport.match(/```json\n([\s\S]*?)\n```/)?.[1] ?? '{}');
+    assert.equal(sourceReportDiagnostics.events.length, 50);
+    assert.equal(sourceReportDiagnostics.events[0].sequence, 10);
+    assert.match(sourceReport, /DRAFT ONLY[\s\S]*show it to the user and ask whether they want to post/);
+    assert.doesNotMatch(sourceReport, /gh issue create|requestedAgentName|resolvedAgentName|private customer task|machineId|deviceId|sessionId|credential|secret|prompt|\/home\//i);
     const sourceSkill = run(process.execPath, ['scripts/cli.mjs', '--skill'], { env: sourceEnv }).stdout;
     assertCompactSkillOutput(sourceSkill);
     assert.equal(run(process.execPath, ['scripts/cli.mjs', 'skill'], { env: sourceEnv }).stdout, sourceSkill, 'source skill alias diverged from --skill');
+    assert.match(run(process.execPath, ['scripts/cli.mjs', 'skill', 'onboarding'], { env: sourceEnv }).stdout, /## Diagnose and recover[\s\S]*muxr doctor[\s\S]*muxr diagnostics/);
     assert.match(run(process.execPath, ['scripts/cli.mjs', 'skill', 'collaboration'], { env: sourceEnv }).stdout, /muxr peers prompt/);
     assertUnifiedSkillOutput(run(process.execPath, ['scripts/cli.mjs', 'skill', 'all'], { env: sourceEnv }).stdout);
     const fallbackHome = join(scratch, 'skill-fallback-home');
@@ -425,10 +443,17 @@ try {
     assert.match(rootHelp, /muxr --skill \| muxr skill\s+print the compact muxr agent skill/);
     assert.match(rootHelp, /muxr peers list\|read\|status\|watch\|prompt/);
     assert.match(rootHelp, /muxr diagnostics\s+show bounded redacted host history/);
+    assert.match(rootHelp, /muxr report\s+prepare a local redacted bug report draft/);
     assert.equal(JSON.parse(run(cli, ['diagnostics'], { cwd: installDir, env: cliEnv() }).stdout).events[0].event, 'relay.state');
+    const installedReport = run(cli, ['report'], { cwd: installDir, env: cliEnv() }).stdout;
+    assert.match(installedReport, /## Environment[\s\S]*## Health summary[\s\S]*## Redacted diagnostics/);
+    assert.equal(JSON.parse(installedReport.match(/```json\n([\s\S]*?)\n```/)?.[1] ?? '{}').events.length, 50);
+    assert.match(installedReport, /DRAFT ONLY[\s\S]*show it to the user and ask whether they want to post/);
+    assert.doesNotMatch(installedReport, /gh issue create|requestedAgentName|resolvedAgentName|private customer task|machineId|deviceId|sessionId|credential|secret|prompt|\/home\//i);
     const installedSkill = run(cli, ['--skill'], { cwd: installDir, env: cliEnv() }).stdout;
     assertCompactSkillOutput(installedSkill);
     assert.equal(run(cli, ['skill'], { cwd: installDir, env: cliEnv() }).stdout, installedSkill, 'packed skill alias diverged from --skill');
+    assert.match(run(cli, ['skill', 'onboarding'], { cwd: installDir, env: cliEnv() }).stdout, /## Diagnose and recover[\s\S]*muxr doctor[\s\S]*muxr diagnostics/);
     assert.match(run(cli, ['skill', 'collaboration'], { cwd: installDir, env: cliEnv() }).stdout, /muxr peers prompt/);
     assertUnifiedSkillOutput(run(cli, ['skill', 'all'], { cwd: installDir, env: cliEnv() }).stdout);
     const unavailablePeers = run(cli, ['peers', 'list'], { cwd: installDir, env: cliEnv(), allowFailure: true });

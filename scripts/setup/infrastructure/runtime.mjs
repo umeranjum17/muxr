@@ -148,12 +148,15 @@ export function executable(command) {
 }
 
 export function run(command, args, options = {}) {
-    const result = spawnSync(command, args, { encoding: 'utf8', ...options });
+    const timeout = options.timeout ?? 30_000;
+    const result = spawnSync(command, args, { encoding: 'utf8', ...options, timeout });
     return {
         ok: result.status === 0,
         status: result.status ?? 1,
         stdout: result.stdout?.trim() ?? '',
-        stderr: result.stderr?.trim() ?? '',
+        stderr: result.stderr?.trim() || (result.error?.code === 'ETIMEDOUT'
+            ? `${command} timed out after ${timeout / 1000} seconds`
+            : result.error?.message ?? ''),
         errorCode: result.error?.code,
     };
 }

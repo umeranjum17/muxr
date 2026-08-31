@@ -103,7 +103,7 @@ export function runHerdrInstaller() {
             throw new Error('MUXR_HERDR_INSTALLER must be an executable regular file');
         }
         print(`  run reviewed local Herdr installer: ${localInstaller}`);
-        const installed = spawnSync(localInstaller, [], { stdio: 'inherit' });
+        const installed = spawnSync(localInstaller, [], { stdio: 'inherit', timeout: 300_000 });
         if (installed.status !== 0) throw new Error('local Herdr installation failed');
         return;
     }
@@ -112,9 +112,9 @@ export function runHerdrInstaller() {
     const installer = join(scratch, 'install.sh');
     try {
         print(`  download Herdr installer: ${HERDR_INSTALL_URL}`);
-        const downloaded = spawnSync('curl', ['-fsSL', HERDR_INSTALL_URL, '-o', installer], { stdio: 'inherit' });
+        const downloaded = spawnSync('curl', ['-fsSL', '--connect-timeout', '10', '--max-time', '60', HERDR_INSTALL_URL, '-o', installer], { stdio: 'inherit', timeout: 65_000 });
         if (downloaded.status !== 0) throw new Error('Herdr installer download failed');
-        const installed = spawnSync('sh', [installer], { stdio: 'inherit' });
+        const installed = spawnSync('sh', [installer], { stdio: 'inherit', timeout: 300_000 });
         if (installed.status !== 0) throw new Error('Herdr installation failed');
     } finally {
         rmSync(scratch, { recursive: true, force: true });
