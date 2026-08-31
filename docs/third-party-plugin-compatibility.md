@@ -587,3 +587,68 @@ Keys and IME work. Scroll works and Herdr correctly synthesises mouse-reporting 
 
 **Q5 — Ranked options?**
 §7. Recommendation: Option 1 (scroll coordinates, ~0.5 day) + Option 2 (Panes plugin, ~1-2 days). Do nothing about terminal-browser.
+
+---
+
+## 9. Prototype: what was built and proved, and who owns landing it
+
+After the report above was accepted, the owner asked for a working version. It was
+built and exercised against the live Herdr on this machine, then **held out of this
+PR**: bundled-plugin changes belong to `feat/plugin-herdr-actions`, not to a research
+branch. The code is preserved, unmerged, at branch **`spike/panes-plugin`** (commit
+`c9c4091d`) and is offered to that agent as a starting point, not as a fait accompli.
+
+Nothing in this section is a claim about the phone UI. See §9.3.
+
+### 9.1 Evidence — commands run, output observed
+
+These were executed against the running Herdr and host, not reasoned about:
+
+| Claim | How it was shown |
+|---|---|
+| An agent-less pane streams over muxr's own attach command | `herdr terminal session observe <paneId>` returned `terminal.frame` NDJSON; base64 decoded to the pane's real screen |
+| A TUI launched from a plugin RPC lands in such a pane | `plugin call … launch {tool:"nvim"}` → pane `w1F4:pD`, `agent: null`; decoded frame showed nvim's file tree |
+| Same for a second TUI | `launch {tool:"lazygit"}` → decoded frame showed lazygit's Status/Unstaged panels |
+| A `plugin.pane.open` pane is an ordinary pane | opened `muxr.control`/`doctor` as a tab; it appeared in `herdr pane list` with no agent (then exited, because `muxr doctor` exits) |
+| RPC output survives the real phone parsers | `asPluginItemList` + `parsePluginAction` from current `main`: 7/7 and 13/13 rows retained, none dropped |
+| Third-party plugin contributions are picked up with no config | while testing, another agent added `split-down`/`split-right` actions to `muxr.control`; the tool list went 10 → 13 unprompted and the ids round-tripped |
+
+**This closes Gap 5 of [`plugin-architecture-review.md`](./plugin-architecture-review.md).**
+That review concluded Herdr panes "contribute nothing to the phone, because Herdr
+panes are a desktop-terminal concept with no muxr slot". There is no *slot*, but
+there is a *route*: `herdrSessionSource.ts:738-741` already turns every agent-less
+pane into `shell:<paneId>`, and `muxr.control`'s six panes are reachable through it
+today. The review's §4 Gap 5 should be amended.
+
+### 9.2 Recommendations for the owner of `feat/plugin-herdr-actions`
+
+1. **A Panes/Tools plugin is worth landing.** Roughly 170 lines of `.mjs` plus a
+   manifest. Rows for agent-less panes and for launchable tools; row action is
+   `kernel.navigate → shell:<paneId>`; launch is a write RPC that opens a tab and
+   names the pane after the tool, so the name on the pane is the only state.
+2. **Send `column`/`row` on `terminal.scroll`.** Independent of any plugin and worth
+   more than the plugin: `OpenTerminal.ts` omits two optional fields Herdr has always
+   accepted, so every scroll lands at cell (0,0) — in a two-column TUI, the sidebar,
+   permanently. Prototyped as a 4-file diff on `spike/panes-plugin`. **Untested on a
+   device; do not land on my evidence alone.**
+3. **Two known contract limits, neither worth working around locally.**
+   `ItemList.tsx:204-210` discards an RPC's return value, so launch-then-open is two
+   taps on first use; letting a write RPC return one validated action would fix it
+   generally. And `terminal.key-row` renders on every terminal with no session
+   scoping (`DeclarativePluginSlot.tsx:201-202`), so a tool-specific key row would
+   also appear on agent panes.
+4. **Do not pursue terminal-browser.** §1.1 stands: its output is graphics frames and
+   `herdr/src/client/mod.rs:981` discards them. `kernel.navigate target:"preview"`
+   already covers the real need.
+
+### 9.3 Not covered
+
+- **The phone UI was never exercised.** No tap on a row, no rendered Tools sheet, no
+  screenshot. The browser client could not be paired (browser hosting is off on this
+  machine) and the only Android APK available was `0.1.12` against a `0.1.25` host,
+  below this plugin's `minMuxrVersion: 8`. Everything above stops at the data the
+  client would render, validated against the client's real parsing code.
+- **The scroll change has no device test.** Its behaviour is inferred from Herdr's
+  source (`headless.rs:363-385`), not observed on a phone.
+- **iOS was not touched at all.**
+- **Tap-to-position remains unbuilt**; §5 prices it but nothing was implemented.
