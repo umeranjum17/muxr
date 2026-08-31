@@ -13,6 +13,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import {
     HERDR_INSTALL_HINT,
     HERDR_INSTALL_URL,
@@ -143,6 +144,13 @@ export async function ensureHerdr({ dryRun, noInstall, installRequested }) {
     return binary;
 }
 
+async function migrateLegacyVoiceProvider(installed, dryRun) {
+    const root = bundledPluginPath('voice');
+    if (!existsSync(join(root, 'provider.mjs'))) return undefined;
+    const { migrateLegacyProvider } = await import(pathToFileURL(join(root, 'provider.mjs')).href);
+    return migrateLegacyProvider(installed, join(stateDir(), 'plugin-state', 'muxr.voice'), dryRun);
+}
+
 function runBundledPluginBackfill(root, binary, enabled, dryRun) {
     const script = join(root, 'backfill.mjs');
     if (!enabled || !existsSync(script)) return;
@@ -176,7 +184,12 @@ export async function ensureBundledPlugins(binary, dryRun) {
         throw new Error('Herdr returned an invalid plugin list');
     }
     const bundled = bundledPlugins();
+    if (bundled.length === 0) throw new Error('no bundled Herdr plugins were found');
     const bundledRoot = realpathSync(dirname(bundledPluginPath(bundled[0].name)));
+    const ownedInstalled = installed.filter((plugin) => typeof plugin.plugin_root === 'string'
+        && dirname(resolve(plugin.plugin_root)) === bundledRoot);
+    const legacyVoice = await migrateLegacyVoiceProvider(ownedInstalled, dryRun);
+    if (legacyVoice !== undefined) print(`  ${dryRun ? 'would preserve' : '✓ preserved'} ${legacyVoice.name} as the realtime voice provider`);
     // A registration pointing directly into our bundle directory that no longer
     // names a shipped plugin is ours to retract, whether it was renamed, merged
     // or removed. Anything the user linked from elsewhere stays untouched.
@@ -191,12 +204,12 @@ export async function ensureBundledPlugins(binary, dryRun) {
     for (const { id, name, version } of bundled) {
         const current = installed.find((plugin) => plugin.plugin_id === id);
         const expected = realpathSync(bundledPluginPath(name));
-        if (current && realpathOrUndefined(current.plugin_root) === expected && current.version === version) {
-            print(`  ✓ ${id} ${version} Herdr plugin ready${current.enabled === true ? '' : ' (disabled)'}`);
-            runBundledPluginBackfill(expected, binary, current.enabled === true, dryRun);
+        const enabled = current ? current.enabled === true || (id === 'muxr.voice' && legacyVoice !== undefined) : true;
+        if (current && realpathOrUndefined(current.plugin_root) === expected && current.version === version && current.enabled === enabled) {
+            print(`  ✓ ${id} ${version} Herdr plugin ready${enabled ? '' : ' (disabled)'}`);
+            runBundledPluginBackfill(expected, binary, enabled, dryRun);
             continue;
         }
-        const enabled = current ? current.enabled === true : true;
         if (dryRun) {
             print(`  would link ${id} from ${expected} (${enabled ? 'enabled' : 'disabled'})`);
             continue;

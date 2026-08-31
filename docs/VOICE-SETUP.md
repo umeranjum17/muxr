@@ -15,7 +15,7 @@ All four adapters ship inside `muxr.voice` with `@trymuxr/cli`:
 
 Exactly one adapter runs at a time. The selection is the plugin's own state under `MUXR_PLUGIN_STATE_DIR`, read by its `voice.provider.list` and `voice.provider.set` capabilities, so switching providers is not an enable/disable of separate packages. In the app, open **Settings → Realtime voice** to switch. Grok, Gemini Live, and OpenAI Realtime collect their API key through Configure. Codex Voice uses the existing local `codex login`.
 
-Provider keys use attributed secure prompts sent once through authenticated E2EE. Codex OAuth never enters a muxr frame, phone, process argument, log, or muxr storage. Provider choices survive `npm` upgrades and subsequent `muxr setup` runs.
+Provider keys use attributed secure prompts sent once through authenticated E2EE. Codex OAuth never enters a muxr frame, phone, process argument, log, or muxr storage. Provider choices survive `npm` upgrades and subsequent `muxr setup` runs. The one-time upgrade from the former separate Gemini, OpenAI, or Codex plugin preserves the enabled provider, writes it into `muxr.voice` state, and enables the merged plugin.
 
 `MUXR_HOME` relocates the key directory. It is owner-only (`0700`); each key is owner-only (`0600`), written through a unique temporary file and atomic rename. Reads reject symlinks, non-regular files, and unsafe permissions.
 

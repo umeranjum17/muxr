@@ -13,7 +13,7 @@
  */
 
 import { execFileSync, spawn } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import WebSocket from 'ws';
@@ -34,6 +34,30 @@ const workdir = mkdtempSync(join(tmpdir(), 'muxr-cwd-'));
 const TIMEOUT_MS = 120_000;
 
 const children = [];
+const actionPluginId = `local.action-e2e-${process.pid}`;
+const actionPluginRoot = join(dataDir, 'action-plugin');
+mkdirSync(actionPluginRoot);
+writeFileSync(join(actionPluginRoot, 'herdr-plugin.toml'), `id = "${actionPluginId}"
+name = "Action failure e2e"
+version = "0.1.0"
+min_herdr_version = "0.8.0"
+platforms = ["linux", "macos"]
+
+[[actions]]
+id = "fail"
+title = "Fail safely"
+contexts = ["pane"]
+command = ["sh", "-c", "echo '/tmp/private-action w9ZZ:p9' >&2; exit 7"]
+`);
+writeFileSync(join(actionPluginRoot, 'muxr-ui.json'), `${JSON.stringify({
+    schemaVersion: 1,
+    pluginId: actionPluginId,
+    contributions: [{
+        slot: 'session.toolbar', id: 'fail', type: 'button', label: 'Fail safely',
+        action: { type: 'plugin.invoke', actionId: 'fail' },
+    }],
+}, null, 2)}\n`);
+execFileSync(process.env.HERDR_BIN || 'herdr', ['plugin', 'link', actionPluginRoot, '--enabled'], { stdio: 'ignore' });
 const env = { ...process.env };
 for (const key of ['MUXR_RELAY_TOKEN', 'MUXR_RELAY_AUTH']) {
     delete env[key];
@@ -77,6 +101,9 @@ function finish(code, message) {
             execFileSync(process.env.HERDR_BIN || 'herdr', ['workspace', 'close', createdWorkspaceId], { stdio: 'ignore' });
         } catch { /* best effort after a failed live server */ }
     }
+    try {
+        execFileSync(process.env.HERDR_BIN || 'herdr', ['plugin', 'unlink', actionPluginId], { stdio: 'ignore' });
+    } catch { /* best effort after a failed live server */ }
     rmSync(dataDir, { recursive: true, force: true });
     rmSync(workdir, { recursive: true, force: true });
     process.stdout.write(message);
@@ -188,6 +215,28 @@ async function run() {
         await new Promise((resolve) => setTimeout(resolve, 250));
     }
     console.log('ok: current Herdr generation became promptable');
+
+    // A real failing Herdr action must travel invoke -> log -> bounded public error.
+    const plugins = await request(socket, 'plugin.list', {});
+    const actionPlugin = plugins.find((plugin) => plugin.pluginId === actionPluginId);
+    if (typeof actionPlugin?.manifestHash !== 'string') fail('action failure fixture was not discovered');
+    await request(socket, 'plugin.approve', {
+        pluginId: actionPluginId, manifestHash: actionPlugin.manifestHash, approved: true,
+    });
+    let actionFailure;
+    try {
+        await request(socket, 'plugin.invoke', {
+            pluginId: actionPluginId,
+            manifestHash: actionPlugin.manifestHash,
+            contributionId: 'fail',
+            sessionId: newId,
+            idempotencyKey: `action-e2e-${Date.now().toString(36)}`,
+        });
+    } catch (cause) {
+        actionFailure = cause instanceof Error ? cause.message : String(cause);
+    }
+    if (actionFailure !== 'plugin action failed') fail(`action failure was not bounded: ${actionFailure ?? 'request succeeded'}`);
+    console.log('ok: failed Herdr action returned a bounded client error through its real log');
 
     // 3. terminal.attach -> frames
     const channel = newTerminalChannel();

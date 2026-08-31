@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 /**
@@ -13,6 +13,11 @@ export const PROVIDERS = [
 ];
 
 const DEFAULT_ID = 'xai';
+const LEGACY_PLUGIN_IDS = new Map([
+    ['muxr.voice-gemini', 'gemini'],
+    ['muxr.voice-openai', 'openai'],
+    ['muxr.voice-codex', 'codex'],
+]);
 
 function stateFile() {
     const state = process.env.MUXR_PLUGIN_STATE_DIR?.trim();
@@ -44,4 +49,32 @@ export function selectProvider(id) {
     if (file === undefined) throw new Error('plugin state directory is unavailable');
     writeFileSync(file, `${provider.id}\n`, { mode: 0o600 });
     return provider;
+}
+
+/** Preserve the old one-enabled-plugin choice while upgrading to one voice plugin. */
+export function migrateLegacyProvider(installed, targetDir, dryRun = false) {
+    const legacy = installed
+        .filter((plugin) => plugin?.enabled === true)
+        .map((plugin) => LEGACY_PLUGIN_IDS.get(plugin.plugin_id))
+        .filter((id) => id !== undefined);
+    if (legacy.length === 0) return undefined;
+    if (legacy.length > 1) throw new Error('multiple legacy realtime voice providers are enabled');
+
+    const file = join(targetDir, 'provider');
+    try {
+        const selected = providerById(readFileSync(file, 'utf8').trim());
+        if (selected === undefined) throw new Error('realtime voice provider state is invalid');
+        return selected;
+    } catch (cause) {
+        if (cause?.code !== 'ENOENT') throw cause;
+    }
+
+    const selected = providerById(legacy[0]);
+    if (selected === undefined) throw new Error('legacy realtime voice provider is unavailable');
+    if (!dryRun) {
+        mkdirSync(targetDir, { recursive: true, mode: 0o700 });
+        chmodSync(targetDir, 0o700);
+        writeFileSync(file, `${selected.id}\n`, { mode: 0o600, flag: 'wx' });
+    }
+    return selected;
 }

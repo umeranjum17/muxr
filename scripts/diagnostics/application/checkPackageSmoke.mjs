@@ -632,6 +632,12 @@ try {
         allowFailure: true,
     });
     assert.notEqual(malformedEntry.status, 0, 'setup accepted a plugin without an enabled state');
+    const malformedRoot = run(cli, ['setup', ...setupArgs], {
+        cwd: installDir,
+        env: { ...env, FAKE_PLUGIN_LIST: JSON.stringify({ result: { plugins: [{ plugin_id: 'muxr.voice', plugin_root: 7, version: '0.1.0', enabled: true }] } }) },
+        allowFailure: true,
+    });
+    assert.notEqual(malformedRoot.status, 0, 'setup accepted a non-string plugin root');
     assert.equal(existsSync(fakeLog) ? readFileSync(fakeLog, 'utf8') : '', beforeInvalidList, 'setup mutated plugins after a malformed entry');
 
     const configBefore = readFileSync(join(home, '.config', 'herdr', 'config.toml'), 'utf8');
@@ -647,6 +653,25 @@ try {
     // One voice plugin ships now; the adapters live inside it.
     assert.match(firstSetupLinks, new RegExp(`plugin link ${join(pluginRoot, 'voice').replaceAll('\\', '\\\\')} --enabled`));
     assert.doesNotMatch(firstSetupLinks, /plugins[/\\]voice-(?:codex|gemini|openai)/, 'setup linked a merged voice adapter as its own plugin');
+    const voiceState = join(home, '.muxr', 'plugin-state', 'muxr.voice');
+    for (const provider of ['gemini', 'openai', 'codex']) {
+        rmSync(voiceState, { recursive: true, force: true });
+        const logBeforeMigration = readFileSync(fakeLog, 'utf8');
+        run(cli, ['setup', ...setupArgs], {
+            cwd: installDir,
+            env: { ...env, FAKE_PLUGIN_LIST: JSON.stringify({ result: { plugins: [
+                { plugin_id: 'muxr.voice', plugin_root: join(pluginRoot, 'voice'), version: '0.1.0', enabled: false },
+                { plugin_id: `muxr.voice-${provider}`, plugin_root: join(pluginRoot, `voice-${provider}`), version: '0.1.0', enabled: true },
+            ] } }) },
+        });
+        const migrationLinks = readFileSync(fakeLog, 'utf8').slice(logBeforeMigration.length);
+        assert.match(migrationLinks, new RegExp(`plugin unlink muxr\\.voice-${provider}`));
+        assert.match(migrationLinks, new RegExp(`plugin link ${join(pluginRoot, 'voice').replaceAll('\\', '\\\\')} --enabled`));
+        assert.equal(statSync(voiceState).mode & 0o777, 0o700);
+        assert.equal(statSync(join(voiceState, 'provider')).mode & 0o777, 0o600);
+        assert.equal(readFileSync(join(voiceState, 'provider'), 'utf8'), `${provider}\n`, `setup reset the selected ${provider} voice provider`);
+    }
+    rmSync(voiceState, { recursive: true, force: true });
     const existingProviders = {
         result: {
             plugins: [

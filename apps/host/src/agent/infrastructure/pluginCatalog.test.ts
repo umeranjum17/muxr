@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { pluginInvalidationFrame, PluginCatalog, PluginRefreshGate, WriteReplayFence, Semaphore, rpcReplayKey, runPluginProcess, type HerdrPlugin } from './pluginCatalog.js';
 import { buildPluginPublicContext } from '../application/pluginPublicContext.js';
-import { herdrActionFailure } from './herdrSessionSource.js';
+import { herdrActionFailure, reportHerdrActionFailure } from './herdrSessionSource.js';
 import { MAX_RPC_RESULT_STRING_BYTES, boundRpcDisplay, parseManifest, parsePluginAction, pluginCompatibilityError } from '@muxr/contract';
 
 function plugin(root: string, actions: HerdrPlugin['actions'] = []): HerdrPlugin {
@@ -814,14 +814,23 @@ describe('plugin catalog flow', () => {
 });
 
 describe('herdr action failure reporting', () => {
-    it('turns a failed action log into one reportable line and stays silent on success', () => {
+    it('polls action logs, fails explicitly on contract drift, and never exposes Herdr detail', async () => {
         expect(herdrActionFailure('muxr.control', { log_id: 'l1', status: 'succeeded', stdout: 'fine' })).toBeUndefined();
         expect(herdrActionFailure('muxr.control', { log_id: 'l1', status: 'running' })).toBeUndefined();
-        // stderr wins over stdout, and only the last line reaches the phone.
         expect(herdrActionFailure('muxr.control', {
-            log_id: 'l1', status: 'failed', stdout: 'ignored', stderr: 'noise\nmissing value for --direction\n',
-        })).toBe('plugin action failed: missing value for --direction');
-        expect(herdrActionFailure('muxr.control', { log_id: 'l1', status: 'failed' }))
-            .toBe('plugin action failed: muxr.control');
+            log_id: 'l1', status: 'failed', stderr: '/home/owner/private in w1XX:p1',
+        })).toBe('plugin action failed');
+
+        const client = (response: unknown) => ({ call: vi.fn().mockResolvedValue(response) });
+        await expect(reportHerdrActionFailure(client({ logs: [{ log_id: 'l1', status: 'succeeded' }] }) as never, 'muxr.control', 'l1', 1)).resolves.toBeUndefined();
+        await expect(reportHerdrActionFailure(client({ logs: [{ log_id: 'l1', status: 'running' }] }) as never, 'muxr.control', 'l1', 1)).resolves.toBeUndefined();
+        await expect(reportHerdrActionFailure(client({ logs: [{ log_id: 'l1', status: 'failed', stderr: '/home/owner/private in w1XX:p1' }] }) as never, 'muxr.control', 'l1', 1))
+            .rejects.toThrow(/^plugin action failed$/);
+        await expect(reportHerdrActionFailure(client({ logs: [] }) as never, 'muxr.control', 'l1', 1))
+            .rejects.toThrow(/^plugin action status unavailable$/);
+        await expect(reportHerdrActionFailure(client({ entries: [] }) as never, 'muxr.control', 'l1', 1))
+            .rejects.toThrow(/^plugin action status unavailable$/);
+        await expect(reportHerdrActionFailure(client({ logs: [] }) as never, 'muxr.control', undefined, 1))
+            .rejects.toThrow(/^plugin action status unavailable$/);
     });
 });
