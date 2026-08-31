@@ -444,11 +444,8 @@ export const MainView = React.memo(() => {
     const handleHomePromptSubmit = React.useCallback(async (): Promise<boolean> => {
         const prompt = homePrompt.trim();
         const attachments = useNewSessionDraft.getState().attachments;
-        // No prompt is a deliberate choice: open the session and let the agent
-        // boot while you decide what to ask it.
         if (!prompt && attachments.length === 0) {
-            Keyboard.dismiss();
-            return await startHomeSession({ blank: true }) !== null;
+            return false;
         }
         useNewSessionDraft.getState().setInput(prompt);
         Keyboard.dismiss();
@@ -456,6 +453,13 @@ export const MainView = React.memo(() => {
         if (sessionId) setHomePrompt('');
         return sessionId !== null;
     }, [homePrompt, startHomeSession]);
+
+    // Opening a session with no prompt is a deliberate choice: pick the agent,
+    // directory and worktree, then write once it is up.
+    const handleStartBlankSession = React.useCallback(async (): Promise<boolean> => {
+        Keyboard.dismiss();
+        return await startHomeSession({ blank: true }) !== null;
+    }, [startHomeSession]);
 
     const handleSearchPress = React.useCallback(() => {
         setSearchActive((currentValue) => {
@@ -601,6 +605,7 @@ export const MainView = React.memo(() => {
                             prompt={homePrompt}
                             onPromptChange={setHomePrompt}
                             onSubmit={handleHomePromptSubmit}
+                            onStartBlank={handleStartBlankSession}
                             isSubmitting={isStartingHomeSession}
                         />
                     )}

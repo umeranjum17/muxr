@@ -247,6 +247,22 @@ const styles = StyleSheet.create((theme) => ({
     sendButtonActive: {
         backgroundColor: theme.colors.fab.background,
     },
+    // Starting without a prompt is its own action, not a mode of the send
+    // button, so it gets its own row under the pickers.
+    startRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 8,
+        height: 52,
+        borderRadius: 18,
+        backgroundColor: theme.colors.fab.background,
+    },
+    startRowText: {
+        color: theme.colors.fab.icon,
+        fontSize: 15,
+        fontWeight: '600',
+    },
     modalRoot: {
         flex: 1,
     },
@@ -448,11 +464,13 @@ export const HomeDock = React.memo(({
     prompt,
     onPromptChange,
     onSubmit,
+    onStartBlank,
     isSubmitting,
 }: {
     prompt: string;
     onPromptChange: (prompt: string) => void;
     onSubmit: () => Promise<boolean>;
+    onStartBlank: () => Promise<boolean>;
     isSubmitting: boolean;
 }) => {
     const { theme } = useUnistyles();
@@ -575,9 +593,7 @@ export const HomeDock = React.memo(({
     );
     const currentAgent = currentDockAgent(availableAgents, agentType);
     const hasPrompt = prompt.trim().length > 0 || selectedImages.length > 0;
-    // Without a prompt the button still starts the session; you write once the
-    // agent is up rather than composing against an agent that does not exist.
-    const canSubmit = !isSubmitting;
+    const canSubmit = !isSubmitting && hasPrompt;
     const focusedComposerHeight = selectedImages.length > 0 ? 206 : 126;
     const keyboardStyle = useAnimatedStyle(() => ({
         // Keyboard height includes the bottom safe area on iOS. The resting
@@ -810,7 +826,7 @@ export const HomeDock = React.memo(({
                     disabled={!canSubmit}
                     style={[styles.sendButton, canSubmit && styles.sendButtonActive]}
                     accessibilityRole="button"
-                    accessibilityLabel={hasPrompt ? 'Send' : 'Start session'}
+                    accessibilityLabel="Send"
                 >
                     {isSubmitting ? (
                         <ActivityIndicator size="small" color={theme.colors.textSecondary} />
@@ -839,6 +855,13 @@ export const HomeDock = React.memo(({
         setFocusModeVisible(false);
         setIsFocused(false);
         void submit();
+    };
+
+    const startBlankSession = () => {
+        if (isSubmitting) return;
+        setFocusModeVisible(false);
+        setIsFocused(false);
+        void onStartBlank();
     };
 
     const renderFocusedComposer = () => (
@@ -897,7 +920,7 @@ export const HomeDock = React.memo(({
                             disabled={!canSubmit}
                             style={[styles.sendButton, styles.focusedSendButton, canSubmit && styles.sendButtonActive]}
                             accessibilityRole="button"
-                            accessibilityLabel={hasPrompt ? 'Send' : 'Start session'}
+                            accessibilityLabel="Send"
                         >
                         {isSubmitting ? (
                             <ActivityIndicator size="small" color={theme.colors.textSecondary} />
@@ -984,6 +1007,18 @@ export const HomeDock = React.memo(({
                         <View style={styles.focusConfig}>
                             <View style={styles.focusConfigGroup}>
                                 {renderEnvironmentPickers()}
+                                <FocusConfigRevealRow progress={focusPresentation} index={3}>
+                                    <BubblePressable
+                                        onPress={startBlankSession}
+                                        disabled={isSubmitting}
+                                        style={styles.startRow}
+                                        accessibilityRole="button"
+                                        accessibilityLabel={`Start ${currentAgent.name} without a prompt`}
+                                    >
+                                        <Ionicons name="play" size={16} color={theme.colors.fab.icon} />
+                                        <Text style={styles.startRowText}>Start {currentAgent.name}</Text>
+                                    </BubblePressable>
+                                </FocusConfigRevealRow>
                             </View>
                         </View>
                         <View style={[

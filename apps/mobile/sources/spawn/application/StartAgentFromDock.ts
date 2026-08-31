@@ -5,6 +5,9 @@ import { isMachineOnline } from '@/pairing';
 import { createWorktree } from '../infrastructure/worktree';
 import { WorktreeSelection } from '../domain/WorktreeSelection';
 import type { NewSessionAgentType } from '@/catalog/application/persistence';
+import type { AttachmentPreview } from '@/catalog/infrastructure/attachmentTypes';
+import { readFileBytes } from '@/utils/readFileBytes';
+import { encodeBase64 } from '@/encryption/base64';
 
 export type StartAgentFromDockCommand = {
     machine: Machine | undefined;
@@ -21,6 +24,29 @@ export type StartAgentFromDockCommand = {
 export type StartAgentFromDockResult =
     | { ok: true; agentRoute: string; promptFailed?: string }
     | { ok: false; reason: 'no-machine' | 'offline' | 'worktree-failed' | 'needs-directory' | 'failed'; message?: string; directory?: string };
+
+/**
+ * The agent is a TUI, so it reaches a file by having its path in the prompt.
+ * Save the images to the host over the session socket, the same way the
+ * terminal composer does, and append the paths it returns.
+ */
+async function promptWithAttachmentPaths(
+    sessionId: string,
+    prompt: string,
+    previews: unknown[],
+): Promise<string> {
+    if (previews.length === 0) return prompt;
+    const attachments = [];
+    for (const preview of previews as AttachmentPreview[]) {
+        attachments.push({
+            name: preview.name,
+            mimeType: preview.mimeType,
+            data: encodeBase64(await readFileBytes(preview.uri)),
+        });
+    }
+    const saved = await sync.request('session.saveAttachments', { sessionId, attachments });
+    return [prompt.trim(), ...saved.savedPaths].filter((part) => part !== '').join(' ');
+}
 
 /** Spawn from the Dock: Machine, directory, Worktree, and Agent Kind are already chosen. */
 export async function startAgentFromDock(command: StartAgentFromDockCommand): Promise<StartAgentFromDockResult> {
@@ -56,10 +82,8 @@ export async function startAgentFromDock(command: StartAgentFromDockCommand): Pr
     command.onRouteReady?.(result.sessionId);
     if (command.prompt || command.attachments.length > 0) {
         try {
-            await sync.sendMessage(result.sessionId, command.prompt, {
-                source: 'new_session',
-                attachments: command.attachments as never,
-            });
+            const text = await promptWithAttachmentPaths(result.sessionId, command.prompt, command.attachments);
+            await sync.sendMessage(result.sessionId, text, { source: 'new_session' });
         } catch (error) {
             return {
                 ok: true,
