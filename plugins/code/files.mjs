@@ -4,29 +4,19 @@ import { execFileSync } from 'node:child_process';
 import { closeSync, openSync, readFileSync, readSync, realpathSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, join, resolve } from 'node:path';
+import { sessionCwds } from './herdrContext.mjs';
 
 const TOOL_PATH = [process.env.PATH ?? '', join(homedir(), '.local', 'bin'), '/opt/homebrew/bin', '/usr/local/bin', '/usr/bin'].filter(Boolean).join(delimiter);
 const exec = (cmd, args, timeout = 15000) => execFileSync(cmd, args, { encoding: 'utf8', timeout, maxBuffer: 4 * 1024 * 1024, env: { ...process.env, PATH: TOOL_PATH } });
-const herdr = process.env.HERDR_BIN_PATH?.trim() || 'herdr';
 const input = JSON.parse(readFileSync(0, 'utf8') || 'null') ?? {};
 
 function repos() {
-    const workspaces = JSON.parse(exec(herdr, ['workspace', 'list'])).result.workspaces ?? [];
-    const panes = JSON.parse(exec(herdr, ['pane', 'list'])).result.panes ?? [];
     const seen = new Map();
-    for (const workspace of workspaces) {
-        const configured = workspace.worktree?.repo_root;
-        const candidates = typeof configured === 'string' && configured !== ''
-            ? [configured]
-            : panes.filter((pane) => pane.workspace_id === workspace.workspace_id)
-                .map((pane) => pane.foreground_cwd ?? pane.cwd);
-        for (const candidate of new Set(candidates)) {
-            if (typeof candidate !== 'string' || candidate === '') continue;
-            let root;
-            try { root = exec('git', ['-C', candidate, 'rev-parse', '--show-toplevel'], 3000).trim(); }
-            catch { continue; }
-            if (root !== '' && !seen.has(root)) seen.set(root, { root, name: root.split('/').pop() ?? root, path: root });
-        }
+    for (const candidate of sessionCwds()) {
+        let root;
+        try { root = exec('git', ['-C', candidate, 'rev-parse', '--show-toplevel'], 3000).trim(); }
+        catch { continue; }
+        if (root !== '' && !seen.has(root)) seen.set(root, { root, name: root.split('/').pop() ?? root, path: root });
     }
     return [...seen.values()].slice(0, 32);
 }

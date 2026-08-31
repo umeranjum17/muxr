@@ -9,7 +9,10 @@
       "type": "rpc",
       "method": "repos",
       "entry": "files.mjs",
-      "mode": "read"
+      "mode": "read",
+      "context": [
+        "sessions"
+      ]
     },
     {
       "slot": "host.rpc",
@@ -244,7 +247,10 @@
       "type": "rpc",
       "method": "list",
       "entry": "runbook.mjs",
-      "mode": "read"
+      "mode": "read",
+      "context": [
+        "sessions"
+      ]
     },
     {
       "slot": "host.rpc",

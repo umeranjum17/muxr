@@ -3,6 +3,7 @@ import { execFileSync, execSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, delimiter, join } from 'node:path';
+import { sessionCwds } from './herdrContext.mjs';
 
 const input = JSON.parse(readFileSync(0, 'utf8') || 'null') ?? {};
 const method = process.argv[2];
@@ -26,20 +27,10 @@ function commands() {
 }
 
 function repoRoots() {
-    const workspaces = JSON.parse(runFile('herdr', ['workspace', 'list'])).result.workspaces ?? [];
-    const panes = JSON.parse(runFile('herdr', ['pane', 'list'])).result.panes ?? [];
     const roots = new Set();
-    for (const workspace of workspaces) {
-        const configured = workspace.worktree?.repo_root;
-        const candidates = typeof configured === 'string' && configured !== ''
-            ? [configured]
-            : panes.filter((pane) => pane.workspace_id === workspace.workspace_id)
-                .map((pane) => pane.foreground_cwd ?? pane.cwd);
-        for (const candidate of new Set(candidates)) {
-            if (typeof candidate !== 'string' || candidate === '') continue;
-            try { roots.add(runFile('git', ['-C', candidate, 'rev-parse', '--show-toplevel']).trim()); }
-            catch { /* a pane can leave a repository while this list is built */ }
-        }
+    for (const candidate of sessionCwds()) {
+        try { roots.add(runFile('git', ['-C', candidate, 'rev-parse', '--show-toplevel']).trim()); }
+        catch { /* a pane can leave a repository while this list is built */ }
     }
     return [...roots].filter((root) => root !== '' && existsSync(root)).slice(0, 24);
 }
