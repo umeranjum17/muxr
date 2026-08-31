@@ -99,7 +99,14 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
         const clamped = Math.max(-MAX_SCROLL_LINES, Math.min(MAX_SCROLL_LINES, lines));
         scrollInFlightRef.current = true;
         scrollAckTimerRef.current = setTimeout(settleScroll, SCROLL_ACK_TIMEOUT_MS);
-        channelRef.current?.scroll(clamped);
+        // A pane with mouse reporting on (nvim, lazygit, any full-screen TUI)
+        // routes the wheel to whichever region the cell belongs to, so sending
+        // nothing scrolls its sidebar forever. Ghostty reports rows only.
+        // ponytail: centre cell, not the finger; carry x/y in onScroll to fix properly.
+        const size = lastSizeRef.current;
+        channelRef.current?.scroll(clamped, size === null
+            ? undefined
+            : { column: Math.floor(size.cols / 2), row: Math.floor(size.rows / 2) });
     };
 
     /** The repaint (or the timeout) releases the gate and drains what piled up. */

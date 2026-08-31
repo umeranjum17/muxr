@@ -165,7 +165,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             const lines = Math.trunc(scrollAcc / cellHeight());
             if (lines === 0) return;
             const clamped = Math.max(-40, Math.min(40, lines)); // don't ask herdr for the world
-            channel?.scroll(clamped);
+            channel?.scroll(clamped, { column: Math.floor(term.cols / 2), row: Math.floor(term.rows / 2) });
             scrollAcc -= clamped * cellHeight();
             if (lines !== clamped) scrollAcc = 0; // we clamped: drop the absurd remainder
         };

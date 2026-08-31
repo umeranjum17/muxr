@@ -55,6 +55,11 @@ export interface TerminalScrollFrame {
     type: 'terminal.scroll';
     direction: 'up' | 'down';
     lines: number;
+    /** Cell the wheel event lands on. A pane with mouse reporting on routes the
+     *  scroll to whatever region sits here, so omitting it pins every scroll to
+     *  the top-left cell -- in a two-column TUI, the sidebar. */
+    column?: number;
+    row?: number;
 }
 
 export type TerminalClientFrame = TerminalInputFrame | TerminalResizeFrame | TerminalScrollFrame;
