@@ -78,9 +78,12 @@ export default function PluginsScreen() {
                     onPress={() => void enableAll()} showChevron={false} disabled={withUi.length - enabledCount === 0} />
                 <Item title={t('plugins.disableAll')} onPress={() => void setApproved(withUi, false)} showChevron={false} disabled={enabledCount === 0} />
             </ItemGroup>
-            {withUi.length > 0 && (
-                <ItemGroup title={t('plugins.installed')}>
-                    {withUi.map((plugin) => {
+            {([
+                ['herdr', t('plugins.herdrDriven'), t('plugins.herdrDrivenFooter'), withUi.filter((plugin) => plugin.herdrBackend)],
+                ['muxr', t('plugins.muxrOnly'), t('plugins.muxrOnlyFooter'), withUi.filter((plugin) => !plugin.herdrBackend)],
+            ] as const).filter(([, , , group]) => group.length > 0).map(([key, title, footer, group]) => (
+                <ItemGroup key={key} title={title} footer={footer}>
+                    {group.map((plugin) => {
                         const incompatibility = manifests[plugin.pluginId] === undefined
                             ? undefined
                             : pluginCompatibilityError(manifests[plugin.pluginId], MUXR_UI_VERSION);
@@ -97,7 +100,7 @@ export default function PluginsScreen() {
                         />;
                     })}
                 </ItemGroup>
-            )}
+            ))}
             {plugins.filter((plugin) => plugin.manifestHash === undefined).map((plugin) => (
                 <Item key={plugin.pluginId} title={plugin.name}
                     subtitle={[plugin.warnings[0] ?? plugin.description, sourceLabel(plugin.source), plugin.hasBackend ? t('plugins.runsCode') : t('plugins.uiOnly')].filter(Boolean).join(' · ')}

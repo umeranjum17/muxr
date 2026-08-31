@@ -737,5 +737,12 @@ export interface PluginSummary {
     approved: boolean;
     capabilities: Record<string, string>;
     hasBackend: boolean;
+    /**
+     * The Herdr manifest declares executable behaviour of its own (actions,
+     * events, panes, startup, build, link handlers) rather than only naming the
+     * package. Distinguishes a real Herdr plugin from a muxr UI package that
+     * Herdr merely registers.
+     */
+    herdrBackend: boolean;
     warnings: string[];
 }

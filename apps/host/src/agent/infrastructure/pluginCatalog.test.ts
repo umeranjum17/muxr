@@ -161,7 +161,7 @@ describe('plugin catalog flow', () => {
         const catalog = new PluginCatalog();
         await catalog.refresh([plugin(root)]);
         const first = catalog.list(() => false)[0];
-        expect(first).toMatchObject({ pluginId: 'example.muxr-ui', approved: false, hasBackend: false });
+        expect(first).toMatchObject({ pluginId: 'example.muxr-ui', approved: false, hasBackend: false, herdrBackend: false });
         if (first?.manifestHash === undefined) throw new Error('plugin missing');
         const firstHash = first.manifestHash;
         expect(catalog.manifest(first.pluginId, firstHash).contributions).toHaveLength(1);
@@ -205,7 +205,7 @@ describe('plugin catalog flow', () => {
         const backend = { ...plugin(backendRoot, [{ id: 'act', command: ['true'] }]), plugin_id: 'example.backend' };
         await catalog.refresh([backend]);
         const backendSummary = catalog.list(() => false)[0];
-        expect(backendSummary).toMatchObject({ pluginId: 'example.backend', hasBackend: true });
+        expect(backendSummary).toMatchObject({ pluginId: 'example.backend', hasBackend: true, herdrBackend: true });
         expect(backendSummary).not.toHaveProperty('manifestHash');
 
         const symlinkRoot = join(root, 'symlink');
