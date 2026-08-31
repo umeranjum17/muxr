@@ -407,7 +407,11 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const labels = agentLabels(currentPane);
     const shell = isShellLabels(labels);
     const contextTitle = shell ? 'Shell' : labels.taskTitle;
-    const headerStatus = agentStatusColor(terminalPaneStatus(currentPane), theme);
+    const headerLifecycle = terminalPaneStatus(currentPane);
+    const headerStatus = agentStatusColor(headerLifecycle, theme);
+    // Working and done carry their lifecycle colour. Idle shares the
+    // disconnected grey, which reads as dead on a ready agent.
+    const sendColor = headerLifecycle === 'idle' ? theme.colors.accent : headerStatus.color;
     const paneIndex = siblings.indexOf(props.id);
     const showConnectingStatus = status !== 'live' && gestureHint === null && status === 'connecting';
     const showRetryStatus = status !== 'live' && gestureHint === null && status !== 'connecting';
@@ -775,7 +779,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                     <PluginSlot slot="session.composer.trailing" context={{ sessionId: props.id, getText: () => draftRef.current, setText: setDraft }} />
                 </View>
                 <Pressable onPress={sendPrompt} hitSlop={8} disabled={!canSend} accessibilityRole="button" accessibilityLabel="Send" accessibilityState={{ disabled: !canSend }} style={{ opacity: canSend ? 1 : 0.4 }}>
-                    <Ionicons name="arrow-up-circle" size={30} color={theme.colors.accent} />
+                    <Ionicons name="arrow-up-circle" size={30} color={sendColor} />
                 </Pressable>
             </View>
             </View>}
