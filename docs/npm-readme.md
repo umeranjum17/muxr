@@ -32,8 +32,9 @@ muxr update                    # check, confirm, update, and restart
 muxr update --check            # check without changing anything
 muxr --skill                   # print the compact agent skill
 muxr skill collaboration       # load one focused reference on demand
-muxr doctor                    # current setup health
+muxr doctor                    # current setup health and checked repairs
 muxr diagnostics               # bounded redacted host/client history for agents
+muxr report > muxr-report.md   # local redacted issue draft; never submits
 muxr pair                      # pair another phone
 muxr pair --browser            # pair an 8-hour control browser
 muxr pair --browser-view       # pair an 8-hour view-only browser
@@ -44,6 +45,8 @@ muxr devices revoke <number>
 muxr never installs skills or edits agent instruction files. Run `muxr --skill`
 for the compact canonical workflow, then `muxr skill <topic>` only when the
 current task needs that reference.
+
+`muxr report` gathers environment versions, doctor check names, and the latest 50 redacted diagnostic events without prompts, terminal output, paths, secrets, or internal ids. It only writes a local draft: review every line, describe what happened, and explicitly decide whether you want to post it. muxr never opens or submits an issue.
 
 muxr state lives under `~/.muxr` unless `MUXR_HOME` is set. Use `muxr setup --dry-run` to preview managed-file changes. `muxr uninstall` removes every muxr-owned operational component—including machine identity, pairings, grants, provider keys, runtime state, services, ingress, and managed integrations—then optionally removes the global CLI. It keeps Herdr, Herdr sessions, repositories, worktrees, received attachments, exports, signing keys, and unrecognized files. The narrower `muxr daemon uninstall` and `muxr integrations uninstall` commands remain available for advanced maintenance.
 

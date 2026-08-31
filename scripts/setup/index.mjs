@@ -84,6 +84,7 @@ export {
     browserHostingCanEnable,
     browserHostingReady,
     enrollmentPayload,
+    ensureSelfhostRelay,
     hasPendingRemoteConnect,
     resolveAdvertise,
     restartSelfhostRelayIfRunning,

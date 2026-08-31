@@ -8,6 +8,7 @@ host, and the pairing between them and the app.
 [Prerequisites](#prerequisites) · [Install](#install) · [First run](#first-run) ·
 [Connection choices](#connection-choices) · [Pairing](#pairing) ·
 [Shared relay](#shared-relay-on-a-vps) · [Maintenance](#maintenance) ·
+[Recovery](#diagnose-and-recover) · [Report](#report-an-issue) ·
 [Uninstall](#uninstall) · [Verify](#verify)
 
 ## Prerequisites
@@ -117,13 +118,86 @@ endpoint from their pairing grant. Plugin and agent changes sync live.
 ```bash
 muxr update                    # check, confirm, update, and restart
 muxr update --check            # check without changing anything
-muxr doctor                    # current setup health
+muxr doctor                    # current setup health and checked repairs
 muxr diagnostics               # bounded redacted host/client history
+muxr report > muxr-report.md   # local redacted issue draft; never submits
 muxr daemon status|logs|start|stop|restart
 muxr setup --dry-run           # preview managed-file changes
 ```
 
 muxr state lives under `~/.muxr` unless `MUXR_HOME` is set.
+
+## Diagnose and recover
+
+Use the checked recovery path before changing files or reinstalling:
+
+1. Run `muxr doctor` in an interactive terminal. It checks the runtime, Herdr,
+   integrations, managed files, service registration, relay, connection,
+   pairing, and local peer access. When a failed check has a known safe repair,
+   doctor lists the repair and asks before running it.
+2. Approve only the repairs doctor offers, then rerun `muxr doctor`. A repair is
+   not complete until the failing check becomes healthy.
+3. Run `muxr diagnostics` for seven days of bounded, redacted host/client/relay
+   history. Redirect this JSON when escalation is needed. Review `muxr doctor`
+   output before posting it because connection names or addresses may be local.
+4. Use `muxr daemon logs` only for local diagnosis; review it before sharing.
+
+If setup appears stuck, press Ctrl-C. Setup can be rerun and now prints its
+current network, relay, or service phase; each non-interactive dependency has a
+bounded deadline. Then follow the matching remedy:
+
+| Failed phase or doctor check | Safe next action |
+|---|---|
+| Herdr server or lifecycle integrations | accept doctor's offered repair, or run `muxr integrations sync`; rerun doctor |
+| muxr service, relay, or local peer access | `muxr daemon restart`, then `muxr doctor` |
+| Tailscale Serve | restart `tailscaled` only when another connection can survive the interruption, or rerun setup with LAN / `muxr self-host --tailscale-direct` |
+| Local relay port | `curl --max-time 3 http://127.0.0.1:8792/health`; inspect the owner with `ss -ltnp 'sport = :8792'` on Linux or `lsof -nP -iTCP:8792 -sTCP:LISTEN` on macOS; stop only a process you recognize or rerun `muxr setup --port <free-port>` |
+| Expired or interrupted pairing | `muxr pair` for a new single-use code |
+| Connection choice or tunnel | rerun interactive `muxr`; do not edit `~/.muxr` |
+
+On Linux, a Tailscale daemon stall can be confirmed without waiting forever:
+
+```bash
+timeout 15s tailscale status --json
+timeout 15s tailscale serve status --json
+```
+
+Exit status `124` means the local Tailscale command timed out. Capture
+`journalctl -u tailscaled -b --no-pager` locally before restarting it. Do not
+restart `tailscaled` from a session reachable only through Tailscale.
+
+Do not delete or hand-edit `~/.muxr` as a repair. If doctor reports corrupt or
+incomplete state, stop and back up the exact file it names before moving it
+aside; that state contains machine identity and pairing authority. `muxr
+uninstall` is destructive recovery, not first aid.
+
+## Report an issue
+
+Create one local draft instead of collecting commands by hand:
+
+```bash
+muxr report > muxr-report.md
+```
+
+`muxr report` works even when first setup never completed or host diagnostics do
+not exist. It includes muxr, Node, OS/kernel, Herdr, and Tailscale versions; only
+the names and states of doctor checks; and at most the latest 50 events from the
+bounded redacted diagnostic journal. It never includes prompts, terminal/file
+content, paths, credentials, keys, raw daemon logs, or internal ids. The command
+only writes the draft; it never opens or submits an issue.
+
+Before any post:
+
+1. Read the complete draft and fill in What happened, Steps to reproduce, and
+   Expected behavior.
+2. Show the complete title and body to the user. Do not summarize away fields
+   they need to review.
+3. Ask explicitly whether they want to post that exact draft.
+4. Take no browser, GitHub CLI, or API action unless they answer yes. Asking to
+   diagnose, summarize, or prepare a report is never approval to post.
+
+If they prefer to submit it themselves, give them the Bug form URL:
+`https://github.com/umeranjum17/muxr/issues/new/choose`.
 
 ## Uninstall
 

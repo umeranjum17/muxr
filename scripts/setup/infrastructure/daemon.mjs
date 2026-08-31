@@ -348,7 +348,7 @@ export async function startMuxrDaemon(mode, args = [], restartRunning = true) {
             const needsRelay = mode === 'selfhost' || mode === 'relay';
             let relayReady = !needsRelay;
             if (needsRelay) {
-                relayReady = await selfhostRelayHealthy(readSelfhostState());
+                relayReady = await selfhostRelayHealthy(readSelfhostState(), 250);
             }
             if (relayReady) {
                 const relayDetail = needsRelay ? '; relay reachable' : '';

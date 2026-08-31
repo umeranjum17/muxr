@@ -24,7 +24,7 @@ function command(name, args = []) {
 }
 
 function interactiveCommand(name, args = []) {
-    const result = spawnSync(name, args, { stdio: 'inherit' });
+    const result = spawnSync(name, args, { stdio: 'inherit', timeout: 300_000 });
     return { ok: result.status === 0, output: result.error?.message ?? result.signal ?? '' };
 }
 
@@ -441,7 +441,7 @@ async function offerTailscaleConnect(found) {
 async function applyTailscaleConnect(found) {
     let up;
     if (process.platform === 'darwin') {
-        up = spawnSync('open', ['-a', 'Tailscale'], { stdio: 'inherit' });
+        up = spawnSync('open', ['-a', 'Tailscale'], { stdio: 'inherit', timeout: 15_000 });
         if (up.status === 0 && await prompt('Approve the Tailscale system extension and sign in, then press Enter') === undefined) return false;
     } else {
         // USER can be unset (sudo, cron, containers); an empty --operator makes
@@ -450,7 +450,7 @@ async function applyTailscaleConnect(found) {
         if (!operator) {
             try { operator = userInfo().username; } catch { operator = undefined; }
         }
-        up = spawnSync('sudo', [tailscaleBin() || 'tailscale', 'up', ...(operator ? [`--operator=${operator}`] : [])], { stdio: 'inherit' });
+        up = spawnSync('sudo', [tailscaleBin() || 'tailscale', 'up', ...(operator ? [`--operator=${operator}`] : [])], { stdio: 'inherit', timeout: 300_000 });
     }
     found.tailscale = probeTailscale();
     if (found.tailscale.connected) status('Tailscale', `connected — ${found.tailscale.ip}`, 'ok');
@@ -544,6 +544,7 @@ export async function applyMachineSetup(args = []) {
     const prerequisites = await runLocalPrerequisites(prerequisiteArgs);
     if (prerequisites !== 0) return prerequisites;
     const pluginResult = await installPlugins(plugins);
+    status('Network', 'checking Tailscale Serve ownership and local relay port', 'off');
     let result = 1;
     for (;;) {
         const recovered = await recoverOccupiedServe({ plan, found, current, tailscalePlanned, args });

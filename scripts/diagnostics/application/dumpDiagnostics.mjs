@@ -6,7 +6,7 @@ function diagnosticsPath() {
     return join(process.env.MUXR_HOME?.trim() || join(homedir(), '.muxr'), 'host', 'diagnostics.json');
 }
 
-export function dumpDiagnostics() {
+export function readDiagnostics() {
     const path = diagnosticsPath();
     if (!existsSync(path)) throw new Error('no host diagnostics yet; start muxr and try again');
     const info = lstatSync(path);
@@ -19,8 +19,12 @@ export function dumpDiagnostics() {
     if (state?.version !== 1 || typeof state.current !== 'object' || !Array.isArray(state.events)) {
         throw new Error('host diagnostics use an unsupported schema; update muxr');
     }
-    process.stdout.write(`${JSON.stringify({
+    return {
         note: 'recentClients are unique clients seen during the 15-minute window ending at current.updatedAt, not exact live sockets',
         ...state,
-    }, null, 2)}\n`);
+    };
+}
+
+export function dumpDiagnostics() {
+    process.stdout.write(`${JSON.stringify(readDiagnostics(), null, 2)}\n`);
 }

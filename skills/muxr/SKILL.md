@@ -54,7 +54,7 @@ work.
 | Connect computers; list, read, watch, or prompt a remote agent; voice | `muxr skill collaboration` · [source](references/collaboration.md) |
 | Hand a browser login, 2FA, or CAPTCHA to the phone | `muxr skill browser-takeover` · [source](references/browser-takeover.md) |
 | Build, install, debug, or override a plugin | `muxr skill plugins` · [source](references/plugins.md) |
-| Troubleshoot | run `muxr doctor`, then `muxr diagnostics`; load the relevant topic's Pitfalls and Verify sections |
+| Troubleshoot, recover, or report a bug | run interactive `muxr doctor` for checked safe repairs, then `muxr diagnostics` locally or `muxr report` for a draft; show the complete draft and ask before any external action |
 | Full plugin manifest contract | run `muxr plugin docs` and read the printed PLUGINS.md |
 
 ## Pane attachments (always-on convention)
@@ -89,7 +89,14 @@ they preview natively.
 - Herdr wait commands have no default timeout and can block forever — always
   pass `--timeout MS`.
 - muxr state lives under `~/.muxr` unless `MUXR_HOME` is set; check it before
-  assuming the default path.
+  assuming the default path. Never delete or hand-edit state as first aid.
+- If setup stalls, Ctrl-C is safe. Run interactive `muxr doctor`, approve only
+  its offered repairs, rerun it, then retry setup; commands now fail with a
+  phase and deadline instead of waiting forever.
+- `muxr diagnostics` is bounded and redacted for local/agent inspection.
+  `muxr report` creates a local draft only. Show the complete draft, ask whether
+  the user wants to post it, and take no external action without an explicit
+  yes. A diagnosis/report request is never posting approval. Keep raw logs local.
 - Secrets belong in plugin write-RPC input only — never in manifests,
   declarative state, or rendered output.
 - The pane id contains a colon — always quote paths built from it.
@@ -98,5 +105,5 @@ they preview natively.
 ## Verify
 
 - `muxr --version` prints the installed CLI version.
-- `muxr doctor` prints current setup health; `muxr diagnostics` prints bounded redacted host history.
+- `muxr doctor` prints current setup health; `muxr diagnostics` prints bounded redacted host history; `muxr report` prints a local review-only issue draft.
 - `herdr status` confirms the Herdr server is up.

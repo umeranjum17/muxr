@@ -91,6 +91,7 @@ export async function startSelfHost(args = []) {
         if (web && !existsSync(join(webRoot, 'index.html'))) throw new Error(`web client missing at ${webRoot}; install a package with the web client or pass --web-root`);
         // Missing Tailscale is fine. Broken/unsafe Tailscale status must fail
         // closed; another transport is chosen explicitly, never as a guess.
+        print('  … checking network connection and ingress');
         const tailscale = tailscaleIngress(args);
         const advertise = sameConfiguration && connectionMode === 'cloudflare' && typeof state.relayUrl === 'string' && cloudflaredAlive(state.ingress)
             ? { url: state.relayUrl, note: 'existing Cloudflare quick tunnel', ingress: state.ingress }
@@ -100,6 +101,7 @@ export async function startSelfHost(args = []) {
         if (web && !advertise.url.startsWith('wss://')) throw new Error('--web requires HTTPS (Tailscale Serve, a named HTTPS tunnel, or --advertise wss://...)');
         const bindHost = tailscale || args.includes('--tunnel') || web || explicitAdvertise?.startsWith('wss://') ? '127.0.0.1' : '0.0.0.0';
         const webOrigin = web ? advertise.url.replace(/^wss/, 'https') : undefined;
+        print(`  … checking local relay port ${port}`);
         await ensureSelfhostRelay(port, web ? webRoot : undefined, bindHost, webOrigin, {
             machineId: state.machine.id,
             name: state.machine.name,
@@ -131,6 +133,7 @@ export async function startSelfHost(args = []) {
         if (web) print(`  ✓ web client ${advertise.url.replace(/^ws/, 'http')}`);
         if (relayOnly) {
             if (managedRelay) {
+                print('  … registering and starting the background relay service');
                 if (env('MUXR_NO_SERVICE_COMMANDS') !== '1') await stopOwnedSelfhostRelay();
                 try { await startMuxrDaemon('relay', args, !sameConfiguration || !hostWasRunning); }
                 catch (cause) {
@@ -145,6 +148,7 @@ export async function startSelfHost(args = []) {
             }
             return 0;
         }
+        print('  … registering and starting the background host service');
         if (env('MUXR_NO_SERVICE_COMMANDS') !== '1' && (!sameConfiguration || !hostWasRunning)) await stopOwnedSelfhostRelay();
         await startMuxrDaemon('selfhost', args, !sameConfiguration || !hostWasRunning);
         if (noPair) {
