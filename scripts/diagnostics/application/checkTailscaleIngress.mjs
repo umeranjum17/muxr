@@ -41,8 +41,11 @@ try {
     const disabledNotice = 'Serve is not enabled on your tailnet.\nTo enable, visit: https://login.tailscale.com/f/serve-test';
     configure({ Self: { DNSName: 'dev.tailnet.ts.net.', TailscaleIPs: ['100.64.0.1'] } }, disabledNotice, 'exit 0', 1);
     const unavailable = inspectTailscaleServeRoot(8792, 'dev.tailnet.ts.net');
-    assert.equal(unavailable.status, 'unknown');
+    assert.equal(unavailable.status, 'disabled');
     assert.match(unavailable.reason, /Serve is not enabled.*login\.tailscale\.com.*direct Tailscale or LAN/s);
+
+    configure({ Self: { DNSName: 'dev.tailnet.ts.net.', TailscaleIPs: ['100.64.0.1'] } }, 'not json');
+    assert.equal(inspectTailscaleServeRoot(8792, 'dev.tailnet.ts.net').status, 'inconclusive');
 
     configure(
         { Self: { DNSName: 'dev.tailnet.ts.net.', TailscaleIPs: ['100.64.0.1'] } },

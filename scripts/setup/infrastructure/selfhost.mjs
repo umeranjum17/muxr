@@ -156,13 +156,17 @@ export function tailscaleServeFailure(result) {
 export function inspectTailscaleServeRoot(port, dnsName, expectedProxy, timeout = 15_000) {
     const expected = expectedProxy ?? `http://127.0.0.1:${port}`;
     const current = runTailscale(['serve', 'status', '--json'], { encoding: 'utf8', timeout });
-    if (current.error?.code === 'ENOENT') return { status: 'unknown', missing: true, reason: 'tailscale not found' };
+    if (current.error?.code === 'ENOENT') return { status: 'inconclusive', missing: true, reason: 'tailscale not found' };
     if (current.status !== 0 || current.error) {
-        return { status: 'unknown', reason: tailscaleServeFailure(current) };
+        const output = [current.stderr, current.stdout].filter(Boolean).join('\n');
+        return {
+            status: /serve is not enabled on your tailnet/i.test(output) ? 'disabled' : 'inconclusive',
+            reason: tailscaleServeFailure(current),
+        };
     }
     let rootProxy;
     try { rootProxy = tailscaleRootProxy(JSON.parse(current.stdout || '{}'), dnsName); }
-    catch { return { status: 'unknown', reason: 'Tailscale Serve returned invalid status JSON' }; }
+    catch { return { status: 'inconclusive', reason: 'Tailscale Serve returned invalid status JSON' }; }
     if (rootProxy === undefined) return { status: 'free' };
     if (rootProxy === expected) return { status: 'ours' };
     return { status: 'occupied' };
@@ -192,7 +196,7 @@ export function cleanupManagedIngress(state) {
     const expected = typeof ingress.proxy === 'string' ? ingress.proxy : `http://127.0.0.1:${ingress.port}`;
     const ownership = inspectTailscaleServeRoot(ingress.port, ingress.dnsName, expected);
     if (ownership.missing || ownership.status === 'free' || ownership.status === 'occupied') return;
-    if (ownership.status === 'unknown') {
+    if (ownership.status === 'disabled' || ownership.status === 'inconclusive') {
         throw new Error('cannot inspect the previous muxr Tailscale Serve route; leaving it unchanged');
     }
     const disabled = runTailscale(['serve', '--https=443', 'off'], { encoding: 'utf8' });

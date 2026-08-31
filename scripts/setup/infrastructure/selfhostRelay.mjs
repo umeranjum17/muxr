@@ -138,7 +138,7 @@ export async function resolveAdvertise(args, port, tailscale) {
     }
     if (tailscale) {
         const ownership = inspectTailscaleServeRoot(port, tailscale.dnsName);
-        if (ownership.status === 'unknown') throw new Error(ownership.reason);
+        if (ownership.status === 'disabled' || ownership.status === 'inconclusive') throw new Error(ownership.reason);
         if (ownership.status === 'occupied') throw new Error(SERVE_OWNED_ERROR);
         const expected = `http://127.0.0.1:${port}`;
         const serve = ownership.status === 'ours'

@@ -233,15 +233,15 @@ const RELAY_KIND = {
 };
 const relayKind = (mode) => RELAY_KIND[mode] ?? mode;
 
-function choices(found, tailscalePlanned = false, serveRoot = { status: 'unknown' }) {
+function choices(found, tailscalePlanned = false, serveRoot = { status: 'inconclusive' }) {
     // The relay is the one real choice in setup: it is how the phone reaches
     // the host. Never delete an option silently — show it disabled with the
     // reason and remedy attached, so the user sees what is standing in the way.
     const options = [];
     const serveOccupied = serveRoot.status === 'occupied';
-    const serveUnavailable = serveRoot.status === 'unknown' && !tailscalePlanned;
+    const serveDisabled = serveRoot.status === 'disabled' && !tailscalePlanned;
     if (found.tailscale.connected || tailscalePlanned) {
-        if (serveOccupied || serveUnavailable) {
+        if (serveOccupied || serveDisabled) {
             let directDescription = 'connect during Apply · reach this computer over the tailnet address';
             if (!tailscalePlanned) directDescription = serveOccupied
                 ? 'private tailnet address · leaves the existing Serve service unchanged'
@@ -249,7 +249,7 @@ function choices(found, tailscalePlanned = false, serveRoot = { status: 'unknown
             options.push({
                 value: 'tailscale',
                 title: 'Tailscale Serve',
-                description: serveOccupied ? 'already used by another service · left unchanged' : serveRoot.reason || 'availability check failed',
+                description: serveOccupied ? 'already used by another service · left unchanged' : serveRoot.reason,
                 disabled: true,
             });
             options.push({
@@ -258,7 +258,13 @@ function choices(found, tailscalePlanned = false, serveRoot = { status: 'unknown
                 description: directDescription,
             });
         } else {
-            options.push({ value: 'tailscale', title: 'Tailscale · recommended', description: tailscalePlanned ? 'connect during Apply · private access from anywhere' : 'private connection · works from anywhere · nothing exposed publicly' });
+            options.push({
+                value: 'tailscale',
+                title: 'Tailscale · recommended',
+                description: serveRoot.status === 'inconclusive'
+                    ? 'private connection · availability will be verified during Apply'
+                    : tailscalePlanned ? 'connect during Apply · private access from anywhere' : 'private connection · works from anywhere · nothing exposed publicly',
+            });
         }
     } else {
         options.push({ value: 'tailscale', title: 'Tailscale', description: found.tailscale.detail, disabled: true });
@@ -304,8 +310,8 @@ export function selfhostArgsFromSetupPlan({ mode, port, web, pairing, found, end
 }
 
 function serveRootFor(found, port) {
-    if (!found.tailscale.connected && !found.tailscale.dnsName) return { status: 'unknown' };
-    return inspectTailscaleServeRoot(port, found.tailscale.dnsName, undefined, 3_000);
+    if (!found.tailscale.connected && !found.tailscale.dnsName) return { status: 'inconclusive' };
+    return inspectTailscaleServeRoot(port, found.tailscale.dnsName, undefined, 8_000);
 }
 
 async function chooseMachineConnection({ found, current, tailscalePlanned, requestedMode, args }) {
@@ -329,10 +335,6 @@ async function chooseMachineConnection({ found, current, tailscalePlanned, reque
     }
     if ((mode === 'tailscale' || mode === 'tailscale-direct') && !found.tailscale.connected && !tailscalePlanned) {
         process.stderr.write(`Tailscale is unavailable: ${found.tailscale.detail}; or pick a different relay\n`);
-        return 1;
-    }
-    if (mode === 'tailscale' && serveRoot.status === 'unknown' && !tailscalePlanned) {
-        process.stderr.write(`${serveRoot.reason || 'Tailscale Serve availability could not be verified'}\n`);
         return 1;
     }
     if (mode === 'lan' && !found.lan) {
@@ -408,7 +410,7 @@ async function chooseMachineConnection({ found, current, tailscalePlanned, reque
 async function recoverTailscaleServe({ plan, found, current, tailscalePlanned, args }) {
     if (plan.mode !== 'tailscale') return plan;
     const serveRoot = serveRootFor(found, plan.port);
-    if (serveRoot.status === 'free' || serveRoot.status === 'ours') return plan;
+    if (serveRoot.status === 'free' || serveRoot.status === 'ours' || serveRoot.status === 'inconclusive') return plan;
     const occupied = serveRoot.status === 'occupied';
     const title = occupied ? 'Tailscale Serve is already in use' : 'Tailscale Serve is unavailable';
     setupStep(5, 5, title);
