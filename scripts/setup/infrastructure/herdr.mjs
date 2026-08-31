@@ -137,7 +137,7 @@ export async function ensureHerdr({ dryRun, noInstall, installRequested }) {
     const versionResult = run(binary, ['--version']);
     const version = parseVersion(versionResult.stdout);
     if (!versionResult.ok || !version || !versionIsCompatible(version)) {
-        throw new Error(`herdr >= 0.8.0 is required; found ${versionResult.stdout || 'an unreadable version'}. Run \`herdr update\` after reviewing the upgrade.`);
+        throw new Error(`herdr >= 0.8.0 is required; found ${versionResult.stdout || versionResult.stderr || 'an unreadable version'}. Run \`herdr update\` after reviewing the upgrade.`);
     }
     print(`  ✓ herdr ${version.join('.')} (adopted; config and sessions unchanged)`);
     return binary;
@@ -155,7 +155,10 @@ function runBundledPluginBackfill(root, binary, enabled, dryRun) {
         env: { ...process.env, HERDR_BIN_PATH: binary },
         timeout: 30_000,
     });
-    if (result.status !== 0) throw new Error(result.stderr || result.stdout || `failed to backfill ${basename(root)}`);
+    if (result.status !== 0 || result.error) {
+        const detail = result.stderr || result.stdout || (result.error?.code === 'ETIMEDOUT' ? 'timed out after 30 seconds' : result.error?.message);
+        throw new Error(detail || `failed to backfill ${basename(root)}`);
+    }
 }
 
 export async function ensureBundledPlugins(binary, dryRun) {

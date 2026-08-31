@@ -34,6 +34,7 @@ import {
     selfhostRelayHealthy,
     SERVE_OWNED_ERROR,
     stopOwnedSelfhostRelay,
+    tailscaleServeFailure,
     writeSelfhostState,
 } from './selfhost.mjs';
 
@@ -64,10 +65,11 @@ export function browserHostingReady() {
     return parsed.ok && parsed.value.browserHostingReady();
 }
 
-export async function remoteHostOnline(state) {
+export async function remoteHostOnline(state, timeoutMs = 15_000) {
     if (state?.relayLocation !== 'remote' || env('MUXR_REMOTE_HOST_ONLINE') === '1') return true;
     const result = await api(selfhostControlBase(state), '/v1/selfhost/machine-status', {
         headers: { authorization: `Bearer ${selfhostCredential(state)}` },
+        signal: AbortSignal.timeout(timeoutMs),
     }).catch(() => undefined);
     return result?.response.ok === true && result.body.online === true;
 }
@@ -142,12 +144,7 @@ export async function resolveAdvertise(args, port, tailscale) {
         const serve = ownership.status === 'ours'
             ? { status: 0, stdout: '', stderr: '' }
             : runTailscale(['serve', '--yes', '--bg', '--https=443', expected], { encoding: 'utf8' });
-        if (serve.status !== 0) {
-            const detail = serve.error?.code === 'ETIMEDOUT'
-                ? 'command timed out after 15 seconds'
-                : (serve.stderr || serve.stdout || serve.error?.message || 'check operator permissions').trim();
-            throw new Error(`tailscale serve failed: ${detail}; use --tailscale-direct for direct tailnet mode`);
-        }
+        if (serve.status !== 0 || serve.error) throw new Error(tailscaleServeFailure(serve));
         return {
             url: `wss://${tailscale.dnsName}`,
             note: 'Tailscale Serve (private tailnet HTTPS)',
@@ -228,6 +225,7 @@ export async function ensureSelfhostRelay(port, webRoot, host = '0.0.0.0', webOr
         if (await fetch(`http://127.0.0.1:${port}/health`, { signal: AbortSignal.timeout(500) })
             .then((response) => response.ok).catch(() => false)) return;
     }
+    proc.kill('SIGTERM');
     throw new Error(`self-host relay did not come up on :${port}; see ${logPath}`);
 }
 

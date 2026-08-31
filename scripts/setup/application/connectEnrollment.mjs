@@ -32,6 +32,16 @@ import {
 } from '../infrastructure/selfhostRelay.mjs';
 import { mintDeviceGrant, pairDevice } from './pairDevice.mjs';
 
+async function waitForRemoteHost(state, timeoutMs = 10_000) {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+        const remaining = deadline - Date.now();
+        if (await remoteHostOnline(state, Math.max(1, Math.min(1_000, remaining)))) return true;
+        await new Promise((resolve) => setTimeout(resolve, Math.min(250, Math.max(0, deadline - Date.now()))));
+    }
+    return false;
+}
+
 export async function resumeRemoteConnect(args = []) {
     if (!hasPendingRemoteConnect()) throw new Error('no interrupted remote enrollment is waiting to resume');
     const parsed = parsePendingRemote(JSON.parse(readFileSync(pendingRemotePath(), 'utf8')));
@@ -46,8 +56,7 @@ export async function resumeRemoteConnect(args = []) {
     writeSelfhostState(pending);
     rmSync(pendingRemotePath(), { force: true });
     await startMuxrDaemon('selfhost', args, true);
-    for (let attempt = 0; attempt < 40 && !(await remoteHostOnline(pending)); attempt += 1) await new Promise((resolve) => setTimeout(resolve, 250));
-    if (!(await remoteHostOnline(pending))) throw new Error('remote enrollment was restored, but the host did not authenticate; run `muxr doctor`');
+    if (!(await waitForRemoteHost(pending))) throw new Error('remote enrollment was restored, but the host did not authenticate; run `muxr doctor`');
     rmSync(join(stateDir(), 'selfhost.previous.json'), { force: true });
     print('  ✓ resumed the remote relay connection');
     return 0;
@@ -111,10 +120,7 @@ export async function connectEnrollment(args = []) {
         catch (cause) {
             throw new Error(`enrollment completed and the scoped credential was saved, but the local service did not start: ${cause instanceof Error ? cause.message : String(cause)}; choose Restart muxr after fixing the reported service issue`);
         }
-        for (let attempt = 0; attempt < 40 && !(await remoteHostOnline(state)); attempt += 1) {
-            await new Promise((resolve) => setTimeout(resolve, 250));
-        }
-        if (!(await remoteHostOnline(state))) throw new Error('the scoped credential was saved, but the local host did not authenticate with the shared relay; run `muxr doctor`');
+        if (!(await waitForRemoteHost(state))) throw new Error('the scoped credential was saved, but the local host did not authenticate with the shared relay; run `muxr doctor`');
         rmSync(join(stateDir(), 'selfhost.previous.json'), { force: true });
         print(`  ✓ connected this machine to ${enrollment.relay}`);
         print(`  ✓ machine credential expires ${new Date(state.credentialExpiresAt).toLocaleDateString()}`);

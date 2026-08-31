@@ -52,6 +52,8 @@ are:
 | `--tailscale-direct` | Rollback path using the tailnet IP directly. |
 | *(choose Local network)* | LAN address. Phone must be on the same network. |
 
+Before recommending Serve, the wizard checks that it is available and not already owned. If Serve is disabled for the tailnet, muxr shows Tailscale's enablement link and offers direct Tailscale or LAN instead of waiting indefinitely.
+
 muxr never enables Funnel. Restrict the Serve endpoint with a tailnet grant/ACL to intended devices even though muxr pairing and E2EE remain authoritative. `--web` requires a secure `wss://` route; insecure LAN HTTP is refused.
 
 Set `MUXR_TRUST_PROXY=1` when the relay sits behind cloudflared/nginx so rate

@@ -21,8 +21,8 @@ const originalPath = process.env.PATH;
 const originalHome = process.env.HOME;
 const originalMuxrHome = process.env.MUXR_HOME;
 const originalPlatform = process.env.MUXR_PLATFORM;
-const configure = (status, serveStatus = '{}') => {
-    writeFileSync(fake, `#!/bin/sh\nprintf '%s\\n' "$*" >> ${JSON.stringify(log)}\ncase "$*" in\n  "status --json") printf '%s' '${JSON.stringify(status)}' ;;\n  "serve status --json") printf '%s' '${serveStatus.replaceAll("'", "'\\''")}' ;;\n  "serve --yes --bg --https=443 http://127.0.0.1:8792") exit 0 ;;\n  "serve --https=443 off") exit 0 ;;\n  *) exit 1 ;;\nesac\n`);
+const configure = (status, serveStatus = '{}', serveApply = 'exit 0', serveStatusExit = 0) => {
+    writeFileSync(fake, `#!/bin/sh\nprintf '%s\\n' "$*" >> ${JSON.stringify(log)}\ncase "$*" in\n  "status --json") printf '%s' '${JSON.stringify(status)}' ;;\n  "serve status --json") printf '%s' '${serveStatus.replaceAll("'", "'\\''")}'; exit ${serveStatusExit} ;;\n  "serve --yes --bg --https=443 http://127.0.0.1:8792") ${serveApply} ;;\n  "serve --https=443 off") exit 0 ;;\n  *) exit 1 ;;\nesac\n`);
     chmodSync(fake, 0o755);
 };
 const commandsSince = (offset) => (existsSync(log) ? readFileSync(log, 'utf8') : '').slice(offset);
@@ -37,6 +37,21 @@ try {
         note: 'Tailscale Serve (private tailnet HTTPS)',
         ingress: { kind: 'tailscale-serve', port: 8792, dnsName: 'dev.tailnet.ts.net', proxy: 'http://127.0.0.1:8792' },
     });
+
+    const disabledNotice = 'Serve is not enabled on your tailnet.\nTo enable, visit: https://login.tailscale.com/f/serve-test';
+    configure({ Self: { DNSName: 'dev.tailnet.ts.net.', TailscaleIPs: ['100.64.0.1'] } }, disabledNotice, 'exit 0', 1);
+    const unavailable = inspectTailscaleServeRoot(8792, 'dev.tailnet.ts.net');
+    assert.equal(unavailable.status, 'unknown');
+    assert.match(unavailable.reason, /Serve is not enabled.*login\.tailscale\.com.*direct Tailscale or LAN/s);
+
+    configure(
+        { Self: { DNSName: 'dev.tailnet.ts.net.', TailscaleIPs: ['100.64.0.1'] } },
+        '{}',
+        `printf '%s\\n' '${disabledNotice.replaceAll("'", "'\\''")}' >&2; exec sleep 30`,
+    );
+    const blockedAt = Date.now();
+    await assert.rejects(resolveAdvertise([], 8792, tailscaleIngress([])), /Serve is not enabled.*login\.tailscale\.com.*direct Tailscale or LAN/s);
+    assert.ok(Date.now() - blockedAt < 20_000, 'disabled Tailscale Serve left setup blocked');
 
     configure({ Self: { DNSName: 'dev.tailnet.ts.net.' } }, JSON.stringify({ TCP: { '443': { HTTPS: true } }, Web: { 'dev.tailnet.ts.net:443': { Handlers: { '/': { Proxy: 'http://127.0.0.1:9999' } } } } }));
     await assert.rejects(resolveAdvertise([], 8792, tailscaleIngress([])), /already owned/);

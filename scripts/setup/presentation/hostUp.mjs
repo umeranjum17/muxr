@@ -65,7 +65,7 @@ function start(entry, env = process.env, args = []) {
 
 async function waitForRelay(port) {
     for (let attempt = 0; attempt < 30; attempt += 1) {
-        const ready = await fetch(`http://127.0.0.1:${port}/health`).then((response) => response.ok).catch(() => false);
+        const ready = await fetch(`http://127.0.0.1:${port}/health`, { signal: AbortSignal.timeout(500) }).then((response) => response.ok).catch(() => false);
         if (ready) return;
         await new Promise((resolve) => setTimeout(resolve, 250));
     }

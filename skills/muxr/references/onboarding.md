@@ -150,7 +150,7 @@ bounded deadline. Then follow the matching remedy:
 |---|---|
 | Herdr server or lifecycle integrations | accept doctor's offered repair, or run `muxr integrations sync`; rerun doctor |
 | muxr service, relay, or local peer access | `muxr daemon restart`, then `muxr doctor` |
-| Tailscale Serve | restart `tailscaled` only when another connection can survive the interruption, or rerun setup with LAN / `muxr self-host --tailscale-direct` |
+| Tailscale Serve | if Tailscale says Serve is not enabled, use its printed `login.tailscale.com` link or the Tailscale admin console to enable Serve, then rerun setup; otherwise choose LAN / `muxr self-host --tailscale-direct`. Restart `tailscaled` only when another connection can survive the interruption. |
 | Local relay port | `curl --max-time 3 http://127.0.0.1:8792/health`; inspect the owner with `ss -ltnp 'sport = :8792'` on Linux or `lsof -nP -iTCP:8792 -sTCP:LISTEN` on macOS; stop only a process you recognize or rerun `muxr setup --port <free-port>` |
 | Expired or interrupted pairing | `muxr pair` for a new single-use code |
 | Connection choice or tunnel | rerun interactive `muxr`; do not edit `~/.muxr` |

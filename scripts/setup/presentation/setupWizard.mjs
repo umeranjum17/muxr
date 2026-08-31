@@ -14,10 +14,12 @@ import { inspectTailscaleServeRoot, runTailscale, tailscaleBin } from '../infras
 import { advertisedUrlForMode, connectionLabel, ingressPlan, modeAllowsBrowserHosting } from '../domain/dist/index.js';
 
 function command(name, args = []) {
-    const result = spawnSync(name, args, { encoding: 'utf8', timeout: 120_000 });
+    const result = spawnSync(name, args, { encoding: 'utf8', timeout: 15_000 });
+    const stdout = result.stdout?.trim() ?? '';
+    const stderr = result.stderr?.trim() ?? '';
     return {
-        ok: result.status === 0,
-        output: (result.stdout || result.stderr || '').trim(),
+        ok: result.status === 0 && result.error === undefined,
+        output: result.status === 0 ? stdout : stderr || stdout || result.error?.message || '',
         missing: result.error?.code === 'ENOENT',
         errorCode: result.error?.code,
     };
@@ -120,7 +122,7 @@ export function probeMachine() {
     const integration = herdrVersion.ok ? command(binary, ['integration', 'status']) : { ok: false, output: '' };
     const agents = integrationSummary(integration);
     return {
-        herdr: { installed: herdrVersion.ok, version: herdrVersion.output.split('\n')[0], running: herdrVersion.ok && herdrServerIsReady(binary) },
+        herdr: { installed: !herdrVersion.missing, working: herdrVersion.ok, version: herdrVersion.output.split('\n')[0], running: herdrVersion.ok && herdrServerIsReady(binary) },
         agents,
         tailscale: probeTailscale(),
         cloudflared: probeCloudflared(),
@@ -138,7 +140,11 @@ function agentIntegrationDetail(found) {
 
 function renderInspection(found) {
     heading('Checking this machine');
-    status('Herdr', found.herdr.installed ? found.herdr.version : 'not installed — will be installed during setup', found.herdr.installed ? 'ok' : 'warn');
+    let herdrDetail = 'not installed — will be installed during setup';
+    if (found.herdr.installed) herdrDetail = found.herdr.working
+        ? found.herdr.version
+        : `installed but unavailable — ${found.herdr.version || 'run muxr doctor'}`;
+    status('Herdr', herdrDetail, found.herdr.working ? 'ok' : 'warn');
     status('Herdr server', found.herdr.running ? 'running' : 'will be started', found.herdr.running ? 'ok' : 'warn');
     status('Agent integrations', agentIntegrationDetail(found), found.agents.checked && found.agents.current.length ? 'ok' : 'warn');
     status('Tailscale', found.tailscale.connected ? `connected — ${found.tailscale.ip}` : found.tailscale.detail, found.tailscale.connected ? 'ok' : 'off');
@@ -233,20 +239,23 @@ function choices(found, tailscalePlanned = false, serveRoot = { status: 'unknown
     // reason and remedy attached, so the user sees what is standing in the way.
     const options = [];
     const serveOccupied = serveRoot.status === 'occupied';
+    const serveUnavailable = serveRoot.status === 'unknown' && !tailscalePlanned;
     if (found.tailscale.connected || tailscalePlanned) {
-        if (serveOccupied) {
+        if (serveOccupied || serveUnavailable) {
+            let directDescription = 'connect during Apply · reach this computer over the tailnet address';
+            if (!tailscalePlanned) directDescription = serveOccupied
+                ? 'private tailnet address · leaves the existing Serve service unchanged'
+                : 'private tailnet address · does not require Tailscale Serve';
             options.push({
                 value: 'tailscale',
                 title: 'Tailscale Serve',
-                description: 'already used by another service · left unchanged',
+                description: serveOccupied ? 'already used by another service · left unchanged' : serveRoot.reason || 'availability check failed',
                 disabled: true,
             });
             options.push({
                 value: 'tailscale-direct',
                 title: 'Tailscale · recommended',
-                description: tailscalePlanned
-                    ? 'connect during Apply · reach this computer over the tailnet address'
-                    : 'private tailnet address · leaves the existing Serve service unchanged',
+                description: directDescription,
             });
         } else {
             options.push({ value: 'tailscale', title: 'Tailscale · recommended', description: tailscalePlanned ? 'connect during Apply · private access from anywhere' : 'private connection · works from anywhere · nothing exposed publicly' });
@@ -296,7 +305,7 @@ export function selfhostArgsFromSetupPlan({ mode, port, web, pairing, found, end
 
 function serveRootFor(found, port) {
     if (!found.tailscale.connected && !found.tailscale.dnsName) return { status: 'unknown' };
-    return inspectTailscaleServeRoot(port, found.tailscale.dnsName);
+    return inspectTailscaleServeRoot(port, found.tailscale.dnsName, undefined, 3_000);
 }
 
 async function chooseMachineConnection({ found, current, tailscalePlanned, requestedMode, args }) {
@@ -320,6 +329,10 @@ async function chooseMachineConnection({ found, current, tailscalePlanned, reque
     }
     if ((mode === 'tailscale' || mode === 'tailscale-direct') && !found.tailscale.connected && !tailscalePlanned) {
         process.stderr.write(`Tailscale is unavailable: ${found.tailscale.detail}; or pick a different relay\n`);
+        return 1;
+    }
+    if (mode === 'tailscale' && serveRoot.status === 'unknown' && !tailscalePlanned) {
+        process.stderr.write(`${serveRoot.reason || 'Tailscale Serve availability could not be verified'}\n`);
         return 1;
     }
     if (mode === 'lan' && !found.lan) {
@@ -392,18 +405,25 @@ async function chooseMachineConnection({ found, current, tailscalePlanned, reque
     return { mode, port, endpoint, web, pairing };
 }
 
-async function recoverOccupiedServe({ plan, found, current, tailscalePlanned, args }) {
+async function recoverTailscaleServe({ plan, found, current, tailscalePlanned, args }) {
     if (plan.mode !== 'tailscale') return plan;
-    if (serveRootFor(found, plan.port).status !== 'occupied') return plan;
-    setupStep(5, 5, 'Tailscale Serve is already in use');
-    heading('Tailscale Serve is already in use');
-    note([
+    const serveRoot = serveRootFor(found, plan.port);
+    if (serveRoot.status === 'free' || serveRoot.status === 'ours') return plan;
+    const occupied = serveRoot.status === 'occupied';
+    const title = occupied ? 'Tailscale Serve is already in use' : 'Tailscale Serve is unavailable';
+    setupStep(5, 5, title);
+    heading(title);
+    note(occupied ? [
         'Another service already owns the Tailscale Serve root.',
         'muxr left that service unchanged.',
         'You can use direct Tailscale networking, or go back and choose a different connection.',
+    ] : [
+        serveRoot.reason || 'muxr could not verify that Tailscale Serve is available.',
+        'muxr made no Serve changes.',
+        'You can use direct Tailscale networking, or go back and choose LAN or another connection.',
     ]);
     const action = await select('How do you want to continue?', [
-        { value: 'direct', title: 'Use direct Tailscale networking', description: 'reach this computer over its tailnet address · leaves the other service unchanged' },
+        { value: 'direct', title: 'Use direct Tailscale networking', description: 'reach this computer over its tailnet address · does not require Serve' },
         { value: 'back', title: 'Change how your phone connects', description: 'go back and pick a different connection' },
     ]);
     if (aborted(action)) return undefined;
@@ -547,7 +567,7 @@ export async function applyMachineSetup(args = []) {
     status('Network', 'checking Tailscale Serve ownership and local relay port', 'off');
     let result = 1;
     for (;;) {
-        const recovered = await recoverOccupiedServe({ plan, found, current, tailscalePlanned, args });
+        const recovered = await recoverTailscaleServe({ plan, found, current, tailscalePlanned, args });
         if (recovered === undefined) return cancelSetup();
         if (recovered === 1) return 1;
         plan = recovered;
