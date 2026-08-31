@@ -122,7 +122,19 @@ Reference it from the UI:
 
 muxr never executes a command from the UI document. It sends the enabled extension ID, manifest hash, declared action ID, and explicit session context to the host. The host verifies them and asks Herdr to invoke the action from that same package.
 
-Your action receives `HERDR_PLUGIN_CONTEXT_JSON`, including the muxr-resolved `focused_pane_id`, `focused_pane_cwd`, `workspace_id`, `tab_id`, and `invocation_source`. Write state under `HERDR_PLUGIN_STATE_DIR`. There is no `HERDR_PANE_ID` in an action process; that variable belongs to panes.
+Your action receives `HERDR_PLUGIN_CONTEXT_JSON`, including the muxr-resolved `focused_pane_id`, `focused_pane_cwd`, `workspace_id`, `tab_id`, and `invocation_source`. Herdr also exports `HERDR_WORKSPACE_ID`, `HERDR_TAB_ID`, and `HERDR_PANE_ID` from that same context, and puts the `herdr` binary on `HERDR_BIN_PATH` alongside `HERDR_SOCKET_PATH`. Write state under `HERDR_PLUGIN_STATE_DIR`.
+
+Because `HERDR_PANE_ID` is the session the phone is looking at, an action that only drives Herdr needs no script of its own:
+
+```toml
+[[actions]]
+id = "split-right"
+title = "Split right"
+contexts = ["pane"]
+command = ["herdr", "pane", "split", "--current", "--direction", "right"]
+```
+
+Herdr starts an action and returns before it finishes, and publishes no completion event. muxr watches the action's log briefly and surfaces a non-zero exit as an error on the phone; an action still running after that window is reported as started, and its effects arrive as ordinary Herdr events. Actions are therefore for driving Herdr, not for returning data — use `host.rpc` when the phone needs an answer.
 
 ## Hooks
 
@@ -559,7 +571,7 @@ The backend reads fresh Herdr topology before every mutation. Pane close needs n
 
 A stream process receives one private `realtime.open` line followed by bounded provider-neutral NDJSON frames. A PCM provider exchanges ready/audio/state/transcript/control frames and keeps its provider socket on the host. A WebRTC signaling provider exchanges bounded offer/answer SDP plus opaque data-channel control while the mobile kernel owns the peer and direct media. The host enforces approval revocation, admission, process cleanup, frame bounds, and encrypted relay transport.
 
-The package ships xAI (`plugins/voice`, default on), Gemini Live (`plugins/voice-gemini`, default off), OpenAI Realtime (`plugins/voice-openai`, default off), and experimental Codex Voice (`plugins/voice-codex`, default off). All claim `voice.session`; choose one under **Settings → Realtime voice**, where the host serializes the switch. Existing PCM providers remain unchanged; Codex adds only the generic WebRTC transport kind.
+The package ships one voice plugin (`plugins/voice`) with four adapters under `plugins/voice/providers/`: xAI (default), Gemini Live, OpenAI Realtime, and experimental Codex Voice. Choose one under **Settings → Realtime voice**; the selection is the plugin's own state, read by its `voice.provider.list` and `voice.provider.set` capabilities. PCM providers keep their host-relayed stream; Codex adds only the generic WebRTC transport kind.
 
 Voice uses this without knowing any provider plugin id. Its one-shot semantic RPC aliases remain:
 
