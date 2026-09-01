@@ -1,17 +1,21 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { patchFiles, uniqueDiffLabels } from '@/components/diff/patchFiles';
 import { nearestContentMount } from '@/plugins/domain/screenModel';
 import {
+    bundledBinaryChip,
     currentFileNavigation,
     fileNavControlLabel,
     gitDirectoryProbeCommand,
     gitDirectorySearchPaths,
     recordFileNavigation,
 } from './fileNavigationList';
+
+const changesScript = join(dirname(fileURLToPath(import.meta.url)), '../../../../../plugins/code/changes.mjs');
 
 const commit = `diff --git a/src/old.ts b/src/old.ts
 deleted file mode 100644
@@ -52,6 +56,13 @@ index 8888888..9999999 100644
 @@ -1 +1 @@
 -old
 +new
+diff --git "a/é file.ts" "b/é file.ts"
+index aaaaaaa..bbbbbbb 100644
+--- "a/é file.ts"
++++ "b/é file.ts"
+@@ -1 +1 @@
+-plain
++quoted
 `;
 
 describe('file and diff navigation', () => {
@@ -80,6 +91,7 @@ describe('file and diff navigation', () => {
             { label: 'b/shared/index.ts', status: 'modified', added: 2, removed: 1 },
             { label: 'notes.md', status: 'modified', added: 1, removed: 1 },
             { label: 'é.ts', status: 'modified', added: 1, removed: 1 },
+            { label: 'é file.ts', status: 'modified', added: 1, removed: 1 },
         ]);
         expect(uniqueDiffLabels(files.map((file) => file.label))).toEqual([
             'old.ts',
@@ -87,18 +99,43 @@ describe('file and diff navigation', () => {
             'b/shared/index.ts',
             'notes.md',
             'é.ts',
+            'é file.ts',
         ]);
+
+        const bin = mkdtempSync(join(tmpdir(), 'muxr-git-'));
+        try {
+            writeFileSync(join(bin, 'git'), `#!/bin/sh
+case " $* " in
+  *" rev-parse "*) printf '%s\\n' "$2" ;;
+  *" --porcelain=v1 "*) printf 'C  copied.ts\\0kept.ts\\0' ;;
+esac
+`, { mode: 0o755 });
+            const items = JSON.parse(execFileSync(process.execPath, [changesScript], {
+                encoding: 'utf8',
+                env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ''}` },
+                input: JSON.stringify({ cwd: '/repo' }),
+            })).items as Array<{ title: string; group: string; icon: string }>;
+            expect(items.map(({ title, group, icon }) => ({ title, group, icon }))).toEqual([
+                { title: 'copied.ts', group: 'Renamed', icon: 'swap-horizontal-outline' },
+            ]);
+        } finally {
+            rmSync(bin, { recursive: true, force: true });
+        }
 
         recordFileNavigation('session-1', [
             { id: 'row-a', title: 'first', metadata: [], action: { type: 'kernel.navigate', target: 'file', path: '/repo/a.ts' } },
             { id: 'row-a-again', title: 'dup', group: 'Addressed', metadata: [{ value: '+VIP' }], action: { type: 'kernel.navigate', target: 'file', path: '/repo/a.ts' } },
+            { id: 'row-bin', title: 'photo', metadata: [{ value: 'binary', tone: 'secondary' }], action: { type: 'kernel.navigate', target: 'file', path: '/repo/photo.png' } },
+            { id: 'row-fake-bin', title: 'notes', metadata: [{ value: 'binary' }], action: { type: 'kernel.navigate', target: 'file', path: '/repo/notes.md' } },
             { id: 'row-b', title: 'second', metadata: [], action: { type: 'kernel.navigate', target: 'file', path: '/repo/b.ts' } },
         ], '/repo/a.ts');
         const current = currentFileNavigation('session-1', '/repo/a.ts');
-        expect(current?.entries.map((entry) => entry.path)).toEqual(['/repo/a.ts', '/repo/b.ts']);
+        expect(current?.entries.map((entry) => entry.path)).toEqual(['/repo/a.ts', '/repo/photo.png', '/repo/notes.md', '/repo/b.ts']);
         expect(current?.index).toBe(0);
-        expect(current!.entries[current!.index + 1]?.path).toBe('/repo/b.ts');
-        expect(currentFileNavigation('session-1', '/repo/b.ts')?.index).toBe(1);
+        expect(current!.entries[current!.index + 1]?.path).toBe('/repo/photo.png');
+        expect(bundledBinaryChip(currentFileNavigation('session-1', '/repo/photo.png')!.entries[1]!.metadata)).toBe(true);
+        expect(bundledBinaryChip(currentFileNavigation('session-1', '/repo/notes.md')!.entries[2]!.metadata)).toBe(false);
+        expect(currentFileNavigation('session-1', '/repo/b.ts')?.index).toBe(3);
 
         const mounts = [
             { contentContributionId: 'foo.files', label: 'Files' },

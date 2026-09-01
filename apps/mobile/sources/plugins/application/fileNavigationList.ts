@@ -73,6 +73,11 @@ export function gitDirectoryProbeCommand(filePath: string, sessionPath: string |
     return `for d in ${listed}; do [ -d "$d" ] && { printf '%s' "$d"; exit 0; }; done; printf '%s' ${shellQuote(paths[paths.length - 1] ?? '/')}`;
 }
 
+/** Bundled changes rows mark binaries with value+secondary; a bare "binary" string is not Git status. */
+export function bundledBinaryChip(metadata: FileNavigationEntry['metadata']): boolean {
+    return metadata.some((item) => item.value === 'binary' && item.tone === 'secondary');
+}
+
 export function fileNavControlLabel(direction: 'previous' | 'next', title: string | undefined, index: number, total: number): string {
     const verb = direction === 'previous' ? 'Previous' : 'Next';
     if (title === undefined) return `${verb} changed file`;

@@ -1,3 +1,5 @@
+import { decodeGitPath } from '@/catalog/infrastructure/git-parsers/gitPath';
+
 export interface PatchFile {
     key: string;
     label: string;
@@ -8,44 +10,9 @@ export interface PatchFile {
     status: 'added' | 'deleted' | 'modified' | 'renamed';
 }
 
-const GIT_C_ESCAPES: Record<string, number> = {
-    a: 0x07, b: 0x08, t: 0x09, n: 0x0a, v: 0x0b, f: 0x0c, r: 0x0d, '"': 0x22, '\\': 0x5c,
-};
-
-function unquoteGitPath(raw: string): string {
-    if (!raw.startsWith('"')) return raw;
-    const bytes: number[] = [];
-    for (let i = 1; i < raw.length; i += 1) {
-        const ch = raw[i];
-        if (ch === undefined || ch === '"') break;
-        if (ch !== '\\') {
-            bytes.push(ch.charCodeAt(0));
-            continue;
-        }
-        const next = raw[i + 1];
-        if (next === undefined) break;
-        if (next >= '0' && next <= '7') {
-            let value = 0;
-            let count = 0;
-            while (count < 3) {
-                const digit = raw[i + 1];
-                if (digit === undefined || digit < '0' || digit > '7') break;
-                value = (value << 3) + (digit.charCodeAt(0) - 48);
-                i += 1;
-                count += 1;
-            }
-            bytes.push(value & 0xff);
-            continue;
-        }
-        bytes.push(GIT_C_ESCAPES[next] ?? next.charCodeAt(0));
-        i += 1;
-    }
-    return new TextDecoder().decode(Uint8Array.from(bytes));
-}
-
 function headerPath(raw: string | undefined): string | undefined {
     if (raw === undefined) return undefined;
-    const path = unquoteGitPath(raw);
+    const path = decodeGitPath(raw);
     if (path === '/dev/null') return undefined;
     return path.replace(/^[ab]\//, '');
 }

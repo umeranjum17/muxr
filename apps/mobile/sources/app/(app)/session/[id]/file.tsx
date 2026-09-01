@@ -17,7 +17,7 @@ import { resolveSessionFilePath } from '@/terminal';
 import { syntaxLanguage } from '@/components/code/syntaxHighlighting';
 import { PathBreadcrumb } from '@/components/PathBreadcrumb';
 import { fileIcon } from '@/plugins/domain/fileIcon';
-import { currentFileNavigation, fileNavControlLabel, gitDirectoryProbeCommand, gitDirectorySearchPaths, type FileNavigationEntry } from '@/plugins/application/fileNavigationList';
+import { bundledBinaryChip, currentFileNavigation, fileNavControlLabel, gitDirectoryProbeCommand, gitDirectorySearchPaths, type FileNavigationEntry } from '@/plugins/application/fileNavigationList';
 import { shellQuote } from '@/utils/shellQuote';
 
 interface FileContent {
@@ -43,7 +43,7 @@ function ChangeChip({ entry }: { entry?: FileNavigationEntry }) {
     const status = changeStatus(entry);
     const added = countMeta(entry, 'positive', '+');
     const removed = countMeta(entry, 'danger', '−');
-    const binary = entry.metadata.some((item) => item.value === 'binary');
+    const binary = bundledBinaryChip(entry.metadata);
     if (status === undefined && added === undefined && removed === undefined && !binary) return null;
     const statusColor = status?.colorKey === 'added' ? theme.colors.gitAddedText
         : status?.colorKey === 'deleted' ? theme.colors.gitRemovedText

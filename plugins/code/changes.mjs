@@ -67,7 +67,7 @@ function untrackedStat(path) {
 function iconFor(status) {
     if (status.includes('?') || status.includes('A')) return 'add-circle-outline';
     if (status.includes('D')) return 'trash-outline';
-    if (status.includes('R')) return 'swap-horizontal-outline';
+    if (status.includes('R') || status.includes('C')) return 'swap-horizontal-outline';
     return 'git-compare-outline';
 }
 
