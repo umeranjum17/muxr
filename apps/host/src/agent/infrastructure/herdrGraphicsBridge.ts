@@ -8,7 +8,7 @@ import { promisify } from 'node:util';
 
 const PROTOCOL_VERSION = 20;
 const MAX_MESSAGE_BYTES = 32 * 1024 * 1024;
-const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
+export const MAX_IMAGE_BYTES = 32 * 1024 * 1024;
 const KITTY_CHUNK_CHARS = 4096;
 const LAYOUT_CACHE_MS = 250;
 const compress = promisify(deflate);
@@ -50,6 +50,13 @@ export type PreparedImage = {
 };
 
 type ImageOwner = { paneId: string; imageId: number; sourceImageId: number };
+type AdmittedTransfer = {
+    sourceImageId: number;
+    generation: number;
+    retired: boolean;
+    cleared: boolean;
+    paneId?: string;
+};
 type AppGeometry = { cols: number; rows: number; cellWidthPx: number; cellHeightPx: number };
 
 export type GraphicsRoute = { paneId: string; rect?: { x: number; y: number; width: number; height: number } };
@@ -79,6 +86,8 @@ export class HerdrGraphicsBridge {
     private readonly paneProcessGroups = new Map<string, number>();
     private readonly processProbeAttempted = new Set<string>();
     private readonly processProbeFailures = new Map<string, number>();
+    private readonly admitted = new Map<bigint, AdmittedTransfer>();
+    private readonly paneRetiredGeneration = new Map<string, number>();
     private workspaceCache: { expiresAt: number; value: Promise<{ workspaceId: string; tabId: string } | undefined> } | undefined;
     private lastErrorAt = 0;
     private processTimer: ReturnType<typeof setInterval> | undefined;
@@ -86,6 +95,7 @@ export class HerdrGraphicsBridge {
     private input = Buffer.alloc(0);
     private draining = false;
     private nextImageId = 1;
+    private nextGeneration = 0;
     private closed = false;
 
     private constructor(
@@ -144,9 +154,8 @@ export class HerdrGraphicsBridge {
         const count = Math.min(40, Math.max(0, Math.trunc(lines)));
         if (registration === undefined || image === undefined || count === 0) return [];
         const button = direction === 'up' ? 64 : 65;
-        const placement = graphicsPlacement(image, registration);
-        const x = Math.max(1, placement.col + Math.ceil(placement.cols / 2));
-        const y = Math.max(1, placement.row + Math.ceil(placement.rows / 2));
+        const x = Math.ceil(image.width / 2);
+        const y = Math.ceil(image.height / 2);
         const report = Buffer.from(`\u001b[<${button};${x};${y}M`);
         return Array.from({ length: count }, () => report);
     }
@@ -178,6 +187,9 @@ export class HerdrGraphicsBridge {
         this.paneProcessGroups.clear();
         this.processProbeAttempted.clear();
         this.processProbeFailures.clear();
+        this.admitted.clear();
+        this.paneRetiredGeneration.clear();
+        this.nextGeneration += 1;
         this.workspaceCache = undefined;
         if (this.processTimer !== undefined) clearInterval(this.processTimer);
         this.processTimer = undefined;
@@ -228,11 +240,13 @@ export class HerdrGraphicsBridge {
             // A valid Herdr 0.8.2 server permits one direct transfer at a time.
             // If a future/pipelined sender violates that gate, consume the stale
             // full frame exactly once and retain only the latest for this origin.
+            this.admitted.delete(replaced.transferId);
             this.write(clientGraphicsResult(replaced, true));
         } else {
             this.pendingOrigins.push(origin);
         }
         this.pendingByOrigin.set(origin, file);
+        this.admit(file);
         if (!this.draining) void this.drain();
     }
 
@@ -254,17 +268,23 @@ export class HerdrGraphicsBridge {
     }
 
     private async forward(file: GraphicsFile): Promise<void> {
-        let success = false;
+        const admitted = this.admit(file);
         try {
-            const rgba = await readGraphicsFile(file);
+            // Routing does not need file bytes. Resolve pane first so a retire
+            // that arrived before/during forward can clear once, then drop
+            // without read/compress/publish.
             const paneId = await this.sourcePane(file.leading);
+            if (this.shouldDrop(admitted, paneId)) return;
+            const rgba = await readGraphicsFile(file);
+            if (this.shouldDrop(admitted, paneId)) return;
             const processReady = paneId !== undefined && await this.ensurePaneProcess(paneId);
+            if (this.shouldDrop(admitted, paneId)) return;
             const prepared = !processReady || paneId === undefined ? undefined : await prepareKitty(
                 rgba, file.control, this.allocateImageId(), file.transferId,
             );
-            // The local source is consumed before acknowledgement. The phone
-            // leg independently bounds and coalesces WebSocket writes, so a
-            // slow device never holds Herdr's single producer gate.
+            if (this.shouldDrop(admitted, paneId)) return;
+            // ACK below releases Herdr's one-transfer gate independently of
+            // phone delivery. Transport coalescing is a separate path.
             if (paneId !== undefined && prepared !== undefined) {
                 const previous = this.latestByPane.get(paneId);
                 if (previous !== undefined) this.imageOwners.delete(previous.transferId);
@@ -276,15 +296,53 @@ export class HerdrGraphicsBridge {
                     }
                 }
             }
-            // Herdr 0.8.2 treats `false` as failure of the whole direct client:
-            // it disables direct graphics and retires every gate. A valid file
-            // that is intentionally dropped for hidden/ambiguous routing was
-            // still consumed successfully, so acknowledge it without delivery.
-            success = true;
         } catch (error) {
             this.logError(error);
+        } finally {
+            this.admitted.delete(file.transferId);
+            // Herdr 0.8.2 treats `false` as failure of the whole direct client:
+            // it disables direct graphics and retires every gate. A consumed file
+            // — delivered, dropped for routing, or rejected by validation/read
+            // policy — always ACK true. write() is inert after close().
+            this.write(clientGraphicsResult(file, true));
         }
-        this.write(clientGraphicsResult(file, success));
+    }
+
+    private admit(file: GraphicsFile): AdmittedTransfer {
+        const existing = this.admitted.get(file.transferId);
+        if (existing !== undefined) return existing;
+        const record: AdmittedTransfer = {
+            sourceImageId: file.imageId,
+            generation: this.nextGeneration,
+            retired: false,
+            cleared: false,
+        };
+        this.admitted.set(file.transferId, record);
+        return record;
+    }
+
+    private shouldDrop(admitted: AdmittedTransfer, paneId?: string): boolean {
+        if (paneId !== undefined) admitted.paneId = paneId;
+        if (this.closed) return true;
+        const retiredAt = admitted.paneId === undefined ? 0 : (this.paneRetiredGeneration.get(admitted.paneId) ?? 0);
+        if (retiredAt > admitted.generation) return true;
+        if (!admitted.retired) return false;
+        if (!admitted.cleared && admitted.paneId !== undefined) {
+            this.emitPaneClear(admitted.paneId);
+            admitted.cleared = true;
+        }
+        return true;
+    }
+
+    private emitPaneClear(paneId: string): void {
+        this.latestByPane.delete(paneId);
+        for (const [transferId, owner] of this.imageOwners) {
+            if (owner.paneId === paneId) this.imageOwners.delete(transferId);
+        }
+        const bytes = Buffer.from('\u001b7\u001b_Ga=d,d=A,q=2;\u001b\\\u001b8');
+        for (const registration of this.registrations.values()) {
+            if (registration.paneId === paneId) registration.write(terminalFrame(bytes, registration, false));
+        }
     }
 
     private allocateImageId(): number {
@@ -296,21 +354,26 @@ export class HerdrGraphicsBridge {
     }
 
     private retire(transferId: bigint, sourceImageId: number): void {
+        const admitted = this.admitted.get(transferId);
+        if (admitted !== undefined && admitted.sourceImageId === sourceImageId) {
+            admitted.retired = true;
+            if (!admitted.cleared && admitted.paneId !== undefined) {
+                this.emitPaneClear(admitted.paneId);
+                admitted.cleared = true;
+            }
+        }
         const owner = this.imageOwners.get(transferId);
         if (owner === undefined || owner.sourceImageId !== sourceImageId) return;
         this.imageOwners.delete(transferId);
         const latest = this.latestByPane.get(owner.paneId);
-        const clearsPane = latest?.transferId === transferId;
-        if (clearsPane) {
-            this.latestByPane.delete(owner.paneId);
-            this.paneProcessGroups.delete(owner.paneId);
-            this.processProbeAttempted.delete(owner.paneId);
-            this.processProbeFailures.delete(owner.paneId);
-        }
-        const bytes = Buffer.from(`\u001b7\u001b_Ga=d,d=i,i=${owner.imageId},q=2;\u001b\\\u001b8`);
+        if (latest?.transferId === transferId) this.latestByPane.delete(owner.paneId);
+        const graphics = this.latestByPane.has(owner.paneId);
+        const bytes = graphics
+            ? Buffer.from(`\u001b7\u001b_Ga=d,d=I,i=${owner.imageId},q=2;\u001b\\\u001b8`)
+            : Buffer.from('\u001b7\u001b_Ga=d,d=A,q=2;\u001b\\\u001b8');
         for (const registration of this.registrations.values()) {
             if (registration.paneId === owner.paneId) {
-                registration.write(terminalFrame(bytes, registration, false));
+                registration.write(terminalFrame(bytes, registration, graphics));
             }
         }
     }
@@ -381,17 +444,18 @@ export class HerdrGraphicsBridge {
     }
 
     private retirePane(paneId: string): void {
-        this.latestByPane.delete(paneId);
+        this.nextGeneration += 1;
+        this.paneRetiredGeneration.set(paneId, this.nextGeneration);
+        for (const work of this.admitted.values()) {
+            if (work.paneId === paneId) {
+                work.retired = true;
+                work.cleared = true;
+            }
+        }
         this.paneProcessGroups.delete(paneId);
         this.processProbeAttempted.delete(paneId);
         this.processProbeFailures.delete(paneId);
-        for (const [transferId, owner] of this.imageOwners) {
-            if (owner.paneId === paneId) this.imageOwners.delete(transferId);
-        }
-        const bytes = Buffer.from('\u001b7\u001b_Ga=d,d=A,q=2;\u001b\\\u001b8');
-        for (const registration of this.registrations.values()) {
-            if (registration.paneId === paneId) registration.write(terminalFrame(bytes, registration, false));
-        }
+        this.emitPaneClear(paneId);
     }
 
     private async sourcePane(leading: Buffer): Promise<string | undefined> {
@@ -490,12 +554,11 @@ export function mapGraphicsPointer(
     const width = placement.cols * target.cellWidthPx;
     const height = placement.rows * target.cellHeightPx;
     if (x < left || x > left + width || y < top || y > top + height) return undefined;
-    // Herdr 0.8.2 host mouse encoding downgrades DECSET 1016 to cell SGR
-    // (ghostty_mouse_encoder_for_terminal). Injected reports use the same
-    // 1-based cell coordinates so phone taps match the desktop path.
+    // Injected reports bypass Herdr's desktop encoder and must match the
+    // producer's SGR-pixel mode: 1-based source-image pixels.
     return {
-        x: Math.max(1, Math.min(target.cols, Math.floor(x / target.cellWidthPx) + 1)),
-        y: Math.max(1, Math.min(target.rows, Math.floor(y / target.cellHeightPx) + 1)),
+        x: Math.max(1, Math.min(image.width, Math.round((x - left) / width * image.width))),
+        y: Math.max(1, Math.min(image.height, Math.round((y - top) / height * image.height))),
     };
 }
 
@@ -628,7 +691,10 @@ function terminalFrame(bytes: Buffer, target: HerdrGraphicsRegistration, graphic
 
 async function readGraphicsFile(file: GraphicsFile): Promise<Buffer> {
     const length = Number(file.expectedLength);
-    if (!Number.isSafeInteger(length) || length <= 0 || length > MAX_IMAGE_BYTES) throw new Error('invalid graphics length');
+    if (!Number.isSafeInteger(length) || length <= 0 || length > MAX_IMAGE_BYTES) {
+        const control = file.control.length > 96 ? `${file.control.slice(0, 96)}...` : file.control;
+        throw new Error(`invalid graphics length expectedLength=${file.expectedLength} control=${control}`);
+    }
     const handle = await open(file.path, 'r');
     try {
         const before = await handle.stat();

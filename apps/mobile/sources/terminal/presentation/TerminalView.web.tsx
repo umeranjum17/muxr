@@ -225,7 +225,9 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                                 const index = placements.findIndex((item) => item.id === id);
                                 if (index >= 0) placements.splice(index, 1);
                             }
-                            placements.splice(0, placements.length, ...result.placements);
+                            if (result.placements.length > 0) {
+                                placements.splice(0, placements.length, ...result.placements);
+                            }
                             paint();
                         });
                     }

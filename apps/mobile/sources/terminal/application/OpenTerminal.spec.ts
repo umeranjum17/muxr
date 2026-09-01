@@ -58,6 +58,7 @@ vi.stubGlobal('fetch', mocks.fetch);
 import { decodeBase64, encodeBase64 } from '@/encryption/base64';
 import { createKittyDecoderState, inflateZlib, materializeKittyCommands, splitKittyFrame } from './kittyDecoder';
 import { openTerminal } from './OpenTerminal';
+import { createTerminalWritePump } from './terminalWritePump';
 import { readConnectionDiagnostics, resetConnectionDiagnostics } from '@/catalog/infrastructure/connectionDiagnostics';
 
 describe('openTerminal reconnect ownership', () => {
@@ -125,6 +126,113 @@ describe('openTerminal reconnect ownership', () => {
 
         channel.close();
         expect(graphics).toEqual([false, true, false]);
+    });
+
+    it('drives socket frames through one in-flight graphics-aware write pump', async () => {
+        mocks.request.mockResolvedValue({});
+        const channel = await openTerminal({ agentRoute: 'session', size: { cols: 100, rows: 30 } });
+        await vi.waitFor(() => expect(FakeWebSocket.instances[0]).toBeDefined());
+        const socket = FakeWebSocket.instances[0]!;
+        socket.open();
+
+        const writes: string[] = [];
+        let concurrent = 0;
+        let maxConcurrent = 0;
+        const gates: Array<{ resolve: () => void; reject: (error: unknown) => void }> = [];
+        const recoveries: unknown[] = [];
+        let scheduledId = 0;
+        const scheduled = new Set<number>();
+        const pump = createTerminalWritePump({
+            write: (bytes) => {
+                concurrent += 1;
+                maxConcurrent = Math.max(maxConcurrent, concurrent);
+                writes.push(bytes);
+                return new Promise<void>((resolve, reject) => {
+                    gates.push({
+                        resolve: () => { concurrent -= 1; resolve(); },
+                        reject: (error) => { concurrent -= 1; reject(error); },
+                    });
+                });
+            },
+            combineText: (frames) => frames.join(''),
+            schedule: (run) => {
+                const handle = ++scheduledId;
+                scheduled.add(handle);
+                queueMicrotask(() => {
+                    if (!scheduled.has(handle)) return;
+                    scheduled.delete(handle);
+                    run();
+                });
+                return handle;
+            },
+            cancelSchedule: (handle) => { scheduled.delete(handle as number); },
+            onRejected: (error) => { recoveries.push(error); },
+        });
+        channel.onData((bytes, graphics) => {
+            pump.push(typeof graphics === 'boolean' ? { bytes, graphics } : { bytes });
+        });
+
+        const frame = (bytes: string, graphics?: boolean) => {
+            socket.onmessage?.({ data: JSON.stringify(typeof graphics === 'boolean'
+                ? { type: 'terminal.frame', bytes, graphics }
+                : { type: 'terminal.frame', bytes }) });
+        };
+
+        frame('draw-1', true);
+        await vi.waitFor(() => expect(writes).toEqual(['draw-1']));
+        frame('text-A');
+        frame('draw-2', true);
+        frame('text-B');
+        frame('draw-3', true);
+        frame('retire-F', false);
+        expect(writes).toEqual(['draw-1']);
+        expect(maxConcurrent).toBe(1);
+
+        gates[0]!.resolve();
+        await vi.waitFor(() => expect(writes).toEqual(['draw-1', 'text-Atext-B']));
+        expect(writes[1]).not.toContain('draw-');
+        expect(writes[1]).not.toContain('retire-');
+        gates[1]!.resolve();
+        await vi.waitFor(() => expect(writes).toEqual(['draw-1', 'text-Atext-B', 'draw-3']));
+        gates[2]!.resolve();
+        await vi.waitFor(() => expect(writes).toEqual(['draw-1', 'text-Atext-B', 'draw-3', 'retire-F']));
+        expect(writes).not.toContain('draw-2');
+        gates[3]!.resolve();
+        await vi.waitFor(() => expect(concurrent).toBe(0));
+
+        frame('draw-4', true);
+        await vi.waitFor(() => expect(writes.at(-1)).toBe('draw-4'));
+        frame('draw-5', true);
+        frame('draw-6', true);
+        expect(writes.filter((item) => item.startsWith('draw-'))).toEqual(['draw-1', 'draw-3', 'draw-4']);
+        gates[4]!.resolve();
+        await vi.waitFor(() => expect(writes.at(-1)).toBe('draw-6'));
+        gates[5]!.resolve();
+        await vi.waitFor(() => expect(concurrent).toBe(0));
+
+        frame('text-C');
+        await vi.waitFor(() => expect(writes.at(-1)).toBe('text-C'));
+        frame('text-D');
+        const cancelled = pump.cancel();
+        gates[6]!.resolve();
+        await cancelled;
+        await Promise.resolve();
+        expect(writes.at(-1)).toBe('text-C');
+        expect(writes).not.toContain('text-D');
+
+        frame('text-E');
+        frame('draw-7', true);
+        await vi.waitFor(() => expect(writes.at(-1)).toBe('text-E'));
+        frame('text-F');
+        gates[7]!.reject(undefined);
+        await vi.waitFor(() => expect(recoveries).toEqual([undefined]));
+        await Promise.resolve();
+        expect(writes).not.toContain('draw-7');
+        expect(writes).not.toContain('text-F');
+        expect(recoveries).toHaveLength(1);
+        expect(maxConcurrent).toBe(1);
+
+        channel.close();
     });
 
     it('keeps healthy reconnects stable, coalesces a dropped transport, and repaints through one replacement', async () => {

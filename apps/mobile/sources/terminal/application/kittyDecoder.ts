@@ -4,10 +4,16 @@
  * before term.write. This is not arbitrary PTY Kitty support.
  */
 
-export const MAX_KITTY_IMAGE_BYTES = 8 * 1024 * 1024;
+export const MAX_KITTY_IMAGE_BYTES = 32 * 1024 * 1024;
 export const MAX_KITTY_HEADER_CHARS = 512;
 export const MAX_KITTY_CHUNK_CHARS = 4096;
 export const MAX_KITTY_PLACEMENTS = 1;
+// zlib deflateBound(n): compressed/chunk totals must fit a 32 MiB raw frame.
+const MAX_KITTY_COMPRESSED_BYTES = MAX_KITTY_IMAGE_BYTES
+    + (MAX_KITTY_IMAGE_BYTES >> 12)
+    + (MAX_KITTY_IMAGE_BYTES >> 14)
+    + (MAX_KITTY_IMAGE_BYTES >> 25)
+    + 13;
 
 const ESC = 0x1b;
 const APC = 0x5f; // _
@@ -187,7 +193,7 @@ function parseCommand(body: Uint8Array, state: KittyDecoderState): { command?: K
         if (fields.s === undefined || fields.v === undefined || fields.i === undefined || fields.s <= 0 || fields.v <= 0) {
             return { error: 'malformed' };
         }
-        if (fields.s * fields.v * 4 > MAX_KITTY_IMAGE_BYTES || bytes.length > MAX_KITTY_IMAGE_BYTES) return { error: 'oversized' };
+        if (fields.s * fields.v * 4 > MAX_KITTY_IMAGE_BYTES || bytes.length > MAX_KITTY_COMPRESSED_BYTES) return { error: 'oversized' };
         state.transmit = {
             id: fields.i,
             width: fields.s,
@@ -201,7 +207,7 @@ function parseCommand(body: Uint8Array, state: KittyDecoderState): { command?: K
     } else {
         let total = bytes.length;
         for (const chunk of state.chunks) total += chunk.length;
-        if (total > MAX_KITTY_IMAGE_BYTES) {
+        if (total > MAX_KITTY_COMPRESSED_BYTES) {
             state.transmit = undefined;
             state.chunks = [];
             return { error: 'oversized' };

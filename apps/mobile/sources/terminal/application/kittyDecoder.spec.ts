@@ -90,11 +90,21 @@ describe('web Kitty decoder', () => {
         expect(retired.deleteAll).toBe(true);
         expect(retired.placements).toEqual([]);
 
+        // A targeted delete names one id and materializes no placements.
+        const targeted = splitKittyFrame(new TextEncoder().encode('\x1b7\x1b_Ga=d,d=i,i=1,q=2;\x1b\\\x1b8'), createKittyDecoderState());
+        expect(targeted.error).toBeUndefined();
+        expect(targeted.commands).toEqual([{ kind: 'delete-image', id: 1 }]);
+        const targetedResult = await materializeKittyCommands(targeted.commands, inflateZlib);
+        expect(targetedResult.deleteAll).toBe(false);
+        expect(targetedResult.deleteIds).toEqual([1]);
+        expect(targetedResult.placements).toEqual([]);
+
         const bad = splitKittyFrame(new TextEncoder().encode('\x1b_Ga=T,f=32,s=2,v=2,i=1,t=d,o=z,m=0;@@@@\x1b\\'), createKittyDecoderState());
         expect(bad.error).toBe('malformed');
 
         const huge = splitKittyFrame(new TextEncoder().encode(`\x1b_Ga=T,f=32,s=1,v=1,i=1,m=0;${'A'.repeat(5000)}\x1b\\`), createKittyDecoderState());
         expect(huge.error).toBe('oversized');
+        expect(1786 * 1443 * 4).toBeLessThanOrEqual(MAX_KITTY_IMAGE_BYTES);
 
         const unknown = splitKittyFrame(new TextEncoder().encode('\x1b_Ga=q,i=1;\x1b\\'), createKittyDecoderState());
         expect(unknown.error).toBe('unsupported');

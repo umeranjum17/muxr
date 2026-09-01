@@ -18,6 +18,7 @@ import { TerminalView as GhosttyView, type TerminalViewRef } from 'expo-libghost
 import { decodeBase64, encodeBase64 } from '@/encryption/base64';
 import { openTerminal, type TerminalChannel } from '../application/OpenTerminal';
 import { recordTerminalOutput, setTerminalColumns } from '../application/recentOutput';
+import { createTerminalWritePump, type TerminalWritePump } from '../application/terminalWritePump';
 
 /**
  * One scroll message costs herdr one full-screen repaint whatever the line
@@ -37,6 +38,20 @@ export interface TerminalViewProps {
 /** KeyboardAvoidingView animates through many intermediate sizes; wait for settle. */
 const RESIZE_DEBOUNCE_MS = 120;
 
+function combineTextFrames(frames: readonly string[]): string {
+    if (frames.length <= 1) return frames[0] ?? '';
+    const decoded = frames.map((chunk) => decodeBase64(chunk));
+    let total = 0;
+    for (const chunk of decoded) total += chunk.length;
+    const all = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of decoded) {
+        all.set(chunk, offset);
+        offset += chunk.length;
+    }
+    return encodeBase64(all);
+}
+
 export const TerminalView = React.memo((props: TerminalViewProps) => {
     const { sessionId, onStatus, onChannel } = props;
     const termRef = React.useRef<TerminalViewRef>(null);
@@ -47,45 +62,23 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
     const pointerTouchesRef = React.useRef(0);
     const suppressPointerRef = React.useRef(false);
     const resizeTimerRef = React.useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-    const pendingWritesRef = React.useRef<string[]>([]);
-    const writeRafRef = React.useRef<number | undefined>(undefined);
+    const writePumpRef = React.useRef<TerminalWritePump | undefined>(undefined);
+    const writeGenerationRef = React.useRef(0);
     const pendingScrollRef = React.useRef(0);
     const scrollRafRef = React.useRef<number | undefined>(undefined);
     const scrollInFlightRef = React.useRef(false);
     const scrollAckTimerRef = React.useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
     const cancelCoalesce = (): void => {
-        if (writeRafRef.current !== undefined) cancelAnimationFrame(writeRafRef.current);
+        writeGenerationRef.current += 1;
+        void writePumpRef.current?.cancel();
+        writePumpRef.current = undefined;
         if (scrollRafRef.current !== undefined) cancelAnimationFrame(scrollRafRef.current);
         if (scrollAckTimerRef.current !== undefined) clearTimeout(scrollAckTimerRef.current);
-        writeRafRef.current = undefined;
         scrollRafRef.current = undefined;
         scrollAckTimerRef.current = undefined;
         scrollInFlightRef.current = false;
-        pendingWritesRef.current = [];
         pendingScrollRef.current = 0;
-    };
-
-    const flushWrites = (): void => {
-        writeRafRef.current = undefined;
-        const chunks = pendingWritesRef.current;
-        pendingWritesRef.current = [];
-        const view = termRef.current;
-        if (view === null || chunks.length === 0) return;
-        if (chunks.length === 1) {
-            void view.write(chunks[0]!);
-            return;
-        }
-        const decoded = chunks.map((chunk) => decodeBase64(chunk));
-        let total = 0;
-        for (const chunk of decoded) total += chunk.length;
-        const all = new Uint8Array(total);
-        let offset = 0;
-        for (const chunk of decoded) {
-            all.set(chunk, offset);
-            offset += chunk.length;
-        }
-        void view.write(encodeBase64(all));
     };
 
     /**
@@ -182,6 +175,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             }
             openedRef.current = true;
             onStatus?.('connecting');
+            const attachGen = writeGenerationRef.current;
             // Nothing may be written to this terminal but herdr's own frames.
             // herdr paints cells at absolute coordinates and then sends diffs
             // against the screen it believes we are showing, so any byte we add
@@ -193,20 +187,45 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                     size: { cols, rows, ...(cellWidthPx === undefined ? {} : { cellWidthPx }), ...(cellHeightPx === undefined ? {} : { cellHeightPx }) },
                 }))
                 .then((channel) => {
+                    if (writeGenerationRef.current !== attachGen) {
+                        channel.close();
+                        return;
+                    }
                     channelRef.current = channel;
+                    void writePumpRef.current?.cancel();
+                    let recoveryRequested = false;
+                    writePumpRef.current = createTerminalWritePump({
+                        write: async (bytes) => {
+                            const view = termRef.current;
+                            if (view === null) return;
+                            await view.write(bytes);
+                        },
+                        combineText: combineTextFrames,
+                        schedule: (run) => requestAnimationFrame(() => run()),
+                        cancelSchedule: (handle) => cancelAnimationFrame(handle as number),
+                        onRejected: () => {
+                            if (writeGenerationRef.current !== attachGen) return;
+                            onStatus?.('terminal write failed');
+                            if (recoveryRequested) return;
+                            recoveryRequested = true;
+                            channel.repaint();
+                        },
+                    });
                     channel.onGraphics((active) => {
                         setGraphicsActive(suppressPointerRef.current ? false : active);
                     });
                     // Same discipline as the web view: herdr repaint bursts
-                    // arrive as many socket messages; one Ghostty write per
-                    // frame instead of one per message.
+                    // arrive as many socket messages; one Ghostty write at a
+                    // time. A pending full draw supersedes earlier pending
+                    // graphics; a false frame is not a snapshot and must not
+                    // drop an unwritten draw. Text is never mixed into a
+                    // graphics payload.
                     channel.onData((base64, graphics) => {
                         if (graphics !== true) recordTerminalOutput(sessionId, base64);
                         settleScroll();
-                        pendingWritesRef.current.push(base64);
-                        if (writeRafRef.current === undefined) {
-                            writeRafRef.current = requestAnimationFrame(flushWrites);
-                        }
+                        writePumpRef.current?.push(
+                            typeof graphics === 'boolean' ? { bytes: base64, graphics } : { bytes: base64 },
+                        );
                     });
                     channel.onState((state) => onStatus?.(state));
                     channel.onClose((reason) => onStatus?.(reason ?? 'closed'));
