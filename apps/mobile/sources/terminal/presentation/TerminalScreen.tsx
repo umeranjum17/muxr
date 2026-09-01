@@ -126,10 +126,10 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
             // Wrap scroll() to track how far back we've gone; the jump button
             // appears once you're a few lines into scrollback.
             const rawScroll = channel.scroll.bind(channel);
-            channel.scroll = (lines) => {
+            channel.scroll = (lines, at) => {
                 netScrollBack.current = Math.max(0, netScrollBack.current + lines);
                 setShowJump(netScrollBack.current > 3);
-                rawScroll(lines);
+                rawScroll(lines, at);
             };
         }
         channelRef.current = channel;

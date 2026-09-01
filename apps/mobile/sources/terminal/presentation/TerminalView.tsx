@@ -5,14 +5,15 @@
  * Same contract as the old WebView path: base64 frames from herdr go in,
  * keystrokes come out. No ANSI parsing on the RN side.
  *
- * Scroll is Ghostty's alone. herdr's scroll re-renders the screen, which this
- * view would draw as fresh output at the bottom — so instead of forwarding
- * drags, we seed Ghostty with herdr's scrollback at attach and let its own
- * buffer hold the past. One scrollback, not two fighting.
+ * herdr owns the history, so a drag has to move herdr's viewport and be
+ * repainted back. Ghostty's buffer holds only repaint diffs.
+ *
+ * Pointer mode (both platforms): tap emits a pointer click; drag scrolls the
+ * pane. One gesture never emits pointer-drag and pane-scroll together.
  */
 
 import * as React from 'react';
-import { View } from 'react-native';
+import { AppState, PixelRatio, Platform, View } from 'react-native';
 import { TerminalView as GhosttyView, type TerminalViewRef } from 'expo-libghostty';
 import { decodeBase64, encodeBase64 } from '@/encryption/base64';
 import { openTerminal, type TerminalChannel } from '../application/OpenTerminal';
@@ -41,7 +42,10 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
     const termRef = React.useRef<TerminalViewRef>(null);
     const channelRef = React.useRef<TerminalChannel | undefined>(undefined);
     const openedRef = React.useRef(false);
-    const lastSizeRef = React.useRef<{ cols: number; rows: number } | null>(null);
+    const lastSizeRef = React.useRef<{ cols: number; rows: number; cellWidthPx?: number; cellHeightPx?: number } | null>(null);
+    const [graphicsActive, setGraphicsActive] = React.useState(false);
+    const pointerTouchesRef = React.useRef(0);
+    const suppressPointerRef = React.useRef(false);
     const resizeTimerRef = React.useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
     const pendingWritesRef = React.useRef<string[]>([]);
     const writeRafRef = React.useRef<number | undefined>(undefined);
@@ -99,7 +103,11 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
         const clamped = Math.max(-MAX_SCROLL_LINES, Math.min(MAX_SCROLL_LINES, lines));
         scrollInFlightRef.current = true;
         scrollAckTimerRef.current = setTimeout(settleScroll, SCROLL_ACK_TIMEOUT_MS);
-        channelRef.current?.scroll(clamped);
+        const size = lastSizeRef.current;
+        channelRef.current?.scroll(clamped, size === null ? undefined : {
+            column: Math.floor(size.cols / 2),
+            row: Math.floor(size.rows / 2),
+        });
     };
 
     /** The repaint (or the timeout) releases the gate and drains what piled up. */
@@ -122,16 +130,42 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             channelRef.current = undefined;
             openedRef.current = false;
             lastSizeRef.current = null;
+            setGraphicsActive(false);
         },
         [onChannel, sessionId],
     );
 
+    const cellFor = (size: { cellWidthPx?: number; cellHeightPx?: number }): { width: number; height: number } | undefined => {
+        if (size.cellWidthPx === undefined || size.cellHeightPx === undefined) return undefined;
+        return { width: size.cellWidthPx, height: size.cellHeightPx };
+    };
+
+    React.useEffect(() => {
+        const subscription = AppState.addEventListener('change', (state) => {
+            const size = lastSizeRef.current;
+            const channel = channelRef.current;
+            if (size === null || channel === undefined) return;
+            if (state !== 'active') {
+                suppressPointerRef.current = true;
+                pointerTouchesRef.current = 0;
+                setGraphicsActive(false);
+                channel.resize(size.cols, size.rows);
+                return;
+            }
+            suppressPointerRef.current = false;
+            channel.resize(size.cols, size.rows, cellFor(size));
+            channel.repaint();
+        });
+        return () => subscription.remove();
+    }, []);
+
     const attach = React.useCallback(
-        (cols: number, rows: number) => {
+        (cols: number, rows: number, cellWidthPx?: number, cellHeightPx?: number) => {
             setTerminalColumns(sessionId, cols);
             const last = lastSizeRef.current;
-            if (last !== null && last.cols === cols && last.rows === rows) return;
-            lastSizeRef.current = { cols, rows };
+            if (last !== null && last.cols === cols && last.rows === rows
+                && last.cellWidthPx === cellWidthPx && last.cellHeightPx === cellHeightPx) return;
+            lastSizeRef.current = { cols, rows, ...(cellWidthPx === undefined ? {} : { cellWidthPx }), ...(cellHeightPx === undefined ? {} : { cellHeightPx }) };
 
             if (openedRef.current) {
                 if (resizeTimerRef.current !== undefined) clearTimeout(resizeTimerRef.current);
@@ -141,7 +175,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                     // draw the whole screen again. Ghostty reflows its grid on
                     // its own for a keyboard or a pinch, and herdr would keep
                     // sending diffs for a screen that no longer matches.
-                    channelRef.current?.resize(cols, rows);
+                    channelRef.current?.resize(cols, rows, cellFor({ cellWidthPx, cellHeightPx }));
                     channelRef.current?.repaint();
                 }, RESIZE_DEBOUNCE_MS);
                 return;
@@ -154,14 +188,20 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             // -- seeded history, a repaint, a cleared screen -- lands those
             // diffs on the wrong cells and quietly eats lines.
             void Promise.resolve()
-                .then(() => openTerminal({ agentRoute: sessionId, size: { cols, rows } }))
+                .then(() => openTerminal({
+                    agentRoute: sessionId,
+                    size: { cols, rows, ...(cellWidthPx === undefined ? {} : { cellWidthPx }), ...(cellHeightPx === undefined ? {} : { cellHeightPx }) },
+                }))
                 .then((channel) => {
                     channelRef.current = channel;
+                    channel.onGraphics((active) => {
+                        setGraphicsActive(suppressPointerRef.current ? false : active);
+                    });
                     // Same discipline as the web view: herdr repaint bursts
                     // arrive as many socket messages; one Ghostty write per
                     // frame instead of one per message.
-                    channel.onData((base64) => {
-                        recordTerminalOutput(sessionId, base64);
+                    channel.onData((base64, graphics) => {
+                        if (graphics !== true) recordTerminalOutput(sessionId, base64);
                         settleScroll();
                         pendingWritesRef.current.push(base64);
                         if (writeRafRef.current === undefined) {
@@ -177,10 +217,11 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                     // replay the latest size now or the prompt is painted below
                     // the visible grid until this screen is reopened.
                     const latest = lastSizeRef.current;
-                    if (latest !== null && (latest.cols !== cols || latest.rows !== rows)) {
+                    if (latest !== null && (latest.cols !== cols || latest.rows !== rows
+                        || latest.cellWidthPx !== cellWidthPx || latest.cellHeightPx !== cellHeightPx)) {
                         if (resizeTimerRef.current !== undefined) clearTimeout(resizeTimerRef.current);
                         resizeTimerRef.current = undefined;
-                        channel.resize(latest.cols, latest.rows);
+                        channel.resize(latest.cols, latest.rows, cellFor(latest));
                         channel.repaint();
                     }
                 })
@@ -199,6 +240,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             <GhosttyView
                 ref={termRef}
                 style={{ flex: 1 }}
+                pointerMode={graphicsActive}
                 fontSize={12}
                 theme={{ background: '#0c0c0b' }}
                 onInput={({ nativeEvent }) => {
@@ -206,7 +248,21 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                     else if (nativeEvent.text) channelRef.current?.sendText(nativeEvent.text);
                 }}
                 onResize={({ nativeEvent }) => {
-                    attach(nativeEvent.cols, nativeEvent.rows);
+                    attach(nativeEvent.cols, nativeEvent.rows, nativeEvent.cellWidthPx, nativeEvent.cellHeightPx);
+                }}
+                onTerminalPointer={({ nativeEvent }) => {
+                    if (!graphicsActive || suppressPointerRef.current) return;
+                    if (nativeEvent.phase === 'down') pointerTouchesRef.current += 1;
+                    if (nativeEvent.phase === 'up') pointerTouchesRef.current = Math.max(0, pointerTouchesRef.current - 1);
+                    if (nativeEvent.phase === 'move' && pointerTouchesRef.current > 1) return;
+                    const scale = Platform.OS === 'ios' ? PixelRatio.get() : 1;
+                    channelRef.current?.pointer(
+                        nativeEvent.phase,
+                        nativeEvent.x * scale,
+                        nativeEvent.y * scale,
+                        nativeEvent.width * scale,
+                        nativeEvent.height * scale,
+                    );
                 }}
                 // herdr owns the history, so a drag has to move herdr's
                 // viewport and be repainted back to us. Ghostty's own buffer

@@ -3,6 +3,8 @@ export type OpenTerminalCommand = {
     channel: string;
     cols: number;
     rows: number;
+    cellWidthPx?: number;
+    cellHeightPx?: number;
     deviceId?: string;
     mode?: 'control' | 'observe';
     takeover?: boolean;

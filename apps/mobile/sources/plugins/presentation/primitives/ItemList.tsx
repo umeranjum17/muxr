@@ -202,12 +202,18 @@ export function ItemList({ context, pluginId, manifestHash, contribution, presen
         if (manifest === undefined || action === undefined) return;
         setBusyId(busyKey);
         try {
-            if (sessionId !== undefined && action.type === 'kernel.navigate' && action.target === 'file') {
-                recordFileNavigation(sessionId, items, action.path);
-            }
+            const navigationKey = sessionId !== undefined && action.type === 'kernel.navigate' && action.target === 'file'
+                ? recordFileNavigation({
+                    sessionId,
+                    sourceKey: `${pluginId}\0${source.contributionId}`,
+                    items,
+                    selectedPath: action.path,
+                })
+                : undefined;
             await dispatchPluginAction(action, {
                 router, pluginId, manifestHash, manifest,
                 ...(sessionId === undefined ? {} : { sessionId }),
+                ...(navigationKey === undefined ? {} : { fileNavigationKey: navigationKey }),
             });
             // One dispatch point, so every plugin tap answers the same way.
             hapticsLight();

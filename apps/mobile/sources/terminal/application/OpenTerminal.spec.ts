@@ -55,6 +55,8 @@ class FakeWebSocket {
 vi.stubGlobal('WebSocket', FakeWebSocket);
 vi.stubGlobal('fetch', mocks.fetch);
 
+import { decodeBase64, encodeBase64 } from '@/encryption/base64';
+import { createKittyDecoderState, inflateZlib, materializeKittyCommands, splitKittyFrame } from './kittyDecoder';
 import { openTerminal } from './OpenTerminal';
 import { readConnectionDiagnostics, resetConnectionDiagnostics } from '@/catalog/infrastructure/connectionDiagnostics';
 
@@ -93,13 +95,36 @@ describe('openTerminal reconnect ownership', () => {
         await vi.waitFor(() => expect(FakeWebSocket.instances[0]).toBeDefined());
         const socket = FakeWebSocket.instances[0]!;
         socket.open();
-        socket.onmessage?.({ data: JSON.stringify({ type: 'terminal.frame', bytes: 'full-paint' }) });
+        const graphics: boolean[] = [];
+        channel.onGraphics((active) => graphics.push(active));
+        expect(graphics).toEqual([false]);
+        socket.onmessage?.({ data: JSON.stringify({ type: 'terminal.frame', bytes: 'full-paint', graphics: true }) });
 
-        const frames: string[] = [];
-        channel.onData((bytes) => frames.push(bytes));
-        expect(frames).toEqual(['full-paint']);
+        const frames: Array<{ bytes: string; graphics?: boolean }> = [];
+        channel.onData((bytes, graphicsFlag) => frames.push({ bytes, graphics: graphicsFlag }));
+        expect(frames).toEqual([{ bytes: 'full-paint', graphics: true }]);
+        expect(graphics).toEqual([false, true]);
+
+        socket.onmessage?.({ data: JSON.stringify({ type: 'terminal.frame', bytes: 'ansi', graphics: false }) });
+        expect(frames).toEqual([{ bytes: 'full-paint', graphics: true }, { bytes: 'ansi', graphics: false }]);
+        expect(graphics).toEqual([false, true, false]);
+
+        socket.onmessage?.({ data: JSON.stringify({ type: 'terminal.frame', bytes: 'plain-herdr' }) });
+        expect(frames.at(-1)).toEqual({ bytes: 'plain-herdr' });
+
+        const deleteBytes = encodeBase64(new TextEncoder().encode('\x1b_Ga=d,d=A;\x1b\\'));
+        socket.onmessage?.({ data: JSON.stringify({ type: 'terminal.frame', bytes: deleteBytes, graphics: false }) });
+        expect(frames.at(-1)).toEqual({ bytes: deleteBytes, graphics: false });
+        const routed = splitKittyFrame(decodeBase64(deleteBytes), createKittyDecoderState());
+        expect(routed.error).toBeUndefined();
+        expect(routed.commands).toEqual([{ kind: 'delete-all' }]);
+        expect(new TextDecoder().decode(routed.ansi)).toBe('');
+        const cleared = await materializeKittyCommands(routed.commands, inflateZlib);
+        expect(cleared.deleteAll).toBe(true);
+        expect(cleared.placements).toEqual([]);
 
         channel.close();
+        expect(graphics).toEqual([false, true, false]);
     });
 
     it('keeps healthy reconnects stable, coalesces a dropped transport, and repaints through one replacement', async () => {

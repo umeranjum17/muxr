@@ -60,7 +60,11 @@ export function PathBreadcrumb({
                             <React.Fragment key={`${segment.label}:${index}`}>
                                 {index > 0 && <Text accessible={false} style={{ color: withAlpha(theme.colors.textSecondary, 0.45), fontSize: 12, paddingHorizontal: 6, ...Typography.mono() }}>/</Text>}
                                 <Pressable onPress={onPress} onLongPress={openFullPath} accessibilityRole="button"
-                                    accessibilityLabel={isEllipsis ? 'Show full path' : segment.onPress === undefined ? `Path ${segment.label}, show full path` : `Go to ${segment.label}`}
+                                    accessibilityLabel={isEllipsis
+                                        ? t('files.showFullPath')
+                                        : segment.onPress === undefined
+                                            ? t('files.pathShowFullPath', { label: segment.label })
+                                            : t('files.goToPath', { label: segment.label })}
                                     style={({ pressed }) => ({ minHeight: 44, justifyContent: 'center', flexDirection: 'row', alignItems: 'center', gap: segment.icon !== undefined ? 5 : 0, paddingHorizontal: 8, backgroundColor: pressed ? theme.colors.surfaceHighest : 'transparent' })}>
                                     {segment.icon !== undefined && <MaterialCommunityIcons name={segment.icon} size={16} color={theme.colors.textSecondary} />}
                                     <Text numberOfLines={1} style={{ maxWidth: 220, color: isLast ? theme.colors.text : theme.colors.textSecondary, fontSize: 12, lineHeight: 16, ...Typography.mono(isLast ? 'semiBold' : 'regular') }}>{segment.label}</Text>
@@ -71,7 +75,7 @@ export function PathBreadcrumb({
                 </ScrollView>
                 {trailing !== undefined && <View style={{ minHeight: 44, justifyContent: 'center', paddingHorizontal: 8 }}>{trailing}</View>}
             </View>
-            <OptionSheet visible={showFullPath} title="Full path" options={[]} onSelect={() => {}} onClose={() => setShowFullPath(false)}
+            <OptionSheet visible={showFullPath} title={t('files.fullPath')} options={[]} onSelect={() => {}} onClose={() => setShowFullPath(false)}
                 body={<View style={{ paddingHorizontal: 16, paddingBottom: 12, gap: 12 }}>
                     <Text selectable style={{ color: theme.colors.text, fontSize: 13, lineHeight: 20, ...Typography.mono() }}>{path}</Text>
                     <Pressable onPress={() => void copyPath()} accessibilityRole="button" accessibilityLabel={t('common.copy')}

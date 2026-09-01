@@ -20,16 +20,18 @@ import { DeviceV2Crypto, getCachedHostedGrant, refreshHostedGrant } from '@/pair
 export type TerminalChannelState = 'live' | 'reconnecting';
 
 export interface TerminalChannel {
-    /** base64 ANSI chunks from the pane. */
-    onData: (listener: (base64: string) => void) => () => void;
+    /** base64 ANSI chunks from the pane. Graphics frames set the second flag. */
+    onData: (listener: (base64: string, graphics?: boolean) => void) => () => void;
     onClose: (listener: (reason?: string) => void) => () => void;
+    onGraphics: (listener: (active: boolean) => void) => () => void;
     /** 'reconnecting' while a dropped socket is being re-attached, 'live' after. */
     onState: (listener: (state: TerminalChannelState) => void) => () => void;
     sendText: (text: string) => void;
     sendBytes: (base64: string) => void;
-    resize: (cols: number, rows: number) => void;
+    resize: (cols: number, rows: number, cell?: { width: number; height: number }) => void;
+    pointer: (phase: 'down' | 'move' | 'up', x: number, y: number, width: number, height: number) => void;
     /** Scroll the real pane. Positive lines go back (up), negative go forward. */
-    scroll: (lines: number) => void;
+    scroll: (lines: number, at?: { column: number; row: number }) => void;
     /** Retry now: resets backoff and re-attaches unless the stream is live or closed. */
     /** Pass true only for a user's explicit same-pane takeover action. */
     reconnect: (explicitTakeover?: boolean) => void;
@@ -40,7 +42,7 @@ export interface TerminalChannel {
 
 export type OpenTerminalCommand = {
     agentRoute: string;
-    size: { cols: number; rows: number };
+    size: { cols: number; rows: number; cellWidthPx?: number; cellHeightPx?: number };
     mode?: 'control' | 'observe';
 };
 
@@ -78,6 +80,8 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
         channel,
         cols: current.cols,
         rows: current.rows,
+        ...(current.cellWidthPx === undefined ? {} : { cellWidthPx: current.cellWidthPx }),
+        ...(current.cellHeightPx === undefined ? {} : { cellHeightPx: current.cellHeightPx }),
         ...(options?.mode === undefined ? {} : { mode: options.mode }),
         ...(grant === undefined ? {} : { deviceId: grant.deviceId, takeover }),
     });
@@ -112,10 +116,17 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
     }
     await attach(true);
 
-    const dataListeners = new Set<(base64: string) => void>();
-    const pendingData: string[] = [];
+    const dataListeners = new Set<(base64: string, graphics?: boolean) => void>();
+    const pendingData: { bytes: string; graphics?: boolean }[] = [];
     const closeListeners = new Set<(reason?: string) => void>();
     const stateListeners = new Set<(state: TerminalChannelState) => void>();
+    const graphicsListeners = new Set<(active: boolean) => void>();
+    let graphicsActive = false;
+    const emitGraphics = (active: boolean): void => {
+        if (graphicsActive === active) return;
+        graphicsActive = active;
+        for (const listener of graphicsListeners) listener(active);
+    };
     const outbox: string[] = [];
     let socket: WebSocket | undefined;
     let closedByUser = false;
@@ -263,10 +274,13 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
                 const frame = JSON.parse(plaintext) as Partial<TerminalHostFrame> & { type?: string };
                 if (frame.type === 'terminal.frame' && typeof (frame as TerminalHostFrame & { bytes?: string }).bytes === 'string') {
                     const bytes = (frame as { bytes: string }).bytes;
-                    if (dataListeners.size === 0) pendingData.push(bytes);
-                    else for (const listener of dataListeners) listener(bytes);
+                    const graphics = (frame as { graphics?: boolean }).graphics;
+                    if (typeof graphics === 'boolean') emitGraphics(graphics);
+                    if (dataListeners.size === 0) pendingData.push(typeof graphics === 'boolean' ? { bytes, graphics } : { bytes });
+                    else for (const listener of dataListeners) listener(bytes, graphics);
                 } else if (frame.type === 'terminal.closed') {
                     const reason = (frame as { reason?: string }).reason;
+                    emitGraphics(false);
                     // Automatic foreground/reconnect must not steal control back.
                     // Only the user's visible retry action may reverse a takeover.
                     closedByTakeover = reason === 'control moved to another device';
@@ -289,6 +303,7 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
             // Its cleanup owns only itself and must not schedule over the owner.
             if (socket !== next) return;
             socket = undefined;
+            emitGraphics(false);
             scheduleRetry();
         };
     }
@@ -317,12 +332,17 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
     return {
         onData: (listener) => {
             dataListeners.add(listener);
-            for (const bytes of pendingData.splice(0)) listener(bytes);
+            for (const frame of pendingData.splice(0)) listener(frame.bytes, frame.graphics);
             return () => dataListeners.delete(listener);
         },
         onClose: (listener) => {
             closeListeners.add(listener);
             return () => closeListeners.delete(listener);
+        },
+        onGraphics: (listener) => {
+            graphicsListeners.add(listener);
+            listener(graphicsActive);
+            return () => graphicsListeners.delete(listener);
         },
         onState: (listener) => {
             stateListeners.add(listener);
@@ -331,10 +351,20 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
         sendText: (text) => send({ type: 'terminal.input', text }),
         reconnect: reconnectNow,
         sendBytes: (base64) => send({ type: 'terminal.input', bytes: base64 }),
-        resize: (cols, rows) => {
-            current = { cols, rows };
-            send({ type: 'terminal.resize', cols, rows });
+        resize: (cols, rows, cell) => {
+            current = {
+                cols,
+                rows,
+                ...(cell === undefined ? {} : { cellWidthPx: cell.width, cellHeightPx: cell.height }),
+            };
+            send({
+                type: 'terminal.resize',
+                cols,
+                rows,
+                ...(cell === undefined ? {} : { cellWidthPx: cell.width, cellHeightPx: cell.height }),
+            });
         },
+        pointer: (phase, x, y, width, height) => send({ type: 'terminal.pointer', phase, x, y, width, height }),
         repaint: () => {
             // herdr sends a complete screen only on attach; everything after is
             // a diff against the screen it thinks we hold. So once the two
@@ -352,12 +382,18 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
             attempts = 0;
             requestAttach(false);
         },
-        scroll: (lines) => {
+        scroll: (lines, at) => {
             const n = Math.abs(Math.trunc(lines));
             if (n === 0) return; // herdr rejects lines:0
-            send({ type: 'terminal.scroll', direction: lines > 0 ? 'up' : 'down', lines: n });
+            send({
+                type: 'terminal.scroll',
+                direction: lines > 0 ? 'up' : 'down',
+                lines: n,
+                ...(at === undefined ? {} : { column: Math.max(0, Math.trunc(at.column)), row: Math.max(0, Math.trunc(at.row)) }),
+            });
         },
         close: () => {
+            emitGraphics(false);
             closedByUser = true;
             attachRequested = false;
             takeoverRequested = false;

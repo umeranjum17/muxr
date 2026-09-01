@@ -263,6 +263,45 @@ A diff binds a unified patch and uses the same app-owned highlighting vocabulary
 { "type": "diff", "path": "data.patch" }
 ```
 
+A third-party review plugin can return both from one read RPC. The app owns the renderer; the plugin supplies bounded JSON. There is no plugin-supplied route, HTML, or renderer name. Host files still use `{ "type": "kernel.navigate", "target": "file", "path": "/repo/src/app.ts" }` and need a real session.
+
+```json
+{
+  "schemaVersion": 1,
+  "pluginId": "you.review",
+  "minMuxrVersion": 11,
+  "contributions": [
+    {
+      "slot": "host.rpc",
+      "id": "read",
+      "type": "rpc",
+      "method": "read",
+      "entry": "rpc.mjs",
+      "mode": "read"
+    },
+    {
+      "slot": "navigation.content",
+      "id": "review",
+      "type": "screen",
+      "title": "{{data.name}}",
+      "data": { "type": "plugin.call", "contributionId": "read" },
+      "children": [
+        { "type": "code", "path": "data.body", "fileNamePath": "data.name" },
+        { "type": "diff", "path": "data.patch" }
+      ]
+    }
+  ]
+}
+```
+
+RPC output is bounded JSON such as:
+
+```json
+{ "name": "src/app.ts", "body": "export const value = 1;\n", "patch": "diff --git ..." }
+```
+
+Plugin `code`/`diff` nodes stay at the existing 64 KiB / 600-line transport ceiling. The native file route reads through `session.readFile` (512 KiB) and then renders at most 256 KiB / 2,000 lines with a visible truncation footer. Binary bytes never enter syntax or diff rendering.
+
 `progress` renders a literal `value` (default max 100) or binds a numeric runtime path with optional `label` and `valueLabel`:
 
 ```json

@@ -37,8 +37,27 @@ describe('expo-libghostty patch', () => {
         expect(contents).toContain('onScrollRows');
         expect(readFileSync(terminal, 'utf8')).toContain('onScrollRows');
         expect(readFileSync(view, 'utf8')).toContain('onScroll');
-        expect(readFileSync(iosModule, 'utf8')).toContain('Events("onInput", "onResize", "onScroll")');
+        expect(readFileSync(iosModule, 'utf8')).toContain('Events("onInput", "onResize", "onScroll", "onTerminalPointer")');
         expect(readFileSync(iosView, 'utf8')).toContain('terminalView.hostScrollHandler');
         expect(readFileSync(iosTerminalView, 'utf8')).toContain('hostScrollHandler');
+    });
+
+    it('keeps Android Kitty snapshot plus both-platform metrics and pointer seams applied', () => {
+        expect(contents).toContain('nativeKittyGeneration');
+        expect(contents).toContain('nativeKittySnapshot');
+        expect(contents).toContain('drawKitty');
+        expect(contents).toContain('imageWidth.toLong() * imageHeight.toLong()');
+        expect(contents).toContain('pointerMode');
+        expect(contents).toContain('cellWidthPx');
+        expect(contents).toContain('onTerminalPointer');
+        expect(readFileSync(terminal, 'utf8')).toContain('drawKitty');
+        expect(readFileSync(terminal, 'utf8')).toContain('nativeKittySnapshot');
+        expect(readFileSync(view, 'utf8')).toContain('pointerMode');
+        expect(readFileSync(view, 'utf8')).toContain('cellWidthPx');
+        expect(readFileSync(iosModule, 'utf8')).toContain('onTerminalPointer');
+        expect(readFileSync(iosView, 'utf8')).toContain('pointerMode');
+        expect(readFileSync(iosView, 'utf8')).toContain('cellWidthPx');
+        expect(readFileSync(iosView, 'utf8')).not.toContain('nativeKittySnapshot');
+        expect(readFileSync(iosView, 'utf8')).not.toContain('drawKitty');
     });
 });

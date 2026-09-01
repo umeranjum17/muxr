@@ -3,15 +3,18 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+vi.mock('@/catalog/sync', () => ({
+    registerPluginInvalidationHandler: () => {},
+}));
 import { patchFiles, uniqueDiffLabels } from '@/components/diff/patchFiles';
 import { nearestContentMount } from '@/plugins/domain/screenModel';
 import {
-    bundledBinaryChip,
     currentFileNavigation,
-    fileNavControlLabel,
     gitDirectoryProbeCommand,
     gitDirectorySearchPaths,
+    openFileViewer,
     recordFileNavigation,
 } from './fileNavigationList';
 
@@ -122,20 +125,47 @@ esac
             rmSync(bin, { recursive: true, force: true });
         }
 
-        recordFileNavigation('session-1', [
-            { id: 'row-a', title: 'first', metadata: [], action: { type: 'kernel.navigate', target: 'file', path: '/repo/a.ts' } },
-            { id: 'row-a-again', title: 'dup', group: 'Addressed', metadata: [{ value: '+VIP' }], action: { type: 'kernel.navigate', target: 'file', path: '/repo/a.ts' } },
-            { id: 'row-bin', title: 'photo', metadata: [{ value: 'binary', tone: 'secondary' }], action: { type: 'kernel.navigate', target: 'file', path: '/repo/photo.png' } },
-            { id: 'row-fake-bin', title: 'notes', metadata: [{ value: 'binary' }], action: { type: 'kernel.navigate', target: 'file', path: '/repo/notes.md' } },
-            { id: 'row-b', title: 'second', metadata: [], action: { type: 'kernel.navigate', target: 'file', path: '/repo/b.ts' } },
-        ], '/repo/a.ts');
-        const current = currentFileNavigation('session-1', '/repo/a.ts');
+        const reviewKey = recordFileNavigation({
+            sessionId: 'session-1',
+            sourceKey: 'you.review\0files',
+            selectedPath: '/repo/a.ts',
+            items: [
+                { id: 'row-a', title: 'first', metadata: [], action: { type: 'kernel.navigate', target: 'file', path: '/repo/a.ts' } },
+                { id: 'row-a-again', title: 'dup', group: 'Addressed', metadata: [{ value: '+VIP' }], action: { type: 'kernel.navigate', target: 'file', path: '/repo/a.ts' } },
+                { id: 'row-bin', title: 'photo', metadata: [{ value: 'binary', tone: 'secondary' }], action: { type: 'kernel.navigate', target: 'file', path: '/repo/photo.png' } },
+                { id: 'row-fake-bin', title: 'notes', metadata: [{ value: 'binary' }], action: { type: 'kernel.navigate', target: 'file', path: '/repo/notes.md' } },
+                { id: 'row-b', title: 'second', metadata: [], action: { type: 'kernel.navigate', target: 'file', path: '/repo/b.ts' } },
+            ],
+        });
+        const current = currentFileNavigation('session-1', '/repo/a.ts', reviewKey);
         expect(current?.entries.map((entry) => entry.path)).toEqual(['/repo/a.ts', '/repo/photo.png', '/repo/notes.md', '/repo/b.ts']);
         expect(current?.index).toBe(0);
         expect(current!.entries[current!.index + 1]?.path).toBe('/repo/photo.png');
-        expect(bundledBinaryChip(currentFileNavigation('session-1', '/repo/photo.png')!.entries[1]!.metadata)).toBe(true);
-        expect(bundledBinaryChip(currentFileNavigation('session-1', '/repo/notes.md')!.entries[2]!.metadata)).toBe(false);
-        expect(currentFileNavigation('session-1', '/repo/b.ts')?.index).toBe(3);
+        expect(currentFileNavigation('session-1', '/repo/photo.png', reviewKey)!.entries[1]!.metadata).toEqual([{ value: 'binary', tone: 'secondary' }]);
+        expect(currentFileNavigation('session-1', '/repo/notes.md', reviewKey)!.entries[2]!.metadata).toEqual([{ value: 'binary' }]);
+        expect(currentFileNavigation('session-1', '/repo/b.ts', reviewKey)?.index).toBe(3);
+        expect(currentFileNavigation('session-1', '/repo/a.ts')).toBeNull();
+
+        const otherKey = recordFileNavigation({
+            sessionId: 'session-1',
+            sourceKey: 'other.plugin\0files',
+            selectedPath: '/other/x.ts',
+            items: [
+                { id: 'other', title: 'other', metadata: [], action: { type: 'kernel.navigate', target: 'file', path: '/other/x.ts' } },
+            ],
+        });
+        expect(otherKey).not.toBe(reviewKey);
+        expect(currentFileNavigation('session-1', '/repo/a.ts', reviewKey)?.entries).toHaveLength(4);
+        expect(openFileViewer({ sessionId: 'session-1', path: '/repo/b.ts', navigation: { key: reviewKey! } }))
+            .toBe(`/session/session-1/file?path=${encodeURIComponent('/repo/b.ts')}&nav=${encodeURIComponent(reviewKey!)}`);
+
+        const third = currentFileNavigation('session-1', '/repo/notes.md', reviewKey);
+        expect(third?.index).toBe(2);
+        expect(third?.key).toBe(reviewKey);
+        const afterNext = third!.entries[third!.index + 1]!;
+        expect(openFileViewer({ sessionId: 'session-1', path: afterNext.path, navigation: { key: reviewKey! } }))
+            .toBe(`/session/session-1/file?path=${encodeURIComponent('/repo/b.ts')}&nav=${encodeURIComponent(reviewKey!)}`);
+        expect(currentFileNavigation('session-1', afterNext.path, reviewKey)).toEqual(expect.objectContaining({ index: 3, key: reviewKey }));
 
         const mounts = [
             { contentContributionId: 'foo.files', label: 'Files' },
@@ -144,10 +174,6 @@ esac
         expect(nearestContentMount(mounts, 'foo.settings.detail')?.label).toBe('Settings');
         expect(nearestContentMount(mounts, 'foo.files')?.label).toBe('Files');
         expect(nearestContentMount(mounts, 'foo.other.x')).toBeUndefined();
-
-        expect(fileNavControlLabel('next', 'b.ts', 0, 3)).toBe('Next changed file, b.ts, 2 of 3');
-        expect(fileNavControlLabel('previous', 'a.ts', 1, 3)).toBe('Previous changed file, a.ts, 1 of 3');
-        expect(fileNavControlLabel('previous', undefined, 0, 3)).toBe('Previous changed file');
     });
 });
 

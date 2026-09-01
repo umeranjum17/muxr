@@ -6,14 +6,32 @@ import { PierreDiffView } from '@/components/diff/PierreDiffView';
 import { patchFiles, uniqueDiffLabels, type PatchFile } from '@/components/diff/patchFiles';
 
 /** A commit stays scrollable as one patch, but every changed file is one tap away. */
-export function NavigableDiff({ patch }: { patch: string }) {
+export function NavigableDiff({
+    patch,
+    fontSize = 12,
+    onHunkOffsets,
+    onFileCount,
+    disableFileHeader,
+    diffStyle,
+    overflow,
+}: {
+    patch: string;
+    fontSize?: number;
+    onHunkOffsets?: (offsets: number[]) => void;
+    onFileCount?: (count: number) => void;
+    disableFileHeader?: boolean;
+    diffStyle?: 'unified' | 'split';
+    overflow?: 'scroll' | 'wrap';
+}) {
     const { theme } = useUnistyles();
     const { width } = useWindowDimensions();
     const files = React.useMemo(() => patchFiles(patch), [patch]);
     const [selected, setSelected] = React.useState<number>();
     React.useEffect(() => setSelected(undefined), [patch]);
+    React.useEffect(() => { onFileCount?.(files.length); }, [files.length, onFileCount]);
     const shown = selected === undefined ? patch : files[selected]?.patch ?? patch;
     const chipLabels = React.useMemo(() => uniqueDiffLabels(files.map((file) => file.label)), [files]);
+    const narrow = width < 700;
 
     return <View>
         {files.length > 1 && <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.rail}
@@ -23,7 +41,14 @@ export function NavigableDiff({ patch }: { patch: string }) {
                 <DiffTab key={file.key} file={file} label={chipLabels[index] ?? file.label} active={selected === index} onPress={() => setSelected(index)} />
             ))}
         </ScrollView>}
-        <PierreDiffView patch={shown} diffStyle="unified" overflow={width < 700 ? 'wrap' : 'scroll'} fontSize={12} />
+        <PierreDiffView
+            patch={shown}
+            fontSize={fontSize}
+            diffStyle={diffStyle ?? 'unified'}
+            overflow={overflow ?? (narrow ? 'wrap' : 'scroll')}
+            {...(onHunkOffsets === undefined ? {} : { onHunkOffsets })}
+            {...(disableFileHeader === true ? { disableFileHeader: true } : {})}
+        />
     </View>;
 
     function DiffTab({ file, label, active, onPress }: { file?: PatchFile; label: string; active: boolean; onPress: () => void }) {

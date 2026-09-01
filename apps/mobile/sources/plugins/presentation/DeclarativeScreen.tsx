@@ -10,7 +10,7 @@ import { MAX_SCREEN_LIST_ROWS, PLUGIN_CALL_CLIENT_TIMEOUT_MS, capUtf8Bytes, defa
 import { Switch } from '@/components/Switch';
 import { hapticsError, hapticsSelection, hapticsSuccess } from '@/components/haptics';
 import { NavigableDiff } from '@/components/diff/NavigableDiff';
-import { SyntaxHighlightedCode } from '@/components/code/SyntaxHighlightedCode';
+import { CodeCore, PLUGIN_CODE_MAX_CHARS, PLUGIN_CODE_MAX_LINES } from '@/components/code/CodeCore';
 import { sync } from '@/catalog/sync';
 import { pluginSnapshot } from '../application/pluginStore';
 import { dispatchPluginAction } from '../application/pluginActions';
@@ -207,13 +207,14 @@ function ScreenNode(props: {
         case 'diff': {
             const patch = resolvePath(data, node.path);
             if (typeof patch !== 'string' || patch === '') return null;
-            return <View style={{ marginBottom: 10 }}><NavigableDiff patch={boundText(patch, 600, 64 * 1024).text} /></View>;
+            return <View style={{ marginBottom: 10 }}><NavigableDiff patch={boundText(patch, PLUGIN_CODE_MAX_LINES, PLUGIN_CODE_MAX_CHARS).text} /></View>;
         }
         case 'code': {
             const source = resolvePath(data, node.path);
             if (typeof source !== 'string' || source === '') return null;
             const fileName = node.fileNamePath === undefined ? undefined : resolvePath(data, node.fileNamePath);
-            return <SyntaxHighlightedCode code={sanitizeDisplayText(source).replace(/\r\n/g, '\n')} language={node.language}
+            return <CodeCore code={sanitizeDisplayText(source).replace(/\r\n/g, '\n')} language={node.language} header
+                maxLines={PLUGIN_CODE_MAX_LINES} maxChars={PLUGIN_CODE_MAX_CHARS}
                 {...(typeof fileName === 'string' ? { fileName: capUtf8Bytes(sanitizeDisplayText(fileName), 160) } : {})} />;
         }
         case 'metric':

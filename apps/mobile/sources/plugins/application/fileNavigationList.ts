@@ -1,4 +1,5 @@
 import type { PluginItemListItem } from '../domain/itemListModel';
+import { registerPluginDataCacheInvalidator } from './pluginDataInvalidation';
 import { shellQuote } from '@/utils/shellQuote';
 
 export interface FileNavigationEntry {
@@ -10,18 +11,62 @@ export interface FileNavigationEntry {
     metadata: PluginItemListItem['metadata'];
 }
 
-let activeSessionId: string | undefined;
-let entries: FileNavigationEntry[] = [];
+const MAX_ENTRIES = 50;
+const MAX_COLLECTIONS = 16;
 
-/** Keep the last generic file list so a file viewer can continue the review. */
-export function recordFileNavigation(sessionId: string, items: PluginItemListItem[], selectedPath: string): void {
-    if (activeSessionId !== sessionId) {
-        activeSessionId = sessionId;
-        entries = [];
+interface NavigationCollection {
+    key: string;
+    sessionId: string;
+    sourceKey: string;
+    entries: FileNavigationEntry[];
+}
+
+const collections = new Map<string, NavigationCollection>();
+const sourceIndex = new Map<string, string>();
+
+registerPluginDataCacheInvalidator((pluginIds) => {
+    if (pluginIds === undefined) {
+        collections.clear();
+        sourceIndex.clear();
+        return;
     }
+    const affected = new Set(pluginIds);
+    for (const [key, collection] of [...collections]) {
+        const pluginId = collection.sourceKey.slice(0, collection.sourceKey.indexOf('\0'));
+        if (!affected.has(pluginId)) continue;
+        collections.delete(key);
+        const sourceId = `${collection.sessionId}\0${collection.sourceKey}`;
+        if (sourceIndex.get(sourceId) === key) sourceIndex.delete(sourceId);
+    }
+});
+
+function evictOldest(): void {
+    while (collections.size > MAX_COLLECTIONS) {
+        const oldest = collections.keys().next().value;
+        if (oldest === undefined) return;
+        const removed = collections.get(oldest);
+        collections.delete(oldest);
+        if (removed === undefined) continue;
+        const sourceId = `${removed.sessionId}\0${removed.sourceKey}`;
+        if (sourceIndex.get(sourceId) === oldest) sourceIndex.delete(sourceId);
+    }
+}
+
+function mintKey(): string {
+    return `fn_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+/** Keep a source-scoped file list so a viewer can continue the review. */
+export function recordFileNavigation(input: {
+    sessionId: string;
+    sourceKey: string;
+    items: PluginItemListItem[];
+    selectedPath: string;
+}): string | undefined {
     const next: FileNavigationEntry[] = [];
     const seen = new Set<string>();
-    for (const item of items) {
+    for (const item of input.items) {
+        if (next.length >= MAX_ENTRIES) break;
         const action = item.action;
         if (action?.type !== 'kernel.navigate' || action.target !== 'file') continue;
         if (seen.has(action.path)) continue;
@@ -35,13 +80,40 @@ export function recordFileNavigation(sessionId: string, items: PluginItemListIte
             metadata: item.metadata,
         });
     }
-    entries = next.some((entry) => entry.path === selectedPath) ? next : [];
+    if (!next.some((entry) => entry.path === input.selectedPath)) return undefined;
+    const sourceId = `${input.sessionId}\0${input.sourceKey}`;
+    const key = sourceIndex.get(sourceId) ?? mintKey();
+    sourceIndex.set(sourceId, key);
+    collections.delete(key);
+    collections.set(key, { key, sessionId: input.sessionId, sourceKey: input.sourceKey, entries: next });
+    evictOldest();
+    return collections.has(key) ? key : undefined;
 }
 
-export function currentFileNavigation(sessionId: string, path: string): { entries: FileNavigationEntry[]; index: number } | null {
-    if (activeSessionId !== sessionId) return null;
-    const index = entries.findIndex((entry) => entry.path === path);
-    return index < 0 ? null : { entries, index };
+export function currentFileNavigation(
+    sessionId: string,
+    path: string,
+    navigationKey?: string,
+): { entries: FileNavigationEntry[]; index: number; key: string } | null {
+    if (navigationKey === undefined) return null;
+    const collection = collections.get(navigationKey);
+    if (collection === undefined || collection.sessionId !== sessionId) return null;
+    const index = collection.entries.findIndex((entry) => entry.path === path);
+    return index < 0 ? null : { entries: collection.entries, index, key: navigationKey };
+}
+
+export function openFileViewer(input: {
+    sessionId: string;
+    path: string;
+    navigation?: { key: string };
+    line?: number;
+    column?: number;
+}): string {
+    const params = new URLSearchParams({ path: input.path });
+    if (input.navigation?.key) params.set('nav', input.navigation.key);
+    if (input.line !== undefined && input.line > 0) params.set('line', String(input.line));
+    if (input.column !== undefined && input.column > 0) params.set('column', String(input.column));
+    return `/session/${encodeURIComponent(input.sessionId)}/file?${params}`;
 }
 
 export function parentDirectory(path: string): string | null {
@@ -71,16 +143,4 @@ export function gitDirectoryProbeCommand(filePath: string, sessionPath: string |
     const paths = gitDirectorySearchPaths(filePath, sessionPath);
     const listed = paths.map(shellQuote).join(' ');
     return `for d in ${listed}; do [ -d "$d" ] && { printf '%s' "$d"; exit 0; }; done; printf '%s' ${shellQuote(paths[paths.length - 1] ?? '/')}`;
-}
-
-/** Bundled changes rows mark binaries with value+secondary; a bare "binary" string is not Git status. */
-export function bundledBinaryChip(metadata: FileNavigationEntry['metadata']): boolean {
-    return metadata.some((item) => item.value === 'binary' && item.tone === 'secondary');
-}
-
-export function fileNavControlLabel(direction: 'previous' | 'next', title: string | undefined, index: number, total: number): string {
-    const verb = direction === 'previous' ? 'Previous' : 'Next';
-    if (title === undefined) return `${verb} changed file`;
-    const ordinal = direction === 'previous' ? index : index + 2;
-    return `${verb} changed file, ${title}, ${ordinal} of ${total}`;
 }

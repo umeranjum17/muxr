@@ -170,7 +170,7 @@ interface StorageState extends WatchSnapshot {
     pathGitStatus: Record<string, GitStatus | null>;
     pathGitStatusFiles: Record<string, GitStatusFiles | null>;
     pathProjectFiles: Record<string, ProjectFilesList | null>;
-    sessionFileCache: Record<string, Record<string, { content: string | null; diff: string | null; isBinary: boolean; cachedAt: number }>>;
+    sessionFileCache: Record<string, Record<string, { content: string | null; diff: string | null; isBinary: boolean; cachedAt: number; deleted?: boolean }>>;
     machines: Record<string, Machine>;
     artifacts: Record<string, DecryptedArtifact>;
     friends: Record<string, UserProfile>;
@@ -213,7 +213,7 @@ interface StorageState extends WatchSnapshot {
     updateSessionDraft: (sessionId: string, draft: string | null) => void;
     setCurrentViewingSession: (sessionId: string | null) => void;
     getSessionPathKey: (sessionId: string) => string | null;
-    applyFileCache: (sessionId: string, filePath: string, content: string | null, diff: string | null, isBinary: boolean) => void;
+    applyFileCache: (sessionId: string, filePath: string, content: string | null, diff: string | null, isBinary: boolean, deleted?: boolean) => void;
     applyGitStatus: (pathKey: string, status: GitStatus | null) => void;
     applyGitStatusFiles: (pathKey: string, files: GitStatusFiles | null) => void;
     applyProjectFiles: (pathKey: string, files: ProjectFilesList | null) => void;
@@ -398,8 +398,8 @@ export const storage = create<StorageState>()((set, get) => ({
         if (!session?.metadata?.machineId || !session.metadata.path) return null;
         return `${session.metadata.machineId}:${session.metadata.path}`;
     },
-    applyFileCache: (sessionId, filePath, content, diff, isBinary) => set((state) => {
-        const entry = { content, diff, isBinary, cachedAt: Date.now() };
+    applyFileCache: (sessionId, filePath, content, diff, isBinary, deleted) => set((state) => {
+        const entry = { content, diff, isBinary, cachedAt: Date.now(), ...(deleted === true ? { deleted: true } : {}) };
         return {
             sessionFileCache: {
                 ...state.sessionFileCache,
