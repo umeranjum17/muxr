@@ -1,4 +1,5 @@
 import type { PluginItemListItem } from '../domain/itemListModel';
+import { shellQuote } from '@/utils/shellQuote';
 
 export interface FileNavigationEntry {
     path: string;
@@ -35,4 +36,40 @@ export function currentFileNavigation(sessionId: string, path: string): { entrie
     if (activeSessionId !== sessionId) return null;
     const index = entries.findIndex((entry) => entry.path === path);
     return index < 0 ? null : { entries, index };
+}
+
+export function parentDirectory(path: string): string | null {
+    if (path === '/' || path === '') return null;
+    const slash = path.lastIndexOf('/');
+    if (slash < 0) return null;
+    return slash === 0 ? '/' : path.slice(0, slash);
+}
+
+/** File directory first, then ancestors, then session cwd only if it is not already an ancestor. */
+export function gitDirectorySearchPaths(filePath: string, sessionPath: string | null): string[] {
+    let dir = parentDirectory(filePath);
+    if (dir === null) return sessionPath ? [sessionPath] : ['/'];
+    const paths: string[] = [];
+    for (;;) {
+        paths.push(dir);
+        if (dir === '/') break;
+        const next = parentDirectory(dir);
+        if (next === null) break;
+        dir = next;
+    }
+    if (sessionPath && !paths.includes(sessionPath)) paths.push(sessionPath);
+    return paths;
+}
+
+export function gitDirectoryProbeCommand(filePath: string, sessionPath: string | null): string {
+    const paths = gitDirectorySearchPaths(filePath, sessionPath);
+    const listed = paths.map(shellQuote).join(' ');
+    return `for d in ${listed}; do [ -d "$d" ] && { printf '%s' "$d"; exit 0; }; done; printf '%s' ${shellQuote(paths[paths.length - 1] ?? '/')}`;
+}
+
+export function fileNavControlLabel(direction: 'previous' | 'next', title: string | undefined, index: number, total: number): string {
+    const verb = direction === 'previous' ? 'Previous' : 'Next';
+    if (title === undefined) return `${verb} changed file`;
+    const ordinal = direction === 'previous' ? index : index + 2;
+    return `${verb} changed file, ${title}, ${ordinal} of ${total}`;
 }

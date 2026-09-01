@@ -17,7 +17,7 @@ import { resolveSessionFilePath } from '@/terminal';
 import { syntaxLanguage } from '@/components/code/syntaxHighlighting';
 import { PathBreadcrumb } from '@/components/PathBreadcrumb';
 import { fileIcon } from '@/plugins/domain/fileIcon';
-import { currentFileNavigation, type FileNavigationEntry } from '@/plugins/application/fileNavigationList';
+import { currentFileNavigation, fileNavControlLabel, gitDirectoryProbeCommand, gitDirectorySearchPaths, type FileNavigationEntry } from '@/plugins/application/fileNavigationList';
 import { shellQuote } from '@/utils/shellQuote';
 
 interface FileContent {
@@ -80,8 +80,6 @@ export default React.memo(function FileScreen() {
     const fileList = fileNavigation?.entries ?? [];
     const fileIndex = fileNavigation?.index ?? -1;
     const currentEntry = fileNavigation?.entries[fileNavigation.index];
-    /** The session cwd exists even when a deleted file's parent directory does not. */
-    const gitDirectory = sessionPath || filePath.slice(0, filePath.lastIndexOf('/')) || '/';
 
     const cached = useSessionFileCache(sessionId!, filePath);
 
@@ -149,17 +147,22 @@ export default React.memo(function FileScreen() {
                 let freshDiff: string | null = null;
                 let diffObserved = false;
 
-                // Live git diff. Changes come from the whole repo while a
-                // session's cwd is often one subdir of it, so anchoring this to
-                // the session root meant every file outside that subdir showed
-                // no diff at all. The file's own directory always finds the
-                // right repo, and git takes the absolute path as a pathspec.
-                // Two questions, asked in order: what is uncommitted right now
-                // (diff HEAD covers staged and unstaged together), and failing
-                // that, what did the last commit touching this file change.
-                // Without the second, every file went blank the moment the work
-                // was committed -- which is most of them, most of the time.
+                // Discover git from the opened file's nearest existing directory
+                // so a third-party path outside the session cwd, or a nested
+                // repo, still diffs. Session cwd is only the last fallback when
+                // that directory is gone. Absolute pathspec stays quoted.
                 if (sessionId) {
+                    let gitDirectory = gitDirectorySearchPaths(filePath, sessionPath)[0] ?? '/';
+                    try {
+                        const probe = await sessionBash(sessionId, {
+                            command: gitDirectoryProbeCommand(filePath, sessionPath),
+                            timeout: 3000,
+                        });
+                        if (isCancelled) return;
+                        if (probe.success && probe.stdout.trim()) gitDirectory = probe.stdout.trim();
+                    } catch (probeError) {
+                        console.log('Could not resolve git directory:', probeError);
+                    }
                     const git = `git -C ${shellQuote(gitDirectory)} -c diff.mnemonicPrefix=false`;
                     for (const command of [
                         `${git} diff HEAD --no-ext-diff -- ${shellQuote(filePath)}`,
@@ -227,7 +230,7 @@ export default React.memo(function FileScreen() {
 
         loadFile();
         return () => { isCancelled = true; };
-    }, [filePath, gitDirectory, isBinaryFile, sessionId, fileName]);
+    }, [filePath, isBinaryFile, sessionId, sessionPath]);
 
     React.useEffect(() => {
         if (error) {
@@ -403,13 +406,13 @@ export default React.memo(function FileScreen() {
                 {fileNavigation !== null && (
                     <View style={styles.fileControls}>
                         <Pressable disabled={previousFile === undefined} onPress={() => navigateFile(previousFile)} accessibilityRole="button"
-                            accessibilityLabel={`Previous changed file${previousFile === undefined ? '' : `, ${previousFile.title}`}, ${fileNavigation.index + 1} of ${fileNavigation.entries.length}`}
+                            accessibilityLabel={fileNavControlLabel('previous', previousFile?.title, fileNavigation.index, fileNavigation.entries.length)}
                             accessibilityState={{ disabled: previousFile === undefined }} style={styles.fileButton}>
                             <Ionicons name="chevron-back" size={18} color={previousFile === undefined ? theme.colors.textSecondary : theme.colors.text} />
                         </Pressable>
                         <Text accessibilityRole="text" style={styles.filePosition}>{fileNavigation.index + 1} / {fileNavigation.entries.length}</Text>
                         <Pressable disabled={nextFile === undefined} onPress={() => navigateFile(nextFile)} accessibilityRole="button"
-                            accessibilityLabel={`Next changed file${nextFile === undefined ? '' : `, ${nextFile.title}`}, ${fileNavigation.index + 1} of ${fileNavigation.entries.length}`}
+                            accessibilityLabel={fileNavControlLabel('next', nextFile?.title, fileNavigation.index, fileNavigation.entries.length)}
                             accessibilityState={{ disabled: nextFile === undefined }} style={styles.fileButton}>
                             <Ionicons name="chevron-forward" size={18} color={nextFile === undefined ? theme.colors.textSecondary : theme.colors.text} />
                         </Pressable>

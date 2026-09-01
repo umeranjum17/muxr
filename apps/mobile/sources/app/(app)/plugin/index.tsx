@@ -2,7 +2,7 @@ import * as React from 'react';
 import { ActivityIndicator, View, Text, Pressable } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import { PluginSlot } from '@/plugins/ui';
-import { pluginCatalogLoaded, pluginSnapshot, pluginUnavailableReason } from '@/plugins';
+import { nearestContentMount, pluginCatalogLoaded, pluginSnapshot, pluginUnavailableReason } from '@/plugins';
 import { resolvePluginText } from '@/plugins';
 import { useSlotContributions } from '@/plugins';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
@@ -85,8 +85,7 @@ function mountTitle(pluginId: string, contentId: string): string {
     const entry = pluginSnapshot().find((item) => item.summary.pluginId === pluginId);
     if (entry === undefined) return '';
     const mounts = entry.manifest.contributions.filter((contribution) => 'contentContributionId' in contribution);
-    const mount = mounts.find((contribution) => contribution.contentContributionId === contentId)
-        ?? mounts.find((contribution) => contentId.startsWith(`${String(contribution.contentContributionId).split('.')[0]}.`));
+    const mount = nearestContentMount(mounts, contentId);
     if (mount !== undefined && 'label' in mount) return resolvePluginText(mount.label);
     if (mount !== undefined && 'title' in mount && mount.title !== undefined) return resolvePluginText(mount.title);
     return entry.summary.name;

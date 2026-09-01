@@ -179,7 +179,7 @@ if (preview.status !== 0) {
     process.exit(1);
 }
 const body = JSON.parse(preview.stdout);
-if (body.name !== leaf || typeof body.body !== 'string' || body.body === '') {
+if (body.name !== 'README.md' || body.path !== leaf || typeof body.body !== 'string' || body.body === '') {
     process.stderr.write('FAIL files.read did not return the selected leaf\n');
     process.exit(1);
 }
