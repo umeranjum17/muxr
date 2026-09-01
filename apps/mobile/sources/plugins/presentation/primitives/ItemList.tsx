@@ -14,6 +14,7 @@ import { PLUGIN_CALL_CLIENT_TIMEOUT_MS } from '@muxr/contract';
 import type { PrimitiveProps } from '../../domain/primitiveTypes'
 import { asPluginItemList, type PluginItemListAction, type PluginItemListItem, type PluginItemListModel } from '../../domain/itemListModel';
 import { dispatchPluginAction, validatePluginAction } from '../../application/pluginActions';
+import { recordFileNavigation } from '../../application/fileNavigationList';
 import { pluginSnapshot } from '../../application/pluginStore';
 import { clearPluginCache, registerPluginDataCacheInvalidator, subscribePluginDataInvalidation } from '../../application/pluginDataInvalidation';
 import { toneColor } from '../../domain/pluginTone';
@@ -201,6 +202,9 @@ export function ItemList({ context, pluginId, manifestHash, contribution, presen
         if (manifest === undefined || action === undefined) return;
         setBusyId(busyKey);
         try {
+            if (sessionId !== undefined && action.type === 'kernel.navigate' && action.target === 'file') {
+                recordFileNavigation(sessionId, items, action.path);
+            }
             await dispatchPluginAction(action, {
                 router, pluginId, manifestHash, manifest,
                 ...(sessionId === undefined ? {} : { sessionId }),
@@ -214,7 +218,7 @@ export function ItemList({ context, pluginId, manifestHash, contribution, presen
         } finally {
             setBusyId(null);
         }
-    }, [manifest, manifestHash, pluginId, router, sessionId]);
+    }, [items, manifest, manifestHash, pluginId, router, sessionId]);
 
     const title = contribution.title === undefined ? t('plugins.items') : resolvePluginText(contribution.title);
     const icon = contribution.icon ?? 'document-outline';

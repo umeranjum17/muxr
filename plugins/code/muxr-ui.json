@@ -95,13 +95,13 @@
       },
       "children": [
         {
-          "type": "text",
-          "text": "{{data.count}}",
+          "type": "badge",
+          "label": "{{data.count}}",
           "tone": "secondary"
         },
         {
           "type": "tree",
-          "title": "Explorer",
+          "title": "{{data.title}}",
           "emptyText": "No files",
           "path": "data.tree",
           "source": {
@@ -116,6 +116,11 @@
               "path": "{{item.path}}"
             }
           }
+        },
+        {
+          "type": "text",
+          "text": "{{data.treeNote}}",
+          "tone": "secondary"
         }
       ]
     },
@@ -132,7 +137,7 @@
         {
           "type": "code",
           "path": "data.body",
-          "fileNamePath": "data.name"
+          "fileNamePath": "data.path"
         },
         {
           "type": "text",

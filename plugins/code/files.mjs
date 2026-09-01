@@ -59,9 +59,9 @@ function fileTree(paths, folder = '') {
             ...(directory ? { hasChildren: true } : {}),
         });
     }
-    return [...nodes.values()]
-        .sort((a, b) => Number(b.kind === 'folder') - Number(a.kind === 'folder') || a.name.localeCompare(b.name))
-        .slice(0, 256);
+    const sorted = [...nodes.values()]
+        .sort((a, b) => Number(b.kind === 'folder') - Number(a.kind === 'folder') || a.name.localeCompare(b.name));
+    return { tree: sorted.slice(0, 256), total: sorted.length };
 }
 
 const method = process.argv[2];
@@ -73,12 +73,13 @@ if (method === 'repos') {
     const all = exec('git', ['-C', root, 'ls-files', '--cached', '--others', '--exclude-standard', '-z']).split('\0').filter(Boolean);
     const folder = String(input.path ?? '').replace(/^\/+|\/+$/g, '');
     if (folder.split('/').some((segment) => segment === '..')) throw new Error('invalid folder');
-    const tree = fileTree(all, folder);
+    const listed = fileTree(all, folder);
     process.stdout.write(JSON.stringify({
         root,
         title: root.split('/').pop(),
         count: `${all.length} files`,
-        tree,
+        tree: listed.tree,
+        treeNote: listed.total > listed.tree.length ? `Showing first 256 of ${listed.total}` : '',
     }));
 } else {
     const root = repoRoot(input.root);
@@ -99,7 +100,8 @@ if (method === 'repos') {
     const lines = allLines.slice(0, 240);
     const truncated = stat.size > limit || allLines.length > lines.length;
     process.stdout.write(JSON.stringify({
-        name: relative,
+        name: relative.split('/').pop() ?? relative,
+        path: relative,
         body: binary ? 'Binary file — preview unavailable.' : lines.join('\n'),
         note: truncated ? `Preview capped at ${lines.length} lines / 24 KiB.` : '',
     }));

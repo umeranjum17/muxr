@@ -3,7 +3,7 @@ import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, T
 import { randomUUID } from 'expo-crypto';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import Animated, { Easing, FadeInDown, cancelAnimation, useAnimatedStyle, useReducedMotion, useSharedValue, withRepeat, withSpring, withTiming } from 'react-native-reanimated';
+import Animated, { Easing, cancelAnimation, useAnimatedStyle, useReducedMotion, useSharedValue, withRepeat, withSpring, withTiming } from 'react-native-reanimated';
 import { useUnistyles } from 'react-native-unistyles';
 import type { PluginManifestV1, PluginScreenButtonNode, PluginScreenContribution, PluginScreenNode, PluginScreenRowAction, PluginScreenRowNode, PluginScreenTreeNode, PluginSource, PluginText, RequestParams } from '@muxr/contract';
 import { MAX_SCREEN_LIST_ROWS, PLUGIN_CALL_CLIENT_TIMEOUT_MS, capUtf8Bytes, defaultPluginText, sanitizeDisplayText } from '@muxr/contract';
@@ -198,8 +198,10 @@ function ScreenNode(props: {
     const { node, data, fields } = props;
     const bind = (value: PluginText) => bindText(resolvePluginText(value), data);
     switch (node.type) {
-        case 'text':
-            return <Text style={{ color: node.tone === undefined ? theme.colors.text : toneColor(theme, node.tone), fontSize: 15, lineHeight: 21, marginBottom: 8 }}>{bind(node.text)}</Text>;
+        case 'text': {
+            const text = bind(node.text);
+            return text === '' ? null : <Text style={{ color: node.tone === undefined ? theme.colors.text : toneColor(theme, node.tone), fontSize: 15, lineHeight: 21, marginBottom: 8 }}>{text}</Text>;
+        }
         case 'row':
             return <ScreenRow row={node} data={data} onRowAction={props.onRowAction} insideCard={props.nested === true} style={{ paddingVertical: 10 }} />;
         case 'diff': {
@@ -522,7 +524,6 @@ function ScreenBody(props: {
     }, [props.manifest, props.manifestHash, callParams, props.pluginId, request]);
 
     const { theme } = useUnistyles();
-    const reduceMotion = useReducedMotion();
     // A reload keeps the last payload on screen: blanking to a spinner costs the
     // reader their place and re-runs the entrance on every tab tap.
     const hasContent = dataContributionId === undefined || data !== undefined || dataError !== undefined;
@@ -554,12 +555,10 @@ function ScreenBody(props: {
                     {hasContent
                         ? <View style={{ opacity: loading ? 0.55 : 1 }}>
                             {screen.children.map((node, index) => (
-                                <Animated.View key={index} entering={reduceMotion ? undefined : FadeInDown.duration(280).delay(Math.min(index, 8) * 40).easing(Easing.bezier(0.23, 1, 0.32, 1))}>
-                                    <ScreenNode node={node} data={data} fields={fields} setField={setField} running={running} onButton={onButton} onRowAction={onRowAction} onTreeLoad={onTreeLoad}
-                                        tabOverrides={tabParams}
-                                        onSelectTab={(param, value) => setTabParams((current) => ({ ...current, [param]: value }))}
-                                        onTreeError={(error) => setStatus({ ok: false, text: error instanceof Error ? error.message : String(error) })} />
-                                </Animated.View>
+                                <ScreenNode key={index} node={node} data={data} fields={fields} setField={setField} running={running} onButton={onButton} onRowAction={onRowAction} onTreeLoad={onTreeLoad}
+                                    tabOverrides={tabParams}
+                                    onSelectTab={(param, value) => setTabParams((current) => ({ ...current, [param]: value }))}
+                                    onTreeError={(error) => setStatus({ ok: false, text: error instanceof Error ? error.message : String(error) })} />
                             ))}
                         </View>
                         : <ScreenSkeleton />}

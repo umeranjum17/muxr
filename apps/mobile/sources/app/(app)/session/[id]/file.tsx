@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { View, ScrollView, ActivityIndicator, Platform, Pressable, useWindowDimensions } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import { useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { Text } from '@/components/StyledText';
 import { SimpleSyntaxHighlighter } from '@/components/SimpleSyntaxHighlighter';
 import { Typography } from '@/constants/Typography';
@@ -12,15 +12,46 @@ import { useUnistyles, StyleSheet } from 'react-native-unistyles';
 import { layout } from '@/components/layout';
 import { t } from '@/text';
 import { Ionicons } from '@expo/vector-icons';
-import { FileIcon } from '@/components/FileIcon';
 import { PierreDiffView } from '@/components/diff/PierreDiffView';
 import { resolveSessionFilePath } from '@/terminal';
-import { MobileGlassSurface } from '@/components/MobileGlass';
 import { syntaxLanguage } from '@/components/code/syntaxHighlighting';
+import { PathBreadcrumb } from '@/components/PathBreadcrumb';
+import { fileIcon } from '@/plugins/domain/fileIcon';
+import { currentFileNavigation, type FileNavigationEntry } from '@/plugins/application/fileNavigationList';
+import { shellQuote } from '@/utils/shellQuote';
 
 interface FileContent {
     content: string;
     isBinary: boolean;
+}
+
+function changeStatus(entry: FileNavigationEntry): { label: string; glyph: string; colorKey: 'added' | 'deleted' | 'modified' | 'renamed' } {
+    const group = entry.group?.toLowerCase() ?? '';
+    if (group.includes('delete')) return { label: 'Deleted', glyph: 'D', colorKey: 'deleted' };
+    if (group.includes('rename')) return { label: 'Renamed', glyph: 'R', colorKey: 'renamed' };
+    if (group.includes('new') || group.includes('add')) return { label: 'Added', glyph: 'A', colorKey: 'added' };
+    return { label: 'Modified', glyph: 'M', colorKey: 'modified' };
+}
+
+function ChangeChip({ entry }: { entry?: FileNavigationEntry }) {
+    const { theme } = useUnistyles();
+    if (entry === undefined) return null;
+    const status = changeStatus(entry);
+    const added = entry.metadata.find((item) => item.value.startsWith('+'))?.value;
+    const removed = entry.metadata.find((item) => item.value.startsWith('−'))?.value;
+    const binary = entry.metadata.some((item) => item.value === 'binary');
+    const statusColor = status.colorKey === 'added' ? theme.colors.gitAddedText
+        : status.colorKey === 'deleted' ? theme.colors.gitRemovedText
+            : status.colorKey === 'modified' ? theme.colors.accent : theme.colors.textSecondary;
+    const parts = [status.label, added, removed, binary ? 'binary' : undefined].filter(Boolean);
+    return (
+        <View accessibilityRole="text" accessibilityLabel={`${entry.title}, ${parts.join(', ')}`} style={{ height: 22, borderRadius: 999, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider, backgroundColor: theme.colors.surfaceHigh, paddingHorizontal: 8, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <Text style={{ color: statusColor, fontSize: 11, ...Typography.mono('semiBold') }}>{status.glyph}</Text>
+            {added !== undefined && <Text style={{ color: theme.colors.gitAddedText, fontSize: 11.5, ...Typography.mono('semiBold') }}>{added}</Text>}
+            {removed !== undefined && <Text style={{ color: theme.colors.gitRemovedText, fontSize: 11.5, ...Typography.mono('semiBold') }}>{removed}</Text>}
+            {binary && <Text style={{ color: theme.colors.textSecondary, fontSize: 11.5, ...Typography.mono('semiBold') }}>binary</Text>}
+        </View>
+    );
 }
 
 /**
@@ -31,6 +62,8 @@ interface FileContent {
  */
 export default React.memo(function FileScreen() {
     const { theme } = useUnistyles();
+    const router = useRouter();
+    const navigation = useNavigation();
     const { id: sessionId } = useLocalSearchParams<{ id: string }>();
     const searchParams = useLocalSearchParams();
     const rawPath = typeof searchParams.path === 'string' ? searchParams.path : '';
@@ -43,17 +76,25 @@ export default React.memo(function FileScreen() {
     const resolvedPath = resolveSessionFilePath(rawPath, sessionPath);
     const filePath = resolvedPath?.absolutePath ?? rawPath;
     const fileName = filePath.split('/').pop() || filePath;
-    /** Run git from the file's own directory, so a repo is found wherever it lives. */
-    const fileDir = filePath.slice(0, filePath.lastIndexOf('/')) || '/';
+    const fileNavigation = sessionId === undefined ? null : (currentFileNavigation(sessionId, filePath) ?? currentFileNavigation(sessionId, rawPath));
+    const fileList = fileNavigation?.entries ?? [];
+    const fileIndex = fileNavigation?.index ?? -1;
+    const currentEntry = fileNavigation?.entries[fileNavigation.index];
+    /** The session cwd exists even when a deleted file's parent directory does not. */
+    const gitDirectory = sessionPath || filePath.slice(0, filePath.lastIndexOf('/')) || '/';
 
     const cached = useSessionFileCache(sessionId!, filePath);
+
+    React.useLayoutEffect(() => {
+        navigation.setOptions({ headerTitle: fileName, headerBackTitle: t('common.back') });
+    }, [fileName, navigation]);
 
     const [fileContent, setFileContent] = React.useState<FileContent | null>(() => {
         if (!cached) return null;
         return { content: cached.content ?? '', isBinary: cached.isBinary };
     });
     const [diffContent, setDiffContent] = React.useState<string | null>(() => cached?.diff ?? null);
-    const [displayMode, setDisplayMode] = React.useState<'file' | 'diff'>('diff');
+    const [displayMode, setDisplayMode] = React.useState<'file' | 'diff'>(() => requestedLine !== null && requestedLine > 0 ? 'file' : 'diff');
     const [isLoading, setIsLoading] = React.useState(!cached);
     const [error, setError] = React.useState<string | null>(null);
     const scrollViewRef = React.useRef<ScrollView | null>(null);
@@ -70,9 +111,9 @@ export default React.memo(function FileScreen() {
                     .onBegin(() => {
                         pinchStart.current = fontSize;
                     })
-                    .onUpdate((event) => {
+                    .onEnd((event) => {
                         const next = Math.round(Math.min(28, Math.max(8, pinchStart.current * event.scale)));
-                        setFontSize((current) => (current === next ? current : next));
+                        setFontSize(next);
                     })
                     .runOnJS(true),
                 Gesture.Native(),
@@ -97,24 +138,16 @@ export default React.memo(function FileScreen() {
 
     React.useEffect(() => {
         let isCancelled = false;
+        setError(null);
+        setFileContent(cached ? { content: cached.content ?? '', isBinary: cached.isBinary } : null);
+        setDiffContent(cached?.diff ?? null);
+        setIsLoading(cached === null);
 
         const loadFile = async () => {
             try {
-                if (!cached) {
-                    setIsLoading(true);
-                }
-                setError(null);
-
-                if (isBinaryFile(filePath)) {
-                    if (!isCancelled) {
-                        setFileContent({ content: '', isBinary: true });
-                        storage.getState().applyFileCache(sessionId!, filePath, '', null, true);
-                        setIsLoading(false);
-                    }
-                    return;
-                }
-
-                let fetchedDiff: string | null = null;
+                let fetchedDiff = cached?.diff ?? null;
+                let freshDiff: string | null = null;
+                let diffObserved = false;
 
                 // Live git diff. Changes come from the whole repo while a
                 // session's cwd is often one subdir of it, so anchoring this to
@@ -126,18 +159,18 @@ export default React.memo(function FileScreen() {
                 // that, what did the last commit touching this file change.
                 // Without the second, every file went blank the moment the work
                 // was committed -- which is most of them, most of the time.
-                if (!fetchedDiff && sessionId) {
-                    const git = `git -C "${fileDir}" -c diff.mnemonicPrefix=false`;
+                if (sessionId) {
+                    const git = `git -C ${shellQuote(gitDirectory)} -c diff.mnemonicPrefix=false`;
                     for (const command of [
-                        `${git} diff HEAD --no-ext-diff -- "${filePath}"`,
-                        `${git} log -1 -p --no-ext-diff --format= -- "${filePath}"`,
+                        `${git} diff HEAD --no-ext-diff -- ${shellQuote(filePath)}`,
+                        `${git} log -1 -p --no-ext-diff --format= -- ${shellQuote(filePath)}`,
                     ]) {
                         try {
                             const diffResponse = await sessionBash(sessionId, { command, timeout: 5000 });
                             if (isCancelled) return;
+                            if (diffResponse.success) diffObserved = true;
                             if (diffResponse.success && diffResponse.stdout.trim()) {
-                                fetchedDiff = diffResponse.stdout;
-                                setDiffContent(fetchedDiff);
+                                freshDiff = diffResponse.stdout;
                                 break;
                             }
                         } catch (diffError) {
@@ -145,7 +178,19 @@ export default React.memo(function FileScreen() {
                         }
                     }
                 }
+                if (diffObserved) {
+                    fetchedDiff = freshDiff;
+                    if (!isCancelled) setDiffContent(fetchedDiff);
+                }
 
+                if (isBinaryFile(filePath)) {
+                    if (!isCancelled) {
+                        const isBinary = fetchedDiff === null;
+                        setFileContent({ content: '', isBinary });
+                        storage.getState().applyFileCache(sessionId!, filePath, '', fetchedDiff, isBinary);
+                    }
+                    return;
+                }
 
                 const response = await sessionReadFile(sessionId, filePath);
 
@@ -163,28 +208,26 @@ export default React.memo(function FileScreen() {
                         const content = isBinary ? '' : text;
                         setFileContent({ content, isBinary });
                         storage.getState().applyFileCache(sessionId!, filePath, content, fetchedDiff, isBinary);
+                    } else if (fetchedDiff !== null) {
+                        // Deleted files have no working-tree contents, but their
+                        // diff is still the useful and truthful representation.
+                        setFileContent({ content: '', isBinary: false });
+                        storage.getState().applyFileCache(sessionId!, filePath, '', fetchedDiff, false);
                     } else {
                         setError(response.error || 'Failed to read file');
                     }
                 }
             } catch (loadError) {
                 console.error('Failed to load file:', loadError);
-                if (!isCancelled) {
-                    setError('Failed to load file');
-                }
+                if (!isCancelled) setError('Failed to load file');
             } finally {
-                if (!isCancelled) {
-                    setIsLoading(false);
-                }
+                if (!isCancelled) setIsLoading(false);
             }
         };
 
         loadFile();
-
-        return () => {
-            isCancelled = true;
-        };
-    }, [filePath, fileDir, isBinaryFile, sessionId, fileName]);
+        return () => { isCancelled = true; };
+    }, [filePath, gitDirectory, isBinaryFile, sessionId, fileName]);
 
     React.useEffect(() => {
         if (error) {
@@ -192,30 +235,23 @@ export default React.memo(function FileScreen() {
         }
     }, [error]);
 
-    React.useEffect(() => {
-        if (requestedLine !== null && requestedLine > 0) {
-            setDisplayMode('file');
-        } else if (diffContent) {
-            setDisplayMode('diff');
-        } else if (fileContent) {
-            setDisplayMode('file');
-        }
-    }, [diffContent, fileContent, requestedLine]);
+    const { width: windowWidth } = useWindowDimensions();
+    const isNarrow = windowWidth < 700;
 
     React.useEffect(() => {
-        if (!fileContent?.content || displayMode !== 'file' || requestedLine === null || requestedLine <= 0) {
-            return;
-        }
-        const offset = Math.max(0, ((requestedLine - 1) * 20) - 40);
+        if (!fileContent?.content || displayMode !== 'file' || requestedLine === null || requestedLine <= 0) return;
+        const lineHeight = Math.round((fontSize - (isNarrow ? 1 : 0)) * 10 / 7);
+        const offset = Math.max(0, ((requestedLine - 1) * lineHeight) - 40);
         requestAnimationFrame(() => {
             scrollViewRef.current?.scrollTo({ y: offset, animated: false });
         });
-    }, [displayMode, fileContent?.content, requestedLine]);
-
-    const { width: windowWidth } = useWindowDimensions();
-    const isNarrow = windowWidth < 700;
+    }, [displayMode, fileContent?.content, fontSize, isNarrow, requestedLine]);
     const [hunkOffsets, setHunkOffsets] = React.useState<number[]>([]);
     const hunkIndex = React.useRef(0);
+    React.useEffect(() => {
+        hunkIndex.current = 0;
+        setHunkOffsets([]);
+    }, [filePath]);
 
     // Offsets are measured inside the diff, so they need the scroller's own
     // padding added back before they mean anything to scrollTo.
@@ -225,11 +261,20 @@ export default React.memo(function FileScreen() {
         hunkIndex.current = next;
         scrollViewRef.current?.scrollTo({ y: Math.max(0, hunkOffsets[next] + 16 - 8), animated: true });
     }, [hunkOffsets]);
-    const directoryOfPath = (p: string): string => {
-        const slash = Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\'));
-        return slash > 0 ? p.slice(0, slash) : '';
-    };
     const language = syntaxLanguage(undefined, filePath) ?? null;
+    const previousFile = fileIndex > 0 ? fileList[fileIndex - 1] : undefined;
+    const nextFile = fileIndex >= 0 && fileIndex < fileList.length - 1 ? fileList[fileIndex + 1] : undefined;
+    const navigateFile = React.useCallback((entry: FileNavigationEntry | undefined) => {
+        if (entry === undefined || sessionId === undefined) return;
+        router.replace(`/session/${encodeURIComponent(sessionId)}/file?path=${encodeURIComponent(entry.path)}` as never);
+    }, [router, sessionId]);
+    const lineSuffix = requestedLine !== null && requestedLine > 0
+        ? `:${requestedLine}${requestedColumn !== null && requestedColumn > 0 ? `:${requestedColumn}` : ''}`
+        : '';
+    const breadcrumbSegments = React.useMemo(() => filePath.split('/').filter(Boolean).map((label, index, segments) => ({
+        label: index === segments.length - 1 ? `${label}${lineSuffix}` : label,
+        ...(index === 0 ? { icon: fileIcon(fileName).name } : {}),
+    })), [fileName, filePath, lineSuffix]);
 
     if (isLoading) {
         return (
@@ -282,7 +327,7 @@ export default React.memo(function FileScreen() {
         );
     }
 
-    if (fileContent?.isBinary) {
+    if (fileContent?.isBinary && !diffContent) {
         return (
             <View style={{
                 flex: 1,
@@ -324,107 +369,52 @@ export default React.memo(function FileScreen() {
     return (
         <View style={styles.container}>
 
-            {/* File path header */}
-            <MobileGlassSurface enabled={Platform.OS !== 'web'} intensity={62} style={{
-                paddingHorizontal: 16,
-                paddingVertical: isNarrow ? 8 : 16,
-                borderBottomWidth: Platform.select({ web: 1, default: 0.5 }),
-                borderBottomColor: Platform.select({ web: theme.colors.divider, default: theme.colors.glass.border }),
-                backgroundColor: Platform.select({ web: theme.colors.surfaceHigh, android: theme.colors.glass.backgroundStrong, default: 'transparent' }),
-                flexDirection: 'row',
-                alignItems: 'center'
-            }}>
-                <FileIcon fileName={fileName} size={20} />
-                {/* On a phone the directory is worth less than the row it costs:
-                    name and path share one line, path shrinking to fit. */}
-                <View style={{ flex: 1, minWidth: 0, marginLeft: 10, flexDirection: isNarrow ? 'row' : 'column', alignItems: isNarrow ? 'baseline' : undefined }}>
-                    <Text numberOfLines={1} ellipsizeMode="middle" style={{
-                        fontSize: 14,
-                        color: theme.colors.text,
-                        flexShrink: 0,
-                        ...Typography.default('semiBold')
-                    }}>
-                        {fileName}
-                    </Text>
-                    <Text numberOfLines={1} ellipsizeMode="head" style={{
-                        fontSize: 12,
-                        color: theme.colors.textSecondary,
-                        ...(isNarrow ? { flexShrink: 1, marginLeft: 8 } : { marginTop: 1 }),
-                        ...Typography.mono()
-                    }}>
-                        {requestedLine !== null && requestedLine > 0
-                            ? `${directoryOfPath(filePath)}:${requestedLine}${requestedColumn !== null && requestedColumn > 0 ? `:${requestedColumn}` : ''}`
-                            : directoryOfPath(filePath)}
-                    </Text>
-                </View>
-            </MobileGlassSurface>
+            <PathBreadcrumb segments={breadcrumbSegments} fullPath={filePath}
+                {...(currentEntry === undefined ? {} : { trailing: <ChangeChip entry={currentEntry} /> })} />
 
-            {/* Always present: a view that appears and disappears reads as
-                arbitrary. Without a diff the tab is simply disabled. */}
-            {(
-                <View style={{
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    paddingHorizontal: 16,
-                    paddingVertical: 4,
-                    borderBottomWidth: StyleSheet.hairlineWidth,
-                    borderBottomColor: theme.colors.divider,
-                    backgroundColor: Platform.select({ web: theme.colors.surface, default: 'transparent' })
-                }}>
-                    <View style={{
-                        flexDirection: 'row',
-                        gap: 2,
-                        padding: 2,
-                        borderRadius: 9,
-                        borderWidth: StyleSheet.hairlineWidth,
-                        borderColor: theme.colors.divider,
-                        backgroundColor: theme.colors.groupped.background,
-                    }}>
-                        {(['diff', 'file'] as const).map((mode) => {
-                            const active = displayMode === mode;
-                            const disabled = mode === 'diff' && !diffContent;
-                            return (
-                                <Pressable
-                                    key={mode}
-                                    disabled={disabled}
-                                    onPress={() => setDisplayMode(mode)}
-                                    style={{
-                                        paddingHorizontal: 12,
-                                        paddingVertical: 5,
-                                        borderRadius: 7,
-                                        opacity: disabled ? 0.4 : 1,
-                                        backgroundColor: active ? theme.colors.surface : 'transparent',
-                                    }}
-                                >
-                                    <Text style={{
-                                        fontSize: 13,
-                                        color: active ? theme.colors.text : theme.colors.textSecondary,
-                                        ...Typography.default(active ? 'semiBold' : undefined),
-                                    }}>
-                                        {mode === 'diff' ? t('files.diff') : t('files.file')}
-                                    </Text>
-                                </Pressable>
-                            );
-                        })}
+            <View style={styles.controls}>
+                <View style={styles.modeGroup}>
+                    {(['diff', 'file'] as const).map((mode) => {
+                        const active = displayMode === mode;
+                        const disabled = mode === 'diff' && !diffContent;
+                        return <Pressable key={mode} disabled={disabled} onPress={() => setDisplayMode(mode)} accessibilityRole="tab"
+                            accessibilityLabel={mode === 'diff' ? t('files.diff') : t('files.file')}
+                            accessibilityState={{ selected: active, disabled }}
+                            style={({ pressed }) => [styles.mode, { backgroundColor: active ? theme.colors.surfaceSelected : pressed ? theme.colors.surfacePressed : 'transparent', opacity: disabled ? 0.45 : 1 }]}>
+                            <Text style={{ color: active ? theme.colors.text : theme.colors.textSecondary, fontSize: 13, ...Typography.default(active ? 'semiBold' : undefined) }}>
+                                {mode === 'diff' ? t('files.diff') : t('files.file')}
+                            </Text>
+                        </Pressable>;
+                    })}
+                </View>
+
+                {displayMode === 'diff' && hunkOffsets.length > 1 && (
+                    <View style={styles.hunkControls}>
+                        {([['chevron-up', -1], ['chevron-down', 1]] as const).map(([icon, step]) => (
+                            <Pressable key={icon} onPress={() => jumpHunk(step)} accessibilityRole="button"
+                                accessibilityLabel={step < 0 ? 'Previous hunk' : 'Next hunk'} style={styles.hunkButton}>
+                                <Ionicons name={icon} size={18} color={theme.colors.text} />
+                            </Pressable>
+                        ))}
                     </View>
+                )}
 
-                    {/* Only earns its place once there is somewhere to jump to. */}
-                    {displayMode === 'diff' && hunkOffsets.length > 1 && (
-                        <View style={{ flexDirection: 'row', marginLeft: 'auto', alignItems: 'center', gap: 4 }}>
-                            {([['chevron-up', -1], ['chevron-down', 1]] as const).map(([icon, step]) => (
-                                <Pressable
-                                    key={icon}
-                                    hitSlop={8}
-                                    onPress={() => jumpHunk(step)}
-                                    style={{ padding: 6 }}
-                                >
-                                    <Ionicons name={icon} size={16} color={theme.colors.text} />
-                                </Pressable>
-                            ))}
-                        </View>
-                    )}
-                </View>
-            )}
+                {fileNavigation !== null && (
+                    <View style={styles.fileControls}>
+                        <Pressable disabled={previousFile === undefined} onPress={() => navigateFile(previousFile)} accessibilityRole="button"
+                            accessibilityLabel={`Previous changed file${previousFile === undefined ? '' : `, ${previousFile.title}`}, ${fileNavigation.index + 1} of ${fileNavigation.entries.length}`}
+                            accessibilityState={{ disabled: previousFile === undefined }} style={styles.fileButton}>
+                            <Ionicons name="chevron-back" size={18} color={previousFile === undefined ? theme.colors.textSecondary : theme.colors.text} />
+                        </Pressable>
+                        <Text accessibilityRole="text" style={styles.filePosition}>{fileNavigation.index + 1} / {fileNavigation.entries.length}</Text>
+                        <Pressable disabled={nextFile === undefined} onPress={() => navigateFile(nextFile)} accessibilityRole="button"
+                            accessibilityLabel={`Next changed file${nextFile === undefined ? '' : `, ${nextFile.title}`}, ${fileNavigation.index + 1} of ${fileNavigation.entries.length}`}
+                            accessibilityState={{ disabled: nextFile === undefined }} style={styles.fileButton}>
+                            <Ionicons name="chevron-forward" size={18} color={nextFile === undefined ? theme.colors.textSecondary : theme.colors.text} />
+                        </Pressable>
+                    </View>
+                )}
+            </View>
 
             {/* Content display */}
             <GestureDetector gesture={zoom}>
@@ -491,5 +481,60 @@ const styles = StyleSheet.create((theme) => ({
     container: {
         flex: 1,
         backgroundColor: Platform.select({ web: theme.colors.surface, default: 'transparent' }),
-    }
+    },
+    controls: {
+        minHeight: 44,
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 8,
+        borderBottomWidth: StyleSheet.hairlineWidth,
+        borderBottomColor: theme.colors.divider,
+        backgroundColor: Platform.select({ web: theme.colors.surface, default: 'transparent' }),
+    },
+    modeGroup: {
+        flexDirection: 'row',
+        gap: 2,
+        padding: 2,
+        borderRadius: 9,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: theme.colors.divider,
+        backgroundColor: theme.colors.groupped.background,
+    },
+    mode: {
+        minHeight: 36,
+        paddingHorizontal: 12,
+        borderRadius: 7,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    hunkControls: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 2,
+        marginLeft: 4,
+    },
+    hunkButton: {
+        width: 40,
+        height: 44,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    fileControls: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginLeft: 'auto',
+    },
+    fileButton: {
+        width: 44,
+        height: 44,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    filePosition: {
+        minWidth: 38,
+        textAlign: 'center',
+        color: theme.colors.textSecondary,
+        fontSize: 11.5,
+        ...Typography.mono('semiBold'),
+    },
 }));
