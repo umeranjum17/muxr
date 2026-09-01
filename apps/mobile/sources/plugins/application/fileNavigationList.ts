@@ -6,6 +6,7 @@ export interface FileNavigationEntry {
     title: string;
     subtitle?: string;
     group?: string;
+    icon?: string;
     metadata: PluginItemListItem['metadata'];
 }
 
@@ -18,18 +19,23 @@ export function recordFileNavigation(sessionId: string, items: PluginItemListIte
         activeSessionId = sessionId;
         entries = [];
     }
-    entries = items.flatMap((item) => {
+    const next: FileNavigationEntry[] = [];
+    const seen = new Set<string>();
+    for (const item of items) {
         const action = item.action;
-        if (action?.type !== 'kernel.navigate' || action.target !== 'file') return [];
-        return [{
+        if (action?.type !== 'kernel.navigate' || action.target !== 'file') continue;
+        if (seen.has(action.path)) continue;
+        seen.add(action.path);
+        next.push({
             path: action.path,
             title: item.title,
             ...(item.subtitle === undefined ? {} : { subtitle: item.subtitle }),
             ...(item.group === undefined ? {} : { group: item.group }),
+            ...(item.icon === undefined ? {} : { icon: item.icon }),
             metadata: item.metadata,
-        }];
-    });
-    if (!entries.some((entry) => entry.path === selectedPath)) entries = [];
+        });
+    }
+    entries = next.some((entry) => entry.path === selectedPath) ? next : [];
 }
 
 export function currentFileNavigation(sessionId: string, path: string): { entries: FileNavigationEntry[]; index: number } | null {

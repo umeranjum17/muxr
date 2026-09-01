@@ -25,28 +25,33 @@ interface FileContent {
     isBinary: boolean;
 }
 
-function changeStatus(entry: FileNavigationEntry): { label: string; glyph: string; colorKey: 'added' | 'deleted' | 'modified' | 'renamed' } {
-    const group = entry.group?.toLowerCase() ?? '';
-    if (group.includes('delete')) return { label: 'Deleted', glyph: 'D', colorKey: 'deleted' };
-    if (group.includes('rename')) return { label: 'Renamed', glyph: 'R', colorKey: 'renamed' };
-    if (group.includes('new') || group.includes('add')) return { label: 'Added', glyph: 'A', colorKey: 'added' };
-    return { label: 'Modified', glyph: 'M', colorKey: 'modified' };
+function changeStatus(entry: FileNavigationEntry): { label: string; glyph: string; colorKey: 'added' | 'deleted' | 'modified' | 'renamed' } | undefined {
+    if (entry.icon === 'add-circle-outline') return { label: 'Added', glyph: 'A', colorKey: 'added' };
+    if (entry.icon === 'trash-outline') return { label: 'Deleted', glyph: 'D', colorKey: 'deleted' };
+    if (entry.icon === 'swap-horizontal-outline') return { label: 'Renamed', glyph: 'R', colorKey: 'renamed' };
+    if (entry.icon === 'git-compare-outline') return { label: 'Modified', glyph: 'M', colorKey: 'modified' };
+    return undefined;
+}
+
+function countMeta(entry: FileNavigationEntry, tone: 'positive' | 'danger', prefix: string): string | undefined {
+    return entry.metadata.find((item) => item.tone === tone && item.value.startsWith(prefix) && /^\d+$/.test(item.value.slice(prefix.length)))?.value;
 }
 
 function ChangeChip({ entry }: { entry?: FileNavigationEntry }) {
     const { theme } = useUnistyles();
     if (entry === undefined) return null;
     const status = changeStatus(entry);
-    const added = entry.metadata.find((item) => item.value.startsWith('+'))?.value;
-    const removed = entry.metadata.find((item) => item.value.startsWith('−'))?.value;
+    const added = countMeta(entry, 'positive', '+');
+    const removed = countMeta(entry, 'danger', '−');
     const binary = entry.metadata.some((item) => item.value === 'binary');
-    const statusColor = status.colorKey === 'added' ? theme.colors.gitAddedText
-        : status.colorKey === 'deleted' ? theme.colors.gitRemovedText
-            : status.colorKey === 'modified' ? theme.colors.accent : theme.colors.textSecondary;
-    const parts = [status.label, added, removed, binary ? 'binary' : undefined].filter(Boolean);
+    if (status === undefined && added === undefined && removed === undefined && !binary) return null;
+    const statusColor = status?.colorKey === 'added' ? theme.colors.gitAddedText
+        : status?.colorKey === 'deleted' ? theme.colors.gitRemovedText
+            : status?.colorKey === 'modified' ? theme.colors.accent : theme.colors.textSecondary;
+    const parts = [status?.label, added, removed, binary ? 'binary' : undefined].filter(Boolean);
     return (
         <View accessibilityRole="text" accessibilityLabel={`${entry.title}, ${parts.join(', ')}`} style={{ height: 22, borderRadius: 999, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider, backgroundColor: theme.colors.surfaceHigh, paddingHorizontal: 8, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-            <Text style={{ color: statusColor, fontSize: 11, ...Typography.mono('semiBold') }}>{status.glyph}</Text>
+            {status !== undefined && <Text style={{ color: statusColor, fontSize: 11, ...Typography.mono('semiBold') }}>{status.glyph}</Text>}
             {added !== undefined && <Text style={{ color: theme.colors.gitAddedText, fontSize: 11.5, ...Typography.mono('semiBold') }}>{added}</Text>}
             {removed !== undefined && <Text style={{ color: theme.colors.gitRemovedText, fontSize: 11.5, ...Typography.mono('semiBold') }}>{removed}</Text>}
             {binary && <Text style={{ color: theme.colors.textSecondary, fontSize: 11.5, ...Typography.mono('semiBold') }}>binary</Text>}

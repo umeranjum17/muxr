@@ -6,9 +6,11 @@ import { describe, expect, it } from 'vitest';
 import { patchFiles, uniqueDiffLabels } from '@/components/diff/patchFiles';
 import { nearestContentMount } from '@/plugins/domain/screenModel';
 import {
+    currentFileNavigation,
     fileNavControlLabel,
     gitDirectoryProbeCommand,
     gitDirectorySearchPaths,
+    recordFileNavigation,
 } from './fileNavigationList';
 
 const commit = `diff --git a/src/old.ts b/src/old.ts
@@ -43,6 +45,13 @@ index 6666666..7777777 100644
 @@ -1 +1 @@
 -before
 +after
+diff --git "a/\\303\\251.ts" "b/\\303\\251.ts"
+index 8888888..9999999 100644
+--- "a/\\303\\251.ts"
++++ "b/\\303\\251.ts"
+@@ -1 +1 @@
+-old
++new
 `;
 
 describe('file and diff navigation', () => {
@@ -70,13 +79,26 @@ describe('file and diff navigation', () => {
             { label: 'a/shared/index.ts', status: 'modified', added: 2, removed: 1 },
             { label: 'b/shared/index.ts', status: 'modified', added: 2, removed: 1 },
             { label: 'notes.md', status: 'modified', added: 1, removed: 1 },
+            { label: 'é.ts', status: 'modified', added: 1, removed: 1 },
         ]);
         expect(uniqueDiffLabels(files.map((file) => file.label))).toEqual([
             'old.ts',
             'a/shared/index.ts',
             'b/shared/index.ts',
             'notes.md',
+            'é.ts',
         ]);
+
+        recordFileNavigation('session-1', [
+            { id: 'row-a', title: 'first', metadata: [], action: { type: 'kernel.navigate', target: 'file', path: '/repo/a.ts' } },
+            { id: 'row-a-again', title: 'dup', group: 'Addressed', metadata: [{ value: '+VIP' }], action: { type: 'kernel.navigate', target: 'file', path: '/repo/a.ts' } },
+            { id: 'row-b', title: 'second', metadata: [], action: { type: 'kernel.navigate', target: 'file', path: '/repo/b.ts' } },
+        ], '/repo/a.ts');
+        const current = currentFileNavigation('session-1', '/repo/a.ts');
+        expect(current?.entries.map((entry) => entry.path)).toEqual(['/repo/a.ts', '/repo/b.ts']);
+        expect(current?.index).toBe(0);
+        expect(current!.entries[current!.index + 1]?.path).toBe('/repo/b.ts');
+        expect(currentFileNavigation('session-1', '/repo/b.ts')?.index).toBe(1);
 
         const mounts = [
             { contentContributionId: 'foo.files', label: 'Files' },

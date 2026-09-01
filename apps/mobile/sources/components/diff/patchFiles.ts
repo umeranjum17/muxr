@@ -8,9 +8,75 @@ export interface PatchFile {
     status: 'added' | 'deleted' | 'modified' | 'renamed';
 }
 
-function headerPath(line: string | undefined): string | undefined {
-    if (line === undefined || line === '/dev/null') return undefined;
-    return line.replace(/^"|"$/g, '');
+const GIT_C_ESCAPES: Record<string, number> = {
+    a: 0x07, b: 0x08, t: 0x09, n: 0x0a, v: 0x0b, f: 0x0c, r: 0x0d, '"': 0x22, '\\': 0x5c,
+};
+
+function unquoteGitPath(raw: string): string {
+    if (!raw.startsWith('"')) return raw;
+    const bytes: number[] = [];
+    for (let i = 1; i < raw.length; i += 1) {
+        const ch = raw[i];
+        if (ch === undefined || ch === '"') break;
+        if (ch !== '\\') {
+            bytes.push(ch.charCodeAt(0));
+            continue;
+        }
+        const next = raw[i + 1];
+        if (next === undefined) break;
+        if (next >= '0' && next <= '7') {
+            let value = 0;
+            let count = 0;
+            while (count < 3) {
+                const digit = raw[i + 1];
+                if (digit === undefined || digit < '0' || digit > '7') break;
+                value = (value << 3) + (digit.charCodeAt(0) - 48);
+                i += 1;
+                count += 1;
+            }
+            bytes.push(value & 0xff);
+            continue;
+        }
+        bytes.push(GIT_C_ESCAPES[next] ?? next.charCodeAt(0));
+        i += 1;
+    }
+    return new TextDecoder().decode(Uint8Array.from(bytes));
+}
+
+function headerPath(raw: string | undefined): string | undefined {
+    if (raw === undefined) return undefined;
+    const path = unquoteGitPath(raw);
+    if (path === '/dev/null') return undefined;
+    return path.replace(/^[ab]\//, '');
+}
+
+function gitPathToken(input: string): { token: string; rest: string } | undefined {
+    const text = input.trimStart();
+    if (text === '') return undefined;
+    if (!text.startsWith('"')) {
+        const end = text.search(/\s/);
+        const token = end < 0 ? text : text.slice(0, end);
+        return { token, rest: end < 0 ? '' : text.slice(end) };
+    }
+    let i = 1;
+    while (i < text.length) {
+        if (text[i] === '\\') {
+            i += 2;
+            continue;
+        }
+        if (text[i] === '"') return { token: text.slice(0, i + 1), rest: text.slice(i + 1) };
+        i += 1;
+    }
+    return { token: text, rest: '' };
+}
+
+function diffGitPaths(line: string): { old?: string; neu?: string } {
+    const first = gitPathToken(line.replace(/^diff --git\s+/, ''));
+    if (first === undefined) return {};
+    const second = gitPathToken(first.rest);
+    const old = headerPath(first.token);
+    const neu = second === undefined ? undefined : headerPath(second.token);
+    return { ...(old === undefined ? {} : { old }), ...(neu === undefined ? {} : { neu }) };
 }
 
 export function patchFiles(patch: string): PatchFile[] {
@@ -20,11 +86,10 @@ export function patchFiles(patch: string): PatchFile[] {
         const start = match.index ?? 0;
         const end = starts[index + 1]?.index ?? patch.length;
         const filePatch = patch.slice(start, end).trimEnd();
-        const plus = headerPath(/^\+\+\+\s+(?:b\/)?([^\t\n]+)/m.exec(filePatch)?.[1]);
-        const minus = headerPath(/^---\s+(?:a\/)?([^\t\n]+)/m.exec(filePatch)?.[1]);
-        const gitNew = headerPath(/ b\/(.+)$/.exec(match[0])?.[1]);
-        const gitOld = headerPath(/ a\/(.+) b\//.exec(match[0])?.[1]);
-        const clean = plus ?? minus ?? gitNew ?? gitOld ?? `File ${index + 1}`;
+        const names = diffGitPaths(match[0] ?? '');
+        const plus = headerPath(/^\+\+\+\s+([^\t\n]+)/m.exec(filePatch)?.[1]);
+        const minus = headerPath(/^---\s+([^\t\n]+)/m.exec(filePatch)?.[1]);
+        const clean = plus ?? minus ?? names.neu ?? names.old ?? `File ${index + 1}`;
         let added = 0;
         let removed = 0;
         let inHunk = false;
