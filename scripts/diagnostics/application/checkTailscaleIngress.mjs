@@ -42,8 +42,13 @@ try {
         private: { address: '100.90.0.4', interface: 'wt0', provider: 'NetBird' },
         lan: '192.168.1.8',
     });
+    assert.deepEqual(classifyNetworkRoutes({
+        utun4: [{ family: 'IPv4', internal: false, address: '100.64.0.1' }],
+        utun5: [{ family: 'IPv4', internal: false, address: '10.20.0.2' }],
+    }, '100.64.0.1').private, { address: '10.20.0.2', interface: 'utun5', provider: 'private network' });
     const found = { tailscale: { connected: false }, private: routes.private, lan: routes.lan, cloudflared: { ok: false } };
     assert.equal(recommendedConnection(found, undefined, false, { status: 'inconclusive' }).mode, 'private');
+    assert.equal(recommendedConnection(found, undefined, true, { status: 'inconclusive' }).mode, 'private');
     assert.equal(recommendedConnection({ ...found, private: undefined, cloudflared: { ok: true } }, undefined, false, { status: 'inconclusive' }).mode, 'cloudflare');
     assert.equal(recommendedConnection({ ...found, private: undefined }, undefined, false, { status: 'inconclusive' }).mode, 'lan');
     const privateArgs = selfhostArgsFromSetupPlan({ mode: 'private', port: 8792, web: false, pairing: 'phone', found });

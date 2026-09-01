@@ -71,12 +71,13 @@ const overlayProvider = (name) => {
     return 'private network';
 };
 
-export function classifyNetworkRoutes(interfaces = networkInterfaces()) {
+export function classifyNetworkRoutes(interfaces = networkInterfaces(), ignoredAddress) {
     const routes = { private: undefined, lan: undefined };
     for (const [name, list] of Object.entries(interfaces)) {
         for (const entry of list ?? []) {
-            if (entry.family !== 'IPv4' || entry.internal || /^tailscale/i.test(name)) continue;
-            const overlay = /^(?:wt|netbird|nb|wg|zt|tun|tap)/i.test(name) || overlayIpv4(entry.address);
+            if (entry.family !== 'IPv4' || entry.internal || entry.address === ignoredAddress || /^tailscale/i.test(name)) continue;
+            // ponytail: CGNAT implies an overlay; add route-table evidence if WISP false positives become common.
+            const overlay = /^(?:wt|netbird|nb|wg|zt|utun|tun|tap)/i.test(name) || overlayIpv4(entry.address);
             if (overlay && routes.private === undefined) routes.private = { address: entry.address, interface: name, provider: overlayProvider(name) };
             if (!overlay && routes.lan === undefined && privateIpv4(entry.address)
                 && !/^(?:docker|br-|veth|virbr|podman|lxc|vbox|vmnet|hyperv|wsl)/i.test(name)) routes.lan = entry.address;
@@ -140,14 +141,14 @@ export function probeMachine() {
     const herdrVersion = command(binary, ['--version']);
     const integration = herdrVersion.ok ? command(binary, ['integration', 'status']) : { ok: false, output: '' };
     const agents = integrationSummary(integration);
-    const routes = classifyNetworkRoutes();
     const tailscale = probeTailscale();
+    const routes = classifyNetworkRoutes(networkInterfaces(), tailscale.ip);
     return {
         herdr: { installed: !herdrVersion.missing, working: herdrVersion.ok, version: herdrVersion.output.split('\n')[0], running: herdrVersion.ok && herdrServerIsReady(binary) },
         agents,
         tailscale,
         cloudflared: probeCloudflared(),
-        private: routes.private?.address === tailscale.ip ? undefined : routes.private,
+        private: routes.private,
         lan: routes.lan,
     };
 }
@@ -305,7 +306,7 @@ export function recommendedConnection(found, current, tailscalePlanned, serveRoo
         && ['tailscale', 'tailscale-direct', 'private', 'lan', 'external', 'cloudflare'].includes(current.connectionMode)) {
         return { mode: current.connectionMode, title: connectionLabel(current.connectionMode, current.relayUrl, current.relayPort), description: 'already configured and reachable' };
     }
-    if (found.tailscale.connected || tailscalePlanned) {
+    if (found.tailscale.connected || (tailscalePlanned && !found.private)) {
         const direct = serveRoot.status === 'occupied' || serveRoot.status === 'disabled';
         return direct
             ? { mode: 'tailscale-direct', title: 'Direct Tailscale', description: 'private tailnet route · Tailscale Serve is not required' }
@@ -627,7 +628,8 @@ export async function applyMachineSetup(args = []) {
         plan = recovered;
         result = await startSelfHost(selfhostArgsFromSetupPlan({ ...plan, found }));
         if (result === 0) break;
-        if (plan.mode !== 'tailscale' || serveRootFor(found, plan.port).status !== 'occupied') return result;
+        const failedServe = plan.mode === 'tailscale' ? serveRootFor(found, plan.port).status : undefined;
+        if (failedServe !== 'occupied' && failedServe !== 'disabled') return result;
     }
     const { mode, endpoint, port, pairing } = plan;
     const browserPairFailed = pairing === 'both' && (await pairDevice(['--browser'])) !== 0;
