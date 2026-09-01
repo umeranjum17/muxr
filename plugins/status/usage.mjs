@@ -78,14 +78,28 @@ function runJson(command, args, timeout = 8_000) {
 
 const RANGE_DAYS = 7;
 
+function nowDate() {
+  const raw = process.env.MUXR_USAGE_NOW;
+  if (raw) {
+    const at = new Date(raw);
+    if (!Number.isNaN(at.getTime())) return at;
+  }
+  return new Date();
+}
+
 function localDate(at) {
   return `${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, '0')}-${String(at.getDate()).padStart(2, '0')}`;
 }
 
 /** The window we report, oldest first, always ending on today. */
 function windowPeriods() {
-  return Array.from({ length: RANGE_DAYS }, (_, index) =>
-    localDate(new Date(Date.now() - (RANGE_DAYS - 1 - index) * 86_400_000)));
+  const origin = nowDate();
+  // Local midnight, then setDate — fixed 86_400_000 ms skips a DST spring-forward day.
+  return Array.from({ length: RANGE_DAYS }, (_, index) => {
+    const at = new Date(origin.getFullYear(), origin.getMonth(), origin.getDate());
+    at.setDate(at.getDate() - (RANGE_DAYS - 1 - index));
+    return localDate(at);
+  });
 }
 
 function sinceArgument() {

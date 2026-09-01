@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { voicePluginFromCatalog } from '@/plugins/application/voicePluginAccess';
 import { voiceDiagnostic } from './voiceDiagnostics';
 
 describe('voice diagnostics', () => {
@@ -17,5 +18,28 @@ describe('voice diagnostics', () => {
         globalThis.__VOICE_DIAGNOSTICS__ = true;
         voiceDiagnostic('dictate.tap');
         expect(debug).toHaveBeenCalledWith('[voice] dictate.tap');
+    });
+});
+
+describe('voice settings access', () => {
+    it('keeps an explicit disable intact when voice settings open', () => {
+        const catalog = [{
+            summary: {
+                pluginId: 'example.voice',
+                name: 'Voice',
+                version: '1',
+                source: { kind: 'local' as const },
+                manifestHash: 'hash',
+                approved: false,
+                capabilities: { 'voice.session': 'session' },
+                hasBackend: true,
+                herdrBackend: true,
+                warnings: [],
+            },
+        }];
+        const opened = voicePluginFromCatalog(catalog);
+        expect(opened.status).toBe('disabled');
+        expect(opened.plugin?.summary.approved).toBe(false);
+        expect(voicePluginFromCatalog([{ ...catalog[0]!, summary: { ...catalog[0]!.summary, approved: true } }]).status).toBe('ready');
     });
 });

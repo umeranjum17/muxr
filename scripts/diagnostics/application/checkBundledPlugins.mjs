@@ -128,4 +128,60 @@ if (/VoiceBubble|VoiceOrb|VoiceConversation|voiceState/.test(realtimeStateSource
     failed += 1;
 }
 if (failed > 0) process.exit(1);
-process.stdout.write(`${plugins.length} bundled plugins ok; ${guardedFiles.length} primitive files guarded\n`);
+
+const codeManifest = JSON.parse(readFileSync(join(pluginsDir, 'code', 'muxr-ui.json'), 'utf8'));
+const codeRpc = (id) => codeManifest.contributions.find((contribution) => contribution.id === id);
+if (codeRpc('files.nav')?.contentContributionId !== 'files.browse') {
+    process.stderr.write('FAIL files.nav does not open files.browse\n');
+    process.exit(1);
+}
+for (const id of ['files.list', 'files.read']) {
+    const context = codeRpc(id)?.context;
+    if (!Array.isArray(context) || !context.includes('sessions')) {
+        process.stderr.write(`FAIL ${id} must request sessions context for Files navigation\n`);
+        process.exit(1);
+    }
+}
+const repo = spawnSync('git', ['rev-parse', '--show-toplevel'], { cwd: root, encoding: 'utf8' });
+if (repo.status !== 0 || repo.stdout.trim() === '') {
+    process.stderr.write('FAIL could not resolve the Files flow repository\n');
+    process.exit(1);
+}
+const repoRoot = repo.stdout.trim();
+const filesEntry = join(pluginsDir, 'code', codeRpc('files.list').entry);
+const callFiles = (method, input, context) => spawnSync(process.execPath, [filesEntry, method], {
+    cwd: root,
+    encoding: 'utf8',
+    input: JSON.stringify(input),
+    env: { ...process.env, MUXR_PLUGIN_CONTEXT_JSON: context },
+    timeout: 20_000,
+});
+const denied = callFiles('list', { root: repoRoot }, '{}');
+if (denied.status === 0 || !/unknown repository/.test(`${denied.stderr}${denied.stdout}`)) {
+    process.stderr.write('FAIL files.list opened a repo without sessions context\n');
+    process.exit(1);
+}
+const context = JSON.stringify({ sessions: [{ cwd: repoRoot }] });
+const listed = callFiles('list', { root: repoRoot }, context);
+if (listed.status !== 0) {
+    process.stderr.write(`FAIL files.list through files.nav context\n${listed.stderr || listed.stdout}\n`);
+    process.exit(1);
+}
+const tree = JSON.parse(listed.stdout);
+if (tree.root !== repoRoot) {
+    process.stderr.write('FAIL files.list did not authorize the session repository\n');
+    process.exit(1);
+}
+const leaf = 'plugins/code/README.md';
+const preview = callFiles('read', { root: repoRoot, path: leaf }, context);
+if (preview.status !== 0) {
+    process.stderr.write(`FAIL files.read through files.nav context\n${preview.stderr || preview.stdout}\n`);
+    process.exit(1);
+}
+const body = JSON.parse(preview.stdout);
+if (body.name !== leaf || typeof body.body !== 'string' || body.body === '') {
+    process.stderr.write('FAIL files.read did not return the selected leaf\n');
+    process.exit(1);
+}
+
+process.stdout.write(`${plugins.length} bundled plugins ok; ${guardedFiles.length} primitive files guarded; files.nav list/read flow ok\n`);

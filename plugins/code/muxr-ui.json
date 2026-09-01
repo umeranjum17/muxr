@@ -20,7 +20,10 @@
       "type": "rpc",
       "method": "list",
       "entry": "files.mjs",
-      "mode": "read"
+      "mode": "read",
+      "context": [
+        "sessions"
+      ]
     },
     {
       "slot": "host.rpc",
@@ -28,7 +31,10 @@
       "type": "rpc",
       "method": "read",
       "entry": "files.mjs",
-      "mode": "read"
+      "mode": "read",
+      "context": [
+        "sessions"
+      ]
     },
     {
       "slot": "navigation.primary",

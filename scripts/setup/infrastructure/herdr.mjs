@@ -214,7 +214,10 @@ export async function ensureBundledPlugins(binary, dryRun) {
         if (dirname(root) !== bundledRoot || shipped.has(root)) continue;
         if (dryRun) { print(`  would unlink removed bundled plugin ${current.plugin_id}`); continue; }
         const unlinked = run(binary, ['plugin', 'unlink', current.plugin_id]);
-        print(`  ${unlinked.ok ? '✓' : 'warn:'} unlinked removed bundled plugin ${current.plugin_id}`);
+        if (!unlinked.ok && !/not (?:found|installed)|unknown plugin/i.test(`${unlinked.stderr}${unlinked.stdout}`)) {
+            throw new Error(unlinked.stderr || unlinked.stdout || `failed to unlink ${current.plugin_id}`);
+        }
+        print(`  ✓ unlinked removed bundled plugin ${current.plugin_id}`);
     }
     for (const { id, name, version } of bundled) {
         const expected = realpathSync(bundledPluginPath(name));

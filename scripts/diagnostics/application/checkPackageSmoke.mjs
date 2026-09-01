@@ -53,7 +53,9 @@ case "$*" in
     if [ -n "$FAKE_PLUGIN_LIST" ]; then printf '%s\n' "$FAKE_PLUGIN_LIST";
     else echo '{"result":{"plugins":[]}}'; fi ;;
   "plugin link "*) printf '%s\n' "$*" >> "$FAKE_HERDR_LOG" ;;
-  "plugin unlink "*) printf '%s\n' "$*" >> "$FAKE_HERDR_LOG" ;;
+  "plugin unlink "*)
+    printf '%s\n' "$*" >> "$FAKE_HERDR_LOG"
+    if [ "$FAKE_UNLINK_FAIL" = 1 ]; then echo "unlink failed: permission denied" >&2; exit 1; fi ;;
   "agent list") echo '{"result":{"agents":[]}}' ;;
   "integration status")
     if [ -f "$FAKE_HERDR_STATE" ]; then echo "pi: current (v8) ($HOME/.pi/agent/extensions/herdr-agent-state.ts)";
@@ -697,6 +699,13 @@ try {
     assert.equal(existsSync(staleRunbook), false, 'setup did not remove the retired Code Runbook file');
     assert.doesNotMatch(secondSetupLinks, /plugin link .*plugins[/\\]voice(?:\s|[/\\])/, 'setup relinked an existing provider and changed its enabled state');
     assert.match(secondSetupLinks, /plugin unlink muxr\.removed-package-smoke/, 'setup kept a bundled plugin it no longer ships');
+    const failedUnlink = run(cli, ['setup', ...setupArgs], {
+        cwd: installDir,
+        env: { ...env, FAKE_UNLINK_FAIL: '1', FAKE_PLUGIN_LIST: JSON.stringify(existingProviders) },
+        allowFailure: true,
+    });
+    assert.notEqual(failedUnlink.status, 0, 'setup treated a failed retired-plugin unlink as success');
+    assert.match(`${failedUnlink.stdout}${failedUnlink.stderr}`, /permission denied|failed to unlink/);
     const movedProviders = {
         result: {
             plugins: existingProviders.result.plugins.map((plugin) => ({ ...plugin, plugin_root: join(scratch, 'old-package', plugin.plugin_id) })),

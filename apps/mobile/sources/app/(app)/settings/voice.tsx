@@ -8,7 +8,7 @@ import { Switch } from '@/components/Switch';
 import { Modal } from '@/modal';
 import { callPlugin, pluginHref } from '@/plugins';
 import { pluginCatalogSnapshot, refreshPlugins } from '@/plugins';
-import { sync } from '@/catalog/sync';
+import { voicePluginFromCatalog } from '@/plugins/application/voicePluginAccess';
 import { useLocalSetting, useSocketStatus } from '@/catalog/store';
 import { useRouter } from 'expo-router';
 import { useUnistyles } from 'react-native-unistyles';
@@ -18,21 +18,9 @@ import { ensureRealtimeProviderConfigured, requestRealtimePermission } from '@/c
 type ProviderOption = { id: string; name: string; selected: boolean };
 type ProviderList = { selected: string; providers: ProviderOption[] };
 
-/** The adapters live inside one plugin, so approval is a single decision. */
-async function approveVoicePlugin() {
+async function loadVoicePlugin() {
     await refreshPlugins();
-    const find = () => pluginCatalogSnapshot().find(({ summary }) => summary.capabilities['voice.session'] !== undefined);
-    let plugin = find();
-    if (plugin?.summary.manifestHash !== undefined && !plugin.summary.approved) {
-        await sync.request('plugin.approve', {
-            pluginId: plugin.summary.pluginId,
-            manifestHash: plugin.summary.manifestHash,
-            approved: true,
-        });
-        await refreshPlugins();
-        plugin = find();
-    }
-    return plugin;
+    return voicePluginFromCatalog(pluginCatalogSnapshot());
 }
 
 export default function VoiceProviderScreen() {
@@ -43,6 +31,7 @@ export default function VoiceProviderScreen() {
     const [busy, setBusy] = React.useState<string>();
     const [loaded, setLoaded] = React.useState(false);
     const [error, setError] = React.useState<string>();
+    const [disabled, setDisabled] = React.useState(false);
     const busyRef = React.useRef(false);
     const vadStandbyEnabled = useLocalSetting('vadStandbyEnabled');
 
@@ -50,7 +39,14 @@ export default function VoiceProviderScreen() {
         if (status !== 'connected') { setLoaded(true); return; }
         setLoaded(false);
         try {
-            await approveVoicePlugin();
+            const access = await loadVoicePlugin();
+            if (access.status !== 'ready') {
+                setDisabled(access.status === 'disabled');
+                setProviders([]);
+                setError(access.status === 'missing' ? 'No voice plugin is available on this machine.' : undefined);
+                return;
+            }
+            setDisabled(false);
             setProviders((await callPlugin<ProviderList>('voice.provider.list')).providers);
             setError(undefined);
         } catch (cause) {
@@ -86,7 +82,12 @@ export default function VoiceProviderScreen() {
         busyRef.current = true;
         setBusy(selected.id);
         try {
-            const plugin = await approveVoicePlugin();
+            const access = await loadVoicePlugin();
+            if (access.status === 'disabled') {
+                router.push('/settings/plugins' as any);
+                return;
+            }
+            const plugin = access.plugin;
             const settings = plugin?.manifest?.contributions.find((contribution) => contribution.slot === 'settings.items' && contribution.type === 'settings-item');
             if (settings?.action.type !== 'screen') throw new Error('This provider has no configuration screen.');
             router.push(pluginHref(plugin!.summary.pluginId, settings.action.contributionId) as any);
@@ -108,10 +109,21 @@ export default function VoiceProviderScreen() {
 
     if (status === 'connected' && !loaded) return <ActivityIndicator style={{ flex: 1 }} />;
 
+    const providerFooter = error
+        ?? (disabled ? 'Realtime voice is turned off for this device. Enable it from Plugins if you want it back.' : undefined)
+        ?? (status === 'connected' ? 'One provider runs on this machine at a time.' : 'Connect to a machine to choose its voice provider.');
+
     return (
         <ItemList>
-            <ItemGroup title="Provider" footer={error ?? (status === 'connected' ? 'One provider runs on this machine at a time.' : 'Connect to a machine to choose its voice provider.')}>
-                {providers.map((provider) => (
+            <ItemGroup title="Provider" footer={providerFooter}>
+                {disabled ? (
+                    <Item
+                        title="Voice plugin disabled"
+                        subtitle="Open Plugins to enable it"
+                        icon={<Ionicons name="settings-outline" size={28} color={theme.colors.textSecondary} />}
+                        onPress={() => router.push('/settings/plugins' as any)}
+                    />
+                ) : providers.map((provider) => (
                     <Item
                         key={provider.id}
                         title={provider.name}
