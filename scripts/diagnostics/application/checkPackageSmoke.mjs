@@ -370,6 +370,11 @@ try {
     assert.ok(listing.includes('package/setup/application/promptPeerAgent.mjs'), 'peer CLI client missing from npm artifact');
     assert.ok(listing.includes('package/diagnostics/application/dumpDiagnostics.mjs'), 'host diagnostics CLI missing from npm artifact');
     assert.ok(listing.includes('package/plugins/control/run.mjs'), 'control plugin missing from npm artifact');
+    assert.ok(listing.includes('package/plugins/code/muxr-ui.json'), 'Code plugin missing from npm artifact');
+    assert.ok(!listing.includes('package/plugins/code/runbook.mjs'), 'retired Code Runbook file shipped in npm artifact');
+    const packedCodeManifest = JSON.parse(run('tar', ['-xOf', tarball, 'package/plugins/code/muxr-ui.json']).stdout);
+    assert.equal(packedCodeManifest.contributions.some((entry) => entry.id?.startsWith('runbook') || entry.entry === 'runbook.mjs'), false, 'retired Code Runbook contribution shipped in npm artifact');
+    assert.equal(packedCodeManifest.contributions.filter((entry) => entry.slot === 'host.rpc').every((entry) => entry.mode !== 'write'), true, 'Code plugin is not read-only');
     assert.ok(listing.includes('package/plugins/voice/rpc.mjs'), 'Voice plugin missing from npm artifact');
     for (const provider of ['xai', 'gemini', 'openai', 'codex']) {
         assert.ok(listing.includes(`package/plugins/voice/providers/${provider}.mjs`), `${provider} voice adapter missing from npm artifact`);
@@ -419,6 +424,7 @@ try {
     const cli = join(installDir, 'node_modules', '.bin', 'muxr');
     const installedPackage = join(installDir, 'node_modules', '@trymuxr', 'cli');
     const installedPlugins = join(installedPackage, 'plugins');
+    assert.equal(existsSync(join(installedPlugins, 'code', 'runbook.mjs')), false, 'installed Code plugin retained the retired Runbook file');
     assert.match(readFileSync(join(installedPackage, 'README.md'), 'utf8'), /muxr --skill\s+# print the compact agent skill/);
     const rootHelp = run(cli, ['--help'], { cwd: installDir }).stdout;
     assert.match(rootHelp, /muxr --skill \| muxr skill\s+print the compact muxr agent skill/);
@@ -675,6 +681,7 @@ try {
     const existingProviders = {
         result: {
             plugins: [
+                { plugin_id: 'muxr.code', plugin_root: join(pluginRoot, 'code'), version: '0.1.0', enabled: true },
                 { plugin_id: 'muxr.voice', plugin_root: join(pluginRoot, 'voice'), version: '0.1.0', enabled: false },
                 // Any stale direct child of our bundle directory must be retracted;
                 // this deliberately names no historical plugin or retirement map.
@@ -682,9 +689,12 @@ try {
             ],
         },
     };
+    const staleRunbook = join(pluginRoot, 'code', 'runbook.mjs');
+    writeFileSync(staleRunbook, '# retired\n');
     const logBeforeSecondSetup = readFileSync(fakeLog, 'utf8');
     run(cli, ['setup', ...setupArgs], { cwd: installDir, env: { ...env, FAKE_PLUGIN_LIST: JSON.stringify(existingProviders) } });
     const secondSetupLinks = readFileSync(fakeLog, 'utf8').slice(logBeforeSecondSetup.length);
+    assert.equal(existsSync(staleRunbook), false, 'setup did not remove the retired Code Runbook file');
     assert.doesNotMatch(secondSetupLinks, /plugin link .*plugins[/\\]voice(?:\s|[/\\])/, 'setup relinked an existing provider and changed its enabled state');
     assert.match(secondSetupLinks, /plugin unlink muxr\.removed-package-smoke/, 'setup kept a bundled plugin it no longer ships');
     const movedProviders = {

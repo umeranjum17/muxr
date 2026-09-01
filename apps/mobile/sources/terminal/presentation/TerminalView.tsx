@@ -16,7 +16,7 @@ import { View } from 'react-native';
 import { TerminalView as GhosttyView, type TerminalViewRef } from 'expo-libghostty';
 import { decodeBase64, encodeBase64 } from '@/encryption/base64';
 import { openTerminal, type TerminalChannel } from '../application/OpenTerminal';
-import { beginViewportCapture, recordTerminalOutput, setTerminalColumns } from '../application/recentOutput';
+import { recordTerminalOutput, setTerminalColumns } from '../application/recentOutput';
 
 /**
  * One scroll message costs herdr one full-screen repaint whatever the line
@@ -142,7 +142,6 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                     // its own for a keyboard or a pinch, and herdr would keep
                     // sending diffs for a screen that no longer matches.
                     channelRef.current?.resize(cols, rows);
-                    beginViewportCapture(sessionId);
                     channelRef.current?.repaint();
                 }, RESIZE_DEBOUNCE_MS);
                 return;
@@ -158,10 +157,6 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                 .then(() => openTerminal({ agentRoute: sessionId, size: { cols, rows } }))
                 .then((channel) => {
                     channelRef.current = channel;
-                    // The first thing herdr sends is the whole screen, so this
-                    // attach is a viewport capture. Without it the chip has no
-                    // viewport until the first scroll.
-                    beginViewportCapture(sessionId);
                     // Same discipline as the web view: herdr repaint bursts
                     // arrive as many socket messages; one Ghostty write per
                     // frame instead of one per message.
@@ -186,7 +181,6 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                         if (resizeTimerRef.current !== undefined) clearTimeout(resizeTimerRef.current);
                         resizeTimerRef.current = undefined;
                         channel.resize(latest.cols, latest.rows);
-                        beginViewportCapture(sessionId);
                         channel.repaint();
                     }
                 })
@@ -220,9 +214,6 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                 // Ghostty counts rows the way the finger moved, herdr counts
                 // them the way the text does, hence the negation.
                 onScroll={({ nativeEvent }) => {
-                    // The repaint herdr sends back is the new viewport; capture
-                    // it for the link chip (see recentOutput.ts).
-                    beginViewportCapture(sessionId);
                     pendingScrollRef.current -= nativeEvent.rows;
                     if (scrollRafRef.current === undefined) {
                         scrollRafRef.current = requestAnimationFrame(flushScroll);

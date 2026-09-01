@@ -27,12 +27,12 @@ import {
 } from '../../agent/index.js';
 import type { PeerDeviceContext, PeerRuntime } from '../../peer/index.js';
 import { grantMayAdministerPeers, hostPlatformLabel, listMachines, observerGrantIsViewOnly } from '../../machine/index.js';
-import { attachPreview, probePreviewPort } from '../infrastructure/preview.js';
+import { attachPreview as attachPreviewTransport } from '../infrastructure/preview.js';
 import { landWorktree } from '../infrastructure/landWorktree.js';
 import { listDir } from '../infrastructure/listDir.js';
 import { runMachineShell } from '../infrastructure/runMachineShell.js';
 import { runHerdrCli } from '../infrastructure/runHerdrCli.js';
-import { openPreview, probePreview } from './openPreview.js';
+import { attachPreviewTunnel } from './attachPreviewTunnel.js';
 
 export interface RequestDispatcherOptions {
     source: SessionSource;
@@ -229,16 +229,12 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         'machine.shell': (params) => runMachineShell(params.command, params.cwd),
         'machine.listDir': (params) => listDir(params.path),
         'worktree.land': (params) => landWorktree(params.worktreePath, params.message, params.stash),
-        'preview.probe': async (params) => {
-            const result = await probePreview(probePreviewPort, params);
-            return result.data;
-        },
-        'preview.attach': async (params) => useCaseData(await openPreview({
+        'preview.attach': async (params) => useCaseData(await attachPreviewTunnel({
             ...(options.relayUrl === undefined ? {} : { relayUrl: options.relayUrl }),
             machineId,
             ...(options.token === undefined ? {} : { token: options.token }),
             ...(options.requirePreviewEncryption === undefined ? {} : { requireEncryption: options.requirePreviewEncryption }),
-            attach: attachPreview,
+            attach: attachPreviewTransport,
         }, params)),
         'terminal.attach': async (params) => useCaseData(await openTerminal(options.terminals, params)),
         'terminal.detach': async (params) => {

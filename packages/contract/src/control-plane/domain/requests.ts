@@ -438,18 +438,11 @@ export interface RequestMap extends PeerRequestMap {
         };
     };
 
-    // --- browser preview ----------------------------------------------------
+    // --- preview tunnel -----------------------------------------------------
     /**
-     * What content-type a loopback port answers with, probed on the host
-     * (where the port is). `text/html` marks a web app worth a Preview chip;
-     * anything else is an API the phone should only open externally.
-     * `contentType` is null when nothing HTTP answers.
-     */
-    'preview.probe': { params: { port: number }; result: { contentType: string | null } };
-    /**
-     * Ask the host to join `channel` and forward it to `port`. Native callers
-     * send a per-preview key through this encrypted request; local legacy web
-     * preview may omit it because the browser cannot decrypt a raw TCP listener.
+     * Ask the host to join `channel` and forward it to `port`. Native takeover
+     * callers send a per-preview key through this encrypted request; local
+     * development may omit it when the relay is trusted.
      */
     'preview.attach': { params: { channel: string; port: number; key?: string }; result: null };
 

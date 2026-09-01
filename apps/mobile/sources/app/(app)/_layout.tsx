@@ -101,14 +101,6 @@ export default function RootLayout() {
                     headerShown: false
                 }}
             />
-                                                                        <Stack.Screen
-                name="session/[id]/preview"
-                options={{
-                    headerShown: true,
-                    headerTitle: t('navigation.browserPreview'),
-                    headerBackTitle: t('common.back'),
-                }}
-            />
             <Stack.Screen
                 name="session/[id]/takeover"
                 options={{

@@ -369,7 +369,6 @@ export type PluginAction =
     | { type: 'kernel.navigate'; target: 'session'; sessionId: string }
     | { type: 'kernel.navigate'; target: 'file'; path: string }
     | { type: 'kernel.navigate'; target: 'web-view'; url: string }
-    | { type: 'kernel.navigate'; target: 'preview'; port: number }
     | { type: 'open-url'; url: string }
     | { type: 'attachment'; id: string; name: string; mimeType?: string; size: number }
     | { type: 'capability'; name: string }

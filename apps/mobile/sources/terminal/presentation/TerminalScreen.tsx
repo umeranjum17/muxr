@@ -47,7 +47,6 @@ import { resolvePluginText } from '@/plugins';
 import { randomUUID } from 'expo-crypto';
 import { useDeviceAuthority } from '@/pairing';
 import { displayLink } from '../domain/TerminalLink';
-import { useTerminalChipLink } from '../application/useTerminalChipLink';
 
 /**
  * The floating tools trigger: a small icon inside a target big enough to hit and
@@ -243,8 +242,6 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
         if (hintTimer.current !== null) clearTimeout(hintTimer.current);
         hintTimer.current = setTimeout(() => setGestureHint(null), 1400);
     }, []);
-
-    const { chipLink, chipKind, openChipLink } = useTerminalChipLink(props.id);
 
     const showRecentLinks = React.useCallback((action: 'open' | 'copy') => {
         const links = recentTerminalLinks(props.id);
@@ -604,41 +601,6 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                     >
                         <Ionicons name="arrow-down" size={18} color={theme.colors.text} />
                     </Pressable>
-                )}
-                {canControl && chipLink !== undefined && chipKind !== undefined && (
-                    <Animated.View
-                        entering={FadeIn.duration(180).reduceMotion(ReduceMotion.System)}
-                        exiting={FadeOut.duration(120).reduceMotion(ReduceMotion.System)}
-                        style={{ position: 'absolute', left: 12, right: showJump ? 64 : 12, bottom: 8, alignItems: 'flex-start' }}
-                    >
-                        <Pressable
-                            onPress={openChipLink}
-                            onLongPress={() => void Clipboard.setStringAsync(chipLink).then(() => showGestureHint('Link copied'))}
-                            accessibilityRole="button"
-                            accessibilityLabel={`${chipKind === 'preview' ? 'Preview' : 'Open'} ${chipLink}`}
-                            style={({ pressed }) => ({
-                                maxWidth: '100%',
-                                flexDirection: 'row',
-                                alignItems: 'center',
-                                gap: 4,
-                                paddingHorizontal: 9,
-                                paddingVertical: 6,
-                                borderRadius: 14,
-                                backgroundColor: theme.colors.surfaceHigh,
-                                borderWidth: 1,
-                                borderColor: theme.colors.divider,
-                                opacity: pressed ? 0.6 : 1,
-                            })}
-                        >
-                            <Ionicons name={chipKind === 'preview' ? 'globe-outline' : 'open-outline'} size={12} color={theme.colors.textSecondary} />
-                            <Text style={{ color: theme.colors.text, fontSize: 12, fontWeight: '600' }}>
-                                {chipKind === 'preview' ? 'Preview' : 'Open'}
-                            </Text>
-                            <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 12, flexShrink: 1 }}>
-                                {displayLink(chipLink, 80)}
-                            </Text>
-                        </Pressable>
-                    </Animated.View>
                 )}
             </View>
 

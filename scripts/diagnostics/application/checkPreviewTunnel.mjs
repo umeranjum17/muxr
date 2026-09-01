@@ -1,7 +1,7 @@
 /**
- * Proves browser preview end to end: the host probes a local HTTP port, the
- * relay pairs two preview sockets it cannot read, and a real HTTP request
- * crosses the tunnel and comes back with its body intact.
+ * Proves the graphical-takeover preview tunnel end to end: the host joins a
+ * relay channel, both relay client paths are exercised, and a real HTTP
+ * request crosses the tunnel and comes back with its body intact.
  */
 import { waitForRelay } from './waitForRelay.mjs';
 import { spawn } from 'node:child_process';
@@ -87,7 +87,6 @@ start('host', ['apps/host/dist/main.js', '--fake']);
 await delay(900);
 
 const session = new WebSocket(`${RELAY}?role=client&machineId=${MACHINE}`);
-const timer = setTimeout(() => done(1, '\nFAIL: no preview response within 25s\n'), 25000);
 let seq = 0;
 const send = (frame) => {
     seq += 1;
@@ -103,20 +102,11 @@ const BRIDGE_KEY = newPreviewKey();
 const BRIDGE_CLIENT_KEY = deriveV2Key(BRIDGE_KEY, 'client->host');
 const BRIDGE_HOST_KEY = deriveV2Key(BRIDGE_KEY, 'host->client');
 
-session.on('open', () => send({ type: 'preview.probe', requestId: 'p1', params: { port: devPort } }));
+session.on('open', () => send({ type: 'preview.attach', requestId: 'p2', params: { channel: CHANNEL, port: devPort } }));
 
 session.on('message', (raw) => {
     const frame = JSON.parse(JSON.parse(String(raw)).payload);
     if (frame.type !== 'result') return;
-
-    if (frame.requestId === 'p1') {
-        if (!frame.ok) done(1, `\nFAIL: preview.probe errored: ${frame.error}\n`);
-        if (frame.data?.contentType !== 'application/json') {
-            done(1, `\nFAIL: probe of dev server on ${devPort} saw: ${JSON.stringify(frame.data)}\n`);
-        }
-        send({ type: 'preview.attach', requestId: 'p2', params: { channel: CHANNEL, port: devPort } });
-        return;
-    }
 
     if (frame.requestId === 'p2') {
         if (!frame.ok) done(1, `\nFAIL: preview.attach errored: ${frame.error}\n`);
@@ -212,8 +202,6 @@ function openTunnel() {
     control.on('message', async (raw) => {
         const message = JSON.parse(String(raw));
         if (message.type !== 'preview.ready') return;
-        clearTimeout(timer);
-
         // A real HTTP client over the relay's listener: proves the whole path,
         // including that the preview is served at a root path.
         try {
@@ -245,10 +233,9 @@ function openTunnel() {
 
             const bridgedPort = await runBridge();
 
-            done(0, `\nPASS: browser preview through the relay\n`
-                + `      loopback port probed: application/json\n`
-                + `      loopback-bound dev server reached: yes\n`
-                + `      preview port: ${message.port}\n`
+            done(0, `\nPASS: graphical takeover preview tunnel through the relay\n`
+                + `      loopback-bound stream reached: yes\n`
+                + `      relay-side takeover port: ${message.port}\n`
                 + `      concurrent connections muxed: yes\n`
                 + `      foreign source address refused: ${pinned === undefined ? 'skipped' : 'yes'}\n`
                 + `      device-side bridge port: ${bridgedPort}\n`
@@ -262,7 +249,7 @@ function openTunnel() {
 }
 
 /**
- * true  = refused, which is what the pin promises.
+ * true  = refused, which is what the source pin promises.
  * false = served, which is the leak.
  * undefined = this host has no second loopback address to test from.
  */

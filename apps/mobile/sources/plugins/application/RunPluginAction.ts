@@ -64,7 +64,7 @@ export function validatePluginAction(value: unknown, context: PluginActionContex
             throw new Error(`Plugin ${action.type} requires a write RPC`);
         }
     }
-    if ((action.type === 'attachment' || action.type === 'kernel.navigate' && (action.target === 'file' || action.target === 'preview'))
+    if ((action.type === 'attachment' || action.type === 'kernel.navigate' && action.target === 'file')
         && context.sessionId === undefined) {
         const kind = action.type === 'attachment' ? 'attachment' : action.target;
         throw new Error(`Plugin action ${kind} needs session context`);
@@ -86,9 +86,6 @@ export async function runPluginAction(command: RunPluginActionCommand): Promise<
         if (action.target === 'session') return { kind: 'focus-agent', agentRoute: action.sessionId };
         if (action.target === 'file') {
             return { kind: 'navigate', href: `/session/${encodeURIComponent(context.sessionId!)}/file?path=${encodeURIComponent(action.path)}` };
-        }
-        if (action.target === 'preview') {
-            return { kind: 'navigate', href: `/session/${encodeURIComponent(context.sessionId!)}/preview?port=${action.port}` };
         }
         return { kind: 'navigate', href: `/web-view?url=${encodeURIComponent(action.url)}` };
     }

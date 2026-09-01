@@ -637,7 +637,6 @@ export const ca: TranslationStructure = {
         connectTerminal: 'Connecta el terminal',
         linkNewDevice: 'Enllaça un nou dispositiu', 
         restoreWithSecretKey: 'Restaura amb clau secreta',
-        browserPreview: 'Vista prèvia del navegador',
         browserTakeover: 'Control del navegador',
         whatsNew: 'Novetats',
         friends: 'Amics',

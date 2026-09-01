@@ -1,12 +1,9 @@
 /**
- * Browser preview, device half.
+ * Raw TCP tunnel used by graphical takeover.
  *
- * The device binds the listener and the relay only forwards frames, so the page
- * loads from the phone's own loopback over whatever transport the session
- * already uses -- LAN, Tailscale, a tunnel, a hosted relay. Asking the relay for
- * an ephemeral port instead only works where the relay is published beyond 443,
- * and is plain HTTP across the internet where it is, so web -- which cannot bind
- * a listener -- is the only caller left on that path.
+ * The device binds the listener and the relay only forwards frames, so a
+ * takeover stream can use the same transport as the session. The relay sees
+ * connection ids for multiplexing, never the frontend bytes.
  */
 
 import { newPreviewKey } from '@muxr/crypto';
@@ -15,16 +12,6 @@ import { getCachedConnectionSettings } from '@/connection';
 import { sync } from '@/catalog/sync';
 
 const READY_TIMEOUT_MS = 15_000;
-
-export interface OpenPreview {
-    url: string;
-    close: () => void;
-}
-
-export type OpenPreviewCommand = {
-    port: number;
-    onIosSimulator?: boolean;
-};
 
 export interface PreviewTunnel {
     hostname: string;
@@ -37,12 +24,11 @@ function relayHostname(relayUrl: string): string | undefined {
     return /^wss?:\/\/(\[[^\]]+\]|[^/:?#]+)/i.exec(relayUrl)?.[1]?.toLowerCase();
 }
 
-
 function waitForRelay(socket: WebSocket, type: string): Promise<void> {
     return new Promise((resolve, reject) => {
         const timer = setTimeout(() => {
             socket.close();
-            reject(new Error('The relay did not pair the preview in time.'));
+            reject(new Error('The preview tunnel did not pair in time.'));
         }, READY_TIMEOUT_MS);
         socket.onmessage = (event) => {
             try {
@@ -51,22 +37,17 @@ function waitForRelay(socket: WebSocket, type: string): Promise<void> {
             clearTimeout(timer);
             resolve();
         };
-        socket.onclose = () => { clearTimeout(timer); reject(new Error('The relay closed the preview before it was ready.')); };
-        socket.onerror = () => { clearTimeout(timer); reject(new Error('Could not reach the relay to open a preview.')); };
+        socket.onclose = () => { clearTimeout(timer); reject(new Error('The preview tunnel closed before it was ready.')); };
+        socket.onerror = () => { clearTimeout(timer); reject(new Error('Could not reach the relay for the preview tunnel.')); };
     });
 }
 
-/**
- * Join a preview channel to a loopback port and hold it open. The relay
- * listener carries raw TCP without parsing it, so anything that speaks over a
- * socket -- HTTP for previews, a WebSocket for the takeover stream -- can
- * ride the same tunnel.
- */
+/** Join a preview channel to a loopback port and hold it open for takeover. */
 export async function attachPreviewTunnel(port: number): Promise<PreviewTunnel> {
-    const { previewBridgeAvailable, startPreviewBridge } = await import('../infrastructure/previewBridge');
+    const { previewBridgeAvailable, startPreviewBridge } = await import('./previewBridge');
     const settings = getCachedConnectionSettings();
     if (!previewBridgeAvailable && settings.mode !== 'local') {
-        throw new Error('Browser preview needs the muxr app on this platform.');
+        throw new Error('A native preview bridge is unavailable on this platform.');
     }
     const hostname = relayHostname(settings.relayUrl);
     if (hostname === undefined) {
@@ -75,8 +56,6 @@ export async function attachPreviewTunnel(port: number): Promise<PreviewTunnel> 
 
     const channel = newPreviewChannel();
     const key = previewBridgeAvailable ? newPreviewKey() : undefined;
-    // The per-preview key crosses inside the existing E2EE request. The relay
-    // sees connection ids for multiplexing, never the frontend bytes.
     await sync.request('preview.attach', { channel, port, ...(key === undefined ? {} : { key }) });
 
     if (settings.token === '' || settings.token.startsWith('acctok_')) {
@@ -103,7 +82,7 @@ export async function attachPreviewTunnel(port: number): Promise<PreviewTunnel> 
     const previewPort = await new Promise<number>((resolve, reject) => {
         const timer = setTimeout(() => {
             socket.close();
-            reject(new Error('The relay did not open a preview port in time.'));
+            reject(new Error('The preview tunnel did not open a port in time.'));
         }, READY_TIMEOUT_MS);
 
         socket.onmessage = (event) => {
@@ -118,40 +97,13 @@ export async function attachPreviewTunnel(port: number): Promise<PreviewTunnel> 
         };
         socket.onclose = () => {
             clearTimeout(timer);
-            reject(new Error('The relay closed the preview before it was ready.'));
+            reject(new Error('The preview tunnel closed before it was ready.'));
         };
         socket.onerror = () => {
             clearTimeout(timer);
-            reject(new Error('Could not reach the relay to open a preview.'));
+            reject(new Error('Could not reach the relay for the preview tunnel.'));
         };
     });
 
-    // Always http: the preview port carries raw TCP with no TLS in front of it.
     return { hostname, port: previewPort, close: () => socket.close() };
-}
-
-export async function openPreview(command: OpenPreviewCommand): Promise<OpenPreview> {
-    const port = command.port;
-    // The iOS simulator shares the Mac's loopback. Bypass the native TCP bridge
-    // only for an explicit local-development connection to that same loopback:
-    // a paired remote machine may expose the same port on a different host.
-    if (command.onIosSimulator === true) {
-        const settings = getCachedConnectionSettings();
-        const hostname = relayHostname(settings.relayUrl);
-        if (
-            settings.mode === 'local'
-            && (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]')
-        ) {
-            return { url: `http://127.0.0.1:${port}/`, close: () => undefined };
-        }
-        throw new Error(
-            'Preview from a remote machine is unavailable in the iOS Simulator. '
-            + 'Use a physical device, or connect the simulator to a host running on this Mac through a loopback relay.',
-        );
-    }
-    const tunnel = await attachPreviewTunnel(port);
-    return {
-        url: `http://${tunnel.hostname}:${tunnel.port}/`,
-        close: tunnel.close,
-    };
 }

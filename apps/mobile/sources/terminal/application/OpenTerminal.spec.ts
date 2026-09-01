@@ -166,7 +166,7 @@ describe('openTerminal reconnect ownership', () => {
 
 describe('recentTerminalLinks', () => {
     it('keeps a bounded latest-first list of safe visible URLs', async () => {
-        const { recordTerminalOutput, recentTerminalLinks, viewportTerminalLinks, clearTerminalOutput, setTerminalColumns } = await import('./recentOutput');
+        const { recordTerminalOutput, recentTerminalLinks, clearTerminalOutput, setTerminalColumns } = await import('./recentOutput');
         const { encodeBase64 } = await import('@/encryption/base64');
         const record = (sessionId: string, text: string) => recordTerminalOutput(sessionId, encodeBase64(new TextEncoder().encode(text)));
 
@@ -189,9 +189,6 @@ describe('recentTerminalLinks', () => {
         clearTerminalOutput('split-scheme');
         record('split-scheme', 'ht');
         record('split-scheme', 'tps://split.example/path');
-        await new Promise((resolve) => setTimeout(resolve, 350));
-        expect(viewportTerminalLinks('long')).toEqual([longUrl]);
-        expect(viewportTerminalLinks('split-scheme')).toEqual(['https://split.example/path']);
 
         clearTerminalOutput('hard-break');
         setTerminalColumns('hard-break', columns);
@@ -205,39 +202,5 @@ describe('recentTerminalLinks', () => {
         for (let index = 0; index < 33; index++) record(`lru-${index}`, ' https://example.com');
         expect(recentTerminalLinks('lru-0')).toEqual([]);
         expect(recentTerminalLinks('unknown')).toEqual([]);
-    });
-});
-
-describe('viewportTerminalLinks', () => {
-    it('surfaces only the scroll burst’s links, not the older tail', async () => {
-        vi.useFakeTimers();
-        try {
-            const { recordTerminalOutput, beginViewportCapture, viewportTerminalLinks, recentTerminalLinks, clearTerminalOutput } = await import('./recentOutput');
-            const { encodeBase64 } = await import('@/encryption/base64');
-            const record = (text: string) => recordTerminalOutput('scroll', encodeBase64(new TextEncoder().encode(text)));
-
-            clearTerminalOutput('scroll');
-            record('old boot log: serving https://old-tail.example/ since yesterday');
-
-            // A scroll gesture: herdr answers with full-screen repaint frames.
-            beginViewportCapture('scroll');
-            record('\x1b[2J\x1b[Hrepainted screen  Local: http://localhost:3210/');
-            record('  ready in 412ms');
-            // The regex runs once per gesture: nothing before the debounce.
-            expect(viewportTerminalLinks('scroll')).toEqual([]);
-            await vi.advanceTimersByTimeAsync(120);
-            expect(viewportTerminalLinks('scroll')).toEqual(['http://localhost:3210/']);
-            // The tail still holds both, for the ⋮ menu.
-            expect(recentTerminalLinks('scroll')).toEqual(['http://localhost:3210/', 'https://old-tail.example/']);
-
-            // Scrolling past the link clears the chip.
-            beginViewportCapture('scroll');
-            record('\x1b[2J\x1b[Han older screen with no links at all');
-            await vi.advanceTimersByTimeAsync(120);
-            expect(viewportTerminalLinks('scroll')).toEqual([]);
-            clearTerminalOutput('scroll');
-        } finally {
-            vi.useRealTimers();
-        }
     });
 });

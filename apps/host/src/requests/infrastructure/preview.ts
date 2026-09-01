@@ -1,12 +1,9 @@
 /**
- * Browser preview, machine half.
+ * Preview tunnel, machine half.
  *
- * `probePreviewPort` answers what a loopback port speaks, so the phone can
- * tell a web app (Preview) from a JSON API (Open). `attachPreview` joins a
- * relay preview channel and dials the chosen port on this machine's own
- * loopback, so a dev server bound to 127.0.0.1 needs no rebinding and is
- * never exposed to the network -- the only thing that leaves the machine is
- * the relay socket the host already holds open.
+ * `attachPreview` joins a relay channel and dials the chosen port on this
+ * machine's own loopback, so a stream bound to 127.0.0.1 needs no rebinding
+ * and is never exposed to the network.
  */
 
 import { connect, type Socket } from 'node:net';
@@ -23,25 +20,7 @@ import {
 } from '@muxr/contract';
 import { ticketWsCredential } from '../../machine/index.js';
 
-const PROBE_TIMEOUT_MS = 1200;
 const ATTACH_TIMEOUT_MS = 10_000;
-
-/**
- * The content-type the port answers with, or null when nothing HTTP listens
- * there. GET, not HEAD: some servers 405 a HEAD and a web app would be
- * misread as an API. The body is dropped unread -- the header is the answer.
- */
-export async function probePreviewPort(port: number): Promise<string | null> {
-    try {
-        const response = await fetch(`http://127.0.0.1:${port}/`, {
-            signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
-        });
-        void response.body?.cancel();
-        return response.headers.get('content-type');
-    } catch {
-        return null;
-    }
-}
 
 export interface AttachPreviewOptions {
     relayUrl: string;
@@ -157,7 +136,7 @@ export async function attachPreview(options: AttachPreviewOptions): Promise<null
     });
 
     // The relay closes this side when the device goes away. Without the sweep
-    // every dev-server connection from this preview would leak.
+    // every takeover connection from this tunnel would leak.
     const teardown = (): void => {
         for (const connId of [...connections.keys()]) drop(connId);
     };

@@ -653,7 +653,6 @@ export const pl: TranslationStructure = {
         connectTerminal: 'Połącz terminal',
         linkNewDevice: 'Połącz nowe urządzenie',
         restoreWithSecretKey: 'Przywróć kluczem tajnym',
-        browserPreview: 'Podgląd w przeglądarce',
         browserTakeover: 'Przejęcie przeglądarki',
         whatsNew: 'Co nowego',
         friends: 'Przyjaciele',

@@ -169,12 +169,12 @@ describe('plugin catalog flow', () => {
 
         await writeFile(manifestPath, JSON.stringify({
             schemaVersion: 1, pluginId: 'example.muxr-ui',
-            capabilities: { 'preview.run-server': 'run' },
+            capabilities: { 'example.action': 'run' },
             contributions: [{ slot: 'session.toolbar', id: 'run', type: 'button', label: 'Run', action: { type: 'plugin.invoke', actionId: 'start' } }],
         }));
         await catalog.refresh([plugin(root, [{ id: 'start', command: ['node', 'start.mjs'] }])]);
         const changed = catalog.list(() => true)[0];
-        expect(changed).toMatchObject({ approved: true, hasBackend: true, capabilities: { 'preview.run-server': 'run' } });
+        expect(changed).toMatchObject({ approved: true, hasBackend: true, capabilities: { 'example.action': 'run' } });
         if (changed?.manifestHash === undefined) throw new Error('changed plugin missing');
         expect(changed.manifestHash).not.toBe(firstHash);
         expect(() => catalog.manifest(first.pluginId, firstHash)).toThrow('unavailable or changed');
@@ -742,7 +742,7 @@ describe('plugin catalog flow', () => {
             { slot: 'session.composer.trailing', id: 'session', type: 'native', primitive: 'dictate' },
             { slot: 'session.header.trailing', id: 'voice', type: 'native', primitive: 'icon-button', params: { capability: 'voice.start', icon: 'radio-outline', accessibilityLabel: 'Start realtime' } },
             { slot: 'host.rpc', id: 'read', type: 'rpc', method: 'read', entry: 'rpc.mjs' },
-            { slot: 'home.cards', id: 'items', type: 'native', primitive: 'item-list', params: { source: { type: 'plugin.call', contributionId: 'read' }, icon: 'globe-outline', accessibilityLabel: 'Open servers', refreshIntervalMs: 15000 } },
+            { slot: 'home.cards', id: 'items', type: 'native', primitive: 'item-list', params: { source: { type: 'plugin.call', contributionId: 'read' }, icon: 'globe-outline', accessibilityLabel: 'Open items', refreshIntervalMs: 15000 } },
             { slot: 'navigation.content', id: 'collection', type: 'native', primitive: 'collection', params: { source: { type: 'plugin.call', contributionId: 'read' }, title: 'Items', emptyTitle: 'None', emptyMessage: 'Nothing yet', icon: 'albums-outline' } },
             { slot: 'session.overlay', id: 'tree', type: 'native', primitive: 'tree-sheet', params: { source: { type: 'plugin.call', contributionId: 'read' }, title: 'Tree' } },
         ] })).not.toThrow();
@@ -781,8 +781,6 @@ describe('plugin catalog flow', () => {
 
         expect(parsePluginAction({ type: 'open-url', url: 'https://example.com/path' })).toEqual({ type: 'open-url', url: 'https://example.com/path' });
         expect(parsePluginAction({ type: 'kernel.navigate', target: 'file', path: 'src/app.ts' })).toEqual({ type: 'kernel.navigate', target: 'file', path: 'src/app.ts' });
-        expect(parsePluginAction({ type: 'kernel.navigate', target: 'preview', port: 3000 })).toEqual({ type: 'kernel.navigate', target: 'preview', port: 3000 });
-        for (const port of [0, 65536, 1.5, '3000']) expect(() => parsePluginAction({ type: 'kernel.navigate', target: 'preview', port })).toThrow('invalid plugin preview port');
         expect(() => parsePluginAction({ type: 'open-url', url: 'file:///etc/passwd' })).toThrow('must be HTTPS');
         expect(() => parsePluginAction({ type: 'kernel.navigate', target: 'file', path: 'file:///etc/passwd' })).toThrow('filesystem path');
         expect(() => parsePluginAction({ type: 'kernel.navigate', target: 'unknown' })).toThrow('unknown plugin navigation target');

@@ -10,7 +10,7 @@ import { WebglAddon } from '@xterm/addon-webgl';
 import { Terminal } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
 import { openTerminal, type TerminalChannel } from '../application/OpenTerminal';
-import { beginViewportCapture, recordTerminalOutput, setTerminalColumns } from '../application/recentOutput';
+import { recordTerminalOutput, setTerminalColumns } from '../application/recentOutput';
 
 export interface TerminalViewProps {
     sessionId: string;
@@ -184,7 +184,6 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
         const onWheel = (event: WheelEvent): void => {
             event.preventDefault();
             event.stopPropagation();
-            beginViewportCapture(sessionId); // herdr's repaint is the new viewport
             scrollAcc -= event.deltaY; // wheel up = back = positive
             scheduleScroll();
         };
@@ -213,7 +212,6 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             if (Math.abs(gesturePx) < 8) return; // slop: taps stay taps
             event.preventDefault();
             event.stopPropagation();
-            beginViewportCapture(sessionId); // herdr's repaint is the new viewport
             scheduleScroll();
         };
         const onTouchEnd = (): void => {

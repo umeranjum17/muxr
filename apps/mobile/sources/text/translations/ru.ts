@@ -643,7 +643,6 @@ export const ru: TranslationStructure = {
         connectTerminal: 'Подключить терминал',
         linkNewDevice: 'Связать новое устройство',
         restoreWithSecretKey: 'Восстановить секретным ключом',
-        browserPreview: 'Предпросмотр в браузере',
         browserTakeover: 'Управление браузером',
         whatsNew: 'Что нового',
         friends: 'Друзья',

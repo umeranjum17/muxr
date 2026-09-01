@@ -1,8 +1,8 @@
 /**
  * Live terminal, device half.
  *
- * Mirrors openPreview: ask the host to attach the pane to a channel, then open
- * the client side of that channel. Frames are herdr's own NDJSON protocol --
+ * Ask the host to attach the pane to a channel, then open the client side of
+ * that channel. Frames are herdr's own NDJSON protocol --
  * base64 ANSI in, keystrokes out -- and are never parsed here.
  *
  * Reconnect: a dropped channel socket (phone sleep, network switch, relay

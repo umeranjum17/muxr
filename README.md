@@ -103,8 +103,8 @@ Use native realtime speech-to-speech when typing is the slow part. Ask what chan
 **Also on your phone:**
 
 - **New agents and worktrees** — choose the machine, repository, worktree, and one of 20+ agent CLIs from the home composer.
-- **Files, attachments, ports, and previews** — inspect outputs or open the dev server an agent just started.
-- **Usage, runbooks, and [extensions](https://trymuxr.com/docs/plugins)** — add phone-native controls and screens without forking the app.
+- **Files, attachments, and changes** — inspect repository files, diffs, and agent outputs from your phone.
+- **Usage and [extensions](https://trymuxr.com/docs/plugins)** — add phone-native controls and screens without forking the app.
 
 The [release history](https://github.com/umeranjum17/muxr/releases) is the real feature list.
 

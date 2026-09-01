@@ -40,6 +40,21 @@ import { pluginFolder, pluginsRoot } from './paths.mjs';
 import { parseBundledPlugin } from '../../plugin/index.mjs';
 
 const bundledPluginPath = (name) => pluginFolder(name);
+const staleBundledFiles = { code: ['runbook.mjs'] };
+
+function removeStaleBundledFiles(name, root, dryRun) {
+    for (const relative of staleBundledFiles[name] ?? []) {
+        const path = join(root, relative);
+        let stat;
+        try { stat = lstatSync(path); } catch (cause) {
+            if (cause?.code === 'ENOENT') continue;
+            throw cause;
+        }
+        if (stat.isDirectory() && !stat.isSymbolicLink()) throw new Error(`stale bundled path is not a file: ${path}`);
+        if (dryRun) print(`  would remove stale ${name} file ${relative}`);
+        else { rmSync(path, { force: true }); print(`  ✓ removed stale ${name} file ${relative}`); }
+    }
+}
 
 export function bundledPlugins() {
     const dir = pluginsRoot();
@@ -202,8 +217,9 @@ export async function ensureBundledPlugins(binary, dryRun) {
         print(`  ${unlinked.ok ? '✓' : 'warn:'} unlinked removed bundled plugin ${current.plugin_id}`);
     }
     for (const { id, name, version } of bundled) {
-        const current = installed.find((plugin) => plugin.plugin_id === id);
         const expected = realpathSync(bundledPluginPath(name));
+        removeStaleBundledFiles(name, expected, dryRun);
+        const current = installed.find((plugin) => plugin.plugin_id === id);
         const enabled = current ? current.enabled === true || (id === 'muxr.voice' && legacyVoice !== undefined) : true;
         if (current && realpathOrUndefined(current.plugin_root) === expected && current.version === version && current.enabled === enabled) {
             print(`  ✓ ${id} ${version} Herdr plugin ready${enabled ? '' : ' (disabled)'}`);

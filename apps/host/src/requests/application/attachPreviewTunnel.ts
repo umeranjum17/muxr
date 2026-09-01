@@ -1,12 +1,12 @@
-export type OpenPreviewCommand = {
+export type AttachPreviewTunnelCommand = {
     channel: string;
     port: number;
     key?: string;
 };
 
-export type OpenPreviewResult = { ok: true; data: null } | { ok: false; error: string };
+export type AttachPreviewTunnelResult = { ok: true; data: null } | { ok: false; error: string };
 
-export interface OpenPreviewPorts {
+export interface AttachPreviewTunnelPorts {
     relayUrl?: string;
     machineId: string;
     token?: string;
@@ -21,7 +21,10 @@ export interface OpenPreviewPorts {
     }): Promise<null>;
 }
 
-export async function openPreview(ports: OpenPreviewPorts, command: OpenPreviewCommand): Promise<OpenPreviewResult> {
+export async function attachPreviewTunnel(
+    ports: AttachPreviewTunnelPorts,
+    command: AttachPreviewTunnelCommand,
+): Promise<AttachPreviewTunnelResult> {
     if (ports.relayUrl === undefined) return { ok: false, error: 'preview: host has no relay url' };
     if (ports.requireEncryption === true && command.key === undefined) {
         return { ok: false, error: 'preview: update the app to use encrypted preview' };
@@ -35,14 +38,4 @@ export async function openPreview(ports: OpenPreviewPorts, command: OpenPreviewC
         ...(ports.token === undefined ? {} : { token: ports.token }),
     });
     return { ok: true, data: null };
-}
-
-export type ProbePreviewCommand = { port: number };
-export type ProbePreviewResult = { ok: true; data: { contentType: string | null } };
-
-export async function probePreview(
-    probe: (port: number) => Promise<string | null>,
-    command: ProbePreviewCommand,
-): Promise<ProbePreviewResult> {
-    return { ok: true, data: { contentType: await probe(command.port) } };
 }
