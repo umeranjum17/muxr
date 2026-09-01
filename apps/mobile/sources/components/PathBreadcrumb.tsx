@@ -34,7 +34,7 @@ export function PathBreadcrumb({
     const path = fullPath ?? segments.map((segment) => segment.label).join('/');
     const visibleSegments = React.useMemo<PathBreadcrumbSegment[]>(() => {
         if (segments.length <= 4) return segments;
-        return [segments[0]!, { label: '…' }, ...segments.slice(-3)];
+        return [segments[0]!, { label: '…' }, ...segments.slice(-2)];
     }, [segments]);
     const openFullPath = React.useCallback(() => setShowFullPath(true), []);
     const copyPath = React.useCallback(async () => {
@@ -61,8 +61,8 @@ export function PathBreadcrumb({
                                 {index > 0 && <Text accessible={false} style={{ color: withAlpha(theme.colors.textSecondary, 0.45), fontSize: 12, paddingHorizontal: 6, ...Typography.mono() }}>/</Text>}
                                 <Pressable onPress={onPress} onLongPress={openFullPath} accessibilityRole="button"
                                     accessibilityLabel={isEllipsis ? 'Show full path' : segment.onPress === undefined ? `Path ${segment.label}, show full path` : `Go to ${segment.label}`}
-                                    style={({ pressed }) => ({ minHeight: 44, justifyContent: 'center', flexDirection: 'row', alignItems: 'center', gap: index === 0 && segment.icon !== undefined ? 5 : 0, paddingHorizontal: 8, backgroundColor: pressed ? theme.colors.surfaceHighest : 'transparent' })}>
-                                    {index === 0 && segment.icon !== undefined && <MaterialCommunityIcons name={segment.icon} size={16} color={theme.colors.textSecondary} />}
+                                    style={({ pressed }) => ({ minHeight: 44, justifyContent: 'center', flexDirection: 'row', alignItems: 'center', gap: segment.icon !== undefined ? 5 : 0, paddingHorizontal: 8, backgroundColor: pressed ? theme.colors.surfaceHighest : 'transparent' })}>
+                                    {segment.icon !== undefined && <MaterialCommunityIcons name={segment.icon} size={16} color={theme.colors.textSecondary} />}
                                     <Text numberOfLines={1} style={{ maxWidth: 220, color: isLast ? theme.colors.text : theme.colors.textSecondary, fontSize: 12, lineHeight: 16, ...Typography.mono(isLast ? 'semiBold' : 'regular') }}>{segment.label}</Text>
                                 </Pressable>
                             </React.Fragment>

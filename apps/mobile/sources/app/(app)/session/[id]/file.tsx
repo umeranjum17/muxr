@@ -262,6 +262,7 @@ export default React.memo(function FileScreen() {
         scrollViewRef.current?.scrollTo({ y: Math.max(0, hunkOffsets[next] + 16 - 8), animated: true });
     }, [hunkOffsets]);
     const language = syntaxLanguage(undefined, filePath) ?? null;
+    const shownMode = displayMode === 'diff' && !diffContent ? 'file' : displayMode;
     const previousFile = fileIndex > 0 ? fileList[fileIndex - 1] : undefined;
     const nextFile = fileIndex >= 0 && fileIndex < fileList.length - 1 ? fileList[fileIndex + 1] : undefined;
     const navigateFile = React.useCallback((entry: FileNavigationEntry | undefined) => {
@@ -273,7 +274,7 @@ export default React.memo(function FileScreen() {
         : '';
     const breadcrumbSegments = React.useMemo(() => filePath.split('/').filter(Boolean).map((label, index, segments) => ({
         label: index === segments.length - 1 ? `${label}${lineSuffix}` : label,
-        ...(index === 0 ? { icon: fileIcon(fileName).name } : {}),
+        ...(index === segments.length - 1 ? { icon: fileIcon(fileName).name } : {}),
     })), [fileName, filePath, lineSuffix]);
 
     if (isLoading) {
@@ -375,7 +376,7 @@ export default React.memo(function FileScreen() {
             <View style={styles.controls}>
                 <View style={styles.modeGroup}>
                     {(['diff', 'file'] as const).map((mode) => {
-                        const active = displayMode === mode;
+                        const active = shownMode === mode;
                         const disabled = mode === 'diff' && !diffContent;
                         return <Pressable key={mode} disabled={disabled} onPress={() => setDisplayMode(mode)} accessibilityRole="tab"
                             accessibilityLabel={mode === 'diff' ? t('files.diff') : t('files.file')}
@@ -388,7 +389,7 @@ export default React.memo(function FileScreen() {
                     })}
                 </View>
 
-                {displayMode === 'diff' && hunkOffsets.length > 1 && (
+                {shownMode === 'diff' && hunkOffsets.length > 1 && (
                     <View style={styles.hunkControls}>
                         {([['chevron-up', -1], ['chevron-down', 1]] as const).map(([icon, step]) => (
                             <Pressable key={icon} onPress={() => jumpHunk(step)} accessibilityRole="button"
@@ -424,7 +425,7 @@ export default React.memo(function FileScreen() {
                 contentContainerStyle={{ padding: 16, maxWidth: layout.maxWidth, alignSelf: 'center', width: '100%' }}
                 showsVerticalScrollIndicator={true}
             >
-                {displayMode === 'diff' && diffContent ? (
+                {shownMode === 'diff' && diffContent ? (
                     <PierreDiffView
                         patch={diffContent}
                         fontSize={fontSize}
@@ -435,7 +436,7 @@ export default React.memo(function FileScreen() {
                         onHunkOffsets={setHunkOffsets}
                         disableFileHeader
                     />
-                ) : displayMode === 'file' && fileContent?.content ? (
+                ) : shownMode === 'file' && fileContent?.content ? (
                     isNarrow ? (
                         <SimpleSyntaxHighlighter
                             code={fileContent.content}
@@ -452,7 +453,7 @@ export default React.memo(function FileScreen() {
                             fontSize={fontSize}
                         />
                     )
-                ) : displayMode === 'file' && fileContent && !fileContent.content ? (
+                ) : shownMode === 'file' && fileContent && !fileContent.content ? (
                     <Text style={{
                         fontSize: 16,
                         color: theme.colors.textSecondary,

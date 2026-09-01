@@ -82,14 +82,19 @@ export function NavigableDiff({ patch }: { patch: string }) {
                 : file.status === 'deleted' ? theme.colors.gitRemovedText
                     : file.status === 'modified' ? theme.colors.accent : theme.colors.textSecondary;
         return <Pressable onPress={onPress} accessibilityRole="tab"
-            accessibilityLabel={file === undefined ? label : `Show changes in ${file.label}, ${status}, ${stats}`}
+            accessibilityLabel={file === undefined ? label : `Show changes in ${file.label}, ${status}, ${stats ?? ''}`}
             accessibilityState={{ selected: active }}
             style={({ pressed }) => [styles.tab, { borderColor: active ? theme.colors.accent : theme.colors.divider, backgroundColor: active ? theme.colors.surfaceSelected : pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh }] }>
             <View style={styles.tabTitle}>
                 {status !== undefined && <Text style={{ color: statusColor, fontSize: 11, ...Typography.mono('semiBold') }}>{status}</Text>}
                 <Text numberOfLines={1} style={{ color: active ? theme.colors.text : theme.colors.textSecondary, fontSize: 11.5, ...Typography.mono(active ? 'semiBold' : 'regular') }}>{label}</Text>
             </View>
-            {stats !== undefined && <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 10.5, ...Typography.mono() }}>{stats}</Text>}
+            {file?.binary === true
+                ? <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 10.5, ...Typography.mono() }}>binary</Text>
+                : file !== undefined && <View style={{ flexDirection: 'row', gap: 6 }}>
+                    <Text style={{ color: theme.colors.gitAddedText, fontSize: 10.5, ...Typography.mono('semiBold') }}>+{file.added}</Text>
+                    <Text style={{ color: theme.colors.gitRemovedText, fontSize: 10.5, ...Typography.mono('semiBold') }}>−{file.removed}</Text>
+                </View>}
         </Pressable>;
     }
 }

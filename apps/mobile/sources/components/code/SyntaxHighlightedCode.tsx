@@ -19,9 +19,9 @@ export const SyntaxHighlightedCode = React.memo(function SyntaxHighlightedCode(p
     const fontSize = 12;
     const lineHeight = 19;
     const gutterWidth = 16 + digits * 7;
-    const pathSegments = (props.fileName ?? 'Source').split('/').filter(Boolean).map((label, index) => ({
+    const pathSegments = (props.fileName ?? 'Source').split('/').filter(Boolean).map((label, index, segments) => ({
         label,
-        ...(index === 0 ? { icon: fileIcon(props.fileName ?? label).name } : {}),
+        ...(index === segments.length - 1 ? { icon: fileIcon(props.fileName ?? label).name } : {}),
     }));
     return (
         <View style={{ borderRadius: ui.radius.card, overflow: 'hidden', backgroundColor: theme.colors.surfaceHigh, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider, marginBottom: 10 }}>
