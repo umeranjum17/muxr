@@ -50,6 +50,18 @@ export function orderLiveTerminalCards(cards: readonly LiveTerminalOrderCard[]):
         (left.createdAt ?? Number.MAX_SAFE_INTEGER) - (right.createdAt ?? Number.MAX_SAFE_INTEGER));
 }
 
+function sameCard(left: LiveTerminalOrderCard, right: LiveTerminalOrderCard): boolean {
+    return left.id === right.id
+        && left.session === right.session
+        && left.agentStatus === right.agentStatus
+        && left.taskTitle === right.taskTitle
+        && left.agentName === right.agentName
+        && left.agentKind === right.agentKind
+        && left.displayAgent === right.displayAgent
+        && left.changedAt === right.changedAt
+        && left.createdAt === right.createdAt;
+}
+
 /**
  * Preserve every surviving slot when metadata arrives or lifecycle changes.
  * New panes append in creation order, so a late catalog join cannot reshuffle
@@ -64,21 +76,14 @@ export function reconcileLiveTerminalCards(
         const updated = currentById.get(card.id);
         if (updated === undefined) return [];
         currentById.delete(card.id);
-        return [updated];
+        // One changed session used to hand every card a new object, so every
+        // React.memo card re-rendered on each host info frame. Cards that did
+        // not change keep their previous object and stay memoized.
+        return [sameCard(card, updated) ? card : updated];
     });
     const next = [...existing, ...orderLiveTerminalCards([...currentById.values()])];
-    const unchanged = next.length === previous.length && next.every((card, index) => {
-        const before = previous[index]!;
-        return card.id === before.id
-            && card.session === before.session
-            && card.agentStatus === before.agentStatus
-            && card.taskTitle === before.taskTitle
-            && card.agentName === before.agentName
-            && card.agentKind === before.agentKind
-            && card.displayAgent === before.displayAgent
-            && card.changedAt === before.changedAt
-            && card.createdAt === before.createdAt;
-    });
+    const unchanged = next.length === previous.length
+        && next.every((card, index) => card === previous[index]);
     return unchanged ? previous : next;
 }
 

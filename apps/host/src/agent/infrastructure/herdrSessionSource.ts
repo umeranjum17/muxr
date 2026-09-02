@@ -83,6 +83,8 @@ const PROMPT_REBIND_TIMEOUT_MS = 10_000;
 const PLUGIN_CALL_QUEUE_TIMEOUT_MS = 8_000;
 /** How long to watch a started Herdr action before reporting it as merely started. */
 const HERDR_ACTION_REPORT_MS = 5_000;
+/** Ceiling on how often a title-only `session.updated` may be published. */
+const TERMINAL_TITLE_COALESCE_MS = 500;
 
 type HerdrCommandLog = { log_id: string; status: 'running' | 'succeeded' | 'failed'; stdout?: string; stderr?: string; error?: string };
 type HerdrActionLogClient = Pick<HerdrClient, 'call'>;
@@ -628,6 +630,10 @@ export async function createHerdrSessionSource(
     /** Last emitted signatures per session, so snapshots publish only real changes. */
     const lastStateSignature = new Map<string, string>();
     const lastInfoSignature = new Map<string, string>();
+    /** Same info minus the animated terminal title; a change here publishes immediately. */
+    const lastStableSignature = new Map<string, string>();
+    /** Pending title-only session.updated flushes, keyed by session. */
+    const titleFlushTimers = new Map<string, ReturnType<typeof setTimeout>>();
     /** pane_id -> close fn for its filtered status subscription. */
     const statusWatches = new Map<string, () => void>();
 
@@ -1091,9 +1097,40 @@ export async function createHerdrSessionSource(
         options.lifecycle?.remove(sessionId);
         clearAttention(sessionId);
         lastStateSignature.delete(sessionId);
+        clearTitleFlush(sessionId);
         lastInfoSignature.delete(sessionId);
+        lastStableSignature.delete(sessionId);
         lastReadinessBySession.delete(sessionId);
         publish(sessionId, { type: 'session.removed' });
+    }
+
+    function stableInfoSignature(info: SessionInfo): string {
+        return JSON.stringify({ ...info, terminalTitle: undefined });
+    }
+
+    function clearTitleFlush(sessionId: string): void {
+        const pending = titleFlushTimers.get(sessionId);
+        if (pending === undefined) return;
+        clearTimeout(pending);
+        titleFlushTimers.delete(sessionId);
+    }
+
+    /** Publish the latest title once the coalescing window closes. */
+    function scheduleTitleFlush(sessionId: string): void {
+        if (titleFlushTimers.has(sessionId)) return;
+        const timer = setTimeout(() => {
+            titleFlushTimers.delete(sessionId);
+            const session = currentSession(sessionId);
+            if (session === undefined) return;
+            const latest = infoFor(session);
+            const signature = JSON.stringify(latest);
+            if (lastInfoSignature.get(sessionId) === signature) return;
+            lastStableSignature.set(sessionId, stableInfoSignature(latest));
+            lastInfoSignature.set(sessionId, signature);
+            publish(sessionId, { type: 'session.updated', session: latest });
+        }, TERMINAL_TITLE_COALESCE_MS);
+        timer.unref();
+        titleFlushTimers.set(sessionId, timer);
     }
 
     function emitState(sessionId: string): void {
@@ -1130,8 +1167,18 @@ export async function createHerdrSessionSource(
         const info = infoFor(session);
         const signature = JSON.stringify(info);
         if (lastInfoSignature.get(sessionId) !== signature) {
-            lastInfoSignature.set(sessionId, signature);
-            publish(sessionId, { type: 'session.updated', session: info });
+            const stable = stableInfoSignature(info);
+            if (lastStableSignature.get(sessionId) === stable) {
+                // Only the terminal title moved. A working agent animates it several
+                // times a second and each frame costs the phone a store write and a
+                // re-render of every live card, so publish the latest title per window.
+                scheduleTitleFlush(sessionId);
+            } else {
+                clearTitleFlush(sessionId);
+                lastStableSignature.set(sessionId, stable);
+                lastInfoSignature.set(sessionId, signature);
+                publish(sessionId, { type: 'session.updated', session: info });
+            }
         }
         if (session.agent !== undefined) {
             reportObserved(session, agentStatus);
@@ -2916,6 +2963,8 @@ export async function createHerdrSessionSource(
 
         async dispose(): Promise<void> {
             if (resnapshotTimer !== undefined) clearTimeout(resnapshotTimer);
+            for (const timer of titleFlushTimers.values()) clearTimeout(timer);
+            titleFlushTimers.clear();
             if (pluginPollTimer !== undefined) clearInterval(pluginPollTimer);
             pluginStreams?.closeAll();
             await codingCoordinator?.close();

@@ -78,6 +78,7 @@ vi.mock('@/utils/sessionUtils', () => ({
 }));
 import { applyStatusToSession, sessionInfoToSession } from '../infrastructure/sessionMapping';
 import { applyHostInfoToAgent } from '../domain/agent';
+import { reconcileLiveTerminalCards } from '@/herd/application/liveTerminalOrder';
 import { storage } from './storage';
 
 async function spawn(options: { modelMode?: string; effortLevel?: string }) {
@@ -781,5 +782,54 @@ describe('session sync flow', () => {
         await Promise.resolve();
         expect(voiceMocks.callPlugin).toHaveBeenCalledTimes(deliveredCallCount);
         expect(voiceMocks.speakReport).toHaveBeenCalledOnce();
+    });
+
+    it('keeps unchanged sessions and cards identical across host info frames', () => {
+        vi.useFakeTimers({ now: 1_000 });
+        const info = (id: string, terminalTitle: string) => ({
+            id,
+            paneId: `pane-${id}`,
+            cwd: '/work/muxr',
+            path: '/work/muxr',
+            messageCount: 0,
+            firstMessage: '',
+            agentName: 'Maria',
+            taskTitle: id,
+            terminalTitle,
+            promptable: true,
+            agentStatus: 'working' as const,
+        });
+        const panes = ['a', 'b'].map((id) => ({
+            id,
+            agentStatus: 'working' as const,
+            promptable: true,
+            doing: '',
+        }));
+
+        storage.getState().applySessions([
+            sessionInfoToSession(info('a', 'claude ⠋')),
+            sessionInfoToSession(info('b', 'codex')),
+        ]);
+        const before = storage.getState().sessions;
+        const cards = selectLiveTerminalCards(Object.values(before), panes);
+
+        // A title-only frame arriving later must not look like a changed session,
+        // or every live card re-renders on every frame the agent animates.
+        vi.setSystemTime(5_000);
+        storage.getState().applySessions([
+            applyHostInfoToAgent(before.a!, sessionInfoToSession(info('a', 'claude ⠋'))),
+        ]);
+        expect(storage.getState().sessions).toBe(before);
+
+        storage.getState().applySessions([
+            applyHostInfoToAgent(before.a!, sessionInfoToSession(info('a', 'claude ⠙'))),
+        ]);
+        const after = storage.getState().sessions;
+        expect(after.a!.createdAt).toBe(1_000);
+        const next = reconcileLiveTerminalCards(cards, selectLiveTerminalCards(Object.values(after), panes));
+        expect(next[0]).not.toBe(cards[0]);
+        expect(next[1]).toBe(cards[1]);
+
+        vi.useRealTimers();
     });
 });
