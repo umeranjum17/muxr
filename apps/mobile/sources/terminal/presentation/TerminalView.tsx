@@ -13,12 +13,13 @@
  */
 
 import * as React from 'react';
-import { AppState, PixelRatio, Platform, View } from 'react-native';
+import { AppState, PixelRatio, Platform, Pressable, Text, View } from 'react-native';
 import { TerminalView as GhosttyView, type TerminalViewRef } from 'expo-libghostty';
 import { decodeBase64, encodeBase64 } from '@/encryption/base64';
 import { openTerminal, type TerminalChannel } from '../application/OpenTerminal';
 import { recordTerminalOutput, setTerminalColumns } from '../application/recentOutput';
 import { createTerminalWritePump, type TerminalWritePump } from '../application/terminalWritePump';
+import type { TerminalGraphicsReason } from '@muxr/contract';
 
 /**
  * One scroll message costs herdr one full-screen repaint whatever the line
@@ -59,6 +60,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
     const openedRef = React.useRef(false);
     const lastSizeRef = React.useRef<{ cols: number; rows: number; cellWidthPx?: number; cellHeightPx?: number } | null>(null);
     const [graphicsActive, setGraphicsActive] = React.useState(false);
+    const [graphicsReason, setGraphicsReason] = React.useState<TerminalGraphicsReason | undefined>();
     const pointerTouchesRef = React.useRef(0);
     const suppressPointerRef = React.useRef(false);
     const resizeTimerRef = React.useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -199,6 +201,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                             const view = termRef.current;
                             if (view === null) return;
                             await view.write(bytes);
+                            channel.recordFrameWritten();
                         },
                         combineText: combineTextFrames,
                         schedule: (run) => requestAnimationFrame(() => run()),
@@ -211,8 +214,9 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                             channel.repaint();
                         },
                     });
-                    channel.onGraphics((active) => {
+                    channel.onGraphics((active, reason) => {
                         setGraphicsActive(suppressPointerRef.current ? false : active);
+                        setGraphicsReason(active ? undefined : reason);
                     });
                     // Same discipline as the web view: herdr repaint bursts
                     // arrive as many socket messages; one Ghostty write at a
@@ -295,6 +299,42 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                     }
                 }}
             />
+            {graphicsReason !== undefined && (
+                <View style={{
+                    position: 'absolute',
+                    left: 10,
+                    right: 10,
+                    bottom: 10,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 10,
+                    borderRadius: 10,
+                    paddingVertical: 9,
+                    paddingLeft: 12,
+                    paddingRight: 8,
+                    backgroundColor: 'rgba(28, 28, 27, 0.96)',
+                    borderWidth: 1,
+                    borderColor: 'rgba(255,255,255,0.12)',
+                }}>
+                    <Text style={{ flex: 1, color: '#d8d8d4', fontSize: 12, lineHeight: 16 }}>
+                        Graphics stopped. Retry brings them back to this phone and resizes Herdr on the desktop.
+                    </Text>
+                    <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel="Retry terminal graphics"
+                        onPress={() => channelRef.current?.repaint(true)}
+                        style={({ pressed }) => ({
+                            minHeight: 36,
+                            justifyContent: 'center',
+                            borderRadius: 8,
+                            paddingHorizontal: 12,
+                            backgroundColor: pressed ? '#d7d7d2' : '#f2f2ed',
+                        })}
+                    >
+                        <Text style={{ color: '#11110f', fontSize: 12, fontWeight: '600' }}>Retry</Text>
+                    </Pressable>
+                </View>
+            )}
         </View>
     );
 });

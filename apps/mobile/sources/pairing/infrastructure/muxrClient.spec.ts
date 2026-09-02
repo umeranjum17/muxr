@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { encodePayload } from '@muxr/contract';
 import type { AppStateLike } from '../application/deliverScannedPairing';
+import { formatConnectionDiagnosticsForReport, resetConnectionDiagnostics } from '../../catalog/infrastructure/connectionDiagnostics';
 
 vi.mock('react-native', () => ({
     AppState: { currentState: 'active', addEventListener: vi.fn() },
@@ -20,7 +21,7 @@ class FakeWebSocket {
     onopen?: () => void;
     onmessage?: (message: { data: string }) => void;
     onerror?: () => void;
-    onclose?: () => void;
+    onclose?: (event: { code: number; reason: string }) => void;
 
     constructor(_url: string) {
         FakeWebSocket.current = this;
@@ -31,7 +32,11 @@ class FakeWebSocket {
     }
 
     send(_payload: string): void {}
-    close(): void { this.readyState = 0; this.onclose?.(); }
+    close(): void { this.readyState = 0; this.onclose?.({ code: 1000, reason: '' }); }
+    failClose(code: number, reason: string): void {
+        this.readyState = 3;
+        this.onclose?.({ code, reason });
+    }
 }
 
 describe('mobile plugin invalidation dispatch', () => {
@@ -99,13 +104,22 @@ describe('mobile relay liveness', () => {
     afterEach(() => {
         vi.unstubAllGlobals();
         FakeWebSocket.current = undefined;
+        vi.useRealTimers();
     });
 
-    it('isLive is false until a host frame arrives, then a dead socket can reconnect', async () => {
+    it('proves host liveness, reconnects a closed route, and replaces a timed-out half-open route', async () => {
+        vi.useFakeTimers();
         vi.stubGlobal('WebSocket', FakeWebSocket);
-        const client = new MuxrClient({ mode: 'local', relayUrl: 'ws://relay.test', machineId: 'machine-1' });
+        resetConnectionDiagnostics();
+        const client = new MuxrClient({
+            mode: 'local',
+            relayUrl: 'ws://relay.test',
+            machineId: 'machine-1',
+            reconnectDelayMs: 10,
+            requestTimeoutMs: 25,
+        });
         client.connect();
-        await new Promise<void>((resolve) => queueMicrotask(resolve));
+        await Promise.resolve();
         const first = FakeWebSocket.current!;
         expect(client.isLive()).toBe(false);
         await expect(client.request('herdr.tree', {})).rejects.toThrow('not connected');
@@ -113,13 +127,33 @@ describe('mobile relay liveness', () => {
             header: { machineId: 'machine-1', seq: 1, at: Date.now() },
             payload: encodePayload({ type: 'plugins.invalidated', reason: 'changed', pluginIds: ['example.ui'] } as never),
         }) });
-        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+        await Promise.resolve();
         expect(client.state).toBe('open');
         expect(client.isLive()).toBe(true);
-        first.readyState = 3;
-        client.connect();
-        await new Promise<void>((resolve) => queueMicrotask(resolve));
-        expect(FakeWebSocket.current).not.toBe(first);
+        first.failClose(1012, 'raw relay restart with internal details');
+        expect(client.state).toBe('closed');
+        const report = formatConnectionDiagnosticsForReport();
+        expect(report).toMatch(/socket\.fail close socket-closed 1012 service-restart/);
+        expect(report).not.toContain('raw relay restart');
+
+        await vi.advanceTimersByTimeAsync(10);
+        const second = FakeWebSocket.current!;
+        expect(second).not.toBe(first);
+        second.onmessage?.({ data: JSON.stringify({
+            header: { machineId: 'machine-1', seq: 2, at: Date.now() },
+            payload: encodePayload({ type: 'plugins.invalidated', reason: 'changed', pluginIds: ['example.ui'] } as never),
+        }) });
+        await Promise.resolve();
+        expect(client.isLive()).toBe(true);
+
+        const rejection = expect(client.request('herdr.tree', {})).rejects.toThrow(
+            'request timed out: herdr.tree (connection reset; try again after muxr reconnects)',
+        );
+        await vi.advanceTimersByTimeAsync(25);
+        await rejection;
+        expect(client.state).toBe('closed');
+        await vi.advanceTimersByTimeAsync(10);
+        expect(FakeWebSocket.current).not.toBe(second);
         expect(client.isLive()).toBe(false);
         client.close();
     });
@@ -171,4 +205,5 @@ describe('connection diagnostic codes', () => {
         expect(report).toMatch(/agent\.gate omp idle promptable=false not-interactive/);
         expect(report).not.toMatch(/pp_|pwt-|devtok_|machine-|session-|w1EW:pH/);
     });
+
 });

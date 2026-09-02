@@ -59,7 +59,7 @@ import { decodeBase64, encodeBase64 } from '@/encryption/base64';
 import { createKittyDecoderState, inflateZlib, materializeKittyCommands, splitKittyFrame } from './kittyDecoder';
 import { openTerminal } from './OpenTerminal';
 import { createTerminalWritePump } from './terminalWritePump';
-import { readConnectionDiagnostics, resetConnectionDiagnostics } from '@/catalog/infrastructure/connectionDiagnostics';
+import { formatConnectionDiagnosticsForReport, readConnectionDiagnostics, resetConnectionDiagnostics } from '@/catalog/infrastructure/connectionDiagnostics';
 
 describe('openTerminal reconnect ownership', () => {
     beforeEach(() => {
@@ -96,19 +96,19 @@ describe('openTerminal reconnect ownership', () => {
         await vi.waitFor(() => expect(FakeWebSocket.instances[0]).toBeDefined());
         const socket = FakeWebSocket.instances[0]!;
         socket.open();
-        const graphics: boolean[] = [];
-        channel.onGraphics((active) => graphics.push(active));
-        expect(graphics).toEqual([false]);
+        const graphics: Array<{ active: boolean; reason?: string }> = [];
+        channel.onGraphics((active, reason) => graphics.push({ active, ...(reason === undefined ? {} : { reason }) }));
+        expect(graphics).toEqual([{ active: false }]);
         socket.onmessage?.({ data: JSON.stringify({ type: 'terminal.frame', bytes: 'full-paint', graphics: true }) });
 
         const frames: Array<{ bytes: string; graphics?: boolean }> = [];
         channel.onData((bytes, graphicsFlag) => frames.push({ bytes, graphics: graphicsFlag }));
         expect(frames).toEqual([{ bytes: 'full-paint', graphics: true }]);
-        expect(graphics).toEqual([false, true]);
+        expect(graphics).toEqual([{ active: false }, { active: true }]);
 
         socket.onmessage?.({ data: JSON.stringify({ type: 'terminal.frame', bytes: 'ansi', graphics: false }) });
         expect(frames).toEqual([{ bytes: 'full-paint', graphics: true }, { bytes: 'ansi', graphics: false }]);
-        expect(graphics).toEqual([false, true, false]);
+        expect(graphics).toEqual([{ active: false }, { active: true }, { active: false }]);
 
         socket.onmessage?.({ data: JSON.stringify({ type: 'terminal.frame', bytes: 'plain-herdr' }) });
         expect(frames.at(-1)).toEqual({ bytes: 'plain-herdr' });
@@ -124,8 +124,25 @@ describe('openTerminal reconnect ownership', () => {
         expect(cleared.deleteAll).toBe(true);
         expect(cleared.placements).toEqual([]);
 
+        socket.onmessage?.({ data: JSON.stringify({
+            type: 'terminal.frame',
+            bytes: deleteBytes,
+            graphics: false,
+            graphicsReason: 'retired',
+        }) });
+        expect(graphics.at(-1)).toEqual({ active: false, reason: 'retired' });
+        socket.onmessage?.({ data: JSON.stringify({ type: 'terminal.frame', bytes: 'draw-again', graphics: true }) });
+        expect(graphics.at(-1)).toEqual({ active: true });
+
+        channel.repaint(true);
+        expect(graphics.at(-1)).toEqual({ active: false });
+        await vi.waitFor(() => expect(mocks.request).toHaveBeenCalledWith(
+            'terminal.attach',
+            expect.objectContaining({ graphicsReset: true }),
+        ));
+
         channel.close();
-        expect(graphics).toEqual([false, true, false]);
+        expect(graphics.at(-1)).toEqual({ active: false });
     });
 
     it('drives socket frames through one in-flight graphics-aware write pump', async () => {
@@ -294,6 +311,39 @@ describe('openTerminal reconnect ownership', () => {
             expect.objectContaining({ event: 'terminal.channel', phase: 'live', outcome: 'ok' }),
             expect.objectContaining({ event: 'terminal.channel', phase: 'reconnecting', outcome: 'ok' }),
         ]));
+    });
+
+    it('records first-frame once and finalizes received/written counts without identifiers', async () => {
+        mocks.request.mockResolvedValue({});
+        const channel = await openTerminal({ agentRoute: 'session', size: { cols: 100, rows: 30 } });
+        await vi.waitFor(() => expect(FakeWebSocket.instances[0]).toBeDefined());
+        const socket = FakeWebSocket.instances[0]!;
+        socket.open();
+        socket.onmessage?.({ data: JSON.stringify({ type: 'terminal.frame', bytes: 'full-frame' }) });
+        socket.onmessage?.({ data: JSON.stringify({ type: 'terminal.frame', bytes: 'second' }) });
+        await vi.waitFor(() => {
+            expect(readConnectionDiagnostics().some((event) => event.event === 'terminal.first-frame')).toBe(true);
+        });
+        expect(readConnectionDiagnostics().filter((event) => event.event === 'terminal.first-frame')).toHaveLength(1);
+        expect(readConnectionDiagnostics().filter((event) => event.event === 'terminal.frames')).toEqual([]);
+        const live = formatConnectionDiagnosticsForReport();
+        expect(live).toMatch(/Redacted: durations, counts, and enums only/);
+        expect(live).toMatch(/terminal\.first-frame \d+ms/);
+        expect(live).toMatch(/terminal\.frames live received=2 written=0/);
+        channel.recordFrameWritten();
+        channel.recordFrameWritten();
+        expect(formatConnectionDiagnosticsForReport()).toMatch(/terminal\.frames live received=2 written=2/);
+        channel.close();
+        expect(readConnectionDiagnostics()).toEqual(expect.arrayContaining([
+            expect.objectContaining({ event: 'terminal.first-frame' }),
+            expect.objectContaining({ event: 'terminal.frames', received: 2, written: 2 }),
+        ]));
+        const report = formatConnectionDiagnosticsForReport();
+        expect(report).toMatch(/terminal\.frames received=2 written=2/);
+        expect(report).not.toMatch(/terminal\.frames live /);
+        expect(report).not.toMatch(/full-frame|second|pp_|pwt-|devtok_|machine-|session-/);
+        channel.recordFrameWritten();
+        expect(readConnectionDiagnostics().filter((event) => event.event === 'terminal.frames')).toHaveLength(1);
     });
 });
 

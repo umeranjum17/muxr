@@ -20,7 +20,7 @@ export {
     type HostedDeviceTables,
 } from './domain/deviceGrant.js';
 export { HostV2Crypto, type HostedDeviceKeys, type HostedMachineKeys } from './infrastructure/hostedE2ee.js';
-export { connectToRelay, type RelayLink, type RelayLinkOptions } from './infrastructure/relayLink.js';
+export { connectToRelay, type RelayLink, type RelayLinkOptions, type RelayStateCode } from './infrastructure/relayLink.js';
 export { ticketWsCredential, usesLoopbackWsAuth } from './domain/admission.js';
 export { loopbackMachineSocketUrl } from './infrastructure/loopbackWsAuth.js';
 export { reconnectMachine } from './application/reconnectMachine.js';

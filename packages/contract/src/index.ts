@@ -89,6 +89,7 @@ export type {
     PreviewFrame,
     TerminalClientFrame,
     TerminalHostFrame,
+    TerminalGraphicsReason,
     WsTransport,
 } from './control-plane/index.js';
 export {

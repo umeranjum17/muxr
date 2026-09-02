@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { createConnection, type Socket } from 'node:net';
 import { deflate } from 'node:zlib';
 import { promisify } from 'node:util';
+import type { TerminalGraphicsReason } from '@muxr/contract';
 
 const PROTOCOL_VERSION = 20;
 const MAX_MESSAGE_BYTES = 32 * 1024 * 1024;
@@ -171,12 +172,16 @@ export class HerdrGraphicsBridge {
     }
 
     close(): void {
+        this.shutdown('bridge-closed');
+    }
+
+    private shutdown(reason?: TerminalGraphicsReason): void {
         if (this.closed) return;
         try { if (this.socket.writable) this.socket.write(frame(clientDetach())); } catch { /* socket already closed */ }
         this.closed = true;
         const clear = Buffer.from('\u001b7\u001b_Ga=d,d=A,q=2;\u001b\\\u001b8');
         for (const registration of this.registrations.values()) {
-            registration.write(terminalFrame(clear, registration, false));
+            registration.write(terminalFrame(clear, registration, false, reason));
         }
         this.registrations.clear();
         this.latestByPane.clear();
@@ -226,6 +231,7 @@ export class HerdrGraphicsBridge {
                 this.enqueue(message.file);
             } else if (message.type === 'retired') {
                 this.retire(message.transferId, message.imageId);
+                this.shutdown('retired');
             } else if (message.type === 'closed') {
                 this.close();
             }
@@ -269,13 +275,15 @@ export class HerdrGraphicsBridge {
 
     private async forward(file: GraphicsFile): Promise<void> {
         const admitted = this.admit(file);
+        let acknowledged = false;
         try {
-            // Routing does not need file bytes. Resolve pane first so a retire
-            // that arrived before/during forward can clear once, then drop
-            // without read/compress/publish.
-            const paneId = await this.sourcePane(file.leading);
-            if (this.shouldDrop(admitted, paneId)) return;
+            // Herdr owns the leased file until success. Validate into a private
+            // buffer first, then release its global direct-graphics gate before
+            // routing, compression, layout probes, or phone delivery.
             const rgba = await readGraphicsFile(file);
+            this.write(clientGraphicsResult(file, true));
+            acknowledged = true;
+            const paneId = await this.sourcePane(file.leading);
             if (this.shouldDrop(admitted, paneId)) return;
             const processReady = paneId !== undefined && await this.ensurePaneProcess(paneId);
             if (this.shouldDrop(admitted, paneId)) return;
@@ -283,8 +291,6 @@ export class HerdrGraphicsBridge {
                 rgba, file.control, this.allocateImageId(), file.transferId,
             );
             if (this.shouldDrop(admitted, paneId)) return;
-            // ACK below releases Herdr's one-transfer gate independently of
-            // phone delivery. Transport coalescing is a separate path.
             if (paneId !== undefined && prepared !== undefined) {
                 const previous = this.latestByPane.get(paneId);
                 if (previous !== undefined) this.imageOwners.delete(previous.transferId);
@@ -300,11 +306,9 @@ export class HerdrGraphicsBridge {
             this.logError(error);
         } finally {
             this.admitted.delete(file.transferId);
-            // Herdr 0.8.2 treats `false` as failure of the whole direct client:
-            // it disables direct graphics and retires every gate. A consumed file
-            // — delivered, dropped for routing, or rejected by validation/read
-            // policy — always ACK true. write() is inert after close().
-            this.write(clientGraphicsResult(file, true));
+            // A consumed or rejected file must never disable the whole direct
+            // client. write() is inert after shutdown.
+            if (!acknowledged) this.write(clientGraphicsResult(file, true));
         }
     }
 
@@ -328,20 +332,20 @@ export class HerdrGraphicsBridge {
         if (retiredAt > admitted.generation) return true;
         if (!admitted.retired) return false;
         if (!admitted.cleared && admitted.paneId !== undefined) {
-            this.emitPaneClear(admitted.paneId);
+            this.emitPaneClear(admitted.paneId, 'retired');
             admitted.cleared = true;
         }
         return true;
     }
 
-    private emitPaneClear(paneId: string): void {
+    private emitPaneClear(paneId: string, reason?: TerminalGraphicsReason): void {
         this.latestByPane.delete(paneId);
         for (const [transferId, owner] of this.imageOwners) {
             if (owner.paneId === paneId) this.imageOwners.delete(transferId);
         }
         const bytes = Buffer.from('\u001b7\u001b_Ga=d,d=A,q=2;\u001b\\\u001b8');
         for (const registration of this.registrations.values()) {
-            if (registration.paneId === paneId) registration.write(terminalFrame(bytes, registration, false));
+            if (registration.paneId === paneId) registration.write(terminalFrame(bytes, registration, false, reason));
         }
     }
 
@@ -355,27 +359,12 @@ export class HerdrGraphicsBridge {
 
     private retire(transferId: bigint, sourceImageId: number): void {
         const admitted = this.admitted.get(transferId);
-        if (admitted !== undefined && admitted.sourceImageId === sourceImageId) {
-            admitted.retired = true;
-            if (!admitted.cleared && admitted.paneId !== undefined) {
-                this.emitPaneClear(admitted.paneId);
-                admitted.cleared = true;
-            }
-        }
+        if (admitted !== undefined && admitted.sourceImageId === sourceImageId) admitted.retired = true;
         const owner = this.imageOwners.get(transferId);
         if (owner === undefined || owner.sourceImageId !== sourceImageId) return;
         this.imageOwners.delete(transferId);
         const latest = this.latestByPane.get(owner.paneId);
         if (latest?.transferId === transferId) this.latestByPane.delete(owner.paneId);
-        const graphics = this.latestByPane.has(owner.paneId);
-        const bytes = graphics
-            ? Buffer.from(`\u001b7\u001b_Ga=d,d=I,i=${owner.imageId},q=2;\u001b\\\u001b8`)
-            : Buffer.from('\u001b7\u001b_Ga=d,d=A,q=2;\u001b\\\u001b8');
-        for (const registration of this.registrations.values()) {
-            if (registration.paneId === owner.paneId) {
-                registration.write(terminalFrame(bytes, registration, graphics));
-            }
-        }
     }
 
     private async ensurePaneProcess(paneId: string): Promise<boolean> {
@@ -684,9 +673,15 @@ export function decodeServerMessage(payload: Buffer): ServerMessage {
     }
 }
 
-function terminalFrame(bytes: Buffer, target: HerdrGraphicsRegistration, graphics?: boolean): string {
+function terminalFrame(
+    bytes: Buffer,
+    target: HerdrGraphicsRegistration,
+    graphics?: boolean,
+    graphicsReason?: TerminalGraphicsReason,
+): string {
     return JSON.stringify({ type: 'terminal.frame', seq: 0, encoding: 'ansi', width: target.cols, height: target.rows,
-        full: false, bytes: bytes.toString('base64'), ...(graphics === undefined ? {} : { graphics }) });
+        full: false, bytes: bytes.toString('base64'), ...(graphics === undefined ? {} : { graphics }),
+        ...(graphicsReason === undefined ? {} : { graphicsReason }) });
 }
 
 async function readGraphicsFile(file: GraphicsFile): Promise<Buffer> {

@@ -479,6 +479,8 @@ export interface RequestMap extends PeerRequestMap {
             deviceId?: string;
             /** User explicitly chose to take control from another device. */
             takeover?: boolean;
+            /** Reopen Herdr's direct-graphics client before this control attach. */
+            graphicsReset?: boolean;
         };
         result: { paneId: string };
     };

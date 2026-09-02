@@ -199,6 +199,24 @@ export function cliVersion() {
     return 'unknown';
 }
 
+export function hostServiceVersion() {
+    const path = join(stateDir(), 'host', 'diagnostics.json');
+    try {
+        const info = lstatSync(path);
+        if (!info.isFile() || info.isSymbolicLink()) return undefined;
+        const parsed = JSON.parse(readFileSync(path, 'utf8'));
+        const current = parsed?.current?.hostVersion;
+        if (typeof current === 'string' && /^\d+\.\d+\.\d+/.test(current)) return current;
+        if (!Array.isArray(parsed?.events)) return undefined;
+        for (let index = parsed.events.length - 1; index >= 0; index -= 1) {
+            const event = parsed.events[index];
+            if (event?.event === 'host.started' && typeof event.hostVersion === 'string'
+                && /^\d+\.\d+\.\d+/.test(event.hostVersion)) return event.hostVersion;
+        }
+    } catch {}
+    return undefined;
+}
+
 export function loadAuthState() {
     try {
         const info = lstatSync(authPath());
@@ -520,6 +538,12 @@ export async function inspectSetup() {
     const checks = [];
     // repair: { label, run } — offered interactively when the check fails.
     const add = (level, name, detail, repair) => checks.push({ level, name, detail, repair });
+    const cli = cliVersion();
+    const service = hostServiceVersion();
+    const versionsMatch = service === undefined || cli === 'unknown' || service === cli;
+    add(versionsMatch ? 'ok' : 'warn', 'muxr versions', service === undefined
+        ? `CLI ${cli} · service not observed`
+        : `CLI ${cli} · service ${service}${versionsMatch ? '' : ' — PATH CLI differs from the running host; update or fix PATH before trusting validation'}`);
     const major = Number(process.versions.node.split('.')[0]);
     add(major >= 22 ? 'ok' : 'fail', 'node', `v${process.versions.node}${major >= 22 ? '' : ' — needs >= 22'}`);
     const cliDir = dirname(realpathSync(process.argv[1]));

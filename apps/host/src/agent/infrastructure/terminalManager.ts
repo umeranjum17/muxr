@@ -68,6 +68,7 @@ export class TerminalManager {
         mode?: 'control' | 'observe';
         deviceId?: string;
         takeover?: boolean;
+        graphicsReset?: boolean;
     }): Promise<{ paneId: string }> {
         if (this.hosted !== undefined && (params.deviceId === undefined || this.options.hostedE2ee?.ingressKeys[params.deviceId] === undefined)) {
             throw Object.assign(new Error('terminal: hosted attach requires an active device grant'), { code: 'e2ee-required' });
@@ -98,6 +99,7 @@ export class TerminalManager {
         mode?: 'control' | 'observe';
         deviceId?: string;
         takeover?: boolean;
+        graphicsReset?: boolean;
     }, paneId: string): Promise<{ paneId: string }> {
         const mode = this.hosted !== undefined && deviceTableIsObserve(this.options.hostedE2ee?.deviceAuthorities, params.deviceId)
             ? 'observe'
@@ -269,6 +271,13 @@ export class TerminalManager {
                     current.close('control moved to another device');
                 }
             }
+        }
+        if (mode === 'control' && params.graphicsReset === true) {
+            clearTimeout(this.graphicsCloseTimer);
+            this.graphicsCloseTimer = undefined;
+            this.graphics?.close();
+            this.graphics = undefined;
+            this.graphicsOpening = undefined;
         }
         this.attachments.set(params.channel, attachment);
         if (!observe) this.activateGraphics(attachment, params);

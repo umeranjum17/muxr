@@ -25,6 +25,7 @@ export function AttachmentThumbnail({ sessionId, image, onPress, enabled = true,
     const [failed, setFailed] = React.useState(false);
     const [loaded, setLoaded] = React.useState(false);
     const reported = React.useRef(false);
+    const recyclingKey = /^[0-9a-f]{64}$/.test(image.action.id) ? image.action.id : image.id;
     React.useEffect(() => { setFailed(false); setLoaded(false); reported.current = false; }, [image.id]);
     const settle = React.useCallback(() => {
         if (reported.current) return;
@@ -45,7 +46,7 @@ export function AttachmentThumbnail({ sessionId, image, onPress, enabled = true,
                   : preview === null || failed
                   ? <Ionicons name="image-outline" size={22} color="rgba(255,255,255,0.38)" />
                   : <>
-                      <Image source={{ uri: preview.uri }} style={StyleSheet.absoluteFill} contentFit="cover" transition={120} recyclingKey={image.id} onLoad={() => { setLoaded(true); settle(); }} onError={() => { setFailed(true); settle(); }} />
+                      <Image source={{ uri: preview.uri }} style={StyleSheet.absoluteFill} contentFit="cover" transition={120} recyclingKey={recyclingKey} onLoad={() => { setLoaded(true); settle(); }} onError={() => { setFailed(true); settle(); }} />
                       {!loaded && <ActivityIndicator style={StyleSheet.absoluteFill} color="rgba(255,255,255,0.45)" />}
                   </>}
             <LinearGradient pointerEvents="none" colors={['transparent', 'rgba(0,0,0,0.8)']} locations={[0.25, 1]} style={styles.thumbnailShade} />
@@ -131,6 +132,7 @@ function GalleryPage({ sessionId, image, width, height, active }: { sessionId: s
     // actually on screen is allowed to ask the host for bytes.
     const preview = useAttachmentPreview(sessionId, image.action, active);
     const [failed, setFailed] = React.useState(false);
+    const recyclingKey = /^[0-9a-f]{64}$/.test(image.action.id) ? image.action.id : image.id;
     React.useEffect(() => setFailed(false), [image.id]);
     return <View style={{ width, height, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12, paddingVertical: 86 }}>
         {!active
@@ -139,7 +141,7 @@ function GalleryPage({ sessionId, image, width, height, active }: { sessionId: s
               ? <ActivityIndicator color="rgba(255,255,255,0.6)" />
             : preview === null || failed
               ? <Ionicons name="image-outline" size={34} color="rgba(255,255,255,0.32)" />
-              : <Image source={{ uri: preview.uri }} style={{ width: '100%', height: '100%' }} contentFit="contain" transition={160} recyclingKey={image.id} onError={() => setFailed(true)} />}
+              : <Image source={{ uri: preview.uri }} style={{ width: '100%', height: '100%' }} contentFit="contain" transition={160} recyclingKey={recyclingKey} onError={() => setFailed(true)} />}
     </View>;
 }
 

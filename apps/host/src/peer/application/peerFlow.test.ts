@@ -809,6 +809,7 @@ describe('host peer collaboration flow', () => {
                 ingressKeys: { [peerDeviceId]: ingressKey }, deviceKinds: { [peerDeviceId]: 'peer' },
             },
             onPeerIngress: (outcome) => diagnostics.peerIngress(outcome),
+            onClientReject: (clientKey, kind, outcome) => diagnostics.clientReject(clientKey, kind, outcome),
             onClientFrame: () => decoded(),
         });
         const socket = await accepted;
@@ -816,6 +817,7 @@ describe('host peer collaboration flow', () => {
             machineId, senderId: peerDeviceId, recipientId: machineId,
             channel: 'session' as const, streamId: 'machine', keyVersion: 1, at: Date.now(),
         };
+        socket.send('null');
         socket.send(JSON.stringify({ header: { ...header, seq: 0 }, payload: 'invalid-ciphertext' } satisfies Envelope));
         const payload = sealV2(
             encodePayload({ type: 'client.hello', clientId: 'private-client' }),
@@ -830,6 +832,8 @@ describe('host peer collaboration flow', () => {
         const state = JSON.parse(output) as { events: Array<{ event: string; outcome?: string }> };
         expect(state.events.filter((event) => event.event === 'peer.ingress').map((event) => event.outcome))
             .toEqual(['received', 'decrypt-rejected', 'received', 'decoded']);
+        expect(state.events.filter((event) => event.event === 'client.reject').map((event) => event.outcome))
+            .toEqual(['malformed', 'decrypt-rejected']);
         expect(output).not.toContain(machineId);
         expect(output).not.toContain(peerDeviceId);
         link.close();

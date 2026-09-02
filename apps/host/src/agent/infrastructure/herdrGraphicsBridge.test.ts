@@ -23,6 +23,12 @@ const graphicsResultAck = (written: Buffer): boolean | undefined => {
     return payload[payload.length - 1] === 1;
 };
 
+const serverFrame = (payload: Buffer): Buffer => {
+    const length = Buffer.allocUnsafe(4);
+    length.writeUInt32LE(payload.length);
+    return Buffer.concat([length, payload]);
+};
+
 describe('Herdr graphics flow', () => {
     it('decodes, routes, and emits one pane-scoped Kitty frame', async () => {
         const leading = Buffer.from('\u001b[3;4H');
@@ -81,6 +87,7 @@ describe('Herdr graphics flow', () => {
             lastErrorAt: number;
             closed: boolean;
             retire: (transferId: bigint, sourceImageId: number) => void;
+            read: (data: Buffer) => void;
             retirePane: (paneId: string) => void;
             sourcePane: (leading: Buffer) => Promise<string | undefined>;
             ensurePaneProcess: (paneId: string) => Promise<boolean>;
@@ -161,18 +168,15 @@ describe('Herdr graphics flow', () => {
         expect(internals.imageOwners.has(2n)).toBe(true);
 
         internals.imageOwners.set(5n, { paneId: 'visible', imageId: 5, sourceImageId: 5 });
+        const framesBeforeOldRetire = replayed.length;
         internals.retire(5n, 5);
-        const survivor = JSON.parse(replayed.at(-1)!) as { graphics: boolean; bytes: string };
-        expect(survivor.graphics).toBe(true);
-        expect(Buffer.from(survivor.bytes, 'base64').toString('utf8')).toContain('a=d,d=I,i=5');
-        expect(Buffer.from(survivor.bytes, 'base64').toString('utf8')).not.toContain(',d=i,');
+        expect(replayed).toHaveLength(framesBeforeOldRetire);
         expect(internals.latestByPane.get('visible')).toEqual(successor);
+        expect(internals.imageOwners.has(5n)).toBe(false);
 
+        const framesBeforeCurrentRetire = replayed.length;
         internals.retire(2n, 8);
-        const retiredCurrent = JSON.parse(replayed.at(-1)!) as { graphics: boolean; bytes: string };
-        expect(retiredCurrent.graphics).toBe(false);
-        expect(Buffer.from(retiredCurrent.bytes, 'base64').toString('utf8')).toContain('a=d,d=A');
-        expect(Buffer.from(retiredCurrent.bytes, 'base64').toString('utf8')).not.toContain(',d=i,');
+        expect(replayed).toHaveLength(framesBeforeCurrentRetire);
         expect(internals.latestByPane.has('visible')).toBe(false);
 
         const dir = mkdtempSync(join(tmpdir(), 'herdr-gfx-'));
@@ -201,12 +205,14 @@ describe('Herdr graphics flow', () => {
             const acksBeforeInflight = acks.length;
             const inflight = internals.forward(inflightFile);
             await inProcess;
+            expect(acks).toHaveLength(acksBeforeInflight + 1);
+            expect(graphicsResultAck(acks.at(-1)!)).toBe(true);
             internals.retire(20n, 20);
-            const inflightClear = JSON.parse(replayed.at(-1)!) as { graphics: boolean; bytes: string };
-            expect(inflightClear.graphics).toBe(false);
-            expect(Buffer.from(inflightClear.bytes, 'base64').toString('utf8')).toContain('a=d,d=A');
             releaseProcess();
             await inflight;
+            const inflightClear = JSON.parse(replayed.at(-1)!) as { graphics: boolean; graphicsReason?: string; bytes: string };
+            expect(inflightClear).toMatchObject({ graphics: false, graphicsReason: 'retired' });
+            expect(Buffer.from(inflightClear.bytes, 'base64').toString('utf8')).toContain('a=d,d=A');
             expect(acks).toHaveLength(acksBeforeInflight + 1);
             expect(graphicsResultAck(acks.at(-1)!)).toBe(true);
             expect(replayed.slice(framesBeforeInflight).every((frame) => {
@@ -232,14 +238,16 @@ describe('Herdr graphics flow', () => {
             const acksBeforeUnknown = acks.length;
             const unknownPane = internals.forward({ ...inflightFile, imageId: 21, transferId: 21n, control: 'a=T,f=32,s=2,v=2,i=21' });
             await inRoute;
+            expect(acks).toHaveLength(acksBeforeUnknown + 1);
+            expect(graphicsResultAck(acks.at(-1)!)).toBe(true);
             internals.retire(21n, 21);
             expect(replayed).toHaveLength(framesBeforeUnknown);
             releaseRoute();
             await unknownPane;
             expect(acks).toHaveLength(acksBeforeUnknown + 1);
             expect(graphicsResultAck(acks.at(-1)!)).toBe(true);
-            const unknownClear = JSON.parse(replayed.at(-1)!) as { graphics: boolean; bytes: string };
-            expect(unknownClear.graphics).toBe(false);
+            const unknownClear = JSON.parse(replayed.at(-1)!) as { graphics: boolean; graphicsReason?: string; bytes: string };
+            expect(unknownClear).toMatchObject({ graphics: false, graphicsReason: 'retired' });
             expect(Buffer.from(unknownClear.bytes, 'base64').toString('utf8')).toContain('a=d,d=A');
             expect(replayed.slice(framesBeforeUnknown).filter((frame) => {
                 const parsed = JSON.parse(frame) as { graphics?: boolean; bytes: string };
@@ -268,8 +276,9 @@ describe('Herdr graphics flow', () => {
             const raced = internals.forward({ ...inflightFile, imageId: 22, transferId: 22n, control: 'a=T,f=32,s=2,v=2,i=22' });
             await inGeneration;
             internals.retirePane('visible');
-            const paneClear = JSON.parse(replayed.at(-1)!) as { graphics: boolean; bytes: string };
+            const paneClear = JSON.parse(replayed.at(-1)!) as { graphics: boolean; graphicsReason?: string; bytes: string };
             expect(paneClear.graphics).toBe(false);
+            expect(paneClear.graphicsReason).toBeUndefined();
             expect(Buffer.from(paneClear.bytes, 'base64').toString('utf8')).toContain('a=d,d=A');
             releaseGeneration();
             await raced;
@@ -286,11 +295,13 @@ describe('Herdr graphics flow', () => {
         }
 
         internals.retirePane('visible');
-        expect(JSON.parse(replayed.at(-1)!) as { graphics: boolean }).toMatchObject({ graphics: false });
-        internals.imageOwners.set(99n, { paneId: 'visible', imageId: 99, sourceImageId: 99 });
-        internals.retire(99n, 99);
-        expect((JSON.parse(replayed.at(-1)!) as { graphics: boolean }).graphics).toBe(false);
-        bridge.close();
+        expect(JSON.parse(replayed.at(-1)!) as { graphics: boolean; graphicsReason?: string })
+            .toMatchObject({ graphics: false });
+        expect((JSON.parse(replayed.at(-1)!) as { graphicsReason?: string }).graphicsReason).toBeUndefined();
+        internals.read(serverFrame(Buffer.concat([uint(14), uint(99), uint(99)])));
+        expect(JSON.parse(replayed.at(-1)!) as { graphics: boolean; graphicsReason?: string })
+            .toMatchObject({ graphics: false, graphicsReason: 'retired' });
+        expect(internals.closed).toBe(true);
         expect(bridge.register(portrait)).toBe(false);
     });
 });

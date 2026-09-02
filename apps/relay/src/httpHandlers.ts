@@ -218,6 +218,8 @@ export async function handleHttpRequest(
                 ? {}
                 : { 'content-range': upstream.headers['content-range'] }),
             'accept-ranges': 'bytes',
+            'cache-control': 'no-store',
+            'x-content-type-options': 'nosniff',
         });
         upstream.pipe(res);
         return;

@@ -29,7 +29,11 @@ export interface TerminalOutputFrame {
     encoding?: string;
     /** true on image frames, false on retire/detach. Absent on ordinary ANSI. */
     graphics?: boolean;
+    /** Why direct graphics ended. Absent on ordinary clears and active frames. */
+    graphicsReason?: TerminalGraphicsReason;
 }
+
+export type TerminalGraphicsReason = 'retired' | 'bridge-closed';
 
 /** host -> client: the underlying stream ended. */
 export interface TerminalClosedFrame {
