@@ -552,6 +552,10 @@ describe('session sync flow', () => {
     });
 
     it('reconciles structured lifecycle activity once across live replay, reconnect and restart', async () => {
+        // The store drops lifecycle events older than its seven-day retention,
+        // so a test with fixed timestamps silently stops testing anything once
+        // those dates age out. Pin the clock beside them.
+        vi.useFakeTimers({ now: Date.parse('2026-08-27T10:30:00.000Z'), shouldAdvanceTime: true });
         const event = (eventId: string, state: AgentLifecycle, at: string): LifecycleEvent => ({
             eventId,
             sessionId: 'session-secret-42',
@@ -780,6 +784,7 @@ describe('session sync flow', () => {
         await Promise.resolve();
         expect(voiceMocks.callPlugin).toHaveBeenCalledTimes(deliveredCallCount);
         expect(voiceMocks.speakReport).toHaveBeenCalledOnce();
+        vi.useRealTimers();
     });
 
     it('keeps unchanged sessions and cards identical across host info frames', () => {
