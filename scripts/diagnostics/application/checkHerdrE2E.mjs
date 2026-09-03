@@ -28,6 +28,7 @@ import {
     terminalSocketUrl,
 } from '@muxr/contract';
 import { waitForRelay } from './waitForRelay.mjs';
+import { packagedCloseAvailable } from './packagedCloseAvailable.mjs';
 
 const PORT = String(8890 + Math.floor(Math.random() * 40));
 const relayUrl = `ws://127.0.0.1:${PORT}`;
@@ -416,8 +417,16 @@ async function run() {
     // 6. detach + stop
     term.close();
     await request(socket, 'terminal.detach', { sessionId: newId, channel });
-    await request(socket, 'session.stop', { sessionId: newId });
-    console.log('ok: detach + stop');
+    const closable = packagedCloseAvailable();
+    if (closable.ok) {
+        await request(socket, 'session.stop', { sessionId: newId });
+        console.log('ok: detach + stop');
+    } else {
+        try {
+            runHerdr(['pane', 'close', attached.paneId], 5_000);
+        } catch { /* the workspace close below still collects it */ }
+        console.log(`SKIP: session.stop (${closable.reason})`);
+    }
 
     finish(0, 'PASS e2e: herdr backend loop\n');
 }

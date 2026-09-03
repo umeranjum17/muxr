@@ -17,7 +17,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@expo/ui": "~57.0.14",
+    "@expo/ui": "~55.0.5",
     "@expo/vector-icons": "^15.0.2",
     "@more-tech/react-native-libsodium": "^1.5.5",
     "@muxr/contract": "0.0.0",
@@ -81,7 +81,7 @@
     "libsodium-wrappers": "0.8.2",
     "mermaid": "^11.12.1",
     "pdfjs-dist": "^6.2.108",
-    "preact": "^10.29.8",
+    "preact": "^10.29.1",
     "prismjs": "^1.30.0",
     "qrcode": "^1.5.4",
     "react": "19.2.0",
@@ -104,18 +104,18 @@
     "react-native-unistyles": "~3.1.1",
     "react-native-web": "^0.21.0",
     "react-native-webview": "13.15.0",
-    "react-native-worklets": "^0.7.4",
+    "react-native-worklets": "^0.7.1",
     "react-native-zeroconf": "^0.14.0",
     "react-simple-code-editor": "^0.14.1",
     "react-textarea-autosize": "^8.5.9",
     "rn-encryption": "^2.5.0",
     "thumbhash": "^0.1.1",
-    "uuid": "^14.0.2",
+    "uuid": "^11.1.0",
     "victory-native": "^41.26.0",
     "vitest": "^3.2.4",
     "whisper.rn": "0.7.2",
     "zod": "^4.0.0",
-    "zustand": "^5.0.15"
+    "zustand": "^5.0.6"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",

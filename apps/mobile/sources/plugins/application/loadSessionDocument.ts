@@ -52,8 +52,8 @@ export async function loadSessionDocument(
                 });
                 if (cancelled()) return { status: 'cancelled' };
                 if (probe.success && probe.stdout.trim()) gitDirectory = rememberGitDirectory(gitKey, probe.stdout.trim());
-            } catch (probeError) {
-                console.log('Could not resolve git directory:', probeError);
+            } catch {
+                // No git here, or the probe timed out. The search-path guess stands.
             }
         }
         const git = `git -C ${shellQuote(gitDirectory)} -c diff.mnemonicPrefix=false`;
@@ -69,8 +69,8 @@ export async function loadSessionDocument(
                     freshDiff = diffResponse.stdout;
                     break;
                 }
-            } catch (diffError) {
-                console.log('Could not fetch git diff:', diffError);
+            } catch {
+                // A diff is optional context; the file itself still loads below.
             }
         }
         if (diffObserved) fetchedDiff = freshDiff;
