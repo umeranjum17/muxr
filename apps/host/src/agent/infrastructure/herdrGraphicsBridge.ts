@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { InlineImageStore, InlineKittyScanner, type InlineKittyBlock } from './inlineKitty.js';
 import { open } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -66,6 +67,7 @@ type Rect = NonNullable<GraphicsRoute['rect']>;
 type ServerMessage =
     | { type: 'welcome'; version: number; error?: string }
     | { type: 'graphics'; bytes: Buffer }
+    | { type: 'output'; bytes: Buffer }
     | { type: 'graphics-file'; file: GraphicsFile }
     | { type: 'retired'; transferId: bigint; imageId: number }
     | { type: 'closed' }
@@ -93,6 +95,10 @@ export class HerdrGraphicsBridge {
     private lastErrorAt = 0;
     private processTimer: ReturnType<typeof setInterval> | undefined;
     private pollingProcesses = false;
+    private readonly inlineScanner = new InlineKittyScanner();
+    private readonly inlineImages = new InlineImageStore();
+    /** Last inline placement forwarded per pane, so repaints are not resent. */
+    private readonly inlinePlaced = new Map<string, string>();
     private input = Buffer.alloc(0);
     private draining = false;
     private nextImageId = 1;
@@ -224,6 +230,8 @@ export class HerdrGraphicsBridge {
                     process.stderr.write(`terminal graphics: Herdr protocol ${message.version} is not supported${message.error === undefined ? '' : `: ${message.error}`}\n`);
                     this.close();
                 }
+            } else if (message.type === 'output') {
+                void this.forwardInline(message.bytes);
             } else if (message.type === 'graphics') {
                 // Protocol 20 provides no pane provenance. Drop rather than
                 // crossing streams; PTY-inline Kitty is outside this bridge.
@@ -234,6 +242,45 @@ export class HerdrGraphicsBridge {
                 this.shutdown('retired');
             } else if (message.type === 'closed') {
                 this.close();
+            }
+        }
+    }
+
+    /**
+     * Herdr writes a program's own Kitty images into the app output stream,
+     * positioned by the cursor. Pixels are transmitted once per image and
+     * placed separately, and a program transmits long before a phone attaches,
+     * so image data is always learned; only placements need a live pane.
+     */
+    private async forwardInline(bytes: Buffer): Promise<void> {
+        if (this.closed) return;
+        for (const block of this.inlineScanner.scan(bytes)) {
+            if (this.inlineImages.admit(block)) continue;
+            if (this.registrations.size === 0) continue;
+            const action = block.keys.a ?? 'p';
+            if (action === 'd') {
+                this.inlinePlaced.clear();
+                for (const registration of this.registrations.values()) {
+                    registration.write(terminalFrame(wrapAtOrigin(block.bytes), registration, false));
+                }
+                continue;
+            }
+            if (action !== 'p' && action !== 'T') continue;
+            const paneId = await this.sourcePane(cursorAt(block));
+            if (paneId === undefined || this.closed) continue;
+            // A repainting producer re-places the same image many times a
+            // second; only a changed placement is worth a phone frame.
+            const identity = `${paneId}:${block.row}:${block.col}:${block.bytes.toString('base64')}`;
+            if (this.inlinePlaced.get(paneId) === identity) continue;
+            const image = await this.inlineImages.prepared(block, (rgba, control) => prepareKitty(
+                rgba, control, this.allocateImageId(), 0n,
+            ));
+            if (image === undefined || this.closed) continue;
+            this.inlinePlaced.set(paneId, identity);
+            this.latestByPane.set(paneId, image);
+            for (const registration of this.registrations.values()) {
+                if (registration.paneId !== paneId) continue;
+                registration.write(terminalFrame(encodeKitty(image, registration, true), registration, true));
             }
         }
     }
@@ -527,6 +574,28 @@ export function graphicsPlacement(image: PreparedImage, target: HerdrGraphicsReg
     };
 }
 
+/** The absolute cell an inline block landed on, in the shape `sourcePane` parses. */
+function cursorAt(block: InlineKittyBlock): Buffer {
+    return Buffer.from(`\u001b[${block.row};${block.col}H`);
+}
+
+/** Place a forwarded block at the same cell inside the phone's pane view. */
+function wrapInPane(bytes: Buffer, block: InlineKittyBlock, rect: Rect): Buffer {
+    const row = Math.max(1, block.row - rect.y);
+    const col = Math.max(1, block.col - rect.x);
+    return Buffer.concat([
+        Buffer.from('\u001b7'),
+        Buffer.from(`\u001b[${row};${col}H`),
+        bytes,
+        Buffer.from('\u001b8'),
+    ]);
+}
+
+/** Deletes carry no position; keep the phone's cursor where it was. */
+function wrapAtOrigin(bytes: Buffer): Buffer {
+    return Buffer.concat([Buffer.from('\u001b7'), bytes, Buffer.from('\u001b8')]);
+}
+
 export function mapGraphicsPointer(
     image: PreparedImage,
     target: HerdrGraphicsRegistration,
@@ -648,7 +717,10 @@ export function decodeServerMessage(payload: Buffer): ServerMessage {
             return { type: 'welcome', version, ...(error === undefined ? {} : { error }) };
         }
         case 1: return { type: 'other' };
-        case 2: reader.uint(); reader.number(); reader.number(); reader.boolean(); reader.bytes(); return { type: 'other' };
+        case 2: {
+            reader.uint(); reader.number(); reader.number(); reader.boolean();
+            return { type: 'output', bytes: reader.bytes() };
+        }
         case 3: return { type: 'graphics', bytes: reader.bytes() };
         case 4: reader.option(() => reader.string()); return { type: 'closed' };
         case 5: reader.number(); reader.string(); reader.option(() => reader.string()); return { type: 'other' };
