@@ -78,7 +78,6 @@ export type {
     RequestResult,
     RequestType,
     StreamingBehavior,
-    VoiceProviderOption,
     WatchSettlement,
     LayoutSnapshot,
     ClientFrame,
@@ -90,6 +89,7 @@ export type {
     PreviewFrame,
     TerminalClientFrame,
     TerminalHostFrame,
+    TerminalGraphicsReason,
     WsTransport,
 } from './control-plane/index.js';
 export {

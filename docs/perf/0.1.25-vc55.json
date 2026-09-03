@@ -1,0 +1,216 @@
+{
+  "startedAt": "2026-09-03T08:44:49.715Z",
+  "phases": [
+    {
+      "name": "idle on the herd",
+      "seconds": 120.2,
+      "sampledSeconds": 115.5,
+      "jsBusyPercent": 39.1,
+      "fps": 29.2,
+      "frameStallSeconds": 0,
+      "pssFirstKb": 281598,
+      "pssLastKb": 301548,
+      "pssMaxKb": 303672,
+      "pssDriftKb": 19950,
+      "restarts": 0,
+      "gaps": 0
+    },
+    {
+      "name": "herd strip and tree soak",
+      "seconds": 120.1,
+      "flow": "herdSoak.yaml",
+      "sampledSeconds": 115.5,
+      "jsBusyPercent": 41.8,
+      "fps": 41.2,
+      "frameStallSeconds": 0,
+      "pssFirstKb": 299203,
+      "pssLastKb": 268011,
+      "pssMaxKb": 302411,
+      "pssDriftKb": -31192,
+      "restarts": 0,
+      "gaps": 0,
+      "flowExit": 0
+    },
+    {
+      "name": "agent terminal and plugin navigation",
+      "seconds": 120.1,
+      "flow": "herdNavigate.yaml",
+      "sampledSeconds": 105.4,
+      "jsBusyPercent": 31.4,
+      "frameStallSeconds": 10,
+      "pssFirstKb": 279739,
+      "pssLastKb": 261509,
+      "pssMaxKb": 291463,
+      "pssDriftKb": -18230,
+      "restarts": 2,
+      "gaps": 0,
+      "flowExit": 0
+    }
+  ],
+  "limits": {
+    "jsBusyPercent": 60,
+    "pssDriftKb": 102400,
+    "frameStallSeconds": 30,
+    "updateDepthErrors": 0,
+    "tourGrowthKb": 153600,
+    "herdVisibleMs": 90000,
+    "hostRequestMs": 5000
+  },
+  "load": {
+    "panes": 30,
+    "agents": 6,
+    "titleChurnHz": 2,
+    "terminalBytesPerSecond": 4096,
+    "graphicsFrameHz": 4
+  },
+  "avd": "muxr_sandbox",
+  "maestro": "2.7.0",
+  "apk": "/tmp/muxr-gfx-x86_64.apk",
+  "herdVisibleMs": 41667,
+  "tour": {
+    "panes": 24,
+    "opened": 24,
+    "missed": 0,
+    "visits": [
+      {
+        "paneId": "w1:p7",
+        "opened": true,
+        "pssKb": 281208
+      },
+      {
+        "paneId": "w1:p8",
+        "opened": true,
+        "pssKb": 295890
+      },
+      {
+        "paneId": "w1:p9",
+        "opened": true,
+        "pssKb": 277789
+      },
+      {
+        "paneId": "w1:p10",
+        "opened": true,
+        "pssKb": 275045
+      },
+      {
+        "paneId": "w1:p11",
+        "opened": true,
+        "pssKb": 289449
+      },
+      {
+        "paneId": "w1:p12",
+        "opened": true,
+        "pssKb": 275157
+      },
+      {
+        "paneId": "w1:p13",
+        "opened": true,
+        "pssKb": 276125
+      },
+      {
+        "paneId": "w1:p14",
+        "opened": true,
+        "pssKb": 276460
+      },
+      {
+        "paneId": "w1:p15",
+        "opened": true,
+        "pssKb": 283073
+      },
+      {
+        "paneId": "w1:p16",
+        "opened": true,
+        "pssKb": 290120
+      },
+      {
+        "paneId": "w1:p17",
+        "opened": true,
+        "pssKb": 280396
+      },
+      {
+        "paneId": "w1:p18",
+        "opened": true,
+        "pssKb": 285470
+      },
+      {
+        "paneId": "w1:p19",
+        "opened": true,
+        "pssKb": 282621
+      },
+      {
+        "paneId": "w1:p20",
+        "opened": true,
+        "pssKb": 287510
+      },
+      {
+        "paneId": "w1:p21",
+        "opened": true,
+        "pssKb": 279291
+      },
+      {
+        "paneId": "w1:p22",
+        "opened": true,
+        "pssKb": 279330
+      },
+      {
+        "paneId": "w1:p23",
+        "opened": true,
+        "pssKb": 279072
+      },
+      {
+        "paneId": "w1:p24",
+        "opened": true,
+        "pssKb": 278567
+      },
+      {
+        "paneId": "w1:p25",
+        "opened": true,
+        "pssKb": 292361
+      },
+      {
+        "paneId": "w1:p26",
+        "opened": true,
+        "pssKb": 278639
+      },
+      {
+        "paneId": "w1:p27",
+        "opened": true,
+        "pssKb": 279051
+      },
+      {
+        "paneId": "w1:p28",
+        "opened": true,
+        "pssKb": 287249
+      },
+      {
+        "paneId": "w1:p29",
+        "opened": true,
+        "pssKb": 281161
+      },
+      {
+        "paneId": "w1:p30",
+        "opened": true,
+        "pssKb": 298447
+      }
+    ],
+    "pssFirstKb": 281208,
+    "pssLastKb": 298447,
+    "pssMaxKb": 298447,
+    "pssGrowthKb": 17239,
+    "framesRendered": 6599
+  },
+  "updateDepthErrors": 0,
+  "hostRequests": {
+    "total": 100,
+    "attaches": 56,
+    "rejected": [],
+    "slowestMs": 13
+  },
+  "runtimeAlive": true,
+  "framesRendered": 6632,
+  "screenshot": "docs/perf/0.1.25-vc55.png",
+  "commit": "6bf683f6ae98f609ec3ec7e5fc9ab31b9462ff11",
+  "finishedAt": "2026-09-03T08:59:25.788Z",
+  "failures": [],
+  "passed": true
+}

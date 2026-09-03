@@ -56,6 +56,8 @@ export default function PluginsScreen() {
     if (!pluginCatalogLoaded() && entries.length === 0) return <ActivityIndicator style={{ flex: 1 }} />;
 
     const withUi = plugins.filter((plugin) => plugin.manifestHash !== undefined);
+    // Registered with Herdr but contributing no muxr UI: nothing to approve here.
+    const herdrOnly = plugins.filter((plugin) => plugin.manifestHash === undefined);
     const enabledCount = withUi.filter((plugin) => plugin.approved).length;
     const runsCode = withUi.filter((plugin) => plugin.hasBackend).length;
 
@@ -78,9 +80,12 @@ export default function PluginsScreen() {
                     onPress={() => void enableAll()} showChevron={false} disabled={withUi.length - enabledCount === 0} />
                 <Item title={t('plugins.disableAll')} onPress={() => void setApproved(withUi, false)} showChevron={false} disabled={enabledCount === 0} />
             </ItemGroup>
-            {withUi.length > 0 && (
-                <ItemGroup title={t('plugins.installed')}>
-                    {withUi.map((plugin) => {
+            {([
+                ['both', t('plugins.herdrAndMuxr'), t('plugins.herdrAndMuxrFooter'), withUi.filter((plugin) => plugin.herdrBackend)],
+                ['muxr', t('plugins.muxrOnly'), t('plugins.muxrOnlyFooter'), withUi.filter((plugin) => !plugin.herdrBackend)],
+            ] as const).filter(([, , , group]) => group.length > 0).map(([key, title, footer, group]) => (
+                <ItemGroup key={key} title={title} footer={footer}>
+                    {group.map((plugin) => {
                         const incompatibility = manifests[plugin.pluginId] === undefined
                             ? undefined
                             : pluginCompatibilityError(manifests[plugin.pluginId], MUXR_UI_VERSION);
@@ -97,12 +102,17 @@ export default function PluginsScreen() {
                         />;
                     })}
                 </ItemGroup>
-            )}
-            {plugins.filter((plugin) => plugin.manifestHash === undefined).map((plugin) => (
-                <Item key={plugin.pluginId} title={plugin.name}
-                    subtitle={[plugin.warnings[0] ?? plugin.description, sourceLabel(plugin.source), plugin.hasBackend ? t('plugins.runsCode') : t('plugins.uiOnly')].filter(Boolean).join(' · ')}
-                    detail={plugin.warnings.length > 0 ? t('plugins.unavailableLabel') : 'Herdr'} showChevron={false} />
             ))}
+            {herdrOnly.length > 0 && (
+                <ItemGroup title={t('plugins.herdrOnly')} footer={t('plugins.herdrOnlyFooter')}>
+                    {herdrOnly.map((plugin) => (
+                        <Item key={plugin.pluginId} title={plugin.name}
+                            subtitle={[plugin.warnings[0] ?? plugin.description, sourceLabel(plugin.source), plugin.hasBackend ? t('plugins.runsCode') : t('plugins.uiOnly')].filter(Boolean).join(' · ')}
+                            subtitleLines={2}
+                            detail={plugin.warnings.length > 0 ? t('plugins.unavailableLabel') : undefined} showChevron={false} />
+                    ))}
+                </ItemGroup>
+            )}
             {plugins.flatMap((plugin) => plugin.approved
                 ? (manifests[plugin.pluginId]?.contributions.filter((item) => item.slot === 'settings.sections') ?? []).map((section) => (
                     <ItemGroup key={`${plugin.pluginId}:${section.id}`} title={`${resolvePluginText(section.title)} · Plugin`}>

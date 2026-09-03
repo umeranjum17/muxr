@@ -10,7 +10,11 @@ import { v2EnvelopeSequence } from '@muxr/crypto';
 import { HostV2Crypto, type HostedMachineKeys } from './hostedE2ee.js';
 import { loopbackMachineSocketUrl } from './loopbackWsAuth.js';
 import { reconnectMachine } from '../application/reconnectMachine.js';
-import type { DiagnosticPeerIngressOutcome } from '../../diagnostics/index.js';
+import type {
+    DiagnosticClientKind,
+    DiagnosticClientRejectOutcome,
+    DiagnosticPeerIngressOutcome,
+} from '../../diagnostics/index.js';
 import {
     decodePayload,
     encodePayload,
@@ -24,11 +28,22 @@ import {
     WsTicketError,
 } from '@muxr/contract';
 
+export type RelayStateCode = 'ticket-issue-failed' | 'socket-closed' | 'socket-error' | 'replaced';
+
+function ticketStateCode(_error: unknown): RelayStateCode {
+    return 'ticket-issue-failed';
+}
+
+function closeStateCode(code: number): RelayStateCode {
+    if (code === RELAY_CLOSE_REPLACED) return 'replaced';
+    return code === 1000 || code === 1001 ? 'socket-closed' : 'socket-error';
+}
 export interface RelayLinkOptions {
     relayUrl: string;
     machineId: string;
     onClientFrame: (frame: ClientFrame, authenticatedSenderId?: string) => void;
-    onStateChange?: (state: 'connecting' | 'open' | 'closed' | 'replaced') => void;
+    onStateChange?: (state: 'connecting' | 'open' | 'closed' | 'replaced', code?: RelayStateCode) => void;
+    onClientReject?: (clientKey: string, kind: DiagnosticClientKind, outcome: DiagnosticClientRejectOutcome) => void;
     onPeerIngress?: (outcome: DiagnosticPeerIngressOutcome) => void;
     /** ponytail: fixed backoff. Make it adaptive when a real network says so. */
     reconnectDelayMs?: number;
@@ -53,6 +68,7 @@ export function connectToRelay(options: RelayLinkOptions): RelayLink {
     let seq = 0;
     let closed = false;
     let reconnectAttempt = 0;
+    let permanentAuthReported = false;
     const retryDelay = (): number => Math.min(reconnectDelayMs * 2 ** reconnectAttempt++, 30_000);
     /** Frames that arrived while the socket was down. Hello still goes first. */
     const outbound: Array<{ frame: HostFrame; sessionId?: string; channel: 'session' | 'attachment'; recipientId?: string }> = [];
@@ -117,9 +133,14 @@ export function connectToRelay(options: RelayLinkOptions): RelayLink {
                 }), 'relay');
             }
         } catch (error) {
-            options.onStateChange?.('closed');
+            const code = ticketStateCode(error);
+            options.onStateChange?.('closed', code);
             if (error instanceof WsTicketError && (error.status === 401 || error.status === 403)) {
                 closed = true;
+                if (!permanentAuthReported) {
+                    permanentAuthReported = true;
+                    process.stderr.write(`relay link authentication failed (${code}); run muxr doctor\n`);
+                }
                 return;
             }
             if (!closed) setTimeout(() => void open(), retryDelay());
@@ -138,50 +159,67 @@ export function connectToRelay(options: RelayLinkOptions): RelayLink {
         next.on('message', (raw) => {
             let envelope: Envelope;
             try {
-                envelope = JSON.parse(String(raw)) as Envelope;
+                const parsed = JSON.parse(String(raw)) as unknown;
+                if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)
+                    || !('header' in parsed) || typeof parsed.header !== 'object' || parsed.header === null || Array.isArray(parsed.header)) {
+                    throw new Error('malformed envelope');
+                }
+                envelope = parsed as Envelope;
             } catch {
+                options.onClientReject?.('malformed', 'unknown', 'malformed');
                 return;
             }
-            const peerIngress = hosted !== undefined && envelope.header.senderId !== undefined
-                && options.hostedE2ee?.deviceKinds?.[envelope.header.senderId] === 'peer';
+            const senderId = envelope.header.senderId;
+            const clientKind: DiagnosticClientKind = hosted === undefined
+                ? 'local'
+                : senderId === undefined ? 'unknown' : options.hostedE2ee?.deviceKinds?.[senderId] ?? 'unknown';
+            const peerIngress = clientKind === 'peer';
             if (peerIngress) options.onPeerIngress?.('received');
+            let plaintext: string;
             try {
-                if (envelope.header.machineId !== options.machineId) throw new Error('hosted e2ee: routing machine mismatch');
-                const plaintext = hosted === undefined
+                if (envelope.header.machineId !== options.machineId) throw new Error('routing mismatch');
+                plaintext = hosted === undefined
                     ? envelope.payload
                     : (() => {
-                        const sender = envelope.header.senderId;
                         const stream = envelope.header.streamId;
                         const channel = envelope.header.channel;
-                        if (sender === undefined || envelope.header.recipientId !== options.machineId
+                        if (senderId === undefined || envelope.header.recipientId !== options.machineId
                             || (channel !== 'session' && channel !== 'attachment') || stream === undefined
                             || envelope.header.keyVersion !== options.hostedE2ee?.keyVersion
                             || envelope.header.seq !== v2EnvelopeSequence(envelope.payload)) {
-                            throw new Error('hosted e2ee: invalid routing context');
+                            throw new Error('routing context mismatch');
                         }
-                        return hosted.open(sender, channel, stream, envelope.payload);
+                        return hosted.open(senderId, channel, stream, envelope.payload);
                     })();
-                const frame = parseClientFrame(decodePayload(plaintext));
-                if (hosted !== undefined && envelope.header.channel !== (frame.type === 'attachment.read' ? 'attachment' : 'session')) {
-                    throw new Error('hosted e2ee: request channel mismatch');
-                }
-                if (peerIngress) options.onPeerIngress?.('decoded');
-                options.onClientFrame(frame, hosted === undefined ? undefined : envelope.header.senderId);
             } catch {
                 if (peerIngress) options.onPeerIngress?.('decrypt-rejected');
-                /* malformed or undecryptable frame; ignore rather than kill the link */
+                options.onClientReject?.(senderId ?? 'unknown', clientKind, hosted === undefined ? 'malformed' : 'decrypt-rejected');
+                return;
+            }
+            try {
+                const frame = parseClientFrame(decodePayload(plaintext));
+                if (hosted !== undefined && envelope.header.channel !== (frame.type === 'attachment.read' ? 'attachment' : 'session')) {
+                    options.onClientReject?.(senderId ?? 'unknown', clientKind, 'decrypt-rejected');
+                    return;
+                }
+                if (peerIngress) options.onPeerIngress?.('decoded');
+                options.onClientFrame(frame, hosted === undefined ? undefined : senderId);
+            } catch {
+                if (peerIngress) options.onPeerIngress?.('decrypt-rejected');
+                options.onClientReject?.(senderId ?? 'unknown', clientKind, 'malformed');
             }
         });
 
         const retry = (code: number): void => {
             // The relay retires this host when a newer one takes the machineId.
             // Reconnecting would just evict the newer host back.
+            const stateCode = closeStateCode(code);
             if (code === RELAY_CLOSE_REPLACED) {
                 closed = true;
-                options.onStateChange?.('replaced');
+                options.onStateChange?.('replaced', stateCode);
                 return;
             }
-            options.onStateChange?.('closed');
+            options.onStateChange?.('closed', stateCode);
             if (closed) return;
             setTimeout(() => void open(), retryDelay());
         };

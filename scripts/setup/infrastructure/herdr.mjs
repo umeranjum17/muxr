@@ -13,6 +13,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import {
     HERDR_INSTALL_HINT,
     HERDR_INSTALL_URL,
@@ -36,9 +37,24 @@ import {
     xml,
 } from './runtime.mjs';
 import { pluginFolder, pluginsRoot } from './paths.mjs';
-import { parseBundledPlugin, retiredSuccessor } from '../../plugin/index.mjs';
+import { parseBundledPlugin } from '../../plugin/index.mjs';
 
 const bundledPluginPath = (name) => pluginFolder(name);
+const staleBundledFiles = { code: ['runbook.mjs'] };
+
+function removeStaleBundledFiles(name, root, dryRun) {
+    for (const relative of staleBundledFiles[name] ?? []) {
+        const path = join(root, relative);
+        let stat;
+        try { stat = lstatSync(path); } catch (cause) {
+            if (cause?.code === 'ENOENT') continue;
+            throw cause;
+        }
+        if (stat.isDirectory() && !stat.isSymbolicLink()) throw new Error(`stale bundled path is not a file: ${path}`);
+        if (dryRun) print(`  would remove stale ${name} file ${relative}`);
+        else { rmSync(path, { force: true }); print(`  ✓ removed stale ${name} file ${relative}`); }
+    }
+}
 
 export function bundledPlugins() {
     const dir = pluginsRoot();
@@ -50,7 +66,7 @@ export function bundledPlugins() {
             const version = manifest.match(/^version\s*=\s*"([^"]+)"/m)?.[1];
             const parsed = parseBundledPlugin(id, entry.name);
             if (!parsed.ok || version === undefined) throw new Error(`plugins/${entry.name}/herdr-plugin.toml is missing id or version`);
-            return { id: parsed.value.id, name: parsed.value.folderName, version, enabledByDefault: parsed.value.enabledByDefault };
+            return { id: parsed.value.id, name: parsed.value.folderName, version };
         })
         .sort((left, right) => left.name.localeCompare(right.name));
 }
@@ -143,6 +159,13 @@ export async function ensureHerdr({ dryRun, noInstall, installRequested }) {
     return binary;
 }
 
+async function migrateLegacyVoiceProvider(installed, dryRun) {
+    const root = bundledPluginPath('voice');
+    if (!existsSync(join(root, 'provider.mjs'))) return undefined;
+    const { migrateLegacyProvider } = await import(pathToFileURL(join(root, 'provider.mjs')).href);
+    return migrateLegacyProvider(installed, join(stateDir(), 'plugin-state', 'muxr.voice'), dryRun);
+}
+
 function runBundledPluginBackfill(root, binary, enabled, dryRun) {
     const script = join(root, 'backfill.mjs');
     if (!enabled || !existsSync(script)) return;
@@ -176,26 +199,36 @@ export async function ensureBundledPlugins(binary, dryRun) {
         throw new Error('Herdr returned an invalid plugin list');
     }
     const bundled = bundledPlugins();
-    const bundledIds = new Set(bundled.map((plugin) => plugin.id));
+    if (bundled.length === 0) throw new Error('no bundled Herdr plugins were found');
     const bundledRoot = realpathSync(dirname(bundledPluginPath(bundled[0].name)));
+    const ownedInstalled = installed.filter((plugin) => typeof plugin.plugin_root === 'string'
+        && dirname(resolve(plugin.plugin_root)) === bundledRoot);
+    const legacyVoice = await migrateLegacyVoiceProvider(ownedInstalled, dryRun);
+    if (legacyVoice !== undefined) print(`  ${dryRun ? 'would preserve' : '✓ preserved'} ${legacyVoice.name} as the realtime voice provider`);
+    // A registration pointing directly into our bundle directory that no longer
+    // names a shipped plugin is ours to retract, whether it was renamed, merged
+    // or removed. Anything the user linked from elsewhere stays untouched.
+    const shipped = new Set(bundled.map((plugin) => resolve(bundledRoot, plugin.name)));
     for (const current of installed) {
-        const retired = retiredSuccessor(current.plugin_id);
-        if (retired === undefined || !bundledIds.has(retired.successor)
-            || typeof current.plugin_root !== 'string'
-            || resolve(current.plugin_root) !== resolve(bundledRoot, retired.directory)) continue;
-        if (dryRun) { print(`  would unlink retired bundled plugin ${current.plugin_id}`); continue; }
+        const root = resolve(current.plugin_root);
+        if (dirname(root) !== bundledRoot || shipped.has(root)) continue;
+        if (dryRun) { print(`  would unlink removed bundled plugin ${current.plugin_id}`); continue; }
         const unlinked = run(binary, ['plugin', 'unlink', current.plugin_id]);
-        print(`  ${unlinked.ok ? '✓' : 'warn:'} unlinked retired bundled plugin ${current.plugin_id}`);
+        if (!unlinked.ok && !/not (?:found|installed)|unknown plugin/i.test(`${unlinked.stderr}${unlinked.stdout}`)) {
+            throw new Error(unlinked.stderr || unlinked.stdout || `failed to unlink ${current.plugin_id}`);
+        }
+        print(`  ✓ unlinked removed bundled plugin ${current.plugin_id}`);
     }
-    for (const { id, name, version, enabledByDefault } of bundled) {
-        const current = installed.find((plugin) => plugin.plugin_id === id);
+    for (const { id, name, version } of bundled) {
         const expected = realpathSync(bundledPluginPath(name));
-        if (current && realpathOrUndefined(current.plugin_root) === expected && current.version === version) {
-            print(`  ✓ ${id} ${version} Herdr plugin ready${current.enabled === true ? '' : ' (disabled)'}`);
-            runBundledPluginBackfill(expected, binary, current.enabled === true, dryRun);
+        removeStaleBundledFiles(name, expected, dryRun);
+        const current = installed.find((plugin) => plugin.plugin_id === id);
+        const enabled = current ? current.enabled === true || (id === 'muxr.voice' && legacyVoice !== undefined) : true;
+        if (current && realpathOrUndefined(current.plugin_root) === expected && current.version === version && current.enabled === enabled) {
+            print(`  ✓ ${id} ${version} Herdr plugin ready${enabled ? '' : ' (disabled)'}`);
+            runBundledPluginBackfill(expected, binary, enabled, dryRun);
             continue;
         }
-        const enabled = current ? current.enabled === true : enabledByDefault;
         if (dryRun) {
             print(`  would link ${id} from ${expected} (${enabled ? 'enabled' : 'disabled'})`);
             continue;

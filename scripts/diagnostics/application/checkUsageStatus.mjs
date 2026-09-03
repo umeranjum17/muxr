@@ -77,8 +77,10 @@ try {
     assert.equal(output.todayTokens, '1.3M');
     assert.equal(output.todayCost, '$123');
     assert.equal(output.modelSeries[0]?.label, 'claude-opus-5');
-    assert.equal(output.weekSeries.length, 2);
-    assert.equal(output.weekSeries[1]?.valueLabel, '1.3M');
+    // The window is a fixed 7 days ending today, so an idle day cannot slide an
+    // older total into today's slot.
+    assert.equal(output.weekSeries.length, 7);
+    assert.equal(output.weekSeries.at(-1)?.valueLabel, '1.3M');
     assert.equal(output.limitLabel, 'Claude plan usage');
     assert.equal(output.fiveHourUsed, 21);
     assert.match(output.fiveHourLabel, /^21% used · resets in /);
@@ -90,7 +92,10 @@ try {
     const kimi = JSON.parse(run({ provider: 'kimi' }).stdout);
     assert.equal(kimi.provider, 'kimi');
     assert.equal(kimi.todayTokens, '2.5K');
-    assert.equal(kimi.weekSeries[0]?.valueLabel, '60.0K');
+    // Days sit at their own date, so the older total stays in the past and today
+    // reports its own figure.
+    assert.ok(kimi.weekSeries.some((day) => day.valueLabel === '60.0K'), 'older day must keep its total');
+    assert.equal(kimi.weekSeries.at(-1)?.valueLabel, '2.5K');
     assert.equal(kimi.limitLabel, '');
 
     // An installed but unmeasured provider still opens, empty and honest.
@@ -127,6 +132,44 @@ try {
     assert.ok(fallbackOutput.items.some((item) => item.id === 'available-claude' && item.metadata.length === 0));
     assert.doesNotMatch(fallback.stdout, /OpenAI Codex current limit|Local activity today/);
     assert.ok(!existsSync(piMarker), 'Fallback Usage invoked Pi');
+
+    const dstScratch = mkdtempSync(join(tmpdir(), 'muxr-usage-dst-'));
+    try {
+        const dstCcusage = join(dstScratch, 'ccusage');
+        const dstReport = {
+            daily: [
+                { period: '2026-03-07', agents: [{ agent: 'claude', totalTokens: 333, totalCost: 1 }] },
+                { period: '2026-03-08', agents: [{ agent: 'claude', totalTokens: 111, totalCost: 1 }] },
+                { period: '2026-03-09', agents: [{ agent: 'claude', totalTokens: 222, totalCost: 1 }] },
+            ],
+            totals: { totalTokens: 666, totalCost: 3 },
+        };
+        writeFileSync(dstCcusage, `#!/bin/sh\nprintf '%s' '${JSON.stringify(dstReport)}'\n`, { mode: 0o755 });
+        writeFileSync(join(dstScratch, 'claude'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+        const dst = spawnSync(process.execPath, ['plugins/status/usage.mjs'], {
+            cwd: process.cwd(),
+            encoding: 'utf8',
+            input: '{}',
+            env: {
+                ...process.env,
+                HOME: dstScratch,
+                PATH: `${dstScratch}:${process.env.PATH}`,
+                MUXR_CCUSAGE_BIN: dstCcusage,
+                MUXR_PLUGIN_STATE_DIR: dstScratch,
+                TZ: 'America/New_York',
+                MUXR_USAGE_NOW: '2026-03-09T04:30:00.000Z',
+            },
+            timeout: 20_000,
+        });
+        assert.equal(dst.status, 0, dst.stderr);
+        const dstOut = JSON.parse(dst.stdout);
+        assert.equal(dstOut.weekSeries.length, 7);
+        assert.equal(dstOut.weekSeries[4]?.valueLabel, '333');
+        assert.equal(dstOut.weekSeries[5]?.valueLabel, '111', 'DST spring-forward day dropped from the local week');
+        assert.equal(dstOut.weekSeries[6]?.valueLabel, '222');
+    } finally {
+        rmSync(dstScratch, { recursive: true, force: true });
+    }
     process.stdout.write('PASS e2e: per-provider ccusage tabs + safe live limits\n');
 } finally {
     rmSync(scratch, { recursive: true, force: true });

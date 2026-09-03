@@ -1,6 +1,6 @@
 import { advertisedUrlForMode, parseConnection } from './connection.js';
 import { parseEnrollment } from './enrollment.js';
-import { parseMachineCrypto, validMachineCrypto } from './machineCrypto.js';
+import { parseDevice, parseMachineCrypto, validMachineCrypto } from './machineCrypto.js';
 import { pairingIntent } from './pairing.js';
 
 function assert(condition: boolean, message: string): asserts condition {
@@ -35,6 +35,15 @@ function runSelfCheck(): void {
 
     assert(!validMachineCrypto(null, 'selfhost'), 'missing crypto is rejected');
     assert(!parseMachineCrypto({ signingPublicKey: 'nope' }, 'hosted').ok, 'truncated keys are rejected');
+    const futureDevice = parseDevice({
+        deviceId: 'device-future',
+        devicePublicKey: Buffer.alloc(32).toString('base64'),
+        ingressKey: Buffer.alloc(32).toString('base64'),
+        expiresAt: new Date(0).toISOString(),
+        kind: 'future-device-kind',
+        extension: { version: 2 },
+    });
+    assert(futureDevice.ok && futureDevice.value.kind === 'future-device-kind', 'unknown device kinds are skipped, not corruption');
 
     const remote = parseConnection({
         relayLocation: 'remote',

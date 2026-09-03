@@ -14,6 +14,7 @@ export type DiagnosticRelayState = 'connecting' | 'open' | 'closed' | 'replaced'
 export type DiagnosticBrokerOperation = 'list' | 'read' | 'status' | 'watch' | 'prompt';
 export type DiagnosticPeerConnectionPhase = 'grant-refresh' | 'ticket-issue' | 'socket-open' | 'liveness-proof';
 export type DiagnosticPeerIngressOutcome = 'received' | 'decrypt-rejected' | 'decoded';
+export type DiagnosticClientRejectOutcome = 'decrypt-rejected' | 'malformed';
 export type DiagnosticRealtimePromptOutcome = 'queued' | 'rejected' | 'failed';
 export type DiagnosticReadinessGate = 'ready' | 'starting' | 'not-interactive' | 'unbound' | 'no-agent' | 'unnamed' | 'no-session';
 
@@ -24,8 +25,9 @@ type RelationshipCounts = Record<'pending' | 'connected' | 'repair-needed' | 'di
 export type HostDiagnosticEvent =
     | { at: string; event: 'host.started'; hostVersion: string }
     | { at: string; event: 'host.stopping' }
-    | { at: string; event: 'relay.state'; state: DiagnosticRelayState }
+    | { at: string; event: 'relay.state'; state: DiagnosticRelayState; code?: string }
     | { at: string; event: 'client.hello'; clientKind: DiagnosticClientKind; recentClients: ClientCounts }
+    | { at: string; event: 'client.reject'; kind: DiagnosticClientKind; outcome: DiagnosticClientRejectOutcome }
     | { at: string; event: 'client.request'; clientKind: DiagnosticClientKind; request: RequestType; outcome: DiagnosticOutcome; durationMs: number; code?: string }
     | { at: string; event: 'peer.connection'; direction: 'outbound'; phase: DiagnosticPeerConnectionPhase; outcome: DiagnosticOutcome; durationMs: number; code?: string }
     | { at: string; event: 'peer.ingress'; direction: 'inbound'; outcome: DiagnosticPeerIngressOutcome }
@@ -50,19 +52,44 @@ interface HostDiagnosticState {
 
 const clientCounts = (): ClientCounts => ({ local: 0, native: 0, browser: 0, peer: 0, unknown: 0 });
 const relationshipCounts = (): RelationshipCounts => ({ pending: 0, connected: 0, 'repair-needed': 0, disconnecting: 0, revoked: 0 });
-const safeCodes = new Set([
-    'host-contract-mismatch', 'e2ee-required', 'peer-forbidden', 'peer-limit',
-    'peer-already-authorized', 'peer-mutation-invalid', 'peer-mutation-required',
-    'peer-mutation-unresolved', 'peer-recovery-pending', 'peer-operation-uncertain',
-    'grant-refresh-failed', 'ticket-issue-failed', 'socket-error', 'socket-closed',
-    'socket-timeout', 'liveness-closed', 'liveness-timeout',
-    'ticket-required', 'ticket-invalid', 'local-identity-invalid',
-    'device-revoked', 'ticket-scope-mismatch', 'preview-bridge-required',
-    'agent-not-ready', 'timeout', 'unavailable',
-    'not-connected', 'connection-lost', 'client-closed', 'request-timeout',
-    'dead-socket', 'stale', 'disconnected', 'takeover',
-    'start-launch-failed',
-]);
+const safeCodes: Record<string, true> = {
+    'host-contract-mismatch': true,
+    'e2ee-required': true,
+    'peer-forbidden': true,
+    'peer-limit': true,
+    'peer-already-authorized': true,
+    'peer-mutation-invalid': true,
+    'peer-mutation-required': true,
+    'peer-mutation-unresolved': true,
+    'peer-recovery-pending': true,
+    'peer-operation-uncertain': true,
+    'grant-refresh-failed': true,
+    'ticket-issue-failed': true,
+    'socket-error': true,
+    'socket-closed': true,
+    'socket-timeout': true,
+    'liveness-closed': true,
+    'liveness-timeout': true,
+    'ticket-required': true,
+    'ticket-invalid': true,
+    'local-identity-invalid': true,
+    'device-revoked': true,
+    'ticket-scope-mismatch': true,
+    'preview-bridge-required': true,
+    'agent-not-ready': true,
+    timeout: true,
+    unavailable: true,
+    'not-connected': true,
+    'connection-lost': true,
+    'client-closed': true,
+    'request-timeout': true,
+    'dead-socket': true,
+    stale: true,
+    disconnected: true,
+    takeover: true,
+    replaced: true,
+    'start-launch-failed': true,
+};
 const loggedRequests = new Set<RequestType>([
     'machines.list', 'herdr.tree', 'terminal.attach', 'terminal.detach',
     'session.list', 'session.start', 'session.open', 'session.prompt', 'session.status', 'agent.watch',
@@ -94,7 +121,7 @@ function safeReadinessGate(value: string | undefined): DiagnosticReadinessGate |
 
 function safeCode(value: string | undefined): string | undefined {
     if (value === undefined) return undefined;
-    if (safeCodes.has(value)) return value;
+    if (safeCodes[value] === true) return value;
     return 'rejected';
 }
 
@@ -129,6 +156,7 @@ function validState(value: unknown): value is HostDiagnosticState {
 export class HostDiagnosticsJournal {
     private readonly filePath: string;
     private readonly clientSeen = new Map<string, { kind: DiagnosticClientKind; at: number }>();
+    private readonly clientRejectSeen = new Map<string, number>();
     private state: HostDiagnosticState;
     private writes = Promise.resolve();
 
@@ -166,9 +194,26 @@ export class HostDiagnosticsJournal {
         this.record({ at: startedAt, event: 'host.started', hostVersion });
     }
 
-    relay(state: DiagnosticRelayState): void {
+    relay(state: DiagnosticRelayState, code?: string): void {
         this.state.current.relayState = state;
-        this.record({ at: this.timestamp(), event: 'relay.state', state });
+        const normalizedCode = safeCode(code);
+        this.record({
+            at: this.timestamp(),
+            event: 'relay.state',
+            state,
+            ...(normalizedCode === undefined ? {} : { code: normalizedCode }),
+        });
+    }
+
+    clientReject(clientKey: string, kind: DiagnosticClientKind, outcome: DiagnosticClientRejectOutcome): void {
+        const now = this.now();
+        for (const [key, at] of this.clientRejectSeen) {
+            if (now - at >= RECENT_CLIENT_MS) this.clientRejectSeen.delete(key);
+        }
+        const key = `${clientKey}\u0000${outcome}`;
+        if (this.clientRejectSeen.has(key) || this.clientRejectSeen.size >= MAX_EVENTS) return;
+        this.clientRejectSeen.set(key, now);
+        this.record({ at: this.timestamp(), event: 'client.reject', kind, outcome });
     }
 
     client(clientKey: string, clientKind: DiagnosticClientKind, hello = false): void {

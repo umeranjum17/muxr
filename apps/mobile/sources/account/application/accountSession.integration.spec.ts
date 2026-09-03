@@ -1,33 +1,46 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const harness = vi.hoisted(() => ({
-    connection: {
-        mode: 'hosted' as 'hosted' | 'local',
-        relayUrl: 'ws://relay.test',
-        machineId: '',
-        token: '',
-        lastSessionCwd: '',
-        recentSessionCwds: [] as string[],
-    },
-    grant: undefined as { machineId: string; relayUrl: string; credential: string } | undefined,
-    clientOptions: [] as Array<{ token?: string; onTicketRejected?: () => void }>,
-    clients: [] as Array<{ state: string }>,
-    clientConnects: 0,
-    clientCloses: 0,
-    blockNextMachines: false,
-    blockedMachines: undefined as Promise<void> | undefined,
-    blockedMachinesStarted: false,
-    blockedMachinesFinished: false,
-    machineSnapshots: [] as string[],
-    socketStatus: 'disconnected',
-    socketError: null as string | null,
-    ready: false,
-    machineReplaceFlags: [] as boolean[],
-    sessionReplaceFlags: [] as boolean[],
-    lifecycleScopes: [] as string[],
-    lifecycleAuthorities: [] as string[],
-    lifecycleCatalogError: Object.assign(new Error('older host'), { code: 'host-contract-mismatch' }) as Error & { code?: string },
-}));
+const harness = vi.hoisted(() => {
+    const sessionReplaceFlags: boolean[] = [];
+    const sessions: Record<string, { id: string; taskTitle?: string }> = {};
+    return {
+        connection: {
+            mode: 'hosted' as 'hosted' | 'local',
+            relayUrl: 'ws://relay.test',
+            machineId: '',
+            token: '',
+            lastSessionCwd: '',
+            recentSessionCwds: [] as string[],
+        },
+        grant: undefined as { machineId: string; relayUrl: string; credential: string } | undefined,
+        clientOptions: [] as Array<{ token?: string; onTicketRejected?: () => void }>,
+        clients: [] as Array<{ state: string }>,
+        clientConnects: 0,
+        clientCloses: 0,
+        blockNextMachines: false,
+        blockedMachines: undefined as Promise<void> | undefined,
+        blockedMachinesStarted: false,
+        blockedMachinesFinished: false,
+        machineSnapshots: [] as string[],
+        socketStatus: 'disconnected',
+        socketError: null as string | null,
+        ready: false,
+        machineReplaceFlags: [] as boolean[],
+        sessionReplaceFlags,
+        lifecycleScopes: [] as string[],
+        lifecycleAuthorities: [] as string[],
+        lifecycleCatalogError: Object.assign(new Error('older host'), { code: 'host-contract-mismatch' }) as Error & { code?: string },
+        sessions,
+        eventListeners: [] as Array<(sessionId: string, event: { type: string; session?: { id: string; taskTitle?: string } }) => void>,
+        applySessions: vi.fn((next: Array<{ id: string; taskTitle?: string }>, replace = false) => {
+            sessionReplaceFlags.push(replace);
+            if (replace) {
+                for (const id of Object.keys(sessions)) delete sessions[id];
+            }
+            for (const session of next) sessions[session.id] = session;
+        }),
+    };
+});
 
 vi.mock('expo-crypto', () => ({ randomUUID: () => 'login-device' }));
 vi.mock('expo-notifications', () => ({ scheduleNotificationAsync: vi.fn() }));
@@ -69,7 +82,10 @@ vi.mock('@/pairing/infrastructure/muxrClient', () => ({
         close() { harness.clientCloses += 1; this.state = 'closed'; }
         isLive() { return this.state === 'open'; }
         onStateChange(listener: (state: string) => void) { this.listeners.push(listener); return () => undefined; }
-        onEvent() { return () => undefined; }
+        onEvent(listener: (sessionId: string, event: { type: string; session?: { id: string; taskTitle?: string } }) => void) {
+            harness.eventListeners.push(listener);
+            return () => undefined;
+        }
         async request(type: string) {
             if (type === 'machines.list') {
                 if (harness.blockNextMachines) {
@@ -98,7 +114,7 @@ vi.mock('../../catalog/infrastructure/sessionMapping', () => ({
 vi.mock('../../catalog/application/storage', () => ({
     storage: {
         getState: () => ({
-            sessions: {},
+            sessions: harness.sessions,
             sessionsLoaded: false,
             setSocketStatus: (status: string) => { harness.socketStatus = status; },
             setSocketError: (message: string | null) => { harness.socketError = message; },
@@ -107,7 +123,8 @@ vi.mock('../../catalog/application/storage', () => ({
                 const id = (machines[0] as { id?: string } | undefined)?.id;
                 if (id !== undefined) harness.machineSnapshots.push(id);
             },
-            applySessions: (_sessions: unknown[], replace = false) => { harness.sessionReplaceFlags.push(replace); },
+            applySessions: harness.applySessions,
+            deleteSession: (sessionId: string) => { delete harness.sessions[sessionId]; },
             applyHerdrTree: vi.fn(),
             markSessionsLoaded: vi.fn(),
             applyAttentionCatalog: vi.fn(),
@@ -120,6 +137,7 @@ vi.mock('../../catalog/application/storage', () => ({
     },
 }));
 
+import { storage } from '../../catalog/application/storage';
 import { finishHostedEmailLogin } from './hostedEmailLogin';
 import {
     setAccountCredentialRejectedHandler,
@@ -159,6 +177,9 @@ describe('hosted account-only lifecycle', () => {
         harness.lifecycleScopes.length = 0;
         harness.lifecycleAuthorities.length = 0;
         harness.lifecycleCatalogError = Object.assign(new Error('older host'), { code: 'host-contract-mismatch' });
+        harness.eventListeners.length = 0;
+        for (const id of Object.keys(harness.sessions)) delete harness.sessions[id];
+        harness.applySessions.mockClear();
     });
 
     afterEach(() => {
@@ -274,5 +295,50 @@ describe('hosted account-only lifecycle', () => {
 
         await expect(sync.refreshAccountSession()).rejects.toMatchObject({ name: 'AccountCredentialRejectedError' });
         expect(authenticated).toBe(false);
+    });
+});
+
+describe('session sync flow', () => {
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
+    it('merges inbound session.updated frames into one store write per 250 ms window', async () => {
+        harness.connection.mode = 'hosted';
+        harness.connection.machineId = 'machine-a';
+        harness.grant = { machineId: 'machine-a', relayUrl: 'ws://relay.test', credential: 'stored-grant' };
+        harness.eventListeners.length = 0;
+        for (const id of Object.keys(harness.sessions)) delete harness.sessions[id];
+
+        await syncReconnect();
+        await vi.waitFor(() => expect(harness.eventListeners.length).toBeGreaterThan(0));
+
+        for (let index = 0; index < 30; index += 1) {
+            harness.sessions[`session-${index}`] = { id: `session-${index}` };
+        }
+        const applySessions = storage.getState().applySessions as unknown as ReturnType<typeof vi.fn>;
+        applySessions.mockClear();
+
+        vi.useFakeTimers();
+        const emit = (sessionId: string, event: { type: string; session?: { id: string; taskTitle?: string } }) => {
+            for (const listener of harness.eventListeners) listener(sessionId, event);
+        };
+
+        // Thirty sessions each publishing at once is the burst that used to cost
+        // one store write and one render per frame.
+        for (let index = 0; index < 30; index += 1) {
+            const id = `session-${index}`;
+            emit(id, { type: 'session.updated', session: { id, taskTitle: `task-${index}` } });
+            if (index === 2) emit('session-0', { type: 'session.removed' });
+            vi.advanceTimersByTime(1000 / 30);
+        }
+        vi.advanceTimersByTime(250);
+
+        expect(applySessions.mock.calls.length).toBeLessThanOrEqual(5);
+        expect(applySessions).toHaveBeenCalled();
+        expect(storage.getState().sessions['session-0']).toBeUndefined();
+        for (let index = 1; index < 30; index += 1) {
+            expect(storage.getState().sessions[`session-${index}`]?.id).toBe(`session-${index}`);
+        }
     });
 });

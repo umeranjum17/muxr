@@ -1,6 +1,0 @@
-id = "example.muxr-ui"
-name = "Example muxr UI"
-version = "0.1.0"
-min_herdr_version = "0.8.0"
-description = "Declarative list/detail/form screen example for the muxr plugin SDK"
-platforms = ["linux", "macos", "windows"]

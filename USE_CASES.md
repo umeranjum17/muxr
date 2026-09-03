@@ -83,5 +83,5 @@ These operations exist in host/mobile (not rewritten here). Navigate by contract
 |---|---|---|
 | Start Agent from the phone | `apps/host` `session.start` / Herdr `agent.start` | mobile session actions |
 | Open terminal | relay `/terminal`, mobile xterm | `kernel.navigate` session |
-| Open preview | relay `/preview`, `plugins/servers` | `kernel.navigate` preview |
+
 | Grant / revoke peer authority | `apps/host` peer grants | Settings → Computer collaboration |

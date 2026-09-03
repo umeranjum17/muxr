@@ -1,6 +1,4 @@
 import { connect } from 'node:net';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
 
 const GONE = new Set(['pane_not_found', 'tab_not_found', 'workspace_not_found']);
 const CLOSE_SCOPES = ['pane', 'tab', 'workspace', 'worktreeGroup'];
@@ -196,10 +194,12 @@ export async function closeAgent({ paneId, confirmedScope, call }) {
 }
 
 export function createSocketCall(socketPath, timeoutMs = 15_000) {
+    // The host supplies the socket for this pinned capability. Guessing a default
+    // would silently target a different Herdr than the one that authorized us.
     const path = socketPath
         ?? process.env.MUXR_HERDR_SOCKET_PATH
-        ?? process.env.HERDR_SOCKET_PATH
-        ?? join(homedir(), '.config', 'herdr', 'herdr.sock');
+        ?? process.env.HERDR_SOCKET_PATH;
+    if (typeof path !== 'string' || path === '') throw new Error('herdr: no socket path supplied by the host');
     let seq = 0;
     return async (method, params = {}) => {
         const id = `muxr_close_${++seq}`;

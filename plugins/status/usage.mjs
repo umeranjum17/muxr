@@ -78,9 +78,32 @@ function runJson(command, args, timeout = 8_000) {
 
 const RANGE_DAYS = 7;
 
+function nowDate() {
+  const raw = process.env.MUXR_USAGE_NOW;
+  if (raw) {
+    const at = new Date(raw);
+    if (!Number.isNaN(at.getTime())) return at;
+  }
+  return new Date();
+}
+
+function localDate(at) {
+  return `${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, '0')}-${String(at.getDate()).padStart(2, '0')}`;
+}
+
+/** The window we report, oldest first, always ending on today. */
+function windowPeriods() {
+  const origin = nowDate();
+  // Local midnight, then setDate — fixed 86_400_000 ms skips a DST spring-forward day.
+  return Array.from({ length: RANGE_DAYS }, (_, index) => {
+    const at = new Date(origin.getFullYear(), origin.getMonth(), origin.getDate());
+    at.setDate(at.getDate() - (RANGE_DAYS - 1 - index));
+    return localDate(at);
+  });
+}
+
 function sinceArgument() {
-  const start = new Date(Date.now() - (RANGE_DAYS - 1) * 86_400_000);
-  return `${start.getFullYear()}${String(start.getMonth() + 1).padStart(2, '0')}${String(start.getDate()).padStart(2, '0')}`;
+  return windowPeriods()[0].replaceAll('-', '');
 }
 
 /**
@@ -90,7 +113,7 @@ function sinceArgument() {
 async function ccusageRange() {
   const binary = ccusageBinary();
   if (!binary) return undefined;
-  const result = await runJson(binary, ['daily', '--by-agent', '--json', '--offline', '--since', sinceArgument()], 20_000);
+  const result = await runJson(binary, ['daily', '--by-agent', '--json', '--offline', '--since', sinceArgument()], 10_000);
   if (result === undefined && ccusageFailure === undefined) ccusageFailure = 'ccusage activity unavailable · reopen Usage in a minute';
   return result;
 }
@@ -130,7 +153,7 @@ async function claudePlanLimits() {
   const token = typeof credentials?.accessToken === 'string' && credentials.accessToken.length <= 16 * 1024 ? credentials.accessToken : undefined;
   if (token === undefined || Number.isFinite(credentials?.expiresAt) && credentials.expiresAt <= Date.now()) return [];
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 8_000);
+  const timer = setTimeout(() => controller.abort(), 5_000);
   try {
     const response = await fetch('https://api.anthropic.com/api/oauth/usage', {
       headers: { accept: 'application/json', authorization: `Bearer ${token}` },
@@ -156,22 +179,25 @@ function dayLabel(period) {
 }
 
 /**
- * agent -> one entry per day in the window, so every tab reads from one report.
- * Days an agent sat idle stay in the series as zeroes; dropping them would slide
- * an older day into today's slot and report stale totals as current.
+ * agent -> one entry per day of the window, so every tab reads from one report.
+ * Days are placed by date rather than by position: ccusage omits days with no
+ * activity, so trusting its order would slide an older day into today's slot
+ * and report stale totals as current.
  */
 function byAgent(result) {
-  const days = Array.isArray(result?.daily) ? result.daily.slice(-RANGE_DAYS) : [];
-  const periods = days.map((day) => String(day?.period ?? ''));
+  const periods = windowPeriods();
+  const slots = new Map(periods.map((period, index) => [period, index]));
   const agents = new Map();
-  days.forEach((day, index) => {
+  for (const day of Array.isArray(result?.daily) ? result.daily : []) {
+    const index = slots.get(String(day?.period ?? ''));
+    if (index === undefined) continue;
     for (const row of Array.isArray(day?.agents) ? day.agents.slice(0, 32) : []) {
       if (!CCUSAGE_AGENTS.has(row?.agent) || !Number.isSafeInteger(row.totalTokens) || row.totalTokens < 0) continue;
       const entry = agents.get(row.agent) ?? periods.map((period) => ({ period, row: undefined }));
       entry[index] = { period: periods[index], row };
       agents.set(row.agent, entry);
     }
-  });
+  }
   return agents;
 }
 
@@ -424,6 +450,8 @@ if (cached !== undefined) {
     codexRemainingLabel: codex.remainingLabel,
   };
   if (output.items.length === 0) output.items.push({ id: 'usage-unavailable', title: 'Usage unavailable', icon: 'warning-outline', metadata: [] });
-  saveOutput(output);
+  // Never pin a failure or a fallback provider under the requested key: one
+  // blocked ccusage read would otherwise own the screen for the whole TTL.
+  if (ccusageFailure === undefined && (selected === '' || selected === output.provider)) saveOutput(output);
   process.stdout.write(JSON.stringify(output));
 }

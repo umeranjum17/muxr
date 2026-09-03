@@ -20,6 +20,7 @@ interface FakeSocket extends EventEmitter {
     OPEN: number;
     CLOSED: number;
     readyState: number;
+    bufferedAmount: number;
     close: ReturnType<typeof vi.fn>;
     send: ReturnType<typeof vi.fn>;
 }
@@ -68,6 +69,7 @@ vi.mock('ws', async () => {
         readonly CLOSED = MockWebSocket.CLOSED;
         readyState = this.OPEN;
         readonly send = vi.fn();
+        bufferedAmount = 0;
         readonly close = vi.fn(() => {
             if (this.readyState === this.CLOSED) return;
             this.readyState = this.CLOSED;
@@ -90,6 +92,7 @@ describe('TerminalManager stream exit', () => {
         fakes.children.length = 0;
         fakes.sockets.length = 0;
         fakes.failSpawn = false;
+        vi.restoreAllMocks();
     });
 
     it('moves same-pane control to the newest device without dropping observers or stealing back', async () => {

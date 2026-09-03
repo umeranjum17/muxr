@@ -25,7 +25,7 @@ const HOST_USE_CASES = [
     'peer/application/grantPeerAuthority.ts',
     'peer/application/revokePeerAuthority.ts',
     'peer/application/admitPeerRequest.ts',
-    'requests/application/openPreview.ts',
+    'requests/application/attachPreviewTunnel.ts',
 ];
 
 function walk(dir: string, out: string[] = []): string[] {

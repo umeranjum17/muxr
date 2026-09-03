@@ -49,7 +49,6 @@ export interface PromptAttachment {
 }
 
 export type StreamingBehavior = 'steer' | 'followUp';
-export type VoiceProviderOption = { id: string; name: string; selected: boolean; source: PluginSource; hasBackend: boolean };
 
 export interface WatchSettlement {
     status: string;
@@ -228,16 +227,6 @@ export interface RequestMap extends PeerRequestMap {
     'plugin.stream': {
         params: { pluginId: string; manifestHash: string; contributionId: string; channel: string; sessionId?: string };
         result: null;
-    };
-    /** Installed realtime providers and the one currently active on this machine. */
-    'voice.provider.list': {
-        params: Record<string, never>;
-        result: VoiceProviderOption[];
-    };
-    /** Switch the machine to exactly one installed realtime provider. */
-    'voice.provider.select': {
-        params: { providerId: string };
-        result: VoiceProviderOption[];
     };
     /**
      * Full herdr CLI for trusted clients such as the realtime voice agent.
@@ -449,18 +438,11 @@ export interface RequestMap extends PeerRequestMap {
         };
     };
 
-    // --- browser preview ----------------------------------------------------
+    // --- preview tunnel -----------------------------------------------------
     /**
-     * What content-type a loopback port answers with, probed on the host
-     * (where the port is). `text/html` marks a web app worth a Preview chip;
-     * anything else is an API the phone should only open externally.
-     * `contentType` is null when nothing HTTP answers.
-     */
-    'preview.probe': { params: { port: number }; result: { contentType: string | null } };
-    /**
-     * Ask the host to join `channel` and forward it to `port`. Native callers
-     * send a per-preview key through this encrypted request; local legacy web
-     * preview may omit it because the browser cannot decrypt a raw TCP listener.
+     * Ask the host to join `channel` and forward it to `port`. Native takeover
+     * callers send a per-preview key through this encrypted request; local
+     * development may omit it when the relay is trusted.
      */
     'preview.attach': { params: { channel: string; port: number; key?: string }; result: null };
 
@@ -489,12 +471,16 @@ export interface RequestMap extends PeerRequestMap {
             channel: string;
             cols: number;
             rows: number;
+            cellWidthPx?: number;
+            cellHeightPx?: number;
             /** control (default) takes over the pane; observe just watches. */
             mode?: 'control' | 'observe';
             /** Authenticated v2 sender. Required by a hosted host, ignored in explicit local mode. */
             deviceId?: string;
             /** User explicitly chose to take control from another device. */
             takeover?: boolean;
+            /** Reopen Herdr's direct-graphics client before this control attach. */
+            graphicsReset?: boolean;
         };
         result: { paneId: string };
     };
@@ -522,7 +508,6 @@ const E2EE_REQUEST_TYPES = new Set([
     'plugin.invoke',
     'plugin.call',
     'plugin.stream',
-    'voice.provider.select',
     'herdr.cli',
 ]);
 

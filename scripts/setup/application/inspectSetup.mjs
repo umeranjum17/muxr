@@ -199,6 +199,24 @@ export function cliVersion() {
     return 'unknown';
 }
 
+export function hostServiceVersion() {
+    const path = join(stateDir(), 'host', 'diagnostics.json');
+    try {
+        const info = lstatSync(path);
+        if (!info.isFile() || info.isSymbolicLink()) return undefined;
+        const parsed = JSON.parse(readFileSync(path, 'utf8'));
+        const current = parsed?.current?.hostVersion;
+        if (typeof current === 'string' && /^\d+\.\d+\.\d+/.test(current)) return current;
+        if (!Array.isArray(parsed?.events)) return undefined;
+        for (let index = parsed.events.length - 1; index >= 0; index -= 1) {
+            const event = parsed.events[index];
+            if (event?.event === 'host.started' && typeof event.hostVersion === 'string'
+                && /^\d+\.\d+\.\d+/.test(event.hostVersion)) return event.hostVersion;
+        }
+    } catch {}
+    return undefined;
+}
+
 export function loadAuthState() {
     try {
         const info = lstatSync(authPath());
@@ -520,6 +538,12 @@ export async function inspectSetup() {
     const checks = [];
     // repair: { label, run } — offered interactively when the check fails.
     const add = (level, name, detail, repair) => checks.push({ level, name, detail, repair });
+    const cli = cliVersion();
+    const service = hostServiceVersion();
+    const versionsMatch = service === undefined || cli === 'unknown' || service === cli;
+    add(versionsMatch ? 'ok' : 'warn', 'muxr versions', service === undefined
+        ? `CLI ${cli} · service not observed`
+        : `CLI ${cli} · service ${service}${versionsMatch ? '' : ' — PATH CLI differs from the running host; update or fix PATH before trusting validation'}`);
     const major = Number(process.versions.node.split('.')[0]);
     add(major >= 22 ? 'ok' : 'fail', 'node', `v${process.versions.node}${major >= 22 ? '' : ' — needs >= 22'}`);
     const cliDir = dirname(realpathSync(process.argv[1]));
@@ -586,6 +610,27 @@ export async function inspectSetup() {
         } else {
             add('warn', 'integrations', `${integrations.stderr || 'status unavailable'} — run \`muxr integrations sync\``);
         }
+        // `muxr plugin dev` against a temp directory leaves a permanent
+        // registration. Once the directory goes the entry rots into an
+        // "Unavailable" row on every connected phone, and nothing retracts it.
+        const registered = run(binary, ['plugin', 'list', '--json']);
+        let missing = [];
+        if (registered.ok) {
+            try {
+                const parsed = JSON.parse(registered.stdout);
+                missing = (parsed.result?.plugins ?? parsed.plugins ?? [])
+                    .filter((plugin) => typeof plugin?.plugin_id === 'string' && typeof plugin.plugin_root === 'string'
+                        && !existsSync(join(plugin.plugin_root, 'herdr-plugin.toml')))
+                    .map((plugin) => plugin.plugin_id);
+            } catch { missing = []; }
+        }
+        add(missing.length ? 'warn' : 'ok', 'plugins', missing.length
+            ? `${missing.length} registered but no longer on disk: ${missing.slice(0, 4).join(', ')}${missing.length > 4 ? '…' : ''}`
+            : 'every registered plugin resolves',
+            missing.length ? {
+                label: `unlink ${missing.length} missing plugin${missing.length === 1 ? '' : 's'}`,
+                run: () => { for (const id of missing) run(binary, ['plugin', 'unlink', id]); },
+            } : undefined);
     }
     const manifest = loadManifest();
     const states = Object.entries(manifest.entries).map(([path, entry]) => `${path.startsWith(`${home()}/`) ? `~/${path.slice(home().length + 1)}` : basename(path)}:${entryStatus(path, entry)}`);

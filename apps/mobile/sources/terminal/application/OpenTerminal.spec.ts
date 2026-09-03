@@ -55,8 +55,11 @@ class FakeWebSocket {
 vi.stubGlobal('WebSocket', FakeWebSocket);
 vi.stubGlobal('fetch', mocks.fetch);
 
+import { decodeBase64, encodeBase64 } from '@/encryption/base64';
+import { createKittyDecoderState, inflateZlib, materializeKittyCommands, splitKittyFrame } from './kittyDecoder';
 import { openTerminal } from './OpenTerminal';
-import { readConnectionDiagnostics, resetConnectionDiagnostics } from '@/catalog/infrastructure/connectionDiagnostics';
+import { createTerminalWritePump } from './terminalWritePump';
+import { formatConnectionDiagnosticsForReport, readConnectionDiagnostics, resetConnectionDiagnostics } from '@/catalog/infrastructure/connectionDiagnostics';
 
 describe('openTerminal reconnect ownership', () => {
     beforeEach(() => {
@@ -93,11 +96,158 @@ describe('openTerminal reconnect ownership', () => {
         await vi.waitFor(() => expect(FakeWebSocket.instances[0]).toBeDefined());
         const socket = FakeWebSocket.instances[0]!;
         socket.open();
-        socket.onmessage?.({ data: JSON.stringify({ type: 'terminal.frame', bytes: 'full-paint' }) });
+        const graphics: Array<{ active: boolean; reason?: string }> = [];
+        channel.onGraphics((active, reason) => graphics.push({ active, ...(reason === undefined ? {} : { reason }) }));
+        expect(graphics).toEqual([{ active: false }]);
+        socket.onmessage?.({ data: JSON.stringify({ type: 'terminal.frame', bytes: 'full-paint', graphics: true }) });
 
-        const frames: string[] = [];
-        channel.onData((bytes) => frames.push(bytes));
-        expect(frames).toEqual(['full-paint']);
+        const frames: Array<{ bytes: string; graphics?: boolean }> = [];
+        channel.onData((bytes, graphicsFlag) => frames.push({ bytes, graphics: graphicsFlag }));
+        expect(frames).toEqual([{ bytes: 'full-paint', graphics: true }]);
+        expect(graphics).toEqual([{ active: false }, { active: true }]);
+
+        socket.onmessage?.({ data: JSON.stringify({ type: 'terminal.frame', bytes: 'ansi', graphics: false }) });
+        expect(frames).toEqual([{ bytes: 'full-paint', graphics: true }, { bytes: 'ansi', graphics: false }]);
+        expect(graphics).toEqual([{ active: false }, { active: true }, { active: false }]);
+
+        socket.onmessage?.({ data: JSON.stringify({ type: 'terminal.frame', bytes: 'plain-herdr' }) });
+        expect(frames.at(-1)).toEqual({ bytes: 'plain-herdr' });
+
+        const deleteBytes = encodeBase64(new TextEncoder().encode('\x1b_Ga=d,d=A;\x1b\\'));
+        socket.onmessage?.({ data: JSON.stringify({ type: 'terminal.frame', bytes: deleteBytes, graphics: false }) });
+        expect(frames.at(-1)).toEqual({ bytes: deleteBytes, graphics: false });
+        const routed = splitKittyFrame(decodeBase64(deleteBytes), createKittyDecoderState());
+        expect(routed.error).toBeUndefined();
+        expect(routed.commands).toEqual([{ kind: 'delete-all' }]);
+        expect(new TextDecoder().decode(routed.ansi)).toBe('');
+        const cleared = await materializeKittyCommands(routed.commands, inflateZlib);
+        expect(cleared.deleteAll).toBe(true);
+        expect(cleared.placements).toEqual([]);
+
+        socket.onmessage?.({ data: JSON.stringify({
+            type: 'terminal.frame',
+            bytes: deleteBytes,
+            graphics: false,
+            graphicsReason: 'retired',
+        }) });
+        expect(graphics.at(-1)).toEqual({ active: false, reason: 'retired' });
+        socket.onmessage?.({ data: JSON.stringify({ type: 'terminal.frame', bytes: 'draw-again', graphics: true }) });
+        expect(graphics.at(-1)).toEqual({ active: true });
+
+        channel.repaint(true);
+        expect(graphics.at(-1)).toEqual({ active: false });
+        await vi.waitFor(() => expect(mocks.request).toHaveBeenCalledWith(
+            'terminal.attach',
+            expect.objectContaining({ graphicsReset: true }),
+        ));
+
+        channel.close();
+        expect(graphics.at(-1)).toEqual({ active: false });
+    });
+
+    it('drives socket frames through one in-flight graphics-aware write pump', async () => {
+        mocks.request.mockResolvedValue({});
+        const channel = await openTerminal({ agentRoute: 'session', size: { cols: 100, rows: 30 } });
+        await vi.waitFor(() => expect(FakeWebSocket.instances[0]).toBeDefined());
+        const socket = FakeWebSocket.instances[0]!;
+        socket.open();
+
+        const writes: string[] = [];
+        let concurrent = 0;
+        let maxConcurrent = 0;
+        const gates: Array<{ resolve: () => void; reject: (error: unknown) => void }> = [];
+        const recoveries: unknown[] = [];
+        let scheduledId = 0;
+        const scheduled = new Set<number>();
+        const pump = createTerminalWritePump({
+            write: (bytes) => {
+                concurrent += 1;
+                maxConcurrent = Math.max(maxConcurrent, concurrent);
+                writes.push(bytes);
+                return new Promise<void>((resolve, reject) => {
+                    gates.push({
+                        resolve: () => { concurrent -= 1; resolve(); },
+                        reject: (error) => { concurrent -= 1; reject(error); },
+                    });
+                });
+            },
+            combineText: (frames) => frames.join(''),
+            schedule: (run) => {
+                const handle = ++scheduledId;
+                scheduled.add(handle);
+                queueMicrotask(() => {
+                    if (!scheduled.has(handle)) return;
+                    scheduled.delete(handle);
+                    run();
+                });
+                return handle;
+            },
+            cancelSchedule: (handle) => { scheduled.delete(handle as number); },
+            onRejected: (error) => { recoveries.push(error); },
+        });
+        channel.onData((bytes, graphics) => {
+            pump.push(typeof graphics === 'boolean' ? { bytes, graphics } : { bytes });
+        });
+
+        const frame = (bytes: string, graphics?: boolean) => {
+            socket.onmessage?.({ data: JSON.stringify(typeof graphics === 'boolean'
+                ? { type: 'terminal.frame', bytes, graphics }
+                : { type: 'terminal.frame', bytes }) });
+        };
+
+        frame('draw-1', true);
+        await vi.waitFor(() => expect(writes).toEqual(['draw-1']));
+        frame('text-A');
+        frame('draw-2', true);
+        frame('text-B');
+        frame('draw-3', true);
+        frame('retire-F', false);
+        expect(writes).toEqual(['draw-1']);
+        expect(maxConcurrent).toBe(1);
+
+        gates[0]!.resolve();
+        await vi.waitFor(() => expect(writes).toEqual(['draw-1', 'text-Atext-B']));
+        expect(writes[1]).not.toContain('draw-');
+        expect(writes[1]).not.toContain('retire-');
+        gates[1]!.resolve();
+        await vi.waitFor(() => expect(writes).toEqual(['draw-1', 'text-Atext-B', 'draw-3']));
+        gates[2]!.resolve();
+        await vi.waitFor(() => expect(writes).toEqual(['draw-1', 'text-Atext-B', 'draw-3', 'retire-F']));
+        expect(writes).not.toContain('draw-2');
+        gates[3]!.resolve();
+        await vi.waitFor(() => expect(concurrent).toBe(0));
+
+        frame('draw-4', true);
+        await vi.waitFor(() => expect(writes.at(-1)).toBe('draw-4'));
+        frame('draw-5', true);
+        frame('draw-6', true);
+        expect(writes.filter((item) => item.startsWith('draw-'))).toEqual(['draw-1', 'draw-3', 'draw-4']);
+        gates[4]!.resolve();
+        await vi.waitFor(() => expect(writes.at(-1)).toBe('draw-6'));
+        gates[5]!.resolve();
+        await vi.waitFor(() => expect(concurrent).toBe(0));
+
+        frame('text-C');
+        await vi.waitFor(() => expect(writes.at(-1)).toBe('text-C'));
+        frame('text-D');
+        const cancelled = pump.cancel();
+        gates[6]!.resolve();
+        await cancelled;
+        await Promise.resolve();
+        expect(writes.at(-1)).toBe('text-C');
+        expect(writes).not.toContain('text-D');
+
+        frame('text-E');
+        frame('draw-7', true);
+        await vi.waitFor(() => expect(writes.at(-1)).toBe('text-E'));
+        frame('text-F');
+        gates[7]!.reject(undefined);
+        await vi.waitFor(() => expect(recoveries).toEqual([undefined]));
+        await Promise.resolve();
+        expect(writes).not.toContain('draw-7');
+        expect(writes).not.toContain('text-F');
+        expect(recoveries).toHaveLength(1);
+        expect(maxConcurrent).toBe(1);
 
         channel.close();
     });
@@ -162,11 +312,44 @@ describe('openTerminal reconnect ownership', () => {
             expect.objectContaining({ event: 'terminal.channel', phase: 'reconnecting', outcome: 'ok' }),
         ]));
     });
+
+    it('records first-frame once and finalizes received/written counts without identifiers', async () => {
+        mocks.request.mockResolvedValue({});
+        const channel = await openTerminal({ agentRoute: 'session', size: { cols: 100, rows: 30 } });
+        await vi.waitFor(() => expect(FakeWebSocket.instances[0]).toBeDefined());
+        const socket = FakeWebSocket.instances[0]!;
+        socket.open();
+        socket.onmessage?.({ data: JSON.stringify({ type: 'terminal.frame', bytes: 'full-frame' }) });
+        socket.onmessage?.({ data: JSON.stringify({ type: 'terminal.frame', bytes: 'second' }) });
+        await vi.waitFor(() => {
+            expect(readConnectionDiagnostics().some((event) => event.event === 'terminal.first-frame')).toBe(true);
+        });
+        expect(readConnectionDiagnostics().filter((event) => event.event === 'terminal.first-frame')).toHaveLength(1);
+        expect(readConnectionDiagnostics().filter((event) => event.event === 'terminal.frames')).toEqual([]);
+        const live = formatConnectionDiagnosticsForReport();
+        expect(live).toMatch(/Redacted: durations, counts, and enums only/);
+        expect(live).toMatch(/terminal\.first-frame \d+ms/);
+        expect(live).toMatch(/terminal\.frames live received=2 written=0/);
+        channel.recordFrameWritten();
+        channel.recordFrameWritten();
+        expect(formatConnectionDiagnosticsForReport()).toMatch(/terminal\.frames live received=2 written=2/);
+        channel.close();
+        expect(readConnectionDiagnostics()).toEqual(expect.arrayContaining([
+            expect.objectContaining({ event: 'terminal.first-frame' }),
+            expect.objectContaining({ event: 'terminal.frames', received: 2, written: 2 }),
+        ]));
+        const report = formatConnectionDiagnosticsForReport();
+        expect(report).toMatch(/terminal\.frames received=2 written=2/);
+        expect(report).not.toMatch(/terminal\.frames live /);
+        expect(report).not.toMatch(/full-frame|second|pp_|pwt-|devtok_|machine-|session-/);
+        channel.recordFrameWritten();
+        expect(readConnectionDiagnostics().filter((event) => event.event === 'terminal.frames')).toHaveLength(1);
+    });
 });
 
 describe('recentTerminalLinks', () => {
     it('keeps a bounded latest-first list of safe visible URLs', async () => {
-        const { recordTerminalOutput, recentTerminalLinks, viewportTerminalLinks, clearTerminalOutput, setTerminalColumns } = await import('./recentOutput');
+        const { recordTerminalOutput, recentTerminalLinks, clearTerminalOutput, setTerminalColumns } = await import('./recentOutput');
         const { encodeBase64 } = await import('@/encryption/base64');
         const record = (sessionId: string, text: string) => recordTerminalOutput(sessionId, encodeBase64(new TextEncoder().encode(text)));
 
@@ -189,9 +372,6 @@ describe('recentTerminalLinks', () => {
         clearTerminalOutput('split-scheme');
         record('split-scheme', 'ht');
         record('split-scheme', 'tps://split.example/path');
-        await new Promise((resolve) => setTimeout(resolve, 350));
-        expect(viewportTerminalLinks('long')).toEqual([longUrl]);
-        expect(viewportTerminalLinks('split-scheme')).toEqual(['https://split.example/path']);
 
         clearTerminalOutput('hard-break');
         setTerminalColumns('hard-break', columns);
@@ -205,39 +385,5 @@ describe('recentTerminalLinks', () => {
         for (let index = 0; index < 33; index++) record(`lru-${index}`, ' https://example.com');
         expect(recentTerminalLinks('lru-0')).toEqual([]);
         expect(recentTerminalLinks('unknown')).toEqual([]);
-    });
-});
-
-describe('viewportTerminalLinks', () => {
-    it('surfaces only the scroll burst’s links, not the older tail', async () => {
-        vi.useFakeTimers();
-        try {
-            const { recordTerminalOutput, beginViewportCapture, viewportTerminalLinks, recentTerminalLinks, clearTerminalOutput } = await import('./recentOutput');
-            const { encodeBase64 } = await import('@/encryption/base64');
-            const record = (text: string) => recordTerminalOutput('scroll', encodeBase64(new TextEncoder().encode(text)));
-
-            clearTerminalOutput('scroll');
-            record('old boot log: serving https://old-tail.example/ since yesterday');
-
-            // A scroll gesture: herdr answers with full-screen repaint frames.
-            beginViewportCapture('scroll');
-            record('\x1b[2J\x1b[Hrepainted screen  Local: http://localhost:3210/');
-            record('  ready in 412ms');
-            // The regex runs once per gesture: nothing before the debounce.
-            expect(viewportTerminalLinks('scroll')).toEqual([]);
-            await vi.advanceTimersByTimeAsync(120);
-            expect(viewportTerminalLinks('scroll')).toEqual(['http://localhost:3210/']);
-            // The tail still holds both, for the ⋮ menu.
-            expect(recentTerminalLinks('scroll')).toEqual(['http://localhost:3210/', 'https://old-tail.example/']);
-
-            // Scrolling past the link clears the chip.
-            beginViewportCapture('scroll');
-            record('\x1b[2J\x1b[Han older screen with no links at all');
-            await vi.advanceTimersByTimeAsync(120);
-            expect(viewportTerminalLinks('scroll')).toEqual([]);
-            clearTerminalOutput('scroll');
-        } finally {
-            vi.useRealTimers();
-        }
     });
 });

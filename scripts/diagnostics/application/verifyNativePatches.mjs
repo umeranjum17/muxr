@@ -9,6 +9,8 @@ const read = (path) => readFileSync(new URL(path, root), 'utf8');
 const ghosttyPatch = read('patches/expo-libghostty+0.8.1.patch');
 const ghosttyView = read('node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/ExpoLibghosttyView.kt');
 const ghosttyTerminal = read('node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/GhosttyTerminalView.kt');
+const ghosttyIosModule = read('node_modules/expo-libghostty/ios/ExpoLibghosttyModule.swift');
+const ghosttyIosView = read('node_modules/expo-libghostty/ios/ExpoLibghosttyView.swift');
 const liveAudioPatch = read('patches/react-native-live-audio-stream+1.1.1.patch');
 const liveAudioModule = read(
     'node_modules/react-native-live-audio-stream/android/src/main/java/com/imxiqi/rnliveaudiostream/RNLiveAudioStreamModule.java',
@@ -45,6 +47,25 @@ const gradleBuild = androidBuild.indexOf(':app:assembleRelease');
 const checks = [
     ['Ghostty patch hides its accessory bar', ghosttyPatch.includes('accessoryBar.visibility = GONE') && ghosttyView.includes('accessoryBar.visibility = GONE')],
     ['Ghostty patch forwards scroll rows', ghosttyPatch.includes('onScrollRows') && ghosttyTerminal.includes('onScrollRows') && ghosttyView.includes('onScroll')],
+    [
+        'Ghostty patch keeps Android Kitty snapshot plus metrics and pointer on both platforms',
+        ghosttyPatch.includes('nativeKittyGeneration') &&
+            ghosttyPatch.includes('nativeKittySnapshot') &&
+            ghosttyPatch.includes('drawKitty') &&
+            ghosttyPatch.includes('imageWidth.toLong() * imageHeight.toLong()') &&
+            ghosttyPatch.includes('pointerMode') &&
+            ghosttyPatch.includes('cellWidthPx') &&
+            ghosttyPatch.includes('onTerminalPointer') &&
+            ghosttyTerminal.includes('drawKitty') &&
+            ghosttyTerminal.includes('nativeKittySnapshot') &&
+            ghosttyView.includes('pointerMode') &&
+            ghosttyView.includes('cellWidthPx') &&
+            ghosttyIosModule.includes('onTerminalPointer') &&
+            ghosttyIosView.includes('pointerMode') &&
+            ghosttyIosView.includes('cellWidthPx') &&
+            !ghosttyIosView.includes('nativeKittySnapshot') &&
+            !ghosttyIosView.includes('drawKitty'),
+    ],
     [
         'dictation recorder releases AudioRecord only after the read loop exits',
         liveAudioPatch.includes('stopAndReleaseRecorder') &&

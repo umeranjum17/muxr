@@ -122,7 +122,19 @@ Reference it from the UI:
 
 muxr never executes a command from the UI document. It sends the enabled extension ID, manifest hash, declared action ID, and explicit session context to the host. The host verifies them and asks Herdr to invoke the action from that same package.
 
-Your action receives `HERDR_PLUGIN_CONTEXT_JSON`, including the muxr-resolved `focused_pane_id`, `focused_pane_cwd`, `workspace_id`, `tab_id`, and `invocation_source`. Write state under `HERDR_PLUGIN_STATE_DIR`. There is no `HERDR_PANE_ID` in an action process; that variable belongs to panes.
+Your action receives `HERDR_PLUGIN_CONTEXT_JSON`, including the muxr-resolved `focused_pane_id`, `focused_pane_cwd`, `workspace_id`, `tab_id`, and `invocation_source`. Herdr also exports `HERDR_WORKSPACE_ID`, `HERDR_TAB_ID`, and `HERDR_PANE_ID` from that same context, and puts the `herdr` binary on `HERDR_BIN_PATH` alongside `HERDR_SOCKET_PATH`. Write state under `HERDR_PLUGIN_STATE_DIR`.
+
+Because `HERDR_PANE_ID` is the session the phone is looking at, an action that only drives Herdr needs no script of its own:
+
+```toml
+[[actions]]
+id = "split-right"
+title = "Split right"
+contexts = ["pane"]
+command = ["herdr", "pane", "split", "--current", "--direction", "right"]
+```
+
+Herdr starts an action and returns before it finishes, and publishes no completion event. muxr watches the action's log briefly and surfaces a non-zero exit as an error on the phone; an action still running after that window is reported as started, and its effects arrive as ordinary Herdr events. Actions are therefore for driving Herdr, not for returning data — use `host.rpc` when the phone needs an answer.
 
 ## Hooks
 
@@ -251,6 +263,45 @@ A diff binds a unified patch and uses the same app-owned highlighting vocabulary
 { "type": "diff", "path": "data.patch" }
 ```
 
+A third-party review plugin can return both from one read RPC. The app owns the renderer; the plugin supplies bounded JSON. There is no plugin-supplied route, HTML, or renderer name. Host files still use `{ "type": "kernel.navigate", "target": "file", "path": "/repo/src/app.ts" }` and need a real session.
+
+```json
+{
+  "schemaVersion": 1,
+  "pluginId": "you.review",
+  "minMuxrVersion": 11,
+  "contributions": [
+    {
+      "slot": "host.rpc",
+      "id": "read",
+      "type": "rpc",
+      "method": "read",
+      "entry": "rpc.mjs",
+      "mode": "read"
+    },
+    {
+      "slot": "navigation.content",
+      "id": "review",
+      "type": "screen",
+      "title": "{{data.name}}",
+      "data": { "type": "plugin.call", "contributionId": "read" },
+      "children": [
+        { "type": "code", "path": "data.body", "fileNamePath": "data.name" },
+        { "type": "diff", "path": "data.patch" }
+      ]
+    }
+  ]
+}
+```
+
+RPC output is bounded JSON such as:
+
+```json
+{ "name": "src/app.ts", "body": "export const value = 1;\n", "patch": "diff --git ..." }
+```
+
+Plugin `code`/`diff` nodes stay at the existing 64 KiB / 600-line transport ceiling. The native file route reads through `session.readFile` (512 KiB) and then renders at most 256 KiB / 2,000 lines with a visible truncation footer. Binary bytes never enter syntax or diff rendering.
+
 `progress` renders a literal `value` (default max 100) or binds a numeric runtime path with optional `label` and `valueLabel`:
 
 ```json
@@ -360,13 +411,12 @@ Rows, screen buttons, settings items, and RPC-backed `item-list` rows use one cl
 - `{ "type": "kernel.navigate", "target": "session", "sessionId": "..." }` opens a session;
 - `{ "type": "kernel.navigate", "target": "file", "path": "src/app.ts" }` opens a file in the current session;
 - `{ "type": "kernel.navigate", "target": "web-view", "url": "https://..." }` opens the bounded in-app HTTPS viewer;
-- `{ "type": "kernel.navigate", "target": "preview", "port": 3000 }` opens the current session's compiled preview transport for an integer port from 1 through 65535;
 - `{ "type": "open-url", "url": "https://..." }` asks before opening the system browser;
 - `{ "type": "attachment", "id": "...", "name": "...", "size": 42 }` downloads a current-session attachment;
 - `{ "type": "secure-prompt", ..., "submit": { "type": "plugin.call", ... } }` submits one non-empty secret directly to a declared write RPC without persisting or displaying it;
 - `{ "type": "confirm", ..., "destructive": true, "action": { "type": "plugin.call", ... } }` confirms a destructive declared write RPC.
 
-Secure prompt and confirmation wrappers have one fixed nesting level and bounded title/message/placeholder/labels. Secure-input chrome adds the host-owned plugin display name and verified source above plugin-authored copy. Their nested RPC must exist and be write mode; both the shared parser and phone recheck this. The phone parses every RPC-returned action before dispatch. Unknown action types/targets, undeclared same-plugin screens or RPCs, unavailable capabilities, non-HTTPS/file URLs, oversized identifiers/paths/URLs/input, and file/attachment/preview actions without session context are rejected. Preview actions carry only a validated port; they cannot provide an HTTP URL, `file://` path, hostname, or transport channel. `item-list` has no attachment/change fallback: every returned item must contain a valid explicit action.
+Secure prompt and confirmation wrappers have one fixed nesting level and bounded title/message/placeholder/labels. Secure-input chrome adds the host-owned plugin display name and verified source above plugin-authored copy. Their nested RPC must exist and be write mode; both the shared parser and phone recheck this. The phone parses every RPC-returned action before dispatch. Unknown action types/targets, undeclared same-plugin screens or RPCs, unavailable capabilities, non-HTTPS/file URLs, oversized identifiers/paths/URLs/input, and file/attachment actions without session context are rejected. `item-list` has no attachment/change fallback: every returned item must contain a valid explicit action.
 
 Every RPC declares `mode: "read" | "write"` (defaults to read). Write calls require a client idempotency key; the host replay-fences one key to one input, replaying a successful outcome for five minutes and dropping a rejected write so a genuine failure can re-execute on retry — the same key with different input is rejected instead. Data cards and screen data loaders may only reference read-mode RPCs. The client holds one key per pending write while its input is unchanged (cleared on success or input change), so an ambiguous failure can be retried without duplicating a successful write. Screen buttons never call pane-scoped Herdr actions.
 
@@ -374,7 +424,7 @@ An extension cannot silently submit terminal input, target whichever pane is foc
 
 ## Notifications
 
-Android foreground-service startup, keepalive ownership, notification permission, and the baseline authenticated notification are unconditional app-kernel infrastructure. They mount before optional plugin surfaces, so disabling Inbox or any other plugin cannot stop the service required before realtime microphone capture.
+Android foreground-service startup, keepalive ownership, notification permission, and the baseline authenticated notification are unconditional app-kernel infrastructure. They mount before optional plugin surfaces, so disabling any plugin cannot stop the service required before realtime microphone capture.
 
 Plugins do not own OS permission or foreground-service lifetime. A future notification-policy contract may supply attributed wording/grouping on top of this baseline, but `notifications.lifecycle` and `lifecycle-notify` are not extension points.
 
@@ -430,7 +480,7 @@ Every extension should explain:
 6. how to disable and unlink it;
 7. supported muxr UI and Herdr versions.
 
-Read [`../plugins/example-ui`](../plugins/example-ui) when you need a rich list/detail/form/RPC/chart example. The smaller `muxr plugin create` output is the faster starting point for ordinary plugins; both use the same validator and public manifest contract.
+`muxr plugin create` writes a minimal working plugin and is the fastest starting point. For a richer list/detail/form/RPC/chart example, clone a bundled one with `muxr plugin clone muxr.code ./my-plugin`; every bundled plugin uses the same validator and public manifest contract as yours.
 
 ## Lists of real things
 
@@ -475,8 +525,8 @@ different plugin's UI would be a way to hide trusted surfaces. Disabling is an e
 
 A button on a detail screen sends its declared `fields` **plus the params the
 screen was opened with**, so it can act on the record you tapped without making
-you retype it. Fields win on a key collision. `plugins/servers` is the worked
-example: list what is listening, tap one, stop it.
+you retype it. Fields win on a key collision. `plugins/code` is the worked
+example: list the commits, tap one, read the diff.
 
 ## What a backend RPC gets
 
@@ -517,7 +567,7 @@ validates shape; `plugin call` proves wiring.
 { "schemaVersion": 1, "pluginId": "you.thing", "minMuxrVersion": 8, "contributions": [] }
 ```
 
-`minMuxrVersion` is optional and is preserved when the host parses the manifest. UI version 12 allows generic `item-list` rows to omit actions for honest read-only status and metric lists; actionable rows still require a validated closed action. UI version 11 adds the bounded declarative `code` node and syntax highlighting for source previews and native unified diffs. UI version 10 adds the generic declarative `tree` node: per-folder expand/collapse, expand/collapse-all controls, optional lazy `host.rpc` children, closed leaf actions, and folder selection into an existing form field. UI version 9 adds provider-neutral `host.stream` contributions and strict encrypted stream transport. UI version 8 adds bounded per-row icons/metadata and optional sheet-level actions to the generic `item-list` response. UI version 7 adds plugin-owned `navigation-item.badge` read sources and singleton tree-sheet cardinality. UI version 6 adds bounded localized values for every user-visible manifest string and runtime Android launcher projection for shortcut contributions. UI version 5 removes `url-chip`; adds bounded active-only refresh and presentation parameters to `item-list`; adds current-session preview navigation by validated port; and defines capability actions, Android launcher shortcuts, the realtime indicator, and singleton realtime-overlay cardinality. UI version 4 added source-driven grouped collections/tree sheets and allow-listed public RPC context. Each phone compares it with its own `MUXR_UI_VERSION`; an older app lists the plugin as unavailable with an update message and refuses to mount its contributions instead of quietly rendering partial UI.
+`minMuxrVersion` is optional and is preserved when the host parses the manifest. UI version 12 allows generic `item-list` rows to omit actions for honest read-only status and metric lists; actionable rows still require a validated closed action. UI version 11 adds the bounded declarative `code` node and syntax highlighting for source previews and native unified diffs. UI version 10 adds the generic declarative `tree` node: per-folder expand/collapse, expand/collapse-all controls, optional lazy `host.rpc` children, closed leaf actions, and folder selection into an existing form field. UI version 9 adds provider-neutral `host.stream` contributions and strict encrypted stream transport. UI version 8 adds bounded per-row icons/metadata and optional sheet-level actions to the generic `item-list` response. UI version 7 adds plugin-owned `navigation-item.badge` read sources and singleton tree-sheet cardinality. UI version 6 adds bounded localized values for every user-visible manifest string and runtime Android launcher projection for shortcut contributions. UI version 5 removes `url-chip`; adds bounded active-only refresh and presentation parameters to `item-list`; and defines capability actions, Android launcher shortcuts, the realtime indicator, and singleton realtime-overlay cardinality. UI version 4 added source-driven grouped collections/tree sheets and allow-listed public RPC context. Each phone compares it with its own `MUXR_UI_VERSION`; an older app lists the plugin as unavailable with an update message and refuses to mount its contributions instead of quietly rendering partial UI.
 
 ## Capabilities
 
@@ -559,7 +609,7 @@ The backend reads fresh Herdr topology before every mutation. Pane close needs n
 
 A stream process receives one private `realtime.open` line followed by bounded provider-neutral NDJSON frames. A PCM provider exchanges ready/audio/state/transcript/control frames and keeps its provider socket on the host. A WebRTC signaling provider exchanges bounded offer/answer SDP plus opaque data-channel control while the mobile kernel owns the peer and direct media. The host enforces approval revocation, admission, process cleanup, frame bounds, and encrypted relay transport.
 
-The package ships xAI (`plugins/voice`, default on), Gemini Live (`plugins/voice-gemini`, default off), OpenAI Realtime (`plugins/voice-openai`, default off), and experimental Codex Voice (`plugins/voice-codex`, default off). All claim `voice.session`; choose one under **Settings → Realtime voice**, where the host serializes the switch. Existing PCM providers remain unchanged; Codex adds only the generic WebRTC transport kind.
+The package ships one voice plugin (`plugins/voice`) with four adapters under `plugins/voice/providers/`: xAI (default), Gemini Live, OpenAI Realtime, and experimental Codex Voice. Choose one under **Settings → Realtime voice**; the selection is the plugin's own state, read by its `voice.provider.list` and `voice.provider.set` capabilities. PCM providers keep their host-relayed stream; Codex adds only the generic WebRTC transport kind.
 
 Voice uses this without knowing any provider plugin id. Its one-shot semantic RPC aliases remain:
 

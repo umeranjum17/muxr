@@ -6,7 +6,9 @@
     "voice.status": "status",
     "voice.key.set": "key-set",
     "voice.session": "session",
-    "voice.report": "report"
+    "voice.report": "report",
+    "voice.provider.list": "provider-list",
+    "voice.provider.set": "provider-set"
   },
   "contributions": [
     {
@@ -30,6 +32,22 @@
       "id": "key-clear",
       "type": "rpc",
       "method": "key.clear",
+      "entry": "rpc.mjs",
+      "mode": "write"
+    },
+    {
+      "slot": "host.rpc",
+      "id": "provider-list",
+      "type": "rpc",
+      "method": "provider.list",
+      "entry": "rpc.mjs",
+      "mode": "read"
+    },
+    {
+      "slot": "host.rpc",
+      "id": "provider-set",
+      "type": "rpc",
+      "method": "provider.set",
       "entry": "rpc.mjs",
       "mode": "write"
     },
@@ -82,7 +100,7 @@
       "id": "settings",
       "type": "settings-item",
       "label": {
-        "default": "Grok realtime voice",
+        "default": "Realtime voice",
         "translations": {
           "ru": "Голосовой ассистент",
           "pl": "Asystent głosowy",
@@ -96,7 +114,7 @@
         }
       },
       "subtitle": {
-        "default": "Configure xAI on the connected machine",
+        "default": "Configure the provider on the connected machine",
         "translations": {
           "ru": "Настройка предпочтений голосового взаимодействия",
           "pl": "Konfiguruj preferencje interakcji głosowej",
@@ -119,7 +137,7 @@
       "slot": "navigation.content",
       "id": "settings-screen",
       "type": "screen",
-      "title": "Grok realtime voice",
+      "title": "Realtime voice",
       "data": {
         "type": "plugin.call",
         "contributionId": "status"
@@ -127,22 +145,26 @@
       "children": [
         {
           "type": "text",
-          "text": "The xAI key is sent directly to the connected machine and is never stored or displayed by the phone."
+          "text": "The key is sent directly to the connected machine and is never stored or displayed by the phone."
         },
         {
           "type": "row",
-          "title": "xAI key",
+          "title": "Provider",
+          "value": "{{data.providerName}}"
+        },
+        {
+          "type": "row",
+          "title": "Key",
           "value": "{{data.statusLabel}}"
         },
         {
           "type": "button",
-          "label": "Set or replace xAI key",
+          "label": "Set or replace key",
           "variant": "primary",
           "action": {
             "type": "secure-prompt",
-            "title": "xAI API key",
+            "title": "Realtime voice API key",
             "message": "Sent once to this machine and stored only there.",
-            "placeholder": "xai-…",
             "inputKey": "key",
             "submit": {
               "type": "plugin.call",
@@ -152,11 +174,11 @@
         },
         {
           "type": "button",
-          "label": "Clear xAI key",
+          "label": "Clear key",
           "variant": "danger",
           "action": {
             "type": "confirm",
-            "title": "Clear xAI key?",
+            "title": "Clear the stored key?",
             "message": "Realtime voice will stop until a new key is configured.",
             "confirmLabel": "Clear",
             "destructive": true,

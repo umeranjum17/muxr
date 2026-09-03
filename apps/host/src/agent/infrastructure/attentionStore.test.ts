@@ -33,60 +33,40 @@ describe('createAttentionStore', () => {
 });
 
 describe('attention decay', () => {
-    function storeWithClock(): { store: ReturnType<typeof createAttentionStore>; setNow: (ms: number) => void } {
+    it('decays at the TTL boundary, keeps waiting, and persists the prune across restart', async () => {
         const dir = mkdtempSync(join(tmpdir(), 'attention-decay-'));
-        let current = 1_000_000_000_000;
-        const store = createAttentionStore(dir, () => new Date(current));
-        return { store, setNow: (ms: number) => { current = ms; } };
-    }
-
-    it('waiting never decays', () => {
-        const { store, setNow } = storeWithClock();
-        setNow(1_000_000_000_000);
-        store.set('s1', 'waiting', 'Which platform?');
-        setNow(1_000_000_000_000 + 7 * 3600_000);
-        expect(store.catalog().entries.map((entry) => entry.sessionId)).toEqual(['s1']);
-    });
-
-    it('done decays after 10 minutes', () => {
-        const { store, setNow } = storeWithClock();
-        setNow(1_000_000_000_000);
-        store.set('s1', 'done', 'Agent finished');
-        setNow(1_000_000_000_000 + 9 * 60_000);
-        expect(store.catalog().entries.map((entry) => entry.sessionId)).toEqual(['s1']);
-        setNow(1_000_000_000_000 + 11 * 60_000);
-        expect(store.catalog().entries).toEqual([]);
-    });
-
-    it('drops anything older than 6 hours', () => {
-        const { store, setNow } = storeWithClock();
-        setNow(1_000_000_000_000);
-        store.set('s1', 'failed', 'hit an error');
-        setNow(1_000_000_000_000 + 6 * 3600_000 + 1);
-        expect(store.catalog().entries).toEqual([]);
-    });
-
-    it('removes decayed rows from persistence on the next write', async () => {
-        const dir = mkdtempSync(join(tmpdir(), 'attention-decay-persist-'));
         const filePath = join(dir, 'attention.json');
-        let current = 1_000_000_000_000;
+        const start = 1_000_000_000_000;
+        let current = start;
         const store = createAttentionStore(dir, () => new Date(current));
         const revisionOf = (value: unknown): number | undefined =>
             typeof (value as { revision?: unknown }).revision === 'number'
                 ? ((value as { revision: number }).revision)
                 : undefined;
+        const ids = () => store.catalog().entries.map((entry) => entry.sessionId);
 
-        store.set('s1', 'done', 'old finish');
-        current += 11 * 60_000; // s1 now past the done TTL
-        store.set('s2', 'done', 'fresh finish');
-        await waitForPersistedRevision(filePath, revisionOf, 2);
+        store.set('wait', 'waiting', 'Which platform?');
+        store.set('done', 'done', 'old finish');
+        store.set('fail', 'failed', 'hit an error');
 
-        current += 5 * 60_000; // s2 still under the TTL
-        expect(store.catalog().entries.map((entry) => entry.sessionId)).toEqual(['s2']);
-        await waitForPersistedRevision(filePath, revisionOf, 3);
+        current = start + 9 * 60_000;
+        expect(ids().sort()).toEqual(['done', 'fail', 'wait']);
+
+        current = start + 11 * 60_000;
+        expect(ids().sort()).toEqual(['fail', 'wait']);
+
+        current = start + 6 * 3600_000 + 1;
+        expect(ids()).toEqual(['wait']);
+
+        store.set('fresh', 'done', 'fresh finish');
+        await waitForPersistedRevision(filePath, revisionOf, 6);
+        expect(ids().sort()).toEqual(['fresh', 'wait']);
 
         const restarted = createAttentionStore(dir, () => new Date(current));
-        expect(restarted.catalog().entries.map((entry) => entry.sessionId)).toEqual(['s2']);
-        expect(JSON.parse(readFileSync(filePath, 'utf8')).sessions.s1).toBeUndefined();
+        expect(restarted.catalog().entries.map((entry) => entry.sessionId)).toEqual(['fresh']);
+        const persisted = JSON.parse(readFileSync(filePath, 'utf8')).sessions;
+        expect(persisted.done).toBeUndefined();
+        expect(persisted.fail).toBeUndefined();
+        expect(persisted.fresh).toBeDefined();
     });
 });

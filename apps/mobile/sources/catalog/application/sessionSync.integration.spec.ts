@@ -78,6 +78,7 @@ vi.mock('@/utils/sessionUtils', () => ({
 }));
 import { applyStatusToSession, sessionInfoToSession } from '../infrastructure/sessionMapping';
 import { applyHostInfoToAgent } from '../domain/agent';
+import { reconcileLiveTerminalCards } from '@/herd/application/liveTerminalOrder';
 import { storage } from './storage';
 
 async function spawn(options: { modelMode?: string; effortLevel?: string }) {
@@ -210,7 +211,6 @@ describe('session sync flow', () => {
             ...mapped,
             metadata: {
                 ...metadata,
-                terminalTitle: 'stable terminal title',
                 agentName: 'Stale Badger',
                 taskTitle: 'Stale generation task',
                 summary: { text: 'Stale generation task', updatedAt: 1 },
@@ -227,12 +227,11 @@ describe('session sync flow', () => {
             firstMessage: '',
             agentName: 'Maria',
             taskTitle: 'Stabilizing realtime voice',
-            terminalTitle: 'volatile terminal output',
             promptable: true,
             agentStatus: 'working',
         });
+        // A host info frame never overwrites the local agent's own naming.
         const applied = applyHostInfoToAgent(stableExisting, outputOnlyUpdate);
-        expect(applied.metadata?.terminalTitle).toBe('volatile terminal output');
         expect(applied.metadata).not.toHaveProperty('agentName');
         expect(applied.metadata).not.toHaveProperty('taskTitle');
         expect(applied.metadata).not.toHaveProperty('summary');
@@ -781,5 +780,52 @@ describe('session sync flow', () => {
         await Promise.resolve();
         expect(voiceMocks.callPlugin).toHaveBeenCalledTimes(deliveredCallCount);
         expect(voiceMocks.speakReport).toHaveBeenCalledOnce();
+    });
+
+    it('keeps unchanged sessions and cards identical across host info frames', () => {
+        vi.useFakeTimers({ now: 1_000 });
+        const info = (id: string, taskTitle = id) => ({
+            id,
+            paneId: `pane-${id}`,
+            cwd: '/work/muxr',
+            path: '/work/muxr',
+            messageCount: 0,
+            firstMessage: '',
+            agentName: 'Maria',
+            taskTitle,
+            promptable: true,
+            agentStatus: 'working' as const,
+        });
+        const panes = ['a', 'b'].map((id) => ({
+            id,
+            agentStatus: 'working' as const,
+            promptable: true,
+            doing: '',
+        }));
+
+        storage.getState().applySessions([
+            sessionInfoToSession(info('a')),
+            sessionInfoToSession(info('b')),
+        ]);
+        const before = storage.getState().sessions;
+        const cards = selectLiveTerminalCards(Object.values(before), panes);
+
+        // A repeated frame must not look like a changed session, or every live
+        // card re-renders for every frame the herd sends.
+        vi.setSystemTime(5_000);
+        storage.getState().applySessions([
+            applyHostInfoToAgent(before.a!, sessionInfoToSession(info('a'))),
+        ]);
+        expect(storage.getState().sessions).toBe(before);
+        expect(reconcileLiveTerminalCards(cards, selectLiveTerminalCards(Object.values(before), panes))).toBe(cards);
+
+        // A card changes when its status does, which is what the tree publishes.
+        const movedPanes = panes.map((pane) => pane.id === 'a' ? { ...pane, agentStatus: 'blocked' as const } : pane);
+        const next = reconcileLiveTerminalCards(cards, selectLiveTerminalCards(Object.values(before), movedPanes));
+        expect(next[0]).not.toBe(cards[0]);
+        expect(next[0]!.agentStatus).toBe('blocked');
+        expect(next[1]).toBe(cards[1]);
+
+        vi.useRealTimers();
     });
 });

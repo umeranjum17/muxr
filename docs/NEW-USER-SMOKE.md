@@ -29,7 +29,6 @@ Primary gate: clean Linux VM plus a fresh API 36 Android emulator. Follow-up doc
    - Open Usage and Machine.
    - Browse Files as a hierarchy and open a file.
    - Review Changes with status and +/- metadata.
-   - Select a non-default Runbook folder and execute there.
    - Open/download an attachment and verify its bytes/SHA.
    - Disable and re-enable a bundled plugin; create/check/install one minimal third-party plugin through documented commands.
 7. **Resilience and authority**

@@ -157,6 +157,23 @@ describe('declarative screen flow', () => {
         if (!('type' in treeScreen) || treeScreen.type !== 'screen') throw new Error('screen missing');
         expect(treeScreen.children[1]).toMatchObject({ type: 'tree', path: 'data.folders', selectionField: 'cwd' });
         expect(treeScreen.children[2]).toEqual({ type: 'code', path: 'data.body', fileNamePath: 'data.name' });
+        const review = parseManifest({
+            schemaVersion: 1,
+            pluginId: 'you.review',
+            minMuxrVersion: 11,
+            contributions: [{
+                slot: 'navigation.content', id: 'review', type: 'screen',
+                children: [
+                    { type: 'code', path: 'data.body', fileNamePath: 'data.name' },
+                    { type: 'diff', path: 'data.patch' },
+                ],
+            }],
+        }).contributions[0];
+        if (!('type' in review) || review.type !== 'screen') throw new Error('review screen missing');
+        expect(review.children).toEqual([
+            { type: 'code', path: 'data.body', fileNamePath: 'data.name' },
+            { type: 'diff', path: 'data.patch' },
+        ]);
         expect(syntaxLanguage(undefined, 'src/index.tsx')).toBe('tsx');
         expect(syntaxLanguage('unknown', 'src/index.tsx')).toBe('tsx');
         expect(highlightCodeLines('const answer = 42;', 'typescript').flat()).toEqual(expect.arrayContaining([expect.objectContaining({ text: 'const', type: 'keyword' }), expect.objectContaining({ text: '42', type: 'number' })]));

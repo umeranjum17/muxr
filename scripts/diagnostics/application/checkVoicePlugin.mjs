@@ -3,9 +3,17 @@ import { mkdtempSync, readFileSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { chunkAudio } from '../../../plugins/voice/stream.mjs';
+import { chunkAudio } from '../../../plugins/voice/providers/xai.mjs';
 
 const root = process.cwd();
+/** status also names the selected adapter now; assert the key contract, not equality. */
+function assertStatus(result, expected) {
+    const status = JSON.parse(result.stdout);
+    assert.equal(status.configured, expected.configured);
+    assert.equal(status.statusLabel, expected.statusLabel);
+    assert.equal(status.providerId, 'xai', 'status must name the selected adapter');
+}
+
 const home = mkdtempSync(join(tmpdir(), 'muxr-voice-plugin-'));
 const rpc = join(root, 'plugins', 'voice', 'rpc.mjs');
 const run = (method, input) => spawnSync(process.execPath, [rpc, method], {
@@ -17,17 +25,17 @@ const run = (method, input) => spawnSync(process.execPath, [rpc, method], {
 
 let result = run('status');
 assert.equal(result.status, 0);
-assert.deepEqual(JSON.parse(result.stdout), { configured: false, statusLabel: 'No key set' });
+assertStatus(result, { configured: false, statusLabel: 'No key set' });
 result = run('key.set', { key: 'xai-test-not-a-live-secret' });
 assert.equal(result.status, 0, result.stderr);
 assert.equal(statSync(join(home, 'xai.key')).mode & 0o077, 0);
 assert.equal(readFileSync(join(home, 'xai.key'), 'utf8').trim(), 'xai-test-not-a-live-secret');
 result = run('status');
-assert.deepEqual(JSON.parse(result.stdout), { configured: true, statusLabel: 'Key set' });
+assertStatus(result, { configured: true, statusLabel: 'Key set' });
 result = run('key.clear');
 assert.equal(result.status, 0, result.stderr);
 result = run('status');
-assert.deepEqual(JSON.parse(result.stdout), { configured: false, statusLabel: 'No key set' });
+assertStatus(result, { configured: false, statusLabel: 'No key set' });
 result = run('unknown');
 assert.notEqual(result.status, 0);
 const realtimeActions = readFileSync(join(root, 'apps/mobile/sources/conversation/application/realtimeActions.ts'), 'utf8');
@@ -41,7 +49,7 @@ assert.equal(audioChunks.join(''), oversizedAudio);
 assert.ok(audioChunks.length > 1 && audioChunks.every((chunk) => chunk.length <= 96 * 1024 && chunk.length % 4 === 0), 'provider audio must fit public realtime frame bounds');
 const mobileRealtime = readFileSync(join(root, 'apps/mobile/sources/conversation/application/realtimeSession.ts'), 'utf8');
 assert.doesNotMatch(mobileRealtime, /OpenAI|xAI|Grok|Gemini|api\.[a-z]+\.ai|gpt-|grok-/i, 'mobile realtime transport must stay provider-blind');
-for (const adapter of ['plugins/voice/stream.mjs', 'plugins/voice-openai/stream.mjs', 'plugins/voice-gemini/stream.mjs', 'plugins/voice-codex/stream.mjs']) {
+for (const adapter of ['xai', 'openai', 'gemini', 'codex'].map((id) => `plugins/voice/providers/${id}.mjs`)) {
     const source = readFileSync(join(root, adapter), 'utf8');
     assert.doesNotMatch(source, /name:\s*['"](?:herdr_cli|close_pane)['"]|args\.confirmed/, `${adapter} must not let model arguments authorize destructive local tools`);
 }

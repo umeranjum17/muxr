@@ -154,20 +154,6 @@ export class PluginCatalog {
         return digests;
     }
 
-    capabilityPlugins(capability: string): Array<{ pluginId: string; name: string; enabled: boolean; source: PluginSource; hasBackend: boolean }> {
-        return [...this.installed].flatMap(([pluginId, { snapshot, enabled }]) =>
-            snapshot.manifest.capabilities?.[capability] === undefined
-                ? []
-                : [{
-                    pluginId,
-                    name: snapshot.summary.name,
-                    enabled,
-                    source: snapshot.summary.source,
-                    hasBackend: snapshot.summary.hasBackend,
-                }],
-        ).sort((left, right) => left.name.localeCompare(right.name));
-    }
-
     list(isApproved: (pluginId: string, hash: string) => boolean): PluginSummary[] {
         return [...this.active]
             .map(([pluginId, hash]) => {
@@ -347,6 +333,12 @@ function backendOnly(plugin: HerdrPlugin, warning?: string, pluginRoot = plugin.
     };
 }
 
+/** Herdr runs something for this package, rather than only registering it. */
+function herdrBackendOf(plugin: HerdrPlugin): boolean {
+    return [plugin.build, plugin.startup, plugin.actions, plugin.events, plugin.panes, plugin.link_handlers]
+        .some((value) => (value?.length ?? 0) > 0);
+}
+
 function summaryOf(plugin: HerdrPlugin, manifestHash: string | undefined, capabilities: Record<string, string>, source = sourceOf(plugin.source, plugin), manifest?: PluginManifestV1): Omit<PluginSummary, 'approved'> {
     return {
         pluginId: plugin.plugin_id,
@@ -356,8 +348,9 @@ function summaryOf(plugin: HerdrPlugin, manifestHash: string | undefined, capabi
         source,
         ...(manifestHash === undefined ? {} : { manifestHash }),
         capabilities,
-        hasBackend: [plugin.build, plugin.startup, plugin.actions, plugin.events, plugin.panes, plugin.link_handlers].some((value) => (value?.length ?? 0) > 0)
+        hasBackend: herdrBackendOf(plugin)
             || manifest?.contributions.some((item) => item.slot === 'host.rpc' || item.slot === 'host.stream') === true,
+        herdrBackend: herdrBackendOf(plugin),
         warnings: (plugin.warnings ?? []).filter((warning): warning is string => typeof warning === 'string').slice(0, 4).flatMap((warning) => safeText(warning, MAX_TEXT)),
     };
 }

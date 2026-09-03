@@ -1,4 +1,4 @@
-/** A browser tab cannot bind a listener, so web keeps the relay-side port. */
+/** Web cannot bind the native listener, so it keeps the relay-side port. */
 
 export interface PreviewBridge {
     port: number;
@@ -8,5 +8,5 @@ export interface PreviewBridge {
 export const previewBridgeAvailable = false;
 
 export function startPreviewBridge(_socket: WebSocket, _key: string): Promise<PreviewBridge> {
-    return Promise.reject(new Error('Browser preview needs the muxr app on this platform.'));
+    return Promise.reject(new Error('Native preview bridge unavailable on this platform.'));
 }

@@ -1,7 +1,7 @@
 import { relayChannelSocketUrl } from './controlPlaneUrl.js';
 
 /**
- * Browser preview: the wire format for tunnelling a dev server to the device.
+ * Preview tunnel: the wire format for tunnelling a takeover stream to the device.
  *
  * The device binds a local TCP listener and the host dials the dev server on its
  * own loopback. Native endpoints encrypt each payload before the relay forwards
@@ -48,7 +48,7 @@ export function newPreviewChannel(): string {
 
 /**
  * Both ends build the preview socket URL from the same relay URL they already
- * use, so a preview reaches exactly as far as the session link does -- LAN,
+ * use, so a takeover reaches exactly as far as the session link does -- LAN,
  * Tailscale, a tunnel, anything. There is no second address to configure.
  */
 export function previewSocketUrl(

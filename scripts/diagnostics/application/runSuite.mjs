@@ -40,7 +40,7 @@ const checks = [
     ['e2e: strict auth (local fixture exposure)', 'node', ['scripts/diagnostics/application/checkStrictAuth.mjs']],
     ['e2e: second host retires the first', 'node', ['scripts/diagnostics/application/checkHostTakeover.mjs']],
     ['e2e: wire + RPC (all event types)', 'node', ['scripts/diagnostics/application/runSkeletonCheck.mjs']],
-    ['e2e: browser preview tunnel', 'node', ['scripts/diagnostics/application/checkPreviewTunnel.mjs']],
+    ['e2e: graphical takeover tunnel', 'node', ['scripts/diagnostics/application/checkPreviewTunnel.mjs']],
     ['e2e: herdr backend loop (live server)', 'node', ['scripts/diagnostics/application/checkHerdrE2E.mjs'], 'herdr', 180000],
     ['e2e: worktree session (live stack)', 'node', ['scripts/diagnostics/application/checkWorktreeE2E.mjs'], 'herdr'],
     ['package: curl installer wrapper', 'node', ['scripts/diagnostics/application/checkInstallScript.mjs']],

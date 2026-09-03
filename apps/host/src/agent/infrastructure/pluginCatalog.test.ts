@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { pluginInvalidationFrame, PluginCatalog, PluginRefreshGate, WriteReplayFence, Semaphore, rpcReplayKey, runPluginProcess, type HerdrPlugin } from './pluginCatalog.js';
 import { buildPluginPublicContext } from '../application/pluginPublicContext.js';
+import { herdrActionFailure, reportHerdrActionFailure } from './herdrSessionSource.js';
 import { MAX_RPC_RESULT_STRING_BYTES, boundRpcDisplay, parseManifest, parsePluginAction, pluginCompatibilityError } from '@muxr/contract';
 
 function plugin(root: string, actions: HerdrPlugin['actions'] = []): HerdrPlugin {
@@ -77,9 +78,6 @@ describe('plugin catalog flow', () => {
             { ...plugin(competingRoot), plugin_id: 'example.competing' },
         ]);
         expect(catalog.list(() => true).map(({ pluginId }) => pluginId)).toEqual(['example.competing']);
-        expect(catalog.capabilityPlugins('voice.session')).toEqual([{
-            pluginId: 'example.muxr-ui', name: 'Example muxr UI', enabled: false, source: { kind: 'local' }, hasBackend: true,
-        }]);
         expect(catalog.trustedCapabilityCallTarget({
             pluginRoot: await realpath(root),
             capability: 'agent.close',
@@ -89,7 +87,7 @@ describe('plugin catalog flow', () => {
         });
 
         await catalog.refresh([plugin(root)]);
-        expect(catalog.capabilityPlugins('voice.session')[0]).toMatchObject({ enabled: true });
+        expect(catalog.list(() => true).map(({ pluginId }) => pluginId)).toEqual(['example.muxr-ui']);
     });
 
     it('allow-lists and bounds public RPC context without internal ids', async () => {
@@ -164,19 +162,19 @@ describe('plugin catalog flow', () => {
         const catalog = new PluginCatalog();
         await catalog.refresh([plugin(root)]);
         const first = catalog.list(() => false)[0];
-        expect(first).toMatchObject({ pluginId: 'example.muxr-ui', approved: false, hasBackend: false });
+        expect(first).toMatchObject({ pluginId: 'example.muxr-ui', approved: false, hasBackend: false, herdrBackend: false });
         if (first?.manifestHash === undefined) throw new Error('plugin missing');
         const firstHash = first.manifestHash;
         expect(catalog.manifest(first.pluginId, firstHash).contributions).toHaveLength(1);
 
         await writeFile(manifestPath, JSON.stringify({
             schemaVersion: 1, pluginId: 'example.muxr-ui',
-            capabilities: { 'preview.run-server': 'run' },
+            capabilities: { 'example.action': 'run' },
             contributions: [{ slot: 'session.toolbar', id: 'run', type: 'button', label: 'Run', action: { type: 'plugin.invoke', actionId: 'start' } }],
         }));
         await catalog.refresh([plugin(root, [{ id: 'start', command: ['node', 'start.mjs'] }])]);
         const changed = catalog.list(() => true)[0];
-        expect(changed).toMatchObject({ approved: true, hasBackend: true, capabilities: { 'preview.run-server': 'run' } });
+        expect(changed).toMatchObject({ approved: true, hasBackend: true, capabilities: { 'example.action': 'run' } });
         if (changed?.manifestHash === undefined) throw new Error('changed plugin missing');
         expect(changed.manifestHash).not.toBe(firstHash);
         expect(() => catalog.manifest(first.pluginId, firstHash)).toThrow('unavailable or changed');
@@ -208,7 +206,7 @@ describe('plugin catalog flow', () => {
         const backend = { ...plugin(backendRoot, [{ id: 'act', command: ['true'] }]), plugin_id: 'example.backend' };
         await catalog.refresh([backend]);
         const backendSummary = catalog.list(() => false)[0];
-        expect(backendSummary).toMatchObject({ pluginId: 'example.backend', hasBackend: true });
+        expect(backendSummary).toMatchObject({ pluginId: 'example.backend', hasBackend: true, herdrBackend: true });
         expect(backendSummary).not.toHaveProperty('manifestHash');
 
         const symlinkRoot = join(root, 'symlink');
@@ -744,7 +742,7 @@ describe('plugin catalog flow', () => {
             { slot: 'session.composer.trailing', id: 'session', type: 'native', primitive: 'dictate' },
             { slot: 'session.header.trailing', id: 'voice', type: 'native', primitive: 'icon-button', params: { capability: 'voice.start', icon: 'radio-outline', accessibilityLabel: 'Start realtime' } },
             { slot: 'host.rpc', id: 'read', type: 'rpc', method: 'read', entry: 'rpc.mjs' },
-            { slot: 'home.cards', id: 'items', type: 'native', primitive: 'item-list', params: { source: { type: 'plugin.call', contributionId: 'read' }, icon: 'globe-outline', accessibilityLabel: 'Open servers', refreshIntervalMs: 15000 } },
+            { slot: 'home.cards', id: 'items', type: 'native', primitive: 'item-list', params: { source: { type: 'plugin.call', contributionId: 'read' }, icon: 'globe-outline', accessibilityLabel: 'Open items', refreshIntervalMs: 15000 } },
             { slot: 'navigation.content', id: 'collection', type: 'native', primitive: 'collection', params: { source: { type: 'plugin.call', contributionId: 'read' }, title: 'Items', emptyTitle: 'None', emptyMessage: 'Nothing yet', icon: 'albums-outline' } },
             { slot: 'session.overlay', id: 'tree', type: 'native', primitive: 'tree-sheet', params: { source: { type: 'plugin.call', contributionId: 'read' }, title: 'Tree' } },
         ] })).not.toThrow();
@@ -783,8 +781,6 @@ describe('plugin catalog flow', () => {
 
         expect(parsePluginAction({ type: 'open-url', url: 'https://example.com/path' })).toEqual({ type: 'open-url', url: 'https://example.com/path' });
         expect(parsePluginAction({ type: 'kernel.navigate', target: 'file', path: 'src/app.ts' })).toEqual({ type: 'kernel.navigate', target: 'file', path: 'src/app.ts' });
-        expect(parsePluginAction({ type: 'kernel.navigate', target: 'preview', port: 3000 })).toEqual({ type: 'kernel.navigate', target: 'preview', port: 3000 });
-        for (const port of [0, 65536, 1.5, '3000']) expect(() => parsePluginAction({ type: 'kernel.navigate', target: 'preview', port })).toThrow('invalid plugin preview port');
         expect(() => parsePluginAction({ type: 'open-url', url: 'file:///etc/passwd' })).toThrow('must be HTTPS');
         expect(() => parsePluginAction({ type: 'kernel.navigate', target: 'file', path: 'file:///etc/passwd' })).toThrow('filesystem path');
         expect(() => parsePluginAction({ type: 'kernel.navigate', target: 'unknown' })).toThrow('unknown plugin navigation target');
@@ -812,5 +808,27 @@ describe('plugin catalog flow', () => {
                 contribution,
             ] })).toThrow('plugin event RPC must be read mode');
         }
+    });
+});
+
+describe('herdr action failure reporting', () => {
+    it('polls action logs, fails explicitly on contract drift, and never exposes Herdr detail', async () => {
+        expect(herdrActionFailure('muxr.control', { log_id: 'l1', status: 'succeeded', stdout: 'fine' })).toBeUndefined();
+        expect(herdrActionFailure('muxr.control', { log_id: 'l1', status: 'running' })).toBeUndefined();
+        expect(herdrActionFailure('muxr.control', {
+            log_id: 'l1', status: 'failed', stderr: '/home/owner/private in w1XX:p1',
+        })).toBe('plugin action failed');
+
+        const client = (response: unknown) => ({ call: vi.fn().mockResolvedValue(response) });
+        await expect(reportHerdrActionFailure(client({ logs: [{ log_id: 'l1', status: 'succeeded' }] }) as never, 'muxr.control', 'l1', 1)).resolves.toBeUndefined();
+        await expect(reportHerdrActionFailure(client({ logs: [{ log_id: 'l1', status: 'running' }] }) as never, 'muxr.control', 'l1', 1)).resolves.toBeUndefined();
+        await expect(reportHerdrActionFailure(client({ logs: [{ log_id: 'l1', status: 'failed', stderr: '/home/owner/private in w1XX:p1' }] }) as never, 'muxr.control', 'l1', 1))
+            .rejects.toThrow(/^plugin action failed$/);
+        await expect(reportHerdrActionFailure(client({ logs: [] }) as never, 'muxr.control', 'l1', 1))
+            .rejects.toThrow(/^plugin action status unavailable$/);
+        await expect(reportHerdrActionFailure(client({ entries: [] }) as never, 'muxr.control', 'l1', 1))
+            .rejects.toThrow(/^plugin action status unavailable$/);
+        await expect(reportHerdrActionFailure(client({ logs: [] }) as never, 'muxr.control', undefined, 1))
+            .rejects.toThrow(/^plugin action status unavailable$/);
     });
 });
