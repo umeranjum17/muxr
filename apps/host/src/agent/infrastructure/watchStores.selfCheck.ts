@@ -81,10 +81,14 @@ async function runSelfCheck(): Promise<void> {
         stores.lifecycle.transition('stable', 'Maria', 'working', 'agent-working', 'Realtime Stability');
         const titleless = stores.lifecycle.transition('metadata', 'Otter', 'done', 'agent-done', undefined, 'codex');
         const titled = stores.lifecycle.transition('metadata', 'Otter', 'done', 'agent-done', 'Review agent close', 'codex');
-        assert(titleless?.eventId === titled?.eventId, 'late lifecycle presentation enriches the existing transition');
+        // A later Task Title enriches the transition that is already recorded.
+        // It is not a new event and must not be published as one: a working
+        // agent animates its title, and republishing the same eventId at that
+        // rate tells a client nothing it can show.
+        assert(titleless !== undefined && titled === undefined, 'late lifecycle presentation publishes nothing new');
+        const enriched = stores.lifecycle.catalog().events.find((event) => event.eventId === titleless?.eventId);
         assert(
-            stores.lifecycle.catalog().events.find((event) => event.eventId === titled?.eventId)?.taskTitle === 'Review agent close'
-            && titled?.agentKind === 'codex',
+            enriched?.taskTitle === 'Review agent close' && enriched?.agentKind === 'codex',
             'lifecycle catalog keeps the current Task Title and Agent Kind',
         );
         const privateTitle = stores.lifecycle.transition(
