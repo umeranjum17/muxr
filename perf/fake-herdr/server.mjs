@@ -94,9 +94,12 @@ export async function startFakeHerdr(options) {
                 pane.terminal_title_stripped = next;
                 const agent = live.agents.find((row) => row.pane_id === pane.pane_id);
                 if (agent !== undefined) {
+                    // Only the terminal title animates. An agent's task title is
+                    // what it is working on and changes when the work does, so
+                    // churning it here would fake a flood Herdr never sends and
+                    // would bypass the host's title coalescing entirely.
                     agent.terminal_title = next;
                     agent.terminal_title_stripped = next;
-                    agent.title = next;
                 }
                 emitEvent('pane.updated', {
                     pane_id: pane.pane_id,
@@ -113,6 +116,15 @@ export async function startFakeHerdr(options) {
             }
         }, 1000 / titleChurnHz);
         timers.push(titleTimer);
+
+        // A new task now and then, which is what really moves an agent's title.
+        const taskTimer = setInterval(() => {
+            for (const [index, agent] of live.agents.entries()) {
+                agent.title = `${agent.agent ?? 'agent'} task ${Math.floor(Date.now() / 30_000) + index}`;
+            }
+            for (const agent of live.agents) emitEvent('pane.updated', { pane_id: agent.pane_id });
+        }, 30_000);
+        timers.push(taskTimer);
 
         // Agents change state on human timescales, not per frame. Faking a
         // transition every few seconds would measure notification and attention

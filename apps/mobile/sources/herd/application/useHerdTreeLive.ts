@@ -45,7 +45,10 @@ export function useHerdTreeLive() {
         const unsubscribe = storage.subscribe((state, previous) => {
             if (state.sessions === previous.sessions) return;
             clearTimeout(debounceRef.current);
-            debounceRef.current = setTimeout(() => void refresh(), 1_000);
+            // A busy herd writes sessions constantly, and each write used to pull
+            // the whole tree a second later; on a hundred panes that is a large
+            // decrypt, parse and deep-compare for placement that rarely moves.
+            debounceRef.current = setTimeout(() => void refresh(), 3_000);
         });
         return () => {
             unsubscribe();

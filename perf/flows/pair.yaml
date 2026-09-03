@@ -8,6 +8,11 @@ tags:
 - launchApp:
     appId: com.trymuxr.app
     clearState: false
+# A cold launch shows its welcome screen before the pairing entry exists.
+- extendedWaitUntil:
+    visible:
+      text: 'Enter pairing string|Enter pairing string manually|Enter another code'
+    timeout: 40000
 - tapOn:
     text: 'Enter pairing string|Enter pairing string manually|Enter another code'
 - eraseText: 120

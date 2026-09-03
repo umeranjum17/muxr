@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const harness = vi.hoisted(() => {
     const sessionReplaceFlags: boolean[] = [];
-    const sessions: Record<string, { id: string; terminalTitle?: string }> = {};
+    const sessions: Record<string, { id: string; taskTitle?: string }> = {};
     return {
         connection: {
             mode: 'hosted' as 'hosted' | 'local',
@@ -31,8 +31,8 @@ const harness = vi.hoisted(() => {
         lifecycleAuthorities: [] as string[],
         lifecycleCatalogError: Object.assign(new Error('older host'), { code: 'host-contract-mismatch' }) as Error & { code?: string },
         sessions,
-        eventListeners: [] as Array<(sessionId: string, event: { type: string; session?: { id: string; terminalTitle?: string } }) => void>,
-        applySessions: vi.fn((next: Array<{ id: string; terminalTitle?: string }>, replace = false) => {
+        eventListeners: [] as Array<(sessionId: string, event: { type: string; session?: { id: string; taskTitle?: string } }) => void>,
+        applySessions: vi.fn((next: Array<{ id: string; taskTitle?: string }>, replace = false) => {
             sessionReplaceFlags.push(replace);
             if (replace) {
                 for (const id of Object.keys(sessions)) delete sessions[id];
@@ -82,7 +82,7 @@ vi.mock('@/pairing/infrastructure/muxrClient', () => ({
         close() { harness.clientCloses += 1; this.state = 'closed'; }
         isLive() { return this.state === 'open'; }
         onStateChange(listener: (state: string) => void) { this.listeners.push(listener); return () => undefined; }
-        onEvent(listener: (sessionId: string, event: { type: string; session?: { id: string; terminalTitle?: string } }) => void) {
+        onEvent(listener: (sessionId: string, event: { type: string; session?: { id: string; taskTitle?: string } }) => void) {
             harness.eventListeners.push(listener);
             return () => undefined;
         }
@@ -314,26 +314,21 @@ describe('session sync flow', () => {
         await vi.waitFor(() => expect(harness.eventListeners.length).toBeGreaterThan(0));
 
         for (let index = 0; index < 30; index += 1) {
-            const id = `session-${index}`;
-            harness.sessions[id] = { id, terminalTitle: `title-${index}-v1` };
+            harness.sessions[`session-${index}`] = { id: `session-${index}` };
         }
-        const applySessions = storage.getState().applySessions;
+        const applySessions = storage.getState().applySessions as unknown as ReturnType<typeof vi.fn>;
         applySessions.mockClear();
 
         vi.useFakeTimers();
-        const emit = (
-            sessionId: string,
-            event: { type: string; session?: { id: string; terminalTitle: string } },
-        ) => {
+        const emit = (sessionId: string, event: { type: string; session?: { id: string; taskTitle?: string } }) => {
             for (const listener of harness.eventListeners) listener(sessionId, event);
         };
 
+        // Thirty sessions each publishing at once is the burst that used to cost
+        // one store write and one render per frame.
         for (let index = 0; index < 30; index += 1) {
             const id = `session-${index}`;
-            emit(id, {
-                type: 'session.updated',
-                session: { id, terminalTitle: `title-${index}-v2` },
-            });
+            emit(id, { type: 'session.updated', session: { id, taskTitle: `task-${index}` } });
             if (index === 2) emit('session-0', { type: 'session.removed' });
             vi.advanceTimersByTime(1000 / 30);
         }
@@ -343,7 +338,7 @@ describe('session sync flow', () => {
         expect(applySessions).toHaveBeenCalled();
         expect(storage.getState().sessions['session-0']).toBeUndefined();
         for (let index = 1; index < 30; index += 1) {
-            expect(storage.getState().sessions[`session-${index}`]?.terminalTitle).toBe(`title-${index}-v2`);
+            expect(storage.getState().sessions[`session-${index}`]?.id).toBe(`session-${index}`);
         }
     });
 });

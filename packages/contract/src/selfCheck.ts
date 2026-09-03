@@ -39,7 +39,6 @@ const session: SessionInfo = {
     paneId: 'w1:p1',
     workspaceId: 'w1',
     tabId: 'w1:t1',
-    terminalTitle: 'pi · /tmp',
     worktree: { repo: 'muxr', branch: 'main', path: '/tmp/muxr' },
 };
 

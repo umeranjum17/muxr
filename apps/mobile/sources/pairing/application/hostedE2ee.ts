@@ -37,6 +37,8 @@ export { hostedPairingAuthority, hostedPairingDisplayName, prepareHostedPairingI
 const DEVICE_KEY = 'muxr.hosted-e2ee.device.v2';
 const REPLAY_KEY = 'muxr.hosted-e2ee.replay.v2';
 const PENDING_PAIR_KEY = 'muxr.hosted-e2ee.pending-pair.v1';
+/** Trailing delay for the replay write; one write covers every frame inside it. */
+const REPLAY_FLUSH_MS = 1000;
 
 export interface StoredHostedGrant extends DeviceGrant {
     deviceKey: KeyPair;
@@ -54,6 +56,8 @@ let devicePending: Promise<KeyPair> | undefined;
 let grantsCache: Record<string, StoredHostedGrant> | undefined;
 let replayCache: Record<string, V2ReplaySnapshot> | undefined;
 let replayWrite = Promise.resolve();
+let replayDirty = false;
+let replayTimer: ReturnType<typeof setTimeout> | undefined;
 
 const secretGet = (key: string): Promise<string | null> => Platform.OS === 'web' ? getWebSecret(key) : getNativeSecret(key);
 const secretSet = (key: string, value: string): Promise<void> => Platform.OS === 'web' ? setWebSecret(key, value) : setNativeSecret(key, value);
@@ -124,11 +128,36 @@ async function replaySnapshots(): Promise<Record<string, V2ReplaySnapshot>> {
     return replayCache;
 }
 
-async function persistReplay(key: string, snapshot: V2ReplaySnapshot): Promise<void> {
+/**
+ * Record the accepted sequence in memory now, write it to disk soon.
+ *
+ * Every decrypted frame lands here, and a herd of a hundred sessions is a
+ * hundred streams and hundreds of frames a second. Serializing the whole cache
+ * and awaiting a store write per frame put a disk round-trip in the decrypt
+ * path and queued a copy of the cache per pending write, which is JS time and
+ * heap the phone does not have. One trailing write covers any number of frames;
+ * the replay window it can lose on a crash is the second before it, which is
+ * what stream channels already accept above.
+ */
+function persistReplay(key: string, snapshot: V2ReplaySnapshot): void {
     replayCache ??= {};
     replayCache[key] = snapshot;
+    replayDirty = true;
+    if (replayTimer !== undefined) return;
+    replayTimer = setTimeout(() => {
+        replayTimer = undefined;
+        void flushReplay();
+    }, REPLAY_FLUSH_MS);
+}
+
+/** Write the pending replay state out; safe to call at any time. */
+export async function flushReplay(): Promise<void> {
+    if (!replayDirty || replayCache === undefined) return;
+    replayDirty = false;
     const serialized = JSON.stringify(replayCache);
-    replayWrite = replayWrite.then(() => AsyncStorage.setItem(REPLAY_KEY, serialized));
+    replayWrite = replayWrite
+        .then(() => AsyncStorage.setItem(REPLAY_KEY, serialized))
+        .catch(() => undefined);
     await replayWrite;
 }
 
@@ -562,11 +591,10 @@ export class DeviceV2Crypto {
             keyVersion: this.grant.keyVersion,
         }, replay);
         // Stream channels are ephemeral (one random channel per call) and carry
-        // realtime audio: a per-frame AsyncStorage write here adds playback
-        // jitter and grows the persisted cache with dead channels. In-memory
-        // replay tracking still protects the live session; the AAD's streamId
-        // makes cross-channel replay fail regardless.
-        if (channel !== 'stream') await persistReplay(replayKey, replay.toSnapshot());
+        // realtime audio: persisting them grows the cache with dead channels.
+        // In-memory replay tracking still protects the live session; the AAD's
+        // streamId makes cross-channel replay fail regardless.
+        if (channel !== 'stream') persistReplay(replayKey, replay.toSnapshot());
         return plaintext;
     }
 
@@ -577,6 +605,10 @@ export class DeviceV2Crypto {
 }
 
 export async function clearHostedE2ee(): Promise<void> {
+    // A queued trailing write must not resurrect the cache we are deleting.
+    if (replayTimer !== undefined) clearTimeout(replayTimer);
+    replayTimer = undefined;
+    replayDirty = false;
     const all = await grants();
     await Promise.all([
         secretDelete(DEVICE_KEY),

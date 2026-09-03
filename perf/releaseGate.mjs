@@ -72,13 +72,14 @@ const LIMITS = {
 };
 
 /**
- * The herd the phone must survive. Thirty sessions is the breadth that matters:
- * the host caps title-only publishes at two per second per session, so the
- * inbound flood the app has to absorb comes from many panes, not a fast one.
+ * The herd the phone must survive: the target state, a hundred panes with
+ * thirty agents. Breadth is what matters - the flood the app absorbs comes from
+ * many sessions changing, not one changing fast - and the tour then walks every
+ * shell in that herd.
  */
 const LOAD = {
-    panes: 30,
-    agents: 6,
+    panes: 100,
+    agents: 30,
     titleChurnHz: 2,
     terminalBytesPerSecond: 4096,
     graphicsFrameHz: 4,

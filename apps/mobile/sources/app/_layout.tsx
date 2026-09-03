@@ -9,7 +9,7 @@ import { FontAwesome } from '@expo/vector-icons';
 import { usePathname, useRouter } from 'expo-router';
 import { AuthCredentials, TokenStorage } from '@/account';
 import { AuthProvider } from '@/account/ui';
-import { restoreHostedConnection } from '@/pairing/e2ee';
+import { flushReplay, restoreHostedConnection } from '@/pairing/e2ee';
 import { resetWebSecureStore } from '@/pairing/secrets';
 import { RelayDiscoveryReconnect } from '@/pairing';
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
@@ -328,8 +328,12 @@ export default function RootLayout() {
         let previous = AppState.currentState;
         const subscription = AppState.addEventListener('change', (next) => {
             const resumed = next === 'active' && previous !== 'active';
+            const left = next !== 'active' && previous === 'active';
             previous = next;
             if (resumed) void syncResume().catch(() => undefined);
+            // Replay sequences are written on a trailing timer while the app
+            // runs; leaving the foreground is the last chance to land them.
+            if (left) void flushReplay().catch(() => undefined);
         });
         return () => subscription.remove();
     }, [initState?.credentials]);
