@@ -7,7 +7,8 @@ import { isMachineOnline } from '@/utils/machineUtils';
 import { Modal } from '@/modal';
 import {
     beginRealtimeConversation,
-    prepareRealtimeConversation,
+    ensureRealtimeProviderConfigured,
+    requestRealtimePermission,
     startRealtimeWithPermission,
 } from './realtimeActions';
 import {
@@ -55,7 +56,8 @@ export async function startRealtimeCapability(input: { sessionId?: string } = {}
             await startRealtimeWithPermission(target);
             return;
         }
-        if (!(await prepareRealtimeConversation())) return;
+        if (!(await requestRealtimePermission())) return;
+        if (!(await ensureRealtimeProviderConfigured())) return;
         const sessionId = await startConfiguredBlankSession();
         if (sessionId !== null) beginRealtimeConversation({
             machineId: getCachedConnectionSettings().machineId,

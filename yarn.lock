@@ -1437,13 +1437,12 @@
   resolved "https://registry.yarnpkg.com/@expo/sudo-prompt/-/sudo-prompt-9.3.2.tgz#0fd2813402a42988e49145cab220e25bea74b308"
   integrity sha512-HHQigo3rQWKMDzYDLkubN5WQOYXJJE2eNqIQC2axC2iO3mHdwnIR7FgZVvHWtBwAdzBgAP0ECp8KqS8TiMKvgw==
 
-"@expo/ui@57.0.14", "@expo/ui@~57.0.14":
-  version "57.0.14"
-  resolved "https://registry.yarnpkg.com/@expo/ui/-/ui-57.0.14.tgz#dab43028020536fa6e990400d17b6592184d4f92"
-  integrity sha512-m8Z5dCplkOOQ70lu/xfB67qhk00Muw4U1T9frHBIW3LxxJeJZQ+jOmV6vCk6O6zVgoG/ib1et7PeX6etxI4Rsw==
+"@expo/ui@55.0.5", "@expo/ui@~57.0.14":
+  version "55.0.5"
+  resolved "https://registry.yarnpkg.com/@expo/ui/-/ui-55.0.5.tgz#bbc6e46dbe46af4c2c6433d1b5b623bc3d86b82a"
+  integrity sha512-Hev/bg0SOQ01+7RPfw0pyafZQWf117qBseG7jKZfvFd+XpFeARsjot5OPvcNcxvxkXD/hSqfmdcv7MlZWU32JA==
   dependencies:
     sf-symbols-typescript "^2.1.0"
-    vaul "^1.1.2"
 
 "@expo/vector-icons@15.0.3", "@expo/vector-icons@^15.0.2":
   version "15.0.3"
@@ -6802,10 +6801,10 @@ postcss@8.5.26, postcss@^8.5.14, postcss@^8.5.6, postcss@~8.4.32:
     picocolors "^1.1.1"
     source-map-js "^1.2.1"
 
-preact@10.29.8, preact@^10.29.8:
-  version "10.29.8"
-  resolved "https://registry.yarnpkg.com/preact/-/preact-10.29.8.tgz#fc85b82dc2474e245b1430b51781d417361f5fc3"
-  integrity sha512-ej2aVZ+vZ8WO7tvlQWRM9N63A0KzF9q4mWJfDUHgYaIofWY9hu74QdnQrjoPMmZi2/nZ5gN0bJCQF49xQqx09Q==
+preact@10.29.1, preact@^10.29.8:
+  version "10.29.1"
+  resolved "https://registry.yarnpkg.com/preact/-/preact-10.29.1.tgz#2a5b936efe91cfe1e773cdb55dceb55d148d1d4b"
+  integrity sha512-gQCLc/vWroE8lIpleXtdJhTFDogTdZG9AjMUpVkDf2iTCNwYNWA+u16dL41TqUDJO4gm2IgrcMv3uTpjd4Pwmg==
 
 pretty-format@^29.7.0:
   version "29.7.0"
@@ -7088,10 +7087,10 @@ react-native-webview@13.15.0:
     escape-string-regexp "^4.0.0"
     invariant "2.2.4"
 
-react-native-worklets@0.7.4, react-native-worklets@^0.7.4:
-  version "0.7.4"
-  resolved "https://registry.yarnpkg.com/react-native-worklets/-/react-native-worklets-0.7.4.tgz#6cc1eed31417ced2b007d82bfbd506ac27797de5"
-  integrity sha512-NYOdM1MwBb3n+AtMqy1tFy3Mn8DliQtd8sbzAVRf9Gc+uvQ0zRfxN7dS8ZzoyX7t6cyQL5THuGhlnX+iFlQTag==
+react-native-worklets@0.7.2, react-native-worklets@^0.7.4:
+  version "0.7.2"
+  resolved "https://registry.yarnpkg.com/react-native-worklets/-/react-native-worklets-0.7.2.tgz#acfbfe4f8c7f3b2889e7f394e4fbd7e78e167134"
+  integrity sha512-DuLu1kMV/Uyl9pQHp3hehAlThoLw7Yk2FwRTpzASOmI+cd4845FWn3m2bk9MnjUw8FBRIyhwLqYm2AJaXDXsog==
   dependencies:
     "@babel/plugin-transform-arrow-functions" "7.27.1"
     "@babel/plugin-transform-class-properties" "7.27.1"
@@ -8096,10 +8095,10 @@ utils-merge@1.0.1:
   resolved "https://registry.yarnpkg.com/utils-merge/-/utils-merge-1.0.1.tgz#9f95710f50a267947b2ccc124741c1028427e713"
   integrity sha512-pMZTvIkT1d+TFGvDOqodOclx0QWkkgi6Tdoa8gC8ffGAAqz9pzPTZWAybbsHHoED/ztMtkv/VoYTYyShUn81hA==
 
-uuid@*, uuid@14.0.2, "uuid@^11.1.0 || ^12 || ^13 || ^14.0.0", uuid@^14.0.2, uuid@^7.0.3:
-  version "14.0.2"
-  resolved "https://registry.yarnpkg.com/uuid/-/uuid-14.0.2.tgz#d5ae03e4db0881c87271f8b0b9bd7312d02c799a"
-  integrity sha512-xZe/16rV4aa+HGSOCiY2YeLT1OybRLrrkL/Rqaq7p7GMVXjFh+6wN4oMYgjFmnSnhY8t6Xpdl2l9qmnHYuMHwQ==
+uuid@*, uuid@11.1.1, "uuid@^11.1.0 || ^12 || ^13 || ^14.0.0", uuid@^14.0.2, uuid@^7.0.3:
+  version "11.1.1"
+  resolved "https://registry.yarnpkg.com/uuid/-/uuid-11.1.1.tgz#f6d81d2e1c65d00762e5e29b16c5d2d995e208ad"
+  integrity sha512-vIYxrBCC/N/K+Js3qSN88go7kIfNPssr/hHCesKCQNAjmgvYS2oqr69kIufEG+O4+PfezOH4EbIeHCfFov8ZgQ==
 
 validate-npm-package-name@^5.0.0:
   version "5.0.1"
@@ -8430,10 +8429,10 @@ zod@4.4.3, zod@^3.25.76, zod@^4.0.0:
   resolved "https://registry.yarnpkg.com/zod/-/zod-4.4.3.tgz#b680f172885d18bbebf21a834ea25e55a1bbf356"
   integrity sha512-ytENFjIJFl2UwYglde2jchW2Hwm4GJFLDiSXWdTrJQBIN9Fcyp7n4DhxJEiWNAJMV1/BqWfW/kkg71UDcHJyTQ==
 
-zustand@5.0.15, zustand@^5.0.15:
-  version "5.0.15"
-  resolved "https://registry.yarnpkg.com/zustand/-/zustand-5.0.15.tgz#42bddf35647cb80a818a8943a69f6618c126fcfe"
-  integrity sha512-MpSEjRiBkA9crSYeOUH32rJC7SVqAbm0Fqcqge/bUi2PPoLcBWKOsG+C8mevmpr8TwXHBVkChbbJiyvkE+i/3A==
+zustand@5.0.10, zustand@^5.0.15:
+  version "5.0.10"
+  resolved "https://registry.yarnpkg.com/zustand/-/zustand-5.0.10.tgz#4db510c0c4c25a5f1ae43227b307ddf1641a3210"
+  integrity sha512-U1AiltS1O9hSy3rul+Ub82ut2fqIAefiSuwECWt6jlMVUGejvf+5omLcRBSzqbRagSM3hQZbtzdeRc6QVScXTg==
 
 zwitch@^2.0.4:
   version "2.0.4"
