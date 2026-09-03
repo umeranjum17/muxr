@@ -87,7 +87,7 @@
     <key>NSLocalNetworkUsageDescription</key>
     <string>muxr discovers relays on your local network so you can connect without typing addresses.</string>
     <key>NSMicrophoneUsageDescription</key>
-    <string>Allow $(PRODUCT_NAME) to access your microphone for voice conversations.</string>
+    <string>Allow $(PRODUCT_NAME) to use your microphone for on-device dictation and, when you choose realtime voice, send audio to the provider configured on your computer.</string>
     <key>NSPhotoLibraryUsageDescription</key>
     <string>Allow $(PRODUCT_NAME) to attach a photo to an agent session.</string>
     <key>NSUserActivityTypes</key>
