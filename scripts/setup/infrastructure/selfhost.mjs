@@ -26,10 +26,10 @@ export function tailscaleBin() {
 }
 
 export function runTailscale(args, options = {}) {
-    const { env: childEnv, ...rest } = options;
+    const { env: childEnv, timeout = 15_000, ...rest } = options;
     return spawnSync(tailscaleBin() || 'tailscale', args, {
-        timeout: 15_000,
         ...rest,
+        timeout,
         env: { ...process.env, TAILSCALE_BE_CLI: '1', ...childEnv },
     });
 }
@@ -143,17 +143,30 @@ export function tailscaleRootProxy(value, dnsName) {
 
 export const SERVE_OWNED_ERROR = 'Tailscale Serve root is already owned by another service; use --tailscale-direct or remove it yourself';
 
-export function inspectTailscaleServeRoot(port, dnsName, expectedProxy) {
+export function tailscaleServeFailure(result) {
+    const output = [result.stderr, result.stdout].map((value) => value?.trim()).filter(Boolean).join('\n').slice(0, 2_000);
+    if (/serve is not enabled on your tailnet/i.test(output)) {
+        const enableUrl = output.match(/https:\/\/login\.tailscale\.com\/[^\s<>"']+/)?.[0];
+        return `Tailscale Serve is not enabled on your tailnet. ${enableUrl ? `Enable it at ${enableUrl}` : 'Enable it in the Tailscale admin console'}, then rerun \`muxr setup\`; or choose direct Tailscale or LAN.`;
+    }
+    if (result.error?.code === 'ETIMEDOUT') return `${output ? `${output}\n` : ''}Tailscale Serve did not finish before the timeout; restart Tailscale or choose direct Tailscale or LAN.`;
+    return output || result.error?.message || 'Tailscale Serve command failed';
+}
+
+export function inspectTailscaleServeRoot(port, dnsName, expectedProxy, timeout = 15_000) {
     const expected = expectedProxy ?? `http://127.0.0.1:${port}`;
-    const current = runTailscale(['serve', 'status', '--json'], { encoding: 'utf8' });
-    if (current.error?.code === 'ENOENT') return { status: 'unknown', missing: true, reason: 'tailscale not found' };
-    if (current.status !== 0) {
-        const detail = (current.stderr || current.error?.message || 'status failed').trim();
-        return { status: 'unknown', reason: `cannot inspect Tailscale Serve ownership: ${detail}` };
+    const current = runTailscale(['serve', 'status', '--json'], { encoding: 'utf8', timeout });
+    if (current.error?.code === 'ENOENT') return { status: 'inconclusive', missing: true, reason: 'tailscale not found' };
+    if (current.status !== 0 || current.error) {
+        const output = [current.stderr, current.stdout].filter(Boolean).join('\n');
+        return {
+            status: /serve is not enabled on your tailnet/i.test(output) ? 'disabled' : 'inconclusive',
+            reason: tailscaleServeFailure(current),
+        };
     }
     let rootProxy;
     try { rootProxy = tailscaleRootProxy(JSON.parse(current.stdout || '{}'), dnsName); }
-    catch { return { status: 'unknown', reason: 'Tailscale Serve returned invalid status JSON' }; }
+    catch { return { status: 'inconclusive', reason: 'Tailscale Serve returned invalid status JSON' }; }
     if (rootProxy === undefined) return { status: 'free' };
     if (rootProxy === expected) return { status: 'ours' };
     return { status: 'occupied' };
@@ -183,7 +196,7 @@ export function cleanupManagedIngress(state) {
     const expected = typeof ingress.proxy === 'string' ? ingress.proxy : `http://127.0.0.1:${ingress.port}`;
     const ownership = inspectTailscaleServeRoot(ingress.port, ingress.dnsName, expected);
     if (ownership.missing || ownership.status === 'free' || ownership.status === 'occupied') return;
-    if (ownership.status === 'unknown') {
+    if (ownership.status === 'disabled' || ownership.status === 'inconclusive') {
         throw new Error('cannot inspect the previous muxr Tailscale Serve route; leaving it unchanged');
     }
     const disabled = runTailscale(['serve', '--https=443', 'off'], { encoding: 'utf8' });

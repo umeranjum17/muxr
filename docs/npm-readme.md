@@ -18,7 +18,7 @@ The convenience installer at `https://raw.githubusercontent.com/umeranjum17/muxr
 First run:
 
 1. Install muxr on Android from Google Play testing or the [signed APK](https://github.com/umeranjum17/muxr/releases/latest/download/muxr-android.apk), verified by [SHA256SUMS](https://github.com/umeranjum17/muxr/releases/latest/download/SHA256SUMS). On iOS, open the [public TestFlight link](https://testflight.apple.com/join/aJSbs8pN) for 0.1.24 (build 45); Apple is not accepting new testers right now.
-2. Run `muxr`. It checks the computer, installs Herdr if needed, and asks how the phone should connect. Start with LAN when both devices use the same wifi.
+2. Run `muxr`. It checks the computer and proposes one ready route: the healthy current route, Tailscale, an existing private network such as NetBird or WireGuard, an installed temporary tunnel, or same Wi-Fi. **Choose another way** reveals every available alternative.
 3. Review the short plan, choose **Apply setup**, then scan the one-use QR from the phone app.
 
 Nothing changes before **Apply setup**. Setup then verifies the connection and managed services without printing credentials. Run `muxr pair` anytime for a fresh QR.
@@ -57,7 +57,7 @@ muxr self-host [--advertise <ws-url>] [--tunnel] [--tailscale-direct]
                [--port <n>] [--relay-only|--host-only] [--web] [--yes]
 ```
 
-The default uses Tailscale when available or the trusted local network otherwise. Session, terminal, attachment, and plugin-stream payloads use the strict v2 E2EE data plane; the relay routes ciphertext it cannot read.
+Interactive setup keeps the current healthy route, otherwise recommends Tailscale, a detected private overlay, an installed temporary tunnel, or the trusted local network in that order. An inconclusive Tailscale Serve preflight remains advisory; only proven disabled or occupied Serve changes the recommendation. Session, terminal, attachment, and plugin-stream payloads use the strict v2 E2EE data plane; the relay routes ciphertext it cannot read.
 
 For a shared VPS relay, prefer interactive `muxr`. Automation equivalents are:
 

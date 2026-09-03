@@ -138,7 +138,7 @@ Then install the mobile companion:
 - **Web:** pair an eight-hour read-only browser during self-hosted setup
 - **All builds:** [muxr 0.1.25 release](https://github.com/umeranjum17/muxr/releases/tag/v0.1.25)
 
-Verify a downloaded APK with `sha256sum --ignore-missing -c SHA256SUMS`, then run `muxr`, choose **Apply setup**, and scan the one-use QR from the phone. Start with LAN when both devices are on the same Wi-Fi.
+Verify a downloaded APK with `sha256sum --ignore-missing -c SHA256SUMS`, then run `muxr`. Setup explains one recommended route—the healthy current route, Tailscale, an existing private network, an installed temporary tunnel, or same Wi-Fi—and changes nothing until **Apply setup**. Scan the one-use QR from the phone when it is ready.
 
 [Read the step-by-step quickstart →](https://trymuxr.com/docs/quickstart)
 

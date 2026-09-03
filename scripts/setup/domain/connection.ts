@@ -99,7 +99,7 @@ export function parseConnection(state: unknown): Result<Connection> {
         reconfigureArgs() {
             const args: string[] = [];
             if (typeof mode === 'string') args.push('--connection-mode', mode);
-            if (mode === 'external' || mode === 'cloudflare') args.push('--advertise', String(record.relayUrl));
+            if (mode === 'external' || mode === 'private' || mode === 'cloudflare') args.push('--advertise', String(record.relayUrl));
             return args;
         },
         bindLoopback({ tailscale, tunnel, web, advertise }) {
@@ -114,7 +114,7 @@ export function parseConnection(state: unknown): Result<Connection> {
         },
         sameAs({ port, connectionMode, web, explicitAdvertise }) {
             if (record.relayPort !== port || record.connectionMode !== connectionMode || record.webEnabled !== web) return false;
-            if (connectionMode === 'external' || connectionMode === 'lan') return record.relayUrl === explicitAdvertise;
+            if (connectionMode === 'external' || connectionMode === 'private' || connectionMode === 'lan') return record.relayUrl === explicitAdvertise;
             return true;
         },
         credentialDaysRemaining(now = Date.now()) {
@@ -128,7 +128,7 @@ export function parseConnection(state: unknown): Result<Connection> {
 
 export type AdvertiseContext = {
     mode: string;
-    found: { lan?: string; tailscale: { ip?: string; dnsName?: string } };
+    found: { private?: { address: string }; lan?: string; tailscale: { ip?: string; dnsName?: string } };
     current?: { connectionMode?: string; relayUrl?: string; relayPort?: number; webEnabled?: boolean; ingressHealthy?: boolean };
     port: number;
     endpoint?: string;
@@ -139,6 +139,7 @@ export type AdvertiseContext = {
 export function advertisedUrlForMode(context: AdvertiseContext): string | undefined {
     const { mode, found, current, port, endpoint, web, tailscalePlanned } = context;
     if (mode === 'lan') return found.lan === undefined ? undefined : `ws://${found.lan}:${port}`;
+    if (mode === 'private') return endpoint ?? (found.private === undefined ? undefined : `ws://${found.private.address}:${port}`);
     if (mode === 'external') return endpoint;
     if (mode === 'tailscale-direct' && found.tailscale.ip) return `ws://${found.tailscale.ip}:${port}`;
     if (mode === 'tailscale-direct' && tailscalePlanned && current?.connectionMode === mode) return current.relayUrl;
@@ -171,6 +172,7 @@ export function ingressPlan(mode: string, tailscalePlanned: boolean, { shared = 
 export function connectionLabel(mode: string, endpoint: string | undefined, port: number): string {
     if (mode === 'tailscale') return `Tailscale Serve on local port ${port}`;
     if (mode === 'tailscale-direct') return `Direct Tailscale on port ${port}`;
+    if (mode === 'private') return `Private network on port ${port}`;
     if (mode === 'lan') return `Trusted LAN on port ${port}`;
     if (mode === 'cloudflare') return `Cloudflare quick tunnel to local port ${port}`;
     return `External ${endpoint ?? ''}`;

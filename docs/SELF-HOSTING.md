@@ -12,10 +12,12 @@ npm install -g --ignore-scripts @trymuxr/cli
 muxr
 ```
 
-The interactive onboarding inspects the machine without changing it. You choose
-the connection method, local port or external URL, whether to host the control/view-only
-web client, agent integrations, optional plugins, and managed services. After a
-final **Apply setup** confirmation, muxr starts the selected relay and host, then:
+The interactive onboarding inspects the machine without changing it. It keeps a
+healthy current route or proposes one detected private route, explains why, and
+puts alternative transports under **Choose another way**. You then choose
+whether to host the control/view-only web client, agent integrations, optional
+plugins, and managed services. After a final **Apply setup** confirmation, muxr
+starts the selected relay and host, then:
 
 1. Stores strict E2EE relay state under `~/.muxr/relay`.
 2. Runs the selected phone, browser, or sequential pairing flow.
@@ -41,8 +43,11 @@ automation uses `muxr shared-relay`, `muxr machines enroll|list|revoke`, and
 
 ## Reaching the relay from your phone
 
-Interactive onboarding presents these choices. The equivalent automation flags
-are:
+Interactive onboarding does not begin with a transport menu. It recommends one
+ready route in this order: the healthy current route, Tailscale Serve, direct
+Tailscale when Serve is proven disabled or occupied, a detected private overlay
+such as NetBird or WireGuard, an installed temporary tunnel, then same Wi-Fi.
+Choose **Choose another way** to see every available transport. Automation uses:
 
 | Flag | What happens |
 |---|---|
@@ -50,7 +55,10 @@ are:
 | `--tunnel` | Spawns `cloudflared` for a public `trycloudflare.com` URL. The URL is ephemeral; use a named tunnel for permanence. |
 | *(choose Tailscale Serve)* | Uses private HTTPS through `tailscale serve`; the relay stays on loopback. |
 | `--tailscale-direct` | Rollback path using the tailnet IP directly. |
-| *(choose Local network)* | LAN address. Phone must be on the same network. |
+| *(detected private network)* | Uses the address on an existing NetBird, WireGuard, ZeroTier, or similar interface. The phone must join that same private network. |
+| *(choose Same Wi-Fi)* | Local network address. Phone must be on the same trusted network. |
+
+Before applying Serve, the wizard checks that it is available and not already owned. A timeout or invalid JSON response is inconclusive, so muxr keeps Serve recommended and lets the bounded Apply decide. Only proven disabled or occupied Serve changes the recommendation; muxr then preserves the existing state and offers direct Tailscale.
 
 muxr never enables Funnel. Restrict the Serve endpoint with a tailnet grant/ACL to intended devices even though muxr pairing and E2EE remain authoritative. `--web` requires a secure `wss://` route; insecure LAN HTTP is refused.
 

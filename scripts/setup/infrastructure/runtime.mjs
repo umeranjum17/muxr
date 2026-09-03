@@ -151,7 +151,7 @@ export function run(command, args, options = {}) {
     const timeout = options.timeout ?? 30_000;
     const result = spawnSync(command, args, { encoding: 'utf8', ...options, timeout });
     return {
-        ok: result.status === 0,
+        ok: result.status === 0 && result.error === undefined,
         status: result.status ?? 1,
         stdout: result.stdout?.trim() ?? '',
         stderr: result.stderr?.trim() || (result.error?.code === 'ETIMEDOUT'
@@ -238,10 +238,11 @@ export function machineIdentity(existing) {
 }
 
 export async function api(base, path, options = {}) {
+    const { headers, signal = AbortSignal.timeout(15_000), ...request } = options;
     const response = await fetch(`${base.replace(/\/+$/, '')}${path}`, {
-        ...options,
-        headers: { 'content-type': 'application/json', ...options.headers },
-        signal: AbortSignal.timeout(15_000),
+        ...request,
+        headers: { 'content-type': 'application/json', ...headers },
+        signal,
     });
     const body = await response.json().catch(() => ({}));
     return { response, body };

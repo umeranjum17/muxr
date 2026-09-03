@@ -52,10 +52,12 @@ export {
 
 export {
     applyMachineSetup,
+    classifyNetworkRoutes,
     connectRemoteRelay,
     continueWithDirectTailscale,
     hostSharedRelay,
     manageMachines,
+    recommendedConnection,
     selfhostArgsFromSetupPlan,
 } from './presentation/setupWizard.mjs';
 
