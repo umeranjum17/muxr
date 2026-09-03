@@ -8,6 +8,8 @@
  *   3. terminal.attach -> live frame stream with its initial paint
  *   4. typed input reaches the pane and echoes back
  *   5. prompt / abort / detach / stop round-trip
+ *   6. title-only session.updated stays under the 500ms host cap
+ *   7. an inline Kitty APC reaches the client as a graphics frame
  *
  * Needs a running `herdr server`. Run: node scripts/diagnostics/application/checkHerdrE2E.mjs
  */
@@ -16,6 +18,7 @@ import { execFileSync, spawn } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { deflateSync } from 'node:zlib';
 import WebSocket from 'ws';
 import {
     decodePayload,
@@ -84,6 +87,7 @@ const pending = new Map();
 const events = [];
 let sessionList = [];
 let createdWorkspaceId;
+let previousWorkspaceId;
 let finishing = false;
 const timer = setTimeout(() => finish(1, `FAIL: timed out after ${TIMEOUT_MS}ms\n`), TIMEOUT_MS);
 
@@ -96,6 +100,11 @@ function finish(code, message) {
     finishing = true;
     clearTimeout(timer);
     for (const child of children) child.kill();
+    if (previousWorkspaceId !== undefined) {
+        try {
+            execFileSync(process.env.HERDR_BIN || 'herdr', ['workspace', 'focus', previousWorkspaceId], { stdio: 'ignore' });
+        } catch { /* best effort after a failed live server */ }
+    }
     if (createdWorkspaceId !== undefined) {
         try {
             execFileSync(process.env.HERDR_BIN || 'herdr', ['workspace', 'close', createdWorkspaceId], { stdio: 'ignore' });
@@ -128,6 +137,14 @@ function send(socket, frame, sessionId) {
         payload: encodePayload(frame),
     };
     socket.send(JSON.stringify(envelope));
+}
+
+function runHerdr(args, timeout = 10_000) {
+    return execFileSync(process.env.HERDR_BIN || 'herdr', args, { encoding: 'utf8', timeout });
+}
+
+function herdrJson(args, timeout = 10_000) {
+    return JSON.parse(runHerdr(args, timeout));
 }
 
 start('relay', ['apps/relay/dist/main.js']);
@@ -238,9 +255,75 @@ async function run() {
     if (actionFailure !== 'plugin action failed') fail(`action failure was not bounded: ${actionFailure ?? 'request succeeded'}`);
     console.log('ok: failed Herdr action returned a bounded client error through its real log');
 
+    // Title-only session.updated is coalesced to 500ms; a raw 10 Hz OSC 0
+    // would otherwise flood the phone store the way the release regression did.
+    let shellPaneId = phoneShellPane?.paneId;
+    if (typeof shellPaneId !== 'string') {
+        const tree = await request(socket, 'herdr.tree', {});
+        const panes = tree.workspaces.flatMap((workspace) => workspace.tabs.flatMap((tab) => tab.panes));
+        shellPaneId = panes.find((pane) => pane.sessionId === shellId)?.paneId;
+    }
+    if (typeof shellPaneId !== 'string') fail('phone-started Shell has no pane');
+    const animatorPaneIds = [shellPaneId];
+    while (animatorPaneIds.length < 3) {
+        const split = herdrJson(['pane', 'split', animatorPaneIds.at(-1), '--direction', animatorPaneIds.length === 1 ? 'right' : 'down', '--no-focus']);
+        const paneId = split.result?.pane?.pane_id;
+        if (typeof paneId !== 'string') fail('pane split returned no pane id');
+        animatorPaneIds.push(paneId);
+    }
+    const coalesceSessions = [];
+    const sessionDeadline = Date.now() + 12_000;
+    while (true) {
+        const tree = await request(socket, 'herdr.tree', {});
+        const panes = tree.workspaces.flatMap((workspace) => workspace.tabs.flatMap((tab) => tab.panes));
+        coalesceSessions.length = 0;
+        for (const paneId of animatorPaneIds) {
+            const sessionId = panes.find((pane) => pane.paneId === paneId)?.sessionId;
+            if (typeof sessionId === 'string') coalesceSessions.push(sessionId);
+        }
+        if (coalesceSessions.length === animatorPaneIds.length) break;
+        if (Date.now() >= sessionDeadline) fail('split panes never published session ids');
+        await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+    const titleAnimator = 'i=0; while :; do printf "\\033]0;perf %s\\007" $((i++)); sleep 0.1; done';
+    for (const paneId of animatorPaneIds) {
+        runHerdr(['pane', 'run', paneId, titleAnimator]);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    const coalesceMark = events.length;
+    const coalesceWindowMs = 3_000;
+    await new Promise((resolve) => setTimeout(resolve, coalesceWindowMs));
+    const watched = new Set(coalesceSessions);
+    const coalesceCounts = new Map(coalesceSessions.map((sessionId) => [sessionId, 0]));
+    let coalesceFrames = 0;
+    for (const entry of events.slice(coalesceMark)) {
+        if (entry.event?.type !== 'session.updated' || !watched.has(entry.sessionId)) continue;
+        coalesceCounts.set(entry.sessionId, (coalesceCounts.get(entry.sessionId) ?? 0) + 1);
+        coalesceFrames += 1;
+    }
+    const coalesceSeconds = coalesceWindowMs / 1000;
+    for (const [sessionId, count] of coalesceCounts) {
+        if (count * 1000 > 2 * coalesceWindowMs) {
+            fail(`session.updated exceeded the coalescing cap (${count} frames / ${coalesceSeconds}s for ${sessionId})`);
+        }
+    }
+    console.log(`ok: session.updated stayed under the coalescing cap (${coalesceFrames} frames / ${coalesceSeconds}s for ${coalesceCounts.size} sessions)`);
+    for (const paneId of animatorPaneIds) {
+        try {
+            runHerdr(['pane', 'send-text', paneId, '\x03'], 5_000);
+        } catch { /* pane may already have exited */ }
+    }
+    for (const paneId of animatorPaneIds.slice(1)) {
+        try {
+            runHerdr(['pane', 'close', paneId], 5_000);
+        } catch { /* best effort before the workspace close */ }
+    }
+
     // 3. terminal.attach -> frames
     const channel = newTerminalChannel();
-    const attached = await request(socket, 'terminal.attach', { sessionId: newId, channel, cols: 100, rows: 30 });
+    const attached = await request(socket, 'terminal.attach', {
+        sessionId: newId, channel, cols: 100, rows: 30, cellWidthPx: 8, cellHeightPx: 16,
+    });
     if (typeof attached?.paneId !== 'string') fail('terminal.attach returned no paneId');
     const term = new WebSocket(terminalSocketUrl(relayUrl, { machineId, channel, role: 'client' }));
     const frames = [];
@@ -266,6 +349,63 @@ async function run() {
     const text = Buffer.concat(frames.map((frame) => Buffer.from(frame.bytes, 'base64'))).toString('utf8');
     if (!text.includes(marker)) fail(`typed input never echoed back (${frames.length} frames, ${text.length} bytes)`);
     console.log('ok: input echoed back through the terminal stream');
+
+    // Graphics needs cell metrics on attach; Herdr then forwards the pane's
+    // own Kitty APC as a graphics:true frame. printf has to run in a shell,
+    // so this attach is the phone-started Shell, not the Pi generation.
+    const kittyChannel = newTerminalChannel();
+    const kittyAttached = await request(socket, 'terminal.attach', {
+        sessionId: shellId, channel: kittyChannel, cols: 100, rows: 30, cellWidthPx: 8, cellHeightPx: 16,
+    });
+    if (typeof kittyAttached?.paneId !== 'string') fail('Kitty terminal.attach returned no paneId');
+    const kittyTerm = new WebSocket(terminalSocketUrl(relayUrl, { machineId, channel: kittyChannel, role: 'client' }));
+    const kittyFrames = [];
+    kittyTerm.on('message', (raw) => {
+        try {
+            const frame = JSON.parse(String(raw));
+            if (frame.type === 'terminal.frame') kittyFrames.push(frame);
+        } catch { /* ignore */ }
+    });
+    await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('Kitty terminal socket never opened')), 5_000);
+        kittyTerm.once('open', () => { clearTimeout(timer); resolve(); });
+        kittyTerm.once('error', (error) => { clearTimeout(timer); reject(error); });
+    });
+    await waitFor(() => kittyFrames.length > 0, 'Kitty pane terminal.frame stream');
+    const listed = herdrJson(['workspace', 'list']);
+    previousWorkspaceId = listed.result?.workspaces?.find((workspace) => workspace.focused === true)?.workspace_id;
+    const shellPane = herdrJson(['pane', 'get', kittyAttached.paneId]);
+    const shellWorkspaceId = shellPane.result?.pane?.workspace_id;
+    const shellTabId = shellPane.result?.pane?.tab_id;
+    if (typeof shellWorkspaceId !== 'string' || typeof shellTabId !== 'string') fail('Kitty pane has no workspace/tab');
+    runHerdr(['workspace', 'focus', shellWorkspaceId]);
+    runHerdr(['tab', 'focus', shellTabId]);
+    await new Promise((resolve) => setTimeout(resolve, 1_500));
+    const kittyPayload = deflateSync(Buffer.alloc(16)).toString('base64');
+    const kittyPrintf = `printf '\\033_Ga=T,f=32,s=2,v=2,t=d,o=z,i=9,c=4,r=2;${kittyPayload}\\033\\\\'`;
+    runHerdr(['pane', 'run', kittyAttached.paneId, kittyPrintf]);
+    const kittyDeadline = Date.now() + 5_000;
+    while (!kittyFrames.some((frame) => frame.graphics === true)) {
+        if (Date.now() >= kittyDeadline) {
+            const arrived = kittyFrames.slice(-8).map((frame) => ({
+                graphics: frame.graphics === true,
+                reason: frame.graphicsReason,
+                bytes: typeof frame.bytes === 'string' ? frame.bytes.length : 0,
+                full: frame.full === true,
+            }));
+            fail(`inline Kitty never arrived as a graphics frame (${JSON.stringify(arrived)})`);
+        }
+        await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    console.log('ok: inline Kitty reached the client as a graphics frame');
+    kittyTerm.close();
+    await request(socket, 'terminal.detach', { sessionId: shellId, channel: kittyChannel });
+    if (previousWorkspaceId !== undefined) {
+        try {
+            runHerdr(['workspace', 'focus', previousWorkspaceId], 5_000);
+        } catch { /* restore is best effort; finish() retries */ }
+        previousWorkspaceId = undefined;
+    }
 
     // 5. prompt + abort round-trip (ack-only requests)
     await request(socket, 'session.prompt', { sessionId: newId, text: 'say nothing' });
