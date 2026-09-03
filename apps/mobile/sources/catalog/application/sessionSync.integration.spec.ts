@@ -88,6 +88,7 @@ async function spawn(options: { modelMode?: string; effortLevel?: string }) {
 
 describe('session sync flow', () => {
     beforeEach(() => {
+        vi.useRealTimers();
         vi.restoreAllMocks();
         refreshSessions.mockReset();
         request.mockReset();
@@ -784,7 +785,6 @@ describe('session sync flow', () => {
         await Promise.resolve();
         expect(voiceMocks.callPlugin).toHaveBeenCalledTimes(deliveredCallCount);
         expect(voiceMocks.speakReport).toHaveBeenCalledOnce();
-        vi.useRealTimers();
     });
 
     it('keeps unchanged sessions and cards identical across host info frames', () => {
