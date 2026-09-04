@@ -211,6 +211,8 @@ export async function startFakeStack(options = {}) {
             herdrPid: fake.pid,
             identity: (identity.stdout ?? '').trim().split('\n').pop(),
             hostLog: () => hostLog.join(''),
+            /** Did any attached phone declare cell pixels this run? */
+            phoneDeclaredCellMetrics: () => existsSync(`${fake.socketPath}.cell-metrics`),
             relayLog: () => relayLog.join(''),
             /**
              * A real pairing string for this throwaway host. The CLI keeps

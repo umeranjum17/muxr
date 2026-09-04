@@ -89,12 +89,20 @@ see. The list comes from the herd, so a bigger world means a longer tour.
 idle on the herd (120 s), `flows/herdSoak.yaml` (strip and tree scrolling),
 `flows/herdNavigate.yaml` (attach an agent's terminal, drag its scrollback,
 detach, walk the plugin tabs, leave the app and return), and
-`flows/graphicsScroll.yaml` (90 s: deep-link a graphics pane and mix short
-drags with flings). Graphics limits are `graphicsPipelineP95Ms` 250,
-`graphicsBytesP95` 800 kB and `scrollToFrameP95Ms` 400. Superseded frames are
-reported, not gated: measured against a real producer the pipeline answers a
-frame in 6 ms, so a burst is delivered rather than dropped, and a run that had
-nothing stale to drop is the good case.
+`flows/graphicsScroll.yaml` (90 s: open a graphics pane and mix short drags with
+flings). Graphics limits are `graphicsPipelineP95Ms` 250, `graphicsBytesP95`
+800 kB and `scrollToFrameP95Ms` 400. Superseded frames are reported, not gated:
+measured against a real producer the pipeline answers a frame in 6 ms, so a
+burst is delivered rather than dropped, and a run that had nothing stale to drop
+is the good case.
+
+A graphics bridge only opens for a phone that declares cell pixels. This
+emulator's software-rendered terminal does not, so a run there prints
+`note: no phone declared cell pixels` and leaves the graphics cost unmeasured
+rather than failing; a phone that *did* declare them and produced no account is
+a hard failure. The account itself is proven end to end by
+`node perf/fake-herdr/stack.smoke.mjs`, which drives the real host with a client
+that declares them.
 
 ## Thresholds
 

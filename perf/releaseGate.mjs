@@ -338,9 +338,14 @@ process.stdout.write(`\ngraphics: frames ${graphics.frames} superseded ${graphic
     + `  p50 ${graphics.p50Ms} ms  p95 ${graphics.p95Ms} ms`
     + `  bytes p95 ${graphics.bytesP95}  pixels p95 ${graphics.pixelsP95}\n`);
 if (graphicsEvents.length === 0) {
-    fail('no graphics.pipeline event in the host journal');
-    // A missing account is either a bridge that never opened or a phone that
-    // never attached; the host says which, and guessing wastes a whole run.
+    // Two very different runs look the same here, so say which one this was.
+    // A phone that never declared cell pixels never got a graphics bridge at
+    // all -- true of a software-rendered emulator -- and a run that had one and
+    // produced no account is a real regression.
+    const asked = stack?.phoneDeclaredCellMetrics() === true;
+    report.graphicsAsked = asked;
+    if (asked) fail('a phone declared cell metrics but the host wrote no graphics.pipeline account');
+    else process.stdout.write('note: no phone declared cell pixels, so no graphics bridge opened; graphics cost unmeasured this run\n');
     const graphicsLog = (stack?.hostLog() ?? '')
         .split('\n')
         .filter((line) => /graphics/i.test(line))
