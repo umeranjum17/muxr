@@ -86,6 +86,7 @@ vi.mock('ws', async () => {
 });
 
 import { TerminalManager } from './terminalManager.js';
+import { HerdrGraphicsBridge, type HerdrGraphicsRegistration } from './herdrGraphicsBridge.js';
 
 describe('TerminalManager stream exit', () => {
     beforeEach(() => {
@@ -158,6 +159,67 @@ describe('TerminalManager stream exit', () => {
         await expect(manager.attach({ sessionId: 'session', channel: 'channel', cols: 100, rows: 30 }))
             .rejects.toThrow('could not start Herdr');
         expect(fakes.sockets[0]?.close).toHaveBeenCalledOnce();
+    });
+
+    it('preserves graphics placements and deletes through backpressure and closes on bounded overflow', async () => {
+        let writeGraphics!: (frame: string) => void;
+        const bridge = {
+            register: vi.fn((registration: HerdrGraphicsRegistration) => {
+                writeGraphics = registration.write;
+                return true;
+            }),
+            unregister: vi.fn(),
+            hasRegistrations: () => false,
+            close: vi.fn(),
+        };
+        vi.spyOn(HerdrGraphicsBridge, 'open').mockResolvedValue(bridge as unknown as HerdrGraphicsBridge);
+        const manager = new TerminalManager({
+            relayUrl: 'ws://relay.test', machineId: 'machine', resolvePane: async () => 'workspace:pane',
+        });
+        await manager.attach({ sessionId: 'session', channel: 'graphics', cols: 100, rows: 30, cellWidthPx: 8, cellHeightPx: 16 });
+        await vi.waitFor(() => expect(bridge.register).toHaveBeenCalled());
+        const socket = fakes.sockets[0]!;
+        const graphic = (bytes: string, graphics = true) => JSON.stringify({
+            type: 'terminal.frame', seq: 0, encoding: 'ansi', width: 100, height: 30,
+            full: false, graphics, graphicsSurface: 'inline', bytes: Buffer.from(bytes).toString('base64'),
+        });
+        const frames = [
+            graphic('\x1b_Ga=p,i=1,p=1;\x1b\\'),
+            graphic('\x1b_Ga=p,i=2,p=2;\x1b\\'),
+            graphic('\x1b_Ga=d,d=i,i=1;\x1b\\', false),
+            graphic('\x1b_Ga=p,i=3,p=3;\x1b\\'),
+        ];
+        vi.useFakeTimers();
+        try {
+            socket.bufferedAmount = 600 * 1024;
+            for (const frame of frames) writeGraphics(frame);
+            await vi.advanceTimersByTimeAsync(32);
+            expect(socket.send).not.toHaveBeenCalled();
+            socket.bufferedAmount = 0;
+            // A drain can fill the socket again: preserve the remaining queue.
+            socket.send.mockImplementationOnce(() => { socket.bufferedAmount = 600 * 1024; });
+            await vi.advanceTimersByTimeAsync(16);
+            expect(socket.send.mock.calls.map(([frame]) => frame)).toEqual(frames.slice(0, 1));
+            socket.bufferedAmount = 0;
+            await vi.advanceTimersByTimeAsync(16);
+            expect(socket.send.mock.calls.map(([frame]) => frame)).toEqual(frames);
+
+            socket.send.mockClear();
+            socket.bufferedAmount = 600 * 1024;
+            const large = graphic('x'.repeat(25 * 1024 * 1024));
+            writeGraphics(large);
+            expect(socket.close).not.toHaveBeenCalled();
+            writeGraphics(large);
+            expect(socket.close).toHaveBeenCalledOnce();
+            expect(JSON.parse(socket.send.mock.calls[0]![0])).toMatchObject({
+                type: 'terminal.closed', reason: 'terminal graphics backlog exceeded',
+            });
+            await vi.advanceTimersByTimeAsync(64);
+            expect(socket.send).toHaveBeenCalledOnce();
+        } finally {
+            manager.closeAll();
+            vi.useRealTimers();
+        }
     });
 
     it('does not write a late client frame into a cleanly exited stream', async () => {
