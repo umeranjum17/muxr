@@ -529,6 +529,7 @@ export const it: TranslationStructure = {
         previousChangeAt: ({ current, total }: { current: number; total: number }) => `Modifica precedente, ${current} di ${total}`,
         nextChangeAt: ({ current, total }: { current: number; total: number }) => `Modifica successiva, ${current} di ${total}`,
         graphicsUnavailable: 'Grafica non disponibile',
+        folderNotFile: 'Quel percorso è una cartella, non un file.',
         showFullPath: 'Mostra percorso completo',
         pathShowFullPath: ({ label }: { label: string }) => `Percorso ${label}, mostra percorso completo`,
         goToPath: ({ label }: { label: string }) => `Vai a ${label}`,

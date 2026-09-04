@@ -530,6 +530,7 @@ export const ca: TranslationStructure = {
         previousChangeAt: ({ current, total }: { current: number; total: number }) => `Canvi anterior, ${current} de ${total}`,
         nextChangeAt: ({ current, total }: { current: number; total: number }) => `Canvi següent, ${current} de ${total}`,
         graphicsUnavailable: 'Gràfics no disponibles',
+        folderNotFile: 'Aquesta ruta és una carpeta, no un fitxer.',
         showFullPath: 'Mostra el camí complet',
         pathShowFullPath: ({ label }: { label: string }) => `Camí ${label}, mostra el camí complet`,
         goToPath: ({ label }: { label: string }) => `Ves a ${label}`,

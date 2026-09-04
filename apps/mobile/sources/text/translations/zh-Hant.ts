@@ -531,6 +531,7 @@ export const zhHant: TranslationStructure = {
         previousChangeAt: ({ current, total }: { current: number; total: number }) => `上一處變更，${current} / ${total}`,
         nextChangeAt: ({ current, total }: { current: number; total: number }) => `下一處變更，${current} / ${total}`,
         graphicsUnavailable: '圖形不可用',
+        folderNotFile: '該路徑是資料夾，不是檔案。',
         showFullPath: '顯示完整路徑',
         pathShowFullPath: ({ label }: { label: string }) => `路徑 ${label}，顯示完整路徑`,
         goToPath: ({ label }: { label: string }) => `前往 ${label}`,

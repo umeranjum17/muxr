@@ -546,6 +546,7 @@ export const pl: TranslationStructure = {
         previousChangeAt: ({ current, total }: { current: number; total: number }) => `Poprzednia zmiana, ${current} z ${total}`,
         nextChangeAt: ({ current, total }: { current: number; total: number }) => `Następna zmiana, ${current} z ${total}`,
         graphicsUnavailable: 'Grafika niedostępna',
+        folderNotFile: 'Ta ścieżka to folder, nie plik.',
         showFullPath: 'Pokaż pełną ścieżkę',
         pathShowFullPath: ({ label }: { label: string }) => `Ścieżka ${label}, pokaż pełną ścieżkę`,
         goToPath: ({ label }: { label: string }) => `Przejdź do ${label}`,

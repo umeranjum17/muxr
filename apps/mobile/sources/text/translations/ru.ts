@@ -547,6 +547,7 @@ export const ru: TranslationStructure = {
         previousChangeAt: ({ current, total }: { current: number; total: number }) => `Предыдущее изменение, ${current} из ${total}`,
         nextChangeAt: ({ current, total }: { current: number; total: number }) => `Следующее изменение, ${current} из ${total}`,
         graphicsUnavailable: 'Графика недоступна',
+        folderNotFile: 'Этот путь — папка, а не файл.',
         showFullPath: 'Показать полный путь',
         pathShowFullPath: ({ label }: { label: string }) => `Путь ${label}, показать полный путь`,
         goToPath: ({ label }: { label: string }) => `Перейти к ${label}`,

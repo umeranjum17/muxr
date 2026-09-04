@@ -532,6 +532,7 @@ export const ja: TranslationStructure = {
         previousChangeAt: ({ current, total }: { current: number; total: number }) => `前の変更、${current} / ${total}`,
         nextChangeAt: ({ current, total }: { current: number; total: number }) => `次の変更、${current} / ${total}`,
         graphicsUnavailable: 'グラフィックを利用できません',
+        folderNotFile: 'そのパスはフォルダーであり、ファイルではありません。',
         showFullPath: 'フルパスを表示',
         pathShowFullPath: ({ label }: { label: string }) => `パス ${label}、フルパスを表示`,
         goToPath: ({ label }: { label: string }) => `${label} へ移動`,

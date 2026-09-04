@@ -532,6 +532,7 @@ export const zhHans: TranslationStructure = {
         previousChangeAt: ({ current, total }: { current: number; total: number }) => `上一处更改，${current} / ${total}`,
         nextChangeAt: ({ current, total }: { current: number; total: number }) => `下一处更改，${current} / ${total}`,
         graphicsUnavailable: '图形不可用',
+        folderNotFile: 'That path is a folder, not a file.',
         showFullPath: '显示完整路径',
         pathShowFullPath: ({ label }: { label: string }) => `路径 ${label}，显示完整路径`,
         goToPath: ({ label }: { label: string }) => `转到 ${label}`,

@@ -2831,8 +2831,18 @@ export async function createHerdrSessionSource(
         async readFile(readOptions: SessionReadFileOptions): Promise<{ content: string }> {
             // ponytail: no sandboxing beyond the cap. The host runs as the user; the
             // app can already drive a full shell through the terminal channel.
-            const handle = await open(readOptions.path, 'r');
+            //
+            // A folder is something a person taps by accident in a file tree, so it
+            // says so, rather than handing the phone an errno to show raw.
+            const handle = await open(readOptions.path, 'r').catch((error: unknown) => {
+                if ((error as { code?: string }).code !== 'EISDIR') throw error;
+                throw Object.assign(new Error('That path is a folder, not a file.'), { code: 'not-a-file' });
+            });
             try {
+                const stat = await handle.stat();
+                if (stat.isDirectory()) {
+                    throw Object.assign(new Error('That path is a folder, not a file.'), { code: 'not-a-file' });
+                }
                 const bytes = Buffer.alloc(512 * 1024 + 1);
                 const { bytesRead } = await handle.read(bytes, 0, bytes.length, 0);
                 return { content: bytes.subarray(0, bytesRead).toString('utf8').slice(0, 512 * 1024) };

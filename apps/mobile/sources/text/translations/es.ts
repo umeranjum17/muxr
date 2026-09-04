@@ -530,6 +530,7 @@ export const es: TranslationStructure = {
         previousChangeAt: ({ current, total }: { current: number; total: number }) => `Cambio anterior, ${current} de ${total}`,
         nextChangeAt: ({ current, total }: { current: number; total: number }) => `Cambio siguiente, ${current} de ${total}`,
         graphicsUnavailable: 'Gráficos no disponibles',
+        folderNotFile: 'Esa ruta es una carpeta, no un archivo.',
         showFullPath: 'Mostrar ruta completa',
         pathShowFullPath: ({ label }: { label: string }) => `Ruta ${label}, mostrar ruta completa`,
         goToPath: ({ label }: { label: string }) => `Ir a ${label}`,

@@ -24,6 +24,7 @@ function rememberGitDirectory(key: string, directory: string): string {
 export type SessionDocumentLoad =
     | { status: 'ok'; content: string; isBinary: boolean; diff: string | null; deleted?: boolean }
     | { status: 'error'; message: string }
+    | { status: 'folder' }
     | { status: 'cancelled' };
 
 /**
@@ -96,6 +97,9 @@ export async function loadSessionDocument(
             storage.getState().applyFileCache(sessionId, filePath, '', fetchedDiff, false, true);
             return { status: 'ok', content: '', isBinary: false, diff: fetchedDiff, deleted: true };
         }
+        // A folder is not a failed read, it is a different destination, and the
+        // screen routes to it rather than raising an alert over it.
+        if (/folder, not a file/i.test(response.error ?? '')) return { status: 'folder' };
         return { status: 'error', message: response.error || 'Failed to read file' };
     } catch (loadError) {
         console.error('Failed to load file:', loadError);

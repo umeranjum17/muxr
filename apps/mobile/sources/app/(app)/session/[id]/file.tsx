@@ -50,6 +50,7 @@ export default React.memo(function FileScreen() {
     const [diffContent, setDiffContent] = React.useState<string | null>(() => cached?.diff ?? null);
     const [isLoading, setIsLoading] = React.useState(!cached);
     const [error, setError] = React.useState<string | null>(null);
+    const [alertable, setAlertable] = React.useState(true);
     const neighborLoads = React.useRef(new Map<string, { cancelled: boolean }>());
 
     React.useEffect(() => {
@@ -61,8 +62,17 @@ export default React.memo(function FileScreen() {
         if (sessionId === undefined) return;
         void loadSessionDocument(sessionId, filePath, sessionPath, signal).then((result) => {
             if (signal.cancelled || result.status === 'cancelled') return;
+            // A folder is an expected destination, not a fault: it belongs in the
+            // screen, not behind an alert the reader has to dismiss.
+            if (result.status === 'folder') {
+                setError(t('files.folderNotFile'));
+                setAlertable(false);
+                setIsLoading(false);
+                return;
+            }
             if (result.status === 'error') {
                 setError(result.message);
+                setAlertable(true);
                 setIsLoading(false);
                 return;
             }
@@ -109,8 +119,8 @@ export default React.memo(function FileScreen() {
     }, []);
 
     React.useEffect(() => {
-        if (error) Modal.alert(t('common.error'), error);
-    }, [error]);
+        if (error !== null && alertable) Modal.alert(t('common.error'), error);
+    }, [error, alertable]);
 
     const lineSuffix = requestedLine !== null && requestedLine > 0
         ? `:${requestedLine}${requestedColumn !== null && requestedColumn > 0 ? `:${requestedColumn}` : ''}`
