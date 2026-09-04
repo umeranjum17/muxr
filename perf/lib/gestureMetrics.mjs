@@ -378,19 +378,21 @@ export function pixelsMoved(before, after, { minMean = PIXEL_MOVE_THRESHOLD } = 
     return { moved: meanAbs >= minMean, meanAbs, threshold: minMean };
 }
 
+// Decode UI-dump entities once: a literal "&amp;lt;" must stay "&lt;".
+// Include the encoded newline emitted by Android's diagnostics Text view.
+export function decodeUiAttribute(value) {
+    const entities = { '&quot;': '"', '&amp;': '&', '&lt;': '<', '&gt;': '>', '&apos;': "'", '&#10;': '\n' };
+    return String(value ?? '').replace(/&(?:quot|amp|lt|gt|apos|#10);/g, (entity) => entities[entity]);
+}
+
 export function parseUiNodes(dump) {
     const nodes = [];
     for (const node of String(dump).match(/<node\b[^>]*>/g) ?? []) {
         const bounds = /bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/.exec(node);
         if (bounds === null) continue;
-        const decode = (value) => String(value ?? '')
-            .replace(/&quot;/g, '"')
-            .replace(/&amp;/g, '&')
-            .replace(/&lt;/g, '<')
-            .replace(/&gt;/g, '>');
         nodes.push({
-            text: decode(/text="([^"]*)"/.exec(node)?.[1]),
-            desc: decode(/content-desc="([^"]*)"/.exec(node)?.[1]),
+            text: decodeUiAttribute(/text="([^"]*)"/.exec(node)?.[1]),
+            desc: decodeUiAttribute(/content-desc="([^"]*)"/.exec(node)?.[1]),
             className: /class="([^"]*)"/.exec(node)?.[1] ?? '',
             l: Number(bounds[1]),
             t: Number(bounds[2]),
