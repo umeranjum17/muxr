@@ -237,6 +237,26 @@ async function viewerLineTarget() {
     await top('line-target-warm-top');
     const warm = await target('line-target-warm');
     report.viewer.lineTarget = { sourceLine: 200, relativePath: 'line-target.ts', realSessionBinding: true, cold, warm, mode: 'file (untracked fixture has no git patch)', limits: 'Diff deletion collisions and folded targets are not asserted on device' };
+    // Remove only this run's relay tunnel. A cold launch cannot hydrate the
+    // session root; it must reach a bounded in-screen error instead of ENOENT.
+    let offline;
+    try {
+        await adb('reverse', '--remove', `tcp:${stack.relayPort}`);
+        await adb('shell', 'am', 'force-stop', pkg);
+        const startedAt = Date.now();
+        await open(200);
+        const xml = await requireScreen('line-target-offline', /This session is not available, so the file could not be located/, 20000);
+        check(!xml.includes('ENOENT') && !/text="OK"/.test(xml), 'Offline missing root surfaced a file-read alert');
+        offline = { elapsedMs: Date.now() - startedAt, error: 'session root unavailable', scope: 'owned relay tunnel removed, cold relative line200 route' };
+        check(offline.elapsedMs <= 25000, 'Offline missing-root error exceeded bounded wait');
+        await capture('line-target-offline.png');
+    } finally {
+        await adb('reverse', `tcp:${stack.relayPort}`, `tcp:${stack.relayPort}`);
+    }
+    await adb('shell', 'am', 'force-stop', pkg);
+    const recovered = await target('line-target-reconnected');
+    report.viewer.lineTarget.offline = offline;
+    report.viewer.lineTarget.reconnected = recovered;
 }
 
 async function main() {
