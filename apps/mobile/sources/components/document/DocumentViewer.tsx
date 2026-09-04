@@ -26,13 +26,12 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Text } from '@/components/StyledText';
 import { Typography } from '@/constants/Typography';
 import { layout } from '@/components/layout';
-import { PathBreadcrumb } from '@/components/PathBreadcrumb';
 import type { CodeContentPadding } from '@/components/code/CodeCore';
 import { CodeSurface } from '@/components/document/CodeSurface';
+import { PanelHeader } from '@/components/document/PanelHeader';
 import { surfaceModel } from '@/components/document/surfaceModel';
 import { useMonoCharWidth } from '@/components/code/monoMetrics';
 import { syntaxLanguage } from '@/components/code/syntaxHighlighting';
-import { fileIcon } from '@/plugins/domain/fileIcon';
 import { toneColor } from '@/plugins/domain/pluginTone';
 import { type PluginScreenTone } from '@muxr/contract';
 import { hapticsLight } from '@/components/haptics';
@@ -49,6 +48,14 @@ export type DocumentMetadataItem = {
     value: string;
     tone?: PluginScreenTone;
 };
+
+/**
+ * The reading surface's zoom ladder, identical to the terminal pane's
+ * `FONT_STEPS` (TerminalView.tsx:51) so one tap means one thing in both
+ * panes. Worth hoisting into `codeLayout` when the terminal is not being
+ * edited by someone else.
+ */
+export const FONT_STEPS = [8, 10, 12, 14, 17, 20] as const;
 
 export const EDGE_INSET = 24;
 export const X_ACTIVATE = 16;
@@ -99,9 +106,9 @@ function MetadataChips({ metadata }: { metadata: DocumentMetadataItem[] }) {
     if (metadata.length === 0) return null;
     const label = metadata.map((item) => `${item.label === undefined ? '' : `${item.label} `}${item.value}`).join(', ');
     return (
-        <View accessibilityRole="text" accessibilityLabel={label} style={{ minHeight: 22, borderRadius: 999, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider, backgroundColor: theme.colors.surfaceHigh, paddingHorizontal: 8, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+        <View accessibilityRole="text" accessibilityLabel={label} style={{ minHeight: 20, borderRadius: 999, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.code.hairline, backgroundColor: theme.colors.code.pressed, paddingHorizontal: 8, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
             {metadata.map((item, index) => (
-                <Text key={`${item.value}:${index}`} style={{ color: item.tone === undefined ? theme.colors.textSecondary : toneColor(theme, item.tone), fontSize: 11.5, ...Typography.mono('semiBold') }}>
+                <Text key={`${item.value}:${index}`} style={{ color: item.tone === undefined ? theme.colors.code.dim : toneColor(theme, item.tone), fontSize: 11.5, ...Typography.mono('semiBold') }}>
                     {item.label === undefined ? item.value : `${item.label} ${item.value}`}
                 </Text>
             ))}
@@ -163,6 +170,7 @@ function DocumentBody(props: {
                 shownMode={props.shownMode}
                 isNarrow={props.isNarrow}
                 contentWidth={props.contentWidth}
+                wrap={props.wrap}
                 contentPadding={props.contentPadding}
                 surfaceRef={props.surfaceRef}
                 onHunkIndices={props.onHunkIndices}
@@ -195,12 +203,13 @@ function ReadingBody(props: {
     contentWidth: number;
     contentPadding: CodeContentPadding;
     fontSize?: number;
+    wrap: boolean;
     surfaceRef: React.MutableRefObject<{ jumpToRow: (row: number) => void } | null>;
     onHunkIndices: (indices: number[]) => void;
     onDerivedFontSize: (size: number) => void;
 }) {
     const { theme } = useUnistyles();
-    const size = props.fontSize ?? (props.isNarrow ? 11 : 13);
+    const size = props.fontSize ?? (props.isNarrow ? 12 : 14);
     const { charWidth, probe } = useMonoCharWidth([size, size - 1]);
     const built = React.useMemo(
         () => surfaceModel({
@@ -217,6 +226,8 @@ function ReadingBody(props: {
     if (built === null) {
         return <Text style={{ fontSize: 16, color: theme.colors.textSecondary, fontStyle: 'italic', ...Typography.default() }}>{t('files.noChanges')}</Text>;
     }
+    const added = built.rows.reduce((count, row) => row.prefix === '+' ? count + 1 : count, 0);
+    const removed = built.rows.reduce((count, row) => row.prefix === '-' ? count + 1 : count, 0);
     return (
         <View style={{ flex: 1 }}>
             <CodeSurface
@@ -228,10 +239,18 @@ function ReadingBody(props: {
                 charWidth={charWidth(size)}
                 fontSize={size}
                 isNarrow={props.isNarrow}
+                wrap={props.wrap}
                 paddingTop={props.contentPadding.top}
                 paddingBottom={props.contentPadding.bottom}
                 surfaceRef={props.surfaceRef}
                 language={syntaxLanguage(undefined, props.model.path)}
+                header={<PanelHeader
+                    {...(props.model.path === undefined ? {} : { path: props.model.path })}
+                    {...(syntaxLanguage(undefined, props.model.path) === undefined ? {} : { language: syntaxLanguage(undefined, props.model.path) })}
+                    added={added}
+                    removed={removed}
+                    {...(props.model.metadata === undefined ? {} : { trailing: <MetadataChips metadata={props.model.metadata} /> })}
+                />}
                 {...(props.model.highlightLine === undefined ? {} : { highlightLine: props.model.highlightLine })}
             />
             {probe}
@@ -350,11 +369,15 @@ export function DocumentViewer(props: {
     const { width: windowWidth } = useWindowDimensions();
     const isNarrow = windowWidth < 700;
     const [displayMode, setDisplayMode] = React.useState<DocumentDisplayMode>('diff');
-    // The viewers derive their own size from the pane width; this is only the
-    // pinch override, and it lives and dies with the open document.
-    const [pinchedSize, setPinchedSize] = React.useState<number>();
+    // Zoom is the terminal pane's ladder, not a free float: `FONT_STEPS` here
+    // mirrors TerminalView.tsx:51 so a tap means the same thing in both panes.
+    // `undefined` means the derived size is still in charge.
+    const [stepIndex, setStepIndex] = React.useState<number>();
     const [derivedSize, setDerivedSize] = React.useState(12);
-    const [wrapCode, setWrapCode] = React.useState(true);
+    // Off by default: no ladder step makes a wide line fit a phone, so the
+    // surface pans instead, which is what a horizontal drag already means
+    // in the terminal pane.
+    const [wrapCode, setWrapCode] = React.useState(false);
     const [hunkIndices, setHunkIndices] = React.useState<number[]>([]);
     const [hunkIndex, setHunkIndex] = React.useState(0);
     const [diffFileCount, setDiffFileCount] = React.useState(1);
@@ -389,13 +412,15 @@ export function DocumentViewer(props: {
     const navigation = model?.navigation;
     const shownMode: DocumentDisplayMode = displayMode === 'diff' && !model?.diff ? 'file' : displayMode;
     const fileCount = shownMode === 'diff' && model?.diff ? diffFileCount : 1;
-    // An unwrapped file pans sideways, and that scroller and the file-swipe pan
-    // both start as a horizontal drag; the bar's arrows still navigate.
-    // Multi-file diffs keep swipe: the rail Native gesture fails the pan first.
+    // The x-axis has one meaning at a time. Unwrapped, it pans the code, the
+    // same thing a horizontal drag does in the terminal pane, so the
+    // file-swipe stands down and the bar's arrows carry navigation. Put the
+    // surface back into wrapping and the swipe returns, because nothing else
+    // wants the axis then.
     const swipeEnabled = isNarrow
+        && wrapCode
         && navigation !== undefined
         && (navigation.previous !== undefined || navigation.next !== undefined)
-        && (shownMode !== 'file' || wrapCode)
         && pointerCoarse;
     const forward = I18nManager.isRTL ? -1 : 1;
 
@@ -422,7 +447,9 @@ export function DocumentViewer(props: {
         hunkIndexRef.current = 0;
         setHunkIndex(0);
         setHunkIndices([]);
-        setPinchedSize(undefined);
+        // The chosen ladder step survives a file change, the way the terminal
+        // pane keeps its size when its content changes. Reset zoom is how you
+        // get back to the derived size.
         translateX.set(0);
         progress.set(0);
         towardNext.set(0);
@@ -491,14 +518,36 @@ export function DocumentViewer(props: {
         onNavigateRef.current?.(path);
     }, []);
 
-    const effectiveSize = pinchedSize ?? derivedSize;
+    const effectiveSize = stepIndex === undefined ? derivedSize : (FONT_STEPS[stepIndex] ?? derivedSize);
+    const nearestStep = React.useCallback((size: number) => {
+        let best = 0;
+        for (let index = 1; index < FONT_STEPS.length; index += 1) {
+            if (Math.abs(FONT_STEPS[index]! - size) < Math.abs(FONT_STEPS[best]! - size)) best = index;
+        }
+        return best;
+    }, []);
+    const zoom = React.useCallback((direction: 1 | -1) => {
+        hapticsLight();
+        setStepIndex((current) => {
+            const from = current ?? nearestStep(derivedSize);
+            return Math.max(0, Math.min(FONT_STEPS.length - 1, from + direction));
+        });
+    }, [derivedSize, nearestStep]);
+    const resetZoom = React.useCallback(() => { hapticsLight(); setStepIndex(undefined); }, []);
+    // Each ladder step applies the moment the pinch crosses it, with a real
+    // re-layout. Nothing is scaled: a surface that stretches pixels it has
+    // not laid out lies about where its content is, and the settle on
+    // release reads as a bug rather than as arriving.
     const pinch = React.useMemo(
         () => Gesture.Pinch()
             .onBegin(() => { pinchStart.current = effectiveSize; })
-            .onEnd((event) => { setPinchedSize(Math.round(Math.min(28, Math.max(8, pinchStart.current * event.scale)))); })
+            .onUpdate((event) => {
+                const target = nearestStep(pinchStart.current * event.scale);
+                setStepIndex((current) => current === target ? current : target);
+            })
             .runOnJS(true)
             .simultaneousWithExternalGesture(scrollNative),
-        [effectiveSize, scrollNative],
+        [effectiveSize, nearestStep, scrollNative],
     );
 
     const pan = React.useMemo(
@@ -594,15 +643,9 @@ export function DocumentViewer(props: {
         if (name === 'toggleWrap') setWrapCode((current) => !current);
     };
 
-    const breadcrumbSegments = (model?.path ?? '').split('/').filter(Boolean).map((label, index, segments) => ({
-        label: index === segments.length - 1 ? `${label}${model?.lineSuffix ?? ''}` : label,
-        ...(index === segments.length - 1 && model !== null ? { icon: fileIcon(model.fileName).name } : {}),
-    }));
-
-    // The pane's own inset, not the flat 16: eight more columns of code on a
-    // narrow phone is the difference between a wrapped import and a whole one.
-    const inset = isNarrow ? 8 : 16;
-    const contentPadding: CodeContentPadding = { horizontal: inset, top: inset, bottom: 48 + insets.bottom + 16 };
+    // The panel supplies its own 12 dp side inset, so the page adds none.
+    const inset = 0;
+    const contentPadding: CodeContentPadding = { horizontal: inset, top: 8, bottom: 52 + insets.bottom + 24 };
     const virtualized = shownMode === 'diff' ? Boolean(model?.diff) : Boolean(model?.code);
     const body = (
         <DocumentBody
@@ -619,27 +662,29 @@ export function DocumentViewer(props: {
             onFileCount={setDiffFileCount}
             onDerivedFontSize={setDerivedSize}
             railNative={railNative}
-            {...(pinchedSize === undefined ? {} : { fontSize: pinchedSize })}
+            {...(stepIndex === undefined ? {} : { fontSize: effectiveSize })}
         />
     );
 
     return (
-        <View style={[styles.container, { backgroundColor: Platform.select({ web: theme.colors.surface, default: 'transparent' }) }]}>
-            <PathBreadcrumb
-                segments={breadcrumbSegments.length === 0 ? [{ label: model?.fileName || ' ' }] : breadcrumbSegments}
-                fullPath={model?.path ?? ''}
-                {...(model?.metadata === undefined ? {} : { trailing: <MetadataChips metadata={model.metadata} /> })}
-            />
+        <View style={[styles.container, { backgroundColor: theme.colors.groupped.background }]}>
+            {/* The breadcrumb is gone: the navigation bar already names the
+                file, and the panel's own header carries the directory, the
+                language and the change counts in 40 dp instead of 44. */}
             <View
                 style={{ flex: 1 }}
                 onLayout={(event: LayoutChangeEvent) => setSlotWidth(event.nativeEvent.layout.width)}
             >
                 <GestureDetector gesture={composed}>
                     <Animated.View style={[{ flex: 1 }, contentStyle]}>
-                        <GestureDetector gesture={scrollNative}>
-                            {virtualized ? (
-                                <View style={{ flex: 1, maxWidth: layout.maxWidth, alignSelf: 'center', width: '100%' }}>{body}</View>
-                            ) : (
+                        {/* `Gesture.Native` must sit on an actual scroller.
+                            Wrapping the virtualized branch's plain View made
+                            the handler swallow the drag before the list saw
+                            it, so the panel would not scroll at all. */}
+                        {virtualized ? (
+                            <View style={{ flex: 1, maxWidth: layout.maxWidth, alignSelf: 'center', width: '100%' }}>{body}</View>
+                        ) : (
+                            <GestureDetector gesture={scrollNative}>
                                 <Animated.ScrollView
                                     ref={scrollRef}
                                     style={{ flex: 1 }}
@@ -648,8 +693,8 @@ export function DocumentViewer(props: {
                                 >
                                     {body}
                                 </Animated.ScrollView>
-                            )}
-                        </GestureDetector>
+                            </GestureDetector>
+                        )}
                     </Animated.View>
                 </GestureDetector>
                 {swipeEnabled && (
@@ -683,6 +728,11 @@ export function DocumentViewer(props: {
                 onJumpHunk={jumpHunk}
                 wrap={wrapCode}
                 onWrapChange={setWrapCode}
+                onZoom={zoom}
+                onResetZoom={resetZoom}
+                atMinZoom={(stepIndex ?? nearestStep(derivedSize)) <= 0}
+                atMaxZoom={(stepIndex ?? nearestStep(derivedSize)) >= FONT_STEPS.length - 1}
+                zoomed={stepIndex !== undefined}
                 documentLabel={model?.fileName ?? t('files.file')}
                 accessibilityActions={[
                     { name: 'previousDocument', label: t('files.previousDocument') },
