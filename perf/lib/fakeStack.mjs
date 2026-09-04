@@ -13,7 +13,7 @@
  */
 import { spawnSync } from 'node:child_process';
 import { createServer } from 'node:net';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync, chmodSync, symlinkSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync, chmodSync, symlinkSync, realpathSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { runCommand as run, spawnCommand as spawn, onCommandCleanup, commandSignal, assertCommandActive } from './commands.mjs';
@@ -92,8 +92,8 @@ async function relayHealthy(port) {
  * dropped: inheriting a machine id would retire the user's real host on their
  * real relay the moment ours connects.
  */
-function childEnv(home, muxrHome, extra) {
-    const env = { ...process.env, ...extra };
+function childEnv(home, muxrHome, extra, base = process.env) {
+    const env = { ...base, ...extra };
     for (const key of ['MUXR_RELAY_URL', 'MUXR_RELAY_TOKEN', 'MUXR_RELAY_AUTH', 'MUXR_MACHINE_ID', 'MUXR_MACHINE_NAME', 'MUXR_DATA_DIR', 'MUXR_MODE']) {
         if (!(key in (extra ?? {}))) delete env[key];
     }
@@ -112,6 +112,26 @@ function childEnv(home, muxrHome, extra) {
  *   terminalBytesPerSecond?: number, graphicsFrameHz?: number }} [options]
  */
 export async function startFakeStack(options = {}) {
+    return startStack(options);
+}
+
+/** Explicit live boundary: real auth HOME is never a cleanup or socket-write root. */
+export async function startLiveStack({ sourceRoot, authHome, socketPath, clientSocketPath, binPath }) {
+    const live = Object.fromEntries(Object.entries({ authHome, socketPath, clientSocketPath, binPath }).map(([key, path]) => {
+        if (typeof path !== 'string' || !path.startsWith('/')) throw new Error(`Live stack requires absolute ${key}`);
+        return [key, realpathSync(path)];
+    }));
+    if (!statSync(live.authHome).isDirectory()) throw new Error('Live auth HOME must be a directory');
+    for (const key of ['socketPath', 'clientSocketPath']) {
+        if (!statSync(live[key]).isSocket()) throw new Error(`Live ${key} must be an existing socket`);
+    }
+    if (!statSync(live.binPath).isFile()) throw new Error('Live Herdr CLI must be a file');
+    // Do not inherit relay identity, provider credentials, CODEX_HOME or fixture env.
+    live.env = Object.fromEntries(['PATH', 'LANG', 'LC_ALL'].filter((key) => process.env[key] !== undefined).map((key) => [key, process.env[key]]));
+    return startStack({ sourceRoot }, live);
+}
+
+async function startStack(options, live) {
     const sourceRoot = resolve(options.sourceRoot ?? '.');
     for (const entry of [RELAY_ENTRY, HOST_ENTRY]) {
         if (!existsSync(join(sourceRoot, entry))) throw new Error(`${entry} is missing; run \`yarn build\` first`);
@@ -155,11 +175,13 @@ export async function startFakeStack(options = {}) {
     // an adb dump - freezes every Herdr answer, which the phone sees as a
     // 15-second stall and reports as "reconnecting".
     const pluginsRoot = options.setupPlugins?.({ root, home, env: fixtureEnv }) ?? options.pluginsRoot;
-    const fake = await spawnFakeHerdr(join(root, 'herdr'), { ...options, pluginsRoot });
+    const fake = live ? { ...live, close() {} } : await spawnFakeHerdr(join(root, 'herdr'), { ...options, pluginsRoot });
     // Older host heads resolve the default HOME socket instead of the env override.
     // Keep both paths inside this run's isolated infrastructure.
-    mkdirSync(join(home, '.config/herdr'), { recursive: true });
-    symlinkSync(fake.socketPath, join(home, '.config/herdr/herdr.sock'));
+    if (!live) {
+        mkdirSync(join(home, '.config/herdr'), { recursive: true });
+        symlinkSync(fake.socketPath, join(home, '.config/herdr/herdr.sock'));
+    }
 
     const stop = () => {
         for (const child of children.splice(0)) {
@@ -189,7 +211,7 @@ export async function startFakeStack(options = {}) {
                 MUXR_RELAY_LOCAL_AUTHORITY: '1',
                 MUXR_RELAY_MDNS: '0',
                 MUXR_HOST_HTTP_URL: `http://127.0.0.1:${hostHttpPort}`,
-            }),
+            }, live?.env),
         });
         children.push(relay);
         relay.stdout.on('data', (chunk) => relayLog.push(String(chunk)));
@@ -206,16 +228,16 @@ export async function startFakeStack(options = {}) {
             '--port', String(relayPort),
             '--advertise', `ws://127.0.0.1:${relayPort}`,
             '--connection-mode', 'lan',
-        ], { cwd: sourceRoot, env: childEnv(home, muxrHome), timeout: 120_000 }).catch((cause) => {
+        ], { cwd: sourceRoot, env: childEnv(home, muxrHome, undefined, live?.env), timeout: 120_000 }).catch((cause) => {
             throw new Error(`self-host identity failed: ${cause instanceof Error ? cause.message : String(cause)}`);
         });
 
-        // The host under test, talking to the fake Herdr instead of the desk.
+        // Only an explicitly requested live probe connects to the real desk.
         const hostLog = [];
         const host = spawn(process.execPath, [join(sourceRoot, HOST_ENTRY)], {
             cwd: sourceRoot,
             stdio: ['ignore', 'pipe', 'pipe'],
-            env: childEnv(home, muxrHome, {
+            env: childEnv(live?.authHome ?? home, muxrHome, {
                 MUXR_MODE: 'selfhost',
                 MUXR_DATA_DIR: join(muxrHome, 'host'),
                 MUXR_HOST_HTTP_PORT: String(hostHttpPort),
@@ -224,7 +246,7 @@ export async function startFakeStack(options = {}) {
                 HERDR_CLIENT_SOCKET_PATH: fake.clientSocketPath,
                 HERDR_BIN: fake.binPath,
                 ...fixtureEnv,
-            }),
+            }, live?.env),
         });
         children.push(host);
         host.stdout.on('data', (chunk) => hostLog.push(String(chunk)));
@@ -263,7 +285,7 @@ export async function startFakeStack(options = {}) {
                 const pairing = spawn(process.execPath, [join(sourceRoot, 'scripts/cli.mjs'), 'pair'], {
                     cwd: sourceRoot,
                     stdio: ['ignore', 'pipe', 'pipe'],
-                    env: childEnv(home, muxrHome),
+                    env: childEnv(home, muxrHome, undefined, live?.env),
                 });
                 children.push(pairing);
                 const code = await new Promise((resolve) => {
@@ -285,7 +307,7 @@ export async function startFakeStack(options = {}) {
             stop,
         };
     } catch (cause) {
-        stop();
+        if (!live) stop();
         throw cause;
     }
 }
