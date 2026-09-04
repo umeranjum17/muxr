@@ -1,4 +1,4 @@
-# Emulator PR smoke
+# Local emulator PR smoke
 
 This is a bounded feature and performance-pathology gate for review, alongside
 `releaseGate.mjs`. It reuses the real relay/host/fake-Herdr stack, real E2EE
@@ -14,13 +14,34 @@ using it; the lock cannot detect tools which do not cooperate. A stale lock at
 `/tmp/muxr-pr-gate-<serial>.lock/owner.json` must be inspected before removal.
 
 ```bash
-# Node 22.13+, Java 21, Android SDK/NDK, Python 3, yarn dependencies, and
-# Maestro 2.7.0 (via mise, or MAESTRO_BIN=/absolute/path/to/maestro).
+# In a dedicated shell pane, cd to the exact reviewed source checkout first.
+# Node 22.13+, Java 21, Android SDK/NDK, Python 3, private yarn dependencies,
+# and Maestro 2.7.0 (via mise, or MAESTRO_BIN=/absolute/path/to/maestro).
+git rev-parse HEAD
+git status --short
+# Keep this checkout frozen until build and gate finish.
 node perf/buildPrApk.mjs /tmp/pr-apk
+
+# Save review artifacts directly into the pane's watched directory.
+mkdir -p "$HOME/.pocketherdr/attachments/pane/$HERDR_PANE_ID" \
+  "$HOME/.muxr/attachments/pane/$HERDR_PANE_ID"
+EVIDENCE_ROOT=$(mktemp -d "$HOME/.pocketherdr/attachments/pane/$HERDR_PANE_ID/pr-evidence-XXXXXXXX")
+cp /tmp/pr-apk/app-release.apk /tmp/pr-apk/app-release.apk.json "$EVIDENCE_ROOT/"
+gate_status=0
 PERF_PARENT_PANE=w1FE:pG node perf/prGate.mjs \
   --apk /tmp/pr-apk/app-release.apk \
-  --serial emulator-5554 --out /tmp/pr-evidence
+  --host-root "$PWD" --serial emulator-5554 --out "$EVIDENCE_ROOT/run" \
+  > "$EVIDENCE_ROOT/gate.log" 2>&1 || gate_status=$?
+# Export after either success or failure, then preserve the result.
+cp -a "$EVIDENCE_ROOT" "$HOME/.muxr/attachments/pane/$HERDR_PANE_ID/"
+(exit "$gate_status")
 ```
+
+Outside herdr, choose an explicit persistent evidence directory instead. Replace
+`PERF_PARENT_PANE` with the actual coordinating pane, or omit it when working alone.
+The gate exports its report, screenshot and archive to both attachment roots;
+copy the APK/provenance and shell log to coordinating watchers as well when those
+are deliverables. A failed run's evidence must remain available alongside reruns.
 
 The build requires a private dependency directory, runs a frozen forced install
 (including postinstall/patch-package), and verifies the native patch guard.
@@ -32,7 +53,7 @@ The manifest beside it binds the APK SHA256 to the source revision and content
 fingerprints and hashes of every actual patched dependency file. The gate checks
 native parity, pulls back the installed APK and checks identical bytes;
 it records package metadata, device model/API/renderer/size, host revision and
-content digest, and a separate harness/workflow digest. Dirty source fingerprints
+content digest, and a separate harness digest. Dirty source fingerprints
 are recorded honestly. This is local build provenance, not signed attestation.
 Never create a manifest for an unrelated prebuilt APK to make a check pass.
 
@@ -62,6 +83,10 @@ The full flow requires:
   row height as ASCII and wrap off. Missing full-text evidence fails this check. Screenshots retain
   the word-diff/CJK examples. CJK full horizontal extent and scrub source-line
   labels remain device-unverified; this does not cover every phone width.
+- A real host session plus relative file path targets source line200 from offscreen
+  on both cold app launch and warm navigation. The target must enter the upper
+  visible code region. This file-mode check does not claim diff deletion-collision
+  or folded-target device coverage.
 - Mounted text terminal plus a recorded real host attach, while graphics are off.
 - Mounted terminal with an opaque magenta/teal Kitty checkerboard verified in
   the terminal framebuffer region, positive cell dimensions and positive delivered
@@ -101,15 +126,18 @@ report.json, UI XML, before/after screenshots, Maestro diagnostics, logcat, host
 and relay logs, host journal and attach/input records, collected before stack
 cleanup. A failed setup is not a performance pass. In a herdr pane, final bundles,
 report and screenshot are copied to both PocketHerdr and muxr attachment watchers;
-PERF_PARENT_PANE additionally exports to the coordinating pane. CI retains the
-APK/provenance and evidence on success and failure.
+PERF_PARENT_PANE additionally exports to the coordinating pane.
 
-The `emulator-pr-smoke.yml` workflow is workflow_dispatch-only and builds the
-explicit full SHA on a disposable GitHub-hosted runner. It has no deployment,
-provider credentials, personal runner access, push, or pull_request trigger.
-Dispatch it against the integrated revision you intend to review. Making it a
-required status check is a separate repository policy decision; this change does
-not pretend a manual workflow automatically blocks every PR.
+This emulator gate runs locally. There is no GitHub emulator workflow or automatic
+PR device job. Regular repository CI remains separate; its success does not prove
+that these device flows ran. Before recommending the reviewed revision, inspect
+`report.json` for the overall result, every required mounted feature, measured
+sample coverage, and final source/native/harness freeze checks. Match the reported
+host revision and APK mobile/native fingerprints to the intended combined source;
+review screenshots and raw failures alongside the numbers. Attach the exact
+command, APK provenance and evidence to the PR. Do not relabel an older passing
+run as acceptance for changed mobile source, or treat synthetic checkerboard
+coverage as evidence for a real terminal-browser memory workload or live voice.
 
 Integration target: release/0.1.26. The PR209 surface harness starts from
 origin/pr-review-209. Usage fixtures require the separate usage fix (OMP adapter,

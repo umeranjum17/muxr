@@ -206,6 +206,39 @@ async function viewerControls() {
     await capture('native-wrap.png');
     Object.assign(report.viewer, { realDiff: true, zoomLineHeights: [lineHeight(initial), lineHeight(zoomed)], pan, wrapEnabled: true });
 }
+async function viewerLineTarget() {
+    const agent = stack.world.agents.find((row) => row.pane_id === stack.world.panes[0].pane_id);
+    const routes = JSON.parse(readFileSync(join(stack.dataDir, 'herdr-routes.json'), 'utf8')).bindings;
+    const binding = routes.find((row) => ['source', 'agent', 'kind', 'value'].every((key) => row.agentSession[key] === agent?.agent_session[key]));
+    check(binding?.route, 'Cannot resolve real host session for line-target route');
+    // A relative path makes session identity resolution part of the real route.
+    const url = `muxr://session/${encodeURIComponent(binding.route)}/file?path=${encodeURIComponent('line-target.ts')}`;
+    const open = (line) => {
+        // adb shell joins argv again on Android: quote the complete URI there.
+        const uri = `'${`${url}&line=${line}`.replaceAll("'", "'\\''")}'`;
+        return adb('shell', 'am', 'start', '-a', 'android.intent.action.VIEW', '-d', uri, pkg);
+    };
+    const top = async (name) => {
+        await open(1);
+        const xml = await requireScreen(name, /PR gate document line 1:/);
+        check(!xml.includes('PR_GATE_TARGET_LINE_200'), 'Line200 must start offscreen before targeted navigation');
+    };
+    const target = async (name) => {
+        await open(200);
+        const xml = await requireScreen(name, /PR_GATE_TARGET_LINE_200/);
+        const node = parseUiNodes(xml).find((row) => row.text.includes('PR_GATE_TARGET_LINE_200'));
+        check(node && node.b > node.t && node.t > report.device.height * .15 && node.b < report.device.height * .6, 'Source line200 did not reach the upper visible code region');
+        await capture(`${name}.png`);
+        return node;
+    };
+    await top('line-target-initial');
+    await adb('shell', 'am', 'force-stop', pkg);
+    const cold = await target('line-target-cold');
+    await top('line-target-warm-top');
+    const warm = await target('line-target-warm');
+    report.viewer.lineTarget = { sourceLine: 200, relativePath: 'line-target.ts', realSessionBinding: true, cold, warm, mode: 'file (untracked fixture has no git patch)', limits: 'Diff deletion collisions and folded targets are not asserted on device' };
+}
+
 async function main() {
     check(['full', 'usage'].includes(flow), '--flow must be full or usage');
     check(/^emulator-\d+$/.test(serial), 'PR gate only clears dedicated emulators');
@@ -256,6 +289,9 @@ async function main() {
     lines[40] = 'const second = "afterSecondHunk";';
     writeFileSync(join(stack.world.cwd, 'zz-companion.ts'), 'export const companion = "afterCompanion";\n');
     writeFileSync(join(stack.world.cwd, 'viewer.ts'), lines.join('\n'));
+    const targetLines = [...lines];
+    targetLines[199] = '// PR_GATE_TARGET_LINE_200';
+    writeFileSync(join(stack.world.cwd, 'line-target.ts'), targetLines.join('\n'));
     const pairing = await pairPhone({ stack, maestro, attempts: 1, patienceSeconds: 30 });
     report.pairing = pairing;
     check(pairing.ok, pairing.why);
@@ -272,6 +308,7 @@ async function main() {
         await tapText('viewer.ts');
         await phase('document', /PR gate document line/, true);
         await viewerControls();
+        await viewerLineTarget();
     });
     await feature('terminal-text', async () => {
         await herd();

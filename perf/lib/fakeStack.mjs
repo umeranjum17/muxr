@@ -13,7 +13,7 @@
  */
 import { spawnSync } from 'node:child_process';
 import { createServer } from 'node:net';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync, chmodSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync, chmodSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { runCommand as run, spawnCommand as spawn, onCommandCleanup, commandSignal, assertCommandActive } from './commands.mjs';
@@ -156,6 +156,10 @@ export async function startFakeStack(options = {}) {
     // 15-second stall and reports as "reconnecting".
     const pluginsRoot = options.setupPlugins?.({ root, home, env: fixtureEnv }) ?? options.pluginsRoot;
     const fake = await spawnFakeHerdr(join(root, 'herdr'), { ...options, pluginsRoot });
+    // Older host heads resolve the default HOME socket instead of the env override.
+    // Keep both paths inside this run's isolated infrastructure.
+    mkdirSync(join(home, '.config/herdr'), { recursive: true });
+    symlinkSync(fake.socketPath, join(home, '.config/herdr/herdr.sock'));
 
     const stop = () => {
         for (const child of children.splice(0)) {
