@@ -248,6 +248,7 @@ export async function startFakeStack(options = {}) {
             hostLog: () => hostLog.join(''),
             relayLog: () => relayLog.join(''),
             /** Did any attached phone declare cell pixels this run? */
+            cellMetricsJsonl: `${fake.socketPath}.cell-metrics.jsonl`,
             phoneDeclaredCellMetrics: () => existsSync(`${fake.socketPath}.cell-metrics`),
             /**
              * A real pairing string for this throwaway host. The CLI keeps

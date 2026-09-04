@@ -204,10 +204,13 @@ function runTerminal(args) {
     const paneId = args[1] ?? 'p1';
     // A one-line marker beside the socket: the gate needs to tell "the phone
     // never asked for graphics" apart from "graphics were asked for and lost".
-    const noteCellMetrics = () => {
+    const noteCellMetrics = (message) => {
         const socketPath = process.env.FAKE_HERDR_SOCKET;
         if (socketPath === undefined) return;
-        try { writeFileSync(`${socketPath}.cell-metrics`, 'seen\n', { encoding: 'utf8' }); } catch { /* best effort */ }
+        try {
+            writeFileSync(`${socketPath}.cell-metrics`, 'seen\n', { encoding: 'utf8' });
+            appendFileSync(`${socketPath}.cell-metrics.jsonl`, `${JSON.stringify({ at: new Date().toISOString(), pane_id: paneId, source: 'terminal.resize', cols, rows, cellWidthPx: message.cellWidthPx, cellHeightPx: message.cellHeightPx })}\n`);
+        } catch { /* best effort */ }
     };
     let cols = Number(flag(args, '--cols') ?? 80) || 80;
     let rows = Number(flag(args, '--rows') ?? 24) || 24;
@@ -268,7 +271,7 @@ function runTerminal(args) {
                     // A phone that declares cell pixels is a phone the graphics
                     // bridge can serve; without them the host never opens one,
                     // and a run with no graphics account has to say which it was.
-                    if (Number(message.cellWidthPx) > 0 && Number(message.cellHeightPx) > 0) noteCellMetrics();
+                    if (Number(message.cellWidthPx) > 0 && Number(message.cellHeightPx) > 0) noteCellMetrics(message);
                     emit(true);
                 }
                 else if (message.type === 'terminal.scroll') emit(true);

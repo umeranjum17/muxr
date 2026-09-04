@@ -53,12 +53,22 @@ async function dump(name) {
     if (name) save(`${name}.xml`, xml);
     return xml;
 }
-async function requireScreen(name, pattern, timeout = 25_000) {
+async function requireScreen(name, pattern, timeout = 25_000, dismissStartup = false) {
     const start = Date.now();
     let xml;
     do {
         xml = await dump(name);
         if (pattern.test(xml)) return xml;
+        // This delayed app alert can arrive after the initial prompt sweep.
+        // Handle only its exact Cancel button before measurement, never mid-window.
+        if (dismissStartup && xml.includes('Show live agent updates?')) {
+            const cancel = parseUiNodes(xml).find((node) => node.text === 'CANCEL');
+            if (cancel) {
+                save(`${name}-startup-prompt.xml`, xml);
+                await adb('shell', 'input', 'tap', String(Math.round((cancel.l + cancel.r) / 2)), String(Math.round((cancel.t + cancel.b) / 2)));
+                (report.startupPrompts ??= []).push({ screen: name, at: new Date().toISOString(), action: 'CANCEL live updates alert' });
+            }
+        }
         await sleep(800);
     } while (Date.now() - start < timeout);
     throw new Error(`${name}: screen did not mount (expected ${pattern}); see ${name}.xml`);
@@ -102,7 +112,7 @@ async function maestro(flow, variables = {}) {
 }
 async function phase(name, mounted, drive = false) {
     await dismissPrompts();
-    const beforeXml = await requireScreen(name, mounted);
+    const beforeXml = await requireScreen(name, mounted, 25_000, true);
     await capture(`${name}-before.png`);
     await resetGfx(pkg);
     const initialPid = (await adb('shell', 'pidof', pkg)).trim();
@@ -279,9 +289,10 @@ async function main() {
         await phase('graphics', /text="(Terminal|ctrl)"|Type a prompt/, true);
         const events = JSON.parse(readFileSync(stack.journalPath, 'utf8')).events ?? [];
         const pipeline = events.filter((e) => e.event === 'graphics.pipeline' && Date.parse(e.at) >= since);
-        const cellSamples = readFileSync(stack.attachJsonl, 'utf8').trim().split('\n').map(JSON.parse).filter((row) => row.cellWidthPx > 0 && row.cellHeightPx > 0).slice(-3);
-        report.graphics = { pixels, cellSamples, declaredCellMetrics: stack.phoneDeclaredCellMetrics(), pipeline };
-        check(cellSamples.length > 0, 'No positive terminal cell dimensions recorded');
+        const cellSamples = (existsSync(stack.cellMetricsJsonl) ? readFileSync(stack.cellMetricsJsonl, 'utf8').trim().split('\n').map(JSON.parse) : []).filter((row) => row.source === 'terminal.resize' && row.pane_id === stack.world.panes[0].pane_id && [row.cols, row.rows, row.cellWidthPx, row.cellHeightPx].every((value) => Number.isFinite(value) && value > 0)).slice(-3);
+        const helloSamples = (existsSync(stack.graphicsInputJsonl) ? readFileSync(stack.graphicsInputJsonl, 'utf8').trim().split('\n').map(JSON.parse) : []).filter((row) => row.source === 'graphics.ClientHello' && [row.cols, row.rows, row.cellWidthPx, row.cellHeightPx].every((value) => Number.isFinite(value) && value > 0)).slice(-3);
+        report.graphics = { pixels, cellSamples, helloSamples, cellEvidenceScope: 'Native resize for first pane, or real graphics connection ClientHello populated from native attach', declaredCellMetrics: stack.phoneDeclaredCellMetrics(), pipeline };
+        check(cellSamples.length > 0 || helloSamples.length > 0, 'No positive native cell dimensions recorded in resize or graphics ClientHello');
         check(pipeline.some((event) => event.frames > 0), 'No delivered graphics frames during mounted phase');
     });
     await feature('usage-switch-and-recency', async () => {
@@ -345,7 +356,7 @@ async function finish(code) {
     }
     if (stack) {
         save('host.log', stack.hostLog()); save('relay.log', stack.relayLog());
-        for (const [name, path] of [['host-journal.json', stack.journalPath], ['attach.jsonl', stack.attachJsonl], ['graphics-input.jsonl', stack.graphicsInputJsonl]]) if (existsSync(path)) copyFileSync(path, join(out, name));
+        for (const [name, path] of [['host-journal.json', stack.journalPath], ['attach.jsonl', stack.attachJsonl], ['cell-metrics.jsonl', stack.cellMetricsJsonl], ['graphics-input.jsonl', stack.graphicsInputJsonl]]) if (existsSync(path)) copyFileSync(path, join(out, name));
     }
     await diagnostics.close().catch((error) => { terminated = false; report.failures.push(error.message); });
     scope.cleanup();

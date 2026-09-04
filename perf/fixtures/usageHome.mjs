@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, readdirSync, symlinkSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, readdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -9,7 +9,9 @@ export const usagePlugins = (sourceRoot) => ({ root, env }) => {
     for (const name of ['code', 'terminal-keys']) symlinkSync(join(sourceRoot, 'plugins', name), join(dir, name));
     const original = join(sourceRoot, 'plugins/status');
     for (const file of readdirSync(original)) {
-        if (file !== 'usage.mjs') symlinkSync(join(original, file), join(dir, 'status', file));
+        // The real catalog opens manifests with O_NOFOLLOW. Preserve that guard.
+        if (file === 'muxr-ui.json') copyFileSync(join(original, file), join(dir, 'status', file));
+        else if (file !== 'usage.mjs') symlinkSync(join(original, file), join(dir, 'status', file));
     }
     // Host sanitization is retained: only this scratch fixture entry restores
     // test env. All parsing, collection and rendering use real product modules.
