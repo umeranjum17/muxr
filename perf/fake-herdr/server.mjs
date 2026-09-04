@@ -2,7 +2,7 @@
  * Fake Herdr control plane: NDJSON JSON-RPC on a unix socket, plus title/status
  * churn. Graphics and the HERDR_BIN shim are sibling modules.
  */
-import { mkdirSync, unlinkSync } from 'node:fs';
+import { appendFileSync, mkdirSync, unlinkSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -21,9 +21,15 @@ export async function startFakeHerdr(options) {
     const terminalBytesPerSecond = options.terminalBytesPerSecond ?? 4096;
     const graphicsFrameHz = options.graphicsFrameHz ?? 0;
     const cwd = join(dir, 'project');
+    const attachJsonl = join(dir, 'attach.jsonl');
+    const graphicsInputJsonl = join(dir, 'graphics-input.jsonl');
+    const inputJsonl = join(dir, 'input.jsonl');
+
 
     mkdirSync(dir, { recursive: true });
-
+    mkdirSync(cwd, { recursive: true });
+    try { writeFileSync(join(cwd, 'README.md'), '# fake-herdr\n\nA deterministic herd.\n', { flag: 'wx' }); } catch { /* already seeded */ }
+    try { writeFileSync(join(cwd, 'notes.txt'), 'line 1\nline 2\nline 3\n', { flag: 'wx' }); } catch { /* already seeded */ }
     const live = createWorld({ panes, agents, cwd, terminalBytesPerSecond });
     live.nextTab = live.tabs.length + 1;
     live.nextPane = live.panes.length + 1;
@@ -77,8 +83,13 @@ export async function startFakeHerdr(options) {
 
     await listenUnix(server, socketPath);
     try {
-        graphics = await startGraphics({ socketPath: clientSocketPath, world, frameHz: graphicsFrameHz });
-        binPath = writeBinShim({ dir, socketPath });
+        graphics = await startGraphics({
+            socketPath: clientSocketPath,
+            world,
+            frameHz: graphicsFrameHz,
+            inputLogPath: graphicsInputJsonl,
+        });
+        binPath = writeBinShim({ dir, socketPath, terminalBytesPerSecond });
     } catch (error) {
         await shutdown();
         throw error;
@@ -331,7 +342,15 @@ export async function startFakeHerdr(options) {
             if (next !== undefined) focusPane(live, next.pane_id);
             return {};
         },
-        'pane.send_keys': () => ({}),
+        'pane.send_keys': (params) => {
+            appendFileSync(inputJsonl, `${JSON.stringify({
+                at: new Date().toISOString(),
+                method: 'pane.send_keys',
+                pane_id: params.pane_id,
+                keys: params.keys ?? [],
+            })}\n`);
+            return { pane_id: params.pane_id, keys: params.keys ?? [] };
+        },
         'pane.report_metadata': (params) => {
             const pane = live.panes.find((row) => row.pane_id === params.pane_id);
             if (pane !== undefined && params.tokens !== undefined) {
@@ -348,6 +367,14 @@ export async function startFakeHerdr(options) {
         },
         'pane.read': (params) => {
             const pane = live.panes.find((row) => row.pane_id === params.pane_id);
+            appendFileSync(attachJsonl, `${JSON.stringify({
+                pane_id: params.pane_id,
+                cols: Number(params.cols) || pane?.cols || 80,
+                rows: Number(params.rows) || pane?.rows || 24,
+                cellWidthPx: Number(params.cellWidthPx) || pane?.cellWidthPx || 0,
+                cellHeightPx: Number(params.cellHeightPx) || pane?.cellHeightPx || 0,
+                at: new Date().toISOString(),
+            })}\n`);
             const body = pane === undefined
                 ? ''
                 : `${pane.terminal_title_stripped ?? pane.label ?? pane.pane_id}\nready.`;
@@ -443,7 +470,15 @@ export async function startFakeHerdr(options) {
                 },
             };
         },
-        'agent.send_keys': () => ({}),
+        'agent.send_keys': (params) => {
+            appendFileSync(inputJsonl, `${JSON.stringify({
+                at: new Date().toISOString(),
+                method: 'agent.send_keys',
+                target: params.target,
+                keys: params.keys ?? [],
+            })}\n`);
+            return { target: params.target, keys: params.keys ?? [] };
+        },
     };
 
     async function shutdown() {
@@ -465,7 +500,7 @@ export async function startFakeHerdr(options) {
         await shutdown();
     }
 
-    return { socketPath, clientSocketPath, binPath, world, close };
+    return { socketPath, clientSocketPath, binPath, world, close, attachJsonl, graphicsInputJsonl, inputJsonl };
 }
 
 function snapshotOf(live) {
@@ -708,6 +743,9 @@ if (isMain) {
         clientSocketPath: handle.clientSocketPath,
         binPath: handle.binPath,
         world: handle.world,
+        attachJsonl: handle.attachJsonl,
+        graphicsInputJsonl: handle.graphicsInputJsonl,
+        inputJsonl: handle.inputJsonl,
     })}\n`);
     const stop = async () => {
         await handle.close();

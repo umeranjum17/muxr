@@ -22,6 +22,9 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
+import { writeFileSync } from 'node:fs';
+import { parseFrameStatsDump, parseJankDump, parseUptime } from './gestureMetrics.mjs';
+
 const run = promisify(execFile);
 /** Linux clock ticks per second; /proc jiffies are in these units. */
 const HZ = 100;
@@ -107,9 +110,125 @@ export async function framesRendered(pkg) {
     return match === null ? undefined : Number(match[1]);
 }
 
-export async function resetFrames(pkg) {
+export async function resetGfx(pkg) {
     await quiet(['shell', 'dumpsys', 'gfxinfo', pkg, 'reset']);
 }
+
+/**
+ * Reset gfxinfo and wait until the dump actually shows zero frames. A
+ * dumpsys that is still flushing the previous window would make the bout
+ * look empty, or copy the 4950 ms empty-histogram sentinel into p95.
+ */
+export async function resetGfxWindow(pkg, { hz } = {}) {
+    let report;
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+        await resetGfx(pkg);
+        report = await jankReport(pkg, { hz });
+        if ((report.frames ?? 0) === 0) return report;
+        await new Promise((resolve) => setTimeout(resolve, 80));
+    }
+    return report ?? await jankReport(pkg, { hz });
+}
+
+export async function resetFrames(pkg) {
+    await resetGfx(pkg);
+}
+
+/**
+ * What the frame pipeline did, not how many frames it drew. A gesture is judged
+ * on the frames it misses: `gfxinfo` counts a janky frame against the display's
+ * own deadline, so this is the one signal that means the same thing on a
+ * software-rendered emulator and on a 120 Hz phone.
+ *
+ * Call `resetGfx` first; these are cumulative since the reset. `hz` is the
+ * display's refresh; one frame is `round(1000 / hz)` ms, never a hard-coded 16.
+ */
+export async function jankReport(pkg, { hz } = {}) {
+    const dump = await quiet(['shell', 'dumpsys', 'gfxinfo', pkg], 20_000);
+    return parseJankDump(dump, { hz: hz ?? await refreshHz() });
+}
+
+/** Last 120 frames as objects keyed by the PROFILEDATA header names. */
+export async function frameStats(pkg) {
+    const dump = await quiet(['shell', 'dumpsys', 'gfxinfo', pkg, 'framestats'], 20_000);
+    return parseFrameStatsDump(dump);
+}
+
+/** Display refresh from SurfaceFlinger, falling back to 60. */
+export async function refreshHz() {
+    const dump = await quiet(['shell', 'dumpsys', 'display'], 20_000);
+    const match = /renderFrameRate=([0-9.]+)/.exec(dump);
+    const hz = match === null ? undefined : Number(match[1]);
+    return Number.isFinite(hz) && hz > 0 ? hz : 60;
+}
+
+/** First field of `/proc/uptime`. */
+export async function deviceMonotonicSeconds() {
+    return parseUptime(await quiet(['shell', 'cat', '/proc/uptime']));
+}
+
+/**
+ * Raw framebuffer: 16-byte header (width, height, format, colorspace as
+ * little-endian u32) then RGBA8888. No PNG, no decoder.
+ */
+export async function screencapRaw(path) {
+    const { execFileSync } = await import('node:child_process');
+    const bytes = execFileSync('adb', ['exec-out', 'screencap'], { maxBuffer: 64 * 1024 * 1024 });
+    if (path !== undefined) writeFileSync(path, bytes);
+    if (bytes.length < 16) return { width: 0, height: 0, format: 0, colorspace: 0, bytes };
+    return {
+        width: bytes.readUInt32LE(0),
+        height: bytes.readUInt32LE(4),
+        format: bytes.readUInt32LE(8),
+        colorspace: bytes.readUInt32LE(12),
+        bytes,
+    };
+}
+
+/**
+ * Bounds of the first node whose `content-desc` or `class` matches `pattern`.
+ * Reuses the same uiautomator dump dismissPrompts already writes.
+ */
+export async function viewBounds(pattern) {
+    await quiet(['shell', 'uiautomator', 'dump', '/sdcard/perf-prompt.xml'], 20_000);
+    const screen = await quiet(['shell', 'cat', '/sdcard/perf-prompt.xml'], 20_000);
+    const nodes = screen.match(/<node\b[^>]*>/g) ?? [];
+    const hit = nodes.find((node) => node.includes(pattern));
+    const bounds = hit === undefined ? undefined : /bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/.exec(hit);
+    if (bounds === undefined) return undefined;
+    return {
+        l: Number(bounds[1]),
+        t: Number(bounds[2]),
+        r: Number(bounds[3]),
+        b: Number(bounds[4]),
+    };
+}
+
+/** Model, sdk, refresh, density, renderer, and the physical pixel size. */
+export async function deviceIdentity() {
+    const model = (await quiet(['shell', 'getprop', 'ro.product.model'])).trim();
+    const sdk = Number((await quiet(['shell', 'getprop', 'ro.build.version.sdk'])).trim());
+    const hz = await refreshHz();
+    const densityDump = await quiet(['shell', 'wm', 'density']);
+    const density = Number(
+        (/Override density:\s*(\d+)/.exec(densityDump) ?? /Physical density:\s*(\d+)/.exec(densityDump))?.[1],
+    );
+    const renderer = (await quiet(['shell', 'getprop', 'ro.hardware.egl'])).trim()
+        || (await quiet(['shell', 'getprop', 'ro.hwui.renderer'])).trim()
+        || 'unknown';
+    const sizeDump = await quiet(['shell', 'wm', 'size']);
+    const size = (/Override size:\s*(\d+)x(\d+)/.exec(sizeDump) ?? /Physical size:\s*(\d+)x(\d+)/.exec(sizeDump));
+    return {
+        model,
+        sdk: Number.isFinite(sdk) ? sdk : undefined,
+        refreshHz: hz,
+        density: Number.isFinite(density) ? density : undefined,
+        renderer,
+        width: size === null ? undefined : Number(size[1]),
+        height: size === null ? undefined : Number(size[2]),
+    };
+}
+
 
 export async function totalPssKb(pid) {
     const dump = await quiet(['shell', 'dumpsys', 'meminfo', pid], 20_000);

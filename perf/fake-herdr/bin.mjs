@@ -288,12 +288,14 @@ function runTerminal(args) {
     process.stdin.resume();
 }
 
-export function writeBinShim({ dir, socketPath }) {
+export function writeBinShim({ dir, socketPath, terminalBytesPerSecond }) {
     mkdirSync(dir, { recursive: true });
     const binPath = join(dir, 'herdr');
+    const bps = Number(terminalBytesPerSecond);
+    const rate = Number.isFinite(bps) ? Math.max(0, bps) : 4096;
     writeFileSync(
         binPath,
-        `#!/bin/sh\nexport FAKE_HERDR_SOCKET=${shellQuote(socketPath)}\nexec ${shellQuote(process.execPath)} ${shellQuote(SELF)} "$@"\n`,
+        `#!/bin/sh\nexport FAKE_HERDR_SOCKET=${shellQuote(socketPath)}\nexport FAKE_HERDR_TERMINAL_BPS=${shellQuote(String(rate))}\nexec ${shellQuote(process.execPath)} ${shellQuote(SELF)} "$@"\n`,
         { encoding: 'utf8' },
     );
     chmodSync(binPath, 0o755);

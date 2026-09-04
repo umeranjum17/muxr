@@ -1,0 +1,54 @@
+appId: com.trymuxr.app
+tags:
+  - perf
+---
+# Open the first file of the first agent so the document viewer can be
+# measured. Navigation only: the gate scripts the scroll and the swipes.
+- tapOn:
+    text: 'CANCEL|Not now|Deny|Later'
+    optional: true
+- tapOn:
+    text: 'CANCEL|Not now|Deny|Later'
+    optional: true
+- runFlow:
+    when:
+      visible:
+        text: 'Type a prompt.*'
+    commands:
+      - back
+- runFlow:
+    when:
+      visible:
+        text: 'Go back'
+    commands:
+      - back
+- extendedWaitUntil:
+    visible:
+      text: 'connected'
+    timeout: 40000
+- extendedWaitUntil:
+    visible:
+      text: 'LIVE'
+    timeout: 40000
+# `Files` is a plugin navigation item, and those render on the herd screen
+# (`DeclarativeNavigationItems` in herd/presentation/MainView.tsx) -- not
+# inside a session. Opening a terminal first navigated away from the only
+# screen that carries the tap, which is why this flow stalled on the herd with
+# the app idle at 1.6% of the JS thread.
+- tapOn:
+    text: 'Files'
+- extendedWaitUntil:
+    visible:
+      text: 'README.md|All Files|No files.*|Changes'
+    timeout: 20000
+# A repo list comes first on a machine with more than one worktree; the file
+# list is one tap in either way.
+- tapOn:
+    text: 'muxr|pockit|README.md'
+    optional: true
+- extendedWaitUntil:
+    visible:
+      text: 'README.md|AGENTS.md|package.json|No files.*'
+    timeout: 20000
+- tapOn:
+    text: 'README.md|AGENTS.md|package.json'

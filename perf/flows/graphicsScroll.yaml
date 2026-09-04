@@ -42,26 +42,8 @@ tags:
     text: 'CANCEL|Not now|Deny|Later'
     optional: true
 # The terminal screen's own furniture; the surface itself has no label.
+# Measured swipes live in the gate now (`scrollBout`); this flow only opens.
 - extendedWaitUntil:
     visible:
       text: 'Terminal|Type a prompt.*'
     timeout: 20000
-- repeat:
-    times: 40
-    commands:
-      - swipe:
-          start: 50%, 48%
-          end: 50%, 58%
-          duration: 280
-      - swipe:
-          start: 50%, 72%
-          end: 50%, 22%
-          duration: 80
-      - swipe:
-          start: 50%, 58%
-          end: 50%, 48%
-          duration: 280
-      - swipe:
-          start: 50%, 22%
-          end: 50%, 72%
-          duration: 80

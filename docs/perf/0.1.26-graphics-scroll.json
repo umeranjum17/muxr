@@ -1,32 +1,32 @@
 {
-  "startedAt": "2026-09-04T03:18:59.880Z",
+  "startedAt": "2026-09-04T04:24:12.469Z",
   "phases": [
     {
       "name": "idle on the herd",
       "seconds": 120.2,
       "sampledSeconds": 115.6,
-      "jsBusyPercent": 42.9,
-      "fps": 30.2,
+      "jsBusyPercent": 39.9,
+      "fps": 30,
       "frameStallSeconds": 10,
-      "pssFirstKb": 399553,
-      "pssLastKb": 397992,
-      "pssMaxKb": 438463,
-      "pssDriftKb": -1561,
+      "pssFirstKb": 383257,
+      "pssLastKb": 368748,
+      "pssMaxKb": 409028,
+      "pssDriftKb": -14509,
       "restarts": 0,
       "gaps": 0
     },
     {
       "name": "herd strip and tree soak",
-      "seconds": 120.1,
+      "seconds": 120.2,
       "flow": "herdSoak.yaml",
-      "sampledSeconds": 115.6,
-      "jsBusyPercent": 51.8,
-      "fps": 42.4,
+      "sampledSeconds": 115.7,
+      "jsBusyPercent": 49.7,
+      "fps": 42.9,
       "frameStallSeconds": 0,
-      "pssFirstKb": 404248,
-      "pssLastKb": 384236,
-      "pssMaxKb": 412246,
-      "pssDriftKb": -20012,
+      "pssFirstKb": 392876,
+      "pssLastKb": 347551,
+      "pssMaxKb": 395369,
+      "pssDriftKb": -45325,
       "restarts": 0,
       "gaps": 0,
       "flowExit": 0
@@ -36,12 +36,12 @@
       "seconds": 120.1,
       "flow": "herdNavigate.yaml",
       "sampledSeconds": 110.6,
-      "jsBusyPercent": 37.2,
+      "jsBusyPercent": 36.9,
       "frameStallSeconds": 5,
-      "pssFirstKb": 385191,
-      "pssLastKb": 321522,
-      "pssMaxKb": 404049,
-      "pssDriftKb": -63669,
+      "pssFirstKb": 366278,
+      "pssLastKb": 322313,
+      "pssMaxKb": 397274,
+      "pssDriftKb": -43965,
       "restarts": 1,
       "gaps": 0,
       "flowExit": 0
@@ -50,14 +50,14 @@
       "name": "graphics pane scroll",
       "seconds": 90.2,
       "flow": "graphicsScroll.yaml",
-      "sampledSeconds": 85.5,
+      "sampledSeconds": 85.4,
       "jsBusyPercent": 24.6,
-      "fps": 17.4,
+      "fps": 16.6,
       "frameStallSeconds": 0,
-      "pssFirstKb": 281252,
-      "pssLastKb": 307749,
-      "pssMaxKb": 324224,
-      "pssDriftKb": 26497,
+      "pssFirstKb": 428342,
+      "pssLastKb": 328851,
+      "pssMaxKb": 428342,
+      "pssDriftKb": -99491,
       "restarts": 0,
       "gaps": 0,
       "flowExit": 0
@@ -85,7 +85,7 @@
   "avd": "muxr_sandbox",
   "maestro": "2.7.0",
   "apk": "/tmp/muxr-0.1.26-vc60-x86_64.apk",
-  "herdVisibleMs": 48569,
+  "herdVisibleMs": 52533,
   "tour": {
     "panes": 40,
     "opened": 40,
@@ -94,209 +94,209 @@
       {
         "paneId": "w1:p31",
         "opened": true,
-        "pssKb": 321194
+        "pssKb": 344821
       },
       {
         "paneId": "w1:p32",
         "opened": true,
-        "pssKb": 320186
+        "pssKb": 315158
       },
       {
         "paneId": "w1:p33",
         "opened": true,
-        "pssKb": 327786
+        "pssKb": 310487
       },
       {
         "paneId": "w1:p34",
         "opened": true,
-        "pssKb": 310258
+        "pssKb": 346569
       },
       {
         "paneId": "w1:p35",
         "opened": true,
-        "pssKb": 308501
+        "pssKb": 337047
       },
       {
         "paneId": "w1:p36",
         "opened": true,
-        "pssKb": 315482
+        "pssKb": 325330
       },
       {
         "paneId": "w1:p37",
         "opened": true,
-        "pssKb": 332649
+        "pssKb": 329539
       },
       {
         "paneId": "w1:p38",
         "opened": true,
-        "pssKb": 315433
+        "pssKb": 323634
       },
       {
         "paneId": "w1:p39",
         "opened": true,
-        "pssKb": 309143
+        "pssKb": 303530
       },
       {
         "paneId": "w1:p40",
         "opened": true,
-        "pssKb": 315720
+        "pssKb": 316224
       },
       {
         "paneId": "w1:p41",
         "opened": true,
-        "pssKb": 327001
+        "pssKb": 326533
       },
       {
         "paneId": "w1:p42",
         "opened": true,
-        "pssKb": 324290
+        "pssKb": 307862
       },
       {
         "paneId": "w1:p43",
         "opened": true,
-        "pssKb": 310118
+        "pssKb": 306275
       },
       {
         "paneId": "w1:p44",
         "opened": true,
-        "pssKb": 317407
+        "pssKb": 313255
       },
       {
         "paneId": "w1:p45",
         "opened": true,
-        "pssKb": 331921
+        "pssKb": 306760
       },
       {
         "paneId": "w1:p46",
         "opened": true,
-        "pssKb": 329732
+        "pssKb": 302965
       },
       {
         "paneId": "w1:p47",
         "opened": true,
-        "pssKb": 308894
+        "pssKb": 305166
       },
       {
         "paneId": "w1:p48",
         "opened": true,
-        "pssKb": 318165
+        "pssKb": 310102
       },
       {
         "paneId": "w1:p49",
         "opened": true,
-        "pssKb": 305312
+        "pssKb": 322289
       },
       {
         "paneId": "w1:p50",
         "opened": true,
-        "pssKb": 318727
+        "pssKb": 315755
       },
       {
         "paneId": "w1:p51",
         "opened": true,
-        "pssKb": 300715
+        "pssKb": 327423
       },
       {
         "paneId": "w1:p52",
         "opened": true,
-        "pssKb": 318278
+        "pssKb": 313815
       },
       {
         "paneId": "w1:p53",
         "opened": true,
-        "pssKb": 338366
+        "pssKb": 337473
       },
       {
         "paneId": "w1:p54",
         "opened": true,
-        "pssKb": 320180
+        "pssKb": 302718
       },
       {
         "paneId": "w1:p55",
         "opened": true,
-        "pssKb": 349407
+        "pssKb": 326973
       },
       {
         "paneId": "w1:p56",
         "opened": true,
-        "pssKb": 320552
+        "pssKb": 315920
       },
       {
         "paneId": "w1:p57",
         "opened": true,
-        "pssKb": 334285
+        "pssKb": 314579
       },
       {
         "paneId": "w1:p58",
         "opened": true,
-        "pssKb": 341710
+        "pssKb": 321879
       },
       {
         "paneId": "w1:p59",
         "opened": true,
-        "pssKb": 341080
+        "pssKb": 295208
       },
       {
         "paneId": "w1:p60",
         "opened": true,
-        "pssKb": 323379
+        "pssKb": 303972
       },
       {
         "paneId": "w1:p61",
         "opened": true,
-        "pssKb": 349815
+        "pssKb": 305550
       },
       {
         "paneId": "w1:p62",
         "opened": true,
-        "pssKb": 330596
+        "pssKb": 309795
       },
       {
         "paneId": "w1:p63",
         "opened": true,
-        "pssKb": 342581
+        "pssKb": 315866
       },
       {
         "paneId": "w1:p64",
         "opened": true,
-        "pssKb": 323974
+        "pssKb": 304303
       },
       {
         "paneId": "w1:p65",
         "opened": true,
-        "pssKb": 337769
+        "pssKb": 314861
       },
       {
         "paneId": "w1:p66",
         "opened": true,
-        "pssKb": 325154
+        "pssKb": 302086
       },
       {
         "paneId": "w1:p67",
         "opened": true,
-        "pssKb": 340646
+        "pssKb": 327154
       },
       {
         "paneId": "w1:p68",
         "opened": true,
-        "pssKb": 324941
+        "pssKb": 317592
       },
       {
         "paneId": "w1:p69",
         "opened": true,
-        "pssKb": 351349
+        "pssKb": 309659
       },
       {
         "paneId": "w1:p70",
         "opened": true,
-        "pssKb": 332211
+        "pssKb": 322830
       }
     ],
-    "pssFirstKb": 321194,
-    "pssLastKb": 332211,
-    "pssMaxKb": 351349,
-    "pssGrowthKb": 11017,
-    "framesRendered": 13838
+    "pssFirstKb": 344821,
+    "pssLastKb": 322830,
+    "pssMaxKb": 346569,
+    "pssGrowthKb": -21991,
+    "framesRendered": 13730
   },
   "updateDepthErrors": 0,
   "hostRequests": {
@@ -313,11 +313,12 @@
     "bytesP95": 0,
     "pixelsP95": 0
   },
+  "graphicsHostLog": [],
   "runtimeAlive": true,
-  "framesRendered": 13875,
+  "framesRendered": 13772,
   "screenshot": "docs/perf/0.1.26-graphics-scroll.png",
-  "commit": "9bd9210980838c3e1979ac9e28e9d8f5b37aeb16",
-  "finishedAt": "2026-09-04T03:41:35.340Z",
+  "commit": "5b58f5c909d278cb4df0f9fe5576c1495075d833",
+  "finishedAt": "2026-09-04T04:46:47.871Z",
   "failures": [
     "no graphics.pipeline event in the host journal"
   ],

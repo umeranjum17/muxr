@@ -13,7 +13,7 @@
  */
 import { execFile, spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:net';
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -120,6 +120,28 @@ export async function startFakeStack(options = {}) {
     const muxrHome = join(root, 'muxr');
     mkdirSync(join(home, '.config'), { recursive: true });
     mkdirSync(muxrHome, { recursive: true });
+    // Seed an owner-only journal before the host starts. HostDiagnosticsJournal
+    // refuses a world-readable diagnostics.json and then logs nothing; the gate
+    // would pair against a live herd and later read an empty file.
+    const hostDataDir = join(muxrHome, 'host');
+    mkdirSync(hostDataDir, { recursive: true, mode: 0o700 });
+    chmodSync(hostDataDir, 0o700);
+    const journalPath = join(hostDataDir, 'diagnostics.json');
+    const startedAt = new Date().toISOString();
+    writeFileSync(journalPath, `${JSON.stringify({
+        version: 1,
+        current: {
+            hostVersion: 'gate',
+            startedAt,
+            updatedAt: startedAt,
+            relayState: 'connecting',
+            recentClientWindowMinutes: 15,
+            recentClients: { local: 0, native: 0, browser: 0, peer: 0, unknown: 0 },
+            relationships: { pending: 0, connected: 0, 'repair-needed': 0, disconnecting: 0, revoked: 0 },
+        },
+        events: [],
+    })}\n`, { encoding: 'utf8', mode: 0o600 });
+    chmodSync(journalPath, 0o600);
 
     const relayPort = await freePort();
     const hostHttpPort = await freePort();
@@ -202,8 +224,12 @@ export async function startFakeStack(options = {}) {
             root,
             relayPort,
             hostHttpPort,
-            dataDir: join(muxrHome, 'host'),
+            dataDir: hostDataDir,
+            journalPath,
             world: fake.world,
+            attachJsonl: fake.attachJsonl,
+            graphicsInputJsonl: fake.graphicsInputJsonl,
+            inputJsonl: fake.inputJsonl,
             // The service's own processes, for a memory budget. Terminal shims
             // are children of the host, so a tree walk from these covers them.
             // The stand-in for Herdr is reported apart from our own code.
@@ -211,9 +237,9 @@ export async function startFakeStack(options = {}) {
             herdrPid: fake.pid,
             identity: (identity.stdout ?? '').trim().split('\n').pop(),
             hostLog: () => hostLog.join(''),
+            relayLog: () => relayLog.join(''),
             /** Did any attached phone declare cell pixels this run? */
             phoneDeclaredCellMetrics: () => existsSync(`${fake.socketPath}.cell-metrics`),
-            relayLog: () => relayLog.join(''),
             /**
              * A real pairing string for this throwaway host. The CLI keeps
              * polling until the phone claims it, so the child stays up and the

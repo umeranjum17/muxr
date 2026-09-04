@@ -7,7 +7,7 @@
  * capped at the ~3 MB/s the real Herdr app-client socket sustains, so a burst
  * of paints queues instead of flushing instantly.
  */
-import { unlinkSync } from 'node:fs';
+import { appendFileSync, unlinkSync } from 'node:fs';
 import { createServer } from 'node:net';
 
 const PROTOCOL_VERSION = 20;
@@ -255,8 +255,24 @@ function createPacer({ socket, bytesPerSecond, timers, isClosed, buildFrame, fra
     };
 }
 
+function decodeSgr(payload) {
+    const text = payload.toString('latin1');
+    const reports = [];
+    const pattern = /\x1b\[<(\d+);(\d+);(\d+)([Mm])/g;
+    let match;
+    while ((match = pattern.exec(text)) !== null) {
+        reports.push({
+            button: Number(match[1]),
+            x: Number(match[2]),
+            y: Number(match[3]),
+            action: match[4] === 'm' ? 'release' : 'press',
+        });
+    }
+    return reports;
+}
+
 function serveClient(socket, options) {
-    const { world, frameHz, imageWidth, imageHeight, bytesPerSecond, timers, isClosed, onReady } = options;
+    const { world, frameHz, imageWidth, imageHeight, bytesPerSecond, timers, isClosed, onReady, inputLogPath } = options;
     let buffered = Buffer.alloc(0);
     let welcomed = false;
     const rgba = Buffer.alloc(imageWidth * imageHeight * 4);
@@ -356,6 +372,16 @@ function serveClient(socket, options) {
             const payload = buffered.subarray(4, length + 4);
             buffered = buffered.subarray(length + 4);
             const type = readType(payload);
+            if (type !== 0 && inputLogPath !== undefined) {
+                try {
+                    appendFileSync(inputLogPath, `${JSON.stringify({
+                        at: new Date().toISOString(),
+                        type,
+                        sgr: decodeSgr(payload),
+                        bytes: payload.length,
+                    })}\n`);
+                } catch { /* harness removed its scratch dir */ }
+            }
             if (type === 0 && !welcomed) {
                 welcomed = true;
                 socket.write(frame(welcomePayload()));
@@ -382,6 +408,7 @@ export async function startGraphics({
     imageWidth,
     imageHeight,
     bytesPerSecond = DEFAULT_BYTES_PER_SECOND,
+    inputLogPath,
 } = {}) {
     try { unlinkSync(socketPath); } catch { /* leftover from a killed run */ }
     const sockets = new Set();
@@ -420,6 +447,7 @@ export async function startGraphics({
             bytesPerSecond: bps,
             timers,
             isClosed: () => closed,
+            inputLogPath,
             onReady: (emit) => {
                 emitters.add(emit);
                 socket.once('close', () => emitters.delete(emit));
