@@ -6,7 +6,10 @@ import path from 'node:path';
 // suites that import toolDisplay/turnChanges fail before their tests load.
 export default defineConfig({
     test: {
-        exclude: [...configDefaults.exclude, 'dist-npm/**'],
+        // `perf/**` is driven by `node --test` through `yarn perf`, and its
+        // *.test.mjs files carry no vitest suite: swept in from the root they
+        // fail as "no test suite found" and take `yarn check` down with them.
+        exclude: [...configDefaults.exclude, 'dist-npm/**', 'perf/**'],
     },
     resolve: {
         alias: [{ find: /^@\//, replacement: path.resolve('apps/mobile/sources') + '/' }],
