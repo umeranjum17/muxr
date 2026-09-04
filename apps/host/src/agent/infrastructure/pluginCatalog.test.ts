@@ -631,6 +631,24 @@ describe('plugin catalog flow', () => {
             pluginId: 'example.stdin', method: 'read', script,
             serializedInput: '{"secret":"stdin-only"}', stateDir,
         })).resolves.toEqual({ input: { secret: 'stdin-only' }, leaked: false });
+        const previous = process.env.OPENCODE_AUTH_CONTENT;
+        try {
+            process.env.OPENCODE_AUTH_CONTENT = JSON.stringify({ 'opencode-go': { type: 'api', key: 'host-only-fixture' } });
+            await writeFile(script, `
+                import { readFileSync } from 'node:fs';
+                const input = JSON.parse(readFileSync(0, 'utf8'));
+                process.stdout.write(JSON.stringify({ privilegedInput: input._usageConfig !== undefined, authInEnv: process.env.OPENCODE_AUTH_CONTENT !== undefined }));
+            `);
+            // Claiming the bundled plugin's id and method is insufficient.
+            await expect(runPluginProcess({
+                pluginId: 'muxr.status', method: 'usage', script,
+                serializedInput: '{}', stateDir,
+            })).resolves.toEqual({ privilegedInput: false, authInEnv: false });
+        } finally {
+            if (previous === undefined) delete process.env.OPENCODE_AUTH_CONTENT;
+            else process.env.OPENCODE_AUTH_CONTENT = previous;
+        }
+
     });
 
     it('kills a hung process group and releases its semaphore slot before inherited pipes close', async () => {

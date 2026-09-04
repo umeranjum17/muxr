@@ -3,7 +3,8 @@ import { spawn } from 'node:child_process';
 import { closeSync, constants, lstatSync, openSync, readFileSync, realpathSync } from 'node:fs';
 import { open } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { isAbsolute, join, relative, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import type { PluginsInvalidatedFrame, PluginContextRequest, PluginManifestV1, PluginRpcMode, PluginSource, PluginSummary } from '@muxr/contract';
 import {
     MAX_RPC_STDERR_BYTES,
@@ -472,8 +473,47 @@ export interface RunPluginProcessOptions {
     trustedHerdrSocketPath?: string;
 }
 
+/** Only the installed bundled Usage code may receive provider configuration.
+ * In particular, auth-content stays on private stdin, never the plugin env or
+ * public context. A plugin id or a caller-supplied input is not authority.
+ */
+function usageProcessInput(options: RunPluginProcessOptions): string {
+    if (options.pluginId !== 'muxr.status' || options.method !== 'usage') return options.serializedInput;
+    let directory = dirname(fileURLToPath(import.meta.url));
+    let bundledUsage: string | undefined;
+    for (let depth = 0; depth < 8; depth += 1) {
+        try { bundledUsage = realpathSync(join(directory, 'plugins/status/usage.mjs')); break; } catch {}
+        const parent = dirname(directory);
+        if (parent === directory) break;
+        directory = parent;
+    }
+    if (bundledUsage === undefined) return options.serializedInput;
+    try { if (realpathSync(options.script) !== bundledUsage) return options.serializedInput; }
+    catch { return options.serializedInput; }
+    const config: Record<string, unknown> = {};
+    for (const key of [
+        'XDG_DATA_HOME', 'PI_CONFIG_DIR', 'PI_CODING_AGENT_DIR', 'OMP_PROFILE', 'PI_PROFILE',
+        'OPENCODE_DB', 'OPENCODE_DATA_DIR', 'CLAUDE_CONFIG_DIR', 'CODEX_HOME', 'TZ',
+    ]) {
+        if (process.env[key] !== undefined) config[key] = process.env[key];
+    }
+    try {
+        const auth: unknown = JSON.parse(process.env.OPENCODE_AUTH_CONTENT ?? '');
+        const go = isRecord(auth) ? auth['opencode-go'] : undefined;
+        // Presence (including null) means valid override: never borrow a disk
+        // account. Forward only the intended provider, not the whole auth file.
+        config.goAuthOverride = null;
+        if (isRecord(go) && go.type === 'api' && typeof go.key === 'string' && go.key.length <= 16 * 1024) {
+            config.goAuthOverride = { type: 'api', key: go.key };
+        }
+    } catch { /* Invalid/absent override follows OpenCode's disk fallback. */ }
+    const input: unknown = JSON.parse(options.serializedInput);
+    return JSON.stringify({ ...(isRecord(input) ? input : {}), _usageConfig: config });
+}
+
 /** Run one bounded plugin process and escape even when descendants retain stdio. */
 export function runPluginProcess(options: RunPluginProcessOptions): Promise<unknown> {
+    const serializedInput = usageProcessInput(options);
     const deadlineMs = options.deadlineMs ?? PLUGIN_CALL_DEADLINE_MS;
     const killGraceMs = options.killGraceMs ?? PLUGIN_CALL_KILL_GRACE_MS;
     if (options.signal?.aborted === true) return Promise.reject(pluginProcessError('AbortError', 'plugin call revoked'));
@@ -499,7 +539,7 @@ export function runPluginProcess(options: RunPluginProcessOptions): Promise<unkn
         // Caller input can contain secure-prompt values. stdin is private to this
         // child; unlike the environment it is not readable from /proc/<pid>/environ.
         child.stdin.on('error', () => { /* child may close stdin before reading */ });
-        child.stdin.end(options.serializedInput);
+        child.stdin.end(serializedInput);
         let stdout = Buffer.alloc(0);
         let stderr = Buffer.alloc(0);
         let stdoutOversize = false;

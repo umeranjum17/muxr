@@ -44,6 +44,11 @@
           "param": "provider"
         },
         {
+          "type": "text",
+          "text": "{{data.activityLabel}}",
+          "tone": "secondary"
+        },
+        {
           "type": "section",
           "title": "Today",
           "children": [
@@ -133,7 +138,7 @@
         },
         {
           "type": "text",
-          "text": "Read from local agent logs. Prompts and project details stay out.",
+          "text": "Local activity and estimated costs are separate from provider plan limits. Prompts and project details stay out.",
           "tone": "secondary"
         }
       ]
