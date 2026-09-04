@@ -46,6 +46,10 @@ The small flow requires:
 
 - Fresh pairing and a mounted herd under 30-pane/6-agent, 2 Hz title churn.
 - A real file list and the seeded 250-line document in the real viewer.
+- The session's real Changes list opens a git-backed native diff showing both
+  removed/added markers. In that same viewer, zoom increases measured line height,
+  unwrapped horizontal pan changes code-region pixels without leaving the file,
+  and Wrap retains its enabled state. Screenshots retain the word-diff example.
 - Mounted text terminal plus a recorded real host attach, while graphics are off.
 - Mounted terminal with an opaque magenta/teal Kitty checkerboard verified in
   the terminal framebuffer region, positive cell dimensions and positive delivered

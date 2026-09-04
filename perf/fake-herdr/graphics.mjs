@@ -301,7 +301,9 @@ function serveClient(socket, options) {
             const wanted = targetPaneId === undefined
                 ? undefined
                 : cursors.find((cursor) => cursor.paneId === targetPaneId);
-            const cursor = wanted ?? cursors[imageId % cursors.length] ?? cursors[0];
+            // The PR flow opens the first live pane. Pin its proof producer;
+            // round-robin across offscreen panes makes framebuffer proof flaky.
+            const cursor = options.enableFile !== undefined ? cursors[0] : wanted ?? cursors[imageId % cursors.length] ?? cursors[0];
             const bytes = kittyChunk({
                 ...cursor,
                 imageId,

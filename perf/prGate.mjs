@@ -6,6 +6,7 @@ import { startFakeStack } from './lib/fakeStack.mjs';
 import { pairPhone } from './lib/pairPhone.mjs';
 import { deviceIdentity, samplePhase, resetGfx, jankReport, screenshot, screencapRaw, dismissPrompts } from './lib/androidSignals.mjs';
 import { CommandScope, useCommandScope } from './lib/commands.mjs';
+import { cropRaw, pixelsMoved, parseUiNodes } from './lib/gestureMetrics.mjs';
 import { harnessIdentity, patchedDependencies, sha256, sourceIdentity } from './lib/provenance.mjs';
 import { usageHome, usagePlugins } from './fixtures/usageHome.mjs';
 
@@ -136,6 +137,46 @@ async function feature(name, work) {
     try { await work(); }
     catch (error) { report.failures.push(`${name}: ${error.message}`); console.error(`FAIL: ${name}: ${error.message}`); }
 }
+async function viewerControls() {
+    await herd();
+    check((await maestro('graphicsScroll.yaml')).code === 0, 'Could not open session for native file viewer');
+    await tapText('Session actions');
+    await requireScreen('session-actions', /Changes/);
+    await tapText('Changes');
+    await requireScreen('changed-files', /viewer.ts/);
+    await tapText('viewer.ts');
+    await requireScreen('native-diff', /beforeMarker/);
+    const diff = await requireScreen('native-diff', /afterMarker/);
+    check(diff.includes('beforeMarker'), 'Real native diff must show removed and added content');
+    await capture('native-diff.png');
+    await tapText('Toggle file and diff'); await tapText('File');
+    const initial = await requireScreen('native-file', /PR gate document line/);
+    const lineHeight = (xml) => {
+        const line = parseUiNodes(xml).find((node) => node.text?.includes('PR gate document line 1:'));
+        return line && line.b - line.t;
+    };
+    await tapText('Zoom in');
+    const zoomed = await requireScreen('native-zoom', /PR gate document line/);
+    check(lineHeight(zoomed) > lineHeight(initial), 'Zoom did not increase actual rendered line height');
+    await capture('native-zoom.png');
+    const { width, height } = report.device;
+    const region = { l: width * .1, r: width * .85, t: height * .25, b: height * .7 };
+    const before = cropRaw(await screencapRaw(), region);
+    await adb('shell', 'input', 'swipe', String(Math.round(width * .8)), String(Math.round(height * .5)), String(Math.round(width * .2)), String(Math.round(height * .5)), '450');
+    await sleep(500);
+    await requireScreen('native-pan', /viewer.ts/);
+    const pan = pixelsMoved(before, cropRaw(await screencapRaw(), region));
+    check(pan.moved, 'Unwrapped code did not visibly pan within the same file');
+    await capture('native-pan.png');
+    await tapText('Toggle file and diff'); await tapText('Wrap long lines');
+    await tapText('Toggle file and diff');
+    const wrapped = await dump('native-wrap');
+    const control = (wrapped.match(/<node\b[^>]*>/g) ?? []).find((node) => node.includes('content-desc="Wrap long lines"'));
+    check(control?.includes('selected="true"'), 'Wrap control did not retain enabled state');
+    await tapText('Toggle file and diff');
+    await capture('native-wrap.png');
+    report.viewer = { realDiff: true, zoomLineHeights: [lineHeight(initial), lineHeight(zoomed)], pan, wrapEnabled: true };
+}
 async function main() {
     check(/^emulator-\d+$/.test(serial), 'PR gate only clears dedicated emulators');
     check(seconds >= 30 && seconds <= 120, '--seconds must be 30..120');
@@ -172,9 +213,14 @@ async function main() {
     rmSync(graphicsEnableFile, { force: true });
     stack = await startFakeStack({ ...load, sourceRoot: hostRoot, setupHome: usageHome, setupPlugins: usagePlugins(hostRoot), graphicsEnableFile });
     report.fixtures = { usage: 'Synthetic SQLite aggregates + ccusage CLI output; scratch entry restores test env then imports actual usage plugin; no real auth/quota calls' };
-    writeFileSync(join(stack.world.cwd, 'notes.txt'), Array.from({ length: 250 }, (_, i) => `PR gate document line ${i + 1}: deterministic readable content`).join('\n'));
+    const lines = ['export function fixture() {', ...Array.from({ length: 250 }, (_, i) => `// PR gate document line ${i + 1}: deterministic readable content with a long tail for panning END_${i + 1}`), '}'];
+    lines[4] = 'const value = "beforeMarker";';
+    writeFileSync(join(stack.world.cwd, 'viewer.ts'), lines.join('\n'));
     await run('git', ['init', '-q', stack.world.cwd], { timeout: 10_000 });
-    await run('git', ['-C', stack.world.cwd, 'add', 'README.md', 'notes.txt'], { timeout: 10_000 });
+    await run('git', ['-C', stack.world.cwd, 'add', '.'], { timeout: 10_000 });
+    await run('git', ['-C', stack.world.cwd, '-c', 'user.name=Emulator Fixture', '-c', 'user.email=fixture@example.invalid', '-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', 'commit', '-qm', 'Baseline viewer fixture'], { timeout: 10_000 });
+    lines[4] = 'const value = "afterMarker";';
+    writeFileSync(join(stack.world.cwd, 'viewer.ts'), lines.join('\n'));
     const pairing = await pairPhone({ stack, maestro, attempts: 1, patienceSeconds: 30 });
     report.pairing = pairing;
     check(pairing.ok, pairing.why);
@@ -185,11 +231,12 @@ async function main() {
     await feature('herd', () => phase('herd', /text="connected"/, true));
     await feature('document', async () => {
         await herd(); await tapText('Files');
-        await requireScreen('files', /text="(notes.txt|README.md|project)"/);
-        if (!(await dump()).includes('text="notes.txt"')) await tapText('project');
-        await requireScreen('file-list', /text="notes.txt"/);
-        await tapText('notes.txt');
+        await requireScreen('files', /text="(viewer.ts|README.md|project)"/);
+        if (!(await dump()).includes('text="viewer.ts"')) await tapText('project');
+        await requireScreen('file-list', /text="viewer.ts"/);
+        await tapText('viewer.ts');
         await phase('document', /PR gate document line/, true);
+        await viewerControls();
     });
     await feature('terminal-text', async () => {
         await herd();
