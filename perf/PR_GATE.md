@@ -85,7 +85,9 @@ The full flow requires:
   labels remain device-unverified; this does not cover every phone width.
 - A real host session plus relative file path targets source line200 from offscreen
   on both cold app launch and warm navigation. The target must enter the upper
-  visible code region. This file-mode check does not claim diff deletion-collision
+  visible code region. Removing only the owned relay tunnel must produce a bounded
+  missing-session-root error on cold launch; restoring it must reach line200 again.
+  This file-mode check does not claim diff deletion-collision
   or folded-target device coverage.
 - Mounted text terminal plus a recorded real host attach, while graphics are off.
 - Mounted terminal with an opaque magenta/teal Kitty checkerboard verified in
