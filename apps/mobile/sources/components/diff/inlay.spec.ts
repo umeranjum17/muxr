@@ -47,6 +47,33 @@ describe('inlay', () => {
         expect(rows.length).toBe(after.split('\n').length + rows.filter((row) => row.prefix === '-').length);
         expect(laid!.hunkRows.length).toBe(hunks.length);
 
+        // `?line=N` names a SOURCE line, and the surface has to find the row
+        // carrying it. Row index is not that number: every removed line above
+        // pushes them apart, so navigating by index lands somewhere else.
+        const lines = after.split('\n');
+        const target = lines.length - 20;
+        const found = rows.findIndex((row) => row.newLine === target);
+        expect(found).toBeGreaterThanOrEqual(0);
+        expect(rows[found]!.text).toBe(lines[target - 1]);
+        expect(rows.filter((row) => row.prefix !== '-' && row.newLine === target)).toHaveLength(1);
+        // The drift the mapping exists to absorb is real in this patch.
+        expect(found).not.toBe(target - 1);
+
+        // A removed row carries the OLD line number, so a deletion above the
+        // target answers to the same N. Matching `newLine ?? oldLine` finds
+        // that corpse first and sends the route to a line that is gone; the
+        // current file has to win outright.
+        const shadowed = rows.find((row) => row.prefix === '-'
+            && row.oldLine !== undefined
+            && rows.some((other) => other.newLine === row.oldLine));
+        expect(shadowed).toBeDefined();
+        const collided = shadowed!.oldLine!;
+        const naive = rows.findIndex((row) => (row.newLine ?? row.oldLine) === collided);
+        const live = rows.findIndex((row) => row.newLine === collided);
+        expect(rows[naive]!.prefix).toBe('-');
+        expect(rows[live]!.prefix).not.toBe('-');
+        expect(rows[live]!.text).toBe(lines[collided - 1]);
+
         // Unchanged runs collapse, and a run is only folded when it is longer
         // than the gap difftastic would have merged across.
         const folds = foldRuns(rows);
