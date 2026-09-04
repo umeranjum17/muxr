@@ -517,6 +517,7 @@ export const zhHans: TranslationStructure = {
         file: '文件',
         fileEmpty: '文件为空',
         fileDeleted: '此文件已不存在',
+        sessionRootUnavailable: '此会话不可用，因此无法定位该文件。请检查连接后重试。',
         previousDocument: '上一份文档',
         nextDocument: '下一份文档',
         previousChange: '上一处更改',

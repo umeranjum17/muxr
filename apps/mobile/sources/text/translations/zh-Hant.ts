@@ -516,6 +516,7 @@ export const zhHant: TranslationStructure = {
         file: '檔案',
         fileEmpty: '檔案為空',
         fileDeleted: '此檔案已不存在',
+        sessionRootUnavailable: '此工作階段無法使用，因此找不到該檔案。請檢查連線後再試一次。',
         previousDocument: '上一份文件',
         nextDocument: '下一份文件',
         previousChange: '上一處變更',

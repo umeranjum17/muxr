@@ -531,6 +531,7 @@ export const pl: TranslationStructure = {
         file: 'Plik',
         fileEmpty: 'Plik jest pusty',
         fileDeleted: 'Ten plik już nie istnieje',
+        sessionRootUnavailable: 'Ta sesja jest niedostępna, więc nie udało się odnaleźć pliku. Sprawdź połączenie i spróbuj ponownie.',
         previousDocument: 'Poprzedni dokument',
         nextDocument: 'Następny dokument',
         previousChange: 'Poprzednia zmiana',

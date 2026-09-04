@@ -515,6 +515,7 @@ export const ca: TranslationStructure = {
         file: 'Fitxer',
         fileEmpty: 'El fitxer està buit',
         fileDeleted: 'Aquest fitxer ja no existeix',
+        sessionRootUnavailable: "Aquesta sessió no està disponible, així que no s'ha pogut localitzar el fitxer. Comprova la connexió i torna-ho a provar.",
         previousDocument: 'Document anterior',
         nextDocument: 'Document següent',
         previousChange: 'Canvi anterior',

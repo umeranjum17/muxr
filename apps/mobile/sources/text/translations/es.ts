@@ -515,6 +515,7 @@ export const es: TranslationStructure = {
         file: 'Archivo',
         fileEmpty: 'El archivo está vacío',
         fileDeleted: 'Este archivo ya no existe',
+        sessionRootUnavailable: 'Esta sesión no está disponible, por lo que no se pudo localizar el archivo. Comprueba la conexión e inténtalo de nuevo.',
         previousDocument: 'Documento anterior',
         nextDocument: 'Documento siguiente',
         previousChange: 'Cambio anterior',
