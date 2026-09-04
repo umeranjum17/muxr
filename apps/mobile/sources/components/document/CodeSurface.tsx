@@ -277,6 +277,41 @@ export function CodeSurface(props: {
     }, [itemOfRow, lineHeight, listRef, rows.length]);
     if (props.surfaceRef !== undefined) props.surfaceRef.current = { jumpToRow };
 
+    // `highlightLine` was declared here and never read, so `?line=500` opened
+    // at the top of the file. It is a SOURCE line, not a row index: in a patch
+    // the two diverge by every removed line above it, so the row has to be
+    // found by the line number it carries.
+    //
+    // `newLine ?? oldLine` was wrong for that search. A deletion above the
+    // target carries `oldLine === N` and would be found first, sending the
+    // route to a line that no longer exists. The current file wins outright:
+    // match `newLine` across the whole document, and only fall back to
+    // `oldLine` when no row has that line any more, which is the deleted-line
+    // case where showing the removal is the honest answer.
+    //
+    // The jump is only recorded once the list has been measured. Firing
+    // before `viewport` exists scrolls a list with no content and would burn
+    // the single attempt, leaving the reader at the top with the effect
+    // believing it had already arrived.
+    const target = props.highlightLine;
+    const jumpedTo = React.useRef<number | undefined>(undefined);
+    React.useEffect(() => { jumpedTo.current = undefined; }, [rows]);
+    React.useEffect(() => {
+        if (target === undefined || target <= 0 || jumpedTo.current === target || viewport <= 0) return;
+        let row = rows.findIndex((model) => model.newLine === target);
+        if (row < 0) row = rows.findIndex((model) => model.newLine === undefined && model.oldLine === target);
+        if (row < 0) return;
+        // A target inside a folded run is unreachable until the run opens, so
+        // open it and let the rebuilt item list run this again.
+        const hidden = folds.find((run) => row >= run.start && row < run.end);
+        if (hidden !== undefined) {
+            setExpanded((current) => ({ ...current, [hidden.start]: true }));
+            return;
+        }
+        jumpedTo.current = target;
+        jumpToRow(row);
+    }, [folds, jumpToRow, rows, target, viewport]);
+
     const ticks: ScrubTick[] = React.useMemo(() => {
         const total = Math.max(1, contentHeight);
         const out: ScrubTick[] = [];
