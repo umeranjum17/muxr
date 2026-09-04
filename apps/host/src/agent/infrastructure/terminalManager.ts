@@ -37,7 +37,8 @@ interface Attachment {
     rows: number;
     cellWidthPx: number | undefined;
     cellHeightPx: number | undefined;
-    pendingGraphics?: string;
+    pendingGraphics: { frame: string; bytes: number }[];
+    pendingGraphicsBytes: number;
     graphicsFlushTimer?: ReturnType<typeof setTimeout>;
     close: (reason?: string) => void;
 }
@@ -46,6 +47,8 @@ const ATTACH_TIMEOUT_MS = 10_000;
 const GRAPHICS_BUFFER_HIGH_BYTES = 512 * 1024;
 const GRAPHICS_BUFFER_LOW_BYTES = 128 * 1024;
 const GRAPHICS_DRAIN_POLL_MS = 16;
+const MAX_PENDING_GRAPHICS_BYTES = 64 * 1024 * 1024;
+const MAX_PENDING_GRAPHICS_FRAMES = 128;
 
 export class TerminalManager {
     private readonly attachments = new Map<string, Attachment>();
@@ -200,6 +203,8 @@ export class TerminalManager {
             rows: params.rows,
             cellWidthPx: params.cellWidthPx,
             cellHeightPx: params.cellHeightPx,
+            pendingGraphics: [],
+            pendingGraphicsBytes: 0,
             close: () => undefined,
         };
 
@@ -213,7 +218,8 @@ export class TerminalManager {
             removeInput();
             if (attachment.graphicsFlushTimer !== undefined) clearTimeout(attachment.graphicsFlushTimer);
             delete attachment.graphicsFlushTimer;
-            delete attachment.pendingGraphics;
+            attachment.pendingGraphics = [];
+            attachment.pendingGraphicsBytes = 0;
             if (reason !== undefined && socket.readyState === WebSocket.OPEN) {
                 const plaintext = JSON.stringify({ type: 'terminal.closed', reason });
                 if (this.hosted === undefined) {
@@ -472,11 +478,21 @@ export class TerminalManager {
 
     private sendGraphicsToPhone(attachment: Attachment, frame: string): void {
         if (this.attachments.get(attachment.channel) !== attachment || attachment.socket.readyState !== WebSocket.OPEN) return;
-        if (attachment.pendingGraphics === undefined && attachment.socket.bufferedAmount <= GRAPHICS_BUFFER_HIGH_BYTES) {
+        if (attachment.pendingGraphics.length === 0 && attachment.socket.bufferedAmount <= GRAPHICS_BUFFER_HIGH_BYTES) {
             this.sendToPhone(attachment, frame);
             return;
         }
-        attachment.pendingGraphics = frame;
+        const bytes = Buffer.byteLength(frame);
+        if (attachment.pendingGraphicsBytes + bytes > MAX_PENDING_GRAPHICS_BYTES
+            || attachment.pendingGraphics.length >= MAX_PENDING_GRAPHICS_FRAMES) {
+            attachment.close('terminal graphics backlog exceeded');
+            return;
+        }
+        // These records can update independent placements or delete old images.
+        // Only the bridge knows which operations supersede others; preserve its
+        // order here instead of treating every frame as a complete snapshot.
+        attachment.pendingGraphics.push({ frame, bytes });
+        attachment.pendingGraphicsBytes += bytes;
         if (attachment.graphicsFlushTimer === undefined) {
             attachment.graphicsFlushTimer = setTimeout(() => { this.flushGraphics(attachment); }, GRAPHICS_DRAIN_POLL_MS);
         }
@@ -485,16 +501,20 @@ export class TerminalManager {
     private flushGraphics(attachment: Attachment): void {
         delete attachment.graphicsFlushTimer;
         if (this.attachments.get(attachment.channel) !== attachment || attachment.socket.readyState !== WebSocket.OPEN) {
-            delete attachment.pendingGraphics;
+            attachment.pendingGraphics = [];
+            attachment.pendingGraphicsBytes = 0;
             return;
         }
-        if (attachment.socket.bufferedAmount > GRAPHICS_BUFFER_LOW_BYTES) {
+        if (attachment.socket.bufferedAmount <= GRAPHICS_BUFFER_LOW_BYTES) {
+            while (attachment.pendingGraphics.length > 0 && attachment.socket.bufferedAmount <= GRAPHICS_BUFFER_HIGH_BYTES) {
+                const next = attachment.pendingGraphics.shift()!;
+                attachment.pendingGraphicsBytes -= next.bytes;
+                this.sendToPhone(attachment, next.frame);
+            }
+        }
+        if (attachment.pendingGraphics.length > 0) {
             attachment.graphicsFlushTimer = setTimeout(() => { this.flushGraphics(attachment); }, GRAPHICS_DRAIN_POLL_MS);
-            return;
         }
-        const frame = attachment.pendingGraphics;
-        delete attachment.pendingGraphics;
-        if (frame !== undefined) this.sendToPhone(attachment, frame);
     }
 
     private sendToPhone(attachment: Attachment, plaintext: string): void {
