@@ -13,10 +13,17 @@
  */
 
 import * as React from 'react';
-import { Animated, AppState, PixelRatio, Platform, Pressable, Text, View } from 'react-native';
+import { AppState, PixelRatio, Platform, Pressable, Text, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { TerminalView as GhosttyView, type TerminalViewRef } from 'expo-libghostty';
 import { decodeBase64, encodeBase64 } from '@/encryption/base64';
-import { recordTerminalGraphicsFrame, recordTerminalScrollLatency } from '@/catalog/infrastructure/connectionDiagnostics';
+import {
+    recordTerminalGraphicsFrame,
+    recordTerminalResize,
+    recordTerminalScrollClamped,
+    recordTerminalScrollLatency,
+    recordTerminalScrollRows,
+} from '@/catalog/infrastructure/connectionDiagnostics';
 import { openTerminal, type TerminalChannel } from '../application/OpenTerminal';
 import { recordTerminalOutput, setTerminalColumns } from '../application/recentOutput';
 import { createTerminalWritePump, type TerminalWritePump } from '../application/terminalWritePump';
@@ -31,13 +38,19 @@ const MAX_SCROLL_LINES = 400;
 /** A scroll whose repaint never came back must not gate scrolling forever. */
 const SCROLL_ACK_TIMEOUT_MS = 250;
 /**
- * A remote image pane cannot repaint at the speed of a finger: the program has
- * to redraw and its pixels have to cross a relay. So the drag moves the pixels
- * we already have, immediately, and the real frame replaces them when it
- * lands. Without this the pane simply does not move until the frame arrives,
- * which is what "scrolling does not work" means.
+ * Zoom means two different things and both are real.
+ *
+ * On a text pane it is the font: Ghostty reflows, the grid changes, and herdr
+ * repaints at the new size, so more or fewer columns of real text fit.
+ *
+ * On an image pane the grid must not change -- the program is laid out for it --
+ * so zoom asks the program for more pixels per cell instead. The picture gets
+ * sharper in the same box, and it costs bytes as the square of the step, which
+ * is why the ladder is short and starts at one.
  */
-const PAN_SETTLE_MS = 180;
+const FONT_STEPS = [8, 10, 12, 14, 17, 20] as const;
+const DEFAULT_FONT_INDEX = 2;
+const RENDER_SCALE_STEPS = [1, 1.5, 2] as const;
 
 export interface TerminalViewProps {
     sessionId: string;
@@ -62,6 +75,31 @@ function combineTextFrames(frames: readonly string[]): string {
     return encodeBase64(all);
 }
 
+/** Small, dark, always in the same corner: a control, not a decoration. */
+const ZoomButton = (props: { label: string; glyph: 'add' | 'remove' | 'refresh'; onPress: () => void; disabled: boolean }): React.ReactElement => (
+    <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={props.label}
+        accessibilityState={{ disabled: props.disabled }}
+        disabled={props.disabled}
+        onPress={props.onPress}
+        hitSlop={8}
+        style={({ pressed }) => ({
+            width: 34,
+            height: 34,
+            borderRadius: 17,
+            alignItems: 'center',
+            justifyContent: 'center',
+            opacity: props.disabled ? 0.35 : 1,
+            backgroundColor: pressed ? 'rgba(70,70,68,0.96)' : 'rgba(28,28,27,0.82)',
+            borderWidth: 1,
+            borderColor: 'rgba(255,255,255,0.14)',
+        })}
+    >
+        <Ionicons name={props.glyph} size={18} color="#e6e6e1" />
+    </Pressable>
+);
+
 export const TerminalView = React.memo((props: TerminalViewProps) => {
     const { sessionId, onStatus, onChannel } = props;
     const termRef = React.useRef<TerminalViewRef>(null);
@@ -79,20 +117,62 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
     const scrollRafRef = React.useRef<number | undefined>(undefined);
     const scrollInFlightRef = React.useRef(false);
     const scrollAckTimerRef = React.useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-    const panRef = React.useRef(new Animated.Value(0));
-    const panPixelsRef = React.useRef(0);
-    const panSettleTimerRef = React.useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
     const scrollSentAtRef = React.useRef<number | undefined>(undefined);
     const graphicsActiveRef = React.useRef(false);
+    const [fontIndex, setFontIndex] = React.useState(DEFAULT_FONT_INDEX);
+    const [scaleIndex, setScaleIndex] = React.useState(0);
+    const scaleIndexRef = React.useRef(0);
 
-    /** Put the pixels back where the pane says they are. */
-    const resetPan = (): void => {
-        if (panSettleTimerRef.current !== undefined) clearTimeout(panSettleTimerRef.current);
-        panSettleTimerRef.current = undefined;
-        if (panPixelsRef.current === 0) return;
-        panPixelsRef.current = 0;
-        panRef.current.setValue(0);
+    /**
+     * What the pane is told a cell is worth in pixels. On a text pane that is
+     * simply the device's own cell. On an image pane a zoom asks the program for
+     * more pixels per cell instead of more cells, because the program is laid
+     * out for the grid it was given: the picture sharpens inside the same box,
+     * and it costs bytes as the square of the step. Placement and pointer
+     * mapping on the host are both ratio-based, so neither notices.
+     */
+    const cellFor = (size: { cellWidthPx?: number; cellHeightPx?: number }): { width: number; height: number } | undefined => {
+        if (size.cellWidthPx === undefined || size.cellHeightPx === undefined) return undefined;
+        const scale = graphicsActiveRef.current ? RENDER_SCALE_STEPS[scaleIndexRef.current] ?? 1 : 1;
+        return { width: Math.round(size.cellWidthPx * scale), height: Math.round(size.cellHeightPx * scale) };
     };
+
+    /**
+     * A zoom on an image pane never changes the grid, so nothing re-attaches:
+     * the pane is asked for a different amount of detail and the next frame
+     * arrives sharper. The current level is resent with every later resize, or
+     * a keyboard would quietly undo it.
+     */
+    const applyRenderScale = (index: number): void => {
+        const size = lastSizeRef.current;
+        const channel = channelRef.current;
+        scaleIndexRef.current = index;
+        setScaleIndex(index);
+        if (size === null || channel === undefined) return;
+        channel.resize(size.cols, size.rows, cellFor(size));
+        channel.repaint();
+    };
+
+    const zoom = (direction: 1 | -1): void => {
+        if (graphicsActiveRef.current) {
+            const next = Math.max(0, Math.min(RENDER_SCALE_STEPS.length - 1, scaleIndexRef.current + direction));
+            if (next !== scaleIndexRef.current) applyRenderScale(next);
+            return;
+        }
+        setFontIndex((current) => Math.max(0, Math.min(FONT_STEPS.length - 1, current + direction)));
+    };
+
+    const resetZoom = (): void => {
+        if (graphicsActiveRef.current) {
+            if (scaleIndexRef.current !== 0) applyRenderScale(0);
+            return;
+        }
+        setFontIndex(DEFAULT_FONT_INDEX);
+    };
+
+    const atMaxZoom = graphicsActive ? scaleIndex >= RENDER_SCALE_STEPS.length - 1 : fontIndex >= FONT_STEPS.length - 1;
+    const atMinZoom = graphicsActive ? scaleIndex <= 0 : fontIndex <= 0;
+    const atDefaultZoom = graphicsActive ? scaleIndex === 0 : fontIndex === DEFAULT_FONT_INDEX;
 
     const cancelCoalesce = (): void => {
         writeGenerationRef.current += 1;
@@ -105,7 +185,6 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
         scrollInFlightRef.current = false;
         pendingScrollRef.current = 0;
         scrollSentAtRef.current = undefined;
-        resetPan();
     };
 
     /**
@@ -120,14 +199,14 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
         const lines = Math.trunc(pendingScrollRef.current);
         pendingScrollRef.current = 0;
         if (lines === 0) return;
+        // The clamp is a runaway guard, and a guard that discards a gesture in
+        // silence is how a scroll comes to feel arbitrary. Count what it eats.
         const clamped = Math.max(-MAX_SCROLL_LINES, Math.min(MAX_SCROLL_LINES, lines));
+        if (clamped !== lines) recordTerminalScrollClamped(Math.abs(lines - clamped));
+        recordTerminalScrollRows(Math.abs(clamped));
         scrollInFlightRef.current = true;
         scrollSentAtRef.current = Date.now();
         scrollAckTimerRef.current = setTimeout(settleScroll, SCROLL_ACK_TIMEOUT_MS);
-        // A gesture the producer never answers must not leave the pixels
-        // hanging off their own pane.
-        if (panSettleTimerRef.current !== undefined) clearTimeout(panSettleTimerRef.current);
-        panSettleTimerRef.current = setTimeout(resetPan, SCROLL_ACK_TIMEOUT_MS + PAN_SETTLE_MS);
         const size = lastSizeRef.current;
         channelRef.current?.scroll(clamped, size === null ? undefined : {
             column: Math.floor(size.cols / 2),
@@ -160,11 +239,6 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
         [onChannel, sessionId],
     );
 
-    const cellFor = (size: { cellWidthPx?: number; cellHeightPx?: number }): { width: number; height: number } | undefined => {
-        if (size.cellWidthPx === undefined || size.cellHeightPx === undefined) return undefined;
-        return { width: size.cellWidthPx, height: size.cellHeightPx };
-    };
-
     React.useEffect(() => {
         const subscription = AppState.addEventListener('change', (state) => {
             const size = lastSizeRef.current;
@@ -173,6 +247,8 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             if (state !== 'active') {
                 suppressPointerRef.current = true;
                 pointerTouchesRef.current = 0;
+                scaleIndexRef.current = 0;
+                setScaleIndex(0);
                 setGraphicsActive(false);
                 channel.resize(size.cols, size.rows);
                 return;
@@ -186,6 +262,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
 
     const attach = React.useCallback(
         (cols: number, rows: number, cellWidthPx?: number, cellHeightPx?: number) => {
+            recordTerminalResize(cols, rows);
             setTerminalColumns(sessionId, cols);
             const last = lastSizeRef.current;
             if (last !== null && last.cols === cols && last.rows === rows
@@ -233,9 +310,6 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                             await view.write(bytes);
                             channel.recordFrameWritten();
                             if (graphics !== true) return;
-                            // New pixels for this pane: the optimistic pan has
-                            // served its purpose and must stop lying.
-                            resetPan();
                             recordTerminalGraphicsFrame(bytes.length);
                             const sentAt = scrollSentAtRef.current;
                             if (sentAt !== undefined) {
@@ -254,13 +328,16 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                             channel.repaint();
                         },
                     });
-                    // Pointer takeover and the optimistic pan belong to an image
-                    // that really is the pane. For a program's small image above
-                    // its own prompt the pane still owns scrolling and taps.
+                    // Pointer takeover belongs to an image that really is the
+                    // pane. For a program's small image above its own prompt the
+                    // pane still owns scrolling and taps.
                     channel.onGraphics((active, reason, surface) => {
                         const live = suppressPointerRef.current ? false : active && surface !== 'inline';
                         graphicsActiveRef.current = live;
-                        if (!live) resetPan();
+                        if (!live) {
+                            scaleIndexRef.current = 0;
+                            setScaleIndex(0);
+                        }
                         setGraphicsActive(live);
                         setGraphicsReason(active ? undefined : reason);
                     });
@@ -306,12 +383,11 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
 
     return (
         <View style={{ flex: 1, backgroundColor: '#0c0c0b' }}>
-            <Animated.View style={{ flex: 1, transform: [{ translateY: panRef.current }] }}>
             <GhosttyView
                 ref={termRef}
                 style={{ flex: 1 }}
                 pointerMode={graphicsActive}
-                fontSize={12}
+                fontSize={FONT_STEPS[fontIndex]}
                 theme={{ background: '#0c0c0b' }}
                 onInput={({ nativeEvent }) => {
                     if (nativeEvent.data) channelRef.current?.sendBytes(nativeEvent.data);
@@ -341,25 +417,25 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                 // them the way the text does, hence the negation.
                 onScroll={({ nativeEvent }) => {
                     pendingScrollRef.current -= nativeEvent.rows;
-                    // An image pane owns its own scrolling, so nothing moves
-                    // until the producer repaints. Carry the pixels with the
-                    // finger meanwhile; the frame that lands cancels this.
-                    if (graphicsActiveRef.current) {
-                        const size = lastSizeRef.current;
-                        const cellHeight = size?.cellHeightPx ?? 0;
-                        if (cellHeight > 0) {
-                            const limit = Math.max(cellHeight, (size?.rows ?? 1) * cellHeight);
-                            const next = Math.max(-limit, Math.min(limit, panPixelsRef.current + nativeEvent.rows * cellHeight));
-                            panPixelsRef.current = next;
-                            panRef.current.setValue(next);
-                        }
-                    }
                     if (scrollRafRef.current === undefined) {
                         scrollRafRef.current = requestAnimationFrame(flushScroll);
                     }
                 }}
             />
-            </Animated.View>
+            <View
+                style={{ position: 'absolute', top: 10, right: 10, gap: 6 }}
+                accessibilityRole="toolbar"
+                accessibilityLabel="Terminal zoom"
+            >
+                {/* A pinch is the shortcut; these are the affordance, and the
+                    only zoom a test can drive: one injected pointer cannot
+                    pinch. On a text pane they buy columns, on an image pane
+                    detail, and the labels stay the same either way so one flow
+                    covers both. */}
+                <ZoomButton label="Zoom in" glyph="add" onPress={() => zoom(1)} disabled={atMaxZoom} />
+                <ZoomButton label="Zoom out" glyph="remove" onPress={() => zoom(-1)} disabled={atMinZoom} />
+                <ZoomButton label="Reset zoom" glyph="refresh" onPress={resetZoom} disabled={atDefaultZoom} />
+            </View>
             {graphicsReason !== undefined && (
                 <View style={{
                     position: 'absolute',

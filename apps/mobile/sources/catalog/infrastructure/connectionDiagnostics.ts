@@ -87,7 +87,10 @@ export type ConnectionDiagnosticEvent =
     | { at: string; event: 'terminal.first-frame'; ms: number }
     | { at: string; event: 'terminal.frames'; received: number; written: number }
     | { at: string; event: 'terminal.scroll-latency'; ms: number }
-    | { at: string; event: 'terminal.graphics-frame'; bytes: number };
+    | { at: string; event: 'terminal.graphics-frame'; bytes: number }
+    | { at: string; event: 'terminal.scroll-rows'; rows: number }
+    | { at: string; event: 'terminal.scroll-clamped'; rows: number }
+    | { at: string; event: 'terminal.resize'; cols: number; rows: number };
 
 declare const terminalFrameCountBrand: unique symbol;
 export type TerminalFrameCountToken = { readonly [terminalFrameCountBrand]?: never };
@@ -378,6 +381,22 @@ export function recordTerminalGraphicsFrame(bytes: number): void {
     recordConnectionDiagnostic({ event: 'terminal.graphics-frame', bytes: boundedBytes(bytes) });
 }
 
+/** Rows a gesture asked the pane for, so a fling's travel can be judged. */
+export function recordTerminalScrollRows(rows: number): void {
+    recordConnectionDiagnostic({ event: 'terminal.scroll-rows', rows: boundedCount(rows) });
+}
+
+/** Rows the runaway clamp ate. A guard that discards a gesture in silence is
+ *  indistinguishable from a bug, so it is counted and gated at zero. */
+export function recordTerminalScrollClamped(rows: number): void {
+    recordConnectionDiagnostic({ event: 'terminal.scroll-clamped', rows: boundedCount(rows) });
+}
+
+/** A grid change, which is what a zoom really is. Numbers only. */
+export function recordTerminalResize(cols: number, rows: number): void {
+    recordConnectionDiagnostic({ event: 'terminal.resize', cols: boundedCount(cols), rows: boundedCount(rows) });
+}
+
 export function recordTerminalChannel(
     phase: ConnectionDiagnosticChannelPhase,
     result: { ok: true } | { ok: false; error?: unknown; code?: ConnectionDiagnosticCode },
@@ -396,7 +415,8 @@ export function recordTerminalChannel(
 }
 
 export function formatConnectionDiagnosticsForReport(): string {
-    const trail = events.filter((event) => event.event !== 'terminal.scroll-latency' && event.event !== 'terminal.graphics-frame');
+    const folded = new Set(['terminal.scroll-latency', 'terminal.graphics-frame', 'terminal.scroll-rows', 'terminal.scroll-clamped']);
+    const trail = events.filter((event) => !folded.has(event.event));
     const body = trail.length === 0
         ? 'No phone transport events yet.'
         : trail.map((event) => `${event.at} ${summarize(event)}`).join('\n');
@@ -405,6 +425,8 @@ export function formatConnectionDiagnosticsForReport(): string {
     let report = `${PRIVACY_HEADER}\n${body}`;
     if (live !== undefined) report += `\n${live}`;
     if (graphics !== undefined) report += `\n${graphics}`;
+    const gesture = gestureLine();
+    if (gesture !== undefined) report += `\n${gesture}`;
     return report;
 }
 
@@ -427,6 +449,18 @@ function graphicsLine(): string | undefined {
     if (frames.length === 0) return undefined;
     const latencies = events.flatMap((event) => event.event === 'terminal.scroll-latency' ? [event.ms] : []);
     return `graphics frames=${frames.length} p95=${percentile(frames, 95)}B scroll->frame p95=${percentile(latencies, 95)}ms`;
+}
+
+/** What the finger asked for against what the clamp allowed. */
+function gestureLine(): string | undefined {
+    const rows = events.flatMap((event) => event.event === 'terminal.scroll-rows' ? [event.rows] : []);
+    if (rows.length === 0) return undefined;
+    const clamped = events.flatMap((event) => event.event === 'terminal.scroll-clamped' ? [event.rows] : []);
+    const latencies = events.flatMap((event) => event.event === 'terminal.scroll-latency' ? [event.ms] : []);
+    const total = rows.reduce((sum, value) => sum + value, 0);
+    const lost = clamped.reduce((sum, value) => sum + value, 0);
+    return `terminal.scroll requests=${rows.length} rows=${total} clamped=${lost}`
+        + ` latency p50=${percentile(latencies, 50)}ms p95=${percentile(latencies, 95)}ms`;
 }
 
 function liveFrameLine(): string | undefined {
@@ -461,6 +495,9 @@ function summarize(event: ConnectionDiagnosticEvent): string {
     if (event.event === 'terminal.frames') return `terminal.frames received=${event.received} written=${event.written}`;
     if (event.event === 'terminal.scroll-latency') return `terminal.scroll-latency ${event.ms}ms`;
     if (event.event === 'terminal.graphics-frame') return `terminal.graphics-frame ${event.bytes}B`;
+    if (event.event === 'terminal.scroll-rows') return `terminal.scroll-rows ${event.rows}`;
+    if (event.event === 'terminal.scroll-clamped') return `terminal.scroll-clamped ${event.rows}`;
+    if (event.event === 'terminal.resize') return `terminal.resize ${event.cols}x${event.rows}`;
     const code = event.code === undefined ? '' : ` ${event.code}`;
     return `terminal.channel ${event.phase} ${event.outcome}${code}`;
 }
