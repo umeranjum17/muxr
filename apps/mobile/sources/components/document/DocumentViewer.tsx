@@ -9,7 +9,7 @@ import {
     type AccessibilityActionEvent,
     type LayoutChangeEvent,
 } from 'react-native';
-import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import { Gesture, GestureDetector, type NativeGesture } from 'react-native-gesture-handler';
 import Animated, {
     Easing,
     useAnimatedRef,
@@ -27,8 +27,11 @@ import { Text } from '@/components/StyledText';
 import { Typography } from '@/constants/Typography';
 import { layout } from '@/components/layout';
 import { PathBreadcrumb } from '@/components/PathBreadcrumb';
-import { CodeCore, HOST_CODE_MAX_CHARS, HOST_CODE_MAX_LINES } from '@/components/code/CodeCore';
-import { NavigableDiff } from '@/components/diff/NavigableDiff';
+import type { CodeContentPadding } from '@/components/code/CodeCore';
+import { CodeSurface } from '@/components/document/CodeSurface';
+import { surfaceModel } from '@/components/document/surfaceModel';
+import { useMonoCharWidth } from '@/components/code/monoMetrics';
+import { syntaxLanguage } from '@/components/code/syntaxHighlighting';
 import { fileIcon } from '@/plugins/domain/fileIcon';
 import { toneColor } from '@/plugins/domain/pluginTone';
 import { type PluginScreenTone } from '@muxr/contract';
@@ -48,7 +51,7 @@ export type DocumentMetadataItem = {
 };
 
 export const EDGE_INSET = 24;
-export const X_ACTIVATE = 14;
+export const X_ACTIVATE = 16;
 export const Y_FAIL = 12;
 export const INTENT_WINDOW = 400;
 export const COMMIT_DISTANCE_MIN = 64;
@@ -111,12 +114,17 @@ function DocumentBody(props: {
     loading: boolean;
     error: string | null;
     shownMode: DocumentDisplayMode;
-    fontSize: number;
+    /** Pinch override; undefined lets each viewer derive its size from the width. */
+    fontSize?: number;
     isNarrow: boolean;
     wrap: boolean;
-    onHunkOffsets: (offsets: number[]) => void;
+    contentWidth: number;
+    contentPadding: CodeContentPadding;
+    surfaceRef: React.MutableRefObject<{ jumpToRow: (row: number) => void } | null>;
+    onHunkIndices: (indices: number[]) => void;
     onFileCount: (count: number) => void;
-    onHighlightTop: (top: number) => void;
+    onDerivedFontSize: (size: number) => void;
+    railNative?: NativeGesture;
 }) {
     const { theme } = useUnistyles();
     const model = props.document;
@@ -148,30 +156,18 @@ function DocumentBody(props: {
             </View>
         );
     }
-    if (props.shownMode === 'diff' && model.diff) {
+    if (model.diff !== undefined || model.code !== undefined) {
         return (
-            <NavigableDiff
-                patch={model.diff}
-                fontSize={props.fontSize}
-                onHunkOffsets={props.onHunkOffsets}
-                onFileCount={props.onFileCount}
-                disableFileHeader
-                diffStyle={props.isNarrow ? 'unified' : undefined}
-                overflow={props.isNarrow ? 'wrap' : 'scroll'}
-            />
-        );
-    }
-    if (props.shownMode === 'file' && model.code) {
-        return (
-            <CodeCore
-                code={model.code}
-                language={undefined}
-                fileName={model.path}
-                fontSize={props.isNarrow ? props.fontSize - 1 : props.fontSize}
-                wrap={props.wrap}
-                maxLines={HOST_CODE_MAX_LINES}
-                maxChars={HOST_CODE_MAX_CHARS}
-                {...(model.highlightLine === undefined ? {} : { highlightLine: model.highlightLine, onHighlightTop: props.onHighlightTop })}
+            <ReadingBody
+                model={model}
+                shownMode={props.shownMode}
+                isNarrow={props.isNarrow}
+                contentWidth={props.contentWidth}
+                contentPadding={props.contentPadding}
+                surfaceRef={props.surfaceRef}
+                onHunkIndices={props.onHunkIndices}
+                onDerivedFontSize={props.onDerivedFontSize}
+                {...(props.fontSize === undefined ? {} : { fontSize: props.fontSize })}
             />
         );
     }
@@ -185,6 +181,62 @@ function DocumentBody(props: {
         return <Text style={{ fontSize: 16, color: theme.colors.textSecondary, fontStyle: 'italic', ...Typography.default() }}>{t('files.noChanges')}</Text>;
     }
     return null;
+}
+
+/**
+ * The reading surface: one gutter-less column with a scope pin, a scrubber and
+ * pills where the patch skipped content. A file and a diff are the same
+ * surface; only the provenance of the rows differs.
+ */
+function ReadingBody(props: {
+    model: DocumentModel;
+    shownMode: DocumentDisplayMode;
+    isNarrow: boolean;
+    contentWidth: number;
+    contentPadding: CodeContentPadding;
+    fontSize?: number;
+    surfaceRef: React.MutableRefObject<{ jumpToRow: (row: number) => void } | null>;
+    onHunkIndices: (indices: number[]) => void;
+    onDerivedFontSize: (size: number) => void;
+}) {
+    const { theme } = useUnistyles();
+    const size = props.fontSize ?? (props.isNarrow ? 11 : 13);
+    const { charWidth, probe } = useMonoCharWidth([size, size - 1]);
+    const built = React.useMemo(
+        () => surfaceModel({
+            showChanges: props.shownMode === 'diff',
+            ...(props.model.code === undefined ? {} : { code: props.model.code }),
+            ...(props.model.diff === undefined ? {} : { diff: props.model.diff }),
+        }),
+        [props.model.code, props.model.diff, props.shownMode],
+    );
+    const onDerivedFontSize = props.onDerivedFontSize;
+    React.useEffect(() => { onDerivedFontSize(size); }, [onDerivedFontSize, size]);
+    const onHunkIndices = props.onHunkIndices;
+    React.useEffect(() => { onHunkIndices(built?.hunkRows ?? []); }, [built, onHunkIndices]);
+    if (built === null) {
+        return <Text style={{ fontSize: 16, color: theme.colors.textSecondary, fontStyle: 'italic', ...Typography.default() }}>{t('files.noChanges')}</Text>;
+    }
+    return (
+        <View style={{ flex: 1 }}>
+            <CodeSurface
+                rows={built.rows}
+                hunkRows={built.hunkRows}
+                foldUnchanged={built.foldUnchanged}
+                separators={built.separators}
+                contentWidth={props.contentWidth}
+                charWidth={charWidth(size)}
+                fontSize={size}
+                isNarrow={props.isNarrow}
+                paddingTop={props.contentPadding.top}
+                paddingBottom={props.contentPadding.bottom}
+                surfaceRef={props.surfaceRef}
+                language={syntaxLanguage(undefined, props.model.path)}
+                {...(props.model.highlightLine === undefined ? {} : { highlightLine: props.model.highlightLine })}
+            />
+            {probe}
+        </View>
+    );
 }
 
 function SwipeAffordance(props: {
@@ -298,27 +350,31 @@ export function DocumentViewer(props: {
     const { width: windowWidth } = useWindowDimensions();
     const isNarrow = windowWidth < 700;
     const [displayMode, setDisplayMode] = React.useState<DocumentDisplayMode>('diff');
-    const [fontSize, setFontSize] = React.useState(12);
+    // The viewers derive their own size from the pane width; this is only the
+    // pinch override, and it lives and dies with the open document.
+    const [pinchedSize, setPinchedSize] = React.useState<number>();
+    const [derivedSize, setDerivedSize] = React.useState(12);
     const [wrapCode, setWrapCode] = React.useState(true);
-    const [highlightTop, setHighlightTop] = React.useState<number>();
-    const [hunkOffsets, setHunkOffsets] = React.useState<number[]>([]);
+    const [hunkIndices, setHunkIndices] = React.useState<number[]>([]);
     const [hunkIndex, setHunkIndex] = React.useState(0);
     const [diffFileCount, setDiffFileCount] = React.useState(1);
     const [slotWidth, setSlotWidth] = React.useState(windowWidth);
     const [pointerCoarse, setPointerCoarse] = React.useState(coarsePointer);
     const hunkIndexRef = React.useRef(0);
-    const pinchStart = React.useRef(fontSize);
+    const pinchStart = React.useRef(12);
+    const surfaceRef = React.useRef<{ jumpToRow: (row: number) => void } | null>(null);
     const scrollRef = useAnimatedRef<Animated.ScrollView>();
     // RNGH 2.30 types reject AnimatedRef as an external gesture. Same
     // priority as the spec (pinch with scroll, pan blocks scroll) via a
     // Native gesture attached to the scroller.
     const scrollNative = React.useMemo(() => Gesture.Native(), []);
+    const railNative = React.useMemo(() => Gesture.Native(), []);
     const reduceMotion = useReducedMotion();
     const translateX = useSharedValue(0);
     const progress = useSharedValue(0);
     const towardNext = useSharedValue(0);
     const startedAt = useSharedValue(0);
-    const retired = useSharedValue(0);
+    const startX = useSharedValue(0);
     const committed = useSharedValue(0);
     const widthSV = useSharedValue(windowWidth);
     const forwardSV = useSharedValue(I18nManager.isRTL ? -1 : 1);
@@ -335,10 +391,10 @@ export function DocumentViewer(props: {
     const fileCount = shownMode === 'diff' && model?.diff ? diffFileCount : 1;
     // An unwrapped file pans sideways, and that scroller and the file-swipe pan
     // both start as a horizontal drag; the bar's arrows still navigate.
+    // Multi-file diffs keep swipe: the rail Native gesture fails the pan first.
     const swipeEnabled = isNarrow
         && navigation !== undefined
         && (navigation.previous !== undefined || navigation.next !== undefined)
-        && fileCount <= 1
         && (shownMode !== 'file' || wrapCode)
         && pointerCoarse;
     const forward = I18nManager.isRTL ? -1 : 1;
@@ -365,36 +421,29 @@ export function DocumentViewer(props: {
     React.useEffect(() => {
         hunkIndexRef.current = 0;
         setHunkIndex(0);
-        setHunkOffsets([]);
-        setHighlightTop(undefined);
+        setHunkIndices([]);
+        setPinchedSize(undefined);
         translateX.set(0);
         progress.set(0);
         towardNext.set(0);
-        retired.set(0);
         committed.set(0);
         scrollRef.current?.scrollTo({ y: 0, animated: false });
-    }, [model?.path, progress, retired, towardNext, translateX, committed, scrollRef]);
+    }, [model?.path, progress, towardNext, translateX, committed, scrollRef]);
 
     React.useEffect(() => {
         translateX.set(0);
         progress.set(0);
     }, [slotWidth, progress, translateX]);
 
-    // The row's measured top, never index × lineHeight: one wrapped line is
-    // several visual rows, so the arithmetic lands on the wrong line.
-    React.useEffect(() => {
-        if (highlightTop === undefined || shownMode !== 'file') return;
-        const offset = Math.max(0, highlightTop + 16 - 40);
-        requestAnimationFrame(() => { scrollRef.current?.scrollTo({ y: offset, animated: false }); });
-    }, [highlightTop, scrollRef, shownMode]);
-
     const jumpHunk = React.useCallback((step: number) => {
-        if (hunkOffsets.length === 0) return;
-        const next = Math.min(hunkOffsets.length - 1, Math.max(0, hunkIndexRef.current + step));
+        if (hunkIndices.length === 0) return;
+        const next = Math.min(hunkIndices.length - 1, Math.max(0, hunkIndexRef.current + step));
         hunkIndexRef.current = next;
         setHunkIndex(next);
-        scrollRef.current?.scrollTo({ y: Math.max(0, hunkOffsets[next]! + 16 - 8), animated: reduceMotion !== true });
-    }, [hunkOffsets, reduceMotion, scrollRef]);
+        // The surface owns its own scroller now, so the bar asks it to move
+        // rather than reaching into a list it no longer mounts.
+        surfaceRef.current?.jumpToRow(hunkIndices[next]!);
+    }, [hunkIndices]);
 
     React.useEffect(() => {
         if (model?.path === undefined || navigation === undefined) return;
@@ -423,7 +472,7 @@ export function DocumentViewer(props: {
                 setDisplayMode((current) => current === 'diff' ? 'file' : 'diff');
                 return;
             }
-            if ((event.key === 'n' || event.key === 'p') && hunkOffsets.length > 1) {
+            if ((event.key === 'n' || event.key === 'p') && hunkIndices.length > 1) {
                 jumpHunk(event.key === 'n' ? 1 : -1);
                 return;
             }
@@ -435,55 +484,53 @@ export function DocumentViewer(props: {
         };
         window.addEventListener('keydown', onKey);
         return () => window.removeEventListener('keydown', onKey);
-    }, [hunkOffsets.length, jumpHunk, navigation, onNavigate, router]);
+    }, [hunkIndices.length, jumpHunk, navigation, onNavigate, router]);
 
     const commitNavigation = React.useCallback((path: string) => {
         hapticsLight();
         onNavigateRef.current?.(path);
     }, []);
 
+    const effectiveSize = pinchedSize ?? derivedSize;
     const pinch = React.useMemo(
         () => Gesture.Pinch()
-            .onBegin(() => { pinchStart.current = fontSize; })
-            .onEnd((event) => { setFontSize(Math.round(Math.min(28, Math.max(8, pinchStart.current * event.scale)))); })
+            .onBegin(() => { pinchStart.current = effectiveSize; })
+            .onEnd((event) => { setPinchedSize(Math.round(Math.min(28, Math.max(8, pinchStart.current * event.scale)))); })
             .runOnJS(true)
             .simultaneousWithExternalGesture(scrollNative),
-        [fontSize, scrollNative],
+        [effectiveSize, scrollNative],
     );
 
     const pan = React.useMemo(
-        () => Gesture.Pan()
-            .enabled(swipeEnabled)
-            .hitSlop({ horizontal: -EDGE_INSET })
-            .activeOffsetX([-X_ACTIVATE, X_ACTIVATE])
-            .failOffsetY([-Y_FAIL, Y_FAIL])
-            .minPointers(1)
-            .maxPointers(1)
-            .blocksExternalGesture(scrollNative)
+        () => {
+            const gesture = Gesture.Pan()
+                .enabled(swipeEnabled)
+                .hitSlop({ horizontal: -EDGE_INSET })
+                .activeOffsetX([-X_ACTIVATE, X_ACTIVATE])
+                .failOffsetY([-Y_FAIL, Y_FAIL])
+                .minPointers(1)
+                .maxPointers(1)
+                .blocksExternalGesture(scrollNative);
+            if (fileCount > 1) gesture.requireExternalGestureToFail(railNative);
+            return gesture
             .onTouchesDown((event, manager) => {
                 const touch = event.allTouches[0];
                 if (touch !== undefined && (touch.x < EDGE_INSET || touch.x > widthSV.value - EDGE_INSET)) manager.fail();
                 startedAt.value = Date.now();
-                retired.value = 0;
+                startX.value = touch?.x ?? 0;
                 committed.value = 0;
             })
+            .onTouchesMove((event, manager) => {
+                const touch = event.allTouches[0];
+                if (touch === undefined) return;
+                const dx = touch.x - startX.value;
+                if (Date.now() - startedAt.value > INTENT_WINDOW && Math.abs(dx) < X_ACTIVATE) manager.fail();
+            })
             .onStart((event) => {
-                if (Date.now() - startedAt.value > INTENT_WINDOW) {
-                    retired.value = 1;
-                    translateX.set(0);
-                    progress.set(0);
-                    return;
-                }
                 towardNext.value = event.translationX * forwardSV.value < 0 ? 1 : 0;
             })
             .onUpdate((event) => {
-                if (retired.value === 1 || committed.value === 1) return;
-                if (Date.now() - startedAt.value > INTENT_WINDOW && Math.abs(event.translationX) < X_ACTIVATE) {
-                    retired.value = 1;
-                    translateX.set(0);
-                    progress.set(0);
-                    return;
-                }
+                if (committed.value === 1) return;
                 const dx = event.translationX;
                 const goingNext = dx * forwardSV.value < 0;
                 towardNext.value = goingNext ? 1 : 0;
@@ -509,7 +556,7 @@ export function DocumentViewer(props: {
                 const distance = Math.max(COMMIT_DISTANCE_MIN, COMMIT_DISTANCE_RATIO * widthSV.value);
                 const distanceOk = Math.abs(dx) >= distance;
                 const velocityOk = Math.abs(event.velocityX) >= COMMIT_VELOCITY && Math.abs(dx) >= COMMIT_VELOCITY_TRAVEL && event.velocityX * dx > 0;
-                if (retired.value === 1 || path === '' || !(distanceOk || velocityOk)) {
+                if (path === '' || !(distanceOk || velocityOk)) {
                     translateX.set(withSpring(0, { duration: CANCEL_RETURN_MS, dampingRatio: CANCEL_DAMPING_RATIO, overshootClamping: true, velocity: event.velocityX }));
                     progress.set(0);
                     return;
@@ -529,8 +576,9 @@ export function DocumentViewer(props: {
                 if (event.state !== STATE_CANCELLED) return;
                 translateX.set(withSpring(0, { duration: CANCEL_RETURN_MS, dampingRatio: CANCEL_DAMPING_RATIO, overshootClamping: true, velocity: 0 }));
                 progress.set(0);
-            }),
-        [commitNavigation, scrollNative, swipeEnabled],
+            });
+        },
+        [commitNavigation, fileCount, railNative, scrollNative, swipeEnabled],
     );
 
     const composed = React.useMemo(() => Gesture.Simultaneous(pinch, pan), [pinch, pan]);
@@ -551,6 +599,30 @@ export function DocumentViewer(props: {
         ...(index === segments.length - 1 && model !== null ? { icon: fileIcon(model.fileName).name } : {}),
     }));
 
+    // The pane's own inset, not the flat 16: eight more columns of code on a
+    // narrow phone is the difference between a wrapped import and a whole one.
+    const inset = isNarrow ? 8 : 16;
+    const contentPadding: CodeContentPadding = { horizontal: inset, top: inset, bottom: 48 + insets.bottom + 16 };
+    const virtualized = shownMode === 'diff' ? Boolean(model?.diff) : Boolean(model?.code);
+    const body = (
+        <DocumentBody
+            document={model}
+            loading={loading}
+            error={error}
+            shownMode={shownMode}
+            isNarrow={isNarrow}
+            wrap={wrapCode}
+            contentWidth={Math.min(slotWidth, layout.maxWidth) - inset * 2}
+            contentPadding={contentPadding}
+            surfaceRef={surfaceRef}
+            onHunkIndices={setHunkIndices}
+            onFileCount={setDiffFileCount}
+            onDerivedFontSize={setDerivedSize}
+            railNative={railNative}
+            {...(pinchedSize === undefined ? {} : { fontSize: pinchedSize })}
+        />
+    );
+
     return (
         <View style={[styles.container, { backgroundColor: Platform.select({ web: theme.colors.surface, default: 'transparent' }) }]}>
             <PathBreadcrumb
@@ -565,25 +637,18 @@ export function DocumentViewer(props: {
                 <GestureDetector gesture={composed}>
                     <Animated.View style={[{ flex: 1 }, contentStyle]}>
                         <GestureDetector gesture={scrollNative}>
-                            <Animated.ScrollView
-                                ref={scrollRef}
-                                style={{ flex: 1 }}
-                                contentContainerStyle={{ padding: 16, paddingBottom: 48 + insets.bottom + 16, maxWidth: layout.maxWidth, alignSelf: 'center', width: '100%', flexGrow: 1 }}
-                                showsVerticalScrollIndicator
-                            >
-                                <DocumentBody
-                                    document={model}
-                                    loading={loading}
-                                    error={error}
-                                    shownMode={shownMode}
-                                    fontSize={fontSize}
-                                    isNarrow={isNarrow}
-                                    wrap={wrapCode}
-                                    onHunkOffsets={setHunkOffsets}
-                                    onFileCount={setDiffFileCount}
-                                    onHighlightTop={setHighlightTop}
-                                />
-                            </Animated.ScrollView>
+                            {virtualized ? (
+                                <View style={{ flex: 1, maxWidth: layout.maxWidth, alignSelf: 'center', width: '100%' }}>{body}</View>
+                            ) : (
+                                <Animated.ScrollView
+                                    ref={scrollRef}
+                                    style={{ flex: 1 }}
+                                    contentContainerStyle={{ padding: inset, paddingBottom: contentPadding.bottom, maxWidth: layout.maxWidth, alignSelf: 'center', width: '100%', flexGrow: 1 }}
+                                    showsVerticalScrollIndicator
+                                >
+                                    {body}
+                                </Animated.ScrollView>
+                            )}
                         </GestureDetector>
                     </Animated.View>
                 </GestureDetector>
@@ -612,7 +677,7 @@ export function DocumentViewer(props: {
             <DocumentNavigatorBar
                 mode={shownMode}
                 hasDiff={Boolean(model?.diff)}
-                hunkCount={hunkOffsets.length}
+                hunkCount={hunkIndices.length}
                 hunkIndex={hunkIndex}
                 onModeChange={setDisplayMode}
                 onJumpHunk={jumpHunk}

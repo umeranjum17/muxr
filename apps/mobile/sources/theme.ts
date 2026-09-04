@@ -180,7 +180,7 @@ export const lightTheme = {
             contextBg: '#F6F8FA',
             contextText: '#586069',
             lineNumberBg: '#F6F8FA',
-            lineNumberText: '#959DA5',
+            lineNumberText: '#6e7781',
             hunkHeaderBg: '#F1F8FF',
             hunkHeaderText: '#005CC5',
             leadingSpaceDot: '#E8E8E8',
@@ -192,10 +192,10 @@ export const lightTheme = {
 
         // Code/Syntax colors
         syntaxKeyword: '#1d4ed8',
-        syntaxString: '#059669',
+        syntaxString: '#047857',
         syntaxComment: '#6b7280',
-        syntaxNumber: '#0891b2',
-        syntaxFunction: '#9333ea',
+        syntaxNumber: '#0e7490',
+        syntaxFunction: '#7e22ce',
         syntaxBracket1: '#ff6b6b',
         syntaxBracket2: '#4ecdc4',
         syntaxBracket3: '#45b7d1',
