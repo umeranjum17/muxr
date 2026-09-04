@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { FOLD_CONTEXT, MAX_FOLD_DISTANCE, foldRuns, inlay, parseHunks } from '@/components/diff/inlay';
 import { surfaceModel } from '@/components/document/surfaceModel';
@@ -10,26 +9,30 @@ import { surfaceModel } from '@/components/document/surfaceModel';
  * If `inlay` mis-aligns, the reader is shown a lie: added lines attached to the
  * wrong place, or context that is not in the file. This drives a real patch and
  * the real file it came from through the whole path the viewer uses.
+ *
+ * The pair is committed rather than read out of git history. It used to come
+ * from `git show 5b58f5c9`, which fails on a shallow CI checkout that does not
+ * contain that commit. These are the genuine artefacts of it - 13 hunks against
+ * the 392-line file they applied to - so the flow is unchanged; only where the
+ * bytes come from is.
  */
 
-const repo = path.resolve(__dirname, '../../../../..');
-const target = 'apps/mobile/sources/components/diff/PierreDiffView.tsx';
+const fixtures = path.join(__dirname, '__fixtures__');
+const patchText = readFileSync(path.join(fixtures, 'pierre-diff-view.patch'), 'utf8');
+const afterText = readFileSync(path.join(fixtures, 'pierre-diff-view.after.tsx.txt'), 'utf8');
 
 function committedPatch(): string {
-    return execFileSync('git', ['-C', repo, '-c', 'diff.mnemonicPrefix=false', 'show', '5b58f5c9', '--no-ext-diff', '--format=', '--', target], {
-        encoding: 'utf8',
-        maxBuffer: 8 * 1024 * 1024,
-    });
+    return patchText;
 }
 
-function fileAt(revision: string): string {
-    return execFileSync('git', ['-C', repo, 'show', `${revision}:${target}`], { encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
+function fileAt(): string {
+    return afterText;
 }
 
 describe('inlay', () => {
     it('lays a real patch back into the file it produced, and folds what it did not touch', () => {
         const patch = committedPatch();
-        const after = fileAt('5b58f5c9');
+        const after = fileAt();
         const hunks = parseHunks(patch);
         expect(hunks.length).toBeGreaterThan(1);
 
@@ -61,7 +64,7 @@ describe('inlay', () => {
 
     it('refuses a patch that does not describe the content, rather than guessing', () => {
         const patch = committedPatch();
-        const after = fileAt('5b58f5c9');
+        const after = fileAt();
         const lines = after.split('\n');
         // One altered context line is enough to make the alignment a fiction.
         const firstContext = parseHunks(patch)[0]!;
@@ -82,7 +85,7 @@ describe('inlay', () => {
     });
 
     it('reads a plain file as the same row shape, with nothing to fold', () => {
-        const built = surfaceModel({ code: readFileSync(path.join(repo, target), 'utf8'), showChanges: false });
+        const built = surfaceModel({ code: afterText, showChanges: false });
         expect(built).not.toBeNull();
         expect(built!.hunkRows).toEqual([]);
         expect(built!.separators).toEqual([]);
