@@ -3,6 +3,7 @@ import {
     cellWidth,
     columnsFor,
     deriveFontSize,
+    displayCells,
     expandTabs,
     layoutLine,
     lineHeightFor,
@@ -78,6 +79,18 @@ describe('code layout', () => {
         expect(widthInCells('e\u0301')).toBe(1);
         const rows = rowsOf([{ text: '日'.repeat(40) }], 20);
         for (const row of rows) expect(row.cells).toBeLessThanOrEqual(20);
+    });
+
+    it('measures an unwrapped row in display cells, so a CJK line stays one row', () => {
+        // The surface budgets an unwrapped row by measuring the longest line
+        // and handing that to `layoutLine`. Measuring in UTF-16 units gave
+        // 80 for a line that occupies 160 cells, and the row wrapped into
+        // three with wrap switched off.
+        const line = '日'.repeat(80);
+        expect(line.length).toBe(80);
+        expect(displayCells(line)).toBe(160);
+        expect(layoutLine(line, line.length).starts).toEqual([0, 40, 78]);
+        expect(layoutLine(line, displayCells(line)).starts).toEqual([0]);
     });
 
     it('derives 12 dp and about 49 columns on the 411 dp emulator', () => {

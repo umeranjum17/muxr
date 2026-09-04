@@ -7,6 +7,7 @@ import { SyntaxSpans } from '@/components/SimpleSyntaxHighlighter';
 import { highlightCodeLines, type SyntaxSpan } from '@/components/code/syntaxHighlighting';
 import {
     columnsFor,
+    displayCells,
     expandTabs,
     layoutLines,
     lineHeightFor,
@@ -90,9 +91,12 @@ export function CodeSurface(props: {
     // Unwrapped, a row keeps its true length and the surface pans sideways.
     // No step on any ladder makes a 120-column line fit a 411 dp phone: that
     // needs 4.9 dp type. Wrapping was never the answer to width, panning is.
+    // Display cells, not UTF-16 units: `layoutLine` budgets in cells, so a
+    // row of 80 CJK characters is 160 wide. Measuring it as 80 gave the row
+    // a column budget half its true extent and it wrapped with wrap off.
     const lengths = React.useMemo(() => {
         const out = new Int32Array(rows.length);
-        for (let row = 0; row < rows.length; row += 1) out[row] = expandTabs(rows[row]?.text ?? '').length;
+        for (let row = 0; row < rows.length; row += 1) out[row] = displayCells(expandTabs(rows[row]?.text ?? ''));
         return out;
     }, [rows]);
     const longestCols = React.useMemo(() => {
@@ -226,6 +230,29 @@ export function CodeSurface(props: {
     );
     const offsets = React.useMemo(() => prefixSums(heights), [heights]);
     const contentHeight = offsets[offsets.length - 1] ?? 0;
+
+    // `fraction * rows.length` invents a number: it ignores fold pills, gap
+    // chips, wrapped rows of unequal height, and the fact that a patch's
+    // rows carry their own source line numbers. Resolve the item actually
+    // under the thumb from the pixel offset, then read that row's real
+    // line number off the model.
+    const lineLabelAt = React.useCallback((fraction: number) => {
+        const target = fraction * contentHeight;
+        let low = 0;
+        let high = offsets.length - 1;
+        while (low < high) {
+            const mid = (low + high + 1) >> 1;
+            if ((offsets[mid] ?? 0) <= target) low = mid; else high = mid - 1;
+        }
+        for (let index = low; index >= 0; index -= 1) {
+            const item = items[index];
+            if (item?.kind !== 'row') continue;
+            const model = rows[item.row];
+            const line = model?.newLine ?? model?.oldLine;
+            return line === undefined ? '' : `L ${line}`;
+        }
+        return '';
+    }, [contentHeight, items, offsets, rows]);
 
     // Row index → item index, so a jump target survives folding.
     const itemOfRow = React.useMemo(() => {
@@ -506,7 +533,7 @@ export function CodeSurface(props: {
                         viewportHeight={viewport}
                         ticks={ticks}
                         offsets={offsets}
-                        labelFor={(fraction) => `L ${Math.round(fraction * rows.length)}`}
+                        labelFor={lineLabelAt}
                     />
                 )}
             </View>

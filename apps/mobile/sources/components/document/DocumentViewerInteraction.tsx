@@ -73,7 +73,8 @@ export function DocumentNavigatorBar(props: {
 }) {
     const { theme } = useUnistyles();
     const insets = useSafeAreaInsets();
-    const compact = useWindowDimensions().width < 340;
+    const width = useWindowDimensions().width;
+    const compact = width < 340;
     const forward = I18nManager.isRTL ? -1 : 1;
     const prevIcon = forward === 1 ? 'chevron-back' : 'chevron-forward';
     const nextIcon = forward === 1 ? 'chevron-forward' : 'chevron-back';
@@ -81,6 +82,12 @@ export function DocumentNavigatorBar(props: {
     const showHunks = props.mode === 'diff' && props.hunkCount > 1;
     // Both modes pan now, so both can be put back into wrapping.
     const showWrap = true;
+    // Every control here is fixed-width and non-shrinking: file 128, hunk
+    // 128, zoom 88, overflow 44, padding 18 = 406 dp before borders, against
+    // a 379 dp lane on a 411 dp screen. When both nav groups are present the
+    // two "3/12" counters are the only expendable 80 dp - the buttons they
+    // annotate stay, and the count is still on each button's a11y label.
+    const showCounts = !(showHunks && navigation !== undefined) || width >= 480;
 
     const [menu, setMenu] = React.useState(false);
 
@@ -175,13 +182,15 @@ export function DocumentNavigatorBar(props: {
                         >
                             <Ionicons name={prevIcon} size={18} color={navigation.previous === undefined ? theme.colors.textSecondary : theme.colors.text} />
                         </NavPressable>
-                        <Text
-                            accessibilityRole="text"
-                            accessibilityLabel={t('files.filePosition', { current: navigation.index + 1, total: navigation.total })}
-                            style={[styles.position, { fontSize: compact ? 10.5 : 11.5, color: theme.colors.textSecondary }]}
-                        >
-                            {navigation.index + 1}/{navigation.total}
-                        </Text>
+                        {showCounts && (
+                            <Text
+                                accessibilityRole="text"
+                                accessibilityLabel={t('files.filePosition', { current: navigation.index + 1, total: navigation.total })}
+                                style={[styles.position, { fontSize: compact ? 10.5 : 11.5, color: theme.colors.textSecondary }]}
+                            >
+                                {navigation.index + 1}/{navigation.total}
+                            </Text>
+                        )}
                         <NavPressable
                             disabled={navigation.next === undefined}
                             onPress={() => { if (navigation.next) props.onNavigateFile?.(navigation.next.path); }}
@@ -218,9 +227,11 @@ export function DocumentNavigatorBar(props: {
                                 </NavPressable>
                             );
                         })}
-                        <Text style={[styles.position, { fontSize: compact ? 10.5 : 11.5, color: theme.colors.textSecondary }]}>
-                            {Math.min(props.hunkCount, props.hunkIndex + 1)}/{props.hunkCount}
-                        </Text>
+                        {showCounts && (
+                            <Text style={[styles.position, { fontSize: compact ? 10.5 : 11.5, color: theme.colors.textSecondary }]}>
+                                {Math.min(props.hunkCount, props.hunkIndex + 1)}/{props.hunkCount}
+                            </Text>
+                        )}
                     </View>
                 )}
                 <View style={styles.group}>
@@ -310,6 +321,11 @@ const styles = StyleSheet.create({
     group: {
         flexDirection: 'row',
         alignItems: 'center',
+        // Belt as well as braces: if a future control pushes the row past
+        // the lane again, the groups give way instead of pushing the
+        // overflow button off the screen edge.
+        flexShrink: 1,
+        minWidth: 0,
     },
     round: {
         width: 44,

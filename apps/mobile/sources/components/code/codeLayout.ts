@@ -73,6 +73,18 @@ export function expandTabs(text: string): string {
 }
 
 /**
+ * Width of a whole string in display cells, the same unit `layoutLine`
+ * budgets in. UTF-16 length is not that unit: 80 CJK characters are 80 code
+ * units but 160 cells, and measuring them as 80 makes an "unwrapped" row
+ * wrap anyway.
+ */
+export function displayCells(text: string): number {
+    let cells = 0;
+    for (const character of text) cells += cellWidth(character.codePointAt(0) ?? 0);
+    return cells;
+}
+
+/**
  * The same expansion applied to highlighted spans, so span offsets and plain
  * offsets index the same string and a break lands in the same place in both.
  */
