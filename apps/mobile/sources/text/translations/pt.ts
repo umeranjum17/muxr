@@ -515,6 +515,7 @@ export const pt: TranslationStructure = {
         file: 'Arquivo',
         fileEmpty: 'Arquivo está vazio',
         fileDeleted: 'Este arquivo não existe mais',
+        sessionRootUnavailable: 'Esta sessão não está disponível, por isso não foi possível localizar o ficheiro. Verifica a ligação e tenta novamente.',
         previousDocument: 'Documento anterior',
         nextDocument: 'Próximo documento',
         previousChange: 'Alteração anterior',

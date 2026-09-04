@@ -532,6 +532,7 @@ export const ru: TranslationStructure = {
         file: 'Файл',
         fileEmpty: 'Файл пустой',
         fileDeleted: 'Этот файл больше не существует',
+        sessionRootUnavailable: 'Эта сессия недоступна, поэтому файл не удалось найти. Проверьте подключение и попробуйте снова.',
         previousDocument: 'Предыдущий документ',
         nextDocument: 'Следующий документ',
         previousChange: 'Предыдущее изменение',

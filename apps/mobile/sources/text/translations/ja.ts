@@ -517,6 +517,7 @@ export const ja: TranslationStructure = {
         file: 'ファイル',
         fileEmpty: 'ファイルは空です',
         fileDeleted: 'このファイルはもう存在しません',
+        sessionRootUnavailable: 'このセッションを利用できないため、ファイルを特定できませんでした。接続を確認して、もう一度お試しください。',
         previousDocument: '前のドキュメント',
         nextDocument: '次のドキュメント',
         previousChange: '前の変更',

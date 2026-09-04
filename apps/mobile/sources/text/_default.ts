@@ -530,6 +530,7 @@ export const en = {
         file: 'File',
         fileEmpty: 'File is empty',
         fileDeleted: 'This file no longer exists',
+        sessionRootUnavailable: 'This session is not available, so the file could not be located. Check the connection and try again.',
         previousDocument: 'Previous document',
         nextDocument: 'Next document',
         previousChange: 'Previous change',

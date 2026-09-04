@@ -514,6 +514,7 @@ export const it: TranslationStructure = {
         file: 'File',
         fileEmpty: 'File vuoto',
         fileDeleted: 'Questo file non esiste più',
+        sessionRootUnavailable: 'Questa sessione non è disponibile, quindi il file non è stato trovato. Controlla la connessione e riprova.',
         previousDocument: 'Documento precedente',
         nextDocument: 'Documento successivo',
         previousChange: 'Modifica precedente',
