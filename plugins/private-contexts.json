@@ -1,0 +1,33 @@
+[
+  {
+    "pluginId": "muxr.status",
+    "method": "usage",
+    "entry": "status/usage.mjs",
+    "inputKey": "_usageConfig",
+    "environment": [
+      "XDG_DATA_HOME",
+      "PI_CONFIG_DIR",
+      "PI_CODING_AGENT_DIR",
+      "OMP_PROFILE",
+      "PI_PROFILE",
+      "OPENCODE_DB",
+      "OPENCODE_DATA_DIR",
+      "CLAUDE_CONFIG_DIR",
+      "CODEX_HOME",
+      "TZ"
+    ],
+    "jsonEnvironment": {
+      "goAuthOverride": {
+        "environment": "OPENCODE_AUTH_CONTENT",
+        "member": "opencode-go",
+        "fields": [
+          "type",
+          "key"
+        ],
+        "match": {
+          "type": "api"
+        }
+      }
+    }
+  }
+]

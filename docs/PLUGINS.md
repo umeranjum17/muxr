@@ -530,6 +530,19 @@ example: list the commits, tap one, read the diff.
 
 ## What a backend RPC gets
 
+An installation may explicitly grant a script private host configuration through
+`plugins/private-contexts.json` beside its installed plugin folders. This registry
+is installation-owned; a plugin manifest or RPC caller cannot grant access.
+Each recipe binds `pluginId`, `method`, and the canonical `entry` path relative to
+the registry, and names a reserved `inputKey`. The host overwrites that field with
+only the recipe's `environment` names and `jsonEnvironment` projections. A JSON
+projection specifies an environment variable, one member, allowed string fields,
+and optional exact `match` fields. Valid JSON missing or not matching that member
+projects `null`, preserving explicit empty
+overrides. Values travel on stdin, never in public context or generic child env.
+Do not put actual credentials in the registry. Changes to these grants require a
+trusted installation change, not a plugin's self-authored manifest.
+
 The child receives the call input as bounded UTF-8 JSON on **stdin** (`"null"` when absent). Secrets from secure prompts are never placed in its environment. The child process is started with a deliberately small environment:
 
 ```
