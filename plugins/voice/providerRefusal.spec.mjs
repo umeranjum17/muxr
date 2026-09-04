@@ -336,12 +336,14 @@ describe('providerRefusal', () => {
             socket.on('message', (data) => connection.frames.push(JSON.parse(String(data))));
         });
 
+        await writeFile(join(muxrHome, 'provider'), 'xai\n');
         const child = spawn(process.execPath, [fileURLToPath(new URL('./stream.mjs', import.meta.url))], {
             cwd: fileURLToPath(new URL('../..', import.meta.url)),
             env: {
                 ...process.env,
                 NODE_ENV: 'test',
                 MUXR_HOME: muxrHome,
+                MUXR_PLUGIN_STATE_DIR: muxrHome,
                 MUXR_TEST_XAI_REALTIME_URL: `ws://127.0.0.1:${address.port}`,
                 MUXR_VOICE_COORDINATOR_SOCKET: access.socketPath,
                 MUXR_VOICE_COORDINATOR_CAPABILITY: access.capability,
@@ -621,12 +623,14 @@ describe('providerRefusal', () => {
             socket.on('message', (data) => connection.frames.push(JSON.parse(String(data))));
         });
 
+        await writeFile(join(muxrHome, 'provider'), 'xai\n');
         const child = spawn(process.execPath, [fileURLToPath(new URL('./stream.mjs', import.meta.url))], {
             cwd: fileURLToPath(new URL('../..', import.meta.url)),
             env: {
                 ...process.env,
                 NODE_ENV: 'test',
                 MUXR_HOME: muxrHome,
+                MUXR_PLUGIN_STATE_DIR: muxrHome,
                 MUXR_TEST_XAI_REALTIME_URL: `ws://127.0.0.1:${address.port}`,
             },
             stdio: ['pipe', 'pipe', 'pipe'],

@@ -15,7 +15,7 @@ import { useUnistyles } from 'react-native-unistyles';
 import { configureVadStandby } from '@/conversation/session';
 import { ensureRealtimeProviderConfigured, requestRealtimePermission } from '@/conversation';
 
-type ProviderOption = { id: string; name: string; selected: boolean };
+type ProviderOption = { id: string; name: string; selected: boolean; configurationContributionId: string };
 type ProviderList = { selected: string; providers: ProviderOption[] };
 
 async function loadVoicePlugin() {
@@ -88,9 +88,9 @@ export default function VoiceProviderScreen() {
                 return;
             }
             const plugin = access.plugin;
-            const settings = plugin?.manifest?.contributions.find((contribution) => contribution.slot === 'settings.items' && contribution.type === 'settings-item');
-            if (settings?.action.type !== 'screen') throw new Error('This provider has no configuration screen.');
-            router.push(pluginHref(plugin!.summary.pluginId, settings.action.contributionId) as any);
+            const settings = plugin?.manifest?.contributions.find((contribution) => contribution.slot === 'navigation.content' && contribution.type === 'screen' && contribution.id === selected.configurationContributionId);
+            if (settings === undefined) throw new Error('This provider has no configuration screen.');
+            router.push(pluginHref(plugin!.summary.pluginId, settings.id) as any);
         } catch (cause) {
             Modal.alert('Provider settings unavailable', cause instanceof Error ? cause.message : String(cause));
         } finally {
