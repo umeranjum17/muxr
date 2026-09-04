@@ -553,6 +553,9 @@ describe('session sync flow', () => {
     });
 
     it('reconciles structured lifecycle activity once across live replay, reconnect and restart', async () => {
+        // Keep this replay timeline inside the production seven-day retention
+        // window, regardless of when CI runs; leave async timers running normally.
+        vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-08-27T10:10:00.000Z'));
         const event = (eventId: string, state: AgentLifecycle, at: string): LifecycleEvent => ({
             eventId,
             sessionId: 'session-secret-42',
