@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { createHash } from 'node:crypto';
+import { scryptSync } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { constants, accessSync, chmodSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 
@@ -457,10 +457,12 @@ function limitLabel(provider, claudeLimits, codex) {
   return 'Plan limits unsupported for this provider';
 }
 
-const cacheIdentity = createHash('sha256').update(JSON.stringify({
+// The identity includes the selected Go credential. Use a bounded KDF rather
+// than a fast hash; the stable domain salt keeps cache comparisons deterministic.
+const cacheIdentity = scryptSync(JSON.stringify({
   config: Object.fromEntries(['HOME', 'PATH', 'XDG_DATA_HOME', 'PI_CONFIG_DIR', 'PI_CODING_AGENT_DIR', 'OMP_PROFILE', 'PI_PROFILE', 'OPENCODE_DB', 'OPENCODE_DATA_DIR', 'CLAUDE_CONFIG_DIR', 'CODEX_HOME', 'TZ'].map((key) => [key, process.env[key] ?? null])),
   go: goAuthSelection(),
-})).digest('hex');
+}), 'muxr.status/usage/cache-identity/v3', 32, { N: 16_384, r: 8, p: 1, maxmem: 32 * 1024 * 1024 }).toString('hex');
 const cached = cachedOutput();
 if (cached !== undefined) {
   process.stdout.write(JSON.stringify(cached));
