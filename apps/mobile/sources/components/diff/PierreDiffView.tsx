@@ -8,7 +8,6 @@ import { boundText } from '@/utils/boundedText';
 import { SyntaxSpans } from '@/components/SimpleSyntaxHighlighter';
 import { highlightCodeLines, syntaxLanguage } from '@/components/code/syntaxHighlighting';
 import {
-    CONTINUATION_GLYPH,
     GAP,
     RIGHT_INSET,
     columnsFor,
@@ -19,6 +18,7 @@ import {
     prefixSums,
     sliceSpans,
 } from '@/components/code/codeLayout';
+import { pagePalette } from '@/components/code/syntaxPalette';
 import { useMonoCharWidth } from '@/components/code/monoMetrics';
 import { withAlpha } from '@/components/ui';
 import type { CodeContentPadding } from '@/components/code/CodeCore';
@@ -440,7 +440,7 @@ function PlainPatchView({
                 {visual.map((_, visualRow) => (
                     <View key={visualRow} style={{ flexDirection: 'row' }}>
                         <Text style={{ ...numberStyle, width: numberWidth }}>{visualRow === 0 ? row.oldLine ?? '' : ''}</Text>
-                        <Text style={{ ...numberStyle, width: numberWidth }}>{visualRow === 0 ? row.newLine ?? '' : CONTINUATION_GLYPH}</Text>
+                        <Text style={{ ...numberStyle, width: numberWidth }}>{visualRow === 0 ? row.newLine ?? '' : ''}</Text>
                         <Text style={{ width: markerWidth, textAlign: 'center', color: added ? colors.success : removed ? colors.error : colors.lineNumberText, fontWeight: added || removed ? '600' : 'normal', fontSize: codeFontSize, lineHeight: codeLineHeight, ...Typography.mono() }}>
                             {visualRow === 0 ? row.prefix : ' '}
                         </Text>
@@ -456,7 +456,7 @@ function PlainPatchView({
                         ellipsizeMode="clip"
                         style={{ color: foreground, fontSize: codeFontSize, lineHeight: codeLineHeight, paddingLeft: visualRow === 0 ? 0 : layout.hang * charW, ...Typography.mono() }}
                     >
-                        {spans.length === 0 ? ' ' : <SyntaxSpans spans={spans} theme={theme} fallbackColor={foreground} selectable />}
+                        {spans.length === 0 ? ' ' : <SyntaxSpans spans={spans} palette={pagePalette(theme)} selectable />}
                     </Text>
                 ))}
             </View>

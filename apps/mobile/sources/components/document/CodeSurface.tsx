@@ -6,22 +6,23 @@ import { Typography } from '@/constants/Typography';
 import { SyntaxSpans } from '@/components/SimpleSyntaxHighlighter';
 import { highlightCodeLines, type SyntaxSpan } from '@/components/code/syntaxHighlighting';
 import {
-    CONTINUATION_GLYPH,
     columnsFor,
     layoutLines,
     lineHeightFor,
     prefixSums,
     sliceSpans,
 } from '@/components/code/codeLayout';
+import { codePalette } from '@/components/code/syntaxPalette';
+import { withAlpha } from '@/components/ui';
 import { buildScopeModel } from '@/components/code/scopeOutline';
 import { foldRuns, type InlayRow } from '@/components/diff/inlay';
 import { Scrubber, type ScrubTick } from '@/components/document/Scrubber';
 import type { SurfaceSeparator } from '@/components/document/surfaceModel';
-import { withAlpha } from '@/components/ui';
 
 /** The whole ornament budget on a phone: a 3 dp change bar and a marker cell. */
-export const LEFT_INSET = 14;
+export const LEFT_INSET = 16;
 export const CHANGE_BAR = 3;
+export const PANEL_RADIUS = 16;
 const RIGHT_INSET = 16;
 const PILL_HEIGHT = 28;
 
@@ -181,10 +182,12 @@ export function CodeSurface(props: {
                             ellipsizeMode="clip"
                             style={{ ...mono, fontSize, lineHeight, color: foreground, paddingLeft: visualRow === 0 ? 0 : layout.hang * charWidth }}
                         >
-                            {visualRow > 0 && (
-                                <Text style={{ color: theme.colors.diff.lineNumberText, opacity: 0.7 }}>{`${CONTINUATION_GLYPH} `}</Text>
-                            )}
-                            {spans.length === 0 ? ' ' : <SyntaxSpans spans={spans} theme={theme} fallbackColor={foreground} selectable />}
+                            {/* No continuation glyph: a column of arrows down
+                                the left of every wrapped line reads as a
+                                rendering fault. The hanging indent above is
+                                the whole signal, which is what an editor's
+                                soft wrap looks like. */}
+                            {spans.length === 0 ? ' ' : <SyntaxSpans spans={spans} palette={codePalette(theme)} selectable />}
                         </Text>
                     ))}
                 </View>

@@ -5,6 +5,7 @@ import type { Theme } from '@/theme';
 import { Typography } from '@/constants/Typography';
 import { boundText } from '@/utils/boundedText';
 import { highlightCodeLines, syntaxLanguage, type SyntaxSpan } from '@/components/code/syntaxHighlighting';
+import { pagePalette, tokenColor, type SyntaxPalette } from '@/components/code/syntaxPalette';
 
 export const MAX_RENDER_LINES = 2000;
 
@@ -19,20 +20,9 @@ interface SimpleSyntaxHighlighterProps {
     fontSize?: number;
 }
 
-function tokenColor(theme: Theme, type: string | undefined, fallback: string): string {
-    switch (type) {
-        case 'comment': case 'prolog': case 'doctype': case 'cdata': return theme.colors.syntaxComment;
-        case 'string': case 'char': case 'regex': case 'attr-value': case 'inserted': return theme.colors.syntaxString;
-        case 'number': case 'boolean': case 'constant': case 'symbol': return theme.colors.syntaxNumber;
-        case 'function': return theme.colors.syntaxFunction;
-        case 'keyword': case 'class-name': case 'atrule': case 'operator': case 'important': return theme.colors.syntaxKeyword;
-        default: return fallback;
-    }
-}
-
-export function SyntaxSpans(props: { spans: SyntaxSpan[]; theme: Theme; fallbackColor: string; selectable?: boolean }) {
+export function SyntaxSpans(props: { spans: SyntaxSpan[]; palette: SyntaxPalette; selectable?: boolean }) {
     return <>{props.spans.map((span, index) => <Text key={index} selectable={props.selectable}
-        style={{ color: tokenColor(props.theme, span.type, props.fallbackColor), fontStyle: span.type === 'comment' ? 'italic' : 'normal' }}>{span.text}</Text>)}</>;
+        style={{ color: tokenColor(props.palette, span.type) }}>{span.text}</Text>)}</>;
 }
 
 export const SimpleSyntaxHighlighter = React.memo(function SimpleSyntaxHighlighter({
@@ -58,7 +48,8 @@ export const SimpleSyntaxHighlighter = React.memo(function SimpleSyntaxHighlight
     const truncation = bounded.omittedChars > 0 ? <Text selectable={false} style={{ color: theme.colors.textSecondary, fontSize, padding: 8 }}>
         showing {bounded.totalLines - bounded.omittedLines} of {bounded.totalLines} lines ({bounded.omittedLines} omitted, {bounded.omittedChars} chars)
     </Text> : null;
-    const renderLine = (line: SyntaxSpan[]) => line.length === 0 ? ' ' : <SyntaxSpans spans={line} theme={theme} fallbackColor={theme.colors.syntaxDefault} selectable={selectable} />;
+    const palette = pagePalette(theme);
+    const renderLine = (line: SyntaxSpan[]) => line.length === 0 ? ' ' : <SyntaxSpans spans={line} palette={palette} selectable={selectable} />;
 
     if (lineNumbers) {
         const gutterWidth = String(lines.length).length * (fontSize * 0.62) + 10;

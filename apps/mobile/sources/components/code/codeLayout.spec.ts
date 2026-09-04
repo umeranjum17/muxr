@@ -5,6 +5,7 @@ import {
     deriveFontSize,
     expandTabs,
     layoutLine,
+    lineHeightFor,
     sliceSpans,
 } from '@/components/code/codeLayout';
 import type { SyntaxSpan } from '@/components/code/syntaxHighlighting';
@@ -79,14 +80,17 @@ describe('code layout', () => {
         for (const row of rows) expect(row.cells).toBeLessThanOrEqual(20);
     });
 
-    it('derives 11 dp and about 53 columns on the 411 dp emulator', () => {
+    it('derives 12 dp and about 49 columns on the 411 dp emulator', () => {
         const charWidth = (size: number) => 0.6 * size;
-        // 411 dp window, 8 dp insets on a narrow pane.
+        // 411 dp window, 8 dp insets on a narrow pane. 12 dp at 1.5 is the
+        // appearance spec: seven columns traded for code that looks like code,
+        // since wrapping already carries a long line.
         const contentWidth = 411 - 16;
-        expect(deriveFontSize(contentWidth, 3, 'file', charWidth)).toBe(11);
-        const gutter = 3 * charWidth(10) + 6;
-        expect(columnsFor(contentWidth - gutter - 8 - 8, charWidth(11))).toBe(53);
+        expect(deriveFontSize(contentWidth, 3, 'file', charWidth)).toBe(12);
+        expect(lineHeightFor(12)).toBe(18);
+        // One column, 16 dp of body padding each side, no number gutter.
+        expect(columnsFor(contentWidth - 32, charWidth(12))).toBe(49);
         // A tablet gets the ceiling size instead of the floor.
-        expect(deriveFontSize(700 - 32, 3, 'file', charWidth)).toBe(13);
+        expect(deriveFontSize(700 - 32, 3, 'file', charWidth)).toBe(14);
     });
 });

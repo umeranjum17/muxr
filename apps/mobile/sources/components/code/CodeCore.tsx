@@ -9,7 +9,6 @@ import { boundText } from '@/utils/boundedText';
 import { SyntaxSpans } from '@/components/SimpleSyntaxHighlighter';
 import { highlightCodeLines, syntaxLanguage, type SyntaxSpan } from '@/components/code/syntaxHighlighting';
 import {
-    CONTINUATION_GLYPH,
     GAP,
     RIGHT_INSET,
     columnsFor,
@@ -23,6 +22,7 @@ import {
     type LineLayout,
 } from '@/components/code/codeLayout';
 import { useMonoCharWidth } from '@/components/code/monoMetrics';
+import { pagePalette } from '@/components/code/syntaxPalette';
 import { ui, withAlpha } from '@/components/ui';
 import { PathBreadcrumb } from '@/components/PathBreadcrumb';
 import { fileIcon } from '@/plugins/domain/fileIcon';
@@ -201,7 +201,7 @@ export function CodeCore(props: {
                         selectable={false}
                         style={{ ...mono, width: gutterWidth, textAlign: 'right', fontSize: fontSize - 1, lineHeight, color: theme.colors.diff.lineNumberText }}
                     >
-                        {row === 0 ? index + 1 : CONTINUATION_GLYPH}
+                        {row === 0 ? index + 1 : ''}
                     </Text>
                 ))}
             </View>
@@ -216,7 +216,7 @@ export function CodeCore(props: {
             >
                 {spans.length === 0
                     ? ' '
-                    : <SyntaxSpans spans={spans} theme={theme} fallbackColor={theme.colors.syntaxDefault} selectable={selectable} />}
+                    : <SyntaxSpans spans={spans} palette={pagePalette(theme)} selectable={selectable} />}
             </Text>
         ));
         if (wrap) {

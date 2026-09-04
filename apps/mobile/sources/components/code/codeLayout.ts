@@ -19,16 +19,20 @@ export const RIGHT_INSET = 8;
 export const NUMBER_CELL_PADDING = 6;
 export const MARKER_CELL_PADDING = 4;
 export const DIFF_BORDER = 2;
-export const MIN_FONT_SIZE = 11;
-export const MAX_FONT_SIZE = 13;
+export const MIN_FONT_SIZE = 12;
+export const MAX_FONT_SIZE = 14;
 export const TARGET_COLUMNS = 64;
 /** Continuation rows keep at least this much room, however deep the original indent. */
 export const MIN_CONTINUATION_COLUMNS = 16;
 /** Only the tail of a row may be given back to reach a token boundary. */
 export const BREAK_WINDOW = 0.4;
 
-/** U+21B3. In IBM Plex Mono; absent from JetBrains Mono, which is why the font stays. */
-export const CONTINUATION_GLYPH = '↳';
+/**
+ * A soft-wrapped row is marked by its hanging indent and nothing else, the way
+ * every editor does it. A glyph in the margin of every wrapped line reads as a
+ * rendering fault rather than as a wrap.
+ */
+export const CONTINUATION_HANG = 4;
 
 const AFTER_BREAK: Record<string, true> = { ' ': true, ',': true, ';': true, ')': true, ']': true, '}': true, '>': true };
 const BEFORE_BREAK: Record<string, true> = {
@@ -135,7 +139,7 @@ export interface LineLayout {
 
 export function layoutLine(expanded: string, cols: number): LineLayout {
     const usable = Math.max(1, cols);
-    const hang = Math.min(leadingSpaces(expanded) + 2, Math.max(0, usable - MIN_CONTINUATION_COLUMNS));
+    const hang = Math.min(leadingSpaces(expanded) + CONTINUATION_HANG, Math.max(0, usable - MIN_CONTINUATION_COLUMNS));
     const starts = [0];
     let at = nextBreak(expanded, 0, usable);
     while (at < expanded.length) {
@@ -229,7 +233,7 @@ export function deriveFontSize(
 }
 
 export function lineHeightFor(fontSize: number): number {
-    return Math.round(fontSize * 1.45);
+    return Math.round(fontSize * 1.5);
 }
 
 /** Running offsets for `getItemLayout`, plus the total. */
