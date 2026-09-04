@@ -1,20 +1,20 @@
 import * as React from 'react';
-import { TextInput, View } from 'react-native';
+import { Text, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
     scrollTo,
-    useAnimatedProps,
+    useAnimatedReaction,
     useAnimatedStyle,
     useSharedValue,
     withDelay,
+    withSpring,
     withTiming,
     type AnimatedRef,
     type SharedValue,
 } from 'react-native-reanimated';
+import { scheduleOnRN } from 'react-native-worklets';
 import { useUnistyles } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
-
-const AnimatedTextInput = Animated.createAnimatedComponent(TextInput);
 
 export const SCRUB_WIDTH = 12;
 /** VS Code's overview ruler floors a decoration at 6 CSS px and merges below that. */
@@ -80,16 +80,35 @@ export function Scrubber(props: {
     }));
     const labelStyle = useAnimatedStyle(() => ({
         opacity: active.value,
-        transform: [{ translateY: labelY.value - 14 }],
+        transform: [
+            { translateY: labelY.value - 14 },
+            { scale: active.value === 1 ? withSpring(1, { damping: 18, stiffness: 260 }) : 0.9 },
+        ],
     }));
-    const labelProps = useAnimatedProps(() => {
-        const fraction = Math.min(1, Math.max(0, labelY.value / height));
+    // A worklet that sets `text` on an AnimatedTextInput paints nothing in
+    // this build, so the label is real state.
+    // Ticks only exist at changes, so between them the label had nothing to
+    // say. With no number gutter on the surface, this strip is the one place
+    // a line number is recoverable, so fall back to the continuous position
+    // whenever the drag is not sitting on a change. Quantised to 1/200 of
+    // the strip so this is a handful of updates across a drag, not one per
+    // frame.
+    const [label, setLabel] = React.useState('');
+    const labelFor = props.labelFor;
+    const resolve = React.useCallback((bucket: number) => {
+        const fraction = bucket / 200;
         let nearest = 0;
         for (let index = 1; index < fractions.length; index += 1) {
             if (Math.abs((fractions[index] ?? 0) - fraction) < Math.abs((fractions[nearest] ?? 0) - fraction)) nearest = index;
         }
-        return { text: labels.length === 0 ? '' : labels[nearest] ?? '' } as never;
-    });
+        const onTick = fractions.length > 0 && Math.abs((fractions[nearest] ?? 0) - fraction) < 0.01;
+        setLabel(onTick ? (labels[nearest] ?? '') : labelFor(fraction));
+    }, [fractions, labelFor, labels]);
+    useAnimatedReaction(
+        () => Math.round(Math.min(1, Math.max(0, labelY.value / height)) * 200),
+        (bucket, previous) => { if (bucket !== previous) scheduleOnRN(resolve, bucket); },
+        [resolve, height],
+    );
 
     const scrub = React.useMemo(
         () => Gesture.Pan()
@@ -108,13 +127,14 @@ export function Scrubber(props: {
         [active, height, labelY, props.listRef, scrollable],
     );
 
+    const code = theme.colors.code;
     const toneColor = (tone: ScrubTick['tone']) => tone === 'added'
-        ? theme.colors.diff.success
+        ? code.addedMark
         : tone === 'removed'
-            ? theme.colors.diff.error
+            ? code.removedMark
             : tone === 'highlight'
-                ? theme.colors.accent
-                : theme.colors.textSecondary;
+                ? code.scopeMark
+                : code.dim;
 
     return (
         <GestureDetector gesture={scrub}>
@@ -135,10 +155,10 @@ export function Scrubber(props: {
                             position: 'absolute',
                             right: 4,
                             top: Math.min(height - MIN_TICK, tick.at * height),
-                            width: tick.tone === 'scope' ? 4 : 8,
-                            height: MIN_TICK,
+                            width: 3,
+                            height: tick.tone === 'scope' ? MIN_TICK : 8,
                             borderRadius: 1,
-                            opacity: tick.tone === 'scope' ? 0.35 : 0.9,
+                            opacity: tick.tone === 'scope' ? 0.4 : 1,
                             backgroundColor: toneColor(tick.tone),
                         }}
                     />
@@ -146,7 +166,7 @@ export function Scrubber(props: {
                 <Animated.View
                     pointerEvents="none"
                     style={[
-                        { position: 'absolute', right: 6, width: 3, height: thumbHeight, borderRadius: 2, backgroundColor: theme.colors.textSecondary },
+                        { position: 'absolute', right: 6, width: 3, height: thumbHeight, borderRadius: 2, backgroundColor: code.dim, opacity: 0.35 },
                         thumbStyle,
                     ]}
                 />
@@ -156,22 +176,18 @@ export function Scrubber(props: {
                         {
                             position: 'absolute',
                             right: SCRUB_WIDTH + 8,
-                            height: 22,
+                            height: 24,
                             paddingHorizontal: 8,
-                            borderRadius: 11,
+                            borderRadius: 8,
                             justifyContent: 'center',
-                            backgroundColor: theme.colors.surfaceHigh,
+                            backgroundColor: code.pressed,
                         },
                         labelStyle,
                     ]}
                 >
-                    <AnimatedTextInput
-                        editable={false}
-                        scrollEnabled={false}
-                        numberOfLines={1}
-                        animatedProps={labelProps}
-                        style={{ ...Typography.mono(), padding: 0, minWidth: 54, fontSize: 11, color: theme.colors.text }}
-                    />
+                    <Text numberOfLines={1} style={{ ...Typography.mono(), minWidth: 54, fontSize: 12, color: '#e6edf3' }}>
+                        {label}
+                    </Text>
                 </Animated.View>
             </View>
         </GestureDetector>

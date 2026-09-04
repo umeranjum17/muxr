@@ -91,7 +91,7 @@ export function expandSpanTabs(spans: SyntaxSpan[]): SyntaxSpan[] {
             text += character;
             column += 1;
         }
-        return span.type === undefined ? { text } : { text, type: span.type };
+        return { ...span, text };
     });
 }
 
@@ -171,7 +171,7 @@ export function sliceSpans(spans: SyntaxSpan[], starts: number[]): SyntaxSpan[][
             const take = Math.min(span.text.length - consumed, nextStart - (offset + consumed));
             if (take > 0) {
                 const text = span.text.slice(consumed, consumed + take);
-                rows[row]!.push(span.type === undefined ? { text } : { text, type: span.type });
+                rows[row]!.push({ ...span, text });
                 consumed += take;
             }
             if (offset + consumed >= nextStart) row += 1;

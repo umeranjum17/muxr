@@ -20,9 +20,12 @@ interface SimpleSyntaxHighlighterProps {
     fontSize?: number;
 }
 
-export function SyntaxSpans(props: { spans: SyntaxSpan[]; palette: SyntaxPalette; selectable?: boolean }) {
+export function SyntaxSpans(props: { spans: SyntaxSpan[]; palette: SyntaxPalette; selectable?: boolean; markColor?: string }) {
     return <>{props.spans.map((span, index) => <Text key={index} selectable={props.selectable}
-        style={{ color: tokenColor(props.palette, span.type) }}>{span.text}</Text>)}</>;
+        style={{
+            color: tokenColor(props.palette, span.type),
+            ...(span.mark === true && props.markColor !== undefined ? { backgroundColor: props.markColor } : {}),
+        }}>{span.text}</Text>)}</>;
 }
 
 export const SimpleSyntaxHighlighter = React.memo(function SimpleSyntaxHighlighter({
