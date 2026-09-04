@@ -176,6 +176,27 @@ function kittyChunk({ row, col, imageId, width, height, rgba, cols, rows, proof 
     );
 }
 
+// ClientHello transports the native cell metrics even if a stable grid never
+// sends a later terminal.resize. Retain both decoded fields and exact wire bytes.
+function clientHelloMetrics(payload) {
+    let at = 0;
+    const next = () => {
+        const tag = payload.readUInt8(at++);
+        if (tag < 251) return tag;
+        const bytes = tag === 251 ? 2 : tag === 252 ? 4 : tag === 253 ? 8 : 0;
+        if (!bytes) throw new Error('Invalid ClientHello integer');
+        const value = bytes === 8 ? Number(payload.readBigUInt64LE(at)) : payload.readUIntLE(at, bytes);
+        at += bytes;
+        if (!Number.isSafeInteger(value)) throw new Error('Unsafe ClientHello integer');
+        return value;
+    };
+    try {
+        const [type, version, cols, rows, cellWidthPx, cellHeightPx] = Array.from({ length: 6 }, next);
+        if (type !== 0 || version !== PROTOCOL_VERSION) return undefined;
+        return { source: 'graphics.ClientHello', version, cols, rows, cellWidthPx, cellHeightPx, payloadBase64: payload.toString('base64') };
+    } catch { return undefined; }
+}
+
 function readType(payload) {
     const prefix = payload[0];
     if (prefix === undefined) return -1;
@@ -385,11 +406,12 @@ function serveClient(socket, options) {
             const payload = buffered.subarray(4, length + 4);
             buffered = buffered.subarray(length + 4);
             const type = readType(payload);
-            if (type !== 0 && inputLogPath !== undefined) {
+            if (inputLogPath !== undefined) {
                 try {
                     appendFileSync(inputLogPath, `${JSON.stringify({
                         at: new Date().toISOString(),
                         type,
+                        ...(type === 0 ? clientHelloMetrics(payload) : {}),
                         sgr: decodeSgr(payload),
                         bytes: payload.length,
                     })}\n`);
