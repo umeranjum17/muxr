@@ -42,7 +42,13 @@ reported separately; a mobile change requires rebuilding the APK. The gate build
 the host checkout itself and verifies its source fingerprint stayed fixed during
 the run. Do not edit measured source or run competing builds while measuring.
 
-The small flow requires:
+For a standalone Usage PR without the release viewer/graphics changes, use
+`--flow usage` with an APK built from that PR's exact source. This runs the same
+fresh pairing, isolated provider-switch/recency flow, APK/native/source identity
+checks and cleanup. The report explicitly says performance was not measured;
+`flow: usage` is not full-gate or graphics acceptance. The default is `--flow full`.
+
+The full flow requires:
 
 - Fresh pairing and a mounted herd under 30-pane/6-agent, 2 Hz title churn.
 - A real file list and the seeded 250-line document in the real viewer.
@@ -61,7 +67,9 @@ The small flow requires:
   the terminal framebuffer region, positive cell dimensions and positive delivered
   graphics frames during that window. Chrome or scroll-notch events cannot pass.
 - Mounted Usage, OMP before OpenCode by timestamp (11:00 vs 10:00), and provider
-  switching with token totals 150 → 300 → 150. Local activity does not imply quota.
+  switching with token totals 150 → 300 → 150 and matching selected tab states.
+  Without credentials, Go must show its actionable limits-unavailable state while
+  retaining local tokens. No live authentication/error matrix is claimed.
 
 Only Herdr and upstream usage fixture inputs are controlled. The fake Herdr
 advertises the real code/status/terminal-keys plugin manifests. Its cwd is a real

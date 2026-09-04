@@ -22,9 +22,10 @@ const out = resolve(option('--out', '/tmp/muxr-pr-gate'));
 const apk = resolve(option('--apk', '/tmp/muxr-pr-build/app-release.apk'));
 const hostRoot = resolve(option('--host-root', '.'));
 const seconds = Number(option('--seconds', '35'));
+const flow = option('--flow', 'full');
 const pkg = 'com.trymuxr.app';
 const load = { panes: 30, agents: 6, titleChurnHz: 2, terminalBytesPerSecond: 4096, graphicsFrameHz: 4 };
-const report = { startedAt: new Date().toISOString(), serial, load, phases: [], failures: [], limits: { minimumSampledSeconds: 25, jsBusyPercent: 60, pssDriftKb: 102400, frameStallSeconds: 30 }, performanceScope: 'Emulator pathology smoke; not physical-device feel or a release soak' };
+const report = { flow, startedAt: new Date().toISOString(), serial, load, phases: [], failures: [], limits: { minimumSampledSeconds: 25, jsBusyPercent: 60, pssDriftKb: 102400, frameStallSeconds: 30 }, performanceScope: flow === 'usage' ? 'Not measured: Usage-only feature flow' : 'Emulator pathology smoke; not physical-device feel or a release soak' };
 let stack;
 let ownsLock = false;
 let deviceTouched = false;
@@ -143,6 +144,7 @@ async function phase(name, mounted, drive = false) {
     console.log(`ok: ${name}: ${metrics.sampledSeconds}s sampled, JS ${metrics.jsBusyPercent}%, PSS drift ${metrics.pssDriftKb} KiB, ${jank.frames} frames`);
 }
 async function feature(name, work) {
+    if (flow === 'usage' && name !== 'usage-switch-and-recency') return;
     console.log(`start: ${name}`);
     try { await work(); }
     catch (error) { report.failures.push(`${name}: ${error.message}`); console.error(`FAIL: ${name}: ${error.message}`); }
@@ -205,6 +207,7 @@ async function viewerControls() {
     Object.assign(report.viewer, { realDiff: true, zoomLineHeights: [lineHeight(initial), lineHeight(zoomed)], pan, wrapEnabled: true });
 }
 async function main() {
+    check(['full', 'usage'].includes(flow), '--flow must be full or usage');
     check(/^emulator-\d+$/.test(serial), 'PR gate only clears dedicated emulators');
     check(seconds >= 30 && seconds <= 120, '--seconds must be 30..120');
     mkdirSync(lock); ownsLock = true;
@@ -296,15 +299,26 @@ async function main() {
         check(pipeline.some((event) => event.frames > 0), 'No delivered graphics frames during mounted phase');
     });
     await feature('usage-switch-and-recency', async () => {
+        if (flow === 'usage') await requireScreen('usage-home', /text="LIVE"/, 25_000, true);
         await herd(); await tapText('Usage');
+        const selected = (xml, expected) => {
+            for (const provider of ['OMP', 'OpenCode']) {
+                const control = (xml.match(/<node\b[^>]*>/g) ?? []).find((node) => node.includes(`content-desc="${provider}"`));
+                check(control?.includes(`selected="${provider === expected}"`), `Usage selected state does not match ${expected}: ${provider}`);
+            }
+        };
         const xml = await requireScreen('usage-omp', /text="150"/);
+        selected(xml, 'OMP');
         check(xml.includes('text="OMP"') && xml.includes('text="OpenCode"'), 'Both provider tabs must mount');
         check(xml.indexOf('text="OMP"') < xml.indexOf('text="OpenCode"'), 'OMP must precede OpenCode by latest event time');
         await capture('usage-omp.png');
-        await tapText('OpenCode'); await requireScreen('usage-opencode', /text="300"/);
+        await tapText('OpenCode');
+        const opencode = await requireScreen('usage-opencode', /text="300"/);
+        selected(opencode, 'OpenCode');
+        check(opencode.includes('OpenCode Go limits unavailable') && opencode.includes('connect your Go account in OpenCode'), 'Missing actionable Go limits state for isolated unauthenticated fixture');
         await capture('usage-opencode.png');
-        await tapText('OMP'); await requireScreen('usage-omp-return', /text="150"/);
-        report.usage = { passed: true, orderedProviders: ['OMP', 'OpenCode'], switchedTokens: [150, 300, 150] };
+        await tapText('OMP'); selected(await requireScreen('usage-omp-return', /text="150"/), 'OMP');
+        report.usage = { passed: true, orderedProviders: ['OMP', 'OpenCode'], switchedTokens: [150, 300, 150], selectedProviders: ['OMP', 'OpenCode', 'OMP'], unauthenticatedGoLimits: 'Actionable unavailable state; local tokens retained' };
     });
     check(sourceIdentity(hostRoot).sourceSha256 === report.host.sourceSha256, 'Host sources changed during run');
     check(JSON.stringify(patchedDependencies(hostRoot)) === JSON.stringify(report.apk.nativeDependencies), 'Patched dependencies changed during run');
