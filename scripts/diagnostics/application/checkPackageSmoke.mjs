@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import {
     chmodSync,
+    cpSync,
     existsSync,
     mkdirSync,
     mkdtempSync,
@@ -536,21 +537,26 @@ try {
     assert.equal(existsSync(join(installedPackage, 'alias-create')), false);
     const providerHome = join(scratch, 'provider-home');
     const providerRoot = join(providerHome, '.muxr');
-    // The adapters share one providerSecret store, and `plugin call` gives each
-    // run a private state dir, so the selected adapter cannot persist between
-    // calls. Exercising the default adapter covers the same write/clear path.
     const voicePlugin = join(installedPlugins, 'voice');
     const providerEnv = { ...cliEnv(providerHome), MUXR_HOME: providerRoot };
-    run(cli, ['plugin', 'call', voicePlugin, 'key-set', '--input', '{"key":"smoke-key"}'], { cwd: installDir, env: providerEnv });
+    const packagedProviders = JSON.parse(run(cli, ['plugin', 'call', voicePlugin, 'provider-list'], { cwd: installDir, env: providerEnv }).stdout);
+    assert.equal(packagedProviders.selected, 'codex', 'packaged voice must default to Codex');
+    assert.equal(packagedProviders.providers.find((provider) => provider.id === 'codex').selected, true);
+    // The diagnostic CLI gives each call a fresh state directory. Select the
+    // API-key adapter inside that boundary, then run the installed RPC unchanged.
+    const keyFixture = join(scratch, 'voice-key-fixture');
+    cpSync(voicePlugin, keyFixture, { recursive: true });
+    writeFileSync(join(keyFixture, 'rpc.mjs'), `const { selectProvider } = await import(${JSON.stringify(join(voicePlugin, 'provider.mjs'))});\nselectProvider('xai');\nawait import(${JSON.stringify(join(voicePlugin, 'rpc.mjs'))});\n`);
+    run(cli, ['plugin', 'call', keyFixture, 'key-set', '--input', '{"key":"smoke-key"}'], { cwd: installDir, env: providerEnv });
     assert.equal(statSync(providerRoot).mode & 0o777, 0o700);
     assert.equal(statSync(join(providerRoot, 'xai.key')).mode & 0o777, 0o600);
-    assert.match(run(cli, ['plugin', 'call', voicePlugin, 'status'], { cwd: installDir, env: providerEnv }).stdout, /"configured": true/);
-    run(cli, ['plugin', 'call', voicePlugin, 'key-clear', '--input', 'null'], { cwd: installDir, env: providerEnv });
+    assert.match(run(cli, ['plugin', 'call', keyFixture, 'status'], { cwd: installDir, env: providerEnv }).stdout, /"configured": true/);
+    run(cli, ['plugin', 'call', keyFixture, 'key-clear', '--input', 'null'], { cwd: installDir, env: providerEnv });
     const symlinkTarget = join(scratch, 'provider-symlink-target');
     const symlinkRoot = join(scratch, 'provider-symlink-root');
     mkdirSync(symlinkTarget);
     symlinkSync(symlinkTarget, symlinkRoot, 'dir');
-    const symlinkWrite = run(cli, ['plugin', 'call', join(installedPlugins, 'voice'), 'key-set', '--input', '{"key":"must-not-write"}'], {
+    const symlinkWrite = run(cli, ['plugin', 'call', keyFixture, 'key-set', '--input', '{"key":"must-not-write"}'], {
         cwd: installDir, env: { ...cliEnv(providerHome), MUXR_HOME: symlinkRoot }, allowFailure: true,
     });
     assert.notEqual(symlinkWrite.status, 0, 'provider key write followed a symlinked MUXR_HOME');
