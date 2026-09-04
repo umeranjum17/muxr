@@ -56,6 +56,7 @@ import {
 import { fling, scrollBout, stripBout, tap, drag } from './lib/gestures.mjs';
 import {
     cropRaw,
+    decodeUiAttribute,
     firstGutterLine,
     firstStripLabel,
     mergeFrameStats,
@@ -273,10 +274,7 @@ async function pullPhoneTrail() {
     await tapBounds('text="Redacted diagnostics"');
     await sleep(800);
     const dump = await dumpUi();
-    const texts = [...dump.matchAll(/text="([^"]*)"/g)].map((match) => match[1]
-        .replace(/&quot;/g, '"')
-        .replace(/&amp;/g, '&')
-        .replace(/&#10;/g, '\n'));
+    const texts = [...dump.matchAll(/text="([^"]*)"/g)].map((match) => decodeUiAttribute(match[1]));
     await run('adb', ['shell', 'input', 'keyevent', 'BACK'], { timeout: 10_000 }).catch(() => undefined);
     await run('adb', ['shell', 'input', 'keyevent', 'BACK'], { timeout: 10_000 }).catch(() => undefined);
     await sleep(500);
