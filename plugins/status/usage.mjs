@@ -1,27 +1,46 @@
 #!/usr/bin/env node
+import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { constants, accessSync, chmodSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 
 import { createRequire } from 'node:module';
 import { homedir } from 'node:os';
+import { fileURLToPath } from 'node:url';
 import { delimiter, join } from 'node:path';
 
 const require = createRequire(import.meta.url);
 const input = JSON.parse(readFileSync(0, 'utf8') || 'null') ?? {};
-/** Which provider tab the screen asked for; empty means "pick the busiest". */
-const selected = String(input.provider ?? '').slice(0, 32);
+// The host injects this private stdin field only after checking this bundled
+// script's canonical path. Keep Go auth content out of descendant environments.
+const config = process.env.MUXR_PLUGIN_ID === 'muxr.status' ? input._usageConfig ?? {} : {};
+for (const key of ['XDG_DATA_HOME', 'PI_CONFIG_DIR', 'PI_CODING_AGENT_DIR', 'OMP_PROFILE', 'PI_PROFILE', 'OPENCODE_DB', 'OPENCODE_DATA_DIR', 'CLAUDE_CONFIG_DIR', 'CODEX_HOME', 'TZ']) {
+  if (typeof config[key] === 'string') process.env[key] = config[key];
+}
+
+/** Which provider tab the screen asked for; empty means most recently used. */
+const requested = String(input.provider ?? '').slice(0, 32);
 let ccusageFailure;
 const AGENTS = {
   claude: 'Anthropic Claude', codex: 'OpenAI Codex', opencode: 'OpenCode', amp: 'Amp', droid: 'Droid', codebuff: 'Codebuff',
   hermes: 'Hermes Agent', pi: 'Pi', goose: 'Goose', openclaw: 'OpenClaw', kilo: 'Kilo Code', kimi: 'Kimi Code', qwen: 'Qwen',
   copilot: 'GitHub Copilot CLI', gemini: 'Gemini CLI', grok: 'xAI Grok', cursor: 'Cursor', omp: 'OMP',
+  devin: 'Devin', agy: 'Antigravity', cline: 'Cline', mastracode: 'Mastra Code', kiro: 'Kiro', qodercli: 'Qoder', maki: 'Maki',
 };
-const CCUSAGE_AGENTS = new Set(Object.keys(AGENTS).filter((agent) => agent !== 'cursor' && agent !== 'omp'));
+const CCUSAGE_AGENTS = new Set(['claude', 'codex', 'opencode', 'amp', 'droid', 'codebuff', 'hermes', 'pi', 'goose', 'openclaw', 'kilo', 'kimi', 'qwen', 'copilot', 'gemini', 'grok']);
+const selected = Object.hasOwn(AGENTS, requested) ? requested : '';
 const AGENT_COMMANDS = { ...Object.fromEntries(Object.keys(AGENTS).map((agent) => [agent, agent])), cursor: 'cursor-agent' };
+const COMMAND_ALIASES = {
+  kilo: ['kilo', 'kilocode'], cursor: ['cursor-agent'], copilot: ['copilot', 'github-copilot'],
+  kiro: ['kiro-cli'], agy: ['agy', 'antigravity'], mastracode: ['mastracode', 'mastra'], qodercli: ['qodercli', 'qoder'],
+};
+
+function installedAgent(agent, command) {
+  return (COMMAND_ALIASES[agent] ?? [command]).some(available);
+}
 
 function available(command) {
   for (const directory of (process.env.PATH ?? '').split(delimiter)) {
-    try { accessSync(join(directory, command), constants.X_OK); return true; } catch {}
+    try { const path = join(directory, command); accessSync(path, constants.X_OK); if (statSync(path).isFile()) return true; } catch {}
   }
   return false;
 }
@@ -32,7 +51,7 @@ function ccusageBinary() {
     'darwin-arm64': '@ccusage/ccusage-darwin-arm64', 'darwin-x64': '@ccusage/ccusage-darwin-x64',
     'linux-arm64': '@ccusage/ccusage-linux-arm64', 'linux-x64': '@ccusage/ccusage-linux-x64',
   }[`${process.platform}-${process.arch}`];
-  if (!target) return undefined;
+  if (!target) { ccusageFailure = 'Local activity backend unsupported on this platform'; return undefined; }
   try {
     const binary = require.resolve(`${target}/bin/ccusage`);
     try { accessSync(binary, constants.X_OK); }
@@ -66,7 +85,7 @@ function runJson(command, args, timeout = 8_000) {
     child.stdout.setEncoding('utf8');
     child.stdout.on('data', (chunk) => {
       buffer += chunk;
-      if (buffer.length > 64 * 1024) finish(undefined);
+      if (buffer.length > 8 * 1024 * 1024) finish(undefined);
     });
     child.once('close', (code) => {
       if (escalation) clearTimeout(escalation);
@@ -102,9 +121,6 @@ function windowPeriods() {
   });
 }
 
-function sinceArgument() {
-  return windowPeriods()[0].replaceAll('-', '');
-}
 
 /**
  * One report covers every provider and every day on screen. Asking per tab
@@ -113,9 +129,9 @@ function sinceArgument() {
 async function ccusageRange() {
   const binary = ccusageBinary();
   if (!binary) return undefined;
-  const result = await runJson(binary, ['daily', '--by-agent', '--json', '--offline', '--since', sinceArgument()], 10_000);
-  if (result === undefined && ccusageFailure === undefined) ccusageFailure = 'ccusage activity unavailable · reopen Usage in a minute';
-  return result;
+  const result = await runJson(binary, ['daily', '--by-agent', '--sections', 'daily,session', '--json', '--offline'], 10_000);
+  if (!Array.isArray(result?.daily) && ccusageFailure === undefined) ccusageFailure = 'ccusage activity unavailable · reopen Usage in a minute';
+  return ccusageFailure === undefined ? result : undefined;
 }
 
 function parseClaudeLimits(value) {
@@ -166,8 +182,56 @@ async function claudePlanLimits() {
   finally { clearTimeout(timer); }
 }
 
+function goAuthSelection() {
+  const home = process.env.HOME || homedir();
+  let authContent;
+  let hasOverride = false;
+  if (Object.hasOwn(config, 'goAuthOverride')) {
+    authContent = { 'opencode-go': config.goAuthOverride };
+    hasOverride = true;
+  } else {
+    try { authContent = JSON.parse(process.env.OPENCODE_AUTH_CONTENT); hasOverride = true; } catch {}
+  }
+  if (!hasOverride) authContent = readJson(join(process.env.XDG_DATA_HOME || join(home, '.local', 'share'), 'opencode', 'auth.json'), 64 * 1024)?.value;
+  return { source: hasOverride ? 'override' : 'disk', auth: authContent?.['opencode-go'] };
+}
+
+async function goPlanLimits() {
+  const { auth } = goAuthSelection();
+  if (auth?.type !== 'api' || typeof auth.key !== 'string' || !auth.key.trim() || auth.key.length > 16 * 1024) {
+    return { series: [], label: 'OpenCode Go limits unavailable · connect your Go account in OpenCode' };
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 5_000);
+  try {
+    const response = await fetch('https://opencode.ai/zen/go/v1/usage', {
+      headers: { accept: 'application/json', authorization: `Bearer ${auth.key}` },
+      redirect: 'error', signal: controller.signal,
+    });
+    if (response.status === 401) return { series: [], label: 'OpenCode Go authentication unavailable · reconnect in OpenCode' };
+    if (response.status === 403) return { series: [], label: 'OpenCode Go subscription unavailable for this account' };
+    if (!response.ok) return { series: [], label: 'OpenCode Go limits unavailable · try again shortly' };
+    let body = '';
+    for await (const chunk of response.body) {
+      body += Buffer.from(chunk).toString('utf8');
+      if (Buffer.byteLength(body) > 64 * 1024) { controller.abort(); return { series: [], label: 'OpenCode Go limits unavailable' }; }
+    }
+    const usage = JSON.parse(body)?.usage;
+    const series = [['rolling', 'Rolling'], ['weekly', 'Weekly'], ['monthly', 'Monthly']].flatMap(([key, label]) => {
+      const window = usage?.[key];
+      if (!Number.isFinite(window?.percent) || window.percent < 0 || !['ok', 'rate-limited'].includes(window.status)) return [];
+      const used = Math.min(100, window.percent);
+      const reset = relativeReset(Date.parse(window.resetsAt) / 1000);
+      return [{ label, value: used, valueLabel: `${Math.round(used)}% used`, tone: limitTone(100 - used), ...(reset ? { detail: reset } : {}) }];
+    });
+    if (series.length !== 3) return { series: [], label: 'OpenCode Go limits unavailable · incomplete response' };
+    return { series, label: 'OpenCode Go plan usage' };
+  } catch { return { series: [], label: 'OpenCode Go limits unavailable · try again shortly' }; }
+  finally { clearTimeout(timer); }
+}
+
 function money(value) {
-  if (!Number.isFinite(value) || value <= 0) return undefined;
+  if (!Number.isFinite(value) || value < 0) return undefined;
   return value >= 100 ? `$${Math.round(value)}` : `$${value.toFixed(2)}`;
 }
 
@@ -247,7 +311,7 @@ function ccusageItems(agents) {
 }
 
 function cacheName() {
-  return `usage-${selected === '' ? 'all' : selected}.json`;
+  return `usage-v2-${selected === '' ? 'all' : selected}.json`;
 }
 
 function cachedOutput() {
@@ -256,8 +320,8 @@ function cachedOutput() {
   try {
     const saved = JSON.parse(readFileSync(join(state, cacheName()), 'utf8'));
     const age = Date.now() - saved.at;
-    const maxAge = selected === 'claude' ? 15_000 : 60_000;
-    if (age >= 0 && age < maxAge && Array.isArray(saved.output?.items) && JSON.stringify(saved.output).length <= 16_384) return saved.output;
+    const maxAge = saved.output?.provider === 'claude' ? 15_000 : 60_000;
+    if (saved.identity === cacheIdentity && age >= 0 && age < maxAge && Array.isArray(saved.output?.items) && Buffer.byteLength(JSON.stringify(saved.output)) <= 65_536) return saved.output;
   } catch {}
   return undefined;
 }
@@ -265,10 +329,11 @@ function cachedOutput() {
 function saveOutput(output) {
   const state = process.env.MUXR_PLUGIN_STATE_DIR?.trim();
   if (!state) return;
+  if (Buffer.byteLength(JSON.stringify(output)) > 65_536) return;
   const cache = join(state, cacheName());
   const temporary = `${cache}.${process.pid}.tmp`;
   try {
-    writeFileSync(temporary, JSON.stringify({ at: Date.now(), output }), { mode: 0o600 });
+    writeFileSync(temporary, JSON.stringify({ at: Date.now(), identity: cacheIdentity, output }), { mode: 0o600 });
     renameSync(temporary, cache);
   } catch {}
 }
@@ -331,18 +396,25 @@ function limitTone(remaining) {
 function codexItems(result) {
   const limits = Object.values(result?.rateLimitsByLimitId ?? {});
   if (!limits.length && result?.rateLimits) limits.push(result.rateLimits);
-  const details = [];
-  const parsed = limits.slice(0, 16).map((limit, index) => {
-    const window = limit.primary;
+  const parsed = limits.slice(0, 8).flatMap((limit, index) => {
+    if (!limit || typeof limit !== 'object') return [];
     const rawName = String(limit.limitName ?? limit.limitId ?? 'Codex').replace(/[^\x20-\x7e]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80) || 'Codex';
     const name = rawName.toLowerCase() === 'codex' ? AGENTS.codex : rawName;
-    const remaining = Number.isFinite(window?.usedPercent) ? Math.round(Math.max(0, Math.min(100, 100 - window.usedPercent))) : undefined;
-    const reset = relativeReset(window?.resetsAt);
-    if (remaining !== undefined && details.length < 8) details.push({ name, remaining, reset });
-    return { index, name, remaining, reset };
+    return ['primary', 'secondary'].flatMap((key) => {
+      const window = limit[key];
+      if (!Number.isFinite(window?.usedPercent)) return [];
+      const minutes = window.windowDurationMins;
+      let duration = key;
+      if (Number.isFinite(minutes) && minutes > 0) duration = `${minutes / 60}h`;
+      const windowName = `${name} · ${duration}`;
+      const remaining = Math.round(Math.max(0, Math.min(100, 100 - window.usedPercent)));
+      const reset = relativeReset(window?.resetsAt);
+      return [{ index: index * 2 + Number(key === 'secondary'), name: windowName, remaining, reset }];
+    });
   });
   // Critical windows first: the limit you are about to hit leads the list.
   parsed.sort((a, b) => (a.remaining ?? 101) - (b.remaining ?? 101) || a.index - b.index);
+  const details = parsed.slice(0, 8);
   const items = parsed.map(({ index, name, remaining, reset }) => ({
     id: `limit-codex-${index}`, title: name, subtitle: 'OpenAI Codex current limit', icon: 'speedometer-outline',
     group: 'Rate limits',
@@ -369,31 +441,89 @@ function codexItems(result) {
   };
 }
 
+function idleLabel(agent, local, failure) {
+  if (agent === 'omp') return local?.omp?.rows ? 'No measured activity today' : local?.omp?.reason ?? 'Local usage database unavailable';
+  if (!CCUSAGE_AGENTS.has(agent)) return 'Local activity unsupported by ccusage';
+  return failure ?? 'No measured activity today';
+}
+
+function providerLimits(provider, codex) {
+  return provider === 'codex' ? codex.series : [];
+}
+
+function limitLabel(provider, claudeLimits, codex) {
+  if (provider === 'claude') return claudeLimits.length ? 'Claude plan usage' : 'Claude plan limits unavailable';
+  if (provider === 'codex') return codex.series.length ? codex.remainingLabel : 'Codex plan limits unavailable';
+  return 'Plan limits unsupported for this provider';
+}
+
+const cacheIdentity = createHash('sha256').update(JSON.stringify({
+  config: Object.fromEntries(['HOME', 'PATH', 'XDG_DATA_HOME', 'PI_CONFIG_DIR', 'PI_CODING_AGENT_DIR', 'OMP_PROFILE', 'PI_PROFILE', 'OPENCODE_DB', 'OPENCODE_DATA_DIR', 'CLAUDE_CONFIG_DIR', 'CODEX_HOME', 'TZ'].map((key) => [key, process.env[key] ?? null])),
+  go: goAuthSelection(),
+})).digest('hex');
 const cached = cachedOutput();
 if (cached !== undefined) {
   process.stdout.write(JSON.stringify(cached));
 } else {
   // Codex limits load every time: the home card lists them whatever tab the
   // details screen last showed.
-  const [range, codex] = await Promise.all([ccusageRange(), codexUsage().then(codexItems)]);
+  const [range, codex, local] = await Promise.all([
+    ccusageRange(), codexUsage().then(codexItems),
+    runJson(process.execPath, [fileURLToPath(new URL('./localUsage.mjs', import.meta.url)), JSON.stringify(windowPeriods()), String(nowDate().getTime())], 5_000),
+  ]);
   const agents = byAgent(range);
+  const latest = new Map();
+  for (const row of range?.session ?? []) {
+    if (!CCUSAGE_AGENTS.has(row?.agent) || !(row.totalTokens > 0)) continue;
+    const at = Date.parse(row.metadata?.lastActivity);
+    if (Number.isFinite(at) && at <= nowDate().getTime()) latest.set(row.agent, Math.max(latest.get(row.agent) ?? 0, at));
+  }
+  for (const [agent, report] of Object.entries(local ?? {})) {
+    if (Number.isFinite(report.latest) && report.latest <= nowDate().getTime()) latest.set(agent, report.latest);
+    if (!report.rows) continue;
+    const days = windowPeriods().map((period) => ({ period, row: undefined }));
+    for (const aggregate of report.rows) {
+      if (!Number.isSafeInteger(aggregate.totalTokens) || aggregate.totalTokens < 0) continue;
+      const day = days.find((day) => day.period === aggregate.period);
+      if (!day) continue;
+      day.row ??= { totalTokens: 0, totalCost: 0, modelBreakdowns: [] };
+      day.row.totalTokens += aggregate.totalTokens;
+      day.row.totalCost = Number.isFinite(day.row.totalCost) && Number.isFinite(aggregate.totalCost) ? day.row.totalCost + aggregate.totalCost : undefined;
+      day.row.modelBreakdowns.push(aggregate);
+    }
+    agents.set(agent, days);
+  }
   const activity = ccusageItems(agents);
-  const installed = Object.entries(AGENT_COMMANDS).filter(([, command]) => available(command));
+  const installed = Object.entries(AGENT_COMMANDS).filter(([agent, command]) => installedAgent(agent, command));
   // A provider earns a tab by having measured usage this week or a CLI on the
   // host; an installed-but-idle agent still deserves a tab that says so.
-  const providerIds = [...new Set([...agents.keys(), ...installed.map(([agent]) => agent)])]
-    .sort((a, b) => (activity.totals.get(b) ?? 0) - (activity.totals.get(a) ?? 0) || AGENTS[a].localeCompare(AGENTS[b]))
-    .slice(0, 16);
+  const providerIds = [...new Set([...agents.keys(), ...latest.keys(), ...installed.map(([agent]) => agent), ...(selected ? [selected] : []), ...(codex.items.length ? ['codex'] : [])])]
+    .sort((a, b) => (latest.get(b) ?? 0) - (latest.get(a) ?? 0) || AGENTS[a].localeCompare(AGENTS[b]));
   const provider = providerIds.includes(selected) ? selected : providerIds[0] ?? '';
-  const days = agents.get(provider) ?? [];
+  const activitySupported = CCUSAGE_AGENTS.has(provider) || provider === 'omp';
+  const localReport = local?.[provider];
+  let activityFailure = ccusageFailure;
+  if (localReport?.rows) activityFailure = undefined;
+  if (provider === 'omp' && !localReport?.rows) activityFailure = localReport?.reason ?? 'Local usage database unavailable';
+  const activityAvailable = activitySupported && activityFailure === undefined;
+  let activityLabel = 'Local activity from ccusage; costs are estimates, not plan usage';
+  if (!agents.get(provider)?.some(({ row }) => row?.totalTokens > 0)) activityLabel = 'No local activity found in the last 7 days';
+  if (localReport?.rows) activityLabel = 'Recorded local activity; costs are separate from plan limits';
+  if (activityFailure) activityLabel = activityFailure;
+  if (!activitySupported) activityLabel = 'Local activity unsupported by ccusage for this provider';
+  if (!provider) activityLabel = ccusageFailure ?? 'No supported providers detected';
+  const days = agents.get(provider) ?? windowPeriods().map((period) => ({ period, row: undefined }));
   const today = days[days.length - 1]?.row;
   const weekTokens = days.reduce((sum, day) => sum + (day.row?.totalTokens ?? 0), 0);
   const weekCost = days.reduce((sum, day) => sum + (day.row?.totalCost ?? 0), 0);
-  const claudeLimits = provider === 'claude' ? await claudePlanLimits() : [];
+  const [claudeLimits, go] = await Promise.all([
+    provider === 'claude' ? claudePlanLimits() : [],
+    provider === 'opencode' ? goPlanLimits() : { series: [], label: '' },
+  ]);
   const fiveHour = claudeLimits.find((limit) => limit.id === 'five_hour');
   const sevenDay = claudeLimits.find((limit) => limit.id === 'seven_day');
   const items = [];
-  if (ccusageFailure && activity.items.length === 0) items.push({
+  if (ccusageFailure) items.push({
     id: 'ccusage-unavailable', title: 'Local activity unavailable', subtitle: ccusageFailure, icon: 'warning-outline', metadata: [],
   });
   const reported = new Set(activity.agents);
@@ -402,8 +532,8 @@ if (cached !== undefined) {
     if (reported.has(agent)) continue;
     items.push({
       id: `available-${agent}`, title: AGENTS[agent], icon: 'terminal-outline', metadata: [],
-      group: 'Idle today',
-      ...(CCUSAGE_AGENTS.has(agent) ? {} : { subtitle: 'Totals unsupported by ccusage' }),
+      group: 'Local activity',
+      subtitle: idleLabel(agent, local, ccusageFailure),
       action: { type: 'screen', contributionId: 'usage.details', params: { provider: agent } },
     });
   }
@@ -425,15 +555,16 @@ if (cached !== undefined) {
     providers: providerIds.map((agent) => ({ id: agent, label: AGENTS[agent] })),
     provider,
     providerName: AGENTS[provider] ?? 'Usage',
-    todayTokens: tokens(today?.totalTokens ?? 0) ?? '0',
-    todayCost: money(today?.totalCost) ?? '—',
+    activityLabel,
+    todayTokens: activityAvailable ? tokens(today?.totalTokens ?? 0) ?? '—' : '—',
+    todayCost: activityAvailable ? money(today?.totalCost) ?? '—' : '—',
     modelSeries: modelSeries(today),
-    weekTokens: tokens(weekTokens) ?? '0',
-    weekCost: money(weekCost) ?? '—',
-    weekSeries: days.map(({ period, row }) => ({
+    weekTokens: activityAvailable ? tokens(weekTokens) ?? '—' : '—',
+    weekCost: activityAvailable && days.every(({ row }) => row === undefined || Number.isFinite(row.totalCost)) ? money(weekCost) ?? '—' : '—',
+    weekSeries: (activityAvailable ? days : []).map(({ period, row }) => ({
       label: dayLabel(period), value: row?.totalTokens ?? 0, valueLabel: tokens(row?.totalTokens ?? 0) ?? '0',
     })),
-    limitSeries: provider === 'codex' ? codex.series : [],
+    limitSeries: provider === 'opencode' ? go.series : providerLimits(provider, codex),
     limitRing: provider === 'codex' ? codex.ring : [],
     ...(fiveHour === undefined ? {} : {
       fiveHourUsed: fiveHour.used,
@@ -443,15 +574,18 @@ if (cached !== undefined) {
       sevenDayUsed: sevenDay.used,
       sevenDayLabel: `${sevenDay.used}% used${sevenDay.reset ? ` · resets in ${sevenDay.reset}` : ''}`,
     }),
-    limitLabel: claudeLimits.length > 0
-      ? 'Claude plan usage'
-      : provider === 'codex' ? codex.remainingLabel : '',
+    limitLabel: provider === 'opencode' ? go.label : limitLabel(provider, claudeLimits, codex),
     codexRemaining: codex.remaining,
     codexRemainingLabel: codex.remainingLabel,
   };
   if (output.items.length === 0) output.items.push({ id: 'usage-unavailable', title: 'Usage unavailable', icon: 'warning-outline', metadata: [] });
   // Never pin a failure or a fallback provider under the requested key: one
   // blocked ccusage read would otherwise own the screen for the whole TTL.
-  if (ccusageFailure === undefined && (selected === '' || selected === output.provider)) saveOutput(output);
+  const goUnavailable = provider === 'opencode' && go.series.length === 0;
+  const claudeUnavailable = provider === 'claude' && claudeLimits.length === 0;
+  const codexUnavailable = installed.some(([agent]) => agent === 'codex') && codex.series.length === 0;
+  const limitsUnavailable = goUnavailable || claudeUnavailable || codexUnavailable;
+  const localUnavailable = local === undefined || Object.values(local).some((report) => report.unavailable);
+  if (ccusageFailure === undefined && activityFailure === undefined && !localUnavailable && !limitsUnavailable && (selected === '' || selected === output.provider)) saveOutput(output);
   process.stdout.write(JSON.stringify(output));
 }

@@ -31,7 +31,7 @@ export function asScreenTabs(value: unknown): Array<{ id: string; label: string 
         const { id, label } = entry as { id?: unknown; label?: unknown };
         if (typeof id !== 'string' || id === '' || typeof label !== 'string' || label === '') return [];
         return [{ id: id.slice(0, 64), label: label.slice(0, 32) }];
-    }).slice(0, 16);
+    }).slice(0, 32);
 }
 
 export function bindText(template: string, data: unknown, item?: unknown): string {
