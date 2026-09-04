@@ -148,13 +148,30 @@ async function viewerControls() {
     await requireScreen('native-diff', /beforeMarker/);
     const diff = await requireScreen('native-diff', /afterMarker/);
     check(diff.includes('beforeMarker'), 'Real native diff must show removed and added content');
+    const navigator = parseUiNodes(diff).filter((node) => /^(Previous file|Next file|Previous change|Next change|Zoom in$|Zoom out$|Toggle file and diff$)/.test(node.desc));
+    report.viewer = { navigator: { viewportWidthPx: report.device.width, controls: navigator }, scrubSourceLabels: 'device-unverified: no bounded scrub-to-source-line assertion' };
     await capture('native-diff.png');
-    await tapText('Toggle file and diff'); await tapText('File');
+    check(navigator.some((node) => /^Next file,/.test(node.desc)) && navigator.some((node) => /^Next change, 2 of 2$/.test(node.desc)), 'Multi-file, multi-hunk navigator did not mount');
+    check(navigator.some((node) => node.desc === 'Toggle file and diff'), 'Navigator overflow button missing');
+    for (const node of navigator) {
+        check(node.l >= 0 && node.r <= report.device.width && node.t >= 0 && node.b <= report.device.height && node.r > node.l && node.b > node.t, `Navigator control outside viewport: ${node.desc}`);
+        for (const other of navigator) if (other !== node) check(Math.min(node.r, other.r) <= Math.max(node.l, other.l) || Math.min(node.b, other.b) <= Math.max(node.t, other.t), `Navigator controls overlap: ${node.desc} / ${other.desc}`);
+    }
+    await tapText('Toggle file and diff');
+    const menu = await dump('native-nowrap-menu');
+    const wrapOff = (menu.match(/<node\b[^>]*>/g) ?? []).find((node) => node.includes('content-desc="Wrap long lines"'));
+    check(wrapOff?.includes('selected="false"'), 'CJK check requires Wrap long lines disabled');
+    await tapText('File');
     const initial = await requireScreen('native-file', /PR gate document line/);
     const lineHeight = (xml) => {
         const line = parseUiNodes(xml).find((node) => node.text?.includes('PR gate document line 1:'));
         return line && line.b - line.t;
     };
+    const cjk = parseUiNodes(initial).find((node) => node.text?.includes('CJK_START'));
+    check(cjk?.text.includes('CJK_END'), 'CJK row evidence missing: start and end must share one rendered Text node');
+    check(cjk && cjk.b - cjk.t > 0 && Math.abs(cjk.b - cjk.t - lineHeight(initial)) <= 2, 'Unwrapped CJK content must occupy one rendered row');
+    report.viewer.cjk = { startAndEndInSameTextNode: true, rowHeightPx: cjk.b - cjk.t, asciiRowHeightPx: lineHeight(initial), horizontalExtent: 'device-unverified: accessibility bounds clip to viewport' };
+    await capture('native-cjk-nowrap.png');
     await tapText('Zoom in');
     const zoomed = await requireScreen('native-zoom', /PR gate document line/);
     check(lineHeight(zoomed) > lineHeight(initial), 'Zoom did not increase actual rendered line height');
@@ -175,7 +192,7 @@ async function viewerControls() {
     check(control?.includes('selected="true"'), 'Wrap control did not retain enabled state');
     await tapText('Toggle file and diff');
     await capture('native-wrap.png');
-    report.viewer = { realDiff: true, zoomLineHeights: [lineHeight(initial), lineHeight(zoomed)], pan, wrapEnabled: true };
+    Object.assign(report.viewer, { realDiff: true, zoomLineHeights: [lineHeight(initial), lineHeight(zoomed)], pan, wrapEnabled: true });
 }
 async function main() {
     check(/^emulator-\d+$/.test(serial), 'PR gate only clears dedicated emulators');
@@ -214,12 +231,17 @@ async function main() {
     stack = await startFakeStack({ ...load, sourceRoot: hostRoot, setupHome: usageHome, setupPlugins: usagePlugins(hostRoot), graphicsEnableFile });
     report.fixtures = { usage: 'Synthetic SQLite aggregates + ccusage CLI output; scratch entry restores test env then imports actual usage plugin; no real auth/quota calls' };
     const lines = ['export function fixture() {', ...Array.from({ length: 250 }, (_, i) => `// PR gate document line ${i + 1}: deterministic readable content with a long tail for panning END_${i + 1}`), '}'];
+    lines[2] = `// CJK_START ${'漢字'.repeat(40)} CJK_END`;
     lines[4] = 'const value = "beforeMarker";';
+    lines[40] = 'const second = "beforeSecondHunk";';
+    writeFileSync(join(stack.world.cwd, 'zz-companion.ts'), 'export const companion = "beforeCompanion";\n');
     writeFileSync(join(stack.world.cwd, 'viewer.ts'), lines.join('\n'));
     await run('git', ['init', '-q', stack.world.cwd], { timeout: 10_000 });
     await run('git', ['-C', stack.world.cwd, 'add', '.'], { timeout: 10_000 });
     await run('git', ['-C', stack.world.cwd, '-c', 'user.name=Emulator Fixture', '-c', 'user.email=fixture@example.invalid', '-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', 'commit', '-qm', 'Baseline viewer fixture'], { timeout: 10_000 });
     lines[4] = 'const value = "afterMarker";';
+    lines[40] = 'const second = "afterSecondHunk";';
+    writeFileSync(join(stack.world.cwd, 'zz-companion.ts'), 'export const companion = "afterCompanion";\n');
     writeFileSync(join(stack.world.cwd, 'viewer.ts'), lines.join('\n'));
     const pairing = await pairPhone({ stack, maestro, attempts: 1, patienceSeconds: 30 });
     report.pairing = pairing;

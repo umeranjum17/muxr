@@ -49,7 +49,13 @@ The small flow requires:
 - The session's real Changes list opens a git-backed native diff showing both
   removed/added markers. In that same viewer, zoom increases measured line height,
   unwrapped horizontal pan changes code-region pixels without leaving the file,
-  and Wrap retains its enabled state. Screenshots retain the word-diff example.
+  and Wrap retains its enabled state. Two changed files and two separated hunks
+  mount the combined navigator; all exposed navigator buttons, including overflow,
+  must fit the measured emulator viewport without overlap. An 80-character CJK
+  line must retain both end markers in one rendered Text node with the same
+  row height as ASCII and wrap off. Missing full-text evidence fails this check. Screenshots retain
+  the word-diff/CJK examples. CJK full horizontal extent and scrub source-line
+  labels remain device-unverified; this does not cover every phone width.
 - Mounted text terminal plus a recorded real host attach, while graphics are off.
 - Mounted terminal with an opaque magenta/teal Kitty checkerboard verified in
   the terminal framebuffer region, positive cell dimensions and positive delivered
