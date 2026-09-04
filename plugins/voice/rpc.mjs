@@ -39,13 +39,13 @@ if (method === 'status') {
 } else if (method === 'provider.list') {
     output = {
         selected: provider.id,
-        providers: PROVIDERS.map(({ id, name }) => ({ id, name, selected: id === provider.id })),
+        providers: PROVIDERS.map(({ id, name, configurationContributionId }) => ({ id, name, configurationContributionId, selected: id === provider.id })),
     };
 } else if (method === 'provider.set') {
     const next = selectProvider(input?.providerId);
     output = {
         selected: next.id,
-        providers: PROVIDERS.map(({ id, name }) => ({ id, name, selected: id === next.id })),
+        providers: PROVIDERS.map(({ id, name, configurationContributionId }) => ({ id, name, configurationContributionId, selected: id === next.id })),
     };
 } else if (method === 'report') {
     output = { say: reportAgentOutcome(input) };

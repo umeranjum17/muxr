@@ -20,10 +20,26 @@ const run = (method, input) => spawnSync(process.execPath, [rpc, method], {
     cwd: root,
     encoding: 'utf8',
     input: JSON.stringify(input ?? null),
-    env: { PATH: process.env.PATH, HOME: home, MUXR_HOME: home },
+    env: { PATH: process.env.PATH, HOME: home, MUXR_HOME: home, MUXR_PLUGIN_STATE_DIR: home },
 });
 
-let result = run('status');
+let result = run('provider.list');
+assert.equal(JSON.parse(result.stdout).selected, 'codex', 'fresh voice configuration defaults to Codex');
+const providers = JSON.parse(result.stdout).providers;
+const manifest = JSON.parse(readFileSync(join(root, 'plugins/voice/muxr-ui.json'), 'utf8'));
+for (const provider of providers) {
+    assert.ok(manifest.contributions.some((entry) => entry.slot === 'navigation.content' && entry.type === 'screen' && entry.id === provider.configurationContributionId), 'every provider has a configuration screen');
+}
+assert.equal(providers.find((entry) => entry.id === 'codex').configurationContributionId, 'login-screen');
+assert.ok(!manifest.contributions.some((entry) => entry.slot === 'settings.items'), 'setup must not duplicate the native provider picker');
+const loginScreen = manifest.contributions.find((entry) => entry.id === 'login-screen');
+assert.doesNotMatch(JSON.stringify(loginScreen), /secure-prompt|key-set|key-clear/, 'Codex login setup must not offer API-key actions');
+result = run('provider.set', { providerId: 'xai' });
+assert.equal(result.status, 0, result.stderr);
+assert.equal(JSON.parse(run('provider.list').stdout).selected, 'xai', 'explicit selection survives another invocation');
+assert.notEqual(run('provider.set', { providerId: 'unknown' }).status, 0);
+assert.equal(JSON.parse(run('provider.list').stdout).selected, 'xai', 'failed switch retains selection');
+result = run('status');
 assert.equal(result.status, 0);
 assertStatus(result, { configured: false, statusLabel: 'No key set' });
 result = run('key.set', { key: 'xai-test-not-a-live-secret' });
@@ -36,6 +52,9 @@ result = run('key.clear');
 assert.equal(result.status, 0, result.stderr);
 result = run('status');
 assertStatus(result, { configured: false, statusLabel: 'No key set' });
+result = run('provider.set', { providerId: 'codex' });
+assert.equal(result.status, 0, result.stderr);
+assert.equal(JSON.parse(run('provider.list').stdout).selected, 'codex');
 result = run('unknown');
 assert.notEqual(result.status, 0);
 const realtimeActions = readFileSync(join(root, 'apps/mobile/sources/conversation/application/realtimeActions.ts'), 'utf8');

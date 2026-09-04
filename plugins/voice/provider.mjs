@@ -6,13 +6,13 @@ import { join } from 'node:path';
  * $MUXR_HOME; adapters that authenticate through an existing CLI login have none.
  */
 export const PROVIDERS = [
-    { id: 'xai', name: 'Grok', secret: 'xai.key', keyLabel: 'xAI', placeholder: 'xai-…' },
-    { id: 'gemini', name: 'Gemini Live', secret: 'gemini.key', keyLabel: 'Gemini', placeholder: 'AIza…' },
-    { id: 'openai', name: 'OpenAI Realtime', secret: 'openai.key', keyLabel: 'OpenAI', placeholder: 'sk-…' },
-    { id: 'codex', name: 'Codex Voice (experimental)', keyLabel: 'Codex', placeholder: '' },
+    { id: 'xai', name: 'Grok', configurationContributionId: 'settings-screen', secret: 'xai.key', keyLabel: 'xAI', placeholder: 'xai-…' },
+    { id: 'gemini', name: 'Gemini Live', configurationContributionId: 'settings-screen', secret: 'gemini.key', keyLabel: 'Gemini', placeholder: 'AIza…' },
+    { id: 'openai', name: 'OpenAI Realtime', configurationContributionId: 'settings-screen', secret: 'openai.key', keyLabel: 'OpenAI', placeholder: 'sk-…' },
+    { id: 'codex', name: 'Codex Voice (experimental)', configurationContributionId: 'login-screen', keyLabel: 'Codex', placeholder: '' },
 ];
 
-const DEFAULT_ID = 'xai';
+const DEFAULT_ID = 'codex';
 const LEGACY_PLUGIN_IDS = new Map([
     ['muxr.voice-gemini', 'gemini'],
     ['muxr.voice-openai', 'openai'],

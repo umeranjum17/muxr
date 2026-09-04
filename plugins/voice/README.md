@@ -1,9 +1,7 @@
 # muxr Voice plugin
 
-The bundled xAI Grok speech-to-speech provider plugin. It uses the same public primitives, actions, slots, and `voice.*` semantic capabilities available to another provider.
+One backend plugin provides native realtime speech-to-speech through Codex Voice, Grok, Gemini Live, or OpenAI Realtime. Provider policy and credentials stay on the connected machine; the phone uses generic PCM or WebRTC realtime transport.
 
-- **Host:** `rpc.mjs` owns the provider key (`~/.muxr/xai.key`, owner-only). `stream.mjs` is the persistent `host.stream` adapter: it holds the xAI WebSocket, auth, model (`grok-voice-think-fast-2.0`), prompt, and event translation, and speaks only the generic realtime NDJSON frames.
-- **Phone:** generic `icon-button` controls, a provider-neutral `realtime-session-overlay`, and PCM capture/playback. No API key, model name, provider URL, or provider event vocabulary is stored or known on the phone.
-- **Settings:** choose Grok under Settings → Realtime voice, then open Configure. Secure prompt values go directly to its write RPC and are never persisted or rendered by declarative UI.
-- **Swap:** the app asks the host to serialize the switch between plugins declaring `voice.session`; adding a provider never adds a React Native transport branch.
-- **Removal:** clear the key from the plugin-owned Settings row, then `herdr plugin unlink muxr.voice`.
+Settings → Realtime voice is the single provider picker. A machine with no saved choice defaults to Codex Voice (experimental); explicit saved choices and migrated legacy choices remain selected. Configure opens the selected provider’s backend-declared setup screen. Codex uses the machine’s ChatGPT CLI login (`codex login`), not an API key. Login readiness does not guarantee realtime subscription entitlement. Other providers use owner-only API key files and secure prompts.
+
+`rpc.mjs` lists/selects providers and reports readiness. `stream.mjs` dispatches to the selected adapter. The native microphone foreground service must be ready before capture starts. No transcription/LLM/TTS fallback is used.
