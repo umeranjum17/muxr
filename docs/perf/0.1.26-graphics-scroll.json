@@ -1,0 +1,325 @@
+{
+  "startedAt": "2026-09-04T03:18:59.880Z",
+  "phases": [
+    {
+      "name": "idle on the herd",
+      "seconds": 120.2,
+      "sampledSeconds": 115.6,
+      "jsBusyPercent": 42.9,
+      "fps": 30.2,
+      "frameStallSeconds": 10,
+      "pssFirstKb": 399553,
+      "pssLastKb": 397992,
+      "pssMaxKb": 438463,
+      "pssDriftKb": -1561,
+      "restarts": 0,
+      "gaps": 0
+    },
+    {
+      "name": "herd strip and tree soak",
+      "seconds": 120.1,
+      "flow": "herdSoak.yaml",
+      "sampledSeconds": 115.6,
+      "jsBusyPercent": 51.8,
+      "fps": 42.4,
+      "frameStallSeconds": 0,
+      "pssFirstKb": 404248,
+      "pssLastKb": 384236,
+      "pssMaxKb": 412246,
+      "pssDriftKb": -20012,
+      "restarts": 0,
+      "gaps": 0,
+      "flowExit": 0
+    },
+    {
+      "name": "agent terminal and plugin navigation",
+      "seconds": 120.1,
+      "flow": "herdNavigate.yaml",
+      "sampledSeconds": 110.6,
+      "jsBusyPercent": 37.2,
+      "frameStallSeconds": 5,
+      "pssFirstKb": 385191,
+      "pssLastKb": 321522,
+      "pssMaxKb": 404049,
+      "pssDriftKb": -63669,
+      "restarts": 1,
+      "gaps": 0,
+      "flowExit": 0
+    },
+    {
+      "name": "graphics pane scroll",
+      "seconds": 90.2,
+      "flow": "graphicsScroll.yaml",
+      "sampledSeconds": 85.5,
+      "jsBusyPercent": 24.6,
+      "fps": 17.4,
+      "frameStallSeconds": 0,
+      "pssFirstKb": 281252,
+      "pssLastKb": 307749,
+      "pssMaxKb": 324224,
+      "pssDriftKb": 26497,
+      "restarts": 0,
+      "gaps": 0,
+      "flowExit": 0
+    }
+  ],
+  "limits": {
+    "jsBusyPercent": 60,
+    "pssDriftKb": 102400,
+    "frameStallSeconds": 30,
+    "updateDepthErrors": 0,
+    "tourGrowthKb": 153600,
+    "herdVisibleMs": 90000,
+    "hostRequestMs": 5000,
+    "graphicsPipelineP95Ms": 250,
+    "graphicsBytesP95": 819200,
+    "scrollToFrameP95Ms": 400
+  },
+  "load": {
+    "panes": 100,
+    "agents": 30,
+    "titleChurnHz": 2,
+    "terminalBytesPerSecond": 4096,
+    "graphicsFrameHz": 4
+  },
+  "avd": "muxr_sandbox",
+  "maestro": "2.7.0",
+  "apk": "/tmp/muxr-0.1.26-vc60-x86_64.apk",
+  "herdVisibleMs": 48569,
+  "tour": {
+    "panes": 40,
+    "opened": 40,
+    "missed": 0,
+    "visits": [
+      {
+        "paneId": "w1:p31",
+        "opened": true,
+        "pssKb": 321194
+      },
+      {
+        "paneId": "w1:p32",
+        "opened": true,
+        "pssKb": 320186
+      },
+      {
+        "paneId": "w1:p33",
+        "opened": true,
+        "pssKb": 327786
+      },
+      {
+        "paneId": "w1:p34",
+        "opened": true,
+        "pssKb": 310258
+      },
+      {
+        "paneId": "w1:p35",
+        "opened": true,
+        "pssKb": 308501
+      },
+      {
+        "paneId": "w1:p36",
+        "opened": true,
+        "pssKb": 315482
+      },
+      {
+        "paneId": "w1:p37",
+        "opened": true,
+        "pssKb": 332649
+      },
+      {
+        "paneId": "w1:p38",
+        "opened": true,
+        "pssKb": 315433
+      },
+      {
+        "paneId": "w1:p39",
+        "opened": true,
+        "pssKb": 309143
+      },
+      {
+        "paneId": "w1:p40",
+        "opened": true,
+        "pssKb": 315720
+      },
+      {
+        "paneId": "w1:p41",
+        "opened": true,
+        "pssKb": 327001
+      },
+      {
+        "paneId": "w1:p42",
+        "opened": true,
+        "pssKb": 324290
+      },
+      {
+        "paneId": "w1:p43",
+        "opened": true,
+        "pssKb": 310118
+      },
+      {
+        "paneId": "w1:p44",
+        "opened": true,
+        "pssKb": 317407
+      },
+      {
+        "paneId": "w1:p45",
+        "opened": true,
+        "pssKb": 331921
+      },
+      {
+        "paneId": "w1:p46",
+        "opened": true,
+        "pssKb": 329732
+      },
+      {
+        "paneId": "w1:p47",
+        "opened": true,
+        "pssKb": 308894
+      },
+      {
+        "paneId": "w1:p48",
+        "opened": true,
+        "pssKb": 318165
+      },
+      {
+        "paneId": "w1:p49",
+        "opened": true,
+        "pssKb": 305312
+      },
+      {
+        "paneId": "w1:p50",
+        "opened": true,
+        "pssKb": 318727
+      },
+      {
+        "paneId": "w1:p51",
+        "opened": true,
+        "pssKb": 300715
+      },
+      {
+        "paneId": "w1:p52",
+        "opened": true,
+        "pssKb": 318278
+      },
+      {
+        "paneId": "w1:p53",
+        "opened": true,
+        "pssKb": 338366
+      },
+      {
+        "paneId": "w1:p54",
+        "opened": true,
+        "pssKb": 320180
+      },
+      {
+        "paneId": "w1:p55",
+        "opened": true,
+        "pssKb": 349407
+      },
+      {
+        "paneId": "w1:p56",
+        "opened": true,
+        "pssKb": 320552
+      },
+      {
+        "paneId": "w1:p57",
+        "opened": true,
+        "pssKb": 334285
+      },
+      {
+        "paneId": "w1:p58",
+        "opened": true,
+        "pssKb": 341710
+      },
+      {
+        "paneId": "w1:p59",
+        "opened": true,
+        "pssKb": 341080
+      },
+      {
+        "paneId": "w1:p60",
+        "opened": true,
+        "pssKb": 323379
+      },
+      {
+        "paneId": "w1:p61",
+        "opened": true,
+        "pssKb": 349815
+      },
+      {
+        "paneId": "w1:p62",
+        "opened": true,
+        "pssKb": 330596
+      },
+      {
+        "paneId": "w1:p63",
+        "opened": true,
+        "pssKb": 342581
+      },
+      {
+        "paneId": "w1:p64",
+        "opened": true,
+        "pssKb": 323974
+      },
+      {
+        "paneId": "w1:p65",
+        "opened": true,
+        "pssKb": 337769
+      },
+      {
+        "paneId": "w1:p66",
+        "opened": true,
+        "pssKb": 325154
+      },
+      {
+        "paneId": "w1:p67",
+        "opened": true,
+        "pssKb": 340646
+      },
+      {
+        "paneId": "w1:p68",
+        "opened": true,
+        "pssKb": 324941
+      },
+      {
+        "paneId": "w1:p69",
+        "opened": true,
+        "pssKb": 351349
+      },
+      {
+        "paneId": "w1:p70",
+        "opened": true,
+        "pssKb": 332211
+      }
+    ],
+    "pssFirstKb": 321194,
+    "pssLastKb": 332211,
+    "pssMaxKb": 351349,
+    "pssGrowthKb": 11017,
+    "framesRendered": 13838
+  },
+  "updateDepthErrors": 0,
+  "hostRequests": {
+    "total": 61,
+    "attaches": 40,
+    "rejected": [],
+    "slowestMs": 18
+  },
+  "graphics": {
+    "frames": 0,
+    "superseded": 0,
+    "p50Ms": 0,
+    "p95Ms": 0,
+    "bytesP95": 0,
+    "pixelsP95": 0
+  },
+  "runtimeAlive": true,
+  "framesRendered": 13875,
+  "screenshot": "docs/perf/0.1.26-graphics-scroll.png",
+  "commit": "9bd9210980838c3e1979ac9e28e9d8f5b37aeb16",
+  "finishedAt": "2026-09-04T03:41:35.340Z",
+  "failures": [
+    "no graphics.pipeline event in the host journal"
+  ],
+  "passed": false
+}

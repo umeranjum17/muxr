@@ -41,7 +41,8 @@ Prerequisites, all checked in preflight with a named failure:
 | React update depth | `Maximum update depth exceeded` in logcat | any occurrence |
 | Frame liveness | `Total frames rendered` from gfxinfo | no frames for 30 s |
 | Memory | TOTAL PSS from meminfo | over 100 MB drift in a phase |
-| Flows | Maestro exit code | pairing, soak or navigation did not complete |
+| Flows | Maestro exit code | pairing, soak, navigation or graphics scroll did not complete |
+| Graphics pipeline | host journal `graphics.pipeline` | no event, p95 over 250 ms, or frame bytes p95 over 800 kB |
 
 Frame rate and jank are recorded but never gated: under swiftshader they
 measure the host, not the app.
@@ -64,7 +65,12 @@ not one fast one:
 - 6 of them agent sessions
 - terminal streams at 4 kB/s with periodic full repaints, and a full repaint for
   every scroll and resize, which is Herdr's real cost model
-- inline Kitty frames at 4 Hz through the host's graphics bridge
+- inline Kitty frames at 4 Hz through the host's graphics bridge: a Kitty
+  program that repaints on scroll, pane-sized like a phone attach (539x575
+  RGBA per frame, ~1.6 MB uncompressed base64) and paced at the ~3 MB/s the
+  Herdr app-client socket actually sustains
+- cap the producer's frame rate where it offers one, e.g. `TERMINAL_BROWSER_FPS=10`:
+  fewer paints before anything hits the socket, and it costs no code
 
 Everything runs in one scratch directory - relay data, machine identity, host
 state, Herdr sockets - on ports the kernel picks, and is deleted on exit,
@@ -79,10 +85,16 @@ see. The list comes from the herd, so a bigger world means a longer tour.
 
 ## The phases
 
-30 s warmup after the herd screen appears, then three 120 s sampled windows:
-idle on the herd, `flows/herdSoak.yaml` (strip and tree scrolling),
+30 s warmup after the herd screen appears, then four sampled windows:
+idle on the herd (120 s), `flows/herdSoak.yaml` (strip and tree scrolling),
 `flows/herdNavigate.yaml` (attach an agent's terminal, drag its scrollback,
-detach, walk the plugin tabs, leave the app and return).
+detach, walk the plugin tabs, leave the app and return), and
+`flows/graphicsScroll.yaml` (90 s: deep-link a graphics pane and mix short
+drags with flings). Graphics limits are `graphicsPipelineP95Ms` 250,
+`graphicsBytesP95` 800 kB and `scrollToFrameP95Ms` 400. Superseded frames are
+reported, not gated: measured against a real producer the pipeline answers a
+frame in 6 ms, so a burst is delivered rather than dropped, and a run that had
+nothing stale to drop is the good case.
 
 ## Thresholds
 

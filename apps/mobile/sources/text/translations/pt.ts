@@ -520,6 +520,7 @@ export const pt: TranslationStructure = {
         previousChange: 'Alteração anterior',
         nextChange: 'Próxima alteração',
         toggleFileAndDiff: 'Alternar arquivo e diff',
+        wrapLines: 'Quebrar linhas longas',
         previousFile: 'Arquivo anterior',
         nextFile: 'Próximo arquivo',
         previousFileNamed: ({ title, ordinal, total }: { title: string; ordinal: number; total: number }) => `Arquivo anterior, ${title}, ${ordinal} de ${total}`,

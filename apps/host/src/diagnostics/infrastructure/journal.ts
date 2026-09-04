@@ -18,6 +18,14 @@ export type DiagnosticClientRejectOutcome = 'decrypt-rejected' | 'malformed';
 export type DiagnosticRealtimePromptOutcome = 'queued' | 'rejected' | 'failed';
 export type DiagnosticReadinessGate = 'ready' | 'starting' | 'not-interactive' | 'unbound' | 'no-agent' | 'unnamed' | 'no-session';
 
+export type DiagnosticGraphicsPipeline = {
+    frames: number;
+    superseded: number;
+    p50Ms: number;
+    p95Ms: number;
+    bytesP95: number;
+    pixelsP95: number;
+};
 
 type ClientCounts = Record<DiagnosticClientKind, number>;
 type RelationshipCounts = Record<'pending' | 'connected' | 'repair-needed' | 'disconnecting' | 'revoked', number>;
@@ -34,7 +42,8 @@ export type HostDiagnosticEvent =
     | { at: string; event: 'peer.broker'; operation: DiagnosticBrokerOperation; outcome: DiagnosticOutcome; durationMs: number; code?: string }
     | { at: string; event: 'realtime.prompt'; provider: string; action: 'prompt'; requestedAgentName: string; resolvedAgentName: string | null; outcome: DiagnosticRealtimePromptOutcome }
     | { at: string; event: 'agent.readiness'; reason: 'starting' | 'ready' | 'not-promptable'; promptable: boolean; kind?: string; lifecycle?: string; gate?: DiagnosticReadinessGate }
-    | { at: string; event: 'agent.launch'; outcome: DiagnosticOutcome; kind?: string; detected?: string; gate?: DiagnosticReadinessGate };
+    | { at: string; event: 'agent.launch'; outcome: DiagnosticOutcome; kind?: string; detected?: string; gate?: DiagnosticReadinessGate }
+    | { at: string; event: 'graphics.pipeline'; frames: number; superseded: number; p50Ms: number; p95Ms: number; bytesP95: number; pixelsP95: number };
 
 interface HostDiagnosticState {
     version: 1;
@@ -123,6 +132,11 @@ function safeCode(value: string | undefined): string | undefined {
     if (value === undefined) return undefined;
     if (safeCodes[value] === true) return value;
     return 'rejected';
+}
+
+function diagnosticInt(value: number, max: number): number {
+    if (!Number.isFinite(value)) return 0;
+    return Math.max(0, Math.min(Math.round(value), max));
 }
 
 function safeSemanticName(value: string | null, fallback: string): string | null {
@@ -305,6 +319,19 @@ export class HostDiagnosticsJournal {
             ...(kind === undefined ? {} : { kind }),
             ...(lifecycle === undefined ? {} : { lifecycle }),
             ...(gate === undefined ? {} : { gate }),
+        });
+    }
+
+    graphicsPipeline(value: DiagnosticGraphicsPipeline): void {
+        this.record({
+            at: this.timestamp(),
+            event: 'graphics.pipeline',
+            frames: diagnosticInt(value.frames, 1_000_000_000),
+            superseded: diagnosticInt(value.superseded, 1_000_000_000),
+            p50Ms: diagnosticInt(value.p50Ms, 10 * 60_000),
+            p95Ms: diagnosticInt(value.p95Ms, 10 * 60_000),
+            bytesP95: diagnosticInt(value.bytesP95, 1_000_000_000),
+            pixelsP95: diagnosticInt(value.pixelsP95, 1_000_000_000),
         });
     }
 

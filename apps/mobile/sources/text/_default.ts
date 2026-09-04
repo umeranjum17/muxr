@@ -535,6 +535,7 @@ export const en = {
         previousChange: 'Previous change',
         nextChange: 'Next change',
         toggleFileAndDiff: 'Toggle file and diff',
+        wrapLines: 'Wrap long lines',
         previousFile: 'Previous file',
         nextFile: 'Next file',
         previousFileNamed: ({ title, ordinal, total }: { title: string; ordinal: number; total: number }) => `Previous file, ${title}, ${ordinal} of ${total}`,

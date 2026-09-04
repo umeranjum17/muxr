@@ -13,6 +13,33 @@ const MAX_MESSAGE_BYTES = 32 * 1024 * 1024;
 export const MAX_IMAGE_BYTES = 32 * 1024 * 1024;
 const KITTY_CHUNK_CHARS = 4096;
 const LAYOUT_CACHE_MS = 250;
+/**
+ * How often an aggregate pipeline account is reported while frames flow. Short
+ * enough that a single measured window -- a phone scrolling for ninety seconds
+ * -- always leaves one behind.
+ */
+const PIPELINE_REPORT_MS = 15_000;
+/**
+ * No producer publishes its wheel detent -- a browser scrolls 120 CSS pixels a
+ * notch, a pager three lines, a viewer one -- so a notch is treated as what a
+ * physical wheel delivers for the same gesture: three rows of travel. Every
+ * program already tunes itself to that unit.
+ */
+const WHEEL_ROWS_PER_NOTCH = 3;
+/**
+ * A notch is a repaint, and a repaint is a full frame across a slow socket, so
+ * the gesture is bounded by frames in flight rather than by a fixed count: the
+ * rest of the intent is drained one notch per delivered frame. A fling then
+ * travels as fast as the pane can actually keep up.
+ */
+const MAX_NOTCHES_IN_FLIGHT = 4;
+const MAX_NOTCH_BACKLOG = 8;
+/** Programs that never repaint must still scroll, so a frame is not required. */
+const NOTCH_FALLBACK_MS = 100;
+/** Images a pane may keep on a phone at once: a plot, its legend, an icon. */
+const MAX_LIVE_PLACEMENTS = 16;
+/** Deflate harder once a frame is large: the phone decrypts every byte in JS. */
+const COMPRESS_HARDER_BYTES = 512 * 1024;
 const compress = promisify(deflate);
 const run = promisify(execFile);
 
@@ -24,6 +51,8 @@ export interface HerdrGraphicsRegistration {
     cellWidthPx: number;
     cellHeightPx: number;
     write: (frame: string) => void;
+    /** Input this bridge owes the pane later, such as the rest of a gesture. */
+    sendInput?: (bytes: Buffer) => void;
 }
 
 export interface HerdrGraphicsPointer {
@@ -73,6 +102,29 @@ type ServerMessage =
     | { type: 'closed' }
     | { type: 'other' };
 
+/** Frames a producer emitted for one pane, newest first in effect. */
+type InlineWork = { block: InlineKittyBlock; at: number };
+
+/** What a pane is currently showing, keyed by Herdr's own placement key. */
+type LivePlacement = { image: PreparedImage; block: InlineKittyBlock; surface: GraphicsSurface };
+
+/** Whether an image is the pane's whole surface or sits inside its text. */
+export type GraphicsSurface = 'full' | 'inline';
+
+/** A gesture's remaining intent, newest direction wins. */
+type ScrollIntent = { direction: 'up' | 'down'; notches: number };
+
+
+/** Aggregate, identifier-free account of what the pipeline did. */
+export type GraphicsPipelineReport = {
+    frames: number;
+    superseded: number;
+    p50Ms: number;
+    p95Ms: number;
+    bytesP95: number;
+    pixelsP95: number;
+};
+
 /**
  * One process-wide graphics frontend for Herdr's one allowed direct-graphics
  * app client. Registrations remain per phone channel and pane. Every frame is
@@ -97,8 +149,26 @@ export class HerdrGraphicsBridge {
     private pollingProcesses = false;
     private readonly inlineScanner = new InlineKittyScanner();
     private readonly inlineImages = new InlineImageStore();
-    /** Last inline placement forwarded per pane, so repaints are not resent. */
+    /** Last inline placement forwarded per placement, so repaints are not resent. */
     private readonly inlinePlaced = new Map<string, string>();
+    /** Every image a pane currently shows, so a late phone sees all of them. */
+    private readonly livePlacements = new Map<string, Map<string, LivePlacement>>();
+    /** Notches a pane has yet to answer, and the intent still owed to it. */
+    private readonly scrollInFlight = new Map<string, number>();
+    private readonly scrollBacklog = new Map<string, ScrollIntent>();
+    private readonly scrollTimers = new Map<string, ReturnType<typeof setTimeout>>();
+    /**
+     * Producer frames wait here in arrival order. Only one is prepared at a
+     * time and any placement a newer one supersedes is dropped before it costs
+     * a layout probe, a decode, or a compression.
+     */
+    private readonly inlineQueue: InlineWork[] = [];
+    private inlineDraining = false;
+    private readonly latencies: number[] = [];
+    private readonly frameBytes: number[] = [];
+    private readonly framePixels: number[] = [];
+    private supersededFrames = 0;
+    private reportTimer: ReturnType<typeof setInterval> | undefined;
     private input = Buffer.alloc(0);
     private draining = false;
     private nextImageId = 1;
@@ -108,10 +178,15 @@ export class HerdrGraphicsBridge {
     private constructor(
         private readonly socket: Socket,
         private readonly herdrBin: string,
+        private readonly onPipelineReport?: (report: GraphicsPipelineReport) => void,
     ) {
         socket.on('data', (data: Buffer) => { this.read(data); });
         socket.on('error', (error) => { process.stderr.write(`terminal graphics: ${error.message}\n`); this.close(); });
         socket.on('close', () => { this.close(); });
+        if (onPipelineReport !== undefined) {
+            this.reportTimer = setInterval(() => { this.reportPipeline(); }, PIPELINE_REPORT_MS);
+            this.reportTimer.unref();
+        }
     }
 
     static async open(options: {
@@ -119,6 +194,7 @@ export class HerdrGraphicsBridge {
         cellHeightPx: number;
         herdrBin?: string;
         socketPath?: string;
+        onPipelineReport?: (report: GraphicsPipelineReport) => void;
     }): Promise<HerdrGraphicsBridge> {
         if (process.platform === 'win32') throw new Error('Herdr direct graphics requires a Unix client socket');
         const herdrBin = options.herdrBin ?? 'herdr';
@@ -130,7 +206,7 @@ export class HerdrGraphicsBridge {
             socket.once('connect', resolve);
             socket.once('error', reject);
         });
-        const bridge = new HerdrGraphicsBridge(socket, herdrBin);
+        const bridge = new HerdrGraphicsBridge(socket, herdrBin, options.onPipelineReport);
         bridge.write(clientHello(geometry));
         return bridge;
     }
@@ -141,30 +217,129 @@ export class HerdrGraphicsBridge {
         this.layoutCache.delete(registration.paneId);
         this.workspaceCache = undefined;
         if (!this.paneProcessGroups.has(registration.paneId)) this.processProbeAttempted.delete(registration.paneId);
+        // A phone joining late is owed everything the pane is showing, not just
+        // the last image to arrive.
+        const live = this.livePlacements.get(registration.paneId);
+        if (live !== undefined && live.size > 0) {
+            for (const placement of live.values()) {
+                registration.write(terminalFrame(
+                    encodeKitty(placement.image, registration, 'none', placement.block, undefined, placement.surface),
+                    registration,
+                    true,
+                    undefined,
+                    placement.surface,
+                ));
+            }
+            return true;
+        }
         const latest = this.latestByPane.get(registration.paneId);
-        if (latest !== undefined) registration.write(terminalFrame(encodeKitty(latest, registration, true), registration, true));
+        if (latest !== undefined) {
+            registration.write(terminalFrame(encodeKitty(latest, registration, 'all'), registration, true, undefined, 'full'));
+        }
         return true;
     }
 
     unregister(channel: string): void {
         const removed = this.registrations.get(channel);
         this.registrations.delete(channel);
-        if (removed !== undefined) this.layoutCache.delete(removed.paneId);
+        if (removed !== undefined) {
+            this.layoutCache.delete(removed.paneId);
+            if (![...this.registrations.values()].some((item) => item.paneId === removed.paneId)) {
+                this.clearScrollState(removed.paneId);
+            }
+        }
         this.workspaceCache = undefined;
+        // A phone leaving its last pane is a natural end of a window; the
+        // account is worth nothing if it only lands when the process exits.
+        if (this.registrations.size === 0) this.reportPipeline();
     }
 
     hasRegistrations(): boolean { return this.registrations.size > 0; }
 
+    /** True when a program owns this pane's scrolling, so Herdr must not. */
+    ownsScroll(channel: string): boolean {
+        const registration = this.registrations.get(channel);
+        if (registration === undefined) return false;
+        return (this.livePlacements.get(registration.paneId)?.size ?? 0) > 0
+            || this.latestByPane.has(registration.paneId);
+    }
+
+    /**
+     * A phone reports the finger's travel in terminal rows; a program scrolls in
+     * wheel notches. Three rows is one notch, as a physical wheel would deliver,
+     * and only a few notches are ever in flight: each one costs the producer a
+     * repaint and the phone a frame, so the rest of a fling is drained as fast
+     * as frames actually come back rather than queued in front of them.
+     */
     scrollInput(channel: string, direction: 'up' | 'down', lines: number): Buffer[] {
         const registration = this.registrations.get(channel);
-        const image = registration === undefined ? undefined : this.latestByPane.get(registration.paneId);
-        const count = Math.min(40, Math.max(0, Math.trunc(lines)));
-        if (registration === undefined || image === undefined || count === 0) return [];
+        if (registration === undefined || !this.ownsScroll(channel)) return [];
+        const rows = Math.max(0, Math.trunc(lines));
+        if (rows === 0) return [];
+        const paneId = registration.paneId;
+        const wanted = Math.max(1, Math.round(rows / WHEEL_ROWS_PER_NOTCH));
+        const inFlight = this.scrollInFlight.get(paneId) ?? 0;
+        const now = Math.max(0, Math.min(wanted, MAX_NOTCHES_IN_FLIGHT - inFlight));
+        const backlog = this.scrollBacklog.get(paneId);
+        const carried = backlog?.direction === direction ? backlog.notches : 0;
+        const owed = Math.min(MAX_NOTCH_BACKLOG, carried + wanted - now);
+        if (owed > 0) this.scrollBacklog.set(paneId, { direction, notches: owed });
+        else this.scrollBacklog.delete(paneId);
+        if (now === 0) return [];
+        this.scrollInFlight.set(paneId, inFlight + now);
+        this.armNotchFallback(paneId);
+        const report = this.wheelReport(paneId, direction);
+        return report === undefined ? [] : Array.from({ length: now }, () => report);
+    }
+
+    /** One notch of the remaining gesture, released by a delivered frame. */
+    private drainNotch(paneId: string): void {
+        const inFlight = this.scrollInFlight.get(paneId) ?? 0;
+        const backlog = this.scrollBacklog.get(paneId);
+        if (backlog === undefined || backlog.notches <= 0) {
+            if (inFlight <= 1) this.clearScrollState(paneId);
+            else this.scrollInFlight.set(paneId, inFlight - 1);
+            return;
+        }
+        const report = this.wheelReport(paneId, backlog.direction);
+        if (report === undefined) { this.clearScrollState(paneId); return; }
+        if (backlog.notches <= 1) this.scrollBacklog.delete(paneId);
+        else this.scrollBacklog.set(paneId, { ...backlog, notches: backlog.notches - 1 });
+        for (const registration of this.registrations.values()) {
+            if (registration.paneId === paneId) registration.sendInput?.(report);
+        }
+        this.armNotchFallback(paneId);
+    }
+
+    /** A program that never repaints must still scroll, just not unboundedly. */
+    private armNotchFallback(paneId: string): void {
+        const existing = this.scrollTimers.get(paneId);
+        if (existing !== undefined) clearTimeout(existing);
+        const timer = setTimeout(() => {
+            this.scrollTimers.delete(paneId);
+            if (this.closed) return;
+            this.drainNotch(paneId);
+        }, NOTCH_FALLBACK_MS);
+        timer.unref();
+        this.scrollTimers.set(paneId, timer);
+    }
+
+    private clearScrollState(paneId: string): void {
+        this.scrollInFlight.delete(paneId);
+        this.scrollBacklog.delete(paneId);
+        const timer = this.scrollTimers.get(paneId);
+        if (timer !== undefined) clearTimeout(timer);
+        this.scrollTimers.delete(paneId);
+    }
+
+    private wheelReport(paneId: string, direction: 'up' | 'down'): Buffer | undefined {
+        const image = this.latestByPane.get(paneId)
+            ?? [...(this.livePlacements.get(paneId)?.values() ?? [])].pop()?.image;
+        if (image === undefined) return undefined;
         const button = direction === 'up' ? 64 : 65;
         const x = Math.ceil(image.width / 2);
         const y = Math.ceil(image.height / 2);
-        const report = Buffer.from(`\u001b[<${button};${x};${y}M`);
-        return Array.from({ length: count }, () => report);
+        return Buffer.from(`\u001b[<${button};${x};${y}M`);
     }
 
     pointerInput(channel: string, pointer: HerdrGraphicsPointer): Buffer[] {
@@ -200,10 +375,14 @@ export class HerdrGraphicsBridge {
         this.processProbeFailures.clear();
         this.admitted.clear();
         this.paneRetiredGeneration.clear();
+        this.inlineQueue.length = 0;
         this.nextGeneration += 1;
         this.workspaceCache = undefined;
         if (this.processTimer !== undefined) clearInterval(this.processTimer);
         this.processTimer = undefined;
+        this.reportPipeline();
+        if (this.reportTimer !== undefined) clearInterval(this.reportTimer);
+        this.reportTimer = undefined;
         this.socket.destroy();
     }
 
@@ -231,7 +410,7 @@ export class HerdrGraphicsBridge {
                     this.close();
                 }
             } else if (message.type === 'output') {
-                void this.forwardInline(message.bytes);
+                this.queueInline(message.bytes);
             } else if (message.type === 'graphics') {
                 // Protocol 20 provides no pane provenance. Drop rather than
                 // crossing streams; PTY-inline Kitty is outside this bridge.
@@ -251,38 +430,150 @@ export class HerdrGraphicsBridge {
      * positioned by the cursor. Pixels are transmitted once per image and
      * placed separately, and a program transmits long before a phone attaches,
      * so image data is always learned; only placements need a live pane.
+     *
+     * Scanning is synchronous so arrival order is preserved; the work itself is
+     * drained by one worker, because a producer repainting an animation emits
+     * frames far faster than a phone can be given them.
      */
-    private async forwardInline(bytes: Buffer): Promise<void> {
+    private queueInline(bytes: Buffer): void {
         if (this.closed) return;
+        const at = Date.now();
         for (const block of this.inlineScanner.scan(bytes)) {
             if (this.inlineImages.admit(block)) continue;
             if (this.registrations.size === 0) continue;
             const action = block.keys.a ?? 'p';
-            if (action === 'd') {
-                this.inlinePlaced.clear();
-                for (const registration of this.registrations.values()) {
-                    registration.write(terminalFrame(wrapAtOrigin(block.bytes), registration, false));
-                }
-                continue;
-            }
-            if (action !== 'p' && action !== 'T') continue;
-            const paneId = await this.sourcePane(cursorAt(block));
-            if (paneId === undefined || this.closed) continue;
-            // A repainting producer re-places the same image many times a
-            // second; only a changed placement is worth a phone frame.
-            const identity = `${paneId}:${block.row}:${block.col}:${block.bytes.toString('base64')}`;
-            if (this.inlinePlaced.get(paneId) === identity) continue;
-            const image = await this.inlineImages.prepared(block, (rgba, control) => prepareKitty(
-                rgba, control, this.allocateImageId(), 0n,
-            ));
-            if (image === undefined || this.closed) continue;
-            this.inlinePlaced.set(paneId, identity);
-            this.latestByPane.set(paneId, image);
-            for (const registration of this.registrations.values()) {
-                if (registration.paneId !== paneId) continue;
-                registration.write(terminalFrame(encodeKitty(image, registration, true), registration, true));
-            }
+            if (action !== 'd' && action !== 'p' && action !== 'T') continue;
+            this.inlineQueue.push({ block, at });
         }
+        if (!this.inlineDraining) void this.drainInline();
+    }
+
+    private async drainInline(): Promise<void> {
+        this.inlineDraining = true;
+        try {
+            while (!this.closed) {
+                const work = this.inlineQueue.shift();
+                if (work === undefined) return;
+                await this.forwardInlineBlock(work);
+            }
+        } finally {
+            this.inlineDraining = false;
+            if (!this.closed && this.inlineQueue.length > 0) void this.drainInline();
+        }
+    }
+
+    private async forwardInlineBlock(work: InlineWork): Promise<void> {
+        const { block, at } = work;
+        const action = block.keys.a ?? 'p';
+        // A program's own delete carries Herdr's image id, which is the id the
+        // phone holds, so it is forwarded verbatim and in order. Deletes are
+        // never superseded: dropping one leaves an image on screen forever.
+        if (action === 'd') {
+            this.forgetPlacements(block);
+            for (const registration of this.registrations.values()) {
+                registration.write(terminalFrame(wrapAtOrigin(block.bytes), registration, false));
+            }
+            return;
+        }
+        const key = placementKey(block);
+        if (key === undefined) return;
+        // Newest wins, per placement. A repaint of this surface makes this frame
+        // worthless, and it is dropped before it costs a layout probe, a base64
+        // decode, or a compression -- but a second image elsewhere in the pane
+        // is not a repaint of this one, and survives.
+        if (this.superseded(key)) return;
+        const paneId = await this.sourcePane(cursorAt(block));
+        if (paneId === undefined || this.closed || this.superseded(key)) return;
+        // A repainting producer re-places the same image many times a
+        // second; only a changed placement is worth a phone frame.
+        const identity = `${paneId}:${key}:${block.bytes.toString('base64')}`;
+        if (this.inlinePlaced.get(`${paneId}:${key}`) === identity) return;
+        const imageId = Number(block.keys.i ?? block.keys.I);
+        const image = await this.inlineImages.prepared(block, (rgba, control) => prepareKitty(
+            rgba, control, Number.isSafeInteger(imageId) && imageId > 0 ? imageId : this.allocateImageId(), 0n,
+        ));
+        if (image === undefined || this.closed || this.superseded(key)) return;
+        const rect = await this.visibleRect(paneId);
+        if (this.closed || this.superseded(key)) return;
+        const surface = surfaceOf(block, rect);
+        const live = this.placementsFor(paneId);
+        const previous = live.get(key);
+        live.set(key, { image, block, surface });
+        if (live.size > MAX_LIVE_PLACEMENTS) {
+            const oldest = live.keys().next().value;
+            if (oldest !== undefined && oldest !== key) live.delete(oldest);
+        }
+        this.inlinePlaced.set(`${paneId}:${key}`, identity);
+        if (surface === 'full') this.latestByPane.set(paneId, image);
+        for (const registration of this.registrations.values()) {
+            if (registration.paneId !== paneId) continue;
+            const bytes = encodeKitty(image, registration, replaced(previous, image), block, rect, surface);
+            const frame = terminalFrame(bytes, registration, true, undefined, surface);
+            registration.write(frame);
+            this.recordFrame(at, frame.length, image.width * image.height);
+        }
+        // A frame is the honest acknowledgement that this pane kept up, so the
+        // next notch of the gesture goes out now and no faster.
+        this.drainNotch(paneId);
+    }
+
+    private placementsFor(paneId: string): Map<string, LivePlacement> {
+        const existing = this.livePlacements.get(paneId);
+        if (existing !== undefined) return existing;
+        const created = new Map<string, LivePlacement>();
+        this.livePlacements.set(paneId, created);
+        return created;
+    }
+
+    /** Keep our view of what a pane shows in step with a program's delete. */
+    private forgetPlacements(block: InlineKittyBlock): void {
+        const scope = block.keys.d ?? 'a';
+        const target = Number(block.keys.i ?? block.keys.I);
+        const all = scope === 'a' || scope === 'A';
+        for (const [paneId, live] of this.livePlacements) {
+            for (const [key, placement] of live) {
+                if (all || placement.image.imageId === target) {
+                    live.delete(key);
+                    this.inlinePlaced.delete(`${paneId}:${key}`);
+                }
+            }
+            if (live.size === 0) this.latestByPane.delete(paneId);
+        }
+    }
+
+    /**
+     * A queued placement of the same surface is this one, repainted. Two images
+     * in one pane -- a plot beside its legend -- never supersede each other.
+     */
+    private superseded(key: string): boolean {
+        const newer = this.inlineQueue.some((queued) => (queued.block.keys.a ?? 'p') !== 'd'
+            && placementKey(queued.block) === key);
+        if (newer) this.supersededFrames += 1;
+        return newer;
+    }
+
+    private recordFrame(startedAt: number, bytes: number, pixels: number): void {
+        if (this.onPipelineReport === undefined) return;
+        push(this.latencies, Date.now() - startedAt);
+        push(this.frameBytes, bytes);
+        push(this.framePixels, pixels);
+    }
+
+    private reportPipeline(): void {
+        if (this.onPipelineReport === undefined) return;
+        if (this.latencies.length === 0 && this.supersededFrames === 0) return;
+        this.onPipelineReport({
+            frames: this.latencies.length,
+            superseded: this.supersededFrames,
+            p50Ms: percentile(this.latencies, 0.5),
+            p95Ms: percentile(this.latencies, 0.95),
+            bytesP95: percentile(this.frameBytes, 0.95),
+            pixelsP95: percentile(this.framePixels, 0.95),
+        });
+        this.latencies.length = 0;
+        this.frameBytes.length = 0;
+        this.framePixels.length = 0;
+        this.supersededFrames = 0;
     }
 
     private enqueue(file: GraphicsFile): void {
@@ -321,6 +612,7 @@ export class HerdrGraphicsBridge {
     }
 
     private async forward(file: GraphicsFile): Promise<void> {
+        const startedAt = Date.now();
         const admitted = this.admit(file);
         let acknowledged = false;
         try {
@@ -345,7 +637,15 @@ export class HerdrGraphicsBridge {
                 this.imageOwners.set(file.transferId, { paneId, imageId: prepared.imageId, sourceImageId: file.imageId });
                 for (const registration of this.registrations.values()) {
                     if (registration.paneId === paneId) {
-                        registration.write(terminalFrame(encodeKitty(prepared, registration, true), registration, true));
+                        const frame = terminalFrame(
+                            encodeKitty(prepared, registration, 'all'),
+                            registration,
+                            true,
+                            undefined,
+                            'full',
+                        );
+                        registration.write(frame);
+                        this.recordFrame(startedAt, frame.length, prepared.width * prepared.height);
                     }
                 }
             }
@@ -750,10 +1050,12 @@ function terminalFrame(
     target: HerdrGraphicsRegistration,
     graphics?: boolean,
     graphicsReason?: TerminalGraphicsReason,
+    graphicsSurface?: GraphicsSurface,
 ): string {
     return JSON.stringify({ type: 'terminal.frame', seq: 0, encoding: 'ansi', width: target.cols, height: target.rows,
         full: false, bytes: bytes.toString('base64'), ...(graphics === undefined ? {} : { graphics }),
-        ...(graphicsReason === undefined ? {} : { graphicsReason }) });
+        ...(graphicsReason === undefined ? {} : { graphicsReason }),
+        ...(graphicsSurface === undefined ? {} : { graphicsSurface }) });
 }
 
 async function readGraphicsFile(file: GraphicsFile): Promise<Buffer> {
@@ -784,17 +1086,55 @@ async function prepareKitty(rgba: Buffer, control: string, imageId: number, tran
         || width * height * 4 !== rgba.length) {
         throw new Error('invalid Herdr graphics control');
     }
-    return { compressed: await compress(rgba, { level: 1 }), width, height, imageId, transferId };
+    // Every byte of this frame is decrypted in JavaScript on the phone, so a
+    // large image is worth real compression; a small one is not worth the wait.
+    const level = rgba.length > COMPRESS_HARDER_BYTES ? 6 : 1;
+    return { compressed: await compress(rgba, { level }), width, height, imageId, transferId };
 }
 
-export function encodeKitty(image: PreparedImage, target: HerdrGraphicsRegistration, clear: boolean): Buffer {
+/** Bounded sample window: an account of the recent past, never a history. */
+function push(samples: number[], value: number): void {
+    samples.push(value);
+    if (samples.length > 256) samples.shift();
+}
+
+function percentile(samples: readonly number[], fraction: number): number {
+    if (samples.length === 0) return 0;
+    const sorted = [...samples].sort((left, right) => left - right);
+    const index = Math.min(sorted.length - 1, Math.max(0, Math.ceil(fraction * sorted.length) - 1));
+    return Math.round(sorted[index]!);
+}
+
+/**
+ * One self-contained frame: an optional delete of exactly what this image
+ * replaces, the pixels, and the placement.
+ *
+ * `clear` is deliberately narrow. Deleting everything on every frame is what
+ * makes a second image in the same pane -- a legend beside a plot, an icon
+ * above a prompt -- impossible, so it happens only when a pane is being reset.
+ */
+export function encodeKitty(
+    image: PreparedImage,
+    target: HerdrGraphicsRegistration,
+    clear: 'all' | 'none' | { imageId: number },
+    block?: InlineKittyBlock,
+    rect?: Rect,
+    surface: GraphicsSurface = 'full',
+): Buffer {
     const encoded = image.compressed.toString('base64');
     const chunks: string[] = [];
     for (let offset = 0; offset < encoded.length; offset += KITTY_CHUNK_CHARS) chunks.push(encoded.slice(offset, offset + KITTY_CHUNK_CHARS));
-    const { row, col, cols, rows } = graphicsPlacement(image, target);
+    // A pane-filling image is refitted to the phone's own grid; an image that
+    // sits inside a program's text keeps the size and cell Herdr gave it, or it
+    // would be blown up to fill a screen it never asked for.
+    const placement = surface === 'inline' && block !== undefined
+        ? inlinePlacement(block, rect)
+        : graphicsPlacement(image, target);
+    const { row, col, cols, rows } = placement;
     const placementId = image.imageId & 0x7fffffff;
     const output: Buffer[] = [Buffer.from('\u001b7')];
-    if (clear) output.push(Buffer.from('\u001b_Ga=d,d=A,q=2;\u001b\\'));
+    if (clear === 'all') output.push(Buffer.from('\u001b_Ga=d,d=A,q=2;\u001b\\'));
+    else if (clear !== 'none') output.push(Buffer.from(`\u001b_Ga=d,d=I,i=${clear.imageId},q=2;\u001b\\`));
     output.push(Buffer.from(`\u001b[${row + 1};${col + 1}H`));
     chunks.forEach((chunk, index) => {
         const more = index < chunks.length - 1 ? 1 : 0;
@@ -805,4 +1145,49 @@ export function encodeKitty(image: PreparedImage, target: HerdrGraphicsRegistrat
     });
     output.push(Buffer.from('\u001b8'));
     return Buffer.concat(output);
+}
+
+/** Herdr's own cell and cell span, mapped into the phone's view of the pane. */
+function inlinePlacement(block: InlineKittyBlock, rect?: Rect): GraphicsPlacement {
+    const cols = Math.max(1, Number(block.keys.c ?? '1'));
+    const rows = Math.max(1, Number(block.keys.r ?? '1'));
+    return {
+        cols: Number.isFinite(cols) ? cols : 1,
+        rows: Number.isFinite(rows) ? rows : 1,
+        row: Math.max(0, block.row - 1 - (rect?.y ?? 0)),
+        col: Math.max(0, block.col - 1 - (rect?.x ?? 0)),
+    };
+}
+
+/**
+ * How much of the pane this placement covers. A program's small image must not
+ * be treated as the pane's whole surface: the phone only takes over pointer and
+ * scrolling for a surface that really is the pane.
+ */
+function surfaceOf(block: InlineKittyBlock, rect?: Rect): GraphicsSurface {
+    if (rect === undefined) return 'full';
+    const cols = Number(block.keys.c ?? '0');
+    const rows = Number(block.keys.r ?? '0');
+    if (!Number.isFinite(cols) || !Number.isFinite(rows) || cols <= 0 || rows <= 0) return 'full';
+    return cols >= rect.width * 0.9 && rows >= rect.height * 0.9 ? 'full' : 'inline';
+}
+
+/**
+ * The surface a frame belongs to: the cell it lands on and the cells it covers.
+ *
+ * Not the image id. A repainting producer mints a new image for every frame, so
+ * keying by id would mean nothing ever supersedes anything; keying by surface
+ * makes a repaint replace its predecessor, while a second image elsewhere in
+ * the pane -- a legend beside a plot -- keeps its own slot.
+ */
+function placementKey(block: InlineKittyBlock): string | undefined {
+    const image = block.keys.i ?? block.keys.I;
+    if (image === undefined || image === '') return undefined;
+    return `${block.row}:${block.col}:${block.keys.c ?? ''}:${block.keys.r ?? ''}`;
+}
+
+/** The image a new frame supersedes, so exactly that one is deleted. */
+function replaced(previous: LivePlacement | undefined, image: PreparedImage): 'none' | { imageId: number } {
+    if (previous === undefined || previous.image.imageId === image.imageId) return 'none';
+    return { imageId: previous.image.imageId };
 }

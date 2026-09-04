@@ -519,6 +519,7 @@ export const it: TranslationStructure = {
         previousChange: 'Modifica precedente',
         nextChange: 'Modifica successiva',
         toggleFileAndDiff: 'Passa tra file e diff',
+        wrapLines: 'Manda a capo le righe lunghe',
         previousFile: 'File precedente',
         nextFile: 'File successivo',
         previousFileNamed: ({ title, ordinal, total }: { title: string; ordinal: number; total: number }) => `File precedente, ${title}, ${ordinal} di ${total}`,

@@ -13,9 +13,10 @@
  */
 
 import * as React from 'react';
-import { AppState, PixelRatio, Platform, Pressable, Text, View } from 'react-native';
+import { Animated, AppState, PixelRatio, Platform, Pressable, Text, View } from 'react-native';
 import { TerminalView as GhosttyView, type TerminalViewRef } from 'expo-libghostty';
 import { decodeBase64, encodeBase64 } from '@/encryption/base64';
+import { recordTerminalGraphicsFrame, recordTerminalScrollLatency } from '@/catalog/infrastructure/connectionDiagnostics';
 import { openTerminal, type TerminalChannel } from '../application/OpenTerminal';
 import { recordTerminalOutput, setTerminalColumns } from '../application/recentOutput';
 import { createTerminalWritePump, type TerminalWritePump } from '../application/terminalWritePump';
@@ -29,6 +30,14 @@ import type { TerminalGraphicsReason } from '@muxr/contract';
 const MAX_SCROLL_LINES = 400;
 /** A scroll whose repaint never came back must not gate scrolling forever. */
 const SCROLL_ACK_TIMEOUT_MS = 250;
+/**
+ * A remote image pane cannot repaint at the speed of a finger: the program has
+ * to redraw and its pixels have to cross a relay. So the drag moves the pixels
+ * we already have, immediately, and the real frame replaces them when it
+ * lands. Without this the pane simply does not move until the frame arrives,
+ * which is what "scrolling does not work" means.
+ */
+const PAN_SETTLE_MS = 180;
 
 export interface TerminalViewProps {
     sessionId: string;
@@ -70,6 +79,20 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
     const scrollRafRef = React.useRef<number | undefined>(undefined);
     const scrollInFlightRef = React.useRef(false);
     const scrollAckTimerRef = React.useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+    const panRef = React.useRef(new Animated.Value(0));
+    const panPixelsRef = React.useRef(0);
+    const panSettleTimerRef = React.useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+    const scrollSentAtRef = React.useRef<number | undefined>(undefined);
+    const graphicsActiveRef = React.useRef(false);
+
+    /** Put the pixels back where the pane says they are. */
+    const resetPan = (): void => {
+        if (panSettleTimerRef.current !== undefined) clearTimeout(panSettleTimerRef.current);
+        panSettleTimerRef.current = undefined;
+        if (panPixelsRef.current === 0) return;
+        panPixelsRef.current = 0;
+        panRef.current.setValue(0);
+    };
 
     const cancelCoalesce = (): void => {
         writeGenerationRef.current += 1;
@@ -81,6 +104,8 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
         scrollAckTimerRef.current = undefined;
         scrollInFlightRef.current = false;
         pendingScrollRef.current = 0;
+        scrollSentAtRef.current = undefined;
+        resetPan();
     };
 
     /**
@@ -97,7 +122,12 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
         if (lines === 0) return;
         const clamped = Math.max(-MAX_SCROLL_LINES, Math.min(MAX_SCROLL_LINES, lines));
         scrollInFlightRef.current = true;
+        scrollSentAtRef.current = Date.now();
         scrollAckTimerRef.current = setTimeout(settleScroll, SCROLL_ACK_TIMEOUT_MS);
+        // A gesture the producer never answers must not leave the pixels
+        // hanging off their own pane.
+        if (panSettleTimerRef.current !== undefined) clearTimeout(panSettleTimerRef.current);
+        panSettleTimerRef.current = setTimeout(resetPan, SCROLL_ACK_TIMEOUT_MS + PAN_SETTLE_MS);
         const size = lastSizeRef.current;
         channelRef.current?.scroll(clamped, size === null ? undefined : {
             column: Math.floor(size.cols / 2),
@@ -197,11 +227,21 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                     void writePumpRef.current?.cancel();
                     let recoveryRequested = false;
                     writePumpRef.current = createTerminalWritePump({
-                        write: async (bytes) => {
+                        write: async (bytes, graphics) => {
                             const view = termRef.current;
                             if (view === null) return;
                             await view.write(bytes);
                             channel.recordFrameWritten();
+                            if (graphics !== true) return;
+                            // New pixels for this pane: the optimistic pan has
+                            // served its purpose and must stop lying.
+                            resetPan();
+                            recordTerminalGraphicsFrame(bytes.length);
+                            const sentAt = scrollSentAtRef.current;
+                            if (sentAt !== undefined) {
+                                scrollSentAtRef.current = undefined;
+                                recordTerminalScrollLatency(Date.now() - sentAt);
+                            }
                         },
                         combineText: combineTextFrames,
                         schedule: (run) => requestAnimationFrame(() => run()),
@@ -214,8 +254,14 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                             channel.repaint();
                         },
                     });
-                    channel.onGraphics((active, reason) => {
-                        setGraphicsActive(suppressPointerRef.current ? false : active);
+                    // Pointer takeover and the optimistic pan belong to an image
+                    // that really is the pane. For a program's small image above
+                    // its own prompt the pane still owns scrolling and taps.
+                    channel.onGraphics((active, reason, surface) => {
+                        const live = suppressPointerRef.current ? false : active && surface !== 'inline';
+                        graphicsActiveRef.current = live;
+                        if (!live) resetPan();
+                        setGraphicsActive(live);
                         setGraphicsReason(active ? undefined : reason);
                     });
                     // Same discipline as the web view: herdr repaint bursts
@@ -260,6 +306,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
 
     return (
         <View style={{ flex: 1, backgroundColor: '#0c0c0b' }}>
+            <Animated.View style={{ flex: 1, transform: [{ translateY: panRef.current }] }}>
             <GhosttyView
                 ref={termRef}
                 style={{ flex: 1 }}
@@ -294,11 +341,25 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                 // them the way the text does, hence the negation.
                 onScroll={({ nativeEvent }) => {
                     pendingScrollRef.current -= nativeEvent.rows;
+                    // An image pane owns its own scrolling, so nothing moves
+                    // until the producer repaints. Carry the pixels with the
+                    // finger meanwhile; the frame that lands cancels this.
+                    if (graphicsActiveRef.current) {
+                        const size = lastSizeRef.current;
+                        const cellHeight = size?.cellHeightPx ?? 0;
+                        if (cellHeight > 0) {
+                            const limit = Math.max(cellHeight, (size?.rows ?? 1) * cellHeight);
+                            const next = Math.max(-limit, Math.min(limit, panPixelsRef.current + nativeEvent.rows * cellHeight));
+                            panPixelsRef.current = next;
+                            panRef.current.setValue(next);
+                        }
+                    }
                     if (scrollRafRef.current === undefined) {
                         scrollRafRef.current = requestAnimationFrame(flushScroll);
                     }
                 }}
             />
+            </Animated.View>
             {graphicsReason !== undefined && (
                 <View style={{
                     position: 'absolute',

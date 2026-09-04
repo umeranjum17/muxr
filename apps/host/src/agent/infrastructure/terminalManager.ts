@@ -13,7 +13,7 @@ import WebSocket from 'ws';
 import { issueWsTicket, terminalSocketUrl, ticketSocketUrl, type Envelope } from '@muxr/contract';
 import { v2EnvelopeSequence } from '@muxr/crypto';
 import { HostV2Crypto, type HostedMachineKeys, deviceTableIsObserve, ticketWsCredential } from '../../machine/index.js';
-import { HerdrGraphicsBridge, type HerdrGraphicsPointer } from './herdrGraphicsBridge.js';
+import { HerdrGraphicsBridge, type GraphicsPipelineReport, type HerdrGraphicsPointer } from './herdrGraphicsBridge.js';
 
 export interface TerminalManagerOptions {
     relayUrl: string;
@@ -22,6 +22,7 @@ export interface TerminalManagerOptions {
     resolvePane: (sessionId: string) => Promise<string>;
     herdrBin?: string;
     hostedE2ee?: HostedMachineKeys;
+    onGraphicsPipelineDiagnostic?: (report: GraphicsPipelineReport) => void;
 }
 
 interface Attachment {
@@ -324,9 +325,11 @@ export class TerminalManager {
                 }
                 if (frame.type === 'terminal.scroll' && (frame.direction === 'up' || frame.direction === 'down')
                     && typeof frame.lines === 'number') {
-                    const reports = this.graphics?.scrollInput(attachment.channel, frame.direction, frame.lines) ?? [];
-                    if (reports.length > 0) {
-                        for (const report of reports) {
+                    // A pane showing a program's own image scrolls that program,
+                    // never Herdr's scrollback, even on the flushes where the
+                    // bridge is holding the rest of the gesture back.
+                    if (this.graphics?.ownsScroll(attachment.channel) === true) {
+                        for (const report of this.graphics.scrollInput(attachment.channel, frame.direction, frame.lines)) {
                             input.write(`${JSON.stringify({ type: 'terminal.input', bytes: report.toString('base64') })}\n`);
                         }
                         return;
@@ -418,6 +421,9 @@ export class TerminalManager {
             cellWidthPx: size.cellWidthPx!,
             cellHeightPx: size.cellHeightPx!,
             ...(this.options.herdrBin === undefined ? {} : { herdrBin: this.options.herdrBin }),
+            ...(this.options.onGraphicsPipelineDiagnostic === undefined
+                ? {}
+                : { onPipelineReport: this.options.onGraphicsPipelineDiagnostic }),
         })
             .then((graphics) => {
                 if (this.graphicsOpening !== opening) { graphics.close(); return; }
@@ -443,6 +449,13 @@ export class TerminalManager {
             cellWidthPx: attachment.cellWidthPx,
             cellHeightPx: attachment.cellHeightPx,
             write: (frame) => { this.sendGraphicsToPhone(attachment, frame); },
+            // The rest of a gesture is released by the bridge as frames come
+            // back, so it needs a way into the pane after the request returned.
+            sendInput: (bytes) => {
+                const input = attachment.process.stdin;
+                if (input === null || input.destroyed || !input.writable) return;
+                input.write(`${JSON.stringify({ type: 'terminal.input', bytes: bytes.toString('base64') })}\n`);
+            },
         });
     }
 

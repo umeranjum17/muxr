@@ -41,7 +41,7 @@ export {
     PREVIEW_HEADER_BYTES,
 } from './infrastructure/preview.js';
 
-export type { TerminalClientFrame, TerminalGraphicsReason, TerminalHostFrame } from './infrastructure/terminal.js';
+export type { TerminalClientFrame, TerminalGraphicsReason, TerminalGraphicsSurface, TerminalHostFrame } from './infrastructure/terminal.js';
 export { newTerminalChannel, terminalSocketUrl } from './infrastructure/terminal.js';
 
 export { relayControlUrl, isWebSocketRelayUrl, relayChannelSocketUrl } from './infrastructure/controlPlaneUrl.js';

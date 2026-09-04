@@ -17,7 +17,7 @@ export type TerminalWritePump = {
 };
 
 export function createTerminalWritePump(options: {
-    write: (bytes: string) => Promise<unknown>;
+    write: (bytes: string, graphics?: boolean) => Promise<unknown>;
     combineText: (frames: readonly string[]) => string;
     schedule: (run: () => void) => unknown;
     cancelSchedule: (handle: unknown) => void;
@@ -29,19 +29,19 @@ export function createTerminalWritePump(options: {
     let scheduled: unknown;
     let inFlight: Promise<void> | undefined;
 
-    const nextPayload = (): string | undefined => {
+    const nextPayload = (): TerminalWriteFrame | undefined => {
         if (pending.length === 0) return undefined;
         const head = pending[0]!;
         if (typeof head.graphics === 'boolean') {
             pending.shift();
-            return head.bytes;
+            return head;
         }
         const texts: string[] = [];
         while (pending.length > 0 && typeof pending[0]!.graphics !== 'boolean') {
             texts.push(pending.shift()!.bytes);
         }
-        if (texts.length <= 1) return texts[0];
-        return options.combineText(texts);
+        if (texts.length === 0) return undefined;
+        return { bytes: texts.length === 1 ? texts[0]! : options.combineText(texts) };
     };
 
     const kick = (): void => {
@@ -53,7 +53,7 @@ export function createTerminalWritePump(options: {
             if (payload === undefined) return;
             writing = true;
             const admittedGen = generation;
-            const admitted = Promise.resolve().then(() => options.write(payload));
+            const admitted = Promise.resolve().then(() => options.write(payload.bytes, payload.graphics));
             inFlight = admitted.then(() => undefined, () => undefined);
             void admitted.then(
                 () => finish(admittedGen, false),

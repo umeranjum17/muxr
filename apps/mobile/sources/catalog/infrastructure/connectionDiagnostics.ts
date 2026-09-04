@@ -85,7 +85,9 @@ export type ConnectionDiagnosticEvent =
     | { at: string; event: 'terminal.channel'; phase: ConnectionDiagnosticChannelPhase; outcome: ConnectionDiagnosticOutcome; code?: ConnectionDiagnosticCode }
     | { at: string; event: 'agent.gate'; kind?: string; lifecycle: ConnectionDiagnosticLifecycle; promptable: boolean; gate: ConnectionDiagnosticGate }
     | { at: string; event: 'terminal.first-frame'; ms: number }
-    | { at: string; event: 'terminal.frames'; received: number; written: number };
+    | { at: string; event: 'terminal.frames'; received: number; written: number }
+    | { at: string; event: 'terminal.scroll-latency'; ms: number }
+    | { at: string; event: 'terminal.graphics-frame'; bytes: number };
 
 declare const terminalFrameCountBrand: unique symbol;
 export type TerminalFrameCountToken = { readonly [terminalFrameCountBrand]?: never };
@@ -368,6 +370,13 @@ export function recordTerminalFirstFrame(ms: number): void {
     recordConnectionDiagnostic({ event: 'terminal.first-frame', ms: boundedDuration(ms) });
 }
 
+export function recordTerminalScrollLatency(ms: number): void {
+    recordConnectionDiagnostic({ event: 'terminal.scroll-latency', ms: boundedDuration(ms) });
+}
+
+export function recordTerminalGraphicsFrame(bytes: number): void {
+    recordConnectionDiagnostic({ event: 'terminal.graphics-frame', bytes: boundedBytes(bytes) });
+}
 
 export function recordTerminalChannel(
     phase: ConnectionDiagnosticChannelPhase,
@@ -387,11 +396,16 @@ export function recordTerminalChannel(
 }
 
 export function formatConnectionDiagnosticsForReport(): string {
-    const body = events.length === 0
+    const trail = events.filter((event) => event.event !== 'terminal.scroll-latency' && event.event !== 'terminal.graphics-frame');
+    const body = trail.length === 0
         ? 'No phone transport events yet.'
-        : events.map((event) => `${event.at} ${summarize(event)}`).join('\n');
+        : trail.map((event) => `${event.at} ${summarize(event)}`).join('\n');
     const live = liveFrameLine();
-    return live === undefined ? `${PRIVACY_HEADER}\n${body}` : `${PRIVACY_HEADER}\n${body}\n${live}`;
+    const graphics = graphicsLine();
+    let report = `${PRIVACY_HEADER}\n${body}`;
+    if (live !== undefined) report += `\n${live}`;
+    if (graphics !== undefined) report += `\n${graphics}`;
+    return report;
 }
 
 export function formatLatestConnectionFailure(): string | undefined {
@@ -406,6 +420,13 @@ export function formatLatestConnectionFailure(): string | undefined {
         ? ''
         : ` · ${failure.closeCode} ${failure.closeReason ?? 'other'}`;
     return `Latest failure: ${failure.stage} · ${failure.code}${close}`;
+}
+
+function graphicsLine(): string | undefined {
+    const frames = events.flatMap((event) => event.event === 'terminal.graphics-frame' ? [event.bytes] : []);
+    if (frames.length === 0) return undefined;
+    const latencies = events.flatMap((event) => event.event === 'terminal.scroll-latency' ? [event.ms] : []);
+    return `graphics frames=${frames.length} p95=${percentile(frames, 95)}B scroll->frame p95=${percentile(latencies, 95)}ms`;
 }
 
 function liveFrameLine(): string | undefined {
@@ -438,6 +459,8 @@ function summarize(event: ConnectionDiagnosticEvent): string {
     }
     if (event.event === 'terminal.first-frame') return `terminal.first-frame ${event.ms}ms`;
     if (event.event === 'terminal.frames') return `terminal.frames received=${event.received} written=${event.written}`;
+    if (event.event === 'terminal.scroll-latency') return `terminal.scroll-latency ${event.ms}ms`;
+    if (event.event === 'terminal.graphics-frame') return `terminal.graphics-frame ${event.bytes}B`;
     const code = event.code === undefined ? '' : ` ${event.code}`;
     return `terminal.channel ${event.phase} ${event.outcome}${code}`;
 }
@@ -457,6 +480,18 @@ function boundedDuration(durationMs: number): number {
 function boundedCount(value: number): number {
     if (!Number.isFinite(value)) return 0;
     return Math.max(0, Math.min(Math.round(value), MAX_FRAME_COUNT));
+}
+
+function boundedBytes(value: number): number {
+    if (!Number.isFinite(value)) return 0;
+    return Math.max(0, Math.min(Math.round(value), 64 * 1024 * 1024));
+}
+
+function percentile(samples: readonly number[], p: number): number {
+    if (samples.length === 0) return 0;
+    const ranked = samples.slice().sort((left, right) => left - right);
+    const rank = Math.max(0, Math.ceil(p / 100 * ranked.length) - 1);
+    return ranked[rank]!;
 }
 
 function boundedCloseCode(value: number | undefined): number | undefined {
@@ -506,6 +541,10 @@ function isValidEvent(value: unknown): value is ConnectionDiagnosticEvent {
     }
     if (event.event === 'terminal.first-frame') return isFiniteCount(event.ms);
     if (event.event === 'terminal.frames') return isFiniteCount(event.received) && isFiniteCount(event.written);
+    if (event.event === 'terminal.scroll-latency') return isFiniteCount(event.ms);
+    if (event.event === 'terminal.graphics-frame') {
+        return typeof event.bytes === 'number' && Number.isFinite(event.bytes) && event.bytes >= 0 && event.bytes <= 64 * 1024 * 1024;
+    }
     return false;
 }
 

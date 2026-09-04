@@ -520,6 +520,7 @@ export const ca: TranslationStructure = {
         previousChange: 'Canvi anterior',
         nextChange: 'Canvi següent',
         toggleFileAndDiff: 'Commuta fitxer i diferències',
+        wrapLines: 'Ajusta les línies llargues',
         previousFile: 'Fitxer anterior',
         nextFile: 'Fitxer següent',
         previousFileNamed: ({ title, ordinal, total }: { title: string; ordinal: number; total: number }) => `Fitxer anterior, ${title}, ${ordinal} de ${total}`,

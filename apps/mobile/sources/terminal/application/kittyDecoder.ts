@@ -174,8 +174,13 @@ function parseCommand(body: Uint8Array, state: KittyDecoderState): { command?: K
     const fields = parseHeader(header);
     const action = fields.a ?? 'T';
     if (action === 'd') {
-        if (fields.d === 'A') return { command: { kind: 'delete-all' } };
-        if (fields.d === 'i' && fields.i !== undefined) return { command: { kind: 'delete-image', id: fields.i } };
+        if (fields.d === 'A' || fields.d === 'a') return { command: { kind: 'delete-all' } };
+        // `i` deletes an image and its data, `I` deletes its placements and
+        // data. A viewer that keeps no placement of its own treats both as
+        // "this image is gone".
+        if ((fields.d === 'i' || fields.d === 'I') && fields.i !== undefined) {
+            return { command: { kind: 'delete-image', id: fields.i } };
+        }
         return failUnsupported(state);
     }
     if (action !== 'T') return failUnsupported(state);

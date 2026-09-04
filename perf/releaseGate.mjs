@@ -69,6 +69,12 @@ const LIMITS = {
     herdVisibleMs: 90_000,
     /** A Herdr call the host waits on; anything near seconds is a stall. */
     hostRequestMs: 5_000,
+    /** First admitted byte of a graphics frame -> written to the phone channel. */
+    graphicsPipelineP95Ms: 250,
+    /** Bytes of the terminal.frame payload written to the phone. */
+    graphicsBytesP95: 800 * 1024,
+    /** Scroll sent -> next graphics frame written, from the phone's trail. */
+    scrollToFrameP95Ms: 400,
 };
 
 /**
@@ -89,6 +95,7 @@ const PHASES = [
     { name: 'idle on the herd', seconds: 120, flow: undefined },
     { name: 'herd strip and tree soak', seconds: 120, flow: 'herdSoak.yaml' },
     { name: 'agent terminal and plugin navigation', seconds: 120, flow: 'herdNavigate.yaml' },
+    { name: 'graphics pane scroll', seconds: 90, flow: 'graphicsScroll.yaml' },
 ];
 
 const args = process.argv.slice(2);
@@ -289,9 +296,12 @@ else ok('no React update-depth errors');
 // that terminals really attached, and it is where a stalled Herdr call shows up
 // as a request that took seconds instead of milliseconds.
 let requests = [];
+let graphicsEvents = [];
 try {
     const journal = JSON.parse(readFileSync(join(stack.dataDir, 'diagnostics.json'), 'utf8'));
-    requests = (journal.events ?? []).filter((event) => event.event === 'client.request');
+    const events = journal.events ?? [];
+    requests = events.filter((event) => event.event === 'client.request');
+    graphicsEvents = events.filter((event) => event.event === 'graphics.pipeline');
 } catch (cause) {
     fail(`the host wrote no diagnostics journal: ${cause instanceof Error ? cause.message : String(cause)}`);
 }
@@ -310,6 +320,44 @@ else ok(`${attaches.filter((event) => event.outcome === 'ok').length} terminal a
 if (rejected.length > 0) fail(`the host rejected ${rejected.length} request(s): ${rejected.map((event) => `${event.request}/${event.code ?? event.outcome}`).join(', ')}`);
 else ok('the host rejected nothing');
 if (slowest > LIMITS.hostRequestMs) fail(`a host request took ${slowest} ms`);
+
+const asInt = (value) => {
+    const n = Number(value);
+    return Number.isFinite(n) ? Math.round(n) : 0;
+};
+const graphics = graphicsEvents.reduce((acc, event) => ({
+    frames: acc.frames + asInt(event.frames),
+    superseded: acc.superseded + asInt(event.superseded),
+    p50Ms: Math.max(acc.p50Ms, asInt(event.p50Ms)),
+    p95Ms: Math.max(acc.p95Ms, asInt(event.p95Ms)),
+    bytesP95: Math.max(acc.bytesP95, asInt(event.bytesP95)),
+    pixelsP95: Math.max(acc.pixelsP95, asInt(event.pixelsP95)),
+}), { frames: 0, superseded: 0, p50Ms: 0, p95Ms: 0, bytesP95: 0, pixelsP95: 0 });
+report.graphics = graphics;
+process.stdout.write(`\ngraphics: frames ${graphics.frames} superseded ${graphics.superseded}`
+    + `  p50 ${graphics.p50Ms} ms  p95 ${graphics.p95Ms} ms`
+    + `  bytes p95 ${graphics.bytesP95}  pixels p95 ${graphics.pixelsP95}\n`);
+if (graphicsEvents.length === 0) {
+    fail('no graphics.pipeline event in the host journal');
+    // A missing account is either a bridge that never opened or a phone that
+    // never attached; the host says which, and guessing wastes a whole run.
+    const graphicsLog = (stack?.hostLog() ?? '')
+        .split('\n')
+        .filter((line) => /graphics/i.test(line))
+        .slice(-6);
+    for (const line of graphicsLog) process.stdout.write(`  host: ${line.trim()}\n`);
+    report.graphicsHostLog = graphicsLog;
+} else {
+    if (graphics.p95Ms > LIMITS.graphicsPipelineP95Ms) fail(`graphics pipeline p95 ${graphics.p95Ms} ms`);
+    else ok(`graphics pipeline p95 ${graphics.p95Ms} ms`);
+    if (graphics.bytesP95 > LIMITS.graphicsBytesP95) fail(`graphics frame ${graphics.bytesP95} bytes`);
+    else ok(`graphics frame p95 ${graphics.bytesP95} bytes`);
+    // Superseded frames are reported, never gated: measured against the real
+    // producer the pipeline answers in 6 ms p50, so a burst is delivered rather
+    // than dropped, and a run that never had to drop anything is the good case.
+    // What proves newest-wins is the p95 above, plus the host flow test.
+    ok(`graphics superseded ${graphics.superseded}`);
+}
 
 const pid = await appPid(PKG);
 const tid = pid === undefined ? undefined : await jsThreadId(pid);

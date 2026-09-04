@@ -167,6 +167,8 @@ describe('connection diagnostic codes', () => {
             recordTrackedRpc,
             recordTerminalChannel,
             recordAgentGate,
+            recordTerminalScrollLatency,
+            recordTerminalGraphicsFrame,
             readConnectionDiagnostics,
             formatConnectionDiagnosticsForReport,
             connectionDiagnosticCode,
@@ -198,11 +200,14 @@ describe('connection diagnostic codes', () => {
             expect.objectContaining({ event: 'agent.gate', lifecycle: 'idle', promptable: false, gate: 'missing' }),
         ]));
         expect(readConnectionDiagnostics().some((event) => event.event === 'agent.gate' && 'kind' in event && event.kind === 'w1ew:ph')).toBe(false);
+        recordTerminalScrollLatency(42);
+        recordTerminalGraphicsFrame(2048);
         const report = formatConnectionDiagnosticsForReport();
         expect(report).toMatch(/socket\.reconnect dead-socket/);
         expect(report).toMatch(/rpc session\.prompt rejected agent-not-ready/);
         expect(report).toMatch(/rpc session\.start rejected start-launch-failed/);
         expect(report).toMatch(/agent\.gate omp idle promptable=false not-interactive/);
+        expect(report).toMatch(/graphics frames=1 p95=2048B scroll->frame p95=42ms/);
         expect(report).not.toMatch(/pp_|pwt-|devtok_|machine-|session-|w1EW:pH/);
     });
 

@@ -113,8 +113,10 @@ function DocumentBody(props: {
     shownMode: DocumentDisplayMode;
     fontSize: number;
     isNarrow: boolean;
+    wrap: boolean;
     onHunkOffsets: (offsets: number[]) => void;
     onFileCount: (count: number) => void;
+    onHighlightTop: (top: number) => void;
 }) {
     const { theme } = useUnistyles();
     const model = props.document;
@@ -166,9 +168,10 @@ function DocumentBody(props: {
                 language={undefined}
                 fileName={model.path}
                 fontSize={props.isNarrow ? props.fontSize - 1 : props.fontSize}
-                lineNumbers={props.isNarrow}
+                wrap={props.wrap}
                 maxLines={HOST_CODE_MAX_LINES}
                 maxChars={HOST_CODE_MAX_CHARS}
+                {...(model.highlightLine === undefined ? {} : { highlightLine: model.highlightLine, onHighlightTop: props.onHighlightTop })}
             />
         );
     }
@@ -296,6 +299,8 @@ export function DocumentViewer(props: {
     const isNarrow = windowWidth < 700;
     const [displayMode, setDisplayMode] = React.useState<DocumentDisplayMode>('diff');
     const [fontSize, setFontSize] = React.useState(12);
+    const [wrapCode, setWrapCode] = React.useState(true);
+    const [highlightTop, setHighlightTop] = React.useState<number>();
     const [hunkOffsets, setHunkOffsets] = React.useState<number[]>([]);
     const [hunkIndex, setHunkIndex] = React.useState(0);
     const [diffFileCount, setDiffFileCount] = React.useState(1);
@@ -328,10 +333,13 @@ export function DocumentViewer(props: {
     const navigation = model?.navigation;
     const shownMode: DocumentDisplayMode = displayMode === 'diff' && !model?.diff ? 'file' : displayMode;
     const fileCount = shownMode === 'diff' && model?.diff ? diffFileCount : 1;
+    // An unwrapped file pans sideways, and that scroller and the file-swipe pan
+    // both start as a horizontal drag; the bar's arrows still navigate.
     const swipeEnabled = isNarrow
         && navigation !== undefined
         && (navigation.previous !== undefined || navigation.next !== undefined)
         && fileCount <= 1
+        && (shownMode !== 'file' || wrapCode)
         && pointerCoarse;
     const forward = I18nManager.isRTL ? -1 : 1;
 
@@ -358,6 +366,7 @@ export function DocumentViewer(props: {
         hunkIndexRef.current = 0;
         setHunkIndex(0);
         setHunkOffsets([]);
+        setHighlightTop(undefined);
         translateX.set(0);
         progress.set(0);
         towardNext.set(0);
@@ -371,12 +380,13 @@ export function DocumentViewer(props: {
         progress.set(0);
     }, [slotWidth, progress, translateX]);
 
+    // The row's measured top, never index × lineHeight: one wrapped line is
+    // several visual rows, so the arithmetic lands on the wrong line.
     React.useEffect(() => {
-        if (model?.code === undefined || shownMode !== 'file' || model.highlightLine === undefined || model.highlightLine <= 0) return;
-        const lineHeight = Math.round((fontSize - (isNarrow ? 1 : 0)) * 10 / 7);
-        const offset = Math.max(0, ((model.highlightLine - 1) * lineHeight) - 40);
+        if (highlightTop === undefined || shownMode !== 'file') return;
+        const offset = Math.max(0, highlightTop + 16 - 40);
         requestAnimationFrame(() => { scrollRef.current?.scrollTo({ y: offset, animated: false }); });
-    }, [fontSize, isNarrow, model?.code, model?.highlightLine, scrollRef, shownMode]);
+    }, [highlightTop, scrollRef, shownMode]);
 
     const jumpHunk = React.useCallback((step: number) => {
         if (hunkOffsets.length === 0) return;
@@ -533,6 +543,7 @@ export function DocumentViewer(props: {
         if (name === 'previousChange') jumpHunk(-1);
         if (name === 'nextChange') jumpHunk(1);
         if (name === 'toggleView') setDisplayMode((current) => current === 'diff' ? 'file' : 'diff');
+        if (name === 'toggleWrap') setWrapCode((current) => !current);
     };
 
     const breadcrumbSegments = (model?.path ?? '').split('/').filter(Boolean).map((label, index, segments) => ({
@@ -567,8 +578,10 @@ export function DocumentViewer(props: {
                                     shownMode={shownMode}
                                     fontSize={fontSize}
                                     isNarrow={isNarrow}
+                                    wrap={wrapCode}
                                     onHunkOffsets={setHunkOffsets}
                                     onFileCount={setDiffFileCount}
+                                    onHighlightTop={setHighlightTop}
                                 />
                             </Animated.ScrollView>
                         </GestureDetector>
@@ -603,6 +616,8 @@ export function DocumentViewer(props: {
                 hunkIndex={hunkIndex}
                 onModeChange={setDisplayMode}
                 onJumpHunk={jumpHunk}
+                wrap={wrapCode}
+                onWrapChange={setWrapCode}
                 documentLabel={model?.fileName ?? t('files.file')}
                 accessibilityActions={[
                     { name: 'previousDocument', label: t('files.previousDocument') },
@@ -610,6 +625,7 @@ export function DocumentViewer(props: {
                     { name: 'previousChange', label: t('files.previousChange') },
                     { name: 'nextChange', label: t('files.nextChange') },
                     { name: 'toggleView', label: t('files.toggleFileAndDiff') },
+                    { name: 'toggleWrap', label: t('files.wrapLines') },
                 ]}
                 onAccessibilityAction={onAccessibilityAction}
                 {...(navigation === undefined ? {} : { navigation })}

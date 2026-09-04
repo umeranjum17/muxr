@@ -7,7 +7,7 @@ import { chmodSync, mkdirSync, writeFileSync, appendFileSync } from 'node:fs';
 import { createConnection } from 'node:net';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { DEFAULT_WORLD, tileRects } from './graphics.mjs';
+import { DEFAULT_WORLD, requestFrames, tileRects } from './graphics.mjs';
 
 const SELF = fileURLToPath(import.meta.url);
 
@@ -183,6 +183,23 @@ function shellChunk(seq, size) {
     return text.slice(0, size);
 }
 
+function inputBytes(message) {
+    if (typeof message.bytes !== 'string' || message.bytes.length === 0) return '';
+    try {
+        return Buffer.from(message.bytes, 'base64').toString('latin1');
+    } catch {
+        return '';
+    }
+}
+
+const WHEEL_REPORT = /\x1b\[<(64|65);(\d+);(\d+)M/g;
+
+function wheelReports(text) {
+    WHEEL_REPORT.lastIndex = 0;
+    const matches = String(text).match(WHEEL_REPORT);
+    return matches === null ? 0 : matches.length;
+}
+
 function runTerminal(args) {
     const paneId = args[1] ?? 'p1';
     let cols = Number(flag(args, '--cols') ?? 80) || 80;
@@ -232,6 +249,7 @@ function runTerminal(args) {
         buffer += chunk;
         const lines = buffer.split('\n');
         buffer = lines.pop() ?? '';
+        let burst = 0;
         for (const line of lines) {
             if (line.trim() === '') continue;
             try {
@@ -242,10 +260,16 @@ function runTerminal(args) {
                     rows = Number(message.rows) || rows;
                     emit(true);
                 } else if (message.type === 'terminal.scroll') emit(true);
+                else if (message.type === 'terminal.input') {
+                    burst += wheelReports(inputBytes(message));
+                }
             } catch {
                 /* phone JSON is forwarded as-is; ignore non-JSON */
             }
         }
+        // The pane the phone is actually watching is the one whose repaints
+        // matter; a round robin across a hundred panes measures nothing.
+        if (burst > 0) requestFrames(burst, paneId);
     });
     process.stdin.on('end', finish);
     process.stdin.on('close', finish);

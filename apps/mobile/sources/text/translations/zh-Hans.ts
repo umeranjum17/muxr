@@ -522,6 +522,7 @@ export const zhHans: TranslationStructure = {
         previousChange: '上一处更改',
         nextChange: '下一处更改',
         toggleFileAndDiff: '切换文件和差异',
+        wrapLines: '长行自动换行',
         previousFile: '上一个文件',
         nextFile: '下一个文件',
         previousFileNamed: ({ title, ordinal, total }: { title: string; ordinal: number; total: number }) => `上一个文件，${title}，第 ${ordinal} 个，共 ${total} 个`,

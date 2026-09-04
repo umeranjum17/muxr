@@ -31,9 +31,16 @@ export interface TerminalOutputFrame {
     graphics?: boolean;
     /** Why direct graphics ended. Absent on ordinary clears and active frames. */
     graphicsReason?: TerminalGraphicsReason;
+    /**
+     * Whether this image is the pane's whole surface or sits inside a program's
+     * text. A client takes over scrolling and pointer input only for `full`:
+     * for an image printed above a shell prompt the pane still owns both.
+     */
+    graphicsSurface?: TerminalGraphicsSurface;
 }
 
 export type TerminalGraphicsReason = 'retired' | 'bridge-closed';
+export type TerminalGraphicsSurface = 'full' | 'inline';
 
 /** host -> client: the underlying stream ended. */
 export interface TerminalClosedFrame {

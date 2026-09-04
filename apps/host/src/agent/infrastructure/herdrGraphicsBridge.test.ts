@@ -57,7 +57,7 @@ describe('Herdr graphics flow', () => {
             transferId: message.file.transferId,
         }, {
             channel: 'phone', paneId: 'visible', cols: 20, rows: 10, cellWidthPx: 8, cellHeightPx: 16, write: () => {},
-        }, true).toString('utf8');
+        }, 'all').toString('utf8');
         expect(output.startsWith('\u001b7')).toBe(true);
         expect(output).toContain('a=d,d=A');
         expect(output).toContain('a=T,f=32,s=2,v=2,i=101');
@@ -303,5 +303,95 @@ describe('Herdr graphics flow', () => {
             .toMatchObject({ graphics: false, graphicsReason: 'retired' });
         expect(internals.closed).toBe(true);
         expect(bridge.register(portrait)).toBe(false);
+    });
+
+    // One flow check for a program's own images: two of them live in one pane,
+    // a repaint of one supersedes only itself, the program's delete removes
+    // exactly what it named, and a gesture leaves the pane as few wheel notches
+    // as the pane has answered frames.
+    it('keeps two program images, coalesces repaints, and paces a gesture', async () => {
+        const socket = Object.assign(new EventEmitter(), {
+            writable: true,
+            write: () => true,
+            destroy: () => {},
+        });
+        const bridge = Reflect.construct(HerdrGraphicsBridge, [socket, 'herdr']) as HerdrGraphicsBridge;
+        const internals = bridge as unknown as {
+            sourcePane: (leading: Buffer) => Promise<string | undefined>;
+            visibleRect: (paneId: string) => Promise<{ x: number; y: number; width: number; height: number } | undefined>;
+            queueInline: (data: Buffer) => void;
+            supersededFrames: number;
+            inlineQueue: unknown[];
+            inlineDraining: boolean;
+        };
+        internals.sourcePane = async () => 'pane';
+        internals.visibleRect = async () => ({ x: 0, y: 0, width: 20, height: 10 });
+
+        const frames: { graphics?: boolean; graphicsSurface?: string; bytes: string }[] = [];
+        const notches: string[] = [];
+        bridge.register({
+            channel: 'phone',
+            paneId: 'pane',
+            cols: 20,
+            rows: 10,
+            cellWidthPx: 10,
+            cellHeightPx: 20,
+            write: (frame) => frames.push(JSON.parse(frame) as { bytes: string }),
+            sendInput: (input) => notches.push(input.toString('utf8')),
+        });
+
+        const pixels = Buffer.alloc(2 * 2 * 4, 7).toString('base64');
+        const image = (id: number, row: number, col: number, cols: number, rows: number): Buffer => Buffer.from(
+            `\u001b[${row};${col}H`
+            + `\u001b_Ga=t,f=32,s=2,v=2,i=${id},m=0;${pixels}\u001b\\`
+            + `\u001b_Ga=p,i=${id},c=${cols},r=${rows};\u001b\\`,
+        );
+        // The worker itself is the signal: drained queue, nothing in flight.
+        const settle = async (): Promise<void> => {
+            for (let turn = 0; turn < 1000; turn += 1) {
+                if (internals.inlineQueue.length === 0 && !internals.inlineDraining) return;
+                await new Promise((resolve) => { setImmediate(resolve); });
+            }
+        };
+
+        // A pane-filling image, then a small one beside it.
+        internals.queueInline(image(1, 1, 1, 20, 10));
+        await settle();
+        internals.queueInline(image(2, 8, 3, 4, 2));
+        await settle();
+        expect(frames).toHaveLength(2);
+        expect(frames[0]).toMatchObject({ graphics: true, graphicsSurface: 'full' });
+        expect(frames[1]).toMatchObject({ graphics: true, graphicsSurface: 'inline' });
+        // Neither frame may clear the whole pane, or the other image is erased.
+        expect(frames.every((frame) => !Buffer.from(frame.bytes, 'base64').toString('utf8').includes('a=d,d=A'))).toBe(true);
+
+        // A repaint of the full surface arrives twice before either is prepared:
+        // the older one is dropped, and the small image is untouched.
+        internals.queueInline(Buffer.concat([image(3, 1, 1, 20, 10), image(4, 1, 1, 20, 10)]));
+        await settle();
+        expect(internals.supersededFrames).toBe(1);
+        expect(frames).toHaveLength(3);
+        expect(Buffer.from(frames[2]!.bytes, 'base64').toString('utf8')).toContain('i=4');
+        // Replacing a surface deletes exactly the image it replaced.
+        expect(Buffer.from(frames[2]!.bytes, 'base64').toString('utf8')).toContain('a=d,d=I,i=1');
+
+        // A gesture: three rows is one notch, and only what the pane has
+        // answered goes out now. The rest is owed, not queued in front of it.
+        const burst = bridge.scrollInput('phone', 'down', 30);
+        expect(burst).toHaveLength(4);
+        expect(burst[0]!.toString('utf8')).toMatch(/^\u001b\[<65;\d+;\d+M$/);
+        const framesBeforeDrain = frames.length;
+        internals.queueInline(image(5, 1, 1, 20, 10));
+        await settle();
+        expect(frames.length).toBe(framesBeforeDrain + 1);
+        expect(notches).toHaveLength(1);
+
+        // The program's own delete names Herdr's id, which is the id the phone
+        // holds, so it removes that image and nothing else.
+        internals.queueInline(Buffer.from('\u001b_Ga=d,d=I,i=2,q=2;\u001b\\'));
+        await settle();
+        expect(Buffer.from(frames.at(-1)!.bytes, 'base64').toString('utf8')).toContain('a=d,d=I,i=2');
+        expect(frames.at(-1)).toMatchObject({ graphics: false });
+        bridge.close();
     });
 });

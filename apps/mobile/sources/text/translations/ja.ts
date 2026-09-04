@@ -522,6 +522,7 @@ export const ja: TranslationStructure = {
         previousChange: '前の変更',
         nextChange: '次の変更',
         toggleFileAndDiff: 'ファイルと差分を切り替え',
+        wrapLines: '長い行を折り返す',
         previousFile: '前のファイル',
         nextFile: '次のファイル',
         previousFileNamed: ({ title, ordinal, total }: { title: string; ordinal: number; total: number }) => `前のファイル、${title}、${ordinal} / ${total}`,

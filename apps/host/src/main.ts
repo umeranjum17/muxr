@@ -625,6 +625,9 @@ async function main(): Promise<void> {
         ...(token === undefined ? {} : { token }),
         ...(process.env.HERDR_BIN === undefined ? {} : { herdrBin: process.env.HERDR_BIN }),
         ...(hostedE2ee === undefined ? {} : { hostedE2ee }),
+        ...(diagnostics === undefined ? {} : {
+            onGraphicsPipelineDiagnostic: (report) => diagnostics.graphicsPipeline(report),
+        }),
     });
 
     startHost({

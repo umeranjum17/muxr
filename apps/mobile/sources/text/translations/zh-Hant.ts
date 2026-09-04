@@ -521,6 +521,7 @@ export const zhHant: TranslationStructure = {
         previousChange: '上一處變更',
         nextChange: '下一處變更',
         toggleFileAndDiff: '切換檔案與差異',
+        wrapLines: '長行自動換行',
         previousFile: '上一個檔案',
         nextFile: '下一個檔案',
         previousFileNamed: ({ title, ordinal, total }: { title: string; ordinal: number; total: number }) => `上一個檔案，${title}，第 ${ordinal} 個，共 ${total} 個`,

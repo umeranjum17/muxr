@@ -37,6 +37,25 @@ process-wide graphics client is registered. The normal phone flow does this:
 open **Tools**, launch the action, then tap its new **Running** row (or open it
 from **Panes**).
 
+### What a graphics producer owes the phone
+
+Any Kitty producer works the same way: it repaints, muxr forwards. Two things
+about it decide how the pane feels, and neither is specific to one program.
+
+- **A repaint is a frame, and a frame crosses a socket that sustains about
+  3 MB/s.** muxr forwards only the newest frame of a surface, and releases the
+  rest of a scroll gesture one wheel notch per delivered frame, so a fling
+  travels as fast as the producer can actually answer. A producer that offers a
+  frame-rate cap should use one — `TERMINAL_BROWSER_FPS=10` for the terminal
+  browser, and its `TERMINAL_BROWSER_MAX_PIXELS` for the pixel budget — because
+  paints it never makes cost nothing at all.
+- **Placement is provenance.** An image covering its pane is the pane's whole
+  surface: the phone takes over scrolling and pointer input for it. A smaller
+  image — `icat` above a prompt, a plot beside its legend — keeps the cell and
+  cell span Herdr gave it, several of them live at once, and the pane keeps its
+  own gestures. Deleting one (`a=d,d=I,i=<id>`) removes exactly that image,
+  because the ids the phone holds are Herdr's own.
+
 ## Permissions and data
 
 No secrets, no config, nothing written to `MUXR_PLUGIN_STATE_DIR`. It can start

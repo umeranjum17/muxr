@@ -537,6 +537,7 @@ export const ru: TranslationStructure = {
         previousChange: 'Предыдущее изменение',
         nextChange: 'Следующее изменение',
         toggleFileAndDiff: 'Переключить файл и различия',
+        wrapLines: 'Переносить длинные строки',
         previousFile: 'Предыдущий файл',
         nextFile: 'Следующий файл',
         previousFileNamed: ({ title, ordinal, total }: { title: string; ordinal: number; total: number }) => `Предыдущий файл, ${title}, ${ordinal} из ${total}`,

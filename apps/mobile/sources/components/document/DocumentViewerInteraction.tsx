@@ -58,6 +58,8 @@ export function DocumentNavigatorBar(props: {
     navigation?: DocumentViewerNavigation;
     onModeChange: (mode: DocumentDisplayMode) => void;
     onJumpHunk: (step: number) => void;
+    wrap: boolean;
+    onWrapChange: (wrap: boolean) => void;
     onNavigateFile?: (path: string) => void;
     documentLabel?: string;
     accessibilityActions?: Array<{ name: string; label: string }>;
@@ -71,6 +73,8 @@ export function DocumentNavigatorBar(props: {
     const nextIcon = forward === 1 ? 'chevron-forward' : 'chevron-back';
     const navigation = props.navigation;
     const showHunks = props.mode === 'diff' && props.hunkCount > 1;
+    // A diff always wraps to keep its columns; only the raw file can pan.
+    const showWrap = props.mode === 'file';
 
     return (
         <View style={[styles.bar, { paddingBottom: insets.bottom, backgroundColor: theme.colors.surface, borderTopColor: theme.colors.divider }]}>
@@ -148,6 +152,22 @@ export function DocumentNavigatorBar(props: {
                 })}
             </View>
             <View style={[styles.slot, styles.slotEnd]}>
+                {showWrap && (
+                    <NavPressable
+                        onPress={() => props.onWrapChange(!props.wrap)}
+                        accessibilityRole="button"
+                        accessibilityLabel={t('files.wrapLines')}
+                        accessibilityState={{ selected: props.wrap }}
+                        hitSlop={{ horizontal: 3 }}
+                        style={(down) => [styles.hunkButton, {
+                            width: compact ? 34 : 38,
+                            borderRadius: 7,
+                            backgroundColor: props.wrap ? theme.colors.surfaceSelected : down ? theme.colors.surfacePressed : 'transparent',
+                        }]}
+                    >
+                        <Ionicons name="return-down-forward" size={18} color={props.wrap ? theme.colors.text : theme.colors.textSecondary} />
+                    </NavPressable>
+                )}
                 {showHunks && (
                     <View style={styles.hunkControls}>
                         {([['chevron-up', -1], ['chevron-down', 1]] as const).map(([icon, step]) => {

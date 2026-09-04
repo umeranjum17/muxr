@@ -536,6 +536,7 @@ export const pl: TranslationStructure = {
         previousChange: 'Poprzednia zmiana',
         nextChange: 'Następna zmiana',
         toggleFileAndDiff: 'Przełącz plik i różnice',
+        wrapLines: 'Zawijaj długie wiersze',
         previousFile: 'Poprzedni plik',
         nextFile: 'Następny plik',
         previousFileNamed: ({ title, ordinal, total }: { title: string; ordinal: number; total: number }) => `Poprzedni plik, ${title}, ${ordinal} z ${total}`,
