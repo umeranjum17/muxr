@@ -8,11 +8,9 @@
  * to reach the screen is returned, because on a big herd that is the number
  * that matters.
  */
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
+import { runCommand as run, assertCommandActive } from './commands.mjs';
 import { dismissPrompts } from './androidSignals.mjs';
 
-const run = promisify(execFile);
 
 async function herdOnScreen() {
     await run('adb', ['shell', 'uiautomator', 'dump', '/sdcard/pair-check.xml'], { timeout: 40_000 }).catch(() => undefined);
@@ -40,6 +38,7 @@ export async function waitForHerd(seconds) {
 export async function pairPhone({ stack, maestro, flow = 'pair.yaml', attempts = 2, patienceSeconds = 180 }) {
     let last = '';
     for (let attempt = 1; attempt <= attempts; attempt += 1) {
+        assertCommandActive();
         // A dozing or locked emulator reports an empty screen, which reads as a
         // broken app; wake it and keep it awake before anything is asserted.
         for (const args of [

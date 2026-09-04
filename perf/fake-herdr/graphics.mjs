@@ -7,7 +7,7 @@
  * capped at the ~3 MB/s the real Herdr app-client socket sustains, so a burst
  * of paints queues instead of flushing instantly.
  */
-import { appendFileSync, unlinkSync } from 'node:fs';
+import { appendFileSync, existsSync, unlinkSync } from 'node:fs';
 import { createServer } from 'node:net';
 
 const PROTOCOL_VERSION = 20;
@@ -146,10 +146,17 @@ export function imageSizeFromWorld(world, overrides = {}) {
     };
 }
 
-function kittyChunk({ row, col, imageId, width, height, rgba, cols, rows }) {
+function kittyChunk({ row, col, imageId, width, height, rgba, cols, rows, proof = false }) {
     // Cheap unique fill: one byte for the field, then a 32-bit stamp so two
     // consecutive payloads cannot be byte-identical even if the fill wrapped.
     rgba.fill((imageId * 37) & 255);
+    // PR-only opaque checkerboard: identifiable in the phone framebuffer,
+    // unlike terminal text/chrome or a pipeline event with zero deliveries.
+    if (proof) for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+        const at = (y * width + x) * 4;
+        const color = ((x >> 5) + (y >> 5)) % 2 === 0 ? [235, 35, 170] : [20, 215, 185];
+        rgba[at] = color[0]; rgba[at + 1] = color[1]; rgba[at + 2] = color[2]; rgba[at + 3] = 255;
+    }
     rgba[0] = imageId & 255;
     rgba[1] = (imageId >>> 8) & 255;
     rgba[2] = (imageId >>> 16) & 255;
@@ -301,6 +308,7 @@ function serveClient(socket, options) {
                 width: imageWidth,
                 height: imageHeight,
                 rgba,
+                proof: options.enableFile !== undefined,
                 cols: Math.max(1, cursor?.rect?.width ?? 1),
                 rows: Math.max(1, cursor?.rect?.height ?? 1),
             });
@@ -308,6 +316,9 @@ function serveClient(socket, options) {
             return frame(outputPayload(bytes));
         },
     });
+    const paint = () => {
+        if (options.enableFile === undefined || existsSync(options.enableFile)) pacer.admit();
+    };
 
     const stopRequestTick = () => {
         if (requestTimer === undefined) return;
@@ -339,7 +350,7 @@ function serveClient(socket, options) {
             return;
         }
         requested -= 1;
-        pacer.admit();
+        paint();
         if (requested <= 0) stopRequestTick();
     };
 
@@ -387,8 +398,8 @@ function serveClient(socket, options) {
                 socket.write(frame(welcomePayload()));
                 onReady?.(requestFramesForClient);
                 if (frameHz > 0) {
-                    pacer.admit();
-                    periodicTimer = setInterval(() => pacer.admit(), Math.max(1, Math.round(1000 / frameHz)));
+                    paint();
+                    periodicTimer = setInterval(paint, Math.max(1, Math.round(1000 / frameHz)));
                     timers.add(periodicTimer);
                 }
             } else if (type === 4) {
@@ -409,6 +420,7 @@ export async function startGraphics({
     imageHeight,
     bytesPerSecond = DEFAULT_BYTES_PER_SECOND,
     inputLogPath,
+    enableFile,
 } = {}) {
     try { unlinkSync(socketPath); } catch { /* leftover from a killed run */ }
     const sockets = new Set();
@@ -448,6 +460,7 @@ export async function startGraphics({
             timers,
             isClosed: () => closed,
             inputLogPath,
+            enableFile,
             onReady: (emit) => {
                 emitters.add(emit);
                 socket.once('close', () => emitters.delete(emit));
