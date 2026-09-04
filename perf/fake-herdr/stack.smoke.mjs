@@ -196,18 +196,29 @@ async function run() {
     await waitFor(() => frames.some((frame) => frame.graphics === true), 'a graphics frame');
     console.log('ok: inline Kitty reached the client as a graphics frame');
 
-    // Title churn: every pane changes twice a second, and the host caps
-    // title-only publishes at two per second per session.
+    // Title churn is a load generator, not news. Every pane renames itself
+    // twice a second and the host deliberately keeps the terminal title out of
+    // SessionInfo (herdrSessionSource.ts:976), because a phone that woke for
+    // every rename would spend its JS thread on text nobody asked for. The
+    // title still has to arrive -- it rides `herdr.tree` at the tree's own
+    // cadence -- so this checks both halves: the churn is visible where it
+    // belongs, and it is not amplified into pushes.
     events.length = 0;
     const churnSeconds = 5;
+    const titlesBefore = new Map(treePanes.map((pane) => [pane.paneId, pane.terminalTitle]));
     await new Promise((resolve) => setTimeout(resolve, churnSeconds * 1000));
+    const churnedTree = await request(socket, 'herdr.tree', {});
+    const churnedPanes = churnedTree.workspaces.flatMap((workspace) => workspace.tabs.flatMap((tab) => tab.panes));
+    const renamed = churnedPanes.filter((pane) => pane.terminalTitle !== titlesBefore.get(pane.paneId));
+    if (renamed.length === 0) fail(`no pane title changed on the tree in ${churnSeconds}s of churn`);
+    // A rename is not a session change: a handful of lifecycle publishes are
+    // normal, one per rename is the regression this guards.
     const updates = events.filter((entry) => entry.event?.type === 'session.updated');
     const perSession = new Map();
     for (const entry of updates) perSession.set(entry.sessionId, (perSession.get(entry.sessionId) ?? 0) + 1);
-    if (perSession.size === 0) fail('title churn never reached the client');
-    const worst = Math.max(...perSession.values());
-    if (worst > 2 * churnSeconds + 2) fail(`session.updated exceeded the coalescing cap (${worst} in ${churnSeconds}s)`);
-    console.log(`ok: title churn arrived coalesced (${updates.length} updates across ${perSession.size} sessions)`);
+    const worst = perSession.size === 0 ? 0 : Math.max(...perSession.values());
+    if (worst > 2) fail(`title churn leaked into session.updated (${worst} for one session in ${churnSeconds}s)`);
+    console.log(`ok: ${renamed.length} pane titles churned on the tree, ${updates.length} session pushes`);
 
     finish(0, 'fake-herdr stack smoke ok\n');
 }
