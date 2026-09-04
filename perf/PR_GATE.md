@@ -62,6 +62,10 @@ The full flow requires:
   row height as ASCII and wrap off. Missing full-text evidence fails this check. Screenshots retain
   the word-diff/CJK examples. CJK full horizontal extent and scrub source-line
   labels remain device-unverified; this does not cover every phone width.
+- A real host session plus relative file path targets source line200 from offscreen
+  on both cold app launch and warm navigation. The target must enter the upper
+  visible code region. This file-mode check does not claim diff deletion-collision
+  or folded-target device coverage.
 - Mounted text terminal plus a recorded real host attach, while graphics are off.
 - Mounted terminal with an opaque magenta/teal Kitty checkerboard verified in
   the terminal framebuffer region, positive cell dimensions and positive delivered
