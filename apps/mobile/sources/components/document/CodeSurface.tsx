@@ -231,13 +231,18 @@ export function CodeSurface(props: {
     const offsets = React.useMemo(() => prefixSums(heights), [heights]);
     const contentHeight = offsets[offsets.length - 1] ?? 0;
 
-    // `fraction * rows.length` invents a number: it ignores fold pills, gap
+    // `fraction * rows.length` invented a number: it ignored fold pills, gap
     // chips, wrapped rows of unequal height, and the fact that a patch's
-    // rows carry their own source line numbers. Resolve the item actually
-    // under the thumb from the pixel offset, then read that row's real
-    // line number off the model.
-    const lineLabelAt = React.useCallback((fraction: number) => {
-        const target = fraction * contentHeight;
+    // rows carry their own source line numbers.
+    //
+    // The input is the list scroll offset the scrub is about to land on, not
+    // a fraction of the content: only `contentHeight - viewportHeight` is
+    // scrollable, so a content fraction named rows the list never reaches.
+    // `offsets` are measured from the first item, while the list starts that
+    // item `paddingTop` below its own origin, so that has to come off before
+    // the search.
+    const lineLabelAt = React.useCallback((scrollOffset: number) => {
+        const target = Math.max(0, scrollOffset - props.paddingTop);
         let low = 0;
         let high = offsets.length - 1;
         while (low < high) {
@@ -252,7 +257,7 @@ export function CodeSurface(props: {
             return line === undefined ? '' : `L ${line}`;
         }
         return '';
-    }, [contentHeight, items, offsets, rows]);
+    }, [items, offsets, props.paddingTop, rows]);
 
     // Row index → item index, so a jump target survives folding.
     const itemOfRow = React.useMemo(() => {

@@ -82,12 +82,18 @@ export function DocumentNavigatorBar(props: {
     const showHunks = props.mode === 'diff' && props.hunkCount > 1;
     // Both modes pan now, so both can be put back into wrapping.
     const showWrap = true;
-    // Every control here is fixed-width and non-shrinking: file 128, hunk
-    // 128, zoom 88, overflow 44, padding 18 = 406 dp before borders, against
-    // a 379 dp lane on a 411 dp screen. When both nav groups are present the
-    // two "3/12" counters are the only expendable 80 dp - the buttons they
-    // annotate stay, and the count is still on each button's a11y label.
+    // Every control here is a fixed 44 dp and cannot shrink, so the row has a
+    // hard minimum: 7 buttons + 18 padding = 326 dp, against a 288 dp lane on
+    // a 320 dp screen. `flexShrink` cannot remove a fixed width - the groups
+    // would simply overlap - so controls have to leave the row instead.
+    //
+    // Below 480 dp with both nav groups the two "3/12" counters go first,
+    // 406 -> 326, which clears the 379 and 361 dp lanes. On the existing
+    // compact branch the zoom pair follows them into the menu: 5 buttons +
+    // padding = 238 dp, inside 288. Nothing loses its 44 dp target, and
+    // every count stays on its button's accessibility label.
     const showCounts = !(showHunks && navigation !== undefined) || width >= 480;
+    const showZoomChips = !compact;
 
     const [menu, setMenu] = React.useState(false);
 
@@ -142,6 +148,27 @@ export function DocumentNavigatorBar(props: {
                             <Text style={{ color: theme.colors.text, fontSize: 14, ...Typography.default() }}>{t('files.wrapLines')}</Text>
                         </NavPressable>
                     )}
+                    {/* The chips left the row to fit a 320 dp screen, so the
+                        ladder has to be reachable here or it is gone. */}
+                    {!showZoomChips && ([['remove', -1], ['add', 1]] as const).map(([glyph, direction]) => {
+                        const disabled = direction < 0 ? props.atMinZoom : props.atMaxZoom;
+                        return (
+                            <NavPressable
+                                key={glyph}
+                                disabled={disabled}
+                                onPress={() => props.onZoom(direction)}
+                                accessibilityRole="button"
+                                accessibilityLabel={direction < 0 ? t('files.zoomOut') : t('files.zoomIn')}
+                                accessibilityState={{ disabled }}
+                                style={(down) => [styles.menuRow, { backgroundColor: down ? theme.colors.surfacePressed : 'transparent' }]}
+                            >
+                                <Ionicons name={glyph} size={16} color={disabled ? theme.colors.textSecondary : theme.colors.text} />
+                                <Text style={{ color: disabled ? theme.colors.textSecondary : theme.colors.text, fontSize: 14, ...Typography.default() }}>
+                                    {direction < 0 ? t('files.zoomOut') : t('files.zoomIn')}
+                                </Text>
+                            </NavPressable>
+                        );
+                    })}
                     {props.zoomed && (
                         <NavPressable
                             onPress={() => { props.onResetZoom(); setMenu(false); }}
@@ -234,6 +261,7 @@ export function DocumentNavigatorBar(props: {
                         )}
                     </View>
                 )}
+                {showZoomChips && (
                 <View style={styles.group}>
                     {([['remove', -1], ['add', 1]] as const).map(([glyph, direction]) => {
                         const disabled = direction < 0 ? props.atMinZoom : props.atMaxZoom;
@@ -252,6 +280,7 @@ export function DocumentNavigatorBar(props: {
                         );
                     })}
                 </View>
+                )}
                 <NavPressable
                     onPress={() => setMenu((open) => !open)}
                     accessibilityRole="button"

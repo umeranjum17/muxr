@@ -62,7 +62,8 @@ export function Scrubber(props: {
     ticks: ScrubTick[];
     /** Offset of each row, so a tick tap can land on one. */
     offsets: number[];
-    labelFor: (fraction: number) => string;
+    /** Given the list scroll offset this drag lands on, name the line there. */
+    labelFor: (scrollOffset: number) => string;
 }) {
     const { theme } = useUnistyles();
     const active = useSharedValue(0);
@@ -102,8 +103,12 @@ export function Scrubber(props: {
             if (Math.abs((fractions[index] ?? 0) - fraction) < Math.abs((fractions[nearest] ?? 0) - fraction)) nearest = index;
         }
         const onTick = fractions.length > 0 && Math.abs((fractions[nearest] ?? 0) - fraction) < 0.01;
-        setLabel(onTick ? (labels[nearest] ?? '') : labelFor(fraction));
-    }, [fractions, labelFor, labels]);
+        // The same mapping `onUpdate` scrolls with. A fraction of the whole
+        // content height is not where the list lands: only
+        // `contentHeight - viewportHeight` is scrollable, so labelling by
+        // content fraction ran ahead of the rows actually on screen.
+        setLabel(onTick ? (labels[nearest] ?? '') : labelFor(fraction * scrollable));
+    }, [fractions, labelFor, labels, scrollable]);
     useAnimatedReaction(
         () => Math.round(Math.min(1, Math.max(0, labelY.value / height)) * 200),
         (bucket, previous) => { if (bucket !== previous) scheduleOnRN(resolve, bucket); },
