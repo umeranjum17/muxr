@@ -207,7 +207,7 @@
         },
         {
           "type": "text",
-          "text": "Sign in with ChatGPT using codex login on the connected machine. Codex Voice uses that login; no API key is needed. Realtime subscription access is experimental and may be unavailable for your account."
+          "text": "Run codex login with ChatGPT on this machine. No API key needed. Experimental realtime access depends on your account."
         }
       ]
     }
