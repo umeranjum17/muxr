@@ -19,13 +19,11 @@
  * app gets a new process and a new JS thread, so pid and tid are resolved every
  * interval and a restart is counted instead of ending the run.
  */
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
+import { assertCommandActive, runCommand as run } from './commands.mjs';
 
 import { writeFileSync } from 'node:fs';
 import { parseFrameStatsDump, parseJankDump, parseUptime } from './gestureMetrics.mjs';
 
-const run = promisify(execFile);
 /** Linux clock ticks per second; /proc jiffies are in these units. */
 const HZ = 100;
 const JS_THREAD = 'mqt_v_js';
@@ -36,9 +34,11 @@ async function adb(args, timeout = 10_000) {
 }
 
 async function quiet(args, timeout = 10_000) {
+    assertCommandActive();
     try {
         return await adb(args, timeout);
     } catch {
+        assertCommandActive();
         return '';
     }
 }
@@ -172,8 +172,7 @@ export async function deviceMonotonicSeconds() {
  * little-endian u32) then RGBA8888. No PNG, no decoder.
  */
 export async function screencapRaw(path) {
-    const { execFileSync } = await import('node:child_process');
-    const bytes = execFileSync('adb', ['exec-out', 'screencap'], { maxBuffer: 64 * 1024 * 1024 });
+    const { stdout: bytes } = await run('adb', ['exec-out', 'screencap'], { encoding: null, maxBuffer: 64 * 1024 * 1024, timeout: 20_000 });
     if (path !== undefined) writeFileSync(path, bytes);
     if (bytes.length < 16) return { width: 0, height: 0, format: 0, colorspace: 0, bytes };
     return {
@@ -246,9 +245,8 @@ export async function updateDepthErrors() {
 }
 
 export async function screenshot(path) {
-    const { execFileSync } = await import('node:child_process');
-    const { writeFileSync } = await import('node:fs');
-    writeFileSync(path, execFileSync('adb', ['exec-out', 'screencap', '-p'], { maxBuffer: 64 * 1024 * 1024 }));
+    const { stdout } = await run('adb', ['exec-out', 'screencap', '-p'], { encoding: null, maxBuffer: 64 * 1024 * 1024, timeout: 20_000 });
+    writeFileSync(path, stdout);
 }
 
 /**
@@ -266,6 +264,12 @@ export async function samplePhase(options) {
     let pid;
     let tid;
     let previousTicks;
+    let previousTickAt;
+    const samples = [];
+    const pssSamples = [];
+    let missingPss = 0;
+    const frameSamples = [];
+    let missingFrames = 0;
     let busyTicks = 0;
     let busySeconds = 0;
     let restarts = 0;
@@ -276,7 +280,9 @@ export async function samplePhase(options) {
     let lastPss;
     let maxPss = 0;
     const framesStart = await framesRendered(pkg);
+    if (framesStart === undefined) missingFrames += 1;
     let previousFrames = framesStart;
+    let previousFramesAt = performance.now();
 
     while (Date.now() < deadline) {
         const tickStarted = Date.now();
@@ -306,28 +312,36 @@ export async function samplePhase(options) {
                     tid = undefined;
                     previousTicks = undefined;
                 } else {
+                    const sampledAt = performance.now();
                     if (previousTicks !== undefined) {
                         busyTicks += ticks - previousTicks;
-                        busySeconds += (Date.now() - tickStarted + intervalMs) / 1000;
+                        busySeconds += (sampledAt - previousTickAt) / 1000;
                     }
                     previousTicks = ticks;
+                    previousTickAt = sampledAt;
+                    samples.push({ atMs: sampledAt, pid, tid, ticks });
                 }
             }
             const pss = await totalPssKb(pid);
             if (pss !== undefined) {
+                pssSamples.push({ atMs: performance.now(), pid, pssKb: pss });
                 if (firstPss === undefined) firstPss = pss;
                 lastPss = pss;
                 if (pss > maxPss) maxPss = pss;
-            }
+            } else missingPss += 1;
         }
 
         const frames = await framesRendered(pkg);
+        const framesAt = performance.now();
+        frameSamples.push({ atMs: framesAt, frames: frames ?? null });
+        if (frames === undefined) missingFrames += 1;
         if (frames !== undefined && previousFrames !== undefined) {
             const drawn = frames - previousFrames;
-            frameStall = drawn > 0 ? 0 : frameStall + intervalMs / 1000;
+            frameStall = drawn > 0 ? 0 : frameStall + (framesAt - previousFramesAt) / 1000;
             if (frameStall > worstFrameStall) worstFrameStall = frameStall;
         }
         if (frames !== undefined) previousFrames = frames;
+        previousFramesAt = framesAt;
 
         if (onTick !== undefined) await onTick();
         const elapsed = Date.now() - tickStarted;
@@ -335,10 +349,17 @@ export async function samplePhase(options) {
     }
 
     const framesEnd = await framesRendered(pkg);
+    if (framesEnd === undefined) missingFrames += 1;
     const wall = (Date.now() - started) / 1000;
     return {
         seconds: Number(wall.toFixed(1)),
         sampledSeconds: Number(busySeconds.toFixed(1)),
+        samples,
+        pssSamples,
+        frameSamples,
+        missingFrames,
+        missingPss,
+        pssSampledSeconds: pssSamples.length < 2 ? 0 : (pssSamples.at(-1).atMs - pssSamples[0].atMs) / 1000,
         jsBusyPercent: busySeconds > 0 ? Number((busyTicks / HZ / busySeconds * 100).toFixed(1)) : undefined,
         // A restart resets gfxinfo's counter, so an end below the start means
         // "not comparable", never a negative frame rate.

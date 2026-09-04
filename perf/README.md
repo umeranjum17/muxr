@@ -1,5 +1,9 @@
 # Release performance gate
 
+For bounded PR review, use [the manual emulator smoke gate](PR_GATE.md). It
+requires matching APK/native-patch provenance and mounted document, terminal,
+graphics and Usage flows. The longer gate below remains the gesture/soak check.
+
 `yarn perf` drives the release APK on a real device against a real relay and a
 real host, and fails on the signals that shipped broken software: a saturated JS
 thread, a dead React runtime, a frozen screen, runaway memory.

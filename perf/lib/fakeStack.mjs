@@ -11,14 +11,12 @@
  * service unit, herdr socket or `~/.muxr` on this machine is touched. Ports are
  * picked free, so a running muxr install keeps working while the gate runs.
  */
-import { execFile, spawn, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { createServer } from 'node:net';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { promisify } from 'node:util';
-
-const run = promisify(execFile);
+import { join, resolve } from 'node:path';
+import { runCommand as run, spawnCommand as spawn, onCommandCleanup, commandSignal, assertCommandActive } from './commands.mjs';
 
 const RELAY_ENTRY = 'apps/relay/dist/main.js';
 const HOST_ENTRY = 'apps/host/dist/main.js';
@@ -46,6 +44,8 @@ async function spawnFakeHerdr(dir, options) {
         ['--title-churn-hz', options.titleChurnHz],
         ['--terminal-bytes-per-second', options.terminalBytesPerSecond],
         ['--graphics-frame-hz', options.graphicsFrameHz],
+        ['--graphics-enable-file', options.graphicsEnableFile],
+        ['--plugins-root', options.pluginsRoot],
     ]) {
         if (value !== undefined) args.push(flag, String(value));
     }
@@ -77,7 +77,8 @@ async function spawnFakeHerdr(dir, options) {
 
 async function relayHealthy(port) {
     for (let attempt = 0; attempt < 60; attempt += 1) {
-        const ok = await fetch(`http://127.0.0.1:${port}/health`)
+        assertCommandActive();
+        const ok = await fetch(`http://127.0.0.1:${port}/health`, { signal: commandSignal() })
             .then((response) => response.ok)
             .catch(() => false);
         if (ok) return true;
@@ -111,15 +112,18 @@ function childEnv(home, muxrHome, extra) {
  *   terminalBytesPerSecond?: number, graphicsFrameHz?: number }} [options]
  */
 export async function startFakeStack(options = {}) {
+    const sourceRoot = resolve(options.sourceRoot ?? '.');
     for (const entry of [RELAY_ENTRY, HOST_ENTRY]) {
-        if (!existsSync(entry)) throw new Error(`${entry} is missing; run \`yarn build\` first`);
+        if (!existsSync(join(sourceRoot, entry))) throw new Error(`${entry} is missing; run \`yarn build\` first`);
     }
 
     const root = mkdtempSync(join(tmpdir(), 'muxr-perf-'));
+    onCommandCleanup(() => rmSync(root, { recursive: true, force: true }));
     const home = join(root, 'home');
     const muxrHome = join(root, 'muxr');
     mkdirSync(join(home, '.config'), { recursive: true });
     mkdirSync(muxrHome, { recursive: true });
+    const fixtureEnv = options.setupHome?.(home) ?? {};
     // Seed an owner-only journal before the host starts. HostDiagnosticsJournal
     // refuses a world-readable diagnostics.json and then logs nothing; the gate
     // would pair against a live herd and later read an empty file.
@@ -150,7 +154,8 @@ export async function startFakeStack(options = {}) {
     // event loop with the harness, and one blocking call here - a Maestro run,
     // an adb dump - freezes every Herdr answer, which the phone sees as a
     // 15-second stall and reports as "reconnecting".
-    const fake = await spawnFakeHerdr(join(root, 'herdr'), options);
+    const pluginsRoot = options.setupPlugins?.({ root, home, env: fixtureEnv }) ?? options.pluginsRoot;
+    const fake = await spawnFakeHerdr(join(root, 'herdr'), { ...options, pluginsRoot });
 
     const stop = () => {
         for (const child of children.splice(0)) {
@@ -159,9 +164,10 @@ export async function startFakeStack(options = {}) {
         fake.close();
         // Only the reverse this run added: --remove-all would cut whatever else
         // on this desk is tunnelling to the emulator.
-        spawnSync('adb', ['reverse', '--remove', `tcp:${relayPort}`], { stdio: 'ignore' });
+        spawnSync('adb', ['reverse', '--remove', `tcp:${relayPort}`], { stdio: 'ignore', timeout: 10_000 });
         rmSync(root, { recursive: true, force: true });
     };
+    onCommandCleanup(stop);
 
     try {
         // The relay this run pairs against. Local authority mints the pairing
@@ -169,7 +175,8 @@ export async function startFakeStack(options = {}) {
         // bind host must be the one `self-host --connection-mode lan` would
         // choose, or the CLI refuses to adopt a relay it did not start.
         const relayLog = [];
-        const relay = spawn(process.execPath, [RELAY_ENTRY], {
+        const relay = spawn(process.execPath, [join(sourceRoot, RELAY_ENTRY)], {
+            cwd: sourceRoot,
             stdio: ['ignore', 'pipe', 'pipe'],
             env: childEnv(home, muxrHome, {
                 MUXR_RELAY_PORT: String(relayPort),
@@ -191,17 +198,18 @@ export async function startFakeStack(options = {}) {
         // the relay above. `--relay-only` is the one path that mints identity
         // without installing or restarting a service unit.
         const identity = await run(process.execPath, [
-            'scripts/cli.mjs', 'self-host', '--relay-only',
+            join(sourceRoot, 'scripts/cli.mjs'), 'self-host', '--relay-only',
             '--port', String(relayPort),
             '--advertise', `ws://127.0.0.1:${relayPort}`,
             '--connection-mode', 'lan',
-        ], { env: childEnv(home, muxrHome), timeout: 120_000 }).catch((cause) => {
+        ], { cwd: sourceRoot, env: childEnv(home, muxrHome), timeout: 120_000 }).catch((cause) => {
             throw new Error(`self-host identity failed: ${cause instanceof Error ? cause.message : String(cause)}`);
         });
 
         // The host under test, talking to the fake Herdr instead of the desk.
         const hostLog = [];
-        const host = spawn(process.execPath, [HOST_ENTRY], {
+        const host = spawn(process.execPath, [join(sourceRoot, HOST_ENTRY)], {
+            cwd: sourceRoot,
             stdio: ['ignore', 'pipe', 'pipe'],
             env: childEnv(home, muxrHome, {
                 MUXR_MODE: 'selfhost',
@@ -211,6 +219,7 @@ export async function startFakeStack(options = {}) {
                 HERDR_SOCKET_PATH: fake.socketPath,
                 HERDR_CLIENT_SOCKET_PATH: fake.clientSocketPath,
                 HERDR_BIN: fake.binPath,
+                ...fixtureEnv,
             }),
         });
         children.push(host);
@@ -246,7 +255,8 @@ export async function startFakeStack(options = {}) {
              * caller releases it once the flow has typed the code.
              */
             mintPairing: async () => {
-                const pairing = spawn(process.execPath, ['scripts/cli.mjs', 'pair'], {
+                const pairing = spawn(process.execPath, [join(sourceRoot, 'scripts/cli.mjs'), 'pair'], {
+                    cwd: sourceRoot,
                     stdio: ['ignore', 'pipe', 'pipe'],
                     env: childEnv(home, muxrHome),
                 });

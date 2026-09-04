@@ -1,0 +1,100 @@
+# Emulator PR smoke
+
+This is a bounded feature and performance-pathology gate for review, alongside
+`releaseGate.mjs`. It reuses the real relay/host/fake-Herdr stack, real E2EE
+pairing, existing Maestro navigation, and OS samplers. It does not replace the
+release gesture/latency gate or a physical-device run.
+
+Run long builds and gates in a dedicated herdr shell pane. Use an otherwise idle,
+dedicated emulator: the gate intentionally uninstalls `com.trymuxr.app` and
+installs its own test-signed release APK. No personal app state is retained.
+The gate pins all adb/Maestro commands to `--serial`, accepts emulator serials
+only, and takes an atomic per-emulator lock. Check other panes/processes before
+using it; the lock cannot detect tools which do not cooperate. A stale lock at
+`/tmp/muxr-pr-gate-<serial>.lock/owner.json` must be inspected before removal.
+
+```bash
+# Node 22.13+, Java 21, Android SDK/NDK, Python 3, yarn dependencies, and
+# Maestro 2.7.0 (via mise, or MAESTRO_BIN=/absolute/path/to/maestro).
+node perf/buildPrApk.mjs /tmp/pr-apk
+PERF_PARENT_PANE=w1FE:pG node perf/prGate.mjs \
+  --apk /tmp/pr-apk/app-release.apk \
+  --serial emulator-5554 --out /tmp/pr-evidence
+```
+
+The build requires a private dependency directory, runs a frozen forced install
+(including postinstall/patch-package), and verifies the native patch guard.
+Copying another branch's already-patched node_modules is insufficient: it once
+produced a working text terminal with no Kitty support or cell metrics. The build
+uses package.json's version and an explicit ANDROID_VERSION_CODE or Git revision
+count, generates a test keystore, and builds a release x86_64 APK.
+The manifest beside it binds the APK SHA256 to the source revision and content
+fingerprints and hashes of every actual patched dependency file. The gate checks
+native parity, pulls back the installed APK and checks identical bytes;
+it records package metadata, device model/API/renderer/size, host revision and
+content digest, and a separate harness/workflow digest. Dirty source fingerprints
+are recorded honestly. This is local build provenance, not signed attestation.
+Never create a manifest for an unrelated prebuilt APK to make a check pass.
+
+`--host-root` supports a separately built integration checkout. Its mobile/shared
+source digest must match the APK manifest. Host/plugin-only differences can be
+reported separately; a mobile change requires rebuilding the APK. The gate builds
+the host checkout itself and verifies its source fingerprint stayed fixed during
+the run. Do not edit measured source or run competing builds while measuring.
+
+The small flow requires:
+
+- Fresh pairing and a mounted herd under 30-pane/6-agent, 2 Hz title churn.
+- A real file list and the seeded 250-line document in the real viewer.
+- Mounted text terminal plus a recorded real host attach, while graphics are off.
+- Mounted terminal with an opaque magenta/teal Kitty checkerboard verified in
+  the terminal framebuffer region, positive cell dimensions and positive delivered
+  graphics frames during that window. Chrome or scroll-notch events cannot pass.
+- Mounted Usage, OMP before OpenCode by timestamp (11:00 vs 10:00), and provider
+  switching with token totals 150 → 300 → 150. Local activity does not imply quota.
+
+Only Herdr and upstream usage fixture inputs are controlled. The fake Herdr
+advertises the real code/status/terminal-keys plugin manifests. Its cwd is a real
+scratch git repository. OMP/OpenCode databases contain synthetic aggregate rows.
+A scratch Usage entry wrapper sets test-only clock/backend environment variables
+then imports the original plugin: the production host intentionally sanitizes
+plugin environment variables, and the harness does not weaken that boundary.
+The ccusage CLI is an explicit fixture boundary; this flow does not test ccusage's
+own database parser or call real provider credentials/quota services.
+
+Every performance window is 35 seconds by default (`--seconds 30..120`) and must
+contain at least 25 seconds of actual timestamped CPU and PSS samples. Raw tick
+samples, timestamped PSS observations and gfxinfo dumps accompany derived numbers.
+Missing samples, dead/restarted
+runtime, JS busy above 60%, PSS drift above 100 MiB, a 30-second frame stall, no
+rendered frames, fatal crashes and React update-depth errors fail. These broad
+limits come from the existing emulator pathology profile. Jank percent/percentiles
+are measured diagnostics here, not gesture-feel acceptance. Use the full release
+gate for targeted jank, movement, input latency, graphics budget and memory soak.
+
+Every feature must prove mount; a failed assertion stays a failure. An earlier
+failure does not silently skip later features. The overall run has a 12-minute
+deadline. All flows and adb commands have individual timeouts. A shared command
+scope owns setup/build/adb/Maestro children; it aborts new work, kills process
+groups, and awaits termination before releasing the emulator lock. Failed
+termination retains the lock for inspection. Diagnostic export uses its own
+bounded scope after the measurement scope closes. Evidence includes
+report.json, UI XML, before/after screenshots, Maestro diagnostics, logcat, host
+and relay logs, host journal and attach/input records, collected before stack
+cleanup. A failed setup is not a performance pass. In a herdr pane, final bundles,
+report and screenshot are copied to both PocketHerdr and muxr attachment watchers;
+PERF_PARENT_PANE additionally exports to the coordinating pane. CI retains the
+APK/provenance and evidence on success and failure.
+
+The `emulator-pr-smoke.yml` workflow is workflow_dispatch-only and builds the
+explicit full SHA on a disposable GitHub-hosted runner. It has no deployment,
+provider credentials, personal runner access, push, or pull_request trigger.
+Dispatch it against the integrated revision you intend to review. Making it a
+required status check is a separate repository policy decision; this change does
+not pretend a manual workflow automatically blocks every PR.
+
+Integration target: release/0.1.26. The PR209 surface harness starts from
+origin/pr-review-209. Usage fixtures require the separate usage fix (OMP adapter,
+OpenCode quota/status reporting, provider recency and mobile provider cap); its
+main-based worktree cannot be substituted for the release APK. Integrate that
+fix onto the release branch and rebuild a matching APK before claiming Usage PASS.

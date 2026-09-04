@@ -2,7 +2,7 @@
  * Fake Herdr control plane: NDJSON JSON-RPC on a unix socket, plus title/status
  * churn. Graphics and the HERDR_BIN shim are sibling modules.
  */
-import { appendFileSync, mkdirSync, unlinkSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -20,6 +20,11 @@ export async function startFakeHerdr(options) {
     const titleChurnHz = Number(options.titleChurnHz ?? 2);
     const terminalBytesPerSecond = options.terminalBytesPerSecond ?? 4096;
     const graphicsFrameHz = options.graphicsFrameHz ?? 0;
+    const plugins = options.pluginsRoot === undefined ? [] : ['code', 'status', 'terminal-keys'].map((name) => {
+        const root = resolve(options.pluginsRoot, name);
+        const manifest = JSON.parse(readFileSync(join(root, 'muxr-ui.json'), 'utf8'));
+        return { plugin_id: manifest.pluginId, name, version: '0.1.0', plugin_root: root, enabled: true, actions: [], source: { kind: 'local' } };
+    });
     const cwd = join(dir, 'project');
     const attachJsonl = join(dir, 'attach.jsonl');
     const graphicsInputJsonl = join(dir, 'graphics-input.jsonl');
@@ -87,6 +92,7 @@ export async function startFakeHerdr(options) {
             socketPath: clientSocketPath,
             world,
             frameHz: graphicsFrameHz,
+            enableFile: options.graphicsEnableFile,
             inputLogPath: graphicsInputJsonl,
         });
         binPath = writeBinShim({ dir, socketPath, terminalBytesPerSecond });
@@ -230,7 +236,7 @@ export async function startFakeHerdr(options) {
 
     const methods = {
         'session.snapshot': () => ({ snapshot: snapshotOf(live) }),
-        'plugin.list': () => ({ plugins: [] }),
+        'plugin.list': () => ({ plugins }),
         'plugin.action.invoke': (params) => {
             const logId = `log-${live.nextLog++}`;
             live.pluginLogs.unshift({
@@ -728,6 +734,8 @@ function parseArgs(argv) {
         else if (flag === '--title-churn-hz') { out.titleChurnHz = Number(value); index += 1; }
         else if (flag === '--terminal-bytes-per-second') { out.terminalBytesPerSecond = Number(value); index += 1; }
         else if (flag === '--graphics-frame-hz') { out.graphicsFrameHz = Number(value); index += 1; }
+        else if (flag === '--graphics-enable-file') { out.graphicsEnableFile = value; index += 1; }
+        else if (flag === '--plugins-root') { out.pluginsRoot = value; index += 1; }
     }
     if (out.dir === undefined) throw new Error('fake-herdr: --dir is required');
     return out;
