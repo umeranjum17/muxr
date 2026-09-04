@@ -117,6 +117,11 @@ limits come from the existing emulator pathology profile. Jank percent/percentil
 are measured diagnostics here, not gesture-feel acceptance. Use the full release
 gate for targeted jank, movement, input latency, graphics budget and memory soak.
 
+Before measurement, a foreground transition surfaces deferred Android setup prompts.
+The gate retains exact prompt/Cancel evidence and requires a quiet connected herd;
+the fallback wait spans one 60-second fake-agent status cycle. This setup time is
+not counted as a performance sample. Post-sample mount assertions stay strict.
+
 Every feature must prove mount; a failed assertion stays a failure. An earlier
 failure does not silently skip later features. The overall run has a 12-minute
 deadline. All flows and adb commands have individual timeouts. A shared command
