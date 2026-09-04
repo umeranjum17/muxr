@@ -90,7 +90,7 @@ export type ConnectionDiagnosticEvent =
     | { at: string; event: 'terminal.graphics-frame'; bytes: number }
     | { at: string; event: 'terminal.scroll-rows'; rows: number }
     | { at: string; event: 'terminal.scroll-clamped'; rows: number }
-    | { at: string; event: 'terminal.resize'; cols: number; rows: number };
+    | { at: string; event: 'terminal.resize'; cols: number; rows: number; cellWidthPx?: number; cellHeightPx?: number };
 
 declare const terminalFrameCountBrand: unique symbol;
 export type TerminalFrameCountToken = { readonly [terminalFrameCountBrand]?: never };
@@ -393,8 +393,16 @@ export function recordTerminalScrollClamped(rows: number): void {
 }
 
 /** A grid change, which is what a zoom really is. Numbers only. */
-export function recordTerminalResize(cols: number, rows: number): void {
-    recordConnectionDiagnostic({ event: 'terminal.resize', cols: boundedCount(cols), rows: boundedCount(rows) });
+export function recordTerminalResize(cols: number, rows: number, cellWidthPx?: number, cellHeightPx?: number): void {
+    // An image pane zooms by cell pixels while the grid stays put, so a resize
+    // that only changes the cell is still a resize and has to be countable.
+    recordConnectionDiagnostic({
+        event: 'terminal.resize',
+        cols: boundedCount(cols),
+        rows: boundedCount(rows),
+        ...(cellWidthPx === undefined ? {} : { cellWidthPx: boundedCount(cellWidthPx) }),
+        ...(cellHeightPx === undefined ? {} : { cellHeightPx: boundedCount(cellHeightPx) }),
+    });
 }
 
 export function recordTerminalChannel(
@@ -497,7 +505,10 @@ function summarize(event: ConnectionDiagnosticEvent): string {
     if (event.event === 'terminal.graphics-frame') return `terminal.graphics-frame ${event.bytes}B`;
     if (event.event === 'terminal.scroll-rows') return `terminal.scroll-rows ${event.rows}`;
     if (event.event === 'terminal.scroll-clamped') return `terminal.scroll-clamped ${event.rows}`;
-    if (event.event === 'terminal.resize') return `terminal.resize ${event.cols}x${event.rows}`;
+    if (event.event === 'terminal.resize') {
+        const cell = event.cellWidthPx === undefined ? '' : ` cell=${event.cellWidthPx}x${event.cellHeightPx ?? 0}`;
+        return `terminal.resize ${event.cols}x${event.rows}${cell}`;
+    }
     const code = event.code === undefined ? '' : ` ${event.code}`;
     return `terminal.channel ${event.phase} ${event.outcome}${code}`;
 }

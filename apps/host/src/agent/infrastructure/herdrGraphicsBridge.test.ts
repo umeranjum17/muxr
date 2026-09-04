@@ -321,6 +321,8 @@ describe('Herdr graphics flow', () => {
             visibleRect: (paneId: string) => Promise<{ x: number; y: number; width: number; height: number } | undefined>;
             queueInline: (data: Buffer) => void;
             supersededFrames: number;
+            notchesSent: number;
+            notchesDropped: number;
             inlineQueue: unknown[];
             inlineDraining: boolean;
         };
@@ -380,11 +382,17 @@ describe('Herdr graphics flow', () => {
         const burst = bridge.scrollInput('phone', 'down', 30);
         expect(burst).toHaveLength(4);
         expect(burst[0]!.toString('utf8')).toMatch(/^\u001b\[<65;\d+;\d+M$/);
+        // A second fling on top of the first asks for more travel than the
+        // backlog may hold: the intent above the cap is dropped, and counted,
+        // because a gesture that under-travels has to be visible somewhere.
+        expect(bridge.scrollInput('phone', 'down', 30)).toHaveLength(0);
+        expect(internals.notchesDropped).toBe(8);
         const framesBeforeDrain = frames.length;
         internals.queueInline(image(5, 1, 1, 20, 10));
         await settle();
         expect(frames.length).toBe(framesBeforeDrain + 1);
         expect(notches).toHaveLength(1);
+        expect(internals.notchesSent).toBe(5);
 
         // The program's own delete names Herdr's id, which is the id the phone
         // holds, so it removes that image and nothing else.

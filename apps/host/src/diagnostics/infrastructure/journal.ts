@@ -25,6 +25,9 @@ export type DiagnosticGraphicsPipeline = {
     p95Ms: number;
     bytesP95: number;
     pixelsP95: number;
+    /** Wheel notches released to the pane, and gesture intent the cap dropped. */
+    notchesSent: number;
+    notchesDropped: number;
 };
 
 type ClientCounts = Record<DiagnosticClientKind, number>;
@@ -43,7 +46,7 @@ export type HostDiagnosticEvent =
     | { at: string; event: 'realtime.prompt'; provider: string; action: 'prompt'; requestedAgentName: string; resolvedAgentName: string | null; outcome: DiagnosticRealtimePromptOutcome }
     | { at: string; event: 'agent.readiness'; reason: 'starting' | 'ready' | 'not-promptable'; promptable: boolean; kind?: string; lifecycle?: string; gate?: DiagnosticReadinessGate }
     | { at: string; event: 'agent.launch'; outcome: DiagnosticOutcome; kind?: string; detected?: string; gate?: DiagnosticReadinessGate }
-    | { at: string; event: 'graphics.pipeline'; frames: number; superseded: number; p50Ms: number; p95Ms: number; bytesP95: number; pixelsP95: number };
+    | { at: string; event: 'graphics.pipeline'; frames: number; superseded: number; p50Ms: number; p95Ms: number; bytesP95: number; pixelsP95: number; notchesSent: number; notchesDropped: number };
 
 interface HostDiagnosticState {
     version: 1;
@@ -332,6 +335,8 @@ export class HostDiagnosticsJournal {
             p95Ms: diagnosticInt(value.p95Ms, 10 * 60_000),
             bytesP95: diagnosticInt(value.bytesP95, 1_000_000_000),
             pixelsP95: diagnosticInt(value.pixelsP95, 1_000_000_000),
+            notchesSent: diagnosticInt(value.notchesSent, 1_000_000_000),
+            notchesDropped: diagnosticInt(value.notchesDropped, 1_000_000_000),
         });
     }
 

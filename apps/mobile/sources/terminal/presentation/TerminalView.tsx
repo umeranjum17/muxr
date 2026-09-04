@@ -262,7 +262,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
 
     const attach = React.useCallback(
         (cols: number, rows: number, cellWidthPx?: number, cellHeightPx?: number) => {
-            recordTerminalResize(cols, rows);
+            recordTerminalResize(cols, rows, cellWidthPx, cellHeightPx);
             setTerminalColumns(sessionId, cols);
             const last = lastSizeRef.current;
             if (last !== null && last.cols === cols && last.rows === rows

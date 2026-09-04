@@ -123,6 +123,9 @@ export type GraphicsPipelineReport = {
     p95Ms: number;
     bytesP95: number;
     pixelsP95: number;
+    /** Wheel notches released to the pane, and gesture intent the cap dropped. */
+    notchesSent: number;
+    notchesDropped: number;
 };
 
 /**
@@ -168,6 +171,8 @@ export class HerdrGraphicsBridge {
     private readonly frameBytes: number[] = [];
     private readonly framePixels: number[] = [];
     private supersededFrames = 0;
+    private notchesSent = 0;
+    private notchesDropped = 0;
     private reportTimer: ReturnType<typeof setInterval> | undefined;
     private input = Buffer.alloc(0);
     private draining = false;
@@ -282,14 +287,20 @@ export class HerdrGraphicsBridge {
         const now = Math.max(0, Math.min(wanted, MAX_NOTCHES_IN_FLIGHT - inFlight));
         const backlog = this.scrollBacklog.get(paneId);
         const carried = backlog?.direction === direction ? backlog.notches : 0;
-        const owed = Math.min(MAX_NOTCH_BACKLOG, carried + wanted - now);
+        const intended = carried + wanted - now;
+        const owed = Math.min(MAX_NOTCH_BACKLOG, intended);
+        // Intent above the cap is thrown away, so it is counted: a fling that
+        // travels less than the finger asked has to be visible somewhere.
+        if (intended > owed) this.notchesDropped += intended - owed;
         if (owed > 0) this.scrollBacklog.set(paneId, { direction, notches: owed });
         else this.scrollBacklog.delete(paneId);
         if (now === 0) return [];
         this.scrollInFlight.set(paneId, inFlight + now);
         this.armNotchFallback(paneId);
         const report = this.wheelReport(paneId, direction);
-        return report === undefined ? [] : Array.from({ length: now }, () => report);
+        if (report === undefined) return [];
+        this.notchesSent += now;
+        return Array.from({ length: now }, () => report);
     }
 
     /** One notch of the remaining gesture, released by a delivered frame. */
@@ -308,6 +319,7 @@ export class HerdrGraphicsBridge {
         for (const registration of this.registrations.values()) {
             if (registration.paneId === paneId) registration.sendInput?.(report);
         }
+        this.notchesSent += 1;
         this.armNotchFallback(paneId);
     }
 
@@ -561,7 +573,7 @@ export class HerdrGraphicsBridge {
 
     private reportPipeline(): void {
         if (this.onPipelineReport === undefined) return;
-        if (this.latencies.length === 0 && this.supersededFrames === 0) return;
+        if (this.latencies.length === 0 && this.supersededFrames === 0 && this.notchesSent === 0) return;
         this.onPipelineReport({
             frames: this.latencies.length,
             superseded: this.supersededFrames,
@@ -569,11 +581,15 @@ export class HerdrGraphicsBridge {
             p95Ms: percentile(this.latencies, 0.95),
             bytesP95: percentile(this.frameBytes, 0.95),
             pixelsP95: percentile(this.framePixels, 0.95),
+            notchesSent: this.notchesSent,
+            notchesDropped: this.notchesDropped,
         });
         this.latencies.length = 0;
         this.frameBytes.length = 0;
         this.framePixels.length = 0;
         this.supersededFrames = 0;
+        this.notchesSent = 0;
+        this.notchesDropped = 0;
     }
 
     private enqueue(file: GraphicsFile): void {
