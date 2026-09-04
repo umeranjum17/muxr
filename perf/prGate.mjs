@@ -111,6 +111,47 @@ async function maestro(flow, variables = {}) {
     save(`${flow}.log`, result.output.replace(/wss?:\/\/\S+\?pair=\S+/g, '[pairing redacted]'));
     return result;
 }
+async function stabilizeStartup() {
+    // Cancelling the background prompt clears a ref, not an effect dependency.
+    // A real foreground transition lets the deferred Live Updates prompt run
+    // before sampling. One full fake-agent status cycle bounds the fallback.
+    const started = Date.now();
+    const deadline = started + 65000;
+    const evidence = { startedAt: new Date(started).toISOString(), prompts: [], foregroundTransitions: 0, quietLooks: 0 };
+    report.startupStabilization = evidence;
+    const foreground = async () => {
+        await adb('shell', 'input', 'keyevent', 'KEYCODE_HOME');
+        await sleep(1200);
+        await adb('shell', 'am', 'start', '-a', 'android.intent.action.VIEW', '-d', 'muxr:///', pkg);
+        evidence.foregroundTransitions++;
+    };
+    await foreground();
+    let lastPromptAt = started;
+    let promotionSeen = false;
+    do {
+        const xml = await dump('startup-settle');
+        const title = ['Keep muxr connected in the background?', 'Show live agent updates?'].find((text) => xml.includes(`text="${text}"`));
+        if (title) {
+            const cancel = parseUiNodes(xml).find((node) => node.text === 'CANCEL');
+            check(cancel && cancel.r > cancel.l && cancel.b > cancel.t, `Startup prompt has no Cancel control: ${title}`);
+            save(`startup-prompt-${evidence.prompts.length}.xml`, xml);
+            evidence.prompts.push({ title, at: new Date().toISOString(), action: 'CANCEL' });
+            await adb('shell', 'input', 'tap', String((cancel.l + cancel.r) / 2), String((cancel.t + cancel.b) / 2));
+            lastPromptAt = Date.now(); evidence.quietLooks = 0;
+            if (title === 'Show live agent updates?') promotionSeen = true;
+            else await foreground();
+        } else {
+            evidence.quietLooks = /text="connected"/.test(xml) ? evidence.quietLooks + 1 : 0;
+        }
+        if (promotionSeen && evidence.quietLooks >= 2 && Date.now() - lastPromptAt >= 4000) break;
+        await sleep(1200);
+    } while (Date.now() < deadline);
+    check(evidence.quietLooks >= 2, 'Startup did not settle on a mounted connected herd');
+    evidence.elapsedMs = Date.now() - started;
+    evidence.promotionPromptObserved = promotionSeen;
+    await requireScreen('startup-ready', /text="connected"/);
+}
+
 async function phase(name, mounted, drive = false) {
     await dismissPrompts();
     const beforeXml = await requireScreen(name, mounted, 25_000, true);
@@ -319,6 +360,7 @@ async function main() {
     await requireScreen('paired-herd', /text="LIVE"/);
     await sleep(8000);
     await dismissPrompts();
+    await stabilizeStartup();
     await feature('herd', () => phase('herd', /text="connected"/, true));
     await feature('document', async () => {
         await herd(); await tapText('Files');
