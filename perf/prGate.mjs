@@ -194,6 +194,7 @@ async function feature(name, work) {
     if (flow === 'usage' && name !== 'usage-switch-and-recency') return;
     if (flow === 'polish' && name !== 'polish') return;
     if (flow === 'rich' && name !== 'rich') return;
+    if (flow === 'controls' && !['terminal-text', 'graphics'].includes(name)) return;
     if (name === 'rich' && flow !== 'rich') return;
     if (flow !== 'polish' && name === 'polish') return;
     console.log(`start: ${name}`);
@@ -515,7 +516,7 @@ async function richPreviews() {
 }
 
 async function main() {
-    check(['full', 'usage', 'polish', 'rich'].includes(flow), '--flow must be full, usage, polish or rich');
+    check(['full', 'usage', 'polish', 'rich', 'controls'].includes(flow), '--flow must be full, usage, polish, rich or controls');
     check(/^emulator-\d+$/.test(serial), 'PR gate only clears dedicated emulators');
     check(seconds >= 30 && seconds <= 120, '--seconds must be 30..120');
     mkdirSync(lock); ownsLock = true;
@@ -592,7 +593,8 @@ async function main() {
         await herd();
         const flow = await maestro('graphicsScroll.yaml');
         check(flow.code === 0, 'terminal opening flow failed; see graphicsScroll.yaml.log');
-        await phase('terminal-text', /text="(Terminal|ctrl)"|Type a prompt/, true);
+        if (flow === 'controls') await requireScreen('controls-text-mounted', /Type a prompt|text="Terminal"/);
+        else await phase('terminal-text', /text="(Terminal|ctrl)"|Type a prompt/, true);
         check(existsSync(stack.attachJsonl) && readFileSync(stack.attachJsonl, 'utf8').trim(), 'No real host terminal attach was observed');
         check(!existsSync(graphicsEnableFile), 'Text phase accidentally enabled graphics');
         await terminalKeyboard('text-keyboard');
@@ -605,7 +607,7 @@ async function main() {
         await capture('graphics-pixels.png');
         check(pixels.magenta > 100 && pixels.teal > 100, 'Kitty checkerboard did not paint in terminal region; see graphics-pixels.png');
         const since = Date.now();
-        await phase('graphics', /text="(Terminal|ctrl)"|Type a prompt/, true);
+        if (flow !== 'controls') await phase('graphics', /text="(Terminal|ctrl)"|Type a prompt/, true);
         const events = JSON.parse(readFileSync(stack.journalPath, 'utf8')).events ?? [];
         const pipeline = events.filter((e) => e.event === 'graphics.pipeline' && Date.parse(e.at) >= since);
         const cellSamples = (existsSync(stack.cellMetricsJsonl) ? readFileSync(stack.cellMetricsJsonl, 'utf8').trim().split('\n').map(JSON.parse) : []).filter((row) => row.source === 'terminal.resize' && row.pane_id === stack.world.panes[0].pane_id && [row.cols, row.rows, row.cellWidthPx, row.cellHeightPx].every((value) => Number.isFinite(value) && value > 0)).slice(-3);
