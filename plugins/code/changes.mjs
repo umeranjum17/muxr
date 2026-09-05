@@ -122,9 +122,10 @@ if (method === 'worktrees') {
     });
     const note = `${root}\n${selected.branch} · ${comparison}\n${unavailable || (scope === 'branch' ? 'Committed branch changes only; working edits are separate.' : scope === 'staged' ? 'The index that will be committed; unstaged edits are separate.' : 'Current files compared with HEAD, including untracked files. Committed branch changes are separate.')}${changed.length > 49 ? `\nFiles ${page * 49 + 1}–${Math.min(changed.length, (page + 1) * 49)} of ${changed.length}.` : ''}`;
     if (method === 'browse') {
-        process.stdout.write(JSON.stringify({ title: `Changes · ${selected.branch}`, root, scope, scopes, note, files: rows, pages: [
-            ...(page > 0 ? [{ ...params(), page: page - 1, title: 'Previous files' }] : []),
-            ...(page + 1 < pageCount ? [{ ...params(), page: page + 1, title: 'Next files' }] : []),
+        process.stdout.write(JSON.stringify({ title: `Changes · ${selected.branch}`, root, scope, scopes, note, files: rows, page: String(page), pages: pageCount === 1 ? [] : [
+            ...(page > 0 ? [{ ...params(), page: page - 1, id: String(page - 1), label: 'Previous files' }] : []),
+            { ...params(), page, id: String(page), label: `${page + 1} of ${pageCount}` },
+            ...(page + 1 < pageCount ? [{ ...params(), page: page + 1, id: String(page + 1), label: 'Next files' }] : []),
         ] }));
     } else {
         process.stdout.write(JSON.stringify({ badge: { value: changed.length > 49 ? '49+' : String(changed.length), tone: 'secondary' },
