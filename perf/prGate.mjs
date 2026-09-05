@@ -494,10 +494,17 @@ async function richPreviews() {
     report.richPreviews = [];
     for (const [file, marker] of [['preview.md', 'NATIVE_MARKDOWN_READY'], ['preview.csv', 'NATIVE_CSV_READY'], ['preview.html', 'NATIVE_HTML_READY']]) {
         await tapText(file);
-        const xml = await requireScreen(`rich-${file}`, new RegExp(marker));
+        const xml = await requireScreen(`rich-${file}`, file.endsWith('.csv') ? /Preview: up to 200 data rows/ : new RegExp(marker));
         check(!xml.includes('UNSAFE_SCRIPT_RAN'), 'Untrusted HTML executed in native preview');
         await capture(`rich-${file}.png`);
-        report.richPreviews.push({ file, nativeContent: true });
+        if (file.endsWith('.csv')) {
+            // Android's WebView hierarchy omits semantic table cells. Prove the
+            // actual rendered fixture text from pixels, never from the footer.
+            const pixels = (await run('tesseract', [join(out, `rich-${file}.png`), 'stdout', '--psm', '6'], { timeout: 15_000 })).stdout;
+            save('rich-csv-ocr.txt', pixels);
+            check(pixels.includes(marker), 'CSV content did not paint in native WebView');
+        }
+        report.richPreviews.push({ file, nativeContent: true, evidence: file.endsWith('.csv') ? 'screenshot OCR' : 'native hierarchy' });
         await tapText('Close document preview');
     }
     await tapText('preview.pdf');
