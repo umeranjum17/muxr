@@ -72,8 +72,10 @@ export function createVoiceTools(emit, { invoke = runCodingTool, timeoutMs = 150
                     combined.addEventListener('abort', abort, { once: true });
                     if (combined.aborted) abort();
                 });
+                // The host owns the requested watch duration (at most 290s).
+                // This independent watchdog has a fixed ceiling, never a duration from tool input.
                 timer = setTimeout(() => controller.abort(), name === 'watch_agent'
-                    ? Math.min(Math.max(Number(args.timeoutMs) || 30000, 1000), 290000) + 1000
+                    ? 291000
                     : ['start_agent', 'prompt_agent', 'send_agent_keybinding', 'focus_agent'].includes(name) ? 75000 : timeoutMs);
                 const operation = Promise.resolve().then(() => {
                     if (combined.aborted) throw new Error('cancelled');

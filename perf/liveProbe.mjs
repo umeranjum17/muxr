@@ -425,6 +425,10 @@ async function finish(error) {
     let clean = true;
     if (report.producerLaunchAt && !producer) { clean = false; report.failures.push('Producer launch lacks PID ownership proof; retaining lock and scratch'); }
     try { await retireProducer(); } catch (cause) { report.failures.push(cause.message); clean = false; }
+    if (report.producerLaunchAt && !report.browserRetiredAt) {
+        clean = false;
+        report.failures.push('Browser absence was not proven after launch; retaining lock and scratch');
+    }
     try { await scope.close(); } catch (cause) { report.failures.push(cause.message); clean = false; }
     try { report.connectionJournal = connectionEvidence(); } catch { report.failures.push('Connection journal unavailable'); }
     const diagnostics = new CommandScope();
