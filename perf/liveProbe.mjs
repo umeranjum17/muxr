@@ -54,7 +54,7 @@ async function capture(name) {
     save(`${name}.png`, (await run('adb', ['-s', serial, 'exec-out', 'screencap', '-p'], { timeout: 15_000, encoding: 'buffer' })).stdout);
     publish(join(out, `${name}.png`));
 }
-const herdr = async (...args) => JSON.parse((await run('/usr/bin/herdr', args, { timeout: 15_000 })).stdout);
+const herdr = async (...args) => (await run('/usr/bin/herdr', args, { timeout: 15_000 })).stdout;
 async function open(uri) {
     check(uri.startsWith('muxr:///') || uri.startsWith('muxr://session/'), 'Only muxr routes allowed');
     await adb('shell', 'am', 'start', '-a', 'android.intent.action.VIEW', '-d', shellQuote(uri), pkg);
@@ -156,7 +156,7 @@ async function command(input) {
     if (op === 'back') return adb('shell', 'input', 'keyevent', 'KEYCODE_BACK');
     if (op === 'pane') {
         check(!tab, 'Probe pane already exists');
-        const result = (await herdr('tab', 'create', '--workspace', process.env.HERDR_PANE_ID.split(':')[0], '--cwd', scratchRoot, '--label', 'Owned live graphics probe', '--no-focus')).result;
+        const result = JSON.parse(await herdr('tab', 'create', '--workspace', process.env.HERDR_PANE_ID.split(':')[0], '--cwd', scratchRoot, '--label', 'Owned live graphics probe', '--no-focus')).result;
         tab = { id: result.tab.tab_id, pane: result.root_pane.pane_id };
         await herdr('pane', 'run', tab.pane, "printf '\\nMEMORY PROBE READY\\n'");
         await herdr('tab', 'focus', tab.id);
