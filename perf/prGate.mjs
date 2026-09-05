@@ -333,6 +333,26 @@ async function terminalKeyboard(name) {
     await requireScreen(`${name}-restored`, /Open terminal keyboard/);
     await capture(`${name}-restored.png`);
     (report.keyboard ??= []).push({ name, tapCount: 3, autoOpened: false, explicitOpen: true, dismissed: true });
+    const handle = (xml, label) => parseUiNodes(xml).find((node) => node.desc === label);
+    const initial = handle(await dump(`${name}-controls-before`), 'Hide terminal controls');
+    check(initial && initial.r > initial.l && initial.b > initial.t, 'Movable toolbar handle missing');
+    const cx = Math.round((initial.l + initial.r) / 2), cy = Math.round((initial.t + initial.b) / 2);
+    // Drag the dedicated handle, not a browser surface or a zoom button.
+    await adb('shell', 'input', 'swipe', String(cx), String(cy), String(Math.max(80, cx - width * .35)), String(cy), '650');
+    const movedXml = await dump(`${name}-controls-moved`);
+    const moved = handle(movedXml, 'Hide terminal controls');
+    check(moved && Math.abs(moved.l - initial.l) > width * .15, 'Toolbar drag did not move the native handle');
+    check(moved.l >= 0 && moved.r <= width && moved.t >= 0 && moved.b <= height, 'Toolbar moved outside the viewport');
+    await tapText('Hide terminal controls');
+    const collapsed = await dump(`${name}-controls-collapsed`);
+    check(handle(collapsed, 'Show terminal controls') && !collapsed.includes('Open terminal keyboard'), 'Toolbar buttons did not collapse');
+    await capture(`${name}-controls-collapsed.png`);
+    await tapText('Show terminal controls');
+    const expanded = await dump(`${name}-controls-expanded`);
+    check(expanded.includes('Open terminal keyboard') && expanded.includes('Zoom in'), 'Collapsed toolbar did not restore its actions');
+    await capture(`${name}-controls-moved.png`);
+    (report.movableControls ??= []).push({ name, before: initial, after: moved, collapsed: true, restored: true });
+
 }
 
 async function main() {

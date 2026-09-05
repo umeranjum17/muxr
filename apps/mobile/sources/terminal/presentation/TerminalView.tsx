@@ -13,6 +13,7 @@
  */
 
 import * as React from 'react';
+import { FloatingTerminalControls } from './FloatingTerminalControls';
 import { AppState, PixelRatio, Platform, Pressable, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { TerminalView as GhosttyView, type TerminalViewRef } from 'expo-libghostty';
@@ -103,6 +104,7 @@ const ZoomButton = (props: { label: string; glyph: 'add' | 'remove' | 'refresh' 
 
 export const TerminalView = React.memo((props: TerminalViewProps) => {
     const { sessionId, onStatus, onChannel } = props;
+    const [viewport, setViewport] = React.useState({ width: 0, height: 0 });
     const autoShowKeyboard = useLocalSetting('terminalAutoShowKeyboard');
     const termRef = React.useRef<TerminalViewRef>(null);
     const channelRef = React.useRef<TerminalChannel | undefined>(undefined);
@@ -384,7 +386,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
     );
 
     return (
-        <View style={{ flex: 1, backgroundColor: '#0c0c0b' }}>
+        <View onLayout={(event) => setViewport({ width: event.nativeEvent.layout.width, height: event.nativeEvent.layout.height })} style={{ flex: 1, backgroundColor: '#0c0c0b' }}>
             <GhosttyView
                 ref={termRef}
                 style={{ flex: 1 }}
@@ -425,11 +427,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                     }
                 }}
             />
-            <View
-                style={{ position: 'absolute', top: 10, right: 10, gap: 6 }}
-                accessibilityRole="toolbar"
-                accessibilityLabel="Terminal controls"
-            >
+            <FloatingTerminalControls width={viewport.width} height={viewport.height}>
                 {/* A pinch is the shortcut; these are the affordance, and the
                     only zoom a test can drive: one injected pointer cannot
                     pinch. On a text pane they buy columns, on an image pane
@@ -442,7 +440,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                 <ZoomButton label="Zoom in" glyph="add" onPress={() => zoom(1)} disabled={atMaxZoom} />
                 <ZoomButton label="Zoom out" glyph="remove" onPress={() => zoom(-1)} disabled={atMinZoom} />
                 <ZoomButton label="Reset zoom" glyph="refresh" onPress={resetZoom} disabled={atDefaultZoom} />
-            </View>
+            </FloatingTerminalControls>
             {graphicsReason !== undefined && (
                 <View style={{
                     position: 'absolute',

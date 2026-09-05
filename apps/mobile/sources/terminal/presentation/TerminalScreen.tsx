@@ -34,6 +34,7 @@ import { agentAccessibilityLabel, agentLabels, agentNameLine, agentStatusColor, 
 import { terminalPaneCanSend, terminalPaneStatus } from '../domain/promptAvailability';
 import type { TerminalChannel } from '../application/OpenTerminal';
 import { useImagePicker } from '@/hooks/useImagePicker';
+import { ComposerAttachments, type ComposerAttachment } from '@/components/ComposerAttachments';
 import { readFileBytes } from '@/utils/readFileBytes';
 import { encodeBase64 } from '@/encryption/base64';
 import { nextWorkingAgentId, workingAgentSwipeIds } from '@/herd';
@@ -109,7 +110,8 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     // The menu reads that offset once, when it opens: nothing can drag the
     // trigger while the menu covering the screen is up.
     const [openLift, setOpenLift] = React.useState(0);
-    const [attachedPaths, setAttachedPaths] = React.useState<string[]>([]);
+    const [attachedImages, setAttachedImages] = React.useState<ComposerAttachment[]>([]);
+    const attachedPaths = attachedImages.flatMap((image) => image.path === undefined ? [] : [image.path]);
     // Other openable panes in this session's tab, in layout order. A pane only
     // gets a sessionId once herdr detects an agent in it, so bare shells are
     // absent -- they have nothing for the app to attach to.
@@ -298,20 +300,22 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const sendPrompt = React.useCallback(() => {
         // A booting agent is not a refusal: the host holds the prompt until it
         // can accept it, so let the composer stay live and let the host answer.
+        if (attaching || selectedImages.length > 0) return;
         const text = [draftRef.current.trim(), ...attachedPaths].filter((part) => part !== '').join(' ');
         if (text === '') return;
         const previousDraft = draftRef.current;
-        const previousPaths = attachedPaths;
+        const previousImages = attachedImages;
         draftRef.current = '';
         setDraft('');
-        setAttachedPaths([]);
+        setAttachedImages([]);
         void sync.sendMessage(props.id, text).catch((error: unknown) => {
-            draftRef.current = previousDraft;
-            setDraft(previousDraft);
-            setAttachedPaths(previousPaths);
+            const restoredDraft = [previousDraft, draftRef.current].filter(Boolean).join('\n');
+            draftRef.current = restoredDraft;
+            setDraft(restoredDraft);
+            setAttachedImages((current) => [...previousImages, ...current]);
             Modal.alert('Send failed', error instanceof Error ? error.message : String(error));
         });
-    }, [attachedPaths, panePromptable, props.id]);
+    }, [attachedImages, attachedPaths, attaching, selectedImages.length, panePromptable, props.id]);
 
     const handleDraftChange = React.useCallback((text: string) => setDraft(text), []);
 
@@ -338,8 +342,14 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                     sessionId: props.id,
                     attachments,
                 });
+                if (result.savedPaths.length !== selectedImages.length) throw new Error('The host did not confirm every image. Please attach them again.');
                 if (result.savedPaths.length > 0) {
-                    setAttachedPaths((previous) => [...previous, ...result.savedPaths]);
+                    setAttachedImages((previous) => [...previous, ...result.savedPaths.map((path, index) => ({
+                        id: selectedImages[index]!.id,
+                        uri: selectedImages[index]!.uri,
+                        name: selectedImages[index]!.name,
+                        path,
+                    }))]);
                 }
             } catch (error) {
                 Modal.alert('Attachment failed', error instanceof Error ? error.message : 'Could not send the file to the host.');
@@ -385,7 +395,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
             });
     }, [props.id, siblings]);
 
-    const canSend = terminalPaneCanSend(currentPane, draft.trim() !== '' || attachedPaths.length > 0);
+    const canSend = !attaching && selectedImages.length === 0 && terminalPaneCanSend(currentPane, draft.trim() !== '' || attachedPaths.length > 0);
 
     // Where this session sits and how it is allowed to act, in one quiet row.
     // Connection stays out of it: subtitle/send color and the reconnect pill
@@ -661,38 +671,10 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                 </ScrollView>
             </View>
 
-            {attachedPaths.length > 0 && (
-                <ScrollView
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    keyboardShouldPersistTaps="always"
-                    style={{ maxHeight: 40, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.divider }}
-                    contentContainerStyle={{ alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingBottom: 6 }}
-                >
-                    {attachedPaths.map((path) => (
-                        <Pressable
-                            key={path}
-                            onPress={() => setAttachedPaths((previous) => previous.filter((entry) => entry !== path))}
-                            accessibilityLabel={`Remove attachment ${path}`}
-                            style={{
-                                flexDirection: 'row',
-                                alignItems: 'center',
-                                gap: 4,
-                                paddingHorizontal: 8,
-                                paddingVertical: 4,
-                                borderRadius: 12,
-                                backgroundColor: theme.colors.surfaceHigh,
-                            }}
-                        >
-                            <Ionicons name="image-outline" size={12} color={theme.colors.textSecondary} />
-                            <Text style={{ color: theme.colors.text, fontSize: 12 }} numberOfLines={1}>
-                                {path.split('/').pop()}
-                            </Text>
-                            <Ionicons name="close" size={12} color={theme.colors.textSecondary} />
-                        </Pressable>
-                    ))}
-                </ScrollView>
-            )}
+            <ComposerAttachments
+                images={[...attachedImages, ...selectedImages.filter((image) => !attachedImages.some((attached) => attached.id === image.id))]}
+                onRemove={(id) => setAttachedImages((previous) => previous.filter((image) => image.id !== id))}
+            />
 
             <View
                 style={{
