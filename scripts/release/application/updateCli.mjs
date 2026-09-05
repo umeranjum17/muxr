@@ -4,6 +4,7 @@ import { existsSync, realpathSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runBootstrap, daemonIsRunning, daemonMode, runDaemon, restartSelfhostRelayIfRunning, stopSelfhostRelayIfRunning } from '../../setup/index.mjs';
+import { compareVersions, channelTags, releaseChannel, releaseVersion } from '../domain/channel.mjs';
 
 const PACKAGE = '@trymuxr/cli';
 
@@ -57,39 +58,19 @@ function activePackageUsesCurrentNpmPrefix() {
     return false;
 }
 
-export function compareVersions(left, right) {
-    const parse = (value) => {
-        const match = value.match(/^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/);
-        return match && { numbers: match.slice(1, 4).map(Number), prerelease: match[4]?.split('.') };
-    };
-    const a = parse(left);
-    const b = parse(right);
-    if (!a || !b) return undefined;
-    for (let index = 0; index < 3; index += 1) {
-        if (a.numbers[index] !== b.numbers[index]) return a.numbers[index] - b.numbers[index];
-    }
-    if (a.prerelease === undefined && b.prerelease === undefined) return 0;
-    if (a.prerelease === undefined) return 1;
-    if (b.prerelease === undefined) return -1;
-    const length = Math.max(a.prerelease.length, b.prerelease.length);
-    for (let index = 0; index < length; index += 1) {
-        const leftIdentifier = a.prerelease[index];
-        const rightIdentifier = b.prerelease[index];
-        if (leftIdentifier === rightIdentifier) continue;
-        if (leftIdentifier === undefined) return -1;
-        if (rightIdentifier === undefined) return 1;
-        const leftNumeric = /^\d+$/.test(leftIdentifier);
-        const rightNumeric = /^\d+$/.test(rightIdentifier);
-        if (leftNumeric && rightNumeric) return Number(leftIdentifier) - Number(rightIdentifier);
-        if (leftNumeric !== rightNumeric) return leftNumeric ? -1 : 1;
-        return leftIdentifier < rightIdentifier ? -1 : 1;
-    }
-    return 0;
-}
-
 export async function updateCli(command = {}) {
     const current = currentVersion();
-    const lookup = npm(['view', PACKAGE, 'dist-tags.latest', '--json']);
+    let channel;
+    let installedChannel;
+    try {
+        installedChannel = releaseVersion(current).channel;
+        channel = command.channel === undefined ? installedChannel : releaseChannel(command.channel);
+    } catch (cause) {
+        process.stderr.write(`${cause.message}\n`);
+        return 1;
+    }
+    const tag = channelTags[channel];
+    const lookup = npm(['view', PACKAGE, `dist-tags.${tag}`, '--json']);
     if (lookup.status !== 0) {
         process.stderr.write(`Could not check npm: ${(lookup.stderr || lookup.stdout || 'npm failed').trim()}\n`);
         return 1;
@@ -98,8 +79,10 @@ export async function updateCli(command = {}) {
     let latest;
     try { latest = JSON.parse(lookup.stdout.trim()); }
     catch { latest = lookup.stdout.trim(); }
-    if (typeof latest !== 'string' || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(latest)) {
-        process.stderr.write('npm returned an invalid muxr version\n');
+    try {
+        if (releaseVersion(latest).channel !== channel) throw new Error('channel mismatch');
+    } catch {
+        process.stderr.write('npm returned an invalid version for the requested muxr channel\n');
         return 1;
     }
     const comparison = compareVersions(latest, current);
@@ -107,14 +90,15 @@ export async function updateCli(command = {}) {
         process.stderr.write('installed muxr version is invalid\n');
         return 1;
     }
-    if (comparison <= 0) {
+    if (comparison === 0 || comparison < 0 && !command.allowDowngrade) {
         process.stdout.write(comparison === 0
-            ? `muxr ${current} is current.\n`
-            : `muxr ${current} is newer than npm latest (${latest}); nothing changed.\n`);
+            ? `muxr ${current} is current on ${channel}.\n`
+            : `muxr ${current} is newer than ${channel} (${latest}); nothing changed. Use --allow-downgrade only after checking state compatibility.\n`);
         return 0;
     }
 
-    process.stdout.write(`muxr ${latest} is available (installed: ${current}).\n`);
+    process.stdout.write(`muxr ${latest} is available on ${channel} (installed: ${current}, ${installedChannel}).\n`);
+    if (channel !== installedChannel) process.stdout.write('This explicitly switches the current installation and its managed services; it does not create a second isolated host.\n');
     if (command.checkOnly) return 0;
     const installedMode = daemonMode();
     let approved = command.yes === true;
@@ -131,7 +115,7 @@ export async function updateCli(command = {}) {
         approved = await command.confirm({ latest, current }) === true;
     }
     if (!approved) {
-        process.stdout.write(`Nothing changed. Run \`muxr update --yes\` when ready.\n`);
+        process.stdout.write(`Nothing changed. Run \`muxr update --channel ${channel}${command.allowDowngrade ? ' --allow-downgrade' : ''} --yes\` when ready.\n`);
         return 0;
     }
 
@@ -174,3 +158,5 @@ export async function updateCli(command = {}) {
     process.stdout.write(`Updated muxr to ${latest}${restarted ? ` and restarted the ${restarted}` : ''}.\n`);
     return 0;
 }
+
+export { compareVersions };

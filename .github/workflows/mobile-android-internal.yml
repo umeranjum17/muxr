@@ -1,8 +1,23 @@
 name: mobile Android internal
 
 on:
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
+      version_code:
+        required: true
+        type: string
+      development:
+        default: false
+        type: boolean
   workflow_dispatch:
     inputs:
+      candidate_run_id:
+        description: Successful release candidate run to upload unchanged (empty builds manually)
+        required: false
+        type: string
       version:
         description: Marketing version, for example 0.1.13
         required: true
@@ -51,10 +66,10 @@ jobs:
           test "$GITHUB_REF" = refs/heads/main
           [[ "$APP_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
           [[ "$ANDROID_VERSION_CODE" =~ ^[1-9][0-9]*$ ]]
-          test "$CONFIRMATION" = "release-$APP_VERSION-$ANDROID_VERSION_CODE"
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] && [ -n "$CONFIRMATION" ]; then test "$CONFIRMATION" = "release-$APP_VERSION-$ANDROID_VERSION_CODE"; fi
 
   build:
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && !inputs.candidate_run_id
     needs: validate
     runs-on: ubuntu-latest
     timeout-minutes: 90
@@ -62,7 +77,10 @@ jobs:
     env:
       APP_VERSION: ${{ inputs.version }}
       ANDROID_VERSION_CODE: ${{ inputs.version_code }}
-      SUBMIT_TO_PLAY: ${{ inputs.submit_to_play }}
+      APP_ENV: ${{ inputs.development && 'development' || 'production' }}
+      MUXR_PUBLIC_BASE_URL: ${{ inputs.development && 'https://dev.invalid' || 'https://trymuxr.com' }}
+      ORG_GRADLE_PROJECT_muxrDevelopmentApp: ${{ inputs.development && 'true' || 'false' }}
+      SUBMIT_TO_PLAY: ${{ inputs.submit_to_play && 'true' || 'false' }}
       ORG_GRADLE_PROJECT_appVersion: ${{ inputs.version }}
       ORG_GRADLE_PROJECT_androidVersionCode: ${{ inputs.version_code }}
       ORG_GRADLE_PROJECT_reactNativeArchitectures: arm64-v8a
@@ -141,6 +159,15 @@ jobs:
             grep -qi 'self-signed' <<<"$aab_verify_output"
             ! grep -Eqi 'expired|not yet valid|algorithm.*disabled' <<<"$aab_verify_output"
           fi
+          expected_id=com.trymuxr.app
+          if [ "$ORG_GRADLE_PROJECT_muxrDevelopmentApp" = true ]; then expected_id=app.muxr.local.dev; fi
+          test "$("$apkanalyzer" manifest application-id "$apk")" = "$expected_id"
+          "$apkanalyzer" manifest print "$apk" > "$RUNNER_TEMP/compiled-manifest.xml"
+          if [ "$expected_id" = app.muxr.local.dev ]; then
+            ! grep -q 'android:scheme="muxr"' "$RUNNER_TEMP/compiled-manifest.xml"
+            ! grep -q 'android:host="trymuxr.com"' "$RUNNER_TEMP/compiled-manifest.xml"
+          fi
+          "$apksigner" verify --print-certs "$apk" > "$RUNNER_TEMP/signer.txt"
           test "$("$apkanalyzer" manifest version-name "$apk")" = "$APP_VERSION"
           test "$("$apkanalyzer" manifest version-code "$apk")" = "$ANDROID_VERSION_CODE"
           curl -fsSL https://github.com/google/bundletool/releases/download/1.18.3/bundletool-all-1.18.3.jar -o "$RUNNER_TEMP/bundletool.jar"
@@ -163,65 +190,70 @@ jobs:
           install -m 600 apps/mobile/android/app/build/outputs/bundle/release/app-release.aab "$output/muxr-$APP_VERSION-$ANDROID_VERSION_CODE.aab"
           apk_sha="$(sha256sum "$output/muxr-$APP_VERSION-$ANDROID_VERSION_CODE.apk" | cut -d ' ' -f 1)"
           aab_sha="$(sha256sum "$output/muxr-$APP_VERSION-$ANDROID_VERSION_CODE.aab" | cut -d ' ' -f 1)"
+          install -m 644 "$RUNNER_TEMP/compiled-manifest.xml" "$output/compiled-manifest.xml"
+          install -m 644 "$RUNNER_TEMP/signer.txt" "$output/signer.txt"
+          application_id=com.trymuxr.app
+          if [ "$ORG_GRADLE_PROJECT_muxrDevelopmentApp" = true ]; then application_id=app.muxr.local.dev; fi
           jq -n \
+            --arg bundleIdentifier "$application_id" \
             --arg gitCommitHash "$GITHUB_SHA" \
             --arg appVersion "$APP_VERSION" \
             --arg appBuildVersion "$ANDROID_VERSION_CODE" \
             --argjson submittedToInternal "$SUBMIT_TO_PLAY" \
             --arg apkArtifactSha256 "$apk_sha" \
             --arg artifactSha256 "$aab_sha" \
-            '{platform:"ANDROID", $gitCommitHash, $appVersion, $appBuildVersion, bundleIdentifier:"com.trymuxr.app", $submittedToInternal, $apkArtifactSha256, $artifactSha256}' \
+            '{platform:"ANDROID", $gitCommitHash, $appVersion, $appBuildVersion, $bundleIdentifier, $submittedToInternal, $apkArtifactSha256, $artifactSha256}' \
             > "$output/result.json"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: android-internal
           path: ${{ runner.temp }}/android-internal
-          retention-days: 7
+          retention-days: 90
           if-no-files-found: error
 
-  publish:
-    if: github.ref == 'refs/heads/main' && inputs.publish_github_release
-    needs: build
+  import-candidate:
+    if: github.ref == 'refs/heads/main' && inputs.candidate_run_id
+    needs: validate
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: stores
     permissions:
       actions: read
-      contents: write
+      contents: read
     env:
+      GH_TOKEN: ${{ github.token }}
+      CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
       APP_VERSION: ${{ inputs.version }}
       ANDROID_VERSION_CODE: ${{ inputs.version_code }}
-      GH_TOKEN: ${{ github.token }}
     steps:
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0
+        with:
+          ruby-version: "3.3"
+          bundler-cache: true
+      - name: Verify the successful candidate and unchanged production AAB
+        run: |
+          [[ "$CANDIDATE_RUN_ID" =~ ^[1-9][0-9]*$ ]]
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$CANDIDATE_RUN_ID" > "$RUNNER_TEMP/candidate.json"
+          jq -e '.path == ".github/workflows/release-candidate.yml" and .head_branch == "main" and .status == "completed" and .conclusion == "success"' "$RUNNER_TEMP/candidate.json"
+          gh run download "$CANDIDATE_RUN_ID" --repo "$GITHUB_REPOSITORY" --name android-internal --dir "$RUNNER_TEMP/android-internal"
+          sha=$(jq -r .head_sha "$RUNNER_TEMP/candidate.json")
+          jq -e --arg sha "$sha" --arg version "$APP_VERSION" --arg code "$ANDROID_VERSION_CODE" '.gitCommitHash == $sha and .appVersion == $version and .appBuildVersion == $code and .bundleIdentifier == "com.trymuxr.app"' "$RUNNER_TEMP/android-internal/result.json"
+          mapfile -t bundles < <(find "$RUNNER_TEMP/android-internal" -type f -name '*.aab')
+          test "${#bundles[@]}" -eq 1
+          test "$(sha256sum "${bundles[0]}" | cut -d ' ' -f 1)" = "$(jq -r .artifactSha256 "$RUNNER_TEMP/android-internal/result.json")"
+          echo "AAB_PATH=${bundles[0]}" >> "$GITHUB_ENV"
+      - name: Upload this exact AAB to Internal
+        env:
+          PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+        run: |
+          bundle exec fastlane android upload_internal
+          bundle exec fastlane android verify_internal
+          jq '.submittedToInternal = true' "$RUNNER_TEMP/android-internal/result.json" > "$RUNNER_TEMP/result.json"
+          mv "$RUNNER_TEMP/result.json" "$RUNNER_TEMP/android-internal/result.json"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: android-internal
           path: ${{ runner.temp }}/android-internal
-      - name: Verify and publish APK
-        run: |
-          artifact="$RUNNER_TEMP/android-internal"
-          apk="$artifact/muxr-$APP_VERSION-$ANDROID_VERSION_CODE.apk"
-          result="$artifact/result.json"
-          test -f "$apk"
-          test -f "$result"
-          test "$(find "$artifact" -type f -name '*.apk' | wc -l)" -eq 1
-          jq -e \
-            --arg gitCommitHash "$GITHUB_SHA" \
-            --arg appVersion "$APP_VERSION" \
-            --arg appBuildVersion "$ANDROID_VERSION_CODE" \
-            '.platform == "ANDROID" and .gitCommitHash == $gitCommitHash and .appVersion == $appVersion and .appBuildVersion == $appBuildVersion and .bundleIdentifier == "com.trymuxr.app" and (.apkArtifactSha256 | test("^[0-9a-f]{64}$"))' \
-            "$result" >/dev/null
-          test "$(sha256sum "$apk" | cut -d ' ' -f 1)" = "$(jq -r .apkArtifactSha256 "$result")"
-
-          tag="$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName)"
-          test "$tag" = "v$APP_VERSION"
-
-          publish="$RUNNER_TEMP/github-release"
-          mkdir -p "$publish"
-          install -m 644 "$apk" "$publish/muxr-android-$APP_VERSION-build$ANDROID_VERSION_CODE.apk"
-          install -m 644 "$apk" "$publish/muxr-android.apk"
-          (cd "$publish" && sha256sum muxr-android-$APP_VERSION-build$ANDROID_VERSION_CODE.apk muxr-android.apk > SHA256SUMS)
-          gh release upload "$tag" "$publish/muxr-android-$APP_VERSION-build$ANDROID_VERSION_CODE.apk" "$publish/muxr-android.apk" "$publish/SHA256SUMS" --clobber --repo "$GITHUB_REPOSITORY"
-
-          downloaded="$RUNNER_TEMP/published-release"
-          mkdir -p "$downloaded"
-          gh release download "$tag" --pattern "muxr-android-$APP_VERSION-build$ANDROID_VERSION_CODE.apk" --pattern muxr-android.apk --pattern SHA256SUMS --dir "$downloaded" --repo "$GITHUB_REPOSITORY"
-          (cd "$downloaded" && sha256sum --check SHA256SUMS)
+          retention-days: 90
+          if-no-files-found: error

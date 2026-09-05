@@ -3,8 +3,12 @@ name: mobile closed testing
 on:
   workflow_dispatch:
     inputs:
+      source_commit:
+        description: Exact tested candidate commit (main may have advanced)
+        required: true
+        type: string
       internal_run_id:
-        description: Successful Android mobile internal workflow run for this exact main commit
+        description: Successful Android mobile internal workflow run for the selected candidate
         required: true
         type: string
       version:
@@ -30,10 +34,12 @@ jobs:
     steps:
       - name: Validate tested build identifiers
         env:
+          SOURCE_COMMIT: ${{ inputs.source_commit }}
           INTERNAL_RUN_ID: ${{ inputs.internal_run_id }}
           APP_VERSION: ${{ inputs.version }}
           ANDROID_VERSION_CODE: ${{ inputs.android_version_code }}
         run: |
+          [[ "$SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
           [[ "$INTERNAL_RUN_ID" =~ ^[1-9][0-9]*$ ]]
           [[ "$APP_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
           [[ "$ANDROID_VERSION_CODE" =~ ^[1-9][0-9]*$ ]]
@@ -45,16 +51,16 @@ jobs:
       - name: Prove the Internal run and exact Android build
         env:
           GH_TOKEN: ${{ github.token }}
+          SOURCE_COMMIT: ${{ inputs.source_commit }}
           INTERNAL_RUN_ID: ${{ inputs.internal_run_id }}
           APP_VERSION: ${{ inputs.version }}
           ANDROID_VERSION_CODE: ${{ inputs.android_version_code }}
         run: |
           gh api "repos/$GITHUB_REPOSITORY/actions/runs/$INTERNAL_RUN_ID" > "$RUNNER_TEMP/internal-run.json"
-          jq -e --arg sha "$GITHUB_SHA" '
+          jq -e --arg sha "$SOURCE_COMMIT" '
             .event == "workflow_dispatch"
             and .name == "mobile Android internal"
             and .head_branch == "main"
-            and .head_sha == $sha
             and .status == "completed"
             and .conclusion == "success"
           ' "$RUNNER_TEMP/internal-run.json"
@@ -64,7 +70,7 @@ jobs:
             --name android-internal \
             --dir "$RUNNER_TEMP/internal-artifact"
           jq -e \
-            --arg sha "$GITHUB_SHA" \
+            --arg sha "$SOURCE_COMMIT" \
             --arg version "$APP_VERSION" \
             --arg android "$ANDROID_VERSION_CODE" '
               .platform == "ANDROID"

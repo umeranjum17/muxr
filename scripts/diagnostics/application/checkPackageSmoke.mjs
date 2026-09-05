@@ -16,7 +16,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { packageInfoFromPath, packagePathFromInput } from '../../release/index.mjs';
+import { packageInfoFromPath, packagePathFromInput, sealRelease, verifyRelease } from '../../release/index.mjs';
 
 const root = process.cwd();
 const scratchBase = process.platform === 'darwin' ? '/tmp' : tmpdir();
@@ -413,6 +413,19 @@ try {
     assert.doesNotMatch(`${hostBundle}\n${cryptoBundle}`, /(?:apps|packages)\/(?:host|wire|contract|crypto)\/(?:src|dist)\//, 'bundle leaked proprietary source paths');
     const licenseInventory = JSON.parse(run('tar', ['-xOf', tarball, 'package/THIRD_PARTY_LICENSES.json']).stdout);
     const packageJson = JSON.parse(run('tar', ['-xOf', tarball, 'package/package.json']).stdout);
+    // Follow the actual packaged artifact through sealing, verification and tamper rejection.
+    const sealed = await sealRelease({ directory: tarDir, version: packageJson.version,
+        channel: packageJson.muxrRelease.channel, files: [packedInfo.filename], runId: '1' });
+    const verifyRequest = { directory: tarDir, version: packageJson.version,
+        channel: packageJson.muxrRelease.channel, commit: sealed.source.commit, runId: '1' };
+    await verifyRelease(verifyRequest);
+    const originalTarball = readFileSync(tarball);
+    try {
+        writeFileSync(tarball, Buffer.concat([originalTarball, Buffer.from('altered')]));
+        await assert.rejects(verifyRelease(verifyRequest), /digest mismatch/);
+    } finally { writeFileSync(tarball, originalTarball); }
+    await verifyRelease(verifyRequest);
+    await assert.rejects(verifyRelease({ ...verifyRequest, commit: '0'.repeat(40) }), /identity/);
     assert.equal(packageJson.dependencies.zod, undefined, 'packed CLI must not depend on Zod');
     assert.equal(packageJson.dependencies['@agentclientprotocol/sdk'], undefined, 'packed CLI must not require a separately installed ACP SDK');
     assert.equal(packageJson.dependencies['@agentclientprotocol/claude-agent-acp'], undefined, 'packed Claude bridge must invoke the installed CLI directly');
@@ -781,9 +794,19 @@ try {
     const cancelledUpdate = await runTty(`${cli} update`, updateEnv, '\r', 20_000, undefined, 'never', 'Apply this update?');
     assert.equal(cancelledUpdate.code, 0, cancelledUpdate.output);
     assert.ok(!existsSync(updateLog), 'pressing Enter applied the update');
-    assert.match(run(cli, ['update', '--yes'], { cwd: installDir, env: { ...updateEnv, MUXR_UPDATE_LATEST: '0.0.1' } }).stdout, /newer than npm latest/);
+    assert.match(run(cli, ['update', '--yes'], { cwd: installDir, env: { ...updateEnv, MUXR_UPDATE_LATEST: '0.0.1' } }).stdout, /newer than stable/);
     assert.ok(!existsSync(updateLog), 'updater installed a registry downgrade');
     assert.match(run(cli, ['update', '--check'], { cwd: installDir, env: updateEnv }).stdout, /9\.9\.9 is available/);
+    const betaCheck = run(cli, ['update', '--channel', 'beta', '--check'], {
+        cwd: installDir, env: { ...updateEnv, MUXR_UPDATE_LATEST: '9.9.9-beta.2' },
+    });
+    assert.match(betaCheck.stdout, /available on beta/);
+    assert.ok(!existsSync(updateLog), 'channel check changed the installation');
+    const wrongChannel = run(cli, ['update', '--channel', 'beta', '--yes'], {
+        cwd: installDir, env: updateEnv, allowFailure: true,
+    });
+    assert.notEqual(wrongChannel.status, 0, 'beta tag accepted a stable version');
+    assert.ok(!existsSync(updateLog), 'wrong channel reached installation');
     const prefixMismatch = run(cli, ['update', '--yes'], {
         cwd: installDir, env: { ...updateEnv, MUXR_UPDATE_NPM_ROOT: join(scratch, 'different-node', 'node_modules') }, allowFailure: true,
     });
