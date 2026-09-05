@@ -67,6 +67,7 @@ export function FloatingTerminalControls({ width, height, commands }: { width: n
     return <>
         {open && <Pressable style={StyleSheet.absoluteFill} accessible={false} onPress={() => setExpanded(false)} />}
         <Animated.View accessibilityRole="toolbar" accessibilityLabel="Terminal controls"
+            onTouchStart={(event) => event.stopPropagation()} onTouchMove={(event) => event.stopPropagation()} onTouchEnd={(event) => event.stopPropagation()}
             style={[{ position: 'absolute', top: 0, left: 0, width: boxWidth, height: boxHeight }, position]}>
             {open && (compact
                 ? <ScrollView horizontal keyboardShouldPersistTaps="always" showsHorizontalScrollIndicator={false}
@@ -78,7 +79,7 @@ export function FloatingTerminalControls({ width, height, commands }: { width: n
                     return <View key={command.label} style={{ position: 'absolute', left, top }}>{button(command)}</View>;
                 }))}
             <GestureDetector gesture={drag}>
-                <View collapsable={false} style={{ position: 'absolute', left: anchorX, top: anchorY }}>
+                <View collapsable={false} style={{ position: 'absolute', left: anchorX, top: anchorY, width: BUTTON, height: BUTTON }}>
                     <Pressable accessibilityRole="button" accessibilityLabel={open ? 'Hide terminal controls' : 'Show terminal controls'}
                         accessibilityHint="Terminal commands. Drag to move; tap to open or close."
                         accessibilityState={{ expanded: open }} style={({ pressed }) => buttonStyle(pressed)}
