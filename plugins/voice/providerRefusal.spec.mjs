@@ -170,7 +170,7 @@ describe('providerRefusal', () => {
             const connection = await waitFor(() => connections[0], 'Gemini provider connection was not opened');
             const setup = await waitFor(() => connection.frames.find((frame) => frame.setup), 'Gemini provider session was not configured');
             const promptTool = setup.setup.tools[0].functionDeclarations.find((tool) => tool.name === 'prompt_agent');
-            expect(promptTool.parameters.required).toEqual(['agent', 'text']);
+            expect(promptTool.parameters.required).toEqual(['text']);
             connection.socket.send(JSON.stringify({ setupComplete: {} }));
 
             const call = async (id, args) => {
@@ -198,7 +198,8 @@ describe('providerRefusal', () => {
 
             expect(queued).toBe('Queued: instruction for Beta.');
             expect(queued).not.toMatch(/sent|delivered/i);
-            expect(missing).toBe('Which named agent should I prompt? Ask me to list agents.');
+            expect(missing).toContain('No prompt sent.');
+            expect(missing).toContain('Voice target or last tool-selected agent: Beta');
             expect(ambiguous).toContain('could not find an agent or task matching pi');
             expect(privateRejected).toContain('[internal reference]');
             expect(privateRejected).not.toMatch(/diagnostic-private|key-private|wAG:p9S|w1AK:p1|w1BS:t6/);
@@ -284,6 +285,7 @@ describe('providerRefusal', () => {
         ];
         const coordinator = new RealtimeCodingCoordinator(join(muxrHome, 'coding.sock'), {
             list: async () => agents,
+            kinds: async () => ['codex', 'pi'],
             activity: async () => [{
                 eventId: 'activity-one', sessionId: 'pp_john_private', agentName: 'John', taskTitle: 'Harden audio',
                 state: 'done', reasonCode: 'agent-done', reason: 'agent-done', at: '2026-08-28T00:00:00.000Z',
@@ -366,7 +368,7 @@ describe('providerRefusal', () => {
                 sessionId: 'pp_open_must_stay_private',
                 paneId: 'w7:p9',
                 cwd: privateProject,
-                publicContext: '{"sessionId":"pp_leak"}',
+                publicContext: { sessions: [{ sessionId: 'pp_snapshot_private', agentName: 'John', taskTitle: 'Harden audio', agentKind: 'pi', agentStatus: 'idle', promptable: true }] },
             })}\n`);
             const connection = await waitFor(() => connections[0], 'provider connection was not opened');
             const update = await waitFor(
@@ -374,7 +376,7 @@ describe('providerRefusal', () => {
                 'provider session was not configured',
             );
             const expectedCodingTools = [
-                'list_agents', 'recent_agent_activity', 'start_agent', 'prompt_agent', 'send_agent_keybinding', 'read_agent_output', 'agent_status', 'watch_agent', 'focus_agent',
+                'agent_context', 'list_agents', 'recent_agent_activity', 'start_agent', 'prompt_agent', 'send_agent_keybinding', 'read_agent_output', 'agent_status', 'watch_agent', 'focus_agent',
             ];
             const expectedAppTools = ['inspect_app', 'navigate_app', 'activate_app_control'];
             expect(update.session.tools.map((tool) => tool.name)).toEqual([...expectedCodingTools, ...expectedAppTools]);
@@ -382,7 +384,8 @@ describe('providerRefusal', () => {
             expect(update.session.tools.find((tool) => tool.name === 'send_agent_keybinding').parameters.properties.key.enum).toEqual(['escape']);
             for (const tools of [xaiTools, openaiTools, geminiTools]) {
                 const promptTool = tools.find((tool) => tool.name === 'prompt_agent');
-                expect(promptTool.parameters.required).toEqual(['agent', 'text']);
+                expect(promptTool.parameters.required).toEqual(['text']);
+                expect(tools.map((tool) => tool.name)).toEqual([...expectedCodingTools, ...expectedAppTools]);
                 expect(tools.find((tool) => tool.name === 'read_agent_output').parameters.required).toBeUndefined();
                 const surface = JSON.stringify(tools);
                 expect(surface).not.toMatch(/herdr_cli|list_machines|end_conversation|list_panes|focus_pane|shell|close/);
@@ -393,6 +396,9 @@ describe('providerRefusal', () => {
             expect(providerSetup).not.toContain('list_machines');
             expect(providerSetup).not.toContain('w7:p9');
             expect(providerSetup).not.toContain('pp_open');
+            expect(providerSetup).not.toContain('pp_snapshot_private');
+            expect(providerSetup).toContain('Workspace snapshot');
+            expect(providerSetup).toContain('John: Harden audio; pi; idle');
             expect(providerSetup).not.toContain(privateProject);
             expect(providerSetup).toContain('John is stabilizing realtime voice');
             expect(providerSetup).toContain('Ask for confirmation only before destructive actions');
@@ -437,7 +443,12 @@ describe('providerRefusal', () => {
 
             const taskFocus = await call('focus_agent', { agent: 'Fix auth' });
             expect(taskFocus).toBe('Confirmed: Maria is now in focus.');
-            expect(calls.focuses).toEqual(['pp_maria_one']);
+            expect(await call('list_agents', { query: 'audo' })).toContain('John — Harden audio');
+            expect(await call('focus_agent', { agent: 'Harden audo' })).toBe('Confirmed: John is now in focus.');
+            expect(calls.focuses).toEqual(['pp_maria_one', 'pp_john_private']);
+            const context = await call('agent_context', {});
+            expect(context).toContain('Voice target or last tool-selected agent: John');
+            expect(context).toContain('Installed agent kinds: Codex, Pi');
             const piAgents = await call('list_agents', { kind: 'pi', limit: 3 });
             expect(piAgents).toContain('John — Harden audio; Pi; idle');
             expect(piAgents).not.toContain('Fix auth');
@@ -477,8 +488,11 @@ describe('providerRefusal', () => {
             expect(await call('send_agent_keybinding', { agent: 'Harden audio', key: 'Escape' })).toBe('Confirmed: Escape was sent to John.');
             expect(calls.keys).toEqual([{ sessionId: 'pp_john_private', keys: ['escape'] }]);
 
-            const startReceipt = await call('start_agent', { kind: 'codex', taskTitle: 'Market ready voice' });
-            expect(startReceipt).toBe('Confirmed: Nora was created for Market ready voice with Codex and is starting.');
+            const promptsBeforeStart = calls.prompts.length;
+            const startReceipt = await call('start_agent', { kind: 'codex', taskTitle: 'Market ready voice', prompt: 'Inspect the realtime routing and report the actual blockers.' });
+            expect(calls.prompts.length).toBe(promptsBeforeStart + 1);
+            expect(calls.prompts.at(-1).text).toContain('Inspect the realtime routing');
+            expect(startReceipt).toBe('Confirmed: Nora was created for Market ready voice with Codex and is starting. Initial instruction queued.');
             expect(calls.starts[0]).toEqual({
                 cwd: privateProject, taskTitle: 'Market ready voice', kind: 'codex',
             });
@@ -772,9 +786,12 @@ describe('providerRefusal', () => {
                 type: 'realtime.webrtc.data',
                 data: JSON.stringify({
                     type: 'delegation.created',
-                    item: { id: 'delegation-no-target', content: [{ type: 'input_text', text: 'Inspect the build.' }] },
+                    item: { id: 'delegation-no-target', content: [{ type: 'input_text', text: JSON.stringify({ name: 'inspect_app', arguments: {} }) }] },
                 }),
             });
+            const appRequest = await waitFor(() => flow.frames.find((frame) => frame.type === 'realtime.app.request'), 'Codex did not dispatch its client tool');
+            expect(appRequest.action).toBe('view');
+            flow.send({ type: 'realtime.app.result', requestId: appRequest.requestId, ok: true, text: 'Screen: home. Agent John is working on the build.' });
             const delegationFrame = await waitFor(
                 () => flow.frames.find((frame) => {
                     if (frame.type !== 'realtime.webrtc.data') return false;
@@ -788,7 +805,7 @@ describe('providerRefusal', () => {
                 channel: 'speakable',
                 content: [{
                     type: 'input_text',
-                    text: 'Codex Voice could not queue that instruction. An explicit Agent Name or Task Title is required.',
+                    text: 'Screen: home. Agent John is working on the build.',
                 }],
             });
             expect(delegationFrame.data).not.toMatch(/Queued:|sent|delivered/i);

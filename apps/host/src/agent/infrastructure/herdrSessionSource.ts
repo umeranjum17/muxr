@@ -584,6 +584,10 @@ export async function createHerdrSessionSource(
         codingCoordinator = new RealtimeCodingCoordinator(join(options.dataDir, 'realtime-coding.sock'), {
             list: listRealtimeAgents,
             activity: async () => options.lifecycle?.catalog().events ?? [],
+            kinds: async () => {
+                const result = await client.call<{ manifests?: Array<{ agent?: string }> }>('server.agent_manifests', {});
+                return agentKindsFromManifests(result.manifests ?? []).filter(executableOnPath);
+            },
             start: startRealtimeAgent,
             sendKeys: sendSessionKeys,
             prompt: promptSession,
@@ -1746,6 +1750,9 @@ export async function createHerdrSessionSource(
         const listedName = publicListedName(session.agent);
         return {
             sessionId: session.sessionId,
+            focused: workspacesById.get(panesById.get(session.paneId)?.workspace_id ?? '')?.focused === true && panesById.get(session.paneId)?.focused === true,
+            workspace: infoFor(session).workspaceLabel,
+            tab: infoFor(session).tabLabel,
             cwd: cwdForSession(session.sessionId) ?? '',
             ...(listedName === undefined ? {} : { agentName: listedName }),
             ...(taskTitle === undefined ? {} : { taskTitle }),
@@ -1810,12 +1817,12 @@ export async function createHerdrSessionSource(
     }
 
 
-    async function readSessionOutput(sessionId: string): Promise<{ text: string; truncated: boolean }> {
+    async function readSessionOutput(sessionId: string, readOptions?: { lines: number }): Promise<{ text: string; truncated: boolean }> {
         const record = await resolvePane(sessionId);
         const result = await client.call<{ read?: { text?: string; truncated?: boolean } }>('pane.read', {
             pane_id: record.paneId,
-            source: 'recent',
-            lines: 80,
+            source: ['idle', 'done'].includes(lifecycleOf(record)) ? 'recent-unwrapped' : 'visible',
+            lines: readOptions?.lines ?? 80,
             format: 'text',
             strip_ansi: true,
         });

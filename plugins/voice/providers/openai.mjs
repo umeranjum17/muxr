@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { createAppTools } from '../appTools.mjs';
 /**
  * OpenAI Realtime speech-to-speech adapter behind the provider-neutral realtime stream.
  *
@@ -15,6 +16,9 @@ import { createInterface } from 'node:readline';
 import {
     cleanProviderProse,
     codingTools,
+    appTools,
+    appControlInstructions,
+    workspaceContext,
     isExplicitHangup,
     runCodingTool,
     voiceCoordinationInstructions,
@@ -25,7 +29,9 @@ const RATE = 24_000;
 const root = process.env.MUXR_HOME?.trim() || join(homedir(), '.muxr');
 const keyFile = join(root, 'openai.key');
 let endAfterResponse = false;
-export const providerTools = codingTools;
+export const providerTools = [...codingTools, ...appTools];
+let currentContext = '';
+const app = createAppTools((frame) => { emit(frame); });
 
 const emit = (frame) => process.stdout.write(`${JSON.stringify(frame)}\n`);
 // Provider deltas may exceed the public frame bound after tool calls. Base64 is
@@ -48,6 +54,7 @@ const PROMPT = `You are the voice interface to a herd of coding agents. You are 
 <important>
 - Answer in one short sentence unless asked to elaborate. The user understands this work better than you do.
 ${voiceCoordinationInstructions}
+${appControlInstructions}
 - You do not do the work. The coding agent does. You carry instructions to it and report back what it did.
 - Assume the user is thinking out loud until they clearly ask for something.
 - Let them finish. A pause is thinking, not an invitation to speak: wait through it rather than filling it.
@@ -80,6 +87,7 @@ let closing = false;
 const close = (reason) => {
     if (closing) return;
     closing = true;
+    app.close();
     process.stdout.write(`${JSON.stringify({ type: 'realtime.closed', reason })}\n`, () => process.exit(0));
 };
 
@@ -93,7 +101,7 @@ export function providerError(error) {
     const detail = cleanProviderProse(raw, 'provider error', 200);
     return { detail, terminal: /api key|auth|credit|quota|billing|permission|forbidden|invalid json|invalid payload|unknown name|unsupported/i.test(detail) };
 }
-const runTool = (name, input, operationId) => runCodingTool(name, input, operationId);
+const runTool = (name, input, operationId) => app.run(name, input) ?? runCodingTool(name, input, operationId);
 
 const pendingToolCalls = new Map();
 
@@ -185,6 +193,7 @@ function handleOpenAiEvent(raw) {
 }
 
 function handleClientFrame(frame) {
+    if (app.receive(frame)) return;
     if (ws?.readyState !== WebSocket.OPEN) return;
     if (frame.type === 'realtime.audio') {
         ws.send(JSON.stringify({ type: 'input_audio_buffer.append', audio: frame.data }));
@@ -243,7 +252,7 @@ function connectProvider(key) {
             session: {
                 type: 'realtime',
                 model: MODEL,
-                instructions: PROMPT,
+                instructions: PROMPT + currentContext,
                 output_modalities: ['audio'],
                 audio: {
                     input: {
@@ -300,6 +309,7 @@ async function main() {
     let open;
     try { open = JSON.parse(first); } catch { throw new Error('realtime stream missing open frame'); }
     if (open?.type !== 'realtime.open') throw new Error('realtime stream expected realtime.open first');
+    currentContext = workspaceContext(open);
     rl.on('line', (line) => {
         if (line.trim() === '') return;
         try { handleClientFrame(JSON.parse(line)); } catch { /* malformed input line: ignore */ }

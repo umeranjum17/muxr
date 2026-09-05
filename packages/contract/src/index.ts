@@ -285,3 +285,4 @@ export {
     realtimePcm16ByteLength,
     realtimeSocketUrl,
 } from './realtime/index.js';
+export { spokenMatches } from './realtime/index.js';
