@@ -171,6 +171,139 @@
     },
     {
       "slot": "host.rpc",
+      "id": "changes.worktree-list",
+      "type": "rpc",
+      "method": "worktrees",
+      "entry": "changes.mjs",
+      "mode": "read"
+    },
+    {
+      "slot": "host.rpc",
+      "id": "changes.browse",
+      "type": "rpc",
+      "method": "browse",
+      "entry": "changes.mjs",
+      "mode": "read"
+    },
+    {
+      "slot": "host.rpc",
+      "id": "changes.patch",
+      "type": "rpc",
+      "method": "patch",
+      "entry": "changes.mjs",
+      "mode": "read"
+    },
+    {
+      "slot": "navigation.content",
+      "id": "changes.worktrees",
+      "type": "screen",
+      "title": "{{data.title}}",
+      "data": {
+        "type": "plugin.call",
+        "contributionId": "changes.worktree-list"
+      },
+      "children": [
+        {
+          "type": "text",
+          "text": "{{data.note}}",
+          "tone": "secondary"
+        },
+        {
+          "type": "list",
+          "rows": [],
+          "emptyText": "No registered worktrees",
+          "repeat": {
+            "path": "data.worktrees",
+            "template": {
+              "type": "row",
+              "title": "{{item.title}}",
+              "subtitle": "{{item.subtitle}}",
+              "action": {
+                "type": "screen",
+                "contributionId": "changes.review",
+                "params": {
+                  "root": "{{item.root}}",
+                  "scope": "branch",
+                  "sessionId": "{{item.sessionId}}"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slot": "navigation.content",
+      "id": "changes.review",
+      "type": "screen",
+      "title": "{{data.title}}",
+      "data": {
+        "type": "plugin.call",
+        "contributionId": "changes.browse"
+      },
+      "children": [
+        {
+          "type": "text",
+          "text": "{{data.note}}",
+          "tone": "secondary"
+        },
+        {
+          "type": "tabs",
+          "path": "data.scopes",
+          "selectedPath": "data.scope",
+          "param": "scope"
+        },
+        {
+          "type": "list",
+          "rows": [],
+          "emptyText": "No changes in this comparison",
+          "repeat": {
+            "path": "data.files",
+            "template": {
+              "type": "row",
+              "title": "{{item.title}}",
+              "subtitle": "{{item.subtitle}}",
+              "action": {
+                "type": "screen",
+                "contributionId": "changes.file",
+                "params": {
+                  "root": "{{item.root}}",
+                  "scope": "{{item.scope}}",
+                  "path": "{{item.path}}",
+                  "kind": "{{item.kind}}",
+                  "head": "{{item.head}}",
+                  "base": "{{item.base}}",
+                  "sessionId": "{{item.sessionId}}"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slot": "navigation.content",
+      "id": "changes.file",
+      "type": "screen",
+      "title": "{{data.title}}",
+      "data": {
+        "type": "plugin.call",
+        "contributionId": "changes.patch"
+      },
+      "children": [
+        {
+          "type": "text",
+          "text": "{{data.note}}",
+          "tone": "secondary"
+        },
+        {
+          "type": "diff",
+          "path": "data.patch"
+        }
+      ]
+    },
+    {
+      "slot": "host.rpc",
       "id": "history.log",
       "type": "rpc",
       "method": "log",

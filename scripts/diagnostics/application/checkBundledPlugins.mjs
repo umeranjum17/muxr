@@ -252,3 +252,57 @@ process.stdout.write(JSON.stringify({result}));
 } finally {
     rmSync(toolsScratch, { recursive: true, force: true });
 }
+
+// Review the selected checkout and comparison, not unrelated session files.
+const changesScratch = mkdtempSync(join(tmpdir(), 'muxr-changes-flow-'));
+try {
+    const repo = join(changesScratch, 'repo'), feature = join(changesScratch, 'feature tree');
+    mkdirSync(repo);
+    const git = (args, cwd = repo) => {
+        const result = spawnSync('git', ['-C', cwd, ...args], { encoding: 'utf8', timeout: 5000 });
+        assert.equal(result.status, 0, result.stderr); return result.stdout;
+    };
+    git(['init', '-b', 'main']); git(['config', 'user.name', 'Fixture']); git(['config', 'user.email', 'fixture@example.invalid']);
+    writeFileSync(join(repo, 'tracked.txt'), 'baseline\n');
+    git(['add', '.']); git(['commit', '-m', 'Baseline']);
+    git(['worktree', 'add', '-b', 'feature', feature]);
+    writeFileSync(join(feature, 'tracked.txt'), 'BRANCH_ONLY\n');
+    git(['add', '.'], feature); git(['commit', '-m', 'Branch change'], feature);
+    writeFileSync(join(repo, 'base-only.txt'), 'BASE_ONLY\n');
+    writeFileSync(join(feature, 'tracked.txt'), 'UNCOMMITTED\n');
+    const call = (method, extra = {}) => spawnSync(process.execPath, [join(pluginsDir, 'code/changes.mjs'), method], {
+        input: JSON.stringify({ cwd: repo, sessionId: 'fixture-session', ...extra }), encoding: 'utf8', timeout: 20000,
+    });
+    const read = (method, extra) => { const result = call(method, extra); assert.equal(result.status, 0, result.stderr); return JSON.parse(result.stdout); };
+    const initial = read('list');
+    assert(initial.items.some((item) => item.id === 'base-only.txt'));
+    assert(initial.items.some((item) => item.subtitle === repo));
+    assert(initial.actions.every((action) => action.action.params.sessionId === 'fixture-session'));
+    assert.equal(initial.items[0].action.params.sessionId, 'fixture-session');
+    assert(read('worktrees').worktrees.some((entry) => entry.root === feature));
+    const branch = read('browse', { root: feature, scope: 'branch' });
+    assert(branch.note.includes('main'));
+    assert.equal(branch.files[0].sessionId, 'fixture-session');
+    assert(read('worktrees').worktrees.every((entry) => entry.sessionId === 'fixture-session'));
+    assert.deepEqual(branch.files.map((file) => file.path), ['tracked.txt']);
+    const patch = read('patch', branch.files[0]);
+    assert(patch.patch.includes('+BRANCH_ONLY'));
+    assert(!patch.patch.includes('UNCOMMITTED'));
+    const working = read('browse', { root: feature, scope: 'working' });
+    assert(read('patch', working.files[0]).patch.includes('+UNCOMMITTED'));
+    assert(!working.files.some((file) => file.path === 'base-only.txt'));
+    assert.deepEqual(read('browse', { root: feature, scope: 'staged' }).files, []);
+    rmSync(join(feature, 'tracked.txt'));
+    const deleted = read('list', { root: feature }).items.find((item) => item.id === 'tracked.txt');
+    assert.equal(deleted.action.contributionId, 'changes.file');
+    assert(read('patch', deleted.action.params).patch.includes('-BRANCH_ONLY'));
+    const fresh = join(changesScratch, 'fresh'); mkdirSync(fresh);
+    git(['init', '-b', 'main'], fresh);
+    writeFileSync(join(fresh, 'first.txt'), 'FIRST_COMMIT_PENDING\n');
+    git(['add', '.'], fresh);
+    const first = read('browse', { cwd: fresh, scope: 'staged' });
+    assert(read('patch', { cwd: fresh, ...first.files[0] }).patch.includes('+FIRST_COMMIT_PENDING'));
+    assert.equal(read('browse', { cwd: fresh, scope: 'branch' }).files.length, 0);
+    assert.notEqual(call('browse', { root: changesScratch }).status, 0);
+    process.stdout.write('Changes worktree selection and pinned branch/working/staged diff flow ok\n');
+} finally { rmSync(changesScratch, { recursive: true, force: true }); }
