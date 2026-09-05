@@ -14,7 +14,8 @@ import { chunkAudio as chunkGeminiAudio, providerTools as geminiTools } from './
 import { providerTools as openaiTools } from './providers/openai.mjs';
 import { providerError, providerRefusal, providerTools as xaiTools } from './providers/xai.mjs';
 import { cleanProviderProse } from './coordinatorPolicy.mjs';
-import { approvedSignalingUrl } from './providers/codex.mjs';
+import { approvedSignalingUrl, providerTools as codexTools } from './providers/codex.mjs';
+import { createVoiceTools } from './toolRuntime.mjs';
 
 const streamEntry = fileURLToPath(new URL('./stream.mjs', import.meta.url));
 
@@ -379,13 +380,13 @@ describe('providerRefusal', () => {
                 'agent_context', 'list_agents', 'recent_agent_activity', 'start_agent', 'prompt_agent', 'send_agent_keybinding', 'read_agent_output', 'agent_status', 'watch_agent', 'focus_agent',
             ];
             const expectedAppTools = ['inspect_app', 'navigate_app', 'activate_app_control'];
-            expect(update.session.tools.map((tool) => tool.name)).toEqual([...expectedCodingTools, ...expectedAppTools]);
+            expect(update.session.tools.map((tool) => tool.name)).toEqual([...expectedCodingTools, ...expectedAppTools, 'read_work_context']);
             expect(update.session.tools.find((tool) => tool.name === 'start_agent').parameters.properties).not.toHaveProperty('name');
             expect(update.session.tools.find((tool) => tool.name === 'send_agent_keybinding').parameters.properties.key.enum).toEqual(['escape']);
-            for (const tools of [xaiTools, openaiTools, geminiTools]) {
+            for (const tools of [xaiTools, openaiTools, geminiTools, codexTools]) {
                 const promptTool = tools.find((tool) => tool.name === 'prompt_agent');
                 expect(promptTool.parameters.required).toEqual(['text']);
-                expect(tools.map((tool) => tool.name)).toEqual([...expectedCodingTools, ...expectedAppTools]);
+                expect(tools.map((tool) => tool.name)).toEqual([...expectedCodingTools, ...expectedAppTools, 'read_work_context']);
                 expect(tools.find((tool) => tool.name === 'read_agent_output').parameters.required).toBeUndefined();
                 const surface = JSON.stringify(tools);
                 expect(surface).not.toMatch(/herdr_cli|list_machines|end_conversation|list_panes|focus_pane|shell|close/);
@@ -737,6 +738,17 @@ describe('providerRefusal', () => {
         const payload = Buffer.from(JSON.stringify({ 'https://api.openai.com/auth': { chatgpt_account_id: account } })).toString('base64url');
         const token = `e30.${payload}.test-signature`;
         const codexState = await providerStateDir('codex');
+        const reads = [];
+        const mutations = [];
+        const agent = { sessionId: 'pp_summary_private', cwd: codexState, agentName: 'John', taskTitle: 'Repair voice', agentKind: 'codex', agentStatus: 'idle', promptable: true };
+        const refuseMutation = async () => { mutations.push('unexpected'); throw new Error('No mutation authorized in this flow'); };
+        const coordinator = new RealtimeCodingCoordinator(join(codexState, 'coding.sock'), {
+            list: async () => [agent], kinds: async () => ['codex'], activity: async () => [],
+            read: async (sessionId) => { reads.push(sessionId); return { text: 'Implemented reconnect recovery; all four focused checks pass. Live audio still needs verification.', truncated: false }; },
+            status: async () => 'idle', start: refuseMutation, prompt: refuseMutation, sendKeys: refuseMutation, watch: refuseMutation, focus: refuseMutation,
+        });
+        await coordinator.start();
+        const access = coordinator.issueCapability({ provider: 'muxr.voice', sessionId: agent.sessionId, cwd: codexState });
         const spawnProvider = (boundAccount = account) => {
             const child = spawn(process.execPath, [streamEntry], {
                 cwd: fileURLToPath(new URL('../..', import.meta.url)),
@@ -747,6 +759,8 @@ describe('providerRefusal', () => {
                     MUXR_TEST_CODEX_SIGNALING_URL: `http://127.0.0.1:${address.port}/signal`,
                     MUXR_TEST_CODEX_TOKEN: token,
                     MUXR_TEST_CODEX_ACCOUNT_ID: boundAccount,
+                    MUXR_VOICE_COORDINATOR_SOCKET: access.socketPath,
+                    MUXR_VOICE_COORDINATOR_CAPABILITY: access.capability,
                 },
                 stdio: ['pipe', 'pipe', 'pipe'],
             });
@@ -770,6 +784,7 @@ describe('providerRefusal', () => {
             expect(requests[0].headers['chatgpt-account-id']).toBe(account);
             expect(requests[0].headers.originator).toBe('Codex Desktop');
             expect(requests[0].body.sdp).toBe('v=0\r\na=offer');
+            expect(requests[0].body.session.delegation.ack_filler).toBe(false);
 
             flow.send({ type: 'realtime.webrtc.data', data: JSON.stringify({ type: 'session.started', session: { id: 'rtc_private' } }) });
             flow.send({ type: 'realtime.webrtc.data', data: JSON.stringify({ type: 'turn.done', turn: { role: 'user', transcript: 'Please inspect the build.' } }) });
@@ -786,7 +801,7 @@ describe('providerRefusal', () => {
                 type: 'realtime.webrtc.data',
                 data: JSON.stringify({
                     type: 'delegation.created',
-                    item: { id: 'delegation-no-target', content: [{ type: 'input_text', text: JSON.stringify({ name: 'inspect_app', arguments: {} }) }] },
+                    item: { type: 'delegation', target: 'client', id: 'delegation-no-target', content: [{ type: 'input_text', text: JSON.stringify({ name: 'inspect_app', arguments: {} }) }] },
                 }),
             });
             const appRequest = await waitFor(() => flow.frames.find((frame) => frame.type === 'realtime.app.request'), 'Codex did not dispatch its client tool');
@@ -809,6 +824,35 @@ describe('providerRefusal', () => {
                 }],
             });
             expect(delegationFrame.data).not.toMatch(/Queued:|sent|delivered/i);
+            const summaryRequest = { type: 'delegation.created', item: { type: 'delegation', target: 'client', id: 'summary-request', content: [{ type: 'input_text', text: 'Can you summarize what this agent has done?' }] } };
+            flow.send({ type: 'realtime.webrtc.data', data: JSON.stringify(summaryRequest) });
+            const summary = await waitFor(() => flow.frames.filter((frame) => frame.type === 'realtime.webrtc.data')
+                .map((frame) => JSON.parse(frame.data)).filter((frame) => frame.delegation_item_id === 'summary-request')
+                .map((frame) => frame.content?.map((part) => part.text).join('')).join('')
+                .includes('Implemented reconnect recovery'), 'A plain delegation must return actual work, not another promise or JSON retry');
+            expect(summary).toBe(true);
+            expect(reads).toEqual([agent.sessionId]);
+            flow.send({ type: 'realtime.webrtc.data', data: JSON.stringify(summaryRequest) });
+            flow.send({ type: 'realtime.webrtc.data', data: JSON.stringify({ type: 'turn.done', turn: { role: 'assistant', transcript: 'John implemented reconnect recovery and four checks pass; live audio is still unverified.' } }) });
+            await waitFor(() => flow.frames.some((frame) => frame.type === 'realtime.transcript' && frame.text.includes('John implemented')), 'Completed answer was not returned to the phone');
+            expect(reads).toHaveLength(1);
+            expect(JSON.stringify(flow.frames)).not.toContain(agent.sessionId);
+            expect(JSON.stringify(flow.frames)).not.toContain(access.capability);
+            expect(mutations).toEqual([]);
+            const kernelFrames = [];
+            let aborted = false;
+            const kernel = createVoiceTools((frame) => kernelFrames.push(frame), {
+                timeoutMs: 20, answerTimeoutMs: 20,
+                invoke: (_name, _args, _id, signal) => new Promise(() => { signal.addEventListener('abort', () => { aborted = true; }); }),
+            });
+            try {
+                const request = kernel.run('read_agent_output', {}, 'timeout-flow');
+                kernel.state('connected');
+                expect(kernelFrames.at(-1).state).toBe('thinking');
+                expect(await request).toContain('timed out');
+                expect(aborted).toBe(true);
+                await waitFor(() => kernelFrames.some((frame) => frame.state === 'connected' && frame.detail?.includes('did not finish answering')), 'Missing generic unanswered-result feedback');
+            } finally { kernel.close(); }
             flow.send({ type: 'realtime.control', action: 'stop' });
             await waitFor(() => flow.frames.some((frame) => frame.type === 'realtime.closed'), 'Codex provider did not close');
             await waitFor(() => flow.child.exitCode !== null, `Codex provider did not exit: ${flow.errors.join('\n')}`);
@@ -822,6 +866,8 @@ describe('providerRefusal', () => {
             expect(requests).toHaveLength(1);
             if (refused.child.exitCode === null) refused.child.kill('SIGKILL');
         } finally {
+            await coordinator.close();
+            await rm(codexState, { recursive: true, force: true });
             if (flow.child.exitCode === null) flow.child.kill('SIGKILL');
             const closed = Promise.withResolvers();
             server.close(closed.resolve);

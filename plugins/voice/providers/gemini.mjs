@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { createAppTools } from '../appTools.mjs';
+import { createVoiceTools, voiceTools } from '../toolRuntime.mjs';
 /**
  * Gemini Live speech-to-speech adapter behind the provider-neutral realtime stream.
  *
@@ -15,12 +15,9 @@ import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import {
     cleanProviderProse,
-    codingTools,
-    appTools,
     appControlInstructions,
     workspaceContext,
     isExplicitHangup,
-    runCodingTool,
     voiceCoordinationInstructions,
 } from '../coordinatorPolicy.mjs';
 
@@ -33,9 +30,9 @@ const OUTPUT_RATE = 24_000;
 const root = process.env.MUXR_HOME?.trim() || join(homedir(), '.muxr');
 const keyFile = join(root, 'gemini.key');
 let endAfterResponse = false;
-export const providerTools = [...codingTools, ...appTools];
+export const providerTools = voiceTools;
 let currentContext = '';
-const app = createAppTools((frame) => emit(frame));
+const tools = createVoiceTools((frame) => emit(frame));
 
 const geminiSchema = (value) => {
     if (Array.isArray(value)) return value.map(geminiSchema);
@@ -135,9 +132,7 @@ const emitAudio = (audio) => {
         if (!emit({ type: 'realtime.audio', data })) break;
     }
 };
-const state = (value, detail) => emit(detail === undefined
-    ? { type: 'realtime.state', state: value }
-    : { type: 'realtime.state', state: value, detail });
+const state = (value, detail) => tools.state(value, detail);
 
 const PROMPT = `You are the voice interface to a herd of coding agents. You are direct and brief. Speak with bright, upbeat energy and brisk enthusiasm; sound alert and helpful, never sultry or sleepy.
 
@@ -177,7 +172,7 @@ let closing = false;
 const close = (reason, force = false) => {
     if (closing) return;
     closing = true;
-    app.close();
+    tools.close();
     emit({ type: 'realtime.closed', reason }, () => process.exit(0), force);
 };
 
@@ -199,7 +194,7 @@ export function providerError(error) {
     const detail = cleanProviderProse(raw, 'provider error', 200);
     return { detail, terminal: /api key|auth|credit|quota|billing|permission|forbidden|invalid json|invalid payload|unknown name|unsupported/i.test(detail) };
 }
-const runTool = (name, input, operationId, signal) => app.run(name, input) ?? runCodingTool(name, input, operationId, signal);
+const runTool = (name, input, operationId, signal) => tools.run(name, input, operationId, signal);
 
 let inputTranscript = '';
 let outputTranscript = '';
@@ -207,6 +202,7 @@ let turnThinking = false;
 let finishTimer;
 
 function finishTurn() {
+    if (outputTranscript.trim()) tools.answered();
     if (isExplicitHangup(inputTranscript)) endAfterResponse = true;
     if (inputTranscript.trim()) emit({ type: 'realtime.transcript', role: 'user', text: inputTranscript.trim() });
     if (outputTranscript.trim()) emit({ type: 'realtime.transcript', role: 'agent', text: outputTranscript.trim() });
@@ -303,7 +299,7 @@ function handleGeminiEvent(raw) {
 }
 
 function handleClientFrame(frame) {
-    if (app.receive(frame)) return;
+    if (tools.receive(frame)) return;
     if (frame.type === 'realtime.control') {
         if (frame.action === 'stop') {
             stopped = true;

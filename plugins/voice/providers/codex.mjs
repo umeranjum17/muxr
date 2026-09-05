@@ -15,12 +15,13 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import {
-    cleanProviderProse, codingTools, appTools, runCodingTool, voiceCoordinationInstructions, appControlInstructions, workspaceContext,
+    cleanProviderProse, voiceCoordinationInstructions, appControlInstructions, workspaceContext,
     isExplicitHangup,
 } from '../coordinatorPolicy.mjs';
 
-import { createAppTools } from '../appTools.mjs';
+import { createVoiceTools, voiceTools } from '../toolRuntime.mjs';
 
+export const providerTools = voiceTools;
 const CODEX_CLIENT_VERSION = '0.144.1';
 const SIGNALING_URL = process.env.NODE_ENV === 'test' && process.env.MUXR_TEST_CODEX_SIGNALING_URL
     ? process.env.MUXR_TEST_CODEX_SIGNALING_URL
@@ -38,7 +39,8 @@ const PROMPT = `You are Codex Voice inside muxr. Be direct and brief. Speak in o
 ${voiceCoordinationInstructions}
 ${appControlInstructions}
 - To use a client tool, create a delegation whose input_text is exactly a JSON object with name and arguments. Choose name and arguments from this catalog:
-${JSON.stringify([...codingTools, ...appTools])}
+${JSON.stringify(voiceTools)}
+- Plain-text delegations receive read-only live work context from the kernel. Use it to answer summaries immediately. Actions require a structured tool request; never claim that context inspection performed an action.
 - For example, delegate {"name":"list_agents","arguments":{"query":"build"}}. Read its result before choosing the next action. Never ask the user to write this JSON or supply tool identifiers.
 - Never speak internal ids, including thread, session, pane, operation, provider, or delegation ids.
 - Report progress and blockers accurately. Never invent completion.
@@ -46,27 +48,22 @@ ${JSON.stringify([...codingTools, ...appTools])}
 - End only when the user clearly says goodbye or asks you to stop listening.`;
 
 let currentContext = '';
-const app = createAppTools((frame) => { emit(frame); });
+const tools = createVoiceTools((frame) => emit(frame));
 const delegations = new Map();
-const toolAbort = new AbortController();
-const availableTools = [...codingTools, ...appTools];
 let closing = false;
 let stopped = false;
 let offerAccepted = false;
 let endAfterResponse = false;
 
 const emit = (frame) => process.stdout.write(`${JSON.stringify(frame)}\n`);
-const state = (value, detail) => emit(detail === undefined
-    ? { type: 'realtime.state', state: value }
-    : { type: 'realtime.state', state: value, detail });
+const state = (value, detail) => tools.state(value, detail);
 const safe = (value, fallback = 'provider error', max = 500) => cleanProviderProse(value, fallback, max);
 
 function close(reason) {
     if (closing) return;
     closing = true;
     stopped = true;
-    toolAbort.abort();
-    app.close();
+    tools.close();
     process.stdout.write(`${JSON.stringify({ type: 'realtime.closed', reason: safe(reason, 'ended') })}\n`, () => process.exit(0));
 }
 
@@ -219,29 +216,22 @@ function appendContext(text, delegationId) {
 }
 
 async function delegate(event) {
+    if (event.item?.type !== 'delegation' || event.item?.target !== 'client') return;
     const id = typeof event.item?.id === 'string' ? event.item.id : '';
     const request = Array.isArray(event.item?.content)
         ? event.item.content.filter((item) => item?.type === 'input_text' && typeof item.text === 'string').map((item) => item.text).join('\n')
         : '';
-    if (!id || !request.trim()) return;
+    if (!id || id.length > 128) {
+        state('connected', 'The voice provider sent an invalid work request. No action was confirmed.');
+        return;
+    }
     if (delegations.has(id)) return;
     if (delegations.size >= 128 || Buffer.byteLength(request) > 16000) {
         appendContext('That tool request exceeds the session limit.', id); return;
     }
     delegations.set(id, true);
     state('thinking');
-    let result;
-    try {
-        const call = JSON.parse(request);
-        if (!call || !availableTools.some((tool) => tool.name === call.name)
-            || !call.arguments || typeof call.arguments !== 'object' || Array.isArray(call.arguments)) {
-            throw new Error('invalid tool request');
-        }
-        result = await (app.run(call.name, call.arguments)
-            ?? runCodingTool(call.name, call.arguments, `codex:${id}`, toolAbort.signal));
-    } catch {
-        result = 'No action was confirmed. Use a client tool delegation with name and arguments from the supplied catalog; inspect or search first if the target is unclear.';
-    }
+    const result = await tools.delegate(request, `codex:${id}`);
     if (!stopped) appendContext(result, id);
 }
 
@@ -268,7 +258,7 @@ function handleWebRtcData(data) {
                 emit({ type: 'realtime.transcript', role, text: transcript });
                 close('ended');
                 break;
-            } else state('connected');
+            } else { tools.answered(); state('connected'); }
             emit({ type: 'realtime.transcript', role, text: transcript });
             break;
         }
@@ -295,7 +285,7 @@ async function signalOffer(sdp) {
             sdp,
             session: {
                 model: 'gpt-live-1-codex', instructions: PROMPT + currentContext,
-                audio: { output: { voice: 'sol' } }, delegation: { type: 'client' },
+                audio: { output: { voice: 'sol' } }, delegation: { type: 'client', ack_filler: false },
             },
         }),
     });
@@ -306,7 +296,7 @@ async function signalOffer(sdp) {
 }
 
 function handleClientFrame(frame) {
-    if (app.receive(frame)) return;
+    if (tools.receive(frame)) return;
     if (frame.type === 'realtime.webrtc.offer') void signalOffer(frame.sdp).catch((error) => close(error.message));
     else if (frame.type === 'realtime.webrtc.data') handleWebRtcData(frame.data);
     else if (frame.type === 'realtime.say') appendContext(frame.text);

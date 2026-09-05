@@ -122,7 +122,8 @@ export const appTools = [
 ];
 
 
-export const voiceCoordinationInstructions = `- Speak about the team naturally, for example: “John is stabilizing realtime voice.”
+export const voiceCoordinationInstructions = `- Finish a work request with the real result or a clear failure. Acknowledgements such as Checking now are not an answer. Read tools supply the evidence; after their result, answer the original question without another promise.
+- Speak about the team naturally, for example: “John is stabilizing realtime voice.”
 - Before a long-running tool call, say one short spoken preamble, then call it immediately.
 - Ask for confirmation only before destructive actions. No destructive actions are available here, so do not ask for confirmation.
 - Before sending an instruction, resolve its target from the user's words and current context. If no target is clear, use agent_context and inspect_app, then offer a concrete suggestion such as 'You last viewed John on the audio fix; is that the one?' Do not ask the user to memorize or repeat names. Omitting prompt_agent.agent returns context without sending anything.
@@ -144,6 +145,7 @@ export const appControlInstructions = `- Use inspect_app before app navigation o
 const text = (value) => String(value ?? '').trim();
 
 async function requestCoordinator(request, signal) {
+    if (signal?.aborted) throw new Error('Voice coordination cancelled.');
     const socketPath = process.env.MUXR_VOICE_COORDINATOR_SOCKET;
     const capability = process.env.MUXR_VOICE_COORDINATOR_CAPABILITY;
     if (!socketPath || !capability) throw new Error('Voice coding coordination is unavailable.');

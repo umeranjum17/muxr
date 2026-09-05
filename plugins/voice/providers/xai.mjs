@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { createVoiceTools, voiceTools } from '../toolRuntime.mjs';
 /**
  * xAI Grok speech-to-speech adapter behind the provider-neutral realtime stream.
  *
@@ -8,19 +9,15 @@
  * only ever see the generic frame vocabulary.
  */
 import WebSocket from 'ws';
-import { randomUUID } from 'node:crypto';
 import { lstat, readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import {
-    appTools,
     appControlInstructions,
     cleanProviderProse,
-    codingTools,
     workspaceContext,
     isExplicitHangup,
-    runCodingTool,
     voiceCoordinationInstructions,
 } from '../coordinatorPolicy.mjs';
 
@@ -32,7 +29,7 @@ const PROVIDER_URL = process.env.NODE_ENV === 'test' && process.env.MUXR_TEST_XA
 const root = process.env.MUXR_HOME?.trim() || join(homedir(), '.muxr');
 const keyFile = join(root, 'xai.key');
 let endAfterResponse = false;
-export const providerTools = [...codingTools, ...appTools];
+export const providerTools = voiceTools;
 let currentContext = '';
 
 const MAX_STDOUT_BYTES = 256 * 1024;
@@ -89,9 +86,7 @@ const emitAudio = (audio) => {
     for (const data of chunkAudio(audio)) emitted = emit({ type: 'realtime.audio', data }) || emitted;
     return emitted;
 };
-const state = (value, detail) => emit(detail === undefined
-    ? { type: 'realtime.state', state: value }
-    : { type: 'realtime.state', state: value, detail });
+const state = (value, detail) => tools.state(value, detail);
 
 const PROMPT = `You are the voice interface to a herd of coding agents. You are direct and brief. Speak with bright, upbeat energy and brisk enthusiasm; sound alert and helpful, never sultry or sleepy.
 
@@ -126,32 +121,7 @@ async function readKey() {
     return value;
 }
 
-const pendingAppRequests = new Map();
-const requestApp = (action, target) => {
-    if (action !== 'view' && (target === '' || Buffer.byteLength(target, 'utf8') > 160)) {
-        return Promise.resolve(action === 'navigate'
-            ? 'I could not find one app destination with that name. Ask me to inspect the app.'
-            : 'I could not find one visible control with that name. Ask me to inspect the app.');
-    }
-    return new Promise((resolve) => {
-        const requestId = randomUUID();
-        const timer = setTimeout(() => {
-            pendingAppRequests.delete(requestId);
-            resolve('The app did not answer that semantic request. Please try again.');
-        }, 15_000);
-        pendingAppRequests.set(requestId, {
-            resolve: (value) => {
-                clearTimeout(timer);
-                resolve(value);
-            },
-        });
-        if (!emit({ type: 'realtime.app.request', requestId, action, ...(target ? { target } : {}) })) {
-            clearTimeout(timer);
-            pendingAppRequests.delete(requestId);
-            resolve('The app could not receive that semantic request.');
-        }
-    });
-};
+const tools = createVoiceTools((frame) => emit(frame));
 
 let closing = false;
 const close = (reason, forceExit = false) => {
@@ -159,8 +129,7 @@ const close = (reason, forceExit = false) => {
     closing = true;
     clearTimeout(reconnectTimer);
     clearTimeout(stableTimer);
-    for (const pending of pendingAppRequests.values()) pending.resolve('The app semantic request was cancelled.');
-    pendingAppRequests.clear();
+    tools.close();
     clearTimeout(inputPoll);
     const timer = setTimeout(() => process.exit(forceExit ? 1 : 0), 1_000);
     emit({ type: 'realtime.closed', reason }, () => {
@@ -203,12 +172,7 @@ export function providerError(error) {
     const detail = cleanProviderProse(raw, 'provider error', 200);
     return { detail, terminal: /api key|auth|credit|quota|billing|permission|forbidden|invalid json|invalid payload|unknown name|unsupported/i.test(detail) };
 }
-const runTool = (name, input, operationId) => {
-    if (name === 'inspect_app') return requestApp('view');
-    if (name === 'navigate_app') return requestApp('navigate', text(input?.destination));
-    if (name === 'activate_app_control') return requestApp('activate', text(input?.control));
-    return runCodingTool(name, input, operationId);
-};
+const runTool = (name, input, operationId) => tools.run(name, input, operationId);
 
 const currentProvider = (current, epoch) => !stopped && ws === current && providerEpoch === epoch;
 const finishGracefulEndIfDrained = () => {
@@ -330,6 +294,7 @@ function handleXaiEvent(raw, current, epoch) {
             break;
         case 'response.output_audio_transcript.done':
             if (typeof message.transcript === 'string' && message.transcript.trim() !== '') {
+                tools.answered();
                 emit({ type: 'realtime.transcript', role: 'agent', text: message.transcript });
             }
             break;
@@ -396,14 +361,7 @@ const clientFrameBytes = (frame) => frame.type === 'realtime.audio'
     : Buffer.byteLength(JSON.stringify(frame));
 
 function handleClientFrame(frame) {
-    if (frame.type === 'realtime.app.result') {
-        const pending = pendingAppRequests.get(frame.requestId);
-        if (pending !== undefined) {
-            pendingAppRequests.delete(frame.requestId);
-            pending.resolve(frame.text);
-        }
-        return;
-    }
+    if (tools.receive(frame)) return;
     if (frame.type === 'realtime.control') {
         if (frame.action === 'stop') {
             stopped = true;

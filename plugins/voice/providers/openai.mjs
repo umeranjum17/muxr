@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { createAppTools } from '../appTools.mjs';
+import { createVoiceTools, voiceTools } from '../toolRuntime.mjs';
 /**
  * OpenAI Realtime speech-to-speech adapter behind the provider-neutral realtime stream.
  *
@@ -15,12 +15,9 @@ import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import {
     cleanProviderProse,
-    codingTools,
-    appTools,
     appControlInstructions,
     workspaceContext,
     isExplicitHangup,
-    runCodingTool,
     voiceCoordinationInstructions,
 } from '../coordinatorPolicy.mjs';
 
@@ -29,9 +26,9 @@ const RATE = 24_000;
 const root = process.env.MUXR_HOME?.trim() || join(homedir(), '.muxr');
 const keyFile = join(root, 'openai.key');
 let endAfterResponse = false;
-export const providerTools = [...codingTools, ...appTools];
+export const providerTools = voiceTools;
 let currentContext = '';
-const app = createAppTools((frame) => { emit(frame); });
+const tools = createVoiceTools((frame) => emit(frame));
 
 const emit = (frame) => process.stdout.write(`${JSON.stringify(frame)}\n`);
 // Provider deltas may exceed the public frame bound after tool calls. Base64 is
@@ -45,9 +42,7 @@ export function chunkAudio(audio) {
 const emitAudio = (audio) => {
     for (const data of chunkAudio(audio)) emit({ type: 'realtime.audio', data });
 };
-const state = (value, detail) => emit(detail === undefined
-    ? { type: 'realtime.state', state: value }
-    : { type: 'realtime.state', state: value, detail });
+const state = (value, detail) => tools.state(value, detail);
 
 const PROMPT = `You are the voice interface to a herd of coding agents. You are direct and brief. Speak with bright, upbeat energy and brisk enthusiasm; sound alert and helpful, never sultry or sleepy.
 
@@ -87,7 +82,7 @@ let closing = false;
 const close = (reason) => {
     if (closing) return;
     closing = true;
-    app.close();
+    tools.close();
     process.stdout.write(`${JSON.stringify({ type: 'realtime.closed', reason })}\n`, () => process.exit(0));
 };
 
@@ -101,7 +96,7 @@ export function providerError(error) {
     const detail = cleanProviderProse(raw, 'provider error', 200);
     return { detail, terminal: /api key|auth|credit|quota|billing|permission|forbidden|invalid json|invalid payload|unknown name|unsupported/i.test(detail) };
 }
-const runTool = (name, input, operationId) => app.run(name, input) ?? runCodingTool(name, input, operationId);
+const runTool = (name, input, operationId, signal) => tools.run(name, input, operationId, signal);
 
 const pendingToolCalls = new Map();
 
@@ -166,6 +161,7 @@ function handleOpenAiEvent(raw) {
             break;
         case 'response.output_audio_transcript.done':
             if (typeof message.transcript === 'string' && message.transcript.trim() !== '') {
+                tools.answered();
                 emit({ type: 'realtime.transcript', role: 'agent', text: message.transcript });
             }
             break;
@@ -193,7 +189,7 @@ function handleOpenAiEvent(raw) {
 }
 
 function handleClientFrame(frame) {
-    if (app.receive(frame)) return;
+    if (tools.receive(frame)) return;
     if (ws?.readyState !== WebSocket.OPEN) return;
     if (frame.type === 'realtime.audio') {
         ws.send(JSON.stringify({ type: 'input_audio_buffer.append', audio: frame.data }));
