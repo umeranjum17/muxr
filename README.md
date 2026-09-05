@@ -20,7 +20,7 @@
   <a href="https://play.google.com/apps/testing/com.trymuxr.app">Google Play testing</a> ·
   <a href="https://testflight.apple.com/join/aJSbs8pN">iOS TestFlight</a> ·
   <a href="https://github.com/umeranjum17/muxr/releases/latest/download/muxr-android.apk">Direct APK: latest signed build</a> ·
-  <a href="https://github.com/umeranjum17/muxr/releases/tag/v0.1.25">Release 0.1.25</a>
+  <a href="https://github.com/umeranjum17/muxr/releases/tag/v0.1.26">Release 0.1.26</a>
 </p>
 
 <p align="center">
@@ -103,8 +103,8 @@ Use native realtime speech-to-speech when typing is the slow part. Ask what chan
 **Also on your phone:**
 
 - **New agents and worktrees** — choose the machine, repository, worktree, and one of 20+ agent CLIs from the home composer.
-- **Files, attachments, ports, and previews** — inspect outputs or open the dev server an agent just started.
-- **Usage, runbooks, and [extensions](https://trymuxr.com/docs/plugins)** — add phone-native controls and screens without forking the app.
+- **Files, attachments, and changes** — inspect repository files, diffs, and agent outputs from your phone.
+- **Usage and [extensions](https://trymuxr.com/docs/plugins)** — add phone-native controls and screens without forking the app.
 
 The [release history](https://github.com/umeranjum17/muxr/releases) is the real feature list.
 
@@ -127,7 +127,7 @@ Terminal text, prompts, responses, keystrokes, files, pairing secrets, and crede
 You need [Node.js 22 or newer](https://nodejs.org/) on Linux, macOS, or WSL. muxr installs [Herdr](https://herdr.dev) during setup if it is missing.
 
 ```bash
-npm install -g --ignore-scripts @trymuxr/cli@0.1.25
+npm install -g --ignore-scripts @trymuxr/cli@0.1.26
 muxr
 ```
 
@@ -136,9 +136,9 @@ Then install the mobile companion:
 - **Android:** [join Google Play testing](https://play.google.com/apps/testing/com.trymuxr.app) · [download the latest signed APK](https://github.com/umeranjum17/muxr/releases/latest/download/muxr-android.apk) · [SHA256SUMS](https://github.com/umeranjum17/muxr/releases/latest/download/SHA256SUMS)
 - **iOS:** [open the public TestFlight link](https://testflight.apple.com/join/aJSbs8pN) — 0.1.24 (build 45); Apple is not accepting new testers right now
 - **Web:** pair an eight-hour read-only browser during self-hosted setup
-- **All builds:** [muxr 0.1.25 release](https://github.com/umeranjum17/muxr/releases/tag/v0.1.25)
+- **All builds:** [muxr 0.1.26 release](https://github.com/umeranjum17/muxr/releases/tag/v0.1.26)
 
-Verify a downloaded APK with `sha256sum --ignore-missing -c SHA256SUMS`, then run `muxr`, choose **Apply setup**, and scan the one-use QR from the phone. Start with LAN when both devices are on the same Wi-Fi.
+Verify a downloaded APK with `sha256sum --ignore-missing -c SHA256SUMS`, then run `muxr`. Setup explains one recommended route—the healthy current route, Tailscale, an existing private network, an installed temporary tunnel, or same Wi-Fi—and changes nothing until **Apply setup**. Scan the one-use QR from the phone when it is ready.
 
 [Read the step-by-step quickstart →](https://trymuxr.com/docs/quickstart)
 

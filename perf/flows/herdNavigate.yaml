@@ -1,0 +1,91 @@
+appId: com.trymuxr.app
+tags:
+  - perf
+---
+# Mount and unmount churn, which is where a starved JS thread shows up as a
+# screen that never comes back: attach an agent's terminal, drag its scrollback
+# top to bottom, detach, walk the plugin tabs, leave the app and return.
+#
+# Each pass starts by putting the app back on the herd, because a relaunch
+# restores whatever screen it was last on.
+- repeat:
+    times: 4
+    commands:
+      # Android and the app both raise one-off prompts (live updates, battery,
+      # notifications); none of them are what this flow measures, and they queue
+      # one behind another.
+      - tapOn:
+          text: 'CANCEL|Not now|Deny|Later'
+          optional: true
+      - tapOn:
+          text: 'CANCEL|Not now|Deny|Later'
+          optional: true
+      # A previous pass may have left a terminal open.
+      - runFlow:
+          when:
+            visible:
+              text: 'Type a prompt.*'
+          commands:
+            - back
+      - runFlow:
+          when:
+            visible:
+              text: 'Go back'
+          commands:
+            - back
+      # A relaunch reconnects and refetches the herd before anything is live.
+      - extendedWaitUntil:
+          visible:
+            text: 'connected'
+          timeout: 40000
+      - extendedWaitUntil:
+          visible:
+            text: 'LIVE'
+          timeout: 40000
+      # The first live card is an agent, not a shell.
+      - tapOn:
+          point: 30%, 33%
+      - tapOn:
+          text: 'CANCEL|Not now|Deny|Later'
+          optional: true
+      # The terminal screen's own furniture. The terminal itself is a native
+      # surface with no accessibility text, so the gate proves the attach from
+      # the host's journal instead of from a label here.
+      - extendedWaitUntil:
+          visible:
+            text: 'Terminal|Type a prompt.*'
+          timeout: 20000
+      - repeat:
+          times: 8
+          commands:
+            - swipe:
+                start: 50%, 22%
+                end: 50%, 72%
+                duration: 90
+            - swipe:
+                start: 50%, 72%
+                end: 50%, 22%
+                duration: 90
+      - back
+      - tapOn:
+          text: 'Usage'
+          optional: true
+      - tapOn:
+          text: 'Files'
+          optional: true
+      - tapOn:
+          text: 'Panes'
+          optional: true
+      # Panes pushes a screen of its own; the tabs are behind it.
+      - runFlow:
+          when:
+            visible:
+              text: 'Go back'
+          commands:
+            - back
+      - tapOn:
+          text: 'Machine'
+          optional: true
+      - pressKey: Home
+      - launchApp:
+          appId: com.trymuxr.app

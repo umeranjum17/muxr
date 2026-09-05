@@ -391,12 +391,6 @@ export function parsePluginAction(value: unknown): PluginAction {
             return { type: 'kernel.navigate', target: 'file', path };
         }
         if (value.target === 'web-view') return { type: 'kernel.navigate', target: 'web-view', url: httpsUrl(value.url) };
-        if (value.target === 'preview') {
-            if (typeof value.port !== 'number' || !Number.isSafeInteger(value.port) || value.port < 1 || value.port > 65_535) {
-                throw new Error('invalid plugin preview port');
-            }
-            return { type: 'kernel.navigate', target: 'preview', port: value.port };
-        }
         throw new Error('unknown plugin navigation target');
     }
     if (value.type === 'open-url') return { type: 'open-url', url: httpsUrl(value.url) };

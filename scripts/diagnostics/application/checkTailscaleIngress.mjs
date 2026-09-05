@@ -3,11 +3,13 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileS
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
+    classifyNetworkRoutes,
     cleanupManagedIngress,
     continueWithDirectTailscale,
     inspectTailscaleServeRoot,
     persistOwnedServeIngress,
     readSelfhostState,
+    recommendedConnection,
     resolveAdvertise,
     selfhostArgsFromSetupPlan,
     tailscaleBin,
@@ -21,14 +23,42 @@ const originalPath = process.env.PATH;
 const originalHome = process.env.HOME;
 const originalMuxrHome = process.env.MUXR_HOME;
 const originalPlatform = process.env.MUXR_PLATFORM;
-const configure = (status, serveStatus = '{}') => {
-    writeFileSync(fake, `#!/bin/sh\nprintf '%s\\n' "$*" >> ${JSON.stringify(log)}\ncase "$*" in\n  "status --json") printf '%s' '${JSON.stringify(status)}' ;;\n  "serve status --json") printf '%s' '${serveStatus.replaceAll("'", "'\\''")}' ;;\n  "serve --yes --bg --https=443 http://127.0.0.1:8792") exit 0 ;;\n  "serve --https=443 off") exit 0 ;;\n  *) exit 1 ;;\nesac\n`);
+const configure = (status, serveStatus = '{}', serveApply = 'exit 0', serveStatusExit = 0) => {
+    writeFileSync(fake, `#!/bin/sh\nprintf '%s\\n' "$*" >> ${JSON.stringify(log)}\ncase "$*" in\n  "status --json") printf '%s' '${JSON.stringify(status)}' ;;\n  "serve status --json") printf '%s' '${serveStatus.replaceAll("'", "'\\''")}'; exit ${serveStatusExit} ;;\n  "serve --yes --bg --https=443 http://127.0.0.1:8792") ${serveApply} ;;\n  "serve --https=443 off") exit 0 ;;\n  *) exit 1 ;;\nesac\n`);
     chmodSync(fake, 0o755);
 };
 const commandsSince = (offset) => (existsSync(log) ? readFileSync(log, 'utf8') : '').slice(offset);
 process.env.PATH = `${scratch}:${originalPath}`;
 process.env.MUXR_HOME = join(scratch, 'muxr-home');
 try {
+    const routes = classifyNetworkRoutes({
+        docker0: [{ family: 'IPv4', internal: false, address: '172.17.0.1' }],
+        vboxnet0: [{ family: 'IPv4', internal: false, address: '192.168.56.1' }],
+        eno1: [{ family: 'IPv4', internal: false, address: '192.168.1.8' }],
+        wt0: [{ family: 'IPv4', internal: false, address: '100.90.0.4' }],
+        tailscale0: [{ family: 'IPv4', internal: false, address: '100.64.0.1' }],
+    });
+    assert.deepEqual(routes, {
+        private: { address: '100.90.0.4', interface: 'wt0', provider: 'NetBird' },
+        lan: '192.168.1.8',
+    });
+    assert.deepEqual(classifyNetworkRoutes({
+        utun4: [{ family: 'IPv4', internal: false, address: '100.64.0.1' }],
+        utun5: [{ family: 'IPv4', internal: false, address: '10.20.0.2' }],
+    }, '100.64.0.1').private, { address: '10.20.0.2', interface: 'utun5', provider: 'private network' });
+    const found = { tailscale: { connected: false }, private: routes.private, lan: routes.lan, cloudflared: { ok: false } };
+    assert.equal(recommendedConnection(found, undefined, false, { status: 'inconclusive' }).mode, 'private');
+    assert.equal(recommendedConnection(found, undefined, true, { status: 'inconclusive' }).mode, 'private');
+    assert.equal(recommendedConnection({ ...found, private: undefined, cloudflared: { ok: true } }, undefined, false, { status: 'inconclusive' }).mode, 'cloudflare');
+    assert.equal(recommendedConnection({ ...found, private: undefined }, undefined, false, { status: 'inconclusive' }).mode, 'lan');
+    const privateArgs = selfhostArgsFromSetupPlan({ mode: 'private', port: 8792, web: false, pairing: 'phone', found });
+    assert.deepEqual(privateArgs.slice(-2), ['--advertise', 'ws://100.90.0.4:8792']);
+    assert.equal((await resolveAdvertise(privateArgs, 8792)).url, 'ws://100.90.0.4:8792');
+    assert.equal(recommendedConnection(found, { connectionMode: 'external', relayUrl: 'wss://relay.example', relayPort: 8792, relayHealthy: true, publicHealthy: true }, false, { status: 'free' }).mode, 'external');
+    assert.equal(recommendedConnection({ ...found, tailscale: { connected: true } }, undefined, false, { status: 'inconclusive' }).mode, 'tailscale');
+    assert.equal(recommendedConnection({ ...found, tailscale: { connected: true } }, undefined, false, { status: 'disabled' }).mode, 'tailscale-direct');
+    assert.equal(recommendedConnection({ ...found, tailscale: { connected: true } }, undefined, false, { status: 'occupied' }).mode, 'tailscale-direct');
+
     configure({ Self: { DNSName: 'dev.tailnet.ts.net.', TailscaleIPs: ['100.64.0.1'] } });
     const ingress = tailscaleIngress([]);
     assert.deepEqual(ingress, { dnsName: 'dev.tailnet.ts.net' });
@@ -37,6 +67,24 @@ try {
         note: 'Tailscale Serve (private tailnet HTTPS)',
         ingress: { kind: 'tailscale-serve', port: 8792, dnsName: 'dev.tailnet.ts.net', proxy: 'http://127.0.0.1:8792' },
     });
+
+    const disabledNotice = 'Serve is not enabled on your tailnet.\nTo enable, visit: https://login.tailscale.com/f/serve-test';
+    configure({ Self: { DNSName: 'dev.tailnet.ts.net.', TailscaleIPs: ['100.64.0.1'] } }, disabledNotice, 'exit 0', 1);
+    const unavailable = inspectTailscaleServeRoot(8792, 'dev.tailnet.ts.net');
+    assert.equal(unavailable.status, 'disabled');
+    assert.match(unavailable.reason, /Serve is not enabled.*login\.tailscale\.com.*direct Tailscale or LAN/s);
+
+    configure({ Self: { DNSName: 'dev.tailnet.ts.net.', TailscaleIPs: ['100.64.0.1'] } }, 'not json');
+    assert.equal(inspectTailscaleServeRoot(8792, 'dev.tailnet.ts.net').status, 'inconclusive');
+
+    configure(
+        { Self: { DNSName: 'dev.tailnet.ts.net.', TailscaleIPs: ['100.64.0.1'] } },
+        '{}',
+        `printf '%s\\n' '${disabledNotice.replaceAll("'", "'\\''")}' >&2; exec sleep 30`,
+    );
+    const blockedAt = Date.now();
+    await assert.rejects(resolveAdvertise([], 8792, tailscaleIngress([])), /Serve is not enabled.*login\.tailscale\.com.*direct Tailscale or LAN/s);
+    assert.ok(Date.now() - blockedAt < 20_000, 'disabled Tailscale Serve left setup blocked');
 
     configure({ Self: { DNSName: 'dev.tailnet.ts.net.' } }, JSON.stringify({ TCP: { '443': { HTTPS: true } }, Web: { 'dev.tailnet.ts.net:443': { Handlers: { '/': { Proxy: 'http://127.0.0.1:9999' } } } } }));
     await assert.rejects(resolveAdvertise([], 8792, tailscaleIngress([])), /already owned/);

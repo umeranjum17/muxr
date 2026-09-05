@@ -21,6 +21,7 @@ import { layout } from '@/components/layout';
 import { t } from '@/text';
 import { requestPermissionAndSubscribe, refreshPushState, type PushState } from '@/utils/pushNotifications';
 import { loadAppConfig } from '@/catalog/infrastructure/appConfig';
+import { formatConnectionDiagnosticsForReport } from '@/catalog/infrastructure/connectionDiagnostics';
 import { knownHostVersion } from '@/utils/versionStatus';
 import { requestNotificationPermission } from '@/utils/microphonePermissions';
 import { registerNativePushNotifications } from '@/utils/nativePushNotifications';
@@ -517,7 +518,7 @@ export const SettingsView = React.memo(function SettingsView({
                     title="Redacted diagnostics"
                     subtitle={`Connection: ${pushState === 'unsupported' ? 'available in muxr doctor' : 'app active'} · Provider details hidden`}
                     icon={<Ionicons name="pulse-outline" size={29} color={theme.colors.textSecondary} />}
-                    onPress={() => Modal.alert('Redacted diagnostics', `App ${versionDetail}\nConnection internals and secrets are intentionally hidden. Run muxr doctor on your computer for exportable redacted diagnostics.`)}
+                    onPress={() => Modal.alert('Redacted diagnostics', `App ${versionDetail}\n${formatConnectionDiagnosticsForReport()}`)}
                 />
                 <Item
                     title={t('settings.whatsNew')}

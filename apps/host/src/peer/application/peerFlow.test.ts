@@ -578,6 +578,16 @@ describe('host peer collaboration flow', () => {
         diagnostics.agentLaunch('rejected', { kind: 'cursor', gate: 'unnamed' });
         diagnostics.agentLaunch('rejected', { kind: 'w1EW:pH', gate: 'no-session' });
         diagnostics.request('terminal.attach', 'native', 'rejected', 11, 'socket-timeout');
+        diagnostics.graphicsPipeline({
+            frames: 12,
+            superseded: 3,
+            p50Ms: 40.4,
+            p95Ms: 90.6,
+            bytesP95: 1_600_000.2,
+            pixelsP95: 309_925.8,
+            notchesSent: 9.7,
+            notchesDropped: 2.2,
+        });
         for (let index = 0; index < 600; index += 1) diagnostics.request('herdr.tree', 'native', 'ok', 1);
         await broker.close();
         await diagnostics.flush();
@@ -602,6 +612,9 @@ describe('host peer collaboration flow', () => {
             expect.objectContaining({ event: 'agent.readiness', reason: 'not-promptable', kind: 'omp', lifecycle: 'idle', gate: 'not-interactive' }),
         ]));
         expect(diagnosticEvents).toContainEqual(expect.objectContaining({ event: 'client.request', request: 'terminal.attach', outcome: 'rejected', code: 'socket-timeout' }));
+        expect(diagnosticEvents).toContainEqual(expect.objectContaining({
+            event: 'graphics.pipeline', frames: 12, superseded: 3, p50Ms: 40, p95Ms: 91, bytesP95: 1600000, pixelsP95: 309926, notchesSent: 10, notchesDropped: 2,
+        }));
         expect(diagnosticEvents).not.toContainEqual(expect.objectContaining({ kind: 'w1EW:pH' }));
         expect(diagnosticEvents).not.toContainEqual(expect.objectContaining({ kind: 'w1ew:ph' }));
         expect(diagnosticEvents).not.toContainEqual(expect.objectContaining({ event: 'client.request', request: 'herdr.tree', outcome: 'ok' }));
@@ -809,6 +822,7 @@ describe('host peer collaboration flow', () => {
                 ingressKeys: { [peerDeviceId]: ingressKey }, deviceKinds: { [peerDeviceId]: 'peer' },
             },
             onPeerIngress: (outcome) => diagnostics.peerIngress(outcome),
+            onClientReject: (clientKey, kind, outcome) => diagnostics.clientReject(clientKey, kind, outcome),
             onClientFrame: () => decoded(),
         });
         const socket = await accepted;
@@ -816,6 +830,7 @@ describe('host peer collaboration flow', () => {
             machineId, senderId: peerDeviceId, recipientId: machineId,
             channel: 'session' as const, streamId: 'machine', keyVersion: 1, at: Date.now(),
         };
+        socket.send('null');
         socket.send(JSON.stringify({ header: { ...header, seq: 0 }, payload: 'invalid-ciphertext' } satisfies Envelope));
         const payload = sealV2(
             encodePayload({ type: 'client.hello', clientId: 'private-client' }),
@@ -830,6 +845,8 @@ describe('host peer collaboration flow', () => {
         const state = JSON.parse(output) as { events: Array<{ event: string; outcome?: string }> };
         expect(state.events.filter((event) => event.event === 'peer.ingress').map((event) => event.outcome))
             .toEqual(['received', 'decrypt-rejected', 'received', 'decoded']);
+        expect(state.events.filter((event) => event.event === 'client.reject').map((event) => event.outcome))
+            .toEqual(['malformed', 'decrypt-rejected']);
         expect(output).not.toContain(machineId);
         expect(output).not.toContain(peerDeviceId);
         link.close();

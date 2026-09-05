@@ -11,7 +11,8 @@
         "postinstall": "patch-package && node scripts/diagnostics/application/verifyNativePatches.mjs",
         "build": "tsc --build",
         "typecheck": "tsc --build --force",
-        "check": "node scripts/diagnostics/application/runSuite.mjs",
+    "perf": "node perf/releaseGate.mjs",
+    "check": "node scripts/diagnostics/application/runSuite.mjs",
         "check:architecture": "npx vitest run apps/mobile/sources/architecture.spec.ts --config apps/mobile/vitest.config.ts && npx vitest run apps/host/src/architecture.test.ts apps/relay/src/architecture.test.ts && node packages/checkArchitecture.mjs && node scripts/diagnostics/application/checkArchitecture.mjs",
         "up": "node scripts/setup/presentation/up.mjs",
         "relay": "node apps/relay/dist/main.js",
@@ -144,5 +145,5 @@
         "zod": "4.4.3",
         "zustand": "5.0.10"
     },
-    "version": "0.1.25"
+    "version": "0.1.26"
 }

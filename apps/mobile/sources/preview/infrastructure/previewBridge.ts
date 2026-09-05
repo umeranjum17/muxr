@@ -1,5 +1,5 @@
 /**
- * Browser preview, device end.
+ * Native preview tunnel, device end.
  *
  * The listener lives on the phone's own loopback and the relay only forwards
  * frames, so the preview URL is `http://127.0.0.1:<port>/`: a secure context to

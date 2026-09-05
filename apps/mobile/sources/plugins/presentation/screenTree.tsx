@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { Easing, FadeIn, SlideInLeft, SlideInRight, runOnJS, useReducedMotion } from 'react-native-reanimated';
@@ -11,7 +11,8 @@ import { asScreenTree, type RuntimeTreeItem } from '../domain/screenTreeModel';
 import { fileIcon, folderIcon, type FileIcon } from '../domain/fileIcon';
 import { t } from '@/text';
 import { Typography } from '@/constants/Typography';
-import { cardStyle, SectionLabel, ui, withAlpha } from '@/components/ui';
+import { cardStyle, ui, withAlpha } from '@/components/ui';
+import { PathBreadcrumb } from '@/components/PathBreadcrumb';
 import type { ScreenFieldValues } from '../domain/screenModel';
 
 function treeIcon(item: RuntimeTreeItem, expanded: boolean): FileIcon {
@@ -43,7 +44,6 @@ export function ScreenTree(props: {
     const [opening, setOpening] = React.useState<string | undefined>(undefined);
     const [descending, setDescending] = React.useState(true);
     const stackDepth = React.useRef(0);
-    const trail = React.useRef<ScrollView>(null);
     const up = React.useCallback((depth: number) => {
         setDescending(false);
         setStack((current) => current.slice(0, depth));
@@ -99,43 +99,22 @@ export function ScreenTree(props: {
     };
 
     const trailTitle = title ?? 'root';
+    const rootPath = resolvePath(props.data, 'root');
+    const breadcrumbSegments = React.useMemo(() => [
+        { label: trailTitle, ...(stack.length > 0 ? { onPress: () => up(0) } : {}), icon: folderIcon(false).name },
+        ...stack.map((crumb, index) => ({
+            label: crumb.name,
+            ...(index < stack.length - 1 ? { onPress: () => up(index + 1) } : {}),
+        })),
+    ], [stack, trailTitle, up]);
+    const currentPath = stack[stack.length - 1]?.path;
+    const fullPath = typeof rootPath === 'string' && rootPath !== ''
+        ? `${rootPath}${currentPath === undefined ? '' : `/${currentPath}`}`
+        : [trailTitle, currentPath].filter(Boolean).join('/');
 
     return (
         <View style={{ marginBottom: 14 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', minHeight: 32, marginBottom: 8 }}>
-                {stack.length > 0 && (
-                    <Pressable onPress={() => up(stack.length - 1)}
-                        accessibilityRole="button" accessibilityLabel="Back to parent folder" hitSlop={12}
-                        style={({ pressed }) => ({ paddingRight: 6, opacity: pressed ? 0.6 : 1 })}>
-                        <Ionicons name="chevron-back" size={16} color={theme.colors.textSecondary} />
-                    </Pressable>
-                )}
-                {stack.length === 0
-                    ? title !== undefined && <SectionLabel style={{ flex: 1 }}>{title}</SectionLabel>
-                    : (
-                        <ScrollView ref={trail} horizontal showsHorizontalScrollIndicator={false} style={{ flex: 1 }} contentContainerStyle={{ alignItems: 'center' }}
-                            onContentSizeChange={() => trail.current?.scrollToEnd({ animated: true })}>
-                            {/* The root keeps its name in the trail: three folders deep,
-                                "which repo is this" is the question you cannot answer
-                                from a list of leaf names. */}
-                            <Pressable onPress={() => up(0)} hitSlop={10}
-                                accessibilityRole="button" accessibilityLabel={`Go to ${trailTitle}`}>
-                                <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 12, ...Typography.mono('regular') }}>{trailTitle}</Text>
-                            </Pressable>
-                            {stack.map((crumb, index) => (
-                                // The separator is its own element: a slash padded with
-                                // spaces inside the label collapses on web and leaves
-                                // "apps/ mobile", which reads as a typo.
-                                <React.Fragment key={crumb.path}>
-                                    <Text style={{ color: withAlpha(theme.colors.textSecondary, 0.45), fontSize: 12, paddingHorizontal: 6, ...Typography.mono('regular') }}>/</Text>
-                                    <Pressable onPress={() => up(index + 1)} hitSlop={10} accessibilityRole="button" accessibilityLabel={`Go to ${crumb.name}`}>
-                                        <Text numberOfLines={1} style={{ color: index === stack.length - 1 ? theme.colors.text : theme.colors.textSecondary, fontSize: 12, ...Typography.mono('regular') }}>{crumb.name}</Text>
-                                    </Pressable>
-                                </React.Fragment>
-                            ))}
-                        </ScrollView>
-                    )}
-            </View>
+            <PathBreadcrumb segments={breadcrumbSegments} fullPath={fullPath} />
             <GestureDetector gesture={swipeBack}>
                 <View style={{ ...cardStyle(theme), paddingVertical: 4, overflow: 'hidden' }}>
                     <Animated.View key={here?.path ?? '/'} entering={enter}>

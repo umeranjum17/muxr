@@ -18,6 +18,7 @@ import { t } from '@/text';
 import { useRouter } from 'expo-router';
 import { getCachedHostedGrant } from '@/pairing/e2ee';
 import { knownHostVersion, versionsMismatch } from '@/utils/versionStatus';
+import { formatLatestConnectionFailure } from '@/catalog/infrastructure/connectionDiagnostics';
 
 const stylesheet = StyleSheet.create((theme) => ({
     label: {
@@ -109,6 +110,9 @@ export default function ConnectionSettingsScreen() {
     const statusDot = status === 'connected' ? styles.dotOn
         : status === 'connecting' ? styles.dotBusy
             : status === 'error' ? styles.dotBad : styles.dotOff;
+    const latestFailure = status === 'disconnected' || status === 'error'
+        ? formatLatestConnectionFailure()
+        : undefined;
 
     const [relayUrl, setRelayUrl] = React.useState(initial.relayUrl);
     const [machineId, setMachineId] = React.useState(initial.machineId);
@@ -151,7 +155,7 @@ export default function ConnectionSettingsScreen() {
                 <ItemGroup title="Status">
                     <Item
                         title={statusText}
-                        subtitle={status === 'connected' ? 'Your machine is reachable from this device' : socketError ?? 'The app reconnects on its own when the machine is back'}
+                        subtitle={status === 'connected' ? 'Your machine is reachable from this device' : latestFailure ?? socketError ?? 'The app reconnects on its own when the machine is back'}
                         leftElement={<View style={[styles.dot, statusDot]} />}
                         loading={status === 'connecting'}
                     />

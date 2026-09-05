@@ -1,0 +1,49 @@
+appId: com.trymuxr.app
+tags:
+  - perf
+---
+# A graphics pane under scroll pressure. The pane is opened the way
+# herdNavigate.yaml proves works -- tapping the first live card, because a
+# `shell:` deep link does not mount this screen -- and the herd's graphics
+# producer paints whichever pane a phone is attached to, so this is the pane
+# whose repaints are measured.
+#
+# Short drags and flings mix the way a thumb does. The flow asserts no pixels:
+# the gate reads the host's own account of the pipeline.
+- tapOn:
+    text: 'CANCEL|Not now|Deny|Later'
+    optional: true
+- tapOn:
+    text: 'CANCEL|Not now|Deny|Later'
+    optional: true
+- runFlow:
+    when:
+      visible:
+        text: 'Type a prompt.*'
+    commands:
+      - back
+- runFlow:
+    when:
+      visible:
+        text: 'Go back'
+    commands:
+      - back
+- extendedWaitUntil:
+    visible:
+      text: 'connected'
+    timeout: 40000
+- extendedWaitUntil:
+    visible:
+      text: 'LIVE'
+    timeout: 40000
+- tapOn:
+    point: 30%, 33%
+- tapOn:
+    text: 'CANCEL|Not now|Deny|Later'
+    optional: true
+# The terminal screen's own furniture; the surface itself has no label.
+# Measured swipes live in the gate now (`scrollBout`); this flow only opens.
+- extendedWaitUntil:
+    visible:
+      text: 'Terminal|Type a prompt.*'
+    timeout: 20000

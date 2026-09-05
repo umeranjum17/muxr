@@ -311,7 +311,7 @@ export function startRealtimeSession(options: {
                             let ok = true;
                             let text: string;
                             try {
-                                if (frame.action === 'view') text = realtimeAppController.inspect();
+                                if (frame.action === 'view') text = await realtimeAppController.inspect();
                                 else if (frame.action === 'navigate') text = await realtimeAppController.navigateTo(frame.target!);
                                 else text = await realtimeAppController.activate(frame.target!);
                             } catch {

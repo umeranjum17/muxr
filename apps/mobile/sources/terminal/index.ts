@@ -4,7 +4,6 @@ export * from './application/recentOutput';
 export * from './application/sessionOverlayNav';
 export * from './application/useGitStatusFiles';
 export * from './application/usePaneGestures';
-export * from './application/useTerminalChipLink';
 export * from './domain/TerminalLink';
 export * from './domain/parseLocalCommandMessage';
 export * from './domain/sessionFileLinks';

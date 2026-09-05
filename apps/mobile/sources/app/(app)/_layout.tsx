@@ -101,11 +101,11 @@ export default function RootLayout() {
                     headerShown: false
                 }}
             />
-                                                                        <Stack.Screen
-                name="session/[id]/preview"
+            <Stack.Screen
+                name="session/[id]/file"
                 options={{
                     headerShown: true,
-                    headerTitle: t('navigation.browserPreview'),
+                    headerTitle: t('common.fileViewer'),
                     headerBackTitle: t('common.back'),
                 }}
             />

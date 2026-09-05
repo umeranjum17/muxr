@@ -450,7 +450,7 @@ export const SpacesTree = React.memo(({
                 ListFooterComponent={listFooterComponent === undefined ? undefined : <>{listFooterComponent}</>}
                 ListEmptyComponent={<Text style={styles.empty}>{emptyText}</Text>}
                 onScroll={onScroll}
-                scrollEventThrottle={16}
+                scrollEventThrottle={100}
                 contentContainerStyle={{ paddingTop: topContentInset, paddingBottom: bottomContentInset }}
             />
         </View>

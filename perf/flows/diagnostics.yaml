@@ -1,0 +1,21 @@
+appId: com.trymuxr.app
+tags:
+  - perf
+---
+# The phone's own account of the run: every socket failure stage, rejected
+# request and reconnect reason it recorded, codes only. Opening the alert leaves
+# it on screen for the gate to read off the accessibility tree.
+- tapOn:
+    text: 'CANCEL|Not now|Deny|Later'
+    optional: true
+- openLink: muxr:///settings
+- extendedWaitUntil:
+    visible:
+      text: 'Redacted diagnostics'
+    timeout: 20000
+- tapOn:
+    text: 'Redacted diagnostics'
+- extendedWaitUntil:
+    visible:
+      text: '.*socket.*|.*rpc.*|.*no misses.*'
+    timeout: 10000

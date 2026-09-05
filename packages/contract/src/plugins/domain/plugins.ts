@@ -369,7 +369,6 @@ export type PluginAction =
     | { type: 'kernel.navigate'; target: 'session'; sessionId: string }
     | { type: 'kernel.navigate'; target: 'file'; path: string }
     | { type: 'kernel.navigate'; target: 'web-view'; url: string }
-    | { type: 'kernel.navigate'; target: 'preview'; port: number }
     | { type: 'open-url'; url: string }
     | { type: 'attachment'; id: string; name: string; mimeType?: string; size: number }
     | { type: 'capability'; name: string }
@@ -737,5 +736,12 @@ export interface PluginSummary {
     approved: boolean;
     capabilities: Record<string, string>;
     hasBackend: boolean;
+    /**
+     * The Herdr manifest declares executable behaviour of its own (actions,
+     * events, panes, startup, build, link handlers) rather than only naming the
+     * package. Distinguishes a real Herdr plugin from a muxr UI package that
+     * Herdr merely registers.
+     */
+    herdrBackend: boolean;
     warnings: string[];
 }

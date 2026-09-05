@@ -1,24 +1,37 @@
 import * as React from 'react';
-import { Platform, Text, View } from 'react-native';
+import { Platform, Text, View, type ListRenderItemInfo } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import Animated from 'react-native-reanimated';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
-import { DiffView } from '@/components/diff/DiffView';
 import { Typography } from '@/constants/Typography';
 import { boundText } from '@/utils/boundedText';
 import { SyntaxSpans } from '@/components/SimpleSyntaxHighlighter';
 import { highlightCodeLines, syntaxLanguage } from '@/components/code/syntaxHighlighting';
+import {
+    GAP,
+    RIGHT_INSET,
+    columnsFor,
+    deriveFontSize,
+    diffGutterWidth,
+    layoutLines,
+    lineHeightFor,
+    prefixSums,
+    sliceSpans,
+} from '@/components/code/codeLayout';
+import { pagePalette } from '@/components/code/syntaxPalette';
+import { useMonoCharWidth } from '@/components/code/monoMetrics';
 import { withAlpha } from '@/components/ui';
+import type { CodeContentPadding } from '@/components/code/CodeCore';
+
+export type DiffListRef = React.MutableRefObject<{ scrollToIndex: (options: { index: number; viewOffset?: number; animated?: boolean }) => void } | null>;
 
 export interface PierreDiffViewProps {
-    oldFile?: { name: string; contents: string };
-    newFile?: { name: string; contents: string };
-    /** Unified diff string — alternative to oldFile/newFile. */
-    patch?: string;
+    /** Unified diff string. */
+    patch: string;
     diffStyle?: 'unified' | 'split';
-    overflow?: 'scroll' | 'wrap';
     disableLineNumbers?: boolean;
-    /** Vertical offset of each hunk, once laid out. Native only. */
-    onHunkOffsets?: (offsets: number[]) => void;
+    /** List index of each hunk header, for jump controls. Native only. */
+    onHunkIndices?: (indices: number[]) => void;
     /** Hide Pierre's built-in file-name/stats header — useful when the surrounding UI already shows one. Web-only. */
     disableFileHeader?: boolean;
     /** Forces a theme override; defaults to the current app theme. */
@@ -27,8 +40,14 @@ export interface PierreDiffViewProps {
     renderCustomHeader?: (fileDiff: any) => React.ReactNode;
     /** Allow expanding collapsed unchanged lines. Web-only (Pierre feature). */
     expandUnchanged?: boolean;
-    /** Code font size; line height follows it. Native-only. Default 13. */
+    /** Overrides the width-derived size. Native-only. */
     fontSize?: number;
+    /** Width available to the body, paddings already subtracted. Native-only. */
+    contentWidth?: number;
+    contentPadding?: CodeContentPadding;
+    listRef?: DiffListRef;
+    listHeader?: React.ReactElement;
+    onDerivedFontSize?: (size: number) => void;
     /** Internal bounded-render attribution. */
     omittedLines?: number;
     totalLines?: number;
@@ -36,8 +55,8 @@ export interface PierreDiffViewProps {
 }
 
 export const PierreDiffView = React.memo(function PierreDiffView(props: PierreDiffViewProps) {
-    const bounded = React.useMemo(() => props.patch === undefined ? null : boundText(props.patch), [props.patch]);
-    const boundedProps = bounded === null ? props : { ...props, patch: bounded.text, omittedLines: bounded.omittedLines, totalLines: bounded.totalLines, omittedChars: bounded.omittedChars };
+    const bounded = React.useMemo(() => boundText(props.patch), [props.patch]);
+    const boundedProps = { ...props, patch: bounded.text, omittedLines: bounded.omittedLines, totalLines: bounded.totalLines, omittedChars: bounded.omittedChars };
     if (Platform.OS === 'web') {
         return <PierreDiffViewWeb {...boundedProps} />;
     }
@@ -126,15 +145,12 @@ const PierreDiffViewWeb = React.memo(function PierreDiffViewWeb(props: PierreDif
     const themeName: 'dark' | 'light' = props.theme ?? (theme.dark ? 'dark' : 'light');
     const diffsTheme = themeName === 'dark' ? 'github-dark-default' : 'github-light-default';
     const bundle = usePierreBundle();
-    const oldBound = React.useMemo(() => props.oldFile === undefined ? null : boundText(props.oldFile.contents), [props.oldFile]);
-    const newBound = React.useMemo(() => props.newFile === undefined ? null : boundText(props.newFile.contents), [props.newFile]);
 
     if (!bundle) return <DiffSkeleton />;
 
     const options = {
         theme: diffsTheme as any,
         diffStyle: props.diffStyle,
-        overflow: props.overflow,
         disableLineNumbers: props.disableLineNumbers,
         disableFileHeader: props.disableFileHeader,
         expandUnchanged: props.expandUnchanged,
@@ -143,15 +159,7 @@ const PierreDiffViewWeb = React.memo(function PierreDiffViewWeb(props: PierreDif
         unsafeCSS: COMPACT_WEB_DIFF_CSS,
     };
 
-    if (props.patch) {
-        return <PatchFilesWeb bundle={bundle} patch={props.patch} options={options} renderCustomHeader={props.renderCustomHeader} omittedLines={props.omittedLines} totalLines={props.totalLines} omittedChars={props.omittedChars} />;
-    }
-
-    if (props.oldFile && props.newFile) {
-        return <FileDiffFromFiles bundle={bundle} oldFile={{ ...props.oldFile, contents: oldBound?.text ?? props.oldFile.contents }} newFile={{ ...props.newFile, contents: newBound?.text ?? props.newFile.contents }} options={options} renderCustomHeader={props.renderCustomHeader} omittedLines={Math.max(oldBound?.omittedLines ?? 0, newBound?.omittedLines ?? 0)} totalLines={Math.max(oldBound?.totalLines ?? 0, newBound?.totalLines ?? 0)} omittedChars={(oldBound?.omittedChars ?? 0) + (newBound?.omittedChars ?? 0)} />;
-    }
-
-    return <View />;
+    return <PatchFilesWeb bundle={bundle} patch={props.patch} options={options} renderCustomHeader={props.renderCustomHeader} omittedLines={props.omittedLines} totalLines={props.totalLines} omittedChars={props.omittedChars} />;
 });
 
 function PatchFilesWeb({
@@ -186,7 +194,7 @@ function PatchFilesWeb({
 
     const { FileDiff } = bundle.react;
     if (files.length === 0) {
-        return <PlainPatchView patch={patch} wrapLines={options?.overflow === 'wrap'} disableFileHeader={options?.disableFileHeader === true} omittedLines={omittedLines} totalLines={totalLines} omittedChars={omittedChars} />;
+        return <PlainPatchView patch={patch} disableFileHeader={options?.disableFileHeader === true} omittedLines={omittedLines} totalLines={totalLines} omittedChars={omittedChars} />;
     }
     return (
         <View>
@@ -196,33 +204,6 @@ function PatchFilesWeb({
             <DiffTruncation omittedLines={omittedLines} totalLines={totalLines} omittedChars={omittedChars} />
         </View>
     );
-}
-
-function FileDiffFromFiles({
-    bundle,
-    oldFile,
-    newFile,
-    options,
-    renderCustomHeader,
-    omittedLines,
-    totalLines,
-    omittedChars,
-}: {
-    bundle: PierreBundle;
-    oldFile: { name: string; contents: string };
-    newFile: { name: string; contents: string };
-    options: any;
-    renderCustomHeader?: (fileDiff: any) => React.ReactNode;
-    omittedLines?: number;
-    totalLines?: number;
-    omittedChars?: number;
-}) {
-    const fileDiff = React.useMemo(
-        () => bundle.main.parseDiffFromFile(oldFile, newFile),
-        [bundle, oldFile, newFile],
-    );
-    const { FileDiff } = bundle.react;
-    return <View><FileDiff fileDiff={fileDiff} options={options} renderCustomHeader={renderCustomHeader} /><DiffTruncation omittedLines={omittedLines} totalLines={totalLines} omittedChars={omittedChars} /></View>;
 }
 
 function DiffSkeleton() {
@@ -240,50 +221,29 @@ function DiffSkeleton() {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// Native: no network dependencies. For oldFile/newFile we route to the classic
-// plain-text DiffView; for a raw patch string we colorize lines by prefix.
-// Always unified on native — `diffStyle` is intentionally ignored.
+// Native: no network dependencies — a raw patch string, colorized by prefix.
+// Always unified and always wrapped; `diffStyle` and `overflow` are web-only.
 // ────────────────────────────────────────────────────────────────────────────
 
 const PierreDiffViewNative = React.memo(function PierreDiffViewNative(props: PierreDiffViewProps) {
-    const oldBound = React.useMemo(() => props.oldFile === undefined ? null : boundText(props.oldFile.contents), [props.oldFile]);
-    const newBound = React.useMemo(() => props.newFile === undefined ? null : boundText(props.newFile.contents), [props.newFile]);
-    if (props.patch) {
-        return (
-            <PlainPatchView
-                patch={props.patch}
-                wrapLines={props.overflow === 'wrap'}
-                fontSize={props.fontSize}
-                onHunkOffsets={props.onHunkOffsets}
-                disableFileHeader={props.disableFileHeader === true}
-                omittedLines={props.omittedLines}
-                totalLines={props.totalLines}
-                omittedChars={props.omittedChars}
-            />
-        );
-    }
-    if (props.oldFile && props.newFile) {
-        return (
-            <View>
-                <DiffView
-                    oldText={oldBound?.text ?? props.oldFile.contents}
-                    newText={newBound?.text ?? props.newFile.contents}
-                    showLineNumbers={!props.disableLineNumbers}
-                    wrapLines={props.overflow === 'wrap'}
-                />
-                <DiffTruncation omittedLines={Math.max(oldBound?.omittedLines ?? 0, newBound?.omittedLines ?? 0)} totalLines={Math.max(oldBound?.totalLines ?? 0, newBound?.totalLines ?? 0)} omittedChars={(oldBound?.omittedChars ?? 0) + (newBound?.omittedChars ?? 0)} />
-            </View>
-        );
-    }
-    return <View />;
+    return (
+        <PlainPatchView
+            patch={props.patch}
+            disableFileHeader={props.disableFileHeader === true}
+            omittedLines={props.omittedLines}
+            totalLines={props.totalLines}
+            omittedChars={props.omittedChars}
+            {...(props.fontSize === undefined ? {} : { fontSize: props.fontSize })}
+            {...(props.contentWidth === undefined ? {} : { contentWidth: props.contentWidth })}
+            {...(props.contentPadding === undefined ? {} : { contentPadding: props.contentPadding })}
+            {...(props.onHunkIndices === undefined ? {} : { onHunkIndices: props.onHunkIndices })}
+            {...(props.listRef === undefined ? {} : { listRef: props.listRef })}
+            {...(props.listHeader === undefined ? {} : { listHeader: props.listHeader })}
+            {...(props.onDerivedFontSize === undefined ? {} : { onDerivedFontSize: props.onDerivedFontSize })}
+        />
+    );
 });
 
-/**
- * A patch, rendered the way a terminal renders it: every line git emits, in
- * order, tinted by its prefix. No filtering, no gutter, no intra-line
- * highlighting -- those all reword what git said, and the point here is to
- * show exactly what `git diff` printed.
- */
 function DiffTruncation({ omittedLines, totalLines, omittedChars }: { omittedLines?: number; totalLines?: number; omittedChars?: number }) {
     if ((omittedLines ?? 0) === 0 && (omittedChars ?? 0) === 0) return null;
     return <Text style={{ color: '#888', padding: 8 }}>showing {Math.max(0, (totalLines ?? 0) - (omittedLines ?? 0))} of {totalLines ?? 0} lines ({omittedLines ?? 0} omitted, {omittedChars ?? 0} chars)</Text>;
@@ -358,20 +318,33 @@ function isPatchCodeLine(line: string): boolean {
         || line.startsWith(' ');
 }
 
+const FILE_ROW_HEIGHT = 36;
+const HUNK_ROW_HEIGHT = 32;
+/** The file rail is a list header, and getItemLayout offsets have to include it. */
+const RAIL_HEIGHT = 52;
+
 function PlainPatchView({
     patch,
-    wrapLines,
     fontSize,
-    onHunkOffsets,
+    contentWidth: givenWidth,
+    contentPadding,
+    onHunkIndices,
+    listRef,
+    listHeader,
+    onDerivedFontSize,
     disableFileHeader = false,
     omittedLines,
     totalLines,
     omittedChars,
 }: {
     patch: string;
-    wrapLines: boolean;
     fontSize?: number;
-    onHunkOffsets?: (offsets: number[]) => void;
+    contentWidth?: number;
+    contentPadding?: CodeContentPadding;
+    onHunkIndices?: (indices: number[]) => void;
+    listRef?: DiffListRef;
+    listHeader?: React.ReactElement;
+    onDerivedFontSize?: (size: number) => void;
     disableFileHeader?: boolean;
     omittedLines?: number;
     totalLines?: number;
@@ -379,68 +352,145 @@ function PlainPatchView({
 }) {
     const { theme } = useUnistyles();
     const colors = theme.colors.diff;
-    const codeFontSize = fontSize ?? 12;
     const lines = React.useMemo(() => patch.split('\n'), [patch]);
     const rows = React.useMemo(() => nativePatchRows(patch, disableFileHeader), [disableFileHeader, patch]);
+    const widestLineNumber = React.useMemo(
+        () => rows.reduce((widest, row) => row.kind === 'code' ? Math.max(widest, row.oldLine ?? 0, row.newLine ?? 0) : widest, 0),
+        [rows],
+    );
+    const digits = String(Math.max(1, widestLineNumber)).length;
+
+    const [measuredWidth, setMeasuredWidth] = React.useState(0);
+    const contentWidth = givenWidth ?? measuredWidth;
+    const probeSizes = React.useMemo(() => {
+        const base = fontSize ?? 12;
+        return [base, base - 1, 10, 11, 12, 13];
+    }, [fontSize]);
+    const { charWidth, probe } = useMonoCharWidth(probeSizes);
+    const derived = React.useMemo(
+        () => contentWidth > 0 ? deriveFontSize(contentWidth, digits, 'diff', charWidth) : 12,
+        [charWidth, contentWidth, digits],
+    );
+    React.useEffect(() => { onDerivedFontSize?.(derived); }, [derived, onDerivedFontSize]);
+    const codeFontSize = fontSize ?? derived;
+    const codeLineHeight = lineHeightFor(codeFontSize);
+    const charW = charWidth(codeFontSize);
+    const numberCharW = charWidth(codeFontSize - 1);
+    const numberWidth = digits * numberCharW + 6;
+    const markerWidth = charW + 4;
+    const gutterWidth = diffGutterWidth(digits, numberCharW, charW);
+    const codeWidth = Math.max(charW * 8, contentWidth - gutterWidth - GAP - RIGHT_INSET);
+    const cols = columnsFor(codeWidth, charW);
+
     const language = React.useMemo(() => syntaxLanguage(undefined, patchFileName(patch)), [patch]);
     const highlightSource = React.useMemo(() => boundText(lines.map((line) => isPatchCodeLine(line) ? line.slice(1) : '').join('\n'), 600, 64 * 1024).text, [lines]);
     const highlighted = React.useMemo(() => highlightCodeLines(highlightSource, language), [highlightSource, language]);
-    const truncation = <DiffTruncation omittedLines={omittedLines} totalLines={totalLines ?? lines.length} omittedChars={omittedChars} />;
+    const codeTexts = React.useMemo(() => rows.map((row) => row.kind === 'code' ? row.raw.slice(1) : ''), [rows]);
+    const layouts = React.useMemo(
+        () => contentWidth > 0 ? layoutLines(codeTexts, cols) : codeTexts.map(() => ({ starts: [0], hang: 0 })),
+        [codeTexts, cols, contentWidth],
+    );
+    const heights = React.useMemo(() => rows.map((row, index) => {
+        if (row.kind === 'file') return FILE_ROW_HEIGHT;
+        if (row.kind === 'hunk') return HUNK_ROW_HEIGHT;
+        if (row.kind === 'meta') return Math.round(codeFontSize * 1.5);
+        return (layouts[index]?.starts.length ?? 1) * codeLineHeight;
+    }), [codeFontSize, codeLineHeight, layouts, rows]);
+    const offsets = React.useMemo(() => prefixSums(heights), [heights]);
 
-    // Hunk tops, measured as they lay out, so the screen above can offer
-    // next/prev jumps without knowing anything about row heights.
-    const hunkTops = React.useRef<Map<number, number>>(new Map());
+    // Prefix sums replace the old onLayout measurement: a hunk's position is
+    // its index, and the list knows every row's height before it mounts.
     React.useEffect(() => {
-        hunkTops.current.clear();
-        onHunkOffsets?.([]);
-    }, [onHunkOffsets, patch]);
-    const publishHunkTops = React.useCallback(() => {
-        if (onHunkOffsets === undefined) return;
-        onHunkOffsets([...hunkTops.current.entries()].sort((a, b) => a[0] - b[0]).map(([, y]) => y));
-    }, [onHunkOffsets]);
+        onHunkIndices?.(rows.flatMap((row, index) => row.kind === 'hunk' ? [index] : []));
+    }, [onHunkIndices, rows]);
 
-    return (
-        <View style={{ flex: 1, overflow: 'hidden', borderRadius: 12, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.outline, backgroundColor: theme.colors.surface }}>
-            {rows.map((row, index) => {
-                if (row.kind === 'file') {
-                    const name = row.name.split('/').pop() ?? row.name;
-                    const folder = row.name.slice(0, Math.max(0, row.name.length - name.length - 1));
-                    return <View key={`${row.raw}:${index}`} style={{ minHeight: 36, paddingHorizontal: 9, flexDirection: 'row', alignItems: 'center', gap: 7, backgroundColor: theme.colors.surfaceHigh, borderTopWidth: index === 0 ? 0 : StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: colors.outline }}>
-                        <Ionicons name="document-text-outline" size={15} color={theme.colors.textSecondary} />
-                        <Text numberOfLines={1} style={{ color: theme.colors.text, fontSize: 11.5, ...Typography.mono('semiBold') }}>{name}</Text>
-                        {folder !== '' && <Text numberOfLines={1} ellipsizeMode="head" style={{ flex: 1, color: theme.colors.textSecondary, fontSize: 10.5, ...Typography.mono() }}>{folder}</Text>}
-                    </View>;
-                }
-                if (row.kind === 'meta') {
-                    return <Text key={`${row.raw}:${index}`} numberOfLines={1} style={{ color: colors.hunkHeaderText, fontSize: codeFontSize - 1, lineHeight: Math.round(codeFontSize * 1.5), paddingHorizontal: 11, ...Typography.mono('semiBold') }}>{row.raw}</Text>;
-                }
-                if (row.kind === 'hunk') {
-                    const context = row.raw.replace(/^@@[^@]*@@\s*/, '');
-                    return <View key={`${row.raw}:${index}`} onLayout={(event) => {
-                        hunkTops.current.set(index, event.nativeEvent.layout.y);
-                        publishHunkTops();
-                    }} style={{ minHeight: 32, paddingHorizontal: 9, flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: colors.hunkHeaderBg, borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: colors.outline }}>
-                        <Text style={{ color: colors.hunkHeaderText, fontSize: codeFontSize - 2, ...Typography.mono('semiBold') }}>−{row.oldStart}  +{row.newStart}</Text>
-                        {context !== '' && <Text numberOfLines={1} style={{ flex: 1, color: colors.hunkHeaderText, opacity: 0.78, fontSize: codeFontSize - 2, ...Typography.mono() }}>{context}</Text>}
-                    </View>;
-                }
-                const added = row.prefix === '+';
-                const removed = row.prefix === '-';
-                const foreground = added ? colors.addedText : removed ? colors.removedText : colors.contextText;
-                const background = added ? withAlpha(colors.success, 0.08) : removed ? withAlpha(colors.error, 0.08) : 'transparent';
-                const spans = highlighted[row.sourceIndex] ?? [{ text: row.raw.slice(1) }];
-                return <View key={`${row.sourceIndex}:${index}`} style={{ flexDirection: 'row', alignItems: 'flex-start', backgroundColor: background, borderLeftWidth: 2, borderLeftColor: added ? colors.success : removed ? colors.error : 'transparent' }}>
-                    <View style={{ width: 54, flexDirection: 'row', paddingTop: 1, paddingRight: 5, opacity: 0.72 }}>
-                        <Text style={{ width: 24, textAlign: 'right', color: colors.lineNumberText, fontSize: codeFontSize - 2, lineHeight: Math.round(codeFontSize * 1.45), ...Typography.mono() }}>{row.oldLine ?? ''}</Text>
-                        <Text style={{ width: 24, textAlign: 'right', color: colors.lineNumberText, fontSize: codeFontSize - 2, lineHeight: Math.round(codeFontSize * 1.45), ...Typography.mono() }}>{row.newLine ?? ''}</Text>
+    const renderRow = (index: number) => {
+        const row = rows[index]!;
+        if (row.kind === 'file') {
+            const name = row.name.split('/').pop() ?? row.name;
+            const folder = row.name.slice(0, Math.max(0, row.name.length - name.length - 1));
+            return <View style={{ height: FILE_ROW_HEIGHT, paddingHorizontal: 9, flexDirection: 'row', alignItems: 'center', gap: 7, backgroundColor: theme.colors.surfaceHigh, borderTopWidth: index === 0 ? 0 : StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: colors.outline }}>
+                <Ionicons name="document-text-outline" size={15} color={theme.colors.textSecondary} />
+                <Text numberOfLines={1} style={{ color: theme.colors.text, fontSize: 11.5, ...Typography.mono('semiBold') }}>{name}</Text>
+                {folder !== '' && <Text numberOfLines={1} ellipsizeMode="head" style={{ flex: 1, color: theme.colors.textSecondary, fontSize: 10.5, ...Typography.mono() }}>{folder}</Text>}
+            </View>;
+        }
+        if (row.kind === 'meta') {
+            return <Text numberOfLines={1} style={{ color: colors.hunkHeaderText, fontSize: codeFontSize - 1, lineHeight: Math.round(codeFontSize * 1.5), paddingHorizontal: 11, ...Typography.mono('semiBold') }}>{row.raw}</Text>;
+        }
+        if (row.kind === 'hunk') {
+            const context = row.raw.replace(/^@@[^@]*@@\s*/, '');
+            return <View style={{ height: HUNK_ROW_HEIGHT, paddingHorizontal: 9, flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: colors.hunkHeaderBg, borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: colors.outline }}>
+                <Text style={{ color: colors.hunkHeaderText, fontSize: codeFontSize - 1, ...Typography.mono('semiBold') }}>−{row.oldStart}  +{row.newStart}</Text>
+                {context !== '' && <Text numberOfLines={1} style={{ flex: 1, color: colors.hunkHeaderText, opacity: 0.78, fontSize: codeFontSize - 1, ...Typography.mono() }}>{context}</Text>}
+            </View>;
+        }
+        const added = row.prefix === '+';
+        const removed = row.prefix === '-';
+        const foreground = added ? colors.addedText : removed ? colors.removedText : colors.contextText;
+        const background = added ? withAlpha(colors.success, 0.08) : removed ? withAlpha(colors.error, 0.08) : 'transparent';
+        const layout = layouts[index]!;
+        const source = highlighted[row.sourceIndex] ?? [{ text: codeTexts[index] ?? '' }];
+        const visual = sliceSpans(source, layout.starts);
+        const numberStyle = { textAlign: 'right' as const, color: colors.lineNumberText, fontSize: codeFontSize - 1, lineHeight: codeLineHeight, ...Typography.mono() };
+        // One group per logical line, so a wrapped removed line stays one red
+        // block and the marker column keeps its meaning across the break.
+        return <View style={{ flexDirection: 'row', alignItems: 'flex-start', backgroundColor: background, borderLeftWidth: 2, borderLeftColor: added ? colors.success : removed ? colors.error : 'transparent' }}>
+            <View>
+                {visual.map((_, visualRow) => (
+                    <View key={visualRow} style={{ flexDirection: 'row' }}>
+                        <Text style={{ ...numberStyle, width: numberWidth }}>{visualRow === 0 ? row.oldLine ?? '' : ''}</Text>
+                        <Text style={{ ...numberStyle, width: numberWidth }}>{visualRow === 0 ? row.newLine ?? '' : ''}</Text>
+                        <Text style={{ width: markerWidth, textAlign: 'center', color: added ? colors.success : removed ? colors.error : colors.lineNumberText, fontWeight: added || removed ? '600' : 'normal', fontSize: codeFontSize, lineHeight: codeLineHeight, ...Typography.mono() }}>
+                            {visualRow === 0 ? row.prefix : ' '}
+                        </Text>
                     </View>
-                    <Text selectable numberOfLines={wrapLines ? undefined : 1} style={{ flex: wrapLines ? 1 : undefined, color: foreground, fontSize: codeFontSize, lineHeight: Math.round(codeFontSize * 1.45), paddingRight: 9, ...Typography.mono() }}>
-                        <Text style={{ color: added ? colors.success : removed ? colors.error : colors.lineNumberText, fontWeight: added || removed ? '600' : 'normal' }}>{row.prefix}</Text>
-                        <SyntaxSpans spans={spans} theme={theme} fallbackColor={foreground} selectable />
+                ))}
+            </View>
+            <View style={{ flex: 1, marginLeft: GAP - 2 }}>
+                {visual.map((spans, visualRow) => (
+                    <Text
+                        key={visualRow}
+                        selectable
+                        numberOfLines={1}
+                        ellipsizeMode="clip"
+                        style={{ color: foreground, fontSize: codeFontSize, lineHeight: codeLineHeight, paddingLeft: visualRow === 0 ? 0 : layout.hang * charW, ...Typography.mono() }}
+                    >
+                        {spans.length === 0 ? ' ' : <SyntaxSpans spans={spans} palette={pagePalette(theme)} selectable />}
                     </Text>
-                </View>;
-            })}
-            {truncation}
+                ))}
+            </View>
+        </View>;
+    };
+
+    const padding = contentPadding ?? { horizontal: 0, top: 0, bottom: 0 };
+    return (
+        <View
+            style={{ flex: 1, overflow: 'hidden', borderRadius: 12, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.outline, backgroundColor: theme.colors.surface }}
+            onLayout={(event) => setMeasuredWidth(event.nativeEvent.layout.width - padding.horizontal * 2)}
+        >
+            <Animated.FlatList
+                ref={listRef as never}
+                data={rows}
+                extraData={layouts}
+                keyExtractor={(_: unknown, index: number) => String(index)}
+                renderItem={({ index }: ListRenderItemInfo<unknown>) => renderRow(index)}
+                getItemLayout={(_: unknown, index: number) => ({
+                    length: heights[index] ?? codeLineHeight,
+                    offset: (offsets[index] ?? 0) + (listHeader === undefined ? 0 : RAIL_HEIGHT),
+                    index,
+                })}
+                initialNumToRender={40}
+                maxToRenderPerBatch={24}
+                windowSize={7}
+                removeClippedSubviews={Platform.OS === 'android'}
+                showsVerticalScrollIndicator
+                {...(listHeader === undefined ? {} : { ListHeaderComponent: listHeader })}
+                ListFooterComponent={<DiffTruncation omittedLines={omittedLines} totalLines={totalLines ?? lines.length} omittedChars={omittedChars} />}
+                contentContainerStyle={{ paddingTop: padding.top, paddingBottom: padding.bottom, paddingHorizontal: padding.horizontal }}
+                style={{ flex: 1 }}
+            />
+            {probe}
         </View>
     );
 }

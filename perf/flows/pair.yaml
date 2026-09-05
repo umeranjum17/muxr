@@ -1,0 +1,43 @@
+appId: com.trymuxr.app
+tags:
+  - perf
+---
+# Pair the app with the throwaway host the gate spawned. The code rotates every
+# two minutes, so the runner passes the live one in and this flow must not wait
+# on anything slow before submitting it.
+- launchApp:
+    appId: com.trymuxr.app
+    clearState: false
+# A cold launch shows its welcome screen before the pairing entry exists.
+- extendedWaitUntil:
+    visible:
+      text: 'Enter pairing string|Enter pairing string manually|Enter another code'
+    timeout: 40000
+- tapOn:
+    text: 'Enter pairing string|Enter pairing string manually|Enter another code'
+- eraseText: 120
+- inputText: '${PAIR_CODE}'
+- tapOn: 'Connect'
+- extendedWaitUntil:
+    visible:
+      text: 'THIS PHONE WILL BE ABLE TO'
+    timeout: 20000
+- scrollUntilVisible:
+    element:
+      text: '^(Pair|Continue|Allow|Approve|Trust).*'
+    direction: DOWN
+- tapOn:
+    text: '^(Pair|Continue|Allow|Approve|Trust).*'
+# Android's background-activity prompt can land on top of the herd, and more
+# than one prompt can queue behind it.
+- tapOn:
+    text: 'CANCEL|Not now|Deny|Later'
+    optional: true
+- tapOn:
+    text: 'CANCEL|Not now|Deny|Later'
+    optional: true
+# The first connect fetches the whole herd before anything is on screen.
+- extendedWaitUntil:
+    visible:
+      text: 'LIVE|SPACES|Machine'
+    timeout: 60000

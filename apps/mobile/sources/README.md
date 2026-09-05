@@ -41,7 +41,7 @@ apps/mobile/sources/
     openPluginStream.ts         frozen public port for voice
   terminal/
     domain/                     TerminalLink, file links, status bar
-    application/                open terminal, chip probe, recent output
+    application/                open terminal, recent output
     presentation/               live terminal screen
     index.ts                    domain + use cases
     ui.ts                       screens
@@ -74,7 +74,7 @@ See root `CONTEXT.md`. Agent Route authorizes. Agent Name, Task Title, and compu
 - **PairedMachine**: `active` is online; display name is chrome.
 - **Pairing String**: constructors reject control characters, spoofed userinfo, and non-muxr URLs. Unknown authority defaults to control.
 - **Hosted Grant**: machine id authorizes transport. No key-version downgrade. Web defaults to observe. Grant, not discovery, owns authority.
-- **TerminalLink**: loopback + `text/html` probe → Preview; otherwise open externally.
+- **TerminalLink**: bounded display formatting for URLs printed by an agent.
 - **Collaboration**: two to six machines, or none. Machine ids authorize.
 - **Connection**: hosted persists an empty machine id for account-only sessions. Local is the explicit dev fixture.
 - **Mic Ownership**: dictation, realtime, and VAD never own the mic together.

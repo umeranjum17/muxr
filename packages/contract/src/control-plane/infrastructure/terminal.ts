@@ -27,7 +27,20 @@ export interface TerminalOutputFrame {
     width?: number;
     height?: number;
     encoding?: string;
+    /** true on image frames, false on retire/detach. Absent on ordinary ANSI. */
+    graphics?: boolean;
+    /** Why direct graphics ended. Absent on ordinary clears and active frames. */
+    graphicsReason?: TerminalGraphicsReason;
+    /**
+     * Whether this image is the pane's whole surface or sits inside a program's
+     * text. A client takes over scrolling and pointer input only for `full`:
+     * for an image printed above a shell prompt the pane still owns both.
+     */
+    graphicsSurface?: TerminalGraphicsSurface;
 }
+
+export type TerminalGraphicsReason = 'retired' | 'bridge-closed';
+export type TerminalGraphicsSurface = 'full' | 'inline';
 
 /** host -> client: the underlying stream ended. */
 export interface TerminalClosedFrame {
@@ -46,6 +59,17 @@ export interface TerminalResizeFrame {
     type: 'terminal.resize';
     cols: number;
     rows: number;
+    cellWidthPx?: number;
+    cellHeightPx?: number;
+}
+
+export interface TerminalPointerFrame {
+    type: 'terminal.pointer';
+    phase: 'down' | 'move' | 'up';
+    x: number;
+    y: number;
+    width: number;
+    height: number;
 }
 
 /** client -> host scroll. herdr owns the pane's scrollback, so the client
@@ -55,9 +79,11 @@ export interface TerminalScrollFrame {
     type: 'terminal.scroll';
     direction: 'up' | 'down';
     lines: number;
+    column?: number;
+    row?: number;
 }
 
-export type TerminalClientFrame = TerminalInputFrame | TerminalResizeFrame | TerminalScrollFrame;
+export type TerminalClientFrame = TerminalInputFrame | TerminalResizeFrame | TerminalScrollFrame | TerminalPointerFrame;
 export type TerminalHostFrame = TerminalOutputFrame | TerminalClosedFrame;
 
 /** Random channel id. The relay pairs the two sockets quoting the same one. */

@@ -40,6 +40,7 @@ import {
     sessionInfoToSession,
 } from '../infrastructure/sessionMapping';
 import { agentStatusUnchanged, applyHostInfoToAgent } from '../domain/agent';
+import type { SessionInfo } from '@muxr/contract';
 import { lifecycleIsWorking, lifecycleWatchOutcome, watchAgentLifecycle } from '@/watch';
 import { promptAgent } from './promptAgent';
 import type { Settings } from './settings';
@@ -219,7 +220,12 @@ async function toPromptAttachments(previews: readonly AttachmentPreview[]): Prom
     }));
 }
 
+/** Window for merging inbound session frames before one store write. */
+const SESSION_UPDATE_FLUSH_MS = 250;
+
 class MuxrSync {
+    private readonly pendingSessionInfo = new Map<string, SessionInfo>();
+    private sessionFlushTimer: ReturnType<typeof setTimeout> | undefined;
     private client: MuxrClient | undefined;
     private lifecycleWork: Promise<void> = Promise.resolve();
     private reconnectWork: Promise<void> | undefined;
@@ -311,6 +317,30 @@ class MuxrSync {
         return client;
     }
 
+    /**
+     * A machine with many live panes streams `session.updated` continuously.
+     * Applying each frame on arrival costs one store write and one React pass
+     * over every subscribed card, so a burst starves the JS thread. Frames are
+     * merged per session and applied once per window; the newest frame for a
+     * session always wins, so nothing is lost by waiting.
+     */
+    private queueSessionUpdate(sessionId: string, info: SessionInfo): void {
+        this.pendingSessionInfo.set(sessionId, info);
+        if (this.sessionFlushTimer !== undefined) return;
+        this.sessionFlushTimer = setTimeout(() => {
+            this.sessionFlushTimer = undefined;
+            const pending = [...this.pendingSessionInfo.entries()];
+            this.pendingSessionInfo.clear();
+            const state = storage.getState();
+            const next = pending.map(([id, latest]) => {
+                const fresh = sessionInfoToSession(latest);
+                const existing = state.sessions[id];
+                return existing === undefined ? fresh : applyHostInfoToAgent(existing, fresh);
+            });
+            if (next.length > 0) state.applySessions(next);
+        }, SESSION_UPDATE_FLUSH_MS);
+    }
+
     private handleSessionEvent(sessionId: string, event: SessionEvent): void {
         if (event.type === 'shell.end') {
             this.pendingShell.get(sessionId)?.({
@@ -333,13 +363,7 @@ class MuxrSync {
         }
 
         if (event.type === 'session.updated') {
-            const existing = storage.getState().sessions[sessionId];
-            const fresh = sessionInfoToSession(event.session);
-            if (existing === undefined) {
-                storage.getState().applySessions([fresh]);
-            } else {
-                storage.getState().applySessions([applyHostInfoToAgent(existing, fresh)]);
-            }
+            this.queueSessionUpdate(sessionId, event.session);
         }
 
         if (event.type === 'attention.update') {
@@ -362,6 +386,8 @@ class MuxrSync {
         }
 
         if (event.type === 'session.removed') {
+            // A queued frame must never resurrect a session the host retired.
+            this.pendingSessionInfo.delete(sessionId);
             storage.getState().deleteSession(sessionId);
         }
 

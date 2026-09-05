@@ -6,7 +6,9 @@
     "voice.status": "status",
     "voice.key.set": "key-set",
     "voice.session": "session",
-    "voice.report": "report"
+    "voice.report": "report",
+    "voice.provider.list": "provider-list",
+    "voice.provider.set": "provider-set"
   },
   "contributions": [
     {
@@ -30,6 +32,22 @@
       "id": "key-clear",
       "type": "rpc",
       "method": "key.clear",
+      "entry": "rpc.mjs",
+      "mode": "write"
+    },
+    {
+      "slot": "host.rpc",
+      "id": "provider-list",
+      "type": "rpc",
+      "method": "provider.list",
+      "entry": "rpc.mjs",
+      "mode": "read"
+    },
+    {
+      "slot": "host.rpc",
+      "id": "provider-set",
+      "type": "rpc",
+      "method": "provider.set",
       "entry": "rpc.mjs",
       "mode": "write"
     },
@@ -78,48 +96,10 @@
       }
     },
     {
-      "slot": "settings.items",
-      "id": "settings",
-      "type": "settings-item",
-      "label": {
-        "default": "Grok realtime voice",
-        "translations": {
-          "ru": "Голосовой ассистент",
-          "pl": "Asystent głosowy",
-          "es": "Asistente de voz",
-          "it": "Assistente vocale",
-          "pt": "Assistente de voz",
-          "ca": "Assistent de veu",
-          "zh-Hans": "语音助手",
-          "zh-Hant": "語音助理",
-          "ja": "音声アシスタント"
-        }
-      },
-      "subtitle": {
-        "default": "Configure xAI on the connected machine",
-        "translations": {
-          "ru": "Настройка предпочтений голосового взаимодействия",
-          "pl": "Konfiguruj preferencje interakcji głosowej",
-          "es": "Configura las preferencias de voz",
-          "it": "Configura le preferenze vocali",
-          "pt": "Configure as preferências de interação por voz",
-          "ca": "Configura les preferències d'interacció per veu",
-          "zh-Hans": "配置语音交互偏好",
-          "zh-Hant": "設定語音互動偏好",
-          "ja": "音声操作の設定"
-        }
-      },
-      "icon": "pulse-outline",
-      "action": {
-        "type": "screen",
-        "contributionId": "settings-screen"
-      }
-    },
-    {
       "slot": "navigation.content",
       "id": "settings-screen",
       "type": "screen",
-      "title": "Grok realtime voice",
+      "title": "Realtime voice",
       "data": {
         "type": "plugin.call",
         "contributionId": "status"
@@ -127,22 +107,26 @@
       "children": [
         {
           "type": "text",
-          "text": "The xAI key is sent directly to the connected machine and is never stored or displayed by the phone."
+          "text": "The key is sent directly to the connected machine and is never stored or displayed by the phone."
         },
         {
           "type": "row",
-          "title": "xAI key",
+          "title": "Provider",
+          "value": "{{data.providerName}}"
+        },
+        {
+          "type": "row",
+          "title": "Key",
           "value": "{{data.statusLabel}}"
         },
         {
           "type": "button",
-          "label": "Set or replace xAI key",
+          "label": "Set or replace key",
           "variant": "primary",
           "action": {
             "type": "secure-prompt",
-            "title": "xAI API key",
+            "title": "Realtime voice API key",
             "message": "Sent once to this machine and stored only there.",
-            "placeholder": "xai-…",
             "inputKey": "key",
             "submit": {
               "type": "plugin.call",
@@ -152,11 +136,11 @@
         },
         {
           "type": "button",
-          "label": "Clear xAI key",
+          "label": "Clear key",
           "variant": "danger",
           "action": {
             "type": "confirm",
-            "title": "Clear xAI key?",
+            "title": "Clear the stored key?",
             "message": "Realtime voice will stop until a new key is configured.",
             "confirmLabel": "Clear",
             "destructive": true,
@@ -200,6 +184,32 @@
         "type": "capability",
         "name": "voice.start"
       }
+    },
+    {
+      "slot": "navigation.content",
+      "id": "login-screen",
+      "type": "screen",
+      "title": "Codex Voice setup",
+      "data": {
+        "type": "plugin.call",
+        "contributionId": "status"
+      },
+      "children": [
+        {
+          "type": "row",
+          "title": "Provider",
+          "value": "{{data.providerName}}"
+        },
+        {
+          "type": "row",
+          "title": "Login",
+          "value": "{{data.statusLabel}}"
+        },
+        {
+          "type": "text",
+          "text": "Run codex login with ChatGPT on this machine. No API key needed. Experimental realtime access depends on your account."
+        }
+      ]
     }
   ]
 }

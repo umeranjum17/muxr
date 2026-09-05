@@ -78,7 +78,6 @@ export type {
     RequestResult,
     RequestType,
     StreamingBehavior,
-    VoiceProviderOption,
     WatchSettlement,
     LayoutSnapshot,
     ClientFrame,
@@ -90,6 +89,8 @@ export type {
     PreviewFrame,
     TerminalClientFrame,
     TerminalHostFrame,
+    TerminalGraphicsReason,
+    TerminalGraphicsSurface,
     WsTransport,
 } from './control-plane/index.js';
 export {
@@ -284,3 +285,4 @@ export {
     realtimePcm16ByteLength,
     realtimeSocketUrl,
 } from './realtime/index.js';
+export { spokenMatches } from './realtime/index.js';

@@ -2,7 +2,6 @@ export {
     isPluginId,
     parseBundledPlugin,
     parsePluginId,
-    retiredSuccessor,
 } from './domain/dist/index.js';
 export {
     callPluginAction,

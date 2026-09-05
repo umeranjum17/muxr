@@ -28,7 +28,6 @@ import type {
     SessionSnapshot,
     SessionStartResult,
     SessionStatus,
-    VoiceProviderOption,
 } from '@muxr/contract';
 import { ATTENTION_REASONS, parseCloseResult, realtimePluginPublicContext, relayControlUrl } from '@muxr/contract';
 import { AttachmentWatcher } from './attachmentWatcher.js';
@@ -82,6 +81,68 @@ import { agentKindsFromManifests } from '../domain/agentKinds.js';
 const PROMPT_READY_TIMEOUT_MS = 30_000;
 const PROMPT_REBIND_TIMEOUT_MS = 10_000;
 const PLUGIN_CALL_QUEUE_TIMEOUT_MS = 8_000;
+/** How long to watch a started Herdr action before reporting it as merely started. */
+const HERDR_ACTION_REPORT_MS = 5_000;
+
+type HerdrCommandLog = { log_id: string; status: 'running' | 'succeeded' | 'failed'; stdout?: string; stderr?: string; error?: string };
+type HerdrActionLogClient = Pick<HerdrClient, 'call'>;
+const HERDR_ACTION_FAILED = 'plugin action failed';
+const HERDR_ACTION_STATUS_UNAVAILABLE = 'plugin action status unavailable';
+
+function writeHerdrActionDiagnostic(pluginId: string, cause: unknown): void {
+    const detail = cause instanceof Error ? cause.message : String(cause);
+    process.stderr.write(`herdr action ${pluginId}: ${detail.slice(0, 1_000)}\n`);
+}
+
+function commandLogs(value: unknown): HerdrCommandLog[] | undefined {
+    if (value === null || typeof value !== 'object') return undefined;
+    const logs = (value as { logs?: unknown }).logs;
+    if (!Array.isArray(logs) || !logs.every((log) => log !== null && typeof log === 'object'
+        && typeof log.log_id === 'string' && ['running', 'succeeded', 'failed'].includes(String(log.status)))) return undefined;
+    return logs as HerdrCommandLog[];
+}
+
+/** Never forward Herdr output: it can contain pane ids, paths, or terminal content. */
+export function herdrActionFailure(_pluginId: string, log: HerdrCommandLog): string | undefined {
+    return log.status === 'failed' ? HERDR_ACTION_FAILED : undefined;
+}
+
+/** Poll one real Herdr action log without treating missing or changed shapes as success. */
+export async function reportHerdrActionFailure(
+    client: HerdrActionLogClient,
+    pluginId: string,
+    logId: string | undefined,
+    reportMs = HERDR_ACTION_REPORT_MS,
+): Promise<void> {
+    if (typeof logId !== 'string' || logId === '') throw new Error(HERDR_ACTION_STATUS_UNAVAILABLE);
+    const deadline = Date.now() + reportMs;
+    let sawRunning = false;
+    for (let wait = 25; Date.now() < deadline; wait = Math.min(wait * 2, 250)) {
+        await sleep(wait);
+        let response: unknown;
+        try {
+            response = await client.call('plugin.log.list', { plugin_id: pluginId, limit: 50 });
+        } catch (cause) {
+            writeHerdrActionDiagnostic(pluginId, cause);
+            throw new Error(HERDR_ACTION_STATUS_UNAVAILABLE);
+        }
+        const logs = commandLogs(response);
+        if (logs === undefined) {
+            writeHerdrActionDiagnostic(pluginId, 'plugin.log.list returned an invalid response');
+            throw new Error(HERDR_ACTION_STATUS_UNAVAILABLE);
+        }
+        const log = logs.find((entry) => entry.log_id === logId);
+        if (log === undefined) continue;
+        if (log.status === 'running') { sawRunning = true; continue; }
+        const failure = herdrActionFailure(pluginId, log);
+        if (failure !== undefined) {
+            writeHerdrActionDiagnostic(pluginId, log.error ?? log.stderr ?? log.stdout ?? 'failed without detail');
+            throw new Error(failure);
+        }
+        return;
+    }
+    if (!sawRunning) throw new Error(HERDR_ACTION_STATUS_UNAVAILABLE);
+}
 const MAX_PLUGIN_INVOCATIONS_PER_SCOPE = 64;
 const MAX_PLUGIN_INVOCATIONS_TOTAL = 1_024;
 
@@ -523,6 +584,10 @@ export async function createHerdrSessionSource(
         codingCoordinator = new RealtimeCodingCoordinator(join(options.dataDir, 'realtime-coding.sock'), {
             list: listRealtimeAgents,
             activity: async () => options.lifecycle?.catalog().events ?? [],
+            kinds: async () => {
+                const result = await client.call<{ manifests?: Array<{ agent?: string }> }>('server.agent_manifests', {});
+                return agentKindsFromManifests(result.manifests ?? []).filter(executableOnPath);
+            },
             start: startRealtimeAgent,
             sendKeys: sendSessionKeys,
             prompt: promptSession,
@@ -912,7 +977,10 @@ export async function createHerdrSessionSource(
         const taskTitle = taskTitleForSession(session);
         const agentKind = session.agent?.agent ?? undefined;
         const displayAgent = session.agent?.display_agent ?? undefined;
-        const terminalTitle = session.agent?.terminal_title_stripped ?? session.pane.terminal_title_stripped ?? undefined;
+        // The terminal title is deliberately absent: a working agent animates it
+        // several times a second, and every client reads placement and identity
+        // from the fields above. It still travels on `herdr.tree`, at the tree's
+        // own cadence, for anything that wants to show it.
         const spawnedBy = session.pane.tokens?.spawned_by;
         const listedName = publicListedName(session.agent);
         return {
@@ -932,7 +1000,6 @@ export async function createHerdrSessionSource(
             ...(tabId === undefined ? {} : { tabId }),
             ...(tabLabel === undefined ? {} : { tabLabel }),
             ...(spawnedBy === undefined ? {} : { spawnedBy }),
-            ...(terminalTitle === undefined ? {} : { terminalTitle }),
             ...mappedWorktree(worktree, workspace?.label),
         };
     }
@@ -1683,6 +1750,9 @@ export async function createHerdrSessionSource(
         const listedName = publicListedName(session.agent);
         return {
             sessionId: session.sessionId,
+            focused: workspacesById.get(panesById.get(session.paneId)?.workspace_id ?? '')?.focused === true && panesById.get(session.paneId)?.focused === true,
+            workspace: infoFor(session).workspaceLabel,
+            tab: infoFor(session).tabLabel,
             cwd: cwdForSession(session.sessionId) ?? '',
             ...(listedName === undefined ? {} : { agentName: listedName }),
             ...(taskTitle === undefined ? {} : { taskTitle }),
@@ -1747,12 +1817,12 @@ export async function createHerdrSessionSource(
     }
 
 
-    async function readSessionOutput(sessionId: string): Promise<{ text: string; truncated: boolean }> {
+    async function readSessionOutput(sessionId: string, readOptions?: { lines: number }): Promise<{ text: string; truncated: boolean }> {
         const record = await resolvePane(sessionId);
         const result = await client.call<{ read?: { text?: string; truncated?: boolean } }>('pane.read', {
             pane_id: record.paneId,
-            source: 'recent',
-            lines: 80,
+            source: ['idle', 'done'].includes(lifecycleOf(record)) ? 'recent-unwrapped' : 'visible',
+            lines: readOptions?.lines ?? 80,
             format: 'text',
             strip_ansi: true,
         });
@@ -1811,66 +1881,6 @@ export async function createHerdrSessionSource(
 
     async function refreshPlugins(): Promise<void> {
         await reconcilePlugins(true);
-    }
-
-    function voiceProviderOptions(): VoiceProviderOption[] {
-        return catalog.capabilityPlugins('voice.session').map(({ pluginId, name, enabled, source, hasBackend }) => ({
-            id: pluginId,
-            name,
-            selected: enabled,
-            source,
-            hasBackend,
-        }));
-    }
-
-    async function selectVoiceProviderNow(providerId: string): Promise<VoiceProviderOption[]> {
-        await refreshPlugins();
-        const providers = catalog.capabilityPlugins('voice.session');
-        const target = providers.find((candidate) => candidate.pluginId === providerId);
-        if (target === undefined) throw new Error('realtime voice provider is not installed on this machine; update muxr first');
-        const previouslyEnabled = providers.filter(({ enabled }) => enabled);
-        const disabled: typeof previouslyEnabled = [];
-        let enabledTarget = false;
-        try {
-            for (const current of previouslyEnabled) {
-                if (current.pluginId === target.pluginId) continue;
-                await client.call('plugin.disable', { plugin_id: current.pluginId });
-                disabled.push(current);
-            }
-            if (!target.enabled) {
-                await client.call('plugin.enable', { plugin_id: target.pluginId });
-                enabledTarget = true;
-            }
-            await refreshPlugins();
-            const latest = catalog.capabilityPlugins('voice.session');
-            let converged = false;
-            if (!latest.some((candidate) => candidate.pluginId === target.pluginId && candidate.enabled)) {
-                await client.call('plugin.enable', { plugin_id: target.pluginId });
-                enabledTarget = true;
-                converged = true;
-            }
-            for (const current of latest) {
-                if (!current.enabled || current.pluginId === target.pluginId) continue;
-                await client.call('plugin.disable', { plugin_id: current.pluginId });
-                converged = true;
-            }
-            if (converged) await refreshPlugins();
-            return voiceProviderOptions();
-        } catch (error) {
-            if (enabledTarget) await client.call('plugin.disable', { plugin_id: target.pluginId }).catch(() => undefined);
-            for (const current of disabled.reverse()) {
-                await client.call('plugin.enable', { plugin_id: current.pluginId }).catch(() => undefined);
-            }
-            await refreshPlugins().catch(() => undefined);
-            throw error;
-        }
-    }
-
-    let voiceSwitch: Promise<void> = Promise.resolve();
-    function selectVoiceProvider(providerId: string): Promise<VoiceProviderOption[]> {
-        const run = voiceSwitch.then(() => selectVoiceProviderNow(providerId));
-        voiceSwitch = run.then(() => undefined, () => undefined);
-        return run;
     }
 
     void reconcilePlugins().catch(() => undefined);
@@ -2092,17 +2102,29 @@ export async function createHerdrSessionSource(
         const workspaceId = record.agent?.workspace_id ?? record.pane.workspace_id;
         const tabId = record.agent?.tab_id ?? record.pane.tab_id;
         if (workspaceId === undefined || tabId === undefined) throw agentUnavailable();
-        await client.call('plugin.action.invoke', {
-            plugin_id: pluginId,
-            action_id: actionId,
-            context: {
-                workspace_id: workspaceId,
-                tab_id: tabId,
-                focused_pane_id: record.paneId,
-                focused_pane_cwd: infoFor(record).cwd,
-                invocation_source: 'muxr',
-            },
-        });
+        let started: unknown;
+        try {
+            started = await client.call('plugin.action.invoke', {
+                plugin_id: pluginId,
+                action_id: actionId,
+                context: {
+                    workspace_id: workspaceId,
+                    tab_id: tabId,
+                    focused_pane_id: record.paneId,
+                    focused_pane_cwd: infoFor(record).cwd,
+                    invocation_source: 'muxr',
+                },
+            });
+        } catch (cause) {
+            writeHerdrActionDiagnostic(pluginId, cause);
+            throw new Error('plugin action could not be started');
+        }
+        const logId = started !== null && typeof started === 'object'
+            && 'log' in started && started.log !== null && typeof started.log === 'object'
+            && 'log_id' in started.log && typeof started.log.log_id === 'string'
+            ? started.log.log_id
+            : undefined;
+        await reportHerdrActionFailure(client, pluginId, logId);
     }
 
     return {
@@ -2129,15 +2151,6 @@ export async function createHerdrSessionSource(
             await refreshPlugins();
             if (approved) catalog.manifest(pluginId, manifestHash);
             await pluginApprovals.set(deviceId, pluginId, approved);
-        },
-
-        async voiceProviderList() {
-            await refreshPlugins();
-            return voiceProviderOptions();
-        },
-
-        async voiceProviderSelect(provider) {
-            return selectVoiceProvider(provider);
         },
 
         async pluginInvoke({ deviceId, pluginId, manifestHash, contributionId, sessionId, idempotencyKey }) {
@@ -2825,8 +2838,18 @@ export async function createHerdrSessionSource(
         async readFile(readOptions: SessionReadFileOptions): Promise<{ content: string }> {
             // ponytail: no sandboxing beyond the cap. The host runs as the user; the
             // app can already drive a full shell through the terminal channel.
-            const handle = await open(readOptions.path, 'r');
+            //
+            // A folder is something a person taps by accident in a file tree, so it
+            // says so, rather than handing the phone an errno to show raw.
+            const handle = await open(readOptions.path, 'r').catch((error: unknown) => {
+                if ((error as { code?: string }).code !== 'EISDIR') throw error;
+                throw Object.assign(new Error('That path is a folder, not a file.'), { code: 'not-a-file' });
+            });
             try {
+                const stat = await handle.stat();
+                if (stat.isDirectory()) {
+                    throw Object.assign(new Error('That path is a folder, not a file.'), { code: 'not-a-file' });
+                }
                 const bytes = Buffer.alloc(512 * 1024 + 1);
                 const { bytesRead } = await handle.read(bytes, 0, bytes.length, 0);
                 return { content: bytes.subarray(0, bytesRead).toString('utf8').slice(0, 512 * 1024) };

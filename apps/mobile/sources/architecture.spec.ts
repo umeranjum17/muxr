@@ -26,7 +26,6 @@ const uiUseCases = [
     'collaboration/application/GrantPeerAuthority.ts',
     'collaboration/application/RevokePeerAuthority.ts',
     'terminal/application/OpenTerminal.ts',
-    'preview/application/OpenPreview.ts',
     'takeover/application/OpenTakeover.ts',
     'plugins/application/RunPluginAction.ts',
     'plugins/application/RunPluginShortcut.ts',

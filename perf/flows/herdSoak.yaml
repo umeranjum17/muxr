@@ -1,0 +1,28 @@
+appId: com.trymuxr.app
+tags:
+  - perf
+---
+# The herd screen under host frame pressure: the live-terminal strip and the
+# spaces tree, scrolled repeatedly while every session churns its title. This is
+# the surface that went blank when each inbound frame cost a full re-render.
+# One-off system prompts must not be mistaken for a stalled herd.
+- tapOn:
+    text: 'CANCEL|Not now|Deny|Later'
+    optional: true
+- extendedWaitUntil:
+    visible:
+      text: 'LIVE'
+    timeout: 20000
+- repeat:
+    times: 10
+    commands:
+      - swipe:
+          start: 85%, 33%
+          end: 15%, 33%
+      - swipe:
+          start: 15%, 33%
+          end: 85%, 33%
+      - swipe:
+          direction: UP
+      - swipe:
+          direction: DOWN

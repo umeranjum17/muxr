@@ -108,7 +108,7 @@ export function serviceCommand(action) {
         }
         if (action === 'stop' || action === 'unload') return run('launchctl', ['bootout', service]);
         if (action === 'status') {
-            const printed = run('launchctl', ['print', service]);
+            const printed = run('launchctl', ['print', service], { timeout: 2_000 });
             return { ...printed, ok: printed.ok && /\bstate = running\b/.test(printed.stdout) };
         }
     }
@@ -122,7 +122,7 @@ export function serviceCommand(action) {
         return run('systemctl', ['--user', 'restart', 'muxr.service']);
     }
     if (action === 'stop') return run('systemctl', ['--user', 'stop', 'muxr.service']);
-    if (action === 'status') return run('systemctl', ['--user', 'status', 'muxr.service', '--no-pager']);
+    if (action === 'status') return run('systemctl', ['--user', 'status', 'muxr.service', '--no-pager'], { timeout: 2_000 });
     if (action === 'unload') return run('systemctl', ['--user', 'disable', '--now', 'muxr.service']);
     return { ok: false, stdout: '', stderr: `unknown service action ${action}` };
 }

@@ -237,6 +237,7 @@ function readMenuState() {
 const RELAY_KIND = {
     tailscale: 'Tailscale (private)',
     'tailscale-direct': 'Tailscale (direct IP)',
+    private: 'private network',
     cloudflare: 'Cloudflare tunnel (temporary public URL)',
     lan: 'LAN (same wifi)',
     external: 'your own server',

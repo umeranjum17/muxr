@@ -4,29 +4,19 @@ import { execFileSync } from 'node:child_process';
 import { closeSync, openSync, readFileSync, readSync, realpathSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, join, resolve } from 'node:path';
+import { sessionCwds } from './herdrContext.mjs';
 
 const TOOL_PATH = [process.env.PATH ?? '', join(homedir(), '.local', 'bin'), '/opt/homebrew/bin', '/usr/local/bin', '/usr/bin'].filter(Boolean).join(delimiter);
 const exec = (cmd, args, timeout = 15000) => execFileSync(cmd, args, { encoding: 'utf8', timeout, maxBuffer: 4 * 1024 * 1024, env: { ...process.env, PATH: TOOL_PATH } });
-const herdr = process.env.HERDR_BIN_PATH?.trim() || 'herdr';
 const input = JSON.parse(readFileSync(0, 'utf8') || 'null') ?? {};
 
 function repos() {
-    const workspaces = JSON.parse(exec(herdr, ['workspace', 'list'])).result.workspaces ?? [];
-    const panes = JSON.parse(exec(herdr, ['pane', 'list'])).result.panes ?? [];
     const seen = new Map();
-    for (const workspace of workspaces) {
-        const configured = workspace.worktree?.repo_root;
-        const candidates = typeof configured === 'string' && configured !== ''
-            ? [configured]
-            : panes.filter((pane) => pane.workspace_id === workspace.workspace_id)
-                .map((pane) => pane.foreground_cwd ?? pane.cwd);
-        for (const candidate of new Set(candidates)) {
-            if (typeof candidate !== 'string' || candidate === '') continue;
-            let root;
-            try { root = exec('git', ['-C', candidate, 'rev-parse', '--show-toplevel'], 3000).trim(); }
-            catch { continue; }
-            if (root !== '' && !seen.has(root)) seen.set(root, { root, name: root.split('/').pop() ?? root, path: root });
-        }
+    for (const candidate of sessionCwds()) {
+        let root;
+        try { root = exec('git', ['-C', candidate, 'rev-parse', '--show-toplevel'], 3000).trim(); }
+        catch { continue; }
+        if (root !== '' && !seen.has(root)) seen.set(root, { root, name: root.split('/').pop() ?? root, path: root });
     }
     return [...seen.values()].slice(0, 32);
 }
@@ -69,9 +59,9 @@ function fileTree(paths, folder = '') {
             ...(directory ? { hasChildren: true } : {}),
         });
     }
-    return [...nodes.values()]
-        .sort((a, b) => Number(b.kind === 'folder') - Number(a.kind === 'folder') || a.name.localeCompare(b.name))
-        .slice(0, 256);
+    const sorted = [...nodes.values()]
+        .sort((a, b) => Number(b.kind === 'folder') - Number(a.kind === 'folder') || a.name.localeCompare(b.name));
+    return { tree: sorted.slice(0, 256), total: sorted.length };
 }
 
 const method = process.argv[2];
@@ -83,12 +73,13 @@ if (method === 'repos') {
     const all = exec('git', ['-C', root, 'ls-files', '--cached', '--others', '--exclude-standard', '-z']).split('\0').filter(Boolean);
     const folder = String(input.path ?? '').replace(/^\/+|\/+$/g, '');
     if (folder.split('/').some((segment) => segment === '..')) throw new Error('invalid folder');
-    const tree = fileTree(all, folder);
+    const listed = fileTree(all, folder);
     process.stdout.write(JSON.stringify({
         root,
         title: root.split('/').pop(),
         count: `${all.length} files`,
-        tree,
+        tree: listed.tree,
+        treeNote: listed.total > listed.tree.length ? `Showing first 256 of ${listed.total}` : '',
     }));
 } else {
     const root = repoRoot(input.root);
@@ -109,7 +100,8 @@ if (method === 'repos') {
     const lines = allLines.slice(0, 240);
     const truncated = stat.size > limit || allLines.length > lines.length;
     process.stdout.write(JSON.stringify({
-        name: relative,
+        name: relative.split('/').pop() ?? relative,
+        path: relative,
         body: binary ? 'Binary file — preview unavailable.' : lines.join('\n'),
         note: truncated ? `Preview capped at ${lines.length} lines / 24 KiB.` : '',
     }));

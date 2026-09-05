@@ -31,7 +31,7 @@ export function asScreenTabs(value: unknown): Array<{ id: string; label: string 
         const { id, label } = entry as { id?: unknown; label?: unknown };
         if (typeof id !== 'string' || id === '' || typeof label !== 'string' || label === '') return [];
         return [{ id: id.slice(0, 64), label: label.slice(0, 32) }];
-    }).slice(0, 16);
+    }).slice(0, 32);
 }
 
 export function bindText(template: string, data: unknown, item?: unknown): string {
@@ -233,4 +233,22 @@ export async function runScreenButton(
     } catch (error) {
         return { ok: false, text: displayText(error instanceof Error ? error.message : String(error)) };
     }
+}
+
+/** Longest `contentContributionId` prefix at a dot boundary; exact id wins. */
+export function nearestContentMount<T extends { contentContributionId: string }>(
+    mounts: readonly T[],
+    contentId: string,
+): T | undefined {
+    let best: T | undefined;
+    let bestLen = -1;
+    for (const mount of mounts) {
+        const id = mount.contentContributionId;
+        if (id === contentId) return mount;
+        if (contentId.startsWith(`${id}.`) && id.length > bestLen) {
+            best = mount;
+            bestLen = id.length;
+        }
+    }
+    return best;
 }

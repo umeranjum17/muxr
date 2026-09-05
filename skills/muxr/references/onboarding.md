@@ -33,9 +33,10 @@ Node itself.
 ## First run
 
 Run `muxr` with no arguments for the interactive setup and maintenance menu.
-The onboarding inspects the machine without changing it. You choose the
-connection method, local port or external URL, whether to host the
-control/view-only web client, agent integrations, optional plugins, and managed
+The onboarding inspects the machine without changing it. It keeps a healthy
+current route or proposes one detected private route and explains why. Accept
+that route or open **Choose another way** for alternative transports;
+then choose browser access, agent integrations, optional plugins, and managed
 services. Nothing changes before a final **Apply setup** confirmation. Setup
 then starts the selected relay and host, runs the pairing flow (scan the
 one-use QR from the phone app), and verifies the connection and managed
@@ -51,19 +52,25 @@ return after login or reboot. Preview managed-file changes anytime with
 
 ## Connection choices
 
-Interactive onboarding presents these; the automation equivalents are flags on
-`muxr self-host`:
+Interactive onboarding proposes one route instead of presenting infrastructure
+choices first. It prefers the healthy current route, Tailscale, a detected
+private overlay, an installed temporary tunnel, then same Wi-Fi. **Choose another way** reveals every available
+transport. Automation equivalents are flags on `muxr self-host`:
 
 | Choice / flag | What happens |
 |---|---|
 | `--advertise <url>` | Explicit relay URL wins. Use your own domain/reverse proxy. |
 | `--tunnel` | Spawns `cloudflared` for a public `trycloudflare.com` URL. Ephemeral; use a named tunnel for permanence. |
 | Tailscale Serve | Private HTTPS through `tailscale serve`; the relay stays on loopback. |
-| `--tailscale-direct` | Rollback path using the tailnet IP directly. |
-| Local network | LAN address. Phone must be on the same wifi. |
+| `--tailscale-direct` | Uses the tailnet IP directly when Serve is proven disabled or occupied. |
+| Detected private network | Existing NetBird, WireGuard, ZeroTier, or similar address. Phone must join the same private network. |
+| Same Wi-Fi | Local network address. Phone must be on the same trusted network. |
 
-muxr never enables Tailscale Funnel. Restrict a Serve endpoint with a tailnet
-grant/ACL even though pairing and E2EE remain authoritative. `--web` requires a
+An inconclusive read-only Serve probe does not demote Tailscale; the bounded
+Apply is authoritative. Proven disabled or occupied Serve is left unchanged and
+direct Tailscale is proposed instead. muxr never enables Tailscale Funnel.
+Restrict a Serve endpoint with a tailnet grant/ACL even though pairing and E2EE
+remain authoritative. `--web` requires a
 secure `wss://` route; insecure LAN HTTP is refused. Set `MUXR_TRUST_PROXY=1`
 when the relay sits behind cloudflared/nginx so rate limits key on real client
 IPs.
@@ -150,7 +157,7 @@ bounded deadline. Then follow the matching remedy:
 |---|---|
 | Herdr server or lifecycle integrations | accept doctor's offered repair, or run `muxr integrations sync`; rerun doctor |
 | muxr service, relay, or local peer access | `muxr daemon restart`, then `muxr doctor` |
-| Tailscale Serve | restart `tailscaled` only when another connection can survive the interruption, or rerun setup with LAN / `muxr self-host --tailscale-direct` |
+| Tailscale Serve | if Tailscale proves Serve is disabled, use its printed `login.tailscale.com` link or accept direct Tailscale. A timeout is inconclusive: let bounded Apply retry or choose another route. Restart `tailscaled` only when another connection can survive the interruption. |
 | Local relay port | `curl --max-time 3 http://127.0.0.1:8792/health`; inspect the owner with `ss -ltnp 'sport = :8792'` on Linux or `lsof -nP -iTCP:8792 -sTCP:LISTEN` on macOS; stop only a process you recognize or rerun `muxr setup --port <free-port>` |
 | Expired or interrupted pairing | `muxr pair` for a new single-use code |
 | Connection choice or tunnel | rerun interactive `muxr`; do not edit `~/.muxr` |

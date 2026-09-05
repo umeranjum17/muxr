@@ -149,9 +149,10 @@ export const LiveTerminalsRow = React.memo(({
     const { status: socketStatus } = useSocketStatus();
     const { ready, seenEventIds, markSeen } = useActivityAcknowledgements();
     const scrollRef = React.useRef<ScrollView>(null);
+    const scrollXRef = React.useRef(0);
     const [foreground, setForeground] = React.useState(AppState.currentState === 'active');
     const [stripWidth, setStripWidth] = React.useState(0);
-    const [scrollX, setScrollX] = React.useState(0);
+    const [firstVisible, setFirstVisible] = React.useState(0);
     const handleLayout = React.useCallback((event: LayoutChangeEvent) => setStripWidth(event.nativeEvent.layout.width), []);
     const cardWidth = Math.min(CARD_WIDTH, Math.max(240, stripWidth - STRIP_GUTTER - 24));
     const panes = React.useMemo(() => herdPanes(sessions, workspaces), [sessions, workspaces]);
@@ -183,10 +184,17 @@ export const LiveTerminalsRow = React.memo(({
         return () => subscription.remove();
     }, []);
     const attentionIndex = cards.findIndex((card) => liveTerminalBucket(card.agentStatus) === 'attention');
-    const firstVisible = Math.max(0, Math.floor(scrollX / (cardWidth + CARD_GAP)));
-    const onScroll = React.useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
-        setScrollX(event.nativeEvent.contentOffset.x);
-    }, []);
+    const commitVisibleIndex = React.useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
+        const x = event.nativeEvent.contentOffset.x;
+        scrollXRef.current = x;
+        setFirstVisible((current) => {
+            const next = Math.max(0, Math.floor(x / (cardWidth + CARD_GAP)));
+            return next === current ? current : next;
+        });
+    }, [cardWidth]);
+    React.useEffect(() => {
+        setFirstVisible(Math.max(0, Math.floor(scrollXRef.current / (cardWidth + CARD_GAP))));
+    }, [cardWidth]);
     const scrollToCard = React.useCallback((sessionId: string): boolean => {
         const index = cards.findIndex((card) => card.id === sessionId);
         if (index === -1) return false;
@@ -212,7 +220,7 @@ export const LiveTerminalsRow = React.memo(({
                     viewportBottom: windowHeight - visibilityBottomInset,
                     stripTop,
                     stripHeight,
-                    scrollX,
+                    scrollX: scrollXRef.current,
                     stripWidth,
                     cardWidth,
                     cardGap: CARD_GAP,
@@ -225,7 +233,7 @@ export const LiveTerminalsRow = React.memo(({
             cancelled = true;
             clearTimeout(timer);
         };
-    }, [activityRows, cardWidth, cards, foreground, markSeen, screenFocused, scrollX, stripWidth, visibilityBottomInset, visibilityTop, windowHeight]);
+    }, [activityRows, cardWidth, cards, firstVisible, foreground, markSeen, screenFocused, stripWidth, visibilityBottomInset, visibilityTop, windowHeight]);
 
     const renderedCards = cards.map((card, index) => (
         <LiveTerminalCard
@@ -265,8 +273,8 @@ export const LiveTerminalsRow = React.memo(({
                     ref={scrollRef}
                     horizontal
                     showsHorizontalScrollIndicator={false}
-                    onScroll={onScroll}
-                    scrollEventThrottle={100}
+                    onMomentumScrollEnd={commitVisibleIndex}
+                    onScrollEndDrag={commitVisibleIndex}
                     snapToInterval={cardWidth + CARD_GAP}
                     decelerationRate="fast"
                     contentContainerStyle={{ gap: CARD_GAP, paddingHorizontal: STRIP_GUTTER }}

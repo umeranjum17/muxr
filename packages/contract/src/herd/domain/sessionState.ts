@@ -37,7 +37,11 @@ export interface SessionInfo extends SessionRef, AgentInfo {
     firstMessage: string;
     parentSessionPath?: string;
     paneId?: string;
-    terminalTitle?: string;
+    /**
+     * Deliberately absent: a working agent animates its terminal title several
+     * times a second, and no client renders it from here. `HerdrTreePane`
+     * carries it instead, at the tree's own cadence.
+     */
     worktree?: { repo: string; branch?: string; path: string };
     workspaceId?: string;
     workspaceLabel?: string;

@@ -25,6 +25,12 @@ import {
     WsTicketError,
 } from '@muxr/contract';
 import { DeviceV2Crypto, refreshHostedGrant, type StoredHostedGrant } from '../application/hostedE2ee';
+import {
+    recordSocketFailure,
+    socketCloseReason,
+    ticketFailureCode,
+    type ConnectionDiagnosticSocketFailureCode,
+} from '../../catalog/infrastructure/connectionDiagnostics';
 
 /** `stale`: host liveness is unproven because a request timed out without newer authenticated host traffic. */
 export type ConnectionState = 'connecting' | 'open' | 'closed' | 'stale';
@@ -84,6 +90,8 @@ export class MuxrClient {
     private reconnectAttempt = 0;
     /** Valid host traffic observed on the current socket. Request timers use it as a liveness fence. */
     private hostFrameRevision = 0;
+    private livenessTimer: ReturnType<typeof setTimeout> | undefined;
+    private readonly decodeFailureSockets = new WeakSet<WebSocket>();
 
     state: ConnectionState = 'closed';
 
@@ -127,6 +135,7 @@ export class MuxrClient {
         const { machineId, token } = this.options;
         let relayUrl = this.options.relayUrl;
         let url: string;
+        let failureStage: 'grant' | 'ticket' = 'grant';
         try {
             if (this.options.mode === 'hosted') {
                 const latest = await refreshHostedGrant(machineId, token);
@@ -138,19 +147,35 @@ export class MuxrClient {
             }
             if (this.options.mode === 'hosted' && (!token || this.hosted === undefined)) throw new Error('hosted connection is missing its credential or grant');
             const legacyToken = this.options.mode === 'local' && token?.startsWith('acctok_') === true;
-            url = token === undefined || token === '' || legacyToken
-                ? `${relayUrl}?role=client&machineId=${encodeURIComponent(machineId)}${token === undefined || token === '' ? '' : `&token=${encodeURIComponent(token)}`}`
-                : ticketSocketUrl(relayUrl, await issueWsTicket({
+            if (token === undefined || token === '' || legacyToken) {
+                url = `${relayUrl}?role=client&machineId=${encodeURIComponent(machineId)}${token === undefined || token === '' ? '' : `&token=${encodeURIComponent(token)}`}`;
+            } else {
+                failureStage = 'ticket';
+                const ticket = await issueWsTicket({
                     relayUrl,
                     credential: token,
                     machineId,
                     role: 'client',
                     transport: 'relay',
-                }), 'relay');
+                });
+                url = ticketSocketUrl(relayUrl, ticket, 'relay');
+            }
         } catch (error) {
             if (this.closed || this.socket !== undefined) return;
             const rejected = error instanceof WsTicketError && (error.status === 401 || error.status === 403);
             const expired = error instanceof Error && /grant expired/i.test(error.message);
+            const timedOut = error instanceof Error && error.name === 'AbortError';
+            recordSocketFailure({
+                stage: failureStage,
+                code: failureStage === 'ticket'
+                    ? error instanceof WsTicketError
+                        ? ticketFailureCode(error.status)
+                        : timedOut ? 'ticket-timeout' : 'ticket-network'
+                    : expired ? 'grant-expired'
+                        : error instanceof Error && /missing its credential or grant/i.test(error.message)
+                            ? 'grant-missing'
+                            : 'grant-refresh-failed',
+            });
             const permanent = expired || rejected && this.hosted?.grant.source === 'selfhost';
             this.setState(permanent ? 'stale' : 'closed');
             if (rejected) this.options.onTicketRejected?.();
@@ -170,30 +195,78 @@ export class MuxrClient {
             return;
         }
         if (this.closed || this.socket !== undefined) return;
-        const socket = new WebSocket(url);
+        let socket: WebSocket;
+        try {
+            socket = new WebSocket(url);
+        } catch {
+            recordSocketFailure({ stage: 'dial', code: 'dial-network' });
+            this.setState('closed');
+            const base = this.options.reconnectDelayMs ?? 1500;
+            this.reconnectTimer = setTimeout(() => this.connect(), Math.min(base * 2 ** this.reconnectAttempt++, 30_000));
+            return;
+        }
         this.socket = socket;
+        let opened = false;
+        let sawHostFrame = false;
+        let livenessRecorded = false;
+        this.livenessTimer = setTimeout(() => {
+            if (this.socket !== socket || socket.readyState !== (WebSocket.CONNECTING ?? 0)) return;
+            recordSocketFailure({ stage: 'dial', code: 'dial-timeout' });
+            this.retireSocket(socket);
+            socket.close();
+        }, this.options.requestTimeoutMs ?? 20_000);
 
         socket.onopen = () => {
             if (this.socket !== socket) {
                 socket.close();
                 return;
             }
+            opened = true;
             this.reconnectAttempt = 0;
+            clearTimeout(this.livenessTimer);
             // The relay accepts a client peer even when no machine is attached,
             // so socket open is not "connected". Stay `connecting` until the
             // first authenticated host frame arrives (handleMessage flips it);
             // the host answers client.hello immediately when it is alive.
             this.send({ type: 'client.hello', clientId: this.clientId });
+            this.livenessTimer = setTimeout(() => {
+                if (this.socket !== socket || this.state === 'open' || livenessRecorded) return;
+                livenessRecorded = true;
+                recordSocketFailure({
+                    stage: 'liveness',
+                    code: sawHostFrame ? 'all-frames-rejected' : 'no-host-frame',
+                });
+                this.retireSocket(socket);
+                socket.close();
+            }, this.options.requestTimeoutMs ?? 20_000);
         };
         socket.onmessage = (message: MessageEvent) => {
-            if (this.socket === socket) void this.handleMessage(String(message.data));
+            if (this.socket !== socket) return;
+            sawHostFrame = true;
+            void this.handleMessage(String(message.data), socket);
         };
-        socket.onerror = () => socket.close();
-        socket.onclose = () => this.retireSocket(socket);
+        socket.onerror = () => {
+            if (!opened) recordSocketFailure({ stage: 'dial', code: 'dial-network' });
+            socket.close();
+        };
+        socket.onclose = (event) => {
+            if (this.socket === socket && !this.closed && opened) {
+                const closeCode = Number.isInteger(event.code) ? event.code : 1006;
+                recordSocketFailure({
+                    stage: 'close',
+                    code: 'socket-closed',
+                    closeCode,
+                    closeReason: socketCloseReason(closeCode),
+                });
+            }
+            this.retireSocket(socket);
+        };
     }
 
     close(): void {
         this.closed = true;
+        clearTimeout(this.livenessTimer);
+        this.livenessTimer = undefined;
         clearTimeout(this.reconnectTimer);
         this.reconnectTimer = undefined;
         this.rejectPending('client closed');
@@ -213,6 +286,8 @@ export class MuxrClient {
 
     private retireSocket(socket: WebSocket): void {
         if (this.socket !== socket) return;
+        clearTimeout(this.livenessTimer);
+        this.livenessTimer = undefined;
         this.socket = undefined;
         this.rejectPending('connection lost');
         this.setState('closed');
@@ -262,12 +337,8 @@ export class MuxrClient {
                     this.retireSocket(socket);
                     socket.close();
                 }
-                // Overwhelmingly the cause is a machineId mismatch: the relay
-                // buffers frames for a machine that never connects, so the
-                // request just never comes back. Name the id being addressed.
                 reject(new Error(
-                    `request timed out: ${type} (no reply from machine "${this.options.machineId}" — `
-                    + `is the host running with MUXR_MACHINE_ID=${this.options.machineId}?)`,
+                    `request timed out: ${type} (connection reset; try again after muxr reconnects)`,
                 ));
             }, timeoutMs ?? this.options.requestTimeoutMs ?? 20000);
 
@@ -311,36 +382,52 @@ export class MuxrClient {
         this.socket?.send(JSON.stringify(envelope));
     }
 
-    private async handleMessage(raw: string): Promise<void> {
+    private recordDecodeFailure(socket: WebSocket, code: Extract<ConnectionDiagnosticSocketFailureCode, 'machine-mismatch' | 'context-mismatch' | 'open-failed'>): void {
+        if (this.decodeFailureSockets.has(socket)) return;
+        this.decodeFailureSockets.add(socket);
+        recordSocketFailure({ stage: 'decode', code });
+    }
+
+    private async handleMessage(raw: string, socket: WebSocket): Promise<void> {
         let envelope: Envelope;
         try {
             envelope = JSON.parse(raw) as Envelope;
         } catch {
+            this.recordDecodeFailure(socket, 'open-failed');
             return;
+        }
+        if (envelope.header.machineId !== this.options.machineId) {
+            this.recordDecodeFailure(socket, 'machine-mismatch');
+            return;
+        }
+        const streamId = envelope.header.streamId ?? envelope.header.sessionId ?? 'machine';
+        if (this.hosted !== undefined) {
+            const channel = envelope.header.channel;
+            if (envelope.header.senderId !== this.options.machineId || envelope.header.recipientId !== '*'
+                || (channel !== 'session' && channel !== 'attachment') || envelope.header.streamId !== streamId
+                || envelope.header.keyVersion !== this.hosted.grant.keyVersion) {
+                this.recordDecodeFailure(socket, 'context-mismatch');
+                return;
+            }
         }
         let frame: HostFrame;
         try {
-            if (envelope.header.machineId !== this.options.machineId) throw new Error('hosted e2ee: routing machine mismatch');
-            const streamId = envelope.header.streamId ?? envelope.header.sessionId ?? 'machine';
             const plaintext = this.hosted === undefined
                 ? envelope.payload
-                : (() => {
-                    const channel = envelope.header.channel;
-                    if (envelope.header.senderId !== this.options.machineId || envelope.header.recipientId !== '*'
-                        || (channel !== 'session' && channel !== 'attachment') || envelope.header.streamId !== streamId
-                        || envelope.header.keyVersion !== this.hosted?.grant.keyVersion) {
-                        throw new Error('hosted e2ee: invalid routing context');
-                    }
-                    return this.hosted.open(channel, streamId, envelope.payload, envelope.header.seq);
-                })();
+                : this.hosted.open(envelope.header.channel as 'session' | 'attachment', streamId, envelope.payload, envelope.header.seq);
             frame = decodePayload<HostFrame>(await plaintext);
         } catch {
+            this.recordDecodeFailure(socket, 'open-failed');
             return;
         }
+
+        if (this.socket !== socket) return;
 
         // Socket open only proves the relay accepted us; the first frame that
         // survives the machine's E2EE context proves the host is really there.
         this.hostFrameRevision += 1;
+        clearTimeout(this.livenessTimer);
+        this.livenessTimer = undefined;
         if (this.state !== 'open') this.setState('open');
 
         if (frame.type === 'result') {

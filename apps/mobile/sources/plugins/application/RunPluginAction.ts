@@ -6,6 +6,7 @@ import { pluginHref } from '../domain/pluginHref';
 import { sharedPluginWriteKeys } from '../domain/screenModel';
 import { pluginSnapshot } from './pluginStore';
 import { resolvePluginText } from '../domain/pluginText';
+import { openFileViewer } from './fileNavigationList';
 
 export function sourceLabel(source: PluginSource): string {
     if (source.kind === 'github') return `GitHub · ${source.owner ?? 'unknown'}/${source.repo ?? 'unknown'}`;
@@ -20,6 +21,7 @@ export type RunPluginActionCommand = {
         manifestHash: string;
         manifest: PluginManifestV1;
         sessionId?: string;
+        fileNavigationKey?: string;
         oneTimeIdempotencyKey?: string;
         input?: unknown;
     };
@@ -64,7 +66,7 @@ export function validatePluginAction(value: unknown, context: PluginActionContex
             throw new Error(`Plugin ${action.type} requires a write RPC`);
         }
     }
-    if ((action.type === 'attachment' || action.type === 'kernel.navigate' && (action.target === 'file' || action.target === 'preview'))
+    if ((action.type === 'attachment' || action.type === 'kernel.navigate' && action.target === 'file')
         && context.sessionId === undefined) {
         const kind = action.type === 'attachment' ? 'attachment' : action.target;
         throw new Error(`Plugin action ${kind} needs session context`);
@@ -85,10 +87,14 @@ export async function runPluginAction(command: RunPluginActionCommand): Promise<
     if (action.type === 'kernel.navigate') {
         if (action.target === 'session') return { kind: 'focus-agent', agentRoute: action.sessionId };
         if (action.target === 'file') {
-            return { kind: 'navigate', href: `/session/${encodeURIComponent(context.sessionId!)}/file?path=${encodeURIComponent(action.path)}` };
-        }
-        if (action.target === 'preview') {
-            return { kind: 'navigate', href: `/session/${encodeURIComponent(context.sessionId!)}/preview?port=${action.port}` };
+            return {
+                kind: 'navigate',
+                href: openFileViewer({
+                    sessionId: context.sessionId!,
+                    path: action.path,
+                    ...(context.fileNavigationKey === undefined ? {} : { navigation: { key: context.fileNavigationKey } }),
+                }),
+            };
         }
         return { kind: 'navigate', href: `/web-view?url=${encodeURIComponent(action.url)}` };
     }

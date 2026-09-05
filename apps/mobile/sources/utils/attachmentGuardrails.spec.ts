@@ -1,8 +1,21 @@
 import { describe, expect, it, vi } from 'vitest';
+
+const previewMocks = vi.hoisted(() => ({
+    request: vi.fn(),
+    settings: { mode: 'hosted' as const, machineId: 'machine-1' },
+}));
+
+vi.mock('@/connection', () => ({
+    getCachedConnectionSettings: () => previewMocks.settings,
+}));
+vi.mock('@/catalog/sync', () => ({
+    sync: { request: previewMocks.request },
+}));
 import { estimateBase64Bytes, planAttachmentHeal } from '@/catalog/infrastructure/attachmentSupport';
 import { boundText } from '@/utils/boundedText';
 import { estimateStoredBlobBytes, blobUri, readBlobText, pruneBlobs, saveBlob } from './attachmentBlobs.web';
 import { boundSessionFileCache } from '@/catalog/application/sessionFileCache';
+import { attachmentPreview } from './attachmentPreview.web';
 
 describe('attachment/file guardrail helpers', () => {
     it('bounds heal payload accounting and source lines/chars before rendering', () => {
@@ -46,6 +59,40 @@ describe('attachment/file guardrail helpers', () => {
             expect(revokeObjectURL).toHaveBeenCalledWith(expect.stringContaining('blob:mock-'));
         } finally {
             await pruneBlobs(new Set());
+            vi.unstubAllGlobals();
+        }
+    });
+
+    it('coalesces one hosted image read while keeping object URL ownership independent', async () => {
+        previewMocks.request.mockReset();
+        let objectUrls = 0;
+        const createObjectURL = vi.fn(() => `blob:preview-${++objectUrls}`);
+        const revokeObjectURL = vi.fn();
+        vi.stubGlobal('URL', { createObjectURL, revokeObjectURL });
+        const download = Promise.withResolvers<{ id: string; offset: number; size: number; data: string }>();
+        previewMocks.request.mockReturnValue(download.promise);
+        const attachment = {
+            type: 'attachment' as const,
+            id: 'a'.repeat(64),
+            name: 'preview.png',
+            mimeType: 'image/png',
+            size: 5,
+        };
+        try {
+            const first = attachmentPreview('session-1', attachment);
+            const second = attachmentPreview('session-1', attachment);
+            expect(previewMocks.request).toHaveBeenCalledTimes(1);
+            download.resolve({ id: attachment.id, offset: 0, size: 5, data: 'aGVsbG8=' });
+            const sources = await Promise.all([first, second]);
+            expect(sources.map((source) => source.uri)).toEqual(['blob:preview-1', 'blob:preview-2']);
+            sources.forEach((source) => source.dispose?.());
+            expect(revokeObjectURL.mock.calls).toEqual([['blob:preview-1'], ['blob:preview-2']]);
+
+            previewMocks.request.mockResolvedValue({ id: attachment.id, offset: 0, size: 5, data: 'aGVsbG8=' });
+            const later = await attachmentPreview('session-1', attachment);
+            expect(previewMocks.request).toHaveBeenCalledTimes(2);
+            later.dispose?.();
+        } finally {
             vi.unstubAllGlobals();
         }
     });

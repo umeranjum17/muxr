@@ -578,6 +578,7 @@ async function main(): Promise<void> {
     }
     const domain = createAgentWatchStores({ dataDir });
     const routes = new AgentRouteStore(dataDir);
+    const herdrSocketPath = env('HERDR_SOCKET_PATH');
     let source;
     if (useFake) {
         assertFakeSourceCoversContract();
@@ -585,6 +586,8 @@ async function main(): Promise<void> {
     } else {
         source = await createHerdrSessionSource({
             dataDir,
+            // A test harness points the host at its own Herdr; unset means the desk's.
+            ...(herdrSocketPath === undefined ? {} : { socketPath: herdrSocketPath }),
             attention: domain.attention,
             lifecycle: domain.lifecycle,
             routes,
@@ -622,6 +625,9 @@ async function main(): Promise<void> {
         ...(token === undefined ? {} : { token }),
         ...(process.env.HERDR_BIN === undefined ? {} : { herdrBin: process.env.HERDR_BIN }),
         ...(hostedE2ee === undefined ? {} : { hostedE2ee }),
+        ...(diagnostics === undefined ? {} : {
+            onGraphicsPipelineDiagnostic: (report) => diagnostics.graphicsPipeline(report),
+        }),
     });
 
     startHost({

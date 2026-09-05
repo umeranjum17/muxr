@@ -180,7 +180,7 @@ export const lightTheme = {
             contextBg: '#F6F8FA',
             contextText: '#586069',
             lineNumberBg: '#F6F8FA',
-            lineNumberText: '#959DA5',
+            lineNumberText: '#6e7781',
             hunkHeaderBg: '#F1F8FF',
             hunkHeaderText: '#005CC5',
             leadingSpaceDot: '#E8E8E8',
@@ -190,12 +190,38 @@ export const lightTheme = {
             inlineRemovedText: '#5A0A05',
         },
 
+        // The reading surface. A code panel is a dark object in both app
+        // themes - the same way a chat client renders a code block inside a
+        // light page - because a dark ground is the only one on which syntax
+        // colour can be saturated and still clear 4.5:1. Primer Dark Default.
+        code: {
+            surface: '#141518',
+            surfaceRaised: '#1c1e23',
+            pressed: '#23262d',
+            hairline: '#2a2d34',
+            text: '#d7dae0',
+            dim: '#8b949e',
+            keyword: '#ff7b72',
+            string: '#a5d6ff',
+            number: '#79c0ff',
+            function: '#d2a8ff',
+            className: '#ffa657',
+            tag: '#7ee787',
+            addedBg: 'rgba(63,185,80,0.14)',
+            addedWord: 'rgba(63,185,80,0.35)',
+            addedMark: '#3fb950',
+            removedBg: 'rgba(248,81,73,0.14)',
+            removedWord: 'rgba(248,81,73,0.35)',
+            removedMark: '#f85149',
+            scopeMark: '#79c0ff',
+        },
+
         // Code/Syntax colors
         syntaxKeyword: '#1d4ed8',
-        syntaxString: '#059669',
+        syntaxString: '#047857',
         syntaxComment: '#6b7280',
-        syntaxNumber: '#0891b2',
-        syntaxFunction: '#9333ea',
+        syntaxNumber: '#0e7490',
+        syntaxFunction: '#7e22ce',
         syntaxBracket1: '#ff6b6b',
         syntaxBracket2: '#4ecdc4',
         syntaxBracket3: '#45b7d1',
@@ -415,6 +441,30 @@ export const darkTheme = {
             inlineAddedText: '#7AFF7A',
             inlineRemovedBg: '#5A2A2A',
             inlineRemovedText: '#FF7A7A',
+        },
+
+        // Identical to light: the code panel is the same dark object in both
+        // themes, so a file looks the same whatever the app is set to.
+        code: {
+            surface: '#141518',
+            surfaceRaised: '#1c1e23',
+            pressed: '#23262d',
+            hairline: '#2a2d34',
+            text: '#d7dae0',
+            dim: '#8b949e',
+            keyword: '#ff7b72',
+            string: '#a5d6ff',
+            number: '#79c0ff',
+            function: '#d2a8ff',
+            className: '#ffa657',
+            tag: '#7ee787',
+            addedBg: 'rgba(63,185,80,0.14)',
+            addedWord: 'rgba(63,185,80,0.35)',
+            addedMark: '#3fb950',
+            removedBg: 'rgba(248,81,73,0.14)',
+            removedWord: 'rgba(248,81,73,0.35)',
+            removedMark: '#f85149',
+            scopeMark: '#79c0ff',
         },
 
         // Code/Syntax colors (brighter for dark mode)

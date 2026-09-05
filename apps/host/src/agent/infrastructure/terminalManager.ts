@@ -13,6 +13,7 @@ import WebSocket from 'ws';
 import { issueWsTicket, terminalSocketUrl, ticketSocketUrl, type Envelope } from '@muxr/contract';
 import { v2EnvelopeSequence } from '@muxr/crypto';
 import { HostV2Crypto, type HostedMachineKeys, deviceTableIsObserve, ticketWsCredential } from '../../machine/index.js';
+import { HerdrGraphicsBridge, type GraphicsPipelineReport, type HerdrGraphicsPointer } from './herdrGraphicsBridge.js';
 
 export interface TerminalManagerOptions {
     relayUrl: string;
@@ -21,24 +22,41 @@ export interface TerminalManagerOptions {
     resolvePane: (sessionId: string) => Promise<string>;
     herdrBin?: string;
     hostedE2ee?: HostedMachineKeys;
+    onGraphicsPipelineDiagnostic?: (report: GraphicsPipelineReport) => void;
 }
 
 interface Attachment {
+    channel: string;
     sessionId: string;
     paneId: string;
     mode: 'control' | 'observe';
     deviceId?: string;
     process: ChildProcess;
     socket: WebSocket;
+    cols: number;
+    rows: number;
+    cellWidthPx: number | undefined;
+    cellHeightPx: number | undefined;
+    pendingGraphics: { frame: string; bytes: number }[];
+    pendingGraphicsBytes: number;
+    graphicsFlushTimer?: ReturnType<typeof setTimeout>;
     close: (reason?: string) => void;
 }
 
 const ATTACH_TIMEOUT_MS = 10_000;
+const GRAPHICS_BUFFER_HIGH_BYTES = 512 * 1024;
+const GRAPHICS_BUFFER_LOW_BYTES = 128 * 1024;
+const GRAPHICS_DRAIN_POLL_MS = 16;
+const MAX_PENDING_GRAPHICS_BYTES = 64 * 1024 * 1024;
+const MAX_PENDING_GRAPHICS_FRAMES = 128;
 
 export class TerminalManager {
     private readonly attachments = new Map<string, Attachment>();
     private readonly controlQueues = new Map<string, Promise<void>>();
     private readonly hosted: HostV2Crypto | undefined;
+    private graphics: HerdrGraphicsBridge | undefined;
+    private graphicsOpening: Promise<void> | undefined;
+    private graphicsCloseTimer: ReturnType<typeof setTimeout> | undefined;
 
     constructor(private readonly options: TerminalManagerOptions) {
         this.hosted = options.hostedE2ee === undefined ? undefined : new HostV2Crypto(options.hostedE2ee);
@@ -49,9 +67,12 @@ export class TerminalManager {
         channel: string;
         cols: number;
         rows: number;
+        cellWidthPx?: number;
+        cellHeightPx?: number;
         mode?: 'control' | 'observe';
         deviceId?: string;
         takeover?: boolean;
+        graphicsReset?: boolean;
     }): Promise<{ paneId: string }> {
         if (this.hosted !== undefined && (params.deviceId === undefined || this.options.hostedE2ee?.ingressKeys[params.deviceId] === undefined)) {
             throw Object.assign(new Error('terminal: hosted attach requires an active device grant'), { code: 'e2ee-required' });
@@ -77,9 +98,12 @@ export class TerminalManager {
         channel: string;
         cols: number;
         rows: number;
+        cellWidthPx?: number;
+        cellHeightPx?: number;
         mode?: 'control' | 'observe';
         deviceId?: string;
         takeover?: boolean;
+        graphicsReset?: boolean;
     }, paneId: string): Promise<{ paneId: string }> {
         const mode = this.hosted !== undefined && deviceTableIsObserve(this.options.hostedE2ee?.deviceAuthorities, params.deviceId)
             ? 'observe'
@@ -168,12 +192,19 @@ export class TerminalManager {
         });
 
         const attachment: Attachment = {
+            channel: params.channel,
             sessionId: params.sessionId,
             paneId,
             mode,
             ...(params.deviceId === undefined ? {} : { deviceId: params.deviceId }),
             process: child,
             socket,
+            cols: params.cols,
+            rows: params.rows,
+            cellWidthPx: params.cellWidthPx,
+            cellHeightPx: params.cellHeightPx,
+            pendingGraphics: [],
+            pendingGraphicsBytes: 0,
             close: () => undefined,
         };
 
@@ -185,6 +216,10 @@ export class TerminalManager {
             if (finished) return;
             finished = true;
             removeInput();
+            if (attachment.graphicsFlushTimer !== undefined) clearTimeout(attachment.graphicsFlushTimer);
+            delete attachment.graphicsFlushTimer;
+            attachment.pendingGraphics = [];
+            attachment.pendingGraphicsBytes = 0;
             if (reason !== undefined && socket.readyState === WebSocket.OPEN) {
                 const plaintext = JSON.stringify({ type: 'terminal.closed', reason });
                 if (this.hosted === undefined) {
@@ -209,6 +244,8 @@ export class TerminalManager {
                 socket.close();
             }
             if (this.attachments.get(params.channel) === attachment) this.attachments.delete(params.channel);
+            this.graphics?.unregister(params.channel);
+            this.scheduleGraphicsClose();
         };
         attachment.close = (reason?: string): void => {
             if (finished) return;
@@ -242,7 +279,15 @@ export class TerminalManager {
                 }
             }
         }
+        if (mode === 'control' && params.graphicsReset === true) {
+            clearTimeout(this.graphicsCloseTimer);
+            this.graphicsCloseTimer = undefined;
+            this.graphics?.close();
+            this.graphics = undefined;
+            this.graphicsOpening = undefined;
+        }
         this.attachments.set(params.channel, attachment);
+        if (!observe) this.activateGraphics(attachment, params);
 
         const onInputError = (error: Error): void => {
             attachment.close(`herdr stream input failed: ${error.message}`);
@@ -267,6 +312,45 @@ export class TerminalManager {
                     }
                     text = this.hosted.open(params.deviceId!, 'terminal', params.channel, envelope.payload);
                 }
+                const frame = JSON.parse(text) as {
+                    type?: string;
+                    cols?: number;
+                    rows?: number;
+                    cellWidthPx?: number;
+                    cellHeightPx?: number;
+                    direction?: 'up' | 'down';
+                    lines?: number;
+                } & Partial<HerdrGraphicsPointer>;
+                if (frame.type === 'terminal.resize' && typeof frame.cols === 'number' && typeof frame.rows === 'number') {
+                    this.activateGraphics(attachment, {
+                        cols: frame.cols,
+                        rows: frame.rows,
+                        ...(frame.cellWidthPx === undefined ? {} : { cellWidthPx: frame.cellWidthPx }),
+                        ...(frame.cellHeightPx === undefined ? {} : { cellHeightPx: frame.cellHeightPx }),
+                    });
+                }
+                if (frame.type === 'terminal.scroll' && (frame.direction === 'up' || frame.direction === 'down')
+                    && typeof frame.lines === 'number') {
+                    // A pane showing a program's own image scrolls that program,
+                    // never Herdr's scrollback, even on the flushes where the
+                    // bridge is holding the rest of the gesture back.
+                    if (this.graphics?.ownsScroll(attachment.channel) === true) {
+                        for (const report of this.graphics.scrollInput(attachment.channel, frame.direction, frame.lines)) {
+                            input.write(`${JSON.stringify({ type: 'terminal.input', bytes: report.toString('base64') })}\n`);
+                        }
+                        return;
+                    }
+                }
+                if (frame.type === 'terminal.pointer'
+                    && (frame.phase === 'down' || frame.phase === 'move' || frame.phase === 'up')
+                    && typeof frame.x === 'number' && typeof frame.y === 'number'
+                    && typeof frame.width === 'number' && typeof frame.height === 'number') {
+                    const pointer = { phase: frame.phase, x: frame.x, y: frame.y, width: frame.width, height: frame.height };
+                    for (const report of this.graphics?.pointerInput(attachment.channel, pointer) ?? []) {
+                        input.write(`${JSON.stringify({ type: 'terminal.input', bytes: report.toString('base64') })}\n`);
+                    }
+                    return;
+                }
                 input.write(`${text}\n`);
             } catch (error) {
                 onInputError(error instanceof Error ? error : new Error(String(error)));
@@ -284,26 +368,8 @@ export class TerminalManager {
             const lines = buffer.split('\n');
             buffer = lines.pop() ?? '';
             for (const line of lines) {
-                if (line.trim().length === 0 || socket.readyState !== WebSocket.OPEN) continue;
-                if (this.hosted === undefined) {
-                    socket.send(line);
-                    continue;
-                }
-                const payload = this.hosted.seal('terminal', params.channel, line);
-                const envelope: Envelope = {
-                    header: {
-                        machineId: this.options.machineId,
-                        senderId: this.options.machineId,
-                        recipientId: '*',
-                        channel: 'terminal',
-                        streamId: params.channel,
-                        keyVersion: this.options.hostedE2ee!.keyVersion,
-                        seq: v2EnvelopeSequence(payload),
-                        at: Date.now(),
-                    },
-                    payload,
-                };
-                socket.send(JSON.stringify(envelope));
+                if (line.trim().length === 0) continue;
+                this.sendToPhone(attachment, line);
             }
         });
 
@@ -336,6 +402,144 @@ export class TerminalManager {
         return { paneId };
     }
 
+    private activateGraphics(attachment: Attachment, size: { cols: number; rows: number; cellWidthPx?: number; cellHeightPx?: number }): void {
+        attachment.cols = size.cols;
+        attachment.rows = size.rows;
+        attachment.cellWidthPx = size.cellWidthPx;
+        attachment.cellHeightPx = size.cellHeightPx;
+        const metricsReady = size.cellWidthPx !== undefined && size.cellHeightPx !== undefined
+            && [size.cols, size.rows, size.cellWidthPx, size.cellHeightPx].every((value) => Number.isFinite(value) && value > 0);
+        if (!metricsReady) {
+            this.graphics?.unregister(attachment.channel);
+            this.scheduleGraphicsClose();
+            return;
+        }
+        if (this.graphicsCloseTimer !== undefined) {
+            clearTimeout(this.graphicsCloseTimer);
+            this.graphicsCloseTimer = undefined;
+        }
+        if (this.graphics !== undefined) {
+            if (this.registerGraphics(attachment, this.graphics)) return;
+            this.graphics = undefined;
+        }
+        if (this.graphicsOpening !== undefined) return;
+        const opening = HerdrGraphicsBridge.open({
+            cellWidthPx: size.cellWidthPx!,
+            cellHeightPx: size.cellHeightPx!,
+            ...(this.options.herdrBin === undefined ? {} : { herdrBin: this.options.herdrBin }),
+            ...(this.options.onGraphicsPipelineDiagnostic === undefined
+                ? {}
+                : { onPipelineReport: this.options.onGraphicsPipelineDiagnostic }),
+        })
+            .then((graphics) => {
+                if (this.graphicsOpening !== opening) { graphics.close(); return; }
+                this.graphics = graphics;
+                for (const current of this.attachments.values()) {
+                    if (current.mode === 'control') this.registerGraphics(current, graphics);
+                }
+            })
+            .catch((error: unknown) => {
+                process.stderr.write(`terminal graphics unavailable: ${error instanceof Error ? error.message : String(error)}\n`);
+            })
+            .finally(() => { if (this.graphicsOpening === opening) this.graphicsOpening = undefined; });
+        this.graphicsOpening = opening;
+    }
+
+    private registerGraphics(attachment: Attachment, graphics: HerdrGraphicsBridge): boolean {
+        if (attachment.cellWidthPx === undefined || attachment.cellHeightPx === undefined) return false;
+        return graphics.register({
+            channel: attachment.channel,
+            paneId: attachment.paneId,
+            cols: attachment.cols,
+            rows: attachment.rows,
+            cellWidthPx: attachment.cellWidthPx,
+            cellHeightPx: attachment.cellHeightPx,
+            write: (frame) => { this.sendGraphicsToPhone(attachment, frame); },
+            // The rest of a gesture is released by the bridge as frames come
+            // back, so it needs a way into the pane after the request returned.
+            sendInput: (bytes) => {
+                const input = attachment.process.stdin;
+                if (input === null || input.destroyed || !input.writable) return;
+                input.write(`${JSON.stringify({ type: 'terminal.input', bytes: bytes.toString('base64') })}\n`);
+            },
+        });
+    }
+
+    private scheduleGraphicsClose(): void {
+        if (this.graphics === undefined || this.graphics.hasRegistrations() || this.graphicsCloseTimer !== undefined) return;
+        this.graphicsCloseTimer = setTimeout(() => {
+            this.graphicsCloseTimer = undefined;
+            if (this.graphics?.hasRegistrations() === false) {
+                this.graphics.close();
+                this.graphics = undefined;
+            }
+        }, 60_000);
+    }
+
+    private sendGraphicsToPhone(attachment: Attachment, frame: string): void {
+        if (this.attachments.get(attachment.channel) !== attachment || attachment.socket.readyState !== WebSocket.OPEN) return;
+        if (attachment.pendingGraphics.length === 0 && attachment.socket.bufferedAmount <= GRAPHICS_BUFFER_HIGH_BYTES) {
+            this.sendToPhone(attachment, frame);
+            return;
+        }
+        const bytes = Buffer.byteLength(frame);
+        if (attachment.pendingGraphicsBytes + bytes > MAX_PENDING_GRAPHICS_BYTES
+            || attachment.pendingGraphics.length >= MAX_PENDING_GRAPHICS_FRAMES) {
+            attachment.close('terminal graphics backlog exceeded');
+            return;
+        }
+        // These records can update independent placements or delete old images.
+        // Only the bridge knows which operations supersede others; preserve its
+        // order here instead of treating every frame as a complete snapshot.
+        attachment.pendingGraphics.push({ frame, bytes });
+        attachment.pendingGraphicsBytes += bytes;
+        if (attachment.graphicsFlushTimer === undefined) {
+            attachment.graphicsFlushTimer = setTimeout(() => { this.flushGraphics(attachment); }, GRAPHICS_DRAIN_POLL_MS);
+        }
+    }
+
+    private flushGraphics(attachment: Attachment): void {
+        delete attachment.graphicsFlushTimer;
+        if (this.attachments.get(attachment.channel) !== attachment || attachment.socket.readyState !== WebSocket.OPEN) {
+            attachment.pendingGraphics = [];
+            attachment.pendingGraphicsBytes = 0;
+            return;
+        }
+        if (attachment.socket.bufferedAmount <= GRAPHICS_BUFFER_LOW_BYTES) {
+            while (attachment.pendingGraphics.length > 0 && attachment.socket.bufferedAmount <= GRAPHICS_BUFFER_HIGH_BYTES) {
+                const next = attachment.pendingGraphics.shift()!;
+                attachment.pendingGraphicsBytes -= next.bytes;
+                this.sendToPhone(attachment, next.frame);
+            }
+        }
+        if (attachment.pendingGraphics.length > 0) {
+            attachment.graphicsFlushTimer = setTimeout(() => { this.flushGraphics(attachment); }, GRAPHICS_DRAIN_POLL_MS);
+        }
+    }
+
+    private sendToPhone(attachment: Attachment, plaintext: string): void {
+        if (attachment.socket.readyState !== WebSocket.OPEN) return;
+        if (this.hosted === undefined) {
+            attachment.socket.send(plaintext);
+            return;
+        }
+        const payload = this.hosted.seal('terminal', attachment.channel, plaintext);
+        const envelope: Envelope = {
+            header: {
+                machineId: this.options.machineId,
+                senderId: this.options.machineId,
+                recipientId: '*',
+                channel: 'terminal',
+                streamId: attachment.channel,
+                keyVersion: this.options.hostedE2ee!.keyVersion,
+                seq: v2EnvelopeSequence(payload),
+                at: Date.now(),
+            },
+            payload,
+        };
+        attachment.socket.send(JSON.stringify(envelope));
+    }
+
     detach(channel: string, authenticatedDeviceId?: string): void {
         const attachment = this.attachments.get(channel);
         if (attachment === undefined) return;
@@ -345,8 +549,11 @@ export class TerminalManager {
         attachment.close();
     }
 
-
     closeAll(): void {
         for (const channel of [...this.attachments.keys()]) this.detach(channel);
+        if (this.graphicsCloseTimer !== undefined) clearTimeout(this.graphicsCloseTimer);
+        this.graphicsCloseTimer = undefined;
+        this.graphics?.close();
+        this.graphics = undefined;
     }
 }

@@ -4,11 +4,6 @@ import { decodeBase64 } from '@/encryption/base64';
 const MAX_CHARS = 24 * 1024;
 const MAX_LINKS = 8;
 const MAX_SESSIONS = 32;
-/** A fast fling repaints several screens before the scroll debounce fires. */
-const MAX_SCREEN_CHARS = 16 * 1024;
-const SCROLL_SCAN_DEBOUNCE_MS = 120;
-/** A freshly printed URL triggers at most one chip refresh per burst. */
-const TAIL_NOTIFY_DEBOUNCE_MS = 300;
 
 type EscapeState = 'text' | 'escape' | 'escapeIntermediate' | 'csi' | 'string' | 'stringEscape';
 type TailState = {
@@ -16,11 +11,6 @@ type TailState = {
     length: number;
     escape: EscapeState;
     decoder: TextDecoder;
-    capturing: boolean;
-    screen: string;
-    scanTimer: ReturnType<typeof setTimeout> | undefined;
-    tailTimer: ReturnType<typeof setTimeout> | undefined;
-    viewportLinks: string[];
     columns: number;
 };
 const tails = new Map<string, TailState>();
@@ -43,30 +33,12 @@ function trimTrailingPunctuation(value: string): string {
     return value.slice(0, end);
 }
 
-type LinksListener = (sessionId: string) => void;
-const linksListeners = new Set<LinksListener>();
-
-/** Fires when a session's viewport links or freshly printed links change. */
-export function subscribeTerminalLinks(listener: LinksListener): () => void {
-    linksListeners.add(listener);
-    return () => { linksListeners.delete(listener); };
-}
-
-function notifyLinks(sessionId: string): void {
-    for (const listener of linksListeners) listener(sessionId);
-}
-
 function newState(): TailState {
     return {
         chunks: [],
         length: 0,
         escape: 'text',
         decoder: new TextDecoder(),
-        capturing: false,
-        screen: '',
-        scanTimer: undefined,
-        tailTimer: undefined,
-        viewportLinks: [],
         columns: 0,
     };
 }
@@ -74,8 +46,6 @@ function newState(): TailState {
 function drop(sessionId: string): void {
     const state = tails.get(sessionId);
     if (state === undefined) return;
-    if (state.scanTimer !== undefined) clearTimeout(state.scanTimer);
-    if (state.tailTimer !== undefined) clearTimeout(state.tailTimer);
     tails.delete(sessionId);
 }
 
@@ -143,56 +113,7 @@ export function recordTerminalOutput(sessionId: string, base64: string): void {
     let bytes: Uint8Array;
     try { bytes = decodeBase64(base64); } catch { return; }
     const state = touch(sessionId);
-    const visible = appendVisible(state, state.decoder.decode(bytes, { stream: true }));
-    if (state.capturing) {
-        state.screen = (state.screen + visible).slice(-MAX_SCREEN_CHARS);
-        if (state.scanTimer !== undefined) clearTimeout(state.scanTimer);
-        state.scanTimer = setTimeout(() => scanViewport(sessionId), SCROLL_SCAN_DEBOUNCE_MS);
-        return;
-    }
-    // At the live edge, rescan once per output burst. Do not gate this on one
-    // socket chunk containing "http": the scheme itself can cross chunks.
-    if (visible !== '' && state.tailTimer === undefined) {
-        state.tailTimer = setTimeout(() => {
-            state.tailTimer = undefined;
-            const links = extractLinks(unwrapTerminalLinks(state.chunks.join(''), state.columns));
-            if (links.length === state.viewportLinks.length && links.every((link, index) => link === state.viewportLinks[index])) return;
-            state.viewportLinks = links;
-            notifyLinks(sessionId);
-        }, TAIL_NOTIFY_DEBOUNCE_MS);
-    }
-}
-
-// ponytail: "in view" is whatever herdr repainted during the gesture, which
-// relies on herdr sending a full repaint on scroll. The exact-but-heavier
-// upgrade is a headless xterm buffer (@xterm/xterm is already a root
-// dependency).
-/**
- * A scroll gesture started: herdr repaints the whole screen per scroll and
- * those frames arrive through recordTerminalOutput, so capture them apart
- * from the rolling tail. The next gesture resets the capture, the debounced
- * scan runs once per gesture, and the chip follows what is on screen.
- */
-export function beginViewportCapture(sessionId: string): void {
-    const state = touch(sessionId);
-    state.capturing = true;
-    state.screen = '';
-    if (state.scanTimer !== undefined) {
-        clearTimeout(state.scanTimer);
-        state.scanTimer = undefined;
-    }
-}
-
-function scanViewport(sessionId: string): void {
-    const state = tails.get(sessionId);
-    if (state === undefined) return;
-    state.capturing = false;
-    state.scanTimer = undefined;
-    const links = extractLinks(unwrapTerminalLinks(state.screen, state.columns));
-    state.screen = '';
-    if (links.length === state.viewportLinks.length && links.every((link, index) => link === state.viewportLinks[index])) return;
-    state.viewportLinks = links;
-    notifyLinks(sessionId);
+    appendVisible(state, state.decoder.decode(bytes, { stream: true }));
 }
 
 export function clearTerminalOutput(sessionId: string): void {
@@ -244,9 +165,4 @@ export function recentTerminalLinks(sessionId: string): string[] {
     if (state === undefined) return [];
     touch(sessionId, state);
     return extractLinks(unwrapTerminalLinks(state.chunks.join(''), state.columns));
-}
-
-/** Links on screen after the last scroll gesture, latest first. */
-export function viewportTerminalLinks(sessionId: string): string[] {
-    return tails.get(sessionId)?.viewportLinks ?? [];
 }

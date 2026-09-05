@@ -47,6 +47,7 @@ async function provisionTokens() {
             method: 'POST',
             headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) },
             body: JSON.stringify(body),
+            signal: AbortSignal.timeout(15_000),
         });
         if (res.status !== 201) throw new Error(`${path} returned ${res.status}`);
         return res.json();
