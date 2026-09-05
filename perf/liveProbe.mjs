@@ -202,6 +202,15 @@ async function prepareGraphicsPane() {
     }
     throw new Error('Terminal not mounted during bounded graphics preflight');
 }
+function graphicsEvidence() {
+    if (!stack || !existsSync(stack.journalPath)) return [];
+    const journal = JSON.parse(readFileSync(stack.journalPath, 'utf8'));
+    return (journal.events ?? []).filter((event) => event.event === 'graphics.pipeline').slice(-32).map((event) => ({
+        at: evidenceTimestamp(event.at),
+        ...Object.fromEntries(['frames', 'superseded', 'p50Ms', 'p95Ms', 'bytesP95', 'pixelsP95', 'notchesSent', 'notchesDropped']
+            .filter((key) => Number.isFinite(event[key]) && event[key] >= 0).map((key) => [key, event[key]])),
+    }));
+}
 async function github() {
     check(tab && !producer, 'Create owned producer pane and mount it first');
     await prepareGraphicsPane();
@@ -258,6 +267,7 @@ async function github() {
             save(`${name}.png`, await adbRun(['exec-out', 'screencap', '-p'], { encoding: 'buffer' }));
             const proof = { at: new Date().toISOString(), ...bodyPixelProof(join(out, `${name}.png`)) };
             report.githubPaintSamples.push(proof);
+            report.graphicsPipeline = graphicsEvidence();
             if (proof.proven && !report.githubPaint?.proven) {
                 report.githubPaint = proof;
                 copyFileSync(join(out, `${name}.png`), join(out, 'github-paint.png'));
@@ -269,6 +279,7 @@ async function github() {
                 const region = { l: before.width * .04, r: before.width * .86, t: before.height * .20, b: before.height * .78 };
                 const movement = pixelsMoved(cropRaw({ ...before, bytes: before.data }, region), cropRaw({ ...after, bytes: after.data }, region));
                 const scrollY = await scrollPosition();
+                proof.scrollY = scrollY;
                 if (proof.proven && movement.moved && scrollY > report.githubScrollFrom + 16) report.githubScroll = { at: proof.at, from: report.githubScrollFrom, to: scrollY, ...movement };
             }
             if (proof.proven && !report.githubScrollAt && Date.now() + 4000 < deadline) {
