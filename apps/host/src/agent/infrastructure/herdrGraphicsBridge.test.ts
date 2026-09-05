@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { deflateSync } from 'node:zlib';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { HerdrGraphicsBridge, MAX_IMAGE_BYTES, decodeServerMessage, encodeKitty, mapGraphicsPointer, routeGraphicsPane } from './herdrGraphicsBridge.js';
 
 const uint = (value: number | bigint): Buffer => {
@@ -30,6 +30,11 @@ const serverFrame = (payload: Buffer): Buffer => {
 };
 
 describe('Herdr graphics flow', () => {
+    afterEach(() => {
+        vi.useRealTimers();
+        vi.restoreAllMocks();
+    });
+
     it('decodes, routes, and emits one pane-scoped Kitty frame', async () => {
         const leading = Buffer.from('\u001b[3;4H');
         const payload = Buffer.concat([
@@ -320,6 +325,7 @@ describe('Herdr graphics flow', () => {
             sourcePane: (leading: Buffer) => Promise<string | undefined>;
             visibleRect: (paneId: string) => Promise<{ x: number; y: number; width: number; height: number } | undefined>;
             queueInline: (data: Buffer) => void;
+            drainInline: () => Promise<void>;
             supersededFrames: number;
             notchesSent: number;
             notchesDropped: number;
@@ -348,12 +354,12 @@ describe('Herdr graphics flow', () => {
             + `\u001b_Ga=t,f=32,s=2,v=2,i=${id},m=0;${pixels}\u001b\\`
             + `\u001b_Ga=p,i=${id},c=${cols},r=${rows};\u001b\\`,
         );
-        // The worker itself is the signal: drained queue, nothing in flight.
+        // Await the actual worker; event-loop turns do not bound async deflate.
+        const drain = vi.spyOn(internals, 'drainInline');
         const settle = async (): Promise<void> => {
-            for (let turn = 0; turn < 1000; turn += 1) {
-                if (internals.inlineQueue.length === 0 && !internals.inlineDraining) return;
-                await new Promise((resolve) => { setImmediate(resolve); });
-            }
+            await drain.mock.results.at(-1)?.value;
+            expect(internals.inlineQueue).toHaveLength(0);
+            expect(internals.inlineDraining).toBe(false);
         };
 
         // A pane-filling image, then a small one beside it.
@@ -379,6 +385,8 @@ describe('Herdr graphics flow', () => {
 
         // A gesture: three rows is one notch, and only what the pane has
         // answered goes out now. The rest is owed, not queued in front of it.
+        // Keep the no-repaint fallback clock separate from real frame work.
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
         const burst = bridge.scrollInput('phone', 'down', 30);
         expect(burst).toHaveLength(4);
         expect(burst[0]!.toString('utf8')).toMatch(/^\u001b\[<65;\d+;\d+M$/);
