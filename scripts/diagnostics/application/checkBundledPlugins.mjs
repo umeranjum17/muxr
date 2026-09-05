@@ -1,7 +1,7 @@
 /**
  * Validate every bundled plugin the same way `muxr plugin check` does.
  */
-import { existsSync, readdirSync, readFileSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, mkdirSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import assert from 'node:assert/strict';
 import { dirname, join } from 'node:path';
@@ -193,30 +193,61 @@ process.stdout.write(`${plugins.length} bundled plugins ok; ${guardedFiles.lengt
 const toolsScratch = mkdtempSync(join(tmpdir(), 'muxr-tools-flow-'));
 try {
     const fixtureHerdr = join(toolsScratch, 'herdr');
+    const stateFile = join(toolsScratch, 'panes.json');
+    const callLog = join(toolsScratch, 'calls.jsonl');
+    const fixtureCommand = join(toolsScratch, 'open-tool.mjs');
+    const fixtureCwd = join(toolsScratch, 'work'); mkdirSync(fixtureCwd);
+    writeFileSync(fixtureCommand, `import {readFileSync,writeFileSync} from 'node:fs';
+const context=JSON.parse(process.env.HERDR_PLUGIN_CONTEXT_JSON);
+if(process.cwd()!==${JSON.stringify(fixtureCwd)})throw Error('wrong project folder');
+if(context.focused_pane_id!=='owned-anchor'||process.env.HERDR_PANE_ID!=='owned-anchor'||!process.env.PATH.includes('/.local/bin')) throw Error('launch context/PATH missing');
+if(process.argv[2]==='fail')process.exit(7);
+const path=${JSON.stringify(stateFile)}, panes=JSON.parse(readFileSync(path));
+panes.push({pane_id:'owned-tool',tab_id:'owned-tab',workspace_id:'work',cwd:'/work'});
+writeFileSync(path,JSON.stringify(panes));
+`);
+    const initialPanes = Array.from({length: 80}, (_, i) => ({pane_id: 'shell-' + i, tab_id:'source-tab', workspace_id: 'work', cwd: '/work'}));
+    const reset = () => writeFileSync(stateFile, JSON.stringify(initialPanes));
+    reset();
     writeFileSync(fixtureHerdr, `#!/usr/bin/env node
-const [area] = process.argv.slice(2);
-const panes = Array.from({length: 80}, (_, i) => ({pane_id: 'shell-' + i, workspace_id: 'work', cwd: '/work'}));
+const {readFileSync,writeFileSync,appendFileSync}=require('node:fs');
+const args=process.argv.slice(2), [area,op] = args;
+appendFileSync(${JSON.stringify(callLog)},JSON.stringify(args)+'\\n');
+const path=${JSON.stringify(stateFile)}, panes=JSON.parse(readFileSync(path));
 const plugins = [
- {plugin_id:'example.browser', name:'Terminal Browser', enabled:true, actions:[{id:'open', title:'Open', contexts:['global']}]},
- {plugin_id:'example.code', name:'Terminal Code', enabled:true, actions:[{id:'open', title:'Open', contexts:['global']}]},
+ {plugin_id:'example.browser', name:'Terminal Browser', enabled:true, plugin_root:${JSON.stringify(toolsScratch)}, actions:[{id:'open', title:'Open', contexts:['global'],command:[${JSON.stringify(process.execPath)},${JSON.stringify(fixtureCommand)}]}]},
+ {plugin_id:'example.code', name:'Terminal Code', enabled:true, plugin_root:${JSON.stringify(toolsScratch)}, actions:[{id:'open', title:'Open', contexts:['global'],command:[${JSON.stringify(process.execPath)},${JSON.stringify(fixtureCommand)},'fail']}]},
  {plugin_id:'example.admin', name:'Setup', enabled:true, panes:[{id:'setup', title:'Configure'}], actions:[{id:'setup', contexts:['pane']}]},
  {plugin_id:'example.disabled', name:'Disabled', enabled:false, actions:[{id:'open', contexts:['global']}]}
 ];
 let result = {workspaces:[{workspace_id:'work',label:'Work'}]};
 if (area === 'plugin') result = {plugins};
-if (area === 'pane') result = {panes};
+if (area === 'pane' && op==='list') result = {panes};
+if (area === 'tab' && op==='create') {
+ const anchor={pane_id:'owned-anchor',tab_id:'owned-tab',workspace_id:'work',cwd:'/work'};
+ panes.push(anchor);writeFileSync(path,JSON.stringify(panes));result={root_pane:anchor,tab:{tab_id:'owned-tab'}};
+}
+if(area==='pane'&&op==='close')writeFileSync(path,JSON.stringify(panes.filter(p=>p.pane_id!==args[2])));
 process.stdout.write(JSON.stringify({result}));
 `, { mode: 0o700 });
-    const invokePanes = (method) => {
+    const invokePanes = (method, input = {}, success = true) => {
         const result = spawnSync(process.execPath, [join(pluginsDir, 'panes', 'panes.mjs'), method], {
-            encoding: 'utf8', input: '{}', timeout: 20_000,
+            encoding: 'utf8', input: JSON.stringify(input), timeout: 25_000,
             env: { ...process.env, HERDR_BIN_PATH: fixtureHerdr },
         });
+        if (!success) { assert.notEqual(result.status, 0); return result.stderr; }
         assert.equal(result.status, 0, result.stderr);
-        return JSON.parse(result.stdout).items;
+        return JSON.parse(result.stdout);
     };
-    assert.deepEqual(invokePanes('tools').map((item) => item.title), ['Terminal Browser', 'Terminal Code']);
-    assert.equal(invokePanes('list').length, 80);
+    assert.deepEqual(invokePanes('tools').items.map((item) => item.title), ['Terminal Browser', 'Terminal Code']);
+    assert.equal(invokePanes('list').items.length, 80);
+    const launched = invokePanes('launch', { tool: 'action:example.browser:open', paneId: 'shell-0', cwd:fixtureCwd });
+    assert.deepEqual(launched.navigation, {type:'kernel.navigate',target:'session',sessionId:'shell:owned-tool'});
+    assert.equal(JSON.parse(readFileSync(stateFile)).some(p=>p.pane_id==='owned-anchor'),false);
+    assert.equal(JSON.parse(readFileSync(stateFile)).filter(p=>p.tab_id==='source-tab').length,80);
+    reset();
+    assert.match(invokePanes('launch',{tool:'action:example.code:open',paneId:'shell-0',cwd:fixtureCwd},false),/could not start/);
+    assert.deepEqual(JSON.parse(readFileSync(stateFile)), initialPanes);
     process.stdout.write('Tools app discovery and separate Panes flow ok\n');
 } finally {
     rmSync(toolsScratch, { recursive: true, force: true });
