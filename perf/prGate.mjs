@@ -201,6 +201,32 @@ async function feature(name, work) {
     try { await work(); }
     catch (error) { report.failures.push(`${name}: ${error.message}`); console.error(`FAIL: ${name}: ${error.message}`); }
 }
+async function changesScopeControls() {
+    await adb('shell', 'input', 'keyevent', '4');
+    await requireScreen('changes-context', /Working tree/);
+    await tapText('Choose worktree');
+    await requireScreen('changes-worktrees', /fixture-review/);
+    await tapText('fixture-review');
+    const branch = await requireScreen('changes-branch', /branch-proof.txt/);
+    check(!branch.includes('working-proof.txt'), 'Branch comparison leaked uncommitted files');
+    await tapText('branch-proof.txt');
+    await requireScreen('changes-branch-patch', /REVIEW_BRANCH_ONLY/);
+    await capture('changes-branch-patch.png');
+    await adb('shell', 'input', 'keyevent', '4');
+    await tapText('Working tree');
+    await requireScreen('changes-working', /working-proof.txt/);
+    await tapText('working-proof.txt');
+    await requireScreen('changes-working-patch', /WORKING_CHECKOUT_ONLY/);
+    await capture('changes-working-patch.png');
+    await adb('shell', 'input', 'keyevent', '4');
+    await tapText('Staged');
+    const staged = await requireScreen('changes-staged', /staged-proof.txt/);
+    check(!staged.includes('working-proof.txt'), 'Staged comparison leaked untracked files');
+    await tapText('staged-proof.txt');
+    await requireScreen('changes-staged-patch', /STAGED_CHECKOUT_ONLY/);
+    await capture('changes-staged-patch.png');
+    report.changes = { nativeWorktreeSelection: true, branchPatch: true, workingPatch: true, stagedPatch: true, sessionContextPreserved: true };
+}
 async function viewerControls() {
     await herd();
     check((await maestro('graphicsScroll.yaml')).code === 0, 'Could not open session for native file viewer');
@@ -566,9 +592,17 @@ async function main() {
     lines[40] = 'const second = "beforeSecondHunk";';
     writeFileSync(join(stack.world.cwd, 'zz-companion.ts'), 'export const companion = "beforeCompanion";\n');
     writeFileSync(join(stack.world.cwd, 'viewer.ts'), lines.join('\n'));
-    await run('git', ['init', '-q', stack.world.cwd], { timeout: 10_000 });
+    await run('git', ['init', '-q', '-b', 'main', stack.world.cwd], { timeout: 10_000 });
     await run('git', ['-C', stack.world.cwd, 'add', '.'], { timeout: 10_000 });
     await run('git', ['-C', stack.world.cwd, '-c', 'user.name=Emulator Fixture', '-c', 'user.email=fixture@example.invalid', '-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', 'commit', '-qm', 'Baseline viewer fixture'], { timeout: 10_000 });
+    const reviewTree = `${stack.world.cwd}-review`;
+    await run('git', ['-C', stack.world.cwd, 'worktree', 'add', '-b', 'fixture-review', reviewTree], { timeout: 10_000 });
+    writeFileSync(join(reviewTree, 'branch-proof.txt'), 'REVIEW_BRANCH_ONLY\n');
+    await run('git', ['-C', reviewTree, 'add', 'branch-proof.txt'], { timeout: 10_000 });
+    await run('git', ['-C', reviewTree, '-c', 'user.name=Emulator Fixture', '-c', 'user.email=fixture@example.invalid', '-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', 'commit', '-qm', 'Review branch proof'], { timeout: 10_000 });
+    writeFileSync(join(reviewTree, 'working-proof.txt'), 'WORKING_CHECKOUT_ONLY\n');
+    writeFileSync(join(reviewTree, 'staged-proof.txt'), 'STAGED_CHECKOUT_ONLY\n');
+    await run('git', ['-C', reviewTree, 'add', 'staged-proof.txt'], { timeout: 10_000 });
     lines[4] = 'const value = "afterMarker";';
     lines[40] = 'const second = "afterSecondHunk";';
     writeFileSync(join(stack.world.cwd, 'zz-companion.ts'), 'export const companion = "afterCompanion";\n');
@@ -595,6 +629,7 @@ async function main() {
         await tapText('viewer.ts');
         await phase('document', /PR gate document line/, true);
         await viewerControls();
+        await changesScopeControls();
         await viewerLineTarget();
     });
     await feature('terminal-text', async () => {
