@@ -113,13 +113,19 @@ if (method === 'worktrees') {
     process.stdout.write(JSON.stringify({ title: basename(path), note: `${root} · ${comparison}${patch.length > 60000 ? ' · Diff truncated to 60,000 characters' : patch ? '' : ' · No difference in this comparison'}`, patch: patch.slice(0, 60000) }));
 } else {
     const changed = files();
-    const rows = changed.slice(0, 49).map((file) => {
+    const pageCount = Math.max(1, Math.ceil(changed.length / 49));
+    const requestedPage = typeof input.page === 'number' || (typeof input.page === 'string' && /^\d+$/.test(input.page)) ? Number(input.page) : 0;
+    const page = method === 'browse' && Number.isSafeInteger(requestedPage) ? Math.max(0, Math.min(pageCount - 1, requestedPage)) : 0;
+    const rows = changed.slice(page * 49, (page + 1) * 49).map((file) => {
         const count = file.kind === 'untracked' ? 'Untracked' : file.added === '-' ? 'Binary' : `+${file.added} / −${file.deleted}`;
         return { ...file, title: basename(file.path), subtitle: `${file.path} · ${count}`, sessionId, root, scope, head, base };
     });
-    const note = `${root}\n${selected.branch} · ${comparison}\n${unavailable || (scope === 'branch' ? 'Committed branch changes only; working edits are separate.' : scope === 'staged' ? 'The index that will be committed; unstaged edits are separate.' : 'Current files compared with HEAD, including untracked files. Committed branch changes are separate.')}${changed.length > 49 ? '\nShowing first 49 files; narrow the comparison before reviewing more.' : ''}`;
+    const note = `${root}\n${selected.branch} · ${comparison}\n${unavailable || (scope === 'branch' ? 'Committed branch changes only; working edits are separate.' : scope === 'staged' ? 'The index that will be committed; unstaged edits are separate.' : 'Current files compared with HEAD, including untracked files. Committed branch changes are separate.')}${changed.length > 49 ? `\nFiles ${page * 49 + 1}–${Math.min(changed.length, (page + 1) * 49)} of ${changed.length}.` : ''}`;
     if (method === 'browse') {
-        process.stdout.write(JSON.stringify({ title: `Changes · ${selected.branch}`, root, scope, scopes, note, files: rows }));
+        process.stdout.write(JSON.stringify({ title: `Changes · ${selected.branch}`, root, scope, scopes, note, files: rows, pages: [
+            ...(page > 0 ? [{ ...params(), page: page - 1, title: 'Previous files' }] : []),
+            ...(page + 1 < pageCount ? [{ ...params(), page: page + 1, title: 'Next files' }] : []),
+        ] }));
     } else {
         process.stdout.write(JSON.stringify({ badge: { value: changed.length > 49 ? '49+' : String(changed.length), tone: 'secondary' },
             items: [{ id: 'review-context', title: `${selected.branch} · Working tree`, subtitle: root, group: 'Compared with HEAD', icon: 'git-branch-outline', metadata: [], action: screen('changes.review', params()) },

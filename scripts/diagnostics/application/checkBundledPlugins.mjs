@@ -303,6 +303,12 @@ try {
     const first = read('browse', { cwd: fresh, scope: 'staged' });
     assert(read('patch', { cwd: fresh, ...first.files[0] }).patch.includes('+FIRST_COMMIT_PENDING'));
     assert.equal(read('browse', { cwd: fresh, scope: 'branch' }).files.length, 0);
+    for (let i = 0; i < 52; i++) writeFileSync(join(feature, `extra-${String(i).padStart(2, '0')}.txt`), 'PAGE_PROOF\n');
+    const firstPage = read('browse', { root: feature });
+    const nextPage = read('browse', firstPage.pages[0]);
+    assert.equal(firstPage.files.length, 49);
+    assert(nextPage.files.some((file) => file.path === 'extra-51.txt'));
+    assert(!nextPage.files.some((file) => firstPage.files.some((first) => first.path === file.path)));
     assert.notEqual(call('browse', { root: changesScratch }).status, 0);
     process.stdout.write('Changes worktree selection and pinned branch/working/staged diff flow ok\n');
 } finally { rmSync(changesScratch, { recursive: true, force: true }); }

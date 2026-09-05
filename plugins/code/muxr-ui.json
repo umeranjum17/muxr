@@ -278,6 +278,27 @@
               }
             }
           }
+        },
+        {
+          "type": "list",
+          "rows": [],
+          "repeat": {
+            "path": "data.pages",
+            "template": {
+              "type": "row",
+              "title": "{{item.title}}",
+              "action": {
+                "type": "screen",
+                "contributionId": "changes.review",
+                "params": {
+                  "sessionId": "{{item.sessionId}}",
+                  "root": "{{item.root}}",
+                  "scope": "{{item.scope}}",
+                  "page": "{{item.page}}"
+                }
+              }
+            }
+          }
         }
       ]
     },
