@@ -198,12 +198,15 @@ describe('on-device dictation flow', () => {
     });
 
     it('starts notification Talk on the pane last used on the phone, not a stale desk focus', async () => {
-        mocks.syncRequest.mockResolvedValue({
+        const tree = {
             workspaces: [
                 { focused: true, tabs: [{ focused: true, panes: [{ sessionId: 'session-a', focused: true, agentStatus: 'idle' }] }] },
                 { focused: false, tabs: [{ focused: true, panes: [{ sessionId: 'session-b', focused: true, agentStatus: 'working' }] }] },
             ],
-        });
+        };
+        mocks.syncRequest.mockImplementation(async (method: string) => method === 'herdr.tree'
+            ? tree
+            : method === 'session.list' ? [{ id: 'session-a' }, { id: 'session-b' }] : { text: 'unused' });
         const setMuted = vi.fn();
         mocks.startRealtimeSession.mockReturnValue({ stop: vi.fn(), setMuted, speak: vi.fn() });
         await expect(resolveRealtimeTarget()).resolves.toEqual({ machineId: '', sessionId: 'session-b' });
@@ -215,6 +218,24 @@ describe('on-device dictation flow', () => {
 
         mocks.notificationAction?.('mute');
         expect(setMuted).toHaveBeenCalledWith(true);
+    });
+
+    it('keeps a newer historical route out of notification voice targeting', async () => {
+        mocks.sessions = {
+            'live-session': { id: 'live-session', activeAt: 1, updatedAt: 1 },
+            'historical-session': { id: 'historical-session', activeAt: 99, updatedAt: 99 },
+        };
+        mocks.syncRequest.mockImplementation(async (method: string) => method === 'herdr.tree'
+            ? { workspaces: [{ focused: true, tabs: [{ focused: true, panes: [{ sessionId: 'live-session', focused: true, agentStatus: 'idle' }] }] }] }
+            : method === 'session.list' ? [{ id: 'live-session' }] : { text: 'unused' });
+
+        await expect(resolveRealtimeTarget()).resolves.toEqual({ machineId: '', sessionId: 'live-session' });
+        mocks.syncRequest.mockRejectedValue(new Error('fresh route unavailable'));
+        await expect(resolveRealtimeTarget()).resolves.toBeNull();
+        mocks.syncRequest.mockImplementation(async (method: string) => method === 'herdr.tree'
+            ? { workspaces: [{ tabs: [{ panes: [null] }] }] }
+            : [{ id: 'live-session' }]);
+        await expect(resolveRealtimeTarget()).resolves.toBeNull();
     });
 
     it('keeps live-session standby enabled and arms it once realtime ends', async () => {
