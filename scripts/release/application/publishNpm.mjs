@@ -24,6 +24,7 @@ export async function publishNpm() {
     if (existing !== undefined && JSON.parse(existing) !== integrity) throw new Error('An existing npm version has different bytes');
     const tags = JSON.parse(npm(['view', '@trymuxr/cli', 'dist-tags', '--json']));
     const current = tags[manifest.release.distTag];
+    if (current && compareVersions(current, RELEASE_VERSION) === undefined) throw new Error('Invalid registry channel version');
     if (current && compareVersions(current, RELEASE_VERSION) > 0) throw new Error('Refusing to move the channel backwards');
     if (existing === undefined) npm(['publish', path, '--tag', manifest.release.distTag, '--access', 'public', '--provenance']);
     else if (current !== RELEASE_VERSION) npm(['dist-tag', 'add', spec, manifest.release.distTag]);

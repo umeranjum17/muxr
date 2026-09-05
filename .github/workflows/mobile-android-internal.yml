@@ -31,11 +31,6 @@ on:
         required: true
         default: false
         type: boolean
-      publish_github_release:
-        description: Publish the APK to the matching GitHub Release
-        required: true
-        default: true
-        type: boolean
       confirmation:
         description: Type release-VERSION-VERSION_CODE
         required: true
@@ -43,7 +38,7 @@ on:
 
 concurrency:
   group: mobile-android-internal-${{ inputs.version }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -60,9 +55,12 @@ jobs:
       APP_VERSION: ${{ inputs.version }}
       ANDROID_VERSION_CODE: ${{ inputs.version_code }}
       CONFIRMATION: ${{ inputs.confirmation }}
+      CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+      SUBMIT_TO_PLAY: ${{ inputs.submit_to_play }}
     steps:
       - name: Validate release request
         run: |
+          if [ -n "$CANDIDATE_RUN_ID" ]; then test "$SUBMIT_TO_PLAY" = true; fi
           test "$GITHUB_REF" = refs/heads/main
           [[ "$APP_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
           [[ "$ANDROID_VERSION_CODE" =~ ^[1-9][0-9]*$ ]]
@@ -212,7 +210,7 @@ jobs:
           if-no-files-found: error
 
   import-candidate:
-    if: github.ref == 'refs/heads/main' && inputs.candidate_run_id
+    if: github.ref == 'refs/heads/main' && inputs.candidate_run_id && inputs.submit_to_play
     needs: validate
     runs-on: ubuntu-latest
     timeout-minutes: 30

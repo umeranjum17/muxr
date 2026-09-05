@@ -353,11 +353,11 @@ try {
     });
     assert.deepEqual(
         [development.name, development.scheme, development.android.package, development.ios.bundleIdentifier],
-        ['muxr (dev)', 'muxr', 'app.muxr.local.dev', 'app.muxr.local.dev'],
+        ['muxr (dev)', 'muxr-dev', 'app.muxr.local.dev', 'app.muxr.local.dev'],
     );
     assert.deepEqual(
         [preview.name, preview.scheme, preview.android.package, preview.ios.bundleIdentifier],
-        ['muxr (preview)', 'muxr', 'app.muxr.local.preview', 'app.muxr.local.preview'],
+        ['muxr (preview)', 'muxr-preview', 'app.muxr.local.preview', 'app.muxr.local.preview'],
     );
     assert.deepEqual(
         [production.name, production.scheme, production.android.package, production.ios.bundleIdentifier, production.extra.app.publicBaseUrl],
