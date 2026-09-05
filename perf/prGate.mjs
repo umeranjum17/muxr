@@ -388,9 +388,17 @@ async function polishControls() {
         await adb('push', photoPath, remote);
         await adb('shell', 'am', 'broadcast', '-a', 'android.intent.action.MEDIA_SCANNER_SCAN_FILE', '-d', `file://${remote}`);
         await adb('shell', 'pm', 'grant', pkg, 'android.permission.READ_MEDIA_IMAGES');
-        await sleep(1500);
-        const media = await adb('shell', 'content', 'query', '--uri', 'content://media/external/images/media', '--projection', '_id', '--where', `"_data='${remote}'"`);
-        const mediaId = /\b_id=(\d+)/.exec(media)?.[1];
+        // MediaStore canonicalizes /sdcard to /storage/emulated/0. Match the
+        // unique owned display name, and wait for asynchronous media scanning.
+        let mediaId;
+        const scanDeadline = Date.now() + 10000;
+        do {
+            const media = await adb('shell', 'content', 'query', '--uri', 'content://media/external/images/media', '--projection', '_id:_display_name', '--where', `"_display_name='${name}.png'"`);
+            save('polish-media-registration.txt', media);
+            mediaId = /\b_id=(\d+)/.exec(media)?.[1];
+            if (mediaId) break;
+            await sleep(500);
+        } while (Date.now() < scanDeadline);
         check(mediaId, 'Owned generated photo was not registered in MediaStore');
         await tapText('Add attachment');
         await capture('polish-picker.png');
