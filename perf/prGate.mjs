@@ -300,6 +300,41 @@ async function viewerLineTarget() {
     report.viewer.lineTarget.reconnected = recovered;
 }
 
+// Real native IME state, not visibility inferred from a toolbar or XML label.
+async function terminalKeyboard(name) {
+    const keyboard = async () => {
+        const state = await adb('shell', 'dumpsys', 'input_method');
+        const match = /\bmInputShown=(true|false)\b/.exec(state);
+        check(match, 'Android did not expose keyboard visibility');
+        return match[1] === 'true';
+    };
+    const waitKeyboard = async (shown) => {
+        for (let n = 0; n < 8; n++) {
+            if (await keyboard() === shown) return;
+            await sleep(350);
+        }
+        throw new Error(`${name}: keyboard did not become ${shown ? 'visible' : 'hidden'}`);
+    };
+    await waitKeyboard(false);
+    const before = await dump(`${name}-before`);
+    check(before.includes('Open terminal keyboard'), 'Explicit keyboard button missing');
+    const { width, height } = report.device;
+    for (let n = 0; n < 3; n++) {
+        await adb('shell', 'input', 'tap', String(Math.round(width * .3)), String(Math.round(height * .4)));
+        await sleep(500);
+        check(!await keyboard(), `${name}: terminal tap unexpectedly opened keyboard`);
+    }
+    await capture(`${name}-tap-stable.png`);
+    await tapText('Open terminal keyboard');
+    await waitKeyboard(true);
+    await capture(`${name}-explicit-keyboard.png`);
+    await adb('shell', 'input', 'keyevent', '4');
+    await waitKeyboard(false);
+    await requireScreen(`${name}-restored`, /Open terminal keyboard/);
+    await capture(`${name}-restored.png`);
+    (report.keyboard ??= []).push({ name, tapCount: 3, autoOpened: false, explicitOpen: true, dismissed: true });
+}
+
 async function main() {
     check(['full', 'usage'].includes(flow), '--flow must be full or usage');
     check(/^emulator-\d+$/.test(serial), 'PR gate only clears dedicated emulators');
@@ -379,6 +414,7 @@ async function main() {
         await phase('terminal-text', /text="(Terminal|ctrl)"|Type a prompt/, true);
         check(existsSync(stack.attachJsonl) && readFileSync(stack.attachJsonl, 'utf8').trim(), 'No real host terminal attach was observed');
         check(!existsSync(graphicsEnableFile), 'Text phase accidentally enabled graphics');
+        await terminalKeyboard('text-keyboard');
     });
     await feature('graphics', async () => {
         await requireScreen('graphics-mounted', /text="(Terminal|ctrl)"|Type a prompt/);
@@ -396,6 +432,10 @@ async function main() {
         report.graphics = { pixels, cellSamples, helloSamples, cellEvidenceScope: 'Native resize for first pane, or real graphics connection ClientHello populated from native attach', declaredCellMetrics: stack.phoneDeclaredCellMetrics(), pipeline };
         check(cellSamples.length > 0 || helloSamples.length > 0, 'No positive native cell dimensions recorded in resize or graphics ClientHello');
         check(pipeline.some((event) => event.frames > 0), 'No delivered graphics frames during mounted phase');
+        await terminalKeyboard('graphics-keyboard');
+        const restoredPixels = await graphicsPixels();
+        check(restoredPixels.magenta > 100 && restoredPixels.teal > 100, 'Graphics missing after explicit keyboard resize');
+        report.graphics.afterKeyboard = restoredPixels;
     });
     await feature('usage-switch-and-recency', async () => {
         if (flow === 'usage') await requireScreen('usage-home', /text="LIVE"/, 25_000, true);
