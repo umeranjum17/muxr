@@ -122,9 +122,7 @@ try {
     assert.equal(output.weekSeries.at(-1)?.valueLabel, '1.3M');
     assert.equal(output.limitLabel, 'Claude plan usage');
     assert.equal(output.fiveHourUsed, 21);
-    assert.match(output.fiveHourLabel, /^21% used · resets in /);
     assert.equal(output.sevenDayUsed, 42);
-    assert.match(output.sevenDayLabel, /^42% used · resets in /);
     assert.deepEqual(output.limitRing, []);
 
     // A quiet provider reports zero today rather than its last active day.

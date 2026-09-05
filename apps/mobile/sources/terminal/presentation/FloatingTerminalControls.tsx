@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { BackHandler, PanResponder, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { Feather, Ionicons } from '@expo/vector-icons';
 import Animated, { useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 
 export type TerminalCommand = {
@@ -89,7 +89,7 @@ export function FloatingTerminalControls({ width, height, commands }: { width: n
                         accessibilityHint="Terminal commands. Drag to move; tap to open or close."
                         accessibilityState={{ expanded: open }} style={({ pressed }) => buttonStyle(pressed)}
                         onPress={() => { if (!open) setOpensRight(x.value < width / 2); setExpanded(!open); }}>
-                        <Ionicons name={open ? 'close' : 'options-outline'} size={20} color="#eeeef0" />
+                        {open ? <Ionicons name="close" size={20} color="#eeeef0" /> : <Feather name="command" size={20} color="#eeeef0" />}
                     </Pressable>
                 </View>
         </Animated.View>

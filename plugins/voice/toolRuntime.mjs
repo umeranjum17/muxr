@@ -106,16 +106,6 @@ export function createVoiceTools(emit, { invoke = runCodingTool, timeoutMs = 150
     }
     return {
         run, state, answered, receive: app.receive,
-        delegate(request, id) {
-            if (typeof request !== 'string' || !request.trim() || Buffer.byteLength(request) > 16000) {
-                return reject('The delegated request was empty or too large. No action was performed.');
-            }
-            let call;
-            try { call = JSON.parse(request); } catch { /* Text delegation asks the kernel for read-only work context. */ }
-            if (call && typeof call === 'object' && !Array.isArray(call)) return run(call.name, call.arguments, id);
-            // Never infer a mutation from free-form text or turn it into shell commands.
-            return run('read_work_context', {}, id);
-        },
         close() { lifetime.abort(); app.close(); clearTimeout(answerTimer); waitingForAnswer = false; },
     };
 }

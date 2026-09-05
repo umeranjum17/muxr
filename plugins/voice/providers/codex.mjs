@@ -20,6 +20,7 @@ import {
 } from '../coordinatorPolicy.mjs';
 
 import { createVoiceTools, voiceTools } from '../toolRuntime.mjs';
+import { createCodexDelegation } from '../codexDelegation.mjs';
 
 export const providerTools = voiceTools;
 const CODEX_CLIENT_VERSION = '0.144.1';
@@ -38,17 +39,25 @@ const PROMPT = `You are Codex Voice inside muxr. Be direct and brief. Speak in o
 - You are the user's personal work assistant. Inspect the workspace, summarize real output, navigate and coordinate agents using the client tools.
 ${voiceCoordinationInstructions}
 ${appControlInstructions}
-- To use a client tool, create a delegation whose input_text is exactly a JSON object with name and arguments. Choose name and arguments from this catalog:
+- Delegate work requests to the client in natural language. Preserve the user's original message and any target they confirmed. The client coordinates only the catalogued tools below and returns the actual result or one necessary clarification:
 ${JSON.stringify(voiceTools)}
-- Plain-text delegations receive read-only live work context from the kernel. Use it to answer summaries immediately. Actions require a structured tool request; never claim that context inspection performed an action.
-- For example, delegate {"name":"list_agents","arguments":{"query":"build"}}. Read its result before choosing the next action. Never ask the user to write this JSON or supply tool identifiers.
+- A request to ping or ask a coding agent is an instruction to send a message, not merely read its status. Delegate that request even when the target is working. If the client asks which agent, ask the user; carry their confirmation back to the client without losing the pending message.
+- Report the client's actual result. Queued means queued, not delivered or answered. Do not claim that prompting is unavailable without a client failure. Never ask the user to write JSON or supply tool identifiers.
 - Never speak internal ids, including thread, session, pane, operation, provider, or delegation ids.
 - Report progress and blockers accurately. Never invent completion.
 - Treat pauses and incomplete speech as the user thinking; do not interrupt.
 - End only when the user clearly says goodbye or asks you to stop listening.`;
 
 let currentContext = '';
-const tools = createVoiceTools((frame) => emit(frame));
+let activeDelegations = 0;
+const tools = createVoiceTools((frame) => {
+    if (frame.type === 'realtime.state' && frame.state === 'connected' && activeDelegations > 0) {
+        emit({ ...frame, state: 'thinking' });
+        return;
+    }
+    emit(frame);
+});
+const coding = createCodexDelegation({ getCredential: codexCredential, runTool: tools.run });
 const delegations = new Map();
 let closing = false;
 let stopped = false;
@@ -63,6 +72,7 @@ function close(reason) {
     if (closing) return;
     closing = true;
     stopped = true;
+    coding.close();
     tools.close();
     process.stdout.write(`${JSON.stringify({ type: 'realtime.closed', reason: safe(reason, 'ended') })}\n`, () => process.exit(0));
 }
@@ -230,9 +240,16 @@ async function delegate(event) {
         appendContext('That tool request exceeds the session limit.', id); return;
     }
     delegations.set(id, true);
+    activeDelegations++;
     state('thinking');
-    const result = await tools.delegate(request, `codex:${id}`);
-    if (!stopped) appendContext(result, id);
+    try {
+        const result = await coding.run(request, `codex:${id}`);
+        if (!stopped) appendContext(result, id);
+    } catch {
+        if (!stopped) appendContext('The delegated work could not be completed. No action was confirmed; do not repeat a mutation automatically. Explain this failure to the user.', id);
+    } finally {
+        activeDelegations--;
+    }
 }
 
 function handleWebRtcData(data) {

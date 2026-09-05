@@ -261,6 +261,12 @@ if ((await runOnce('build', 'yarn', ['build'], devEnvBase, root)) !== 0) {
     process.exit(1);
 }
 
+// Reuse the relay's private local owner credential for normal websocket
+// tickets. This is sent only to the loopback dev bundle, never printed.
+const { ensureMintSecret } = await import(new URL('../../../apps/relay/dist/relay.js', import.meta.url).href);
+metroEnv.EXPO_PUBLIC_MUXR_TOKEN = await ensureMintSecret(upEnv.MUXR_RELAY_DATA_DIR);
+upEnv.MUXR_RELAY_TOKEN = metroEnv.EXPO_PUBLIC_MUXR_TOKEN;
+
 // ---------------------------------------------------------------- watchers
 
 // Metro stays up for the whole session and sees compiled workspace updates.

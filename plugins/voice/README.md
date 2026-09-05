@@ -12,7 +12,13 @@ The assistant can inspect the voice target, desktop focus, installed agent kinds
 
 For “send this to the agent I was using,” the assistant should inspect both contexts, offer a specific recipient and task when uncertain, and ask one short clarification. An omitted prompt target returns context without sending anything. Name/task lookup supports unique prefixes and conservative typo matching; ambiguous matches remain choices. Search and paging cover the live catalog rather than only its first page. Starting an agent accepts a concise title plus the complete initial instruction, and reports creation separately from whether that instruction was queued.
 
-Phone navigation and desktop focus are distinct actions. `focus_agent` focuses the desktop pane; `navigate_app` with `agent <name or task>` opens its live conversation on the phone. Semantic app tools are available in Grok, Gemini Live, OpenAI Realtime, and the Codex delegation bridge. Codex delegates catalog-defined JSON tool requests through its existing data channel; it no longer unconditionally refuses every delegation. Native audio transport is unchanged.
+Once the user confirms a recipient, retain the original pending message and
+invoke `prompt_agent` with that explicit target. “Ping it” and “ask it for an
+update” are message requests, not status reads. Working agents can receive queued
+follow-ups without an Escape/interrupt. Report the actual queue receipt, never
+infer that the agent has already seen or answered the message.
+
+Phone navigation and desktop focus are distinct actions. `focus_agent` focuses the desktop pane; `navigate_app` with `agent <name or task>` opens its live conversation on the phone. Semantic app tools are available in Grok, Gemini Live, OpenAI Realtime, and the Codex delegation bridge. Codex delegates natural-language work through its existing data channel; the backend translates it into restricted tool calls. Native audio transport is unchanged.
 
 This is a bounded coordination tool surface, not unrestricted access to every Herdr command. Shell execution, arbitrary workspace deletion, and destructive agent termination are not added here. Broader capabilities need explicit action policy and a real user-confirmation path rather than a model-supplied approval flag. The new Codex delegation prompt/tool protocol and actual spoken target selection still require live provider/device verification; local scripted protocol tests alone do not establish audio or speech-recognition quality.
 
@@ -28,13 +34,20 @@ using their protocol, call `tools.answered` on a completed assistant transcript,
 forward app results to `tools.receive`, use `tools.state`, and close the runtime.
 They inherit request bounds, deduplication, cancellation and failure reporting.
 
-A plain-text delegation receives a read-only catalog and current-target output
-through `tools.delegate`; it is never converted into a mutation by keyword
-matching. The result names which target supplied the output and tells the voice
-model to answer the original question or clarify a different target. Explicit
-actions still require a catalog-defined structured call. Codex client delegation
-can therefore summarize work without first emitting JSON, while prompts/focus
-remain behind the same trusted dispatch as other providers.
+`codexDelegation.mjs` handles Codex's natural-language client delegations with
+**GPT-5.6-Sol**, without a model fallback. Only the existing `voiceTools` function
+catalog is sent to the account-bound Codex Responses endpoint; no shell,
+filesystem, MCP or other execution tools are exposed. Structured tool calls still
+use the same dispatcher directly. This is delegated tool reasoning, not an
+STT/LLM/TTS replacement for the native speech-to-speech session.
+
+Pending targets and messages remain in bounded, in-memory conversation history.
+Natural-language planning is serialized; each request allows four model turns
+and eight tool calls, with a 340-second overall deadline that includes long
+agent watches. Closing voice aborts planning and active tools. A failed or
+incomplete provider response cannot authorize new actions, and an uncertain
+mutation is never automatically retried. Credentials remain host-only, redirects
+are rejected, and test mode requires an explicit loopback fixture endpoint.
 
 Reads have a 15-second deadline; mutations retain the existing 75-second
 coordination budget, and explicit lifecycle watches keep their declared bound. Repeated operation IDs reuse the same result and cannot execute a

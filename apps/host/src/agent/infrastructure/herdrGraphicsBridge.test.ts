@@ -29,6 +29,14 @@ const serverFrame = (payload: Buffer): Buffer => {
     return Buffer.concat([length, payload]);
 };
 
+const frameAnsi = (frame: string): string => {
+    const parsed: unknown = JSON.parse(frame);
+    if (typeof parsed !== 'object' || parsed === null || !('bytes' in parsed) || typeof parsed.bytes !== 'string') {
+        throw new Error('Terminal frame is missing encoded bytes');
+    }
+    return Buffer.from(parsed.bytes, 'base64').toString('utf8');
+};
+
 describe('Herdr graphics flow', () => {
     afterEach(() => {
         vi.useRealTimers();
@@ -92,8 +100,10 @@ describe('Herdr graphics flow', () => {
             lastErrorAt: number;
             closed: boolean;
             retire: (transferId: bigint, sourceImageId: number) => void;
-            read: (data: Buffer) => void;
             retirePane: (paneId: string) => void;
+            read: (data: Buffer) => void;
+            queueInline: (data: Buffer) => void;
+            drainInline: () => Promise<void>;
             sourcePane: (leading: Buffer) => Promise<string | undefined>;
             ensurePaneProcess: (paneId: string) => Promise<boolean>;
             forward: (file: {
@@ -182,7 +192,9 @@ describe('Herdr graphics flow', () => {
         const framesBeforeCurrentRetire = replayed.length;
         internals.retire(2n, 8);
         expect(replayed).toHaveLength(framesBeforeCurrentRetire);
-        expect(internals.latestByPane.has('visible')).toBe(false);
+        // The lease is gone but the phone still shows this frame; the pane's
+        // current image stays tracked until its replacement is placed.
+        expect(internals.latestByPane.get('visible')).toEqual(successor);
 
         const dir = mkdtempSync(join(tmpdir(), 'herdr-gfx-'));
         const rgbaPath = join(dir, 'frame.rgba');
@@ -215,17 +227,58 @@ describe('Herdr graphics flow', () => {
             internals.retire(20n, 20);
             releaseProcess();
             await inflight;
-            const inflightClear = JSON.parse(replayed.at(-1)!) as { graphics: boolean; graphicsReason?: string; bytes: string };
-            expect(inflightClear).toMatchObject({ graphics: false, graphicsReason: 'retired' });
-            expect(Buffer.from(inflightClear.bytes, 'base64').toString('utf8')).toContain('a=d,d=A');
+            // A retired lease drops the stale in-flight frame only: no
+            // clear-all is emitted, the phone keeps the delivered successor,
+            // and the bridge stays open -- retirement is per-transfer.
+            expect(replayed).toHaveLength(framesBeforeInflight);
             expect(acks).toHaveLength(acksBeforeInflight + 1);
             expect(graphicsResultAck(acks.at(-1)!)).toBe(true);
-            expect(replayed.slice(framesBeforeInflight).every((frame) => {
-                const parsed = JSON.parse(frame) as { graphics?: boolean };
-                return parsed.graphics !== true;
-            })).toBe(true);
-            expect(internals.latestByPane.has('visible')).toBe(false);
+            expect(internals.closed).toBe(false);
+            expect(internals.latestByPane.get('visible')).toEqual(successor);
             expect(internals.imageOwners.has(20n)).toBe(false);
+
+            // The wire path itself: a real `retired` server message must not
+            // tear the bridge down or clear any registration.
+            const framesBeforeWireRetire = replayed.length;
+            internals.read(serverFrame(Buffer.concat([uint(14), uint(20n), uint(20)])));
+            expect(internals.closed).toBe(false);
+            expect(replayed).toHaveLength(framesBeforeWireRetire);
+
+            // Hiding a resident placement is not image destruction. Herdr
+            // returns with a placement-only command, without another upload.
+            const beforeHide = replayed.length;
+            internals.queueInline(Buffer.from('\u001b_Ga=d,d=i,i=8,p=41,q=2;\u001b\\'));
+            await internals.drainInline();
+            const hidden = replayed.slice(beforeHide).map(frameAnsi);
+            expect(hidden.join('')).toContain('a=d,d=i,i=2,p=2');
+            expect(hidden.join('')).not.toContain('d=I');
+            const beforeDisplay = replayed.length;
+            internals.queueInline(Buffer.from('\u001b[3;4H\u001b_Ga=p,i=8,p=41,c=8,r=5,q=2;\u001b\\'));
+            await internals.drainInline();
+            const displayed = replayed.slice(beforeDisplay).map(frameAnsi);
+            expect(displayed.join('')).toContain('a=p,i=2,p=2,c=107,r=30');
+            expect(displayed.join('')).not.toContain('a=T');
+            const lateFrames: string[] = [];
+            bridge.register({ ...portrait, channel: 'late-retained', write: (frame) => lateFrames.push(frame) });
+            expect(lateFrames.map(frameAnsi).some((frame) => frame.includes('a=T,f=32,s=1600,v=900,i=2'))).toBe(true);
+            bridge.unregister('late-retained');
+
+            // Retire-current then the program's targeted delete: the retired
+            // current image keeps its owner record, so the delete naming
+            // Herdr's source id still translates to the id the phone holds,
+            // scoped to the owning pane, and the bookkeeping clears.
+            const unrelatedFrames: string[] = [];
+            bridge.register({ ...portrait, paneId: 'unrelated', channel: 'unrelated', write: (frame) => unrelatedFrames.push(frame) });
+            const beforeDelete = replayed.length;
+            internals.queueInline(Buffer.from('\u001b_Ga=d,d=I,i=8,q=2;\u001b\\'));
+            await internals.drainInline();
+            const retiredDelete = replayed.slice(beforeDelete).map(frameAnsi).join('');
+            expect(retiredDelete).toContain('a=d,d=I,i=2');
+            expect(retiredDelete).not.toContain('a=d,d=I,i=8');
+            expect(unrelatedFrames).toEqual([]);
+            bridge.unregister('unrelated');
+            expect(internals.latestByPane.has('visible')).toBe(false);
+            expect(internals.imageOwners.has(2n)).toBe(false);
 
             let releaseRoute: () => void = () => {};
             const routeGate = new Promise<void>((resolve) => { releaseRoute = resolve; });
@@ -251,18 +304,11 @@ describe('Herdr graphics flow', () => {
             await unknownPane;
             expect(acks).toHaveLength(acksBeforeUnknown + 1);
             expect(graphicsResultAck(acks.at(-1)!)).toBe(true);
-            const unknownClear = JSON.parse(replayed.at(-1)!) as { graphics: boolean; graphicsReason?: string; bytes: string };
-            expect(unknownClear).toMatchObject({ graphics: false, graphicsReason: 'retired' });
-            expect(Buffer.from(unknownClear.bytes, 'base64').toString('utf8')).toContain('a=d,d=A');
-            expect(replayed.slice(framesBeforeUnknown).filter((frame) => {
-                const parsed = JSON.parse(frame) as { graphics?: boolean; bytes: string };
-                return parsed.graphics === false && Buffer.from(parsed.bytes, 'base64').toString('utf8').includes('a=d,d=A');
-            })).toHaveLength(1);
-            expect(replayed.slice(framesBeforeUnknown).every((frame) => {
-                const parsed = JSON.parse(frame) as { graphics?: boolean };
-                return parsed.graphics !== true;
-            })).toBe(true);
-            expect(internals.latestByPane.has('visible')).toBe(false);
+            // Retiring the in-flight unknown-pane transfer drops it silently:
+            // no clear-all, the displayed successor stays tracked and shown.
+            expect(replayed).toHaveLength(framesBeforeUnknown);
+            expect(internals.closed).toBe(false);
+            expect(internals.latestByPane.get('visible')).toEqual(successor);
             expect(internals.imageOwners.has(21n)).toBe(false);
 
             let releaseGeneration: () => void = () => {};
@@ -303,9 +349,14 @@ describe('Herdr graphics flow', () => {
         expect(JSON.parse(replayed.at(-1)!) as { graphics: boolean; graphicsReason?: string })
             .toMatchObject({ graphics: false });
         expect((JSON.parse(replayed.at(-1)!) as { graphicsReason?: string }).graphicsReason).toBeUndefined();
+        // A stray retirement for an untracked transfer is steady-state noise:
+        // no frame, no teardown, registrations still live.
+        const framesBeforeStray = replayed.length;
         internals.read(serverFrame(Buffer.concat([uint(14), uint(99), uint(99)])));
-        expect(JSON.parse(replayed.at(-1)!) as { graphics: boolean; graphicsReason?: string })
-            .toMatchObject({ graphics: false, graphicsReason: 'retired' });
+        expect(internals.closed).toBe(false);
+        expect(replayed).toHaveLength(framesBeforeStray);
+        // Only a real close ends the bridge and its registrations.
+        bridge.close();
         expect(internals.closed).toBe(true);
         expect(bridge.register(portrait)).toBe(false);
     });
@@ -331,6 +382,8 @@ describe('Herdr graphics flow', () => {
             notchesDropped: number;
             inlineQueue: unknown[];
             inlineDraining: boolean;
+            imageOwners: Map<bigint, { paneId: string; imageId: number; sourceImageId: number }>;
+            latestByPane: Map<string, { compressed: Buffer; width: number; height: number; imageId: number; transferId: bigint }>;
         };
         internals.sourcePane = async () => 'pane';
         internals.visibleRect = async () => ({ x: 0, y: 0, width: 20, height: 10 });
@@ -410,6 +463,16 @@ describe('Herdr graphics flow', () => {
         await settle();
         expect(Buffer.from(frames.at(-1)!.bytes, 'base64').toString('utf8')).toContain('a=d,d=I,i=2');
         expect(frames.at(-1)).toMatchObject({ graphics: false });
+
+        // A direct image delete is translated to the phone's id, not
+        // broadcast under a source id that could name unrelated pixels.
+        internals.imageOwners.set(6n, { paneId: 'pane', imageId: 900, sourceImageId: 6 });
+        internals.latestByPane.set('pane', { compressed: Buffer.from([1]), width: 2, height: 2, imageId: 900, transferId: 6n });
+        internals.queueInline(Buffer.from('\u001b_Ga=d,d=I,i=6,q=2;\u001b\\'));
+        await settle();
+        expect(Buffer.from(frames.at(-1)!.bytes, 'base64').toString('utf8')).toContain('a=d,d=I,i=900');
+        expect(internals.latestByPane.has('pane')).toBe(false);
+        expect(internals.imageOwners.has(6n)).toBe(false);
         bridge.close();
     });
 });

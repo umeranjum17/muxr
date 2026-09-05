@@ -26,6 +26,7 @@ shortcuts requires a new APK.
 
 ## Daily development: Metro, not release APKs
 
+Install dependencies (`yarn install`) and start an Android emulator first.
 From the repository root, use two terminals:
 
 ```bash
@@ -57,6 +58,12 @@ fake terminal. It is loopback-only, not a secure remote-phone setup or proof of
 production pairing. On first launch, use the local account creation action.
 Herdr and its installed plugins remain shared: don't close or alter unrelated
 panes, and don't assume the development command relinks installed plugins.
+
+The supervisor reuses the dev relay's private owner credential to issue normal
+websocket tickets for terminal, preview and plugin streams. The credential is
+inlined only into the loopback Metro bundle, never printed; do not expose these
+development servers to a network or distribute their bundles. Production ticket
+and pairing checks remain unchanged.
 
 | Change | Feedback path |
 |---|---|

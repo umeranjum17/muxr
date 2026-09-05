@@ -252,7 +252,7 @@ index 2d3ed62..dab7221 100644
    internal fun setTheme(theme: TerminalThemeRecord?) = terminal.setTheme(
      foreground = theme?.foreground,
 diff --git a/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/GhosttyTerminalView.kt b/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/GhosttyTerminalView.kt
-index 9d6ad16..f0c3b70 100644
+index 9d6ad16..a2926a8 100644
 --- a/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/GhosttyTerminalView.kt
 +++ b/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/GhosttyTerminalView.kt
 @@ -9,6 +9,7 @@ import android.graphics.Canvas
@@ -302,7 +302,19 @@ index 9d6ad16..f0c3b70 100644
    private var cellWidth = textPaint.measureText("M")
    private var cellHeight = ceil(
      textPaint.fontMetrics.descent - textPaint.fontMetrics.ascent
-@@ -146,6 +156,18 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -84,6 +94,11 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+   private var rows = INITIAL_ROWS
+   private var bitmap: Bitmap? = null
+   private var bitmapCanvas: Canvas? = null
++  /** Next-grid surface being repainted; the presented pair below stays
++   *  untouched until a full snapshot lands, so a resize never publishes a
++   *  blank frame. */
++  private var pendingBitmap: Bitmap? = null
++  private var pendingCanvas: Canvas? = null
+   private var snapshotBuf: ByteBuffer? = null
+   private var rowChars = CharArray(0)
+   private var cellFg = IntArray(0)
+@@ -146,6 +161,18 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
    }
  
    private var scrollAccum = 0f
@@ -321,7 +333,7 @@ index 9d6ad16..f0c3b70 100644
  
    // ── Scrollback state ──
    private val scroller = OverScroller(context)
-@@ -166,7 +188,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -166,7 +193,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
        val deltaRows = (scrollAccum / cellHeight).toInt()
        if (deltaRows != 0) {
          scrollAccum -= deltaRows * cellHeight
@@ -330,7 +342,7 @@ index 9d6ad16..f0c3b70 100644
          markScrollActivity()
          scheduleFrame()
        }
-@@ -194,8 +216,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -194,8 +221,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
            return true
          }
          requestFocus()
@@ -339,8 +351,8 @@ index 9d6ad16..f0c3b70 100644
 +        if (autoShowKeyboard) showKeyboard()
          return true
        }
-
-@@ -229,7 +250,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+ 
+@@ -229,7 +255,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
          val deltaRows = (scrollAccum / cellHeight).toInt()
          if (deltaRows != 0) {
            scrollAccum -= deltaRows * cellHeight
@@ -349,7 +361,7 @@ index 9d6ad16..f0c3b70 100644
            markScrollActivity()
            scheduleFrame()
          }
-@@ -457,7 +478,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -457,7 +483,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      if (changed || force || bitmap == null) {
        GhosttyVt.nativeResize(handle, cols, rows, cellWidth.roundToInt(), cellHeight)
        allocateGridBuffers()
@@ -358,12 +370,50 @@ index 9d6ad16..f0c3b70 100644
      }
      scheduleFrame()
    }
-@@ -522,10 +543,85 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -465,9 +491,15 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+   private fun allocateGridBuffers() {
+     val widthPx = max(1, ceil(cols * cellWidth).toInt())
+     val heightPx = max(1, rows * cellHeight)
+-    bitmap = Bitmap.createBitmap(widthPx, heightPx, Bitmap.Config.ARGB_8888).also {
+-      bitmapCanvas = Canvas(it)
+-      bitmapCanvas?.drawColor(defaultBg)
++    // Rebuilding the grid surface here used to blank the presented bitmap
++    // during layout, but the DIRTY_FULL repaint that refills it only lands on
++    // the next Choreographer frame — every size change then published a
++    // pure-background (black) frame, and animated layouts cross many
++    // intermediate sizes. Allocate into a pending surface instead; the old
++    // bitmap keeps presenting until the full repaint of the new grid commits.
++    pendingBitmap = Bitmap.createBitmap(widthPx, heightPx, Bitmap.Config.ARGB_8888).also {
++      pendingCanvas = Canvas(it)
++      pendingCanvas?.drawColor(defaultBg)
+     }
+     val capacity = HEADER_BYTES +
+       rows * (ROW_HEADER_BYTES + cols * CELL_RECORD_BYTES + cols * MAX_CELL_TEXT_UNITS * 2 + 4)
+@@ -493,8 +525,8 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+ 
+   private fun renderFrame() {
+     val buf = snapshotBuf ?: return
+-    val canvas = bitmapCanvas ?: return
+     if (handle == 0L) return
++    val canvas = pendingCanvas ?: bitmapCanvas ?: return
+ 
+     val rowCount = GhosttyVt.nativeSnapshot(handle, buf)
+     if (rowCount < 0) return
+@@ -522,10 +554,94 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
  
      if (dirtyKind == DIRTY_FULL) canvas.drawColor(defaultBg)
      repeat(rowCount) { drawRowRecord(buf, canvas, snapCols) }
 +    drawKitty(canvas)
      syncSelectionUi()
++    if (canvas === pendingCanvas && dirtyKind == DIRTY_FULL) {
++      // The full repaint of the new grid landed: publish it atomically in
++      // place of the pre-resize surface. Until this commit, onDraw keeps
++      // presenting the last complete frame, so a resize is seamless.
++      bitmap = pendingBitmap
++      bitmapCanvas = pendingCanvas
++      pendingBitmap = null
++      pendingCanvas = null
++    }
      invalidate()
    }
  
@@ -444,7 +494,7 @@ index 9d6ad16..f0c3b70 100644
    // ── Selection ──
  
    /** Top-left / bottom-right cells of the rendered selection, or null. */
-@@ -775,6 +871,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -775,6 +891,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
    override fun onDetachedFromWindow() {
      super.onDetachedFromWindow()
      syncBlinkTimer()
@@ -452,10 +502,10 @@ index 9d6ad16..f0c3b70 100644
    }
  
    private fun drawRowRecord(buf: ByteBuffer, canvas: Canvas, snapCols: Int) {
-@@ -970,9 +1067,57 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -970,9 +1087,57 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      }
    }
-
+ 
 +  /** Explicit keyboard control; pointer focus alone must not open the IME. */
 +  fun showKeyboard() {
 +    if (handle == 0L || finished || !isAttachedToWindow) return
@@ -510,7 +560,7 @@ index 9d6ad16..f0c3b70 100644
      if (event.actionMasked == MotionEvent.ACTION_DOWN) scroller.abortAnimation()
      scaleDetector.onTouchEvent(event)
      if (scaleDetector.isInProgress) {
-@@ -1131,6 +1276,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -1131,6 +1296,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      const val JUMP_CHIP_ARROW_COLOR = 0xFFE0E0E0.toInt()
  
      const val HEADER_BYTES = 52

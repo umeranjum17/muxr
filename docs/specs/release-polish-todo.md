@@ -22,7 +22,7 @@ The user observed severe black flashing while opening files in the emulator, mat
 
 ## Next execution order
 
-1. Fast development loop VERIFIED and running. Use Metro/Fast Refresh for ordinary edits; native rebuilds only for native changes.
+1. Finish the coding checkpoint; then run the user-led joint Code, graphics and voice checks. No further autonomous live testing.
 2. Fix shared graphics frame continuity, then freeze corrected source for fresh native interaction verification.
 3. Complete review/CI, merge the polish, publish and verify the beta, then provide the phone APK link.
 4. Continue the visible backlog: terminal reconnect/flicker/crash, realtime grounding and broader tools, rich previews and the Tools interaction. These remain explicit beta limitations until resolved.
@@ -126,111 +126,121 @@ The user observed severe black flashing while opening files in the emulator, mat
   - Evidence / current state: Merged #221: shared work inventory, fuzzy matching, phone recent views, focus/navigation, prompt targeting and initial instructions. Provider 11/11 and realtime/dictation 15/15 passed.
   - Remaining / boundary: Real model behavior still needs acceptance; scripted dispatch does not prove natural speech always chooses the right tool.
 
-- [ ] **T24 · Explain current work and PRs instead of repeatedly asking for a name** — Implemented / verification pending.
+- [ ] **T24 · Prompt a confirmed agent from realtime voice** — Implemented / verification pending.
+  - Evidence / current state: Integrated Codex natural-language handoff through GPT-5.6-Sol and the restricted existing tool catalog. Local provider/security and graphics flows pass 13/13. The live synthetic session reached the correct named-target clarification, but queued-message confirmation remains unproven.
+  - Remaining / boundary: User requested coding first, then joint verification. Live automation is stopped. Check spoken request, target confirmation, one actual queue receipt and spoken result together; installed host still has the older plugin.
+
+- [ ] **T25 · Explain current work and PRs instead of repeatedly asking for a name** — Implemented / verification pending.
   - Evidence / current state: Committed bf2ab490: shared backend work-context lookup preserves the named target and accepts expanded context. Existing actual provider flow 11/11 passes named PR follow-ups and redaction.
   - Remaining / boundary: Natural spoken/model behavior still needs acceptance; this does not invent PR data absent from available work output.
 
-- [ ] **T25 · Broader personal-assistant / Herdr tool coverage** — Not done.
+- [ ] **T26 · Broader personal-assistant / Herdr tool coverage** — Not done.
   - Evidence / current state: Some navigation and delegation tools exist; unrestricted Herdr parity and destructive agent actions are not delivered.
   - Remaining / boundary: Inventory missing actions, implement generic capabilities and appropriate action rules, test natural requests without exposing internal IDs.
 
-- [ ] **T26 · Actually stop when told Go to sleep** — Implemented / verification pending.
+- [ ] **T27 · Actually stop when told Go to sleep** — Implemented / verification pending.
   - Evidence / current state: Merged #222: polite stop requests close the shared provider stream; negations and requests addressed to others stay open. Provider/RPC checks passed; fix installed in local host.
   - Remaining / boundary: Confirm actual spoken stop ends mic/audio on the phone; do not infer this from text policy tests.
 
-- [x] **T27 · Keep behavior in generic kernel/backend contracts** — Done, within stated scope.
+- [x] **T28 · Keep behavior in generic kernel/backend contracts** — Done, within stated scope.
   - Evidence / current state: Current Tools discovery and shared voice policy/dispatch follow this direction; native speech-to-speech remains intact.
   - Remaining / boundary: Apply the same rule to pending context/tools work. A newly added provider still needs contract and live transport validation.
 
-- [ ] **T28 · Keep the running local host aligned with the tested app** — Implemented / verification pending.
+- [ ] **T29 · Keep the running local host aligned with the tested app** — Implemented / verification pending.
   - Evidence / current state: Last verified deployed host is packaged source 840708b0; it is not every later main/UI commit. New settings fixes read the actual native version.
   - Remaining / boundary: After beta publication, verify/update the intended host and report exact host/app identities together.
 
 ## Attachments, viewers and settings
 
-- [x] **T29 · Zoom and pan image attachments** — Done, within stated scope.
+- [x] **T30 · Zoom and pan image attachments** — Done, within stated scope.
   - Evidence / current state: Committed in #224. Exact APK 250a8803 focused emulator flow passes real image upload, thumbnail pixels, preview, zoom, pan, fit and close.
   - Remaining / boundary: Pinch/double-tap are implemented; the automated pixel flow exercises explicit zoom and drag. Physical-phone feel remains acceptance work.
 
-- [x] **T30 · Show selected attachments as image thumbnails** — Done, within stated scope.
+- [x] **T31 · Show selected attachments as image thumbnails** — Done, within stated scope.
   - Evidence / current state: 7ce polish gate passes actual image upload, composer thumbnail pixels, preview, magnify/pan/fit, remove and Settings checks.
   - Remaining / boundary: Publish the final ARM64 beta to make it available on the phone.
 
-- [ ] **T31 · Render rich attachment formats inside the app** — Implemented / verification pending.
+- [ ] **T32 · Render rich attachment formats inside the app** — Implemented / verification pending.
   - Evidence / current state: Integrated 8105a626: bounded offline Markdown/Mermaid, PDF, CSV/XLSX and sanitized HTML/SVG. Browser flow passes nonblank PDF/page navigation, worksheet switching, diagrams and remote-content blocking; mobile typecheck and existing attachment flow 4/4 pass.
   - Remaining / boundary: Fresh native build and actual attachment-row-to-preview device acceptance remain required.
 
-- [ ] **T32 · Make version mismatch obvious and Settings easier to navigate** — Implemented / verification pending.
+- [ ] **T33 · Make version mismatch obvious and Settings easier to navigate** — Implemented / verification pending.
   - Evidence / current state: Implemented/pushed #224: actual native version/build replaces stale Expo 0.1.12; Home and top Settings notice link to one Connection & updates page. Duplicate summaries removed.
   - Remaining / boundary: Verify true mismatch visibility, no false same-release beta mismatch, diagnostics and one-tap navigation on device.
 
-- [x] **T33 · Improve code/diff/document reading and line links** — Done, within stated scope.
+- [x] **T34 · Improve code/diff/document reading and line links** — Done, within stated scope.
   - Evidence / current state: Merged viewer work: pan/zoom, narrow controls, CJK row extent, source line labels, real diff route, cold/warm line 200, bounded offline error and recovery. Matching local emulator gates passed.
   - Remaining / boundary: Some individual visual details, including equal-count word marking and full scrub label proof, remain less directly evidenced than the main flows.
 
 ## Usage, testing and review
 
-- [x] **T34 · Fix Usage providers and recently used ordering** — Done, within stated scope.
+- [x] **T35 · Fix Usage providers and recently used ordering** — Done, within stated scope.
   - Evidence / current state: Consolidated Usage implementation and private-context policy reviewed. Actual implementation fixture flow OMP 150 → OpenCode 300 → OMP 150, selected tabs and recency passed.
   - Remaining / boundary: Go unauthenticated guidance was checked; no fabricated Go account quota or every-provider live-account claim.
 
-- [x] **T35 · Create strong local end-to-end and performance gates** — Done, within stated scope.
+- [x] **T36 · Create strong local end-to-end and performance gates** — Done, within stated scope.
   - Evidence / current state: Merged local-only harness: bounded phases, strict mounts, CPU/PSS/frame counters, native cells/framebuffer evidence, APK pullback SHA/native provenance, failure artifacts and emulator ownership.
   - Remaining / boundary: The prior matching full gates passed; every new relevant mobile build needs its own matching acceptance.
 
-- [x] **T36 · Remove emulator-specific GitHub workflows** — Done, within stated scope.
+- [x] **T37 · Remove emulator-specific GitHub workflows** — Done, within stated scope.
   - Evidence / current state: Removed as requested. GitHub runs normal CI/build/release work; device testing stays local.
   - Remaining / boundary: Keep local evidence linked to exact source and artifact identities.
 
-- [ ] **T37 · Test all current polish before finalizing the PR** — Implemented / verification pending.
+- [ ] **T38 · Test all current polish before finalizing the PR** — Implemented / verification pending.
   - Evidence / current state: b4b3bc38 full native gate passes all four 32.8-second sampled windows, viewer, Changes, Usage, graphics and controls. Matching mobile/native bytes are proven for emulator APK 5e452c9e. Historical 7ce rich/attachment gates are retained at their actual ref.
   - Remaining / boundary: Internal Opus 5 device worker owns the remaining actual Code magnification/click/keyboard run. Human voice/audio and sustained phone scrolling are not inferred.
 
-- [ ] **T38 · Independent PR review, comments and final evidence** — Implemented / verification pending.
+- [ ] **T39 · Independent PR review, comments and final evidence** — Implemented / verification pending.
   - Evidence / current state: Prior component reviews and current full/Changes evidence retained. Astra owns consolidation; internal Opus 5 workers cover actual Code acceptance, release readiness and the 14-feature PR evidence narrative.
   - Remaining / boundary: Publish final exact evidence, finish Code acceptance and main CI, then release beta only.
 
 ## One-tap mismatch repair
 
-- [ ] **T39 · Tap mismatch to keep the app and select a compatible host or app update** — Implemented / verification pending.
+- [ ] **T40 · Tap mismatch to keep the app and select a compatible host or app update** — Implemented / verification pending.
   - Evidence / current state: Implemented exact-release managed Linux host alignment with confirmation, protocol/state compatibility, preserved beta identity, private snapshot, restart health/rollback and interrupted-job recovery. Standards and spec reviews pass. Real installed-package flow passes update, rollback, custom data directory, ownership and interrupted recovery.
   - Remaining / boundary: Native Settings entry and final packaged beta still need delivery checks. Compatible version differences do not require repair; missing supported metadata leaves alignment unavailable. No real host changed by the test.
 
 ## Latest reported regressions
 
-- [ ] **T40 · Start Code / Browser must create and open a pane** — Implemented / verification pending.
+- [ ] **T41 · Start Code / Browser must create and open a pane** — Implemented / verification pending.
   - Evidence / current state: Generic launcher now uses declared executable/context, verifies the newly created pane and returns validated native navigation. Real host Browser and Code launches both passed; owned user-visible panes remain open.
   - Remaining / boundary: Finish the native Tools-button-to-pane flow on the combined APK.
 
-- [x] **T41 · Preserve ordered graphics updates on mobile** — Done, within stated scope.
+- [x] **T42 · Preserve ordered graphics updates on mobile** — Done, within stated scope.
   - Evidence / current state: Committed b05b8835: reproduced dropped inline placement in actual write pump, replaced latest-only storage with bounded FIFO and explicit recovery. Existing flow baseline 6/7 then fixed 7/7; native APK 250a8803 full emulator gate passed.
   - Remaining / boundary: This closes the demonstrated dropped-frame bug; it does not establish the physical-phone black flicker or crash is fully resolved.
 
 ## Workspace cleanup
 
-- [x] **T42 · Clean obsolete Herdr spaces and shells** — Done, within stated scope.
+- [x] **T43 · Clean obsolete Herdr spaces and shells** — Done, within stated scope.
   - Evidence / current state: Closed 46 confirmed obsolete panes: 34 idle shells, 8 completed agents and 4 old demos. Workspace count 24→8; tab count 65→26. Recoverable inventory archives are attached.
   - Remaining / boundary: Preserved active conversations, current Browser/Code demos, build shells and emulator. No source worktree or saved transcript was deleted.
 
 ## Changes and current interaction polish
 
-- [x] **T43 · Show the actual worktree and comparison in Changes** — Done, within stated scope.
+- [x] **T44 · Show the actual worktree and comparison in Changes** — Done, within stated scope.
   - Evidence / current state: Current b4b3bc38 focused Changes gate and full native gate pass worktree selection, Working/Staged/Branch patches and preserved session context. Screenshot29138 showed the original checkout, not the release worktree.
   - Remaining / boundary: Physical-phone acceptance remains separate. Select the intended registered worktree and comparison explicitly.
 
-- [ ] **T44 · Make graphics Zoom actually magnify and pan** — Implemented / verification pending.
+- [ ] **T45 · Make graphics Zoom actually magnify and pan** — Implemented / verification pending.
   - Evidence / current state: Current byte-matched APK 5e452c9e visibly magnified actual Code at 1.25 and 2. The live run did not prove file/folder clicks, IME or two-finger pan; failure report retained.
   - Remaining / boundary: Finish magnified click/scroll/IME acceptance after shared frame-continuity fix. No full Code PASS claimed.
 
-- [x] **T45 · Scroll Code editor and Explorer at the finger location** — Done, within stated scope.
+- [x] **T46 · Scroll Code editor and Explorer at the finger location** — Done, within stated scope.
   - Evidence / current state: 7ce real native Code test: sidebar selection then editor swipe changed first rendered line5 to10 without extra editor focus; sidebar swipe moved file rows while editor stayedline10. Exact screenshots retained.
   - Remaining / boundary: Retain this behavior through magnification; phone latency and long-session feel remain acceptance.
 
 ## Fast development feedback
 
-- [x] **T46 · Run the app from Metro instead of rebuilding release APKs for every edit** — Done, within stated scope.
-  - Evidence / current state: Verified separate muxr Dev client against Metro and real source host. Visible React text changed and restored with the same process/APK timestamp. Host edit auto-restarted; deliberate TypeScript error retained the running host. Renderer watcher, no-build reopen, clean shutdown and persistent restart passed. Installed service PID and production APK timestamps were unchanged.
-  - Remaining / boundary: Use yarn dev and yarn dev:android --no-build for daily iteration. Run yarn dev:android only for initial/native changes. Metro8081, isolated relay18792 and downloads18793; .cache/muxr-dev state. This is local emulator development, not production pairing, release performance, physical-phone or graphics-continuity acceptance.
+- [x] **T47 · Run the app from Metro instead of rebuilding release APKs for every edit** — Done, within stated scope.
+  - Evidence / current state: Visible Fast Refresh, host/watch error preservation, renderer watch, no-build reopen and owned-process cleanup are proven. Actual dev-client terminal attach now passes with 9–52ms first frames after client and host use matching normal relay tickets.
+  - Remaining / boundary: Use yarn dev and yarn dev:android --no-build for daily work; rebuild the debug client only after native changes. Isolated state/ports preserve the production app and service. This is not proof of production pairing or continuous graphics rendering.
+
+## Command control identity
+
+- [x] **T48 · Use a Command-key icon rather than a Settings-like control** — Done, within stated scope.
+  - Evidence / current state: Changed the shared native/web terminal puck from options-outline to the Command-key glyph. Actual dev-client screenshot confirms the distinct Command symbol after Fast Refresh, without rebuilding the APK. Open/close, drag target and command behavior are unchanged.
+  - Remaining / boundary: The translucent top-right gear is Expo development-menu chrome, not the app control and not present in the production APK.
 
 ## Verification and update rules
 
@@ -257,3 +267,7 @@ The user observed severe black flashing while opening files in the emulator, mat
 - 2026-09-05: User prioritized development feedback first. Add explicit source dev-server and separate Android dev-client commands; prove visible refresh and host restart without repeated release APK builds. Beta remains held for actual graphics interaction acceptance.
 
 - 2026-09-05: Proved visible native Fast Refresh without install/process change, source host restart, compile-error preservation, attachment renderer watch, no-build reopen and owned-process cleanup. Dev loop remains running. Independent internal Opus workers now own actual graphics interaction acceptance and lifecycle review in parallel; beta remains held.
+
+- 2026-09-05: Main-owned parallel review found placement-only hides were treated as image destruction. Corrected scoped hide/replay/delete behavior; existing flow failed before and passes after, independent reviewer closes that blocker. Device worker separately found missing dev stream tickets; canonical local credential provisioning is implemented and awaiting native acceptance. User-requested Command-key control icon is visually verified.
+
+- 2026-09-05: User changed execution order to coding first, then joint verification. Code integration and 13 focused local flows pass. Live/device automation is stopped. No merge, beta publication or host upgrade until joint acceptance. Codex delegated work is pinned to GPT-5.6-Sol with no 5.5 fallback; native realtime audio remains unchanged.
