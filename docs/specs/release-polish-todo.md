@@ -47,12 +47,12 @@ Current product PR: [#224](https://github.com/umeranjum17/muxr/pull/224), draft.
   - Remaining / boundary: It predates #224. Do not mistake it for the new settings, zoom or thumbnails build.
 
 - [ ] **T06 · Attach the latest polished APK to the PR and notify you** — Not done.
-  - Evidence / current state: APK 9beb12e1 is native-verified with mobile checks and focused command-control PASS. It is an emulator artifact, not the pending ARM64 beta phone release.
-  - Remaining / boundary: Integrate reviewed host alignment, finish current gates, publish the tested beta and link its exact APK/provenance.
+  - Evidence / current state: 7ce46ade native build, full/rich/polish emulator gates and CI passed. Follow-up Changes and actual graphics magnification are committed and awaiting their fresh combined device run.
+  - Remaining / boundary: No latest ARM64 beta has been published yet; deliver its verified immutable artifact after acceptance.
 
-- [ ] **T07 · Explain every release feature with first principles and diagrams** — In progress.
-  - Evidence / current state: Release workflow and task board are available. #224 is being rewritten for the expanded final scope and exact evidence.
-  - Remaining / boundary: Include all current fixes, Mermaid flows, actual tests and remaining limitations.
+- [x] **T07 · Explain every release feature with first principles and diagrams** — Done, within stated scope.
+  - Evidence / current state: Consolidated PR224 includes first-principles behavior, Mermaid diagrams and evidence boundaries per feature. The Changes scope and real graphics magnification entries are included in the current update.
+  - Remaining / boundary: Final delivery table must follow the exact candidate and artifact.
 
 - [ ] **T08 · Promote a stable production release** — Deferred / explicit decision.
   - Evidence / current state: Intentionally not performed. Your instruction is beta first, stable only after your acceptance.
@@ -69,16 +69,16 @@ Current product PR: [#224](https://github.com/umeranjum17/muxr/pull/224), draft.
   - Remaining / boundary: Recheck the reported phone symptom; subsequent connection flapping is still open below.
 
 - [ ] **T11 · Stop repeated Connected / Reconnecting flapping** — Implemented / verification pending.
-  - Evidence / current state: Fixed two reproduced terminal transport bugs in d7d7351c: live now requires the first authenticated host frame, and an old asynchronous decryption cannot close a replacement socket. Existing flow baseline failures retained; fixed 8/8 and TypeScript pass.
-  - Remaining / boundary: Final combined runtime gate and sustained phone check remain; do not infer every network failure is resolved.
+  - Evidence / current state: Two real transport races reproduced and corrected; fixed existing flow8/8. Fresh7ce full and ordinary live runs connected, with cleanup and source freeze verified. Graphics zoom followup removes its unnecessary reconnect.
+  - Remaining / boundary: Sustained physical-phone network behavior remains beta acceptance.
 
-- [ ] **T12 · Avoid black frames / flicker while scrolling Terminal Browser** — Not done.
-  - Evidence / current state: Physical-phone issue remains unresolved. Browser navigation or a host-side screenshot is not phone pixel proof.
-  - Remaining / boundary: Measure the actual phone/native frame transition; retain the prior frame where lifecycle and placement semantics permit.
+- [ ] **T12 · Avoid black frames / flicker while scrolling Terminal Browser** — Implemented / verification pending.
+  - Evidence / current state: Ordered mobile graphics writes and retained lifecycle semantics are implemented. Real GitHub body/native scroll passed a bounded ba9 run with566px movement; prior failed swipes retained.7ce real Code editor/sidebar scroll now targets correctly.
+  - Remaining / boundary: No long-session physical-phone flicker guarantee; current graphics zoom retest remains.
 
-- [ ] **T13 · Fix Terminal Code gray screen / app crash** — Not done.
-  - Evidence / current state: A bounded real Code folder check kept the app PID alive and IME hidden, but your crash is not proven fixed. Explicit keyboard resize still exposed a dark frame.
-  - Remaining / boundary: Reproduce the reported interaction with matching native crash/frame evidence and verify sustained use.
+- [ ] **T13 · Fix Terminal Code gray screen / app crash** — Implemented / verification pending.
+  - Evidence / current state: 7ce real Code remained running during file/explorer/editor interactions with IME hidden. Fresh full/rich/polish gates pass. Actual graphics magnification followup removes zoom-triggered reconnect.
+  - Remaining / boundary: Retest magnified clicks, keyboard resizing and final beta on the phone before declaring the reported crash eliminated.
 
 - [x] **T14 · Make the terminal keyboard deliberate** — Done, within stated scope.
   - Evidence / current state: Merged #222: Android auto-open defaults off, explicit keyboard button and saved preference. Emulator text/graphics IME checks and real Code folder taps passed.
@@ -97,12 +97,12 @@ Current product PR: [#224](https://github.com/umeranjum17/muxr/pull/224), draft.
   - Remaining / boundary: Verify Home, Spaces, terminal header and tabs on the new APK.
 
 - [x] **T18 · Move or hide terminal controls that cover the browser header** — Done, within stated scope.
-  - Evidence / current state: Native APK 9beb12e1 controls gate passed in text and graphics: actual handle moves 348/349 pixels, collapse/restore and bounds pass. The previous failed drags originated at Android’s 30 dp back edge; the whole handle now stays outside it.
-  - Remaining / boundary: Position resets when the terminal remounts. Physical-phone comfort still needs your feedback.
+  - Evidence / current state: Fresh7ce native controls pass movable puck, collapse, bounds and consistent targets in text/graphics; actual Code screenshots show the command fan.
+  - Remaining / boundary: Physical-phone comfort remains feedback; position is per mounted terminal.
 
 - [x] **T19 · Replace the Tools dropdown with a half-circle expansion** — Done, within stated scope.
-  - Evidence / current state: Implemented inward-opening five-action command fan, one 44 dp puck and consistent buttons. Native 9beb12e1 gate passed drag, collapse, restore, matching button sizes and no overlap in text and graphics.
-  - Remaining / boundary: Final combined APK will include it; compact screens use a reachable row instead of clipping the fan.
+  - Evidence / current state: Inward-opening command fan and compact fallback are in PR224.7ce combined native gate passes command placement and touch targets.
+  - Remaining / boundary: Beta artifact delivery remains pending.
 
 ## Realtime personal assistant
 
@@ -149,8 +149,8 @@ Current product PR: [#224](https://github.com/umeranjum17/muxr/pull/224), draft.
   - Remaining / boundary: Pinch/double-tap are implemented; the automated pixel flow exercises explicit zoom and drag. Physical-phone feel remains acceptance work.
 
 - [x] **T30 · Show selected attachments as image thumbnails** — Done, within stated scope.
-  - Evidence / current state: Committed in #224. Owned RGB image uploads and renders real thumbnail pixels; preview and removal pass on emulator. Historical picker filename/path fixture failures retained.
-  - Remaining / boundary: Send/failure restoration is code-checked; do not describe it as a device-proven failed-send flow.
+  - Evidence / current state: 7ce polish gate passes actual image upload, composer thumbnail pixels, preview, magnify/pan/fit, remove and Settings checks.
+  - Remaining / boundary: Publish the final ARM64 beta to make it available on the phone.
 
 - [ ] **T31 · Render rich attachment formats inside the app** — Implemented / verification pending.
   - Evidence / current state: Integrated 8105a626: bounded offline Markdown/Mermaid, PDF, CSV/XLSX and sanitized HTML/SVG. Browser flow passes nonblank PDF/page navigation, worksheet switching, diagrams and remote-content blocking; mobile typecheck and existing attachment flow 4/4 pass.
@@ -208,12 +208,26 @@ Current product PR: [#224](https://github.com/umeranjum17/muxr/pull/224), draft.
   - Evidence / current state: Closed 46 confirmed obsolete panes: 34 idle shells, 8 completed agents and 4 old demos. Workspace count 24→8; tab count 65→26. Recoverable inventory archives are attached.
   - Remaining / boundary: Preserved active conversations, current Browser/Code demos, build shells and emulator. No source worktree or saved transcript was deleted.
 
+## Changes and current interaction polish
+
+- [ ] **T43 · Show the actual worktree and comparison in Changes** — Implemented / verification pending.
+  - Evidence / current state: Screenshot29138 was the real six untracked files in the original session checkout, while release work lives in a separate worktree. Explicit registered-worktree selection, Working/Staged/Branch scopes, pinned branch patches, deleted/new-repo handling and pagination are implemented. RealGit flow and independent review pass.
+  - Remaining / boundary: Native screen transitions and patch markers are in the fresh combined gate; do not label a different checkout as the current release.
+
+- [ ] **T44 · Make graphics Zoom actually magnify and pan** — Implemented / verification pending.
+  - Evidence / current state: Replaced pixel-detail scaling and reconnect with local native viewport magnification and bounded two-finger pan; one finger still targets the program. Typecheck and independent reviews pass.
+  - Remaining / boundary: Fresh APK and actual Code zoom/click/pan/keyboard validation are still required.
+
+- [x] **T45 · Scroll Code editor and Explorer at the finger location** — Done, within stated scope.
+  - Evidence / current state: 7ce real native Code test: sidebar selection then editor swipe changed first rendered line5 to10 without extra editor focus; sidebar swipe moved file rows while editor stayedline10. Exact screenshots retained.
+  - Remaining / boundary: Retain this behavior through magnification; phone latency and long-session feel remain acceptance.
+
 ## Verification and update rules
 
 - Keep historical failures alongside reruns; never reuse old APK evidence for changed mobile/native bytes.
 - A passing emulator or provider fixture does not prove physical-phone rendering, account entitlement, real speech or remote audio.
 - Update this checklist when an item changes state and link the relevant commit, PR or artifact. No new test matrix or agent swarm is required.
-- Current APK 9beb12e1: native build, mobile TypeScript, mobile policy and mobile flows passed; focused terminal controls gate passed. Historical full PASS at e5e5a2ae remains pinned to its older APK. Final combined full/rich/live acceptance is still in progress.
+- 7ce46ade native build, mobile checks, full/rich/polish gates and CI pass. Real Code scroll targeting is device-proven. New Changes and graphics magnification require their fresh combined run; ARM64 beta delivery and real voice audio remain open.
 
 ## Links
 
