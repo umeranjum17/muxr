@@ -1,0 +1,10 @@
+import { build } from 'esbuild';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+const root = fileURLToPath(new URL('../', import.meta.url));
+const options = { bundle: true, minify: true, platform: 'browser', target: 'chrome120', format: 'iife', write: false, logLevel: 'warning' };
+const worker = await build({ ...options, format: 'esm', entryPoints: [new URL('../../../node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs', import.meta.url).pathname] });
+const renderer = await build({ ...options, entryPoints: [`${root}sources/components/attachment/previewRuntime.mjs`] });
+mkdirSync(`${root}sources/components/attachment`, { recursive: true });
+writeFileSync(`${root}sources/components/attachment/preview.bundle.bin`, `window.MUXR_PDF_WORKER=${JSON.stringify(worker.outputFiles[0].text)};\n${renderer.outputFiles[0].text}`);
+console.log('Offline attachment renderer and PDF worker bundled');

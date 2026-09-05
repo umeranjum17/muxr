@@ -43,3 +43,6 @@ dist-npm/
 # ruby/setup-ruby local Bundler configuration and downloaded gems
 /.bundle/
 /vendor/bundle/
+
+# Offline attachment renderer generated from pinned dependencies by yarn build
+apps/mobile/sources/components/attachment/preview.bundle.bin

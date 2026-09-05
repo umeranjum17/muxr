@@ -9,7 +9,7 @@
     ],
     "scripts": {
         "postinstall": "patch-package && node scripts/diagnostics/application/verifyNativePatches.mjs",
-        "build": "tsc --build",
+        "build": "tsc --build && node apps/mobile/scripts/buildAttachmentPreview.mjs",
         "typecheck": "tsc --build --force",
     "perf": "node perf/releaseGate.mjs",
     "check": "node scripts/diagnostics/application/runSuite.mjs",
@@ -70,7 +70,7 @@
         "axios": "1.18.0",
         "color": "4.2.3",
         "diff": "8.0.3",
-        "dompurify": "3.4.13",
+        "dompurify": "3.4.14",
         "expo": "55.0.8",
         "expo-application": "55.0.10",
         "expo-asset": "55.0.10",
