@@ -23,6 +23,8 @@ import { resolvePluginText } from '../../domain/pluginText';
 import { t } from '@/text';
 import { AttachmentGallery, AttachmentThumbnail, type GalleryImage } from '@/components/AttachmentGallery';
 import type { AttachmentAction } from '@/utils/attachmentPreview';
+import { richPreviewKind } from '@/utils/richAttachmentPreview';
+import { RichAttachmentPreview } from '@/components/attachment/RichAttachmentPreview';
 
 const EMPTY_MODEL: PluginItemListModel = { items: [], actions: [] };
 const MAX_ACTIVE_THUMBNAILS = 4;
@@ -33,7 +35,7 @@ type SheetListEntry =
     | { key: string; kind: 'item'; item: PluginItemListItem; index: number; rowIndex: number; rowCount: number; spaced: boolean };
 
 function imageAction(item: PluginItemListItem): AttachmentAction | undefined {
-    return item.action?.type === 'attachment' && item.action.mimeType?.startsWith('image/') ? item.action : undefined;
+    return item.action?.type === 'attachment' && item.action.mimeType?.startsWith('image/') && richPreviewKind(item.action.name) !== 'svg' ? item.action : undefined;
 }
 const cache = new Map<string, PluginItemListModel>();
 registerPluginDataCacheInvalidator((pluginIds) => {
@@ -128,6 +130,7 @@ export function ItemList({ context, pluginId, manifestHash, contribution, presen
     const [open, setOpen] = React.useState(false);
     const [busyId, setBusyId] = React.useState<string | null>(null);
     const [galleryIndex, setGalleryIndex] = React.useState<number>();
+    const [documentPreview, setDocumentPreview] = React.useState<AttachmentAction>();
     const loading = React.useRef(false);
     const requestVersion = React.useRef(0);
     const reloadQueued = React.useRef(false);
@@ -202,6 +205,11 @@ export function ItemList({ context, pluginId, manifestHash, contribution, presen
         if (manifest === undefined || action === undefined) return;
         setBusyId(busyKey);
         try {
+            validatePluginAction(action, { pluginId, manifestHash, manifest, ...(sessionId === undefined ? {} : { sessionId }) });
+            if (action.type === 'attachment' && sessionId !== undefined && richPreviewKind(action.name) !== null) {
+                setDocumentPreview(action);
+                return;
+            }
             const navigationKey = sessionId !== undefined && action.type === 'kernel.navigate' && action.target === 'file'
                 ? recordFileNavigation({
                     sessionId,
@@ -350,6 +358,7 @@ export function ItemList({ context, pluginId, manifestHash, contribution, presen
                     </View>)}
                 </View>
         } />
+        {documentPreview !== undefined && sessionId !== undefined && <RichAttachmentPreview key={`${sessionId}:${documentPreview.id}`} sessionId={sessionId} attachment={documentPreview} onClose={() => setDocumentPreview(undefined)} />}
         {galleryIndex !== undefined && <AttachmentGallery sessionId={sessionId!} images={galleryImages} initialIndex={galleryIndex} onClose={() => setGalleryIndex(undefined)} />}
     </>;
 }

@@ -100,9 +100,7 @@ const LiveTerminalCard = React.memo(({ card, width, height, paused, disconnected
         <Pressable
             onPress={() => navigateToSession(card.id)}
             accessibilityRole="button"
-            accessibilityLabel={shell
-                ? `Shell. ${agentStateLabel(card.agentStatus, card.changedAt)}. Terminal`
-                : agentAccessibilityLabel(labels, card.agentStatus, card.changedAt)}
+            accessibilityLabel={agentAccessibilityLabel(labels, card.agentStatus, card.changedAt)}
             style={({ pressed }) => [
                 stylesheet.card,
                 liveTerminalBucket(card.agentStatus) === 'attention' && stylesheet.attentionCard,
@@ -116,8 +114,8 @@ const LiveTerminalCard = React.memo(({ card, width, height, paused, disconnected
                 <View style={stylesheet.titleRow}>
                     <AgentGlyph name={shell ? 'shell' : labels.agentKind ?? labels.agentName} size={16} />
                     <View style={stylesheet.footerCopy}>
-                        <Text numberOfLines={1} style={stylesheet.title}>{shell ? 'Shell' : labels.taskTitle}</Text>
-                        <Text numberOfLines={1} style={stylesheet.identity}>{shell ? 'Terminal' : agentNameLine(labels)}</Text>
+                        <Text numberOfLines={1} style={stylesheet.title}>{labels.taskTitle}</Text>
+                        <Text numberOfLines={1} style={stylesheet.identity}>{agentNameLine(labels)}</Text>
                     </View>
                     <View style={stylesheet.status}>
                         <Text numberOfLines={1} style={[stylesheet.statusText, { color: dot.color }]}>

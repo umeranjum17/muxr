@@ -112,7 +112,8 @@ type LivePlacement = { image: PreparedImage; block: InlineKittyBlock; surface: G
 export type GraphicsSurface = 'full' | 'inline';
 
 /** A gesture's remaining intent, newest direction wins. */
-type ScrollIntent = { direction: 'up' | 'down'; notches: number };
+type ScrollPoint = { x: number; y: number };
+type ScrollIntent = { direction: 'up' | 'down'; notches: number; point: ScrollPoint };
 
 
 /** Aggregate, identifier-free account of what the pipeline did. */
@@ -276,28 +277,35 @@ export class HerdrGraphicsBridge {
      * repaint and the phone a frame, so the rest of a fling is drained as fast
      * as frames actually come back rather than queued in front of them.
      */
-    scrollInput(channel: string, direction: 'up' | 'down', lines: number): Buffer[] {
+    scrollInput(channel: string, direction: 'up' | 'down', lines: number, at?: Omit<HerdrGraphicsPointer, 'phase'>): Buffer[] {
         const registration = this.registrations.get(channel);
         if (registration === undefined || !this.ownsScroll(channel)) return [];
         const rows = Math.max(0, Math.trunc(lines));
         if (rows === 0) return [];
         const paneId = registration.paneId;
+        const image = this.latestByPane.get(paneId) ?? [...(this.livePlacements.get(paneId)?.values() ?? [])].pop()?.image;
+        if (image === undefined) return [];
+        const point = at === undefined ? { x: Math.ceil(image.width / 2), y: Math.ceil(image.height / 2) }
+            : mapGraphicsPointer(image, registration, { ...at, phase: 'move' });
+        if (point === undefined) return [];
         const wanted = Math.max(1, Math.round(rows / WHEEL_ROWS_PER_NOTCH));
         const inFlight = this.scrollInFlight.get(paneId) ?? 0;
         const now = Math.max(0, Math.min(wanted, MAX_NOTCHES_IN_FLIGHT - inFlight));
         const backlog = this.scrollBacklog.get(paneId);
-        const carried = backlog?.direction === direction ? backlog.notches : 0;
+        const sameTarget = backlog?.direction === direction && backlog.point.x === point.x && backlog.point.y === point.y;
+        const carried = sameTarget ? backlog.notches : 0;
+        if (backlog && !sameTarget) this.notchesDropped += backlog.notches;
         const intended = carried + wanted - now;
         const owed = Math.min(MAX_NOTCH_BACKLOG, intended);
         // Intent above the cap is thrown away, so it is counted: a fling that
         // travels less than the finger asked has to be visible somewhere.
         if (intended > owed) this.notchesDropped += intended - owed;
-        if (owed > 0) this.scrollBacklog.set(paneId, { direction, notches: owed });
+        if (owed > 0) this.scrollBacklog.set(paneId, { direction, notches: owed, point });
         else this.scrollBacklog.delete(paneId);
         if (now === 0) return [];
         this.scrollInFlight.set(paneId, inFlight + now);
         this.armNotchFallback(paneId);
-        const report = this.wheelReport(paneId, direction);
+        const report = this.wheelReport(paneId, direction, point);
         if (report === undefined) return [];
         this.notchesSent += now;
         return Array.from({ length: now }, () => report);
@@ -312,7 +320,7 @@ export class HerdrGraphicsBridge {
             else this.scrollInFlight.set(paneId, inFlight - 1);
             return;
         }
-        const report = this.wheelReport(paneId, backlog.direction);
+        const report = this.wheelReport(paneId, backlog.direction, backlog.point);
         if (report === undefined) { this.clearScrollState(paneId); return; }
         if (backlog.notches <= 1) this.scrollBacklog.delete(paneId);
         else this.scrollBacklog.set(paneId, { ...backlog, notches: backlog.notches - 1 });
@@ -344,14 +352,16 @@ export class HerdrGraphicsBridge {
         this.scrollTimers.delete(paneId);
     }
 
-    private wheelReport(paneId: string, direction: 'up' | 'down'): Buffer | undefined {
+    private wheelReport(paneId: string, direction: 'up' | 'down', point: ScrollPoint): Buffer | undefined {
         const image = this.latestByPane.get(paneId)
             ?? [...(this.livePlacements.get(paneId)?.values() ?? [])].pop()?.image;
         if (image === undefined) return undefined;
         const button = direction === 'up' ? 64 : 65;
-        const x = Math.ceil(image.width / 2);
-        const y = Math.ceil(image.height / 2);
-        return Buffer.from(`\u001b[<${button};${x};${y}M`);
+        const x = Math.max(1, Math.min(image.width, point.x));
+        const y = Math.max(1, Math.min(image.height, point.y));
+        // A phone drag has no preceding mouse move. Position the program's
+        // pointer without pressing a button before delivering its wheel notch.
+        return Buffer.from(`\u001b[<35;${x};${y}M\u001b[<${button};${x};${y}M`);
     }
 
     pointerInput(channel: string, pointer: HerdrGraphicsPointer): Buffer[] {

@@ -1,28 +1,24 @@
-import { Wordmark } from '@/components/Wordmark';
 import { AppState, Linking, NativeScrollEvent, NativeSyntheticEvent, View, ScrollView, Pressable, Platform, Text } from 'react-native';
 import { openExternalUrl } from '@/utils/openExternalUrl';
 import * as React from 'react';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import Constants from 'expo-constants';
 import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
-import { getCachedConnectionSettings, pairingTransport, saveConnectionSettings } from '@/connection';
+import { getCachedConnectionSettings, saveConnectionSettings } from '@/connection';
 import { getCachedHostedGrant, listPairedGrants, removeHostedGrant } from '@/pairing/e2ee';
 import { forgetMachine as forgetPairedMachine, isMachineOnline } from '@/pairing';
 import { useAuth } from '@/account/ui';
 import { ItemList } from '@/components/ItemList';
 import { useLocalSettingMutable } from '@/catalog/store';
 import { Modal } from '@/modal';
-import { useMultiClick } from '@/hooks/useMultiClick';
 import { useAllMachines } from '@/catalog/store';
 import { useUnistyles } from 'react-native-unistyles';
-import { layout } from '@/components/layout';
 import { t } from '@/text';
 import { requestPermissionAndSubscribe, refreshPushState, type PushState } from '@/utils/pushNotifications';
 import { loadAppConfig } from '@/catalog/infrastructure/appConfig';
-import { formatConnectionDiagnosticsForReport } from '@/catalog/infrastructure/connectionDiagnostics';
-import { knownHostVersion } from '@/utils/versionStatus';
+import { versionsMismatch } from '@/utils/versionStatus';
+import { getAppVersion } from '@/utils/appVersion';
 import { requestNotificationPermission } from '@/utils/microphonePermissions';
 import { registerNativePushNotifications } from '@/utils/nativePushNotifications';
 import { DeclarativeSettingsItems } from '@/plugins/ui';
@@ -41,47 +37,6 @@ import {
 import { realtimeMachineSwitchGuard, stopRealtimeSession } from '@/conversation/session';
 import { useRealtimeAppControl } from '@/conversation/application/realtimeAppControl';
 
-type BuildConfig = {
-    buildCommitSha?: unknown;
-    buildCommitTimestamp?: unknown;
-};
-
-function getBuildConfig(): BuildConfig {
-    const appConfig = Constants.expoConfig?.extra?.app;
-    return appConfig && typeof appConfig === 'object' ? appConfig as BuildConfig : {};
-}
-
-function formatUtcTimestamp(value: string): string {
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) {
-        return value;
-    }
-
-    return date.toISOString()
-        .replace(/\.\d{3}Z$/, 'Z')
-        .replace(/:\d{2}Z$/, 'Z')
-        .replace('T', ' ')
-        .replace('Z', ' UTC');
-}
-
-function formatBuildSubtitle(buildConfig: BuildConfig): string | undefined {
-    const commitTimestamp = typeof buildConfig.buildCommitTimestamp === 'string'
-        ? formatUtcTimestamp(buildConfig.buildCommitTimestamp)
-        : undefined;
-    const commitSha = typeof buildConfig.buildCommitSha === 'string'
-        ? buildConfig.buildCommitSha.slice(0, 7)
-        : undefined;
-
-    if (!commitTimestamp && !commitSha) {
-        return undefined;
-    }
-
-    return [
-        commitTimestamp ? `Commit ${commitTimestamp}` : 'Commit',
-        commitSha,
-    ].filter(Boolean).join(' / ');
-}
-
 export const SettingsView = React.memo(function SettingsView({
     topContentInset = 0,
     bottomContentInset = 0,
@@ -93,7 +48,7 @@ export const SettingsView = React.memo(function SettingsView({
 }) {
     const { theme } = useUnistyles();
     const router = useRouter();
-    const appVersion = Constants.expoConfig?.version || '1.0.0';
+    const appVersion = getAppVersion();
     const openConnection = React.useCallback(() => router.push('/settings/connection' as never), [router]);
     const openVoice = React.useCallback(() => router.push('/settings/voice' as never), [router]);
     const openPlugins = React.useCallback(() => router.push('/settings/plugins' as never), [router]);
@@ -106,15 +61,6 @@ export const SettingsView = React.memo(function SettingsView({
     useRealtimeAppControl('Appearance', openAppearance, '/settings');
     useRealtimeAppControl('Preferences', openPreferences, '/settings');
     useRealtimeAppControl('Agent notifications', openNotifications, '/settings');
-    const runtimeVersion = typeof Constants.expoConfig?.runtimeVersion === 'string'
-        ? Constants.expoConfig.runtimeVersion
-        : undefined;
-    const versionDetail = [
-        appVersion,
-        runtimeVersion ? `runtime ${runtimeVersion}` : undefined,
-    ].filter(Boolean).join(' / ');
-    const versionSubtitle = formatBuildSubtitle(getBuildConfig());
-    const [devModeEnabled, setDevModeEnabled] = useLocalSettingMutable('devModeEnabled');
     const lifecycleNotificationLevel = useLocalSettingMutable('lifecycleNotificationLevel')[0];
     const [showOfflineMachines, setShowOfflineMachines] = React.useState(false);
     const allMachinesWithOffline = useAllMachines({ includeOffline: true });
@@ -164,6 +110,7 @@ export const SettingsView = React.memo(function SettingsView({
     const [iosNotificationsEnabled, setIosNotificationsEnabled] = React.useState(false);
     const auth = useAuth();
     const activeMachineId = getCachedConnectionSettings().machineId;
+    const versionMismatch = versionsMismatch(appVersion, allMachinesWithOffline.find((machine) => machine.id === activeMachineId)?.metadata?.muxrCliVersion);
 
     const openMachine = React.useCallback(async (machineId: string) => {
         const active = getCachedConnectionSettings().machineId;
@@ -295,20 +242,6 @@ export const SettingsView = React.memo(function SettingsView({
     const appConfig = loadAppConfig();
     const docsBase = appConfig.publicBaseUrl?.replace(/\/$/, '');
 
-    // Use the multi-click hook for version clicks
-    const handleVersionClick = useMultiClick(() => {
-        // Toggle dev mode
-        const newDevMode = !devModeEnabled;
-        setDevModeEnabled(newDevMode);
-        Modal.alert(
-            t('modals.developerMode'),
-            newDevMode ? t('modals.developerModeEnabled') : t('modals.developerModeDisabled')
-        );
-    }, {
-        requiredClicks: 10,
-        resetTimeout: 2000
-    });
-
     return (
 
         <ItemList
@@ -317,24 +250,18 @@ export const SettingsView = React.memo(function SettingsView({
             onScroll={onScroll}
             scrollEventThrottle={16}
         >
-            {/* App Info Header */}
-            <View style={{ maxWidth: layout.maxWidth, alignSelf: 'center', width: '100%' }}>
-                <View
-                    style={{
-                    alignItems: 'center',
-                    paddingVertical: 24,
-                    backgroundColor: theme.colors.surface,
-                    marginTop: 16,
-                    borderRadius: Platform.select({ web: 12, default: 16 }),
-                    marginHorizontal: 16,
-                    borderWidth: Platform.OS === 'web' ? 0 : 0.5,
-                    borderColor: theme.colors.divider,
-                }}>
-                    <View style={{ marginBottom: 12 }}>
-                        <Wordmark width={200} />
-                    </View>
-                </View>
-            </View>
+            <ItemGroup>
+                <Item
+                    title="Connection & updates"
+                    subtitle={versionMismatch
+                        ? 'App and host versions differ — review updates'
+                        : 'Connection health, installed versions and diagnostics'}
+                    subtitleLines={0}
+                    subtitleStyle={versionMismatch ? { color: theme.colors.text, fontWeight: '600' } : undefined}
+                    icon={<Ionicons name={versionMismatch ? "warning-outline" : "link-outline"} size={29} color={versionMismatch ? theme.colors.box.warning.border : theme.colors.textSecondary} />}
+                    onPress={openConnection}
+                />
+            </ItemGroup>
 
             {/* Hosted machines require a persisted grant; live transport rows
                 cannot resurrect a pairing the user just forgot. */}
@@ -350,7 +277,6 @@ export const SettingsView = React.memo(function SettingsView({
                         : isOnline ? t('status.online') : t('status.offline');
                     const safeHost = host && !/^machine[-_]/i.test(host) ? host : undefined;
                     const platform = machine?.metadata?.platform || '';
-                    const hostVersion = knownHostVersion(machine?.metadata?.muxrCliVersion);
 
                     const title = displayName || pairedName || safeHost || 'Paired computer';
 
@@ -358,8 +284,6 @@ export const SettingsView = React.memo(function SettingsView({
                     const subtitle = [
                         displayName && safeHost && displayName !== safeHost ? safeHost : undefined,
                         platform || undefined,
-                        pairingTransport(grant?.relayUrl),
-                        hostVersion === undefined ? undefined : `host ${hostVersion}`,
                         status,
                     ].filter(Boolean).join(' • ');
 
@@ -424,12 +348,6 @@ export const SettingsView = React.memo(function SettingsView({
                 />
             </ItemGroup>
             <ItemGroup title="App and plugins">
-                <Item
-                    title="Connection"
-                    subtitle="Status, transport, relay, and how to fix it"
-                    icon={<Ionicons name="link-outline" size={29} color="#FF9500" />}
-                    onPress={openConnection}
-                />
                 <Item
                     title="Realtime voice"
                     subtitle="Choose which provider runs on this machine"
@@ -509,17 +427,9 @@ export const SettingsView = React.memo(function SettingsView({
                 )}
             </ItemGroup>
 
-            <ItemGroup title="Help and advanced" footer="Diagnostics never includes credentials, QR claims, machine keys, terminal text or internal identifiers.">
-                {docsBase && <Item title="Connect a computer" icon={<Ionicons name="desktop-outline" size={29} color="#007AFF" />} onPress={() => openExternalUrl(`${docsBase}/docs/setup`)} />}
-                {docsBase && <Item title="Troubleshooting" icon={<Ionicons name="help-circle-outline" size={29} color="#FF9500" />} onPress={() => openExternalUrl(`${docsBase}/docs/troubleshooting`)} />}
+            <ItemGroup title="Help">
                 <Item title="Contact support" subtitle="Public issue tracker" icon={<Ionicons name="chatbubble-ellipses-outline" size={29} color="#34C759" />} onPress={() => openExternalUrl('https://github.com/umeranjum17/muxr/issues')} />
                 {docsBase && <Item title="Privacy and deletion" subtitle="Policy, revocation and data removal" icon={<Ionicons name="shield-checkmark-outline" size={29} color="#5856D6" />} onPress={() => openExternalUrl(`${docsBase}/docs/privacy#retention-and-deletion`)} />}
-                <Item
-                    title="Redacted diagnostics"
-                    subtitle={`Connection: ${pushState === 'unsupported' ? 'available in muxr doctor' : 'app active'} · Provider details hidden`}
-                    icon={<Ionicons name="pulse-outline" size={29} color={theme.colors.textSecondary} />}
-                    onPress={() => Modal.alert('Redacted diagnostics', `App ${versionDetail}\n${formatConnectionDiagnosticsForReport()}`)}
-                />
                 <Item
                     title={t('settings.whatsNew')}
                     icon={<Ionicons name="sparkles-outline" size={29} color="#FF9500" />}
@@ -528,15 +438,6 @@ export const SettingsView = React.memo(function SettingsView({
                 {Platform.OS === 'ios' && (
                     <Item title="EULA" icon={<Ionicons name="document-text-outline" size={29} color="#007AFF" />} onPress={() => openExternalUrl('https://www.apple.com/legal/internet-services/itunes/dev/stdeula/')} />
                 )}
-                <Item
-                    title={t('common.version')}
-                    subtitle={versionSubtitle}
-                    subtitleLines={2}
-                    detail={versionDetail}
-                    icon={<Ionicons name="information-circle-outline" size={29} color={theme.colors.textSecondary} />}
-                    onPress={handleVersionClick}
-                    showChevron={false}
-                />
             </ItemGroup>
 
             <ItemGroup>

@@ -247,33 +247,32 @@ describe('openTerminal reconnect ownership', () => {
         expect(writes).toEqual(['draw-1']);
         expect(maxConcurrent).toBe(1);
 
-        gates[0]!.resolve();
-        await vi.waitFor(() => expect(writes).toEqual(['draw-1', 'text-Atext-B']));
-        expect(writes[1]).not.toContain('draw-');
-        expect(writes[1]).not.toContain('retire-');
-        gates[1]!.resolve();
-        await vi.waitFor(() => expect(writes).toEqual(['draw-1', 'text-Atext-B', 'draw-3']));
-        gates[2]!.resolve();
-        await vi.waitFor(() => expect(writes).toEqual(['draw-1', 'text-Atext-B', 'draw-3', 'retire-F']));
-        expect(writes).not.toContain('draw-2');
-        gates[3]!.resolve();
+        // Each graphics draw can be an independent placement; text and
+        // targeted deletes must retain their position between those draws.
+        const expected = ['draw-1', 'text-A', 'draw-2', 'text-B', 'draw-3', 'retire-F'];
+        for (let index = 0; index < expected.length; index++) {
+            if (index > 0) await vi.waitFor(() => expect(writes).toEqual(expected.slice(0, index + 1)));
+            gates[index]!.resolve();
+        }
         await vi.waitFor(() => expect(concurrent).toBe(0));
+        expect(maxConcurrent).toBe(1);
 
         frame('draw-4', true);
         await vi.waitFor(() => expect(writes.at(-1)).toBe('draw-4'));
         frame('draw-5', true);
         frame('draw-6', true);
-        expect(writes.filter((item) => item.startsWith('draw-'))).toEqual(['draw-1', 'draw-3', 'draw-4']);
-        gates[4]!.resolve();
+        gates[6]!.resolve();
+        await vi.waitFor(() => expect(writes.at(-1)).toBe('draw-5'));
+        gates[7]!.resolve();
         await vi.waitFor(() => expect(writes.at(-1)).toBe('draw-6'));
-        gates[5]!.resolve();
+        gates[8]!.resolve();
         await vi.waitFor(() => expect(concurrent).toBe(0));
 
         frame('text-C');
         await vi.waitFor(() => expect(writes.at(-1)).toBe('text-C'));
         frame('text-D');
         const cancelled = pump.cancel();
-        gates[6]!.resolve();
+        gates[9]!.resolve();
         await cancelled;
         await Promise.resolve();
         expect(writes.at(-1)).toBe('text-C');
@@ -283,12 +282,26 @@ describe('openTerminal reconnect ownership', () => {
         frame('draw-7', true);
         await vi.waitFor(() => expect(writes.at(-1)).toBe('text-E'));
         frame('text-F');
-        gates[7]!.reject(undefined);
+        gates[10]!.reject(undefined);
         await vi.waitFor(() => expect(recoveries).toEqual([undefined]));
-        await Promise.resolve();
         expect(writes).not.toContain('draw-7');
         expect(writes).not.toContain('text-F');
+        expect(maxConcurrent).toBe(1);
+
+        // A stalled native writer cannot accumulate unlimited frames. Recover
+        // only after its admitted write settles, never overlap a new surface.
+        frame('blocked-write', true);
+        await vi.waitFor(() => expect(writes.at(-1)).toBe('blocked-write'));
+        for (let i = 0; i < 129; i++) frame(`queued-${i}`, true);
         expect(recoveries).toHaveLength(1);
+        gates[11]!.resolve();
+        await vi.waitFor(() => expect(recoveries).toHaveLength(2));
+        expect(String(recoveries[1])).toContain('backlog exceeded');
+        expect(writes.some((entry) => entry.startsWith('queued-'))).toBe(false);
+        frame('recovered-paint', true);
+        await vi.waitFor(() => expect(writes.at(-1)).toBe('recovered-paint'));
+        gates[12]!.resolve();
+        await vi.waitFor(() => expect(concurrent).toBe(0));
         expect(maxConcurrent).toBe(1);
 
         channel.close();
@@ -310,6 +323,7 @@ describe('openTerminal reconnect ownership', () => {
         await vi.waitFor(() => expect(FakeWebSocket.instances[0]).toBeDefined());
         const first = FakeWebSocket.instances[0]!;
         first.open();
+        first.onmessage?.({ data: JSON.stringify({ type: 'terminal.frame', bytes: 'paint' }) });
 
         channel.reconnect();
         channel.reconnect();
@@ -331,6 +345,7 @@ describe('openTerminal reconnect ownership', () => {
         await vi.waitFor(() => expect(FakeWebSocket.instances[1]).toBeDefined());
         const replacement = FakeWebSocket.instances[1]!;
         replacement.open();
+        replacement.onmessage?.({ data: JSON.stringify({ type: 'terminal.frame', bytes: 'repaint' }) });
 
         // A late duplicate close from the old transport cannot schedule over
         // the live replacement.

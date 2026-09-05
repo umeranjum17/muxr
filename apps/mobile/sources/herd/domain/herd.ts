@@ -8,7 +8,7 @@ import {
     type LifecycleNotificationLevel,
 } from '@muxr/contract';
 import type { Session } from '@/catalog';
-import { HERD_STATUS_LABELS } from './agentPresentation';
+import { agentLabels, HERD_STATUS_LABELS } from './agentPresentation';
 
 export { HERD_STATUS_LABELS } from './agentPresentation';
 
@@ -119,7 +119,7 @@ export function herdPanes(sessions: Session[], workspaces: readonly HerdrTreeWor
             return [{
                 id: pane.sessionId,
                 ...(pane.agentName === undefined ? {} : { agentName: pane.agentName }),
-                ...(pane.taskTitle === undefined ? {} : { taskTitle: pane.taskTitle }),
+                taskTitle: agentLabels(pane).taskTitle,
                 ...(pane.agentKind === undefined ? {} : { agentKind: pane.agentKind }),
                 ...(pane.displayAgent === undefined ? {} : { displayAgent: pane.displayAgent }),
                 agentStatus: pane.agentStatus,

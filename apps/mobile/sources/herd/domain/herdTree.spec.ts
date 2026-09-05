@@ -1,4 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { herdPanes } from './herd';
+import { selectLiveTerminalCards } from '../application/liveTerminalOrder';
+import { describe, expect, it, vi } from 'vitest';
 import { buildSpaceRows, middleTruncate, workspaceName } from './herdTree';
 import type { HerdrTreePane as ContractPane, HerdrTreeTab, HerdrTreeWorkspace as ContractWorkspace } from '@muxr/contract';
 import { agentIdentityLine, agentKindLabel, agentLabels, agentNameLine, isShellLabels } from './agentPresentation';
@@ -44,10 +46,18 @@ describe('visible herd tree flow', () => {
             agentName: 'Unnamed agent',
             agentKind: 'opencode',
         });
-        expect(agentLabels(shell)).toMatchObject({ taskTitle: 'Untitled task', agentName: 'Shell' });
+        expect(agentLabels(shell)).toMatchObject({ taskTitle: 'tmp', agentName: 'Shell' });
         const titledShell = agentLabels(pane('p-titled-shell', undefined, { taskTitle: 'vim ~/.bashrc' }));
         expect(titledShell).toMatchObject({ taskTitle: 'vim ~/.bashrc', agentName: 'Shell' });
         expect(isShellLabels(titledShell)).toBe(true);
+        const namedShell = pane('p-named', undefined, { sessionId: 'shell-route', label: 'Release browser', terminalTitle: 'umer@host:~/repo', cwd: '/repo' });
+        expect(agentLabels(namedShell)).toMatchObject({ taskTitle: 'Release browser', agentName: 'Shell' });
+        expect(agentNameLine(agentLabels(namedShell))).toBe('Shell');
+        delete namedShell.label;
+        expect(agentLabels(namedShell).taskTitle).toBe('umer@host:~/repo');
+        const liveCards = selectLiveTerminalCards([], herdPanes([], [ws('w-shell', 'repo', [tab('t-shell', 'Tools', [namedShell])])]));
+        expect(agentLabels(liveCards[0]).taskTitle).toBe('umer@host:~/repo');
+        expect(agentLabels({ ...agent, terminalTitle: 'Animated working title' }).taskTitle).toBe('Review monitoring stability');
         expect(isShellLabels(labels)).toBe(false);
         expect(buildSpaceRows([ws('w2', 'repo-b', [tab('1', undefined, [shell])])], new Set(), '')[0])
             .toMatchObject({ agentCount: 0, expanded: false });
@@ -59,4 +69,24 @@ describe('visible herd tree flow', () => {
         expect(middleTruncate('short')).toBe('short');
         expect(middleTruncate('abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz', 20)).toBe('abcdefghi…rstuvwxyz');
     });
+});
+
+const installedBuild = vi.hoisted(() => ({ version: '0.1.26' as string | null, build: '356' as string | null }));
+vi.mock('expo-application', () => ({ get nativeApplicationVersion() { return installedBuild.version; }, get nativeBuildVersion() { return installedBuild.build; } }));
+vi.mock('expo-constants', () => ({ default: { expoConfig: { version: '0.1.12' } } }));
+import { getAppVersion, getAppBuildNumber } from '@/utils/appVersion';
+import { versionsMismatch } from '@/utils/versionStatus';
+
+it('reports installed app and host versions without confusing stale Expo metadata or release channels', () => {
+    expect(getAppVersion()).toBe('0.1.26');
+    expect(getAppBuildNumber()).toBe('356');
+    expect(versionsMismatch(getAppVersion(), '0.1.26')).toBe(false);
+    expect(versionsMismatch(getAppVersion(), '0.1.27-beta.1')).toBe(true);
+    expect(versionsMismatch('0.1.27', '0.1.27-beta.1')).toBe(false);
+    expect(versionsMismatch(getAppVersion(), 'muxr')).toBe(false);
+    try {
+        installedBuild.version = null; installedBuild.build = null;
+        expect(getAppVersion()).toBe('0.1.12');
+        expect(getAppBuildNumber()).toBeUndefined();
+    } finally { installedBuild.version = '0.1.26'; installedBuild.build = '356'; }
 });

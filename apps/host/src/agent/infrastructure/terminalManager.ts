@@ -335,7 +335,9 @@ export class TerminalManager {
                     // never Herdr's scrollback, even on the flushes where the
                     // bridge is holding the rest of the gesture back.
                     if (this.graphics?.ownsScroll(attachment.channel) === true) {
-                        for (const report of this.graphics.scrollInput(attachment.channel, frame.direction, frame.lines)) {
+                        for (const report of this.graphics.scrollInput(attachment.channel, frame.direction, frame.lines,
+                            typeof frame.x === 'number' && typeof frame.y === 'number' && typeof frame.width === 'number' && typeof frame.height === 'number'
+                                ? { x: frame.x, y: frame.y, width: frame.width, height: frame.height } : undefined)) {
                             input.write(`${JSON.stringify({ type: 'terminal.input', bytes: report.toString('base64') })}\n`);
                         }
                         return;

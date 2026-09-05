@@ -126,6 +126,7 @@ jobs:
     uses: ./.github/workflows/mobile-android-internal.yml
     with:
       version: ${{ needs.select.outputs.app_version }}
+      release_version: ${{ needs.select.outputs.version }}
       version_code: ${{ needs.select.outputs.version_code }}
       development: ${{ needs.select.outputs.channel == 'dev' }}
     secrets: inherit

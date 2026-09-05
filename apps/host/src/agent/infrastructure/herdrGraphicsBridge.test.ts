@@ -387,19 +387,21 @@ describe('Herdr graphics flow', () => {
         // answered goes out now. The rest is owed, not queued in front of it.
         // Keep the no-repaint fallback clock separate from real frame work.
         vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-        const burst = bridge.scrollInput('phone', 'down', 30);
+        const gesture = { x: 150, y: 100, width: 200, height: 200 };
+        const burst = bridge.scrollInput('phone', 'down', 30, gesture);
         expect(burst).toHaveLength(4);
-        expect(burst[0]!.toString('utf8')).toMatch(/^\u001b\[<65;\d+;\d+M$/);
+        expect(burst[0]!.toString('utf8')).toBe('\u001b[<35;2;1M\u001b[<65;2;1M');
         // A second fling on top of the first asks for more travel than the
         // backlog may hold: the intent above the cap is dropped, and counted,
         // because a gesture that under-travels has to be visible somewhere.
-        expect(bridge.scrollInput('phone', 'down', 30)).toHaveLength(0);
+        expect(bridge.scrollInput('phone', 'down', 30, gesture)).toHaveLength(0);
         expect(internals.notchesDropped).toBe(8);
         const framesBeforeDrain = frames.length;
         internals.queueInline(image(5, 1, 1, 20, 10));
         await settle();
         expect(frames.length).toBe(framesBeforeDrain + 1);
         expect(notches).toHaveLength(1);
+        expect(notches[0]).toBe(burst[0]!.toString('utf8'));
         expect(internals.notchesSent).toBe(5);
 
         // The program's own delete names Herdr's id, which is the id the phone

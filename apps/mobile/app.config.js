@@ -74,6 +74,13 @@ function loadBuildMetadata() {
 }
 
 const buildMetadata = loadBuildMetadata();
+// Android's numeric versionName cannot carry beta/dev suffixes. Keep the exact
+// candidate identity in its signed embedded app configuration as well.
+const releaseIdentity = process.env.MUXR_RELEASE_VERSION || process.env.APP_VERSION || require('../../package.json').version;
+if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(releaseIdentity)
+    || releaseIdentity.split('-')[0] !== (process.env.APP_VERSION || require('../../package.json').version).split('-')[0]) {
+    throw new Error('Release identity must match the native app version');
+}
 
 // Cleartext stays on for every variant: self-host relays use ws:// on LAN/
 // Tailscale/SSH-forward addresses that no network-security-config can enumerate.
@@ -106,7 +113,7 @@ export default {
     expo: {
         name,
         slug: "muxr",
-        version: "0.1.12",
+        version: process.env.APP_VERSION || require('../../package.json').version,
         runtimeVersion: "2",
         orientation: "default",
         icon: "./sources/assets/images/icon.png",
@@ -249,6 +256,7 @@ export default {
                 publicBaseUrl,
                 directDistribution: distribution === 'direct',
                 consoleLoggingDefault,
+                releaseVersion: releaseIdentity,
                 buildCommitSha: buildMetadata.commitSha,
                 buildCommitTimestamp: buildMetadata.commitTimestamp,
             }

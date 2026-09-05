@@ -150,5 +150,12 @@ export async function runPluginAction(command: RunPluginActionCommand): Promise<
     };
     const value = await sync.request('plugin.call', params, PLUGIN_CALL_CLIENT_TIMEOUT_MS);
     if (idempotencyKey !== undefined && context.oneTimeIdempotencyKey === undefined) sharedPluginWriteKeys.clear(slot);
+    // A user-triggered write may return a declarative destination. This is a
+    // navigation-only completion, never a recursive RPC or capability call.
+    if (rpc.mode === 'write' && value !== null && typeof value === 'object' && 'navigation' in value) {
+        const next = validatePluginAction(value.navigation, context);
+        if (next.type !== 'kernel.navigate' || next.target !== 'session') throw new Error('Plugin returned an unsupported launch destination');
+        return { kind: 'focus-agent', agentRoute: next.sessionId };
+    }
     return { kind: 'rpc', value };
 }

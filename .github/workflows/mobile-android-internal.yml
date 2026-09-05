@@ -3,6 +3,10 @@ name: mobile Android internal
 on:
   workflow_call:
     inputs:
+      release_version:
+        type: string
+        required: false
+        default: ''
       version:
         required: true
         type: string
@@ -53,6 +57,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       APP_VERSION: ${{ inputs.version }}
+      MUXR_RELEASE_VERSION: ${{ inputs.release_version || inputs.version }}
       ANDROID_VERSION_CODE: ${{ inputs.version_code }}
       CONFIRMATION: ${{ inputs.confirmation }}
       CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
@@ -74,6 +79,7 @@ jobs:
     environment: stores
     env:
       APP_VERSION: ${{ inputs.version }}
+      MUXR_RELEASE_VERSION: ${{ inputs.release_version || inputs.version }}
       ANDROID_VERSION_CODE: ${{ inputs.version_code }}
       APP_ENV: ${{ inputs.development && 'development' || 'production' }}
       MUXR_PUBLIC_BASE_URL: ${{ inputs.development && 'https://dev.invalid' || 'https://trymuxr.com' }}
@@ -238,6 +244,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
       APP_VERSION: ${{ inputs.version }}
+      MUXR_RELEASE_VERSION: ${{ inputs.release_version || inputs.version }}
       ANDROID_VERSION_CODE: ${{ inputs.version_code }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

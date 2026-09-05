@@ -2,6 +2,7 @@ import Constants from 'expo-constants';
 import { requireOptionalNativeModule } from 'expo-modules-core';
 
 export interface AppConfig {
+    releaseVersion?: string;
     publicBaseUrl?: string;
     directDistribution?: boolean;
     consoleLoggingDefault?: boolean;

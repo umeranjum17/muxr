@@ -1,3 +1,4 @@
+import { VersionNotice } from '@/components/VersionNotice';
 /**
  * Phone/root Herd surface: live terminal previews, then the shared Spaces tree.
  * Split layouts mount that tree once in the permanent sidebar instead.
@@ -269,6 +270,7 @@ export const HerdView = React.memo(({
             // Plugin surfaces live in the header. Someone with no agents is usually
             // a new user, who most needs to see that their plugins landed.
             <View style={{ flex: 1, paddingTop: topContentInset }}>
+                <VersionNotice />
                 {header}
                 <LiveTerminalsRow
                     showZeroState={false}
@@ -325,6 +327,7 @@ export const HerdView = React.memo(({
                 refresh={refresh}
                 searchQuery={searchQuery}
                 listHeaderComponent={<>
+                    <VersionNotice />
                     {header}
                     <LiveTerminalsRow
                         visibilityTop={topContentInset}

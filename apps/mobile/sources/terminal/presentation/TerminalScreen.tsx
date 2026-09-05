@@ -10,8 +10,7 @@ import * as React from 'react';
 import { ActivityIndicator, AppState, BackHandler, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useKeyboardState } from 'react-native-keyboard-controller';
-import Animated, { FadeIn, FadeOut, ReduceMotion, useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
-import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import Animated, { FadeIn, FadeOut, ReduceMotion } from 'react-native-reanimated';
 import { useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
@@ -30,10 +29,11 @@ import { TerminalView } from './TerminalView';
 import { usePaneGestures } from '../application/usePaneGestures';
 import { AgentGlyph } from '@/components/AgentGlyph';
 import { AnimatedPopup } from '@/components/AnimatedOverlay';
-import { agentAccessibilityLabel, agentLabels, agentNameLine, agentStateLabel, agentStatusColor, herdrPaneForSession, isShellLabels } from '@/herd';
+import { agentAccessibilityLabel, agentLabels, agentNameLine, agentStatusColor, herdrPaneForSession, isShellLabels } from '@/herd';
 import { terminalPaneCanSend, terminalPaneStatus } from '../domain/promptAvailability';
 import type { TerminalChannel } from '../application/OpenTerminal';
 import { useImagePicker } from '@/hooks/useImagePicker';
+import { ComposerAttachments, type ComposerAttachment } from '@/components/ComposerAttachments';
 import { readFileBytes } from '@/utils/readFileBytes';
 import { encodeBase64 } from '@/encryption/base64';
 import { nextWorkingAgentId, workingAgentSwipeIds } from '@/herd';
@@ -47,22 +47,6 @@ import { resolvePluginText } from '@/plugins';
 import { randomUUID } from 'expo-crypto';
 import { useDeviceAuthority } from '@/pairing';
 import { displayLink } from '../domain/TerminalLink';
-
-/**
- * The floating tools trigger: a small icon inside a target big enough to hit and
- * to drag. The circle is what you see, the box around it is what you press.
- *
- * It rests a jump button's height above the key row because the jump-to-bottom
- * control and the link chip already own that corner, and a default that lands on
- * top of them is a default nobody chose.
- */
-const TOOLS_TARGET = 44;
-const TOOLS_BASE = 60;
-/** The gap between the trigger and the menu that hangs off it. */
-const TOOLS_MENU_GAP = 6;
-/** Room for roughly five rows: the least a menu can be and still be worth
- *  opening. The trigger stops climbing when the menu would fall below it. */
-const TOOLS_MENU_MIN = 260;
 
 export const TerminalScreen = React.memo((props: { id: string }) => {
     const { theme } = useUnistyles();
@@ -101,15 +85,8 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     React.useEffect(() => {
         if (!canControl) setBottomBlockHeight(0);
     }, [canControl]);
-    // How far the tools trigger has been dragged up its edge, and how far it may
-    // go: the terminal band only, never the header above or the keys below.
-    const toolsLift = useSharedValue(0);
-    const toolsLiftStart = useSharedValue(0);
-    const toolsMaxLift = useSharedValue(0);
-    // The menu reads that offset once, when it opens: nothing can drag the
-    // trigger while the menu covering the screen is up.
-    const [openLift, setOpenLift] = React.useState(0);
-    const [attachedPaths, setAttachedPaths] = React.useState<string[]>([]);
+    const [attachedImages, setAttachedImages] = React.useState<ComposerAttachment[]>([]);
+    const attachedPaths = attachedImages.flatMap((image) => image.path === undefined ? [] : [image.path]);
     // Other openable panes in this session's tab, in layout order. A pane only
     // gets a sessionId once herdr detects an agent in it, so bare shells are
     // absent -- they have nothing for the app to attach to.
@@ -298,20 +275,22 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const sendPrompt = React.useCallback(() => {
         // A booting agent is not a refusal: the host holds the prompt until it
         // can accept it, so let the composer stay live and let the host answer.
+        if (attaching || selectedImages.length > 0) return;
         const text = [draftRef.current.trim(), ...attachedPaths].filter((part) => part !== '').join(' ');
         if (text === '') return;
         const previousDraft = draftRef.current;
-        const previousPaths = attachedPaths;
+        const previousImages = attachedImages;
         draftRef.current = '';
         setDraft('');
-        setAttachedPaths([]);
+        setAttachedImages([]);
         void sync.sendMessage(props.id, text).catch((error: unknown) => {
-            draftRef.current = previousDraft;
-            setDraft(previousDraft);
-            setAttachedPaths(previousPaths);
+            const restoredDraft = [previousDraft, draftRef.current].filter(Boolean).join('\n');
+            draftRef.current = restoredDraft;
+            setDraft(restoredDraft);
+            setAttachedImages((current) => [...previousImages, ...current]);
             Modal.alert('Send failed', error instanceof Error ? error.message : String(error));
         });
-    }, [attachedPaths, panePromptable, props.id]);
+    }, [attachedImages, attachedPaths, attaching, selectedImages.length, panePromptable, props.id]);
 
     const handleDraftChange = React.useCallback((text: string) => setDraft(text), []);
 
@@ -338,8 +317,14 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                     sessionId: props.id,
                     attachments,
                 });
+                if (result.savedPaths.length !== selectedImages.length) throw new Error('The host did not confirm every image. Please attach them again.');
                 if (result.savedPaths.length > 0) {
-                    setAttachedPaths((previous) => [...previous, ...result.savedPaths]);
+                    setAttachedImages((previous) => [...previous, ...result.savedPaths.map((path, index) => ({
+                        id: selectedImages[index]!.id,
+                        uri: selectedImages[index]!.uri,
+                        name: selectedImages[index]!.name,
+                        path,
+                    }))]);
                 }
             } catch (error) {
                 Modal.alert('Attachment failed', error instanceof Error ? error.message : 'Could not send the file to the host.');
@@ -385,7 +370,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
             });
     }, [props.id, siblings]);
 
-    const canSend = terminalPaneCanSend(currentPane, draft.trim() !== '' || attachedPaths.length > 0);
+    const canSend = !attaching && selectedImages.length === 0 && terminalPaneCanSend(currentPane, draft.trim() !== '' || attachedPaths.length > 0);
 
     // Where this session sits and how it is allowed to act, in one quiet row.
     // Connection stays out of it: subtitle/send color and the reconnect pill
@@ -397,7 +382,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const hasStatusRow = branch !== null || linesAdded !== null || linesRemoved !== null || permission !== null;
     const labels = agentLabels(currentPane);
     const shell = isShellLabels(labels);
-    const contextTitle = shell ? 'Shell' : labels.taskTitle;
+    const contextTitle = labels.taskTitle;
     const headerLifecycle = terminalPaneStatus(currentPane);
     const headerStatus = agentStatusColor(headerLifecycle, theme);
     // Working and done carry their lifecycle colour. Idle shares the
@@ -406,20 +391,6 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const paneIndex = siblings.indexOf(props.id);
     const showConnectingStatus = status !== 'live' && gestureHint === null && status === 'connecting';
     const showRetryStatus = status !== 'live' && gestureHint === null && status !== 'connecting';
-
-    // Vertical drag only, clamped on the UI thread, so the trigger can be walked
-    // off whatever output it covers without ever landing on the composer or
-    // under the keyboard. The threshold is what keeps a tap a tap: below it the
-    // pan never activates and the Pressable underneath gets its press, above it
-    // gesture-handler takes the touch and the press is cancelled.
-    const toolsPan = React.useMemo(() => Gesture.Pan()
-        .enabled(!actionsOpen)
-        .activeOffsetY([-8, 8])
-        .onStart(() => { toolsLiftStart.set(toolsLift.get()); })
-        .onUpdate((event) => {
-            toolsLift.set(Math.min(Math.max(toolsLiftStart.get() - event.translationY, 0), toolsMaxLift.get()));
-        }), [actionsOpen, toolsLift, toolsLiftStart, toolsMaxLift]);
-    const toolsStyle = useAnimatedStyle(() => ({ transform: [{ translateY: -toolsLift.get() }] }));
 
     // Same shape as KeyboardAvoidingView, minus the animation: that padding
     // moves frame by frame and Ghostty reflows its whole grid on every size
@@ -453,7 +424,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                             {contextTitle}
                         </Text>
                         <Text numberOfLines={1} style={{ color: headerStatus.color, fontSize: 11 }}>
-                            {shell ? 'Terminal' : agentNameLine(labels)}
+                            {agentNameLine(labels)}
                         </Text>
                     </View>
                     {paneIndex !== -1 && siblings.length > 1 && (
@@ -496,22 +467,9 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                 onTouchStart={paneGestures.onTouchStart}
                 onTouchMove={paneGestures.onTouchMove}
                 onTouchEnd={paneGestures.onTouchEnd}
-                onLayout={(event) => {
-                    // The menu hangs above the trigger, so the trigger's ceiling
-                    // is really the menu's floor: it may climb only while a menu
-                    // worth opening still fits over it. 12 is the popup's own top
-                    // margin; the header it may also cover is not counted, so a
-                    // short band gives up its travel rather than its menu.
-                    //
-                    // A keyboard or a row of attachments shrinks the band, so
-                    // anything dragged past the new ceiling comes down with it.
-                    const max = Math.max(0, event.nativeEvent.layout.height - TOOLS_BASE - TOOLS_TARGET - TOOLS_MENU_GAP - 12 - TOOLS_MENU_MIN);
-                    toolsMaxLift.set(max);
-                    if (toolsLift.get() > max) toolsLift.set(max);
-                }}
                 style={{ flex: 1 }}
             >
-                <TerminalView sessionId={props.id} onStatus={onStatus} onChannel={onChannel} />
+                <TerminalView sessionId={props.id} onStatus={onStatus} onChannel={onChannel} onActions={canControl ? () => setActionsOpen(true) : undefined} />
                 {gestureHint !== null && (
                     <View
                         pointerEvents="none"
@@ -625,9 +583,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                                 key={siblingId}
                                 onPress={active ? undefined : () => router.replace(`/session/${encodeURIComponent(siblingId)}`)}
                                 accessibilityRole="button"
-                                accessibilityLabel={`${active ? 'Current' : 'Open'} ${siblingShell
-                                    ? `Shell. ${agentStateLabel(siblingStatus)}. Terminal`
-                                    : agentAccessibilityLabel(siblingLabels, siblingStatus)}`}
+                                accessibilityLabel={`${active ? 'Current' : 'Open'} ${agentAccessibilityLabel(siblingLabels, siblingStatus)}`}
                                 accessibilityState={{ selected: active }}
                                 style={({ pressed }) => ({
                                     minHeight: 44,
@@ -644,7 +600,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                             >
                                 <AgentGlyph name={siblingShell ? 'shell' : siblingLabels.agentKind ?? siblingLabels.agentName} size={16} />
                                 <Text numberOfLines={1} style={{ flexShrink: 1, color: siblingTone.color, fontSize: 11, fontWeight: active ? '600' : '400' }}>
-                                    {siblingShell ? 'Shell' : siblingLabels.taskTitle}
+                                    {siblingLabels.taskTitle}
                                 </Text>
                             </Pressable>
                         );
@@ -663,38 +619,10 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                 </ScrollView>
             </View>
 
-            {attachedPaths.length > 0 && (
-                <ScrollView
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    keyboardShouldPersistTaps="always"
-                    style={{ maxHeight: 40, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.divider }}
-                    contentContainerStyle={{ alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingBottom: 6 }}
-                >
-                    {attachedPaths.map((path) => (
-                        <Pressable
-                            key={path}
-                            onPress={() => setAttachedPaths((previous) => previous.filter((entry) => entry !== path))}
-                            accessibilityLabel={`Remove attachment ${path}`}
-                            style={{
-                                flexDirection: 'row',
-                                alignItems: 'center',
-                                gap: 4,
-                                paddingHorizontal: 8,
-                                paddingVertical: 4,
-                                borderRadius: 12,
-                                backgroundColor: theme.colors.surfaceHigh,
-                            }}
-                        >
-                            <Ionicons name="image-outline" size={12} color={theme.colors.textSecondary} />
-                            <Text style={{ color: theme.colors.text, fontSize: 12 }} numberOfLines={1}>
-                                {path.split('/').pop()}
-                            </Text>
-                            <Ionicons name="close" size={12} color={theme.colors.textSecondary} />
-                        </Pressable>
-                    ))}
-                </ScrollView>
-            )}
+            <ComposerAttachments
+                images={[...attachedImages, ...selectedImages.filter((image) => !attachedImages.some((attached) => attached.id === image.id))]}
+                onRemove={(id) => setAttachedImages((previous) => previous.filter((image) => image.id !== id))}
+            />
 
             <View
                 style={{
@@ -764,7 +692,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                         marginRight: 8,
                         marginLeft: 16,
                         marginTop: 12,
-                        marginBottom: bottomBlockHeight + TOOLS_BASE + TOOLS_TARGET + TOOLS_MENU_GAP + openLift,
+                        marginBottom: bottomBlockHeight + 12,
                         borderRadius: 14,
                         overflow: 'hidden',
                         // Rows carry the lighter fill; the surface behind them is
@@ -824,47 +752,6 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                         )}
                     </AnimatedPopup>
                 </Animated.View>
-            )}
-
-            {/* Session tools: a small icon that floats over the terminal's right
-                edge rather than sitting in the key row, where it was one more
-                key cap. It starts above the keys and can be walked up the edge
-                and left there, because the one place a fixed control is always
-                wrong is on top of the line you are trying to read.
-
-                It sits above its own menu's backdrop, so it stays lit as the
-                thing the menu hangs off and a second press closes it, and below
-                the option sheet, which is a sheet and owns the screen. */}
-            {canControl && (
-                <GestureDetector gesture={toolsPan}>
-                    <Animated.View style={[{ position: 'absolute', right: 10, bottom: bottomBlockHeight + TOOLS_BASE, zIndex: 30 }, toolsStyle]}>
-                        <Pressable
-                            onPress={() => { setOpenLift(toolsLift.get()); setActionsOpen((open) => !open); }}
-                            accessibilityRole="button"
-                            accessibilityLabel="Session actions"
-                            accessibilityState={{ expanded: actionsOpen }}
-                            style={({ pressed }) => ({ width: TOOLS_TARGET, height: TOOLS_TARGET, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.75 : 1 })}
-                        >
-                            <View style={{
-                                width: 34,
-                                height: 34,
-                                borderRadius: 17,
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                backgroundColor: actionsOpen ? theme.colors.surfaceHighest : theme.colors.surfaceHigh,
-                                borderWidth: StyleSheet.hairlineWidth,
-                                borderColor: theme.colors.divider,
-                                shadowColor: theme.colors.shadow.color,
-                                shadowOffset: { width: 0, height: 2 },
-                                shadowRadius: 6,
-                                shadowOpacity: theme.colors.shadow.opacity,
-                                elevation: 3,
-                            }}>
-                                <Ionicons name={actionsOpen ? 'construct' : 'construct-outline'} size={18} color={actionsOpen ? theme.colors.text : theme.colors.textSecondary} />
-                            </View>
-                        </Pressable>
-                    </Animated.View>
-                </GestureDetector>
             )}
 
             {menu !== null && (

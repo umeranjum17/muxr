@@ -8,6 +8,7 @@ import { deviceIdentity, samplePhase, resetGfx, jankReport, screenshot, screenca
 import { CommandScope, useCommandScope } from './lib/commands.mjs';
 import { cropRaw, pixelsMoved, parseUiNodes } from './lib/gestureMetrics.mjs';
 import { harnessIdentity, patchedDependencies, sha256, sourceIdentity } from './lib/provenance.mjs';
+import { PNG } from 'pngjs';
 import { usageHome, usagePlugins } from './fixtures/usageHome.mjs';
 
 const scope = new CommandScope();
@@ -25,7 +26,7 @@ const seconds = Number(option('--seconds', '35'));
 const flow = option('--flow', 'full');
 const pkg = 'com.trymuxr.app';
 const load = { panes: 30, agents: 6, titleChurnHz: 2, terminalBytesPerSecond: 4096, graphicsFrameHz: 4 };
-const report = { flow, startedAt: new Date().toISOString(), serial, load, phases: [], failures: [], limits: { minimumSampledSeconds: 25, jsBusyPercent: 60, pssDriftKb: 102400, frameStallSeconds: 30 }, performanceScope: flow === 'usage' ? 'Not measured: Usage-only feature flow' : 'Emulator pathology smoke; not physical-device feel or a release soak' };
+const report = { flow, startedAt: new Date().toISOString(), serial, load, phases: [], failures: [], limits: { minimumSampledSeconds: 25, jsBusyPercent: 60, pssDriftKb: 102400, frameStallSeconds: 30 }, performanceScope: flow !== 'full' ? `Not measured: ${flow}-only feature flow` : 'Emulator pathology smoke; not physical-device feel or a release soak' };
 let stack;
 let ownsLock = false;
 let deviceTouched = false;
@@ -75,7 +76,12 @@ async function requireScreen(name, pattern, timeout = 25_000, dismissStartup = f
     throw new Error(`${name}: screen did not mount (expected ${pattern}); see ${name}.xml`);
 }
 async function tapText(text) {
-    const xml = await dump();
+    let xml = await dump();
+    if (['Session actions', 'Open terminal keyboard', 'Zoom in', 'Zoom out', 'Reset zoom'].includes(text)
+        && !xml.includes(`content-desc="${text}"`) && xml.includes('content-desc="Show terminal controls"')) {
+        await tapText('Show terminal controls');
+        xml = await dump();
+    }
     const node = (xml.match(/<node\b[^>]*>/g) ?? []).find((node) => node.includes(`text="${text}"`) || node.includes(`content-desc="${text}"`));
     const bounds = node && /bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/.exec(node);
     check(bounds, `Missing required control: ${text}`);
@@ -185,10 +191,49 @@ async function phase(name, mounted, drive = false) {
     console.log(`ok: ${name}: ${metrics.sampledSeconds}s sampled, JS ${metrics.jsBusyPercent}%, PSS drift ${metrics.pssDriftKb} KiB, ${jank.frames} frames`);
 }
 async function feature(name, work) {
+    if (flow === 'changes' && name !== 'changes') return;
+    if (name === 'changes' && flow !== 'changes') return;
     if (flow === 'usage' && name !== 'usage-switch-and-recency') return;
+    if (flow === 'polish' && name !== 'polish') return;
+    if (flow === 'rich' && name !== 'rich') return;
+    if (flow === 'controls' && !['terminal-text', 'graphics'].includes(name)) return;
+    if (name === 'rich' && flow !== 'rich') return;
+    if (flow !== 'polish' && name === 'polish') return;
     console.log(`start: ${name}`);
     try { await work(); }
     catch (error) { report.failures.push(`${name}: ${error.message}`); console.error(`FAIL: ${name}: ${error.message}`); }
+}
+async function changesScopeControls() {
+    await herd();
+    check((await maestro('graphicsScroll.yaml')).code === 0, 'Could not open session for Changes review');
+    await tapText('Session actions');
+    await requireScreen('changes-actions', /Changes/);
+    await tapText('Changes');
+    await requireScreen('changes-context', /Working tree/);
+    await tapText('Choose worktree');
+    await requireScreen('changes-worktrees', /fixture-review/);
+    await tapText('fixture-review');
+    const branch = await requireScreen('changes-branch', /branch-proof.txt/);
+    check(!branch.includes('working-proof.txt'), 'Branch comparison leaked uncommitted files');
+    await tapText('branch-proof.txt');
+    await requireScreen('changes-branch-patch', /REVIEW_BRANCH_ONLY/);
+    await capture('changes-branch-patch.png');
+    await tapText('Go back');
+    await requireScreen('changes-return-to-comparison', /Working tree/);
+    await tapText('Working tree');
+    await requireScreen('changes-working', /working-proof.txt/);
+    await tapText('working-proof.txt');
+    await requireScreen('changes-working-patch', /WORKING_CHECKOUT_ONLY/);
+    await capture('changes-working-patch.png');
+    await tapText('Go back');
+    await requireScreen('changes-return-to-comparison', /Working tree/);
+    await tapText('Staged');
+    const staged = await requireScreen('changes-staged', /staged-proof.txt/);
+    check(!staged.includes('working-proof.txt'), 'Staged comparison leaked untracked files');
+    await tapText('staged-proof.txt');
+    await requireScreen('changes-staged-patch', /STAGED_CHECKOUT_ONLY/);
+    await capture('changes-staged-patch.png');
+    report.changes = { nativeWorktreeSelection: true, branchPatch: true, workingPatch: true, stagedPatch: true, sessionContextPreserved: true };
 }
 async function viewerControls() {
     await herd();
@@ -317,7 +362,7 @@ async function terminalKeyboard(name) {
     };
     await waitKeyboard(false);
     const before = await dump(`${name}-before`);
-    check(before.includes('Open terminal keyboard'), 'Explicit keyboard button missing');
+    check(before.includes('Show terminal controls') || before.includes('Hide terminal controls'), 'Terminal command control missing');
     const { width, height } = report.device;
     for (let n = 0; n < 3; n++) {
         await adb('shell', 'input', 'tap', String(Math.round(width * .3)), String(Math.round(height * .4)));
@@ -330,13 +375,190 @@ async function terminalKeyboard(name) {
     await capture(`${name}-explicit-keyboard.png`);
     await adb('shell', 'input', 'keyevent', '4');
     await waitKeyboard(false);
-    await requireScreen(`${name}-restored`, /Open terminal keyboard/);
+    await requireScreen(`${name}-restored`, /Show terminal controls/);
+    await tapText('Show terminal controls');
+    await requireScreen(`${name}-commands`, /Open terminal keyboard/);
     await capture(`${name}-restored.png`);
     (report.keyboard ??= []).push({ name, tapCount: 3, autoOpened: false, explicitOpen: true, dismissed: true });
+    const handle = (xml, label) => parseUiNodes(xml).find((node) => node.desc === label);
+    const initial = handle(await dump(`${name}-controls-before`), 'Hide terminal controls');
+    check(initial && initial.r > initial.l && initial.b > initial.t, 'Movable toolbar handle missing');
+    const cx = Math.round((initial.l + initial.r) / 2), cy = Math.round((initial.t + initial.b) / 2);
+    // Drag the dedicated handle, not a browser surface or a zoom button.
+    await adb('shell', 'input', 'swipe', String(cx), String(cy), String(Math.max(80, cx - width * .35)), String(cy), '650');
+    const movedXml = await dump(`${name}-controls-moved`);
+    const moved = handle(movedXml, 'Hide terminal controls');
+    check(moved && Math.abs(moved.l - initial.l) > width * .15, 'Toolbar drag did not move the native handle');
+    check(moved.l >= 0 && moved.r <= width && moved.t >= 0 && moved.b <= height, 'Toolbar moved outside the viewport');
+    await tapText('Hide terminal controls');
+    const collapsed = await dump(`${name}-controls-collapsed`);
+    check(handle(collapsed, 'Show terminal controls') && !collapsed.includes('Open terminal keyboard'), 'Toolbar buttons did not collapse');
+    await capture(`${name}-controls-collapsed.png`);
+    await tapText('Show terminal controls');
+    const expanded = await dump(`${name}-controls-expanded`);
+    check(expanded.includes('Open terminal keyboard') && expanded.includes('Zoom in') && expanded.includes('Session actions'), 'Command control did not restore its actions');
+    const commandLabels = ['Hide terminal controls', 'Open terminal keyboard', 'Zoom in', 'Zoom out', 'Reset zoom', 'Session actions'];
+    const commands = parseUiNodes(expanded).filter((node) => commandLabels.includes(node.desc));
+    check(commands.length === commandLabels.length, 'Command fan contains missing or duplicate buttons');
+    for (const command of commands) {
+        check(command.l >= 0 && command.r <= width && command.t >= 0 && command.b <= height, `Command outside screen: ${command.desc}`);
+        check(Math.abs((command.r - command.l) - (commands[0].r - commands[0].l)) <= 2, 'Command button sizes are inconsistent');
+        for (const other of commands) if (other !== command) check(Math.min(command.r, other.r) <= Math.max(command.l, other.l) || Math.min(command.b, other.b) <= Math.max(command.t, other.t), 'Command buttons overlap');
+    }
+    report.commandFan = { buttons: commands, singlePuck: true };
+    await capture(`${name}-controls-moved.png`);
+    (report.movableControls ??= []).push({ name, before: initial, after: moved, collapsed: true, restored: true });
+
+}
+
+// Focused native UI acceptance, separate from the four measured phases.
+async function polishControls() {
+    const version = /versionName=([^\s]+)/.exec(readFileSync(join(out, 'package.txt'), 'utf8'))?.[1];
+    check(version, 'Installed package version unavailable');
+    await adb('shell', 'am', 'start', '-a', 'android.intent.action.VIEW', '-d', 'muxr:///settings/connection', pkg);
+    const settings = await requireScreen('polish-settings', /Installed versions/i);
+    check(settings.includes(`Version ${version}`), 'Settings does not report the installed binary version');
+    check(settings.includes('Connection &amp; updates') || settings.includes('Connection & updates'), 'Missing unified connection title');
+    await capture('polish-settings.png');
+    report.polish = { installedVersion: version, settingsVersion: true, compatibilityWarningScope: 'Same-version fixture; mismatched release comparison is covered by the existing version flow' };
+    await herd();
+    check((await maestro('graphicsScroll.yaml')).code === 0, 'Could not open owned terminal for composer');
+    await requireScreen('polish-composer', /Add attachment/);
+    const photo = new PNG({ width: 360, height: 1080 });
+    for (let y = 0; y < photo.height; y++) for (let x = 0; x < photo.width; x++) {
+        const index = (y * photo.width + x) * 4;
+        const band = Math.floor(y / 90) % 3;
+        photo.data[index] = band === 0 ? 230 : 30;
+        photo.data[index + 1] = band === 1 ? 210 : 40;
+        photo.data[index + 2] = band === 2 ? 220 : 50;
+        photo.data[index + 3] = 255;
+    }
+    const name = `muxr-polish-${process.pid}`;
+    const photoPath = join(out, `${name}.png`), remote = `/sdcard/Pictures/${name}.png`;
+    writeFileSync(photoPath, PNG.sync.write(photo)); publish(photoPath);
+    try {
+        await adb('shell', 'mkdir', '-p', '/sdcard/Pictures');
+        await adb('push', photoPath, remote);
+        await adb('shell', 'am', 'broadcast', '-a', 'android.intent.action.MEDIA_SCANNER_SCAN_FILE', '-d', `file://${remote}`);
+        await adb('shell', 'pm', 'grant', pkg, 'android.permission.READ_MEDIA_IMAGES');
+        // MediaStore canonicalizes /sdcard to /storage/emulated/0. Match the
+        // unique owned display name, and wait for asynchronous media scanning.
+        let mediaId;
+        const scanDeadline = Date.now() + 10000;
+        do {
+            const media = await adb('shell', 'content', 'query', '--uri', 'content://media/external/images/media', '--projection', '_id:_display_name', '--where', `"_display_name='${name}.png'"`);
+            save('polish-media-registration.txt', media);
+            mediaId = /\b_id=(\d+)/.exec(media)?.[1];
+            if (mediaId) break;
+            await sleep(500);
+        } while (Date.now() < scanDeadline);
+        check(mediaId, 'Owned generated photo was not registered in MediaStore');
+        await tapText('Add attachment');
+        await capture('polish-picker.png');
+        const picker = await requireScreen('polish-picker', /Photo|photo|Recent/);
+        const tile = parseUiNodes(picker).find((node) => /photo taken|Photo taken|Photo,|Image taken/.test(node.desc));
+        check(tile && tile.r > tile.l && tile.b > tile.t, 'Owned photo picker tile unavailable; selector evidence retained');
+        await adb('shell', 'input', 'tap', String(Math.round((tile.l + tile.r) / 2)), String(Math.round((tile.t + tile.b) / 2)));
+        const selected = await dump('polish-picker-selected');
+        const add = parseUiNodes(selected).find((node) => /^(Add|Done)( \(\d+\))?$/.test(node.text));
+        if (add) await adb('shell', 'input', 'tap', String((add.l + add.r) / 2), String((add.t + add.b) / 2));
+        const uploaded = await requireScreen('polish-thumbnail', /Remove attachment /);
+        // Android Photo Picker may expose the MediaStore ID as its filename.
+        const previewNode = parseUiNodes(uploaded).find((node) => node.desc === `Preview attachment ${name}.jpg` || node.desc === `Preview attachment ${mediaId}.jpg`);
+        check(previewNode, 'Composer preview does not match the owned MediaStore image');
+        const uploadedName = previewNode.desc.slice('Preview attachment '.length);
+        const thumbnail = cropRaw(await screencapRaw(), previewNode);
+        const colors = { red: 0, green: 0, blue: 0 };
+        for (let offset = 0; offset < thumbnail.bytes.length; offset += 4) {
+            const [r, g, b] = thumbnail.bytes.subarray(offset, offset + 3);
+            if (r > 150 && g < 90 && b < 90) colors.red++;
+            if (g > 150 && r < 90 && b < 90) colors.green++;
+            if (b > 150 && r < 90 && g < 90) colors.blue++;
+        }
+        check(Object.values(colors).every((count) => count > 100), 'Thumbnail does not render the owned RGB fixture pixels');
+        report.polish.thumbnailPixels = colors;
+        await capture('polish-thumbnail.png');
+        await tapText(`Preview attachment ${uploadedName}`);
+        await requireScreen('polish-image-fit', /Close attachment preview/);
+        await capture('polish-image-fit.png');
+        const { width, height } = report.device;
+        const region = { l: width * .25, r: width * .75, t: height * .3, b: height * .7 };
+        const fitted = cropRaw(await screencapRaw(), region);
+        await tapText('Zoom in'); await sleep(400);
+        const zoom = pixelsMoved(fitted, cropRaw(await screencapRaw(), region));
+        check(zoom.moved, 'Image zoom did not change actual content pixels');
+        await capture('polish-image-zoom.png');
+        const beforePan = cropRaw(await screencapRaw(), region);
+        await adb('shell', 'input', 'swipe', String(width / 2), String(height * .6), String(width / 2), String(height * .4), '500');
+        const pan = pixelsMoved(beforePan, cropRaw(await screencapRaw(), region));
+        check(pan.moved, 'Zoomed image did not pan');
+        await capture('polish-image-pan.png');
+        await tapText('Fit image'); await tapText('Close attachment preview');
+        await tapText(`Remove attachment ${uploadedName}`);
+        const removed = await dump('polish-attachment-removed');
+        check(!removed.includes(`Preview attachment ${uploadedName}`), 'Removed image still present in composer');
+        Object.assign(report.polish, { composerUpload: true, thumbnail: true, preview: true, zoom, pan, removed: true });
+    } finally {
+        await adb('shell', 'rm', '-f', remote);
+        await adb('shell', 'am', 'broadcast', '-a', 'android.intent.action.MEDIA_SCANNER_SCAN_FILE', '-d', `file://${remote}`);
+    }
+}
+
+async function richPreviews() {
+    const attachmentDir = join(stack.root, 'muxr/attachments/pane/w1:p1');
+    mkdirSync(attachmentDir, { recursive: true });
+    writeFileSync(join(attachmentDir, 'preview.md'), '# NATIVE_MARKDOWN_READY\n\n```mermaid\nflowchart LR\n A[Beta] --> B[Phone testing]\n```');
+    writeFileSync(join(attachmentDir, 'preview.csv'), 'Feature,Status\nNATIVE_CSV_READY,Ready');
+    writeFileSync(join(attachmentDir, 'preview.html'), '<h1>NATIVE_HTML_READY</h1><script>document.body.innerHTML="UNSAFE_SCRIPT_RAN"</script>');
+    const objects = ['<< /Type /Catalog /Pages 2 0 R >>', '<< /Type /Pages /Kids [3 0 R 5 0 R] /Count 2 >>'];
+    for (const [index, color] of ['0 0 1', '1 0 0'].entries()) {
+        const stream = `${color} rg 40 100 320 300 re f`;
+        objects.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 500] /Resources << >> /Contents ${4 + index * 2} 0 R >>`, `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`);
+    }
+    let pdf = '%PDF-1.4\n'; const offsets = [];
+    for (const [index, object] of objects.entries()) { offsets.push(Buffer.byteLength(pdf)); pdf += `${index + 1} 0 obj\n${object}\nendobj\n`; }
+    const xref = Buffer.byteLength(pdf);
+    pdf += `xref\n0 7\n0000000000 65535 f \n${offsets.map((n) => `${String(n).padStart(10, '0')} 00000 n \n`).join('')}trailer\n<< /Size 7 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
+    writeFileSync(join(attachmentDir, 'preview.pdf'), pdf);
+    await herd();
+    check((await maestro('graphicsScroll.yaml')).code === 0, 'Could not open owned attachment session');
+    await tapText('Session actions');
+    await tapText('Open attachments');
+    await requireScreen('rich-attachments', /preview.md/);
+    report.richPreviews = [];
+    for (const [file, marker] of [['preview.md', 'NATIVE_MARKDOWN_READY'], ['preview.csv', 'NATIVE_CSV_READY'], ['preview.html', 'NATIVE_HTML_READY']]) {
+        await tapText(file);
+        const xml = await requireScreen(`rich-${file}`, file.endsWith('.csv') ? /Preview: up to 200 data rows/ : new RegExp(marker));
+        check(!xml.includes('UNSAFE_SCRIPT_RAN'), 'Untrusted HTML executed in native preview');
+        await capture(`rich-${file}.png`);
+        if (file.endsWith('.csv')) {
+            // Android's WebView hierarchy omits semantic table cells. Prove the
+            // actual rendered fixture text from pixels, never from the footer.
+            const pixels = (await run('tesseract', [join(out, `rich-${file}.png`), 'stdout', '--psm', '6'], { timeout: 15_000 })).stdout;
+            save('rich-csv-ocr.txt', pixels);
+            check(pixels.includes(marker), 'CSV content did not paint in native WebView');
+        }
+        report.richPreviews.push({ file, nativeContent: true, evidence: file.endsWith('.csv') ? 'screenshot OCR' : 'native hierarchy' });
+        await tapText('Close document preview');
+    }
+    await tapText('preview.pdf');
+    await requireScreen('rich-pdf-page1', /Page 1 of 2/);
+    const coloredPixels = async (color) => {
+        const { width, height } = report.device;
+        const frame = cropRaw(await screencapRaw(), { l: width * .2, r: width * .8, t: height * .25, b: height * .7 });
+        let count = 0;
+        for (let i = 0; i < frame.bytes.length; i += 4) if (frame.bytes[i + color] > 180 && frame.bytes[i + (color === 0 ? 2 : 0)] < 70 && frame.bytes[i + 1] < 70) count++;
+        check(count > 1000, 'PDF status mounted but actual page pixels did not render'); return count;
+    };
+    const blue = await coloredPixels(2); await capture('rich-pdf-page1.png');
+    await tapText('Next page'); await requireScreen('rich-pdf-page2', /Page 2 of 2/);
+    const red = await coloredPixels(0); await capture('rich-pdf-page2.png');
+    report.richPreviews.push({ file: 'preview.pdf', blue, red, pageNavigation: true });
+    await tapText('Close document preview');
 }
 
 async function main() {
-    check(['full', 'usage'].includes(flow), '--flow must be full or usage');
+    check(['full', 'usage', 'polish', 'rich', 'controls', 'changes'].includes(flow), '--flow must be full, usage, polish, rich, controls or changes');
     check(/^emulator-\d+$/.test(serial), 'PR gate only clears dedicated emulators');
     check(seconds >= 30 && seconds <= 120, '--seconds must be 30..120');
     mkdirSync(lock); ownsLock = true;
@@ -378,9 +600,17 @@ async function main() {
     lines[40] = 'const second = "beforeSecondHunk";';
     writeFileSync(join(stack.world.cwd, 'zz-companion.ts'), 'export const companion = "beforeCompanion";\n');
     writeFileSync(join(stack.world.cwd, 'viewer.ts'), lines.join('\n'));
-    await run('git', ['init', '-q', stack.world.cwd], { timeout: 10_000 });
+    await run('git', ['init', '-q', '-b', 'main', stack.world.cwd], { timeout: 10_000 });
     await run('git', ['-C', stack.world.cwd, 'add', '.'], { timeout: 10_000 });
     await run('git', ['-C', stack.world.cwd, '-c', 'user.name=Emulator Fixture', '-c', 'user.email=fixture@example.invalid', '-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', 'commit', '-qm', 'Baseline viewer fixture'], { timeout: 10_000 });
+    const reviewTree = `${stack.world.cwd}-review`;
+    await run('git', ['-C', stack.world.cwd, 'worktree', 'add', '-b', 'fixture-review', reviewTree], { timeout: 10_000 });
+    writeFileSync(join(reviewTree, 'branch-proof.txt'), 'REVIEW_BRANCH_ONLY\n');
+    await run('git', ['-C', reviewTree, 'add', 'branch-proof.txt'], { timeout: 10_000 });
+    await run('git', ['-C', reviewTree, '-c', 'user.name=Emulator Fixture', '-c', 'user.email=fixture@example.invalid', '-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', 'commit', '-qm', 'Review branch proof'], { timeout: 10_000 });
+    writeFileSync(join(reviewTree, 'working-proof.txt'), 'WORKING_CHECKOUT_ONLY\n');
+    writeFileSync(join(reviewTree, 'staged-proof.txt'), 'STAGED_CHECKOUT_ONLY\n');
+    await run('git', ['-C', reviewTree, 'add', 'staged-proof.txt'], { timeout: 10_000 });
     lines[4] = 'const value = "afterMarker";';
     lines[40] = 'const second = "afterSecondHunk";';
     writeFileSync(join(stack.world.cwd, 'zz-companion.ts'), 'export const companion = "afterCompanion";\n');
@@ -396,6 +626,9 @@ async function main() {
     await sleep(8000);
     await dismissPrompts();
     await stabilizeStartup();
+    await feature('polish', polishControls);
+    await feature('changes', changesScopeControls);
+    await feature('rich', richPreviews);
     await feature('herd', () => phase('herd', /text="connected"/, true));
     await feature('document', async () => {
         await herd(); await tapText('Files');
@@ -405,13 +638,15 @@ async function main() {
         await tapText('viewer.ts');
         await phase('document', /PR gate document line/, true);
         await viewerControls();
+        await changesScopeControls();
         await viewerLineTarget();
     });
     await feature('terminal-text', async () => {
         await herd();
-        const flow = await maestro('graphicsScroll.yaml');
-        check(flow.code === 0, 'terminal opening flow failed; see graphicsScroll.yaml.log');
-        await phase('terminal-text', /text="(Terminal|ctrl)"|Type a prompt/, true);
+        const opened = await maestro('graphicsScroll.yaml');
+        check(opened.code === 0, 'terminal opening flow failed; see graphicsScroll.yaml.log');
+        if (flow === 'controls') await requireScreen('controls-text-mounted', /Type a prompt|text="Terminal"/);
+        else await phase('terminal-text', /text="(Terminal|ctrl)"|Type a prompt/, true);
         check(existsSync(stack.attachJsonl) && readFileSync(stack.attachJsonl, 'utf8').trim(), 'No real host terminal attach was observed');
         check(!existsSync(graphicsEnableFile), 'Text phase accidentally enabled graphics');
         await terminalKeyboard('text-keyboard');
@@ -424,9 +659,13 @@ async function main() {
         await capture('graphics-pixels.png');
         check(pixels.magenta > 100 && pixels.teal > 100, 'Kitty checkerboard did not paint in terminal region; see graphics-pixels.png');
         const since = Date.now();
-        await phase('graphics', /text="(Terminal|ctrl)"|Type a prompt/, true);
-        const events = JSON.parse(readFileSync(stack.journalPath, 'utf8')).events ?? [];
-        const pipeline = events.filter((e) => e.event === 'graphics.pipeline' && Date.parse(e.at) >= since);
+        if (flow !== 'controls') await phase('graphics', /text="(Terminal|ctrl)"|Type a prompt/, true);
+        const delivered = () => (JSON.parse(readFileSync(stack.journalPath, 'utf8')).events ?? []).filter((e) => e.event === 'graphics.pipeline' && Date.parse(e.at) >= since);
+        if (flow === 'controls') {
+            const deadline = Date.now() + 25_000;
+            while (!delivered().some((event) => event.frames > 0) && Date.now() < deadline) await sleep(500);
+        }
+        const pipeline = delivered();
         const cellSamples = (existsSync(stack.cellMetricsJsonl) ? readFileSync(stack.cellMetricsJsonl, 'utf8').trim().split('\n').map(JSON.parse) : []).filter((row) => row.source === 'terminal.resize' && row.pane_id === stack.world.panes[0].pane_id && [row.cols, row.rows, row.cellWidthPx, row.cellHeightPx].every((value) => Number.isFinite(value) && value > 0)).slice(-3);
         const helloSamples = (existsSync(stack.graphicsInputJsonl) ? readFileSync(stack.graphicsInputJsonl, 'utf8').trim().split('\n').map(JSON.parse) : []).filter((row) => row.source === 'graphics.ClientHello' && [row.cols, row.rows, row.cellWidthPx, row.cellHeightPx].every((value) => Number.isFinite(value) && value > 0)).slice(-3);
         report.graphics = { pixels, cellSamples, helloSamples, cellEvidenceScope: 'Native resize for first pane, or real graphics connection ClientHello populated from native attach', declaredCellMetrics: stack.phoneDeclaredCellMetrics(), pipeline };
