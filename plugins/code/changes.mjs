@@ -66,7 +66,12 @@ if (scope === 'branch' && !unborn) {
     }
     if (!reference) unavailable = 'No main branch comparison is available in this repository.';
 }
-const diffArgs = (kind = scope) => ['diff', '--no-ext-diff', '--no-textconv', '--no-renames', ...(kind === 'staged' ? ['--cached', head] : kind === 'branch' ? [base, head] : [head])];
+function diffArgs(kind = scope) {
+    const flags = ['diff', '--no-ext-diff', '--no-textconv', '--no-renames'];
+    if (kind === 'staged') return [...flags, '--cached', head];
+    if (kind === 'branch') return [...flags, base, head];
+    return [...flags, head];
+}
 function files() {
     if (unavailable) return [];
     const records = git([...diffArgs(), '--numstat', '-z'], root).split('\0').filter(Boolean);
@@ -89,7 +94,11 @@ function workingFileAction(file) {
 if (method === 'worktrees') {
     // Recent branch commits first, with the conversation's checkout labelled.
     const recent = git(['for-each-ref', '--sort=-committerdate', '--format=%(refname:short)', 'refs/heads'], sessionRoot).trim().split('\n');
-    const rank = (entry) => entry.root === sessionRoot ? -1 : recent.indexOf(entry.branch) < 0 ? recent.length : recent.indexOf(entry.branch);
+    const rank = (entry) => {
+        if (entry.root === sessionRoot) return -1;
+        const index = recent.indexOf(entry.branch);
+        return index < 0 ? recent.length : index;
+    };
     const ordered = [...registered].sort((a, b) => rank(a) - rank(b));
     process.stdout.write(JSON.stringify({ title: 'Choose worktree', note: `${registered.length} registered worktrees${registered.length > 50 ? '; showing the 50 most recent' : ''}. This changes the review view, not the agent directory.`,
         worktrees: ordered.slice(0, 50).map((entry) => ({ ...entry, sessionId, title: `${entry.branch}${entry.root === sessionRoot ? ' · session checkout' : ''}`, subtitle: entry.root })) }));
@@ -110,17 +119,23 @@ if (method === 'worktrees') {
         if (scope === 'branch') comparison = `Branch comparison ${base.slice(0, 8)} → ${head.slice(0, 8)}`;
         patch = git([...diffArgs(), '--', path], root);
     }
-    process.stdout.write(JSON.stringify({ title: basename(path), note: `${root} · ${comparison}${patch.length > 60000 ? ' · Diff truncated to 60,000 characters' : patch ? '' : ' · No difference in this comparison'}`, patch: patch.slice(0, 60000) }));
+    let patchNote = '';
+    if (patch.length > 60000) patchNote = ' · Diff truncated to 60,000 characters';
+    else if (!patch) patchNote = ' · No difference in this comparison';
+    process.stdout.write(JSON.stringify({ title: basename(path), note: `${root} · ${comparison}${patchNote}`, patch: patch.slice(0, 60000) }));
 } else {
     const changed = files();
     const pageCount = Math.max(1, Math.ceil(changed.length / 49));
     const requestedPage = typeof input.page === 'number' || (typeof input.page === 'string' && /^\d+$/.test(input.page)) ? Number(input.page) : 0;
     const page = method === 'browse' && Number.isSafeInteger(requestedPage) ? Math.max(0, Math.min(pageCount - 1, requestedPage)) : 0;
     const rows = changed.slice(page * 49, (page + 1) * 49).map((file) => {
-        const count = file.kind === 'untracked' ? 'Untracked' : file.added === '-' ? 'Binary' : `+${file.added} / −${file.deleted}`;
+        let count = `+${file.added} / −${file.deleted}`;
+        if (file.kind === 'untracked') count = 'Untracked';
+        else if (file.added === '-') count = 'Binary';
         return { ...file, title: basename(file.path), subtitle: `${file.path} · ${count}`, sessionId, root, scope, head, base };
     });
-    const note = `${root}\n${selected.branch} · ${comparison}\n${unavailable || (scope === 'branch' ? 'Committed branch changes only; working edits are separate.' : scope === 'staged' ? 'The index that will be committed; unstaged edits are separate.' : 'Current files compared with HEAD, including untracked files. Committed branch changes are separate.')}${changed.length > 49 ? `\nFiles ${page * 49 + 1}–${Math.min(changed.length, (page + 1) * 49)} of ${changed.length}.` : ''}`;
+    const scopeNotes = { branch: 'Committed branch changes only; working edits are separate.', staged: 'The index that will be committed; unstaged edits are separate.', working: 'Current files compared with HEAD, including untracked files. Committed branch changes are separate.' };
+    const note = `${root}\n${selected.branch} · ${comparison}\n${unavailable || scopeNotes[scope]}${changed.length > 49 ? `\nFiles ${page * 49 + 1}–${Math.min(changed.length, (page + 1) * 49)} of ${changed.length}.` : ''}`;
     if (method === 'browse') {
         process.stdout.write(JSON.stringify({ title: `Changes · ${selected.branch}`, root, scope, scopes, note, files: rows, page: String(page), pages: pageCount === 1 ? [] : [
             ...(page > 0 ? [{ ...params(), page: page - 1, id: String(page - 1), label: 'Previous files' }] : []),

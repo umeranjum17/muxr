@@ -202,7 +202,11 @@ async function feature(name, work) {
     catch (error) { report.failures.push(`${name}: ${error.message}`); console.error(`FAIL: ${name}: ${error.message}`); }
 }
 async function changesScopeControls() {
-    await adb('shell', 'input', 'keyevent', '4');
+    await herd();
+    check((await maestro('graphicsScroll.yaml')).code === 0, 'Could not open session for Changes review');
+    await tapText('Session actions');
+    await requireScreen('changes-actions', /Changes/);
+    await tapText('Changes');
     await requireScreen('changes-context', /Working tree/);
     await tapText('Choose worktree');
     await requireScreen('changes-worktrees', /fixture-review/);
