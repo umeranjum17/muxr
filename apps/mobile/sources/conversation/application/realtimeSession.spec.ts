@@ -399,9 +399,13 @@ describe('generic realtime stream session', () => {
         expect(mocks.pcm.startRealtimePcm).not.toHaveBeenCalled();
         handle.setMuted(true);
         expect(mocks.webRtc.handle.setMuted).toHaveBeenCalledWith(true);
+        stream.closes.forEach((listener) => listener('ended'));
+        expect(mocks.webRtc.handle.stop).toHaveBeenCalledOnce();
+        expect(statuses.at(-1)).toBe('disconnected');
+        await tick();
+        expect(mocks.openStream).toHaveBeenCalledOnce();
         handle.stop();
         expect(mocks.webRtc.handle.stop).toHaveBeenCalledOnce();
-        expect(stream.close).toHaveBeenCalledOnce();
     });
 
     it('arms locally without an expiry and keeps silence off the provider path', async () => {

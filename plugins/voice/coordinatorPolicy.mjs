@@ -289,9 +289,13 @@ export async function runCodingTool(name, args, operationId, signal) {
     return 'That coding action is not available.';
 }
 
-export const isExplicitHangup = (value) => new Set(['go to sleep', 'stop listening', 'goodbye', 'good bye']).has(
-    text(value).normalize('NFKC').toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim(),
-);
+export const isExplicitHangup = (value) => {
+    const command = text(value).normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+    // Conversational courtesy must not turn a hangup into an acknowledgement
+    // with a live microphone. Match the whole utterance so negations and
+    // requests about another agent do not end this session.
+    return /^(?:(?:cool|ok|okay|alright|all right|thanks|thank you|please) ){0,3}(?:(?:can|could|would) you )?(?:go to sleep|stop listening|goodbye|good bye)(?: (?:now|please|thanks|thank you)){0,3}$/.test(command);
+};
 
 const redactCredentials = (value) => String(value ?? '')
     .normalize('NFKC')
