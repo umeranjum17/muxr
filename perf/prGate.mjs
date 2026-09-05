@@ -488,6 +488,7 @@ async function richPreviews() {
     writeFileSync(join(attachmentDir, 'preview.pdf'), pdf);
     await herd();
     check((await maestro('graphicsScroll.yaml')).code === 0, 'Could not open owned attachment session');
+    await tapText('Session actions');
     await tapText('Open attachments');
     await requireScreen('rich-attachments', /preview.md/);
     report.richPreviews = [];
