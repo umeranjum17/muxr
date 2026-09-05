@@ -47,8 +47,8 @@ Current product PR: [#224](https://github.com/umeranjum17/muxr/pull/224), draft.
   - Remaining / boundary: It predates #224. Do not mistake it for the new settings, zoom or thumbnails build.
 
 - [ ] **T06 · Attach the latest polished APK to the PR and notify you** — Not done.
-  - Evidence / current state: Native-verified emulator APK 250a8803 contains graphics FIFO, thumbnails, controls, zoom and settings; focused and full e5e5a2ae harness gates pass. No new ARM64 phone beta artifact yet.
-  - Remaining / boundary: Build the final integrated mobile source, publish beta after checks, and attach the phone APK plus provenance to #224.
+  - Evidence / current state: APK 9beb12e1 is native-verified with mobile checks and focused command-control PASS. It is an emulator artifact, not the pending ARM64 beta phone release.
+  - Remaining / boundary: Integrate reviewed host alignment, finish current gates, publish the tested beta and link its exact APK/provenance.
 
 - [ ] **T07 · Explain every release feature with first principles and diagrams** — In progress.
   - Evidence / current state: Release workflow and task board are available. #224 is being rewritten for the expanded final scope and exact evidence.
@@ -68,9 +68,9 @@ Current product PR: [#224](https://github.com/umeranjum17/muxr/pull/224), draft.
   - Evidence / current state: Merged #222: follow the same live pane from agent to shell to next agent. Existing terminal/catalog flows passed 14/14.
   - Remaining / boundary: Recheck the reported phone symptom; subsequent connection flapping is still open below.
 
-- [ ] **T11 · Stop repeated Connected / Reconnecting flapping** — Not done.
-  - Evidence / current state: Phone evidence retained. Host is running without service restarts; attach bursts alone do not identify the cause.
-  - Remaining / boundary: Reproduce and capture channel/generation/close evidence, fix the demonstrated cause, retest without navigating away.
+- [ ] **T11 · Stop repeated Connected / Reconnecting flapping** — Implemented / verification pending.
+  - Evidence / current state: Fixed two reproduced terminal transport bugs in d7d7351c: live now requires the first authenticated host frame, and an old asynchronous decryption cannot close a replacement socket. Existing flow baseline failures retained; fixed 8/8 and TypeScript pass.
+  - Remaining / boundary: Final combined runtime gate and sustained phone check remain; do not infer every network failure is resolved.
 
 - [ ] **T12 · Avoid black frames / flicker while scrolling Terminal Browser** — Not done.
   - Evidence / current state: Physical-phone issue remains unresolved. Browser navigation or a host-side screenshot is not phone pixel proof.
@@ -97,12 +97,12 @@ Current product PR: [#224](https://github.com/umeranjum17/muxr/pull/224), draft.
   - Remaining / boundary: Verify Home, Spaces, terminal header and tabs on the new APK.
 
 - [x] **T18 · Move or hide terminal controls that cover the browser header** — Done, within stated scope.
-  - Evidence / current state: Committed in #224. Full native emulator gates verify dragging, collapse and restore in text and graphics terminals; controls retain 44 dp targets.
-  - Remaining / boundary: Physical-phone reach and comfort still need your feedback; position resets when the terminal remounts.
+  - Evidence / current state: Native APK 9beb12e1 controls gate passed in text and graphics: actual handle moves 348/349 pixels, collapse/restore and bounds pass. The previous failed drags originated at Android’s 30 dp back edge; the whole handle now stays outside it.
+  - Remaining / boundary: Position resets when the terminal remounts. Physical-phone comfort still needs your feedback.
 
-- [ ] **T19 · Replace the Tools dropdown with a half-circle expansion** — Not done.
-  - Evidence / current state: Interactive design prototype exists; it is not in the app or APK.
-  - Remaining / boundary: Implement the approved interaction with reachable touch targets and verify it on a narrow phone.
+- [x] **T19 · Replace the Tools dropdown with a half-circle expansion** — Done, within stated scope.
+  - Evidence / current state: Implemented inward-opening five-action command fan, one 44 dp puck and consistent buttons. Native 9beb12e1 gate passed drag, collapse, restore, matching button sizes and no overlap in text and graphics.
+  - Remaining / boundary: Final combined APK will include it; compact screens use a reachable row instead of clipping the fan.
 
 ## Realtime personal assistant
 
@@ -188,26 +188,32 @@ Current product PR: [#224](https://github.com/umeranjum17/muxr/pull/224), draft.
 
 ## One-tap mismatch repair
 
-- [ ] **T39 · Tap mismatch to keep the app and select a compatible host or app update** — Not done.
-  - Evidence / current state: Requested after the tracker was created. Current notice opens guidance only. The CLI supports explicit channel downgrades, but has no exact-version selector or phone-callable host update action. Prefer keeping the installed app when a supported host version can serve it. Published matching release assets can be resolved by exact tag; matching versions alone do not prove protocol compatibility.
-  - Remaining / boundary: Tap notice → check actual protocol/capability compatibility first; compatible differing versions need no repair. Otherwise offer Keep this app: select an exact supported host version, including an explicit downgrade, or update the app. Check other paired clients and state/plugin migration support, preserve a recoverable snapshot, retain the existing channel unless explicitly changed, and show the restart impact. Verify health/reconnection after the switch and restore the prior host on failure when state rollback is supported. App: exact published APK for the installed application identity, build and signer, then Android confirmation. Host: exact-version capability-backed updater with confirmation and durable result across restart; never arbitrary shell or a silent channel switch. Missing/unpublished builds show unavailable, with retry. Test both directions and failed/interrupted updates before calling this done.
+- [ ] **T39 · Tap mismatch to keep the app and select a compatible host or app update** — Implemented / verification pending.
+  - Evidence / current state: Implemented exact-release managed Linux host alignment with confirmation, protocol/state compatibility, preserved beta identity, private snapshot, restart health/rollback and interrupted-job recovery. Standards and spec reviews pass. Real installed-package flow passes update, rollback, custom data directory, ownership and interrupted recovery.
+  - Remaining / boundary: Native Settings entry and final packaged beta still need delivery checks. Compatible version differences do not require repair; missing supported metadata leaves alignment unavailable. No real host changed by the test.
 
 ## Latest reported regressions
 
-- [ ] **T40 · Start Code / Browser must create and open a pane** — In progress.
-  - Evidence / current state: Real Code action log confirms executable lookup failure despite ~/.local/bin/tode existing. Existing Tools code also ignores caller context and acknowledges asynchronous launch before checking its result. A generic launcher and navigation completion fix is under test.
-  - Remaining / boundary: Require correct owned pane, executable discovery, real launch outcome and navigation; verify both actual tools and phone tap flow.
+- [ ] **T40 · Start Code / Browser must create and open a pane** — Implemented / verification pending.
+  - Evidence / current state: Generic launcher now uses declared executable/context, verifies the newly created pane and returns validated native navigation. Real host Browser and Code launches both passed; owned user-visible panes remain open.
+  - Remaining / boundary: Finish the native Tools-button-to-pane flow on the combined APK.
 
 - [x] **T41 · Preserve ordered graphics updates on mobile** — Done, within stated scope.
   - Evidence / current state: Committed b05b8835: reproduced dropped inline placement in actual write pump, replaced latest-only storage with bounded FIFO and explicit recovery. Existing flow baseline 6/7 then fixed 7/7; native APK 250a8803 full emulator gate passed.
   - Remaining / boundary: This closes the demonstrated dropped-frame bug; it does not establish the physical-phone black flicker or crash is fully resolved.
+
+## Workspace cleanup
+
+- [x] **T42 · Clean obsolete Herdr spaces and shells** — Done, within stated scope.
+  - Evidence / current state: Closed 46 confirmed obsolete panes: 34 idle shells, 8 completed agents and 4 old demos. Workspace count 24→8; tab count 65→26. Recoverable inventory archives are attached.
+  - Remaining / boundary: Preserved active conversations, current Browser/Code demos, build shells and emulator. No source worktree or saved transcript was deleted.
 
 ## Verification and update rules
 
 - Keep historical failures alongside reruns; never reuse old APK evidence for changed mobile/native bytes.
 - A passing emulator or provider fixture does not prove physical-phone rendering, account entitlement, real speech or remote audio.
 - Update this checklist when an item changes state and link the relevant commit, PR or artifact. No new test matrix or agent swarm is required.
-- Current APK 250a8803: native build, mobile TypeScript, mobile policy and 26 files / 94 tests passed. Focused and full emulator gates at e5e5a2ae passed. Rich previews and newer launcher work require a fresh APK.
+- Current APK 9beb12e1: native build, mobile TypeScript, mobile policy and mobile flows passed; focused terminal controls gate passed. Historical full PASS at e5e5a2ae remains pinned to its older APK. Final combined full/rich/live acceptance is still in progress.
 
 ## Links
 
