@@ -106,7 +106,7 @@ export default {
     expo: {
         name,
         slug: "muxr",
-        version: "0.1.12",
+        version: process.env.APP_VERSION || require('../../package.json').version,
         runtimeVersion: "2",
         orientation: "default",
         icon: "./sources/assets/images/icon.png",
