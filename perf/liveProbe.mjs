@@ -184,9 +184,26 @@ async function retireOwnedBrowser(browser) {
     } while (Date.now() < deadline);
     throw new Error('Owned browser remained after scoped quit; retain lock and scratch');
 }
+async function prepareGraphicsPane() {
+    const deadline = Date.now() + 30_000;
+    const previousDeadline = operationDeadline;
+    operationDeadline = deadline;
+    try {
+        for (let attempt = 0; Date.now() < deadline; attempt++) {
+            const xml = await ui();
+            save(`graphics-preflight-${attempt}.xml`, xml);
+            if (xml.includes('Show live agent updates?')) { await tap('CANCEL'); await sleep(250); continue; }
+            if (/text="(Terminal|ctrl)"/.test(xml)) return;
+            await sleep(500);
+        }
+    } finally {
+        operationDeadline = previousDeadline;
+    }
+    throw new Error('Terminal not mounted during bounded graphics preflight');
+}
 async function github() {
     check(tab && !producer, 'Create owned producer pane and mount it first');
-    const xml = await ui(); check(/text="(Terminal|ctrl)"/.test(xml), 'Terminal not mounted before producer');
+    await prepareGraphicsPane();
     const pid = (await adb('shell', 'pidof', pkg)).trim(); check(/^\d+$/.test(pid), 'Expected one APK PID');
     await memory('baseline', pid);
     // This script reports its own PID before exec; only that exact PID/start is retired.
