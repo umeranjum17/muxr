@@ -77,10 +77,12 @@ function reconcile(path, plan) {
     const lock = join(dirname(path), 'active');
     // Never release another job's lock, nor an installer whose state is unknown.
     let job;
+    let heldLock = true;
     try { job = read(join(lock, 'job.json')); } catch {
         if (existsSync(lock)) return plan;
         // A completed worker failure removes its lock; keep using its recorded
         // health path so a healthy prior install can be retried from the phone.
+        heldLock = false;
         job = plan;
     }
     if (job.id !== plan.id) return plan;
@@ -95,7 +97,10 @@ function reconcile(path, plan) {
     plan.message = healthy ? version === plan.target ? 'Host aligned and connected.' : 'The update stopped. The previous host is healthy; tap Check compatibility to try again.'
         : 'The update stopped and host health is unconfirmed. Its lock and private state snapshot are retained; repair the host service before retrying.';
     save(path, plan);
-    if (healthy) rmSync(lock, { recursive: true, force: true });
+    if (healthy && heldLock) {
+        // Recheck after npm/health inspection; absence never grants ownership.
+        try { if (read(join(lock, 'job.json')).id === plan.id) rmSync(lock, { recursive: true, force: true }); } catch { /* another reconciler completed cleanup */ }
+    }
     return plan;
 }
 export async function repairHost(request) {
