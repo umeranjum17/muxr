@@ -23,7 +23,47 @@ const run = (bin, argv, options = {}) => {
     check(timeout > 0, 'Phase deadline reached');
     return scope.run(bin, argv, { ...options, timeout });
 };
-const adb = async (...args) => (await run('adb', ['-s', serial, ...args], { timeout: 15_000 })).stdout;
+function adbFailureClass(args) {
+    if (args[0] === 'shell' && args[1] === 'dumpsys' && args[2] === 'activity') return 'get-state';
+    if (args[0] === 'shell' && args[1] === 'input' && args[2] === 'tap') return 'input-tap';
+    if (args[0] === 'shell' && args[1] === 'uiautomator') return 'ui-dump';
+    if (args[0] === 'shell' && args[1] === 'cat') return 'ui-read';
+    if (args[0] === 'exec-out' && args[1] === 'screencap') return 'screencap';
+    if (args[0] === 'shell' && args[1] === 'am' && args[2] === 'start') return 'activity-start';
+    if (args[0] === 'shell' && args[1] === 'am' && args[2] === 'force-stop') return 'force-stop';
+    if (args[0] === 'shell' && args[1] === 'pidof') return 'get-state';
+    return String(args[0] ?? 'unknown').replace(/[^a-z0-9_.-]/gi, '').slice(0, 48) || 'unknown';
+}
+function sanitizeAdbText(value) {
+    return String(value ?? '')
+        .replace(/\b(?:Bearer\s+|sk-)[A-Za-z0-9._~+/-]+/gi, '[redacted]')
+        .replace(/(?:\/[^\s,;<>]+){2,}/g, '[path redacted]')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 240);
+}
+function recordAdbFailure(args, cause) {
+    report.adbFailures ??= [];
+    const message = String(cause?.message ?? '');
+    const exit = /exit (\d+)/.exec(message)?.[1];
+    const signal = /signal (SIG[A-Z0-9]+)/i.exec(message)?.[1];
+    report.adbFailures.push({
+        at: new Date().toISOString(),
+        class: adbFailureClass(args),
+        result: exit ? `exit-${exit}` : signal ? `signal-${signal}` : /exceeded/.test(message) ? 'timeout' : 'error',
+        stderr: sanitizeAdbText(cause?.stderr),
+    });
+}
+const adbRunOn = async (commandScope, args, options = {}) => {
+    try {
+        return (await commandScope.run('adb', ['-s', serial, ...args], { timeout: 15_000, ...options })).stdout;
+    } catch (cause) {
+        recordAdbFailure(args, cause);
+        throw cause;
+    }
+};
+const adbRun = async (args, options = {}) => adbRunOn({ run }, args, options);
+const adb = async (...args) => adbRun(args);
 const shellQuote = (text) => `'${text.replaceAll("'", "'\\''")}'`;
 const check = (yes, why) => { if (!yes) throw new Error(why); };
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
@@ -51,8 +91,20 @@ async function tap(text) {
 async function capture(name) {
     check(/^[a-z0-9-]+$/.test(name), 'Invalid evidence name');
     save(`${name}.xml`, await ui());
-    save(`${name}.png`, (await run('adb', ['-s', serial, 'exec-out', 'screencap', '-p'], { timeout: 15_000, encoding: 'buffer' })).stdout);
+    save(`${name}.png`, await adbRun(['exec-out', 'screencap', '-p'], { encoding: 'buffer' }));
     publish(join(out, `${name}.png`));
+}
+async function voiceStateSnapshot(phase) {
+    const raw = await adb('shell', 'dumpsys', 'activity', 'top');
+    const state = raw.split('\n').filter((line) => /(?:mResumedActivity|ResumedActivity|mFocusedApp)/.test(line))
+        .map(sanitizeAdbText).join(' | ').slice(0, 240);
+    (report.voiceState ??= []).push({
+        at: new Date().toISOString(),
+        phase,
+        status: state ? 'available' : 'missing',
+        voicePhase,
+        voiceStarted: Boolean(report.voiceStartedAt),
+    });
 }
 const herdr = async (...args) => (await run('/usr/bin/herdr', args, { timeout: 15_000 })).stdout;
 async function open(uri) {
@@ -151,7 +203,10 @@ async function command(input) {
     check(Object.entries(input).every(([key, value]) => ['op', 'text', 'uri', 'name'].includes(key) && typeof value === 'string' && value.length <= 2048), 'Invalid command fields');
     const { op, text, uri, name } = input;
     if (op === 'capture') return capture(name);
-    if (op === 'tap') return tap(text);
+    if (op === 'tap') {
+        check(text !== 'Talk to this session', 'Use voice-start for the realtime voice control');
+        return tap(text);
+    }
     if (op === 'open') return open(uri);
     if (op === 'back') return adb('shell', 'input', 'keyevent', 'KEYCODE_BACK');
     if (op === 'pane') {
@@ -169,7 +224,10 @@ async function command(input) {
         voicePhase = 'establishing'; voiceDeadline = Date.now() + 30000;
         voiceTimer = setTimeout(() => void finish(new Error('Voice establishment exceeded 30 seconds')), 30000);
         report.voiceStartedAt = new Date().toISOString();
-        return tap(text);
+        await voiceStateSnapshot('before-tap');
+        await tap(text);
+        await voiceStateSnapshot('after-tap');
+        return;
     }
     if (op === 'voice-connected') {
         check(voicePhase === 'establishing' && Date.now() < voiceDeadline, 'Invalid voice connection transition');
@@ -304,9 +362,9 @@ async function finish(error) {
     const diagnostics = new CommandScope();
     const cleanupStep = async (action) => { try { await action(); } catch (cause) { clean = false; report.failures.push(cause.message); } };
     if (deviceTouched) await cleanupStep(async () => {
-        await diagnostics.run('adb', ['-s', serial, 'shell', 'am', 'force-stop', pkg], { timeout: 15000 });
-        const status = await diagnostics.run('adb', ['-s', serial, 'shell', `pidof ${pkg} || true`], { timeout: 10000 });
-        check(status.stdout.trim() === '', 'APK remains after force-stop');
+        await adbRunOn(diagnostics, ['shell', 'am', 'force-stop', pkg]);
+        const status = await adbRunOn(diagnostics, ['shell', 'pidof', pkg], { timeout: 10000 });
+        check(status.trim() === '', 'APK remains after force-stop');
     });
     if (tab) await cleanupStep(() => diagnostics.run('/usr/bin/herdr', ['tab', 'close', tab.id], { timeout: 15000 }));
     await cleanupStep(() => diagnostics.close());
