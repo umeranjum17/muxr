@@ -5,6 +5,7 @@
 
 import * as React from 'react';
 import { Text, View } from 'react-native';
+import { FloatingTerminalControls } from './FloatingTerminalControls';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { WebglAddon } from '@xterm/addon-webgl';
@@ -25,6 +26,7 @@ export interface TerminalViewProps {
     sessionId: string;
     onStatus?: (status: string) => void;
     onChannel?: (channel: TerminalChannel | undefined) => void;
+    onActions?: () => void;
 }
 
 function decodeBase64(value: string): Uint8Array {
@@ -51,6 +53,7 @@ function deviceCells(term: Terminal, dpr: number): CellMetrics {
 }
 
 export const TerminalView = React.memo((props: TerminalViewProps) => {
+    const [viewport, setViewport] = React.useState({ width: 0, height: 0 });
     const hostRef = React.useRef<View | null>(null);
     const { sessionId, onStatus, onChannel } = props;
     const [graphicsUnavailable, setGraphicsUnavailable] = React.useState(false);
@@ -462,8 +465,9 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
     }, [sessionId, onStatus, onChannel]);
 
     return (
-        <View style={{ flex: 1, backgroundColor: '#0c0c0b' }}>
+        <View onLayout={(event) => setViewport(event.nativeEvent.layout)} style={{ flex: 1, backgroundColor: '#0c0c0b' }}>
             <View ref={hostRef} style={{ flex: 1, backgroundColor: '#0c0c0b' }} />
+            {props.onActions && <FloatingTerminalControls width={viewport.width} height={viewport.height} commands={[{ label: 'Session actions', icon: 'construct-outline', run: props.onActions, dismiss: true }]} />}
             {graphicsUnavailable && (
                 <Text accessibilityRole="summary" accessibilityLiveRegion="polite" style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden' }}>
                     {t('files.graphicsUnavailable')}

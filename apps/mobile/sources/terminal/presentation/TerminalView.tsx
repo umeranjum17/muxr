@@ -58,6 +58,7 @@ export interface TerminalViewProps {
     sessionId: string;
     onStatus?: (status: string) => void;
     onChannel?: (channel: TerminalChannel | undefined) => void;
+    onActions?: () => void;
 }
 
 /** KeyboardAvoidingView animates through many intermediate sizes; wait for settle. */
@@ -76,31 +77,6 @@ function combineTextFrames(frames: readonly string[]): string {
     }
     return encodeBase64(all);
 }
-
-/** Small, dark, always in the same corner: a control, not a decoration. */
-const ZoomButton = (props: { label: string; glyph: 'add' | 'remove' | 'refresh' | 'keypad-outline'; onPress: () => void; disabled: boolean }): React.ReactElement => (
-    <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={props.label}
-        accessibilityState={{ disabled: props.disabled }}
-        disabled={props.disabled}
-        onPress={props.onPress}
-        hitSlop={8}
-        style={({ pressed }) => ({
-            width: 44,
-            height: 44,
-            borderRadius: 22,
-            alignItems: 'center',
-            justifyContent: 'center',
-            opacity: props.disabled ? 0.35 : 1,
-            backgroundColor: pressed ? 'rgba(70,70,68,0.96)' : 'rgba(28,28,27,0.82)',
-            borderWidth: 1,
-            borderColor: 'rgba(255,255,255,0.14)',
-        })}
-    >
-        <Ionicons name={props.glyph} size={18} color="#e6e6e1" />
-    </Pressable>
-);
 
 export const TerminalView = React.memo((props: TerminalViewProps) => {
     const { sessionId, onStatus, onChannel } = props;
@@ -425,20 +401,14 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                     }
                 }}
             />
-            <FloatingTerminalControls width={viewport.width} height={viewport.height}>
-                {/* A pinch is the shortcut; these are the affordance, and the
-                    only zoom a test can drive: one injected pointer cannot
-                    pinch. On a text pane they buy columns, on an image pane
-                    detail, and the labels stay the same either way so one flow
-                    covers both. */}
-                {Platform.OS === 'android' && (
-                    <ZoomButton label="Open terminal keyboard" glyph="keypad-outline" disabled={false}
-                        onPress={() => { void termRef.current?.showKeyboard().catch(() => onStatus?.('Could not open keyboard')); }} />
-                )}
-                <ZoomButton label="Zoom in" glyph="add" onPress={() => zoom(1)} disabled={atMaxZoom} />
-                <ZoomButton label="Zoom out" glyph="remove" onPress={() => zoom(-1)} disabled={atMinZoom} />
-                <ZoomButton label="Reset zoom" glyph="refresh" onPress={resetZoom} disabled={atDefaultZoom} />
-            </FloatingTerminalControls>
+            <FloatingTerminalControls width={viewport.width} height={viewport.height} commands={[
+                ...(Platform.OS === 'android' ? [{ label: 'Open terminal keyboard', icon: 'keypad-outline' as const, dismiss: true,
+                    run: () => { void termRef.current?.showKeyboard().catch(() => onStatus?.('Could not open keyboard')); } }] : []),
+                { label: 'Zoom in', icon: 'add', run: () => zoom(1), disabled: atMaxZoom },
+                { label: 'Zoom out', icon: 'remove', run: () => zoom(-1), disabled: atMinZoom },
+                { label: 'Reset zoom', icon: 'refresh', run: resetZoom, disabled: atDefaultZoom },
+                ...(props.onActions ? [{ label: 'Session actions', icon: 'construct-outline' as const, run: props.onActions, dismiss: true }] : []),
+            ]} />
             {graphicsReason !== undefined && (
                 <View style={{
                     position: 'absolute',
