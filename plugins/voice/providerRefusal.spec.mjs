@@ -741,10 +741,13 @@ describe('providerRefusal', () => {
         const reads = [];
         const mutations = [];
         const agent = { sessionId: 'pp_summary_private', cwd: codexState, agentName: 'John', taskTitle: 'Repair voice', agentKind: 'codex', agentStatus: 'idle', promptable: true };
+        const reviewer = { ...agent, sessionId: 'pp_review_private', agentName: 'Jane', taskTitle: 'Review attachment polish' };
         const refuseMutation = async () => { mutations.push('unexpected'); throw new Error('No mutation authorized in this flow'); };
         const coordinator = new RealtimeCodingCoordinator(join(codexState, 'coding.sock'), {
-            list: async () => [agent], kinds: async () => ['codex'], activity: async () => [],
-            read: async (sessionId) => { reads.push(sessionId); return { text: 'Implemented reconnect recovery; all four focused checks pass. Live audio still needs verification.', truncated: false }; },
+            list: async () => [agent, reviewer], kinds: async () => ['codex'], activity: async () => [],
+            read: async (sessionId, options) => { reads.push(sessionId); return { text: sessionId === reviewer.sessionId
+                ? `PR 224 adds image thumbnails and movable controls; inspected ${options.lines} lines. Device validation is pending.`
+                : 'Implemented reconnect recovery; all four focused checks pass. Live audio still needs verification.', truncated: false }; },
             status: async () => 'idle', start: refuseMutation, prompt: refuseMutation, sendKeys: refuseMutation, watch: refuseMutation, focus: refuseMutation,
         });
         await coordinator.start();
@@ -836,6 +839,20 @@ describe('providerRefusal', () => {
             flow.send({ type: 'realtime.webrtc.data', data: JSON.stringify({ type: 'turn.done', turn: { role: 'assistant', transcript: 'John implemented reconnect recovery and four checks pass; live audio is still unverified.' } }) });
             await waitFor(() => flow.frames.some((frame) => frame.type === 'realtime.transcript' && frame.text.includes('John implemented')), 'Completed answer was not returned to the phone');
             expect(reads).toHaveLength(1);
+            // A named follow-up must read that agent, not silently summarize
+            // the original voice target again. Exercise the real dispatcher,
+            // socket coordinator, catalog resolution and returned provider data.
+            flow.send({ type: 'realtime.webrtc.data', data: JSON.stringify({ type: 'delegation.created', item: {
+                type: 'delegation', target: 'client', id: 'review-context', content: [{ type: 'input_text',
+                    text: JSON.stringify({ name: 'read_work_context', arguments: { agent: 'Jane', lines: 200 } }) }],
+            } }) });
+            const reviewOutput = await waitFor(() => flow.frames.filter((frame) => frame.type === 'realtime.webrtc.data')
+                .map((frame) => JSON.parse(frame.data)).find((frame) => frame.delegation_item_id === 'review-context'), 'Named work context was not returned');
+            expect(JSON.stringify(reviewOutput)).toContain('PR 224 adds image thumbnails and movable controls');
+            expect(JSON.stringify(reviewOutput)).toContain('inspected 200 lines');
+            expect(JSON.stringify(reviewOutput)).not.toContain('Implemented reconnect recovery');
+            expect(reads).toEqual([agent.sessionId, reviewer.sessionId]);
+            expect(JSON.stringify(flow.frames)).not.toContain(reviewer.sessionId);
             expect(JSON.stringify(flow.frames)).not.toContain(agent.sessionId);
             expect(JSON.stringify(flow.frames)).not.toContain(access.capability);
             expect(mutations).toEqual([]);
