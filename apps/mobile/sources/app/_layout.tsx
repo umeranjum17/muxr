@@ -22,7 +22,7 @@ import { SidebarNavigator } from '@/herd/ui';
 import sodium from '@/encryption/libsodium.lib';
 import { View, Platform, AppState, Pressable, Text } from 'react-native';
 import { ModalProvider } from '@/modal';
-import { syncRestore, syncResume } from '@/catalog/sync';
+import { sync, syncRestore, syncResume } from '@/catalog/sync';
 import { FaviconPermissionIndicator } from '@/components/web/FaviconPermissionIndicator';
 import { CommandPaletteProvider } from '@/components/CommandPalette/CommandPaletteProvider';
 import { StatusBarProvider } from '@/components/StatusBarProvider';
@@ -99,6 +99,7 @@ function RealtimeAppControlBridge() {
     const router = useRouter();
     React.useEffect(() => realtimeAppController.setNavigation((path) => router.push(path as never)), [router]);
     React.useEffect(() => realtimeAppController.setScreen(pathname), [pathname]);
+    React.useEffect(() => realtimeAppController.setAgents(() => sync.request('session.list', {})), []);
     return null;
 }
 

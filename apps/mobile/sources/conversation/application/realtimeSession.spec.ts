@@ -134,17 +134,23 @@ describe('semantic realtime app control', () => {
         const unregister = app.registerControl('/settings', 'Realtime voice', () => { activations += 1; });
         const unregisterDuplicate = app.registerControl('/settings', 'Realtime voice', () => { activations += 10; });
 
-        expect(app.inspect()).toContain('Screen: home. Visible controls: none registered.');
+        expect(await app.inspect()).toContain('Screen: home. Visible controls: none registered.');
         expect(await app.navigateTo('/settings')).toContain('could not find one app destination');
         expect(navigation).toEqual([]);
-        expect(await app.navigateTo('settings')).toBe('Navigated to settings.');
-        expect(app.inspect()).toContain('Visible controls: Realtime voice, Realtime voice.');
+        expect(await app.navigateTo('setings')).toBe('Navigated to settings.');
+        expect(await app.inspect()).toContain('Visible controls: Realtime voice, Realtime voice.');
         expect(await app.activate('Realtime voice')).toContain('could not find one visible control');
         expect(activations).toBe(0);
 
         unregisterDuplicate();
         expect(await app.activate('Realtime voice')).toBe('Activated Realtime voice.');
         expect(activations).toBe(1);
+        app.setAgents(async () => [{ id: 'live-route', cwd: '/repo', agentName: 'John', taskTitle: 'Harden audio', agentStatus: 'working', promptable: true, messageCount: 0, firstMessage: '' }]);
+        expect(await app.navigateTo('agent harden audo')).toBe('Opened the selected agent on your phone.');
+        expect(navigation.at(-1)).toBe('/session/live-route');
+        expect(await app.inspect()).toContain('Phone focus: John — Harden audio — working');
+        await app.navigateTo('home');
+        expect(await app.inspect()).toContain('Recently viewed on this phone: John — Harden audio — working');
         unregister();
     });
 });

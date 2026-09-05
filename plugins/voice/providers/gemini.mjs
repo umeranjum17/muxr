@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { createAppTools } from '../appTools.mjs';
 /**
  * Gemini Live speech-to-speech adapter behind the provider-neutral realtime stream.
  *
@@ -15,6 +16,9 @@ import { createInterface } from 'node:readline';
 import {
     cleanProviderProse,
     codingTools,
+    appTools,
+    appControlInstructions,
+    workspaceContext,
     isExplicitHangup,
     runCodingTool,
     voiceCoordinationInstructions,
@@ -29,7 +33,9 @@ const OUTPUT_RATE = 24_000;
 const root = process.env.MUXR_HOME?.trim() || join(homedir(), '.muxr');
 const keyFile = join(root, 'gemini.key');
 let endAfterResponse = false;
-export const providerTools = codingTools;
+export const providerTools = [...codingTools, ...appTools];
+let currentContext = '';
+const app = createAppTools((frame) => emit(frame));
 
 const geminiSchema = (value) => {
     if (Array.isArray(value)) return value.map(geminiSchema);
@@ -138,6 +144,7 @@ const PROMPT = `You are the voice interface to a herd of coding agents. You are 
 <important>
 - Answer in one short sentence unless asked to elaborate. The user understands this work better than you do.
 ${voiceCoordinationInstructions}
+${appControlInstructions}
 - You do not do the work. The coding agent does. You carry instructions to it and report back what it did.
 - Assume the user is thinking out loud until they clearly ask for something.
 - Let them finish. A pause is thinking, not an invitation to speak: wait through it rather than filling it.
@@ -170,6 +177,7 @@ let closing = false;
 const close = (reason, force = false) => {
     if (closing) return;
     closing = true;
+    app.close();
     emit({ type: 'realtime.closed', reason }, () => process.exit(0), force);
 };
 
@@ -191,7 +199,7 @@ export function providerError(error) {
     const detail = cleanProviderProse(raw, 'provider error', 200);
     return { detail, terminal: /api key|auth|credit|quota|billing|permission|forbidden|invalid json|invalid payload|unknown name|unsupported/i.test(detail) };
 }
-const runTool = (name, input, operationId, signal) => runCodingTool(name, input, operationId, signal);
+const runTool = (name, input, operationId, signal) => app.run(name, input) ?? runCodingTool(name, input, operationId, signal);
 
 let inputTranscript = '';
 let outputTranscript = '';
@@ -295,6 +303,7 @@ function handleGeminiEvent(raw) {
 }
 
 function handleClientFrame(frame) {
+    if (app.receive(frame)) return;
     if (frame.type === 'realtime.control') {
         if (frame.action === 'stop') {
             stopped = true;
@@ -373,7 +382,7 @@ function connectProvider(key) {
                     responseModalities: ['AUDIO'],
                     speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } } },
                 },
-                systemInstruction: { parts: [{ text: PROMPT }] },
+                systemInstruction: { parts: [{ text: PROMPT + currentContext }] },
                 inputAudioTranscription: {},
                 outputAudioTranscription: {},
                 sessionResumption: sessionHandle ? { handle: sessionHandle } : {},
@@ -418,6 +427,7 @@ async function main() {
     let open;
     try { open = JSON.parse(first); } catch { throw new Error('realtime stream missing open frame'); }
     if (open?.type !== 'realtime.open') throw new Error('realtime stream expected realtime.open first');
+    currentContext = workspaceContext(open);
     rl.on('line', (line) => {
         if (line.trim() === '') return;
         try { handleClientFrame(JSON.parse(line)); } catch { /* malformed input line: ignore */ }

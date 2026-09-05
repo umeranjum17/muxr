@@ -18,6 +18,7 @@ import {
     appControlInstructions,
     cleanProviderProse,
     codingTools,
+    workspaceContext,
     isExplicitHangup,
     runCodingTool,
     voiceCoordinationInstructions,
@@ -32,6 +33,7 @@ const root = process.env.MUXR_HOME?.trim() || join(homedir(), '.muxr');
 const keyFile = join(root, 'xai.key');
 let endAfterResponse = false;
 export const providerTools = [...codingTools, ...appTools];
+let currentContext = '';
 
 const MAX_STDOUT_BYTES = 256 * 1024;
 const MAX_REFUSAL_BODY_BYTES = 16 * 1024;
@@ -498,7 +500,7 @@ function connectProvider(key) {
         current.send(JSON.stringify({
             type: 'session.update',
             session: {
-                instructions: PROMPT,
+                instructions: PROMPT + currentContext,
                 voice: 'ara',
                 reasoning: { effort: 'none' },
                 turn_detection: { type: 'server_vad', threshold: 0.9, silence_duration_ms: 700, prefix_padding_ms: 300 },
@@ -574,6 +576,7 @@ async function main() {
     let open;
     try { open = JSON.parse(first); } catch { throw new Error('realtime stream missing open frame'); }
     if (open?.type !== 'realtime.open') throw new Error('realtime stream expected realtime.open first');
+    currentContext = workspaceContext(open);
     rl.on('line', (line) => {
         if (line.trim() === '') return;
         try { handleClientFrame(JSON.parse(line)); } catch { /* malformed input line: ignore */ }

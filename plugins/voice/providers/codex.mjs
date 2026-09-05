@@ -15,9 +15,11 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import {
-    cleanProviderProse,
+    cleanProviderProse, codingTools, appTools, runCodingTool, voiceCoordinationInstructions, appControlInstructions, workspaceContext,
     isExplicitHangup,
 } from '../coordinatorPolicy.mjs';
+
+import { createAppTools } from '../appTools.mjs';
 
 const CODEX_CLIENT_VERSION = '0.144.1';
 const SIGNALING_URL = process.env.NODE_ENV === 'test' && process.env.MUXR_TEST_CODEX_SIGNALING_URL
@@ -32,12 +34,22 @@ const MAX_SDP_BYTES = 128 * 1024;
 const MAX_DATA_BYTES = 32 * 1024;
 const PROMPT = `You are Codex Voice inside muxr. Be direct and brief. Speak in one short sentence unless asked to elaborate.
 
-- Delegate coding work to the client instead of pretending to perform it yourself.
+- You are the user's personal work assistant. Inspect the workspace, summarize real output, navigate and coordinate agents using the client tools.
+${voiceCoordinationInstructions}
+${appControlInstructions}
+- To use a client tool, create a delegation whose input_text is exactly a JSON object with name and arguments. Choose name and arguments from this catalog:
+${JSON.stringify([...codingTools, ...appTools])}
+- For example, delegate {"name":"list_agents","arguments":{"query":"build"}}. Read its result before choosing the next action. Never ask the user to write this JSON or supply tool identifiers.
 - Never speak internal ids, including thread, session, pane, operation, provider, or delegation ids.
 - Report progress and blockers accurately. Never invent completion.
 - Treat pauses and incomplete speech as the user thinking; do not interrupt.
 - End only when the user clearly says goodbye or asks you to stop listening.`;
 
+let currentContext = '';
+const app = createAppTools((frame) => { emit(frame); });
+const delegations = new Map();
+const toolAbort = new AbortController();
+const availableTools = [...codingTools, ...appTools];
 let closing = false;
 let stopped = false;
 let offerAccepted = false;
@@ -53,6 +65,8 @@ function close(reason) {
     if (closing) return;
     closing = true;
     stopped = true;
+    toolAbort.abort();
+    app.close();
     process.stdout.write(`${JSON.stringify({ type: 'realtime.closed', reason: safe(reason, 'ended') })}\n`, () => process.exit(0));
 }
 
@@ -210,8 +224,24 @@ async function delegate(event) {
         ? event.item.content.filter((item) => item?.type === 'input_text' && typeof item.text === 'string').map((item) => item.text).join('\n')
         : '';
     if (!id || !request.trim()) return;
+    if (delegations.has(id)) return;
+    if (delegations.size >= 128 || Buffer.byteLength(request) > 16000) {
+        appendContext('That tool request exceeds the session limit.', id); return;
+    }
+    delegations.set(id, true);
     state('thinking');
-    const result = 'Codex Voice could not queue that instruction. An explicit Agent Name or Task Title is required.';
+    let result;
+    try {
+        const call = JSON.parse(request);
+        if (!call || !availableTools.some((tool) => tool.name === call.name)
+            || !call.arguments || typeof call.arguments !== 'object' || Array.isArray(call.arguments)) {
+            throw new Error('invalid tool request');
+        }
+        result = await (app.run(call.name, call.arguments)
+            ?? runCodingTool(call.name, call.arguments, `codex:${id}`, toolAbort.signal));
+    } catch {
+        result = 'No action was confirmed. Use a client tool delegation with name and arguments from the supplied catalog; inspect or search first if the target is unclear.';
+    }
     if (!stopped) appendContext(result, id);
 }
 
@@ -264,7 +294,7 @@ async function signalOffer(sdp) {
         body: JSON.stringify({
             sdp,
             session: {
-                model: 'gpt-live-1-codex', instructions: PROMPT,
+                model: 'gpt-live-1-codex', instructions: PROMPT + currentContext,
                 audio: { output: { voice: 'sol' } }, delegation: { type: 'client' },
             },
         }),
@@ -276,6 +306,7 @@ async function signalOffer(sdp) {
 }
 
 function handleClientFrame(frame) {
+    if (app.receive(frame)) return;
     if (frame.type === 'realtime.webrtc.offer') void signalOffer(frame.sdp).catch((error) => close(error.message));
     else if (frame.type === 'realtime.webrtc.data') handleWebRtcData(frame.data);
     else if (frame.type === 'realtime.say') appendContext(frame.text);
@@ -293,6 +324,7 @@ async function main() {
     let open;
     try { open = JSON.parse(first); } catch { throw new Error('realtime stream missing open frame'); }
     if (open?.type !== 'realtime.open') throw new Error('realtime stream expected realtime.open first');
+    currentContext = workspaceContext(open);
     input.on('line', (line) => {
         if (!line.trim()) return;
         try { handleClientFrame(JSON.parse(line)); } catch { /* host validates frames before delivery */ }
