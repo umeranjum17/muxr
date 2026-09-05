@@ -39,3 +39,7 @@ dist-npm/
 # git worktrees for parallel sessions
 .dev/
 .firecrawl/
+
+# ruby/setup-ruby local Bundler configuration and downloaded gems
+/.bundle/
+/vendor/bundle/
