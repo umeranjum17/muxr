@@ -4,7 +4,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync, mkdirSync, lstatSync, realpathSync, renameSync, rmSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { stateDir } from '../../setup/infrastructure/runtime.mjs';
+import { stateDir } from '../../setup/index.mjs';
 import { releaseVersion } from '../domain/channel.mjs';
 
 export const releaseCompatibility = Object.freeze({ protocol: 1, state: 1 });
@@ -93,9 +93,16 @@ function reconcile(path, plan) {
     let version;
     try { version = installed().manifest.version; } catch { /* partially installed package */ }
     const healthy = [plan.current, plan.target].includes(version) && hostHealthy(version, job.journalPath);
-    plan.status = healthy ? version === plan.target ? 'complete' : 'interrupted' : 'needs-attention';
-    plan.message = healthy ? version === plan.target ? 'Host aligned and connected.' : 'The update stopped. The previous host is healthy; tap Check compatibility to try again.'
-        : 'The update stopped and host health is unconfirmed. Its lock and private state snapshot are retained; repair the host service before retrying.';
+    plan.status = 'needs-attention';
+    plan.message = 'The update stopped and host health is unconfirmed. Its lock and private state snapshot are retained; repair the host service before retrying.';
+    if (healthy) {
+        plan.status = 'interrupted';
+        plan.message = 'The update stopped. The previous host is healthy; tap Check compatibility to try again.';
+        if (version === plan.target) {
+            plan.status = 'complete';
+            plan.message = 'Host aligned and connected.';
+        }
+    }
     save(path, plan);
     if (healthy && heldLock) {
         // Recheck after npm/health inspection; absence never grants ownership.
