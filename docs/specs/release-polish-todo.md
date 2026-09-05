@@ -18,7 +18,7 @@ Current product PR: [#224](https://github.com/umeranjum17/muxr/pull/224), draft.
 
 ## Next execution order
 
-1. Finish thumbnails and movable controls; include them in the current polish PR.
+1. Finish Start Code/Browser pane launch and verify rich previews on the native app.
 2. Freeze the combined source, build and verify all changed UI plus the full local gate.
 3. Complete review/CI, merge the polish, publish and verify the beta, then provide the phone APK link.
 4. Continue the visible backlog: terminal reconnect/flicker/crash, realtime grounding and broader tools, rich previews and the Tools interaction. These remain explicit beta limitations until resolved.
@@ -47,12 +47,12 @@ Current product PR: [#224](https://github.com/umeranjum17/muxr/pull/224), draft.
   - Remaining / boundary: It predates #224. Do not mistake it for the new settings, zoom or thumbnails build.
 
 - [ ] **T06 · Attach the latest polished APK to the PR and notify you** — Not done.
-  - Evidence / current state: The new 7751f730 build is an emulator APK only. No current polished ARM64 phone artifact is published.
-  - Remaining / boundary: Publish the tested beta APK, link it on #224, and send the install link with version/build.
+  - Evidence / current state: Native-verified emulator APK 250a8803 contains graphics FIFO, thumbnails, controls, zoom and settings; focused and full e5e5a2ae harness gates pass. No new ARM64 phone beta artifact yet.
+  - Remaining / boundary: Build the final integrated mobile source, publish beta after checks, and attach the phone APK plus provenance to #224.
 
-- [ ] **T07 · Explain every release feature with first principles and diagrams** — Implemented / verification pending.
-  - Evidence / current state: Release workflow HTML and Mermaid diagrams are delivered; #222 and #224 describe feature behavior and evidence.
-  - Remaining / boundary: Update #224 for thumbnails and movable controls, then reconcile the final description with the final diff.
+- [ ] **T07 · Explain every release feature with first principles and diagrams** — In progress.
+  - Evidence / current state: Release workflow and task board are available. #224 is being rewritten for the expanded final scope and exact evidence.
+  - Remaining / boundary: Include all current fixes, Mermaid flows, actual tests and remaining limitations.
 
 - [ ] **T08 · Promote a stable production release** — Deferred / explicit decision.
   - Evidence / current state: Intentionally not performed. Your instruction is beta first, stable only after your acceptance.
@@ -96,9 +96,9 @@ Current product PR: [#224](https://github.com/umeranjum17/muxr/pull/224), draft.
   - Evidence / current state: Implemented and pushed in #224: Herdr label/title, then folder fallback; Shell remains the type. Existing flow checks passed.
   - Remaining / boundary: Verify Home, Spaces, terminal header and tabs on the new APK.
 
-- [ ] **T18 · Move or hide terminal controls that cover the browser header** — In progress.
-  - Evidence / current state: Local implementation: draggable handle, tap to collapse, default position midway down the right edge. Not committed or installed yet.
-  - Remaining / boundary: Finish layout review, commit, build; verify drag, collapse and keyboard/rotation bounds on emulator.
+- [x] **T18 · Move or hide terminal controls that cover the browser header** — Done, within stated scope.
+  - Evidence / current state: Committed in #224. Full native emulator gates verify dragging, collapse and restore in text and graphics terminals; controls retain 44 dp targets.
+  - Remaining / boundary: Physical-phone reach and comfort still need your feedback; position resets when the terminal remounts.
 
 - [ ] **T19 · Replace the Tools dropdown with a half-circle expansion** — Not done.
   - Evidence / current state: Interactive design prototype exists; it is not in the app or APK.
@@ -122,9 +122,9 @@ Current product PR: [#224](https://github.com/umeranjum17/muxr/pull/224), draft.
   - Evidence / current state: Merged #221: shared work inventory, fuzzy matching, phone recent views, focus/navigation, prompt targeting and initial instructions. Provider 11/11 and realtime/dictation 15/15 passed.
   - Remaining / boundary: Real model behavior still needs acceptance; scripted dispatch does not prove natural speech always chooses the right tool.
 
-- [ ] **T24 · Explain current work and PRs instead of repeatedly asking for a name** — Not done.
-  - Evidence / current state: Your latest screenshot shows a real gap. Existing read/status tools are present, but reliable work/PR grounding is not complete.
-  - Remaining / boundary: Improve shared backend policy and bounded work/PR inspection; verify ambiguous follow-ups use fresh evidence and suggest recent/focused targets.
+- [ ] **T24 · Explain current work and PRs instead of repeatedly asking for a name** — Implemented / verification pending.
+  - Evidence / current state: Committed bf2ab490: shared backend work-context lookup preserves the named target and accepts expanded context. Existing actual provider flow 11/11 passes named PR follow-ups and redaction.
+  - Remaining / boundary: Natural spoken/model behavior still needs acceptance; this does not invent PR data absent from available work output.
 
 - [ ] **T25 · Broader personal-assistant / Herdr tool coverage** — Not done.
   - Evidence / current state: Some navigation and delegation tools exist; unrestricted Herdr parity and destructive agent actions are not delivered.
@@ -144,17 +144,17 @@ Current product PR: [#224](https://github.com/umeranjum17/muxr/pull/224), draft.
 
 ## Attachments, viewers and settings
 
-- [ ] **T29 · Zoom and pan image attachments** — Implemented / verification pending.
-  - Evidence / current state: Implemented/pushed #224: pinch, bounded pan, double-tap reading zoom, explicit fit/zoom controls and gallery swipe coordination. Native build and TypeScript passed.
-  - Remaining / boundary: Verify actual gestures and readable tall screenshots on the new APK.
+- [x] **T29 · Zoom and pan image attachments** — Done, within stated scope.
+  - Evidence / current state: Committed in #224. Exact APK 250a8803 focused emulator flow passes real image upload, thumbnail pixels, preview, zoom, pan, fit and close.
+  - Remaining / boundary: Pinch/double-tap are implemented; the automated pixel flow exercises explicit zoom and drag. Physical-phone feel remains acceptance work.
 
-- [ ] **T30 · Show selected attachments as image thumbnails** — In progress.
-  - Evidence / current state: Local composer code replaces filename-only chips, includes remove and tap-to-preview, and retains upload state. Not committed or installed yet.
-  - Remaining / boundary: Check upload/remove/send/failure recovery and preview on device, then include in #224.
+- [x] **T30 · Show selected attachments as image thumbnails** — Done, within stated scope.
+  - Evidence / current state: Committed in #224. Owned RGB image uploads and renders real thumbnail pixels; preview and removal pass on emulator. Historical picker filename/path fixture failures retained.
+  - Remaining / boundary: Send/failure restoration is code-checked; do not describe it as a device-proven failed-send flow.
 
-- [ ] **T31 · Render rich attachment formats inside the app** — Not done.
-  - Evidence / current state: Markdown/tables/code/Mermaid, PDF, SVG, HTML reports and CSV/spreadsheets were requested. Dependency preparation is stashed; the renderer is not implemented.
-  - Remaining / boundary: Build bounded, sanitized previews with clear unsupported/error states, then validate representative real files.
+- [ ] **T31 · Render rich attachment formats inside the app** — Implemented / verification pending.
+  - Evidence / current state: Integrated 8105a626: bounded offline Markdown/Mermaid, PDF, CSV/XLSX and sanitized HTML/SVG. Browser flow passes nonblank PDF/page navigation, worksheet switching, diagrams and remote-content blocking; mobile typecheck and existing attachment flow 4/4 pass.
+  - Remaining / boundary: Fresh native build and actual attachment-row-to-preview device acceptance remain required.
 
 - [ ] **T32 · Make version mismatch obvious and Settings easier to navigate** — Implemented / verification pending.
   - Evidence / current state: Implemented/pushed #224: actual native version/build replaces stale Expo 0.1.12; Home and top Settings notice link to one Connection & updates page. Duplicate summaries removed.
@@ -192,12 +192,22 @@ Current product PR: [#224](https://github.com/umeranjum17/muxr/pull/224), draft.
   - Evidence / current state: Requested after the tracker was created. Current notice opens guidance only. The CLI supports explicit channel downgrades, but has no exact-version selector or phone-callable host update action. Prefer keeping the installed app when a supported host version can serve it. Published matching release assets can be resolved by exact tag; matching versions alone do not prove protocol compatibility.
   - Remaining / boundary: Tap notice → check actual protocol/capability compatibility first; compatible differing versions need no repair. Otherwise offer Keep this app: select an exact supported host version, including an explicit downgrade, or update the app. Check other paired clients and state/plugin migration support, preserve a recoverable snapshot, retain the existing channel unless explicitly changed, and show the restart impact. Verify health/reconnection after the switch and restore the prior host on failure when state rollback is supported. App: exact published APK for the installed application identity, build and signer, then Android confirmation. Host: exact-version capability-backed updater with confirmation and durable result across restart; never arbitrary shell or a silent channel switch. Missing/unpublished builds show unavailable, with retry. Test both directions and failed/interrupted updates before calling this done.
 
+## Latest reported regressions
+
+- [ ] **T40 · Start Code / Browser must create and open a pane** — In progress.
+  - Evidence / current state: Real Code action log confirms executable lookup failure despite ~/.local/bin/tode existing. Existing Tools code also ignores caller context and acknowledges asynchronous launch before checking its result. A generic launcher and navigation completion fix is under test.
+  - Remaining / boundary: Require correct owned pane, executable discovery, real launch outcome and navigation; verify both actual tools and phone tap flow.
+
+- [x] **T41 · Preserve ordered graphics updates on mobile** — Done, within stated scope.
+  - Evidence / current state: Committed b05b8835: reproduced dropped inline placement in actual write pump, replaced latest-only storage with bounded FIFO and explicit recovery. Existing flow baseline 6/7 then fixed 7/7; native APK 250a8803 full emulator gate passed.
+  - Remaining / boundary: This closes the demonstrated dropped-frame bug; it does not establish the physical-phone black flicker or crash is fully resolved.
+
 ## Verification and update rules
 
 - Keep historical failures alongside reruns; never reuse old APK evidence for changed mobile/native bytes.
 - A passing emulator or provider fixture does not prove physical-phone rendering, account entitlement, real speech or remote audio.
 - Update this checklist when an item changes state and link the relevant commit, PR or artifact. No new test matrix or agent swarm is required.
-- Current 7751f730 checks: native build, mobile TypeScript, mobile policy, and 26 files / 94 tests passed. Later local composer/toolbar changes are excluded from that build.
+- Current APK 250a8803: native build, mobile TypeScript, mobile policy and 26 files / 94 tests passed. Focused and full emulator gates at e5e5a2ae passed. Rich previews and newer launcher work require a fresh APK.
 
 ## Links
 
