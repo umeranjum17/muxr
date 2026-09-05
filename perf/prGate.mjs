@@ -8,6 +8,7 @@ import { deviceIdentity, samplePhase, resetGfx, jankReport, screenshot, screenca
 import { CommandScope, useCommandScope } from './lib/commands.mjs';
 import { cropRaw, pixelsMoved, parseUiNodes } from './lib/gestureMetrics.mjs';
 import { harnessIdentity, patchedDependencies, sha256, sourceIdentity } from './lib/provenance.mjs';
+import { PNG } from 'pngjs';
 import { usageHome, usagePlugins } from './fixtures/usageHome.mjs';
 
 const scope = new CommandScope();
@@ -25,7 +26,7 @@ const seconds = Number(option('--seconds', '35'));
 const flow = option('--flow', 'full');
 const pkg = 'com.trymuxr.app';
 const load = { panes: 30, agents: 6, titleChurnHz: 2, terminalBytesPerSecond: 4096, graphicsFrameHz: 4 };
-const report = { flow, startedAt: new Date().toISOString(), serial, load, phases: [], failures: [], limits: { minimumSampledSeconds: 25, jsBusyPercent: 60, pssDriftKb: 102400, frameStallSeconds: 30 }, performanceScope: flow === 'usage' ? 'Not measured: Usage-only feature flow' : 'Emulator pathology smoke; not physical-device feel or a release soak' };
+const report = { flow, startedAt: new Date().toISOString(), serial, load, phases: [], failures: [], limits: { minimumSampledSeconds: 25, jsBusyPercent: 60, pssDriftKb: 102400, frameStallSeconds: 30 }, performanceScope: flow !== 'full' ? `Not measured: ${flow}-only feature flow` : 'Emulator pathology smoke; not physical-device feel or a release soak' };
 let stack;
 let ownsLock = false;
 let deviceTouched = false;
@@ -186,6 +187,8 @@ async function phase(name, mounted, drive = false) {
 }
 async function feature(name, work) {
     if (flow === 'usage' && name !== 'usage-switch-and-recency') return;
+    if (flow === 'polish' && name !== 'polish') return;
+    if (flow !== 'polish' && name === 'polish') return;
     console.log(`start: ${name}`);
     try { await work(); }
     catch (error) { report.failures.push(`${name}: ${error.message}`); console.error(`FAIL: ${name}: ${error.message}`); }
@@ -355,8 +358,77 @@ async function terminalKeyboard(name) {
 
 }
 
+// Focused native UI acceptance, separate from the four measured phases.
+async function polishControls() {
+    const version = /versionName=([^\s]+)/.exec(readFileSync(join(out, 'package.txt'), 'utf8'))?.[1];
+    check(version, 'Installed package version unavailable');
+    await adb('shell', 'am', 'start', '-a', 'android.intent.action.VIEW', '-d', 'muxr:///settings/connection', pkg);
+    const settings = await requireScreen('polish-settings', /Installed versions/);
+    check(settings.includes(`Version ${version}`), 'Settings does not report the installed binary version');
+    check(settings.includes('Connection &amp; updates') || settings.includes('Connection & updates'), 'Missing unified connection title');
+    await capture('polish-settings.png');
+    report.polish = { installedVersion: version, settingsVersion: true, compatibilityWarningScope: 'Same-version fixture; mismatched release comparison is covered by the existing version flow' };
+    await herd();
+    check((await maestro('graphicsScroll.yaml')).code === 0, 'Could not open owned terminal for composer');
+    await requireScreen('polish-composer', /Add attachment/);
+    const photo = new PNG({ width: 360, height: 1080 });
+    for (let y = 0; y < photo.height; y++) for (let x = 0; x < photo.width; x++) {
+        const index = (y * photo.width + x) * 4;
+        const band = Math.floor(y / 90) % 3;
+        photo.data[index] = band === 0 ? 230 : 30;
+        photo.data[index + 1] = band === 1 ? 210 : 40;
+        photo.data[index + 2] = band === 2 ? 220 : 50;
+        photo.data[index + 3] = 255;
+    }
+    const name = `muxr-polish-${process.pid}`;
+    const photoPath = join(out, `${name}.png`), remote = `/sdcard/Pictures/${name}.png`;
+    writeFileSync(photoPath, PNG.sync.write(photo)); publish(photoPath);
+    try {
+        await adb('shell', 'mkdir', '-p', '/sdcard/Pictures');
+        await adb('push', photoPath, remote);
+        await adb('shell', 'am', 'broadcast', '-a', 'android.intent.action.MEDIA_SCANNER_SCAN_FILE', '-d', `file://${remote}`);
+        await adb('shell', 'pm', 'grant', pkg, 'android.permission.READ_MEDIA_IMAGES');
+        await sleep(1500);
+        await tapText('Add attachment');
+        await capture('polish-picker.png');
+        const picker = await requireScreen('polish-picker', /Photo|photo|Recent/);
+        const tile = parseUiNodes(picker).find((node) => /photo taken|Photo taken|Photo,|Image taken/.test(node.desc));
+        check(tile && tile.r > tile.l && tile.b > tile.t, 'Owned photo picker tile unavailable; selector evidence retained');
+        await adb('shell', 'input', 'tap', String(Math.round((tile.l + tile.r) / 2)), String(Math.round((tile.t + tile.b) / 2)));
+        const selected = await dump('polish-picker-selected');
+        const add = parseUiNodes(selected).find((node) => /^(Add|Done)( \(\d+\))?$/.test(node.text));
+        if (add) await adb('shell', 'input', 'tap', String((add.l + add.r) / 2), String((add.t + add.b) / 2));
+        const uploaded = await requireScreen('polish-thumbnail', new RegExp(`Remove attachment ${name}[.]jpg`));
+        check(uploaded.includes(`Preview attachment ${name}.jpg`), 'Uploaded attachment did not retain its named preview');
+        await capture('polish-thumbnail.png');
+        await tapText(`Preview attachment ${name}.jpg`);
+        await requireScreen('polish-image-fit', /Close attachment preview/);
+        await capture('polish-image-fit.png');
+        const { width, height } = report.device;
+        const region = { l: width * .25, r: width * .75, t: height * .3, b: height * .7 };
+        const fitted = cropRaw(await screencapRaw(), region);
+        await tapText('Zoom in'); await sleep(400);
+        const zoom = pixelsMoved(fitted, cropRaw(await screencapRaw(), region));
+        check(zoom.moved, 'Image zoom did not change actual content pixels');
+        await capture('polish-image-zoom.png');
+        const beforePan = cropRaw(await screencapRaw(), region);
+        await adb('shell', 'input', 'swipe', String(width / 2), String(height * .6), String(width / 2), String(height * .4), '500');
+        const pan = pixelsMoved(beforePan, cropRaw(await screencapRaw(), region));
+        check(pan.moved, 'Zoomed image did not pan');
+        await capture('polish-image-pan.png');
+        await tapText('Fit image'); await tapText('Close attachment preview');
+        await tapText(`Remove attachment ${name}.jpg`);
+        const removed = await dump('polish-attachment-removed');
+        check(!removed.includes(`Preview attachment ${name}.jpg`), 'Removed image still present in composer');
+        Object.assign(report.polish, { composerUpload: true, thumbnail: true, preview: true, zoom, pan, removed: true });
+    } finally {
+        await adb('shell', 'rm', '-f', remote);
+        await adb('shell', 'am', 'broadcast', '-a', 'android.intent.action.MEDIA_SCANNER_SCAN_FILE', '-d', `file://${remote}`);
+    }
+}
+
 async function main() {
-    check(['full', 'usage'].includes(flow), '--flow must be full or usage');
+    check(['full', 'usage', 'polish'].includes(flow), '--flow must be full, usage or polish');
     check(/^emulator-\d+$/.test(serial), 'PR gate only clears dedicated emulators');
     check(seconds >= 30 && seconds <= 120, '--seconds must be 30..120');
     mkdirSync(lock); ownsLock = true;
@@ -416,6 +488,7 @@ async function main() {
     await sleep(8000);
     await dismissPrompts();
     await stabilizeStartup();
+    await feature('polish', polishControls);
     await feature('herd', () => phase('herd', /text="connected"/, true));
     await feature('document', async () => {
         await herd(); await tapText('Files');

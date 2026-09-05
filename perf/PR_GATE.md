@@ -151,3 +151,7 @@ origin/pr-review-209. Usage fixtures require the separate usage fix (OMP adapter
 OpenCode quota/status reporting, provider recency and mobile provider cap); its
 main-based worktree cannot be substituted for the release APK. Integrate that
 fix onto the release branch and rebuild a matching APK before claiming Usage PASS.
+
+## Focused attachment and Settings acceptance
+
+`--flow polish` uses the same APK/provenance, isolated stack, pairing, device lock and cleanup as the full gate. It does not measure performance or replace `--flow full`. It checks the real installed version on Connection & updates, uploads an owned generated image through Android's photo picker, verifies the composer thumbnail, opens its preview, measures zoom/pan pixels, and removes the image. It does not send a prompt. A missing picker selector fails with retained XML rather than selecting an arbitrary attachment. The same-version fixture does not prove the mismatch banner; version comparison has separate existing flow coverage.
