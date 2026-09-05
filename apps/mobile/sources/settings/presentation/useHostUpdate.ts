@@ -16,6 +16,7 @@ export function useHostUpdate(appVersion: string) {
     const [busy, setBusy] = React.useState(false);
     const operating = React.useRef(false);
     const refreshing = React.useRef(false);
+    const lastStatus = React.useRef<string>();
     const current = React.useRef(machine); current.current = machine;
     const alive = React.useRef(true);
     React.useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
@@ -27,15 +28,15 @@ export function useHostUpdate(appVersion: string) {
         try {
             const next = await sync.request('host.update', { action: 'status', planId });
             if (!relevant()) return;
-            setResult(next); setMessage(next.message);
-            if (!pending.has(next.status)) saved.delete(key);
+            lastStatus.current = next.status; setResult(next); setMessage(next.message);
+            if (!pending.has(next.status) && next.status !== 'needs-attention') saved.delete(key);
         } catch { if (relevant()) setMessage('Waiting for the host. Your update record is saved; check again after it reconnects.'); }
         finally { refreshing.current = false; }
     }, [machine, key]);
     React.useEffect(() => {
-        setResult(undefined); setMessage(undefined); setBusy(false);
+        lastStatus.current = undefined; setResult(undefined); setMessage(undefined); setBusy(false);
         void refresh();
-        const timer = setInterval(() => { if (saved.getString(key)) void refresh(); }, 5000);
+        const timer = setInterval(() => { if (saved.getString(key) && lastStatus.current !== 'needs-attention') void refresh(); }, 5000);
         return () => clearInterval(timer);
     }, [key, refresh]);
     const check = async () => {
@@ -54,7 +55,7 @@ export function useHostUpdate(appVersion: string) {
             saved.set(key, plan.planId);
             setMessage('Aligning host. The connection may pause while it restarts.');
             const next = await sync.request('host.update', { action: 'apply', planId: plan.planId });
-            if (relevant()) { setResult(next); setMessage(next.message); }
+            if (relevant()) { lastStatus.current = next.status; setResult(next); setMessage(next.message); }
         } catch (error) {
             if (relevant()) setMessage(saved.getString(key) ? 'Update requested. Waiting for the host to reconnect; check its saved result shortly.'
                 : error instanceof Error ? error.message : 'Host compatibility could not be checked. Try again.');
