@@ -107,7 +107,7 @@ describe('mobile relay liveness', () => {
         vi.useRealTimers();
     });
 
-    it('proves host liveness, reconnects a closed route, and replaces a timed-out half-open route', async () => {
+    it('recovers a silent initial hello, proves host liveness, and replaces closed or half-open routes', async () => {
         vi.useFakeTimers();
         vi.stubGlobal('WebSocket', FakeWebSocket);
         resetConnectionDiagnostics();
@@ -120,9 +120,21 @@ describe('mobile relay liveness', () => {
         });
         client.connect();
         await Promise.resolve();
-        const first = FakeWebSocket.current!;
+        const silent = FakeWebSocket.current!;
         expect(client.isLive()).toBe(false);
         await expect(client.request('herdr.tree', {})).rejects.toThrow('not connected');
+        await vi.advanceTimersByTimeAsync(24);
+        expect(client.state).toBe('connecting');
+        expect(silent.readyState).toBe(FakeWebSocket.OPEN);
+        await vi.advanceTimersByTimeAsync(1);
+        expect(client.state).toBe('closed');
+        expect(silent.readyState).not.toBe(FakeWebSocket.OPEN);
+        expect(formatConnectionDiagnosticsForReport()).toMatch(/socket\.fail liveness no-host-frame/);
+
+        await vi.advanceTimersByTimeAsync(10);
+        const first = FakeWebSocket.current!;
+        expect(first).not.toBe(silent);
+        expect(client.isLive()).toBe(false);
         first.onmessage?.({ data: JSON.stringify({
             header: { machineId: 'machine-1', seq: 1, at: Date.now() },
             payload: encodePayload({ type: 'plugins.invalidated', reason: 'changed', pluginIds: ['example.ui'] } as never),
@@ -130,7 +142,13 @@ describe('mobile relay liveness', () => {
         await Promise.resolve();
         expect(client.state).toBe('open');
         expect(client.isLive()).toBe(true);
+        // A frame already decoding must not revive a socket retired meanwhile.
+        first.onmessage?.({ data: JSON.stringify({
+            header: { machineId: 'machine-1', seq: 2, at: Date.now() },
+            payload: encodePayload({ type: 'plugins.invalidated', reason: 'changed', pluginIds: ['example.ui'] } as never),
+        }) });
         first.failClose(1012, 'raw relay restart with internal details');
+        await Promise.resolve();
         expect(client.state).toBe('closed');
         const report = formatConnectionDiagnosticsForReport();
         expect(report).toMatch(/socket\.fail close socket-closed 1012 service-restart/);

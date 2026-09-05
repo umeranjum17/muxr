@@ -236,6 +236,8 @@ export class MuxrClient {
                     stage: 'liveness',
                     code: sawHostFrame ? 'all-frames-rejected' : 'no-host-frame',
                 });
+                this.retireSocket(socket);
+                socket.close();
             }, this.options.requestTimeoutMs ?? 20_000);
         };
         socket.onmessage = (message: MessageEvent) => {
@@ -418,6 +420,8 @@ export class MuxrClient {
             this.recordDecodeFailure(socket, 'open-failed');
             return;
         }
+
+        if (this.socket !== socket) return;
 
         // Socket open only proves the relay accepted us; the first frame that
         // survives the machine's E2EE context proves the host is really there.
