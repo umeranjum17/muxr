@@ -7,6 +7,7 @@ import { startLiveStack } from './lib/fakeStack.mjs';
 import { pairPhone } from './lib/pairPhone.mjs';
 import { parseUiNodes } from './lib/gestureMetrics.mjs';
 import { sourceIdentity, harnessIdentity, patchedDependencies, sha256 } from './lib/provenance.mjs';
+import { PNG } from 'pngjs';
 
 const args = process.argv.slice(2);
 const option = (key) => args[args.indexOf(key) + 1];
@@ -23,7 +24,53 @@ const run = (bin, argv, options = {}) => {
     check(timeout > 0, 'Phase deadline reached');
     return scope.run(bin, argv, { ...options, timeout });
 };
-const adb = async (...args) => (await run('adb', ['-s', serial, ...args], { timeout: 15_000 })).stdout;
+function adbFailureClass(args) {
+    if (args[0] === 'shell' && args[1] === 'dumpsys' && args[2] === 'activity') return 'get-state';
+    if (args[0] === 'shell' && args[1] === 'input' && args[2] === 'tap') return 'input-tap';
+    if (args[0] === 'shell' && args[1] === 'uiautomator') return 'ui-dump';
+    if (args[0] === 'shell' && args[1] === 'cat') return 'ui-read';
+    if (args[0] === 'exec-out' && args[1] === 'screencap') return 'screencap';
+    if (args[0] === 'shell' && args[1] === 'am' && args[2] === 'start') return 'activity-start';
+    if (args[0] === 'shell' && args[1] === 'am' && args[2] === 'force-stop') return 'force-stop';
+    if (args[0] === 'shell' && args[1] === 'pidof') return 'get-state';
+    if (args[0] === 'shell' && args[1] === 'sh' && args[2] === '-c' && String(args[3]).startsWith('pidof ')) return 'get-state';
+    return String(args[0] ?? 'unknown').replace(/[^a-z0-9_.-]/gi, '').slice(0, 48) || 'unknown';
+}
+function sanitizeAdbText(value) {
+    return String(value ?? '')
+        .replace(/\b(?:Bearer\s+|sk-)[A-Za-z0-9._~+/-]+/gi, '[redacted]')
+        .replace(/(?:\/[^\s,;<>]+){2,}/g, '[path redacted]')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 240);
+}
+function recordAdbFailure(args, cause) {
+    report.adbFailures ??= [];
+    const message = String(cause?.message ?? '');
+    const exit = /exit (\d+)/.exec(message)?.[1];
+    const signal = /signal (SIG[A-Z0-9]+)/i.exec(message)?.[1];
+    report.adbFailures.push({
+        at: new Date().toISOString(),
+        class: adbFailureClass(args),
+        result: exit ? `exit-${exit}` : signal ? `signal-${signal}` : /exceeded/.test(message) ? 'timeout' : 'error',
+        stderr: sanitizeAdbText(cause?.stderr),
+    });
+}
+const adbRunOn = async (commandScope, args, options = {}) => {
+    try {
+        return (await commandScope.run('adb', ['-s', serial, ...args], { timeout: 15_000, ...options })).stdout;
+    } catch (cause) {
+        if (options.allowAbsentPid && args[0] === 'shell' && args[1] === 'pidof'
+            && /\bexit 1\b/.test(String(cause?.message ?? '')) && !sanitizeAdbText(cause?.stderr)) {
+            const deviceState = await adbRunOn(commandScope, ['get-state'], { timeout: 10_000 });
+            if (deviceState.trim() === 'device') return '';
+        }
+        recordAdbFailure(args, cause);
+        throw cause;
+    }
+};
+const adbRun = async (args, options = {}) => adbRunOn({ run }, args, options);
+const adb = async (...args) => adbRun(args);
 const shellQuote = (text) => `'${text.replaceAll("'", "'\\''")}'`;
 const check = (yes, why) => { if (!yes) throw new Error(why); };
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
@@ -50,9 +97,21 @@ async function tap(text) {
 }
 async function capture(name) {
     check(/^[a-z0-9-]+$/.test(name), 'Invalid evidence name');
-    save(`${name}.xml`, await ui());
-    save(`${name}.png`, (await run('adb', ['-s', serial, 'exec-out', 'screencap', '-p'], { timeout: 15_000, encoding: 'buffer' })).stdout);
+    save(`${name}.png`, await adbRun(['exec-out', 'screencap', '-p'], { encoding: 'buffer' }));
     publish(join(out, `${name}.png`));
+    save(`${name}.xml`, await ui());
+}
+async function voiceStateSnapshot(phase) {
+    const raw = await adb('shell', 'dumpsys', 'activity', 'top');
+    const state = raw.split('\n').filter((line) => /(?:mResumedActivity|ResumedActivity|mFocusedApp)/.test(line))
+        .map(sanitizeAdbText).join(' | ').slice(0, 240);
+    (report.voiceState ??= []).push({
+        at: new Date().toISOString(),
+        phase,
+        status: state ? 'available' : 'missing',
+        voicePhase,
+        voiceStarted: Boolean(report.voiceStartedAt),
+    });
 }
 const herdr = async (...args) => (await run('/usr/bin/herdr', args, { timeout: 15_000 })).stdout;
 async function open(uri) {
@@ -97,9 +156,54 @@ async function memory(label, pid) {
     (report.memory ??= []).push(sample);
     check(pss <= 900000, `Memory stop: ${pss}KiB exceeds 900000KiB`);
 }
+async function browserInventory() {
+    return JSON.parse((await run('terminal-browser', ['ls', '--all', '--json'], { timeout: 10_000 })).stdout).browsers ?? [];
+}
+function bodyPixelProof(path) {
+    const png = PNG.sync.read(readFileSync(path));
+    const left = Math.floor(png.width * 0.04), right = Math.floor(png.width * 0.86);
+    const top = Math.floor(png.height * 0.20), bottom = Math.floor(png.height * 0.78);
+    let nonWhite = 0, dark = 0, colorBuckets = new Set();
+    for (let y = top; y < bottom; y++) for (let x = left; x < right; x++) {
+        const i = (y * png.width + x) * 4, r = png.data[i], g = png.data[i + 1], b = png.data[i + 2], a = png.data[i + 3];
+        if (a < 16) continue;
+        if (r < 245 || g < 245 || b < 245) nonWhite++;
+        if (r < 100 && g < 100 && b < 100) dark++;
+        colorBuckets.add(`${r >> 4}:${g >> 4}:${b >> 4}`);
+    }
+    return { width: png.width, height: png.height, nonWhite, dark, colorBuckets: colorBuckets.size, proven: nonWhite >= 2_000 && dark >= 200 && colorBuckets.size >= 24 };
+}
+async function retireOwnedBrowser(browser) {
+    check(browser?.key && browser?.tabId !== undefined, 'Missing owned browser identity');
+    await run('terminal-browser', ['action', '--browser', browser.key, '--tab', String(browser.tabId), '--', 'eval', 'globalThis.terminalBrowser.quit()'], { timeout: 10_000 });
+    const deadline = Date.now() + 10_000;
+    do {
+        const remaining = (await browserInventory()).filter((entry) => entry.key === browser.key || entry.pane?.pane === tab.pane);
+        if (remaining.length === 0) { report.browserRetiredAt = new Date().toISOString(); return; }
+        await sleep(250);
+    } while (Date.now() < deadline);
+    throw new Error('Owned browser remained after scoped quit; retain lock and scratch');
+}
+async function prepareGraphicsPane() {
+    const deadline = Date.now() + 30_000;
+    const previousDeadline = operationDeadline;
+    operationDeadline = deadline;
+    try {
+        for (let attempt = 0; Date.now() < deadline; attempt++) {
+            const xml = await ui();
+            save(`graphics-preflight-${attempt}.xml`, xml);
+            if (xml.includes('Show live agent updates?')) { await tap('CANCEL'); await sleep(250); continue; }
+            if (/text="(Terminal|ctrl)"/.test(xml)) return;
+            await sleep(500);
+        }
+    } finally {
+        operationDeadline = previousDeadline;
+    }
+    throw new Error('Terminal not mounted during bounded graphics preflight');
+}
 async function github() {
     check(tab && !producer, 'Create owned producer pane and mount it first');
-    const xml = await ui(); check(/text="(Terminal|ctrl)"/.test(xml), 'Terminal not mounted before producer');
+    await prepareGraphicsPane();
     const pid = (await adb('shell', 'pidof', pkg)).trim(); check(/^\d+$/.test(pid), 'Expected one APK PID');
     await memory('baseline', pid);
     // This script reports its own PID before exec; only that exact PID/start is retired.
@@ -125,14 +229,20 @@ async function github() {
             await memory(`paint-${i}`, pid);
             if (i === 2) {
                 await capture('github-paint');
-                const inventory = JSON.parse((await run('terminal-browser', ['ls', '--all', '--json'], { timeout: 10000 })).stdout);
-                const owned = inventory.browsers.filter((browser) => browser.pane?.pane === tab.pane);
+                const owned = (await browserInventory()).filter((browser) => browser.pane?.pane === tab.pane);
                 check(owned.length === 1, 'Cannot bind painted browser to owned pane');
-                report.browser = { key: owned[0].key, pid: owned[0].pid, pane: owned[0].pane, tabs: owned[0].tabs.map(({ id, url, title }) => ({ id, url, title })) };
+                const target = owned[0].tabs.find((entry) => entry.url === 'https://github.com/') ?? owned[0].tabs[0];
+                check(target && target.url === 'https://github.com/', 'Owned browser has no GitHub tab');
+                const browserStart = processStart(owned[0].pid);
+                check(browserStart, 'Cannot capture owned browser PID start identity');
+                report.browser = { key: owned[0].key, pid: owned[0].pid, start: browserStart, pane: owned[0].pane, tabId: target.id, url: target.url, title: target.title };
+                report.githubPaint = bodyPixelProof(join(out, 'github-paint.png'));
+                check(report.githubPaint.proven, 'GitHub body pixels not proven; retain evidence without paint claim');
             }
             await sleep(Math.min(2000, Math.max(0, deadline - Date.now())));
         }
     } finally { operationDeadline = Infinity; clearTimeout(paintStop); await retireProducer(); }
+    await retireOwnedBrowser(report.browser);
     const retirementDeadline = Date.now() + 20000;
     operationDeadline = retirementDeadline;
     try {
@@ -151,7 +261,10 @@ async function command(input) {
     check(Object.entries(input).every(([key, value]) => ['op', 'text', 'uri', 'name'].includes(key) && typeof value === 'string' && value.length <= 2048), 'Invalid command fields');
     const { op, text, uri, name } = input;
     if (op === 'capture') return capture(name);
-    if (op === 'tap') return tap(text);
+    if (op === 'tap') {
+        check(text !== 'Talk to this session', 'Use voice-start for the realtime voice control');
+        return tap(text);
+    }
     if (op === 'open') return open(uri);
     if (op === 'back') return adb('shell', 'input', 'keyevent', 'KEYCODE_BACK');
     if (op === 'pane') {
@@ -169,7 +282,10 @@ async function command(input) {
         voicePhase = 'establishing'; voiceDeadline = Date.now() + 30000;
         voiceTimer = setTimeout(() => void finish(new Error('Voice establishment exceeded 30 seconds')), 30000);
         report.voiceStartedAt = new Date().toISOString();
-        return tap(text);
+        await voiceStateSnapshot('before-tap');
+        await tap(text);
+        await voiceStateSnapshot('after-tap');
+        return;
     }
     if (op === 'voice-connected') {
         check(voicePhase === 'establishing' && Date.now() < voiceDeadline, 'Invalid voice connection transition');
@@ -196,20 +312,46 @@ async function command(input) {
     if (op === 'finish') return finish();
     throw new Error('Unknown probe command');
 }
+const evidenceTimestamp = (value) => typeof value === 'string' && value.length <= 30
+    && /^\d{4}-\d\d-\d\dT[\d:.]+Z$/.test(value) && Number.isFinite(Date.parse(value)) ? value : undefined;
 function connectionEvidence() {
     if (!stack || !existsSync(stack.journalPath)) return { events: [] };
     const journal = JSON.parse(readFileSync(stack.journalPath, 'utf8'));
     const kinds = ['local', 'native', 'browser', 'peer', 'unknown'];
     return {
+        sampledAt: new Date().toISOString(),
+        startedAt: evidenceTimestamp(journal.current?.startedAt),
+        updatedAt: evidenceTimestamp(journal.current?.updatedAt),
+        recentClients: Object.fromEntries(kinds.map((kind) => {
+            const count = journal.current?.recentClients?.[kind];
+            return [kind, Number.isSafeInteger(count) && count >= 0 && count <= 1000000 ? count : null];
+        })),
         relayState: ['connecting', 'open', 'closed', 'replaced'].includes(journal.current?.relayState) ? journal.current.relayState : 'unknown',
-        events: (journal.events ?? []).filter((event) => ['relay.state', 'client.hello', 'client.reject'].includes(event.event)).slice(-32).map((event) => ({
-            at: typeof event.at === 'string' && event.at.length <= 30 && /^\d{4}-\d\d-\d\dT[\d:.]+Z$/.test(event.at) ? event.at : undefined,
+        events: (journal.events ?? []).filter((event) => (['relay.state', 'client.hello', 'client.reject'].includes(event.event)
+            || event.event === 'client.request' && event.clientKind === 'native' && event.outcome === 'ok'
+                && ['session.list', 'machines.list'].includes(event.request))).slice(-32).map((event) => ({
+            at: evidenceTimestamp(event.at),
             event: event.event,
             state: ['connecting', 'open', 'closed', 'replaced'].includes(event.state) ? event.state : undefined,
             kind: kinds.includes(event.kind ?? event.clientKind) ? event.kind ?? event.clientKind : undefined,
-            outcome: ['decrypt-rejected', 'malformed'].includes(event.outcome) ? event.outcome : undefined,
+            outcome: ['decrypt-rejected', 'malformed', 'ok'].includes(event.outcome) ? event.outcome : undefined,
+            request: event.event === 'client.request' && ['session.list', 'machines.list'].includes(event.request) ? event.request : undefined,
         })),
     };
+}
+function nativeConnectionProof(evidence, requireHello) {
+    const start = Date.parse(report.startedAt);
+    const fresh = (at) => Date.parse(at) >= start && Date.parse(at) <= Date.parse(evidence.sampledAt);
+    if (evidence.events.some((event) => event.event === 'client.hello' && event.kind === 'native' && fresh(event.at))) return 'accepted-native-hello';
+    if (!requireHello && evidence.events.some((event) => event.event === 'client.request'
+        && event.kind === 'native' && event.outcome === 'ok' && fresh(event.at))) return 'successful-native-read';
+    // host.ts counts a native client only after authenticated ingress. Ordinary
+    // RPCs update this count even when an unsolicited encrypted host frame made
+    // the phone live before its hello was accepted. The fresh owned journal starts
+    // with zero clients; require its startup and persisted snapshot within this run.
+    if (!requireHello && fresh(evidence.startedAt) && fresh(evidence.updatedAt)
+        && evidence.recentClients?.native > 0) return 'authenticated-native-activity';
+    return null;
 }
 async function waitForNativeConnection() {
     const deadline = Date.now() + 30000;
@@ -218,14 +360,15 @@ async function waitForNativeConnection() {
         do {
             const xml = await ui(); save('live-connecting.xml', xml);
             report.connectionJournal = connectionEvidence();
-            if (/text="connected"/.test(xml)
-                && report.connectionJournal.events.some((event) => event.event === 'client.hello' && event.kind === 'native')) {
+            const proof = nativeConnectionProof(report.connectionJournal, args.includes('--diagnose-reconnect'));
+            if (/text="connected"/.test(xml) && proof) {
+                report.connectionProof = { kind: proof, evidence: report.connectionJournal };
                 report.connectedAt = new Date().toISOString(); return;
             }
             if (['Keep muxr connected in the background?', 'Show live agent updates?'].some((title) => xml.includes(`text="${title}"`))) await tap('CANCEL');
             await sleep(Math.min(1200, Math.max(0, deadline - Date.now())));
         } while (Date.now() < deadline);
-        throw new Error('Live host did not connect: require connected UI and native client hello; see connectionJournal/live-connecting.xml');
+        throw new Error('Live host did not connect: require connected UI and fresh authenticated native evidence; see connectionJournal/live-connecting.xml');
     } finally { operationDeadline = Infinity; }
 }
 async function connectedBeforeReady() {
@@ -277,9 +420,9 @@ async function finish(error) {
     const diagnostics = new CommandScope();
     const cleanupStep = async (action) => { try { await action(); } catch (cause) { clean = false; report.failures.push(cause.message); } };
     if (deviceTouched) await cleanupStep(async () => {
-        await diagnostics.run('adb', ['-s', serial, 'shell', 'am', 'force-stop', pkg], { timeout: 15000 });
-        const status = await diagnostics.run('adb', ['-s', serial, 'shell', `pidof ${pkg} || true`], { timeout: 10000 });
-        check(status.stdout.trim() === '', 'APK remains after force-stop');
+        await adbRunOn(diagnostics, ['shell', 'am', 'force-stop', pkg]);
+        const status = await adbRunOn(diagnostics, ['shell', 'pidof', pkg], { timeout: 10000, allowAbsentPid: true });
+        check(status.trim() === '', 'APK remains after force-stop');
     });
     if (tab) await cleanupStep(() => diagnostics.run('/usr/bin/herdr', ['tab', 'close', tab.id], { timeout: 15000 }));
     await cleanupStep(() => diagnostics.close());
