@@ -99,7 +99,7 @@
         <category android:name="android.intent.category.BROWSABLE"/>
         <data android:scheme="https" android:host="${muxrPairHost}" android:pathPrefix="/pair"/>
       </intent-filter>
-      <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts"/>
+      <meta-data android:name="android.app.shortcuts" android:resource="${muxrShortcuts}"/>
     </activity>
   </application>
 </manifest>
