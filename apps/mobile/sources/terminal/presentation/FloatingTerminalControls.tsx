@@ -1,7 +1,6 @@
 import * as React from 'react';
-import { BackHandler, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { BackHandler, PanResponder, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 
 export type TerminalCommand = {
@@ -50,12 +49,17 @@ export function FloatingTerminalControls({ width, height, commands }: { width: n
         const subscription = BackHandler.addEventListener('hardwareBackPress', () => { setExpanded(false); return true; });
         return () => subscription.remove();
     }, [open]);
-    const drag = Gesture.Pan().minDistance(8).maxPointers(1)
-        .onStart(() => { startX.value = x.value; startY.value = y.value; })
-        .onUpdate((event) => {
-            x.value = Math.max(minX, Math.min(maxX, startX.value + event.translationX));
-            y.value = Math.max(minY, Math.min(maxY, startY.value + event.translationY));
-        });
+    // Own movement once the finger crosses the threshold. React Native then
+    // cancels the child Pressable, so releasing a drag cannot toggle the fan.
+    const drag = PanResponder.create({
+        onMoveShouldSetPanResponderCapture: (_event, gesture) => gesture.numberActiveTouches === 1 && Math.hypot(gesture.dx, gesture.dy) >= 8,
+        onPanResponderGrant: () => { startX.value = x.value; startY.value = y.value; },
+        onPanResponderMove: (_event, gesture) => {
+            x.value = Math.max(minX, Math.min(maxX, startX.value + gesture.dx));
+            y.value = Math.max(minY, Math.min(maxY, startY.value + gesture.dy));
+        },
+        onPanResponderTerminationRequest: () => false,
+    });
     const position = useAnimatedStyle(() => ({ transform: [{ translateX: x.value - anchorX }, { translateY: y.value - anchorY }] }));
     const button = (command: TerminalCommand) => <Pressable key={command.label} accessibilityRole="button" accessibilityLabel={command.label}
         accessibilityState={{ disabled: !!command.disabled }} disabled={command.disabled}
@@ -78,8 +82,7 @@ export function FloatingTerminalControls({ width, height, commands }: { width: n
                     const top = RADIUS + RADIUS * Math.sin(angle);
                     return <View key={command.label} style={{ position: 'absolute', left, top }}>{button(command)}</View>;
                 }))}
-            <GestureDetector gesture={drag}>
-                <View collapsable={false} style={{ position: 'absolute', left: anchorX, top: anchorY, width: BUTTON, height: BUTTON }}>
+                <View {...drag.panHandlers} collapsable={false} style={{ position: 'absolute', left: anchorX, top: anchorY, width: BUTTON, height: BUTTON }}>
                     <Pressable accessibilityRole="button" accessibilityLabel={open ? 'Hide terminal controls' : 'Show terminal controls'}
                         accessibilityHint="Terminal commands. Drag to move; tap to open or close."
                         accessibilityState={{ expanded: open }} style={({ pressed }) => buttonStyle(pressed)}
@@ -87,7 +90,6 @@ export function FloatingTerminalControls({ width, height, commands }: { width: n
                         <Ionicons name={open ? 'close' : 'options-outline'} size={20} color="#eeeef0" />
                     </Pressable>
                 </View>
-            </GestureDetector>
         </Animated.View>
     </>;
 }
