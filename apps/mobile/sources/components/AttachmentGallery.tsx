@@ -1,6 +1,8 @@
 import * as React from 'react';
 import { ActivityIndicator, FlatList, Modal, Pressable, Text, View, useWindowDimensions, type ViewToken } from 'react-native';
 import { Image } from 'expo-image';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { ZoomableAttachmentImage } from './ZoomableAttachmentImage';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -68,6 +70,8 @@ export function AttachmentGallery({ sessionId, images, initialIndex, onClose }: 
     const { width, height } = useWindowDimensions();
     const list = React.useRef<FlatList<GalleryImage>>(null);
     const [index, setIndex] = React.useState(initialIndex);
+    const [pageHeight, setPageHeight] = React.useState(Math.max(1, height - 160));
+    const [zoomed, setZoomed] = React.useState(false);
     const [downloading, setDownloading] = React.useState(false);
     const active = images[index] ?? images[0];
     const viewabilityConfig = React.useRef({ itemVisiblePercentThreshold: 60 }).current;
@@ -80,10 +84,11 @@ export function AttachmentGallery({ sessionId, images, initialIndex, onClose }: 
         requestAnimationFrame(() => list.current?.scrollToIndex({ index: initialIndex, animated: false }));
     }, [initialIndex]);
 
+    React.useEffect(() => setZoomed(false), [index]);
     if (active === undefined) return null;
     return (
         <Modal visible transparent animationType="fade" onRequestClose={onClose} statusBarTranslucent>
-            <View style={styles.gallery}>
+            <GestureHandlerRootView style={styles.gallery}>
                 <View style={[styles.galleryHeader, { paddingTop: Math.max(insets.top, 12) }]}>
                     <View style={{ flex: 1, minWidth: 0 }}>
                         <Text numberOfLines={1} style={styles.galleryName}>{active.title}</Text>
@@ -106,7 +111,10 @@ export function AttachmentGallery({ sessionId, images, initialIndex, onClose }: 
                     data={images}
                     keyExtractor={(item) => item.id}
                     horizontal
+                    onLayout={(event) => setPageHeight(Math.max(1, event.nativeEvent.layout.height))}
                     pagingEnabled
+                    scrollEnabled={!zoomed}
+                    extraData={index}
                     initialNumToRender={1}
                     maxToRenderPerBatch={2}
                     windowSize={3}
@@ -116,32 +124,32 @@ export function AttachmentGallery({ sessionId, images, initialIndex, onClose }: 
                     onScrollToIndexFailed={() => undefined}
                     viewabilityConfig={viewabilityConfig}
                     onViewableItemsChanged={onViewableItemsChanged}
-                    renderItem={({ item, index: itemIndex }) => <GalleryPage sessionId={sessionId} image={item} width={width} height={height} active={itemIndex === index} />}
+                    renderItem={({ item, index: itemIndex }) => <GalleryPage sessionId={sessionId} image={item} width={width} height={pageHeight} active={itemIndex === index} onZoomedChange={setZoomed} />}
                 />
                 {images.length > 1 && images.length <= 12 && <View style={[styles.dots, { paddingBottom: Math.max(insets.bottom, 16) }]}>
                     {images.map((image, dot) => <Pressable key={image.id} onPress={() => list.current?.scrollToIndex({ index: dot })} hitSlop={6} accessibilityLabel={`Show image ${dot + 1}`}
                         style={[styles.dot, dot === index && styles.dotActive]} />)}
                 </View>}
-            </View>
+            </GestureHandlerRootView>
         </Modal>
     );
 }
 
-function GalleryPage({ sessionId, image, width, height, active }: { sessionId: string; image: GalleryImage; width: number; height: number; active: boolean }) {
+function GalleryPage({ sessionId, image, width, height, active, onZoomedChange }: { sessionId: string; image: GalleryImage; width: number; height: number; active: boolean; onZoomedChange: (value: boolean) => void }) {
     // FlatList keeps neighbour pages mounted for smooth swiping; only the page
     // actually on screen is allowed to ask the host for bytes.
     const preview = useAttachmentPreview(sessionId, image.action, active);
     const [failed, setFailed] = React.useState(false);
     const recyclingKey = /^[0-9a-f]{64}$/.test(image.action.id) ? image.action.id : image.id;
     React.useEffect(() => setFailed(false), [image.id]);
-    return <View style={{ width, height, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12, paddingVertical: 86 }}>
+    return <View style={{ width, height, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12, paddingVertical: 12 }}>
         {!active
             ? null
             : preview === undefined
               ? <ActivityIndicator color="rgba(255,255,255,0.6)" />
             : preview === null || failed
               ? <Ionicons name="image-outline" size={34} color="rgba(255,255,255,0.32)" />
-              : <Image source={{ uri: preview.uri }} style={{ width: '100%', height: '100%' }} contentFit="contain" transition={160} recyclingKey={recyclingKey} onError={() => setFailed(true)} />}
+              : <ZoomableAttachmentImage key={image.id} uri={preview.uri} recyclingKey={recyclingKey} width={width - 24} height={Math.max(1, height - 24)} onError={() => setFailed(true)} onZoomedChange={onZoomedChange} />}
     </View>;
 }
 
