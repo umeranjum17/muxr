@@ -186,6 +186,12 @@ Current product PR: [#224](https://github.com/umeranjum17/muxr/pull/224), draft.
   - Evidence / current state: Prior component reviews and release consolidation are recorded. #224 is currently draft; all remaining known gaps are listed here.
   - Remaining / boundary: Review final diff, update PR checklist/evidence and close only work actually completed. Avoid declaring code review as phone/audio acceptance.
 
+## One-tap mismatch repair
+
+- [ ] **T39 · Tap the mismatch to get the matching compatible update** — Not done.
+  - Evidence / current state: Requested after the tracker was created. Current notice opens guidance only. The channel-aware CLI updater exists, but there is no phone-callable host update action. Published matching release assets can be resolved by exact tag; matching versions alone do not prove protocol compatibility.
+  - Remaining / boundary: Tap notice → check app/host identities, supported compatibility and channel → offer the component update → show progress → reconnect and verify. App: exact published APK for the installed application identity, build and signer, then Android confirmation. Host: dedicated capability-backed updater with confirmation and durable result across restart; never arbitrary shell or a silent channel switch. Missing/unpublished builds show unavailable, with retry. Test both directions and failed/interrupted updates before calling this done.
+
 ## Verification and update rules
 
 - Keep historical failures alongside reruns; never reuse old APK evidence for changed mobile/native bytes.
