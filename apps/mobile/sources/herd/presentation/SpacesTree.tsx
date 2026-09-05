@@ -212,8 +212,8 @@ const AgentRow = React.memo(({
     const labels = agentLabels(pane);
     const sessionId = pane.sessionId;
     const shell = isShellLabels(labels);
-    const title = shell ? 'Shell' : labels.taskTitle;
-    const subtitle = shell ? 'Terminal' : agentIdentityLine(labels);
+    const title = labels.taskTitle;
+    const subtitle = agentIdentityLine(labels);
 
     return (
         <View style={[styles.agentRow, compact && styles.agentRowCompact]}>

@@ -30,7 +30,7 @@ import { TerminalView } from './TerminalView';
 import { usePaneGestures } from '../application/usePaneGestures';
 import { AgentGlyph } from '@/components/AgentGlyph';
 import { AnimatedPopup } from '@/components/AnimatedOverlay';
-import { agentAccessibilityLabel, agentLabels, agentNameLine, agentStateLabel, agentStatusColor, herdrPaneForSession, isShellLabels } from '@/herd';
+import { agentAccessibilityLabel, agentLabels, agentNameLine, agentStatusColor, herdrPaneForSession, isShellLabels } from '@/herd';
 import { terminalPaneCanSend, terminalPaneStatus } from '../domain/promptAvailability';
 import type { TerminalChannel } from '../application/OpenTerminal';
 import { useImagePicker } from '@/hooks/useImagePicker';
@@ -397,7 +397,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const hasStatusRow = branch !== null || linesAdded !== null || linesRemoved !== null || permission !== null;
     const labels = agentLabels(currentPane);
     const shell = isShellLabels(labels);
-    const contextTitle = shell ? 'Shell' : labels.taskTitle;
+    const contextTitle = labels.taskTitle;
     const headerLifecycle = terminalPaneStatus(currentPane);
     const headerStatus = agentStatusColor(headerLifecycle, theme);
     // Working and done carry their lifecycle colour. Idle shares the
@@ -453,7 +453,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                             {contextTitle}
                         </Text>
                         <Text numberOfLines={1} style={{ color: headerStatus.color, fontSize: 11 }}>
-                            {shell ? 'Terminal' : agentNameLine(labels)}
+                            {agentNameLine(labels)}
                         </Text>
                     </View>
                     {paneIndex !== -1 && siblings.length > 1 && (
@@ -625,9 +625,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                                 key={siblingId}
                                 onPress={active ? undefined : () => router.replace(`/session/${encodeURIComponent(siblingId)}`)}
                                 accessibilityRole="button"
-                                accessibilityLabel={`${active ? 'Current' : 'Open'} ${siblingShell
-                                    ? `Shell. ${agentStateLabel(siblingStatus)}. Terminal`
-                                    : agentAccessibilityLabel(siblingLabels, siblingStatus)}`}
+                                accessibilityLabel={`${active ? 'Current' : 'Open'} ${agentAccessibilityLabel(siblingLabels, siblingStatus)}`}
                                 accessibilityState={{ selected: active }}
                                 style={({ pressed }) => ({
                                     minHeight: 44,
@@ -644,7 +642,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                             >
                                 <AgentGlyph name={siblingShell ? 'shell' : siblingLabels.agentKind ?? siblingLabels.agentName} size={16} />
                                 <Text numberOfLines={1} style={{ flexShrink: 1, color: siblingTone.color, fontSize: 11, fontWeight: active ? '600' : '400' }}>
-                                    {siblingShell ? 'Shell' : siblingLabels.taskTitle}
+                                    {siblingLabels.taskTitle}
                                 </Text>
                             </Pressable>
                         );

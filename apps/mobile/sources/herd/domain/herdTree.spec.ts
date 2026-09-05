@@ -1,3 +1,5 @@
+import { herdPanes } from './herd';
+import { selectLiveTerminalCards } from '../application/liveTerminalOrder';
 import { describe, expect, it } from 'vitest';
 import { buildSpaceRows, middleTruncate, workspaceName } from './herdTree';
 import type { HerdrTreePane as ContractPane, HerdrTreeTab, HerdrTreeWorkspace as ContractWorkspace } from '@muxr/contract';
@@ -44,10 +46,18 @@ describe('visible herd tree flow', () => {
             agentName: 'Unnamed agent',
             agentKind: 'opencode',
         });
-        expect(agentLabels(shell)).toMatchObject({ taskTitle: 'Untitled task', agentName: 'Shell' });
+        expect(agentLabels(shell)).toMatchObject({ taskTitle: 'tmp', agentName: 'Shell' });
         const titledShell = agentLabels(pane('p-titled-shell', undefined, { taskTitle: 'vim ~/.bashrc' }));
         expect(titledShell).toMatchObject({ taskTitle: 'vim ~/.bashrc', agentName: 'Shell' });
         expect(isShellLabels(titledShell)).toBe(true);
+        const namedShell = pane('p-named', undefined, { sessionId: 'shell-route', label: 'Release browser', terminalTitle: 'umer@host:~/repo', cwd: '/repo' });
+        expect(agentLabels(namedShell)).toMatchObject({ taskTitle: 'Release browser', agentName: 'Shell' });
+        expect(agentNameLine(agentLabels(namedShell))).toBe('Shell');
+        delete namedShell.label;
+        expect(agentLabels(namedShell).taskTitle).toBe('umer@host:~/repo');
+        const liveCards = selectLiveTerminalCards([], herdPanes([], [ws('w-shell', 'repo', [tab('t-shell', 'Tools', [namedShell])])]));
+        expect(agentLabels(liveCards[0]).taskTitle).toBe('umer@host:~/repo');
+        expect(agentLabels({ ...agent, terminalTitle: 'Animated working title' }).taskTitle).toBe('Review monitoring stability');
         expect(isShellLabels(labels)).toBe(false);
         expect(buildSpaceRows([ws('w2', 'repo-b', [tab('1', undefined, [shell])])], new Set(), '')[0])
             .toMatchObject({ agentCount: 0, expanded: false });
