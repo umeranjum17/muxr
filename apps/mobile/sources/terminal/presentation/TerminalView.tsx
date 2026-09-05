@@ -16,6 +16,8 @@ import * as React from 'react';
 import { FloatingTerminalControls } from './FloatingTerminalControls';
 import { AppState, PixelRatio, Platform, Pressable, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import Animated, { useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 import { TerminalView as GhosttyView, type TerminalViewRef } from 'expo-libghostty';
 import { useLocalSetting } from '@/catalog/store';
 import { decodeBase64, encodeBase64 } from '@/encryption/base64';
@@ -39,20 +41,10 @@ import type { TerminalGraphicsReason } from '@muxr/contract';
 const MAX_SCROLL_LINES = 400;
 /** A scroll whose repaint never came back must not gate scrolling forever. */
 const SCROLL_ACK_TIMEOUT_MS = 250;
-/**
- * Zoom means two different things and both are real.
- *
- * On a text pane it is the font: Ghostty reflows, the grid changes, and herdr
- * repaints at the new size, so more or fewer columns of real text fit.
- *
- * On an image pane the grid must not change -- the program is laid out for it --
- * so zoom asks the program for more pixels per cell instead. The picture gets
- * sharper in the same box, and it costs bytes as the square of the step, which
- * is why the ladder is short and starts at one.
- */
+/** Text zoom reflows the terminal; graphics zoom magnifies its existing surface. */
 const FONT_STEPS = [8, 10, 12, 14, 17, 20] as const;
 const DEFAULT_FONT_INDEX = 2;
-const RENDER_SCALE_STEPS = [1, 1.5, 2] as const;
+const GRAPHICS_ZOOM_STEPS = [1, 1.25, 1.5, 2] as const;
 
 export interface TerminalViewProps {
     sessionId: string;
@@ -104,40 +96,37 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
     const [scaleIndex, setScaleIndex] = React.useState(0);
     const scaleIndexRef = React.useRef(0);
 
-    /**
-     * What the pane is told a cell is worth in pixels. On a text pane that is
-     * simply the device's own cell. On an image pane a zoom asks the program for
-     * more pixels per cell instead of more cells, because the program is laid
-     * out for the grid it was given: the picture sharpens inside the same box,
-     * and it costs bytes as the square of the step. Placement and pointer
-     * mapping on the host are both ratio-based, so neither notices.
-     */
-    const cellFor = (size: { cellWidthPx?: number; cellHeightPx?: number }): { width: number; height: number } | undefined => {
-        if (size.cellWidthPx === undefined || size.cellHeightPx === undefined) return undefined;
-        const scale = graphicsActiveRef.current ? RENDER_SCALE_STEPS[scaleIndexRef.current] ?? 1 : 1;
-        return { width: Math.round(size.cellWidthPx * scale), height: Math.round(size.cellHeightPx * scale) };
-    };
-
-    /**
-     * A zoom on an image pane never changes the grid, so nothing re-attaches:
-     * the pane is asked for a different amount of detail and the next frame
-     * arrives sharper. The current level is resent with every later resize, or
-     * a keyboard would quietly undo it.
-     */
-    const applyRenderScale = (index: number): void => {
-        const size = lastSizeRef.current;
-        const channel = channelRef.current;
+    const zoomScale = useSharedValue(1), panX = useSharedValue(0), panY = useSharedValue(0);
+    const panStartX = useSharedValue(0), panStartY = useSharedValue(0);
+    React.useEffect(() => {
+        const scale = graphicsActive ? GRAPHICS_ZOOM_STEPS[scaleIndex] : 1;
+        zoomScale.value = scale;
+        const boundX = viewport.width * (scale - 1) / 2, boundY = viewport.height * (scale - 1) / 2;
+        panX.value = Math.max(-boundX, Math.min(boundX, panX.value));
+        panY.value = Math.max(-boundY, Math.min(boundY, panY.value));
+    }, [graphicsActive, scaleIndex, viewport.width, viewport.height, zoomScale, panX, panY]);
+    // One finger still targets the program. Two fingers move the magnified
+    // viewport, without resizing the remote app or reopening its connection.
+    const pan = Gesture.Pan().minPointers(2).enabled(graphicsActive && scaleIndex > 0)
+        .onStart(() => { panStartX.value = panX.value; panStartY.value = panY.value; })
+        .onUpdate((event) => {
+            const boundX = viewport.width * (zoomScale.value - 1) / 2;
+            const boundY = viewport.height * (zoomScale.value - 1) / 2;
+            panX.value = Math.max(-boundX, Math.min(boundX, panStartX.value + event.translationX));
+            panY.value = Math.max(-boundY, Math.min(boundY, panStartY.value + event.translationY));
+        });
+    const surfaceStyle = useAnimatedStyle(() => ({ transform: [{ translateX: panX.value }, { translateY: panY.value }, { scale: zoomScale.value }] }));
+    const cellFor = (size: { cellWidthPx?: number; cellHeightPx?: number }): { width: number; height: number } | undefined =>
+        size.cellWidthPx === undefined || size.cellHeightPx === undefined ? undefined : { width: size.cellWidthPx, height: size.cellHeightPx };
+    const applyGraphicsZoom = (index: number): void => {
         scaleIndexRef.current = index;
         setScaleIndex(index);
-        if (size === null || channel === undefined) return;
-        channel.resize(size.cols, size.rows, cellFor(size));
-        channel.repaint();
     };
 
     const zoom = (direction: 1 | -1): void => {
         if (graphicsActiveRef.current) {
-            const next = Math.max(0, Math.min(RENDER_SCALE_STEPS.length - 1, scaleIndexRef.current + direction));
-            if (next !== scaleIndexRef.current) applyRenderScale(next);
+            const next = Math.max(0, Math.min(GRAPHICS_ZOOM_STEPS.length - 1, scaleIndexRef.current + direction));
+            if (next !== scaleIndexRef.current) applyGraphicsZoom(next);
             return;
         }
         setFontIndex((current) => Math.max(0, Math.min(FONT_STEPS.length - 1, current + direction)));
@@ -145,13 +134,13 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
 
     const resetZoom = (): void => {
         if (graphicsActiveRef.current) {
-            if (scaleIndexRef.current !== 0) applyRenderScale(0);
+            if (scaleIndexRef.current !== 0) applyGraphicsZoom(0);
             return;
         }
         setFontIndex(DEFAULT_FONT_INDEX);
     };
 
-    const atMaxZoom = graphicsActive ? scaleIndex >= RENDER_SCALE_STEPS.length - 1 : fontIndex >= FONT_STEPS.length - 1;
+    const atMaxZoom = graphicsActive ? scaleIndex >= GRAPHICS_ZOOM_STEPS.length - 1 : fontIndex >= FONT_STEPS.length - 1;
     const atMinZoom = graphicsActive ? scaleIndex <= 0 : fontIndex <= 0;
     const atDefaultZoom = graphicsActive ? scaleIndex === 0 : fontIndex === DEFAULT_FONT_INDEX;
 
@@ -373,7 +362,9 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                 pendingScrollRef.current = 0;
                 scrollOriginRef.current = { x: Math.max(0, nativeEvent.locationX), y: Math.max(0, nativeEvent.locationY), ...viewport };
             }}
-            style={{ flex: 1, backgroundColor: '#0c0c0b' }}>
+            style={{ flex: 1, backgroundColor: '#0c0c0b', overflow: 'hidden' }}>
+            <GestureDetector gesture={pan}>
+            <Animated.View style={[{ flex: 1 }, surfaceStyle]}>
             <GhosttyView
                 ref={termRef}
                 style={{ flex: 1 }}
@@ -414,6 +405,8 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                     }
                 }}
             />
+            </Animated.View>
+            </GestureDetector>
             <FloatingTerminalControls width={viewport.width} height={viewport.height} commands={[
                 ...(Platform.OS === 'android' ? [{ label: 'Open terminal keyboard', icon: 'keypad-outline' as const, dismiss: true,
                     run: () => { void termRef.current?.showKeyboard().catch(() => onStatus?.('Could not open keyboard')); } }] : []),
