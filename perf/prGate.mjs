@@ -363,7 +363,7 @@ async function polishControls() {
     const version = /versionName=([^\s]+)/.exec(readFileSync(join(out, 'package.txt'), 'utf8'))?.[1];
     check(version, 'Installed package version unavailable');
     await adb('shell', 'am', 'start', '-a', 'android.intent.action.VIEW', '-d', 'muxr:///settings/connection', pkg);
-    const settings = await requireScreen('polish-settings', /Installed versions/);
+    const settings = await requireScreen('polish-settings', /Installed versions/i);
     check(settings.includes(`Version ${version}`), 'Settings does not report the installed binary version');
     check(settings.includes('Connection &amp; updates') || settings.includes('Connection & updates'), 'Missing unified connection title');
     await capture('polish-settings.png');
