@@ -12,6 +12,8 @@ export type TerminalCommand = {
 };
 const BUTTON = 44;
 const RADIUS = 96;
+// Keep the entire drag target outside Android’s system back-gesture edge.
+const EDGE = 32;
 const GAP = 8;
 const buttonStyle = (pressed: boolean, disabled = false) => ({
     width: BUTTON, height: BUTTON, borderRadius: BUTTON / 2,
@@ -26,17 +28,17 @@ const buttonStyle = (pressed: boolean, disabled = false) => ({
 export function FloatingTerminalControls({ width, height, commands }: { width: number; height: number; commands: TerminalCommand[] }) {
     const [expanded, setExpanded] = React.useState(false);
     const [opensRight, setOpensRight] = React.useState(false);
-    const compact = width < RADIUS + BUTTON + GAP * 2 || height < RADIUS * 2 + BUTTON + GAP * 2;
-    const visible = width >= BUTTON + GAP * 2 && height >= BUTTON + GAP * 2;
+    const compact = width < RADIUS + BUTTON + EDGE * 2 || height < RADIUS * 2 + BUTTON + GAP * 2;
+    const visible = width >= BUTTON + EDGE * 2 && height >= BUTTON + GAP * 2;
     const open = expanded && visible;
-    const boxWidth = open ? compact ? Math.min(width - GAP * 2, 312) : RADIUS + BUTTON : BUTTON;
+    const boxWidth = open ? compact ? Math.min(width - EDGE * 2, 312) : RADIUS + BUTTON : BUTTON;
     const boxHeight = open && !compact ? RADIUS * 2 + BUTTON : BUTTON;
     const anchorX = open && !compact && !opensRight ? RADIUS : 0;
     const anchorY = open && !compact ? RADIUS : 0;
     const x = useSharedValue(0), y = useSharedValue(0);
     const startX = useSharedValue(0), startY = useSharedValue(0);
     const placed = useSharedValue(false);
-    const minX = GAP + anchorX, maxX = Math.max(minX, width - GAP - boxWidth + anchorX);
+    const minX = EDGE + anchorX, maxX = Math.max(minX, width - EDGE - boxWidth + anchorX);
     const minY = GAP + anchorY, maxY = Math.max(minY, height - GAP - boxHeight + anchorY);
     React.useEffect(() => {
         if (!visible) return;
