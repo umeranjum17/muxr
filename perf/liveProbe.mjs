@@ -7,6 +7,7 @@ import { startLiveStack } from './lib/fakeStack.mjs';
 import { pairPhone } from './lib/pairPhone.mjs';
 import { parseUiNodes } from './lib/gestureMetrics.mjs';
 import { sourceIdentity, harnessIdentity, patchedDependencies, sha256 } from './lib/provenance.mjs';
+import { PNG } from 'pngjs';
 
 const args = process.argv.slice(2);
 const option = (key) => args[args.indexOf(key) + 1];
@@ -155,6 +156,34 @@ async function memory(label, pid) {
     (report.memory ??= []).push(sample);
     check(pss <= 900000, `Memory stop: ${pss}KiB exceeds 900000KiB`);
 }
+async function browserInventory() {
+    return JSON.parse((await run('terminal-browser', ['ls', '--all', '--json'], { timeout: 10_000 })).stdout).browsers ?? [];
+}
+function bodyPixelProof(path) {
+    const png = PNG.sync.read(readFileSync(path));
+    const left = Math.floor(png.width * 0.04), right = Math.floor(png.width * 0.86);
+    const top = Math.floor(png.height * 0.20), bottom = Math.floor(png.height * 0.78);
+    let nonWhite = 0, dark = 0, colorBuckets = new Set();
+    for (let y = top; y < bottom; y++) for (let x = left; x < right; x++) {
+        const i = (y * png.width + x) * 4, r = png.data[i], g = png.data[i + 1], b = png.data[i + 2], a = png.data[i + 3];
+        if (a < 16) continue;
+        if (r < 245 || g < 245 || b < 245) nonWhite++;
+        if (r < 100 && g < 100 && b < 100) dark++;
+        colorBuckets.add(`${r >> 4}:${g >> 4}:${b >> 4}`);
+    }
+    return { width: png.width, height: png.height, nonWhite, dark, colorBuckets: colorBuckets.size, proven: nonWhite >= 2_000 && dark >= 200 && colorBuckets.size >= 24 };
+}
+async function retireOwnedBrowser(browser) {
+    check(browser?.key && browser?.tabId !== undefined, 'Missing owned browser identity');
+    await run('terminal-browser', ['action', '--browser', browser.key, '--tab', String(browser.tabId), '--', 'eval', 'globalThis.terminalBrowser.quit()'], { timeout: 10_000 });
+    const deadline = Date.now() + 10_000;
+    do {
+        const remaining = (await browserInventory()).filter((entry) => entry.key === browser.key || entry.pane?.pane === tab.pane);
+        if (remaining.length === 0) { report.browserRetiredAt = new Date().toISOString(); return; }
+        await sleep(250);
+    } while (Date.now() < deadline);
+    throw new Error('Owned browser remained after scoped quit; retain lock and scratch');
+}
 async function github() {
     check(tab && !producer, 'Create owned producer pane and mount it first');
     const xml = await ui(); check(/text="(Terminal|ctrl)"/.test(xml), 'Terminal not mounted before producer');
@@ -183,14 +212,20 @@ async function github() {
             await memory(`paint-${i}`, pid);
             if (i === 2) {
                 await capture('github-paint');
-                const inventory = JSON.parse((await run('terminal-browser', ['ls', '--all', '--json'], { timeout: 10000 })).stdout);
-                const owned = inventory.browsers.filter((browser) => browser.pane?.pane === tab.pane);
+                const owned = (await browserInventory()).filter((browser) => browser.pane?.pane === tab.pane);
                 check(owned.length === 1, 'Cannot bind painted browser to owned pane');
-                report.browser = { key: owned[0].key, pid: owned[0].pid, pane: owned[0].pane, tabs: owned[0].tabs.map(({ id, url, title }) => ({ id, url, title })) };
+                const target = owned[0].tabs.find((entry) => entry.url === 'https://github.com/') ?? owned[0].tabs[0];
+                check(target && target.url === 'https://github.com/', 'Owned browser has no GitHub tab');
+                const browserStart = processStart(owned[0].pid);
+                check(browserStart, 'Cannot capture owned browser PID start identity');
+                report.browser = { key: owned[0].key, pid: owned[0].pid, start: browserStart, pane: owned[0].pane, tabId: target.id, url: target.url, title: target.title };
+                report.githubPaint = bodyPixelProof(join(out, 'github-paint.png'));
+                check(report.githubPaint.proven, 'GitHub body pixels not proven; retain evidence without paint claim');
             }
             await sleep(Math.min(2000, Math.max(0, deadline - Date.now())));
         }
     } finally { operationDeadline = Infinity; clearTimeout(paintStop); await retireProducer(); }
+    await retireOwnedBrowser(report.browser);
     const retirementDeadline = Date.now() + 20000;
     operationDeadline = retirementDeadline;
     try {
