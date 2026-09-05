@@ -461,6 +461,13 @@ async function dispatch(command, args = []) {
         try { issueReport(); return 0; }
         catch (error) { process.stderr.write(`muxr report: ${error instanceof Error ? error.message : String(error)}\n`); return 1; }
     }
+    if (command === 'host-repair') {
+        try {
+            const { repairHost } = await import('./release/application/repairHost.mjs');
+            const result = await repairHost(JSON.parse(args[0] ?? 'null'));
+            process.stdout.write(`${JSON.stringify(result)}\n`); return 0;
+        } catch (error) { process.stdout.write(`${JSON.stringify({ error: error.message })}\n`); return 1; }
+    }
     if (command === 'update') return applyUpdate(args);
     if (command === 'daemon') return runDaemon(args);
     if (command === 'restart') return runDaemon(['restart']);

@@ -16,6 +16,7 @@ import { join } from 'node:path';
 import { createRequire } from 'node:module';
 import { execFileSync } from 'node:child_process';
 import { packageInfoFromPath, packagePathFromInput } from '../infrastructure/audit.mjs';
+import { releaseCompatibility } from './repairHost.mjs';
 import { distribution } from '../domain/channel.mjs';
 
 const require = createRequire(import.meta.url);
@@ -216,6 +217,7 @@ const pkg = {
     name: '@trymuxr/cli',
     version,
     muxrRelease: releaseMetadata,
+    muxrCompatibility: releaseCompatibility,
     description: 'Control every Herdr coding agent from your phone with a self-hosted encrypted relay.',
     license: 'Apache-2.0',
     type: 'module',

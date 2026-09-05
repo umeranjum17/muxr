@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Platform, Text, View } from 'react-native';
+import { Platform, Pressable, Text, View } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import { useUnistyles } from 'react-native-unistyles';
 import { Item } from '@/components/Item';
@@ -13,12 +13,14 @@ import { getAppBuildNumber, getAppVersion } from '@/utils/appVersion';
 import { knownHostVersion, versionsMismatch } from '@/utils/versionStatus';
 import { openExternalUrl } from '@/utils/openExternalUrl';
 import { t } from '@/text';
+import { useHostUpdate } from './useHostUpdate';
 
 /** One destination for installed versions, update guidance and connection evidence. */
 export function ConnectionSupport({ hostVersion: reportedHost }: { hostVersion?: string }) {
     const { theme } = useUnistyles();
     const appVersion = getAppVersion();
     const build = getAppBuildNumber();
+    const update = useHostUpdate(appVersion);
     const hostVersion = knownHostVersion(reportedHost);
     const mismatch = versionsMismatch(appVersion, hostVersion);
     const [details, setDetails] = React.useState<string>();
@@ -36,12 +38,14 @@ export function ConnectionSupport({ hostVersion: reportedHost }: { hostVersion?:
     ].filter(Boolean).join('\n');
     return <>
         <ItemGroup title="Installed versions">
-            {mismatch && <View accessibilityRole="alert" style={{ margin: 16, padding: 16, borderRadius: 12, borderWidth: 2, borderColor: theme.colors.box.warning.border, backgroundColor: theme.colors.box.warning.background }}>
+            {mismatch && <Pressable accessibilityRole="button" accessibilityLabel="Check app and host compatibility" onPress={() => void update.check()} style={{ margin: 16, padding: 16, borderRadius: 12, borderWidth: 2, borderColor: theme.colors.box.warning.border, backgroundColor: theme.colors.box.warning.background }}>
                 <Text style={{ color: theme.colors.text, fontWeight: '700', fontSize: 17 }}>App and host versions differ</Text>
                 <Text style={{ marginTop: 8, color: theme.colors.text, fontSize: 15, lineHeight: 22 }}>
                     App {appVersion} · host {hostVersion}. This does not by itself mean the connection is broken. If features behave differently, update the older component using the same release channel.
                 </Text>
-            </View>}
+            </Pressable>}
+            <Item title="Check compatibility / align host" subtitle={update.message ?? 'Keep this app and check for a compatible host release. Any installation requires confirmation.'}
+                subtitleLines={0} loading={update.busy} onPress={() => void update.check()} />
             <Item title={Platform.OS === 'web' ? 'Web app' : 'Installed app'} subtitle={`Version ${appVersion}${build ? ` · build ${build}` : ''}`}
                 subtitleLines={0} onPress={versionClick} showChevron={false} />
             <Item title="Connected host" subtitle={hostVersion ? `Version ${hostVersion}` : 'Version unavailable until the host reports it'} subtitleLines={0} />
