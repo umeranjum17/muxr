@@ -389,6 +389,9 @@ async function polishControls() {
         await adb('shell', 'am', 'broadcast', '-a', 'android.intent.action.MEDIA_SCANNER_SCAN_FILE', '-d', `file://${remote}`);
         await adb('shell', 'pm', 'grant', pkg, 'android.permission.READ_MEDIA_IMAGES');
         await sleep(1500);
+        const media = await adb('shell', 'content', 'query', '--uri', 'content://media/external/images/media', '--projection', '_id', '--where', `"_data='${remote}'"`);
+        const mediaId = /\b_id=(\d+)/.exec(media)?.[1];
+        check(mediaId, 'Owned generated photo was not registered in MediaStore');
         await tapText('Add attachment');
         await capture('polish-picker.png');
         const picker = await requireScreen('polish-picker', /Photo|photo|Recent/);
@@ -398,10 +401,23 @@ async function polishControls() {
         const selected = await dump('polish-picker-selected');
         const add = parseUiNodes(selected).find((node) => /^(Add|Done)( \(\d+\))?$/.test(node.text));
         if (add) await adb('shell', 'input', 'tap', String((add.l + add.r) / 2), String((add.t + add.b) / 2));
-        const uploaded = await requireScreen('polish-thumbnail', new RegExp(`Remove attachment ${name}[.]jpg`));
-        check(uploaded.includes(`Preview attachment ${name}.jpg`), 'Uploaded attachment did not retain its named preview');
+        const uploaded = await requireScreen('polish-thumbnail', /Remove attachment /);
+        // Android Photo Picker may expose the MediaStore ID as its filename.
+        const previewNode = parseUiNodes(uploaded).find((node) => node.desc === `Preview attachment ${name}.jpg` || node.desc === `Preview attachment ${mediaId}.jpg`);
+        check(previewNode, 'Composer preview does not match the owned MediaStore image');
+        const uploadedName = previewNode.desc.slice('Preview attachment '.length);
+        const thumbnail = cropRaw(await screencapRaw(), previewNode);
+        const colors = { red: 0, green: 0, blue: 0 };
+        for (let offset = 0; offset < thumbnail.bytes.length; offset += 4) {
+            const [r, g, b] = thumbnail.bytes.subarray(offset, offset + 3);
+            if (r > 150 && g < 90 && b < 90) colors.red++;
+            if (g > 150 && r < 90 && b < 90) colors.green++;
+            if (b > 150 && r < 90 && g < 90) colors.blue++;
+        }
+        check(Object.values(colors).every((count) => count > 100), 'Thumbnail does not render the owned RGB fixture pixels');
+        report.polish.thumbnailPixels = colors;
         await capture('polish-thumbnail.png');
-        await tapText(`Preview attachment ${name}.jpg`);
+        await tapText(`Preview attachment ${uploadedName}`);
         await requireScreen('polish-image-fit', /Close attachment preview/);
         await capture('polish-image-fit.png');
         const { width, height } = report.device;
@@ -417,9 +433,9 @@ async function polishControls() {
         check(pan.moved, 'Zoomed image did not pan');
         await capture('polish-image-pan.png');
         await tapText('Fit image'); await tapText('Close attachment preview');
-        await tapText(`Remove attachment ${name}.jpg`);
+        await tapText(`Remove attachment ${uploadedName}`);
         const removed = await dump('polish-attachment-removed');
-        check(!removed.includes(`Preview attachment ${name}.jpg`), 'Removed image still present in composer');
+        check(!removed.includes(`Preview attachment ${uploadedName}`), 'Removed image still present in composer');
         Object.assign(report.polish, { composerUpload: true, thumbnail: true, preview: true, zoom, pan, removed: true });
     } finally {
         await adb('shell', 'rm', '-f', remote);
