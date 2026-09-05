@@ -2,7 +2,7 @@
  * Fake Herdr control plane: NDJSON JSON-RPC on a unix socket, plus title/status
  * churn. Graphics and the HERDR_BIN shim are sibling modules.
  */
-import { appendFileSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -20,7 +20,7 @@ export async function startFakeHerdr(options) {
     const titleChurnHz = Number(options.titleChurnHz ?? 2);
     const terminalBytesPerSecond = options.terminalBytesPerSecond ?? 4096;
     const graphicsFrameHz = options.graphicsFrameHz ?? 0;
-    const plugins = options.pluginsRoot === undefined ? [] : ['code', 'status', 'terminal-keys'].map((name) => {
+    const plugins = options.pluginsRoot === undefined ? [] : ['code', 'status', 'terminal-keys', 'attachments'].filter((name) => existsSync(join(options.pluginsRoot, name, 'muxr-ui.json'))).map((name) => {
         const root = resolve(options.pluginsRoot, name);
         const manifest = JSON.parse(readFileSync(join(root, 'muxr-ui.json'), 'utf8'));
         return { plugin_id: manifest.pluginId, name, version: '0.1.0', plugin_root: root, enabled: true, actions: [], source: { kind: 'local' } };

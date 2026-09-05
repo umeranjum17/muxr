@@ -193,6 +193,8 @@ async function phase(name, mounted, drive = false) {
 async function feature(name, work) {
     if (flow === 'usage' && name !== 'usage-switch-and-recency') return;
     if (flow === 'polish' && name !== 'polish') return;
+    if (flow === 'rich' && name !== 'rich') return;
+    if (name === 'rich' && flow !== 'rich') return;
     if (flow !== 'polish' && name === 'polish') return;
     console.log(`start: ${name}`);
     try { await work(); }
@@ -467,8 +469,53 @@ async function polishControls() {
     }
 }
 
+async function richPreviews() {
+    const attachmentDir = join(stack.root, 'muxr/attachments/pane/w1:p1');
+    mkdirSync(attachmentDir, { recursive: true });
+    writeFileSync(join(attachmentDir, 'preview.md'), '# NATIVE_MARKDOWN_READY\n\n```mermaid\nflowchart LR\n A[Beta] --> B[Phone testing]\n```');
+    writeFileSync(join(attachmentDir, 'preview.csv'), 'Feature,Status\nNATIVE_CSV_READY,Ready');
+    writeFileSync(join(attachmentDir, 'preview.html'), '<h1>NATIVE_HTML_READY</h1><script>document.body.innerHTML="UNSAFE_SCRIPT_RAN"</script>');
+    const objects = ['<< /Type /Catalog /Pages 2 0 R >>', '<< /Type /Pages /Kids [3 0 R 5 0 R] /Count 2 >>'];
+    for (const [index, color] of ['0 0 1', '1 0 0'].entries()) {
+        const stream = `${color} rg 40 100 320 300 re f`;
+        objects.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 500] /Resources << >> /Contents ${4 + index * 2} 0 R >>`, `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`);
+    }
+    let pdf = '%PDF-1.4\n'; const offsets = [];
+    for (const [index, object] of objects.entries()) { offsets.push(Buffer.byteLength(pdf)); pdf += `${index + 1} 0 obj\n${object}\nendobj\n`; }
+    const xref = Buffer.byteLength(pdf);
+    pdf += `xref\n0 7\n0000000000 65535 f \n${offsets.map((n) => `${String(n).padStart(10, '0')} 00000 n \n`).join('')}trailer\n<< /Size 7 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
+    writeFileSync(join(attachmentDir, 'preview.pdf'), pdf);
+    await herd();
+    check((await maestro('graphicsScroll.yaml')).code === 0, 'Could not open owned attachment session');
+    await tapText('Open attachments');
+    await requireScreen('rich-attachments', /preview.md/);
+    report.richPreviews = [];
+    for (const [file, marker] of [['preview.md', 'NATIVE_MARKDOWN_READY'], ['preview.csv', 'NATIVE_CSV_READY'], ['preview.html', 'NATIVE_HTML_READY']]) {
+        await tapText(file);
+        const xml = await requireScreen(`rich-${file}`, new RegExp(marker));
+        check(!xml.includes('UNSAFE_SCRIPT_RAN'), 'Untrusted HTML executed in native preview');
+        await capture(`rich-${file}.png`);
+        report.richPreviews.push({ file, nativeContent: true });
+        await tapText('Close document preview');
+    }
+    await tapText('preview.pdf');
+    await requireScreen('rich-pdf-page1', /Page 1 of 2/);
+    const coloredPixels = async (color) => {
+        const { width, height } = report.device;
+        const frame = cropRaw(await screencapRaw(), { l: width * .2, r: width * .8, t: height * .25, b: height * .7 });
+        let count = 0;
+        for (let i = 0; i < frame.bytes.length; i += 4) if (frame.bytes[i + color] > 180 && frame.bytes[i + (color === 0 ? 2 : 0)] < 70 && frame.bytes[i + 1] < 70) count++;
+        check(count > 1000, 'PDF status mounted but actual page pixels did not render'); return count;
+    };
+    const blue = await coloredPixels(2); await capture('rich-pdf-page1.png');
+    await tapText('Next page'); await requireScreen('rich-pdf-page2', /Page 2 of 2/);
+    const red = await coloredPixels(0); await capture('rich-pdf-page2.png');
+    report.richPreviews.push({ file: 'preview.pdf', blue, red, pageNavigation: true });
+    await tapText('Close document preview');
+}
+
 async function main() {
-    check(['full', 'usage', 'polish'].includes(flow), '--flow must be full, usage or polish');
+    check(['full', 'usage', 'polish', 'rich'].includes(flow), '--flow must be full, usage, polish or rich');
     check(/^emulator-\d+$/.test(serial), 'PR gate only clears dedicated emulators');
     check(seconds >= 30 && seconds <= 120, '--seconds must be 30..120');
     mkdirSync(lock); ownsLock = true;
@@ -529,6 +576,7 @@ async function main() {
     await dismissPrompts();
     await stabilizeStartup();
     await feature('polish', polishControls);
+    await feature('rich', richPreviews);
     await feature('herd', () => phase('herd', /text="connected"/, true));
     await feature('document', async () => {
         await herd(); await tapText('Files');
