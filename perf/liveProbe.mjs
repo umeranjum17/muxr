@@ -1,7 +1,7 @@
 /** Local, supervised live probe. JSON commands on this dedicated shell's stdin. */
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir, homedir } from 'node:os';
-import { basename, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { CommandScope, useCommandScope } from './lib/commands.mjs';
 import { startLiveStack } from './lib/fakeStack.mjs';
 import { pairPhone } from './lib/pairPhone.mjs';
@@ -211,7 +211,7 @@ function connectionEvidence() {
         })),
     };
 }
-async function connectedBeforeReady() {
+async function waitForNativeConnection() {
     const deadline = Date.now() + 30000;
     operationDeadline = deadline;
     try {
@@ -227,6 +227,43 @@ async function connectedBeforeReady() {
         } while (Date.now() < deadline);
         throw new Error('Live host did not connect: require connected UI and native client hello; see connectionJournal/live-connecting.xml');
     } finally { operationDeadline = Infinity; }
+}
+async function connectedBeforeReady() {
+    if (!args.includes('--diagnose-reconnect')) return waitForNativeConnection();
+    report.acceptance = 'Diagnostic reconnect only; not product pairing or live workload acceptance';
+    report.reconnectDiagnostic = { startedAt: new Date().toISOString() };
+    const diagnostic = report.reconnectDiagnostic;
+    const stateMetadata = () => {
+        // This is the already-owned scratch enrollment, never real auth HOME.
+        const path = join(dirname(stack.dataDir), 'selfhost.json');
+        const state = JSON.parse(readFileSync(path, 'utf8'));
+        return { observedAt: new Date().toISOString(), mtime: statSync(path).mtime.toISOString(), deviceCount: Object.keys(state.machine.crypto.devices ?? {}).length, pendingRotation: Boolean(state.machine.crypto.pendingRotation) };
+    };
+    try {
+        await waitForNativeConnection();
+        diagnostic.result = 'Initial connection succeeded; reconnect distinction not exercised';
+        return;
+    } catch (cause) {
+        diagnostic.initialFailure = cause.message;
+        diagnostic.beforeJournal = connectionEvidence();
+        copyFileSync(join(out, 'live-connecting.xml'), join(out, 'before-reconnect.xml'));
+    }
+    diagnostic.beforeState = stateMetadata();
+    check(diagnostic.beforeState.deviceCount > 0, 'No persisted enrollment for reconnect diagnostic');
+    // Wait from observing persisted enrollment, not an inferred CLI completion.
+    await sleep(3000);
+    diagnostic.preReconnectState = stateMetadata();
+    check(diagnostic.preReconnectState.mtime === diagnostic.beforeState.mtime
+        && diagnostic.preReconnectState.deviceCount === diagnostic.beforeState.deviceCount, 'Enrollment changed while waiting; diagnostic not comparable');
+    diagnostic.reconnectAt = new Date().toISOString();
+    await adb('shell', 'am', 'force-stop', pkg);
+    await open('muxr:///'); // Preserve app data, machine enrollment and crypto guards.
+    await waitForNativeConnection();
+    copyFileSync(join(out, 'live-connecting.xml'), join(out, 'after-reconnect.xml'));
+    diagnostic.afterState = stateMetadata();
+    diagnostic.afterJournal = connectionEvidence();
+    check(diagnostic.afterJournal.events.some((event) => event.event === 'client.hello' && event.kind === 'native' && event.at >= diagnostic.reconnectAt), 'No newly accepted native hello after reconnect');
+    diagnostic.result = 'Same enrollment connected after delayed app reconnect; initial rejection subtype remains unproven';
 }
 async function finish(error) {
     if (finishing) return; finishing = true; clearTimeout(watchdog); clearTimeout(voiceTimer);
@@ -303,6 +340,7 @@ async function main() {
     const xml = await ui();
     if (xml.includes('Show live agent updates?')) await tap('CANCEL');
     await connectedBeforeReady();
+    if (args.includes('--diagnose-reconnect')) return finish();
     console.log('LIVE_PROBE_READY: JSON stdin commands capture/tap/open/back/pane/github/voice-state/finish');
     // Stream backpressure bounds queued chunks; cap both framing and command size.
     let pending = '';
