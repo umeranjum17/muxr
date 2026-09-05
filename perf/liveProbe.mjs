@@ -260,7 +260,7 @@ async function github() {
             check(Number.isFinite(value), 'Missing owned page scroll position'); return value;
         };
         report.githubPaintSamples = [];
-        for (let i = 0; Date.now() < deadline; i++) {
+        for (let i = 0; Date.now() + 1800 < deadline; i++) {
             await memory(`paint-${i}`, pid);
             const name = `github-paint-${i}`;
             // Screenshot directly: repeated UI dumps can consume the paint cap.
@@ -305,6 +305,16 @@ async function github() {
         } finally {
             clearTimeout(paintStop);
             operationDeadline = Infinity;
+        }
+        if (!report.githubScroll?.moved && report.browserRetiredAt && report.retiredAt) {
+            operationDeadline = Date.now() + 20000;
+            try {
+                await open('muxr:///settings/connection');
+                await tap('Show diagnostics');
+                await capture('graphics-input-diagnostics');
+            } catch (cause) {
+                report.graphicsDiagnosticsUnavailable = String(cause.message).slice(0, 160);
+            } finally { operationDeadline = Infinity; }
         }
     }
     const retirementDeadline = Date.now() + 20000;
