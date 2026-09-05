@@ -4,7 +4,7 @@ slug: release-polish-todo
 status: in-progress
 created: 2026-09-05
 updated: 2026-09-05
-owner: coyote
+owner: astra
 links:
   - https://github.com/umeranjum17/muxr/pull/224
   - ./release-channels.md
@@ -16,10 +16,14 @@ Snapshot: 5 September 2026. This is the session-wide checklist, not a claim that
 
 Current product PR: [#224](https://github.com/umeranjum17/muxr/pull/224), draft. Release #209 and follow-ups through #223 are merged. Production promotion remains deferred until you request it. No automated beta has published successfully yet.
 
+## Beta hold: frame continuity
+
+The user observed severe black flashing while opening files in the emulator, matching Browser interaction flashing. Final screenshots and process survival do not prove continuous rendering. Fix the shared graphics lifecycle and verify real interaction video before merge or beta publication.
+
 ## Next execution order
 
-1. Finish Start Code/Browser pane launch and verify rich previews on the native app.
-2. Freeze the combined source, build and verify all changed UI plus the full local gate.
+1. Fast development loop VERIFIED and running. Use Metro/Fast Refresh for ordinary edits; native rebuilds only for native changes.
+2. Fix shared graphics frame continuity, then freeze corrected source for fresh native interaction verification.
 3. Complete review/CI, merge the polish, publish and verify the beta, then provide the phone APK link.
 4. Continue the visible backlog: terminal reconnect/flicker/crash, realtime grounding and broader tools, rich previews and the Tools interaction. These remain explicit beta limitations until resolved.
 5. Promote production only after your acceptance.
@@ -39,8 +43,8 @@ Current product PR: [#224](https://github.com/umeranjum17/muxr/pull/224), draft.
   - Remaining / boundary: This fixes the diagnosed build blocker; it does not prove publication.
 
 - [ ] **T04 · Publish the first successful automated beta** — Not done.
-  - Evidence / current state: The only release-candidate run, 33952896064, failed before Android build; no automated beta release or npm beta publication exists yet.
-  - Remaining / boundary: After current polish passes, merge, select green main, rerun beta and verify npm tag, APK/AAB, hashes and signatures.
+  - Evidence / current state: Authorized beta release remains unpublished. Merge and release are held for the user-reported severe black flashing during actual Code/Browser interactions.
+  - Remaining / boundary: Fix and verify frame continuity, consolidate evidence, then merge exact green source and publish signed ARM64/npm beta. Stable remains deferred.
 
 - [x] **T05 · Provide an installable phone preview** — Done, within stated scope.
   - Evidence / current state: Signed ARM64 preview build 356 is public at preview-840708b0, linked in #222. Application/native parity and prior local gate passed.
@@ -72,13 +76,13 @@ Current product PR: [#224](https://github.com/umeranjum17/muxr/pull/224), draft.
   - Evidence / current state: Two real transport races reproduced and corrected; fixed existing flow8/8. Fresh7ce full and ordinary live runs connected, with cleanup and source freeze verified. Graphics zoom followup removes its unnecessary reconnect.
   - Remaining / boundary: Sustained physical-phone network behavior remains beta acceptance.
 
-- [ ] **T12 · Avoid black frames / flicker while scrolling Terminal Browser** — Implemented / verification pending.
-  - Evidence / current state: Ordered mobile graphics writes and retained lifecycle semantics are implemented. Real GitHub body/native scroll passed a bounded ba9 run with566px movement; prior failed swipes retained.7ce real Code editor/sidebar scroll now targets correctly.
-  - Remaining / boundary: No long-session physical-phone flicker guarantee; current graphics zoom retest remains.
+- [ ] **T12 · Avoid black frames / flicker while scrolling Terminal Browser** — In progress.
+  - Evidence / current state: User personally observed severe black flashing in the emulator during file opening and Browser-like interactions on 5 September. Earlier gates checked final pixels, liveness and bounded movement; they did not establish frame continuity.
+  - Remaining / boundary: BETA HOLD. Fix the shared graphics replacement/render lifecycle and verify actual interaction video frame-by-frame. Do not waive the report as phone-only acceptance.
 
-- [ ] **T13 · Fix Terminal Code gray screen / app crash** — Implemented / verification pending.
-  - Evidence / current state: 7ce real Code remained running during file/explorer/editor interactions with IME hidden. Fresh full/rich/polish gates pass. Actual graphics magnification followup removes zoom-triggered reconnect.
-  - Remaining / boundary: Retest magnified clicks, keyboard resizing and final beta on the phone before declaring the reported crash eliminated.
+- [ ] **T13 · Fix Terminal Code gray screen / app crash** — In progress.
+  - Evidence / current state: Current live Code run observed magnification, but file/folder click and explicit keyboard acceptance did not pass (Missing control Reset zoom). User reported severe black flashes on file opening. App survival is not a rendering pass.
+  - Remaining / boundary: Fix the shared black-frame cause, then verify file clicks, separate scroll targets and explicit IME open/close on the corrected artifact.
 
 - [x] **T14 · Make the terminal keyboard deliberate** — Done, within stated scope.
   - Evidence / current state: Merged #222: Android auto-open defaults off, explicit keyboard button and saved preference. Emulator text/graphics IME checks and real Code folder taps passed.
@@ -179,12 +183,12 @@ Current product PR: [#224](https://github.com/umeranjum17/muxr/pull/224), draft.
   - Remaining / boundary: Keep local evidence linked to exact source and artifact identities.
 
 - [ ] **T37 · Test all current polish before finalizing the PR** — Implemented / verification pending.
-  - Evidence / current state: 7751f730 native build passed in 2m03s; TypeScript, mobile policy and 26 files / 94 tests passed. New thumbnails/toolbar are later local edits.
-  - Remaining / boundary: Build the final combined source, run full local gate plus targeted UI checks, finish CI/review, then mark #224 ready.
+  - Evidence / current state: b4b3bc38 full native gate passes all four 32.8-second sampled windows, viewer, Changes, Usage, graphics and controls. Matching mobile/native bytes are proven for emulator APK 5e452c9e. Historical 7ce rich/attachment gates are retained at their actual ref.
+  - Remaining / boundary: Internal Opus 5 device worker owns the remaining actual Code magnification/click/keyboard run. Human voice/audio and sustained phone scrolling are not inferred.
 
 - [ ] **T38 · Independent PR review, comments and final evidence** — Implemented / verification pending.
-  - Evidence / current state: Prior component reviews and release consolidation are recorded. #224 is currently draft; all remaining known gaps are listed here.
-  - Remaining / boundary: Review final diff, update PR checklist/evidence and close only work actually completed. Avoid declaring code review as phone/audio acceptance.
+  - Evidence / current state: Prior component reviews and current full/Changes evidence retained. Astra owns consolidation; internal Opus 5 workers cover actual Code acceptance, release readiness and the 14-feature PR evidence narrative.
+  - Remaining / boundary: Publish final exact evidence, finish Code acceptance and main CI, then release beta only.
 
 ## One-tap mismatch repair
 
@@ -210,24 +214,30 @@ Current product PR: [#224](https://github.com/umeranjum17/muxr/pull/224), draft.
 
 ## Changes and current interaction polish
 
-- [ ] **T43 · Show the actual worktree and comparison in Changes** — Implemented / verification pending.
-  - Evidence / current state: Screenshot29138 was the real six untracked files in the original session checkout, while release work lives in a separate worktree. Explicit registered-worktree selection, Working/Staged/Branch scopes, pinned branch patches, deleted/new-repo handling and pagination are implemented. RealGit flow and independent review pass.
-  - Remaining / boundary: Native screen transitions and patch markers are in the fresh combined gate; do not label a different checkout as the current release.
+- [x] **T43 · Show the actual worktree and comparison in Changes** — Done, within stated scope.
+  - Evidence / current state: Current b4b3bc38 focused Changes gate and full native gate pass worktree selection, Working/Staged/Branch patches and preserved session context. Screenshot29138 showed the original checkout, not the release worktree.
+  - Remaining / boundary: Physical-phone acceptance remains separate. Select the intended registered worktree and comparison explicitly.
 
 - [ ] **T44 · Make graphics Zoom actually magnify and pan** — Implemented / verification pending.
-  - Evidence / current state: Replaced pixel-detail scaling and reconnect with local native viewport magnification and bounded two-finger pan; one finger still targets the program. Typecheck and independent reviews pass.
-  - Remaining / boundary: Fresh APK and actual Code zoom/click/pan/keyboard validation are still required.
+  - Evidence / current state: Current byte-matched APK 5e452c9e visibly magnified actual Code at 1.25 and 2. The live run did not prove file/folder clicks, IME or two-finger pan; failure report retained.
+  - Remaining / boundary: Finish magnified click/scroll/IME acceptance after shared frame-continuity fix. No full Code PASS claimed.
 
 - [x] **T45 · Scroll Code editor and Explorer at the finger location** — Done, within stated scope.
   - Evidence / current state: 7ce real native Code test: sidebar selection then editor swipe changed first rendered line5 to10 without extra editor focus; sidebar swipe moved file rows while editor stayedline10. Exact screenshots retained.
   - Remaining / boundary: Retain this behavior through magnification; phone latency and long-session feel remain acceptance.
+
+## Fast development feedback
+
+- [x] **T46 · Run the app from Metro instead of rebuilding release APKs for every edit** — Done, within stated scope.
+  - Evidence / current state: Verified separate muxr Dev client against Metro and real source host. Visible React text changed and restored with the same process/APK timestamp. Host edit auto-restarted; deliberate TypeScript error retained the running host. Renderer watcher, no-build reopen, clean shutdown and persistent restart passed. Installed service PID and production APK timestamps were unchanged.
+  - Remaining / boundary: Use yarn dev and yarn dev:android --no-build for daily iteration. Run yarn dev:android only for initial/native changes. Metro8081, isolated relay18792 and downloads18793; .cache/muxr-dev state. This is local emulator development, not production pairing, release performance, physical-phone or graphics-continuity acceptance.
 
 ## Verification and update rules
 
 - Keep historical failures alongside reruns; never reuse old APK evidence for changed mobile/native bytes.
 - A passing emulator or provider fixture does not prove physical-phone rendering, account entitlement, real speech or remote audio.
 - Update this checklist when an item changes state and link the relevant commit, PR or artifact. No new test matrix or agent swarm is required.
-- 7ce46ade native build, mobile checks, full/rich/polish gates and CI pass. Real Code scroll targeting is device-proven. New Changes and graphics magnification require their fresh combined run; ARM64 beta delivery and real voice audio remain open.
+- b4b3bc38 full and focused Changes gates pass on byte-matched APK 5e452c9e. Historical unchanged rich/attachment gates passed at 7ce46ade. Actual Code magnification was observed; click/IME acceptance did not pass and black flashing now blocks beta; ARM64 beta delivery and real voice audio remain open.
 
 ## Links
 
@@ -241,3 +251,9 @@ Current product PR: [#224](https://github.com/umeranjum17/muxr/pull/224), draft.
 ## Revisions
 
 - 2026-09-05: Created one session-wide tracker at the user's request, including latest thumbnails and movable-toolbar requests, evidence limits and deferred production promotion.
+
+- 2026-09-05: Reopened Code/Browser graphics acceptance after the user observed severe black flashing on emulator file opens. Beta held; investigate replacement versus retirement and native frame continuity. Magnification alone is not Code acceptance.
+
+- 2026-09-05: User prioritized development feedback first. Add explicit source dev-server and separate Android dev-client commands; prove visible refresh and host restart without repeated release APK builds. Beta remains held for actual graphics interaction acceptance.
+
+- 2026-09-05: Proved visible native Fast Refresh without install/process change, source host restart, compile-error preservation, attachment renderer watch, no-build reopen and owned-process cleanup. Dev loop remains running. Independent internal Opus workers now own actual graphics interaction acceptance and lifecycle review in parallel; beta remains held.

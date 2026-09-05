@@ -3,6 +3,7 @@ dist/
 *.tsbuildinfo
 .expo/
 .pi-subagents/
+/.cache/muxr-dev/
 
 # secrets / signing — never commit
 .env

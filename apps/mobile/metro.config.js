@@ -12,11 +12,14 @@ config.watchFolders = [...(config.watchFolders ?? []), workspaceRoot];
 // Add support for .wasm files (required by Skia for all platforms)
 // Source: https://shopify.github.io/react-native-skia/docs/getting-started/installation/
 config.resolver.assetExts.push('wasm', 'bin');
-// Exclude Tauri Rust build artifacts from Metro's file watcher.
-// Cargo writes/deletes transient files in src-tauri/target/debug/deps during
-// `tauri dev`, which crashes Metro's fallback watcher on Windows with ENOENT.
+// Native builds create/delete transient directories while Metro is watching.
+// They are not JS inputs; exclude them so Fast Refresh survives a debug rebuild.
+// Also keep the isolated host's changing runtime state outside the watch graph.
 config.resolver.blockList = [
   /[/\\]src-tauri[/\\]target[/\\].*/,
+  /[/\\](?:\.cxx|\.gradle)[/\\].*/,
+  /[/\\]android[/\\](?:.*[/\\])?build[/\\].*/,
+  /[/\\]\.cache[/\\]muxr-dev[/\\].*/,
 ];
 
 // Force every preact / preact/hooks import (ESM or CJS, from any package) to

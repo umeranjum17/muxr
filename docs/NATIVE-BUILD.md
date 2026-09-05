@@ -1,4 +1,4 @@
-# Native Android build
+# Android development and native builds
 
 muxr Android builds run locally with EAS. Phone artifacts default to
 `arm64-v8a`; build `x86_64` only when an emulator explicitly needs it.
@@ -23,6 +23,54 @@ The first `eas build --local` creates a keystore through your Expo account
 commit it. Android launcher shortcuts from bundled plugins are baked into
 `res/xml/shortcuts.xml` at prebuild, so changing `plugins/*/muxr-ui.json`
 shortcuts requires a new APK.
+
+## Daily development: Metro, not release APKs
+
+From the repository root, use two terminals:
+
+```bash
+# Terminal 1: source host + relay, TypeScript watch, attachment renderer, Metro
+yarn dev
+
+# Terminal 2: first installation, or after a native change
+yarn dev:android
+
+# Later sessions: reconnect the installed dev client, with no build or install
+yarn dev:android --no-build
+```
+
+The client is **muxr Dev** (`app.muxr.local.dev`), separate from the installed
+beta/production app. The script uses the committed Gradle development switch,
+not Expo prebuild, and targets the Android emulator. It does not uninstall the
+production app or access release signing credentials.
+
+`yarn dev` keeps Metro on loopback port **8081** and the development relay on
+**18792**, with attachment downloads on **18793**. The Android command forwards
+all three ports over adb, leaving the installed host's 8792/8793 untouched. State
+persists under the ignored `.cache/muxr-dev/` directory, not the installed
+service's state. Stop the development supervisor with **Ctrl-C**; it owns its
+compiler, renderer watcher, Metro and source host/relay processes.
+
+This reuses the existing explicit **local development fixture** for connection
+and account setup. It drives the real source host and local Herdr panes, not a
+fake terminal. It is loopback-only, not a secure remote-phone setup or proof of
+production pairing. On first launch, use the local account creation action.
+Herdr and its installed plugins remain shared: don't close or alter unrelated
+panes, and don't assume the development command relinks installed plugins.
+
+| Change | Feedback path |
+|---|---|
+| Mobile JS/TS, React components and styles | Save; Metro Fast Refresh updates the running dev client |
+| Host/relay/shared TypeScript | Compiler watcher rebuilds; source services restart after a clean build |
+| Attachment preview runtime | Renderer watcher regenerates the offline bundle; Metro sees it |
+| Kotlin, C++, native modules/patches or Gradle | Run `yarn dev:android` again |
+| App config, native plugins, dependencies or public environment | Restart Metro; rebuild the dev client when native configuration changes |
+
+Keep release APK builds, production-mode bundle checks and full performance
+gates for candidate acceptance, not each visual edit. Debug/Fast Refresh success
+does not establish release performance or native compatibility. Production
+prebuild identity rules above still apply; never run an unqualified prebuild to
+repair the dev loop.
 
 ## Toolchain
 

@@ -15,6 +15,8 @@
     "check": "node scripts/diagnostics/application/runSuite.mjs",
         "check:architecture": "npx vitest run apps/mobile/sources/architecture.spec.ts --config apps/mobile/vitest.config.ts && npx vitest run apps/host/src/architecture.test.ts apps/relay/src/architecture.test.ts && node packages/checkArchitecture.mjs && node scripts/diagnostics/application/checkArchitecture.mjs",
         "up": "node scripts/setup/presentation/up.mjs",
+        "dev": "node scripts/development/presentation/dev.mjs",
+        "dev:android": "node scripts/development/presentation/android.mjs",
         "relay": "node apps/relay/dist/main.js",
         "host": "node apps/host/dist/main.js --fake",
         "probe": "node apps/probe/dist/main.js",

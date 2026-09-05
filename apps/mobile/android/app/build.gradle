@@ -135,17 +135,11 @@ android {
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode releaseConfigured ? releaseVersionCode.toInteger() : 12
-        versionName releaseConfigured ? releaseVersionName : "0.1.12"
+        versionName releaseVersionName ?: "0.1.12"
 
         buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
     }
     signingConfigs {
-        debug {
-            storeFile file('debug.keystore')
-            storePassword 'android'
-            keyAlias 'androiddebugkey'
-            keyPassword 'android'
-        }
         if (releaseConfigured) {
             release {
                 storeFile file(releaseStoreFile)
