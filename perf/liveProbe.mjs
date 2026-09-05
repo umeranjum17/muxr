@@ -196,6 +196,38 @@ async function command(input) {
     if (op === 'finish') return finish();
     throw new Error('Unknown probe command');
 }
+function connectionEvidence() {
+    if (!stack || !existsSync(stack.journalPath)) return { events: [] };
+    const journal = JSON.parse(readFileSync(stack.journalPath, 'utf8'));
+    const kinds = ['local', 'native', 'browser', 'peer', 'unknown'];
+    return {
+        relayState: ['connecting', 'open', 'closed', 'replaced'].includes(journal.current?.relayState) ? journal.current.relayState : 'unknown',
+        events: (journal.events ?? []).filter((event) => ['relay.state', 'client.hello', 'client.reject'].includes(event.event)).slice(-32).map((event) => ({
+            at: typeof event.at === 'string' && event.at.length <= 30 && /^\d{4}-\d\d-\d\dT[\d:.]+Z$/.test(event.at) ? event.at : undefined,
+            event: event.event,
+            state: ['connecting', 'open', 'closed', 'replaced'].includes(event.state) ? event.state : undefined,
+            kind: kinds.includes(event.kind ?? event.clientKind) ? event.kind ?? event.clientKind : undefined,
+            outcome: ['decrypt-rejected', 'malformed'].includes(event.outcome) ? event.outcome : undefined,
+        })),
+    };
+}
+async function connectedBeforeReady() {
+    const deadline = Date.now() + 30000;
+    operationDeadline = deadline;
+    try {
+        do {
+            const xml = await ui(); save('live-connecting.xml', xml);
+            report.connectionJournal = connectionEvidence();
+            if (/text="connected"/.test(xml)
+                && report.connectionJournal.events.some((event) => event.event === 'client.hello' && event.kind === 'native')) {
+                report.connectedAt = new Date().toISOString(); return;
+            }
+            if (['Keep muxr connected in the background?', 'Show live agent updates?'].some((title) => xml.includes(`text="${title}"`))) await tap('CANCEL');
+            await sleep(Math.min(1200, Math.max(0, deadline - Date.now())));
+        } while (Date.now() < deadline);
+        throw new Error('Live host did not connect: require connected UI and native client hello; see connectionJournal/live-connecting.xml');
+    } finally { operationDeadline = Infinity; }
+}
 async function finish(error) {
     if (finishing) return; finishing = true; clearTimeout(watchdog); clearTimeout(voiceTimer);
     if (error) report.failures.push(error.message ?? String(error));
@@ -204,6 +236,7 @@ async function finish(error) {
     if (report.producerLaunchAt && !producer) { clean = false; report.failures.push('Producer launch lacks PID ownership proof; retaining lock and scratch'); }
     try { await retireProducer(); } catch (cause) { report.failures.push(cause.message); clean = false; }
     try { await scope.close(); } catch (cause) { report.failures.push(cause.message); clean = false; }
+    try { report.connectionJournal = connectionEvidence(); } catch { report.failures.push('Connection journal unavailable'); }
     const diagnostics = new CommandScope();
     const cleanupStep = async (action) => { try { await action(); } catch (cause) { clean = false; report.failures.push(cause.message); } };
     if (deviceTouched) await cleanupStep(async () => {
@@ -269,7 +302,7 @@ async function main() {
     await sleep(8000);
     const xml = await ui();
     if (xml.includes('Show live agent updates?')) await tap('CANCEL');
-    check(/text="LIVE"/.test(await ui()), 'Paired herd did not mount');
+    await connectedBeforeReady();
     console.log('LIVE_PROBE_READY: JSON stdin commands capture/tap/open/back/pane/github/voice-state/finish');
     // Stream backpressure bounds queued chunks; cap both framing and command size.
     let pending = '';
