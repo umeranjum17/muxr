@@ -2,7 +2,7 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync, mkdirSync, lstatSync, realpathSync, renameSync, rmSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { stateDir } from '../../setup/infrastructure/runtime.mjs';
 import { releaseVersion } from '../domain/channel.mjs';
@@ -59,17 +59,56 @@ function publicResult(plan) {
         compatible: plan.protocol === releaseCompatibility.protocol, canApply: plan.status === 'ready',
         message: plan.message, direction: plan.direction };
 }
+function journalPath() { return join(resolve(process.env.MUXR_DATA_DIR?.trim() || join(stateDir(), 'host')), 'diagnostics.json'); }
+function hostHealthy(version, path, after = 0) {
+    try {
+        const journal = read(path).current;
+        return journal.hostVersion === version && journal.relayState === 'open' && Date.parse(journal.startedAt) >= after;
+    } catch { return false; }
+}
+function reconcile(path, plan) {
+    if (!['queued', 'updating', 'rolling-back', 'needs-attention'].includes(plan.status)) return plan;
+    // Give systemd-run time to register the unit before judging it interrupted.
+    if (Date.now() - (plan.queuedAt ?? plan.createdAt) < 30_000) return plan;
+    let active;
+    try { active = run('systemctl', ['--user', 'show', '--property=ActiveState', '--value', `muxr-update-${plan.id}.service`]); }
+    catch { active = 'unknown'; }
+    if (['active', 'activating', 'reloading', 'deactivating'].includes(active)) return plan;
+    const lock = join(dirname(path), 'active');
+    // Never release another job's lock, nor an installer whose state is unknown.
+    let job;
+    try { job = read(join(lock, 'job.json')); } catch { return plan; }
+    if (job.id !== plan.id) return plan;
+    if (!['inactive', 'failed', ''].includes(active)) {
+        plan.status = 'needs-attention'; plan.message = 'Cannot confirm the update service stopped. The update lock is retained; check the host service.';
+        save(path, plan); return plan;
+    }
+    let version;
+    try { version = installed().manifest.version; } catch { /* partially installed package */ }
+    const healthy = [plan.current, plan.target].includes(version) && hostHealthy(version, job.journalPath);
+    plan.status = healthy ? version === plan.target ? 'complete' : 'interrupted' : 'needs-attention';
+    plan.message = healthy ? version === plan.target ? 'Host aligned and connected.' : 'The update stopped. The previous host is healthy; tap Check compatibility to try again.'
+        : 'The update stopped and host health is unconfirmed. Its lock and private state snapshot are retained; repair the host service before retrying.';
+    save(path, plan);
+    if (healthy) rmSync(lock, { recursive: true, force: true });
+    return plan;
+}
 export async function repairHost(request) {
     if (!request || typeof request.owner !== 'string' || !request.owner || request.owner.length > 256) throw new Error('Authenticated device required.');
-    if (request.action === 'status') return publicResult(loadPlan(request.planId, request.owner).plan);
+    if (request.action === 'status') { const { path, plan } = loadPlan(request.planId, request.owner); return publicResult(reconcile(path, plan)); }
     if (request.action === 'plan') {
-        const version = releaseVersion(request.appVersion);
-        const { manifest } = installed(); managed();
+        const { manifest } = installed();
         const current = releaseVersion(manifest.version);
         if (request.protocol !== releaseCompatibility.protocol) throw new Error('App protocol is unsupported by this host. Choose a compatible mobile release.');
-        if (version.channel !== current.channel) throw new Error('App and host use different release channels. Switch channels explicitly on the host first.');
-        if (version.version === current.version) return { currentVersion: current.version, targetVersion: version.version, status: 'compatible', compatible: true, canApply: false, message: 'App and host are already on the same compatible release.' };
-        const metadata = targetMetadata(version.version);
+        const compatible = (message, targetVersion = request.appVersion) => ({ currentVersion: current.version, targetVersion, status: 'compatible', compatible: true, canApply: false, message });
+        let version;
+        try { version = releaseVersion(request.appVersion); }
+        catch { return compatible('App and host share a compatible protocol. This app has no exact release identity, so automatic host alignment is unavailable.'); }
+        if (version.version === current.version) return compatible('App and host are already on the same compatible release.');
+        if (version.channel !== current.channel) return compatible('App and host share a compatible protocol. Optional alignment would change release channels; switch channels explicitly on the host first.');
+        let metadata;
+        try { managed(); metadata = targetMetadata(version.version); }
+        catch { return compatible('App and host share a compatible protocol. No verified managed-host alignment is available for this exact app release. You can keep using this connection.'); }
         const id = randomUUID();
         const plan = { id, owner: digest(request.owner), current: current.version, target: version.version, channel: current.channel,
             protocol: request.protocol, integrity: metadata['dist.integrity'], createdAt: Date.now(), status: 'ready',
@@ -87,11 +126,11 @@ export async function repairHost(request) {
     try { mkdirSync(lock, { mode: 0o700 }); } catch { throw new Error('A host update is already running. Check its status before trying again.'); }
     try {
         const job = join(lock, 'job.json');
-        save(job, { ...plan, path, root });
-        plan.status = 'queued'; plan.message = 'Host alignment queued. The app will reconnect after the service restarts.'; save(path, plan);
+        save(job, { ...plan, path, root, journalPath: journalPath() });
+        plan.queuedAt = Date.now(); plan.status = 'queued'; plan.message = 'Host alignment queued. The app will reconnect after the service restarts.'; save(path, plan);
         // A transient service survives the muxr.service restart. A detached
         // child alone remains in its parent's systemd cgroup and would be killed.
-        const env = ['HOME', 'PATH', 'MUXR_HOME'].filter((key) => process.env[key]).map((key) => `--setenv=${key}=${process.env[key]}`);
+        const env = ['HOME', 'PATH', 'MUXR_HOME', 'MUXR_DATA_DIR'].filter((key) => process.env[key]).map((key) => `--setenv=${key}=${process.env[key]}`);
         run('systemd-run', ['--user', '--collect', '--quiet', `--unit=muxr-update-${plan.id}`, ...env,
             process.execPath, join(root, 'release/application/repairHost.mjs'), '--worker', job]);
     } catch { plan.status = 'needs-attention'; plan.message = 'Update service startup could not be confirmed. Its lock and record are retained; check the host before retrying.'; save(path, plan); }
@@ -116,10 +155,7 @@ async function worker(jobPath) {
     const healthy = async (version) => {
         const deadline = Date.now() + 60000;
         while (Date.now() < deadline) {
-            try {
-                const journal = read(join(stateDir(), 'host/diagnostics.json')).current;
-                if (journal.hostVersion === version && journal.relayState === 'open' && Date.parse(journal.startedAt) >= job.startedAt) return true;
-            } catch { /* service is restarting */ }
+            if (hostHealthy(version, job.journalPath, job.startedAt)) return true;
             await new Promise((resolve) => setTimeout(resolve, 1500));
         }
         return false;

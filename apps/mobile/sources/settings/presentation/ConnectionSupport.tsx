@@ -20,13 +20,15 @@ export function ConnectionSupport({ hostVersion: reportedHost }: { hostVersion?:
     const { theme } = useUnistyles();
     const appVersion = getAppVersion();
     const build = getAppBuildNumber();
-    const update = useHostUpdate(appVersion);
+    const appConfig = loadAppConfig();
+    const release = knownHostVersion(appConfig.releaseVersion);
+    const exactRelease = release?.split('-')[0] === appVersion.split('-')[0] ? release : undefined;
+    const update = useHostUpdate(exactRelease ?? 'unknown');
     const hostVersion = knownHostVersion(reportedHost);
     const mismatch = versionsMismatch(appVersion, hostVersion);
     const [details, setDetails] = React.useState<string>();
     const [copied, setCopied] = React.useState(false);
     const [devModeEnabled, setDevModeEnabled] = useLocalSettingMutable('devModeEnabled');
-    const appConfig = loadAppConfig();
     const versionClick = useMultiClick(() => {
         setDevModeEnabled(!devModeEnabled);
         Modal.alert(t('modals.developerMode'), devModeEnabled ? t('modals.developerModeDisabled') : t('modals.developerModeEnabled'));
@@ -46,7 +48,7 @@ export function ConnectionSupport({ hostVersion: reportedHost }: { hostVersion?:
             </Pressable>}
             <Item title="Check compatibility / align host" subtitle={update.message ?? 'Keep this app and check for a compatible host release. Any installation requires confirmation.'}
                 subtitleLines={0} loading={update.busy} onPress={() => void update.check()} />
-            <Item title={Platform.OS === 'web' ? 'Web app' : 'Installed app'} subtitle={`Version ${appVersion}${build ? ` · build ${build}` : ''}`}
+            <Item title={Platform.OS === 'web' ? 'Web app' : 'Installed app'} subtitle={`Version ${exactRelease ?? appVersion}${build ? ` · build ${build}` : ''}`}
                 subtitleLines={0} onPress={versionClick} showChevron={false} />
             <Item title="Connected host" subtitle={hostVersion ? `Version ${hostVersion}` : 'Version unavailable until the host reports it'} subtitleLines={0} />
             <Item title="Get mobile builds" subtitle="Choose the stable or beta release you want to test" subtitleLines={0}

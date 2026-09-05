@@ -930,17 +930,22 @@ else if(a[0]==='view') {
  if(process.env.REPAIR_INSTALL_FAIL===version) process.exit(1);
  const file=path.join(process.env.MUXR_UPDATE_NPM_ROOT,'@trymuxr/cli/package.json');
  const pkg=JSON.parse(fs.readFileSync(file));pkg.version=version;fs.writeFileSync(file,JSON.stringify(pkg));
- const dir=path.join(process.env.HOME,'.muxr/host');fs.mkdirSync(dir,{recursive:true});fs.writeFileSync(path.join(dir,'diagnostics.json'),JSON.stringify({current:{hostVersion:version,relayState:'open',startedAt:new Date().toISOString()}}));
+ const dir=process.env.MUXR_DATA_DIR||path.join(process.env.HOME,'.muxr/host');fs.mkdirSync(dir,{recursive:true});fs.writeFileSync(path.join(dir,'diagnostics.json'),JSON.stringify({current:{hostVersion:version,relayState:'open',startedAt:new Date().toISOString()}}));
 } else process.exit(1);
 `, { mode: 0o755 });
         writeFileSync(join(binDir, 'systemd-run'), `#!${process.execPath}\nrequire('node:fs').writeFileSync(${JSON.stringify(repairUnit)},JSON.stringify(process.argv.slice(2)));\n`, { mode: 0o755 });
-        const repairEnv = { ...updateEnv, MUXR_NPM_BIN: repairNpm };
+        const repairEnv = { ...updateEnv, MUXR_NPM_BIN: repairNpm, MUXR_DATA_DIR: join(scratch, 'custom-host-data') };
         const repair = (request, extra = {}) => JSON.parse(run(cli, ['host-repair', JSON.stringify({ owner: 'fixture-device', ...request })], {
             cwd: installDir, env: { ...repairEnv, ...extra }, allowFailure: true,
         }).stdout);
         assert.equal(repair({ action: 'plan', appVersion: originalVersion, protocol: 1 }).status, 'compatible');
-        assert.match(repair({ action: 'plan', appVersion: '9.9.8', protocol: 1 }, { REPAIR_BAD_STATE: '1' }).error, /compatible host protocol and state/);
-        assert.match(repair({ action: 'plan', appVersion: '9.9.8-beta.1', protocol: 1 }).error, /different release channels/);
+        assert.equal(repair({ action: 'plan', appVersion: '9.9.8', protocol: 1 }, { REPAIR_BAD_STATE: '1' }).canApply, false);
+        assert.equal(repair({ action: 'plan', appVersion: '9.9.8-beta.1', protocol: 1 }).compatible, true);
+        assert.equal(repair({ action: 'plan', appVersion: 'unknown', protocol: 1 }).canApply, false);
+        writeFileSync(installedManifestPath, JSON.stringify({ ...JSON.parse(originalPackage), version: '9.9.8-beta.1' }));
+        assert.equal(repair({ action: 'plan', appVersion: '9.9.8-beta.1', protocol: 1 }).status, 'compatible');
+        assert.equal(repair({ action: 'plan', appVersion: '9.9.8-beta.2', protocol: 1 }).canApply, true);
+        writeFileSync(installedManifestPath, originalPackage);
         for (const fail of [false, true]) {
             const plan = repair({ action: 'plan', appVersion: '9.9.8', protocol: 1 });
             assert.equal(plan.canApply, true);
@@ -951,6 +956,7 @@ else if(a[0]==='view') {
             assert.equal(repair({ action: 'apply', planId: plan.planId }).status, 'queued', 'duplicate apply was not idempotent');
             const unit = JSON.parse(readFileSync(repairUnit, 'utf8'));
             assert.ok(unit.includes('--user') && unit.includes('--collect'));
+            assert.ok(unit.includes(`--setenv=MUXR_DATA_DIR=${repairEnv.MUXR_DATA_DIR}`));
             assert.equal(unit.at(-2), '--worker');
             const job = unit.at(-1);
             assert.ok(job.startsWith(join(home, '.muxr/updates/active/')));
@@ -967,6 +973,19 @@ else if(a[0]==='view') {
             writeFileSync(installedManifestPath, originalPackage);
             rmSync(repairUnit);
         }
+        // Simulate a reboot between queueing and worker execution. The installed
+        // prior host is healthy; status reconciles it and permits a fresh plan.
+        const interrupted = repair({ action: 'plan', appVersion: '9.9.8', protocol: 1 });
+        repair({ action: 'apply', planId: interrupted.planId });
+        const record = join(home, '.muxr/updates', `${interrupted.planId}.json`);
+        const savedPlan = JSON.parse(readFileSync(record)); savedPlan.queuedAt -= 60_000;
+        writeFileSync(record, JSON.stringify(savedPlan));
+        mkdirSync(repairEnv.MUXR_DATA_DIR, { recursive: true });
+        writeFileSync(join(repairEnv.MUXR_DATA_DIR, 'diagnostics.json'), JSON.stringify({current:{hostVersion:originalVersion,relayState:'open',startedAt:new Date().toISOString()}}));
+        assert.equal(repair({ action: 'status', planId: interrupted.planId }).status, 'interrupted');
+        assert.equal(existsSync(join(home, '.muxr/updates/active')), false);
+        assert.equal(repair({ action: 'plan', appVersion: '9.9.8', protocol: 1 }).canApply, true);
+        rmSync(repairUnit);
     }
     writeFileSync(join(binDir, 'loginctl'), `#!/bin/sh\nif [ "$1" = show-user ]; then echo no; exit 0; fi\necho "$*" >> "${lingerLog}"\nexit 0\n`, { mode: 0o755 });
     const lingerHome = join(scratch, 'linger-home');
