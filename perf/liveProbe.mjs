@@ -241,8 +241,18 @@ async function github() {
             }
             await sleep(Math.min(2000, Math.max(0, deadline - Date.now())));
         }
-    } finally { operationDeadline = Infinity; clearTimeout(paintStop); await retireProducer(); }
-    await retireOwnedBrowser(report.browser);
+    } finally {
+        operationDeadline = Infinity;
+        clearTimeout(paintStop);
+        try {
+            await retireProducer();
+        } finally {
+            // Retire only the browser bound to this run. Keep this nested
+            // finally so a controller retirement failure cannot strand the
+            // owned browser or pane. A failed browser cleanup retains lock.
+            if (report.browser) await retireOwnedBrowser(report.browser);
+        }
+    }
     const retirementDeadline = Date.now() + 20000;
     operationDeadline = retirementDeadline;
     try {
