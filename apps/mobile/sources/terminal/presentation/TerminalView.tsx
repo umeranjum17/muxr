@@ -94,6 +94,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
     const writePumpRef = React.useRef<TerminalWritePump | undefined>(undefined);
     const writeGenerationRef = React.useRef(0);
     const pendingScrollRef = React.useRef(0);
+    const scrollOriginRef = React.useRef<{ x: number; y: number; width: number; height: number } | undefined>(undefined);
     const scrollRafRef = React.useRef<number | undefined>(undefined);
     const scrollInFlightRef = React.useRef(false);
     const scrollAckTimerRef = React.useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -188,9 +189,11 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
         scrollSentAtRef.current = Date.now();
         scrollAckTimerRef.current = setTimeout(settleScroll, SCROLL_ACK_TIMEOUT_MS);
         const size = lastSizeRef.current;
+        const origin = scrollOriginRef.current;
         channelRef.current?.scroll(clamped, size === null ? undefined : {
-            column: Math.floor(size.cols / 2),
-            row: Math.floor(size.rows / 2),
+            column: Math.min(size.cols - 1, Math.floor((origin ? origin.x / origin.width : .5) * size.cols)),
+            row: Math.min(size.rows - 1, Math.floor((origin ? origin.y / origin.height : .5) * size.rows)),
+            ...origin,
         });
     };
 
@@ -359,7 +362,18 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
     );
 
     return (
-        <View onLayout={(event) => setViewport({ width: event.nativeEvent.layout.width, height: event.nativeEvent.layout.height })} style={{ flex: 1, backgroundColor: '#0c0c0b' }}>
+        <View onLayout={(event) => setViewport({ width: event.nativeEvent.layout.width, height: event.nativeEvent.layout.height })}
+            onTouchStart={({ nativeEvent }) => {
+                // Ghostty fills this surface. Remember the gesture's origin,
+                // not the last tapped control or the center of the whole pane.
+                if (viewport.width <= 0 || viewport.height <= 0) return;
+                // A new touch stops the old gesture; never deliver its queued
+                // travel to the newly touched editor/sidebar.
+                if (pendingScrollRef.current !== 0) recordTerminalScrollClamped(Math.abs(pendingScrollRef.current));
+                pendingScrollRef.current = 0;
+                scrollOriginRef.current = { x: Math.max(0, nativeEvent.locationX), y: Math.max(0, nativeEvent.locationY), ...viewport };
+            }}
+            style={{ flex: 1, backgroundColor: '#0c0c0b' }}>
             <GhosttyView
                 ref={termRef}
                 style={{ flex: 1 }}

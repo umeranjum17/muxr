@@ -81,6 +81,11 @@ export interface TerminalScrollFrame {
     lines: number;
     column?: number;
     row?: number;
+    /** Gesture origin within the displayed terminal, for program hit testing. */
+    x?: number;
+    y?: number;
+    width?: number;
+    height?: number;
 }
 
 export type TerminalClientFrame = TerminalInputFrame | TerminalResizeFrame | TerminalScrollFrame | TerminalPointerFrame;

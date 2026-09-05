@@ -33,7 +33,7 @@ export interface TerminalChannel {
     resize: (cols: number, rows: number, cell?: { width: number; height: number }) => void;
     pointer: (phase: 'down' | 'move' | 'up', x: number, y: number, width: number, height: number) => void;
     /** Scroll the real pane. Positive lines go back (up), negative go forward. */
-    scroll: (lines: number, at?: { column: number; row: number }) => void;
+    scroll: (lines: number, at?: { column: number; row: number; x?: number; y?: number; width?: number; height?: number }) => void;
     /** Retry now: resets backoff and re-attaches unless the stream is live or closed. */
     /** Pass true only for a user's explicit same-pane takeover action. */
     reconnect: (explicitTakeover?: boolean) => void;
@@ -437,7 +437,7 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
                 type: 'terminal.scroll',
                 direction: lines > 0 ? 'up' : 'down',
                 lines: n,
-                ...(at === undefined ? {} : { column: Math.max(0, Math.trunc(at.column)), row: Math.max(0, Math.trunc(at.row)) }),
+                ...(at === undefined ? {} : { ...at, column: Math.max(0, Math.trunc(at.column)), row: Math.max(0, Math.trunc(at.row)) }),
             });
         },
         recordFrameWritten: () => {
