@@ -32,6 +32,7 @@ function adbFailureClass(args) {
     if (args[0] === 'shell' && args[1] === 'am' && args[2] === 'start') return 'activity-start';
     if (args[0] === 'shell' && args[1] === 'am' && args[2] === 'force-stop') return 'force-stop';
     if (args[0] === 'shell' && args[1] === 'pidof') return 'get-state';
+    if (args[0] === 'shell' && args[1] === 'sh' && args[2] === '-c' && String(args[3]).startsWith('pidof ')) return 'get-state';
     return String(args[0] ?? 'unknown').replace(/[^a-z0-9_.-]/gi, '').slice(0, 48) || 'unknown';
 }
 function sanitizeAdbText(value) {
@@ -58,6 +59,11 @@ const adbRunOn = async (commandScope, args, options = {}) => {
     try {
         return (await commandScope.run('adb', ['-s', serial, ...args], { timeout: 15_000, ...options })).stdout;
     } catch (cause) {
+        if (options.allowAbsentPid && args[0] === 'shell' && args[1] === 'pidof'
+            && /\bexit 1\b/.test(String(cause?.message ?? '')) && !sanitizeAdbText(cause?.stderr)) {
+            const deviceState = await adbRunOn(commandScope, ['get-state'], { timeout: 10_000 });
+            if (deviceState.trim() === 'device') return '';
+        }
         recordAdbFailure(args, cause);
         throw cause;
     }
@@ -90,9 +96,9 @@ async function tap(text) {
 }
 async function capture(name) {
     check(/^[a-z0-9-]+$/.test(name), 'Invalid evidence name');
-    save(`${name}.xml`, await ui());
     save(`${name}.png`, await adbRun(['exec-out', 'screencap', '-p'], { encoding: 'buffer' }));
     publish(join(out, `${name}.png`));
+    save(`${name}.xml`, await ui());
 }
 async function voiceStateSnapshot(phase) {
     const raw = await adb('shell', 'dumpsys', 'activity', 'top');
@@ -363,7 +369,7 @@ async function finish(error) {
     const cleanupStep = async (action) => { try { await action(); } catch (cause) { clean = false; report.failures.push(cause.message); } };
     if (deviceTouched) await cleanupStep(async () => {
         await adbRunOn(diagnostics, ['shell', 'am', 'force-stop', pkg]);
-        const status = await adbRunOn(diagnostics, ['shell', 'pidof', pkg], { timeout: 10000 });
+        const status = await adbRunOn(diagnostics, ['shell', 'pidof', pkg], { timeout: 10000, allowAbsentPid: true });
         check(status.trim() === '', 'APK remains after force-stop');
     });
     if (tab) await cleanupStep(() => diagnostics.run('/usr/bin/herdr', ['tab', 'close', tab.id], { timeout: 15000 }));
