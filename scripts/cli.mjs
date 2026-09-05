@@ -67,7 +67,7 @@ Run and maintain
   muxr status                    check this setup (same as muxr doctor)
   muxr restart                   restart the supervised relay and host
   muxr update [--check|--yes]    update within the installed release channel
-              [--channel dev|beta|stable] [--allow-downgrade]
+              [--channel dev|beta|stable] [--to VERSION] [--allow-downgrade]
   muxr uninstall [--yes]         fully remove muxr; keep Herdr and repositories
   muxr self-host [options]       run the relay, host, and pairing flow
   muxr daemon <command>          install, start, stop, restart, or inspect muxr services
@@ -110,7 +110,7 @@ const COMMAND_HELP = {
     status: `muxr status\n\nAlias for muxr doctor.\n`,
     restart: `muxr restart\n\nRestart the supervised relay and host (same as muxr daemon restart).\n`,
     uninstall: `muxr uninstall [--yes|--resume]\n\nRemove all muxr-owned services, ingress, identity, pairings, grants, relay/plugin state, provider keys, logs, caches, and managed integrations. Herdr, its sessions, repositories, worktrees, exports, signing keys, and unrecognized files stay. The globally installed CLI can be removed last.\n`,
-    update: `muxr update [--check|--yes]\n\nCheck npm for a newer @trymuxr/cli release. Interactive terminals ask before installing; --yes updates without prompting.\n`,
+    update: `muxr update [--check|--yes]\n\nCheck npm for a newer @trymuxr/cli release. --to VERSION selects an exact published version; changing channels or downgrading remains explicit. Interactive terminals ask before installing; --yes updates without prompting.\n`,
     skill: `muxr --skill\nmuxr skill\nmuxr skill <onboarding|herdr|collaboration|browser-takeover|plugins>\nmuxr skill all\n\nPrint the compact canonical skill by default. Load one focused reference on demand; muxr skill all prints the archival self-contained bundle. Herdr guidance comes from the installed binary when available. No files or state are changed.\n`,
     peers: `muxr peers list [--machine <name>]\nmuxr peers read --machine <name> [--agent <name>] [--lines <n>]\nmuxr peers status --machine <name> [--agent <name>]\nmuxr peers watch --machine <name> [--agent <name>] [--timeout-ms <n>]\nmuxr peers prompt --machine <name> [--agent <name>] --text <prompt>\n\nUse established computer collaboration with Machine Names and Agent Names only. Output is JSON. Raw shell, takeover, and destructive actions are never granted.\n`,
     connect: `muxr connect --enrollment <muxr://enroll?...> [--no-pair|--pair-browser|--pair-browser-view|--pair-both]\nmuxr connect --resume\n`,
@@ -329,6 +329,11 @@ async function runUninstall(args = []) {
 }
 
 async function applyUpdate(args = []) {
+    const targetIndex = args.indexOf('--to');
+    if (targetIndex !== -1 && (!args[targetIndex + 1] || args[targetIndex + 1].startsWith('--'))) {
+        process.stderr.write('--to requires an exact published version\n');
+        return 1;
+    }
     const channelIndex = args.indexOf('--channel');
     if (channelIndex !== -1 && !args[channelIndex + 1]) {
         process.stderr.write('--channel requires dev, beta or stable\n');
@@ -338,6 +343,7 @@ async function applyUpdate(args = []) {
         checkOnly: args.includes('--check'),
         yes: args.includes('--yes'),
         channel: channelIndex === -1 ? undefined : args[channelIndex + 1],
+        targetVersion: targetIndex === -1 ? undefined : args[targetIndex + 1],
         allowDowngrade: args.includes('--allow-downgrade'),
         confirm: process.stdin.isTTY && process.stdout.isTTY
             ? async ({ latest }) => select('Apply this update?', [

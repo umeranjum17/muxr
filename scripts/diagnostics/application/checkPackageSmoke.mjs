@@ -802,6 +802,18 @@ try {
     });
     assert.match(betaCheck.stdout, /available on beta/);
     assert.ok(!existsSync(updateLog), 'channel check changed the installation');
+    const exactCheck = run(cli, ['update', '--to', '9.9.8', '--check'], {
+        cwd: installDir, env: { ...updateEnv, MUXR_UPDATE_LATEST: '9.9.8' },
+    });
+    assert.match(exactCheck.stdout, /9\.9\.8 is available/);
+    const substituted = run(cli, ['update', '--to', '9.9.8', '--yes'], { cwd: installDir, env: updateEnv, allowFailure: true });
+    assert.notEqual(substituted.status, 0, 'exact target accepted a different registry version');
+    const exactDowngrade = run(cli, ['update', '--to', '0.0.1', '--allow-downgrade', '--check'], {
+        cwd: installDir, env: { ...updateEnv, MUXR_UPDATE_LATEST: '0.0.1' },
+    });
+    assert.match(exactDowngrade.stdout, /0\.0\.1 is available/);
+    assert.ok(!existsSync(updateLog), 'exact-version checks changed the installation');
+
     const wrongChannel = run(cli, ['update', '--channel', 'beta', '--yes'], {
         cwd: installDir, env: updateEnv, allowFailure: true,
     });
@@ -814,7 +826,7 @@ try {
     assert.match(`${prefixMismatch.stdout}${prefixMismatch.stderr}`, /different npm prefix/);
     assert.ok(!existsSync(updateLog), 'prefix mismatch reached npm install');
 
-    run(cli, ['update', '--yes'], { cwd: installDir, env: updateEnv });
+    run(cli, ['update', '--to', '9.9.9', '--yes'], { cwd: installDir, env: updateEnv });
     assert.match(readFileSync(updateLog, 'utf8'), /install --global --ignore-scripts @trymuxr\/cli@9\.9\.9/);
     const linuxUnit = readFileSync(join(home, '.config', 'systemd', 'user', 'muxr.service'), 'utf8');
     assert.match(linuxUnit, /MUXR_MODE=.*selfhost/, 'update removed the daemon mode');
