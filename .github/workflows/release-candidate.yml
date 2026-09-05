@@ -1,0 +1,158 @@
+name: release candidate
+
+on:
+  schedule:
+    - cron: '20 2 * * *'
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: Dev nightly, beta for phone testing, or unpublished final-version stable candidate
+        type: choice
+        options: [beta, dev, stable]
+        default: beta
+      version:
+        description: Exact npm version (empty generates next patch dev/beta version)
+        type: string
+        default: ''
+
+concurrency:
+  group: release-candidate
+  cancel-in-progress: false
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  select:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    outputs:
+      version: ${{ steps.select.outputs.version }}
+      app_version: ${{ steps.select.outputs.app_version }}
+      channel: ${{ steps.select.outputs.channel }}
+      version_code: ${{ steps.number.outputs.version_code }}
+      build: ${{ steps.select.outputs.build }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+      - id: select
+        name: Select an exact green commit and channel
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUESTED_CHANNEL: ${{ inputs.channel || 'dev' }}
+          REQUESTED_VERSION: ${{ inputs.version }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$GITHUB_SHA&status=success" > "$RUNNER_TEMP/ci.json"
+          jq -e --arg sha "$GITHUB_SHA" '.workflow_runs | any(.head_sha == $sha and .event == "push" and .head_branch == "main")' "$RUNNER_TEMP/ci.json"
+          if [ "$GITHUB_EVENT_NAME" = schedule ]; then
+            gh api "repos/$GITHUB_REPOSITORY/actions/workflows/release-candidate.yml/runs?head_sha=$GITHUB_SHA&status=success" > "$RUNNER_TEMP/previous.json"
+            if jq -e --arg sha "$GITHUB_SHA" '.workflow_runs | any(.head_sha == $sha)' "$RUNNER_TEMP/previous.json" >/dev/null; then
+              echo 'build=false' >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+          node --input-type=module <<'JS'
+          import { appendFileSync, readFileSync } from 'node:fs';
+          import { distribution } from './scripts/release/domain/channel.mjs';
+          const base = JSON.parse(readFileSync('package.json')).version.split('-')[0].split('.').map(Number);
+          base[2] += 1;
+          const channel = process.env.REQUESTED_CHANNEL;
+          const requested = process.env.REQUESTED_VERSION;
+          if (!requested && channel === 'stable') throw new Error('A final stable candidate needs an explicit version');
+          const version = requested || `${base.join('.')}-${channel}.${process.env.GITHUB_RUN_NUMBER}.${process.env.GITHUB_RUN_ATTEMPT}`;
+          const selected = distribution(version, channel);
+          appendFileSync(process.env.GITHUB_OUTPUT, `version=${version}\napp_version=${selected.appVersion}\nchannel=${channel}\nbuild=true\n`);
+          JS
+      - id: number
+        if: steps.select.outputs.build == 'true'
+        name: Reserve a never-reused Android build number
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/release/presentation/reserveAndroidBuild.mjs
+
+  npm:
+    needs: select
+    if: needs.select.outputs.build == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      MUXR_RELEASE_VERSION: ${{ needs.select.outputs.version }}
+      MUXR_RELEASE_CHANNEL: ${{ needs.select.outputs.channel }}
+      MUXR_PACKAGE_CONTROL_URL: https://trymuxr.com
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: yarn
+      - run: yarn install --frozen-lockfile --non-interactive
+      - run: yarn build
+      - name: Installed package flow
+        # Smoke builds its own stable fixture. Final packaging below uses the selected version.
+        run: env -u MUXR_RELEASE_VERSION -u MUXR_RELEASE_CHANNEL node scripts/diagnostics/application/checkPackageSmoke.mjs
+      - name: Pack candidate once
+        run: |
+          yarn run pack
+          mkdir -p "$RUNNER_TEMP/npm-candidate"
+          npm pack ./dist-npm --pack-destination "$RUNNER_TEMP/npm-candidate"
+          install_root="$RUNNER_TEMP/candidate-install"
+          npm install --prefix "$install_root" --ignore-scripts --no-audit --no-fund "$RUNNER_TEMP"/npm-candidate/*.tgz
+          mkdir -p "$RUNNER_TEMP/candidate-home"
+          cli="$install_root/node_modules/@trymuxr/cli/cli.mjs"
+          test "$(HOME="$RUNNER_TEMP/candidate-home" node "$cli" version)" = "$MUXR_RELEASE_VERSION"
+          HOME="$RUNNER_TEMP/candidate-home" node "$cli" plugin check "$install_root/node_modules/@trymuxr/cli/plugins/voice"
+          node --input-type=module <<'JS'
+          import { readdirSync } from 'node:fs';
+          import { sealRelease } from './scripts/release/application/sealRelease.mjs';
+          const directory = `${process.env.RUNNER_TEMP}/npm-candidate`;
+          await sealRelease({ directory, version: process.env.MUXR_RELEASE_VERSION, channel: process.env.MUXR_RELEASE_CHANNEL,
+            files: readdirSync(directory), runId: process.env.GITHUB_RUN_ID, runAttempt: process.env.GITHUB_RUN_ATTEMPT });
+          JS
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: npm-candidate
+          path: ${{ runner.temp }}/npm-candidate
+          retention-days: 90
+          if-no-files-found: error
+
+  android:
+    needs: select
+    if: needs.select.outputs.build == 'true'
+    uses: ./.github/workflows/mobile-android-internal.yml
+    with:
+      version: ${{ needs.select.outputs.app_version }}
+      version_code: ${{ needs.select.outputs.version_code }}
+      development: ${{ needs.select.outputs.channel == 'dev' }}
+    secrets: inherit
+
+  release:
+    needs: [select, npm, android]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ needs.select.outputs.version }}
+      CHANNEL: ${{ needs.select.outputs.channel }}
+      BUILD_CODE: ${{ needs.select.outputs.version_code }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: npm-candidate
+          path: ${{ runner.temp }}/candidate
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: android-internal
+          path: ${{ runner.temp }}/android
+      - name: Verify and attach immutable candidate
+        run: node scripts/release/presentation/publishCandidate.mjs

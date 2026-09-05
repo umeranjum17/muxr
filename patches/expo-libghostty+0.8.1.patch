@@ -152,10 +152,10 @@ index b9c118e..7ee0d8f 100644
  Java_expo_modules_libghostty_GhosttyVt_nativeSelectWord(
      JNIEnv*, jobject, jlong handle, jint col, jint row) {
 diff --git a/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/ExpoLibghosttyModule.kt b/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/ExpoLibghosttyModule.kt
-index 1516400..ea1a37a 100644
+index 1516400..a5e89af 100644
 --- a/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/ExpoLibghosttyModule.kt
 +++ b/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/ExpoLibghosttyModule.kt
-@@ -12,13 +12,17 @@ class ExpoLibghosttyModule : Module() {
+@@ -12,13 +12,25 @@ class ExpoLibghosttyModule : Module() {
      Name("ExpoLibghostty")
  
      View(ExpoLibghosttyView::class) {
@@ -171,11 +171,19 @@ index 1516400..ea1a37a 100644
 +        view.setPointerMode(enabled)
 +      }
 +
++      Prop("autoShowKeyboard") { view: ExpoLibghosttyView, enabled: Boolean ->
++        view.setAutoShowKeyboard(enabled)
++      }
++
++      AsyncFunction("showKeyboard") { view: ExpoLibghosttyView ->
++        view.showKeyboard()
++      }
++
        // Theme colors (ghostty config syntax); null clears to the defaults.
        Prop("theme") { view: ExpoLibghosttyView, theme: TerminalThemeRecord? ->
          view.setTheme(theme)
 diff --git a/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/ExpoLibghosttyView.kt b/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/ExpoLibghosttyView.kt
-index 2d3ed62..774ef04 100644
+index 2d3ed62..dab7221 100644
 --- a/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/ExpoLibghosttyView.kt
 +++ b/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/ExpoLibghosttyView.kt
 @@ -19,6 +19,8 @@ class ExpoLibghosttyView(context: Context, appContext: AppContext) :
@@ -232,17 +240,19 @@ index 2d3ed62..774ef04 100644
    }
  
    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
-@@ -82,6 +81,8 @@ class ExpoLibghosttyView(context: Context, appContext: AppContext) :
+@@ -82,6 +81,10 @@ class ExpoLibghosttyView(context: Context, appContext: AppContext) :
    /** Base font size in dp; applied live (the grid reflows in place). */
    fun setFontSize(dp: Float) = terminal.setFontSize(dp)
  
 +  fun setPointerMode(enabled: Boolean) { terminal.pointerMode = enabled }
++  fun setAutoShowKeyboard(enabled: Boolean) { terminal.autoShowKeyboard = enabled }
++  fun showKeyboard() = terminal.showKeyboard()
 +
    /** Apply theme colors; a null record clears back to the defaults. */
    internal fun setTheme(theme: TerminalThemeRecord?) = terminal.setTheme(
      foreground = theme?.foreground,
 diff --git a/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/GhosttyTerminalView.kt b/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/GhosttyTerminalView.kt
-index 9d6ad16..5f078eb 100644
+index 9d6ad16..f0c3b70 100644
 --- a/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/GhosttyTerminalView.kt
 +++ b/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/GhosttyTerminalView.kt
 @@ -9,6 +9,7 @@ import android.graphics.Canvas
@@ -269,13 +279,14 @@ index 9d6ad16..5f078eb 100644
  import kotlin.math.ceil
  import kotlin.math.floor
  import kotlin.math.hypot
-@@ -47,7 +50,12 @@ import kotlin.math.roundToInt
+@@ -47,7 +50,13 @@ import kotlin.math.roundToInt
   */
  internal class GhosttyTerminalView(context: Context) : View(context) {
    var onInputBytes: ((ByteArray) -> Unit)? = null
 -  var onGridResize: ((cols: Int, rows: Int) -> Unit)? = null
 +  var onGridResize: ((cols: Int, rows: Int, cellWidthPx: Int, cellHeightPx: Int) -> Unit)? = null
 +  var onPointer: ((phase: String, x: Float, y: Float, width: Int, height: Int) -> Unit)? = null
++  var autoShowKeyboard = true
 +  var pointerMode = false
 +  /** Set when scrollback lives on a server; suppresses the local buffer,
 +   *  which holds only repaint diffs and shows garbage when scrolled. */
@@ -283,7 +294,7 @@ index 9d6ad16..5f078eb 100644
  
    /** Sticky-modifier source for accessory-bar keys and IME text (optional). */
    var accessoryBar: TerminalAccessoryBar? = null
-@@ -72,6 +80,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -72,6 +81,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
    }
    private val fillPaint = Paint()
    private val cursorPaint = Paint()
@@ -291,7 +302,7 @@ index 9d6ad16..5f078eb 100644
    private var cellWidth = textPaint.measureText("M")
    private var cellHeight = ceil(
      textPaint.fontMetrics.descent - textPaint.fontMetrics.ascent
-@@ -146,6 +155,18 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -146,6 +156,18 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
    }
  
    private var scrollAccum = 0f
@@ -310,7 +321,7 @@ index 9d6ad16..5f078eb 100644
  
    // ── Scrollback state ──
    private val scroller = OverScroller(context)
-@@ -166,7 +187,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -166,7 +188,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
        val deltaRows = (scrollAccum / cellHeight).toInt()
        if (deltaRows != 0) {
          scrollAccum -= deltaRows * cellHeight
@@ -319,6 +330,16 @@ index 9d6ad16..5f078eb 100644
          markScrollActivity()
          scheduleFrame()
        }
+@@ -194,8 +216,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+           return true
+         }
+         requestFocus()
+-        context.getSystemService(InputMethodManager::class.java)
+-          ?.showSoftInput(this@GhosttyTerminalView, 0)
++        if (autoShowKeyboard) showKeyboard()
+         return true
+       }
+
 @@ -229,7 +250,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
          val deltaRows = (scrollAccum / cellHeight).toInt()
          if (deltaRows != 0) {
@@ -431,7 +452,17 @@ index 9d6ad16..5f078eb 100644
    }
  
    private fun drawRowRecord(buf: ByteBuffer, canvas: Canvas, snapCols: Int) {
-@@ -973,6 +1070,47 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -970,9 +1067,57 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+     }
+   }
+
++  /** Explicit keyboard control; pointer focus alone must not open the IME. */
++  fun showKeyboard() {
++    if (handle == 0L || finished || !isAttachedToWindow) return
++    requestFocus()
++    context.getSystemService(InputMethodManager::class.java)?.showSoftInput(this, 0)
++  }
++
    // ── Input ──
  
    override fun onTouchEvent(event: MotionEvent): Boolean {
@@ -469,7 +500,7 @@ index 9d6ad16..5f078eb 100644
 +        MotionEvent.ACTION_UP -> if (!pointerDragging) {
 +          onPointer?.invoke("down", event.x, event.y, width, height)
 +          onPointer?.invoke("up", event.x, event.y, width, height)
-+          postDelayed({ context.getSystemService(InputMethodManager::class.java)?.showSoftInput(this, 0) }, 150)
++          if (autoShowKeyboard) showKeyboard()
 +        }
 +        MotionEvent.ACTION_CANCEL -> pointerDragging = false
 +        else -> Unit
@@ -479,7 +510,7 @@ index 9d6ad16..5f078eb 100644
      if (event.actionMasked == MotionEvent.ACTION_DOWN) scroller.abortAnimation()
      scaleDetector.onTouchEvent(event)
      if (scaleDetector.isInProgress) {
-@@ -1131,6 +1269,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -1131,6 +1276,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      const val JUMP_CHIP_ARROW_COLOR = 0xFFE0E0E0.toInt()
  
      const val HEADER_BYTES = 52
@@ -501,7 +532,7 @@ index 8cfe86e..b41f1bd 100644
    /**
     * Encode a key event ([action]: 0 release / 1 press / 2 repeat) into the
 diff --git a/node_modules/expo-libghostty/build/ExpoLibghostty.types.d.ts b/node_modules/expo-libghostty/build/ExpoLibghostty.types.d.ts
-index 0969f13..3d21047 100644
+index 0969f13..549603a 100644
 --- a/node_modules/expo-libghostty/build/ExpoLibghostty.types.d.ts
 +++ b/node_modules/expo-libghostty/build/ExpoLibghostty.types.d.ts
 @@ -7,9 +7,18 @@ export type TerminalInputEvent = {
@@ -524,16 +555,27 @@ index 0969f13..3d21047 100644
  };
  export type TerminalViewRef = {
      /** Feed base64-encoded PTY output into the terminal grid. */
-@@ -52,6 +61,8 @@ export type TerminalViewProps = {
+@@ -18,6 +27,8 @@ export type TerminalViewRef = {
+     writeText(text: string): Promise<void>;
+     /** Mark the underlying PTY as exited. */
+     finish(exitCode: number): Promise<void>;
++    /** Android: explicitly open the terminal IME. */
++    showKeyboard(): Promise<void>;
+ };
+ export type TerminalTheme = {
+     /**
+@@ -52,6 +63,10 @@ export type TerminalViewProps = {
       * pass undefined fields to keep ghostty's defaults.
       */
      theme?: TerminalTheme;
 +    /** Tap emits a pointer click; drag scrolls the pane. Never both. */
 +    pointerMode?: boolean;
++  /** Android: allow taps to open the software keyboard. Defaults to true. */
++  autoShowKeyboard?: boolean;
      /** User keyboard/IME input to forward to the PTY. */
      onInput?: (event: {
          nativeEvent: TerminalInputEvent;
-@@ -60,6 +71,14 @@ export type TerminalViewProps = {
+@@ -60,6 +75,14 @@ export type TerminalViewProps = {
      onResize?: (event: {
          nativeEvent: TerminalResizeEvent;
      }) => void;
@@ -548,6 +590,18 @@ index 0969f13..3d21047 100644
      ref?: Ref<TerminalViewRef>;
      style?: StyleProp<ViewStyle>;
  };
+diff --git a/node_modules/expo-libghostty/build/ExpoLibghosttyView.js b/node_modules/expo-libghostty/build/ExpoLibghosttyView.js
+index e3bf3b8..31b2c91 100644
+--- a/node_modules/expo-libghostty/build/ExpoLibghosttyView.js
++++ b/node_modules/expo-libghostty/build/ExpoLibghosttyView.js
+@@ -19,6 +19,7 @@ export default function TerminalView({ ref, onResize, ...props }) {
+             });
+         };
+         return {
++            showKeyboard: whenReady(() => native.current.showKeyboard()),
+             write: whenReady((base64) => native.current.write(base64)),
+             writeText: whenReady((text) => native.current.writeText(text)),
+             finish: whenReady((exitCode) => native.current.finish(exitCode)),
 diff --git a/node_modules/expo-libghostty/ios/ExpoLibghosttyModule.swift b/node_modules/expo-libghostty/ios/ExpoLibghosttyModule.swift
 index 2f32970..69d9b2f 100644
 --- a/node_modules/expo-libghostty/ios/ExpoLibghosttyModule.swift
@@ -750,7 +804,7 @@ index 7bb1e98..bf36967 100644
          #if !targetEnvironment(macCatalyst)
              lazy var terminalInputAccessory = TerminalInputAccessoryView(terminalView: self)
 diff --git a/node_modules/expo-libghostty/src/ExpoLibghostty.types.ts b/node_modules/expo-libghostty/src/ExpoLibghostty.types.ts
-index cbd0ab4..54fd9b9 100644
+index cbd0ab4..55e761b 100644
 --- a/node_modules/expo-libghostty/src/ExpoLibghostty.types.ts
 +++ b/node_modules/expo-libghostty/src/ExpoLibghostty.types.ts
 @@ -9,9 +9,19 @@ export type TerminalInputEvent = {
@@ -774,12 +828,23 @@ index cbd0ab4..54fd9b9 100644
  };
  
  export type TerminalViewRef = {
-@@ -57,10 +67,15 @@ export type TerminalViewProps = {
+@@ -21,6 +31,8 @@ export type TerminalViewRef = {
+   writeText(text: string): Promise<void>;
+   /** Mark the underlying PTY as exited. */
+   finish(exitCode: number): Promise<void>;
++  /** Android: explicitly open the terminal IME. */
++  showKeyboard(): Promise<void>;
+ };
+
+ export type TerminalTheme = {
+@@ -57,10 +69,17 @@ export type TerminalViewProps = {
     * pass undefined fields to keep ghostty's defaults.
     */
    theme?: TerminalTheme;
 +  /** Tap emits a pointer click; drag scrolls the pane. Never both. */
 +  pointerMode?: boolean;
++  /** Android: allow taps to open the software keyboard. Defaults to true. */
++  autoShowKeyboard?: boolean;
    /** User keyboard/IME input to forward to the PTY. */
    onInput?: (event: { nativeEvent: TerminalInputEvent }) => void;
    /** Grid resized (layout, rotation, font change); forward to the PTY. */
@@ -790,3 +855,15 @@ index cbd0ab4..54fd9b9 100644
    ref?: Ref<TerminalViewRef>;
    style?: StyleProp<ViewStyle>;
  };
+diff --git a/node_modules/expo-libghostty/src/ExpoLibghosttyView.tsx b/node_modules/expo-libghostty/src/ExpoLibghosttyView.tsx
+index 80ad4b1..78803bb 100644
+--- a/node_modules/expo-libghostty/src/ExpoLibghosttyView.tsx
++++ b/node_modules/expo-libghostty/src/ExpoLibghosttyView.tsx
+@@ -25,6 +25,7 @@ export default function TerminalView({ ref, onResize, ...props }: TerminalViewPr
+         });
+       };
+     return {
++      showKeyboard: whenReady(() => native.current!.showKeyboard()),
+       write: whenReady((base64: string) => native.current!.write(base64)),
+       writeText: whenReady((text: string) => native.current!.writeText(text)),
+       finish: whenReady((exitCode: number) => native.current!.finish(exitCode)),

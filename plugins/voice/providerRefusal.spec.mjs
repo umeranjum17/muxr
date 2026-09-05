@@ -853,8 +853,15 @@ describe('providerRefusal', () => {
                 expect(aborted).toBe(true);
                 await waitFor(() => kernelFrames.some((frame) => frame.state === 'connected' && frame.detail?.includes('did not finish answering')), 'Missing generic unanswered-result feedback');
             } finally { kernel.close(); }
-            flow.send({ type: 'realtime.control', action: 'stop' });
+            flow.send({ type: 'realtime.webrtc.data', data: JSON.stringify({ type: 'turn.done', turn: { role: 'user', transcript: "Don't go to sleep; tell me what John is doing." } }) });
+            flow.send({ type: 'realtime.webrtc.data', data: JSON.stringify({ type: 'turn.done', turn: { role: 'assistant', transcript: 'John is checking reconnect recovery.' } }) });
+            await waitFor(() => flow.frames.some((frame) => frame.type === 'realtime.transcript' && frame.text === 'John is checking reconnect recovery.'), 'A mention of sleep interrupted the conversation');
+            expect(flow.frames.some((frame) => frame.type === 'realtime.closed')).toBe(false);
+            flow.send({ type: 'realtime.webrtc.data', data: JSON.stringify({ type: 'turn.done', turn: { role: 'user', transcript: 'Cool, go to sleep.' } }) });
+            flow.send({ type: 'realtime.webrtc.data', data: JSON.stringify({ type: 'turn.done', turn: { role: 'assistant', transcript: 'Okay, stopping now.' } }) });
             await waitFor(() => flow.frames.some((frame) => frame.type === 'realtime.closed'), 'Codex provider did not close');
+            expect(flow.frames.at(-1)).toEqual({ type: 'realtime.closed', reason: 'ended' });
+            expect(flow.frames.at(-2)).toEqual({ type: 'realtime.transcript', role: 'agent', text: 'Okay, stopping now.' });
             await waitFor(() => flow.child.exitCode !== null, `Codex provider did not exit: ${flow.errors.join('\n')}`);
 
             const refused = spawnProvider('acct-other');

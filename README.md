@@ -172,3 +172,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and pull requests.
 ## License
 
 muxr is licensed under [Apache License 2.0](LICENSE). Third-party notices are recorded in [NOTICE](NOTICE) and the [license inventory](docs/license-inventory.md). The muxr name and marks are covered by [TRADEMARK.md](TRADEMARK.md).
+
+## Development and beta builds
+
+Merging into `main` advances development, not production. Use the [release channel workflow](docs/RELEASING.md) for signed dev/beta APKs, verified npm artifacts and explicit stable promotion. Emulator acceptance stays local.

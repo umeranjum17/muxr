@@ -110,7 +110,7 @@ export default {
         runtimeVersion: "2",
         orientation: "default",
         icon: "./sources/assets/images/icon.png",
-        scheme: "muxr",
+        scheme: variant === 'production' ? 'muxr' : `muxr-${variant === 'development' ? 'dev' : 'preview'}`,
         userInterfaceStyle: "automatic",
         ios: {
             supportsTablet: true,

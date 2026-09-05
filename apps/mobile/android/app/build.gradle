@@ -80,6 +80,10 @@ def enableMinifyInReleaseBuilds = (findProperty('android.enableMinifyInReleaseBu
  * this variant is about 6MiB larger per architecture than default.
  */
 def jscFlavor = 'io.github.react-native-community:jsc-android:2026004.+'
+def developmentDistribution = (findProperty('muxrDevelopmentApp') ?: 'false').toBoolean()
+if (developmentDistribution && System.getenv('APP_ENV') != 'development') {
+    throw new GradleException('The development APK requires APP_ENV=development')
+}
 def releaseRequested = gradle.startParameter.taskNames.any { it.toLowerCase().contains('release') }
 def releaseVersionName = findProperty('appVersion')
 def releaseVersionCode = findProperty('androidVersionCode')
@@ -120,7 +124,14 @@ android {
     namespace 'com.trymuxr.app'
     defaultConfig {
         applicationId 'com.trymuxr.app'
+        if (developmentDistribution) applicationId 'app.muxr.local.dev'
+        manifestPlaceholders = [muxrScheme: developmentDistribution ? 'muxr-dev' : 'muxr',
+            muxrExpoScheme: developmentDistribution ? 'exp+muxr-dev' : 'exp+muxr',
+            muxrPairHost: developmentDistribution ? 'dev.invalid' : 'trymuxr.com',
+            muxrAppLabel: developmentDistribution ? 'muxr Dev' : 'muxr',
+            muxrShortcuts: developmentDistribution ? '@xml/dev_shortcuts' : '@xml/shortcuts']
         resValue 'string', 'muxr_application_id', applicationId
+        resValue 'string', 'muxr_link_scheme', developmentDistribution ? 'muxr-dev' : 'muxr'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode releaseConfigured ? releaseVersionCode.toInteger() : 12

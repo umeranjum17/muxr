@@ -1,56 +1,90 @@
 name: publish npm
 
 on:
-  release:
-    types: [published]
+  workflow_run:
+    workflows: [release candidate]
+    types: [completed]
   workflow_dispatch:
     inputs:
-      tag:
-        description: Existing immutable release tag to publish
+      run_id:
+        description: Successful release candidate run containing the exact tested tarball
+        required: true
+        type: string
+      confirmation:
+        description: For stable, type promote-VERSION after accepting the candidate
         required: true
         type: string
 
 concurrency:
-  group: npm-${{ github.event.release.tag_name || inputs.tag }}
+  group: npm-publication
   cancel-in-progress: false
-
 permissions:
   contents: read
-  id-token: write
+  actions: read
 
 jobs:
+  inspect:
+    if: github.repository == 'umeranjum17/muxr' && (github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success')
+    runs-on: ubuntu-latest
+    outputs:
+      commit: ${{ steps.inspect.outputs.commit }}
+      version: ${{ steps.inspect.outputs.version }}
+      channel: ${{ steps.inspect.outputs.channel }}
+      run_id: ${{ steps.inspect.outputs.run_id }}
+    steps:
+      - id: inspect
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.run_id || github.event.workflow_run.id }}
+          CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          test "$GITHUB_REF" = refs/heads/main
+          [[ "$RUN_ID" =~ ^[1-9][0-9]*$ ]]
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" > "$RUNNER_TEMP/build.json"
+          jq -e '.path == ".github/workflows/release-candidate.yml" and .head_branch == "main" and .status == "completed" and .conclusion == "success"' "$RUNNER_TEMP/build.json"
+          gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" --name npm-candidate --dir "$RUNNER_TEMP/package"
+          node --input-type=module <<'JS'
+          import { readFileSync, appendFileSync } from 'node:fs';
+          const run = JSON.parse(readFileSync(`${process.env.RUNNER_TEMP}/build.json`));
+          const m = JSON.parse(readFileSync(`${process.env.RUNNER_TEMP}/package/release-manifest.json`));
+          if (!/^[0-9a-f]{40}$/.test(run.head_sha) || m.source.commit !== run.head_sha || m.build.runId !== process.env.RUN_ID) throw new Error('Candidate provenance mismatch');
+          if (!['dev','beta','stable'].includes(m.release.channel) || !/^[0-9A-Za-z.-]{1,120}$/.test(m.release.version)) throw new Error('Invalid release metadata');
+          if (m.release.channel === 'stable' && process.env.GITHUB_EVENT_NAME === 'workflow_dispatch' && process.env.CONFIRMATION !== `promote-${m.release.version}`) throw new Error('Stable promotion requires exact confirmation');
+          appendFileSync(process.env.GITHUB_OUTPUT, `commit=${run.head_sha}\nversion=${m.release.version}\nchannel=${m.release.channel}\nrun_id=${process.env.RUN_ID}\n`);
+          JS
+
+  production-approval:
+    needs: inspect
+    if: needs.inspect.outputs.channel == 'stable' && github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - run: echo 'Explicit stable candidate promotion approved; publication consumes the retained tarball.'
+
   publish:
-    if: github.repository == 'umeranjum17/muxr'
+    needs: [inspect, production-approval]
+    if: always() && needs.inspect.result == 'success' && (needs.inspect.outputs.channel != 'stable' || needs.production-approval.result == 'success')
     runs-on: ubuntu-latest
     environment: npm
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      BUILD_RUN_ID: ${{ needs.inspect.outputs.run_id }}
+      RELEASE_COMMIT: ${{ needs.inspect.outputs.commit }}
+      RELEASE_VERSION: ${{ needs.inspect.outputs.version }}
+      RELEASE_CHANNEL: ${{ needs.inspect.outputs.channel }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.release.tag_name || inputs.tag }}
+          ref: ${{ needs.inspect.outputs.commit }}
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
-      - run: yarn install --frozen-lockfile --non-interactive
-      - name: Match package version to the release tag
-        id: package
+      - run: npm install --global npm@11.6.2
+      - name: Download and publish verified bytes without rebuilding
         run: |
-          version=$(node -p "require('./package.json').version")
-          release_tag="${{ github.event.release.tag_name || inputs.tag }}"
-          [[ "$release_tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
-          test "v$version" = "$release_tag"
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-      - run: yarn run pack
-      - name: Check whether this immutable version already exists
-        id: registry
-        run: |
-          if npm view "@trymuxr/cli@${{ steps.package.outputs.version }}" version >/dev/null 2>&1; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
-          fi
-      - name: Install npm with trusted publishing support
-        if: steps.registry.outputs.exists != 'true'
-        run: npm install --global npm@11.6.2
-      - name: Publish with npm trusted publishing
-        if: steps.registry.outputs.exists != 'true'
-        run: npm publish ./dist-npm --access public --provenance
+          gh run download "$BUILD_RUN_ID" --repo "$GITHUB_REPOSITORY" --name npm-candidate --dir "$RUNNER_TEMP/package"
+          node scripts/release/presentation/publishNpm.mjs

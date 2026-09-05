@@ -703,6 +703,8 @@ describe('session sync flow', () => {
             };
         }
         mmkvValues.set('lifecycle-voice-reports-v1', JSON.stringify(persistedVoice));
+        expect(state.localSettings.terminalAutoShowKeyboard).toBe(false);
+        state.applyLocalSettings({ terminalAutoShowKeyboard: true });
         state.applyLocalSettings({ vadStandbyEnabled: true });
 
         // Module re-evaluation simulates the store/app restarting while MMKV remains.
@@ -710,6 +712,7 @@ describe('session sync flow', () => {
         const restarted = (await import('./storage')).storage;
         restarted.getState().setLifecycleScope('test-authority:machine');
         expect(restarted.getState().localSettings.vadStandbyEnabled).toBe(true);
+        expect(restarted.getState().localSettings.terminalAutoShowKeyboard).toBe(true);
         restarted.getState().applyLocalSettings({ vadStandbyEnabled: false });
         expect(JSON.parse(mmkvValues.get('local-settings')!).vadStandbyEnabled).toBe(false);
         expect(restarted.getState().voicePendingReports).toEqual([durableReport]);

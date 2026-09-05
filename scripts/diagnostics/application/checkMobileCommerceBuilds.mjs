@@ -43,7 +43,7 @@ assert.ok(
 );
 assert.match(readFileSync(join(mobile, 'android', 'app', 'build.gradle'), 'utf8'), /applicationId 'com\.trymuxr\.app'/);
 const androidManifest = readFileSync(join(mobile, 'android', 'app', 'src', 'main', 'AndroidManifest.xml'), 'utf8');
-assert.match(androidManifest, /<intent-filter android:autoVerify="true">[\s\S]*?<data android:scheme="https" android:host="trymuxr\.com" android:pathPrefix="\/pair"\/>[\s\S]*?<\/intent-filter>/, 'production manifest lost verified pairing links');
+assert.match(androidManifest, /<intent-filter android:autoVerify="true">[\s\S]*?<data android:scheme="https" android:host="\$\{muxrPairHost\}" android:pathPrefix="\/pair"\/>[\s\S]*?<\/intent-filter>/, 'production manifest lost verified pairing links');
 const voiceManifest = readFileSync(join(mobile, 'modules', 'voice-overlay', 'android', 'src', 'main', 'AndroidManifest.xml'), 'utf8');
 assert.match(voiceManifest, /FOREGROUND_SERVICE_DATA_SYNC/);
 assert.match(voiceManifest, /foregroundServiceType="microphone\|dataSync"/);

@@ -16,6 +16,7 @@ import * as React from 'react';
 import { AppState, PixelRatio, Platform, Pressable, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { TerminalView as GhosttyView, type TerminalViewRef } from 'expo-libghostty';
+import { useLocalSetting } from '@/catalog/store';
 import { decodeBase64, encodeBase64 } from '@/encryption/base64';
 import {
     recordTerminalGraphicsFrame,
@@ -76,7 +77,7 @@ function combineTextFrames(frames: readonly string[]): string {
 }
 
 /** Small, dark, always in the same corner: a control, not a decoration. */
-const ZoomButton = (props: { label: string; glyph: 'add' | 'remove' | 'refresh'; onPress: () => void; disabled: boolean }): React.ReactElement => (
+const ZoomButton = (props: { label: string; glyph: 'add' | 'remove' | 'refresh' | 'keypad-outline'; onPress: () => void; disabled: boolean }): React.ReactElement => (
     <Pressable
         accessibilityRole="button"
         accessibilityLabel={props.label}
@@ -85,9 +86,9 @@ const ZoomButton = (props: { label: string; glyph: 'add' | 'remove' | 'refresh';
         onPress={props.onPress}
         hitSlop={8}
         style={({ pressed }) => ({
-            width: 34,
-            height: 34,
-            borderRadius: 17,
+            width: 44,
+            height: 44,
+            borderRadius: 22,
             alignItems: 'center',
             justifyContent: 'center',
             opacity: props.disabled ? 0.35 : 1,
@@ -102,6 +103,7 @@ const ZoomButton = (props: { label: string; glyph: 'add' | 'remove' | 'refresh';
 
 export const TerminalView = React.memo((props: TerminalViewProps) => {
     const { sessionId, onStatus, onChannel } = props;
+    const autoShowKeyboard = useLocalSetting('terminalAutoShowKeyboard');
     const termRef = React.useRef<TerminalViewRef>(null);
     const channelRef = React.useRef<TerminalChannel | undefined>(undefined);
     const openedRef = React.useRef(false);
@@ -387,6 +389,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                 ref={termRef}
                 style={{ flex: 1 }}
                 pointerMode={graphicsActive}
+                autoShowKeyboard={autoShowKeyboard}
                 fontSize={FONT_STEPS[fontIndex]}
                 theme={{ background: '#0c0c0b' }}
                 onInput={({ nativeEvent }) => {
@@ -425,13 +428,17 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             <View
                 style={{ position: 'absolute', top: 10, right: 10, gap: 6 }}
                 accessibilityRole="toolbar"
-                accessibilityLabel="Terminal zoom"
+                accessibilityLabel="Terminal controls"
             >
                 {/* A pinch is the shortcut; these are the affordance, and the
                     only zoom a test can drive: one injected pointer cannot
                     pinch. On a text pane they buy columns, on an image pane
                     detail, and the labels stay the same either way so one flow
                     covers both. */}
+                {Platform.OS === 'android' && (
+                    <ZoomButton label="Open terminal keyboard" glyph="keypad-outline" disabled={false}
+                        onPress={() => { void termRef.current?.showKeyboard().catch(() => onStatus?.('Could not open keyboard')); }} />
+                )}
                 <ZoomButton label="Zoom in" glyph="add" onPress={() => zoom(1)} disabled={atMaxZoom} />
                 <ZoomButton label="Zoom out" glyph="remove" onPress={() => zoom(-1)} disabled={atMinZoom} />
                 <ZoomButton label="Reset zoom" glyph="refresh" onPress={resetZoom} disabled={atDefaultZoom} />

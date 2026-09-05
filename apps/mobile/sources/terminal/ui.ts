@@ -4,3 +4,4 @@ export * from './presentation/GitStatusBadge';
 export * from './presentation/TerminalPreview';
 export * from './presentation/TerminalScreen';
 export * from './presentation/TerminalView';
+export * from './presentation/TerminalRoute';

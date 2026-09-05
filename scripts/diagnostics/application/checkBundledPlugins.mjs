@@ -1,7 +1,9 @@
 /**
  * Validate every bundled plugin the same way `muxr plugin check` does.
  */
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import assert from 'node:assert/strict';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
@@ -185,3 +187,37 @@ if (body.name !== 'README.md' || body.path !== leaf || typeof body.body !== 'str
 }
 
 process.stdout.write(`${plugins.length} bundled plugins ok; ${guardedFiles.length} primitive files guarded; files.nav list/read flow ok\n`);
+
+// Drive the actual Panes plugin: terminal apps are launchers, shell and setup
+// inventories stay out of Tools, and shells remain reachable through Panes.
+const toolsScratch = mkdtempSync(join(tmpdir(), 'muxr-tools-flow-'));
+try {
+    const fixtureHerdr = join(toolsScratch, 'herdr');
+    writeFileSync(fixtureHerdr, `#!/usr/bin/env node
+const [area] = process.argv.slice(2);
+const panes = Array.from({length: 80}, (_, i) => ({pane_id: 'shell-' + i, workspace_id: 'work', cwd: '/work'}));
+const plugins = [
+ {plugin_id:'example.browser', name:'Terminal Browser', enabled:true, actions:[{id:'open', title:'Open', contexts:['global']}]},
+ {plugin_id:'example.code', name:'Terminal Code', enabled:true, actions:[{id:'open', title:'Open', contexts:['global']}]},
+ {plugin_id:'example.admin', name:'Setup', enabled:true, panes:[{id:'setup', title:'Configure'}], actions:[{id:'setup', contexts:['pane']}]},
+ {plugin_id:'example.disabled', name:'Disabled', enabled:false, actions:[{id:'open', contexts:['global']}]}
+];
+let result = {workspaces:[{workspace_id:'work',label:'Work'}]};
+if (area === 'plugin') result = {plugins};
+if (area === 'pane') result = {panes};
+process.stdout.write(JSON.stringify({result}));
+`, { mode: 0o700 });
+    const invokePanes = (method) => {
+        const result = spawnSync(process.execPath, [join(pluginsDir, 'panes', 'panes.mjs'), method], {
+            encoding: 'utf8', input: '{}', timeout: 20_000,
+            env: { ...process.env, HERDR_BIN_PATH: fixtureHerdr },
+        });
+        assert.equal(result.status, 0, result.stderr);
+        return JSON.parse(result.stdout).items;
+    };
+    assert.deepEqual(invokePanes('tools').map((item) => item.title), ['Terminal Browser', 'Terminal Code']);
+    assert.equal(invokePanes('list').length, 80);
+    process.stdout.write('Tools app discovery and separate Panes flow ok\n');
+} finally {
+    rmSync(toolsScratch, { recursive: true, force: true });
+}
