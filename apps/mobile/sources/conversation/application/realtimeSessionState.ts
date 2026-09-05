@@ -110,19 +110,39 @@ export function realtimeMachineSwitchGuard(machineId: string): RealtimeMachineSw
 /** Desk focus only if that agent is busy; otherwise the phone's last session. */
 export async function resolveRealtimeTarget(): Promise<RealtimeTarget | null> {
     const machineId = getCachedConnectionSettings().machineId;
-    const tree = await sync.request('herdr.tree', {}).catch(() => undefined);
-    const focused = tree?.workspaces
+    // The local catalog can contain routes from a previous Herdr snapshot. Resolve
+    // only against the two fresh host views: session.list is the authoritative
+    // session inventory and herdr.tree supplies the pane-to-route membership.
+    const fresh = await Promise.all([
+        sync.request('herdr.tree', {}),
+        sync.request('session.list', {}),
+    ]).catch(() => undefined);
+    if (fresh === undefined) return null;
+    const [tree, listedSessions] = fresh;
+    if (!Array.isArray(listedSessions) || !Array.isArray(tree?.workspaces)
+        || !tree.workspaces.every((workspace) => workspace !== null && typeof workspace === 'object'
+            && Array.isArray(workspace.tabs)
+            && workspace.tabs.every((tab) => tab !== null && typeof tab === 'object' && Array.isArray(tab.panes)))) return null;
+    const listedIds = new Set(listedSessions
+        .filter((session) => typeof session?.id === 'string' && session.id !== '')
+        .map((session) => session.id));
+    const liveRoutes = new Set(tree.workspaces
+        .flatMap((workspace) => workspace.tabs)
+        .flatMap((tab) => tab.panes)
+        .flatMap((pane) => typeof pane.sessionId === 'string' && listedIds.has(pane.sessionId) ? [pane.sessionId] : []));
+    if (liveRoutes.size === 0) return null;
+    const focused = tree.workspaces
         .filter((workspace) => workspace.focused)
         .flatMap((workspace) => workspace.tabs.filter((tab) => tab.focused))
         .flatMap((tab) => tab.panes)
-        .find((pane) => pane.focused && pane.sessionId !== undefined);
-    const sessions = Object.values(storage.getState().sessions);
+        .find((pane) => pane.focused && typeof pane.sessionId === 'string' && liveRoutes.has(pane.sessionId));
+    const sessions = Object.values(storage.getState().sessions).filter((session) => liveRoutes.has(session.id));
     const focusedRoute = focusAgent({
         machineId,
         deskFocus: focused?.sessionId === undefined
             ? undefined
             : { agentRoute: focused.sessionId, agentStatus: focused.agentStatus },
-        remembered: realtimeTarget === null
+        remembered: realtimeTarget === null || !liveRoutes.has(realtimeTarget.sessionId)
             ? null
             : { machineId: realtimeTarget.machineId, agentRoute: realtimeTarget.sessionId },
         listed: sessions.map((session) => ({
