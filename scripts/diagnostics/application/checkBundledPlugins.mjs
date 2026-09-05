@@ -202,7 +202,10 @@ const plugins = [
  {plugin_id:'example.admin', name:'Setup', enabled:true, panes:[{id:'setup', title:'Configure'}], actions:[{id:'setup', contexts:['pane']}]},
  {plugin_id:'example.disabled', name:'Disabled', enabled:false, actions:[{id:'open', contexts:['global']}]}
 ];
-process.stdout.write(JSON.stringify({result:area === 'plugin' ? {plugins} : area === 'pane' ? {panes} : {workspaces:[{workspace_id:'work',label:'Work'}]}}));
+let result = {workspaces:[{workspace_id:'work',label:'Work'}]};
+if (area === 'plugin') result = {plugins};
+if (area === 'pane') result = {panes};
+process.stdout.write(JSON.stringify({result}));
 `, { mode: 0o700 });
     const invokePanes = (method) => {
         const result = spawnSync(process.execPath, [join(pluginsDir, 'panes', 'panes.mjs'), method], {
