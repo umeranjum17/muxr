@@ -5,7 +5,7 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { CommandScope, useCommandScope } from './lib/commands.mjs';
 import { startLiveStack } from './lib/fakeStack.mjs';
 import { pairPhone } from './lib/pairPhone.mjs';
-import { parseUiNodes } from './lib/gestureMetrics.mjs';
+import { parseUiNodes, cropRaw, pixelsMoved } from './lib/gestureMetrics.mjs';
 import { sourceIdentity, harnessIdentity, patchedDependencies, sha256 } from './lib/provenance.mjs';
 import { PNG } from 'pngjs';
 
@@ -127,16 +127,16 @@ async function maestro(_flow, variables) {
 function processStart(pid) {
     try { return readFileSync(`/proc/${pid}/stat`, 'utf8').split(') ')[1].split(' ')[19]; } catch { return null; }
 }
-async function retireProducer() {
+async function retireProducer(deadline = Date.now() + 10000) {
     if (!producer || !processStart(producer.pid)) return;
     check(processStart(producer.pid) === producer.start, 'Producer PID reused; refusing signal');
     report.retirementSignalAt ??= new Date().toISOString();
     process.kill(producer.pid, 'SIGTERM');
-    const end = Date.now() + 5000;
+    const end = Math.min(Date.now() + 5000, deadline - 1000);
     while (processStart(producer.pid) === producer.start && Date.now() < end) await sleep(100);
     if (processStart(producer.pid) === producer.start) {
         process.kill(producer.pid, 'SIGKILL');
-        const killEnd = Date.now() + 5000;
+        const killEnd = Math.min(Date.now() + 5000, deadline);
         while (processStart(producer.pid) === producer.start && Date.now() < killEnd) await sleep(100);
         check(processStart(producer.pid) !== producer.start, 'Owned producer did not terminate; retain lock');
     }
@@ -173,10 +173,11 @@ function bodyPixelProof(path) {
     }
     return { width: png.width, height: png.height, nonWhite, dark, colorBuckets: colorBuckets.size, proven: nonWhite >= 2_000 && dark >= 200 && colorBuckets.size >= 24 };
 }
-async function retireOwnedBrowser(browser) {
+async function retireOwnedBrowser(browser, deadline = Date.now() + 10000) {
     check(browser?.key && browser?.tabId !== undefined, 'Missing owned browser identity');
-    await run('terminal-browser', ['action', '--browser', browser.key, '--tab', String(browser.tabId), '--', 'eval', 'globalThis.terminalBrowser.quit()'], { timeout: 10_000 });
-    const deadline = Date.now() + 10_000;
+    try {
+        await run('terminal-browser', ['action', '--browser', browser.key, '--tab', String(browser.tabId), '--', 'eval', 'document.dispatchEvent(new Event("muxr-owned-probe-retire"))'], { timeout: Math.max(1, Math.min(3000, deadline - Date.now() - 1000)) });
+    } catch { report.browserQuitResponse = 'Command response unavailable; require scoped inventory absence'; }
     do {
         const remaining = (await browserInventory()).filter((entry) => entry.key === browser.key || entry.pane?.pane === tab.pane);
         if (remaining.length === 0) { report.browserRetiredAt = new Date().toISOString(); return; }
@@ -209,7 +210,11 @@ async function github() {
     // This script reports its own PID before exec; only that exact PID/start is retired.
     const pidFile = join(scratchRoot, 'producer.pid');
     const script = join(scratchRoot, 'producer.sh');
-    writeFileSync(script, `#!/bin/sh\necho $$ > ${shellQuote(pidFile)}\nexec terminal-browser open --no-toolbar --no-merge --no-frame https://github.com/\n`, { mode: 0o700 });
+    // The supported quit API lives in Electron's isolated preload world, not
+    // page eval. This owned preload exposes only retirement of its own window.
+    const preload = join(scratchRoot, 'owned-browser-preload.cjs');
+    writeFileSync(preload, 'document.addEventListener("muxr-owned-probe-retire", () => globalThis.terminalBrowser.quit(), { once: true });', { mode: 0o600 });
+    writeFileSync(script, `#!/bin/sh\necho $$ > ${shellQuote(pidFile)}\nexec terminal-browser open --preload=${shellQuote(preload)} --no-toolbar --no-merge --no-frame https://github.com/\n`, { mode: 0o700 });
     const launchAt = Date.now();
     const paintDeadline = launchAt + 20000;
     report.producerLaunchAt = new Date(launchAt).toISOString();
@@ -224,33 +229,71 @@ async function github() {
         check(Number.isSafeInteger(producerPid) && producerPid > 1, 'Invalid owned PID');
         producer = { pid: producerPid, start: processStart(producerPid) }; check(producer.start, 'Producer exited before identity capture');
         report.producer = { ...producer, pane: tab.pane, url: 'https://github.com/' };
-        const deadline = paintDeadline - 1000;
-        for (let i = 0; Date.now() < deadline; i++) {
-            await memory(`paint-${i}`, pid);
-            if (i === 2) {
-                await capture('github-paint');
-                const owned = (await browserInventory()).filter((browser) => browser.pane?.pane === tab.pane);
-                check(owned.length === 1, 'Cannot bind painted browser to owned pane');
-                const target = owned[0].tabs.find((entry) => entry.url === 'https://github.com/') ?? owned[0].tabs[0];
-                check(target && target.url === 'https://github.com/', 'Owned browser has no GitHub tab');
+        // Reserve eight seconds inside the launch cap for both retirements.
+        const deadline = paintDeadline - 8000;
+        operationDeadline = deadline;
+        // Bind the exact owned window before judging readiness or requesting quit.
+        do {
+            const owned = (await browserInventory()).filter((browser) => browser.pane?.pane === tab.pane);
+            check(owned.length <= 1, 'Multiple browser windows in owned pane');
+            const target = owned[0]?.tabs.find((entry) => entry.url === 'https://github.com/');
+            if (target) {
                 const browserStart = processStart(owned[0].pid);
                 check(browserStart, 'Cannot capture owned browser PID start identity');
                 report.browser = { key: owned[0].key, pid: owned[0].pid, start: browserStart, pane: owned[0].pane, tabId: target.id, url: target.url, title: target.title };
-                report.githubPaint = bodyPixelProof(join(out, 'github-paint.png'));
-                check(report.githubPaint.proven, 'GitHub body pixels not proven; retain evidence without paint claim');
+                break;
             }
-            await sleep(Math.min(2000, Math.max(0, deadline - Date.now())));
+            await sleep(Math.min(250, Math.max(0, deadline - Date.now())));
+        } while (Date.now() < deadline);
+        check(report.browser, 'Cannot bind GitHub browser to owned pane inside paint deadline');
+        const scrollPosition = async () => {
+            const value = JSON.parse((await run('terminal-browser', ['action', '--browser', report.browser.key, '--tab', String(report.browser.tabId), '--', 'eval', 'window.scrollY'], { timeout: 5000 })).stdout);
+            check(Number.isFinite(value), 'Missing owned page scroll position'); return value;
+        };
+        report.githubPaintSamples = [];
+        for (let i = 0; Date.now() < deadline; i++) {
+            await memory(`paint-${i}`, pid);
+            const name = `github-paint-${i}`;
+            // Screenshot directly: repeated UI dumps can consume the paint cap.
+            save(`${name}.png`, await adbRun(['exec-out', 'screencap', '-p'], { encoding: 'buffer' }));
+            const proof = { at: new Date().toISOString(), ...bodyPixelProof(join(out, `${name}.png`)) };
+            report.githubPaintSamples.push(proof);
+            if (proof.proven && !report.githubPaint?.proven) {
+                report.githubPaint = proof;
+                copyFileSync(join(out, `${name}.png`), join(out, 'github-paint.png'));
+                publish(join(out, 'github-paint.png'));
+            }
+            if (report.githubScrollAt && !report.githubScroll) {
+                const before = PNG.sync.read(readFileSync(join(out, 'github-paint.png')));
+                const after = PNG.sync.read(readFileSync(join(out, `${name}.png`)));
+                const region = { l: before.width * .04, r: before.width * .86, t: before.height * .20, b: before.height * .78 };
+                const movement = pixelsMoved(cropRaw({ ...before, bytes: before.data }, region), cropRaw({ ...after, bytes: after.data }, region));
+                const scrollY = await scrollPosition();
+                if (proof.proven && movement.moved && scrollY > report.githubScrollFrom + 16) report.githubScroll = { at: proof.at, from: report.githubScrollFrom, to: scrollY, ...movement };
+            }
+            if (proof.proven && !report.githubScrollAt && Date.now() + 4000 < deadline) {
+                const { width, height } = proof;
+                report.githubScrollFrom = await scrollPosition();
+                await adb('shell', 'input', 'swipe', String(Math.round(width * .5)), String(Math.round(height * .66)), String(Math.round(width * .5)), String(Math.round(height * .43)), '400');
+                report.githubScrollAt = new Date().toISOString();
+            }
+            await sleep(Math.min(1000, Math.max(0, deadline - Date.now())));
         }
+        check(report.githubPaint?.proven, 'GitHub body pixels never painted within the bounded window; all samples retained');
+        check(report.githubScroll?.moved, 'No painted content movement after the phone scroll; retain samples without scroll acceptance');
     } finally {
-        operationDeadline = Infinity;
-        clearTimeout(paintStop);
+        operationDeadline = paintDeadline;
         try {
-            await retireProducer();
+            try {
+                await retireProducer(Math.min(Date.now() + 4000, paintDeadline - 2000));
+            } finally {
+                // Browser cleanup is independent even if the controller fails.
+                if (report.browser) await retireOwnedBrowser(report.browser, paintDeadline);
+            }
+            check(Date.now() <= paintDeadline, 'Launch-to-retirement exceeded 20 seconds');
         } finally {
-            // Retire only the browser bound to this run. Keep this nested
-            // finally so a controller retirement failure cannot strand the
-            // owned browser or pane. A failed browser cleanup retains lock.
-            if (report.browser) await retireOwnedBrowser(report.browser);
+            clearTimeout(paintStop);
+            operationDeadline = Infinity;
         }
     }
     const retirementDeadline = Date.now() + 20000;
