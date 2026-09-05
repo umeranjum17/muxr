@@ -17,7 +17,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@expo/ui": "~55.0.5",
+    "@expo/ui": "~57.0.15",
     "@expo/vector-icons": "^15.0.2",
     "@more-tech/react-native-libsodium": "^1.5.5",
     "@muxr/contract": "0.0.0",
