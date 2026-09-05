@@ -335,7 +335,6 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                     channel.onState((state) => onStatus?.(state));
                     channel.onClose((reason) => onStatus?.(reason ?? 'closed'));
                     onChannel?.(channel);
-                    onStatus?.('live');
                     // The keyboard can resize Ghostty while hosted attach is
                     // still waiting. Its debounce then has no channel to call;
                     // replay the latest size now or the prompt is painted below

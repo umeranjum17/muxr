@@ -193,7 +193,6 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                 }
                 channel = opened;
                 onChannel?.(opened);
-                onStatus?.('live');
                 opened.onGraphics((active) => { graphicsActive = active && !graphicsFailed; });
                 let pending: { bytes: string; graphics?: boolean }[] = [];
                 let frameScheduled = false;

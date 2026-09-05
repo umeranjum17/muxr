@@ -323,6 +323,7 @@ describe('openTerminal reconnect ownership', () => {
         await vi.waitFor(() => expect(FakeWebSocket.instances[0]).toBeDefined());
         const first = FakeWebSocket.instances[0]!;
         first.open();
+        first.onmessage?.({ data: JSON.stringify({ type: 'terminal.frame', bytes: 'paint' }) });
 
         channel.reconnect();
         channel.reconnect();
@@ -344,6 +345,7 @@ describe('openTerminal reconnect ownership', () => {
         await vi.waitFor(() => expect(FakeWebSocket.instances[1]).toBeDefined());
         const replacement = FakeWebSocket.instances[1]!;
         replacement.open();
+        replacement.onmessage?.({ data: JSON.stringify({ type: 'terminal.frame', bytes: 'repaint' }) });
 
         // A late duplicate close from the old transport cannot schedule over
         // the live replacement.
