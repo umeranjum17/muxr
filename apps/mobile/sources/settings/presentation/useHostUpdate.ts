@@ -16,7 +16,7 @@ export function useHostUpdate(appVersion: string) {
     const [busy, setBusy] = React.useState(false);
     const operating = React.useRef(false);
     const refreshing = React.useRef(false);
-    const lastStatus = React.useRef<string>();
+    const lastStatus = React.useRef<string | undefined>(undefined);
     const current = React.useRef(machine); current.current = machine;
     const alive = React.useRef(true);
     React.useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);

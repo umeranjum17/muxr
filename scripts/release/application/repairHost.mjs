@@ -77,7 +77,12 @@ function reconcile(path, plan) {
     const lock = join(dirname(path), 'active');
     // Never release another job's lock, nor an installer whose state is unknown.
     let job;
-    try { job = read(join(lock, 'job.json')); } catch { return plan; }
+    try { job = read(join(lock, 'job.json')); } catch {
+        if (existsSync(lock)) return plan;
+        // A completed worker failure removes its lock; keep using its recorded
+        // health path so a healthy prior install can be retried from the phone.
+        job = plan;
+    }
     if (job.id !== plan.id) return plan;
     if (!['inactive', 'failed', ''].includes(active)) {
         plan.status = 'needs-attention'; plan.message = 'Cannot confirm the update service stopped. The update lock is retained; check the host service.';
@@ -126,7 +131,8 @@ export async function repairHost(request) {
     try { mkdirSync(lock, { mode: 0o700 }); } catch { throw new Error('A host update is already running. Check its status before trying again.'); }
     try {
         const job = join(lock, 'job.json');
-        save(job, { ...plan, path, root, journalPath: journalPath() });
+        plan.journalPath = journalPath();
+        save(job, { ...plan, path, root });
         plan.queuedAt = Date.now(); plan.status = 'queued'; plan.message = 'Host alignment queued. The app will reconnect after the service restarts.'; save(path, plan);
         // A transient service survives the muxr.service restart. A detached
         // child alone remains in its parent's systemd cgroup and would be killed.
