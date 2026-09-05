@@ -76,7 +76,12 @@ async function requireScreen(name, pattern, timeout = 25_000, dismissStartup = f
     throw new Error(`${name}: screen did not mount (expected ${pattern}); see ${name}.xml`);
 }
 async function tapText(text) {
-    const xml = await dump();
+    let xml = await dump();
+    if (['Session actions', 'Open terminal keyboard', 'Zoom in', 'Zoom out', 'Reset zoom'].includes(text)
+        && !xml.includes(`content-desc="${text}"`) && xml.includes('content-desc="Show terminal controls"')) {
+        await tapText('Show terminal controls');
+        xml = await dump();
+    }
     const node = (xml.match(/<node\b[^>]*>/g) ?? []).find((node) => node.includes(`text="${text}"`) || node.includes(`content-desc="${text}"`));
     const bounds = node && /bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/.exec(node);
     check(bounds, `Missing required control: ${text}`);
@@ -320,7 +325,7 @@ async function terminalKeyboard(name) {
     };
     await waitKeyboard(false);
     const before = await dump(`${name}-before`);
-    check(before.includes('Open terminal keyboard'), 'Explicit keyboard button missing');
+    check(before.includes('Show terminal controls') || before.includes('Hide terminal controls'), 'Terminal command control missing');
     const { width, height } = report.device;
     for (let n = 0; n < 3; n++) {
         await adb('shell', 'input', 'tap', String(Math.round(width * .3)), String(Math.round(height * .4)));
@@ -333,7 +338,9 @@ async function terminalKeyboard(name) {
     await capture(`${name}-explicit-keyboard.png`);
     await adb('shell', 'input', 'keyevent', '4');
     await waitKeyboard(false);
-    await requireScreen(`${name}-restored`, /Open terminal keyboard/);
+    await requireScreen(`${name}-restored`, /Show terminal controls/);
+    await tapText('Show terminal controls');
+    await requireScreen(`${name}-commands`, /Open terminal keyboard/);
     await capture(`${name}-restored.png`);
     (report.keyboard ??= []).push({ name, tapCount: 3, autoOpened: false, explicitOpen: true, dismissed: true });
     const handle = (xml, label) => parseUiNodes(xml).find((node) => node.desc === label);
@@ -352,7 +359,16 @@ async function terminalKeyboard(name) {
     await capture(`${name}-controls-collapsed.png`);
     await tapText('Show terminal controls');
     const expanded = await dump(`${name}-controls-expanded`);
-    check(expanded.includes('Open terminal keyboard') && expanded.includes('Zoom in'), 'Collapsed toolbar did not restore its actions');
+    check(expanded.includes('Open terminal keyboard') && expanded.includes('Zoom in') && expanded.includes('Session actions'), 'Command control did not restore its actions');
+    const commandLabels = ['Hide terminal controls', 'Open terminal keyboard', 'Zoom in', 'Zoom out', 'Reset zoom', 'Session actions'];
+    const commands = parseUiNodes(expanded).filter((node) => commandLabels.includes(node.desc));
+    check(commands.length === commandLabels.length, 'Command fan contains missing or duplicate buttons');
+    for (const command of commands) {
+        check(command.l >= 0 && command.r <= width && command.t >= 0 && command.b <= height, `Command outside screen: ${command.desc}`);
+        check(Math.abs((command.r - command.l) - (commands[0].r - commands[0].l)) <= 2, 'Command button sizes are inconsistent');
+        for (const other of commands) if (other !== command) check(Math.min(command.r, other.r) <= Math.max(command.l, other.l) || Math.min(command.b, other.b) <= Math.max(command.t, other.t), 'Command buttons overlap');
+    }
+    report.commandFan = { buttons: commands, singlePuck: true };
     await capture(`${name}-controls-moved.png`);
     (report.movableControls ??= []).push({ name, before: initial, after: moved, collapsed: true, restored: true });
 
