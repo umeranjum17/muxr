@@ -312,6 +312,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                             const view = termRef.current;
                             if (view === null) return;
                             await view.write(bytes);
+                            recoveryRequested = false;
                             channel.recordFrameWritten();
                             if (graphics !== true) return;
                             recordTerminalGraphicsFrame(bytes.length);
@@ -345,12 +346,9 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                         setGraphicsActive(live);
                         setGraphicsReason(active ? undefined : reason);
                     });
-                    // Same discipline as the web view: herdr repaint bursts
-                    // arrive as many socket messages; one Ghostty write at a
-                    // time. A pending full draw supersedes earlier pending
-                    // graphics; a false frame is not a snapshot and must not
-                    // drop an unwritten draw. Text is never mixed into a
-                    // graphics payload.
+                    // One Ghostty write at a time, in wire order. Graphics can
+                    // update independent placements or delete an earlier image;
+                    // they cannot be coalesced merely because graphics is true.
                     channel.onData((base64, graphics) => {
                         if (graphics !== true) recordTerminalOutput(sessionId, base64);
                         settleScroll();
