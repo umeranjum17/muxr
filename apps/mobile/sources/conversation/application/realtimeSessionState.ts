@@ -122,7 +122,9 @@ export async function resolveRealtimeTarget(): Promise<RealtimeTarget | null> {
     if (!Array.isArray(listedSessions) || !Array.isArray(tree?.workspaces)
         || !tree.workspaces.every((workspace) => workspace !== null && typeof workspace === 'object'
             && Array.isArray(workspace.tabs)
-            && workspace.tabs.every((tab) => tab !== null && typeof tab === 'object' && Array.isArray(tab.panes)))) return null;
+            && workspace.tabs.every((tab) => tab !== null && typeof tab === 'object'
+                && Array.isArray(tab.panes)
+                && tab.panes.every((pane) => pane !== null && typeof pane === 'object')))) return null;
     const listedIds = new Set(listedSessions
         .filter((session) => typeof session?.id === 'string' && session.id !== '')
         .map((session) => session.id));

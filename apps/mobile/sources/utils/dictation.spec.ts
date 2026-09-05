@@ -233,7 +233,7 @@ describe('on-device dictation flow', () => {
         mocks.syncRequest.mockRejectedValue(new Error('fresh route unavailable'));
         await expect(resolveRealtimeTarget()).resolves.toBeNull();
         mocks.syncRequest.mockImplementation(async (method: string) => method === 'herdr.tree'
-            ? { workspaces: [{ tabs: null }] }
+            ? { workspaces: [{ tabs: [{ panes: [null] }] }] }
             : [{ id: 'live-session' }]);
         await expect(resolveRealtimeTarget()).resolves.toBeNull();
     });
