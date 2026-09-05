@@ -1437,12 +1437,13 @@
   resolved "https://registry.yarnpkg.com/@expo/sudo-prompt/-/sudo-prompt-9.3.2.tgz#0fd2813402a42988e49145cab220e25bea74b308"
   integrity sha512-HHQigo3rQWKMDzYDLkubN5WQOYXJJE2eNqIQC2axC2iO3mHdwnIR7FgZVvHWtBwAdzBgAP0ECp8KqS8TiMKvgw==
 
-"@expo/ui@55.0.5", "@expo/ui@~55.0.5":
-  version "55.0.5"
-  resolved "https://registry.yarnpkg.com/@expo/ui/-/ui-55.0.5.tgz#bbc6e46dbe46af4c2c6433d1b5b623bc3d86b82a"
-  integrity sha512-Hev/bg0SOQ01+7RPfw0pyafZQWf117qBseG7jKZfvFd+XpFeARsjot5OPvcNcxvxkXD/hSqfmdcv7MlZWU32JA==
+"@expo/ui@57.0.15", "@expo/ui@~57.0.15":
+  version "57.0.15"
+  resolved "https://registry.yarnpkg.com/@expo/ui/-/ui-57.0.15.tgz#eba0be6dd1e5b4efa9f2c95d7b47e7cc65dafff3"
+  integrity sha512-qNntEAbDEq0VGkAUMaopIZLJEZofQMDJNjx8YBngqeG3oZJKjpQFOSI8ui951NbN8nABzJ5Jd55SXdZKYWslDw==
   dependencies:
     sf-symbols-typescript "^2.1.0"
+    vaul "^1.1.2"
 
 "@expo/vector-icons@15.0.3", "@expo/vector-icons@^15.0.2":
   version "15.0.3"
