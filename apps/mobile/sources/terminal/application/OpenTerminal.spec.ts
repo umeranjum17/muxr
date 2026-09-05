@@ -1,7 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import React from 'react';
+import TestRenderer from 'react-test-renderer';
+import type { HerdrTreeWorkspace } from '@muxr/contract';
 
 const mocks = vi.hoisted(() => ({
+    focused: true,
     request: vi.fn(),
+    replace: vi.fn(),
+    catalog: { workspaces: [] as HerdrTreeWorkspace[], loaded: true },
+    catalogListeners: new Set<() => void>(),
+    terminalMounts: [] as string[],
+    terminalChannels: new Map<string, { sendText: (text: string) => void }>(),
     fetch: vi.fn(),
     settings: { relayUrl: 'ws://relay.test', machineId: 'machine', token: 'devtok_test' },
 }));
@@ -18,6 +27,34 @@ vi.mock('@/pairing/e2ee', () => ({
     getCachedHostedGrant: () => undefined,
     DeviceV2Crypto: class {},
 }));
+
+vi.mock('@react-navigation/native', () => ({ useIsFocused: () => mocks.focused }));
+vi.mock('expo-router', () => ({ router: { replace: mocks.replace } }));
+vi.mock('@/catalog/store', async () => {
+    const React = await import('react');
+    return { useHerdrTree: () => React.useSyncExternalStore(
+        (listener) => { mocks.catalogListeners.add(listener); return () => { mocks.catalogListeners.delete(listener); }; },
+        () => mocks.catalog,
+    ) };
+});
+vi.mock('../presentation/TerminalScreen', async () => {
+    const React = await import('react');
+    const { openTerminal } = await import('./OpenTerminal');
+    return { TerminalScreen: ({ id }: { id: string }) => {
+        React.useEffect(() => {
+            mocks.terminalMounts.push(id);
+            let disposed = false;
+            let channel: Awaited<ReturnType<typeof openTerminal>> | undefined;
+            void openTerminal({ agentRoute: id, size: { cols: 80, rows: 24 } }).then((opened) => {
+                if (disposed) { opened.close(); return; }
+                channel = opened;
+                mocks.terminalChannels.set(id, opened);
+            });
+            return () => { disposed = true; channel?.close(); mocks.terminalChannels.delete(id); };
+        }, [id]);
+        return React.createElement('terminal-screen', { id });
+    } };
+});
 
 class FakeWebSocket {
     static readonly CONNECTING = 0;
@@ -58,12 +95,17 @@ vi.stubGlobal('fetch', mocks.fetch);
 import { decodeBase64, encodeBase64 } from '@/encryption/base64';
 import { createKittyDecoderState, inflateZlib, materializeKittyCommands, splitKittyFrame } from './kittyDecoder';
 import { openTerminal } from './OpenTerminal';
+import { TerminalRoute } from '../presentation/TerminalRoute';
 import { createTerminalWritePump } from './terminalWritePump';
 import { formatConnectionDiagnosticsForReport, readConnectionDiagnostics, resetConnectionDiagnostics } from '@/catalog/infrastructure/connectionDiagnostics';
 
 describe('openTerminal reconnect ownership', () => {
     beforeEach(() => {
         mocks.request.mockReset();
+        mocks.replace.mockReset();
+        mocks.catalog = { workspaces: [], loaded: true };
+        mocks.terminalMounts.length = 0;
+        mocks.terminalChannels.clear();
         mocks.fetch.mockReset();
         mocks.settings.token = 'devtok_test';
         mocks.fetch.mockResolvedValue({
@@ -311,6 +353,66 @@ describe('openTerminal reconnect ownership', () => {
             expect.objectContaining({ event: 'terminal.channel', phase: 'live', outcome: 'ok' }),
             expect.objectContaining({ event: 'terminal.channel', phase: 'reconnecting', outcome: 'ok' }),
         ]));
+    });
+
+    it('keeps the open pane usable across agent exit, shell input and a new agent', async () => {
+        mocks.request.mockResolvedValue({});
+        const catalog = (route: string, paneId = 'pane-a') => ({ workspaces: [{
+            workspaceId: 'workspace-a', label: 'Work', focused: true, agentStatus: 'idle', tabs: [{ tabId: 'tab-a', focused: true, agentStatus: 'idle', panes: [
+                { paneId, tabId: 'tab-a', focused: true, sessionId: route, agentStatus: 'idle' },
+                { paneId: 'pane-other', tabId: 'tab-a', focused: false, sessionId: 'other-agent', agentStatus: 'working' },
+            ] }],
+        }] as HerdrTreeWorkspace[], loaded: true });
+        mocks.focused = true;
+        mocks.catalog = catalog('first-agent');
+        let rendered: ReturnType<typeof TestRenderer.create>;
+        await TestRenderer.act(async () => { rendered = TestRenderer.create(React.createElement(TerminalRoute, { id: 'first-agent' })); });
+        try {
+            await vi.waitFor(() => expect(mocks.terminalChannels.has('first-agent')).toBe(true));
+            const first = FakeWebSocket.instances.at(-1)!;
+            first.open();
+            mocks.focused = false; // A file viewer above this route must stay open.
+            await TestRenderer.act(async () => {
+                mocks.catalog = catalog('shell:work-pane');
+                mocks.catalogListeners.forEach((listener) => listener());
+            });
+            expect(mocks.replace).not.toHaveBeenCalled();
+            expect(first.close).not.toHaveBeenCalled();
+            mocks.focused = true;
+            await TestRenderer.act(async () => { rendered!.update(React.createElement(TerminalRoute, { id: 'first-agent' })); });
+            expect(mocks.replace).toHaveBeenLastCalledWith('/session/shell%3Awork-pane');
+            await vi.waitFor(() => expect(mocks.terminalChannels.has('shell:work-pane')).toBe(true));
+            expect(first.close).toHaveBeenCalledOnce();
+            const shell = FakeWebSocket.instances.at(-1)!;
+            shell.open();
+            mocks.terminalChannels.get('shell:work-pane')!.sendText('pwd\n');
+            expect(JSON.parse(shell.send.mock.calls.at(-1)![0] as string)).toEqual({ type: 'terminal.input', text: 'pwd\n' });
+            await TestRenderer.act(async () => { rendered!.update(React.createElement(TerminalRoute, { id: 'shell:work-pane' })); });
+            await TestRenderer.act(async () => {
+                mocks.catalog = catalog('second-agent');
+                mocks.catalogListeners.forEach((listener) => listener());
+            });
+            expect(mocks.replace).toHaveBeenLastCalledWith('/session/second-agent');
+            await vi.waitFor(() => expect(mocks.terminalChannels.has('second-agent')).toBe(true));
+            expect(shell.close).toHaveBeenCalledOnce();
+            const second = FakeWebSocket.instances.at(-1)!;
+            second.open();
+            mocks.terminalChannels.get('second-agent')!.sendText('Continue');
+            expect(JSON.parse(second.send.mock.calls.at(-1)![0] as string).text).toBe('Continue');
+            expect(mocks.terminalMounts).toEqual(['first-agent', 'shell:work-pane', 'second-agent']);
+            await TestRenderer.act(async () => { rendered!.update(React.createElement(TerminalRoute, { id: 'second-agent' })); });
+            // Closing this pane does not authorize following another pane or old history.
+            mocks.replace.mockClear();
+            await TestRenderer.act(async () => {
+                mocks.catalog = catalog('unrelated-agent', 'pane-different');
+                mocks.catalogListeners.forEach((listener) => listener());
+            });
+            expect(mocks.replace).not.toHaveBeenCalled();
+            await TestRenderer.act(async () => { rendered!.update(React.createElement(TerminalRoute, { id: 'historical-agent' })); });
+            expect(mocks.replace).not.toHaveBeenCalled();
+            expect(mocks.terminalMounts).not.toContain('other-agent');
+            expect(mocks.terminalMounts).not.toContain('unrelated-agent');
+        } finally { await TestRenderer.act(async () => { rendered!.unmount(); }); }
     });
 
     it('records first-frame once and finalizes received/written counts without identifiers', async () => {

@@ -15,6 +15,7 @@ export const LocalSettingsSchema = z.object({
     zenMode: z.boolean().describe('Hide all sidebars and non-essential UI for focused work'),
     promotedNotificationsPrompted: z.boolean().describe('Whether Android Live Updates access was already explained'),
     backgroundConnectionPrompted: z.boolean().describe('Whether Android background activity settings were already explained'),
+    terminalAutoShowKeyboard: z.boolean().describe('Open the Android terminal keyboard when tapping its surface'),
     vadStandbyEnabled: z.boolean().describe('Persistently wake realtime voice from local speech activity standby'),
     lifecycleNotificationLevel: z.enum(LIFECYCLE_NOTIFICATION_LEVELS).describe('Which agent lifecycle events may emit notifications'),
     // Herd tab: bucket the agents section under workspace subheaders (herdr's "grouped" toggle).
@@ -46,6 +47,7 @@ export const localSettingsDefaults: LocalSettings = {
     zenMode: false,
     promotedNotificationsPrompted: false,
     backgroundConnectionPrompted: false,
+    terminalAutoShowKeyboard: false,
     vadStandbyEnabled: false,
     lifecycleNotificationLevel: 'important',
     savedLayouts: [],

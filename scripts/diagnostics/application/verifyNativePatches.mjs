@@ -45,6 +45,12 @@ const workspaceBuild = androidBuild.indexOf('(cd "$ROOT" && yarn build)');
 const vitestGate = androidBuild.indexOf('npx vitest run');
 const gradleBuild = androidBuild.indexOf(':app:assembleRelease');
 const checks = [
+    ['Android terminal supports explicit keyboard without opening IME on every tap',
+        ghosttyPatch.includes('autoShowKeyboard') &&
+        ghosttyTerminal.includes('if (autoShowKeyboard) showKeyboard()') &&
+        ghosttyView.includes('fun showKeyboard() = terminal.showKeyboard()') &&
+        read('node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/ExpoLibghosttyModule.kt').includes('AsyncFunction("showKeyboard")') &&
+        read('node_modules/expo-libghostty/build/ExpoLibghosttyView.js').includes('native.current.showKeyboard()')],
     ['Ghostty patch hides its accessory bar', ghosttyPatch.includes('accessoryBar.visibility = GONE') && ghosttyView.includes('accessoryBar.visibility = GONE')],
     ['Ghostty patch forwards scroll rows', ghosttyPatch.includes('onScrollRows') && ghosttyTerminal.includes('onScrollRows') && ghosttyView.includes('onScroll')],
     [
