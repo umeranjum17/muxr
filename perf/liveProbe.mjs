@@ -196,20 +196,46 @@ async function command(input) {
     if (op === 'finish') return finish();
     throw new Error('Unknown probe command');
 }
+const evidenceTimestamp = (value) => typeof value === 'string' && value.length <= 30
+    && /^\d{4}-\d\d-\d\dT[\d:.]+Z$/.test(value) && Number.isFinite(Date.parse(value)) ? value : undefined;
 function connectionEvidence() {
     if (!stack || !existsSync(stack.journalPath)) return { events: [] };
     const journal = JSON.parse(readFileSync(stack.journalPath, 'utf8'));
     const kinds = ['local', 'native', 'browser', 'peer', 'unknown'];
     return {
+        sampledAt: new Date().toISOString(),
+        startedAt: evidenceTimestamp(journal.current?.startedAt),
+        updatedAt: evidenceTimestamp(journal.current?.updatedAt),
+        recentClients: Object.fromEntries(kinds.map((kind) => {
+            const count = journal.current?.recentClients?.[kind];
+            return [kind, Number.isSafeInteger(count) && count >= 0 && count <= 1000000 ? count : null];
+        })),
         relayState: ['connecting', 'open', 'closed', 'replaced'].includes(journal.current?.relayState) ? journal.current.relayState : 'unknown',
-        events: (journal.events ?? []).filter((event) => ['relay.state', 'client.hello', 'client.reject'].includes(event.event)).slice(-32).map((event) => ({
-            at: typeof event.at === 'string' && event.at.length <= 30 && /^\d{4}-\d\d-\d\dT[\d:.]+Z$/.test(event.at) ? event.at : undefined,
+        events: (journal.events ?? []).filter((event) => (['relay.state', 'client.hello', 'client.reject'].includes(event.event)
+            || event.event === 'client.request' && event.clientKind === 'native' && event.outcome === 'ok'
+                && ['session.list', 'machines.list'].includes(event.request))).slice(-32).map((event) => ({
+            at: evidenceTimestamp(event.at),
             event: event.event,
             state: ['connecting', 'open', 'closed', 'replaced'].includes(event.state) ? event.state : undefined,
             kind: kinds.includes(event.kind ?? event.clientKind) ? event.kind ?? event.clientKind : undefined,
-            outcome: ['decrypt-rejected', 'malformed'].includes(event.outcome) ? event.outcome : undefined,
+            outcome: ['decrypt-rejected', 'malformed', 'ok'].includes(event.outcome) ? event.outcome : undefined,
+            request: event.event === 'client.request' && ['session.list', 'machines.list'].includes(event.request) ? event.request : undefined,
         })),
     };
+}
+function nativeConnectionProof(evidence, requireHello) {
+    const start = Date.parse(report.startedAt);
+    const fresh = (at) => Date.parse(at) >= start && Date.parse(at) <= Date.parse(evidence.sampledAt);
+    if (evidence.events.some((event) => event.event === 'client.hello' && event.kind === 'native' && fresh(event.at))) return 'accepted-native-hello';
+    if (!requireHello && evidence.events.some((event) => event.event === 'client.request'
+        && event.kind === 'native' && event.outcome === 'ok' && fresh(event.at))) return 'successful-native-read';
+    // host.ts counts a native client only after authenticated ingress. Ordinary
+    // RPCs update this count even when an unsolicited encrypted host frame made
+    // the phone live before its hello was accepted. The fresh owned journal starts
+    // with zero clients; require its startup and persisted snapshot within this run.
+    if (!requireHello && fresh(evidence.startedAt) && fresh(evidence.updatedAt)
+        && evidence.recentClients?.native > 0) return 'authenticated-native-activity';
+    return null;
 }
 async function waitForNativeConnection() {
     const deadline = Date.now() + 30000;
@@ -218,14 +244,15 @@ async function waitForNativeConnection() {
         do {
             const xml = await ui(); save('live-connecting.xml', xml);
             report.connectionJournal = connectionEvidence();
-            if (/text="connected"/.test(xml)
-                && report.connectionJournal.events.some((event) => event.event === 'client.hello' && event.kind === 'native')) {
+            const proof = nativeConnectionProof(report.connectionJournal, args.includes('--diagnose-reconnect'));
+            if (/text="connected"/.test(xml) && proof) {
+                report.connectionProof = { kind: proof, evidence: report.connectionJournal };
                 report.connectedAt = new Date().toISOString(); return;
             }
             if (['Keep muxr connected in the background?', 'Show live agent updates?'].some((title) => xml.includes(`text="${title}"`))) await tap('CANCEL');
             await sleep(Math.min(1200, Math.max(0, deadline - Date.now())));
         } while (Date.now() < deadline);
-        throw new Error('Live host did not connect: require connected UI and native client hello; see connectionJournal/live-connecting.xml');
+        throw new Error('Live host did not connect: require connected UI and fresh authenticated native evidence; see connectionJournal/live-connecting.xml');
     } finally { operationDeadline = Infinity; }
 }
 async function connectedBeforeReady() {
