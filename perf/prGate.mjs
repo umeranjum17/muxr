@@ -191,6 +191,8 @@ async function phase(name, mounted, drive = false) {
     console.log(`ok: ${name}: ${metrics.sampledSeconds}s sampled, JS ${metrics.jsBusyPercent}%, PSS drift ${metrics.pssDriftKb} KiB, ${jank.frames} frames`);
 }
 async function feature(name, work) {
+    if (flow === 'changes' && name !== 'changes') return;
+    if (name === 'changes' && flow !== 'changes') return;
     if (flow === 'usage' && name !== 'usage-switch-and-recency') return;
     if (flow === 'polish' && name !== 'polish') return;
     if (flow === 'rich' && name !== 'rich') return;
@@ -216,13 +218,15 @@ async function changesScopeControls() {
     await tapText('branch-proof.txt');
     await requireScreen('changes-branch-patch', /REVIEW_BRANCH_ONLY/);
     await capture('changes-branch-patch.png');
-    await adb('shell', 'input', 'keyevent', '4');
+    await tapText('Go back');
+    await requireScreen('changes-return-to-comparison', /Working tree/);
     await tapText('Working tree');
     await requireScreen('changes-working', /working-proof.txt/);
     await tapText('working-proof.txt');
     await requireScreen('changes-working-patch', /WORKING_CHECKOUT_ONLY/);
     await capture('changes-working-patch.png');
-    await adb('shell', 'input', 'keyevent', '4');
+    await tapText('Go back');
+    await requireScreen('changes-return-to-comparison', /Working tree/);
     await tapText('Staged');
     const staged = await requireScreen('changes-staged', /staged-proof.txt/);
     check(!staged.includes('working-proof.txt'), 'Staged comparison leaked untracked files');
@@ -554,7 +558,7 @@ async function richPreviews() {
 }
 
 async function main() {
-    check(['full', 'usage', 'polish', 'rich', 'controls'].includes(flow), '--flow must be full, usage, polish, rich or controls');
+    check(['full', 'usage', 'polish', 'rich', 'controls', 'changes'].includes(flow), '--flow must be full, usage, polish, rich, controls or changes');
     check(/^emulator-\d+$/.test(serial), 'PR gate only clears dedicated emulators');
     check(seconds >= 30 && seconds <= 120, '--seconds must be 30..120');
     mkdirSync(lock); ownsLock = true;
@@ -623,6 +627,7 @@ async function main() {
     await dismissPrompts();
     await stabilizeStartup();
     await feature('polish', polishControls);
+    await feature('changes', changesScopeControls);
     await feature('rich', richPreviews);
     await feature('herd', () => phase('herd', /text="connected"/, true));
     await feature('document', async () => {
