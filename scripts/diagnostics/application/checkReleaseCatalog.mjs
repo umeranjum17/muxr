@@ -113,15 +113,29 @@ try {
     await readPublicJson(`${site}/api/releases/nightly`, { deadline, delayMs: 250, expect: (value) => publicRecordMismatch(entry, value, 'nightly') });
     const redirect = await requireRedirect(`${site}/downloads/nightly/android`, entry.android.url, { deadline, delayMs: 250 });
     assert.equal(redirect.status, 302);
-    await assert.rejects(
-        readPublicJson(`${site}/api/releases/nightly`, {
-            deadline: publicDeadline(400),
-            delayMs: 100,
-            expect: () => 'never converges',
-        }),
-        /did not serve the expected record \(never converges\)/,
-        'a surface that never converges was accepted',
-    );
+    // A surface that answers wrongly once and then goes quiet. The mismatch it
+    // served is what the operator must be told, even though the final attempt
+    // is still in flight when the budget ends and aborts.
+    let apiAttempts = 0;
+    const staleThenSilent = createServer((request, response) => {
+        apiAttempts += 1;
+        if (apiAttempts > 1) return;
+        response.writeHead(200, { 'content-type': 'application/json' });
+        response.end(JSON.stringify({ ...served, version: '0.1.27-beta.4.1' }));
+    });
+    try {
+        await new Promise((listening) => staleThenSilent.listen(0, '127.0.0.1', listening));
+        await assert.rejects(
+            readPublicJson(`http://127.0.0.1:${staleThenSilent.address().port}/api/releases/nightly`, {
+                deadline: publicDeadline(1500),
+                delayMs: 100,
+                expect: (value) => publicRecordMismatch(entry, value, 'nightly'),
+            }),
+            /served version "0\.1\.27-beta\.4\.1", expected "0\.1\.28-nightly\.1\.1"/,
+            'an expiry buried the mismatch the surface actually served',
+        );
+        assert.ok(apiAttempts >= 2, 'the stalled attempt was never reached, so nothing was in flight at the deadline');
+    } finally { staleThenSilent.close(); staleThenSilent.closeAllConnections?.(); }
 } finally { server.close(); }
 
 process.stdout.write('release catalog flow passed\n');

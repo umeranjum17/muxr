@@ -34,16 +34,22 @@ function request(url, deadline, options = {}) {
  * mismatch is what gets reported, not the expiry.
  */
 async function attempt(deadline, delayMs, read) {
-    let detail = 'no response';
+    // What a surface actually served outranks how the budget ended: the last
+    // attempt is often still in flight when the deadline lands, and reporting
+    // its abort would bury the wrong record that is the reason to look at all.
+    let served;
+    let transport = 'no response';
     for (let round = 0; ; round += 1) {
         if (round > 0) {
             const before = deadline - Date.now();
-            if (before <= 0) return detail;
+            if (before <= 0) return served ?? transport;
             await sleep(Math.min(delayMs, before));
         }
-        if (deadline - Date.now() <= 0) return detail;
-        detail = await read();
-        if (detail === undefined) return undefined;
+        if (deadline - Date.now() <= 0) return served ?? transport;
+        const outcome = await read();
+        if (outcome === undefined) return undefined;
+        if (typeof outcome === 'string') transport = outcome;
+        else served = outcome.served;
     }
 }
 
@@ -52,10 +58,10 @@ export async function readPublicJson(url, { deadline = publicDeadline(), delayMs
     const failure = await attempt(deadline, delayMs, async () => {
         try {
             const response = await request(url, deadline, { redirect: 'follow', headers: { accept: 'application/json', 'cache-control': 'no-cache' } });
-            if (!response.ok) return `HTTP ${response.status}`;
+            if (!response.ok) return { served: `HTTP ${response.status}` };
             const value = await response.json();
             const mismatch = expect === undefined ? undefined : expect(value);
-            if (mismatch !== undefined) return mismatch;
+            if (mismatch !== undefined) return { served: mismatch };
             served = value;
             return undefined;
         } catch (cause) { return cause.message; }
@@ -69,10 +75,10 @@ export async function readPublicText(url, { deadline = publicDeadline(), delayMs
     const failure = await attempt(deadline, delayMs, async () => {
         try {
             const response = await request(url, deadline, { redirect: 'follow', headers: { 'cache-control': 'no-cache' } });
-            if (!response.ok) return `HTTP ${response.status}`;
+            if (!response.ok) return { served: `HTTP ${response.status}` };
             const value = await response.text();
             const mismatch = expect === undefined ? undefined : expect(value);
-            if (mismatch !== undefined) return mismatch;
+            if (mismatch !== undefined) return { served: mismatch };
             served = value;
             return undefined;
         } catch (cause) { return cause.message; }
@@ -88,8 +94,8 @@ export async function requireRedirect(url, expectedLocation, { deadline = public
         try {
             const response = await request(url, deadline, { redirect: 'manual', headers: { 'cache-control': 'no-cache' } });
             const location = response.headers.get('location');
-            if (response.status < 300 || response.status > 399) return `HTTP ${response.status} is not a redirect`;
-            if (location !== expectedLocation) return `redirects to ${location ?? 'nothing'}`;
+            if (response.status < 300 || response.status > 399) return { served: `HTTP ${response.status} is not a redirect` };
+            if (location !== expectedLocation) return { served: `redirects to ${location ?? 'nothing'}` };
             served = { status: response.status, location };
             return undefined;
         } catch (cause) { return cause.message; }
