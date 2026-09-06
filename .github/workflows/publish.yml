@@ -18,6 +18,9 @@ on:
 concurrency:
   group: npm-publication
   cancel-in-progress: false
+  # Publications serialize. Without a queue, GitHub keeps only one pending run
+  # per group, so a third release would replace a publication still waiting.
+  queue: max
 permissions:
   contents: read
   actions: read
@@ -65,10 +68,14 @@ jobs:
     needs: [inspect, production-approval]
     if: always() && needs.inspect.result == 'success' && (needs.inspect.outputs.channel != 'stable' || needs.production-approval.result == 'success')
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     environment: npm
     permissions:
       actions: read
-      contents: read
+      # Repository-wide write, used for two things only: the public channel
+      # catalog on its own branch, and release metadata when an accepted stable
+      # is marked non-prerelease and Latest. No source or artifact is written.
+      contents: write
       id-token: write
     env:
       GH_TOKEN: ${{ github.token }}
@@ -88,3 +95,10 @@ jobs:
         run: |
           gh run download "$BUILD_RUN_ID" --repo "$GITHUB_REPOSITORY" --name npm-candidate --dir "$RUNNER_TEMP/package"
           node scripts/release/presentation/publishNpm.mjs
+      - name: Promote the accepted stable release to GitHub Latest
+        if: needs.inspect.outputs.channel == 'stable'
+        run: node scripts/release/presentation/promoteReleaseVisibility.mjs --tag "v$RELEASE_VERSION"
+      - name: Point the public channel at this release
+        run: node scripts/release/presentation/updateChannelCatalog.mjs --tag "v$RELEASE_VERSION"
+      - name: Verify every public surface serves this release
+        run: node scripts/release/presentation/verifyPublicRelease.mjs --tag "v$RELEASE_VERSION" --channel "$RELEASE_CHANNEL"

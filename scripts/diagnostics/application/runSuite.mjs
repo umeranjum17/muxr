@@ -47,6 +47,7 @@ const checks = [
     // The lifecycle flow needs a packed tree, so the package smoke drives it
     // against its own snapshot instead of a second entry against the root.
     ['package: install/setup + full lifecycle smoke', 'node', ['scripts/diagnostics/application/checkPackageSmoke.mjs'], undefined, 300000],
+    ['release: public channel catalog flow', 'node', ['scripts/diagnostics/application/checkReleaseCatalog.mjs']],
     ['policy: core purity (no cloud refs in OSS)', 'node', ['scripts/diagnostics/application/checkCorePurity.mjs']],
     ['policy: tooling architecture (named use cases, layers, no nested ternaries)', 'node', ['scripts/diagnostics/application/checkArchitecture.mjs']],
     ['security: tracked/package secret scan', 'node', ['scripts/diagnostics/application/checkNoSecrets.mjs']],

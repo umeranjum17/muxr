@@ -14,10 +14,31 @@ export async function publishNpm() {
     const path = join(directory, packages[0].name);
     const integrity = `sha512-${createHash('sha512').update(readFileSync(path)).digest('base64')}`;
     function npm(args, allowMissing = false) {
-        const result = spawnSync('npm', args, { encoding: 'utf8', timeout: 180000 });
+        // Metadata reads are small and must fail fast; publishing uploads the
+        // whole tarball and keeps the longer budget.
+        const timeout = args[0] === 'publish' ? 180000 : 20000;
+        const result = spawnSync('npm', args, { encoding: 'utf8', timeout });
         if (result.status === 0) return result.stdout.trim();
         if (allowMissing && /E404/.test(result.stderr)) return undefined;
-        throw new Error(`npm operation failed: ${args[0]}`);
+        const detail = (result.stderr || result.error?.message || 'no output').trim().slice(-400);
+        throw new Error(`npm ${args.join(' ')} failed (${result.status ?? 'no exit status'}): ${detail}`);
+    }
+    // The registry is read-after-write eventually consistent: a view issued
+    // within a second of publish can miss on a replica, answer empty, or still
+    // serve the previous dist-tag. Retry until the exact expected value shows.
+    // `retryMismatch` separates "not caught up yet" from "wrong bytes": a tag
+    // catches up, a differing integrity never does and must fail at once.
+    async function confirm(args, expected, { retryMismatch = false } = {}) {
+        let seen;
+        for (let attempt = 0; attempt < 10; attempt += 1) {
+            if (attempt > 0) await new Promise((done) => setTimeout(done, 3000));
+            const value = npm(args, true);
+            if (value === undefined || value === '') continue;
+            seen = JSON.parse(value);
+            if (seen === expected || !retryMismatch) return seen;
+        }
+        const detail = seen === undefined ? 'never became visible' : `still reports ${JSON.stringify(seen)}, expected ${JSON.stringify(expected)}`;
+        throw new Error(`${spec} was published but ${args.slice(1).join(' ')} ${detail} on the registry; re-run this job to confirm it`);
     }
     const spec = `@trymuxr/cli@${RELEASE_VERSION}`;
     const existing = npm(['view', spec, 'dist.integrity', '--json'], true);
@@ -28,7 +49,8 @@ export async function publishNpm() {
     if (current && compareVersions(current, RELEASE_VERSION) > 0) throw new Error('Refusing to move the channel backwards');
     if (existing === undefined) npm(['publish', path, '--tag', manifest.release.distTag, '--access', 'public', '--provenance']);
     else if (current !== RELEASE_VERSION) npm(['dist-tag', 'add', spec, manifest.release.distTag]);
-    if (JSON.parse(npm(['view', spec, 'dist.integrity', '--json'])) !== integrity) throw new Error('Published npm integrity mismatch');
-    if (JSON.parse(npm(['view', '@trymuxr/cli', `dist-tags.${manifest.release.distTag}`, '--json'])) !== RELEASE_VERSION) throw new Error('Published channel mismatch');
+    // Different bytes under the same version is never a propagation delay.
+    if (await confirm(['view', spec, 'dist.integrity', '--json'], integrity) !== integrity) throw new Error('Published npm integrity mismatch');
+    await confirm(['view', '@trymuxr/cli', `dist-tags.${manifest.release.distTag}`, '--json'], RELEASE_VERSION, { retryMismatch: true });
     process.stdout.write(`Verified ${spec} on ${manifest.release.distTag}; published bytes match the candidate.\n`);
 }
