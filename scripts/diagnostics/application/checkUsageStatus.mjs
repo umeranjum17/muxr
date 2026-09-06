@@ -62,10 +62,12 @@ for (const day of report.daily) {
 }
 assert.ok(Buffer.byteLength(JSON.stringify(report)) > 64 * 1024);
 
+// Reset countdowns use the real clock like the Codex fixture below; only the
+// report/calendar dates stay pinned to today.
 const claudeLimits = {
     rate_limits: {
-        five_hour: { used_percentage: 21, resets_at: Math.floor((today.getTime() + 3 * 3_600_000) / 1000) },
-        seven_day: { used_percentage: 42, resets_at: Math.floor((today.getTime() + 3 * 86_400_000) / 1000) },
+        five_hour: { used_percentage: 21, resets_at: Math.floor(Date.now() / 1000) + 3 * 3_600 },
+        seven_day: { used_percentage: 42, resets_at: Math.floor(Date.now() / 1000) + 3 * 86_400 },
     },
 };
 
@@ -122,7 +124,9 @@ try {
     assert.equal(output.weekSeries.at(-1)?.valueLabel, '1.3M');
     assert.equal(output.limitLabel, 'Claude plan usage');
     assert.equal(output.fiveHourUsed, 21);
+    assert.match(output.fiveHourLabel, /^21% used · resets in /);
     assert.equal(output.sevenDayUsed, 42);
+    assert.match(output.sevenDayLabel, /^42% used · resets in /);
     assert.deepEqual(output.limitRing, []);
 
     // A quiet provider reports zero today rather than its last active day.

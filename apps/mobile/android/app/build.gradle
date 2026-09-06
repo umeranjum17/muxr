@@ -112,7 +112,7 @@ def releaseConfigured = releaseVersionName ==~ /\d+\.\d+\.\d+/ &&
     releaseVersionCode ==~ /[1-9]\d*/ && releaseSigningValues.every { it }
 
 gradle.taskGraph.whenReady { graph ->
-    if (graph.allTasks.any { it.name.toLowerCase().contains('release') }) validateReleaseConfiguration()
+    if (graph.allTasks.any { it.project == project && it.name.toLowerCase().contains('release') }) validateReleaseConfiguration()
 }
 
 android {

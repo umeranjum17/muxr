@@ -4,6 +4,7 @@ import {
     chmodSync,
     cpSync,
     existsSync,
+    lstatSync,
     mkdirSync,
     mkdtempSync,
     readFileSync,
@@ -371,10 +372,43 @@ try {
     });
     assert.notEqual(unconfiguredProduction.status, 0, 'production config accepted missing publishing origin');
 
+    // The release flow demands a clean source checkout, so mirror the exact
+    // working-tree source (existing tracked + nonignored untracked files) plus
+    // only the generated build outputs pack.mjs actually consumes into the
+    // scratch dir, and record the mirror as its own clean git commit. The real
+    // checkout and index stay untouched while pack, sealing, verification and
+    // tamper rejection exercise the true production path.
+    const snapshot = join(scratch, 'clean-src');
+    mkdirSync(snapshot, { recursive: true });
+    const listNull = (args) => {
+        const result = spawnSync('git', ['ls-files', '-z', ...args], { cwd: root, maxBuffer: 256 * 1024 * 1024 });
+        if (result.status !== 0) throw new Error(`git ls-files ${args.join(' ')} failed (${result.status})`);
+        return result.stdout.toString('utf8').split('\0').filter((entry) => entry !== '');
+    };
+    const sourceFiles = [...new Set(listNull(['--cached', '--others', '--exclude-standard']))]
+        .map((entry) => ({ entry, info: lstatSync(join(root, entry), { throwIfNoEntry: false }) }))
+        .filter((item) => item.info?.isFile() || item.info?.isSymbolicLink());
+    const listFile = join(scratch, 'snapshot-files.txt');
+    writeFileSync(listFile, sourceFiles.map((item) => `${item.entry}\0`).join(''));
+    const snapshotArchive = join(scratch, 'snapshot-files.tar');
+    run('tar', ['--create', `--file=${snapshotArchive}`, `--directory=${root}`, '--null', `--files-from=${listFile}`]);
+    run('tar', ['--extract', `--file=${snapshotArchive}`, `--directory=${snapshot}`]);
+    for (const output of ['apps/host/dist', 'apps/relay/dist', 'packages/crypto/dist', 'packages/contract/dist',
+        'scripts/setup/domain/dist', 'scripts/plugin/domain/dist', 'apps/mobile/dist']) {
+        if (existsSync(join(root, output))) cpSync(join(root, output), join(snapshot, output), { recursive: true });
+    }
+    symlinkSync(join(root, 'node_modules'), join(snapshot, 'node_modules'), 'dir');
+    run('git', ['init', '-q', snapshot]);
+    const gitInSnapshot = (...args) => run('git', ['-c', 'user.name=muxr package smoke', '-c', 'user.email=package-smoke@muxr.invalid', ...args], { cwd: snapshot });
+    gitInSnapshot('add', '-A');
+    gitInSnapshot('commit', '-q', '-m', 'package smoke source snapshot');
+    assert.equal(run('git', ['status', '--porcelain', '--untracked-files=normal'], { cwd: snapshot }).stdout, '', 'smoke source snapshot is not a clean checkout');
+
     run(process.execPath, ['scripts/release/application/pack.mjs'], {
+        cwd: snapshot,
         env: { ...process.env, MUXR_PACKAGE_CONTROL_URL: 'https://package-smoke.invalid' },
     });
-    const packed = JSON.parse(run('npm', ['pack', '--json', '--pack-destination', tarDir], { cwd: join(root, 'dist-npm') }).stdout);
+    const packed = JSON.parse(run('npm', ['pack', '--json', '--pack-destination', tarDir], { cwd: join(snapshot, 'dist-npm') }).stdout);
     const packedInfo = Array.isArray(packed) ? packed[0] : Object.values(packed)[0];
     const tarball = join(tarDir, packedInfo.filename);
     const listing = run('tar', ['-tf', tarball]).stdout.split('\n');
@@ -407,7 +441,7 @@ try {
     assert.ok(listing.includes('package/web/index.html'), 'secure browser client missing from npm artifact');
     assert.ok(listing.includes('package/web/install.sh'), 'hosted npm installer wrapper missing from web artifact');
     assert.ok(!listing.some((file) => /apps\/relay|commerce|stripe|website|betaCodeAdmin|controlPlane|controlRepository/i.test(file)), 'private control-plane source shipped in npm artifact');
-    run(process.execPath, ['scripts/diagnostics/application/checkNoSecrets.mjs']);
+    run(process.execPath, ['scripts/diagnostics/application/checkNoSecrets.mjs'], { cwd: snapshot });
     const hostBundle = run('tar', ['-xOf', tarball, 'package/host.js']).stdout;
     const cryptoBundle = run('tar', ['-xOf', tarball, 'package/crypto.js']).stdout;
     assert.doesNotMatch(`${hostBundle}\n${cryptoBundle}`, /(?:apps|packages)\/(?:host|wire|contract|crypto)\/(?:src|dist)\//, 'bundle leaked proprietary source paths');
@@ -415,7 +449,7 @@ try {
     const packageJson = JSON.parse(run('tar', ['-xOf', tarball, 'package/package.json']).stdout);
     // Follow the actual packaged artifact through sealing, verification and tamper rejection.
     const sealed = await sealRelease({ directory: tarDir, version: packageJson.version,
-        channel: packageJson.muxrRelease.channel, files: [packedInfo.filename], runId: '1' });
+        channel: packageJson.muxrRelease.channel, files: [packedInfo.filename], runId: '1', sourceRoot: snapshot });
     const verifyRequest = { directory: tarDir, version: packageJson.version,
         channel: packageJson.muxrRelease.channel, commit: sealed.source.commit, runId: '1' };
     await verifyRelease(verifyRequest);

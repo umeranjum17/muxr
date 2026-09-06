@@ -19,6 +19,8 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline';
+import { homedir } from 'node:os';
+import { sourcePlugins as startSourcePlugins } from '../application/sourcePlugins.mjs';
 
 const root = fileURLToPath(new URL('../../../', import.meta.url));
 
@@ -33,8 +35,11 @@ Starts the full local presentation dev loop:
   - one \`yarn build\`, then \`tsc --build --watch\`
   - real relay + host (via scripts/setup/presentation/up.mjs) with an
     isolated MUXR_HOME at .cache/muxr-dev, restarted on each clean recompile
-  - Expo Metro (dev client, localhost) with Fast Refresh
+  - Expo Metro (dev client, localhost) with Fast Refresh; the same
+    http://localhost:8081 URL previews the web build in a browser
   - attachment preview bundle watcher (regenerates its .bin on edits)
+  - checkout-local bundled plugin projections/RPC scripts via a private socket
+    adapter; installed native registrations and approvals remain authoritative
 
 Options:
   --help           This text.
@@ -58,6 +63,9 @@ const hostHttpPort = 18793;
 const children = new Map(); // label -> child
 let shuttingDown = false;
 let exitCode = 0;
+let sourcePlugins;
+let sourcePluginsStarting;
+let exiting = false;
 
 // ------------------------------------------------- sanitized environment
 // Inherited MUXR_*/EXPO_PUBLIC_MUXR* config (tokens, auth modes, data dirs,
@@ -82,6 +90,11 @@ const upEnv = {
     MUXR_RELAY_HOST: '127.0.0.1',
     MUXR_RELAY_PORT: String(relayPort),
     MUXR_HOST_HTTP_PORT: String(hostHttpPort),
+    // Browser tabs on the Metro origin need an ACAO echo on relay HTTP, and
+    // the native WebSocketModule stamps its Origin from the relay URL itself;
+    // the default empty allowlist serves neither. Production relays are
+    // untouched.
+    MUXR_ALLOWED_ORIGINS: `http://localhost:${metroPort},http://127.0.0.1:${metroPort},http://127.0.0.1:${relayPort}`,
     MUXR_MACHINE_ID: 'devbox',
 };
 
@@ -141,24 +154,40 @@ function killChildren(signal = 'SIGTERM') {
     for (const child of children.values()) groupKill(child, signal);
 }
 
+async function exitSupervisor() {
+    if (exiting) return;
+    exiting = true;
+    try {
+        const adapter = sourcePlugins ?? await sourcePluginsStarting?.catch(() => undefined);
+        await adapter?.close();
+    } catch (error) {
+        process.stderr.write(`dev | source plugin cleanup failed: ${error.message}\n`);
+        exitCode ||= 1;
+    }
+    process.exit(exitCode);
+}
+
 function exitWhenChildrenDone(code = 0) {
     exitCode = code;
-    const pending = [...children.values()].filter((child) => child.exitCode === null);
+    const pending = [...children.values()].filter((child) => child.exitCode === null && child.signalCode === null);
     if (pending.length === 0) {
-        process.exit(exitCode);
+        void exitSupervisor();
         return;
     }
     let left = pending.length;
+    const timer = setTimeout(() => killChildren('SIGKILL'), 3000).unref();
     for (const child of pending) {
-        child.once('exit', () => {
+        const settled = () => {
+            child.off('exit', settled);
+            child.off('error', settled);
             left -= 1;
-            if (left === 0) process.exit(exitCode);
-        });
+            if (left !== 0) return;
+            clearTimeout(timer);
+            void exitSupervisor();
+        };
+        child.once('exit', settled);
+        child.once('error', settled);
     }
-    setTimeout(() => {
-        killChildren('SIGKILL');
-        process.exit(exitCode);
-    }, 3000).unref();
 }
 
 function finish(code = 0) {
@@ -216,19 +245,19 @@ let upStarting = false;
 async function restartUp() {
     if (shuttingDown || upStarting) return;
     upStarting = true;
-    if (upChild !== null && upChild.exitCode === null) {
+    if (upChild !== null && upChild.exitCode === null && upChild.signalCode === null) {
         const old = upChild;
-        // Unregister BEFORE killing so the old child's exit event cannot be
-        // mistaken for the current supervisor dying (it exits 0 on SIGTERM).
+        // Keep the retiring process owned for Ctrl-C without treating its exit
+        // as the active supervisor failing during an ordinary source restart.
         if (children.get('up') === old) children.delete('up');
+        children.set('up-stopping', old);
+        const stopped = Promise.withResolvers();
+        old.once('exit', stopped.resolve);
         groupKill(old, 'SIGTERM');
-        await new Promise((resolve) => {
-            const timer = setTimeout(() => {
-                groupKill(old, 'SIGKILL');
-                resolve();
-            }, 5000).unref();
-            old.once('exit', () => { clearTimeout(timer); resolve(); });
-        });
+        const timer = setTimeout(() => groupKill(old, 'SIGKILL'), 5000).unref();
+        await stopped.promise;
+        clearTimeout(timer);
+        if (children.get('up-stopping') === old) children.delete('up-stopping');
     }
     if (shuttingDown) { upStarting = false; return; }
     process.stdout.write('dev | starting relay + host (isolated MUXR_HOME: .cache/muxr-dev)\n');
@@ -261,11 +290,40 @@ if ((await runOnce('build', 'yarn', ['build'], devEnvBase, root)) !== 0) {
     process.exit(1);
 }
 
+// Web serves public/canvaskit.wasm + pdf.worker directly, and dev bypasses the
+// preweb hook that prepares them; run the same preparation here.
+const mobileDir = join(root, 'apps', 'mobile');
+for (const [label, script] of [['setup-canvaskit', 'setup-canvaskit'], ['setup-pdfjs', 'setup-pdfjs']]) {
+    process.stdout.write(`dev | preparing ${label}\n`);
+    if ((await runOnce(label, 'yarn', [script], devEnvBase, mobileDir)) !== 0) {
+        process.stderr.write(`dev | ${label} failed; fix it and rerun \`yarn dev\`.\n`);
+        process.exit(1);
+    }
+}
+
 // Reuse the relay's private local owner credential for normal websocket
 // tickets. This is sent only to the loopback dev bundle, never printed.
 const { ensureMintSecret } = await import(new URL('../../../apps/relay/dist/relay.js', import.meta.url).href);
 metroEnv.EXPO_PUBLIC_MUXR_TOKEN = await ensureMintSecret(upEnv.MUXR_RELAY_DATA_DIR);
 upEnv.MUXR_RELAY_TOKEN = metroEnv.EXPO_PUBLIC_MUXR_TOKEN;
+
+// Capture upstream from the original environment, never from the adapter override.
+sourcePluginsStarting = startSourcePlugins({
+    root,
+    upstreamPath: devEnvBase.HERDR_SOCKET_PATH?.trim() || join(homedir(), '.config', 'herdr', 'herdr.sock'),
+    onError: (error) => { process.stderr.write(`dev | source plugin adapter failed: ${error.message}\n`); finish(1); },
+});
+try {
+    sourcePlugins = await sourcePluginsStarting;
+    if (shuttingDown) await Promise.withResolvers().promise;
+    upEnv.HERDR_SOCKET_PATH = sourcePlugins.socketPath;
+    process.stdout.write(`dev | local bundled projections/RPC/stream scripts active (${sourcePlugins.pluginIds.length} source IDs; registered entries only). Native Herdr registrations stay installed.\n`);
+    process.stdout.write(`dev | source plugin socket: ${sourcePlugins.socketPath}\n`);
+} catch (error) {
+    process.stderr.write(`dev | source plugin adapter startup failed: ${error.message}\n`);
+    finish(1);
+    await Promise.withResolvers().promise;
+}
 
 // ---------------------------------------------------------------- watchers
 
@@ -305,12 +363,15 @@ while (!(await Promise.all([metroPort, relayPort].map(portInUse))).every(Boolean
 process.stdout.write(`
 muxr dev supervisor
   Metro (dev client):  http://localhost:${metroPort}   (exp+muxr-dev://)
+  Web preview:         http://localhost:${metroPort} in a browser (same isolated fixture; relay already allows this origin)
   Relay:               ws://127.0.0.1:${relayPort}      (loopback only)
   Attachment downloads: http://127.0.0.1:${hostHttpPort}
   Host machine:        devbox   (MUXR_HOME=.cache/muxr-dev)
+  Bundled plugins:     local checkout projections/scripts; native registrations stay installed
+                       existing enablement, catalog hashes, and approvals remain authoritative
   Native rebuild:      NOT automatic — run \`yarn dev:android\` after Gradle/
                        native changes. Attachment preview bundle is watched.
-  Stop:                Ctrl-C (kills metro, watcher, relay, host).
+  Stop:                Ctrl-C (stops owned children, then removes the private plugin socket).
 
 muxr dev: READY — open the muxr Dev app on the emulator (exp+muxr-dev://)
 `);

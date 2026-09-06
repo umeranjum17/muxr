@@ -20,7 +20,7 @@ infer that the agent has already seen or answered the message.
 
 Phone navigation and desktop focus are distinct actions. `focus_agent` focuses the desktop pane; `navigate_app` with `agent <name or task>` opens its live conversation on the phone. Semantic app tools are available in Grok, Gemini Live, OpenAI Realtime, and the Codex delegation bridge. Codex delegates natural-language work through its existing data channel; the backend translates it into restricted tool calls. Native audio transport is unchanged.
 
-This is a bounded coordination tool surface, not unrestricted access to every Herdr command. Shell execution, arbitrary workspace deletion, and destructive agent termination are not added here. Broader capabilities need explicit action policy and a real user-confirmation path rather than a model-supplied approval flag. The new Codex delegation prompt/tool protocol and actual spoken target selection still require live provider/device verification; local scripted protocol tests alone do not establish audio or speech-recognition quality.
+This is a bounded coordination tool surface, not unrestricted access to every Herdr command. Shell execution, arbitrary workspace deletion, and destructive agent termination are not added here. Broader capabilities need explicit action policy and a real user-confirmation path rather than a model-supplied approval flag. Each provider/device combination requires live verification; local scripted protocol tests alone do not establish audio or speech-recognition quality.
 
 ## Shared tool lifecycle
 
@@ -48,6 +48,12 @@ agent watches. Closing voice aborts planning and active tools. A failed or
 incomplete provider response cannot authorize new actions, and an uncertain
 mutation is never automatically retried. Credentials remain host-only, redirects
 are rejected, and test mode requires an explicit loopback fixture endpoint.
+
+Codex may repeat a handoff with a fresh delegation ID while the same user turn
+is still being processed. An identical trimmed request in that turn shares one
+in-flight or completed result, including clarifications and failures. A repeated
+handoff cannot confirm its own pending action or queue the message twice. A new
+user turn remains a new request, even when its words match an earlier one.
 
 Reads have a 15-second deadline; mutations retain the existing 75-second
 coordination budget, and explicit lifecycle watches keep their declared bound. Repeated operation IDs reuse the same result and cannot execute a

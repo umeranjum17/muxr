@@ -103,6 +103,7 @@ describe('TerminalManager stream exit', () => {
             relayUrl: 'ws://relay.test',
             machineId: 'machine',
             resolvePane,
+            focusSession: async () => undefined,
             hostedE2ee: {
                 machineId: 'machine', keyVersion: 2, dataKey: root,
                 ingressKeys: { 'device-a': root, 'device-b': root },
@@ -153,6 +154,7 @@ describe('TerminalManager stream exit', () => {
             relayUrl: 'ws://relay.test',
             machineId: 'machine',
             resolvePane,
+            focusSession: async () => undefined,
         });
         fakes.failSpawn = true;
 
@@ -161,11 +163,17 @@ describe('TerminalManager stream exit', () => {
         expect(fakes.sockets[0]?.close).toHaveBeenCalledOnce();
     });
 
-    it('preserves graphics placements and deletes through backpressure and closes on bounded overflow', async () => {
+    it('orders initial paint before graphics, preserves updates through backpressure, and bounds overflow', async () => {
+        const graphic = (bytes: string, graphics = true) => JSON.stringify({
+            type: 'terminal.frame', seq: 0, encoding: 'ansi', width: 100, height: 30,
+            full: false, graphics, graphicsSurface: 'inline', bytes: Buffer.from(bytes).toString('base64'),
+        });
         let writeGraphics!: (frame: string) => void;
+        const cached = graphic('\x1b_Ga=p,i=9,p=9;\x1b\\');
         const bridge = {
             register: vi.fn((registration: HerdrGraphicsRegistration) => {
                 writeGraphics = registration.write;
+                writeGraphics(cached);
                 return true;
             }),
             unregister: vi.fn(),
@@ -175,14 +183,20 @@ describe('TerminalManager stream exit', () => {
         vi.spyOn(HerdrGraphicsBridge, 'open').mockResolvedValue(bridge as unknown as HerdrGraphicsBridge);
         const manager = new TerminalManager({
             relayUrl: 'ws://relay.test', machineId: 'machine', resolvePane: async () => 'workspace:pane',
+            focusSession: async () => undefined,
         });
         await manager.attach({ sessionId: 'session', channel: 'graphics', cols: 100, rows: 30, cellWidthPx: 8, cellHeightPx: 16 });
-        await vi.waitFor(() => expect(bridge.register).toHaveBeenCalled());
         const socket = fakes.sockets[0]!;
-        const graphic = (bytes: string, graphics = true) => JSON.stringify({
-            type: 'terminal.frame', seq: 0, encoding: 'ansi', width: 100, height: 30,
-            full: false, graphics, graphicsSurface: 'inline', bytes: Buffer.from(bytes).toString('base64'),
+        const initialPaint = JSON.stringify({
+            type: 'terminal.frame', seq: 1, encoding: 'ansi', width: 100, height: 30,
+            full: true, bytes: Buffer.from('\x1b[2J').toString('base64'),
         });
+        socket.emit('message', Buffer.from(JSON.stringify({
+            type: 'terminal.resize', cols: 100, rows: 30, cellWidthPx: 8, cellHeightPx: 16,
+        })));
+        fakes.children[0]!.stdout.emit('data', Buffer.from(`${initialPaint}\n`));
+        await vi.waitFor(() => expect(socket.send.mock.calls.map(([frame]) => frame)).toEqual([initialPaint, cached]));
+        socket.send.mockClear();
         const frames = [
             graphic('\x1b_Ga=p,i=1,p=1;\x1b\\'),
             graphic('\x1b_Ga=p,i=2,p=2;\x1b\\'),
@@ -228,6 +242,7 @@ describe('TerminalManager stream exit', () => {
             relayUrl: 'ws://relay.test',
             machineId: 'machine',
             resolvePane,
+            focusSession: async () => undefined,
         });
 
         await manager.attach({ sessionId: 'session', channel: 'channel', cols: 100, rows: 30 });

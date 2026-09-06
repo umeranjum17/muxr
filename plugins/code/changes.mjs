@@ -125,6 +125,15 @@ if (method === 'worktrees') {
     process.stdout.write(JSON.stringify({ title: basename(path), note: `${root} · ${comparison}${patchNote}`, patch: patch.slice(0, 60000) }));
 } else {
     const changed = files();
+    let addedLines = 0, deletedLines = 0;
+    for (const file of changed) {
+        if (/^\d+$/.test(file.added)) addedLines += Number(file.added);
+        if (/^\d+$/.test(file.deleted)) deletedLines += Number(file.deleted);
+    }
+    const summary = unavailable ? [] : [
+        { label: 'Tracked lines added', value: `+${addedLines.toLocaleString('en-US')}`, tone: 'positive' },
+        { label: 'Tracked lines removed', value: `−${deletedLines.toLocaleString('en-US')}`, tone: 'danger' },
+    ];
     const pageCount = Math.max(1, Math.ceil(changed.length / 49));
     const requestedPage = typeof input.page === 'number' || (typeof input.page === 'string' && /^\d+$/.test(input.page)) ? Number(input.page) : 0;
     const page = method === 'browse' && Number.isSafeInteger(requestedPage) ? Math.max(0, Math.min(pageCount - 1, requestedPage)) : 0;
@@ -143,7 +152,7 @@ if (method === 'worktrees') {
             ...(page + 1 < pageCount ? [{ ...params(), page: page + 1, id: String(page + 1), label: 'Next files' }] : []),
         ] }));
     } else {
-        process.stdout.write(JSON.stringify({ badge: { value: changed.length > 49 ? '49+' : String(changed.length), tone: 'secondary' },
+        process.stdout.write(JSON.stringify({ badge: { value: `${changed.length.toLocaleString('en-US')} ${changed.length === 1 ? 'file' : 'files'}`, tone: 'secondary' }, summary,
             items: [{ id: 'review-context', title: `${selected.branch} · Working tree`, subtitle: root, group: 'Compared with HEAD', icon: 'git-branch-outline', metadata: [], action: screen('changes.review', params()) },
                 ...rows.map((file) => ({ id: file.path, title: file.title, subtitle: file.subtitle, group: file.kind === 'untracked' ? 'Untracked' : 'Working tree', icon: 'git-compare-outline', metadata: [], action: workingFileAction(file) }))],
             actions: [{ id: 'comparison', label: 'Review branch / staged', icon: 'git-compare-outline', action: screen('changes.review', params({ scope: 'branch' })) },

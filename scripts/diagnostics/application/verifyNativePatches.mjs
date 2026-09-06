@@ -17,6 +17,15 @@ const liveAudioModule = read(
 );
 const imageSizePatch = read('patches/image-size+1.2.1.patch');
 const imageSizeIcns = read('node_modules/image-size/dist/types/icns.js');
+const screensPatch = read('patches/react-native-screens+4.22.0.patch');
+const workletsPatch = read('patches/react-native-worklets+0.7.2.patch');
+const frameQueue = read('node_modules/react-native-worklets/android/src/main/java/com/swmansion/worklets/runloop/AnimationFrameQueue.java');
+const workletsLegacyModule = read('node_modules/react-native-worklets/android/src/legacyBundling/com/swmansion/worklets/WorkletsModule.java');
+const workletsExperimentalModule = read('node_modules/react-native-worklets/android/src/experimentalBundling/com/swmansion/worklets/WorkletsModule.java');
+const reanimatedPatch = read('patches/react-native-reanimated+4.2.3.patch');
+const reanimatedNativeProxy = read('node_modules/react-native-reanimated/android/src/main/java/com/swmansion/reanimated/NativeProxy.java');
+const screensProxy = read('node_modules/react-native-screens/android/src/main/cpp/NativeProxy.cpp');
+const screensListener = read('node_modules/react-native-screens/cpp/RNSScreenRemovalListener.h');
 const imageSizeProbe = spawnSync(
     process.execPath,
     [
@@ -52,6 +61,19 @@ const checks = [
         read('node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/ExpoLibghosttyModule.kt').includes('AsyncFunction("showKeyboard")') &&
         read('node_modules/expo-libghostty/build/ExpoLibghosttyView.js').includes('native.current.showKeyboard()')],
     ['Ghostty patch hides its accessory bar', ghosttyPatch.includes('accessoryBar.visibility = GONE') && ghosttyView.includes('accessoryBar.visibility = GONE')],
+    [
+        'Ghostty patch supports symmetric Android hideKeyboard alongside showKeyboard',
+        ghosttyPatch.includes('AsyncFunction("hideKeyboard")') &&
+            ghosttyPatch.includes('fun hideKeyboard() = terminal.hideKeyboard()') &&
+            ghosttyPatch.includes('hideSoftInputFromWindow') &&
+            ghosttyPatch.includes('clearFocus()') &&
+            ghosttyTerminal.includes('if (!isAttachedToWindow || windowToken == null) return') &&
+            !ghosttyTerminal.includes('fun hideKeyboard() {\n    if (handle == 0L || finished') &&
+            ghosttyView.includes('fun hideKeyboard() = terminal.hideKeyboard()') &&
+            read('node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/ExpoLibghosttyModule.kt').includes('AsyncFunction("hideKeyboard")') &&
+            read('node_modules/expo-libghostty/build/ExpoLibghosttyView.js').includes('native.current.hideKeyboard()') &&
+            read('node_modules/expo-libghostty/build/ExpoLibghostty.types.d.ts').includes('hideKeyboard(): Promise<void>'),
+    ],
     ['Ghostty patch forwards scroll rows', ghosttyPatch.includes('onScrollRows') && ghosttyTerminal.includes('onScrollRows') && ghosttyView.includes('onScroll')],
     [
         'Ghostty patch keeps Android Kitty snapshot plus metrics and pointer on both platforms',
@@ -123,6 +145,49 @@ const checks = [
             nativeGuard < workspaceBuild &&
             workspaceBuild < vitestGate &&
             vitestGate < gradleBuild,
+    ],
+    [
+        'screens mounting-override listener is process-lifetime and cannot dangle (upstream PR 4413)',
+        screensPatch.includes('removalListener()') &&
+            screensProxy.includes('static const std::shared_ptr<RNSScreenRemovalListener> instance') &&
+            screensProxy.includes('removalListener()->setListener([javaPart = javaPart_]') &&
+            screensProxy.includes('if (!javaPart_)') &&
+            screensProxy.includes('removalListener()->clearListener(removalListenerToken_)') &&
+            !screensProxy.includes('screenRemovalListener_') &&
+            screensListener.includes('uint64_t setListener(') &&
+            screensListener.includes('mutable std::mutex listenerMutex_'),
+    ],
+    [
+        'worklets animation frame queue stops on invalidate (upstream PR 10278 backport)',
+        workletsPatch.includes('mDispatchLock') &&
+            frameQueue.includes('private final AtomicBoolean mInvalidated = new AtomicBoolean();') &&
+            frameQueue.includes('private final Object mDispatchLock = new Object();') &&
+            frameQueue.includes('public void invalidate() {') &&
+            frameQueue.includes('private void removePostedFrameCallback() {') &&
+            // The dispatch lock has to wrap the callback loop, and the queue must
+            // refuse new work and new choreographer posts once invalidated.
+            frameQueue.indexOf('synchronized (mDispatchLock) {\n      var frameCallbacks = pullCallbacks();') > 0 &&
+            frameQueue.indexOf('if (mInvalidated.get()) {\n        return;\n      }\n\n      lastFrameTimeMs') > 0 &&
+            frameQueue.indexOf('if (mInvalidated.get()) {\n        return;\n      }\n      mFrameCallbacks.add(') > 0 &&
+            frameQueue.indexOf('if (mInvalidated.get()) {\n        return;\n      }\n      if (!mPaused.get()') > 0,
+    ],
+    [
+        'both worklets module variants stop the frame queue before invalidateCpp',
+        [workletsLegacyModule, workletsExperimentalModule].every((module) =>
+            module.includes('public void invalidateAnimationFrameQueue() {') &&
+            module.includes('mAnimationFrameQueue.invalidate();') &&
+            module.indexOf('invalidateAnimationFrameQueue();\n    if (mHybridData') > 0 &&
+            module.indexOf('invalidateAnimationFrameQueue();') < module.indexOf('invalidateCpp();')),
+    ],
+    [
+        'reanimated stops the shared frame queue before releasing its Java part',
+        reanimatedPatch.includes('mWorkletsModule.invalidateAnimationFrameQueue();') &&
+            reanimatedNativeProxy.includes('mWorkletsModule.invalidateAnimationFrameQueue();') &&
+            reanimatedNativeProxy.indexOf('mWorkletsModule.invalidateAnimationFrameQueue();') < reanimatedNativeProxy.indexOf('invalidateCpp();\n    }') &&
+            // The fix is the queue barrier, so this patch stays scoped to the one
+            // Java file: no C++ null guard or fabricated timestamp rides along.
+            (reanimatedPatch.match(/^diff --git/gm) ?? []).length === 1 &&
+            !reanimatedPatch.includes('.cpp'),
     ],
 ];
 

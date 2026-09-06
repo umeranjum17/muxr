@@ -43,7 +43,6 @@ export function ScreenTree(props: {
     const [stack, setStack] = React.useState<RuntimeTreeItem[]>([]);
     const [opening, setOpening] = React.useState<string | undefined>(undefined);
     const [descending, setDescending] = React.useState(true);
-    const stackDepth = React.useRef(0);
     const up = React.useCallback((depth: number) => {
         setDescending(false);
         setStack((current) => current.slice(0, depth));
@@ -52,7 +51,7 @@ export function ScreenTree(props: {
     // behaves. Vertical intent belongs to the page, so the pan has to lose to it.
     const swipeBack = React.useMemo(() => Gesture.Pan().activeOffsetX(24).failOffsetY([-14, 14])
         .onEnd((event) => {
-            if (event.translationX > 60) runOnJS(up)(Math.max(0, stackDepth.current - 1));
+            if (event.translationX > 60) runOnJS(up)(-1);
         }), [up]);
     React.useEffect(() => setItems(incoming), [incoming]);
     React.useEffect(() => setStack([]), [props.node.path]);
@@ -67,7 +66,6 @@ export function ScreenTree(props: {
         }
         return undefined;
     }, []);
-    stackDepth.current = stack.length;
     const here = stack.length === 0 ? undefined : findByPath(items, stack[stack.length - 1]!.path) ?? stack[stack.length - 1]!;
     // Folders first, then the given order: every file browser a phone owner has
     // ever used puts the ways deeper above the leaves.

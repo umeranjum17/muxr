@@ -6,6 +6,7 @@ import { useRouter } from 'expo-router';
 import Animated, { Easing, useAnimatedStyle, useReducedMotion, useSharedValue, withDelay, withTiming } from 'react-native-reanimated';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { OptionSheet } from '@/components/OptionSheet';
+import { ActionShortcut } from '@/components/ActionShortcut';
 import { hapticsError, hapticsLight } from '@/components/haptics';
 import { Modal } from '@/modal';
 import { sync } from '@/catalog/sync';
@@ -113,7 +114,7 @@ function SheetActions({ actions, busyId, onAction }: {
 }
 
 /** Lazy action list: the plugin declares every tap; there are no feature fallbacks. */
-export function ItemList({ context, pluginId, manifestHash, contribution, presentation = 'pill' }: PrimitiveProps & { presentation?: 'pill' | 'action-row' }) {
+export function ItemList({ context, pluginId, manifestHash, contribution, presentation = 'pill' }: PrimitiveProps & { presentation?: 'pill' | 'action-row' | 'shortcut' }) {
     const { theme } = useUnistyles();
     const { width } = useWindowDimensions();
     const router = useRouter();
@@ -237,6 +238,7 @@ export function ItemList({ context, pluginId, manifestHash, contribution, presen
     const title = contribution.title === undefined ? t('plugins.items') : resolvePluginText(contribution.title);
     const icon = contribution.icon ?? 'document-outline';
     const accessibilityLabel = contribution.accessibilityLabel === undefined ? title : resolvePluginText(contribution.accessibilityLabel);
+    const shortcut = presentation === 'shortcut';
     // Order-preserving grouping; ungrouped items render in one silent section.
     const groups = React.useMemo(() => {
         const found: { name?: string; items: { item: PluginItemListItem; index: number }[] }[] = [];
@@ -301,7 +303,8 @@ export function ItemList({ context, pluginId, manifestHash, contribution, presen
     const badgeTone = model.badge?.tone;
     const badgeColor = failed ? theme.colors.textDestructive : badgeTone === undefined ? theme.colors.textSecondary : toneColor(theme, badgeTone);
     if (items.length === 0 && model.actions.length === 0) {
-        if (!failed && (presentation === 'pill' || presentation === 'action-row')) return null;
+        if (!failed) return null;
+        if (shortcut) return <ActionShortcut label={title} accessibilityLabel={`${accessibilityLabel} ${t('plugins.unavailableSuffix')}. ${t('plugins.retry')}`} icon="warning-outline" onPress={() => load(true)} />;
         return <Pressable onPress={failed ? () => load(true) : undefined} disabled={!failed} accessibilityRole="button" accessibilityLabel={failed ? `${accessibilityLabel} ${t('plugins.unavailableSuffix')}. ${t('plugins.retry')}` : `${accessibilityLabel}, no items`} hitSlop={11}
             style={({ pressed }) => [presentation === 'action-row' ? styles.actionRow : styles.pill, { backgroundColor: theme.colors.surfaceHigh, borderColor: theme.colors.divider, opacity: failed || presentation === 'pill' ? 1 : 0.55 }, pressed && { backgroundColor: theme.colors.surfacePressed }]}>
             <Ionicons name={(failed ? 'warning-outline' : icon) as never} size={presentation === 'action-row' ? 18 : 11} color={failed ? theme.colors.textDestructive : theme.colors.textSecondary} />
@@ -311,13 +314,18 @@ export function ItemList({ context, pluginId, manifestHash, contribution, presen
     }
     const count = model.badge?.value ?? items.length;
     return <>
+        {/* Only a declared badge trails a panel row: an inferred item count is
+            the pill's affordance, not the panel's secondary line. */}
+        {shortcut ? <ActionShortcut label={title} accessibilityLabel={`${accessibilityLabel}${failed ? `, ${t('plugins.showingStale')}. ${t('plugins.retry')}` : ''}`}
+            icon={(failed ? 'warning-outline' : icon) as never} badge={model.badge?.value} metadata={model.summary}
+            onPress={() => { setOpen(true); load(true); }} /> :
         <Pressable onPress={() => { setOpen(true); load(true); }} accessibilityRole="button" accessibilityLabel={`${accessibilityLabel}${failed ? `, ${t('plugins.showingStale')}. ${t('plugins.retry')}` : ''}`} hitSlop={11}
             style={({ pressed }) => [presentation === 'action-row' ? styles.actionRow : styles.pill, { backgroundColor: theme.colors.surfaceHigh, borderColor: failed ? theme.colors.textDestructive : theme.colors.divider }, pressed && { backgroundColor: theme.colors.surfacePressed }]}>
             <Ionicons name={(failed ? 'warning-outline' : icon) as never} size={presentation === 'action-row' ? 18 : 11} color={badgeColor} />
             {presentation === 'action-row' && <Text style={[styles.actionLabel, { color: theme.colors.text }]}>{title}</Text>}
             <Text style={[styles.count, { color: badgeColor }]}>{count}</Text>
             {presentation === 'action-row' && <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />}
-        </Pressable>
+        </Pressable>}
         <OptionSheet visible={open} title={title} options={[]} onSelect={() => {}} onClose={() => setOpen(false)} virtualizedBody={galleryImages.length > 0} virtualizedBodyHeight={sheetBodyHeight} body={
             galleryImages.length > 0
                 ? <FlatList

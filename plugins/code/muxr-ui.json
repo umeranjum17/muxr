@@ -80,6 +80,7 @@
       "slot": "session.header.trailing",
       "id": "files.open",
       "type": "screen-button",
+      "quickAction": true,
       "title": "Files",
       "icon": "folder-outline",
       "contentContributionId": "files"
@@ -159,6 +160,7 @@
       "id": "changes",
       "type": "native",
       "primitive": "item-list",
+      "quickAction": true,
       "params": {
         "title": "Changes",
         "icon": "git-compare-outline",

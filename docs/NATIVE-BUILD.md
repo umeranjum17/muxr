@@ -50,14 +50,32 @@ production app or access release signing credentials.
 all three ports over adb, leaving the installed host's 8792/8793 untouched. State
 persists under the ignored `.cache/muxr-dev/` directory, not the installed
 service's state. Stop the development supervisor with **Ctrl-C**; it owns its
-compiler, renderer watcher, Metro and source host/relay processes.
+compiler, renderer watcher, Metro and source host/relay processes, then removes
+its private checkout-plugin socket.
 
 This reuses the existing explicit **local development fixture** for connection
 and account setup. It drives the real source host and local Herdr panes, not a
 fake terminal. It is loopback-only, not a secure remote-phone setup or proof of
 production pairing. On first launch, use the local account creation action.
-Herdr and its installed plugins remain shared: don't close or alter unrelated
-panes, and don't assume the development command relinks installed plugins.
+Herdr and its installed registrations remain shared: don't close or alter
+unrelated panes. The development host projects already-registered bundled
+plugins onto this checkout's `plugins/` paths for local UI projections, RPC and
+stream scripts. It does not register, enable or relink installed plugins, and
+unrelated plugins pass through unchanged. Native Herdr actions still use their
+installed registrations. Terminal binary transport connects directly to Herdr
+through the private socket directory's sibling link.
+
+The same `yarn dev` serves a browser preview of the web build at
+`http://localhost:8081` using isolated development services (loopback
+relay 18792, downloads 18793) and leaves installed production services
+unchanged. The supervisor prepares the web assets Metro otherwise misses
+(`public/canvaskit.wasm`, the pdf.js worker) and pins the relay CORS
+allowlist to the three development origins `http://localhost:8081`,
+`http://127.0.0.1:8081` (browser tabs on the Metro origin) and
+`http://127.0.0.1:18792` (the native WebSocket module derives its Origin
+from the relay URL itself), so relay fetches and sockets from both the
+browser tab and the native client succeed. Nothing outside the
+development loop changes.
 
 The supervisor reuses the dev relay's private owner credential to issue normal
 websocket tickets for terminal, preview and plugin streams. The credential is
@@ -70,8 +88,34 @@ and pairing checks remain unchanged.
 | Mobile JS/TS, React components and styles | Save; Metro Fast Refresh updates the running dev client |
 | Host/relay/shared TypeScript | Compiler watcher rebuilds; source services restart after a clean build |
 | Attachment preview runtime | Renderer watcher regenerates the offline bundle; Metro sees it |
+| Bundled plugin projection/RPC/stream scripts | Source paths are used on the next invocation; installed registrations remain unchanged |
 | Kotlin, C++, native modules/patches or Gradle | Run `yarn dev:android` again |
 | App config, native plugins, dependencies or public environment | Restart Metro; rebuild the dev client when native configuration changes |
+
+Metro excludes native build directories under both `android` and `ReactAndroid`,
+including the directories themselves, so transient CMake output does not race its
+file watcher. Debug builds may compile native dependencies in Release mode;
+that does not require application-release signing credentials.
+
+The Android launcher force-stops only the development package before installing
+or opening it. Its success message confirms intent dispatch, not application
+survival; post-launch crashes are not retried or masked.
+
+Only the visible native terminal route holds a control stream. Returning to it
+reacquires the stream and selects its Herdr pane, because Herdr publishes graphics
+for the foreground tab. Hidden terminal routes release control; Home's observe
+previews never move desktop focus.
+
+The first Herdr terminal paint is forwarded before graphics registration replays
+cached images. Earlier resize metrics are retained, but cannot start graphics
+first: the initial ANSI screen clear would otherwise erase the replay.
+
+Source plugin behavior follows the registered entries, not a separate matching
+catalog: the development host maps only plugins Herdr already has registered and
+enabled onto this checkout's `plugins/` paths for UI projections, RPC and stream
+scripts. It never registers, enables or relinks plugins, so a checkout edit
+reaches the running dev client on the next invocation while installed plugin
+registrations — including native Herdr launches — remain unchanged.
 
 Keep release APK builds, production-mode bundle checks and full performance
 gates for candidate acceptance, not each visual edit. Debug/Fast Refresh success
@@ -223,6 +267,17 @@ stuck disconnected.
 | App installs but never connects | Missing baked connection values | Check the secrets file or Settings → Connection |
 | App remains disconnected over HTTPS | Self-signed or invalid TLS chain | Install a trusted certificate |
 | Native recorder/terminal verifier fails | `patch-package` output is stale | Run `yarn install`, then `node scripts/diagnostics/application/verifyNativePatches.mjs` |
+| Android startup SIGSEGV in `MountingCoordinator::pullTransaction` | `react-native-screens` 4.22.0 mounting-listener initialization race | Apply the checked-in screens patch with `yarn install`, verify native patches, then rebuild the APK; Metro refresh cannot replace native code |
+
+The screens patch backports the listener-lifetime fix from
+[upstream PR 4413](https://github.com/software-mansion/react-native-screens/pull/4413).
+It keeps the mounting delegate alive, serializes callback installation and
+teardown, and prevents an old proxy from clearing a newer callback. A proxy
+whose JNI reference has been invalidated cannot install another callback.
+The initial lifetime repair completed 40 normal restored cold starts and 30
+source-instrumented AddressSanitizer starts without a crash; final-candidate
+results remain pinned to their APK/native hashes. These emulator checks cover
+the reproduced startup failure, not all device or graphics behavior.
 
 ## OTA updates
 

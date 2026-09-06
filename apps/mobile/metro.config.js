@@ -18,7 +18,7 @@ config.resolver.assetExts.push('wasm', 'bin');
 config.resolver.blockList = [
   /[/\\]src-tauri[/\\]target[/\\].*/,
   /[/\\](?:\.cxx|\.gradle)[/\\].*/,
-  /[/\\]android[/\\](?:.*[/\\])?build[/\\].*/,
+  /[/\\](?:android|ReactAndroid)[/\\](?:.*[/\\])?build(?:[/\\].*)?$/,
   /[/\\]\.cache[/\\]muxr-dev[/\\].*/,
 ];
 

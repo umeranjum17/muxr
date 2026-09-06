@@ -28,6 +28,7 @@ const pkg = 'com.trymuxr.app';
 const load = { panes: 30, agents: 6, titleChurnHz: 2, terminalBytesPerSecond: 4096, graphicsFrameHz: 4 };
 const report = { flow, startedAt: new Date().toISOString(), serial, load, phases: [], failures: [], limits: { minimumSampledSeconds: 25, jsBusyPercent: 60, pssDriftKb: 102400, frameStallSeconds: 30 }, performanceScope: flow !== 'full' ? `Not measured: ${flow}-only feature flow` : 'Emulator pathology smoke; not physical-device feel or a release soak' };
 let stack;
+let graphicsProof;
 let ownsLock = false;
 let deviceTouched = false;
 const lock = `/tmp/muxr-pr-gate-${serial}.lock`;
@@ -77,8 +78,8 @@ async function requireScreen(name, pattern, timeout = 25_000, dismissStartup = f
 }
 async function tapText(text) {
     let xml = await dump();
-    if (['Session actions', 'Open terminal keyboard', 'Zoom in', 'Zoom out', 'Reset zoom'].includes(text)
-        && !xml.includes(`content-desc="${text}"`) && xml.includes('content-desc="Show terminal controls"')) {
+    if (['Changes', 'Files', 'Open terminal keyboard', 'Zoom in', 'Zoom out', 'Reset zoom'].includes(text)
+        && !xml.includes(`content-desc="${text}"`) && !xml.includes(`text="${text}"`) && xml.includes('content-desc="Show terminal controls"')) {
         await tapText('Show terminal controls');
         xml = await dump();
     }
@@ -206,8 +207,6 @@ async function feature(name, work) {
 async function changesScopeControls() {
     await herd();
     check((await maestro('graphicsScroll.yaml')).code === 0, 'Could not open session for Changes review');
-    await tapText('Session actions');
-    await requireScreen('changes-actions', /Changes/);
     await tapText('Changes');
     await requireScreen('changes-context', /Working tree/);
     await tapText('Choose worktree');
@@ -238,8 +237,6 @@ async function changesScopeControls() {
 async function viewerControls() {
     await herd();
     check((await maestro('graphicsScroll.yaml')).code === 0, 'Could not open session for native file viewer');
-    await tapText('Session actions');
-    await requireScreen('session-actions', /Changes/);
     await tapText('Changes');
     await requireScreen('changed-files', /viewer.ts/);
     await tapText('viewer.ts');
@@ -292,18 +289,34 @@ async function viewerControls() {
     await capture('native-wrap.png');
     Object.assign(report.viewer, { realDiff: true, zoomLineHeights: [lineHeight(initial), lineHeight(zoomed)], pan, wrapEnabled: true });
 }
-async function viewerLineTarget() {
+// The first live pane's real persisted host binding: the identity the app
+// resolves for itself, never a synthetic shell id.
+function firstPaneRoute() {
     const agent = stack.world.agents.find((row) => row.pane_id === stack.world.panes[0].pane_id);
     const routes = JSON.parse(readFileSync(join(stack.dataDir, 'herdr-routes.json'), 'utf8')).bindings;
     const binding = routes.find((row) => ['source', 'agent', 'kind', 'value'].every((key) => row.agentSession[key] === agent?.agent_session[key]));
-    check(binding?.route, 'Cannot resolve real host session for line-target route');
+    check(binding?.route, 'Cannot resolve real host session for the first pane route');
+    return binding.route;
+}
+// adb shell joins argv again on Android: quote the complete URI there.
+const openUri = (url) => adb('shell', 'am', 'start', '-a', 'android.intent.action.VIEW', '-d', `'${url.replaceAll("'", "'\\''")}'`, pkg);
+const readJsonl = (path) => {
+    const text = existsSync(path) ? readFileSync(path, 'utf8').trim() : '';
+    return text === '' ? [] : text.split('\n').map((line) => JSON.parse(line));
+};
+// The graphics proof pane is the first pane of its tab: the fake herd pins its
+// checkerboard producer there, so that is the pane the gate has to be watching.
+const proofPane = () => stack.world.panes[0];
+const proofHeader = () => `· 1/${stack.world.panes.filter((row) => row.tab_id === proofPane().tab_id).length}`;
+// Observer thumbnail reads carry no cell pixels; only a real terminal.resize
+// with positive cell dimensions proves a native attach to this exact pane.
+const proofResizes = (sinceMs) => readJsonl(stack.cellMetricsJsonl).filter((row) => row.source === 'terminal.resize'
+    && row.pane_id === proofPane().pane_id && Date.parse(row.at) >= sinceMs
+    && [row.cols, row.rows, row.cellWidthPx, row.cellHeightPx].every((value) => Number.isFinite(value) && value > 0));
+async function viewerLineTarget() {
     // A relative path makes session identity resolution part of the real route.
-    const url = `muxr://session/${encodeURIComponent(binding.route)}/file?path=${encodeURIComponent('line-target.ts')}`;
-    const open = (line) => {
-        // adb shell joins argv again on Android: quote the complete URI there.
-        const uri = `'${`${url}&line=${line}`.replaceAll("'", "'\\''")}'`;
-        return adb('shell', 'am', 'start', '-a', 'android.intent.action.VIEW', '-d', uri, pkg);
-    };
+    const url = `muxr://session/${encodeURIComponent(firstPaneRoute())}/file?path=${encodeURIComponent('line-target.ts')}`;
+    const open = (line) => openUri(`${url}&line=${line}`);
     const top = async (name) => {
         await open(1);
         const xml = await requireScreen(name, /PR gate document line 1:/);
@@ -362,7 +375,7 @@ async function terminalKeyboard(name) {
     };
     await waitKeyboard(false);
     const before = await dump(`${name}-before`);
-    check(before.includes('Show terminal controls') || before.includes('Hide terminal controls'), 'Terminal command control missing');
+    check(before.includes('Show terminal controls'), 'Terminal command control missing');
     const { width, height } = report.device;
     for (let n = 0; n < 3; n++) {
         await adb('shell', 'input', 'tap', String(Math.round(width * .3)), String(Math.round(height * .4)));
@@ -381,33 +394,67 @@ async function terminalKeyboard(name) {
     await capture(`${name}-restored.png`);
     (report.keyboard ??= []).push({ name, tapCount: 3, autoOpened: false, explicitOpen: true, dismissed: true });
     const handle = (xml, label) => parseUiNodes(xml).find((node) => node.desc === label);
-    const initial = handle(await dump(`${name}-controls-before`), 'Hide terminal controls');
-    check(initial && initial.r > initial.l && initial.b > initial.t, 'Movable toolbar handle missing');
-    const cx = Math.round((initial.l + initial.r) / 2), cy = Math.round((initial.t + initial.b) / 2);
-    // Drag the dedicated handle, not a browser surface or a zoom button.
-    await adb('shell', 'input', 'swipe', String(cx), String(cy), String(Math.max(80, cx - width * .35)), String(cy), '650');
-    const movedXml = await dump(`${name}-controls-moved`);
-    const moved = handle(movedXml, 'Hide terminal controls');
-    check(moved && Math.abs(moved.l - initial.l) > width * .15, 'Toolbar drag did not move the native handle');
-    check(moved.l >= 0 && moved.r <= width && moved.t >= 0 && moved.b <= height, 'Toolbar moved outside the viewport');
-    await tapText('Hide terminal controls');
+    // Only the closed Show puck is draggable: the panel replaces it when open
+    // and carries no drag target of its own.
+    await tapText('Close terminal controls');
     const collapsed = await dump(`${name}-controls-collapsed`);
     check(handle(collapsed, 'Show terminal controls') && !collapsed.includes('Open terminal keyboard'), 'Toolbar buttons did not collapse');
     await capture(`${name}-controls-collapsed.png`);
+    const initial = handle(collapsed, 'Show terminal controls');
+    const toolbar = handle(collapsed, 'Terminal controls');
+    check(initial && initial.r > initial.l && initial.b > initial.t, 'Movable toolbar handle missing');
+    check(toolbar && toolbar.r > toolbar.l && toolbar.b > toolbar.t, 'Movable toolbar bounds missing');
+    const cx = Math.round((initial.l + initial.r) / 2), cy = Math.round((initial.t + initial.b) / 2);
+    // Drag the closed puck; it owns the gesture, so the drag must move it
+    // without opening the panel in its wake.
+    const leftRoom = initial.l, rightRoom = width - initial.r;
+    const direction = rightRoom > leftRoom ? 1 : -1;
+    const distance = Math.min(width * .35, Math.max(leftRoom, rightRoom));
+    const targetX = Math.round(cx + direction * distance);
+    await adb('shell', 'input', 'swipe', String(cx), String(cy), String(targetX), String(cy), '650');
+    const movedXml = await dump(`${name}-controls-moved`);
+    const moved = handle(movedXml, 'Show terminal controls');
+    check(moved && Math.abs(moved.l - initial.l) > width * .15, 'Toolbar drag did not move the native handle');
+    check(moved.l >= 0 && moved.r <= width && moved.t >= 0 && moved.b <= height, 'Toolbar moved outside the viewport');
+    check(!movedXml.includes('Open terminal keyboard') && !movedXml.includes('Close terminal controls'), 'Puck drag accidentally opened the panel');
+    await capture(`${name}-puck-moved.png`);
     await tapText('Show terminal controls');
     const expanded = await dump(`${name}-controls-expanded`);
-    check(expanded.includes('Open terminal keyboard') && expanded.includes('Zoom in') && expanded.includes('Session actions'), 'Command control did not restore its actions');
-    const commandLabels = ['Hide terminal controls', 'Open terminal keyboard', 'Zoom in', 'Zoom out', 'Reset zoom', 'Session actions'];
-    const commands = parseUiNodes(expanded).filter((node) => commandLabels.includes(node.desc));
-    check(commands.length === commandLabels.length, 'Command fan contains missing or duplicate buttons');
-    for (const command of commands) {
-        check(command.l >= 0 && command.r <= width && command.t >= 0 && command.b <= height, `Command outside screen: ${command.desc}`);
-        check(Math.abs((command.r - command.l) - (commands[0].r - commands[0].l)) <= 2, 'Command button sizes are inconsistent');
-        for (const other of commands) if (other !== command) check(Math.min(command.r, other.r) <= Math.max(command.l, other.l) || Math.min(command.b, other.b) <= Math.max(command.t, other.t), 'Command buttons overlap');
+    const commandLabels = ['Close terminal controls', 'Open terminal keyboard', 'Zoom in', 'Zoom out', 'Reset zoom'];
+    const nodes = parseUiNodes(expanded);
+    const commands = nodes.filter((node) => commandLabels.includes(node.desc));
+    const shortcuts = nodes.filter((node) => node.desc === 'Files' || /^(Open changed files|Terminal tools),/.test(node.desc));
+    check(commands.length === commandLabels.length, 'Command panel contains missing or duplicate controls');
+    check(shortcuts.some((node) => node.desc === 'Files') && shortcuts.some((node) => node.desc.startsWith('Open changed files,')), 'Files and Changes are not directly available');
+    const buttons = [...commands, ...shortcuts];
+    for (const button of buttons) {
+        check(button.l >= 0 && button.r <= width && button.t >= 0 && button.b <= height && button.r > button.l && button.b > button.t, `Command outside screen: ${button.desc}`);
+        // Accessibility rounds fractional dp boundaries (115.5px rows at
+        // density 420), so adjacent full-width rows can dump a rounded 1px
+        // shared edge; tolerate at most one physical pixel of overlap on a
+        // single separating axis and keep real overlaps failing.
+        for (const other of buttons) if (other !== button) check(
+            Math.min(button.r, other.r) - Math.max(button.l, other.l) <= 1
+            || Math.min(button.b, other.b) - Math.max(button.t, other.t) <= 1,
+            'Command buttons overlap',
+        );
     }
-    report.commandFan = { buttons: commands, singlePuck: true };
+    for (const command of commands) check(Math.abs((command.r - command.l) - (commands[0].r - commands[0].l)) <= 2, 'Terminal control sizes are inconsistent');
+    check(!nodes.some((node) => ['Git history', 'Usage', 'Split right', 'Split down', 'Stop agent', 'Close pane'].includes(node.text)), 'Pane actions leaked into quick controls');
+    report.commandPanel = { controls: commands, shortcuts, singlePuck: true };
     await capture(`${name}-controls-moved.png`);
     (report.movableControls ??= []).push({ name, before: initial, after: moved, collapsed: true, restored: true });
+    // The open panel's full-screen backdrop would swallow the Pane actions
+    // tap: dismiss first.
+    await adb('shell', 'input', 'keyevent', '4');
+    const dismissed = await dump(`${name}-controls-dismissed`);
+    check(handle(dismissed, 'Show terminal controls') && !dismissed.includes('Open terminal keyboard'), 'Dismissal did not restore the closed puck');
+    await capture(`${name}-controls-dismissed.png`);
+    await tapText('Pane actions');
+    const paneMenu = await requireScreen(`${name}-pane-actions`, /content-desc="Close pane actions"/);
+    check(!paneMenu.includes('Open terminal keyboard') && !paneMenu.includes('Show terminal controls') && !paneMenu.includes('Close terminal controls'), 'Quick controls remain exposed beneath pane actions');
+    await capture(`${name}-pane-actions.png`);
+    await adb('shell', 'input', 'keyevent', '4');
 
 }
 
@@ -522,7 +569,7 @@ async function richPreviews() {
     writeFileSync(join(attachmentDir, 'preview.pdf'), pdf);
     await herd();
     check((await maestro('graphicsScroll.yaml')).code === 0, 'Could not open owned attachment session');
-    await tapText('Session actions');
+    await tapText('Pane actions');
     await tapText('Open attachments');
     await requireScreen('rich-attachments', /preview.md/);
     report.richPreviews = [];
@@ -643,19 +690,39 @@ async function main() {
     });
     await feature('terminal-text', async () => {
         await herd();
-        const opened = await maestro('graphicsScroll.yaml');
-        check(opened.code === 0, 'terminal opening flow failed; see graphicsScroll.yaml.log');
+        // Open the proof pane through its real persisted session binding
+        // instead of tapping a live card: a coordinate tap lands on whichever
+        // card the churning herd has under it, and the checkerboard producer
+        // paints the first pane only. Tap navigation of the first live card
+        // stays covered by the Changes and native viewer features.
+        const openedAt = Date.now();
+        await openUri(`muxr://session/${encodeURIComponent(firstPaneRoute())}`);
         if (flow === 'controls') await requireScreen('controls-text-mounted', /Type a prompt|text="Terminal"/);
         else await phase('terminal-text', /text="(Terminal|ctrl)"|Type a prompt/, true);
         check(existsSync(stack.attachJsonl) && readFileSync(stack.attachJsonl, 'utf8').trim(), 'No real host terminal attach was observed');
         check(!existsSync(graphicsEnableFile), 'Text phase accidentally enabled graphics');
         await terminalKeyboard('text-keyboard');
+        // Identity of the pane we are about to sample, not just "a terminal":
+        // the header counter has to name the first pane of its tab, and the
+        // host has to have recorded a fresh positive-cell attach for that exact
+        // pane id since this open. The keyboard cycle above resizes it.
+        const mounted = await dump('proof-pane');
+        check(mounted.includes(proofHeader()), `Proof pane not mounted: expected header ${proofHeader()}`);
+        const attach = proofResizes(openedAt);
+        check(attach.length > 0, 'No fresh native attach with positive cell dimensions for the graphics proof pane');
+        graphicsProof = { paneId: proofPane().pane_id, header: proofHeader(), openedAt: new Date(openedAt).toISOString(), sinceMs: openedAt, attach: attach.slice(-3) };
+        report.proofPane = graphicsProof;
     });
     await feature('graphics', async () => {
-        await requireScreen('graphics-mounted', /text="(Terminal|ctrl)"|Type a prompt/);
+        // The text phase opened this pane by its real session binding and
+        // proved a fresh native attach for it. The producer paints that pane
+        // and no other, so re-assert the mounted identity here instead of
+        // sampling whatever the last interaction left on screen.
+        const mounted = await requireScreen('graphics-mounted', /text="(Terminal|ctrl)"|Type a prompt/);
+        check(graphicsProof !== undefined && mounted.includes(proofHeader()), `Graphics proof pane is not mounted: expected header ${proofHeader()}`);
         writeFileSync(graphicsEnableFile, 'enabled');
         const pixels = await graphicsPixels();
-        report.graphics = { pixels };
+        report.graphics = { proofPane: graphicsProof, pixels };
         await capture('graphics-pixels.png');
         check(pixels.magenta > 100 && pixels.teal > 100, 'Kitty checkerboard did not paint in terminal region; see graphics-pixels.png');
         const since = Date.now();
@@ -666,9 +733,9 @@ async function main() {
             while (!delivered().some((event) => event.frames > 0) && Date.now() < deadline) await sleep(500);
         }
         const pipeline = delivered();
-        const cellSamples = (existsSync(stack.cellMetricsJsonl) ? readFileSync(stack.cellMetricsJsonl, 'utf8').trim().split('\n').map(JSON.parse) : []).filter((row) => row.source === 'terminal.resize' && row.pane_id === stack.world.panes[0].pane_id && [row.cols, row.rows, row.cellWidthPx, row.cellHeightPx].every((value) => Number.isFinite(value) && value > 0)).slice(-3);
-        const helloSamples = (existsSync(stack.graphicsInputJsonl) ? readFileSync(stack.graphicsInputJsonl, 'utf8').trim().split('\n').map(JSON.parse) : []).filter((row) => row.source === 'graphics.ClientHello' && [row.cols, row.rows, row.cellWidthPx, row.cellHeightPx].every((value) => Number.isFinite(value) && value > 0)).slice(-3);
-        report.graphics = { pixels, cellSamples, helloSamples, cellEvidenceScope: 'Native resize for first pane, or real graphics connection ClientHello populated from native attach', declaredCellMetrics: stack.phoneDeclaredCellMetrics(), pipeline };
+        const cellSamples = proofResizes(graphicsProof.sinceMs).slice(-3);
+        const helloSamples = readJsonl(stack.graphicsInputJsonl).filter((row) => row.source === 'graphics.ClientHello' && [row.cols, row.rows, row.cellWidthPx, row.cellHeightPx].every((value) => Number.isFinite(value) && value > 0)).slice(-3);
+        report.graphics = { proofPane: graphicsProof, pixels, cellSamples, helloSamples, cellEvidenceScope: 'Fresh native resize for the pinned proof pane since its route open, or real graphics connection ClientHello populated from native attach', declaredCellMetrics: stack.phoneDeclaredCellMetrics(), pipeline };
         check(cellSamples.length > 0 || helloSamples.length > 0, 'No positive native cell dimensions recorded in resize or graphics ClientHello');
         check(pipeline.some((event) => event.frames > 0), 'No delivered graphics frames during mounted phase');
         await terminalKeyboard('graphics-keyboard');

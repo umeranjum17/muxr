@@ -1,0 +1,18 @@
+diff --git a/node_modules/react-native-reanimated/android/src/main/java/com/swmansion/reanimated/NativeProxy.java b/node_modules/react-native-reanimated/android/src/main/java/com/swmansion/reanimated/NativeProxy.java
+index 5ebe4f8..853bcc3 100644
+--- a/node_modules/react-native-reanimated/android/src/main/java/com/swmansion/reanimated/NativeProxy.java
++++ b/node_modules/react-native-reanimated/android/src/main/java/com/swmansion/reanimated/NativeProxy.java
+@@ -126,6 +126,13 @@ public class NativeProxy {
+     if (mInvalidated.getAndSet(true)) {
+       return;
+     }
++    // TurboModuleManager invalidates in module-holder insertion order, and this
++    // module's holder is inserted before the Worklets one (ReanimatedModule
++    // resolves WorkletsModule from its own constructor), so Worklets cannot be
++    // relied on to stop the shared frame queue first. A callback already queued
++    // there would run after invalidateCpp() releases javaPart_ and abort in JNI
++    // while calling getAnimationTimestamp. Stopping the queue is idempotent.
++    mWorkletsModule.invalidateAnimationFrameQueue();
+     if (mHybridData != null && mHybridData.isValid()) {
+       invalidateCpp();
+     }

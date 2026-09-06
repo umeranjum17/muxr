@@ -25,7 +25,7 @@ import { permissionModeChip, resolveStatusBarGitBranch } from '../domain/session
 import { SessionMetaLine } from '@/herd/ui';
 import { HeaderBackButton } from '@/components/navigation/HeaderBackButton';
 import type { HerdrTreeTab } from '@muxr/contract';
-import { TerminalView } from './TerminalView';
+import { TerminalView, type TerminalViewControls } from './TerminalView';
 import { usePaneGestures } from '../application/usePaneGestures';
 import { AgentGlyph } from '@/components/AgentGlyph';
 import { AnimatedPopup } from '@/components/AnimatedOverlay';
@@ -38,9 +38,10 @@ import { readFileBytes } from '@/utils/readFileBytes';
 import { encodeBase64 } from '@/encryption/base64';
 import { nextWorkingAgentId, workingAgentSwipeIds } from '@/herd';
 import { useSessionPlugins } from '@/plugins';
-import { PluginSlot, DeclarativeSessionActions, DeclarativeTerminalKeySlot } from '@/plugins/ui';
+import { PluginSlot, DeclarativeSessionActions, useDeclarativeSessionActions, DeclarativeTerminalKeySlot } from '@/plugins/ui';
 import { useSlotContributions } from '@/plugins';
 import type { SessionMenu } from '@/plugins';
+import { FloatingTerminalControls } from './FloatingTerminalControls';
 import { recentTerminalLinks } from '../application/recentOutput';
 import { openExternalUrl } from '@/utils/openExternalUrl';
 import { resolvePluginText } from '@/plugins';
@@ -63,6 +64,11 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const storedPane = herdrPaneForSession(workspaces, props.id);
     const gitStatus = useSessionGitStatus(props.id);
     const pluginButtons = useSessionPlugins();
+    const declaredActions = useDeclarativeSessionActions(session?.metadata?.path);
+    const quickActions = React.useMemo(() => declaredActions.filter((action) => action.quickAction), [declaredActions]);
+    const paneActions = React.useMemo(() => declaredActions.filter((action) => !action.quickAction), [declaredActions]);
+    const renderQuickActions = React.useCallback((close: () => void) => <DeclarativeSessionActions
+        actions={quickActions} sessionId={props.id} onNavigate={close} presentation="shortcut" />, [props.id, quickActions]);
     const [pluginActionBusy, setExtensionActionBusy] = React.useState<string>();
     const [swipeNow, setSwipeNow] = React.useState(Date.now);
     React.useEffect(() => {
@@ -79,12 +85,16 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     // overlapping mush on a phone. Anything with more options uses this sheet.
     const [menu, setMenu] = React.useState<SessionMenu | null>(null);
     const [actionsOpen, setActionsOpen] = React.useState(false);
-    // The actions menu hangs above the keys, attachments and composer, and that
-    // block changes height as attachments come and go.
-    const [bottomBlockHeight, setBottomBlockHeight] = React.useState(0);
-    React.useEffect(() => {
-        if (!canControl) setBottomBlockHeight(0);
-    }, [canControl]);
+    const [headerBottom, setHeaderBottom] = React.useState(0);
+    // The command panel is hosted by the pane, not by the terminal, so it can
+    // cover the accessory key row while leaving the composer alone.
+    const [viewControls, setViewControls] = React.useState<TerminalViewControls>({ commands: [], dismissKeyboard: () => {} });
+    const [terminalBox, setTerminalBox] = React.useState<{ top: number; width: number; height: number }>();
+    // Where the accessory key row ends, in pane coordinates. A sibling tab
+    // strip can sit between it and the terminal, so its own height is not the
+    // distance the panel is allowed to grow.
+    const [bottomBlockTop, setBottomBlockTop] = React.useState(0);
+    const [accessoryBottom, setAccessoryBottom] = React.useState(0);
     const [attachedImages, setAttachedImages] = React.useState<ComposerAttachment[]>([]);
     const attachedPaths = attachedImages.flatMap((image) => image.path === undefined ? [] : [image.path]);
     // Other openable panes in this session's tab, in layout order. A pane only
@@ -337,7 +347,10 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
         })();
     }, [selectedImages, attaching, clearImages, props.id]);
 
+    const labels = agentLabels(currentPane);
+    const shell = isShellLabels(labels);
     const stopSession = React.useCallback(() => {
+        const failureTitle = shell ? 'Could not close pane' : 'Could not stop agent';
         setStopping(true);
         void sessionStop(props.id, {
             confirmClose: (prompt) => Modal.confirm(`${prompt.confirmText}?`, prompt.message, {
@@ -345,7 +358,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                 confirmText: prompt.confirmText,
                 destructive: true,
             }),
-            confirmRetry: (message) => Modal.confirm('Could not stop agent', message, {
+            confirmRetry: (message) => Modal.confirm(failureTitle, message, {
                 cancelText: 'Cancel',
                 confirmText: 'Retry',
             }),
@@ -363,12 +376,12 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
             })
             .catch((error: unknown) => {
                 setStopping(false);
-                Modal.alert('Could not stop agent', error instanceof Error ? error.message : String(error), [
+                Modal.alert(failureTitle, error instanceof Error ? error.message : String(error), [
                     { text: 'Cancel', style: 'cancel' },
                     { text: 'Retry', onPress: () => stopSession() },
                 ]);
             });
-    }, [props.id, siblings]);
+    }, [props.id, siblings, shell]);
 
     const canSend = !attaching && selectedImages.length === 0 && terminalPaneCanSend(currentPane, draft.trim() !== '' || attachedPaths.length > 0);
 
@@ -380,8 +393,6 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const linesAdded = gitStatus !== null && gitStatus.linesAdded > 0 ? `+${gitStatus.linesAdded}` : null;
     const linesRemoved = gitStatus !== null && gitStatus.linesRemoved > 0 ? `−${gitStatus.linesRemoved}` : null;
     const hasStatusRow = branch !== null || linesAdded !== null || linesRemoved !== null || permission !== null;
-    const labels = agentLabels(currentPane);
-    const shell = isShellLabels(labels);
     const contextTitle = labels.taskTitle;
     const headerLifecycle = terminalPaneStatus(currentPane);
     const headerStatus = agentStatusColor(headerLifecycle, theme);
@@ -403,6 +414,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
         <View style={{ flex: 1, backgroundColor: theme.colors.terminal.background, paddingTop: insets.top, paddingBottom: keyboardVisible ? keyboardHeight : 0 }}>
 
             <View
+                onLayout={(event) => { if (!hasStatusRow) setHeaderBottom(event.nativeEvent.layout.y + event.nativeEvent.layout.height); }}
                 style={{
                     flexDirection: 'row',
                     alignItems: 'center',
@@ -430,17 +442,16 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                     {paneIndex !== -1 && siblings.length > 1 && (
                         <Text style={{ color: theme.colors.textSecondary, fontSize: 12, flexShrink: 0 }}>· {paneIndex + 1}/{siblings.length}</Text>
                     )}
+                    {hasOverlay && <Ionicons name="chevron-down" size={12} color={theme.colors.textSecondary} />}
                 </Pressable>
-                {/* Same sheet as the title pressable — hidden from screen readers. */}
-                {hasOverlay && (
-                    <Pressable onPress={() => setTreeOpen(true)} hitSlop={8} accessible={false} accessibilityElementsHidden importantForAccessibility="no" style={({ pressed }) => ({ padding: 6, opacity: pressed ? 0.6 : 1 })}>
-                        <Ionicons name="list-outline" size={20} color={theme.colors.textSecondary} />
-                    </Pressable>
-                )}
+                {canControl && <Pressable onPress={() => setActionsOpen((open) => !open)} accessibilityRole="button" accessibilityLabel="Pane actions"
+                    accessibilityState={{ expanded: actionsOpen }} style={({ pressed }) => ({ width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? theme.colors.surfacePressed : 'transparent' })}>
+                    <Ionicons name="ellipsis-vertical" size={20} color={theme.colors.textSecondary} />
+                </Pressable>}
             </View>
 
             {hasStatusRow && (
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, paddingBottom: 7, backgroundColor: theme.colors.surface, borderBottomWidth: 1, borderBottomColor: theme.colors.divider }}>
+                <View onLayout={(event) => setHeaderBottom(event.nativeEvent.layout.y + event.nativeEvent.layout.height)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, paddingBottom: 7, backgroundColor: theme.colors.surface, borderBottomWidth: 1, borderBottomColor: theme.colors.divider }}>
                     {branch !== null && <Ionicons name="git-branch-outline" size={12} color={theme.colors.textSecondary} />}
                     <SessionMetaLine
                         style={{ flex: 1 }}
@@ -464,12 +475,13 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
 
             <View
                 ref={paneGestures.ref}
+                onLayout={({ nativeEvent }) => setTerminalBox({ top: nativeEvent.layout.y, width: nativeEvent.layout.width, height: nativeEvent.layout.height })}
                 onTouchStart={paneGestures.onTouchStart}
                 onTouchMove={paneGestures.onTouchMove}
                 onTouchEnd={paneGestures.onTouchEnd}
                 style={{ flex: 1 }}
             >
-                <TerminalView sessionId={props.id} onStatus={onStatus} onChannel={onChannel} onActions={canControl ? () => setActionsOpen(true) : undefined} />
+                <TerminalView sessionId={props.id} onStatus={onStatus} onChannel={onChannel} onViewControls={setViewControls} />
                 {gestureHint !== null && (
                     <View
                         pointerEvents="none"
@@ -562,7 +574,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                 )}
             </View>
 
-            {canControl && <View onLayout={(event) => setBottomBlockHeight(event.nativeEvent.layout.height)} style={{ backgroundColor: theme.colors.surface, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.divider }}>
+            {canControl && <View onLayout={({ nativeEvent }) => setBottomBlockTop(nativeEvent.layout.y)} style={{ backgroundColor: theme.colors.surface, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.divider }}>
             {siblings.length > 1 && (
                 <ScrollView
                     horizontal
@@ -607,7 +619,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                     })}
                 </ScrollView>
             )}
-            <View style={{ minHeight: 52, flexDirection: 'row', alignItems: 'center' }}>
+            <View onLayout={({ nativeEvent }) => setAccessoryBottom(nativeEvent.layout.y + nativeEvent.layout.height)} style={{ minHeight: 52, flexDirection: 'row', alignItems: 'center' }}>
                 <ScrollView
                     horizontal
                     showsHorizontalScrollIndicator={false}
@@ -667,32 +679,44 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
             </View>
             </View>}
 
+            {/* Terminal plus the accessory key row: the panel may cover the
+                keys, which go inert beneath it, and never the composer. */}
+            {terminalBox !== undefined && (viewControls.commands.length > 0 || (canControl && quickActions.length > 0)) && (() => {
+                const overlayHeight = canControl
+                    ? Math.max(terminalBox.height, bottomBlockTop + accessoryBottom - terminalBox.top)
+                    : terminalBox.height;
+                return <View pointerEvents="box-none" style={{ position: 'absolute', left: 0, right: 0, top: terminalBox.top, height: overlayHeight }}>
+                    <FloatingTerminalControls width={terminalBox.width} height={terminalBox.height}
+                        overlayHeight={overlayHeight}
+                        commands={viewControls.commands}
+                        dismissKeyboard={viewControls.dismissKeyboard}
+                        renderQuickActions={canControl && quickActions.length > 0 ? renderQuickActions : undefined}
+                        hidden={actionsOpen || treeOpen} />
+                </View>;
+            })()}
+
             <PluginSlot
                 slot="session.overlay"
                 context={{ sessionId: props.id, visible: treeOpen, onClose: () => setTreeOpen(false), openMenu: setMenu, showHint: showGestureHint }}
             />
 
-            {/* An actions menu, not a sheet: it belongs to the button that opened
-                it, so it hangs off that corner, stays only as tall as it needs,
-                and leaves the terminal visible behind it. The corner moves with
-                the trigger -- a menu that stayed at the bottom while its button
-                sat halfway up the screen would belong to nothing. */}
+            {/* Secondary actions belong to the header; view controls stay with the terminal. */}
             {actionsOpen && (
                 <Animated.View
                     exiting={FadeOut.duration(160).reduceMotion(ReduceMotion.System)}
                     accessibilityViewIsModal
-                    style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 20, alignItems: 'flex-end', justifyContent: 'flex-end' }}
+                    style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 20, alignItems: 'flex-end', justifyContent: 'flex-start' }}
                 >
-                    <Animated.View pointerEvents="none" entering={FadeIn.duration(140).reduceMotion(ReduceMotion.System)} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0, 0, 0, 0.28)' }} />
-                    <Pressable onPress={() => setActionsOpen(false)} accessibilityLabel="Close session actions" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} />
+                    <Animated.View pointerEvents="none" entering={FadeIn.duration(140).reduceMotion(ReduceMotion.System)} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0, 0, 0, 0.18)' }} />
+                    <Pressable onPress={() => setActionsOpen(false)} accessibilityLabel="Close pane actions" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} />
                     <AnimatedPopup style={{
                         flexShrink: 1,
                         minWidth: 236,
                         maxWidth: 320,
                         marginRight: 8,
                         marginLeft: 16,
-                        marginTop: 12,
-                        marginBottom: bottomBlockHeight + 12,
+                        marginTop: headerBottom + 8,
+                        marginBottom: (keyboardVisible ? keyboardHeight : insets.bottom) + 8,
                         borderRadius: 14,
                         overflow: 'hidden',
                         // Rows carry the lighter fill; the surface behind them is
@@ -700,11 +724,12 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                         backgroundColor: theme.colors.surface,
                         borderWidth: StyleSheet.hairlineWidth,
                         borderColor: theme.colors.divider,
-                        transformOrigin: 'bottom right',
+                        transformOrigin: 'top right',
                         elevation: 12,
                     }}>
                         <ScrollView style={{ flexGrow: 0, flexShrink: 1 }} keyboardShouldPersistTaps="always">
-                            <DeclarativeSessionActions cwd={session?.metadata?.path} sessionId={props.id} onNavigate={() => setActionsOpen(false)} />
+                            {(paneActions.length > 0 || recentTerminalLinks(props.id).length > 0) && <Text style={{ paddingHorizontal: 14, paddingTop: 12, paddingBottom: 6, color: theme.colors.textSecondary, fontSize: 12, fontWeight: '500' }}>Inspect</Text>}
+                            <DeclarativeSessionActions actions={paneActions} sessionId={props.id} onNavigate={() => setActionsOpen(false)} />
                             {recentTerminalLinks(props.id).length > 0 && <>
                                 <Pressable onPress={() => showRecentLinks('open')} accessibilityRole="button" accessibilityLabel="Open recent terminal link"
                                     style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
@@ -719,6 +744,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                                     <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
                                 </Pressable>
                             </>}
+                            {pluginButtons.length > 0 && <Text style={{ paddingHorizontal: 14, paddingTop: 12, paddingBottom: 6, color: theme.colors.textSecondary, fontSize: 12, fontWeight: '500' }}>Pane controls</Text>}
                             {pluginButtons.map((button) => {
                                 const key = `${button.pluginId}:${button.id}`;
                                 return <Pressable key={key} onPress={() => {
@@ -740,14 +766,14 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                                 </Pressable>;
                             })}
                         </ScrollView>
-                        {/* Stopping the agent is the one row here that destroys
+                        {/* Closing the pane is the one row here that destroys
                             something, so it never scrolls away and never sits in
                             the run of things you were only going to look at. */}
                         {!stopping && (
-                            <Pressable onPress={() => { setActionsOpen(false); stopSession(); }} accessibilityRole="button" accessibilityLabel="Stop agent"
+                            <Pressable onPress={() => { setActionsOpen(false); stopSession(); }} accessibilityRole="button" accessibilityLabel={shell ? 'Close pane' : 'Stop agent'}
                                 style={({ pressed }) => ({ minHeight: 44, marginTop: 5, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
                                 <Ionicons name="stop-circle-outline" size={18} color={theme.colors.status.error} />
-                                <Text style={{ flex: 1, color: theme.colors.status.error, fontSize: 15 }}>Stop agent</Text>
+                                <Text style={{ flex: 1, color: theme.colors.status.error, fontSize: 15 }}>{shell ? 'Close pane' : 'Stop agent'}</Text>
                             </Pressable>
                         )}
                     </AnimatedPopup>

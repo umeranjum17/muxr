@@ -275,6 +275,8 @@ export interface PluginNativeContribution {
     type: 'native';
     /** Widget compiled into the app. Not a plugin id. */
     primitive: PluginPrimitive;
+    /** Surface this session action directly in the floating quick controls. */
+    quickAction?: boolean;
     title?: PluginText;
     emptyTitle?: PluginText;
     emptyMessage?: PluginText;
@@ -615,6 +617,7 @@ export interface PluginScreenButton {
     title: PluginText;
     icon: string;
     contentContributionId: string;
+    quickAction?: boolean;
 }
 
 export type PluginContribution = PluginShortcut | PluginEventTrigger | PluginScreenButton | PluginSettingsSection | PluginToolbarButton | PluginRpcCapability | PluginStreamCapability | PluginNativeContribution | PluginTerminalKeyRow | PluginDataCard | PluginNavigationItem | PluginSettingsItem | PluginScreenContribution;

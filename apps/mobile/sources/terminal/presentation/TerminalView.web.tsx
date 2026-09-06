@@ -5,7 +5,7 @@
 
 import * as React from 'react';
 import { Text, View } from 'react-native';
-import { FloatingTerminalControls } from './FloatingTerminalControls';
+import type { TerminalCommand } from './FloatingTerminalControls';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { WebglAddon } from '@xterm/addon-webgl';
@@ -26,7 +26,10 @@ export interface TerminalViewProps {
     sessionId: string;
     onStatus?: (status: string) => void;
     onChannel?: (channel: TerminalChannel | undefined) => void;
-    onActions?: () => void;
+    /** Same contract as the native view; the browser has no view commands and
+     *  no terminal IME, so the pane keeps its own keyboard fallback and the
+     *  panel is Close plus the quick-action rows. */
+    onViewControls?: (controls: { commands: TerminalCommand[]; dismissKeyboard: () => void }) => void;
 }
 
 function decodeBase64(value: string): Uint8Array {
@@ -53,7 +56,6 @@ function deviceCells(term: Terminal, dpr: number): CellMetrics {
 }
 
 export const TerminalView = React.memo((props: TerminalViewProps) => {
-    const [viewport, setViewport] = React.useState({ width: 0, height: 0 });
     const hostRef = React.useRef<View | null>(null);
     const { sessionId, onStatus, onChannel } = props;
     const [graphicsUnavailable, setGraphicsUnavailable] = React.useState(false);
@@ -182,8 +184,10 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
 
         onStatus?.('connecting');
         const initialCells = physicalMetrics();
+        const controller = new AbortController();
         void openTerminal({
             agentRoute: sessionId,
+            signal: controller.signal,
             size: { cols: term.cols, rows: term.rows, cellWidthPx: initialCells.width, cellHeightPx: initialCells.height },
         })
             .then((opened) => {
@@ -248,6 +252,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                 reportMetrics(true);
             })
             .catch((error: unknown) => {
+                if (disposed) return;
                 onStatus?.(error instanceof Error ? error.message : String(error));
             });
 
@@ -458,15 +463,14 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             document.removeEventListener('visibilitychange', onVisibility);
             canvas.remove();
             onChannel?.(undefined);
-            channel?.close();
+            controller.abort();
             term.dispose();
         };
     }, [sessionId, onStatus, onChannel]);
 
     return (
-        <View onLayout={(event) => setViewport(event.nativeEvent.layout)} style={{ flex: 1, backgroundColor: '#0c0c0b' }}>
+        <View style={{ flex: 1, backgroundColor: '#0c0c0b' }}>
             <View ref={hostRef} style={{ flex: 1, backgroundColor: '#0c0c0b' }} />
-            {props.onActions && <FloatingTerminalControls width={viewport.width} height={viewport.height} commands={[{ label: 'Session actions', icon: 'construct-outline', run: props.onActions, dismiss: true }]} />}
             {graphicsUnavailable && (
                 <Text accessibilityRole="summary" accessibilityLiveRegion="polite" style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden' }}>
                     {t('files.graphicsUnavailable')}

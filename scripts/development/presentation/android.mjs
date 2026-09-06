@@ -111,6 +111,16 @@ function adbArgs(args) {
     return [`-s`, requestedSerial, ...args];
 }
 
+// Bootstrap always cold-starts the exact development package across native
+// rebuilds and Metro reloads; the production app remains untouched. Successful
+// intent dispatch is not proof that the new runtime survives startup.
+function forceStopDevApp() {
+    const stop = run(adb, adbArgs(['shell', 'am', 'force-stop', developmentAppId]));
+    if (stop.status !== 0) {
+        fail(`am force-stop ${developmentAppId} failed on ${requestedSerial}: ${stop.stderr?.trim() || stop.stdout?.trim()}`);
+    }
+}
+
 function fail(message) {
     process.stderr.write(`\n${message}\n`);
     process.exit(1);
@@ -329,6 +339,7 @@ if (noBuild) {
     }
     process.stdout.write(`Verified APK: package=${verified.package}, debuggable=true\n`);
 
+    forceStopDevApp();
     process.stdout.write('Installing development APK (adb install -r)...\n');
     buildChild = spawn(adb, adbArgs(['install', '-r', debugApk]), { stdio: 'inherit', detached: true });
     const install = buildChild;
@@ -353,20 +364,34 @@ for (const port of [metroPort, relayPort, hostHttpPort]) {
         fail(`adb reverse tcp:${port} failed: ${reverse.stderr?.trim() || reverse.stdout?.trim() || 'unknown error'}. Is ${requestedSerial} still online?`);
     }
 }
-
+// Cold start on every open: a deep link into a runtime that survived a native
+// rebuild resumes a stale process. `am start` can also report failures with
+// exit code 0, so its output is inspected, not just the exit status. Error
+// lines are matched at line starts across the combined output because `am`
+// can print "Starting: Intent..." and then still fail on a later line.
+// Success here means only that the launch intent was dispatched; whether the
+// app actually reaches the foreground is verified separately, and a crash
+// after dispatch is a native crash this script never retries or masks.
+forceStopDevApp();
 const launch = run(adb, adbArgs([
     'shell',
     `am start -a android.intent.action.VIEW -d "${devClientUrl}" -p ${developmentAppId}`,
 ]));
-if (launch.status !== 0) {
-    fail(`Failed to open the dev client on ${requestedSerial}: ${launch.stderr?.trim() || launch.stdout?.trim()}`);
+process.stdout.write(`${launch.stdout ?? ''}${launch.stderr && launch.stderr !== launch.stdout ? launch.stderr : ''}`);
+const amOutput = `${launch.stdout ?? ''}\n${launch.stderr ?? ''}`;
+if (launch.status !== 0 || /^\s*error\b|error type \d|securityexception|does not exist|unable to resolve/im.test(amOutput)) {
+    fail(`Failed to open the dev client on ${requestedSerial}. Nothing was retried; fix the cause shown above and re-run.`);
 }
 
 process.stdout.write(`
-muxr Dev (${developmentAppId}) is open on ${requestedSerial}, pointed at Metro
+muxr Dev (${developmentAppId}) cold-started on ${requestedSerial}, pointed at Metro
   http://127.0.0.1:${metroPort} via adb reverse, relay via tcp:${relayPort}.
 
 - JS/TS edits: just save; Fast Refresh applies through Metro. No rebuild.
 - Native changes (gradle, native modules, patches/): re-run \`yarn dev:android\`.
+- Dispatch confirmed only: verify muxr Dev is actually in the foreground.
+  If the app crashes after opening, that is a native crash: capture
+  \`adb -s ${requestedSerial} logcat\` and re-run after fixing. This script
+  does not detect, retry, or mask crashes after dispatch.
 `);
 process.exit(0);

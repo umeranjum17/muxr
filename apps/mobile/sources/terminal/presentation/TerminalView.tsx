@@ -13,11 +13,13 @@
  */
 
 import * as React from 'react';
-import { FloatingTerminalControls } from './FloatingTerminalControls';
+import type { TerminalCommand } from './FloatingTerminalControls';
 import { AppState, PixelRatio, Platform, Pressable, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
+import { useFocusEffect } from 'expo-router';
+import { useIsFocused } from '@react-navigation/native';
 import { TerminalView as GhosttyView, type TerminalViewRef } from 'expo-libghostty';
 import { useLocalSetting } from '@/catalog/store';
 import { decodeBase64, encodeBase64 } from '@/encryption/base64';
@@ -50,8 +52,17 @@ export interface TerminalViewProps {
     sessionId: string;
     onStatus?: (status: string) => void;
     onChannel?: (channel: TerminalChannel | undefined) => void;
-    onActions?: () => void;
+    /** The pane hosts the control, so the panel can cover the accessory row. */
+    onViewControls?: (controls: TerminalViewControls) => void;
 }
+
+export type TerminalViewControls = {
+    commands: TerminalCommand[];
+    /** Take the IME down on the terminal's window. It does not drop the
+     *  composer's focus, so callers dismiss that keyboard as well. */
+    dismissKeyboard: () => void;
+};
+
 
 /** KeyboardAvoidingView animates through many intermediate sizes; wait for settle. */
 const RESIZE_DEBOUNCE_MS = 120;
@@ -72,10 +83,12 @@ function combineTextFrames(frames: readonly string[]): string {
 
 export const TerminalView = React.memo((props: TerminalViewProps) => {
     const { sessionId, onStatus, onChannel } = props;
+    const focused = useIsFocused();
     const [viewport, setViewport] = React.useState({ width: 0, height: 0 });
     const autoShowKeyboard = useLocalSetting('terminalAutoShowKeyboard');
     const termRef = React.useRef<TerminalViewRef>(null);
     const channelRef = React.useRef<TerminalChannel | undefined>(undefined);
+    const openAbortRef = React.useRef<AbortController | undefined>(undefined);
     const openedRef = React.useRef(false);
     const lastSizeRef = React.useRef<{ cols: number; rows: number; cellWidthPx?: number; cellHeightPx?: number } | null>(null);
     const [graphicsActive, setGraphicsActive] = React.useState(false);
@@ -197,21 +210,9 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
         }
     };
 
-    React.useEffect(
-        () => () => {
-            cancelCoalesce();
-            if (resizeTimerRef.current !== undefined) clearTimeout(resizeTimerRef.current);
-            onChannel?.(undefined);
-            channelRef.current?.close();
-            channelRef.current = undefined;
-            openedRef.current = false;
-            lastSizeRef.current = null;
-            setGraphicsActive(false);
-        },
-        [onChannel, sessionId],
-    );
 
     React.useEffect(() => {
+        if (!focused) return;
         const subscription = AppState.addEventListener('change', (state) => {
             const size = lastSizeRef.current;
             const channel = channelRef.current;
@@ -230,16 +231,17 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             channel.repaint();
         });
         return () => subscription.remove();
-    }, []);
+    }, [focused]);
 
     const attach = React.useCallback(
         (cols: number, rows: number, cellWidthPx?: number, cellHeightPx?: number) => {
             recordTerminalResize(cols, rows, cellWidthPx, cellHeightPx);
             setTerminalColumns(sessionId, cols);
             const last = lastSizeRef.current;
-            if (last !== null && last.cols === cols && last.rows === rows
-                && last.cellWidthPx === cellWidthPx && last.cellHeightPx === cellHeightPx) return;
             lastSizeRef.current = { cols, rows, ...(cellWidthPx === undefined ? {} : { cellWidthPx }), ...(cellHeightPx === undefined ? {} : { cellHeightPx }) };
+            if (!focused) return;
+            if (openedRef.current && last !== null && last.cols === cols && last.rows === rows
+                && last.cellWidthPx === cellWidthPx && last.cellHeightPx === cellHeightPx) return;
 
             if (openedRef.current) {
                 if (resizeTimerRef.current !== undefined) clearTimeout(resizeTimerRef.current);
@@ -257,6 +259,8 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             openedRef.current = true;
             onStatus?.('connecting');
             const attachGen = writeGenerationRef.current;
+            const controller = new AbortController();
+            openAbortRef.current = controller;
             // Nothing may be written to this terminal but herdr's own frames.
             // herdr paints cells at absolute coordinates and then sends diffs
             // against the screen it believes we are showing, so any byte we add
@@ -265,6 +269,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             void Promise.resolve()
                 .then(() => openTerminal({
                     agentRoute: sessionId,
+                    signal: controller.signal,
                     size: { cols, rows, ...(cellWidthPx === undefined ? {} : { cellWidthPx }), ...(cellHeightPx === undefined ? {} : { cellHeightPx }) },
                 }))
                 .then((channel) => {
@@ -341,14 +346,59 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                     }
                 })
                 .catch((error: unknown) => {
+                    if (writeGenerationRef.current !== attachGen) return;
                     openedRef.current = false;
                     lastSizeRef.current = null;
                     const message = error instanceof Error ? error.message : String(error);
                     onStatus?.(message.includes('explicit takeover required') ? 'Controlled on another device — tap to take control' : message);
                 });
         },
-        [sessionId, onStatus, onChannel],
+        [focused, sessionId, onStatus, onChannel],
     );
+
+    // Only the visible route controls a pane. Keep its measured grid and native
+    // pixels while away, but reacquire a fresh stream when returning.
+    useFocusEffect(React.useCallback(() => {
+        const size = lastSizeRef.current;
+        if (size !== null) attach(size.cols, size.rows, size.cellWidthPx, size.cellHeightPx);
+        return () => {
+            cancelCoalesce();
+            clearTimeout(resizeTimerRef.current);
+            onChannel?.(undefined);
+            openAbortRef.current?.abort();
+            openAbortRef.current = undefined;
+            channelRef.current = undefined;
+            openedRef.current = false;
+            setGraphicsActive(false);
+        };
+    }, [attach, onChannel]));
+
+    // The commands stay owned here — zoom steps, the graphics scale and the
+    // terminal IME never leave this view; only their descriptions travel up.
+    const latest = React.useRef({ zoom, resetZoom, onStatus });
+    latest.current = { zoom, resetZoom, onStatus };
+    const { onViewControls } = props;
+    // Only this view holds the terminal handle, so closing its IME stays here
+    // and the pane is handed a callback instead of the ref.
+    const dismissKeyboard = React.useCallback(() => {
+        // showKeyboard/hideKeyboard are Android-only native calls. The native
+        // side hides the IME through this view's window token whichever view
+        // raised it, and clears focus only when the terminal holds it.
+        if (Platform.OS !== 'android' || termRef.current === null) return;
+        void termRef.current.hideKeyboard().catch(() => {});
+    }, []);
+    const viewControls = React.useMemo<TerminalViewControls>(() => ({
+        dismissKeyboard,
+        commands: [
+            ...(Platform.OS === 'android' ? [{ label: 'Open terminal keyboard', icon: 'keyboard' as const, dismiss: true,
+                run: () => { void termRef.current?.showKeyboard().catch(() => latest.current.onStatus?.('Could not open keyboard')); } }] : []),
+            { label: 'Zoom out', icon: 'minus' as const, run: () => latest.current.zoom(-1), disabled: atMinZoom },
+            { label: 'Zoom in', icon: 'plus' as const, run: () => latest.current.zoom(1), disabled: atMaxZoom },
+            { label: 'Reset zoom', icon: 'reset' as const, run: () => latest.current.resetZoom(), disabled: atDefaultZoom },
+        ],
+    }), [atDefaultZoom, atMaxZoom, atMinZoom, dismissKeyboard]);
+    React.useEffect(() => { onViewControls?.(viewControls); }, [onViewControls, viewControls]);
+    React.useEffect(() => () => onViewControls?.({ commands: [], dismissKeyboard: () => {} }), [onViewControls]);
 
     return (
         <View onLayout={(event) => setViewport({ width: event.nativeEvent.layout.width, height: event.nativeEvent.layout.height })}
@@ -407,14 +457,6 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             />
             </Animated.View>
             </GestureDetector>
-            <FloatingTerminalControls width={viewport.width} height={viewport.height} commands={[
-                ...(Platform.OS === 'android' ? [{ label: 'Open terminal keyboard', icon: 'keypad-outline' as const, dismiss: true,
-                    run: () => { void termRef.current?.showKeyboard().catch(() => onStatus?.('Could not open keyboard')); } }] : []),
-                { label: 'Zoom in', icon: 'add', run: () => zoom(1), disabled: atMaxZoom },
-                { label: 'Zoom out', icon: 'remove', run: () => zoom(-1), disabled: atMinZoom },
-                { label: 'Reset zoom', icon: 'refresh', run: resetZoom, disabled: atDefaultZoom },
-                ...(props.onActions ? [{ label: 'Session actions', icon: 'construct-outline' as const, run: props.onActions, dismiss: true }] : []),
-            ]} />
             {graphicsReason !== undefined && (
                 <View style={{
                     position: 'absolute',

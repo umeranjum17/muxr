@@ -443,7 +443,9 @@ export function DocumentViewer(props: {
         return () => query.removeEventListener('change', sync);
     }, []);
 
-    React.useEffect(() => {
+    // Reset before ReadingBody publishes the new file's hunks in its passive
+    // effect; a later parent reset would erase them on cached navigation.
+    React.useLayoutEffect(() => {
         hunkIndexRef.current = 0;
         setHunkIndex(0);
         setHunkIndices([]);

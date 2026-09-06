@@ -2,11 +2,12 @@ appId: com.trymuxr.app
 tags:
   - perf
 ---
-# A graphics pane under scroll pressure. The pane is opened the way
-# herdNavigate.yaml proves works -- tapping the first live card, because a
-# `shell:` deep link does not mount this screen -- and the herd's graphics
-# producer paints whichever pane a phone is attached to, so this is the pane
-# whose repaints are measured.
+# Opens a session by tapping the first live card, the way herdNavigate.yaml
+# proves works, because a `shell:` deep link does not mount this screen. The
+# card under a fixed coordinate changes as the herd churns, so this flow only
+# proves that tap navigation opens some session: the graphics gate pins its
+# own proof pane by session route instead, because the fake herd paints the
+# checkerboard into the first pane and no other.
 #
 # Short drags and flings mix the way a thumb does. The flow asserts no pixels:
 # the gate reads the host's own account of the pipeline.

@@ -59,6 +59,12 @@ const tools = createVoiceTools((frame) => {
 });
 const coding = createCodexDelegation({ getCredential: codexCredential, runTool: tools.run });
 const delegations = new Map();
+// One shared planner run per user turn + exact request: the realtime provider
+// retransmits a delegation with fresh item and handoff ids while the same user
+// utterance is still being processed. Retransmissions join the in-flight or
+// completed result instead of re-running it. Each entry comes from an admitted
+// delegation item, so this map can never outgrow the `delegations` cap.
+const turnRuns = new Map();
 let closing = false;
 let stopped = false;
 let offerAccepted = false;
@@ -224,6 +230,16 @@ function appendContext(text, delegationId) {
         });
     }
 }
+const DELEGATION_FAILURE = 'The delegated work could not be completed. No action was confirmed; do not repeat a mutation automatically. Explain this failure to the user.';
+
+/** Every registered delegation item id receives the shared result exactly once. */
+function deliverDelegation(entry) {
+    for (const id of entry.itemIds) {
+        if (entry.delivered.has(id)) continue;
+        entry.delivered.add(id);
+        if (!stopped) appendContext(entry.result, id);
+    }
+}
 
 async function delegate(event) {
     if (event.item?.type !== 'delegation' || event.item?.target !== 'client') return;
@@ -239,15 +255,36 @@ async function delegate(event) {
     if (delegations.size >= 128 || Buffer.byteLength(request) > 16000) {
         appendContext('That tool request exceeds the session limit.', id); return;
     }
-    delegations.set(id, true);
+    // Turn identity comes from the provider's user_bidi_turn_id, paired with
+    // the exact trimmed request bytes (structured tool JSON may carry
+    // meaningful whitespace). Missing or malformed turn metadata never
+    // coalesces, so a genuine repeated request in a new user turn still runs.
+    const turnId = typeof event.item?.user_bidi_turn_id === 'string' ? event.item.user_bidi_turn_id.trim() : '';
+    const shareKey = turnId && turnId.length <= 128
+        ? JSON.stringify([turnId, request.trim()])
+        : null;
+    let entry = shareKey ? turnRuns.get(shareKey) : undefined;
+    if (!entry) {
+        entry = { itemIds: [], delivered: new Set(), done: false, result: '' };
+        if (shareKey) turnRuns.set(shareKey, entry);
+    }
+    delegations.set(id, entry);
+    entry.itemIds.push(id);
+    if (entry.itemIds.length > 1) {
+        // A retransmitted handoff shares the run's outcome; it never re-runs
+        // the request and is never read as a fresh user confirmation.
+        if (entry.done) deliverDelegation(entry);
+        return;
+    }
     activeDelegations++;
     state('thinking');
     try {
-        const result = await coding.run(request, `codex:${id}`);
-        if (!stopped) appendContext(result, id);
+        entry.result = await coding.run(request, `codex:${id}`);
     } catch {
-        if (!stopped) appendContext('The delegated work could not be completed. No action was confirmed; do not repeat a mutation automatically. Explain this failure to the user.', id);
+        entry.result = DELEGATION_FAILURE;
     } finally {
+        entry.done = true;
+        deliverDelegation(entry);
         activeDelegations--;
     }
 }

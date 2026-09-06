@@ -1,0 +1,133 @@
+diff --git a/node_modules/react-native-worklets/android/src/experimentalBundling/com/swmansion/worklets/WorkletsModule.java b/node_modules/react-native-worklets/android/src/experimentalBundling/com/swmansion/worklets/WorkletsModule.java
+index eba112f..5747e0e 100644
+--- a/node_modules/react-native-worklets/android/src/experimentalBundling/com/swmansion/worklets/WorkletsModule.java
++++ b/node_modules/react-native-worklets/android/src/experimentalBundling/com/swmansion/worklets/WorkletsModule.java
+@@ -110,10 +110,20 @@ public class WorkletsModule extends NativeWorkletsModuleSpec implements Lifecycl
+     mAnimationFrameQueue.enableSlowAnimations(mSlowAnimationsEnabled, ANIMATIONS_DRAG_FACTOR);
+   }
+ 
++  /**
++   * Stops the shared animation-frame queue without tearing the module down, so
++   * a module that invalidates before this one can close the frame-callback
++   * window first. Idempotent.
++   */
++  public void invalidateAnimationFrameQueue() {
++    mAnimationFrameQueue.invalidate();
++  }
++
+   public void invalidate() {
+     if (mInvalidated.getAndSet(true)) {
+       return;
+     }
++    invalidateAnimationFrameQueue();
+     if (mHybridData != null && mHybridData.isValid()) {
+       // We have to destroy extra runtimes when invalidate is called. If we clean
+       // it up later instead there's a chance the runtime will retain references
+diff --git a/node_modules/react-native-worklets/android/src/legacyBundling/com/swmansion/worklets/WorkletsModule.java b/node_modules/react-native-worklets/android/src/legacyBundling/com/swmansion/worklets/WorkletsModule.java
+index 3c83e00..f723f5e 100644
+--- a/node_modules/react-native-worklets/android/src/legacyBundling/com/swmansion/worklets/WorkletsModule.java
++++ b/node_modules/react-native-worklets/android/src/legacyBundling/com/swmansion/worklets/WorkletsModule.java
+@@ -92,10 +92,20 @@ public class WorkletsModule extends NativeWorkletsModuleSpec implements Lifecycl
+     mAnimationFrameQueue.enableSlowAnimations(mSlowAnimationsEnabled, ANIMATIONS_DRAG_FACTOR);
+   }
+ 
++  /**
++   * Stops the shared animation-frame queue without tearing the module down, so
++   * a module that invalidates before this one can close the frame-callback
++   * window first. Idempotent.
++   */
++  public void invalidateAnimationFrameQueue() {
++    mAnimationFrameQueue.invalidate();
++  }
++
+   public void invalidate() {
+     if (mInvalidated.getAndSet(true)) {
+       return;
+     }
++    invalidateAnimationFrameQueue();
+     if (mHybridData != null && mHybridData.isValid()) {
+       // We have to destroy extra runtimes when invalidate is called. If we clean
+       // it up later instead there's a chance the runtime will retain references
+diff --git a/node_modules/react-native-worklets/android/src/main/java/com/swmansion/worklets/runloop/AnimationFrameQueue.java b/node_modules/react-native-worklets/android/src/main/java/com/swmansion/worklets/runloop/AnimationFrameQueue.java
+index 9858803..1d5ce67 100644
+--- a/node_modules/react-native-worklets/android/src/main/java/com/swmansion/worklets/runloop/AnimationFrameQueue.java
++++ b/node_modules/react-native-worklets/android/src/main/java/com/swmansion/worklets/runloop/AnimationFrameQueue.java
+@@ -23,7 +23,9 @@ public class AnimationFrameQueue {
+   private final GuardedFrameCallback mChoreographerCallback;
+   private final AtomicBoolean mCallbackPosted = new AtomicBoolean();
+   private final AtomicBoolean mPaused = new AtomicBoolean();
++  private final AtomicBoolean mInvalidated = new AtomicBoolean();
+   private final List<AnimationFrameCallback> mFrameCallbacks = new ArrayList<>();
++  private final Object mDispatchLock = new Object();
+ 
+   public AnimationFrameQueue(ReactApplicationContext reactApplicationContext) {
+     mChoreographerCallback =
+@@ -50,8 +52,21 @@ public class AnimationFrameQueue {
+     }
+   }
+ 
++  public void invalidate() {
++    mInvalidated.set(true);
++    removePostedFrameCallback();
++    synchronized (mDispatchLock) {
++      synchronized (mFrameCallbacks) {
++        mFrameCallbacks.clear();
++      }
++    }
++  }
++
+   public void requestAnimationFrame(AnimationFrameCallback animationFrameCallback) {
+     synchronized (mFrameCallbacks) {
++      if (mInvalidated.get()) {
++        return;
++      }
+       mFrameCallbacks.add(animationFrameCallback);
+     }
+     scheduleQueueExecution();
+@@ -67,6 +82,9 @@ public class AnimationFrameQueue {
+ 
+   private void scheduleQueueExecution() {
+     synchronized (mPaused) {
++      if (mInvalidated.get()) {
++        return;
++      }
+       if (!mPaused.get() && !mCallbackPosted.getAndSet(true)) {
+         mReactChoreographer.postFrameCallback(
+             ReactChoreographer.CallbackType.NATIVE_ANIMATED_MODULE, mChoreographerCallback);
+@@ -74,6 +92,13 @@ public class AnimationFrameQueue {
+     }
+   }
+ 
++  private void removePostedFrameCallback() {
++    if (mCallbackPosted.getAndSet(false)) {
++      mReactChoreographer.removeFrameCallback(
++          ReactChoreographer.CallbackType.NATIVE_ANIMATED_MODULE, mChoreographerCallback);
++    }
++  }
++
+   private void executeQueue(long frameTimeNanos) {
+     double currentFrameTimeMs = calculateTimestamp(frameTimeNanos);
+     if (currentFrameTimeMs <= lastFrameTimeMs) {
+@@ -84,12 +109,17 @@ public class AnimationFrameQueue {
+       return;
+     }
+ 
+-    var frameCallbacks = pullCallbacks();
+-    mCallbackPosted.set(false);
++    synchronized (mDispatchLock) {
++      var frameCallbacks = pullCallbacks();
++      mCallbackPosted.set(false);
++      if (mInvalidated.get()) {
++        return;
++      }
+ 
+-    lastFrameTimeMs = currentFrameTimeMs;
+-    for (var callback : frameCallbacks) {
+-      callback.onAnimationFrame(currentFrameTimeMs);
++      lastFrameTimeMs = currentFrameTimeMs;
++      for (var callback : frameCallbacks) {
++        callback.onAnimationFrame(currentFrameTimeMs);
++      }
+     }
+   }
+ 
