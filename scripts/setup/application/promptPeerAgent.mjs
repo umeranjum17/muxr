@@ -144,12 +144,26 @@ export async function watchPeerAgent(command) {
 }
 
 export async function promptPeerAgent(command) {
-    return callPeerBroker({
+    // The pane this ran in is how the host names us to the recipient: an id,
+    // never a name we assert about ourselves. Resolved at the call rather than
+    // during parsing, so every caller of this function carries it.
+    const fromPaneId = command.fromPaneId?.trim() || process.env.HERDR_PANE_ID?.trim();
+    const params = {
         method: 'prompt',
         machine: command.machine,
         ...(command.agent ? { agent: command.agent } : {}),
         text: command.text,
-    });
+    };
+    if (!fromPaneId) return callPeerBroker(params);
+    try {
+        return await callPeerBroker({ ...params, fromPaneId });
+    } catch (error) {
+        // A host from before this field validates request keys strictly, and an
+        // update restarts it. Send the message unattributed rather than failing
+        // outright inside that window; the recipient is told it is unattributed.
+        if (!/invalid peer broker request fields/.test(error?.message ?? '')) throw error;
+        return callPeerBroker(params);
+    }
 }
 
 export async function runPeers(args) {

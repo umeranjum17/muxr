@@ -77,6 +77,7 @@ export type {
     RequestResponse,
     RequestResult,
     RequestType,
+    PeerMessageSender,
     StreamingBehavior,
     WatchSettlement,
     LayoutSnapshot,
