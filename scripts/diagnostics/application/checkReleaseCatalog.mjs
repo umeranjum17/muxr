@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
+import { createServer } from 'node:http';
 import {
-    channelEntry, checksumLineMismatch, emptyCatalog, mergeCatalog, parseCatalog, publicRecordMismatch, serializeCatalog,
+    channelEntry, checksumLineMismatch, emptyCatalog, mergeCatalog, parseCatalog, publicDeadline, publicRecordMismatch,
+    readPublicJson, requireRedirect, serializeCatalog,
 } from '../../release/index.mjs';
 
 // A nightly manifest in the shape the candidate workflow seals: a -nightly
@@ -89,5 +91,37 @@ assert.equal(checksumLineMismatch(entry, `${entry.android.sha256}  ${apkName}\n`
 assert.equal(checksumLineMismatch(entry, `# digests\n${entry.android.sha256} *${apkName}\n`), undefined);
 assert.match(checksumLineMismatch(entry, `${'0'.repeat(64)}  ${apkName}\n`), /no line pairing/);
 assert.match(checksumLineMismatch(entry, ''), /no checksums/);
+
+// A public surface that serves a stale record before converging: the reader
+// must wait it out against one shared deadline, and still fail past it rather
+// than accept the stale answer. The raw catalog CDN behaves exactly like this.
+const convergesAt = Date.now() + 1500;
+const server = createServer((request, response) => {
+    const converged = Date.now() >= convergesAt;
+    if (request.url.startsWith('/api')) {
+        response.writeHead(200, { 'content-type': 'application/json' });
+        response.end(JSON.stringify(converged ? served : { ...served, version: '0.1.27-beta.4.1' }));
+        return;
+    }
+    response.writeHead(302, { location: converged ? entry.android.url : 'https://github.com/umeranjum17/muxr/releases/download/v0.1.27-beta.4.1/old.apk' });
+    response.end();
+});
+try {
+    await new Promise((listening) => server.listen(0, '127.0.0.1', listening));
+    const site = `http://127.0.0.1:${server.address().port}`;
+    const deadline = publicDeadline(20_000);
+    await readPublicJson(`${site}/api/releases/nightly`, { deadline, delayMs: 250, expect: (value) => publicRecordMismatch(entry, value, 'nightly') });
+    const redirect = await requireRedirect(`${site}/downloads/nightly/android`, entry.android.url, { deadline, delayMs: 250 });
+    assert.equal(redirect.status, 302);
+    await assert.rejects(
+        readPublicJson(`${site}/api/releases/nightly`, {
+            deadline: publicDeadline(400),
+            delayMs: 100,
+            expect: () => 'never converges',
+        }),
+        /did not serve the expected record \(never converges\)/,
+        'a surface that never converges was accepted',
+    );
+} finally { server.close(); }
 
 process.stdout.write('release catalog flow passed\n');

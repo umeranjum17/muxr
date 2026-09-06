@@ -1,12 +1,12 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import {
-    CANONICAL_REPOSITORY, CATALOG_BRANCH, MANIFEST_ASSET, catalogUrl, channelEntry, mergeCatalog, parseCatalog, serializeCatalog,
+    CANONICAL_REPOSITORY, CATALOG_BRANCH, MANIFEST_ASSET, channelEntry, mergeCatalog, parseCatalog, serializeCatalog,
 } from '../domain/channelCatalog.mjs';
 import {
     commitCatalogBranch, readCatalogBranch, readReleaseManifestAsset, readReleaseMetadata, readTagCommit, withReleaseAsset,
 } from '../infrastructure/catalogBranch.mjs';
-import { readPublicJson, readRegistryDistTag, readRegistryIntegrity } from '../infrastructure/publicRecord.mjs';
+import { readRegistryDistTag, readRegistryIntegrity } from '../infrastructure/publicRecord.mjs';
 
 const PACKAGE = '@trymuxr/cli';
 
@@ -70,15 +70,13 @@ export async function updateChannelCatalog({ repository = CANONICAL_REPOSITORY, 
     }
     if (published === undefined) throw new Error('The catalog branch kept advancing; no update was recorded');
     if (verifyCatalog) {
-        await readPublicJson(catalogUrl(repository, branch), {
-            bust: true,
-            expect: (value) => {
-                const recorded = value?.channels?.[channel];
-                if (recorded?.version !== entry.version) return `raw catalog still reports ${recorded?.version ?? 'nothing'} for ${channel}`;
-                if (JSON.stringify(recorded) !== JSON.stringify(entry)) return `raw catalog holds a different ${channel} record`;
-                return undefined;
-            },
-        });
+        // Read the branch back through the API, which is authoritative and not
+        // CDN-cached. Waiting out the raw CDN here as well would double a
+        // multi-minute convergence the final public gate already covers.
+        const recorded = parseCatalog(readCatalogBranch({ repository, branch }).text).channels[channel];
+        if (JSON.stringify(recorded) !== JSON.stringify(entry)) {
+            throw new Error(`the catalog branch holds a different ${channel} record after writing ${entry.version}`);
+        }
     }
     return published;
 }
