@@ -121,7 +121,7 @@ try {
     process.env.PATH = `${bin}:${process.env.PATH}`;
 
     const packedPath = join(process.cwd(), 'dist-npm', 'plugin', 'index.mjs');
-    assert.ok(existsSync(packedPath), 'packed CLI plugin index is missing');
+    assert.ok(existsSync(packedPath), `packed CLI plugin index is missing at ${packedPath}; run this flow from a packed tree, as the package smoke does`);
     const packedPackage = await import(pathToFileURL(packedPath).href);
     assert.equal(typeof packedPackage.installPlugin, 'function', 'packed CLI installPlugin did not import');
 

@@ -408,6 +408,11 @@ try {
         cwd: snapshot,
         env: { ...process.env, MUXR_PACKAGE_CONTROL_URL: 'https://package-smoke.invalid' },
     });
+    // The lifecycle flow resolves only one thing from its working directory:
+    // the packed plugin runtime. Run this repository's script against the
+    // snapshot just built here, rather than from a repository root that has no
+    // dist-npm on a clean checkout.
+    run(process.execPath, [join(root, 'scripts', 'diagnostics', 'application', 'packageLifecycleSmoke.mjs')], { cwd: snapshot });
     const packed = JSON.parse(run('npm', ['pack', '--json', '--pack-destination', tarDir], { cwd: join(snapshot, 'dist-npm') }).stdout);
     const packedInfo = Array.isArray(packed) ? packed[0] : Object.values(packed)[0];
     const tarball = join(tarDir, packedInfo.filename);
