@@ -26,5 +26,5 @@ export async function publishCandidate() {
     const notes = join(RUNNER_TEMP, 'candidate-notes.md');
     writeFileSync(notes, `Development candidate; **not production**.\n\nChannel: ${CHANNEL}. Source: ${GITHUB_SHA}. Android build: ${BUILD_CODE}.\n\nDownload the APK below. ${CHANNEL === 'dev' ? 'The dev app installs separately and uses manual self-host pairing.' : 'This beta updates the existing direct-install muxr app; it shares its data.'}\n\nThe npm tarball can be installed directly with npm. Registry publication uses the separate verified publisher. Production promotion is manual.\n\n[Build and checks](https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}). Local emulator and phone acceptance are recorded separately; a build is not device acceptance.\n`);
     execFileSync('gh', ['release', 'create', `v${VERSION}`, ...readdirSync(directory).map((name) => join(directory, name)), '--repo', GITHUB_REPOSITORY,
-        '--target', GITHUB_SHA, '--title', `muxr ${VERSION} · ${CHANNEL}`, '--prerelease', '--latest=false', '--notes-file', notes], { stdio: 'inherit' });
+        '--target', GITHUB_SHA, '--title', `muxr ${VERSION}`, '--prerelease', '--latest=false', '--notes-file', notes], { stdio: 'inherit' });
 }

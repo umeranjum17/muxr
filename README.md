@@ -19,8 +19,8 @@
 <p align="center">
   <a href="https://play.google.com/apps/testing/com.trymuxr.app">Google Play testing</a> ·
   <a href="https://testflight.apple.com/join/aJSbs8pN">iOS TestFlight</a> ·
-  <a href="https://github.com/umeranjum17/muxr/releases/latest/download/muxr-android.apk">Direct APK: latest signed build</a> ·
-  <a href="https://github.com/umeranjum17/muxr/releases/tag/v0.1.26">Release 0.1.26</a>
+  <a href="https://trymuxr.com/downloads/stable/android">Download the Android APK</a> ·
+  <a href="https://trymuxr.com/downloads">Stable, beta and dev</a>
 </p>
 
 <p align="center">
@@ -127,18 +127,20 @@ Terminal text, prompts, responses, keystrokes, files, pairing secrets, and crede
 You need [Node.js 22 or newer](https://nodejs.org/) on Linux, macOS, or WSL. muxr installs [Herdr](https://herdr.dev) during setup if it is missing.
 
 ```bash
-npm install -g --ignore-scripts @trymuxr/cli@0.1.26
+npm install -g --ignore-scripts @trymuxr/cli@latest
 muxr
 ```
 
+Prefer the beta? Install it with `npm install -g --ignore-scripts @trymuxr/cli@beta` and take its APK from the [beta channel](https://trymuxr.com/downloads/beta). The [dev channel](https://trymuxr.com/downloads/dev) tracks the newest build; its **Android app** installs alongside a stable or beta app rather than replacing it. On your computer every channel is the same CLI, so switching npm tags replaces the host you already run rather than adding a second one.
+
 Then install the mobile companion:
 
-- **Android:** [join Google Play testing](https://play.google.com/apps/testing/com.trymuxr.app) · [download the latest signed APK](https://github.com/umeranjum17/muxr/releases/latest/download/muxr-android.apk) · [SHA256SUMS](https://github.com/umeranjum17/muxr/releases/latest/download/SHA256SUMS)
-- **iOS:** [open the public TestFlight link](https://testflight.apple.com/join/aJSbs8pN) — 0.1.24 (build 45); Apple is not accepting new testers right now
+- **Android (stable):** [join Google Play testing](https://play.google.com/apps/testing/com.trymuxr.app) · [download the stable APK](https://trymuxr.com/downloads/stable/android) · [stable checksum](https://trymuxr.com/downloads/stable/checksums)
+- **iOS:** [open the public TestFlight link](https://testflight.apple.com/join/aJSbs8pN) — Apple is not accepting new testers right now. Store tracks review and roll out on their own schedule, so they do not move with the beta APK
 - **Web:** pair an eight-hour read-only browser during self-hosted setup
-- **All builds:** [muxr 0.1.26 release](https://github.com/umeranjum17/muxr/releases/tag/v0.1.26)
+- **All builds:** [every download channel](https://trymuxr.com/downloads)
 
-Verify a downloaded APK with `sha256sum --ignore-missing -c SHA256SUMS`, then run `muxr`. Setup explains one recommended route—the healthy current route, Tailscale, an existing private network, an installed temporary tunnel, or same Wi-Fi—and changes nothing until **Apply setup**. Scan the one-use QR from the phone when it is ready.
+Save the channel's checksum next to the downloaded APK as `SHA256SUMS`, verify it with `sha256sum --ignore-missing -c SHA256SUMS`, then run `muxr`. Each channel publishes its own checksum, so verify against the channel you downloaded from. Setup explains one recommended route—the healthy current route, Tailscale, an existing private network, an installed temporary tunnel, or same Wi-Fi—and changes nothing until **Apply setup**. Scan the one-use QR from the phone when it is ready.
 
 [Read the step-by-step quickstart →](https://trymuxr.com/docs/quickstart)
 
