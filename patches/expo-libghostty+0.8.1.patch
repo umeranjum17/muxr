@@ -716,9 +716,10 @@ index 12925b5..dbb25c6 100644
        }
      )
      self.session = session
-@@ -66,7 +86,41 @@ class ExpoLibghosttyView: ExpoView {
+@@ -66,7 +86,42 @@ class ExpoLibghosttyView: ExpoView {
      terminalView.controller = TerminalController.shared
      terminalView.configuration = TerminalSurfaceOptions(backend: .inMemory(session))
++    terminalView.inputAccessoryItems = []
      terminalView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
 +    pointerTap.cancelsTouchesInView = false
 +    pointerTap.delegate = self
