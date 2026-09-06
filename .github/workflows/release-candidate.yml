@@ -6,12 +6,12 @@ on:
   workflow_dispatch:
     inputs:
       channel:
-        description: Dev nightly, beta for phone testing, or unpublished final-version stable candidate
+        description: Nightly from tested main, or an unpublished final-version stable candidate
         type: choice
-        options: [beta, dev, stable]
-        default: beta
+        options: [nightly, stable]
+        default: nightly
       version:
-        description: Exact npm version (empty generates next patch dev/beta version)
+        description: Exact npm version (empty generates the next patch nightly version)
         type: string
         default: ''
 
@@ -44,21 +44,37 @@ jobs:
         name: Select an exact green commit and channel
         env:
           GH_TOKEN: ${{ github.token }}
-          REQUESTED_CHANNEL: ${{ inputs.channel || 'dev' }}
+          REQUESTED_CHANNEL: ${{ inputs.channel || 'nightly' }}
           REQUESTED_VERSION: ${{ inputs.version }}
         run: |
           gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$GITHUB_SHA&status=success" > "$RUNNER_TEMP/ci.json"
           jq -e --arg sha "$GITHUB_SHA" '.workflow_runs | any(.head_sha == $sha and .event == "push" and .head_branch == "main")' "$RUNNER_TEMP/ci.json"
-          if [ "$GITHUB_EVENT_NAME" = schedule ]; then
-            gh api "repos/$GITHUB_REPOSITORY/actions/workflows/release-candidate.yml/runs?head_sha=$GITHUB_SHA&status=success" > "$RUNNER_TEMP/previous.json"
-            if jq -e --arg sha "$GITHUB_SHA" '.workflow_runs | any(.head_sha == $sha)' "$RUNNER_TEMP/previous.json" >/dev/null; then
-              echo 'build=false' >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-          fi
           node --input-type=module <<'JS'
           import { appendFileSync, readFileSync } from 'node:fs';
           import { distribution } from './scripts/release/domain/channel.mjs';
+          import { CATALOG_BRANCH, parseCatalog } from './scripts/release/domain/channelCatalog.mjs';
+          import { readCatalogBranch, readTagCommit } from './scripts/release/infrastructure/catalogBranch.mjs';
+          const repository = process.env.GITHUB_REPOSITORY;
+          // A nightly is due unless this exact commit is already the published
+          // nightly. A candidate run alone proves nothing: a manual stable
+          // candidate, or a build whose publication failed, must not suppress
+          // the nightly for this commit. A manual run is never skipped.
+          if (process.env.GITHUB_EVENT_NAME === 'schedule') {
+            let publishedCommit;
+            try {
+              const published = parseCatalog(readCatalogBranch({ repository, branch: CATALOG_BRANCH }).text).channels.nightly;
+              // The tag's own commit, not its name: the publisher only writes an
+              // entry whose manifest was sealed from that exact commit.
+              if (published !== undefined) publishedCommit = readTagCommit({ repository, tag: published.tag });
+            } catch (cause) {
+              // Unproven is not proven equal: build rather than skip, loudly.
+              process.stderr.write(`could not read the published nightly (${cause.message}); building this commit\n`);
+            }
+            if (publishedCommit === process.env.GITHUB_SHA) {
+              appendFileSync(process.env.GITHUB_OUTPUT, 'build=false\n');
+              process.exit(0);
+            }
+          }
           const base = JSON.parse(readFileSync('package.json')).version.split('-')[0].split('.').map(Number);
           base[2] += 1;
           const channel = process.env.REQUESTED_CHANNEL;
@@ -133,7 +149,7 @@ jobs:
       version: ${{ needs.select.outputs.app_version }}
       release_version: ${{ needs.select.outputs.version }}
       version_code: ${{ needs.select.outputs.version_code }}
-      development: ${{ needs.select.outputs.channel == 'dev' }}
+      development: ${{ needs.select.outputs.channel == 'nightly' }}
     secrets: inherit
 
   release:

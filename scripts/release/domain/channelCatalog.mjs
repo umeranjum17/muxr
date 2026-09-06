@@ -1,4 +1,4 @@
-import { channelTags, compareVersions, distribution } from './channel.mjs';
+import { channelTags, compareVersions, distribution, legacyChannelTags, releaseVersion } from './channel.mjs';
 
 /**
  * The public channel catalog: one small record per channel, pointing at the
@@ -11,15 +11,38 @@ export const CANONICAL_REPOSITORY = 'umeranjum17/muxr';
 // The one legacy entry predating sealed manifests; every later release carries one.
 const LEGACY_MANIFEST_EXEMPTION = Object.freeze({ channel: 'stable', version: '0.1.25' });
 export const MANIFEST_ASSET = 'release-manifest.json';
-// A dev build carries the separate development identity; nothing else may.
-const CHANNEL_APPLICATION_ID = Object.freeze({ stable: 'com.trymuxr.app', beta: 'com.trymuxr.app', dev: 'app.muxr.local.dev' });
+// A nightly build carries the separate development identity so it installs
+// beside the production app; beta and dev keep the identity they shipped with.
+const CHANNEL_APPLICATION_ID = Object.freeze({
+    stable: 'com.trymuxr.app', nightly: 'app.muxr.local.dev', beta: 'com.trymuxr.app', dev: 'app.muxr.local.dev',
+});
+const RECORDED_TAGS = Object.freeze({ ...channelTags, ...legacyChannelTags });
+const HISTORICAL_DEV = /^dev(\.|-|$)/;
+
+/** The classification those records were written under: dev, else beta. */
+function historicalChannelOf(prerelease) {
+    return HISTORICAL_DEV.test(prerelease) ? 'dev' : 'beta';
+}
+
+/** Historical records stay readable; only stable and nightly are ever written. */
+function recordedChannel(channel) {
+    return Object.hasOwn(RECORDED_TAGS, channel);
+}
+
+function belongsToChannel(version, channel) {
+    const parsed = releaseVersion(version);
+    if (Object.hasOwn(channelTags, channel)) return parsed.channel === channel && parsed.legacy === false;
+    const prerelease = version.split('-').slice(1).join('-');
+    return parsed.legacy === true && historicalChannelOf(prerelease) === channel;
+}
 
 export function catalogUrl(repository = CANONICAL_REPOSITORY, branch = CATALOG_BRANCH) {
     return `https://raw.githubusercontent.com/${repository}/${branch}/${CATALOG_PATH}`;
 }
 
+/** The tag of any recorded release, historical ones included. */
 export function releaseTag(version) {
-    return `v${distribution(version).version}`;
+    return `v${releaseVersion(version).version}`;
 }
 
 export function assetUrl(repository, tag, name) {
@@ -39,8 +62,9 @@ function canonicalTimestamp(value) {
 }
 
 function validEntry(entry, channel) {
-    if (!entry || typeof entry !== 'object') return false;
-    const release = distribution(entry.version, channel);
+    if (!entry || typeof entry !== 'object' || typeof entry.version !== 'string') return false;
+    if (!recordedChannel(channel) || !belongsToChannel(entry.version, channel)) return false;
+    const release = releaseVersion(entry.version);
     const android = entry.android;
     if (android === null || typeof android !== 'object' || entry.tag !== releaseTag(entry.version)) return false;
     const legacy = channel === LEGACY_MANIFEST_EXEMPTION.channel && entry.version === LEGACY_MANIFEST_EXEMPTION.version;
@@ -48,7 +72,7 @@ function validEntry(entry, channel) {
     const manifestAllowed = manifestExact || (entry.manifestUrl === null && legacy);
     const apkName = typeof android.url === 'string' ? android.url.split('/').pop() : '';
     return release.appVersion === entry.appVersion
-        && entry.npmDistTag === channelTags[channel]
+        && entry.npmDistTag === RECORDED_TAGS[channel]
         && entry.releaseUrl === `https://github.com/${CANONICAL_REPOSITORY}/releases/tag/${entry.tag}`
         && manifestAllowed
         && entry.publishedAt === canonicalTimestamp(entry.publishedAt)
@@ -98,14 +122,15 @@ export function parseCatalog(text) {
     const catalog = JSON.parse(text);
     if (catalog?.schema !== 1 || !catalog.channels || typeof catalog.channels !== 'object') throw new Error('Unsupported channel catalog schema');
     for (const [channel, entry] of Object.entries(catalog.channels)) {
-        if (!Object.hasOwn(channelTags, channel) || !validEntry(entry, channel)) throw new Error(`Invalid catalog entry: ${channel}`);
+        if (!recordedChannel(channel) || !validEntry(entry, channel)) throw new Error(`Invalid catalog entry: ${channel}`);
     }
     return { schema: 1, channels: { ...catalog.channels } };
 }
 
 /** Replaces one channel and preserves every other; never moves a channel backwards. */
 export function mergeCatalog(catalog, channel, entry) {
-    if (!Object.hasOwn(channelTags, channel)) throw new Error('Channel must be dev, beta or stable');
+    // Historical channels are preserved by the spread below, never rewritten.
+    if (!Object.hasOwn(channelTags, channel)) throw new Error('Only stable and nightly are published');
     if (!validEntry(entry, channel)) throw new Error('Refusing to publish an invalid channel entry');
     const current = catalog.channels[channel];
     if (current !== undefined) {
@@ -119,7 +144,7 @@ export function mergeCatalog(catalog, channel, entry) {
 
 export function serializeCatalog(catalog) {
     const channels = {};
-    for (const channel of Object.keys(channelTags).sort()) {
+    for (const channel of [...Object.keys(channelTags), ...Object.keys(legacyChannelTags)]) {
         if (catalog.channels[channel] !== undefined) channels[channel] = catalog.channels[channel];
     }
     return `${JSON.stringify({ schema: 1, channels }, undefined, 2)}\n`;

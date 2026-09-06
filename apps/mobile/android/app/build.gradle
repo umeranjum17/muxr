@@ -128,7 +128,7 @@ android {
         manifestPlaceholders = [muxrScheme: developmentDistribution ? 'muxr-dev' : 'muxr',
             muxrExpoScheme: developmentDistribution ? 'exp+muxr-dev' : 'exp+muxr',
             muxrPairHost: developmentDistribution ? 'dev.invalid' : 'trymuxr.com',
-            muxrAppLabel: developmentDistribution ? 'muxr Dev' : 'muxr',
+            muxrAppLabel: developmentDistribution ? 'muxr Nightly' : 'muxr',
             muxrShortcuts: developmentDistribution ? '@xml/dev_shortcuts' : '@xml/shortcuts']
         resValue 'string', 'muxr_application_id', applicationId
         resValue 'string', 'muxr_link_scheme', developmentDistribution ? 'muxr-dev' : 'muxr'
@@ -152,6 +152,9 @@ android {
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
+            // The local development launcher and its messages still say Dev;
+            // only the signed nightly distribution carries the Nightly label.
+            if (developmentDistribution) manifestPlaceholders.muxrAppLabel = 'muxr Dev'
         }
         release {
             signingConfig signingConfigs.findByName('release')

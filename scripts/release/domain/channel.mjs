@@ -1,5 +1,12 @@
 /** Distribution channel is independent of server environment and app identity. */
-export const channelTags = Object.freeze({ dev: 'dev', beta: 'beta', stable: 'latest' });
+export const channelTags = Object.freeze({ stable: 'latest', nightly: 'nightly' });
+/**
+ * Beta and dev are historical. Their published versions, tags and releases stay
+ * exactly as they are: readable, installable, never written to again. An input
+ * naming one resolves to nightly, which is where that work continues.
+ */
+export const legacyChannelTags = Object.freeze({ beta: 'beta', dev: 'dev' });
+const NIGHTLY_PRERELEASE = /^nightly(\.|-|$)/;
 
 export function releaseVersion(version) {
     if (typeof version !== 'string' || version.length > 120) throw new Error('Invalid release version');
@@ -7,19 +14,29 @@ export function releaseVersion(version) {
     if (!match || match.slice(1, 4).some((value) => !Number.isSafeInteger(Number(value)))) throw new Error('Invalid release version');
     const prerelease = match[4];
     if (prerelease?.split('.').some((part) => /^\d+$/.test(part) && part.length > 1 && part.startsWith('0'))) throw new Error('Invalid prerelease number');
-    let channel = 'stable';
-    if (prerelease !== undefined) channel = /^(dev|nightly)(\.|-|$)/.test(prerelease) ? 'dev' : 'beta';
-    return { version, appVersion: match.slice(1, 4).join('.'), channel };
+    // Every prerelease belongs to nightly now. One named for a historical
+    // channel is marked legacy: still recognised, no longer publishable.
+    const legacy = prerelease !== undefined && !NIGHTLY_PRERELEASE.test(prerelease);
+    const channel = prerelease === undefined ? 'stable' : 'nightly';
+    return { version, appVersion: match.slice(1, 4).join('.'), channel, legacy };
 }
 
 export function releaseChannel(channel) {
-    if (typeof channel !== 'string' || !Object.hasOwn(channelTags, channel)) throw new Error('Channel must be dev, beta or stable');
+    if (typeof channel !== 'string' || !Object.hasOwn(channelTags, channel)) throw new Error('Channel must be stable or nightly');
     return channel;
+}
+
+/** Accepts a historical channel name and answers where that work lives now. */
+export function resolveChannel(channel) {
+    if (typeof channel === 'string' && Object.hasOwn(legacyChannelTags, channel)) return { channel: 'nightly', from: channel };
+    return { channel: releaseChannel(channel), from: undefined };
 }
 
 export function distribution(version, channel = releaseVersion(version).channel) {
     const result = releaseVersion(version);
     if (result.channel !== releaseChannel(channel)) throw new Error('Version does not belong to the requested release channel');
+    // A historical name cannot be published again under any channel.
+    if (result.legacy) throw new Error(`${version} names a retired channel; publish a -nightly version instead`);
     return { ...result, distTag: channelTags[channel] };
 }
 

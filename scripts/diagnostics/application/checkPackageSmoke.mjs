@@ -836,10 +836,22 @@ try {
     assert.match(run(cli, ['update', '--yes'], { cwd: installDir, env: { ...updateEnv, MUXR_UPDATE_LATEST: '0.0.1' } }).stdout, /newer than stable/);
     assert.ok(!existsSync(updateLog), 'updater installed a registry downgrade');
     assert.match(run(cli, ['update', '--check'], { cwd: installDir, env: updateEnv }).stdout, /9\.9\.9 is available/);
-    const betaCheck = run(cli, ['update', '--channel', 'beta', '--check'], {
-        cwd: installDir, env: { ...updateEnv, MUXR_UPDATE_LATEST: '9.9.9-beta.2' },
+    const nightlyCheck = run(cli, ['update', '--channel', 'nightly', '--check'], {
+        cwd: installDir, env: { ...updateEnv, MUXR_UPDATE_LATEST: '9.9.9-nightly.2' },
     });
-    assert.match(betaCheck.stdout, /available on beta/);
+    assert.match(nightlyCheck.stdout, /available on nightly/);
+    assert.ok(!existsSync(updateLog), 'channel check changed the installation');
+    // A retired channel name resolves to nightly, and a retired version cannot
+    // arrive as the current nightly.
+    const retiredAlias = run(cli, ['update', '--channel', 'beta', '--check'], {
+        cwd: installDir, env: { ...updateEnv, MUXR_UPDATE_LATEST: '9.9.9-nightly.2' },
+    });
+    assert.match(retiredAlias.stdout, /beta channel is retired/);
+    assert.match(retiredAlias.stdout, /available on nightly/);
+    const retiredOffer = run(cli, ['update', '--channel', 'nightly', '--check'], {
+        cwd: installDir, env: { ...updateEnv, MUXR_UPDATE_LATEST: '9.9.9-beta.2' }, allowFailure: true,
+    });
+    assert.notEqual(retiredOffer.status, 0, 'a retired version was accepted as the current nightly');
     assert.ok(!existsSync(updateLog), 'channel check changed the installation');
     const exactCheck = run(cli, ['update', '--to', '9.9.8', '--check'], {
         cwd: installDir, env: { ...updateEnv, MUXR_UPDATE_LATEST: '9.9.8' },
@@ -853,10 +865,10 @@ try {
     assert.match(exactDowngrade.stdout, /0\.0\.1 is available/);
     assert.ok(!existsSync(updateLog), 'exact-version checks changed the installation');
 
-    const wrongChannel = run(cli, ['update', '--channel', 'beta', '--yes'], {
+    const wrongChannel = run(cli, ['update', '--channel', 'nightly', '--yes'], {
         cwd: installDir, env: updateEnv, allowFailure: true,
     });
-    assert.notEqual(wrongChannel.status, 0, 'beta tag accepted a stable version');
+    assert.notEqual(wrongChannel.status, 0, 'nightly tag accepted a stable version');
     assert.ok(!existsSync(updateLog), 'wrong channel reached installation');
     const prefixMismatch = run(cli, ['update', '--yes'], {
         cwd: installDir, env: { ...updateEnv, MUXR_UPDATE_NPM_ROOT: join(scratch, 'different-node', 'node_modules') }, allowFailure: true,

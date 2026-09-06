@@ -18,7 +18,7 @@ const PACKAGE = '@trymuxr/cli';
  */
 export async function updateChannelCatalog({ repository = CANONICAL_REPOSITORY, tag, branch = CATALOG_BRANCH, verifyCatalog = true } = {}) {
     if (repository !== CANONICAL_REPOSITORY) throw new Error('The public catalog belongs to the canonical repository');
-    if (!/^v[0-9A-Za-z.-]{1,120}$/.test(tag ?? '')) throw new Error('An exact release tag is required, such as v0.1.27-beta.4.1');
+    if (!/^v[0-9A-Za-z.-]{1,120}$/.test(tag ?? '')) throw new Error('An exact release tag is required, such as v0.1.28-nightly.1.1');
     const release = readReleaseMetadata({ repository, tag });
     const assets = new Map(release.assets.map((asset) => [asset.name, asset]));
     if (!assets.has(MANIFEST_ASSET)) throw new Error(`${tag} has no retained ${MANIFEST_ASSET} to derive from`);
