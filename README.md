@@ -135,8 +135,9 @@ Want the newest build? Install it with `npm install -g --ignore-scripts @trymuxr
 
 Then install the mobile companion:
 
-- **Android (stable):** [join Google Play testing](https://play.google.com/apps/testing/com.trymuxr.app) · [download the stable APK](https://trymuxr.com/downloads/stable/android) · [stable checksum](https://trymuxr.com/downloads/stable/checksums)
-- **iOS:** [open the public TestFlight link](https://testflight.apple.com/join/aJSbs8pN) — Apple is not accepting new testers right now. Store tracks review and roll out on their own schedule, so they do not move with the nightly APK
+- **Android (stable):** [download the stable APK](https://trymuxr.com/downloads/stable/android) · [stable checksum](https://trymuxr.com/downloads/stable/checksums) — the public build, and the one route that never depends on a store
+- **Android on Google Play:** [join the testing track](https://play.google.com/apps/testing/com.trymuxr.app) — a separate store track from the public APK above, open only while review and Google's tester places allow it
+- **iOS:** [open the public TestFlight link](https://testflight.apple.com/join/aJSbs8pN) — the only iOS route, and it admits testers only while review and Apple's tester places allow it. Store tracks review and roll out on their own schedule, so they do not move with the nightly APK
 - **Web:** pair an eight-hour read-only browser during self-hosted setup
 - **All builds:** [every download channel](https://trymuxr.com/downloads)
 
