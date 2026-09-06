@@ -19,8 +19,9 @@
 <p align="center">
   <a href="https://play.google.com/apps/testing/com.trymuxr.app">Google Play testing</a> ·
   <a href="https://testflight.apple.com/join/aJSbs8pN">iOS TestFlight</a> ·
-  <a href="https://github.com/umeranjum17/muxr/releases/latest/download/muxr-android.apk">Direct APK: latest signed build</a> ·
-  <a href="https://github.com/umeranjum17/muxr/releases/tag/v0.1.26">Release 0.1.26</a>
+  <a href="https://github.com/umeranjum17/muxr/releases/download/v0.1.27-beta.4.1/muxr-0.1.27-360.apk">Beta APK 0.1.27 (build 360)</a> ·
+  <a href="https://github.com/umeranjum17/muxr/releases/tag/v0.1.27-beta.4.1">Beta release notes</a> ·
+  <a href="https://github.com/umeranjum17/muxr/releases/tag/v0.1.25">Stable 0.1.25</a>
 </p>
 
 <p align="center">
