@@ -152,7 +152,10 @@ export class PluginStreamManager {
         // Least-ambient routing only: unapproved/non-voice children do not receive
         // this token. Enabled backends still run as the host user and are trusted
         // local code; the token is not isolation from a malicious enabled plugin.
-        const peerAccess = params.target.peerBroker === true ? this.options.peerBroker?.issueCapability() : undefined;
+        // The caller's own session travels with the capability, so the broker can
+        // name the sender through the host instead of trusting the plugin.
+        const peerCaller = params.sessionId === undefined ? {} : { sessionId: params.sessionId };
+        const peerAccess = params.target.peerBroker === true ? this.options.peerBroker?.issueCapability(peerCaller) : undefined;
         let codingAccess: RealtimeCoordinatorAccess | undefined;
         if (params.target.codingCoordinator === true) {
             codingAccess = this.options.codingCoordinator?.issueCapability({
