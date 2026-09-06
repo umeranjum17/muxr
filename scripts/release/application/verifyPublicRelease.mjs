@@ -2,7 +2,7 @@ import {
     CANONICAL_REPOSITORY, CATALOG_BRANCH, catalogUrl, channelEntry, checksumLineMismatch, publicRecordMismatch,
 } from '../domain/channelCatalog.mjs';
 import { readLatestReleaseTag, readReleaseManifestAsset, readReleaseMetadata } from '../infrastructure/catalogBranch.mjs';
-import { readPublicJson, readPublicText, readRegistryDistTag, requireRedirect } from '../infrastructure/publicRecord.mjs';
+import { publicDeadline, readPublicJson, readPublicText, readRegistryDistTag, requireRedirect } from '../infrastructure/publicRecord.mjs';
 
 const SITE = 'https://trymuxr.com';
 const PACKAGE = '@trymuxr/cli';
@@ -36,8 +36,12 @@ export async function verifyPublicRelease({
     const registryVersion = await readRegistryDistTag({ package: PACKAGE, tag: entry.npmDistTag });
     if (registryVersion !== entry.version) throw new Error(`npm ${entry.npmDistTag} serves ${registryVersion}, not ${entry.version}`);
 
+    // One budget for every public surface. The raw catalog can sit behind a
+    // CDN for minutes; giving each surface its own window would multiply that
+    // worst case across the job instead of sharing one wait for convergence.
+    const deadline = publicDeadline();
     await readPublicJson(catalogUrl(repository, branch), {
-        bust: true,
+        deadline,
         expect: (value) => {
             const recorded = value?.channels?.[expected.channel];
             if (recorded === undefined) return `catalog has no ${expected.channel} entry`;
@@ -46,15 +50,13 @@ export async function verifyPublicRelease({
         },
     });
     await readPublicJson(`${site}/api/releases/${expected.channel}`, {
-        attempts: 12,
-        delayMs: 5000,
+        deadline,
         expect: (value) => publicRecordMismatch(entry, value, expected.channel),
     });
-    const android = await requireRedirect(`${site}/downloads/${expected.channel}/android`, entry.android.url);
-    await requireRedirect(`${site}/downloads/${expected.channel}/release`, entry.releaseUrl);
+    const android = await requireRedirect(`${site}/downloads/${expected.channel}/android`, entry.android.url, { deadline });
+    await requireRedirect(`${site}/downloads/${expected.channel}/release`, entry.releaseUrl, { deadline });
     await readPublicText(`${site}/downloads/${expected.channel}/checksums`, {
-        attempts: 12,
-        delayMs: 5000,
+        deadline,
         expect: (text) => checksumLineMismatch(entry, text),
     });
     return { channel: expected.channel, version: entry.version, apk: entry.android.url, redirectStatus: android.status, latestTag };
