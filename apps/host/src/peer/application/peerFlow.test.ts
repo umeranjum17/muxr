@@ -108,11 +108,11 @@ async function waitFor(predicate: () => boolean, message: string, timeoutMs = 5_
     if (!predicate()) throw new Error(`Timed out waiting for ${message}`);
 }
 
-async function peerCli(accessFile: string, args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
+async function peerCli(accessFile: string, args: string[], env: NodeJS.ProcessEnv = {}): Promise<{ code: number; stdout: string; stderr: string }> {
     const cli = fileURLToPath(new URL('../../../../../scripts/cli.mjs', import.meta.url));
     return new Promise((resolve, reject) => {
         const child = spawn(process.execPath, [cli, 'peers', ...args], {
-            env: { ...process.env, MUXR_PEER_ACCESS_FILE: accessFile },
+            env: { ...process.env, MUXR_PEER_ACCESS_FILE: accessFile, ...env },
             stdio: ['ignore', 'pipe', 'pipe'],
         });
         let stdout = '';
@@ -563,10 +563,26 @@ describe('host peer collaboration flow', () => {
         const afterReadd = await brokerCall(broker.socketPath, access.capability, { method: 'list', machine: 'Build Mac' }) as { machines: Array<{ agents: Array<{ agent: string }> }> };
         expect(afterReadd.machines[0]!.agents).toEqual([{ agent: 'iOS builder' }, { agent: 'iOS builder' }]);
         remoteSessions = [session];
-        const promptedFromCli = await peerCli(cliFile, ['prompt', '--machine', 'Build Mac', '--agent', 'iOS builder', '--text', 'Report Xcode status']);
+        // The reported bug: a real CLI prompt from an agent's own herdr pane must
+        // reach the recipient naming who sent it and how to answer them.
+        sourceRuntime.setLocalAgentResolver(async (caller) => (caller.paneId === 'w1FE:p4'
+            ? { agent: 'Release captain' }
+            : {}));
+        const promptedFromCli = await peerCli(
+            cliFile,
+            ['prompt', '--machine', 'Build Mac', '--agent', 'iOS builder', '--text', 'Report Xcode status'],
+            { HERDR_PANE_ID: 'w1FE:p4' },
+        );
         expect(promptedFromCli).toMatchObject({ code: 0, stderr: '' });
         expect(JSON.parse(promptedFromCli.stdout)).toEqual({ machine: 'Build Mac', agent: 'iOS builder', delivered: true });
         expect(prompts).toBe(4);
+        expect(promptTexts.at(-1)).toBe('Peer message from Linux builder \u00b7 Release captain:\nReport Xcode status\n\n'
+            + 'Reply with: muxr peers prompt --machine "Linux builder" --agent "Release captain" --text "your reply"\n'
+            + 'If Linux builder is not the name this computer uses for it, run muxr peers list for the local name.');
+        // Without a pane there is nobody to name, and nobody is invented.
+        await peerCli(cliFile, ['prompt', '--machine', 'Build Mac', '--agent', 'iOS builder', '--text', 'Anonymous ping'], { HERDR_PANE_ID: '' });
+        expect(promptTexts.at(-1)).toContain('Reply target unavailable');
+        expect(promptTexts.at(-1)).not.toContain('Release captain');
         forcedRemoteError = Object.assign(new Error('Agent is not ready yet.'), { code: 'agent-not-ready' });
         await expect(brokerCall(broker.socketPath, access.capability, {
             method: 'prompt', machine: 'Build Mac', agent: 'iOS builder', text: 'Too early',
@@ -578,7 +594,8 @@ describe('host peer collaboration flow', () => {
             text: 'Exit after queue',
             mutation: fresh('prompt-fast-exit'),
         })).resolves.toMatchObject({ agentName: 'iOS builder', delivered: true });
-        expect(prompts).toBe(5);
+        // One more than before: the unattributed CLI prompt above also delivered.
+        expect(prompts).toBe(6);
         dropSessionsAfterPrompt = false;
         remoteSessions = [session];
         remoteSessions = [session, { ...session, id: 'another-internal-session' }];
