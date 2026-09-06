@@ -20,7 +20,7 @@
   <a href="https://play.google.com/apps/testing/com.trymuxr.app">Google Play testing</a> ·
   <a href="https://testflight.apple.com/join/aJSbs8pN">iOS TestFlight</a> ·
   <a href="https://trymuxr.com/downloads/stable/android">Download the Android APK</a> ·
-  <a href="https://trymuxr.com/downloads">Stable, beta and dev</a>
+  <a href="https://trymuxr.com/downloads">Stable and nightly</a>
 </p>
 
 <p align="center">
@@ -131,12 +131,12 @@ npm install -g --ignore-scripts @trymuxr/cli@latest
 muxr
 ```
 
-Prefer the beta? Install it with `npm install -g --ignore-scripts @trymuxr/cli@beta` and take its APK from the [beta channel](https://trymuxr.com/downloads/beta). The [dev channel](https://trymuxr.com/downloads/dev) tracks the newest build; its **Android app** installs alongside a stable or beta app rather than replacing it. On your computer every channel is the same CLI, so switching npm tags replaces the host you already run rather than adding a second one.
+Want the newest build? Install it with `npm install -g --ignore-scripts @trymuxr/cli@nightly` and take its APK from the [nightly channel](https://trymuxr.com/downloads/nightly). The **Android app** installs alongside a stable one rather than replacing it, so you can keep both on the phone. On your computer both channels are the same CLI, so switching npm tags replaces the host you already run rather than adding a second one. Beta and dev are retired: moving across is that one install, and an older binary will not upgrade itself to a `-nightly` version.
 
 Then install the mobile companion:
 
 - **Android (stable):** [join Google Play testing](https://play.google.com/apps/testing/com.trymuxr.app) · [download the stable APK](https://trymuxr.com/downloads/stable/android) · [stable checksum](https://trymuxr.com/downloads/stable/checksums)
-- **iOS:** [open the public TestFlight link](https://testflight.apple.com/join/aJSbs8pN) — Apple is not accepting new testers right now. Store tracks review and roll out on their own schedule, so they do not move with the beta APK
+- **iOS:** [open the public TestFlight link](https://testflight.apple.com/join/aJSbs8pN) — Apple is not accepting new testers right now. Store tracks review and roll out on their own schedule, so they do not move with the nightly APK
 - **Web:** pair an eight-hour read-only browser during self-hosted setup
 - **All builds:** [every download channel](https://trymuxr.com/downloads)
 
@@ -175,6 +175,6 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and pull requests.
 
 muxr is licensed under [Apache License 2.0](LICENSE). Third-party notices are recorded in [NOTICE](NOTICE) and the [license inventory](docs/license-inventory.md). The muxr name and marks are covered by [TRADEMARK.md](TRADEMARK.md).
 
-## Development and beta builds
+## Development and nightly builds
 
-Merging into `main` advances development, not production. Use the [release channel workflow](docs/RELEASING.md) for signed dev/beta APKs, verified npm artifacts and explicit stable promotion. Emulator acceptance stays local.
+Merging into `main` advances development, not production. Use the [release channel workflow](docs/RELEASING.md) for signed nightly APKs, verified npm artifacts and explicit stable promotion. Emulator acceptance stays local.

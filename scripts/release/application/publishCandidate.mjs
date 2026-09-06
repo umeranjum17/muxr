@@ -11,7 +11,9 @@ export async function publishCandidate() {
     await verifyRelease({ directory, version: VERSION, channel: CHANNEL, commit: GITHUB_SHA, runId: GITHUB_RUN_ID });
     const androidDirectory = join(RUNNER_TEMP, 'android');
     const android = JSON.parse(readFileSync(join(androidDirectory, 'result.json')));
-    const expectedId = CHANNEL === 'dev' ? 'app.muxr.local.dev' : 'com.trymuxr.app';
+    // Nightly carries the development application identity so it installs
+    // beside the production app; stable is the production identity.
+    const expectedId = CHANNEL === 'nightly' ? 'app.muxr.local.dev' : 'com.trymuxr.app';
     if (android.gitCommitHash !== GITHUB_SHA || android.bundleIdentifier !== expectedId || android.appBuildVersion !== BUILD_CODE) throw new Error('Android source or identity mismatch');
     const apk = readdirSync(androidDirectory).filter((name) => name.endsWith('.apk'));
     const aab = readdirSync(androidDirectory).filter((name) => name.endsWith('.aab'));
@@ -24,7 +26,7 @@ export async function publishCandidate() {
     await sealRelease({ directory, version: VERSION, channel: CHANNEL, files: readdirSync(directory), runId: GITHUB_RUN_ID, runAttempt: GITHUB_RUN_ATTEMPT,
         android: { applicationId: expectedId, versionCode: Number(BUILD_CODE), signerSha256: signer } });
     const notes = join(RUNNER_TEMP, 'candidate-notes.md');
-    writeFileSync(notes, `Development candidate; **not production**.\n\nChannel: ${CHANNEL}. Source: ${GITHUB_SHA}. Android build: ${BUILD_CODE}.\n\nDownload the APK below. ${CHANNEL === 'dev' ? 'The dev app installs separately and uses manual self-host pairing.' : 'This beta updates the existing direct-install muxr app; it shares its data.'}\n\nThe npm tarball can be installed directly with npm. Registry publication uses the separate verified publisher. Production promotion is manual.\n\n[Build and checks](https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}). Local emulator and phone acceptance are recorded separately; a build is not device acceptance.\n`);
+    writeFileSync(notes, `Release candidate; **not production**.\n\nChannel: ${CHANNEL}. Source: ${GITHUB_SHA}. Android build: ${BUILD_CODE}.\n\nDownload the APK below. ${CHANNEL === 'nightly' ? 'The nightly app installs separately, keeps its own data and uses manual self-host pairing.' : 'This updates the existing direct-install muxr app; it shares its data.'}\n\nThe npm tarball can be installed directly with npm. Registry publication uses the separate verified publisher. Production promotion is manual.\n\n[Build and checks](https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}). Local emulator and phone acceptance are recorded separately; a build is not device acceptance.\n`);
     execFileSync('gh', ['release', 'create', `v${VERSION}`, ...readdirSync(directory).map((name) => join(directory, name)), '--repo', GITHUB_REPOSITORY,
         '--target', GITHUB_SHA, '--title', `muxr ${VERSION}`, '--prerelease', '--latest=false', '--notes-file', notes], { stdio: 'inherit' });
 }

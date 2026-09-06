@@ -1,4 +1,5 @@
-name: publish npm
+name: publish release
+run-name: publish ${{ inputs.run_id && format('candidate run {0}', inputs.run_id) || format('{0}', github.event.workflow_run.display_title) }}
 
 on:
   workflow_run:
@@ -51,7 +52,7 @@ jobs:
           const run = JSON.parse(readFileSync(`${process.env.RUNNER_TEMP}/build.json`));
           const m = JSON.parse(readFileSync(`${process.env.RUNNER_TEMP}/package/release-manifest.json`));
           if (!/^[0-9a-f]{40}$/.test(run.head_sha) || m.source.commit !== run.head_sha || m.build.runId !== process.env.RUN_ID) throw new Error('Candidate provenance mismatch');
-          if (!['dev','beta','stable'].includes(m.release.channel) || !/^[0-9A-Za-z.-]{1,120}$/.test(m.release.version)) throw new Error('Invalid release metadata');
+          if (!['nightly','stable'].includes(m.release.channel) || !/^[0-9A-Za-z.-]{1,120}$/.test(m.release.version)) throw new Error('Invalid release metadata');
           if (m.release.channel === 'stable' && process.env.GITHUB_EVENT_NAME === 'workflow_dispatch' && process.env.CONFIRMATION !== `promote-${m.release.version}`) throw new Error('Stable promotion requires exact confirmation');
           appendFileSync(process.env.GITHUB_OUTPUT, `commit=${run.head_sha}\nversion=${m.release.version}\nchannel=${m.release.channel}\nrun_id=${process.env.RUN_ID}\n`);
           JS
@@ -107,3 +108,17 @@ jobs:
         run: node scripts/release/presentation/updateChannelCatalog.mjs --tag "v$RELEASE_VERSION"
       - name: Verify every public surface serves this release
         run: node scripts/release/presentation/verifyPublicRelease.mjs --tag "v$RELEASE_VERSION" --channel "$RELEASE_CHANNEL"
+      - name: Summarize the completed release
+        run: |
+          set -euo pipefail
+          # The npm tag is the domain's, not the channel name: stable is latest.
+          tag=$(node -e "import('./scripts/release/domain/channel.mjs').then((m) => process.stdout.write(m.channelTags[process.env.RELEASE_CHANNEL] ?? ''))")
+          [ -n "$tag" ] || { echo "no npm dist-tag for channel $RELEASE_CHANNEL" >&2; exit 1; }
+          {
+            echo "## muxr $RELEASE_VERSION published on $RELEASE_CHANNEL"
+            echo
+            echo "- Download: https://trymuxr.com/downloads/$RELEASE_CHANNEL/android"
+            echo "- Channel page: https://trymuxr.com/downloads/$RELEASE_CHANNEL"
+            echo "- Release notes: https://github.com/${GITHUB_REPOSITORY}/releases/tag/v$RELEASE_VERSION"
+            echo "- Install: \`npm install -g --ignore-scripts @trymuxr/cli@$tag\`"
+          } >> "$GITHUB_STEP_SUMMARY"

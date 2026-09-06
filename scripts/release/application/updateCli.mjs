@@ -4,7 +4,7 @@ import { existsSync, realpathSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runBootstrap, daemonIsRunning, daemonMode, runDaemon, restartSelfhostRelayIfRunning, stopSelfhostRelayIfRunning } from '../../setup/index.mjs';
-import { compareVersions, channelTags, releaseChannel, releaseVersion } from '../domain/channel.mjs';
+import { compareVersions, channelTags, releaseVersion, resolveChannel } from '../domain/channel.mjs';
 
 const PACKAGE = '@trymuxr/cli';
 
@@ -63,9 +63,18 @@ export async function updateCli(command = {}) {
     let channel;
     let installedChannel;
     let targetVersion;
+    let retired;
     try {
-        installedChannel = releaseVersion(current).channel;
-        channel = command.channel === undefined ? installedChannel : releaseChannel(command.channel);
+        const installed = releaseVersion(current);
+        installedChannel = installed.channel;
+        // A beta or dev install is a nightly install now; the name changed, the
+        // work continues there. Nothing is downgraded to make that true.
+        retired = installed.legacy === true;
+        const requestedChannel = command.channel === undefined ? { channel: installedChannel } : resolveChannel(command.channel);
+        channel = requestedChannel.channel;
+        if (requestedChannel.from !== undefined) {
+            process.stdout.write(`The ${requestedChannel.from} channel is retired; its work continues on nightly.\n`);
+        }
         if (command.targetVersion !== undefined) {
             const requested = releaseVersion(command.targetVersion);
             if (requested.channel !== channel) throw new Error('Exact version belongs to a different channel; pass --channel explicitly to switch.');
@@ -89,7 +98,11 @@ export async function updateCli(command = {}) {
     catch { latest = lookup.stdout.trim(); }
     try {
         if (targetVersion !== undefined && latest !== targetVersion) throw new Error('exact version mismatch');
-        if (releaseVersion(latest).channel !== channel) throw new Error('channel mismatch');
+        const offered = releaseVersion(latest);
+        if (offered.channel !== channel) throw new Error('channel mismatch');
+        // A retired name must not arrive as the current nightly. Installing one
+        // stays possible, but only when the user pins it with --to.
+        if (targetVersion === undefined && offered.legacy === true) throw new Error('retired version on an active channel');
     } catch {
         process.stderr.write('npm returned an invalid version for the requested muxr channel or exact target\n');
         return 1;
@@ -107,6 +120,7 @@ export async function updateCli(command = {}) {
     }
 
     process.stdout.write(`muxr ${latest} is available on ${channel} (installed: ${current}, ${installedChannel}).\n`);
+    if (retired) process.stdout.write(`${current} came from a retired channel; nightly continues it, and its published packages stay available.\n`);
     if (channel !== installedChannel) process.stdout.write('This explicitly switches the current installation and its managed services; it does not create a second isolated host.\n');
     if (command.checkOnly) return 0;
     const installedMode = daemonMode();

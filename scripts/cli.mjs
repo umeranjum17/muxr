@@ -67,7 +67,7 @@ Run and maintain
   muxr status                    check this setup (same as muxr doctor)
   muxr restart                   restart the supervised relay and host
   muxr update [--check|--yes]    update within the installed release channel
-              [--channel dev|beta|stable] [--to VERSION] [--allow-downgrade]
+              [--channel stable|nightly] [--to VERSION] [--allow-downgrade]
   muxr uninstall [--yes]         fully remove muxr; keep Herdr and repositories
   muxr self-host [options]       run the relay, host, and pairing flow
   muxr daemon <command>          install, start, stop, restart, or inspect muxr services
@@ -336,7 +336,7 @@ async function applyUpdate(args = []) {
     }
     const channelIndex = args.indexOf('--channel');
     if (channelIndex !== -1 && !args[channelIndex + 1]) {
-        process.stderr.write('--channel requires dev, beta or stable\n');
+        process.stderr.write('--channel requires stable or nightly\n');
         return 1;
     }
     return updateCli({
