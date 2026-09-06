@@ -51,36 +51,53 @@ jobs:
           jq -e --arg sha "$GITHUB_SHA" '.workflow_runs | any(.head_sha == $sha and .event == "push" and .head_branch == "main")' "$RUNNER_TEMP/ci.json"
           node --input-type=module <<'JS'
           import { appendFileSync, readFileSync } from 'node:fs';
-          import { distribution } from './scripts/release/domain/channel.mjs';
+          import { compareVersions, distribution } from './scripts/release/domain/channel.mjs';
           import { CATALOG_BRANCH, parseCatalog } from './scripts/release/domain/channelCatalog.mjs';
           import { readCatalogBranch, readTagCommit } from './scripts/release/infrastructure/catalogBranch.mjs';
-          const repository = process.env.GITHUB_REPOSITORY;
-          // A nightly is due unless this exact commit is already the published
-          // nightly. A candidate run alone proves nothing: a manual stable
-          // candidate, or a build whose publication failed, must not suppress
-          // the nightly for this commit. A manual run is never skipped.
-          if (process.env.GITHUB_EVENT_NAME === 'schedule') {
-            let publishedCommit;
-            try {
-              const published = parseCatalog(readCatalogBranch({ repository, branch: CATALOG_BRANCH }).text).channels.nightly;
-              // The tag's own commit, not its name: the publisher only writes an
-              // entry whose manifest was sealed from that exact commit.
-              if (published !== undefined) publishedCommit = readTagCommit({ repository, tag: published.tag });
-            } catch (cause) {
-              // Unproven is not proven equal: build rather than skip, loudly.
-              process.stderr.write(`could not read the published nightly (${cause.message}); building this commit\n`);
-            }
-            if (publishedCommit === process.env.GITHUB_SHA) {
-              appendFileSync(process.env.GITHUB_OUTPUT, 'build=false\n');
-              process.exit(0);
-            }
-          }
-          const base = JSON.parse(readFileSync('package.json')).version.split('-')[0].split('.').map(Number);
-          base[2] += 1;
           const channel = process.env.REQUESTED_CHANNEL;
           const requested = process.env.REQUESTED_VERSION;
           if (!requested && channel === 'stable') throw new Error('A final stable candidate needs an explicit version');
-          const version = requested || `${base.join('.')}-${channel}.${process.env.GITHUB_RUN_NUMBER}.${process.env.GITHUB_RUN_ATTEMPT}`;
+          const nextPatch = (value) => {
+            const parts = value.split('-')[0].split('.').map(Number);
+            parts[2] += 1;
+            return parts.join('.');
+          };
+          let version = requested;
+          // Stable is chosen from its explicit input alone. Only a nightly has
+          // to know what stable currently is, so only a nightly reads the
+          // published channels, once.
+          if (channel === 'nightly') {
+            const repository = process.env.GITHUB_REPOSITORY;
+            let published;
+            try {
+              published = parseCatalog(readCatalogBranch({ repository, branch: CATALOG_BRANCH }).text).channels;
+            } catch (cause) {
+              throw new Error(`cannot read the published channels (${cause.message}); refusing to choose a release version blindly`);
+            }
+            const stable = published.stable?.version;
+            // A version picked without knowing stable can sort under it, and an
+            // empty or missing catalog is exactly that unknown state.
+            if (stable === undefined) throw new Error('the published channels carry no stable release to sort a nightly above');
+            // A nightly is due unless this exact commit is already the published
+            // nightly. A candidate run alone proves nothing: a manual stable
+            // candidate, or a build whose publication failed, must not suppress
+            // the nightly. A stable promotion that overtook the published
+            // nightly means the same source still needs a version above it.
+            if (process.env.GITHUB_EVENT_NAME === 'schedule' && published.nightly !== undefined
+              && compareVersions(published.nightly.version, stable) > 0
+              && readTagCommit({ repository, tag: published.nightly.tag }) === process.env.GITHUB_SHA) {
+              appendFileSync(process.env.GITHUB_OUTPUT, 'build=false\n');
+              process.exit(0);
+            }
+            // The automatic base is the later of this checkout's next patch and
+            // the published stable's next patch, so a nightly never sorts under
+            // a stable promoted while the root manifest stayed behind.
+            const rootBase = nextPatch(JSON.parse(readFileSync('package.json')).version);
+            const floor = nextPatch(stable);
+            const base = compareVersions(rootBase, floor) >= 0 ? rootBase : floor;
+            version = requested || `${base}-${channel}.${process.env.GITHUB_RUN_NUMBER}.${process.env.GITHUB_RUN_ATTEMPT}`;
+            if (compareVersions(version, stable) <= 0) throw new Error(`${version} does not sort above the published stable ${stable}`);
+          }
           const selected = distribution(version, channel);
           appendFileSync(process.env.GITHUB_OUTPUT, `version=${version}\napp_version=${selected.appVersion}\nchannel=${channel}\nbuild=true\n`);
           JS
