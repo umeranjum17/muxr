@@ -274,7 +274,7 @@ const styles = StyleSheet.create((theme) => ({
         bottom: 0,
     },
     focusBackdrop: {
-        backgroundColor: 'rgba(0, 0, 0, 0.88)',
+        backgroundColor: theme.colors.surface,
     },
     focusBackPosition: {
         position: 'absolute',
