@@ -8,7 +8,7 @@
         "apps/*"
     ],
     "scripts": {
-        "postinstall": "patch-package && node scripts/diagnostics/application/verifyNativePatches.mjs",
+        "postinstall": "patch-package && node scripts/setup/application/syncIosFramework.mjs && node scripts/diagnostics/application/verifyNativePatches.mjs",
         "build": "tsc --build && node apps/mobile/scripts/buildAttachmentPreview.mjs",
         "typecheck": "tsc --build --force",
     "perf": "node perf/releaseGate.mjs",
