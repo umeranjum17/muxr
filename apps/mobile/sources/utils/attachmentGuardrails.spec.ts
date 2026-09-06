@@ -16,6 +16,8 @@ import { boundText } from '@/utils/boundedText';
 import { estimateStoredBlobBytes, blobUri, readBlobText, pruneBlobs, saveBlob } from './attachmentBlobs.web';
 import { boundSessionFileCache } from '@/catalog/application/sessionFileCache';
 import { attachmentPreview } from './attachmentPreview.web';
+import { readRichAttachment } from './richAttachmentPreview';
+import { richPreviewHtml } from './richPreviewHtml';
 
 describe('attachment/file guardrail helpers', () => {
     it('bounds heal payload accounting and source lines/chars before rendering', () => {
@@ -96,4 +98,27 @@ describe('attachment/file guardrail helpers', () => {
             vi.unstubAllGlobals();
         }
     });
+    it('opens a bounded document through the real read transport and rejects changed or retargeted data', async () => {
+        previewMocks.request.mockReset();
+        const attachment = { type: 'attachment' as const, id: 'preview', name: 'notes.md', size: 5 };
+        previewMocks.request.mockResolvedValue({ id: 'preview', offset: 0, size: 5, data: 'aGVsbG8=' });
+        const result = await readRichAttachment('session-1', attachment, new AbortController().signal);
+        expect(result).toEqual({ kind: 'markdown', base64: 'aGVsbG8=' });
+        const html = richPreviewHtml('window.renderMuxrAttachment = () => {};', result);
+        expect(html).toContain("connect-src 'none'");
+        expect(html).toContain('"base64":"aGVsbG8="');
+        previewMocks.request.mockClear();
+        await expect(readRichAttachment('session-1', { ...attachment, size: 300000 }, new AbortController().signal)).rejects.toThrow('preview limit');
+        expect(previewMocks.request).not.toHaveBeenCalled();
+        previewMocks.request.mockResolvedValue({ id: 'preview', offset: 0, size: 6, data: 'aGVsbG8=' });
+        await expect(readRichAttachment('session-1', attachment, new AbortController().signal)).rejects.toThrow('changed');
+        previewMocks.request.mockImplementation(async () => {
+            previewMocks.settings.machineId = 'machine-2';
+            return { id: 'preview', offset: 0, size: 5, data: 'aGVsbG8=' };
+        });
+        try {
+            await expect(readRichAttachment('session-1', attachment, new AbortController().signal)).rejects.toThrow('connection changed');
+        } finally { previewMocks.settings.machineId = 'machine-1'; }
+    });
+
 });

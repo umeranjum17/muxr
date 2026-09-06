@@ -77,14 +77,14 @@ describe('agent lifecycle presentation', () => {
             doing: '',
         }])[0]!;
         const shellLabels = agentLabels(shell);
-        expect(shellLabels).toMatchObject({ taskTitle: 'Untitled task', agentName: 'Shell' });
-        expect(agentAccessibilityLabel(shellLabels, shell.agentStatus, shell.changedAt)).toBe('Untitled task. Offline. Shell');
+        expect(shellLabels).toMatchObject({ taskTitle: 'Shell', agentName: 'Shell' });
+        expect(agentAccessibilityLabel(shellLabels, shell.agentStatus, shell.changedAt)).toBe('Shell. Offline. Shell');
 
         const pending = session('pending', 300, 'starting');
         pending.metadata!.agentKind = 'omp';
         Object.assign(pending.metadata!, { agentName: 'Stale Otter', taskTitle: 'Stale task' });
         expect(agentLabels()).toMatchObject({
-            taskTitle: 'Untitled task',
+            taskTitle: 'Shell',
             agentName: 'Shell',
         });
 

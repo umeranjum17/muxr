@@ -1,3 +1,4 @@
+import { VersionNotice } from '@/components/VersionNotice';
 import * as React from 'react';
 import {
     View,
@@ -525,6 +526,7 @@ export const MainView = React.memo(() => {
                             <HeaderTitle activeTab="sessions" large />
                         </View>
                     </View>
+                    <VersionNotice />
                     <LiveTerminalsRow visibilityTop={safeArea.top} visibilityBottomInset={safeArea.bottom} />
                     <PluginSlot slot="home.cards" context={{}} />
                     <DeclarativeHomeCards />

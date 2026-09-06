@@ -557,6 +557,10 @@ function parseNativeContribution(item: Record<string, unknown>): PluginContribut
     if (item.source !== undefined || item.capability !== undefined || item.title !== undefined) {
         throw new Error(`plugin primitive ${primitive} parameters must be under params`);
     }
+    if (item.quickAction !== undefined && typeof item.quickAction !== 'boolean') throw new Error('invalid quickAction');
+    if (item.quickAction === true && item.slot !== 'session.header.trailing' && item.slot !== 'session.pills') {
+        throw new Error('quick actions require a session action slot');
+    }
     const params = item.params === undefined ? {} : item.params;
     if (!isRecord(params)) throw new Error(`invalid params for plugin primitive ${primitive}`);
     for (const name of Object.keys(params)) {
@@ -609,6 +613,7 @@ function parseNativeContribution(item: Record<string, unknown>): PluginContribut
         id: id(item.id),
         type: 'native',
         primitive: primitive as typeof PRIMITIVES[number],
+        ...(item.quickAction === undefined ? {} : { quickAction: item.quickAction }),
         ...(title === undefined ? {} : { title }),
         ...(emptyTitle === undefined ? {} : { emptyTitle }),
         ...(emptyMessage === undefined ? {} : { emptyMessage }),
@@ -667,7 +672,8 @@ function parseContribution(item: Record<string, unknown>): PluginContribution | 
         };
     }
     if (item.slot === 'session.header.trailing' && item.type === 'screen-button') {
-        return { slot: 'session.header.trailing', id: id(item.id), type: 'screen-button', title: pluginText(item.title, 40), icon: id(item.icon), contentContributionId: id(item.contentContributionId) };
+        if (item.quickAction !== undefined && typeof item.quickAction !== 'boolean') throw new Error('invalid quickAction');
+        return { slot: 'session.header.trailing', id: id(item.id), type: 'screen-button', title: pluginText(item.title, 40), icon: id(item.icon), contentContributionId: id(item.contentContributionId), ...(item.quickAction === undefined ? {} : { quickAction: item.quickAction }) };
     }
     if (item.slot === 'shortcuts') return parseShortcut(item);
     if (item.slot === 'events') return parseEventTrigger(item);

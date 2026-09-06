@@ -233,6 +233,11 @@ export interface RequestMap extends PeerRequestMap {
      * Arguments go straight to execFile (never a shell), so this reaches every
      * pane/tab/workspace/worktree/agent command without a second API that drifts.
      */
+    /** Owner-authorized, exact-release host maintenance; never arbitrary commands. */
+    'host.update': {
+        params: { action: 'plan'; appVersion: string; protocol: number } | { action: 'apply' | 'status'; planId: string };
+        result: { planId?: string; currentVersion: string; targetVersion: string; status: string; compatible: boolean; canApply: boolean; message: string };
+    };
     'herdr.cli': {
         params: { args: string[]; timeoutMs?: number };
         result: { stdout: string; stderr: string; exitCode: number | null; timedOut: boolean };
@@ -509,6 +514,7 @@ const E2EE_REQUEST_TYPES = new Set([
     'plugin.call',
     'plugin.stream',
     'herdr.cli',
+    'host.update',
 ]);
 
 export function requestRequiresE2ee(type: string): boolean {

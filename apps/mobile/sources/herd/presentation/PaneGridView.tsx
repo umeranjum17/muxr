@@ -178,7 +178,7 @@ const PaneTile = React.memo((props: { pane: HerdrTreePane; style: object; router
                     <TerminalPreview sessionId={pane.sessionId as string} />
                 ) : (
                     <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-                        <Text style={{ color: '#666666', fontSize: 13 }}>{shell ? 'Shell' : labels.taskTitle}</Text>
+                        <Text style={{ color: '#666666', fontSize: 13 }}>{labels.taskTitle}</Text>
                     </View>
                 )}
             </View>
@@ -187,12 +187,12 @@ const PaneTile = React.memo((props: { pane: HerdrTreePane; style: object; router
                     <AgentGlyph name={shell ? 'shell' : labels.agentKind ?? labels.agentName} size={16} />
                     <View style={{ flex: 1, minWidth: 0, gap: 1 }}>
                         <Text numberOfLines={1} style={{ color: theme.colors.text, fontSize: 12, fontWeight: '600' }}>
-                            {shell ? 'Shell' : labels.taskTitle}
+                            {labels.taskTitle}
                         </Text>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
                             <StatusDot color={color} isPulsing={status === 'working' || status === 'blocked'} size={7} />
                             <Text numberOfLines={1} style={{ flex: 1, color: theme.colors.textSecondary, fontSize: 10 }}>
-                                {shell ? 'Terminal' : agentNameLine(labels)}
+                                {agentNameLine(labels)}
                             </Text>
                         </View>
                     </View>

@@ -20,6 +20,7 @@ import {
 } from '../coordinatorPolicy.mjs';
 
 import { createVoiceTools, voiceTools } from '../toolRuntime.mjs';
+import { createCodexDelegation } from '../codexDelegation.mjs';
 
 export const providerTools = voiceTools;
 const CODEX_CLIENT_VERSION = '0.144.1';
@@ -38,18 +39,32 @@ const PROMPT = `You are Codex Voice inside muxr. Be direct and brief. Speak in o
 - You are the user's personal work assistant. Inspect the workspace, summarize real output, navigate and coordinate agents using the client tools.
 ${voiceCoordinationInstructions}
 ${appControlInstructions}
-- To use a client tool, create a delegation whose input_text is exactly a JSON object with name and arguments. Choose name and arguments from this catalog:
+- Delegate work requests to the client in natural language. Preserve the user's original message and any target they confirmed. The client coordinates only the catalogued tools below and returns the actual result or one necessary clarification:
 ${JSON.stringify(voiceTools)}
-- Plain-text delegations receive read-only live work context from the kernel. Use it to answer summaries immediately. Actions require a structured tool request; never claim that context inspection performed an action.
-- For example, delegate {"name":"list_agents","arguments":{"query":"build"}}. Read its result before choosing the next action. Never ask the user to write this JSON or supply tool identifiers.
+- A request to ping or ask a coding agent is an instruction to send a message, not merely read its status. Delegate that request even when the target is working. If the client asks which agent, ask the user; carry their confirmation back to the client without losing the pending message.
+- Report the client's actual result. Queued means queued, not delivered or answered. Do not claim that prompting is unavailable without a client failure. Never ask the user to write JSON or supply tool identifiers.
 - Never speak internal ids, including thread, session, pane, operation, provider, or delegation ids.
 - Report progress and blockers accurately. Never invent completion.
 - Treat pauses and incomplete speech as the user thinking; do not interrupt.
 - End only when the user clearly says goodbye or asks you to stop listening.`;
 
 let currentContext = '';
-const tools = createVoiceTools((frame) => emit(frame));
+let activeDelegations = 0;
+const tools = createVoiceTools((frame) => {
+    if (frame.type === 'realtime.state' && frame.state === 'connected' && activeDelegations > 0) {
+        emit({ ...frame, state: 'thinking' });
+        return;
+    }
+    emit(frame);
+});
+const coding = createCodexDelegation({ getCredential: codexCredential, runTool: tools.run });
 const delegations = new Map();
+// One shared planner run per user turn + exact request: the realtime provider
+// retransmits a delegation with fresh item and handoff ids while the same user
+// utterance is still being processed. Retransmissions join the in-flight or
+// completed result instead of re-running it. Each entry comes from an admitted
+// delegation item, so this map can never outgrow the `delegations` cap.
+const turnRuns = new Map();
 let closing = false;
 let stopped = false;
 let offerAccepted = false;
@@ -63,6 +78,7 @@ function close(reason) {
     if (closing) return;
     closing = true;
     stopped = true;
+    coding.close();
     tools.close();
     process.stdout.write(`${JSON.stringify({ type: 'realtime.closed', reason: safe(reason, 'ended') })}\n`, () => process.exit(0));
 }
@@ -214,6 +230,16 @@ function appendContext(text, delegationId) {
         });
     }
 }
+const DELEGATION_FAILURE = 'The delegated work could not be completed. No action was confirmed; do not repeat a mutation automatically. Explain this failure to the user.';
+
+/** Every registered delegation item id receives the shared result exactly once. */
+function deliverDelegation(entry) {
+    for (const id of entry.itemIds) {
+        if (entry.delivered.has(id)) continue;
+        entry.delivered.add(id);
+        if (!stopped) appendContext(entry.result, id);
+    }
+}
 
 async function delegate(event) {
     if (event.item?.type !== 'delegation' || event.item?.target !== 'client') return;
@@ -229,10 +255,38 @@ async function delegate(event) {
     if (delegations.size >= 128 || Buffer.byteLength(request) > 16000) {
         appendContext('That tool request exceeds the session limit.', id); return;
     }
-    delegations.set(id, true);
+    // Turn identity comes from the provider's user_bidi_turn_id, paired with
+    // the exact trimmed request bytes (structured tool JSON may carry
+    // meaningful whitespace). Missing or malformed turn metadata never
+    // coalesces, so a genuine repeated request in a new user turn still runs.
+    const turnId = typeof event.item?.user_bidi_turn_id === 'string' ? event.item.user_bidi_turn_id.trim() : '';
+    const shareKey = turnId && turnId.length <= 128
+        ? JSON.stringify([turnId, request.trim()])
+        : null;
+    let entry = shareKey ? turnRuns.get(shareKey) : undefined;
+    if (!entry) {
+        entry = { itemIds: [], delivered: new Set(), done: false, result: '' };
+        if (shareKey) turnRuns.set(shareKey, entry);
+    }
+    delegations.set(id, entry);
+    entry.itemIds.push(id);
+    if (entry.itemIds.length > 1) {
+        // A retransmitted handoff shares the run's outcome; it never re-runs
+        // the request and is never read as a fresh user confirmation.
+        if (entry.done) deliverDelegation(entry);
+        return;
+    }
+    activeDelegations++;
     state('thinking');
-    const result = await tools.delegate(request, `codex:${id}`);
-    if (!stopped) appendContext(result, id);
+    try {
+        entry.result = await coding.run(request, `codex:${id}`);
+    } catch {
+        entry.result = DELEGATION_FAILURE;
+    } finally {
+        entry.done = true;
+        deliverDelegation(entry);
+        activeDelegations--;
+    }
 }
 
 function handleWebRtcData(data) {

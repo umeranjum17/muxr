@@ -30,6 +30,7 @@ import { grantMayAdministerPeers, hostPlatformLabel, listMachines, observerGrant
 import { attachPreview as attachPreviewTransport } from '../infrastructure/preview.js';
 import { landWorktree } from '../infrastructure/landWorktree.js';
 import { listDir } from '../infrastructure/listDir.js';
+import { repairHost } from '../infrastructure/repairHost.js';
 import { runMachineShell } from '../infrastructure/runMachineShell.js';
 import { runHerdrCli } from '../infrastructure/runHerdrCli.js';
 import { attachPreviewTunnel } from './attachPreviewTunnel.js';
@@ -138,6 +139,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         'plugin.invoke': () => { throw new Error('authenticated device context required'); },
         'plugin.call': () => { throw new Error('authenticated device context required'); },
         'plugin.stream': () => { throw new Error('authenticated device context required'); },
+        'host.update': (params, context) => repairHost(params, context.deviceId),
         'herdr.cli': async (params) => {
             const result = await runHerdrCli(params.args, params.timeoutMs);
             await source.refreshHerdr();

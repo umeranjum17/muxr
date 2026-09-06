@@ -151,9 +151,9 @@ Every slot below is shipped. **JSON** means you edit `muxr-ui.json` and the chan
 | `navigation.primary` | a top-level destination | JSON (`navigation-item`) |
 | `navigation.content` | the screen that destination opens | JSON (`screen`) or primitive |
 | `home.cards` | a Home card, or `"presentation": "sheet"` for a pill that opens a bottom sheet | JSON (`data-card`) |
-| `session.header.trailing` | a compact header chip, or a button that opens a screen | JSON (`data-card` or `screen-button`) or primitive |
-| `session.pills` | a compact pill above the composer | JSON (`data-card`) or primitive |
-| `session.toolbar` | a command that runs a declared Herdr action | JSON (`button`) |
+| `session.header.trailing` | a session action; compatible buttons can opt into terminal quick controls | JSON (`data-card` or `screen-button`) or primitive |
+| `session.pills` | a session action; compatible primitives can opt into terminal quick controls | JSON (`data-card`) or primitive |
+| `session.toolbar` | a pane-menu command that runs a declared Herdr action | JSON (`button`) |
 | `terminal.key-row` | terminal keys | JSON (`key-row`) |
 | `settings.items` | a row in Settings that opens your screen | JSON (`settings-item`) |
 | `settings.sections` | static information rows in Settings | JSON |
@@ -174,6 +174,8 @@ Primitive slots are animated, stateful, or OS-bridging surfaces. The app ships n
 | `dictate` | home and session composer trailing | `getText`, `setText` | none |
 
 Primitive parameters live under `params`. An `item-list` with `refreshIntervalMs` refreshes only while its screen and the app are active, stops its timer when unfocused/unmounted, and always force-refreshes when the user opens it. Returning zero items hides the control.
+
+Session actions normally appear under the header's three-dot pane menu. A session `screen-button`, or an `item-list`/`icon-button` native contribution in a supported session action slot, can set `"quickAction": true` on the contribution (not inside `params`). It then appears directly in the floating terminal command panel, separated from keyboard and zoom controls. Placement comes from the declaration, not a bundled plugin-id list; the bundled Changes, Files, and Tools actions opt in.
 
 ```json
 { "slot": "session.pills", "id": "files", "type": "native", "primitive": "item-list",
@@ -638,8 +640,9 @@ phone-effect name is skipped, not fatal.
 ## Screen buttons
 
 `session.header.trailing` accepts `type: "screen-button"` in addition to
-`data-card`. A screen-button is a header chip that opens another contribution
-in the same plugin (see `plugins/code/muxr-ui.json`).
+`data-card`. A screen-button opens another contribution in the same plugin from
+the pane menu, or directly from terminal quick controls when `quickAction` is
+true (see `plugins/code/muxr-ui.json`).
 
 ```json
 {

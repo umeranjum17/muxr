@@ -622,6 +622,7 @@ async function main(): Promise<void> {
             }
             return snapshot.info.paneId;
         },
+        focusSession: (sessionId) => source.paneFocus(sessionId),
         ...(token === undefined ? {} : { token }),
         ...(process.env.HERDR_BIN === undefined ? {} : { herdrBin: process.env.HERDR_BIN }),
         ...(hostedE2ee === undefined ? {} : { hostedE2ee }),

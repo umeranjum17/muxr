@@ -20,6 +20,7 @@ export interface TerminalManagerOptions {
     machineId: string;
     token?: string;
     resolvePane: (sessionId: string) => Promise<string>;
+    focusSession: (sessionId: string) => Promise<void>;
     herdrBin?: string;
     hostedE2ee?: HostedMachineKeys;
     onGraphicsPipelineDiagnostic?: (report: GraphicsPipelineReport) => void;
@@ -37,6 +38,7 @@ interface Attachment {
     rows: number;
     cellWidthPx: number | undefined;
     cellHeightPx: number | undefined;
+    initialFrameReceived: boolean;
     pendingGraphics: { frame: string; bytes: number }[];
     pendingGraphicsBytes: number;
     graphicsFlushTimer?: ReturnType<typeof setTimeout>;
@@ -116,6 +118,11 @@ export class TerminalManager {
                 throw Object.assign(new Error('terminal: pane is controlled by another device; explicit takeover required'), { code: 'takeover' });
             }
         }
+
+        // Herdr publishes graphics for its foreground tab. Selecting a control
+        // session must select that pane too; observers must never move the desk.
+        // Do this after authority/takeover checks and before opening resources.
+        if (mode === 'control') await this.options.focusSession(params.sessionId);
 
         const credential = ticketWsCredential(this.options.token);
         let socketUrl: string;
@@ -203,6 +210,7 @@ export class TerminalManager {
             rows: params.rows,
             cellWidthPx: params.cellWidthPx,
             cellHeightPx: params.cellHeightPx,
+            initialFrameReceived: false,
             pendingGraphics: [],
             pendingGraphicsBytes: 0,
             close: () => undefined,
@@ -287,7 +295,6 @@ export class TerminalManager {
             this.graphicsOpening = undefined;
         }
         this.attachments.set(params.channel, attachment);
-        if (!observe) this.activateGraphics(attachment, params);
 
         const onInputError = (error: Error): void => {
             attachment.close(`herdr stream input failed: ${error.message}`);
@@ -335,7 +342,9 @@ export class TerminalManager {
                     // never Herdr's scrollback, even on the flushes where the
                     // bridge is holding the rest of the gesture back.
                     if (this.graphics?.ownsScroll(attachment.channel) === true) {
-                        for (const report of this.graphics.scrollInput(attachment.channel, frame.direction, frame.lines)) {
+                        for (const report of this.graphics.scrollInput(attachment.channel, frame.direction, frame.lines,
+                            typeof frame.x === 'number' && typeof frame.y === 'number' && typeof frame.width === 'number' && typeof frame.height === 'number'
+                                ? { x: frame.x, y: frame.y, width: frame.width, height: frame.height } : undefined)) {
                             input.write(`${JSON.stringify({ type: 'terminal.input', bytes: report.toString('base64') })}\n`);
                         }
                         return;
@@ -364,12 +373,18 @@ export class TerminalManager {
         // herdr stdout is NDJSON terminal.frame records; forward each line as-is.
         let buffer = '';
         child.stdout?.on('data', (chunk: Buffer) => {
+            if (finished) return;
             buffer += chunk.toString('utf8');
             const lines = buffer.split('\n');
             buffer = lines.pop() ?? '';
             for (const line of lines) {
                 if (line.trim().length === 0) continue;
                 this.sendToPhone(attachment, line);
+                if (!attachment.initialFrameReceived) {
+                    attachment.initialFrameReceived = true;
+                    // Cached images must follow Herdr's initial screen clear.
+                    if (!observe) this.activateGraphics(attachment, attachment);
+                }
             }
         });
 
@@ -402,11 +417,12 @@ export class TerminalManager {
         return { paneId };
     }
 
-    private activateGraphics(attachment: Attachment, size: { cols: number; rows: number; cellWidthPx?: number; cellHeightPx?: number }): void {
+    private activateGraphics(attachment: Attachment, size: { cols: number; rows: number; cellWidthPx?: number | undefined; cellHeightPx?: number | undefined }): void {
         attachment.cols = size.cols;
         attachment.rows = size.rows;
         attachment.cellWidthPx = size.cellWidthPx;
         attachment.cellHeightPx = size.cellHeightPx;
+        if (!attachment.initialFrameReceived) return;
         const metricsReady = size.cellWidthPx !== undefined && size.cellHeightPx !== undefined
             && [size.cols, size.rows, size.cellWidthPx, size.cellHeightPx].every((value) => Number.isFinite(value) && value > 0);
         if (!metricsReady) {
@@ -446,7 +462,7 @@ export class TerminalManager {
     }
 
     private registerGraphics(attachment: Attachment, graphics: HerdrGraphicsBridge): boolean {
-        if (attachment.cellWidthPx === undefined || attachment.cellHeightPx === undefined) return false;
+        if (!attachment.initialFrameReceived || attachment.cellWidthPx === undefined || attachment.cellHeightPx === undefined) return false;
         return graphics.register({
             channel: attachment.channel,
             paneId: attachment.paneId,

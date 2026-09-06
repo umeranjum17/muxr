@@ -4,6 +4,7 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Item } from '@/components/Item';
 import { OptionSheet } from '@/components/OptionSheet';
+import { ActionShortcut } from '@/components/ActionShortcut';
 import { useUnistyles } from 'react-native-unistyles';
 import type { PluginDataCard, PluginNativeContribution, PluginNavigationItem, PluginTerminalKeyRow } from '@muxr/contract';
 import { MAX_RPC_DISPLAY_BYTES, PLUGIN_CALL_CLIENT_TIMEOUT_MS, capUtf8Bytes, sanitizeDisplayText } from '@muxr/contract';
@@ -207,7 +208,7 @@ export function DeclarativeHomeCards() {
     return <>{pluginSnapshot().flatMap(({ summary, manifest }) => manifest.contributions.flatMap((contribution) => 'type' in contribution && contribution.type === 'data-card' && contribution.slot === 'home.cards' && contribution.presentation !== 'sheet' ? [<DataCard key={`${summary.pluginId}:${contribution.id}`} contribution={contribution} pluginId={summary.pluginId} manifestHash={summary.manifestHash} pluginName={summary.name} />] : []))}</>;
 }
 
-function DataActionRow({ contribution, pluginId, manifestHash }: { contribution: PluginDataCard; pluginId: string; manifestHash: string }) {
+function DataActionRow({ contribution, pluginId, manifestHash, presentation }: { contribution: PluginDataCard; pluginId: string; manifestHash: string; presentation?: 'shortcut' }) {
     const { theme } = useUnistyles();
     const data = useDataValue(pluginId, manifestHash, contribution.source.contributionId);
     const [open, setOpen] = React.useState(false);
@@ -217,69 +218,105 @@ function DataActionRow({ contribution, pluginId, manifestHash }: { contribution:
     const label = resolvePluginText(contribution.title);
     if (shown === undefined) return null;
     const failureLabel = `${label}, ${data.value === undefined ? t('plugins.unavailableSuffix') : t('plugins.showingStale')}. ${t('plugins.retry')}`;
-    const style = ({ pressed = false } = {}) => ({ minHeight: 44, flexDirection: 'row' as const, alignItems: 'center' as const, gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh });
-    const body = <>
-        <Ionicons name={(contribution.icon ?? 'stats-chart-outline') as never} size={18} color={theme.colors.textSecondary} />
-        <Text numberOfLines={1} style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>{label}</Text>
-        {data.failed && <Ionicons name="warning-outline" size={14} color={theme.colors.textDestructive} />}
-        <Text numberOfLines={1} style={{ maxWidth: 120, color: data.failed ? theme.colors.textDestructive : theme.colors.textSecondary, fontSize: 12 }}>{shown}</Text>
-        {contribution.presentation === 'sheet' && <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />}
-    </>;
-    if (contribution.presentation !== 'sheet' && !data.failed) return <View style={style()}>{body}</View>;
+    const retryOrOpen = () => { if (data.failed) data.retry(); if (contribution.presentation === 'sheet') setOpen(true); };
+    let trigger: React.ReactNode;
+    if (presentation === 'shortcut') {
+        // A panel row uses the same full-width shape as every other quick
+        // action: fixed icon column, label that never moves, the data value
+        // trailing as a plain secondary line — never a badge over the icon.
+        trigger = <ActionShortcut label={label}
+            accessibilityLabel={data.failed ? failureLabel : `${label}, ${shown}`}
+            icon={(data.failed ? 'warning-outline' : (contribution.icon ?? 'stats-chart-outline')) as never}
+            badge={shown}
+            disabled={contribution.presentation !== 'sheet' && !data.failed}
+            onPress={retryOrOpen} />;
+    } else {
+        const style = ({ pressed = false } = {}) => ({ minHeight: 44, flexDirection: 'row' as const, alignItems: 'center' as const, gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh });
+        const body = <>
+            <Ionicons name={(contribution.icon ?? 'stats-chart-outline') as never} size={18} color={theme.colors.textSecondary} />
+            <Text numberOfLines={1} style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>{label}</Text>
+            {data.failed && <Ionicons name="warning-outline" size={14} color={theme.colors.textDestructive} />}
+            <Text numberOfLines={1} style={{ maxWidth: 120, color: data.failed ? theme.colors.textDestructive : theme.colors.textSecondary, fontSize: 12 }}>{shown}</Text>
+            {contribution.presentation === 'sheet' && <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />}
+        </>;
+        trigger = contribution.presentation !== 'sheet' && !data.failed
+            ? <View style={style()}>{body}</View>
+            : <Pressable onPress={retryOrOpen} accessibilityRole="button" accessibilityLabel={data.failed ? failureLabel : label} style={style}>{body}</Pressable>;
+    }
+    // The sheet stays mounted under every trigger shape, so a panel row opens
+    // the same OptionSheet the pane-menu row does.
     return <>
-        <Pressable onPress={() => { if (data.failed) data.retry(); if (contribution.presentation === 'sheet') setOpen(true); }} accessibilityRole="button" accessibilityLabel={data.failed ? failureLabel : label} style={style}>{body}</Pressable>
+        {trigger}
         {contribution.presentation === 'sheet' && <OptionSheet visible={open} title={label} options={[]} onSelect={() => {}} onClose={() => setOpen(false)}
             body={<View style={{ paddingHorizontal: 16, paddingBottom: 12 }}><Text style={{ color: theme.colors.text, fontSize: 13, lineHeight: 20 }}>{shown}</Text></View>} />}
     </>;
 }
 
-type DeclarativeSessionAction =
+type DeclarativeSessionAction = (
     | { kind: 'screen'; key: string; label: string; icon: string; pluginId: string; contentId: string }
     | { kind: 'list'; key: string; label: string; pluginId: string; manifestHash: string; contribution: PluginNativeContribution }
     | { kind: 'capability'; key: string; label: string; pluginId: string; manifestHash: string; contribution: PluginNativeContribution }
-    | { kind: 'data'; key: string; label: string; pluginId: string; manifestHash: string; contribution: PluginDataCard };
+    | { kind: 'data'; key: string; label: string; pluginId: string; manifestHash: string; contribution: PluginDataCard }
+) & { quickAction: boolean };
 
-/** Labeled session tools, as rows for the terminal's Actions menu. */
-export function DeclarativeSessionActions({ cwd, sessionId, onNavigate }: { cwd?: string; sessionId: string; onNavigate: () => void }) {
-    const { theme } = useUnistyles();
-    const router = useRouter();
+/** Placement belongs to the declaration, not to a list of bundled plugin ids. */
+export function useDeclarativeSessionActions(cwd?: string): DeclarativeSessionAction[] {
     useSlotContributions('session.header.trailing');
     useSlotContributions('session.pills');
-    const actions = pluginSnapshot().flatMap<DeclarativeSessionAction>(({ summary, manifest }) => manifest.contributions.flatMap<DeclarativeSessionAction>((contribution) => {
+    const entries = pluginSnapshot();
+    return React.useMemo(() => entries.flatMap<DeclarativeSessionAction>(({ summary, manifest }) => manifest.contributions.flatMap<DeclarativeSessionAction>((contribution) => {
+        const quickAction = 'quickAction' in contribution && contribution.quickAction === true;
         if ('type' in contribution && contribution.type === 'screen-button' && contribution.slot === 'session.header.trailing' && cwd !== undefined && cwd !== '') {
-            return [{ kind: 'screen', key: `${summary.pluginId}:${contribution.id}`, label: resolvePluginText(contribution.title), icon: contribution.icon, pluginId: summary.pluginId, contentId: contribution.contentContributionId }];
+            return [{ kind: 'screen', quickAction, key: `${summary.pluginId}:${contribution.id}`, label: resolvePluginText(contribution.title), icon: contribution.icon, pluginId: summary.pluginId, contentId: contribution.contentContributionId }];
         }
         if ('type' in contribution && contribution.type === 'native' && contribution.primitive === 'item-list'
             && (contribution.slot === 'session.header.trailing' || contribution.slot === 'session.pills')) {
-            return [{ kind: 'list', key: `${summary.pluginId}:${contribution.id}`, label: contribution.title === undefined ? summary.name : resolvePluginText(contribution.title), pluginId: summary.pluginId, manifestHash: summary.manifestHash, contribution }];
+            return [{ kind: 'list', quickAction, key: `${summary.pluginId}:${contribution.id}`, label: contribution.title === undefined ? summary.name : resolvePluginText(contribution.title), pluginId: summary.pluginId, manifestHash: summary.manifestHash, contribution }];
         }
         if ('type' in contribution && contribution.type === 'native' && contribution.primitive === 'icon-button'
             && contribution.slot === 'session.header.trailing') {
-            return [{ kind: 'capability', key: `${summary.pluginId}:${contribution.id}`, label: resolvePluginText(contribution.accessibilityLabel!), pluginId: summary.pluginId, manifestHash: summary.manifestHash, contribution }];
+            return [{ kind: 'capability', quickAction, key: `${summary.pluginId}:${contribution.id}`, label: resolvePluginText(contribution.accessibilityLabel!), pluginId: summary.pluginId, manifestHash: summary.manifestHash, contribution }];
         }
         if ('type' in contribution && contribution.type === 'data-card'
             && (contribution.slot === 'session.header.trailing' || contribution.slot === 'session.pills')) {
-            return [{ kind: 'data', key: `${summary.pluginId}:${contribution.id}`, label: resolvePluginText(contribution.title), pluginId: summary.pluginId, manifestHash: summary.manifestHash, contribution }];
+            return [{ kind: 'data', quickAction, key: `${summary.pluginId}:${contribution.id}`, label: resolvePluginText(contribution.title), pluginId: summary.pluginId, manifestHash: summary.manifestHash, contribution }];
         }
         return [];
-    })).sort((left, right) => left.label.localeCompare(right.label));
+    })).sort((left, right) => left.label.localeCompare(right.label)), [cwd, entries]);
+}
+
+/** The same declared action opens directly from a panel row or a pane-menu row. */
+export function DeclarativeSessionActions({ actions, sessionId, onNavigate, presentation }: {
+    actions: readonly DeclarativeSessionAction[];
+    sessionId: string;
+    onNavigate: () => void;
+    presentation?: 'shortcut';
+}) {
+    const { theme } = useUnistyles();
+    const router = useRouter();
     if (actions.length === 0) return null;
-    return <>{actions.map((action) => {
-        if (action.kind === 'screen') return <Pressable key={action.key} accessibilityRole="button" accessibilityLabel={action.label} onPress={() => {
-            onNavigate();
-            router.push(pluginHref(action.pluginId, action.contentId, { sessionId }));
-        }} style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
-            <Ionicons name={action.icon as never} size={18} color={theme.colors.textSecondary} />
-            <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>{action.label}</Text>
-            <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
-        </Pressable>;
-        if (action.kind === 'list') return <ItemList key={action.key} context={{ sessionId }} pluginId={action.pluginId} manifestHash={action.manifestHash} contribution={action.contribution} presentation="action-row" />;
-        if (action.kind === 'capability') return <View key={action.key} style={{ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: theme.colors.surfaceHigh }}>
-            <CapabilityButton context={{ sessionId }} pluginId={action.pluginId} manifestHash={action.manifestHash} contribution={action.contribution} onNavigate={onNavigate} />
-            <Text numberOfLines={1} style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>{action.label}</Text>
-        </View>;
-        return <DataActionRow key={action.key} contribution={action.contribution} pluginId={action.pluginId} manifestHash={action.manifestHash} />;
-    })}</>;
+    const rows = actions.map((action) => {
+        if (action.kind === 'screen') {
+            const open = () => { onNavigate(); router.push(pluginHref(action.pluginId, action.contentId, { sessionId })); };
+            if (presentation !== undefined) return <ActionShortcut key={action.key} label={action.label} icon={action.icon as never} onPress={open} />;
+            return <Pressable key={action.key} accessibilityRole="button" accessibilityLabel={action.label} onPress={open}
+                style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
+                <Ionicons name={action.icon as never} size={18} color={theme.colors.textSecondary} />
+                <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>{action.label}</Text>
+                <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
+            </Pressable>;
+        }
+        if (action.kind === 'list') return <ItemList key={action.key} context={{ sessionId }} pluginId={action.pluginId} manifestHash={action.manifestHash} contribution={action.contribution} presentation={presentation ?? 'action-row'} />;
+        if (action.kind === 'capability') {
+            if (presentation !== undefined) return <CapabilityButton key={action.key} context={{ sessionId }} pluginId={action.pluginId} manifestHash={action.manifestHash} contribution={action.contribution} onNavigate={onNavigate} presentation={presentation} />;
+            return <View key={action.key} style={{ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: theme.colors.surfaceHigh }}>
+                <CapabilityButton context={{ sessionId }} pluginId={action.pluginId} manifestHash={action.manifestHash} contribution={action.contribution} onNavigate={onNavigate} />
+                <Text numberOfLines={1} style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>{action.label}</Text>
+            </View>;
+        }
+        return <DataActionRow key={action.key} contribution={action.contribution} pluginId={action.pluginId} manifestHash={action.manifestHash} presentation={presentation} />;
+    });
+    return <>{rows}</>;
 }
 
 export function DeclarativeNavigationItems({ activeKey, onSelect, compact = false }: { activeKey?: string; compact?: boolean; onSelect: (key: string, pluginId: string, contentId: string, label: string) => void }) {

@@ -6,7 +6,7 @@ import { pathToFileURL } from 'node:url';
 export const usagePlugins = (sourceRoot) => ({ root, env }) => {
     const dir = join(root, 'fixture-plugins');
     mkdirSync(join(dir, 'status'), { recursive: true });
-    for (const name of ['code', 'terminal-keys']) symlinkSync(join(sourceRoot, 'plugins', name), join(dir, name));
+    for (const name of ['code', 'terminal-keys', 'attachments']) symlinkSync(join(sourceRoot, 'plugins', name), join(dir, name));
     const original = join(sourceRoot, 'plugins/status');
     for (const file of readdirSync(original)) {
         // The real catalog opens manifests with O_NOFOLLOW. Preserve that guard.

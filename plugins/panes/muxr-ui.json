@@ -32,6 +32,7 @@
       "id": "tools-sheet",
       "type": "native",
       "primitive": "item-list",
+      "quickAction": true,
       "params": {
         "title": "Tools",
         "icon": "construct-outline",

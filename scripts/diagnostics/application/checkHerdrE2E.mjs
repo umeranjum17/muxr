@@ -328,14 +328,16 @@ async function run() {
     if (typeof attached?.paneId !== 'string') fail('terminal.attach returned no paneId');
     const term = new WebSocket(terminalSocketUrl(relayUrl, { machineId, channel, role: 'client' }));
     const frames = [];
-    let closed = false;
+    let closedReason;
+    let socketClosed = false;
     term.on('message', (raw) => {
         try {
             const frame = JSON.parse(String(raw));
             if (frame.type === 'terminal.frame') frames.push(frame);
-            if (frame.type === 'terminal.closed') closed = true;
+            if (frame.type === 'terminal.closed') closedReason = frame.reason;
         } catch { /* ignore */ }
     });
+    term.on('close', () => { socketClosed = true; });
     await new Promise((resolve, reject) => {
         term.once('open', resolve);
         term.once('error', reject);
@@ -344,11 +346,25 @@ async function run() {
     console.log(`ok: terminal stream live (${frames.length} frame(s))`);
 
     // 4. input round-trip: type into the pane and look for the echo in frames
+    const framesBeforeInput = frames.length;
     const marker = `e2e${Date.now().toString(36)}`;
     term.send(JSON.stringify({ type: 'terminal.input', text: marker }));
     await new Promise((resolve) => setTimeout(resolve, 3000));
     const text = Buffer.concat(frames.map((frame) => Buffer.from(frame.bytes, 'base64'))).toString('utf8');
-    if (!text.includes(marker)) fail(`typed input never echoed back (${frames.length} frames, ${text.length} bytes)`);
+    if (!text.includes(marker)) {
+        const stream = closedReason === undefined || closedReason === null
+            ? (socketClosed ? 'socket closed' : 'open')
+            : `closed: ${closedReason}`;
+        let paneScreen;
+        try {
+            paneScreen = runHerdr(['pane', 'read', attached.paneId, '--source', 'visible'], 5_000).includes(marker)
+                ? 'marker reached the pane screen'
+                : 'marker never reached the pane screen';
+        } catch (cause) {
+            paneScreen = `pane screen unreadable: ${cause instanceof Error ? cause.message : String(cause)}`;
+        }
+        fail(`typed input never echoed back (${framesBeforeInput} frame(s) before input, ${frames.length} after, ${text.length} bytes, stream ${stream}, ${paneScreen})`);
+    }
     console.log('ok: input echoed back through the terminal stream');
 
     // Graphics needs cell metrics on attach; Herdr then forwards the pane's

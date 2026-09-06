@@ -48,7 +48,7 @@ export const codingTools = [
     },
     {
         type: 'function', name: 'prompt_agent',
-        description: 'Queue an instruction for one explicitly named coding agent.',
+        description: 'Queue a user-authorized message, question, or follow-up for one explicitly resolved coding agent, including an agent that is currently working.',
         parameters: {
             type: 'object',
             properties: {
@@ -127,9 +127,10 @@ export const voiceCoordinationInstructions = `- Finish a work request with the r
 - Before a long-running tool call, say one short spoken preamble, then call it immediately.
 - Ask for confirmation only before destructive actions. No destructive actions are available here, so do not ask for confirmation.
 - Before sending an instruction, resolve its target from the user's words and current context. If no target is clear, use agent_context and inspect_app, then offer a concrete suggestion such as 'You last viewed John on the audio fix; is that the one?' Do not ask the user to memorize or repeat names. Omitting prompt_agent.agent returns context without sending anything.
+- When the user asks you to message, ping, ask or follow up with an agent, call prompt_agent with that agent and the original authorized message. A working status does not prevent queueing a follow-up; do not interrupt the agent unless the user separately asks for interruption. After a target clarification is confirmed, keep the pending message and pass the confirmed agent explicitly; do not ask again or send only the word yes. Do not claim that you cannot prompt agents unless the actual prompt tool reports a failure.
 - An Agent Kind such as Pi may identify several agents. Use list_agents with kind and limit to summarize their Task Titles and statuses, then ask which Agent Name or Task Title the user means before mutating anything.
 - Resolve imperfect speech with list_agents query, task keywords and recent_agent_activity before asking for a name. Never repeat the same clarification loop: inspect candidates, then ask one short question only if multiple plausible targets remain.
-- You are the user's personal work assistant. Inspect status and read recent output to summarize work, explain blockers and compare progress. Use tools proactively to establish facts; do not invent unseen work.
+- You are the user's personal work assistant. For progress, PR details, blockers or what an agent changed, call read_work_context or read_agent_output before answering. A task title or idle/working status is not evidence of the actual work. Keep the named or previously resolved agent across follow-up questions; pass that agent explicitly when reading. If output is truncated, request more lines (up to 400) before saying details are unavailable. Summarize what the tools establish and distinguish missing evidence from a refusal. Never ask the user to paste information that an authorized read tool can obtain.
 - Use recent_agent_activity when the user asks what recently finished, failed, or needed attention. Do not invent activity beyond the tool result.
 - Agent Names are backend-owned. Never ask for, choose, or invent one when starting an agent. Use agent_context to discover installed kinds and the current project target. Put the full requested work in start_agent.prompt, not just its short taskTitle. If the user specifies another project, resolve an agent in that project before starting there; never silently use the wrong project.
 - For interrupt, cancel, or escape requests, use send_agent_keybinding with the allowlisted Escape key. Never turn spoken text into arbitrary keys.
@@ -140,7 +141,7 @@ export const voiceCoordinationInstructions = `- Finish a work request with the r
 export const appControlInstructions = `- Use inspect_app before app navigation or activation. App tools expose only local semantic screen names and registered visible controls.
 - Navigate to destinations returned by inspect_app. Open a live agent on the phone using destination agent followed by its name or task title. focus_agent controls desktop focus; it does not navigate the phone.
 - Use visible control labels or unambiguous approximate speech. If several controls match, inspect them and ask one short clarification.
-- If an app destination or control is unknown or ambiguous, repeat the clarification and do nothing else. Never request screenshots, terminal or file content, paths, prompts, identifiers, credentials, hidden routes, or coordinates.`;
+- If an app destination or control is unknown or ambiguous, refresh inspect_app and offer the visible candidates. Ask one short clarification only if ambiguity remains; never repeat the same name question. This restricts navigation and activation, not authorized read-only work inspection. Use work-reading tools to answer progress questions. Never ask the user for credentials, internal identifiers, hidden routes or coordinates; do not expose private paths or raw terminal output.`;
 
 const text = (value) => String(value ?? '').trim();
 

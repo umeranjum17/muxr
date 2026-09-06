@@ -4,6 +4,7 @@ import {
     chmodSync,
     cpSync,
     existsSync,
+    lstatSync,
     mkdirSync,
     mkdtempSync,
     readFileSync,
@@ -371,10 +372,48 @@ try {
     });
     assert.notEqual(unconfiguredProduction.status, 0, 'production config accepted missing publishing origin');
 
+    // The release flow demands a clean source checkout, so mirror the exact
+    // working-tree source (existing tracked + nonignored untracked files) plus
+    // only the generated build outputs pack.mjs actually consumes into the
+    // scratch dir, and record the mirror as its own clean git commit. The real
+    // checkout and index stay untouched while pack, sealing, verification and
+    // tamper rejection exercise the true production path.
+    const snapshot = join(scratch, 'clean-src');
+    mkdirSync(snapshot, { recursive: true });
+    const listNull = (args) => {
+        const result = spawnSync('git', ['ls-files', '-z', ...args], { cwd: root, maxBuffer: 256 * 1024 * 1024 });
+        if (result.status !== 0) throw new Error(`git ls-files ${args.join(' ')} failed (${result.status})`);
+        return result.stdout.toString('utf8').split('\0').filter((entry) => entry !== '');
+    };
+    const sourceFiles = [...new Set(listNull(['--cached', '--others', '--exclude-standard']))]
+        .map((entry) => ({ entry, info: lstatSync(join(root, entry), { throwIfNoEntry: false }) }))
+        .filter((item) => item.info?.isFile() || item.info?.isSymbolicLink());
+    const listFile = join(scratch, 'snapshot-files.txt');
+    writeFileSync(listFile, sourceFiles.map((item) => `${item.entry}\0`).join(''));
+    const snapshotArchive = join(scratch, 'snapshot-files.tar');
+    run('tar', ['--create', `--file=${snapshotArchive}`, `--directory=${root}`, '--null', `--files-from=${listFile}`]);
+    run('tar', ['--extract', `--file=${snapshotArchive}`, `--directory=${snapshot}`]);
+    for (const output of ['apps/host/dist', 'apps/relay/dist', 'packages/crypto/dist', 'packages/contract/dist',
+        'scripts/setup/domain/dist', 'scripts/plugin/domain/dist', 'apps/mobile/dist']) {
+        if (existsSync(join(root, output))) cpSync(join(root, output), join(snapshot, output), { recursive: true });
+    }
+    symlinkSync(join(root, 'node_modules'), join(snapshot, 'node_modules'), 'dir');
+    run('git', ['init', '-q', snapshot]);
+    const gitInSnapshot = (...args) => run('git', ['-c', 'user.name=muxr package smoke', '-c', 'user.email=package-smoke@muxr.invalid', ...args], { cwd: snapshot });
+    gitInSnapshot('add', '-A');
+    gitInSnapshot('commit', '-q', '-m', 'package smoke source snapshot');
+    assert.equal(run('git', ['status', '--porcelain', '--untracked-files=normal'], { cwd: snapshot }).stdout, '', 'smoke source snapshot is not a clean checkout');
+
     run(process.execPath, ['scripts/release/application/pack.mjs'], {
+        cwd: snapshot,
         env: { ...process.env, MUXR_PACKAGE_CONTROL_URL: 'https://package-smoke.invalid' },
     });
-    const packed = JSON.parse(run('npm', ['pack', '--json', '--pack-destination', tarDir], { cwd: join(root, 'dist-npm') }).stdout);
+    // The lifecycle flow resolves only one thing from its working directory:
+    // the packed plugin runtime. Run this repository's script against the
+    // snapshot just built here, rather than from a repository root that has no
+    // dist-npm on a clean checkout.
+    run(process.execPath, [join(root, 'scripts', 'diagnostics', 'application', 'packageLifecycleSmoke.mjs')], { cwd: snapshot });
+    const packed = JSON.parse(run('npm', ['pack', '--json', '--pack-destination', tarDir], { cwd: join(snapshot, 'dist-npm') }).stdout);
     const packedInfo = Array.isArray(packed) ? packed[0] : Object.values(packed)[0];
     const tarball = join(tarDir, packedInfo.filename);
     const listing = run('tar', ['-tf', tarball]).stdout.split('\n');
@@ -407,7 +446,7 @@ try {
     assert.ok(listing.includes('package/web/index.html'), 'secure browser client missing from npm artifact');
     assert.ok(listing.includes('package/web/install.sh'), 'hosted npm installer wrapper missing from web artifact');
     assert.ok(!listing.some((file) => /apps\/relay|commerce|stripe|website|betaCodeAdmin|controlPlane|controlRepository/i.test(file)), 'private control-plane source shipped in npm artifact');
-    run(process.execPath, ['scripts/diagnostics/application/checkNoSecrets.mjs']);
+    run(process.execPath, ['scripts/diagnostics/application/checkNoSecrets.mjs'], { cwd: snapshot });
     const hostBundle = run('tar', ['-xOf', tarball, 'package/host.js']).stdout;
     const cryptoBundle = run('tar', ['-xOf', tarball, 'package/crypto.js']).stdout;
     assert.doesNotMatch(`${hostBundle}\n${cryptoBundle}`, /(?:apps|packages)\/(?:host|wire|contract|crypto)\/(?:src|dist)\//, 'bundle leaked proprietary source paths');
@@ -415,7 +454,7 @@ try {
     const packageJson = JSON.parse(run('tar', ['-xOf', tarball, 'package/package.json']).stdout);
     // Follow the actual packaged artifact through sealing, verification and tamper rejection.
     const sealed = await sealRelease({ directory: tarDir, version: packageJson.version,
-        channel: packageJson.muxrRelease.channel, files: [packedInfo.filename], runId: '1' });
+        channel: packageJson.muxrRelease.channel, files: [packedInfo.filename], runId: '1', sourceRoot: snapshot });
     const verifyRequest = { directory: tarDir, version: packageJson.version,
         channel: packageJson.muxrRelease.channel, commit: sealed.source.commit, runId: '1' };
     await verifyRelease(verifyRequest);
@@ -802,6 +841,18 @@ try {
     });
     assert.match(betaCheck.stdout, /available on beta/);
     assert.ok(!existsSync(updateLog), 'channel check changed the installation');
+    const exactCheck = run(cli, ['update', '--to', '9.9.8', '--check'], {
+        cwd: installDir, env: { ...updateEnv, MUXR_UPDATE_LATEST: '9.9.8' },
+    });
+    assert.match(exactCheck.stdout, /9\.9\.8 is available/);
+    const substituted = run(cli, ['update', '--to', '9.9.8', '--yes'], { cwd: installDir, env: updateEnv, allowFailure: true });
+    assert.notEqual(substituted.status, 0, 'exact target accepted a different registry version');
+    const exactDowngrade = run(cli, ['update', '--to', '0.0.1', '--allow-downgrade', '--check'], {
+        cwd: installDir, env: { ...updateEnv, MUXR_UPDATE_LATEST: '0.0.1' },
+    });
+    assert.match(exactDowngrade.stdout, /0\.0\.1 is available/);
+    assert.ok(!existsSync(updateLog), 'exact-version checks changed the installation');
+
     const wrongChannel = run(cli, ['update', '--channel', 'beta', '--yes'], {
         cwd: installDir, env: updateEnv, allowFailure: true,
     });
@@ -814,7 +865,7 @@ try {
     assert.match(`${prefixMismatch.stdout}${prefixMismatch.stderr}`, /different npm prefix/);
     assert.ok(!existsSync(updateLog), 'prefix mismatch reached npm install');
 
-    run(cli, ['update', '--yes'], { cwd: installDir, env: updateEnv });
+    run(cli, ['update', '--to', '9.9.9', '--yes'], { cwd: installDir, env: updateEnv });
     assert.match(readFileSync(updateLog, 'utf8'), /install --global --ignore-scripts @trymuxr\/cli@9\.9\.9/);
     const linuxUnit = readFileSync(join(home, '.config', 'systemd', 'user', 'muxr.service'), 'utf8');
     assert.match(linuxUnit, /MUXR_MODE=.*selfhost/, 'update removed the daemon mode');
@@ -898,6 +949,83 @@ try {
 
     const lingerLog = join(scratch, 'linger.log');
     writeFileSync(join(binDir, 'systemctl'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+    if (process.platform === 'linux') {
+        // Drive the installed repair CLI and worker. Only npm/systemd are fake,
+        // and every installation, journal and state file lives in this scratch.
+        const repairNpm = join(binDir, 'repair-npm');
+        const repairUnit = join(scratch, 'repair-unit.json');
+        const installedRoot = join(installDir, 'node_modules/@trymuxr/cli');
+        const installedManifestPath = join(installedRoot, 'package.json');
+        const originalPackage = readFileSync(installedManifestPath, 'utf8');
+        const originalVersion = JSON.parse(originalPackage).version;
+        writeFileSync(repairNpm, `#!${process.execPath}
+const fs=require('node:fs'),path=require('node:path'),a=process.argv.slice(2);
+if(a[0]==='root') console.log(process.env.MUXR_UPDATE_NPM_ROOT);
+else if(a[0]==='view') {
+ const version=a[1].slice(a[1].lastIndexOf('@')+1);
+ console.log(JSON.stringify(a.includes('muxrCompatibility')?{version,muxrCompatibility:{protocol:1,state:process.env.REPAIR_BAD_STATE?'99':1},'dist.integrity':'sha512-fixture'}:version));
+} else if(a[0]==='install') {
+ const version=a.at(-1).slice(a.at(-1).lastIndexOf('@')+1);
+ if(process.env.REPAIR_INSTALL_FAIL===version) process.exit(1);
+ const file=path.join(process.env.MUXR_UPDATE_NPM_ROOT,'@trymuxr/cli/package.json');
+ const pkg=JSON.parse(fs.readFileSync(file));pkg.version=version;fs.writeFileSync(file,JSON.stringify(pkg));
+ const dir=process.env.MUXR_DATA_DIR||path.join(process.env.HOME,'.muxr/host');fs.mkdirSync(dir,{recursive:true});fs.writeFileSync(path.join(dir,'diagnostics.json'),JSON.stringify({current:{hostVersion:version,relayState:'open',startedAt:new Date().toISOString()}}));
+} else process.exit(1);
+`, { mode: 0o755 });
+        writeFileSync(join(binDir, 'systemd-run'), `#!${process.execPath}\nrequire('node:fs').writeFileSync(${JSON.stringify(repairUnit)},JSON.stringify(process.argv.slice(2)));\n`, { mode: 0o755 });
+        const repairEnv = { ...updateEnv, MUXR_NPM_BIN: repairNpm, MUXR_DATA_DIR: join(scratch, 'custom-host-data') };
+        const repair = (request, extra = {}) => JSON.parse(run(cli, ['host-repair', JSON.stringify({ owner: 'fixture-device', ...request })], {
+            cwd: installDir, env: { ...repairEnv, ...extra }, allowFailure: true,
+        }).stdout);
+        assert.equal(repair({ action: 'plan', appVersion: originalVersion, protocol: 1 }).status, 'compatible');
+        assert.equal(repair({ action: 'plan', appVersion: '9.9.8', protocol: 1 }, { REPAIR_BAD_STATE: '1' }).canApply, false);
+        assert.equal(repair({ action: 'plan', appVersion: '9.9.8-beta.1', protocol: 1 }).compatible, true);
+        assert.equal(repair({ action: 'plan', appVersion: 'unknown', protocol: 1 }).canApply, false);
+        writeFileSync(installedManifestPath, JSON.stringify({ ...JSON.parse(originalPackage), version: '9.9.8-beta.1' }));
+        assert.equal(repair({ action: 'plan', appVersion: '9.9.8-beta.1', protocol: 1 }).status, 'compatible');
+        assert.equal(repair({ action: 'plan', appVersion: '9.9.8-beta.2', protocol: 1 }).canApply, true);
+        writeFileSync(installedManifestPath, originalPackage);
+        for (const fail of [false, true]) {
+            const plan = repair({ action: 'plan', appVersion: '9.9.8', protocol: 1 });
+            assert.equal(plan.canApply, true);
+            assert.match(repair({ action: 'apply', planId: plan.planId, owner: 'other-device' }).error, /another paired device/);
+            assert.equal(existsSync(repairUnit), false, 'planning or another device started an installer');
+            const queued = repair({ action: 'apply', planId: plan.planId });
+            assert.equal(queued.status, 'queued');
+            assert.equal(repair({ action: 'apply', planId: plan.planId }).status, 'queued', 'duplicate apply was not idempotent');
+            const unit = JSON.parse(readFileSync(repairUnit, 'utf8'));
+            assert.ok(unit.includes('--user') && unit.includes('--collect'));
+            assert.ok(unit.includes(`--setenv=MUXR_DATA_DIR=${repairEnv.MUXR_DATA_DIR}`));
+            assert.equal(unit.at(-2), '--worker');
+            const job = unit.at(-1);
+            assert.ok(job.startsWith(join(home, '.muxr/updates/active/')));
+            const stateBefore = readFileSync(join(home, '.muxr/selfhost.json'), 'utf8');
+            run(process.execPath, [join(installedRoot, 'release/application/repairHost.mjs'), '--worker', job], {
+                cwd: installDir, env: { ...repairEnv, ...(fail ? { REPAIR_INSTALL_FAIL: '9.9.8' } : {}) }, timeout: 90000,
+            });
+            const result = repair({ action: 'status', planId: plan.planId });
+            assert.equal(result.status, fail ? 'rolled-back' : 'complete');
+            assert.equal(readFileSync(join(home, '.muxr/selfhost.json'), 'utf8'), stateBefore, 'repair rewrote enrollment');
+            const snapshot = join(home, '.muxr/updates', `${plan.planId}-snapshot`, 'selfhost.json');
+            assert.equal(statSync(snapshot).mode & 0o777, 0o600);
+            assert.equal(existsSync(join(home, '.muxr/updates/active')), false);
+            writeFileSync(installedManifestPath, originalPackage);
+            rmSync(repairUnit);
+        }
+        // Simulate a reboot between queueing and worker execution. The installed
+        // prior host is healthy; status reconciles it and permits a fresh plan.
+        const interrupted = repair({ action: 'plan', appVersion: '9.9.8', protocol: 1 });
+        repair({ action: 'apply', planId: interrupted.planId });
+        const record = join(home, '.muxr/updates', `${interrupted.planId}.json`);
+        const savedPlan = JSON.parse(readFileSync(record)); savedPlan.queuedAt -= 60_000;
+        writeFileSync(record, JSON.stringify(savedPlan));
+        mkdirSync(repairEnv.MUXR_DATA_DIR, { recursive: true });
+        writeFileSync(join(repairEnv.MUXR_DATA_DIR, 'diagnostics.json'), JSON.stringify({current:{hostVersion:originalVersion,relayState:'open',startedAt:new Date().toISOString()}}));
+        assert.equal(repair({ action: 'status', planId: interrupted.planId }).status, 'interrupted');
+        assert.equal(existsSync(join(home, '.muxr/updates/active')), false);
+        assert.equal(repair({ action: 'plan', appVersion: '9.9.8', protocol: 1 }).canApply, true);
+        rmSync(repairUnit);
+    }
     writeFileSync(join(binDir, 'loginctl'), `#!/bin/sh\nif [ "$1" = show-user ]; then echo no; exit 0; fi\necho "$*" >> "${lingerLog}"\nexit 0\n`, { mode: 0o755 });
     const lingerHome = join(scratch, 'linger-home');
     mkdirSync(lingerHome, { recursive: true });

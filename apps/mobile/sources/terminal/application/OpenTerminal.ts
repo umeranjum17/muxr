@@ -33,7 +33,7 @@ export interface TerminalChannel {
     resize: (cols: number, rows: number, cell?: { width: number; height: number }) => void;
     pointer: (phase: 'down' | 'move' | 'up', x: number, y: number, width: number, height: number) => void;
     /** Scroll the real pane. Positive lines go back (up), negative go forward. */
-    scroll: (lines: number, at?: { column: number; row: number }) => void;
+    scroll: (lines: number, at?: { column: number; row: number; x?: number; y?: number; width?: number; height?: number }) => void;
     /** Retry now: resets backoff and re-attaches unless the stream is live or closed. */
     /** Pass true only for a user's explicit same-pane takeover action. */
     reconnect: (explicitTakeover?: boolean) => void;
@@ -46,6 +46,7 @@ export type OpenTerminalCommand = {
     agentRoute: string;
     size: { cols: number; rows: number; cellWidthPx?: number; cellHeightPx?: number };
     mode?: 'control' | 'observe';
+    signal?: AbortSignal;
 };
 
 // ponytail: bounded retries (~2.5 min worst case), then the channel reports
@@ -53,6 +54,12 @@ export type OpenTerminalCommand = {
 const MAX_ATTEMPTS = 15;
 
 export async function openTerminal(command: OpenTerminalCommand): Promise<TerminalChannel> {
+    let closedByUser = false;
+    let attachSent = false;
+    const assertOpen = (): void => {
+        if (closedByUser || command.signal?.aborted) throw new Error('terminal: open cancelled');
+    };
+    assertOpen();
     const sessionId = command.agentRoute;
     const size = command.size;
     const options = command.mode === undefined ? undefined : { mode: command.mode };
@@ -77,17 +84,30 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
     let current = size;
 
     // The host must be on the channel before the relay will pair a client.
-    const sendAttachRequest = (takeover: boolean, graphicsReset: boolean): Promise<unknown> => sync.request('terminal.attach', {
-        sessionId,
-        channel,
-        cols: current.cols,
-        rows: current.rows,
-        ...(current.cellWidthPx === undefined ? {} : { cellWidthPx: current.cellWidthPx }),
-        ...(current.cellHeightPx === undefined ? {} : { cellHeightPx: current.cellHeightPx }),
-        ...(options?.mode === undefined ? {} : { mode: options.mode }),
-        ...(grant === undefined ? {} : { deviceId: grant.deviceId, takeover }),
-        ...(graphicsReset ? { graphicsReset: true } : {}),
-    });
+    const sendAttachRequest = async (takeover: boolean, graphicsReset: boolean): Promise<unknown> => {
+        assertOpen();
+        attachSent = true;
+        try {
+            return await sync.request('terminal.attach', {
+                sessionId,
+                channel,
+                cols: current.cols,
+                rows: current.rows,
+                ...(current.cellWidthPx === undefined ? {} : { cellWidthPx: current.cellWidthPx }),
+                ...(current.cellHeightPx === undefined ? {} : { cellHeightPx: current.cellHeightPx }),
+                ...(options?.mode === undefined ? {} : { mode: options.mode }),
+                ...(grant === undefined ? {} : { deviceId: grant.deviceId, takeover }),
+                ...(graphicsReset ? { graphicsReset: true } : {}),
+            });
+        } finally {
+            // A detach during the request can precede host-side registration.
+            // Retire again once that request settles, without opening a socket.
+            if (closedByUser) {
+                attachSent = true;
+                close();
+            }
+        }
+    };
     const attachOnce = (takeover: boolean, graphicsReset: boolean): Promise<unknown> => grant === undefined
         ? sendAttachRequest(takeover, graphicsReset)
         : (async () => {
@@ -119,7 +139,6 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
         recordTerminalChannel('attach', { ok: false, code: 'ticket-required' });
         throw new Error('terminal: relay ticket required');
     }
-    await attach(true, false);
 
     const dataListeners = new Set<(base64: string, graphics?: boolean) => void>();
     const pendingData: { bytes: string; graphics?: boolean }[] = [];
@@ -141,7 +160,6 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
     const outbox: string[] = [];
     let socket: WebSocket | undefined;
     let frameCounts: TerminalFrameCountToken | undefined;
-    let closedByUser = false;
     let closedByTakeover = false;
 
     const finalizeCounts = (): void => {
@@ -156,7 +174,10 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
     let takeoverRequested = false;
     let graphicsResetRequested = false;
 
-    const emitState = (state: TerminalChannelState): void => {
+    let state: TerminalChannelState = 'reconnecting';
+    const emitState = (nextState: TerminalChannelState): void => {
+        if (state === nextState) return;
+        state = nextState;
         recordTerminalChannel(state, { ok: true });
         for (const listener of stateListeners) listener(state);
     };
@@ -224,7 +245,6 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
         if (retaking && socket !== undefined) {
             const stale = socket;
             socket = undefined;
-            stale.onclose = () => {};
             stale.close();
         }
         if (attachInFlight !== undefined) {
@@ -258,26 +278,22 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
         if (closedByUser || socket !== undefined) return;
         const next = new WebSocket(url);
         socket = next;
-        let opened = false;
         let firstFrame = false;
         const openStarted = Date.now();
-        // Never wait forever for a relay that will never answer.
+        // Socket-open proves only relay connectivity. Require the host's first
+        // terminal frame, otherwise an orphaned relay can look live forever.
         const openTimer = setTimeout(() => {
-            if (!opened) next.close();
+            if (socket === next && !closedByUser && !firstFrame) next.close();
         }, 15_000);
 
         next.onopen = () => {
-            clearTimeout(openTimer);
             if (socket !== next || closedByUser) {
                 next.close();
                 return;
             }
-            opened = true;
-            attempts = 0;
             recordTerminalChannel('socket-open', { ok: true });
             finalizeCounts();
             frameCounts = beginTerminalFrameCounts();
-            emitState('live');
             for (const line of outbox.splice(0)) next.send(line);
         };
         next.onerror = () => next.close();
@@ -297,6 +313,8 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
                     }
                     plaintext = await hosted.open('terminal', channel, envelope.payload, envelope.header.seq);
                 }
+                // Decryption may settle after repaint/reconnect replaced this socket.
+                if (socket !== next || closedByUser) return;
                 const frame: unknown = JSON.parse(plaintext);
                 if (typeof frame !== 'object' || frame === null || !('type' in frame)) {
                     throw new Error('terminal: invalid host frame');
@@ -313,12 +331,16 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
                     if (frameCounts !== undefined) recordTerminalFrameReceived(frameCounts);
                     if (!firstFrame) {
                         firstFrame = true;
+                        clearTimeout(openTimer);
+                        attempts = 0;
+                        emitState('live');
                         recordTerminalFirstFrame(Date.now() - openStarted);
                     }
                     if (typeof graphics === 'boolean') emitGraphics(graphics, reason, surface);
                     if (dataListeners.size === 0) pendingData.push(typeof graphics === 'boolean' ? { bytes, graphics } : { bytes });
                     else for (const listener of dataListeners) listener(bytes, graphics);
                 } else if (frame.type === 'terminal.closed') {
+                    clearTimeout(openTimer);
                     const reason = 'reason' in frame && typeof frame.reason === 'string' ? frame.reason : undefined;
                     emitGraphics(false);
                     // Automatic foreground/reconnect must not steal control back.
@@ -349,7 +371,37 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
             scheduleRetry();
         };
     }
-    await connectSocket();
+    function close(): void {
+        closedByUser = true;
+        closedByTakeover = false;
+        command.signal?.removeEventListener('abort', close);
+        emitGraphics(false);
+        finalizeCounts();
+        attachRequested = false;
+        takeoverRequested = false;
+        graphicsResetRequested = false;
+        if (retryTimer !== undefined) {
+            clearTimeout(retryTimer);
+            retryTimer = undefined;
+        }
+        if (attachSent) {
+            attachSent = false;
+            void sync.request('terminal.detach', { sessionId, channel }).catch(() => {});
+        }
+        socket?.close();
+    }
+
+    command.signal?.addEventListener('abort', close, { once: true });
+    try {
+        assertOpen();
+        await attach(true, false);
+        assertOpen();
+        await connectSocket();
+        assertOpen();
+    } catch (error) {
+        close();
+        throw error;
+    }
 
     const send = (frame: Record<string, unknown>): void => {
         const plaintext = JSON.stringify(frame);
@@ -388,6 +440,7 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
         },
         onState: (listener) => {
             stateListeners.add(listener);
+            listener(state);
             return () => stateListeners.delete(listener);
         },
         sendText: (text) => send({ type: 'terminal.input', text }),
@@ -417,9 +470,9 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
             if (closedByUser) return;
             const stale = socket;
             socket = undefined;
+            emitState('reconnecting');
             emitGraphics(false);
             if (stale !== undefined) {
-                stale.onclose = () => {}; // this close is deliberate, not a drop
                 stale.close();
             }
             attempts = 0;
@@ -432,25 +485,12 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
                 type: 'terminal.scroll',
                 direction: lines > 0 ? 'up' : 'down',
                 lines: n,
-                ...(at === undefined ? {} : { column: Math.max(0, Math.trunc(at.column)), row: Math.max(0, Math.trunc(at.row)) }),
+                ...(at === undefined ? {} : { ...at, column: Math.max(0, Math.trunc(at.column)), row: Math.max(0, Math.trunc(at.row)) }),
             });
         },
         recordFrameWritten: () => {
             if (frameCounts !== undefined) recordTerminalFrameWritten(frameCounts);
         },
-        close: () => {
-            emitGraphics(false);
-            closedByUser = true;
-            finalizeCounts();
-            attachRequested = false;
-            takeoverRequested = false;
-            graphicsResetRequested = false;
-            if (retryTimer !== undefined) {
-                clearTimeout(retryTimer);
-                retryTimer = undefined;
-            }
-            void sync.request('terminal.detach', { sessionId, channel }).catch(() => {});
-            socket?.close();
-        },
+        close,
     };
 }

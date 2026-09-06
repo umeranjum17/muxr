@@ -27,6 +27,7 @@ const mocks = vi.hoisted(() => ({
     seal: vi.fn((channel: string, streamId: string, plaintext: string) => ({ payload: `sealed:${plaintext}`, sequence: 7 })),
     open: vi.fn(async (channel: string, streamId: string, payload: string) => payload.slice('sealed:'.length)),
     fetch: vi.fn(),
+    refresh: vi.fn(),
 }));
 
 vi.mock('@/connection', () => ({
@@ -44,7 +45,7 @@ vi.mock('@/catalog/sync', () => ({
 
 vi.mock('@/pairing/e2ee', () => ({
     getCachedHostedGrant: () => grant,
-    refreshHostedGrant: async () => grant,
+    refreshHostedGrant: mocks.refresh,
     DeviceV2Crypto: class {
         seal = mocks.seal;
         open = mocks.open;
@@ -92,6 +93,8 @@ describe('openTerminal hosted transport', () => {
         mocks.seal.mockClear();
         mocks.open.mockClear();
         mocks.fetch.mockReset();
+        mocks.refresh.mockReset();
+        mocks.refresh.mockResolvedValue(grant);
         mocks.fetch.mockResolvedValue({
             ok: true,
             status: 201,
@@ -105,7 +108,19 @@ describe('openTerminal hosted transport', () => {
     });
 
     it('joins the channel by ticket under the grant credential, then flows sealed frames', async () => {
-        const channel = await openTerminal({ agentRoute: 'session-1', size: { cols: 100, rows: 30 } });
+        const initialGrant = Promise.withResolvers<typeof grant>();
+        mocks.refresh.mockReturnValueOnce(initialGrant.promise);
+        const abandoned = new AbortController();
+        const opening = openTerminal({ agentRoute: 'hidden-session', size: { cols: 100, rows: 30 }, signal: abandoned.signal });
+        const outcome = opening.then((opened) => { opened.close(); return 'opened'; }, () => 'cancelled');
+        abandoned.abort();
+        initialGrant.resolve(grant);
+        expect(await outcome).toBe('cancelled');
+        expect(mocks.request).not.toHaveBeenCalled();
+        expect(FakeWebSocket.instances).toHaveLength(0);
+
+        const visible = new AbortController();
+        const channel = await openTerminal({ agentRoute: 'session-1', size: { cols: 100, rows: 30 }, signal: visible.signal });
         await vi.waitFor(() => expect(FakeWebSocket.instances.length).toBe(1));
 
         // The ticket is minted against the grant's relay with the grant
@@ -126,7 +141,7 @@ describe('openTerminal hosted transport', () => {
         const data: string[] = [];
         channel.onData((bytes) => data.push(bytes));
         socket.open();
-        expect(states).toEqual(['live']);
+        expect(states).toEqual(['reconnecting']);
 
         // Host -> phone: a sealed v2 envelope decrypts to a terminal frame.
         const streamId = body.channel as string;
@@ -146,6 +161,7 @@ describe('openTerminal hosted transport', () => {
             }),
         });
         await vi.waitFor(() => expect(data).toEqual(['aGk=']));
+        expect(states).toEqual(['reconnecting', 'live']);
         expect(mocks.open).toHaveBeenCalledWith('terminal', streamId, expect.any(String), 7);
 
         // Phone -> host: input leaves sealed on the same channel.
@@ -182,6 +198,52 @@ describe('openTerminal hosted transport', () => {
         await vi.waitFor(() => expect(mocks.request).toHaveBeenCalledTimes(2));
         await vi.waitFor(() => expect(FakeWebSocket.instances.length).toBe(2));
 
+        // A delayed decrypt from a retired stream must not close its replacement.
+        const retired = FakeWebSocket.instances[1]!;
+        retired.open();
+        let finishOld!: (frame: string) => void;
+        mocks.open.mockImplementationOnce(() => new Promise<string>((resolve) => { finishOld = resolve; }));
+        const closes: (string | undefined)[] = [];
+        channel.onClose((reason) => closes.push(reason));
+        retired.onmessage?.({ data: JSON.stringify({ header: {
+            machineId: 'machine', senderId: 'machine', recipientId: '*', channel: 'terminal',
+            streamId, keyVersion: 2, seq: 9, at: Date.now(),
+        }, payload: 'delayed' }) });
+        channel.repaint();
+        await vi.waitFor(() => expect(FakeWebSocket.instances.length).toBe(3));
+        const replacement = FakeWebSocket.instances[2]!;
+        replacement.open();
+        finishOld(JSON.stringify({ type: 'terminal.closed', reason: 'old stream ended' }));
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(closes).toEqual([]);
+        replacement.onmessage?.({ data: JSON.stringify({ header: {
+            machineId: 'machine', senderId: 'machine', recipientId: '*', channel: 'terminal',
+            streamId, keyVersion: 2, seq: 10, at: Date.now(),
+        }, payload: `sealed:${JSON.stringify({ type: 'terminal.frame', bytes: 'bmV3' })}` }) });
+        await vi.waitFor(() => expect(data.at(-1)).toBe('bmV3'));
+
+        // An open relay with no host frame is still reconnecting and has a deadline.
+        vi.useFakeTimers();
+        channel.repaint();
+        await vi.advanceTimersByTimeAsync(0);
+        const silent = FakeWebSocket.instances[3]!;
+        silent.open();
+        expect(states.at(-1)).toBe('reconnecting');
+        await vi.advanceTimersByTimeAsync(15_000);
+        expect(silent.readyState).toBe(FakeWebSocket.CLOSED);
+        await vi.advanceTimersByTimeAsync(1500);
+        expect(FakeWebSocket.instances.length).toBe(5);
+        // Leaving during a reconnect grant refresh cannot retake the pane later.
+        const attaches = mocks.request.mock.calls.filter(([method]) => method === 'terminal.attach').length;
+        const reconnectGrant = Promise.withResolvers<typeof grant>();
+        mocks.refresh.mockReturnValueOnce(reconnectGrant.promise);
+        channel.repaint();
+        visible.abort();
+        reconnectGrant.resolve(grant);
+        await vi.advanceTimersByTimeAsync(60_000);
+        expect(mocks.request.mock.calls.filter(([method]) => method === 'terminal.attach')).toHaveLength(attaches);
+        expect(FakeWebSocket.instances).toHaveLength(5);
         channel.close();
     });
 });

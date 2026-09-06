@@ -74,25 +74,14 @@ export function DocumentNavigatorBar(props: {
     const { theme } = useUnistyles();
     const insets = useSafeAreaInsets();
     const width = useWindowDimensions().width;
-    const compact = width < 340;
+    const compact = width < 360;
     const forward = I18nManager.isRTL ? -1 : 1;
     const prevIcon = forward === 1 ? 'chevron-back' : 'chevron-forward';
     const nextIcon = forward === 1 ? 'chevron-forward' : 'chevron-back';
     const navigation = props.navigation;
-    const showHunks = props.mode === 'diff' && props.hunkCount > 1;
+    const canJumpHunks = props.mode === 'diff' && props.hasDiff && props.hunkCount > 0;
     // Both modes pan now, so both can be put back into wrapping.
     const showWrap = true;
-    // Every control here is a fixed 44 dp and cannot shrink, so the row has a
-    // hard minimum: 7 buttons + 18 padding = 326 dp, against a 288 dp lane on
-    // a 320 dp screen. `flexShrink` cannot remove a fixed width - the groups
-    // would simply overlap - so controls have to leave the row instead.
-    //
-    // Below 480 dp with both nav groups the two "3/12" counters go first,
-    // 406 -> 326, which clears the 379 and 361 dp lanes. On the existing
-    // compact branch the zoom pair follows them into the menu: 5 buttons +
-    // padding = 238 dp, inside 288. Nothing loses its 44 dp target, and
-    // every count stays on its button's accessibility label.
-    const showCounts = !(showHunks && navigation !== undefined) || width >= 480;
     const showZoomChips = !compact;
 
     const [menu, setMenu] = React.useState(false);
@@ -109,7 +98,7 @@ export function DocumentNavigatorBar(props: {
             )}
             {menu && (
                 <View style={[styles.menu, {
-                    bottom: 52 + insets.bottom + 20,
+                    bottom: 52 + insets.bottom + 20 + (navigation === undefined ? 0 : 28),
                     backgroundColor: theme.colors.surface,
                     borderColor: theme.colors.divider,
                 }]}>
@@ -183,6 +172,14 @@ export function DocumentNavigatorBar(props: {
                 </View>
             )}
             <View style={[styles.lane, { bottom: 12 + insets.bottom }]} pointerEvents="box-none">
+            {navigation !== undefined && (
+                <Text
+                    accessibilityRole="text"
+                    style={[styles.position, { color: theme.colors.textSecondary, backgroundColor: theme.colors.surface }]}
+                >
+                    {t('files.filePosition', { current: navigation.index + 1, total: navigation.total })}
+                </Text>
+            )}
             <View style={[styles.bar, {
                 backgroundColor: theme.colors.surface,
                 borderColor: theme.colors.divider,
@@ -190,7 +187,7 @@ export function DocumentNavigatorBar(props: {
                 <View
                     accessible
                     accessibilityRole="summary"
-                    accessibilityLabel={props.documentLabel ?? t('files.file')}
+                    accessibilityLabel={`${props.documentLabel ?? t('files.file')}${canJumpHunks ? `, ${t('files.diff')} ${Math.min(props.hunkCount, Math.max(1, props.hunkIndex + 1))}/${props.hunkCount}` : ''}`}
                     accessibilityActions={props.accessibilityActions}
                     onAccessibilityAction={props.onAccessibilityAction}
                     style={styles.documentActions}
@@ -209,15 +206,6 @@ export function DocumentNavigatorBar(props: {
                         >
                             <Ionicons name={prevIcon} size={18} color={navigation.previous === undefined ? theme.colors.textSecondary : theme.colors.text} />
                         </NavPressable>
-                        {showCounts && (
-                            <Text
-                                accessibilityRole="text"
-                                accessibilityLabel={t('files.filePosition', { current: navigation.index + 1, total: navigation.total })}
-                                style={[styles.position, { fontSize: compact ? 10.5 : 11.5, color: theme.colors.textSecondary }]}
-                            >
-                                {navigation.index + 1}/{navigation.total}
-                            </Text>
-                        )}
                         <NavPressable
                             disabled={navigation.next === undefined}
                             onPress={() => { if (navigation.next) props.onNavigateFile?.(navigation.next.path); }}
@@ -232,21 +220,22 @@ export function DocumentNavigatorBar(props: {
                         </NavPressable>
                     </View>
                 )}
-                {showHunks && (
                     <View style={styles.group}>
                         {([['chevron-up', -1], ['chevron-down', 1]] as const).map(([icon, step]) => {
                             const atStart = step < 0 && props.hunkIndex <= 0;
                             const atEnd = step > 0 && props.hunkIndex >= props.hunkCount - 1;
-                            const disabled = atStart || atEnd;
+                            const disabled = !canJumpHunks || atStart || atEnd;
                             return (
                                 <NavPressable
                                     key={icon}
                                     disabled={disabled}
                                     onPress={() => props.onJumpHunk(step)}
                                     accessibilityRole="button"
-                                    accessibilityLabel={step < 0
-                                        ? t('files.previousChangeAt', { current: Math.max(1, props.hunkIndex), total: props.hunkCount })
-                                        : t('files.nextChangeAt', { current: Math.min(props.hunkCount, props.hunkIndex + 2), total: props.hunkCount })}
+                                    accessibilityLabel={!canJumpHunks
+                                        ? t(step < 0 ? 'files.previousChange' : 'files.nextChange')
+                                        : step < 0
+                                            ? t('files.previousChangeAt', { current: Math.max(1, props.hunkIndex), total: props.hunkCount })
+                                            : t('files.nextChangeAt', { current: Math.min(props.hunkCount, props.hunkIndex + 2), total: props.hunkCount })}
                                     accessibilityState={{ disabled }}
                                     style={() => styles.round}
                                 >
@@ -254,13 +243,7 @@ export function DocumentNavigatorBar(props: {
                                 </NavPressable>
                             );
                         })}
-                        {showCounts && (
-                            <Text style={[styles.position, { fontSize: compact ? 10.5 : 11.5, color: theme.colors.textSecondary }]}>
-                                {Math.min(props.hunkCount, props.hunkIndex + 1)}/{props.hunkCount}
-                            </Text>
-                        )}
                     </View>
-                )}
                 {showZoomChips && (
                 <View style={styles.group}>
                     {([['remove', -1], ['add', 1]] as const).map(([glyph, direction]) => {
@@ -350,11 +333,7 @@ const styles = StyleSheet.create({
     group: {
         flexDirection: 'row',
         alignItems: 'center',
-        // Belt as well as braces: if a future control pushes the row past
-        // the lane again, the groups give way instead of pushing the
-        // overflow button off the screen edge.
-        flexShrink: 1,
-        minWidth: 0,
+        flexShrink: 0,
     },
     round: {
         width: 44,
@@ -364,8 +343,14 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
     },
     position: {
-        minWidth: 40,
+        marginBottom: 6,
+        paddingHorizontal: 8,
+        paddingVertical: 3,
+        borderRadius: 8,
+        fontSize: 12,
+        lineHeight: 16,
         textAlign: 'center',
+        fontVariant: ['tabular-nums'],
         ...Typography.mono('semiBold'),
     },
 });

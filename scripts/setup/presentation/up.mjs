@@ -196,7 +196,7 @@ const lanIps = lanIpv4Addresses();
 const phoneRelay = lanIps.length > 0 ? `ws://${lanIps[0]}:${port}` : `ws://<lan-ip>:${port}`;
 const localRelay = `ws://127.0.0.1:${port}`;
 
-process.stdout.write(`
+if (!process.argv.includes('--quiet')) process.stdout.write(`
 === muxr ===
 
 Relay:       ${phoneRelay}

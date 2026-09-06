@@ -105,24 +105,23 @@ describe('file and diff navigation', () => {
             'é file.ts',
         ]);
 
-        const bin = mkdtempSync(join(tmpdir(), 'muxr-git-'));
+        const repo = mkdtempSync(join(tmpdir(), 'muxr-changes-copy-'));
         try {
-            writeFileSync(join(bin, 'git'), `#!/bin/sh
-case " $* " in
-  *" rev-parse "*) printf '%s\\n' "$2" ;;
-  *" --porcelain=v1 "*) printf 'C  copied.ts\\0kept.ts\\0' ;;
-esac
-`, { mode: 0o755 });
+            const git = (args: string[]) => execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8', timeout: 5000 });
+            git(['init', '-q', '-b', 'main']);
+            writeFileSync(join(repo, 'kept.ts'), 'export const kept = true;\n');
+            git(['add', '.']);
+            git(['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', '-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', 'commit', '-qm', 'Baseline']);
+            writeFileSync(join(repo, 'copied.ts'), 'export const kept = true;\n');
+            git(['add', 'copied.ts']);
             const items = JSON.parse(execFileSync(process.execPath, [changesScript], {
-                encoding: 'utf8',
-                env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ''}` },
-                input: JSON.stringify({ cwd: '/repo' }),
-            })).items as Array<{ title: string; group: string; icon: string }>;
-            expect(items.map(({ title, group, icon }) => ({ title, group, icon }))).toEqual([
-                { title: 'copied.ts', group: 'Renamed', icon: 'swap-horizontal-outline' },
+                encoding: 'utf8', input: JSON.stringify({ cwd: repo, sessionId: 'session-1' }), timeout: 10000,
+            })).items as Array<{ id: string; title: string; action: unknown }>;
+            expect(items.filter((item) => item.id !== 'review-context').map(({ title, action }) => ({ title, action }))).toEqual([
+                { title: 'copied.ts', action: { type: 'kernel.navigate', target: 'file', path: join(repo, 'copied.ts') } },
             ]);
         } finally {
-            rmSync(bin, { recursive: true, force: true });
+            rmSync(repo, { recursive: true, force: true });
         }
 
         const reviewKey = recordFileNavigation({

@@ -718,11 +718,48 @@ describe('providerRefusal', () => {
 
     it('keeps Codex OAuth host-only while bounding signaling and lifecycle frames', async () => {
         const requests = [];
+        const planningRequests = [];
         const server = createServer((request, response) => {
             let body = '';
             request.on('data', (chunk) => { body += chunk; });
             request.on('end', () => {
-                requests.push({ headers: request.headers, body: JSON.parse(body) });
+                const parsed = JSON.parse(body);
+                if (request.url === '/responses') {
+                    planningRequests.push(parsed);
+                    const latestRequest = parsed.input.filter((entry) => entry.type === 'message' && entry.role === 'user').at(-1);
+                    if (latestRequest?.content?.[0]?.text === 'Ask John for an update.') {
+                        const item = { id: 'failed_fixture', type: 'function_call', call_id: 'failed_call', name: 'prompt_agent', arguments: JSON.stringify({ agent: 'John', text: 'Report your status.' }) };
+                        response.writeHead(200, { 'content-type': 'text/event-stream' });
+                        response.end(`data: ${JSON.stringify({ type: 'response.output_item.done', item })}\n\ndata: ${JSON.stringify({ type: 'response.failed', response: { error: { message: 'Fixture provider refusal' } } })}\n\n`);
+                        return;
+                    }
+                    if (latestRequest?.content?.[0]?.text === 'Ping the agent I was using for a progress update and blockers.') {
+                        const answered = parsed.input.some((item) => item.type === 'function_call_output' && item.call_id === 'repeat_call');
+                        const item = answered
+                            ? { id: 'repeat_message_fixture', type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'Queued: progress update request for John.' }] }
+                            : { id: 'repeat_call_fixture', type: 'function_call', call_id: 'repeat_call', name: 'prompt_agent', arguments: JSON.stringify({ agent: 'John', text: 'Report your progress and blockers.' }) };
+                        response.writeHead(200, { 'content-type': 'text/event-stream' });
+                        response.end(`data: ${JSON.stringify({ type: 'response.output_item.done', item })}\n\ndata: ${JSON.stringify({ type: 'response.completed', response: { id: 'response_repeat', status: 'completed', output: [item] } })}\n\n`);
+                        return;
+                    }
+                    if (latestRequest?.content?.[0]?.text === 'Yes, go ahead and ask John for the progress update.') {
+                        const answered = parsed.input.some((item) => item.type === 'function_call_output' && item.call_id === 'confirm_call');
+                        const item = answered
+                            ? { id: 'confirm_message_fixture', type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'Queued: the confirmed progress update for John.' }] }
+                            : { id: 'confirm_call_fixture', type: 'function_call', call_id: 'confirm_call', name: 'prompt_agent', arguments: JSON.stringify({ agent: 'John', text: 'Report your progress and blockers.' }) };
+                        response.writeHead(200, { 'content-type': 'text/event-stream' });
+                        response.end(`data: ${JSON.stringify({ type: 'response.output_item.done', item })}\n\ndata: ${JSON.stringify({ type: 'response.completed', response: { id: 'response_confirm', status: 'completed', output: [item] } })}\n\n`);
+                        return;
+                    }
+                    const answered = parsed.input.some((item) => item.type === 'function_call_output');
+                    const item = answered
+                        ? { id: 'message_fixture', type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'Queued: instruction for Jane.' }] }
+                        : { id: 'function_fixture', type: 'function_call', call_id: 'call_fixture', name: 'prompt_agent', arguments: JSON.stringify({ agent: 'Jane', text: 'Explain the review delay.' }) };
+                    response.writeHead(200, { 'content-type': 'text/event-stream' });
+                    response.end(`data: ${JSON.stringify({ type: 'response.output_item.done', item })}\n\ndata: ${JSON.stringify({ type: 'response.completed', response: { id: 'response_fixture', status: 'completed', output: [item] } })}\n\n`);
+                    return;
+                }
+                requests.push({ headers: request.headers, body: parsed });
                 response.writeHead(201, { 'content-type': 'application/sdp' });
                 response.end('v=0\r\na=answer');
             });
@@ -741,11 +778,16 @@ describe('providerRefusal', () => {
         const reads = [];
         const mutations = [];
         const agent = { sessionId: 'pp_summary_private', cwd: codexState, agentName: 'John', taskTitle: 'Repair voice', agentKind: 'codex', agentStatus: 'idle', promptable: true };
+        const reviewer = { ...agent, sessionId: 'pp_review_private', agentName: 'Jane', taskTitle: 'Review attachment polish', agentStatus: 'working' };
         const refuseMutation = async () => { mutations.push('unexpected'); throw new Error('No mutation authorized in this flow'); };
         const coordinator = new RealtimeCodingCoordinator(join(codexState, 'coding.sock'), {
-            list: async () => [agent], kinds: async () => ['codex'], activity: async () => [],
-            read: async (sessionId) => { reads.push(sessionId); return { text: 'Implemented reconnect recovery; all four focused checks pass. Live audio still needs verification.', truncated: false }; },
-            status: async () => 'idle', start: refuseMutation, prompt: refuseMutation, sendKeys: refuseMutation, watch: refuseMutation, focus: refuseMutation,
+            list: async () => [agent, reviewer], kinds: async () => ['codex'], activity: async () => [],
+            read: async (sessionId, options) => { reads.push(sessionId); return { text: sessionId === reviewer.sessionId
+                ? `PR 224 adds image thumbnails and movable controls; inspected ${options.lines} lines. Device validation is pending.`
+                : 'Implemented reconnect recovery; all four focused checks pass. Live audio still needs verification.', truncated: false }; },
+            status: async () => 'idle', start: refuseMutation,
+            prompt: async (sessionId, text) => { mutations.push({ sessionId, text }); },
+            sendKeys: refuseMutation, watch: refuseMutation, focus: refuseMutation,
         });
         await coordinator.start();
         const access = coordinator.issueCapability({ provider: 'muxr.voice', sessionId: agent.sessionId, cwd: codexState });
@@ -757,6 +799,7 @@ describe('providerRefusal', () => {
                     NODE_ENV: 'test',
                     MUXR_PLUGIN_STATE_DIR: codexState,
                     MUXR_TEST_CODEX_SIGNALING_URL: `http://127.0.0.1:${address.port}/signal`,
+                    MUXR_TEST_CODEX_RESPONSES_URL: `http://127.0.0.1:${address.port}/responses`,
                     MUXR_TEST_CODEX_TOKEN: token,
                     MUXR_TEST_CODEX_ACCOUNT_ID: boundAccount,
                     MUXR_VOICE_COORDINATOR_SOCKET: access.socketPath,
@@ -824,21 +867,135 @@ describe('providerRefusal', () => {
                 }],
             });
             expect(delegationFrame.data).not.toMatch(/Queued:|sent|delivered/i);
-            const summaryRequest = { type: 'delegation.created', item: { type: 'delegation', target: 'client', id: 'summary-request', content: [{ type: 'input_text', text: 'Can you summarize what this agent has done?' }] } };
+            // The real voice protocol delegates natural language. It must reach
+            // the restricted tool planner, not read the original target instead.
+            flow.send({ type: 'realtime.webrtc.data', data: JSON.stringify({ type: 'delegation.created', item: {
+                type: 'delegation', target: 'client', id: 'unstructured-message', content: [{ type: 'input_text',
+                    text: 'Ask Jane why the attachment review is taking so long.' }],
+            } }) });
+            await waitFor(() => flow.frames.filter((frame) => frame.type === 'realtime.webrtc.data')
+                .map((frame) => JSON.parse(frame.data)).some((frame) => frame.delegation_item_id === 'unstructured-message'),
+            'Natural-language request did not return a tool-backed result');
+            expect(reads).toEqual([]);
+            expect(mutations).toEqual([{ sessionId: reviewer.sessionId, text: 'Explain the review delay.\n\ncame from a real-time agent' }]);
+            expect(planningRequests[0].model).toBe('gpt-5.6-sol');
+            expect(planningRequests[0].tools.every((tool) => tool.type === 'function')).toBe(true);
+            const summaryRequest = { type: 'delegation.created', item: { type: 'delegation', target: 'client', id: 'summary-request', content: [{ type: 'input_text', text: JSON.stringify({ name: 'read_work_context', arguments: { agent: 'John' } }) }] } };
             flow.send({ type: 'realtime.webrtc.data', data: JSON.stringify(summaryRequest) });
             const summary = await waitFor(() => flow.frames.filter((frame) => frame.type === 'realtime.webrtc.data')
                 .map((frame) => JSON.parse(frame.data)).filter((frame) => frame.delegation_item_id === 'summary-request')
                 .map((frame) => frame.content?.map((part) => part.text).join('')).join('')
-                .includes('Implemented reconnect recovery'), 'A plain delegation must return actual work, not another promise or JSON retry');
+                .includes('Implemented reconnect recovery'), 'A structured work read must return the requested agent output');
             expect(summary).toBe(true);
             expect(reads).toEqual([agent.sessionId]);
             flow.send({ type: 'realtime.webrtc.data', data: JSON.stringify(summaryRequest) });
             flow.send({ type: 'realtime.webrtc.data', data: JSON.stringify({ type: 'turn.done', turn: { role: 'assistant', transcript: 'John implemented reconnect recovery and four checks pass; live audio is still unverified.' } }) });
             await waitFor(() => flow.frames.some((frame) => frame.type === 'realtime.transcript' && frame.text.includes('John implemented')), 'Completed answer was not returned to the phone');
             expect(reads).toHaveLength(1);
+            // A named follow-up must read that agent, not silently summarize
+            // the original voice target again. Exercise the real dispatcher,
+            // socket coordinator, catalog resolution and returned provider data.
+            flow.send({ type: 'realtime.webrtc.data', data: JSON.stringify({ type: 'delegation.created', item: {
+                type: 'delegation', target: 'client', id: 'review-context', content: [{ type: 'input_text',
+                    text: JSON.stringify({ name: 'read_work_context', arguments: { agent: 'Jane', lines: 200 } }) }],
+            } }) });
+            const reviewOutput = await waitFor(() => flow.frames.filter((frame) => frame.type === 'realtime.webrtc.data')
+                .map((frame) => JSON.parse(frame.data)).find((frame) => frame.delegation_item_id === 'review-context'), 'Named work context was not returned');
+            expect(JSON.stringify(reviewOutput)).toContain('PR 224 adds image thumbnails and movable controls');
+            expect(JSON.stringify(reviewOutput)).toContain('inspected 200 lines');
+            expect(JSON.stringify(reviewOutput)).not.toContain('Implemented reconnect recovery');
+            expect(reads).toEqual([agent.sessionId, reviewer.sessionId]);
+            expect(JSON.stringify(flow.frames)).not.toContain(reviewer.sessionId);
             expect(JSON.stringify(flow.frames)).not.toContain(agent.sessionId);
             expect(JSON.stringify(flow.frames)).not.toContain(access.capability);
-            expect(mutations).toEqual([]);
+            expect(mutations).toEqual([{ sessionId: reviewer.sessionId, text: 'Explain the review delay.\n\ncame from a real-time agent' }]);
+            const followUp = { type: 'delegation.created', item: {
+                type: 'delegation', target: 'client', id: 'confirmed-follow-up', content: [{ type: 'input_text',
+                    text: JSON.stringify({ name: 'prompt_agent', arguments: { agent: 'Jane', text: 'Report your progress and blockers.' } }) }],
+            } };
+            flow.send({ type: 'realtime.webrtc.data', data: JSON.stringify(followUp) });
+            await waitFor(() => flow.frames.filter((frame) => frame.type === 'realtime.webrtc.data')
+                .map((frame) => JSON.parse(frame.data)).some((frame) => frame.delegation_item_id === 'confirmed-follow-up'
+                    && frame.content?.some((part) => part.text.startsWith('Queued:'))), 'Working agent prompt was not confirmed');
+            // Replaying a delegation cannot send the same instruction twice.
+            flow.send({ type: 'realtime.webrtc.data', data: JSON.stringify(followUp) });
+            flow.send({ type: 'realtime.webrtc.data', data: JSON.stringify({ type: 'delegation.created', item: {
+                ...followUp.item, id: 'follow-up-status', content: [{ type: 'input_text',
+                    text: JSON.stringify({ name: 'agent_status', arguments: { agent: 'Jane' } }) }],
+            } }) });
+            await waitFor(() => flow.frames.filter((frame) => frame.type === 'realtime.webrtc.data')
+                .map((frame) => JSON.parse(frame.data)).some((frame) => frame.delegation_item_id === 'follow-up-status'), 'Follow-up status did not finish');
+            expect(mutations).toEqual([
+                { sessionId: reviewer.sessionId, text: 'Explain the review delay.\n\ncame from a real-time agent' },
+                { sessionId: reviewer.sessionId, text: 'Report your progress and blockers.\n\ncame from a real-time agent' },
+            ]);
+            // A completed tool item inside a failed provider response does not
+            // authorize a new side effect.
+            flow.send({ type: 'realtime.webrtc.data', data: JSON.stringify({ type: 'delegation.created', item: {
+                ...followUp.item, id: 'failed-delegation', content: [{ type: 'input_text', text: 'Ask John for an update.' }],
+            } }) });
+            await waitFor(() => flow.frames.filter((frame) => frame.type === 'realtime.webrtc.data')
+                .map((frame) => JSON.parse(frame.data)).some((frame) => frame.delegation_item_id === 'failed-delegation'), 'Provider refusal did not return');
+            expect(mutations).toHaveLength(2);
+            // One user utterance retransmitted by the provider: fresh item and
+            // handoff ids under one user turn share one planner run, one
+            // mutation and one result. Retransmission is not a confirmation.
+            const repeatText = 'Ping the agent I was using for a progress update and blockers.';
+            const repeatHandoffs = ['repeat-handoff-a', 'repeat-handoff-b', 'repeat-handoff-c'];
+            for (const [index, repeatId] of repeatHandoffs.entries()) {
+                flow.send({ type: 'realtime.webrtc.data', data: JSON.stringify({ type: 'delegation.created', item: {
+                    type: 'delegation', target: 'client', id: repeatId, handoff_id: `handoff-${index + 1}`,
+                    user_bidi_turn_id: 'turn-repeat-fixture', content: [{ type: 'input_text', text: repeatText }],
+                } }) });
+            }
+            const contextAppends = () => flow.frames.filter((frame) => frame.type === 'realtime.webrtc.data')
+                .map((frame) => JSON.parse(frame.data)).filter((frame) => frame.type === 'delegation.context.append');
+            await waitFor(() => repeatHandoffs.every((repeatId) => contextAppends().some((frame) => frame.delegation_item_id === repeatId
+                && frame.content?.some((part) => part.text.startsWith('Queued:')))), 'Retransmitted handoffs did not share one result');
+            const repeatPlanning = planningRequests.filter((request) => request.input.some((item) => item.type === 'message' && item.role === 'user'
+                && item.content?.[0]?.text === repeatText));
+            expect(repeatPlanning).toHaveLength(2);
+            expect(mutations).toEqual([
+                { sessionId: reviewer.sessionId, text: 'Explain the review delay.\n\ncame from a real-time agent' },
+                { sessionId: reviewer.sessionId, text: 'Report your progress and blockers.\n\ncame from a real-time agent' },
+                { sessionId: agent.sessionId, text: 'Report your progress and blockers.\n\ncame from a real-time agent' },
+            ]);
+            // A distinct request inside the same user turn must not ride the
+            // shared run.
+            flow.send({ type: 'realtime.webrtc.data', data: JSON.stringify({ type: 'delegation.created', item: {
+                type: 'delegation', target: 'client', id: 'repeat-turn-distinct', handoff_id: 'handoff-4',
+                user_bidi_turn_id: 'turn-repeat-fixture',
+                content: [{ type: 'input_text', text: JSON.stringify({ name: 'read_work_context', arguments: { agent: 'John' } }) }],
+            } }) });
+            await waitFor(() => contextAppends().some((frame) => frame.delegation_item_id === 'repeat-turn-distinct'
+                && JSON.stringify(frame.content).includes('Implemented reconnect recovery')), 'A distinct request in the same turn did not run on its own');
+            expect(planningRequests.filter((request) => request.input.some((item) => item.type === 'message' && item.role === 'user'
+                && item.content?.[0]?.text === repeatText))).toHaveLength(2);
+            // A late retransmission after completion replays the stored result
+            // without another planner turn or another mutation.
+            flow.send({ type: 'realtime.webrtc.data', data: JSON.stringify({ type: 'delegation.created', item: {
+                type: 'delegation', target: 'client', id: 'repeat-handoff-late', handoff_id: 'handoff-5',
+                user_bidi_turn_id: 'turn-repeat-fixture', content: [{ type: 'input_text', text: repeatText }],
+            } }) });
+            await waitFor(() => contextAppends().some((frame) => frame.delegation_item_id === 'repeat-handoff-late'
+                && frame.content?.some((part) => part.text.startsWith('Queued:'))), 'Late retransmission did not receive the shared result');
+            expect(planningRequests.filter((request) => request.input.some((item) => item.type === 'message' && item.role === 'user'
+                && item.content?.[0]?.text === repeatText))).toHaveLength(2);
+            expect(mutations).toHaveLength(3);
+            // A genuine confirmation in a NEW user turn still proceeds end to end.
+            flow.send({ type: 'realtime.webrtc.data', data: JSON.stringify({ type: 'delegation.created', item: {
+                type: 'delegation', target: 'client', id: 'confirmed-new-turn', handoff_id: 'handoff-6',
+                user_bidi_turn_id: 'turn-confirm-fixture',
+                content: [{ type: 'input_text', text: 'Yes, go ahead and ask John for the progress update.' }],
+            } }) });
+            await waitFor(() => contextAppends().some((frame) => frame.delegation_item_id === 'confirmed-new-turn'
+                && frame.content?.some((part) => part.text.startsWith('Queued:'))), 'A genuine new-turn confirmation did not proceed');
+            expect(mutations).toEqual([
+                { sessionId: reviewer.sessionId, text: 'Explain the review delay.\n\ncame from a real-time agent' },
+                { sessionId: reviewer.sessionId, text: 'Report your progress and blockers.\n\ncame from a real-time agent' },
+                { sessionId: agent.sessionId, text: 'Report your progress and blockers.\n\ncame from a real-time agent' },
+                { sessionId: agent.sessionId, text: 'Report your progress and blockers.\n\ncame from a real-time agent' },
+            ]);
             const kernelFrames = [];
             let aborted = false;
             const kernel = createVoiceTools((frame) => kernelFrames.push(frame), {

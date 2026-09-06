@@ -32,7 +32,7 @@ import { awaitPersistChain, writeJsonFileAtomic, readPrivateFile } from './platf
 const PUSH_ACTION_TIMEOUT_MS = 15_000;
 
 /** Read or create the 0600 mint secret that gates self-host ticket issuance. */
-async function ensureMintSecret(dataDir: string): Promise<string> {
+export async function ensureMintSecret(dataDir: string): Promise<string> {
     const file = join(dataDir, 'mint-secret');
     const existing = await readPrivateFile(file);
     if (existing !== undefined) {

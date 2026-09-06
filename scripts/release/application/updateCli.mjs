@@ -62,15 +62,23 @@ export async function updateCli(command = {}) {
     const current = currentVersion();
     let channel;
     let installedChannel;
+    let targetVersion;
     try {
         installedChannel = releaseVersion(current).channel;
         channel = command.channel === undefined ? installedChannel : releaseChannel(command.channel);
+        if (command.targetVersion !== undefined) {
+            const requested = releaseVersion(command.targetVersion);
+            if (requested.channel !== channel) throw new Error('Exact version belongs to a different channel; pass --channel explicitly to switch.');
+            targetVersion = requested.version;
+        }
     } catch (cause) {
         process.stderr.write(`${cause.message}\n`);
         return 1;
     }
     const tag = channelTags[channel];
-    const lookup = npm(['view', PACKAGE, `dist-tags.${tag}`, '--json']);
+    const lookup = npm(targetVersion === undefined
+        ? ['view', PACKAGE, `dist-tags.${tag}`, '--json']
+        : ['view', `${PACKAGE}@${targetVersion}`, 'version', '--json']);
     if (lookup.status !== 0) {
         process.stderr.write(`Could not check npm: ${(lookup.stderr || lookup.stdout || 'npm failed').trim()}\n`);
         return 1;
@@ -80,9 +88,10 @@ export async function updateCli(command = {}) {
     try { latest = JSON.parse(lookup.stdout.trim()); }
     catch { latest = lookup.stdout.trim(); }
     try {
+        if (targetVersion !== undefined && latest !== targetVersion) throw new Error('exact version mismatch');
         if (releaseVersion(latest).channel !== channel) throw new Error('channel mismatch');
     } catch {
-        process.stderr.write('npm returned an invalid version for the requested muxr channel\n');
+        process.stderr.write('npm returned an invalid version for the requested muxr channel or exact target\n');
         return 1;
     }
     const comparison = compareVersions(latest, current);
@@ -115,7 +124,7 @@ export async function updateCli(command = {}) {
         approved = await command.confirm({ latest, current }) === true;
     }
     if (!approved) {
-        process.stdout.write(`Nothing changed. Run \`muxr update --channel ${channel}${command.allowDowngrade ? ' --allow-downgrade' : ''} --yes\` when ready.\n`);
+        process.stdout.write(`Nothing changed. Run \`muxr update --channel ${channel}${targetVersion === undefined ? '' : ` --to ${targetVersion}`}${command.allowDowngrade ? ' --allow-downgrade' : ''} --yes\` when ready.\n`);
         return 0;
     }
 
