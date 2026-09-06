@@ -1,6 +1,7 @@
 export type {
     ClientRequest,
     PeerClientRequest,
+    PeerMessageSender,
     PeerRequestMap,
     PeerRequestParams,
     PeerRequestResult,

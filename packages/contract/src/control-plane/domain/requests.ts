@@ -56,6 +56,15 @@ export interface WatchSettlement {
     timedOut?: boolean;
 }
 
+/** Attribution carried with a peer message so a reply can be addressed. The
+ *  sending host resolves it; a caller never supplies its own name. */
+export interface PeerMessageSender {
+    machine: string;
+    agent?: string;
+    /** More than one agent there answers to that name, so it addresses nobody. */
+    agentAmbiguous?: boolean;
+}
+
 /** Host-owned collaboration ceremony and constrained outbound broker requests. */
 export interface PeerRequestMap {
     'peer.prepare': {
@@ -141,6 +150,9 @@ export interface PeerRequestMap {
             text: string;
             streamingBehavior?: StreamingBehavior;
             mutation: PeerMutationMetadata;
+            /** Who is sending, resolved by the sending host. Absent means the
+             *  recipient has no named agent to reply to and must not guess. */
+            sender?: PeerMessageSender;
         };
         result: { machineAlias: string; agentName: string; delivered: true };
     };
