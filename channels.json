@@ -1,6 +1,38 @@
 {
   "schema": 1,
   "channels": {
+    "stable": {
+      "version": "0.1.25",
+      "appVersion": "0.1.25",
+      "tag": "v0.1.25",
+      "releaseUrl": "https://github.com/umeranjum17/muxr/releases/tag/v0.1.25",
+      "npmDistTag": "latest",
+      "publishedAt": "2026-08-31T01:07:31.000Z",
+      "manifestUrl": null,
+      "android": {
+        "url": "https://github.com/umeranjum17/muxr/releases/download/v0.1.25/muxr-android.apk",
+        "sha256": "c4dd3bd905658b79a58f1b28d919d89da0d3fb6c0b2fed6c7eb1a211f5c59305",
+        "bytes": 174880788,
+        "versionCode": 53,
+        "applicationId": "com.trymuxr.app"
+      }
+    },
+    "nightly": {
+      "version": "0.1.27-nightly.5.1",
+      "appVersion": "0.1.27",
+      "tag": "v0.1.27-nightly.5.1",
+      "releaseUrl": "https://github.com/umeranjum17/muxr/releases/tag/v0.1.27-nightly.5.1",
+      "npmDistTag": "nightly",
+      "publishedAt": "2026-09-06T15:19:19.000Z",
+      "manifestUrl": "https://github.com/umeranjum17/muxr/releases/download/v0.1.27-nightly.5.1/release-manifest.json",
+      "android": {
+        "url": "https://github.com/umeranjum17/muxr/releases/download/v0.1.27-nightly.5.1/muxr-0.1.27-361.apk",
+        "sha256": "3e06ccf0f027c527649a8a0652d2bcbb1bad810c3cc8bc159524e9ac4079d8e3",
+        "bytes": 176639604,
+        "versionCode": 361,
+        "applicationId": "app.muxr.local.dev"
+      }
+    },
     "beta": {
       "version": "0.1.27-beta.4.1",
       "appVersion": "0.1.27",
@@ -31,22 +63,6 @@
         "bytes": 174780548,
         "versionCode": 358,
         "applicationId": "app.muxr.local.dev"
-      }
-    },
-    "stable": {
-      "version": "0.1.25",
-      "appVersion": "0.1.25",
-      "tag": "v0.1.25",
-      "releaseUrl": "https://github.com/umeranjum17/muxr/releases/tag/v0.1.25",
-      "npmDistTag": "latest",
-      "publishedAt": "2026-08-31T01:07:31.000Z",
-      "manifestUrl": null,
-      "android": {
-        "url": "https://github.com/umeranjum17/muxr/releases/download/v0.1.25/muxr-android.apk",
-        "sha256": "c4dd3bd905658b79a58f1b28d919d89da0d3fb6c0b2fed6c7eb1a211f5c59305",
-        "bytes": 174880788,
-        "versionCode": 53,
-        "applicationId": "com.trymuxr.app"
       }
     }
   }
