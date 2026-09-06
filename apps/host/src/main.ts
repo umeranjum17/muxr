@@ -616,8 +616,15 @@ async function main(): Promise<void> {
     // session is; without this it can only report the machine.
     peerRuntime?.setLocalAgentResolver(async (caller) => {
         const listed = await source.list({});
-        const found = listed.find((session) => (caller.sessionId !== undefined && session.id === caller.sessionId)
-            || (caller.paneId !== undefined && session.paneId === caller.paneId));
+        // The session comes from the capability this host issued, so it is
+        // trustworthy; the pane is a hint the caller supplied. Prefer the former.
+        const bySession = caller.sessionId === undefined
+            ? undefined
+            : listed.find((session) => session.id === caller.sessionId);
+        const byPane = caller.paneId === undefined
+            ? undefined
+            : listed.find((session) => session.paneId === caller.paneId);
+        const found = bySession ?? byPane;
         const agent = found?.agentName;
         if (agent === undefined) return {};
         // A name shared by two local agents addresses neither of them.

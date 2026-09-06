@@ -109,10 +109,11 @@ export class PeerRuntime {
     }
 
     /**
-     * Who is sending. The agent name is looked up here from the caller's own
-     * session, never taken from the request: a caller must not be able to name
-     * itself as somebody else, and an unresolvable caller stays unnamed rather
-     * than borrowing a neighbouring agent.
+     * Who is sending. The name is looked up here and never taken from the
+     * request, so a caller cannot invent one: an attributed name is always a
+     * real local agent, and an unresolvable caller stays unnamed. It is not an
+     * authenticity claim — anything holding the broker capability chooses which
+     * local pane to name — so this identifies, it does not authenticate.
      */
     async describeSender(caller: PeerCallerContext): Promise<PeerMessageSender> {
         const machine = this.options.machineName;

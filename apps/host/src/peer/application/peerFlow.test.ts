@@ -583,6 +583,25 @@ describe('host peer collaboration flow', () => {
         await peerCli(cliFile, ['prompt', '--machine', 'Build Mac', '--agent', 'iOS builder', '--text', 'Anonymous ping'], { HERDR_PANE_ID: '' });
         expect(promptTexts.at(-1)).toContain('Reply target unavailable');
         expect(promptTexts.at(-1)).not.toContain('Release captain');
+        // A host from before this field rejects the unknown key. The message
+        // still goes, unattributed, instead of failing during an update window.
+        const strictBroker = new PeerBroker(join(root, 'source', 'strict.sock'), sourceRuntime, diagnostics);
+        (strictBroker as unknown as { invoke: (value: unknown, access?: unknown) => Promise<unknown> }).invoke = async function strict(value, access) {
+            if ((value as { fromPaneId?: string }).fromPaneId !== undefined) throw new Error('invalid peer broker request fields');
+            return PeerBroker.prototype.invoke.call(this, value, access as never);
+        };
+        await strictBroker.start();
+        const strictFile = join(root, 'source', 'strict.json');
+        await strictBroker.issuePersistentCapability(strictFile);
+        const degraded = await peerCli(
+            strictFile,
+            ['prompt', '--machine', 'Build Mac', '--agent', 'iOS builder', '--text', 'Older host still delivers'],
+            { HERDR_PANE_ID: 'w1FE:p4' },
+        );
+        expect(degraded).toMatchObject({ code: 0, stderr: '' });
+        expect(promptTexts.at(-1)).toContain('Older host still delivers');
+        expect(promptTexts.at(-1)).toContain('Reply target unavailable');
+        await strictBroker.close();
         forcedRemoteError = Object.assign(new Error('Agent is not ready yet.'), { code: 'agent-not-ready' });
         await expect(brokerCall(broker.socketPath, access.capability, {
             method: 'prompt', machine: 'Build Mac', agent: 'iOS builder', text: 'Too early',
@@ -594,8 +613,9 @@ describe('host peer collaboration flow', () => {
             text: 'Exit after queue',
             mutation: fresh('prompt-fast-exit'),
         })).resolves.toMatchObject({ agentName: 'iOS builder', delivered: true });
-        // One more than before: the unattributed CLI prompt above also delivered.
-        expect(prompts).toBe(6);
+        // Three more than the original flow: the attributed CLI prompt, the
+        // unattributed one, and the one that degraded past a strict host.
+        expect(prompts).toBe(7);
         dropSessionsAfterPrompt = false;
         remoteSessions = [session];
         remoteSessions = [session, { ...session, id: 'another-internal-session' }];
