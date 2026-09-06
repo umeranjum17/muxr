@@ -96,6 +96,11 @@ jobs:
         # Smoke builds its own stable fixture. Final packaging below uses the selected version.
         run: env -u MUXR_RELEASE_VERSION -u MUXR_RELEASE_CHANNEL node scripts/diagnostics/application/checkPackageSmoke.mjs
       - name: Pack candidate once
+        # The Expo config rejects a release identity whose base version differs
+        # from the native app version, so pass the selected one to this step
+        # only; the smoke above deliberately keeps the repository fixture.
+        env:
+          APP_VERSION: ${{ needs.select.outputs.app_version }}
         run: |
           yarn run pack
           mkdir -p "$RUNNER_TEMP/npm-candidate"
