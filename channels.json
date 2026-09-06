@@ -1,0 +1,53 @@
+{
+  "schema": 1,
+  "channels": {
+    "beta": {
+      "version": "0.1.27-beta.4.1",
+      "appVersion": "0.1.27",
+      "tag": "v0.1.27-beta.4.1",
+      "releaseUrl": "https://github.com/umeranjum17/muxr/releases/tag/v0.1.27-beta.4.1",
+      "npmDistTag": "beta",
+      "publishedAt": "2026-09-06T13:17:22.000Z",
+      "manifestUrl": "https://github.com/umeranjum17/muxr/releases/download/v0.1.27-beta.4.1/release-manifest.json",
+      "android": {
+        "url": "https://github.com/umeranjum17/muxr/releases/download/v0.1.27-beta.4.1/muxr-0.1.27-360.apk",
+        "sha256": "e1a50185292c6fefcf6ccf069674957353116c0aae298114cee71131d25b8b76",
+        "bytes": 176639520,
+        "versionCode": 360,
+        "applicationId": "com.trymuxr.app"
+      }
+    },
+    "dev": {
+      "version": "0.1.27-dev.2.1",
+      "appVersion": "0.1.27",
+      "tag": "v0.1.27-dev.2.1",
+      "releaseUrl": "https://github.com/umeranjum17/muxr/releases/tag/v0.1.27-dev.2.1",
+      "npmDistTag": "dev",
+      "publishedAt": "2026-09-06T07:35:57.000Z",
+      "manifestUrl": "https://github.com/umeranjum17/muxr/releases/download/v0.1.27-dev.2.1/release-manifest.json",
+      "android": {
+        "url": "https://github.com/umeranjum17/muxr/releases/download/v0.1.27-dev.2.1/muxr-0.1.27-358.apk",
+        "sha256": "51003db083b6868ecc508ff671201d4426bf85c361158fd8f518e91f31e7fe88",
+        "bytes": 174780548,
+        "versionCode": 358,
+        "applicationId": "app.muxr.local.dev"
+      }
+    },
+    "stable": {
+      "version": "0.1.25",
+      "appVersion": "0.1.25",
+      "tag": "v0.1.25",
+      "releaseUrl": "https://github.com/umeranjum17/muxr/releases/tag/v0.1.25",
+      "npmDistTag": "latest",
+      "publishedAt": "2026-08-31T01:07:31.000Z",
+      "manifestUrl": null,
+      "android": {
+        "url": "https://github.com/umeranjum17/muxr/releases/download/v0.1.25/muxr-android.apk",
+        "sha256": "c4dd3bd905658b79a58f1b28d919d89da0d3fb6c0b2fed6c7eb1a211f5c59305",
+        "bytes": 174880788,
+        "versionCode": 53,
+        "applicationId": "com.trymuxr.app"
+      }
+    }
+  }
+}
