@@ -123,7 +123,12 @@ get_task_allow="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:get-task-allow
 profile_aps="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:aps-environment' "$profile_plist" 2>/dev/null || true)"
 [ "$profile_aps" = production ] || { echo "The provisioning profile does not authorise production push" >&2; exit 1; }
 profile_entitlements="$workdir/profile-entitlements.json"
-plutil -extract Entitlements json -o "$profile_entitlements" "$profile_plist"
+# A decoded profile carries objects JSON cannot represent, and plutil rejects
+# the whole document rather than just the subtree being asked for, so the
+# entitlements are lifted out as a plist first and converted on their own.
+profile_entitlements_plist="$workdir/profile-entitlements.plist"
+plutil -extract Entitlements xml1 -o "$profile_entitlements_plist" "$profile_plist"
+entitlements_json "$profile_entitlements_plist" "$profile_entitlements"
 [ "$(associated_domain_allowed "$profile_entitlements" applinks:trymuxr.com authorises)" = yes ] || { echo "The provisioning profile does not authorise the trymuxr.com associated domain" >&2; exit 1; }
 project_entitlements="$workdir/project-entitlements.json"
 entitlements_json "$ROOT/apps/mobile/ios/muxr/muxr.entitlements" "$project_entitlements"
