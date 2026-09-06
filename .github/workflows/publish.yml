@@ -86,7 +86,12 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.inspect.outputs.commit }}
+          # Publishing tooling comes from the commit this workflow file is
+          # running from, so a retained candidate built before a tooling change
+          # still publishes through the current pipeline. The release identity
+          # stays the candidate's: RELEASE_COMMIT and every manifest, tarball
+          # and registry check below are bound to it, and nothing is rebuilt.
+          ref: ${{ github.workflow_sha }}
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
