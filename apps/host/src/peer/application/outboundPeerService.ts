@@ -56,14 +56,19 @@ function shellQuote(value: string): string {
  */
 function peerMessageBody(sender: PeerMessageSender | undefined, machineFallback: string, text: string): string {
     const machine = name(sender?.machine ?? machineFallback, 'Peer computer');
-    const agent = sender?.agent === undefined ? '' : name(sender.agent, '');
+    // A mutation stored before senders existed replays byte for byte. The
+    // recipient fingerprints the rendered text, so adding anything to a legacy
+    // body turns a pending retry into a permanent conflict and it never
+    // settles. Every new mutation carries a sender, so absent means legacy.
+    if (sender === undefined) return `Peer message from ${machine}:\n${text}`;
+    const agent = sender.agent === undefined ? '' : name(sender.agent, '');
     const head = agent === '' ? `Peer message from ${machine}:` : `Peer message from ${machine} \u00b7 ${agent}:`;
     if (agent === '') {
         return `${head}\n${text}\n\n`
             + 'Reply target unavailable: this message carries no named sender agent, so there is no agent to reply to. '
             + 'Do not pick one; ask the sender to resend from a named agent.';
     }
-    if (sender?.agentAmbiguous === true) {
+    if (sender.agentAmbiguous === true) {
         return `${head}\n${text}\n\n`
             + `Reply target unavailable: more than one agent on ${machine} answers to "${agent}", so a reply could reach the wrong one. `
             + 'Ask the sender to rename it, or find the right one with: muxr peers list';

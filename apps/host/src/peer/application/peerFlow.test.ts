@@ -174,6 +174,8 @@ async function brokerReady(socketPath: string, capability: string): Promise<bool
     });
 }
 
+/** A mutation stored before senders existed, replayed exactly as it was sent. */
+const LEGACY_PROMPT = 'Peer message from Linux builder:\nRun the iOS build';
 /** What an unattributed peer message must say: no agent to reply to, and no guess. */
 const UNNAMED_SENDER_PROMPT = 'Peer message from Linux builder:\nRun the iOS build\n\n'
     + 'Reply target unavailable: this message carries no named sender agent, so there is no agent to reply to. '
@@ -374,8 +376,18 @@ describe('host peer collaboration flow', () => {
             mutation: promptMutation,
         });
         expect(prompts).toBe(1);
-        // The recipient used to see only the machine and pick an agent itself.
-        expect(promptTexts).toEqual([UNNAMED_SENDER_PROMPT]);
+        // No sender in the params is a pre-upgrade record: rendered verbatim, so
+        // a replay still fingerprints to what the recipient already received.
+        expect(promptTexts).toEqual([LEGACY_PROMPT]);
+        // A sender that resolved to no agent is a different case, and says so.
+        await call(sourceRuntime, 'peer.remote.prompt', {
+            relationshipId: installed.relationshipId,
+            sessionId: 'muxr-session-ios',
+            text: 'Run the iOS build',
+            sender: { machine: 'Linux builder' },
+            mutation: fresh('prompt-unnamed-sender'),
+        });
+        expect(promptTexts.at(-1)).toBe(UNNAMED_SENDER_PROMPT);
         // A named sender carries the agent and the exact command that answers it.
         await call(sourceRuntime, 'peer.remote.prompt', {
             relationshipId: installed.relationshipId,
@@ -384,7 +396,7 @@ describe('host peer collaboration flow', () => {
             sender: { machine: 'Linux builder', agent: 'Release captain' },
             mutation: fresh('prompt-named-sender'),
         });
-        expect(promptTexts[1]).toBe('Peer message from Linux builder \u00b7 Release captain:\nShip it\n\n'
+        expect(promptTexts[2]).toBe('Peer message from Linux builder \u00b7 Release captain:\nShip it\n\n'
             + 'Reply with: muxr peers prompt --machine "Linux builder" --agent "Release captain" --text "your reply"\n'
             + 'If Linux builder is not the name this computer uses for it, run muxr peers list for the local name.');
         // A name two local agents share addresses neither, so no command is offered.
@@ -395,8 +407,8 @@ describe('host peer collaboration flow', () => {
             sender: { machine: 'Linux builder', agent: 'Release captain', agentAmbiguous: true },
             mutation: fresh('prompt-ambiguous-sender'),
         });
-        expect(promptTexts[2]).toContain('more than one agent on Linux builder answers to "Release captain"');
-        expect(promptTexts[2]).not.toContain('muxr peers prompt --machine');
+        expect(promptTexts[3]).toContain('more than one agent on Linux builder answers to "Release captain"');
+        expect(promptTexts[3]).not.toContain('muxr peers prompt --machine');
         // An internal id is never shown, and never becomes a reply target.
         await call(sourceRuntime, 'peer.remote.prompt', {
             relationshipId: installed.relationshipId,
@@ -405,8 +417,8 @@ describe('host peer collaboration flow', () => {
             sender: { machine: 'Linux builder', agent: 'pp_7f3a91c2' },
             mutation: fresh('prompt-opaque-sender'),
         });
-        expect(promptTexts[3]).toBe(UNNAMED_SENDER_PROMPT.replace('Run the iOS build', 'Who are you'));
-        expect(promptTexts[3]).not.toContain('pp_7f3a91c2');
+        expect(promptTexts[4]).toBe(UNNAMED_SENDER_PROMPT.replace('Run the iOS build', 'Who are you'));
+        expect(promptTexts[4]).not.toContain('pp_7f3a91c2');
         promptTexts.length = 1;
         prompts = 1;
         await expect(call(sourceRuntime, 'peer.remote.watch', {
@@ -453,7 +465,7 @@ describe('host peer collaboration flow', () => {
         targetDispatch = makeTargetDispatcher(restartedTarget).dispatch;
         await expect(targetDispatch({
             type: 'session.prompt', requestId: 'target-receipt-retry',
-            params: { sessionId: 'muxr-session-ios', text: UNNAMED_SENDER_PROMPT, peerMutation: promptMutation },
+            params: { sessionId: 'muxr-session-ios', text: LEGACY_PROMPT, peerMutation: promptMutation },
         }, authorized.peerDeviceId)).resolves.toMatchObject({ ok: true });
         expect(prompts).toBe(1);
         await call(sourceRuntime, 'peer.remote.prompt', {
