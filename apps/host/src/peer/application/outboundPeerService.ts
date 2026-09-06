@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import type {
     PeerClientRequest,
+    PeerMessageSender,
     PeerRequestResult,
     SessionInfo,
 } from '@muxr/contract';
@@ -39,6 +40,39 @@ function currentSessionAgentName(session: SessionInfo): string | undefined {
     if ('displayName' in session && typeof session.displayName === 'string') return session.displayName;
     return undefined;
 }
+
+/** Double-quoted for copy-paste into a shell; names are already sanitized. */
+function shellQuote(value: string): string {
+    return `"${value.replace(/(["\\$`])/g, '\\$1')}"`;
+}
+
+/**
+ * Sender attribution and, only when it genuinely addresses one agent, the exact
+ * command that answers it. A recipient that cannot be told who to reply to is
+ * told that plainly, because the alternative it fell back to was picking one of
+ * ours at random. The machine name is what the sender calls itself; the
+ * recipient may have disambiguated it locally, so the message says how to check
+ * rather than pretending the command cannot fail.
+ */
+function peerMessageBody(sender: PeerMessageSender | undefined, machineFallback: string, text: string): string {
+    const machine = name(sender?.machine ?? machineFallback, 'Peer computer');
+    const agent = sender?.agent === undefined ? '' : name(sender.agent, '');
+    const head = agent === '' ? `Peer message from ${machine}:` : `Peer message from ${machine} \u00b7 ${agent}:`;
+    if (agent === '') {
+        return `${head}\n${text}\n\n`
+            + 'Reply target unavailable: this message carries no named sender agent, so there is no agent to reply to. '
+            + 'Do not pick one; ask the sender to resend from a named agent.';
+    }
+    if (sender?.agentAmbiguous === true) {
+        return `${head}\n${text}\n\n`
+            + `Reply target unavailable: more than one agent on ${machine} answers to "${agent}", so a reply could reach the wrong one. `
+            + 'Ask the sender to rename it, or find the right one with: muxr peers list';
+    }
+    return `${head}\n${text}\n\n`
+        + `Reply with: muxr peers prompt --machine ${shellQuote(machine)} --agent ${shellQuote(agent)} --text "your reply"\n`
+        + `If ${machine} is not the name this computer uses for it, run muxr peers list for the local name.`;
+}
+
 /** Outbound routing, durable semantic mutations, transport ownership, and stable user-facing selectors. */
 export class OutboundPeerService {
     private readonly clients = new Map<string, PeerClientTransport>();
@@ -235,7 +269,9 @@ export class OutboundPeerService {
             const agentName = await this.currentAgentName(client, params.sessionId, signal);
             await client.request('session.prompt', {
                 sessionId: params.sessionId,
-                text: `Peer message from ${name(this.options.sourceMachineName, 'Peer computer')}:\n${params.text}`,
+                // Rendered from the stored params, so a durable retry or a
+                // deduplicated redelivery carries the same attribution.
+                text: peerMessageBody(params.sender, this.options.sourceMachineName, params.text),
                 ...(params.streamingBehavior === undefined ? {} : { streamingBehavior: params.streamingBehavior }),
                 peerMutation: params.mutation,
             }, signal);

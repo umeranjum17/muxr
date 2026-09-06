@@ -612,6 +612,18 @@ async function main(): Promise<void> {
             }),
         });
     }
+    // The peer broker names a sender by asking the host who the calling
+    // session is; without this it can only report the machine.
+    peerRuntime?.setLocalAgentResolver(async (caller) => {
+        const listed = await source.list({});
+        const found = listed.find((session) => (caller.sessionId !== undefined && session.id === caller.sessionId)
+            || (caller.paneId !== undefined && session.paneId === caller.paneId));
+        const agent = found?.agentName;
+        if (agent === undefined) return {};
+        // A name shared by two local agents addresses neither of them.
+        const sharing = listed.filter((session) => session.agentName?.toLocaleLowerCase() === agent.toLocaleLowerCase()).length;
+        return { agent, ...(sharing > 1 ? { ambiguous: true } : {}) };
+    });
     const terminals = new TerminalManager({
         relayUrl,
         machineId,

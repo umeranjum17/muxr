@@ -174,6 +174,11 @@ async function brokerReady(socketPath: string, capability: string): Promise<bool
     });
 }
 
+/** What an unattributed peer message must say: no agent to reply to, and no guess. */
+const UNNAMED_SENDER_PROMPT = 'Peer message from Linux builder:\nRun the iOS build\n\n'
+    + 'Reply target unavailable: this message carries no named sender agent, so there is no agent to reply to. '
+    + 'Do not pick one; ask the sender to resend from a named agent.';
+
 describe('host peer collaboration flow', () => {
     it('rejects persisted non-string machine aliases', () => {
         const root = mkdtempSync(join(tmpdir(), 'muxr-peer-alias-'));
@@ -369,7 +374,41 @@ describe('host peer collaboration flow', () => {
             mutation: promptMutation,
         });
         expect(prompts).toBe(1);
-        expect(promptTexts).toEqual(['Peer message from Linux builder:\nRun the iOS build']);
+        // The recipient used to see only the machine and pick an agent itself.
+        expect(promptTexts).toEqual([UNNAMED_SENDER_PROMPT]);
+        // A named sender carries the agent and the exact command that answers it.
+        await call(sourceRuntime, 'peer.remote.prompt', {
+            relationshipId: installed.relationshipId,
+            sessionId: 'muxr-session-ios',
+            text: 'Ship it',
+            sender: { machine: 'Linux builder', agent: 'Release captain' },
+            mutation: fresh('prompt-named-sender'),
+        });
+        expect(promptTexts[1]).toBe('Peer message from Linux builder \u00b7 Release captain:\nShip it\n\n'
+            + 'Reply with: muxr peers prompt --machine "Linux builder" --agent "Release captain" --text "your reply"\n'
+            + 'If Linux builder is not the name this computer uses for it, run muxr peers list for the local name.');
+        // A name two local agents share addresses neither, so no command is offered.
+        await call(sourceRuntime, 'peer.remote.prompt', {
+            relationshipId: installed.relationshipId,
+            sessionId: 'muxr-session-ios',
+            text: 'Which of us',
+            sender: { machine: 'Linux builder', agent: 'Release captain', agentAmbiguous: true },
+            mutation: fresh('prompt-ambiguous-sender'),
+        });
+        expect(promptTexts[2]).toContain('more than one agent on Linux builder answers to "Release captain"');
+        expect(promptTexts[2]).not.toContain('muxr peers prompt --machine');
+        // An internal id is never shown, and never becomes a reply target.
+        await call(sourceRuntime, 'peer.remote.prompt', {
+            relationshipId: installed.relationshipId,
+            sessionId: 'muxr-session-ios',
+            text: 'Who are you',
+            sender: { machine: 'Linux builder', agent: 'pp_7f3a91c2' },
+            mutation: fresh('prompt-opaque-sender'),
+        });
+        expect(promptTexts[3]).toBe(UNNAMED_SENDER_PROMPT.replace('Run the iOS build', 'Who are you'));
+        expect(promptTexts[3]).not.toContain('pp_7f3a91c2');
+        promptTexts.length = 1;
+        prompts = 1;
         await expect(call(sourceRuntime, 'peer.remote.watch', {
             relationshipId: installed.relationshipId,
             sessionId: 'muxr-session-ios',
@@ -414,7 +453,7 @@ describe('host peer collaboration flow', () => {
         targetDispatch = makeTargetDispatcher(restartedTarget).dispatch;
         await expect(targetDispatch({
             type: 'session.prompt', requestId: 'target-receipt-retry',
-            params: { sessionId: 'muxr-session-ios', text: 'Peer message from Linux builder:\nRun the iOS build', peerMutation: promptMutation },
+            params: { sessionId: 'muxr-session-ios', text: UNNAMED_SENDER_PROMPT, peerMutation: promptMutation },
         }, authorized.peerDeviceId)).resolves.toMatchObject({ ok: true });
         expect(prompts).toBe(1);
         await call(sourceRuntime, 'peer.remote.prompt', {

@@ -78,7 +78,10 @@ export function peerRequest(args) {
     if (command === 'watch') return { method: 'watch', machine, ...(agent ? { agent } : {}), ...(value.has('--timeout-ms') ? { timeoutMs: integer(value.get('--timeout-ms'), '--timeout-ms') } : {}) };
     const text = value.get('--text');
     if (!text?.trim()) throw new Error('prompt requires --text <prompt>');
-    return { method: 'prompt', machine, ...(agent ? { agent } : {}), text };
+    // The pane this command runs in is how the host names us to the recipient.
+    // An id, never a name we assert about ourselves.
+    const fromPaneId = process.env.HERDR_PANE_ID?.trim();
+    return { method: 'prompt', machine, ...(agent ? { agent } : {}), ...(fromPaneId ? { fromPaneId } : {}), text };
 }
 
 export function callPeerBroker(request, access = readAccess()) {

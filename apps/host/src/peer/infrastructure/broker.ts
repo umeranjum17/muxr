@@ -17,7 +17,7 @@ export type PeerBrokerRequest =
     | { method: 'read'; machine: string; agent?: string; lines?: number }
     | { method: 'status'; machine: string; agent?: string }
     | { method: 'watch'; machine: string; agent?: string; timeoutMs?: number }
-    | { method: 'prompt'; machine: string; agent?: string; text: string };
+    | { method: 'prompt'; machine: string; agent?: string; fromPaneId?: string; text: string };
 
 export interface PeerBrokerAccess {
     socketPath: string;
@@ -96,8 +96,14 @@ export function parsePeerBrokerRequest(value: unknown): PeerBrokerRequest {
             only(request, ['method', 'machine', 'agent', 'timeoutMs']);
             return { method: 'watch', machine: requiredString(request.machine, 'machine'), ...(request.agent === undefined ? {} : { agent: optionalString(request.agent, 'agent')! }), ...(request.timeoutMs === undefined ? {} : { timeoutMs: optionalNumber(request.timeoutMs, 'timeoutMs')! }) };
         case 'prompt':
-            only(request, ['method', 'machine', 'agent', 'text']);
-            return { method: 'prompt', machine: requiredString(request.machine, 'machine'), ...(request.agent === undefined ? {} : { agent: optionalString(request.agent, 'agent')! }), text: requiredString(request.text, 'text') };
+            only(request, ['method', 'machine', 'agent', 'text', 'fromPaneId']);
+            return {
+                method: 'prompt', machine: requiredString(request.machine, 'machine'),
+                ...(request.agent === undefined ? {} : { agent: optionalString(request.agent, 'agent')! }),
+                // An id, never a name: the host decides who that is.
+                ...(request.fromPaneId === undefined ? {} : { fromPaneId: optionalString(request.fromPaneId, 'fromPaneId')! }),
+                text: requiredString(request.text, 'text'),
+            };
         default:
             throw new Error(`unknown peer broker method '${request.method.slice(0, 80)}'`);
     }
@@ -113,6 +119,8 @@ interface CapabilityState {
 export class PeerBroker {
     private server: Server | undefined;
     private readonly capabilities = new Map<string, CapabilityState>();
+    /** The local session that was granted each capability, when there is one. */
+    private readonly callers = new Map<string, string>();
     private readonly accessFiles = new Map<string, string>();
 
     constructor(readonly socketPath: string, private readonly runtime: PeerRuntime, private readonly diagnostics?: HostDiagnosticsJournal) {}
@@ -136,10 +144,11 @@ export class PeerBroker {
         });
     }
 
-    issueCapability(): PeerBrokerAccess {
+    issueCapability(caller?: { sessionId?: string }): PeerBrokerAccess {
         if (this.server === undefined) throw new Error('peer broker is unavailable');
         const capability = randomBytes(32).toString('base64url');
         this.capabilities.set(capability, { sockets: new Set(), controllers: new Set() });
+        if (caller?.sessionId !== undefined) this.callers.set(capability, caller.sessionId);
         return { socketPath: this.socketPath, capability };
     }
 
@@ -160,6 +169,7 @@ export class PeerBroker {
     revokeCapability(capability: string): void {
         const state = this.capabilities.get(capability);
         this.capabilities.delete(capability);
+        this.callers.delete(capability);
         const filePath = this.accessFiles.get(capability);
         this.accessFiles.delete(capability);
         if (filePath !== undefined && existsSync(filePath)) unlinkSync(filePath);
@@ -245,7 +255,15 @@ export class PeerBroker {
             }
             const text = request.text.trim().slice(0, 20_000);
             assertAccess();
-            const params = { sessionId: target.sessionId, text, mutation };
+            // Attribution is resolved once, here, and stored with the durable
+            // mutation so every retry and every deduplicated redelivery says the
+            // same thing about who sent it.
+            const callerSession = access === undefined ? undefined : this.callers.get(access.capability);
+            const sender = await this.runtime.describeSender({
+                ...(callerSession === undefined ? {} : { sessionId: callerSession }),
+                ...(request.fromPaneId === undefined ? {} : { paneId: request.fromPaneId }),
+            });
+            const params = { sessionId: target.sessionId, text, mutation, sender };
             const result = await this.remote<'peer.remote.prompt'>(relationship, 'peer.remote.prompt', params, access?.signal);
             access?.onSemanticResult?.(this.semanticRequest('peer.remote.prompt', relationship, params));
             return { machine: cleanAlias(result.machineAlias), agent: cleanAlias(result.agentName), delivered: result.delivered };
