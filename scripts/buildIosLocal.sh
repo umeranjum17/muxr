@@ -103,7 +103,7 @@ mkdir -p "$(dirname "$IOS_IPA_OUTPUT")"
 # The framework a build links is downloaded, never committed. Recompute its
 # library bytes before pods so a tree that skipped postinstall fails here
 # rather than archiving whatever binary happens to be extracted.
-node "$ROOT/scripts/setup/application/syncIosFramework.mjs" --verify
+node "$ROOT/scripts/diagnostics/application/syncIosFramework.mjs" --verify
 (cd "$ROOT/apps/mobile/ios" && pod install)
 export IOS_PROFILE_NAME="$profile_name"
 (cd "$ROOT" && bundle exec fastlane ios build_internal)

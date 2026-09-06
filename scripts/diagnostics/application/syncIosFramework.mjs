@@ -14,6 +14,10 @@ import { fileURLToPath } from 'node:url';
  * this backport and deliberately unverified.
  *
  * No host is assumed anywhere here; the URL is data, not a rule.
+ *
+ * This runs from postinstall, before anything is built, so it lives beside the
+ * native guard it feeds rather than in setup: it and everything it imports have
+ * to resolve from source alone, and the setup barrel re-exports compiled domain.
  */
 export const IOS_FRAMEWORK = Object.freeze({
     url: 'https://github.com/umeranjum17/libghostty-spm/releases/download/storage.1.2.11-muxr.1/GhosttyKit.xcframework.zip',

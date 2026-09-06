@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { IOS_FRAMEWORK, verifyIosLibraries, verifyIosPin } from '../../setup/index.mjs';
+import { IOS_FRAMEWORK, verifyIosLibraries, verifyIosPin } from './syncIosFramework.mjs';
 
 const root = new URL('../../..', import.meta.url);
 const read = (path) => readFileSync(new URL(path, root), 'utf8');
