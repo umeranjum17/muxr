@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { IOS_FRAMEWORK, verifyIosLibraries, verifyIosPin } from './syncIosFramework.mjs';
 
 const root = new URL('../../..', import.meta.url);
 const read = (path) => readFileSync(new URL(path, root), 'utf8');
@@ -149,6 +150,23 @@ const checks = [
             nativeGuard < workspaceBuild &&
             workspaceBuild < vitestGate &&
             vitestGate < gradleBuild,
+    ],
+    [
+        // Source-level identity, checkable anywhere: a Linux checkout holds
+        // whatever binary the dependency fetched before the patch applied.
+        'iOS libghostty pin names the artifact the patched manifest fetches',
+        verifyIosPin().length === 0,
+    ],
+    [
+        'iOS framework pin travels in the dependency patch, so it survives a fresh install',
+        ghosttyPatch.includes('vendor-manifest.json') && ghosttyPatch.includes(IOS_FRAMEWORK.zipSha256),
+    ],
+    [
+        // The stamp beside the framework is a skip-the-download hint, never
+        // evidence: this recomputes the library bytes a build actually links,
+        // on the only platform that installs them.
+        'iOS libghostty libraries match their pinned digests (Darwin)',
+        process.platform !== 'darwin' || verifyIosLibraries().length === 0,
     ],
     [
         'screens mounting-override listener is process-lifetime and cannot dangle (upstream PR 4413)',

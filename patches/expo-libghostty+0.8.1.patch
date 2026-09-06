@@ -923,3 +923,18 @@ index 80ad4b1..3907cd3 100644
        write: whenReady((base64: string) => native.current!.write(base64)),
        writeText: whenReady((text: string) => native.current!.writeText(text)),
        finish: whenReady((exitCode: number) => native.current!.finish(exitCode)),
+diff --git a/node_modules/expo-libghostty/vendor-manifest.json b/node_modules/expo-libghostty/vendor-manifest.json
+index 80bf1fb..7af4b8b 100644
+--- a/node_modules/expo-libghostty/vendor-manifest.json
++++ b/node_modules/expo-libghostty/vendor-manifest.json
+@@ -3,8 +3,8 @@
+     "repo": "https://github.com/Lakr233/libghostty-spm.git",
+     "tag": "1.2.11",
+     "xcframework": {
+-      "url": "https://github.com/Lakr233/libghostty-spm/releases/download/storage.1.2.11/GhosttyKit.xcframework.zip",
+-      "sha256": "584773c3aae93fe231e6aa553032f4ac1a9c4f507538b012f72774ca1354fcd1"
++      "url": "https://github.com/umeranjum17/libghostty-spm/releases/download/storage.1.2.11-muxr.1/GhosttyKit.xcframework.zip",
++      "sha256": "d52148c3541036ddaa495cdd8683ac485c894cdf3a96fd84a00d82ac37da1cc9"
+     }
+   },
+   "MSDisplayLink": {

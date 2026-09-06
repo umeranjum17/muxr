@@ -100,6 +100,10 @@ security default-keychain -d user -s "$keychain" >/dev/null
 security find-identity -v -p codesigning "$keychain" | grep -q '1)'
 
 mkdir -p "$(dirname "$IOS_IPA_OUTPUT")"
+# The framework a build links is downloaded, never committed. Recompute its
+# library bytes before pods so a tree that skipped postinstall fails here
+# rather than archiving whatever binary happens to be extracted.
+node "$ROOT/scripts/diagnostics/application/syncIosFramework.mjs" --verify
 (cd "$ROOT/apps/mobile/ios" && pod install)
 export IOS_PROFILE_NAME="$profile_name"
 (cd "$ROOT" && bundle exec fastlane ios build_internal)
@@ -117,6 +121,8 @@ ipa_sha256="$(shasum -a 256 "$IOS_IPA_OUTPUT" | awk '{print $1}')"
 podfile_lock="$ROOT/apps/mobile/ios/Podfile.lock"
 [ -f "$podfile_lock" ] || { echo "pod install did not produce Podfile.lock" >&2; exit 1; }
 podfile_lock_sha256="$(shasum -a 256 "$podfile_lock" | awk '{print $1}')"
+ghostty_libraries="$(cd "$ROOT/node_modules/expo-libghostty/ios/vendor/Frameworks/GhosttyKit.xcframework" \
+  && shasum -a 256 ios-arm64/libghostty.a ios-arm64_x86_64-simulator/libghostty.a | awk '{printf "%s=%s ", $2, $1}')"
 commit_sha="$(git -C "$ROOT" rev-parse HEAD)"
 printf '%s\n' \
   "iOS archive validation passed" \
@@ -126,4 +132,5 @@ printf '%s\n' \
   "xcode: ${xcode_version//$'\n'/; }" \
   "ipa_sha256: $ipa_sha256" \
   "podfile_lock_sha256: $podfile_lock_sha256" \
+  "ghostty_libraries: $ghostty_libraries" \
   "ipa: $IOS_IPA_OUTPUT"
