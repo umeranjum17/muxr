@@ -60,7 +60,11 @@ const checks = [
         ghosttyView.includes('fun showKeyboard() = terminal.showKeyboard()') &&
         read('node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/ExpoLibghosttyModule.kt').includes('AsyncFunction("showKeyboard")') &&
         read('node_modules/expo-libghostty/build/ExpoLibghosttyView.js').includes('native.current.showKeyboard()')],
-    ['Ghostty patch hides its accessory bar', ghosttyPatch.includes('accessoryBar.visibility = GONE') && ghosttyView.includes('accessoryBar.visibility = GONE')],
+    ['Ghostty patch hides its accessory bar on Android and iOS',
+        ghosttyPatch.includes('accessoryBar.visibility = GONE') &&
+        ghosttyView.includes('accessoryBar.visibility = GONE') &&
+        ghosttyPatch.includes('terminalView.inputAccessoryItems = []') &&
+        ghosttyIosView.includes('terminalView.inputAccessoryItems = []')],
     [
         'Ghostty patch supports symmetric Android hideKeyboard alongside showKeyboard',
         ghosttyPatch.includes('AsyncFunction("hideKeyboard")') &&
