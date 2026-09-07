@@ -199,6 +199,12 @@ try{
     await command('git',['-C',stack.world.cwd,'-c','user.name=Perf fixture','-c','user.email=perf@example.invalid','commit','-qm','Seed deterministic load document']);
     report.documentFixture.gitTree=(await command('git',['-C',stack.world.cwd,'rev-parse','HEAD^{tree}'])).trim();
     const pairingAt=Date.now();await pair();report.pairing={freshHost:true,herdVisibleMs:Date.now()-pairingAt};await shot('paired-herd');
+    if(args.includes('--verify-controls')){
+        await ui.home();await ui.stripPair();
+        report.controlPreflight={strip:true,agent:await firstAgent()};
+        await ui.home();const ids=new Set(stack.world.agents.map(a=>a.pane_id));report.controlPreflight.shell=await shell(stack.world.panes.find(p=>!ids.has(p.pane_id)));
+        await ui.home();await shot('verified-controls');persist();
+    }
     report.preflightReadyAt=new Date().toISOString();persist();log('paired; full workload ready');
     const startFile=flag('--start-file');if(startFile){log('waiting for start-file after runner review');while(!existsSync(startFile))await sleep(1000);}
     report.warmup=await sampleWindow(30,[]);persist();
