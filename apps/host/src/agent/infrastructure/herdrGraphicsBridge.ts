@@ -1541,13 +1541,13 @@ export function encodeKitty(
     return Buffer.concat(output);
 }
 
-/** Herdr's own cell and cell span, mapped into the phone's view of the pane. */
 /** A Kitty placement id, which the protocol defines as unsigned 32-bit. */
 function kittyPlacementId(block?: InlineKittyBlock): number | undefined {
     const value = Number(block?.keys.p ?? Number.NaN);
     return Number.isInteger(value) && value > 0 && value <= 0xffffffff ? value : undefined;
 }
 
+/** Herdr's own cell and cell span, mapped into the phone's view of the pane. */
 function inlinePlacement(block: InlineKittyBlock, rect?: Rect): GraphicsPlacement {
     const cols = Math.max(1, Number(block.keys.c ?? '1'));
     const rows = Math.max(1, Number(block.keys.r ?? '1'));
