@@ -704,6 +704,7 @@ export class HerdrGraphicsBridge {
         live.set(key, { image, block, surface, ...(rect === undefined ? {} : { rect }) });
         const displaced = this.displaceOldestPlacement(paneId, live, key);
         this.inlinePlaced.set(`${paneId}:${key}`, identity);
+        const supersededFull = surface === 'full' ? this.supersedeFullImage(paneId, image) : undefined;
         if (surface === 'full') this.latestByPane.set(paneId, image);
         // The same split the delete path already makes: this block's own
         // surface decides how it is drawn, the pane's surviving surface is
@@ -712,17 +713,28 @@ export class HerdrGraphicsBridge {
         // one rather than a replacement -- and reporting that one frame's
         // surface ended the phone's takeover while a full image was still live.
         const paneSurface = this.survivingSurface(paneId);
-        const displacedDelete = displaced === undefined
-            ? undefined
-            : Buffer.from(`\u001b_Ga=d,d=I,i=${displaced.imageId},q=2;\u001b\\`);
+        // encodeKitty writes its clear ahead of the pixels, so naming the
+        // superseded full image there costs nothing. Only when this frame
+        // already clears a different id does the second delete need a frame of
+        // its own; that is the rare case, not the repaint.
+        const atomicClear = replaced(previous, image);
+        const separate: number[] = [];
+        if (displaced !== undefined) separate.push(displaced.imageId);
+        const clear = atomicClear === 'none' && supersededFull !== undefined
+            ? { imageId: supersededFull.imageId }
+            : atomicClear;
+        if (supersededFull !== undefined && clear !== 'none' && clear.imageId !== supersededFull.imageId) {
+            separate.push(supersededFull.imageId);
+        }
+        const deletes = separate.map((imageId) => wrapAtOrigin(Buffer.from(`\u001b_Ga=d,d=I,i=${imageId},q=2;\u001b\\`)));
         for (const registration of this.registrations.values()) {
             if (registration.paneId !== paneId) continue;
-            // The displaced image leaves before its successor arrives, so the
-            // phone never holds pixels this pane has stopped tracking.
-            if (displacedDelete !== undefined) {
-                registration.write(terminalFrame(wrapAtOrigin(displacedDelete), registration, true, undefined, paneSurface));
+            // Anything this frame retires leaves before its successor arrives,
+            // so the phone never holds pixels this pane has stopped tracking.
+            for (const bytes of deletes) {
+                registration.write(terminalFrame(bytes, registration, true, undefined, paneSurface));
             }
-            const bytes = encodeKitty(image, registration, replaced(previous, image), block, rect, surface);
+            const bytes = encodeKitty(image, registration, clear, block, rect, surface);
             const frame = terminalFrame(bytes, registration, true, undefined, paneSurface);
             registration.write(frame);
             this.recordFrame(at, frame.length, image.width * image.height);
@@ -762,6 +774,35 @@ export class HerdrGraphicsBridge {
         if (this.latestByPane.get(paneId) === placement.image) this.latestByPane.delete(paneId);
         const stillPlaced = [...live.values()].some((item) => item.image.imageId === placement.image.imageId);
         return stillPlaced ? undefined : placement.image;
+    }
+
+    /**
+     * One resident full image per pane.
+     *
+     * Nothing else deletes the predecessor. `replaced` only clears when the
+     * same placement key changes image id, and a placement key carries the
+     * covered extent, so a clipped image that scrolls arrives under a new key
+     * every frame and its predecessor is left resident forever. Two full frames
+     * of a phone-sized pane are ~19MB against the embedded terminal's 10MB
+     * image budget, so every transmission had to evict -- and eviction is the
+     * path that leaks a tracked pin in the pinned terminal.
+     *
+     * Scope is deliberate: full surfaces only. An inline image beside a full
+     * one is a separate, legitimate placement and keeps its pixels, and an id
+     * an inline placement still carries is never deleted -- an uppercase delete
+     * would take that placement with it.
+     */
+    private supersedeFullImage(paneId: string, image: PreparedImage): PreparedImage | undefined {
+        const prior = this.latestByPane.get(paneId);
+        if (prior === undefined || prior.imageId === image.imageId) return undefined;
+        const live = this.livePlacements.get(paneId);
+        const sharedWithInline = live !== undefined && [...live.values()]
+            .some((item) => item.image.imageId === prior.imageId && item.surface !== 'full');
+        if (sharedWithInline) return undefined;
+        for (const key of this.retireInlinePlacements(paneId, prior.imageId)) {
+            this.settleDeferredAfterFrame(paneId, key, image);
+        }
+        return prior;
     }
 
     private placementsFor(paneId: string): Map<string, LivePlacement> {

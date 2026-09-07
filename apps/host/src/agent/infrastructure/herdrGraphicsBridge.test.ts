@@ -517,6 +517,66 @@ describe('Herdr graphics flow', () => {
         expect(deliveredDuringBurst).toBeGreaterThan(0);
     });
 
+    it('keeps one resident full image per pane while an inline neighbour survives', async () => {
+        const socket = Object.assign(new EventEmitter(), { writable: true, write: () => true, destroy: () => {} });
+        const bridge = Reflect.construct(HerdrGraphicsBridge, [socket, 'herdr']) as HerdrGraphicsBridge;
+        const internals = bridge as unknown as {
+            sourcePane: (leading: Buffer) => Promise<string | undefined>;
+            visibleRect: (paneId: string) => Promise<{ x: number; y: number; width: number; height: number } | undefined>;
+            queueInline: (data: Buffer) => void;
+            drainInline: () => Promise<void>;
+            inlineQueue: unknown[];
+            inlineDraining: boolean;
+            livePlacements: Map<string, Map<string, { image: { imageId: number } }>>;
+        };
+        internals.sourcePane = async () => 'pane';
+        internals.visibleRect = async () => ({ x: 0, y: 0, width: 20, height: 10 });
+
+        const frames: string[] = [];
+        bridge.register({
+            channel: 'phone', paneId: 'pane', cols: 20, rows: 10, cellWidthPx: 10, cellHeightPx: 20,
+            write: (frame) => frames.push(frame),
+        });
+
+        const pixels = Buffer.alloc(2 * 2 * 4, 5).toString('base64');
+        const image = (id: number, row: number, col: number, cols: number, rows: number): Buffer => Buffer.from(
+            `\u001b[${row};${col}H`
+            + `\u001b_Ga=t,f=32,s=2,v=2,i=${id},m=0;${pixels}\u001b\\`
+            + `\u001b_Ga=p,i=${id},c=${cols},r=${rows};\u001b\\`,
+        );
+        const drain = vi.spyOn(internals, 'drainInline');
+        const settle = async (): Promise<void> => {
+            await drain.mock.results.at(-1)?.value;
+            expect(internals.inlineQueue).toHaveLength(0);
+            expect(internals.inlineDraining).toBe(false);
+        };
+
+        // A pane-filling image, then a small one beside it.
+        internals.queueInline(image(1, 1, 1, 20, 10));
+        await settle();
+        internals.queueInline(image(2, 8, 3, 4, 2));
+        await settle();
+        expect(frames).toHaveLength(2);
+        expect(frames.every((frame) => !frameAnsi(frame).includes('a=d,'))).toBe(true);
+
+        // A repaint clipped to a different extent is a different placement key,
+        // so `replaced` sees no predecessor and would leave the first image
+        // resident forever. The pane may hold exactly one full image, so this
+        // frame clears it -- ahead of its own pixels, in the same frame.
+        internals.queueInline(image(3, 1, 1, 19, 9));
+        await settle();
+        expect(frames).toHaveLength(3);
+        const repaint = frameAnsi(frames[2]!);
+        expect(repaint).toContain('a=d,d=I,i=1,');
+        expect(repaint).toContain('a=T,f=32,s=2,v=2,i=3');
+        expect(repaint.indexOf('a=d,d=I,i=1,')).toBeLessThan(repaint.indexOf('a=T,f=32,s=2,v=2,i=3'));
+        // The inline neighbour is a separate, legitimate placement.
+        expect(repaint).not.toContain('a=d,d=I,i=2,');
+        expect(repaint).not.toContain('a=d,d=A');
+        const live = internals.livePlacements.get('pane')!;
+        expect([...live.values()].map((placement) => placement.image.imageId).sort()).toEqual([2, 3]);
+    });
+
     it('deletes the image it displaces when a pane exceeds its placement limit', async () => {
         const socket = Object.assign(new EventEmitter(), { writable: true, write: () => true, destroy: () => {} });
         const bridge = Reflect.construct(HerdrGraphicsBridge, [socket, 'herdr']) as HerdrGraphicsBridge;
