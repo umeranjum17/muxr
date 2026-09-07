@@ -364,7 +364,9 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
         return () => {
             cancelCoalesce();
             clearTimeout(resizeTimerRef.current);
+            const channel = channelRef.current;
             onChannel?.(undefined);
+            channel?.close();
             openAbortRef.current?.abort();
             openAbortRef.current = undefined;
             channelRef.current = undefined;

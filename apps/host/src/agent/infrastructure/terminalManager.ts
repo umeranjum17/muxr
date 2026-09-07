@@ -45,6 +45,19 @@ interface Attachment {
     close: (reason?: string) => void;
 }
 
+type TerminalAttachParams = {
+    sessionId: string;
+    channel: string;
+    cols: number;
+    rows: number;
+    cellWidthPx?: number;
+    cellHeightPx?: number;
+    mode?: 'control' | 'observe';
+    deviceId?: string;
+    takeover?: boolean;
+    graphicsReset?: boolean;
+};
+
 const ATTACH_TIMEOUT_MS = 10_000;
 const GRAPHICS_BUFFER_HIGH_BYTES = 512 * 1024;
 const GRAPHICS_BUFFER_LOW_BYTES = 128 * 1024;
@@ -54,6 +67,8 @@ const MAX_PENDING_GRAPHICS_FRAMES = 128;
 
 export class TerminalManager {
     private readonly attachments = new Map<string, Attachment>();
+    /** Attach and detach for one channel must have one owner at a time. */
+    private readonly channelQueues = new Map<string, Promise<void>>();
     private readonly controlQueues = new Map<string, Promise<void>>();
     private readonly hosted: HostV2Crypto | undefined;
     private graphics: HerdrGraphicsBridge | undefined;
@@ -64,18 +79,11 @@ export class TerminalManager {
         this.hosted = options.hostedE2ee === undefined ? undefined : new HostV2Crypto(options.hostedE2ee);
     }
 
-    async attach(params: {
-        sessionId: string;
-        channel: string;
-        cols: number;
-        rows: number;
-        cellWidthPx?: number;
-        cellHeightPx?: number;
-        mode?: 'control' | 'observe';
-        deviceId?: string;
-        takeover?: boolean;
-        graphicsReset?: boolean;
-    }): Promise<{ paneId: string }> {
+    async attach(params: TerminalAttachParams): Promise<{ paneId: string }> {
+        return this.serializeChannel(params.channel, () => this.attachUnlocked(params));
+    }
+
+    private async attachUnlocked(params: TerminalAttachParams): Promise<{ paneId: string }> {
         if (this.hosted !== undefined && (params.deviceId === undefined || this.options.hostedE2ee?.ingressKeys[params.deviceId] === undefined)) {
             throw Object.assign(new Error('terminal: hosted attach requires an active device grant'), { code: 'e2ee-required' });
         }
@@ -95,18 +103,7 @@ export class TerminalManager {
         }
     }
 
-    private async attachNow(params: {
-        sessionId: string;
-        channel: string;
-        cols: number;
-        rows: number;
-        cellWidthPx?: number;
-        cellHeightPx?: number;
-        mode?: 'control' | 'observe';
-        deviceId?: string;
-        takeover?: boolean;
-        graphicsReset?: boolean;
-    }, paneId: string): Promise<{ paneId: string }> {
+    private async attachNow(params: TerminalAttachParams, paneId: string): Promise<{ paneId: string }> {
         const mode = this.hosted !== undefined && deviceTableIsObserve(this.options.hostedE2ee?.deviceAuthorities, params.deviceId)
             ? 'observe'
             : params.mode ?? 'control';
@@ -556,17 +553,29 @@ export class TerminalManager {
         attachment.socket.send(JSON.stringify(envelope));
     }
 
-    detach(channel: string, authenticatedDeviceId?: string): void {
-        const attachment = this.attachments.get(channel);
-        if (attachment === undefined) return;
-        if (authenticatedDeviceId !== undefined && attachment.deviceId !== authenticatedDeviceId) {
-            throw new Error('terminal: channel belongs to another device');
-        }
-        attachment.close();
+    private serializeChannel<T>(channel: string, operation: () => Promise<T>): Promise<T> {
+        const previous = this.channelQueues.get(channel) ?? Promise.resolve();
+        const run = previous.catch(() => undefined).then(operation);
+        const tail = run.then(() => undefined, () => undefined);
+        this.channelQueues.set(channel, tail);
+        return run.finally(() => {
+            if (this.channelQueues.get(channel) === tail) this.channelQueues.delete(channel);
+        });
+    }
+
+    async detach(channel: string, authenticatedDeviceId?: string): Promise<void> {
+        await this.serializeChannel(channel, async () => {
+            const attachment = this.attachments.get(channel);
+            if (attachment === undefined) return;
+            if (authenticatedDeviceId !== undefined && attachment.deviceId !== authenticatedDeviceId) {
+                throw new Error('terminal: channel belongs to another device');
+            }
+            attachment.close();
+        });
     }
 
     closeAll(): void {
-        for (const channel of [...this.attachments.keys()]) this.detach(channel);
+        for (const attachment of [...this.attachments.values()]) attachment.close();
         if (this.graphicsCloseTimer !== undefined) clearTimeout(this.graphicsCloseTimer);
         this.graphicsCloseTimer = undefined;
         this.graphics?.close();

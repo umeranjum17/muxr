@@ -127,7 +127,7 @@ describe('TerminalManager stream exit', () => {
         expect(childA!.kill).toHaveBeenCalledOnce();
         expect(preview!.close).not.toHaveBeenCalled();
         expect(previewChild!.kill).not.toHaveBeenCalled();
-        expect(() => manager.detach('phone-b', 'device-a')).toThrow(/another device/);
+        await expect(manager.detach('phone-b', 'device-a')).rejects.toThrow(/another device/);
         expect(phoneB!.close).not.toHaveBeenCalled();
 
         phoneA!.emit('message', Buffer.from(JSON.stringify({ type: 'terminal.input', text: 'stale' })));
@@ -146,6 +146,27 @@ describe('TerminalManager stream exit', () => {
         phoneB!.emit('message', Buffer.from(JSON.stringify(envelope)));
         expect(childA!.stdin.write).not.toHaveBeenCalledWith(expect.stringContaining('stale'));
         expect(childB!.stdin.write).toHaveBeenCalledWith(`${plaintext}\n`);
+    });
+
+    it('serializes detach behind an attach that has not acquired its socket yet', async () => {
+        let release!: (paneId: string) => void;
+        const resolvePane = vi.fn(() => new Promise<string>((resolve) => { release = resolve; }));
+        const manager = new TerminalManager({
+            relayUrl: 'ws://relay.test',
+            machineId: 'machine',
+            resolvePane,
+            focusSession: async () => undefined,
+        });
+
+        const attaching = manager.attach({ sessionId: 'session', channel: 'channel', cols: 100, rows: 30 });
+        await vi.waitFor(() => expect(resolvePane).toHaveBeenCalledOnce());
+        const detaching = manager.detach('channel');
+        expect(fakes.sockets).toHaveLength(0);
+        release('workspace:pane');
+
+        await attaching;
+        await detaching;
+        expect(fakes.sockets[0]?.close).toHaveBeenCalledOnce();
     });
 
     it('rejects attach when Herdr cannot start instead of leaving the phone reconnecting', async () => {

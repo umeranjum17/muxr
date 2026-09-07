@@ -124,6 +124,9 @@ const inflate = promisify(inflateRaw);
 export class InlineImageStore {
     private readonly complete = new Map<string, Buffer>();
     private readonly partial = new Map<string, Buffer[]>();
+    private readonly partialBytes = new Map<string, number>();
+    private completeBytes = 0;
+    private partialTotalBytes = 0;
     private order: string[] = [];
     /** Continuation chunks carry no image id; they belong to this transfer. */
     private active: string | undefined;
@@ -159,13 +162,22 @@ export class InlineImageStore {
         const id = imageKey(block.keys) ?? this.active;
         if (id === undefined) return true;
         const chunks = this.partial.get(id) ?? [];
+        const previousBytes = this.partialBytes.get(id) ?? 0;
+        const size = previousBytes + block.bytes.length;
+        if (size > this.maxBytes
+            || this.completeBytes + this.partialTotalBytes - previousBytes + block.bytes.length > this.maxBytes) {
+            this.clearPartial(id);
+            return true;
+        }
         chunks.push(block.bytes);
         if (block.keys.m === '1') {
             this.partial.set(id, chunks);
+            this.partialBytes.set(id, size);
+            this.partialTotalBytes += block.bytes.length;
             this.active = id;
             return true;
         }
-        this.partial.delete(id);
+        this.clearPartial(id);
         this.active = undefined;
         this.store(id, Buffer.concat(chunks));
         return true;
@@ -189,15 +201,26 @@ export class InlineImageStore {
         if (blocks === undefined) return undefined;
         const keys = parseKeys(blocks);
         if ((keys.f ?? '32') !== '32') return undefined;
+        const expectedLength = rgbaLength(keys);
+        if (expectedLength === undefined || expectedLength > this.maxBytes) return undefined;
         try {
-            const payload = Buffer.from(payloadOf(blocks), 'base64');
-            const rgba = keys.o === 'z' ? await inflate(payload) : payload;
+            const encoded = payloadOf(blocks);
+            // Refuse an oversized payload before Buffer.from or inflate can
+            // allocate it. The decoded cap is the source of truth; compressed
+            // data is allowed only the same bounded amount.
+            if (encoded.length > Math.ceil(this.maxBytes / 3) * 4 + 4) return undefined;
+            const payload = Buffer.from(encoded, 'base64');
+            if (payload.length > this.maxBytes) return undefined;
+            const rgba = keys.o === 'z'
+                ? await inflate(payload, { maxOutputLength: expectedLength })
+                : payload;
+            if (rgba.length !== expectedLength) return undefined;
             const control = `s=${keys.s ?? ''},v=${keys.v ?? ''},i=${id}`;
             const value = await prepare(rgba, control);
             // The pixels may have been deleted or retransmitted while the
             // preparation was in flight; only resident, unmoved bytes may
             // re-enter the cache.
-            if (this.complete.get(id) !== blocks) return value;
+            if (this.complete.get(id) !== blocks) return undefined;
             this.preparedById.set(id, { variant, value });
             return value;
         } catch {
@@ -219,18 +242,18 @@ export class InlineImageStore {
             // transmission admitted later in the same scanned chunk is newer.
             for (const [stampedId, stamp] of [...this.latestStampById]) {
                 if (stamp > residentStamp) continue;
-                this.complete.delete(stampedId);
+                this.removeComplete(stampedId);
                 this.preparedById.delete(stampedId);
                 this.latestStampById.delete(stampedId);
-                this.order = this.order.filter((item) => item !== stampedId);
             }
+            this.order = this.order.filter((item) => this.complete.has(item));
             return;
         }
         if (scope !== 'I' || id === undefined) return;
         // A retransmission admitted after the delete is newer than it: the
         // deleted bytes are already gone and the new ones must stay.
         if ((this.latestStampById.get(id) ?? 0) > residentStamp) return;
-        this.complete.delete(id);
+        this.removeComplete(id);
         this.preparedById.delete(id);
         this.latestStampById.delete(id);
         this.order = this.order.filter((item) => item !== id);
@@ -238,20 +261,43 @@ export class InlineImageStore {
 
     private store(id: string, bytes: Buffer): void {
         if (bytes.length > this.maxBytes) return;
-        if (!this.complete.has(id)) this.order.push(id);
+        const previous = this.complete.get(id);
+        if (previous === undefined) this.order.push(id);
+        else this.completeBytes -= previous.length;
         this.complete.set(id, bytes);
+        this.completeBytes += bytes.length;
         this.latestStampById.set(id, ++this.nextTransmissionStamp);
         // New bytes under a known id are a retransmission: the prepared frame
         // built from the old bytes is stale.
         this.preparedById.delete(id);
-        let total = [...this.complete.values()].reduce((sum, item) => sum + item.length, 0);
-        while (total > this.maxBytes && this.order.length > 1) {
+        while (this.completeBytes > this.maxBytes && this.order.length > 1) {
             const oldest = this.order.shift()!;
-            total -= this.complete.get(oldest)?.length ?? 0;
-            this.complete.delete(oldest);
+            this.removeComplete(oldest);
             this.preparedById.delete(oldest);
             this.latestStampById.delete(oldest);
         }
+    }
+
+    private clearPartial(id?: string): void {
+        if (id === undefined) {
+            this.partial.clear();
+            this.partialBytes.clear();
+            this.partialTotalBytes = 0;
+            this.active = undefined;
+            return;
+        }
+        const bytes = this.partialBytes.get(id) ?? 0;
+        this.partial.delete(id);
+        this.partialBytes.delete(id);
+        this.partialTotalBytes = Math.max(0, this.partialTotalBytes - bytes);
+        if (this.active === id) this.active = undefined;
+    }
+
+    private removeComplete(id: string): void {
+        const bytes = this.complete.get(id);
+        if (bytes === undefined) return;
+        this.complete.delete(id);
+        this.completeBytes = Math.max(0, this.completeBytes - bytes.length);
     }
 }
 
@@ -275,4 +321,12 @@ function payloadOf(blocks: Buffer): string {
 function imageKey(keys: Record<string, string>): string | undefined {
     const id = keys.i ?? keys.I;
     return id === undefined || id === '' ? undefined : id;
+}
+
+function rgbaLength(keys: Record<string, string>): number | undefined {
+    const width = Number(keys.s);
+    const height = Number(keys.v);
+    if (!Number.isSafeInteger(width) || !Number.isSafeInteger(height) || width <= 0 || height <= 0) return undefined;
+    const length = width * height * 4;
+    return Number.isSafeInteger(length) && length > 0 ? length : undefined;
 }

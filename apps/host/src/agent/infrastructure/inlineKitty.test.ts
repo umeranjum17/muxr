@@ -9,8 +9,8 @@ describe('inline Kitty in the app stream', () => {
         const scanner = new InlineKittyScanner();
         const store = new InlineImageStore();
 
-        const head = Buffer.from('\u001b[?2004l\u001b[7;3Hhello \u001b_Ga=t,f=32,s=2,v=2,i=42,m=1;AAAA\u001b\\');
-        const tail = Buffer.from('\u001b_Gm=0;BBBB\u001b\\\u001b[9;5H\u001b_Ga=p,i=42,c=4,r=2;\u001b\\');
+        const head = Buffer.from('\u001b[?2004l\u001b[7;3Hhello \u001b_Ga=t,f=32,s=2,v=2,i=42,m=1;AAAAAAAA\u001b\\');
+        const tail = Buffer.from('\u001b_Gm=0;AAAAAAAAAAAAAA==\u001b\\\u001b[9;5H\u001b_Ga=p,i=42,c=4,r=2;\u001b\\');
 
         const first = scanner.scan(head.subarray(0, head.length - 3));
         expect(first).toHaveLength(0); // the block is still incomplete
@@ -31,9 +31,9 @@ describe('inline Kitty in the app stream', () => {
             bytes: rgba.length,
             control,
         }));
-        // AAAA + BBBB decode to six bytes; the control keys come from the
-        // transmission, not the placement, so the encoder can size the image.
-        expect(prepared).toEqual({ bytes: 6, control: 's=2,v=2,i=42' });
+        // The split payload decodes to 16 RGBA bytes; the control keys come
+        // from the transmission, not the placement, so the encoder can size it.
+        expect(prepared).toEqual({ bytes: 16, control: 's=2,v=2,i=42' });
 
         // A second placement of the same image reuses the prepared frame.
         let prepareCalls = 0;

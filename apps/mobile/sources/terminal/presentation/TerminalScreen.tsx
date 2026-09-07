@@ -707,7 +707,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
 
             {/* Terminal plus the accessory key row: the panel may cover the
                 keys, which go inert beneath it, and never the composer. */}
-            {terminalBox !== undefined && (viewControls.commands.length > 0 || (canControl && quickActions.length > 0)) && (() => {
+            {terminalBox !== undefined && (viewControls.commands.length > 0 || canControl) && (() => {
                 const overlayHeight = canControl
                     ? Math.max(terminalBox.height, bottomBlockTop + accessoryBottom - terminalBox.top)
                     : terminalBox.height;
