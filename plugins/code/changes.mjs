@@ -80,8 +80,28 @@ function files() {
         return { path: path.join('\t'), added, deleted, kind: scope };
     });
     const untracked = scope === 'working' ? git(['ls-files', '--others', '--exclude-standard', '-z'], root).split('\0').filter(Boolean)
-        .map((path) => ({ path, added: '', deleted: '', kind: 'untracked' })) : [];
+        .map((path) => ({ path, ...untrackedStat(join(root, path)), kind: 'untracked' })) : [];
     return [...tracked, ...untracked];
+}
+
+/**
+ * A new file is entirely added lines, so counting none of them reports a
+ * working tree of untracked files as no change at all. Git counts the same
+ * lines for an intent-to-add file, without us having to touch the index.
+ */
+function untrackedStat(absolute) {
+    try {
+        const stat = lstatSync(absolute);
+        if (!stat.isFile() || stat.size > 1024 * 1024) return { added: '-', deleted: '-' };
+        const content = readFileSync(absolute);
+        if (content.includes(0)) return { added: '-', deleted: '-' };
+        let added = 0;
+        for (let index = content.indexOf(10); index !== -1; index = content.indexOf(10, index + 1)) added++;
+        if (content.length > 0 && content[content.length - 1] !== 10) added++;
+        return { added: String(added), deleted: '0' };
+    } catch {
+        return { added: '-', deleted: '-' };
+    }
 }
 const params = (extra = {}) => ({ sessionId, root, scope, ...extra });
 function workingFileAction(file) {
@@ -131,16 +151,14 @@ if (method === 'worktrees') {
         if (/^\d+$/.test(file.deleted)) deletedLines += Number(file.deleted);
     }
     const summary = unavailable ? [] : [
-        { label: 'Tracked lines added', value: `+${addedLines.toLocaleString('en-US')}`, tone: 'positive' },
-        { label: 'Tracked lines removed', value: `−${deletedLines.toLocaleString('en-US')}`, tone: 'danger' },
+        { label: 'Lines added', value: `+${addedLines.toLocaleString('en-US')}`, tone: 'positive' },
+        { label: 'Lines removed', value: `−${deletedLines.toLocaleString('en-US')}`, tone: 'danger' },
     ];
     const pageCount = Math.max(1, Math.ceil(changed.length / 49));
     const requestedPage = typeof input.page === 'number' || (typeof input.page === 'string' && /^\d+$/.test(input.page)) ? Number(input.page) : 0;
     const page = method === 'browse' && Number.isSafeInteger(requestedPage) ? Math.max(0, Math.min(pageCount - 1, requestedPage)) : 0;
     const rows = changed.slice(page * 49, (page + 1) * 49).map((file) => {
-        let count = `+${file.added} / −${file.deleted}`;
-        if (file.kind === 'untracked') count = 'Untracked';
-        else if (file.added === '-') count = 'Binary';
+        const count = file.added === '-' ? 'Binary' : `+${file.added} / −${file.deleted}`;
         return { ...file, title: basename(file.path), subtitle: `${file.path} · ${count}`, sessionId, root, scope, head, base };
     });
     const scopeNotes = { branch: 'Committed branch changes only; working edits are separate.', staged: 'The index that will be committed; unstaged edits are separate.', working: 'Current files compared with HEAD, including untracked files. Committed branch changes are separate.' };
