@@ -530,11 +530,15 @@ describe('Herdr graphics flow', () => {
             drain: () => Promise<void>;
             drainInline: () => Promise<void>;
             wheelReport: (paneId: string, direction: 'up' | 'down', point: { x: number; y: number }) => Buffer | undefined;
+            forwardInlineBlock: (work: unknown, allowDeleteDeferral?: boolean) => Promise<void>;
+            livePlacements: Map<string, Map<string, { block: unknown; rect?: unknown }>>;
+            sourceRevision: Map<string, number>;
+            sourceQueueVersion: number;
             inlineQueue: unknown[];
             inlineDraining: boolean;
         };
-        internals.sourcePane = async () => 'pane';
-        internals.visibleRect = async () => ({ x: 0, y: 0, width: 20, height: 10 });
+        internals.sourcePane = vi.fn(async () => 'pane');
+        internals.visibleRect = vi.fn(async () => ({ x: 0, y: 0, width: 20, height: 10 }));
 
         const frames: string[] = [];
         bridge.register({
@@ -592,9 +596,16 @@ describe('Herdr graphics flow', () => {
         // Once the producer and input have both been quiet, the same resident
         // source image is replayed at full density through the same serial
         // lifecycle. There is no second raw-frame queue.
+        const routedBefore = (internals.sourcePane as ReturnType<typeof vi.fn>).mock.calls.length;
+        const probedBefore = (internals.visibleRect as ReturnType<typeof vi.fn>).mock.calls.length;
         await vi.advanceTimersByTimeAsync(200);
         await drain.mock.results.at(-1)?.value;
         expect(frames).toHaveLength(2);
+        // The refinement already knows its pane and the rect its placement was
+        // measured with: re-routing would re-probe every pane's layout, which
+        // costs far more than the encode it is waiting on.
+        expect((internals.sourcePane as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(routedBefore);
+        expect((internals.visibleRect as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(probedBefore);
         expect(frameAnsi(frames[1]!)).toContain('a=T,f=32,s=600,v=400,i=9,');
 
         // A source that changes again shortly after a full frame is refined on
@@ -643,6 +654,26 @@ describe('Herdr graphics flow', () => {
         await vi.advanceTimersByTimeAsync(5000);
         await drain.mock.results.at(-1)?.value;
         expect(frames).toHaveLength(8);
+
+        // A refinement whose placement disappeared has nothing left to sharpen.
+        // It must fail closed rather than route or probe for a replacement.
+        const placed = internals.livePlacements.get('pane')!;
+        const [, retained] = [...placed.entries()][0]!;
+        const routedAtGone = (internals.sourcePane as ReturnType<typeof vi.fn>).mock.calls.length;
+        const probedAtGone = (internals.visibleRect as ReturnType<typeof vi.fn>).mock.calls.length;
+        internals.livePlacements.delete('pane');
+        await internals.forwardInlineBlock({
+            block: retained.block,
+            at: Date.now(),
+            refinement: {
+                paneId: 'pane',
+                sourceRevision: internals.sourceRevision.get('pane') ?? 0,
+                sourceQueueVersion: internals.sourceQueueVersion,
+            },
+        }, false);
+        expect(frames).toHaveLength(8);
+        expect((internals.sourcePane as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(routedAtGone);
+        expect((internals.visibleRect as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(probedAtGone);
 
         // Direct GraphicsFile frames use the same bounded raw-state/refinement
         // path, with their Herdr lease acknowledged before preparation.

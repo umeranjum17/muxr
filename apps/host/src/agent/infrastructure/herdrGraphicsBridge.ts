@@ -873,7 +873,11 @@ export class HerdrGraphicsBridge {
         // drain is serial, so a delivered frame is never overtaken by an older
         // one, and the repaints queued behind this one still coalesce here.
         if (this.superseded(key)) return;
-        const paneId = await this.sourcePane(cursorAt(block));
+        // A refinement is already bound to the pane whose placement it sharpens.
+        // Routing it again would re-probe every registered pane's layout for an
+        // answer this work already carries, and that probe -- not the encode --
+        // is what delays a settled frame. Producer work still routes normally.
+        const paneId = refinement?.paneId ?? await this.sourcePane(cursorAt(block));
         if (paneId === undefined) {
             // The candidate successor cannot be routed: its deferred front
             // half is a real delete and executes now.
@@ -939,7 +943,21 @@ export class HerdrGraphicsBridge {
             });
             return;
         }
-        const rect = await this.visibleRect(paneId);
+        // The retained placement carries the rect this surface was measured
+        // with. Reusing it keeps `surfaceOf` deciding exactly as it did for the
+        // coarse frame; a placement that is gone is a refinement with nothing
+        // left to sharpen, which fails closed rather than guessing a rect.
+        let rect: Rect | undefined;
+        if (refinement === undefined) {
+            rect = await this.visibleRect(paneId);
+        } else {
+            const retained = this.livePlacements.get(paneId)?.get(key);
+            if (retained === undefined) {
+                graphicsTrace?.add('refine.reject', { pane: paneId, path: 'inline', why: 'placement-gone', rearmed: false });
+                return;
+            }
+            rect = retained.rect;
+        }
         if (this.closed) return;
         if (refinement !== undefined && !this.refinementCurrent(refinement, paneId)) {
             graphicsTrace?.add('refine.reject', {
