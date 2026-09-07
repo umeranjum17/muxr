@@ -596,6 +596,53 @@ describe('Herdr graphics flow', () => {
         expect(frames).toHaveLength(2);
         expect(frameAnsi(frames[1]!)).toContain('a=T,f=32,s=600,v=400,i=9,');
 
+        // A source that changes again shortly after a full frame is refined on
+        // the same 200ms quiet rule. Nothing may hold it coarse for longer
+        // because a full frame happened to go out recently.
+        const repaint = (id: number): void => {
+            const next = Buffer.alloc(width * height * 4);
+            for (let i = 0; i < next.length; i += 4) {
+                const value = ((i / 4) + id) % 255;
+                next[i] = value; next[i + 1] = 255 - value; next[i + 2] = value; next[i + 3] = 255;
+            }
+            internals.queueInline(Buffer.from(
+                '\u001b[1;1H'
+                + `\u001b_Ga=t,f=32,s=${width},v=${height},i=${id},o=z,m=0;${deflateSync(next).toString('base64')}\u001b\\`
+                + `\u001b_Ga=p,i=${id},c=20,r=10;\u001b\\`,
+            ));
+        };
+        await vi.advanceTimersByTimeAsync(100);
+        repaint(11);
+        await settle();
+        // Producer activity keeps the wire image coarse.
+        expect(frames).toHaveLength(3);
+        expect(frameAnsi(frames[2]!)).toContain('a=T,f=32,s=300,v=200,i=11,');
+        await vi.advanceTimersByTimeAsync(199);
+        await drain.mock.results.at(-1)?.value;
+        expect(frames).toHaveLength(3);
+        await vi.advanceTimersByTimeAsync(1);
+        await drain.mock.results.at(-1)?.value;
+        expect(frames).toHaveLength(4);
+        expect(frameAnsi(frames[3]!)).toContain('a=T,f=32,s=600,v=400,i=11,');
+
+        // A producer that keeps repainting inside the quiet window stays coarse
+        // throughout, then settles to exactly one refinement of the latest
+        // source and never repeats it while idle.
+        for (const id of [12, 13, 14]) {
+            await vi.advanceTimersByTimeAsync(100);
+            repaint(id);
+            await settle();
+        }
+        expect(frames).toHaveLength(7);
+        for (const frame of frames.slice(4)) expect(frameAnsi(frame)).toContain('a=T,f=32,s=300,v=200,');
+        await vi.advanceTimersByTimeAsync(200);
+        await drain.mock.results.at(-1)?.value;
+        expect(frames).toHaveLength(8);
+        expect(frameAnsi(frames[7]!)).toContain('a=T,f=32,s=600,v=400,i=14,');
+        await vi.advanceTimersByTimeAsync(5000);
+        await drain.mock.results.at(-1)?.value;
+        expect(frames).toHaveLength(8);
+
         // Direct GraphicsFile frames use the same bounded raw-state/refinement
         // path, with their Herdr lease acknowledged before preparation.
         const directSocket = Object.assign(new EventEmitter(), { writable: true, write: () => true, destroy: () => {} });

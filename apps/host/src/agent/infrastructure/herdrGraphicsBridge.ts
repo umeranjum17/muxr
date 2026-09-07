@@ -49,8 +49,6 @@ const ADAPTIVE_DENSITY = process.env.MUXR_GRAPHICS_HALVE !== '0';
 const SETTLE_REFINE_MS = 200;
 /** Optional source pixels never get to consume the whole bridge. */
 export const MAX_REFINEMENT_BYTES = 32 * 1024 * 1024;
-/** Do not let a slowly animating page turn every pause into a full frame. */
-const FULL_DENSITY_INTERVAL_MS = 2000;
 const compress = promisify(deflate);
 const run = promisify(execFile);
 
@@ -216,7 +214,6 @@ export class HerdrGraphicsBridge {
     private readonly refineTimers = new Map<string, ReturnType<typeof setTimeout>>();
     private readonly lastSourceAt = new Map<string, number>();
     private readonly sourceRevision = new Map<string, number>();
-    private readonly lastFullFrameAt = new Map<string, number>();
     private readonly directRawByPane = new Map<string, DirectRawFrame>();
     private directRefinementBytes = 0;
     private readonly directRefineQueue: DirectRefineWork[] = [];
@@ -514,13 +511,6 @@ export class HerdrGraphicsBridge {
             this.armRefine(paneId, work.reason, Math.max(1, SETTLE_REFINE_MS - (Date.now() - last)));
             return;
         }
-        if (work.reason === 'source') {
-            const sinceFull = Date.now() - (this.lastFullFrameAt.get(paneId) ?? 0);
-            if (sinceFull < FULL_DENSITY_INTERVAL_MS) {
-                this.armRefine(paneId, work.reason, FULL_DENSITY_INTERVAL_MS - sinceFull);
-                return;
-            }
-        }
         const live = this.livePlacements.get(paneId);
         const settled = live === undefined ? undefined
             : [...live.entries()].find(([, item]) => item.surface === 'full' && item.image.sourceWidth !== undefined);
@@ -593,7 +583,6 @@ export class HerdrGraphicsBridge {
         this.refineTimers.clear();
         this.lastSourceAt.clear();
         this.sourceRevision.clear();
-        this.lastFullFrameAt.clear();
         this.directRawByPane.clear();
         this.directRefinementBytes = 0;
         this.directRefineQueue.length = 0;
@@ -933,11 +922,7 @@ export class HerdrGraphicsBridge {
             this.recordFrame(at, frame.length, image.width * image.height);
         }
         this.settleDeferredAfterFrame(paneId, key, image);
-        if (image.sourceWidth === undefined) {
-            this.lastFullFrameAt.set(paneId, Date.now());
-        } else if (!this.gestureActive(paneId)) {
-            this.armRefine(paneId, 'source');
-        }
+        if (image.sourceWidth !== undefined && !this.gestureActive(paneId)) this.armRefine(paneId, 'source');
         // A frame is the honest acknowledgement that this pane kept up, so the
         // next notch of the gesture goes out now and no faster.
         this.drainNotch(paneId);
@@ -1318,8 +1303,9 @@ export class HerdrGraphicsBridge {
                     this.dropDirectRefinement(paneId);
                 }
                 this.presentDirect(paneId, prepared, file.transferId, file.imageId, startedAt);
-                if (prepared.sourceWidth === undefined) this.lastFullFrameAt.set(paneId, Date.now());
-                else if (this.directRawByPane.has(paneId) && !this.gestureActive(paneId)) this.armRefine(paneId, 'source');
+                if (prepared.sourceWidth !== undefined && this.directRawByPane.has(paneId) && !this.gestureActive(paneId)) {
+                    this.armRefine(paneId, 'source');
+                }
             }
         } catch (error) {
             this.logError(error);
@@ -1358,13 +1344,6 @@ export class HerdrGraphicsBridge {
             this.armRefine(paneId, work.reason, Math.max(1, SETTLE_REFINE_MS - (Date.now() - last)));
             return;
         }
-        if (work.reason === 'source') {
-            const sinceFull = Date.now() - (this.lastFullFrameAt.get(paneId) ?? 0);
-            if (sinceFull < FULL_DENSITY_INTERVAL_MS) {
-                this.armRefine(paneId, work.reason, FULL_DENSITY_INTERVAL_MS - sinceFull);
-                return;
-            }
-        }
         const raw = this.directRawByPane.get(paneId);
         const current = this.latestByPane.get(paneId);
         if (raw === undefined || current?.imageId !== raw.imageId || current.transferId !== raw.transferId
@@ -1379,7 +1358,6 @@ export class HerdrGraphicsBridge {
         if (this.closed || !this.directRefinementCurrent(raw, paneId, work)) return;
         this.dropDirectRefinement(paneId);
         this.presentDirect(paneId, prepared, raw.transferId, raw.sourceImageId, work.at);
-        this.lastFullFrameAt.set(paneId, Date.now());
     }
 
     private directRefinementCurrent(raw: DirectRawFrame, paneId: string, work: DirectRefineWork): boolean {
@@ -1464,7 +1442,6 @@ export class HerdrGraphicsBridge {
         this.sourceQueueVersion += 1;
         this.lastSourceAt.delete(paneId);
         this.sourceRevision.delete(paneId);
-        this.lastFullFrameAt.delete(paneId);
         this.deferredDeletes.delete(paneId);
         for (const [transferId, owner] of this.imageOwners) {
             if (owner.paneId === paneId) this.imageOwners.delete(transferId);
