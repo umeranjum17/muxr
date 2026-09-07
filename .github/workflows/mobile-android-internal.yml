@@ -125,6 +125,27 @@ jobs:
           printf '%s' "$ANDROID_UPLOAD_KEYSTORE_BASE64" | base64 --decode > "$keystore"
           chmod 600 "$keystore"
           echo "ORG_GRADLE_PROJECT_releaseStoreFile=$keystore" >> "$GITHUB_ENV"
+      - name: Carry the declared store profile into the build
+        if: ${{ !inputs.development }}
+        run: |
+          node --input-type=module <<'JS'
+          import { appendFileSync, readFileSync } from 'node:fs';
+          // The identity a store build ships is declared once, in the profile the
+          // build is named after. Without these the app config omits extra.eas and
+          // the client falls back to a loopback relay, which a signed store build
+          // must never do. Development builds keep their own identity untouched.
+          const profile = JSON.parse(readFileSync('apps/mobile/eas.json', 'utf8')).build.production.env;
+          for (const key of ['APP_ENV', 'MUXR_PUBLIC_BASE_URL', 'ORG_GRADLE_PROJECT_reactNativeArchitectures']) {
+              if (process.env[key] !== profile[key]) {
+                  throw new Error(`This workflow builds with ${key}=${process.env[key]}, but the production profile declares ${profile[key]}`);
+              }
+          }
+          for (const key of ['MUXR_EAS_PROJECT_ID', 'MUXR_DISTRIBUTION', 'EXPO_PUBLIC_MUXR_MODE', 'EXPO_PUBLIC_MUXR_RELAY_URL']) {
+              const value = profile[key];
+              if (typeof value !== 'string' || value === '') throw new Error(`The production profile declares no ${key}`);
+              appendFileSync(process.env.GITHUB_ENV, `${key}=${value}\n`);
+          }
+          JS
       - run: yarn install --frozen-lockfile --non-interactive
       - name: Mobile release gate
         run: |
@@ -187,6 +208,27 @@ jobs:
           echo 'a099cfa1543f55593bc2ed16a70a7c67fe54b1747bb7301f37fdfd6d91028e29  '"$RUNNER_TEMP/bundletool.jar" | sha256sum --check
           test "$(java -jar "$RUNNER_TEMP/bundletool.jar" dump manifest --bundle "$aab" --xpath '/manifest/@android:versionName')" = "$APP_VERSION"
           test "$(java -jar "$RUNNER_TEMP/bundletool.jar" dump manifest --bundle "$aab" --xpath '/manifest/@android:versionCode')" = "$ANDROID_VERSION_CODE"
+          # What the app actually shipped with, read back out of the artifact.
+          # Push registration reads the project id from this file at runtime, so a
+          # store build that omits it reports no native push however well it signs.
+          if [ "$ORG_GRADLE_PROJECT_muxrDevelopmentApp" != true ]; then
+            unzip -p "$apk" assets/app.config > "$RUNNER_TEMP/app.config"
+            node --input-type=module <<'JS'
+          import { readFileSync } from 'node:fs';
+          import { join } from 'node:path';
+          const config = JSON.parse(readFileSync(join(process.env.RUNNER_TEMP, 'app.config'), 'utf8'));
+          const expected = {
+              'extra.eas.projectId': [config.extra?.eas?.projectId, process.env.MUXR_EAS_PROJECT_ID],
+              'extra.app.publicBaseUrl': [config.extra?.app?.publicBaseUrl, process.env.MUXR_PUBLIC_BASE_URL],
+              'extra.app.releaseVersion': [config.extra?.app?.releaseVersion, process.env.MUXR_RELEASE_VERSION],
+              'extra.app.buildCommitSha': [config.extra?.app?.buildCommitSha, process.env.GITHUB_SHA],
+              'extra.app.directDistribution': [config.extra?.app?.directDistribution, false],
+          };
+          for (const [field, [embedded, wanted]] of Object.entries(expected)) {
+              if (embedded !== wanted) throw new Error(`The APK embeds ${field}=${JSON.stringify(embedded)}, expected ${JSON.stringify(wanted)}`);
+          }
+          JS
+          fi
       - name: Upload AAB to Play Internal
         if: inputs.submit_to_play
         env:
