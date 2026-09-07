@@ -630,6 +630,13 @@ export class HerdrGraphicsBridge {
         // worthless, and it is dropped before it costs a layout probe, a base64
         // decode, or a compression -- but a second image elsewhere in the pane
         // is not a repaint of this one, and survives.
+        //
+        // Only here. Once a frame has been selected and paid for, it is carried
+        // to the phone: re-checking after the probe, the decode and the rect
+        // discarded every completed frame while a producer kept painting, so a
+        // scrolling browser delivered nothing until the gesture stopped. The
+        // drain is serial, so a delivered frame is never overtaken by an older
+        // one, and the repaints queued behind this one still coalesce here.
         if (this.superseded(key)) return;
         const paneId = await this.sourcePane(cursorAt(block));
         if (paneId === undefined) {
@@ -638,7 +645,7 @@ export class HerdrGraphicsBridge {
             await this.flushUnroutedDeferred(key);
             return;
         }
-        if (this.closed || this.superseded(key)) return;
+        if (this.closed) return;
         // A placement-only replay of an image an uppercase delete deleted --
         // byte-identical or not -- must never forward the deleted pixels: the
         // deferred entry and the id's stamp decide before any prepare or
@@ -681,9 +688,9 @@ export class HerdrGraphicsBridge {
             await this.flushDeferredFor(paneId, key);
             return;
         }
-        if (this.closed || this.superseded(key)) return;
+        if (this.closed) return;
         const rect = await this.visibleRect(paneId);
-        if (this.closed || this.superseded(key)) return;
+        if (this.closed) return;
         const surface = surfaceOf(block, rect);
         const live = this.placementsFor(paneId);
         const previous = live.get(key);
