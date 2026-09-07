@@ -892,10 +892,10 @@ index 10834a3..462e396 100644
              case .began:
                  lastPinchScale = gesture.scale
 diff --git a/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView.swift b/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView.swift
-index 7bb1e98..34bf6e4 100644
+index 7bb1e98..b598f46 100644
 --- a/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView.swift
 +++ b/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView.swift
-@@ -36,12 +36,22 @@
+@@ -36,12 +36,29 @@
          lazy var inputHandler = TerminalTextInputHandler(view: self)
          weak var _inputDelegate: (any UITextInputDelegate)?
          var onFocusChange: ((Bool) -> Void)?
@@ -913,12 +913,19 @@ index 7bb1e98..34bf6e4 100644
              var pendingKeyboardDismissOnTouchEnd = false
 +            /// An empty input view is the only way to hold first responder without
 +            /// the software keyboard: resigning it would take hardware keys with it.
-+            var softwareKeyboardSuppressed = false
++            /// Becoming first responder is a no-op when the view already is one, so
++            /// a change of mind is only honoured by reloading the input views.
++            var softwareKeyboardSuppressed = false {
++                didSet {
++                    guard softwareKeyboardSuppressed != oldValue, isFirstResponder else { return }
++                    reloadInputViews()
++                }
++            }
 +            private lazy var suppressedInputView = UIView(frame: .zero)
              var touchDidScrollDuringCurrentTouch = false
          #endif
 
-@@ -86,6 +96,28 @@
+@@ -86,6 +103,31 @@
              true
          }
 
@@ -940,6 +947,9 @@ index 7bb1e98..34bf6e4 100644
 +            }
 +        }
 +
++        /// Releases focus with the keyboard, as Android's clearFocus does, so key
++        /// input stops until a tap takes it back. Suppression is the path that
++        /// keeps a terminal typeable with no keyboard on screen.
 +        open func hideKeyboard() {
 +            resignFirstResponder()
 +        }
