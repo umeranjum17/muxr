@@ -212,20 +212,26 @@ jobs:
           # Push registration reads the project id from this file at runtime, so a
           # store build that omits it reports no native push however well it signs.
           if [ "$ORG_GRADLE_PROJECT_muxrDevelopmentApp" != true ]; then
-            unzip -p "$apk" assets/app.config > "$RUNNER_TEMP/app.config"
+            unzip -p "$apk" assets/app.config > "$RUNNER_TEMP/apk-app.config"
+            unzip -p "$aab" base/assets/app.config > "$RUNNER_TEMP/aab-app.config"
             node --input-type=module <<'JS'
           import { readFileSync } from 'node:fs';
           import { join } from 'node:path';
-          const config = JSON.parse(readFileSync(join(process.env.RUNNER_TEMP, 'app.config'), 'utf8'));
-          const expected = {
-              'extra.eas.projectId': [config.extra?.eas?.projectId, process.env.MUXR_EAS_PROJECT_ID],
-              'extra.app.publicBaseUrl': [config.extra?.app?.publicBaseUrl, process.env.MUXR_PUBLIC_BASE_URL],
-              'extra.app.releaseVersion': [config.extra?.app?.releaseVersion, process.env.MUXR_RELEASE_VERSION],
-              'extra.app.buildCommitSha': [config.extra?.app?.buildCommitSha, process.env.GITHUB_SHA],
-              'extra.app.directDistribution': [config.extra?.app?.directDistribution, false],
-          };
-          for (const [field, [embedded, wanted]] of Object.entries(expected)) {
-              if (embedded !== wanted) throw new Error(`The APK embeds ${field}=${JSON.stringify(embedded)}, expected ${JSON.stringify(wanted)}`);
+          // Both artifacts ship, and only the AAB reaches Play, so neither is
+          // taken on the other's word. The paths differ: an APK carries
+          // assets/app.config, an app bundle carries base/assets/app.config.
+          for (const [artifact, file] of [['APK', 'apk-app.config'], ['AAB', 'aab-app.config']]) {
+              const config = JSON.parse(readFileSync(join(process.env.RUNNER_TEMP, file), 'utf8'));
+              const expected = {
+                  'extra.eas.projectId': [config.extra?.eas?.projectId, process.env.MUXR_EAS_PROJECT_ID],
+                  'extra.app.publicBaseUrl': [config.extra?.app?.publicBaseUrl, process.env.MUXR_PUBLIC_BASE_URL],
+                  'extra.app.releaseVersion': [config.extra?.app?.releaseVersion, process.env.MUXR_RELEASE_VERSION],
+                  'extra.app.buildCommitSha': [config.extra?.app?.buildCommitSha, process.env.GITHUB_SHA],
+                  'extra.app.directDistribution': [config.extra?.app?.directDistribution, false],
+              };
+              for (const [field, [embedded, wanted]] of Object.entries(expected)) {
+                  if (embedded !== wanted) throw new Error(`The ${artifact} embeds ${field}=${JSON.stringify(embedded)}, expected ${JSON.stringify(wanted)}`);
+              }
           }
           JS
           fi
@@ -248,6 +254,29 @@ jobs:
           output="$RUNNER_TEMP/android-internal"
           mkdir -p "$output"
           install -m 644 "$RUNNER_TEMP/native-provenance.json" "$output/native-provenance.json"
+          if [ "$ORG_GRADLE_PROJECT_muxrDevelopmentApp" != true ]; then
+            node --input-type=module <<'JS'
+          import { readFileSync, writeFileSync } from 'node:fs';
+          import { join } from 'node:path';
+          // The store identity this build was actually given. Every value is
+          // already committed in the profile, so none of it is a secret. The
+          // split is not decoration: the app config attests the first group in
+          // the artifact, while EXPO_PUBLIC_* are Metro inputs inlined at bundle
+          // time that no shipped file can be checked against afterwards.
+          const attested = ['APP_ENV', 'MUXR_PUBLIC_BASE_URL', 'MUXR_DISTRIBUTION', 'MUXR_EAS_PROJECT_ID'];
+          const metroInputs = ['EXPO_PUBLIC_MUXR_MODE', 'EXPO_PUBLIC_MUXR_RELAY_URL'];
+          const gradle = ['ORG_GRADLE_PROJECT_reactNativeArchitectures'];
+          const record = (keys) => Object.fromEntries(keys.map((key) => [key, process.env[key] ?? null]));
+          const path = join(process.env.RUNNER_TEMP, 'android-internal', 'native-provenance.json');
+          const provenance = JSON.parse(readFileSync(path, 'utf8'));
+          provenance.storeEnv = {
+              attestedInAppConfig: record(attested),
+              metroInputsNotAttested: record(metroInputs),
+              gradle: record(gradle),
+          };
+          writeFileSync(path, `${JSON.stringify(provenance, null, 2)}\n`);
+          JS
+          fi
           install -m 600 apps/mobile/android/app/build/outputs/apk/release/app-release.apk "$output/muxr-$APP_VERSION-$ANDROID_VERSION_CODE.apk"
           install -m 600 apps/mobile/android/app/build/outputs/bundle/release/app-release.aab "$output/muxr-$APP_VERSION-$ANDROID_VERSION_CODE.aab"
           apk_sha="$(sha256sum "$output/muxr-$APP_VERSION-$ANDROID_VERSION_CODE.apk" | cut -d ' ' -f 1)"
