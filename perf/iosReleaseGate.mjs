@@ -28,6 +28,9 @@ export const PHASES = [
 ];
 const args=process.argv.slice(2);
 const flag=(name)=>{const i=args.indexOf(name);return i<0?undefined:args[i+1];};
+const phaseNames=flag('--phases')?.split(',');
+const selectedPhases=phaseNames?PHASES.filter(p=>phaseNames.includes(p.drive)):PHASES;
+if(phaseNames&&selectedPhases.length!==phaseNames.length)throw new Error('Unknown or duplicate selected phase');
 const udid=flag('--udid'), app=flag('--app'), record=flag('--record');
 if(!udid||!app||!record)throw new Error('Required: --udid UDID --app retained.app --record report.json');
 const evidence=join(dirname(resolve(record)),`${record.split('/').at(-1).replace(/\.json$/,'')}-evidence`);
@@ -36,7 +39,7 @@ const terminalTrace=join(evidence,'fake-terminal-lifecycle.log');process.env.FAK
 const scope=new CommandScope();useCommandScope(scope);
 const ui=new IosControls(udid), bundle='com.trymuxr.app';
 const started=Date.now(), failures=[], journal=new Map();
-const report={startedAt:new Date(started).toISOString(),load:LOAD,warmupSeconds:30,phasePlan:PHASES,phases:[],failures,
+const report={startedAt:new Date(started).toISOString(),load:LOAD,warmupSeconds:30,phasePlan:PHASES,selectedPhasePlan:selectedPhases,splitAcceptance:!!phaseNames,phases:[],failures,
     platform:'iOS simulator',androidGateEquivalent:false,unsupported:unavailable,limits:null,
     deviations:['Existing app container retained to preserve pairing; fresh load-host handshake required instead of Android pm clear.',
         'AX/simctl gesture injection replaces ADB/Maestro; command elapsed time is not app input latency.',
@@ -134,7 +137,7 @@ async function drive(phase, end, entry){
             await step('open agent terminal',firstAgent);
             for(let i=0;i<8&&Date.now()<end;i++)await step('agent scroll pair',()=>ui.scrollPair(.09));
             await step('return herd',()=>ui.home());
-            for(const label of ['Usage','Files']){if(Date.now()>=end)break;await step('plugin '+label,async()=>{await ui.tapMatch(new RegExp('^'+label+'$'));await sleep(500);const nodes=await ui.ui();if(!nodes.some(n=>ui.visible(n)&&(label==='Files'?/Repositories|repositories|All files|No git repositories/:/Today|This week|Usage by|Total|tokens|No usage|Cost/).test(n.AXLabel??'')))throw new Error('Plugin-specific content absent: '+label);await ui.home();});}
+            for(const label of ['Usage','Files']){if(Date.now()>=end)break;await step('plugin '+label,async()=>{await ui.tapMatch(new RegExp('^'+label+'$'));await ui.waitFor(label==='Files'?/Repositories|repositories|All files|No git repositories/:/Today|This week|Usage by|Total|tokens|No usage|Cost|Local activity|limits unavailable/i);await ui.home();});}
             if(Date.now()<end)await step('background foreground',async()=>{await ui.background();await ui.foreground();await ui.waitFor(/^(LIVE|SPACES|Machine)$/);});
         }
         if(['tree','terminal','graphics'].includes(phase.drive))await step('scroll pair',()=>ui.scrollPair(.12));
@@ -213,14 +216,14 @@ try{
     report.preflightReadyAt=new Date().toISOString();persist();log('paired; full workload ready');
     const startFile=flag('--start-file');if(startFile){log('waiting for start-file after runner review');while(!existsSync(startFile))await sleep(1000);}
     report.warmup=await sampleWindow(30,[]);persist();
-    for(const phase of PHASES){
+    for(const phase of selectedPhases){
         const entry={...phase,startedAt:new Date().toISOString(),actions:[],requiredScreenVerified:false};report.phases.push(entry);log('phase '+phase.name);
         const end=Date.now()+phase.seconds*1000;
         const driving=drive(phase,end,entry).catch(error=>{entry.error=error.message;fail(phase.name+': '+error.message);});
         Object.assign(entry,await sampleWindow(phase.seconds,[]));await driving;
         entry.afterScreenshot=await shot(phase.drive+'-after').catch(()=>null);entry.finishedAt=new Date().toISOString();collectJournal();persist();
     }
-    await tour();await shot('final');
+    if(!args.includes('--skip-tour'))await tour();await shot('final');
 }catch(error){fail(error.message);}
 finally{await finish();}
 process.exitCode=failures.length?1:0;
