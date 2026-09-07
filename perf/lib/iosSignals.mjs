@@ -36,13 +36,17 @@ export class IosControls {
         throw new Error(`Required screen absent: ${pattern}`);
     }
     async open(route) { await simctl('openurl', this.udid, `muxr://${route}`); await sleep(500); }
-    async home() { await this.open(''); await this.waitFor(/^(LIVE|SPACES|Machine)$/); }
+    async home() { await this.open(''); await this.restoreHomeTop(); await this.waitFor(/^(LIVE|SPACES|Machine)$/); }
+    async restoreHomeTop() {
+        for(let i=0;i<12;i++){const nodes=await this.ui();const live=nodes.find(n=>n.AXLabel==='LIVE'&&n.frame);if(live&&live.frame.y>=0&&live.frame.y<this.height*.6)return;if(live&&live.frame.y<0){await this.swipe(this.width*.92,this.height*.25,this.width*.92,this.height*.78,.45);await sleep(250);}else await sleep(400);}
+        throw new Error('Could not restore visible Home live strip');
+    }
     async back() { await this.tapMatch(/^(Back|Go back|Close)$/); await sleep(600); }
     async swipe(x1, y1, x2, y2, seconds = 0.12) {
         await command('axe', ['swipe', '--start-x', String(x1), '--start-y', String(y1), '--end-x', String(x2), '--end-y', String(y2), '--duration', String(seconds), '--udid', this.udid]);
     }
     async scrollPair(seconds = 0.12) { await this.swipe(this.width * .5, this.height * .22, this.width * .5, this.height * .72, seconds); await this.swipe(this.width * .5, this.height * .72, this.width * .5, this.height * .22, seconds); }
-    async stripPair() { let card; const deadline=Date.now()+15000; do { card=(await this.ui()).find(n => this.visible(n) && /\. (?:Working|Starting|Needs you|Done|Failed|Idle|Offline)(?: · [^.]+)?\. /.test(n.AXLabel ?? '') && n.frame.height > 80); if(card)break; await sleep(400); } while(Date.now()<deadline); if (!card) throw new Error('Visible live strip card absent'); const y = card.frame.y + card.frame.height / 2; await this.swipe(this.width * .85, y, this.width * .15, y, .3); await this.swipe(this.width * .15, y, this.width * .85, y, .3); }
+    async stripPair() { await this.restoreHomeTop(); let card; const deadline=Date.now()+15000; do { card=(await this.ui()).find(n => this.visible(n) && /\. (?:Working|Starting|Needs you|Done|Failed|Idle|Offline)(?: · [^.]+)?\. /.test(n.AXLabel ?? '') && n.frame.height > 80); if(card)break; await sleep(400); } while(Date.now()<deadline); if (!card) throw new Error('Visible live strip card absent'); const y = card.frame.y + card.frame.height / 2; await this.swipe(this.width * .85, y, this.width * .15, y, .3); await this.swipe(this.width * .15, y, this.width * .85, y, .3); }
     async screenshot(path) { await simctl('io', this.udid, 'screenshot', path); }
     async foreground() { await command('axe', ['tap', '--label', 'muxr', '--udid', this.udid]); await sleep(700); }
     async background() { await command('axe', ['button', 'home', '--udid', this.udid]); await sleep(700); }
