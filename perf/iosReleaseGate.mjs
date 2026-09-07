@@ -87,9 +87,19 @@ function firstRoute(){
 }
 async function proveAttach(paneId,since){
     const deadline=Date.now()+10000;
-    do { const rows=jsonl(stack.cellMetricsJsonl).filter(row=>row.source==='terminal.resize'&&row.pane_id===paneId&&Date.parse(row.at)>=since&&[row.cols,row.rows,row.cellWidthPx,row.cellHeightPx].every(v=>Number.isFinite(v)&&v>0));
-        if(rows.length)return rows; await sleep(300);
-    }while(Date.now()<deadline); throw new Error('Fresh native cell metrics absent for selected pane');
+    const agent=stack.world.agents.find(a=>a.pane_id===paneId);
+    do {
+        collectJournal();
+        const attaches=jsonl(stack.attachJsonl).filter(row=>row.pane_id===paneId&&Date.parse(row.at)>=since);
+        const requests=[...journal.values()].filter(row=>row.event==='client.request'&&row.request==='terminal.attach'&&row.outcome==='ok'&&Date.parse(row.at)>=since);
+        const nodes=await ui.ui();
+        const current=nodes.find(n=>ui.visible(n)&&/^Current /.test(n.AXLabel??''));
+        const headerMatches=agent ? current?.AXLabel.includes(`${agent.agent}/${agent.name}`) : nodes.some(n=>ui.visible(n)&&/^(Enter|Control)$/.test(n.AXLabel??''));
+        const resizes=jsonl(stack.cellMetricsJsonl).filter(row=>row.pane_id===paneId&&Date.parse(row.at)>=since&&[row.cols,row.rows,row.cellWidthPx,row.cellHeightPx].every(v=>Number.isFinite(v)&&v>0));
+        const hellos=jsonl(stack.graphicsInputJsonl).filter(row=>row.source==='graphics.ClientHello'&&Date.parse(row.at)>=since&&[row.cols,row.rows,row.cellWidthPx,row.cellHeightPx].every(v=>Number.isFinite(v)&&v>0));
+        if(attaches.length&&requests.length&&headerMatches&&(!agent||resizes.length||hellos.length))return {paneId,since,attaches,requests,header:current?.AXLabel??'shell terminal controls',resizes,hellos};
+        await sleep(300);
+    }while(Date.now()<deadline); throw new Error('Fresh selected-pane attachment/header/native graphics evidence absent');
 }
 async function firstAgent(){await ui.home();const since=Date.now();await ui.open(`session/${encodeURIComponent(firstRoute())}`);await terminal();return proveAttach(stack.world.panes[0].pane_id,since);}
 async function shell(pane){const since=Date.now();await ui.open(`session/${encodeURIComponent('shell:'+pane.pane_id)}`);await terminal();return proveAttach(pane.pane_id,since);}
