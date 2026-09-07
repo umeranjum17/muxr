@@ -29,7 +29,7 @@ This spec tracks the whole workstream. Only Unit 1 is edited from this branch.
 |---|---|---|---|
 | 1. Settings live-updates capability gate | frontend | `feat/ios-feature-parity` | implemented, untested |
 | 2. Native Live Activity `HerdLiveActivity` | Mac | Mac native branch | in progress |
-| 3. Mute and stop intents | Mac | Mac native branch | staged next, after lifecycle compiles |
+| 3. Mute and stop intents | frontend + Mac | `feat/ios-feature-parity` (shared TS), Mac native branch | shared action path implemented, native pending |
 | 4. Terminal show, hide and `autoShowKeyboard` with shared gates | opus-verification | `feat/ios-terminal-parity` | in progress |
 | 5. Extension signing and export guards | opus-verification | `feat/ios-terminal-parity` | in progress |
 | 6. Kitty graphics runtime | Mac | — | unverified, under diagnosis |
@@ -70,8 +70,14 @@ Fills the existing bridge rather than adding API:
 - `openPromotedNotificationSettings` → open the app's iOS settings page.
 
 No App Group is needed: the activity renders `ContentState` delivered by ActivityKit and the bridge
-already passes the complete content model, so nothing requires shared storage. Tap routing uses
-`widgetURL` with the existing `muxr` scheme and the already-entitled `applinks:trymuxr.com`.
+already passes the complete content model, so nothing requires shared storage.
+
+Tap routing uses `widgetURL` with the existing `muxr` scheme and the already-entitled
+`applinks:trymuxr.com`, and **opens the app to its overview, not a specific session**. The bridge
+payload carries no session route: `eventKey` is a dedupe key of the form `mode:ids` that can cover
+several agents at once, and it is an internal id the product never surfaces. Deep-linking a session
+would need a route added to the payload first, so a wrong-session deep link is not a risk here and
+correct-session routing must not be claimed as a requirement this design meets.
 
 Evidence so far, all compile-level:
 
@@ -79,15 +85,34 @@ Evidence so far, all compile-level:
 - Controller standalone typecheck — **pass**.
 - Full app build — **pending**.
 
-## Unit 3 — Mute and stop intents · staged next, Mac
+## Unit 3 — Mute and stop intents · shared path implemented, native pending
 
 Part of requested parity, not deferred out of it. Android drives mute and stop through notification
 actions; iOS needs the App Intent equivalent, and iOS already declares
-`onNotificationActionRequested` with no sender. Sequenced immediately after the lifecycle path
-compiles so the intents are built against a working activity rather than alongside one.
+`onNotificationActionRequested` with no sender.
 
-**Pending reliable implementation and validation.** Compiling is not the bar; the intents must act
-correctly across the stale, disabled, idle and logged-out states below.
+**Shared TypeScript, implemented on this branch.** Mac's approved `LiveActivityIntent` and router
+emit the existing `mute` action with an **optional** `desiredMuted` boolean:
+
+- `addVoiceNotificationActionListener` passes `desiredMuted` through as a second argument, and
+  normalises anything that is not a boolean to absent, so a malformed native payload cannot mute a
+  call silently.
+- `applyRealtimeMuted(desired?)` applies an explicit state as requested instead of toggling, so a
+  repeated mute request leaves the session muted. Omitting it keeps the legacy toggle, which is what
+  the Android action and the in-app button still send.
+- With no live session the mute action is a no-op. A stale control must never open the microphone,
+  and must never leave a mute flag armed for the next call.
+- `stop` keeps its existing idempotent teardown path.
+- The `start` branch is now an explicit `action === 'start'` test rather than a default `else`, so an
+  action this build does not recognise cannot fall through and open a session.
+
+**Native side pending, Mac.** `actionsAvailable` gates the controls on a JS listener having been
+observed *and* voice being active, so stale or unavailable controls are hidden rather than shown
+dead. The intent awaits the reflected `updateNotification` state under a bounded timeout and reports
+no local success it has not seen confirmed.
+
+**Still pending reliable implementation and validation as a whole.** Compiling is not the bar; the
+intents must act correctly across the stale, disabled, idle and logged-out states below.
 
 ## Units 4 and 5 — Terminal parity and signing guards · in progress, opus-verification
 
@@ -105,14 +130,19 @@ workstream:
 The Kitty renderer **is compiled into the existing iOS GhosttyKit**. It is not a missing renderer and
 must not be recorded as one.
 
-The first actual baseline on device produced **marker output and no image**. Mac is investigating the
-transport and raw RGB path. Until that diagnosis lands, the correct label is **unverified and under
-diagnosis**. No config patch is applied on the strength of a guess, and real image, replace, delete,
-scroll, resize and reconnect behaviour is verified before any config change is considered.
+The first actual baseline ran on the **iOS simulator**, with no physical phone tested, and produced
+**marker output and no image**. Mac is investigating the transport and raw RGB path. Until that
+diagnosis lands, the correct label is **unverified and under diagnosis**. No config patch is applied
+on the strength of a guess, and real image, replace, delete, scroll, resize and reconnect behaviour
+is verified before any config change is considered.
 
 ## Files
 
 - `apps/mobile/sources/settings/presentation/SettingsView.tsx` — Unit 1, this branch.
+- `apps/mobile/modules/voice-overlay/index.ts` — Unit 3 shared bridge, this branch.
+- `apps/mobile/sources/conversation/application/realtimeSessionState.ts` — Unit 3 shared action
+  handling, this branch.
+- `apps/mobile/sources/utils/dictation.spec.ts` — the existing voice flow test, extended in place.
 - `apps/mobile/modules/voice-overlay/ios/VoiceOverlayModule.swift` — Unit 2, Mac.
 - `HerdLiveActivity` target, attributes, widget, config plugin, `app.config.js` — Mac.
 - Terminal sources and signing configuration — Units 4 and 5, opus-verification, separate branch.
@@ -133,9 +163,16 @@ Compile-level checks have passed and are marked as such. Nothing below is a runt
 
 Passed, compile only:
 
-- [x] `tsc --noEmit` clean for `apps/mobile` after the Unit 1 change.
+- [x] `tsc --noEmit` clean for `apps/mobile`.
 - [x] Widget target compiles (Unit 2, Mac).
 - [x] Controller standalone typecheck (Unit 2, Mac).
+
+Passed, behavioural:
+
+- [x] The voice flow test covers duplicate explicit mute settling on muted, explicit unmute, the
+      legacy Android toggle, a stale action after teardown changing nothing, repeated stop, and an
+      unrecognised action not starting a session. Each assertion was confirmed to fail when its
+      behaviour is reverted.
 
 Open:
 
@@ -146,10 +183,14 @@ Open:
       Island copy, and its action opens iOS settings.
 - [ ] iOS: the enabled state refreshes when returning from Settings to the foreground.
 - [ ] iOS: a Live Activity starts, updates and ends against real agent lifecycle transitions.
-- [ ] iOS: tapping the activity opens the right session from cold start and from background.
+- [ ] iOS: tapping the activity opens the app overview from cold start and from background.
 - [ ] iOS: truthful states — stale, disabled, idle and logged out each show the honest surface rather
       than a stuck activity.
-- [ ] iOS: mute and stop intents act reliably across every state above.
+- [ ] iOS: mute and stop intents act reliably on a device across every state above.
+- [ ] iOS: `actionsAvailable` hides the controls when no listener is observed or voice is inactive.
+- [ ] iOS: the intent reports no success it has not seen reflected, and gives up on its timeout.
+- [ ] The bridge's `desiredMuted` normalisation, which every consumer test mocks away and which is
+      therefore exercised only through Mac's native path.
 - [ ] iOS: terminal show, hide and `autoShowKeyboard` behave through the shared gates.
 - [ ] iOS: signing and export guards hold for the extension.
 - [ ] iOS: Kitty image, replace, delete, scroll, resize and reconnect verified on device.
@@ -169,4 +210,6 @@ None of these may be reported as a runtime pass.
   budgets, and an app that is not running cannot update one locally. The surface is best-effort and
   cannot be the only signal that an agent needs attention.
 - **Kitty graphics behaviour is unverified and under diagnosis**, not a missing renderer and not a
-  pass.
+  pass. The only baseline so far is a simulator run; no physical phone has been tested.
+- **Tap-to-open reaches the app overview, not a chosen session.** No session route exists in the
+  notification payload, so per-session routing is neither implemented nor claimed.

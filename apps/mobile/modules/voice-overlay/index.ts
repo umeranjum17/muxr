@@ -44,7 +44,7 @@ interface VoiceNative {
     clearNotification: () => boolean;
     addListener: (
         event: 'onNotificationActionRequested',
-        listener: (payload: { action: NotificationAction }) => void,
+        listener: (payload: { action: NotificationAction; desiredMuted?: boolean }) => void,
     ) => { remove: () => void };
 }
 
@@ -206,8 +206,17 @@ export function clearVoiceNotification(): void {
     native?.clearNotification();
 }
 
+/**
+ * `desiredMuted` is the state the pressed control was showing, so a repeated
+ * request settles on that state instead of flipping an already-muted session
+ * back on. The legacy Android action omits it and stays a toggle; anything but
+ * a boolean is treated as absent so a malformed payload cannot mute silently.
+ */
 export function addVoiceNotificationActionListener(
-    listener: (action: NotificationAction) => void,
+    listener: (action: NotificationAction, desiredMuted?: boolean) => void,
 ): { remove: () => void } | null {
-    return native?.addListener('onNotificationActionRequested', ({ action }) => listener(action)) ?? null;
+    return native?.addListener(
+        'onNotificationActionRequested',
+        ({ action, desiredMuted }) => listener(action, typeof desiredMuted === 'boolean' ? desiredMuted : undefined),
+    ) ?? null;
 }
