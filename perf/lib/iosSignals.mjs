@@ -42,7 +42,7 @@ export class IosControls {
         await command('axe', ['swipe', '--start-x', String(x1), '--start-y', String(y1), '--end-x', String(x2), '--end-y', String(y2), '--duration', String(seconds), '--udid', this.udid]);
     }
     async scrollPair(seconds = 0.12) { await this.swipe(this.width * .5, this.height * .22, this.width * .5, this.height * .72, seconds); await this.swipe(this.width * .5, this.height * .72, this.width * .5, this.height * .22, seconds); }
-    async stripPair() { const card = (await this.ui()).find(n => this.visible(n) && /Working\.|Waiting\.|Idle\.|Needs you/.test(n.AXLabel ?? '') && n.frame.height > 80); if (!card) throw new Error('Visible live strip card absent'); const y = card.frame.y + card.frame.height / 2; await this.swipe(this.width * .85, y, this.width * .15, y, .3); await this.swipe(this.width * .15, y, this.width * .85, y, .3); }
+    async stripPair() { const card = (await this.ui()).find(n => this.visible(n) && /\. (?:Working|Starting|Needs you|Done|Failed|Idle|Offline)(?: · [^.]+)?\. /.test(n.AXLabel ?? '') && n.frame.height > 80); if (!card) throw new Error('Visible live strip card absent'); const y = card.frame.y + card.frame.height / 2; await this.swipe(this.width * .85, y, this.width * .15, y, .3); await this.swipe(this.width * .15, y, this.width * .85, y, .3); }
     async screenshot(path) { await simctl('io', this.udid, 'screenshot', path); }
     async foreground() { await command('axe', ['tap', '--label', 'muxr', '--udid', this.udid]); await sleep(700); }
     async background() { await command('axe', ['button', 'home', '--udid', this.udid]); await sleep(700); }
