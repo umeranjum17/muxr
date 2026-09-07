@@ -50,7 +50,9 @@ export class IosControls {
 export async function appPid(udid, bundle) {
     const container = (await simctl('get_app_container', udid, bundle, 'app')).trim();
     const text = await command('ps', ['-axo', 'pid=,comm=']);
-    const line = text.split('\n').find((row) => row.includes(`${container}/`));
+    const executable = (await command('/usr/libexec/PlistBuddy', ['-c', 'Print :CFBundleExecutable', join(container, 'Info.plist')])).trim();
+    const expected = join(container, executable);
+    const line = text.split('\n').find((row) => row.trim().replace(/^\d+\s+/, '') === expected);
     return line ? Number(line.trim().split(/\s+/)[0]) : null;
 }
 function cpuSeconds(text) {
