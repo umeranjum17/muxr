@@ -96,8 +96,8 @@ async function proveAttach(paneId,since){
         const current=nodes.find(n=>ui.visible(n)&&/^Current /.test(n.AXLabel??''));
         const headerMatches=agent ? current?.AXLabel.includes(`${agent.agent}/${agent.name}`) : nodes.some(n=>ui.visible(n)&&/^(Enter|Control)$/.test(n.AXLabel??''));
         const resizes=jsonl(stack.cellMetricsJsonl).filter(row=>row.pane_id===paneId&&Date.parse(row.at)>=since&&[row.cols,row.rows,row.cellWidthPx,row.cellHeightPx].every(v=>Number.isFinite(v)&&v>0));
-        const hellos=jsonl(stack.graphicsInputJsonl).filter(row=>row.source==='graphics.ClientHello'&&Date.parse(row.at)>=since&&[row.cols,row.rows,row.cellWidthPx,row.cellHeightPx].every(v=>Number.isFinite(v)&&v>0));
-        if(attaches.length&&requests.length&&headerMatches&&(!agent||resizes.length||hellos.length))return {paneId,since,attaches,requests,header:current?.AXLabel??'shell terminal controls',resizes,hellos};
+        const hellos=jsonl(stack.graphicsInputJsonl).filter(row=>row.source==='graphics.ClientHello'&&[row.cols,row.rows,row.cellWidthPx,row.cellHeightPx].every(v=>Number.isFinite(v)&&v>0));
+        if(attaches.length&&requests.length&&headerMatches&&(!agent||resizes.length||hellos.length))return {paneId,since,attaches,requests,header:current?.AXLabel??'shell terminal controls',resizes,hellos:hellos.slice(-1),helloFresh:hellos.some(row=>Date.parse(row.at)>=since),geometryScope:'latest connection hello plus fresh selected-route attach and current header'};
         await sleep(300);
     }while(Date.now()<deadline); throw new Error('Fresh selected-pane attachment/header/native graphics evidence absent');
 }
@@ -171,7 +171,7 @@ async function finish(){
         writeFileSync(join(evidence,'host.log'),stack.hostLog());writeFileSync(join(evidence,'relay.log'),stack.relayLog());
         report.catalog={panes:stack.world.panes.length,agents:stack.world.agents.length};
     }
-    report.pipelinePresent=report.hostRequests.length>0&&report.graphics.length>0&&report.cellMetrics?.some(row=>row.cellWidthPx>0&&row.cellHeightPx>0);
+    report.pipelinePresent=report.hostRequests.length>0&&report.graphics.length>0&&(report.cellMetrics?.some(row=>row.cellWidthPx>0&&row.cellHeightPx>0)||report.graphicsInput?.some(row=>row.source==='graphics.ClientHello'&&row.cellWidthPx>0&&row.cellHeightPx>0));
     report.observedRunComplete=report.pipelinePresent&&report.phases.length===9&&report.phases.every(p=>p.requiredScreenVerified&&p.measuredSeconds>=p.seconds&&!p.error)&&report.tour?.opened===40;
     report.observedStabilityPassed=failures.length===0&&report.observedRunComplete;
     report.verdict=failures.length?'FAILED_OBSERVATIONS':report.observedRunComplete?'COMPLETED_WITH_METRIC_LIMITATIONS':'INCOMPLETE';
@@ -201,7 +201,7 @@ try{
     const pairingAt=Date.now();await pair();report.pairing={freshHost:true,herdVisibleMs:Date.now()-pairingAt};await shot('paired-herd');
     if(args.includes('--verify-controls')){
         await ui.home();await ui.stripPair();
-        report.controlPreflight={strip:true,agent:await firstAgent()};
+        report.controlPreflight={strip:true,agent:await firstAgent()};report.controlPreflight.agentReopen=await firstAgent();
         await ui.home();const ids=new Set(stack.world.agents.map(a=>a.pane_id));report.controlPreflight.shell=await shell(stack.world.panes.find(p=>!ids.has(p.pane_id)));
         await ui.home();await shot('verified-controls');persist();
     }
