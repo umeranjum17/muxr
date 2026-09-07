@@ -409,7 +409,7 @@ describe('Herdr graphics flow', () => {
         internals.queueInline(Buffer.from(
             '\u001b[3;27H'
             + `\u001b_Ga=t,f=32,s=2,v=2,i=43,m=0;${pixels}\u001b\\`
-            + '\u001b_Ga=p,i=43,c=6,r=3;\u001b\\',
+            + '\u001b_Ga=p,i=43,p=567128,c=6,r=3;\u001b\\',
         ));
         await drain.mock.results.at(-1)?.value;
         expect(internals.inlineQueue).toHaveLength(0);
@@ -425,6 +425,41 @@ describe('Herdr graphics flow', () => {
         expect(frames).toHaveLength(1);
         expect(frames[0]).toContain('\u001b[2;1H');
         expect(frames[0]).not.toContain('\u001b[3;27H');
+
+        // Herdr's delete names Herdr's placement id and is forwarded verbatim,
+        // so the placement the phone was given has to carry that same id. A
+        // renumbered one leaves pixels no delete can reach.
+        const placed = frames[0]!;
+        frames.length = 0;
+        internals.queueInline(Buffer.from('\u001b_Ga=d,d=i,i=43,p=567128;\u001b\\'));
+        await drain.mock.results.at(-1)?.value;
+        expect(frames).toHaveLength(1);
+        const deleted = /p=(\d+)/.exec(frames[0]!)?.[1];
+        expect(deleted).toBe('567128');
+        expect(placed).toContain(`p=${deleted}`);
+
+        // A delete naming one placement must not retire the image's others.
+        frames.length = 0;
+        internals.queueInline(Buffer.from(
+            '\u001b[5;30H'
+            + `\u001b_Ga=t,f=32,s=2,v=2,i=44,m=0;${pixels}\u001b\\`
+            + '\u001b_Ga=p,i=44,p=700001,c=6,r=3;\u001b\\',
+        ));
+        await drain.mock.results.at(-1)?.value;
+        internals.queueInline(Buffer.from(
+            '\u001b[9;30H'
+            + '\u001b_Ga=p,i=44,p=700002,c=6,r=3;\u001b\\',
+        ));
+        await drain.mock.results.at(-1)?.value;
+        internals.queueInline(Buffer.from('\u001b_Ga=d,d=i,i=44,p=700001;\u001b\\'));
+        await drain.mock.results.at(-1)?.value;
+
+        bridge.unregister('phone');
+        frames.length = 0;
+        bridge.register(phone);
+        const surviving = frames.filter((frame) => frame.includes('p=700002'));
+        expect(surviving).toHaveLength(1);
+        expect(frames.some((frame) => frame.includes('p=700001'))).toBe(false);
     });
 
     it('keeps two program images, coalesces repaints, and paces a gesture', async () => {
