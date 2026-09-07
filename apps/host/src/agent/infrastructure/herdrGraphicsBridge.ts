@@ -116,6 +116,13 @@ type InlineWork = { block: InlineKittyBlock; at: number; deleteStamp?: number };
 // The pane rect the block was placed against. An inline placement is encoded in
 // pane-local cells, so a replay without it lands at the block's global column.
 type LivePlacement = { image: PreparedImage; block: InlineKittyBlock; surface: GraphicsSurface; rect?: Rect };
+/**
+ * Where a pane stands with Herdr's one active surface. `rect` is its area when
+ * it is on that surface; `onActiveSurface: false` means Herdr will render no
+ * graphics for it at all. `undefined` from the lookup means we could not tell,
+ * which is never reported as anything.
+ */
+type PaneVisibility = { rect?: Rect; onActiveSurface: boolean };
 
 /** Whether an image is the pane's whole surface or sits inside its text. */
 export type GraphicsSurface = 'full' | 'inline';
@@ -166,7 +173,9 @@ export class HerdrGraphicsBridge {
     private readonly imageOwners = new Map<bigint, ImageOwner>();
     private readonly pendingByOrigin = new Map<string, GraphicsFile>();
     private readonly pendingOrigins: string[] = [];
-    private readonly layoutCache = new Map<string, { expiresAt: number; value: Promise<Rect | undefined> }>();
+    private readonly layoutCache = new Map<string, { expiresAt: number; value: Promise<PaneVisibility | undefined> }>();
+    /** Panes already told they are off Herdr's active surface, so it is said once. */
+    private readonly offSurfacePanes = new Set<string>();
     private readonly paneProcessGroups = new Map<string, number>();
     private readonly processProbeAttempted = new Set<string>();
     private readonly processProbeFailures = new Map<string, number>();
@@ -225,10 +234,13 @@ export class HerdrGraphicsBridge {
         socket.on('data', (data: Buffer) => { this.read(data); });
         socket.on('error', (error) => { process.stderr.write(`terminal graphics: ${error.message}\n`); this.close(); });
         socket.on('close', () => { this.close(); });
-        if (onPipelineReport !== undefined) {
-            this.reportTimer = setInterval(() => { this.reportPipeline(); }, PIPELINE_REPORT_MS);
-            this.reportTimer.unref();
-        }
+        // One tick, already here for the pipeline account: it now also notices a
+        // pane that has left Herdr's active surface while a phone was watching.
+        this.reportTimer = setInterval(() => {
+            this.reportPipeline();
+            void this.announceOffSurfacePanes();
+        }, PIPELINE_REPORT_MS);
+        this.reportTimer.unref();
     }
 
     static async open(options: {
@@ -263,6 +275,7 @@ export class HerdrGraphicsBridge {
         // the last image to arrive.
         const live = this.livePlacements.get(registration.paneId);
         const latest = this.latestByPane.get(registration.paneId);
+        void this.announceOffSurfacePanes();
         if (live !== undefined && live.size > 0) {
             // Geometry is per placement; takeover metadata is the pane's. Each
             // replayed frame is drawn at its own placement's size, but every
@@ -746,6 +759,7 @@ export class HerdrGraphicsBridge {
             registration.write(frame);
             this.recordFrame(at, frame.length, image.width * image.height);
         }
+        this.offSurfacePanes.delete(paneId);
         this.settleDeferredAfterFrame(paneId, key, image);
         // A frame is the honest acknowledgement that this pane kept up, so the
         // next notch of the gesture goes out now and no faster.
@@ -1300,12 +1314,43 @@ export class HerdrGraphicsBridge {
         return routeGraphicsPane(leading, routes);
     }
 
-    private visibleRect(paneId: string): Promise<Rect | undefined> {
+    private async visibleRect(paneId: string): Promise<Rect | undefined> {
+        return (await this.paneVisibility(paneId))?.rect;
+    }
+
+    private paneVisibility(paneId: string): Promise<PaneVisibility | undefined> {
         const cached = this.layoutCache.get(paneId);
         if (cached !== undefined && cached.expiresAt > Date.now()) return cached.value;
-        const value = this.loadVisibleRect(paneId);
+        const value = this.loadPaneVisibility(paneId);
         this.layoutCache.set(paneId, { expiresAt: Date.now() + LAYOUT_CACHE_MS, value });
         return value;
+    }
+
+    /**
+     * Tells a pane that Herdr is not rendering it, once, and never guesses.
+     * Only an answered lookup that says the pane is off the active surface
+     * speaks: a slow frame, a failed `herdr` call or an unparsable layout all
+     * leave the phone exactly as it was. Graphics ending here is honest --
+     * nothing is arriving -- and it hands scrolling and pointer input back to
+     * the text the pane is still producing.
+     */
+    private async announceOffSurfacePanes(): Promise<void> {
+        if (this.closed) return;
+        const paneIds = new Set([...this.registrations.values()].map((item) => item.paneId));
+        for (const paneId of this.offSurfacePanes) {
+            if (!paneIds.has(paneId)) this.offSurfacePanes.delete(paneId);
+        }
+        for (const paneId of paneIds) {
+            const visibility = await this.paneVisibility(paneId);
+            if (this.closed || visibility === undefined) continue;
+            if (visibility.onActiveSurface) { this.offSurfacePanes.delete(paneId); continue; }
+            if (this.offSurfacePanes.has(paneId)) continue;
+            this.offSurfacePanes.add(paneId);
+            for (const registration of this.registrations.values()) {
+                if (registration.paneId !== paneId) continue;
+                registration.write(terminalFrame(Buffer.alloc(0), registration, false, 'pane-off-surface'));
+            }
+        }
     }
 
     private async activeWorkspace(): Promise<{ workspaceId: string; tabId: string } | undefined> {
@@ -1328,7 +1373,7 @@ export class HerdrGraphicsBridge {
         return value;
     }
 
-    private async loadVisibleRect(paneId: string): Promise<Rect | undefined> {
+    private async loadPaneVisibility(paneId: string): Promise<PaneVisibility | undefined> {
         try {
             const [active, { stdout: layoutRaw }] = await Promise.all([
                 this.activeWorkspace(),
@@ -1343,10 +1388,22 @@ export class HerdrGraphicsBridge {
                 panes?: { pane_id?: string; rect?: Rect }[];
             } } };
             const value = layout.result?.layout;
-            if (value === undefined || active === undefined
-                || active.workspaceId !== value.workspace_id || active.tabId !== value.tab_id) return undefined;
-            if (value.zoomed === true) return value.focused_pane_id === paneId ? value.area : undefined;
-            return value.panes?.find((pane) => pane.pane_id === paneId)?.rect;
+            // An unanswered lookup is ignorance, not absence: say nothing.
+            if (value === undefined || active === undefined) return undefined;
+            if (active.workspaceId !== value.workspace_id || active.tabId !== value.tab_id) return { onActiveSurface: false };
+            if (value.zoomed === true) {
+                // A zoomed tab renders only its focused pane, so every other
+                // pane on it is as invisible as one in another workspace.
+                return value.focused_pane_id === paneId && value.area !== undefined
+                    ? { rect: value.area, onActiveSurface: true }
+                    : { onActiveSurface: false };
+            }
+            // A pane always appears in its own tab's layout, so a missing rect
+            // here is a fixture or a version we do not understand -- ignorance,
+            // not absence. The two ways a pane is genuinely not rendered are
+            // both explicit above: another workspace or tab, and a zoomed tab.
+            const rect = value.panes?.find((pane) => pane.pane_id === paneId)?.rect;
+            return rect === undefined ? undefined : { rect, onActiveSurface: true };
         } catch {
             return undefined;
         }

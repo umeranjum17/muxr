@@ -39,7 +39,15 @@ export interface TerminalOutputFrame {
     graphicsSurface?: TerminalGraphicsSurface;
 }
 
-export type TerminalGraphicsReason = 'retired' | 'bridge-closed';
+/**
+ * `pane-off-surface` is not a failure: Herdr renders graphics for the one
+ * globally active workspace and tab, and narrows that to the focused pane while
+ * a tab is zoomed, so a pane the desktop has navigated away from produces no
+ * images at all. Its text keeps flowing, because a terminal attachment is by id
+ * and not bound to that view. Naming it is the point -- otherwise the picture
+ * simply stops and nothing connects it to what happened on the desktop.
+ */
+export type TerminalGraphicsReason = 'retired' | 'bridge-closed' | 'pane-off-surface';
 export type TerminalGraphicsSurface = 'full' | 'inline';
 
 /** host -> client: the underlying stream ended. */
