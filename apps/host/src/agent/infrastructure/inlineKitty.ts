@@ -164,8 +164,7 @@ export class InlineImageStore {
         const chunks = this.partial.get(id) ?? [];
         const previousBytes = this.partialBytes.get(id) ?? 0;
         const size = previousBytes + block.bytes.length;
-        if (size > this.maxBytes
-            || this.completeBytes + this.partialTotalBytes - previousBytes + block.bytes.length > this.maxBytes) {
+        if (size > this.maxBytes || !this.makeRoomForChunk(block.bytes.length)) {
             this.clearPartial(id);
             return true;
         }
@@ -276,6 +275,26 @@ export class InlineImageStore {
             this.preparedById.delete(oldest);
             this.latestStampById.delete(oldest);
         }
+    }
+
+    /**
+     * Room for one more chunk of partial data. Every retained byte counts --
+     * this id's earlier chunks are still held, so subtracting them would let
+     * interleaved transfers walk past the cap together. Completed images are
+     * evictable and go oldest-first, exactly as a completed store does, so a
+     * saturated cache keeps accepting new transfers instead of freezing on the
+     * images it already has. Only partial data that cannot fit even an empty
+     * cache is refused.
+     */
+    private makeRoomForChunk(incoming: number): boolean {
+        if (this.partialTotalBytes + incoming > this.maxBytes) return false;
+        while (this.completeBytes + this.partialTotalBytes + incoming > this.maxBytes && this.order.length > 0) {
+            const oldest = this.order.shift()!;
+            this.removeComplete(oldest);
+            this.preparedById.delete(oldest);
+            this.latestStampById.delete(oldest);
+        }
+        return this.completeBytes + this.partialTotalBytes + incoming <= this.maxBytes;
     }
 
     private clearPartial(id?: string): void {

@@ -531,6 +531,7 @@ describe('Herdr graphics flow', () => {
             drainInline: () => Promise<void>;
             wheelReport: (paneId: string, direction: 'up' | 'down', point: { x: number; y: number }) => Buffer | undefined;
             forwardInlineBlock: (work: unknown, allowDeleteDeferral?: boolean) => Promise<void>;
+            inlineImages: { prepared: (...args: never[]) => Promise<unknown> };
             livePlacements: Map<string, Map<string, { block: unknown; rect?: unknown }>>;
             sourceRevision: Map<string, number>;
             sourceQueueVersion: number;
@@ -655,6 +656,33 @@ describe('Herdr graphics flow', () => {
         await drain.mock.results.at(-1)?.value;
         expect(frames).toHaveLength(8);
 
+        // A coarse preparation slower than the settle window has already spent
+        // that window. Arming a fresh 200ms afterwards would charge the encode
+        // to the viewer twice, so the refinement is due as soon as it lands --
+        // but never earlier than 200ms after the final source activity.
+        const store = internals.inlineImages;
+        const realPrepared = store.prepared.bind(store);
+        store.prepared = (async (...args: never[]) => {
+            if ((args[2] as unknown) === 'coarse') vi.setSystemTime(Date.now() + 300);
+            return realPrepared(...args);
+        }) as typeof store.prepared;
+        const slowStartedAt = Date.now();
+        repaint(15);
+        await settle();
+        const coarseCount = frames.length;
+        expect(coarseCount).toBe(9);
+        expect(frameAnsi(frames[8]!)).toContain('a=T,f=32,s=300,v=200,i=15,');
+        // Elapsed since the source route already exceeds the quiet window.
+        expect(Date.now() - slowStartedAt).toBeGreaterThanOrEqual(200);
+        await vi.advanceTimersByTimeAsync(0);
+        await drain.mock.results.at(-1)?.value;
+        expect(frames).toHaveLength(10);
+        expect(frameAnsi(frames[9]!)).toContain('a=T,f=32,s=600,v=400,i=15,');
+        store.prepared = realPrepared;
+        await vi.advanceTimersByTimeAsync(5000);
+        await drain.mock.results.at(-1)?.value;
+        expect(frames).toHaveLength(10);
+
         // A refinement whose placement disappeared has nothing left to sharpen.
         // It must fail closed rather than route or probe for a replacement.
         const placed = internals.livePlacements.get('pane')!;
@@ -671,7 +699,7 @@ describe('Herdr graphics flow', () => {
                 sourceQueueVersion: internals.sourceQueueVersion,
             },
         }, false);
-        expect(frames).toHaveLength(8);
+        expect(frames).toHaveLength(10);
         expect((internals.sourcePane as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(routedAtGone);
         expect((internals.visibleRect as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(probedAtGone);
 
@@ -1168,6 +1196,90 @@ console.log(JSON.stringify({ result: replies[command] }));
             expect(statSync(path).mode & 0o077).toBe(0);
         } finally {
             rmSync(dir, { recursive: true, force: true });
+        }
+    });
+    it('re-arms a settled pane whose refinement lost a fence to another pane', async () => {
+        const socket = Object.assign(new EventEmitter(), { writable: true, write: () => true, destroy: () => {} });
+        const bridge = Reflect.construct(HerdrGraphicsBridge, [socket, 'herdr']) as HerdrGraphicsBridge;
+        const internals = bridge as unknown as {
+            sourcePane: (leading: Buffer) => Promise<string | undefined>;
+            visibleRect: (paneId: string) => Promise<{ x: number; y: number; width: number; height: number } | undefined>;
+            queueInline: (data: Buffer) => void;
+            drainInline: () => Promise<void>;
+            inlineImages: { prepared: (...args: never[]) => Promise<unknown> };
+            inlineQueue: unknown[];
+            inlineDraining: boolean;
+        };
+        // Blocks are routed by the row they were written at: row 1 is A, row 2 is B.
+        internals.sourcePane = vi.fn(async (leading: Buffer) => (leading.toString('utf8').startsWith('\u001b[1;') ? 'paneA' : 'paneB'));
+        internals.visibleRect = vi.fn(async () => ({ x: 0, y: 0, width: 20, height: 10 }));
+
+        const framesA: string[] = [];
+        const framesB: string[] = [];
+        bridge.register({ channel: 'a', paneId: 'paneA', cols: 20, rows: 10, cellWidthPx: 10, cellHeightPx: 20, write: (frame) => framesA.push(frame) });
+        bridge.register({ channel: 'b', paneId: 'paneB', cols: 20, rows: 10, cellWidthPx: 10, cellHeightPx: 20, write: (frame) => framesB.push(frame) });
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+        const drain = vi.spyOn(internals, 'drainInline');
+        const settle = async (): Promise<void> => {
+            await drain.mock.results.at(-1)?.value;
+            expect(internals.inlineQueue).toHaveLength(0);
+            expect(internals.inlineDraining).toBe(false);
+        };
+
+        const width = 600;
+        const height = 400;
+        const rgba = Buffer.alloc(width * height * 4, 9);
+        const paint = (row: number, id: number): void => {
+            internals.queueInline(Buffer.from(
+                `\u001b[${row};1H`
+                + `\u001b_Ga=t,f=32,s=${width},v=${height},i=${id},o=z,m=0;${deflateSync(rgba).toString('base64')}\u001b\\`
+                + `\u001b_Ga=p,i=${id},c=20,r=10;\u001b\\`,
+            ));
+        };
+
+        try {
+            paint(1, 1);
+            await settle();
+            expect(framesA).toHaveLength(1);
+            expect(frameAnsi(framesA[0]!)).toContain('a=T,f=32,s=300,v=200,i=1,');
+
+            // Hold A's refinement inside preparation, then let pane B paint. B
+            // moves the shared fence while A's sharp frame is in flight.
+            const store = internals.inlineImages;
+            const realPrepared = store.prepared.bind(store);
+            let release!: () => void;
+            const held = new Promise<void>((resolve) => { release = resolve; });
+            let heldOnce = false;
+            store.prepared = (async (...args: never[]) => {
+                if ((args[2] as unknown) === 'full' && !heldOnce) {
+                    heldOnce = true;
+                    store.prepared = realPrepared;
+                    await held;
+                }
+                return realPrepared(...args);
+            }) as typeof store.prepared;
+
+            await vi.advanceTimersByTimeAsync(200);
+            paint(2, 2);
+            await vi.advanceTimersByTimeAsync(0);
+            release();
+            await settle();
+
+            // A's refinement was discarded rather than sent: no stale pixels.
+            expect(framesA).toHaveLength(1);
+            expect(framesB.length).toBeGreaterThan(0);
+
+            // A is still settled, so it must be re-armed and sharpen exactly once.
+            await vi.advanceTimersByTimeAsync(200);
+            await settle();
+            expect(framesA).toHaveLength(2);
+            expect(frameAnsi(framesA[1]!)).toContain('a=T,f=32,s=600,v=400,i=1,');
+            await vi.advanceTimersByTimeAsync(5000);
+            await settle();
+            expect(framesA).toHaveLength(2);
+        } finally {
+            bridge.close();
+            vi.useRealTimers();
         }
     });
 });

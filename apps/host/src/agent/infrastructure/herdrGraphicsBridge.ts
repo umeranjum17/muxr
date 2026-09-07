@@ -214,6 +214,8 @@ export class HerdrGraphicsBridge {
     private readonly scrollTimers = new Map<string, ReturnType<typeof setTimeout>>();
     private readonly refineTimers = new Map<string, ReturnType<typeof setTimeout>>();
     private readonly lastSourceAt = new Map<string, number>();
+    /** When a notch was last actually released into the pane. */
+    private readonly lastInputAt = new Map<string, number>();
     private readonly sourceRevision = new Map<string, number>();
     /** Diagnostic only: which pane last moved the shared fence. */
     private fenceBumpPane: string | undefined;
@@ -398,6 +400,7 @@ export class HerdrGraphicsBridge {
         this.armNotchFallback(paneId);
         const report = this.wheelReport(paneId, direction, point);
         if (report === undefined) return [];
+        this.lastInputAt.set(paneId, Date.now());
         this.notchesSent += now;
         return Array.from({ length: now }, () => report);
     }
@@ -421,6 +424,9 @@ export class HerdrGraphicsBridge {
         for (const registration of this.registrations.values()) {
             if (registration.paneId === paneId) registration.sendInput?.(report);
         }
+        // Only a notch that really reached the pane is input activity; an
+        // ordinary frame delivery calls this too and must not move the clock.
+        this.lastInputAt.set(paneId, Date.now());
         this.notchesSent += 1;
         this.armNotchFallback(paneId);
     }
@@ -474,6 +480,30 @@ export class HerdrGraphicsBridge {
         });
     }
 
+    /**
+     * Fence attribution for the trace. Inline and direct admission bumps happen
+     * before routing, so their pane is genuinely unknown; report nothing rather
+     * than labelling an unknown bump as another pane's.
+     */
+    private fenceProvenance(paneId: string): Record<string, string | boolean> {
+        if (this.fenceBumpPane === undefined) return {};
+        return { fenceBy: this.fenceBumpPane, fenceSamePane: this.fenceBumpPane === paneId };
+    }
+
+    /**
+     * A refinement discarded after its await by a fence the target pane did not
+     * move is still wanted: the pane is settled and would otherwise stay coarse
+     * until its producer happens to paint again. A later same-pane arrival
+     * cancels this arm through noteSourceActivity, so it cannot show stale
+     * pixels.
+     */
+    private rearmAfterFenceLoss(paneId: string, sourceRevision: number): boolean {
+        if (this.gestureActive(paneId)) return false;
+        if ((this.sourceRevision.get(paneId) ?? 0) !== sourceRevision) return false;
+        this.armRefine(paneId, 'source', SETTLE_REFINE_MS);
+        return true;
+    }
+
     /** Which pane last moved the shared fence, so a reject can name the cause. */
     private bumpSourceQueueVersion(paneId: string | undefined, path: 'inline' | 'direct' | 'clear'): void {
         this.sourceQueueVersion += 1;
@@ -481,15 +511,25 @@ export class HerdrGraphicsBridge {
         graphicsTrace?.add('fence.bump', { pane: paneId, path, fence: this.sourceQueueVersion });
     }
 
+    /**
+     * The moment this pane becomes eligible: one settle window after the later
+     * of its final routed source and its final released input. Preparing the
+     * coarse frame consumes part of that window, so arming a fresh full window
+     * afterwards would charge a slow encode to the viewer twice.
+     */
+    private quietDeadline(paneId: string): number {
+        return Math.max(this.lastSourceAt.get(paneId) ?? 0, this.lastInputAt.get(paneId) ?? 0) + SETTLE_REFINE_MS;
+    }
+
     private sourceQuiet(paneId: string): boolean {
-        const last = this.lastSourceAt.get(paneId);
-        return last === undefined || Date.now() - last >= SETTLE_REFINE_MS;
+        return Date.now() >= this.quietDeadline(paneId);
     }
 
     /** Schedule one serialized refinement for a pane, never a timer per frame. */
-    private armRefine(paneId: string, reason: 'gesture' | 'source', delay = SETTLE_REFINE_MS): void {
+    private armRefine(paneId: string, reason: 'gesture' | 'source', delay?: number): void {
         this.cancelRefine(paneId);
         const armedAt = Date.now();
+        delay ??= Math.max(0, this.quietDeadline(paneId) - armedAt);
         graphicsTrace?.add('refine.arm', {
             pane: paneId,
             reason,
@@ -549,16 +589,18 @@ export class HerdrGraphicsBridge {
         if (work.sourceQueueVersion !== this.sourceQueueVersion) {
             graphicsTrace?.add('refine.reject', {
                 pane: paneId, path: 'inline', why: 'fence', rearmed: true,
-                expected: work.sourceQueueVersion, actual: this.sourceQueueVersion, fenceBy: this.fenceBumpPane,
-                fenceSamePane: this.fenceBumpPane === paneId,
+                expected: work.sourceQueueVersion, actual: this.sourceQueueVersion,
+                ...this.fenceProvenance(paneId),
             });
-            this.armRefine(paneId, work.reason);
+            // Another pane's traffic moved a shared counter. Retry no faster
+            // than a settle window so a streaming neighbour cannot spin this.
+            this.armRefine(paneId, work.reason, SETTLE_REFINE_MS);
             return;
         }
         if (!this.sourceQuiet(paneId)) {
             const last = this.lastSourceAt.get(paneId) ?? Date.now();
             graphicsTrace?.add('refine.reject', { pane: paneId, path: 'inline', why: 'not-quiet', rearmed: true, quietForMs: Date.now() - last });
-            this.armRefine(paneId, work.reason, Math.max(1, SETTLE_REFINE_MS - (Date.now() - last)));
+            this.armRefine(paneId, work.reason);
             return;
         }
         const live = this.livePlacements.get(paneId);
@@ -636,6 +678,7 @@ export class HerdrGraphicsBridge {
         for (const timer of this.refineTimers.values()) clearTimeout(timer);
         this.refineTimers.clear();
         this.lastSourceAt.clear();
+        this.lastInputAt.clear();
         this.sourceRevision.clear();
         this.directRawByPane.clear();
         this.directRefinementBytes = 0;
@@ -937,9 +980,10 @@ export class HerdrGraphicsBridge {
         }
         if (this.closed) return;
         if (refinement !== undefined && !this.refinementCurrent(refinement, paneId)) {
+            const rearmed = this.rearmAfterFenceLoss(paneId, refinement.sourceRevision);
             graphicsTrace?.add('refine.reject', {
-                pane: paneId, path: 'inline', why: 'stale-after-prepare', rearmed: false,
-                fenceBy: this.fenceBumpPane, fenceSamePane: this.fenceBumpPane === paneId,
+                pane: paneId, path: 'inline', why: 'stale-after-prepare', rearmed,
+                ...this.fenceProvenance(paneId),
             });
             return;
         }
@@ -960,9 +1004,10 @@ export class HerdrGraphicsBridge {
         }
         if (this.closed) return;
         if (refinement !== undefined && !this.refinementCurrent(refinement, paneId)) {
+            const rearmed = this.rearmAfterFenceLoss(paneId, refinement.sourceRevision);
             graphicsTrace?.add('refine.reject', {
-                pane: paneId, path: 'inline', why: 'stale-after-rect', rearmed: false,
-                fenceBy: this.fenceBumpPane, fenceSamePane: this.fenceBumpPane === paneId,
+                pane: paneId, path: 'inline', why: 'stale-after-rect', rearmed,
+                ...this.fenceProvenance(paneId),
             });
             return;
         }
@@ -1437,16 +1482,18 @@ export class HerdrGraphicsBridge {
         if (work.sourceQueueVersion !== this.sourceQueueVersion) {
             graphicsTrace?.add('refine.reject', {
                 pane: paneId, path: 'direct', why: 'fence', rearmed: true,
-                expected: work.sourceQueueVersion, actual: this.sourceQueueVersion, fenceBy: this.fenceBumpPane,
-                fenceSamePane: this.fenceBumpPane === paneId,
+                expected: work.sourceQueueVersion, actual: this.sourceQueueVersion,
+                ...this.fenceProvenance(paneId),
             });
-            this.armRefine(paneId, work.reason);
+            // Another pane's traffic moved a shared counter. Retry no faster
+            // than a settle window so a streaming neighbour cannot spin this.
+            this.armRefine(paneId, work.reason, SETTLE_REFINE_MS);
             return;
         }
         if (!this.sourceQuiet(paneId)) {
             const last = this.lastSourceAt.get(paneId) ?? Date.now();
             graphicsTrace?.add('refine.reject', { pane: paneId, path: 'direct', why: 'not-quiet', rearmed: true, quietForMs: Date.now() - last });
-            this.armRefine(paneId, work.reason, Math.max(1, SETTLE_REFINE_MS - (Date.now() - last)));
+            this.armRefine(paneId, work.reason);
             return;
         }
         const raw = this.directRawByPane.get(paneId);
@@ -1470,9 +1517,10 @@ export class HerdrGraphicsBridge {
             width: prepared.width, height: prepared.height,
         });
         if (this.closed || !this.directRefinementCurrent(raw, paneId, work)) {
+            const rearmed = !this.closed && this.rearmAfterFenceLoss(paneId, work.sourceRevision);
             graphicsTrace?.add('refine.reject', {
-                pane: paneId, path: 'direct', why: this.closed ? 'closed' : 'stale-after-prepare', rearmed: false,
-                fenceBy: this.fenceBumpPane, fenceSamePane: this.fenceBumpPane === paneId,
+                pane: paneId, path: 'direct', why: this.closed ? 'closed' : 'stale-after-prepare', rearmed,
+                ...this.fenceProvenance(paneId),
             });
             return;
         }
@@ -1565,6 +1613,7 @@ export class HerdrGraphicsBridge {
         this.cancelRefine(paneId);
         this.bumpSourceQueueVersion(paneId, 'clear');
         this.lastSourceAt.delete(paneId);
+        this.lastInputAt.delete(paneId);
         this.sourceRevision.delete(paneId);
         this.deferredDeletes.delete(paneId);
         for (const [transferId, owner] of this.imageOwners) {
