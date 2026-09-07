@@ -180,7 +180,7 @@ async function finish(){
         report.catalog={panes:stack.world.panes.length,agents:stack.world.agents.length};
     }
     report.pipelinePresent=report.hostRequests.length>0&&report.graphics.length>0&&(report.cellMetrics?.some(row=>row.cellWidthPx>0&&row.cellHeightPx>0)||report.graphicsInput?.some(row=>row.source==='graphics.ClientHello'&&row.cellWidthPx>0&&row.cellHeightPx>0));
-    report.observedRunComplete=report.pipelinePresent&&report.phases.length===9&&report.phases.every(p=>p.requiredScreenVerified&&p.measuredSeconds>=p.seconds&&!p.error)&&report.tour?.opened===40;
+    report.observedRunComplete=!report.splitAcceptance&&report.pipelinePresent&&report.phases.length===9&&report.phases.every(p=>p.requiredScreenVerified&&p.measuredSeconds>=p.seconds&&!p.error)&&report.tour?.opened===40;
     report.observedStabilityPassed=failures.length===0&&report.observedRunComplete;
     report.verdict=failures.length?'FAILED_OBSERVATIONS':report.observedRunComplete?'COMPLETED_WITH_METRIC_LIMITATIONS':'INCOMPLETE';
     persist();await scope.close();scope.cleanup();log(`result ${report.verdict}; evidence ${record}`);
