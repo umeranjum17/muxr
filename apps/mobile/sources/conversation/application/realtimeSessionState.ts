@@ -414,6 +414,10 @@ function startRealtimeAfterService(target: RealtimeTarget, epoch: number): void 
         handle.stop();
         return;
     }
+    // A mute requested while VAD arming still gated this start was recorded
+    // before any transport existed. Apply it to the real handle before it goes
+    // live: the flag alone never means the microphone is closed.
+    if (muted) handle.setMuted(true);
     session = handle;
     starting = false;
 }
@@ -502,6 +506,10 @@ export function stopRealtimeSession(): void {
  *
  * With no live session this is a no-op. A stale control must never open the
  * microphone, and must never leave a mute flag set for the next call.
+ *
+ * A start deferred behind VAD arming has no transport yet, and nothing is being
+ * captured then; `startRealtimeAfterService` applies the recorded state to the
+ * handle before it goes live, so the flag is never the only thing that is muted.
  */
 export function applyRealtimeMuted(desired?: boolean): void {
     if (session === null && !starting) return;
