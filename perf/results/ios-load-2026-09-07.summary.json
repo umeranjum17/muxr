@@ -1,0 +1,612 @@
+{
+  "status": "Interim sanitized review: document and graphics visual probes pending; zoom partial failure retained",
+  "runs": [
+    {
+      "source": "339f7a438cf21d98175b264661b842d27942e53c",
+      "initialPid": 90654,
+      "startedAt": "2026-09-07T03:45:05.370Z",
+      "finishedAt": "2026-09-07T04:06:23.156Z",
+      "load": {
+        "panes": 100,
+        "agents": 30,
+        "titleChurnHz": 2,
+        "terminalBytesPerSecond": 4096,
+        "graphicsFrameHz": 4
+      },
+      "verdict": "FAILED_OBSERVATIONS",
+      "splitAcceptance": null,
+      "failures": [
+        "herd strip and tree soak: Visible live strip card absent",
+        "agent terminal and plugin navigation: Required screen absent: /^(LIVE|SPACES|Machine)$/",
+        "herd tree fling: Required screen absent: /^(LIVE|SPACES|Machine)$/",
+        "herd strip paging: Required screen absent: /^(LIVE|SPACES|Machine)$/",
+        "document scroll and swipe: Required screen absent: /^(LIVE|SPACES|Machine)$/",
+        "graphics pane scroll: Required screen absent: /^(LIVE|SPACES|Machine)$/",
+        "zoom tap navigate: Required screen absent: /^(LIVE|SPACES|Machine)$/"
+      ],
+      "androidGateEquivalent": false,
+      "unsupported": {
+        "pssKb": "Android proportional-set-size accounting is unavailable on iOS.",
+        "jsBusyPercent": "No validated per-JS-thread CPU sampler for this retained Release binary.",
+        "fps": "No Android gfxinfo/SurfaceFlinger equivalent collected in this run.",
+        "frameStats": "No instrumented frame timestamps; AX command duration is not input-to-frame latency."
+      },
+      "app": {
+        "binarySha256": "0395a5b017b80ab8d833dfedca8e79eefa5615074317582d9752ecde5ded8000",
+        "jsSha256": "f2f89c2b3923c54b2f2f4c356adc9f3fc7fe205c6c75e2ba3bd6069e6b58132a"
+      },
+      "crashCount": 0,
+      "phases": [
+        {
+          "name": "idle on the herd",
+          "drive": "idle",
+          "seconds": 120,
+          "setupSeconds": null,
+          "measuredSeconds": 120,
+          "rssFirstKb": 688448,
+          "rssLastKb": 673344,
+          "rssPeakKb": 688448,
+          "processCpuMeanPercent": 48.21697347848176,
+          "processCpuPeakPercent": 142.0059582919542,
+          "requiredScreenVerified": true,
+          "error": null,
+          "resumeProof": null,
+          "wallSeconds": 120.39000010490417,
+          "actionsCompleted": 1,
+          "actionsInMeasuredWindow": 1,
+          "actionKinds": [
+            "verify herd"
+          ]
+        },
+        {
+          "name": "herd strip and tree soak",
+          "drive": "soak",
+          "seconds": 120,
+          "setupSeconds": null,
+          "measuredSeconds": 120.001,
+          "rssFirstKb": 673344,
+          "rssLastKb": 674176,
+          "rssPeakKb": 674752,
+          "processCpuMeanPercent": 53.02740001822547,
+          "processCpuPeakPercent": 159.88083416087244,
+          "requiredScreenVerified": false,
+          "error": "Visible live strip card absent",
+          "resumeProof": null,
+          "wallSeconds": 120.16799998283386,
+          "actionsCompleted": 3,
+          "actionsInMeasuredWindow": 3,
+          "actionKinds": [
+            "strip pair",
+            "tree scroll pair",
+            "verify herd"
+          ]
+        },
+        {
+          "name": "agent terminal and plugin navigation",
+          "drive": "navigate",
+          "seconds": 120,
+          "setupSeconds": null,
+          "measuredSeconds": 120,
+          "rssFirstKb": 674176,
+          "rssLastKb": 672960,
+          "rssPeakKb": 675136,
+          "processCpuMeanPercent": 51.061797122362066,
+          "processCpuPeakPercent": 161.35458167330722,
+          "requiredScreenVerified": false,
+          "error": "Required screen absent: /^(LIVE|SPACES|Machine)$/",
+          "resumeProof": null,
+          "wallSeconds": 120.34100008010864,
+          "actionsCompleted": 0,
+          "actionsInMeasuredWindow": 0,
+          "actionKinds": []
+        },
+        {
+          "name": "herd tree fling",
+          "drive": "tree",
+          "seconds": 30,
+          "setupSeconds": null,
+          "measuredSeconds": 30.002,
+          "rssFirstKb": 672944,
+          "rssLastKb": 673984,
+          "rssPeakKb": 674112,
+          "processCpuMeanPercent": 83.5420389320849,
+          "processCpuPeakPercent": 162.02783300198763,
+          "requiredScreenVerified": false,
+          "error": "Required screen absent: /^(LIVE|SPACES|Machine)$/",
+          "resumeProof": null,
+          "wallSeconds": 30.151000022888184,
+          "actionsCompleted": 0,
+          "actionsInMeasuredWindow": 0,
+          "actionKinds": []
+        },
+        {
+          "name": "herd strip paging",
+          "drive": "strip",
+          "seconds": 20,
+          "setupSeconds": null,
+          "measuredSeconds": 20.002,
+          "rssFirstKb": 673984,
+          "rssLastKb": 673856,
+          "rssPeakKb": 674448,
+          "processCpuMeanPercent": 59.07038196814883,
+          "processCpuPeakPercent": 158.366533864545,
+          "requiredScreenVerified": false,
+          "error": "Required screen absent: /^(LIVE|SPACES|Machine)$/",
+          "resumeProof": null,
+          "wallSeconds": 21.194999933242798,
+          "actionsCompleted": 0,
+          "actionsInMeasuredWindow": 0,
+          "actionKinds": []
+        },
+        {
+          "name": "document scroll and swipe",
+          "drive": "document",
+          "seconds": 30,
+          "setupSeconds": null,
+          "measuredSeconds": 30.002,
+          "rssFirstKb": 673824,
+          "rssLastKb": 674016,
+          "rssPeakKb": 674592,
+          "processCpuMeanPercent": 66.95962650569473,
+          "processCpuPeakPercent": 141.86507936508005,
+          "requiredScreenVerified": false,
+          "error": "Required screen absent: /^(LIVE|SPACES|Machine)$/",
+          "resumeProof": null,
+          "wallSeconds": 30.186000108718872,
+          "actionsCompleted": 0,
+          "actionsInMeasuredWindow": 0,
+          "actionKinds": []
+        },
+        {
+          "name": "terminal text fling",
+          "drive": "terminal",
+          "seconds": 30,
+          "setupSeconds": null,
+          "measuredSeconds": 30.002,
+          "rssFirstKb": 673984,
+          "rssLastKb": 689600,
+          "rssPeakKb": 692480,
+          "processCpuMeanPercent": 63.67285457570937,
+          "processCpuPeakPercent": 151.39442231076083,
+          "requiredScreenVerified": true,
+          "error": null,
+          "resumeProof": null,
+          "wallSeconds": 30.157999992370605,
+          "actionsCompleted": 25,
+          "actionsInMeasuredWindow": 24,
+          "actionKinds": [
+            "open text shell",
+            "scroll pair"
+          ]
+        },
+        {
+          "name": "graphics pane scroll",
+          "drive": "graphics",
+          "seconds": 90,
+          "setupSeconds": null,
+          "measuredSeconds": 90.002,
+          "rssFirstKb": 680144,
+          "rssLastKb": 673648,
+          "rssPeakKb": 680880,
+          "processCpuMeanPercent": 55.7541592268089,
+          "processCpuPeakPercent": 143.9920556107238,
+          "requiredScreenVerified": false,
+          "error": "Required screen absent: /^(LIVE|SPACES|Machine)$/",
+          "resumeProof": null,
+          "wallSeconds": 90.3989999294281,
+          "actionsCompleted": 0,
+          "actionsInMeasuredWindow": 0,
+          "actionKinds": []
+        },
+        {
+          "name": "zoom tap navigate",
+          "drive": "zoom",
+          "seconds": 60,
+          "setupSeconds": null,
+          "measuredSeconds": 60.002,
+          "rssFirstKb": 673632,
+          "rssLastKb": 673648,
+          "rssPeakKb": 673920,
+          "processCpuMeanPercent": 54.71048721547633,
+          "processCpuPeakPercent": 161.19402985074674,
+          "requiredScreenVerified": false,
+          "error": "Required screen absent: /^(LIVE|SPACES|Machine)$/",
+          "resumeProof": null,
+          "wallSeconds": 60.35099983215332,
+          "actionsCompleted": 0,
+          "actionsInMeasuredWindow": 0,
+          "actionKinds": []
+        }
+      ],
+      "tour": {
+        "totalShells": 70,
+        "selected": 40,
+        "opened": 40,
+        "settleMs": 3500,
+        "scrollPairsPerVisit": 5,
+        "backSettleMs": 600,
+        "visitErrors": 0,
+        "finishedVisits": 40,
+        "rssFirstKb": 685056,
+        "rssLastKb": 638368,
+        "rssPeakKb": 687440
+      },
+      "host": {
+        "requests": 133,
+        "graphicsEvents": 73,
+        "deliveredFrames": 255,
+        "pipelineP95MaxMs": 93,
+        "pipelineScope": "Retained host graphics.pipeline batches; not input-to-pixel latency",
+        "graphicsPixelProof": false
+      }
+    },
+    {
+      "source": "12385df724f0b778750bf88acdba59b6a430806a",
+      "initialPid": 90654,
+      "startedAt": "2026-09-07T04:06:55.429Z",
+      "finishedAt": "2026-09-07T04:17:00.365Z",
+      "load": {
+        "panes": 100,
+        "agents": 30,
+        "titleChurnHz": 2,
+        "terminalBytesPerSecond": 4096,
+        "graphicsFrameHz": 4
+      },
+      "verdict": "FAILED_OBSERVATIONS",
+      "splitAcceptance": true,
+      "failures": [
+        "agent terminal and plugin navigation: Required screen absent: /^(LIVE|SPACES|Machine)$/",
+        "herd strip paging: No completed workload action during phase",
+        "document scroll and swipe: Required screen absent: /README.md/",
+        "zoom tap navigate: UI target missing: /^Zoom in$/"
+      ],
+      "androidGateEquivalent": false,
+      "unsupported": {
+        "pssKb": "Android proportional-set-size accounting is unavailable on iOS.",
+        "jsBusyPercent": "No validated per-JS-thread CPU sampler for this retained Release binary.",
+        "fps": "No Android gfxinfo/SurfaceFlinger equivalent collected in this run.",
+        "frameStats": "No instrumented frame timestamps; AX command duration is not input-to-frame latency."
+      },
+      "app": {
+        "binarySha256": "0395a5b017b80ab8d833dfedca8e79eefa5615074317582d9752ecde5ded8000",
+        "jsSha256": "f2f89c2b3923c54b2f2f4c356adc9f3fc7fe205c6c75e2ba3bd6069e6b58132a"
+      },
+      "crashCount": 0,
+      "phases": [
+        {
+          "name": "herd strip and tree soak",
+          "drive": "soak",
+          "seconds": 120,
+          "setupSeconds": null,
+          "measuredSeconds": 120.002,
+          "rssFirstKb": 711568,
+          "rssLastKb": 709984,
+          "rssPeakKb": 711936,
+          "processCpuMeanPercent": 103.1972271539695,
+          "processCpuPeakPercent": 179.7418073485547,
+          "requiredScreenVerified": true,
+          "error": null,
+          "resumeProof": null,
+          "wallSeconds": 151.5680000782013,
+          "actionsCompleted": 15,
+          "actionsInMeasuredWindow": 13,
+          "actionKinds": [
+            "strip pair",
+            "tree scroll pair",
+            "verify herd"
+          ]
+        },
+        {
+          "name": "agent terminal and plugin navigation",
+          "drive": "navigate",
+          "seconds": 120,
+          "setupSeconds": null,
+          "measuredSeconds": 120.002,
+          "rssFirstKb": 710128,
+          "rssLastKb": 753952,
+          "rssPeakKb": 756000,
+          "processCpuMeanPercent": 102.67437084161955,
+          "processCpuPeakPercent": 178.92644135188414,
+          "requiredScreenVerified": false,
+          "error": "Required screen absent: /^(LIVE|SPACES|Machine)$/",
+          "resumeProof": null,
+          "wallSeconds": 120.39800000190735,
+          "actionsCompleted": 13,
+          "actionsInMeasuredWindow": 13,
+          "actionKinds": [
+            "agent scroll pair",
+            "open agent terminal",
+            "plugin Files",
+            "plugin Usage",
+            "return herd",
+            "verify herd"
+          ]
+        },
+        {
+          "name": "herd tree fling",
+          "drive": "tree",
+          "seconds": 30,
+          "setupSeconds": null,
+          "measuredSeconds": 30.002,
+          "rssFirstKb": 732160,
+          "rssLastKb": 749616,
+          "rssPeakKb": 753120,
+          "processCpuMeanPercent": 123.95747682393477,
+          "processCpuPeakPercent": 181.81818181817306,
+          "requiredScreenVerified": true,
+          "error": null,
+          "resumeProof": null,
+          "wallSeconds": 35.95599985122681,
+          "actionsCompleted": 8,
+          "actionsInMeasuredWindow": 7,
+          "actionKinds": [
+            "scroll pair",
+            "verify herd"
+          ]
+        },
+        {
+          "name": "herd strip paging",
+          "drive": "strip",
+          "seconds": 20,
+          "setupSeconds": null,
+          "measuredSeconds": 20.001,
+          "rssFirstKb": 750240,
+          "rssLastKb": 750672,
+          "rssPeakKb": 750800,
+          "processCpuMeanPercent": 127.12560624226707,
+          "processCpuPeakPercent": 177.93240556659677,
+          "requiredScreenVerified": false,
+          "error": "No completed workload action during phase",
+          "resumeProof": null,
+          "wallSeconds": 23.917999982833862,
+          "actionsCompleted": 2,
+          "actionsInMeasuredWindow": 1,
+          "actionKinds": [
+            "strip paging",
+            "verify herd"
+          ]
+        },
+        {
+          "name": "document scroll and swipe",
+          "drive": "document",
+          "seconds": 30,
+          "setupSeconds": null,
+          "measuredSeconds": 30.002,
+          "rssFirstKb": 750752,
+          "rssLastKb": 752704,
+          "rssPeakKb": 752896,
+          "processCpuMeanPercent": 66.43158084690756,
+          "processCpuPeakPercent": 143.28358208953506,
+          "requiredScreenVerified": false,
+          "error": "Required screen absent: /README.md/",
+          "resumeProof": null,
+          "wallSeconds": 30.161999940872192,
+          "actionsCompleted": 0,
+          "actionsInMeasuredWindow": 0,
+          "actionKinds": []
+        },
+        {
+          "name": "graphics pane scroll",
+          "drive": "graphics",
+          "seconds": 90,
+          "setupSeconds": null,
+          "measuredSeconds": 90.002,
+          "rssFirstKb": 752336,
+          "rssLastKb": 708976,
+          "rssPeakKb": 757280,
+          "processCpuMeanPercent": 100.41491811973849,
+          "processCpuPeakPercent": 177.1144278606938,
+          "requiredScreenVerified": true,
+          "error": null,
+          "resumeProof": null,
+          "wallSeconds": 90.9760000705719,
+          "actionsCompleted": 58,
+          "actionsInMeasuredWindow": 57,
+          "actionKinds": [
+            "open graphics agent",
+            "scroll pair"
+          ]
+        },
+        {
+          "name": "zoom tap navigate",
+          "drive": "zoom",
+          "seconds": 60,
+          "setupSeconds": null,
+          "measuredSeconds": 60.002,
+          "rssFirstKb": 709056,
+          "rssLastKb": 708416,
+          "rssPeakKb": 734080,
+          "processCpuMeanPercent": 81.66896821327954,
+          "processCpuPeakPercent": 165.8391261171644,
+          "requiredScreenVerified": false,
+          "error": "UI target missing: /^Zoom in$/",
+          "resumeProof": null,
+          "wallSeconds": 60.394999980926514,
+          "actionsCompleted": 3,
+          "actionsInMeasuredWindow": 3,
+          "actionKinds": [
+            "graphics tap and navigate",
+            "open graphics agent",
+            "zoom controls"
+          ]
+        }
+      ],
+      "tour": {
+        "totalShells": null,
+        "selected": null,
+        "opened": null,
+        "settleMs": null,
+        "scrollPairsPerVisit": null,
+        "backSettleMs": null,
+        "visitErrors": 0,
+        "finishedVisits": 0,
+        "rssFirstKb": null,
+        "rssLastKb": null,
+        "rssPeakKb": null
+      },
+      "host": {
+        "requests": 19,
+        "graphicsEvents": 15,
+        "deliveredFrames": 77,
+        "pipelineP95MaxMs": 96,
+        "pipelineScope": "Retained host graphics.pipeline batches; not input-to-pixel latency",
+        "graphicsPixelProof": false
+      }
+    },
+    {
+      "source": "39dd0167476d04a84ded05abbc5d6da0c96644a1",
+      "initialPid": 90654,
+      "startedAt": "2026-09-07T04:17:36.672Z",
+      "finishedAt": "2026-09-07T04:23:48.843Z",
+      "load": {
+        "panes": 100,
+        "agents": 30,
+        "titleChurnHz": 2,
+        "terminalBytesPerSecond": 4096,
+        "graphicsFrameHz": 4
+      },
+      "verdict": "FAILED_OBSERVATIONS",
+      "splitAcceptance": true,
+      "failures": [
+        "document scroll and swipe: setup: Required screen absent: /README.md/",
+        "zoom tap navigate: Required screen absent: /^Zoom in$/"
+      ],
+      "androidGateEquivalent": false,
+      "unsupported": {
+        "pssKb": "Android proportional-set-size accounting is unavailable on iOS.",
+        "jsBusyPercent": "No validated per-JS-thread CPU sampler for this retained Release binary.",
+        "fps": "No Android gfxinfo/SurfaceFlinger equivalent collected in this run.",
+        "frameStats": "No instrumented frame timestamps; AX command duration is not input-to-frame latency."
+      },
+      "app": {
+        "binarySha256": "0395a5b017b80ab8d833dfedca8e79eefa5615074317582d9752ecde5ded8000",
+        "jsSha256": "f2f89c2b3923c54b2f2f4c356adc9f3fc7fe205c6c75e2ba3bd6069e6b58132a"
+      },
+      "crashCount": 0,
+      "phases": [
+        {
+          "name": "agent terminal and plugin navigation",
+          "drive": "navigate",
+          "seconds": 120,
+          "setupSeconds": 4.708,
+          "measuredSeconds": 120.002,
+          "rssFirstKb": 771040,
+          "rssLastKb": 762848,
+          "rssPeakKb": 799232,
+          "processCpuMeanPercent": 95.27676834602468,
+          "processCpuPeakPercent": 182.7209533267049,
+          "requiredScreenVerified": true,
+          "error": null,
+          "resumeProof": {
+            "method": "simctl launch existing app",
+            "pid": 90654
+          },
+          "wallSeconds": 148.00600004196167,
+          "actionsCompleted": 38,
+          "actionsInMeasuredWindow": 36,
+          "actionKinds": [
+            "agent scroll pair",
+            "background foreground",
+            "open agent terminal",
+            "plugin Files",
+            "plugin Usage",
+            "return herd",
+            "verify herd"
+          ]
+        },
+        {
+          "name": "herd strip paging",
+          "drive": "strip",
+          "seconds": 20,
+          "setupSeconds": 3.664,
+          "measuredSeconds": 20.002,
+          "rssFirstKb": 760576,
+          "rssLastKb": 761280,
+          "rssPeakKb": 763632,
+          "processCpuMeanPercent": 70.25216469502084,
+          "processCpuPeakPercent": 140.2985074626721,
+          "requiredScreenVerified": true,
+          "error": null,
+          "resumeProof": null,
+          "wallSeconds": 25.259999990463257,
+          "actionsCompleted": 5,
+          "actionsInMeasuredWindow": 3,
+          "actionKinds": [
+            "strip paging",
+            "verify herd"
+          ]
+        },
+        {
+          "name": "document scroll and swipe",
+          "drive": "document",
+          "seconds": 30,
+          "setupSeconds": 42.381,
+          "measuredSeconds": null,
+          "rssFirstKb": null,
+          "rssLastKb": null,
+          "rssPeakKb": null,
+          "processCpuMeanPercent": null,
+          "processCpuPeakPercent": null,
+          "requiredScreenVerified": false,
+          "error": "Required screen absent: /README.md/",
+          "resumeProof": null,
+          "wallSeconds": null,
+          "actionsCompleted": 0,
+          "actionsInMeasuredWindow": 0,
+          "actionKinds": []
+        },
+        {
+          "name": "zoom tap navigate",
+          "drive": "zoom",
+          "seconds": 60,
+          "setupSeconds": 5.457,
+          "measuredSeconds": 60.001,
+          "rssFirstKb": 738624,
+          "rssLastKb": 723536,
+          "rssPeakKb": 740688,
+          "processCpuMeanPercent": 83.64713383622592,
+          "processCpuPeakPercent": 168.49451645065352,
+          "requiredScreenVerified": false,
+          "error": "Required screen absent: /^Zoom in$/",
+          "resumeProof": null,
+          "wallSeconds": 65.77600002288818,
+          "actionsCompleted": 5,
+          "actionsInMeasuredWindow": 4,
+          "actionKinds": [
+            "graphics tap and navigate",
+            "open graphics agent",
+            "zoom controls"
+          ]
+        }
+      ],
+      "tour": {
+        "totalShells": null,
+        "selected": null,
+        "opened": null,
+        "settleMs": null,
+        "scrollPairsPerVisit": null,
+        "backSettleMs": null,
+        "visitErrors": 0,
+        "finishedVisits": 0,
+        "rssFirstKb": null,
+        "rssLastKb": null,
+        "rssPeakKb": null
+      },
+      "host": {
+        "requests": 25,
+        "graphicsEvents": 11,
+        "deliveredFrames": 49,
+        "pipelineP95MaxMs": 101,
+        "pipelineScope": "Retained host graphics.pipeline batches; not input-to-pixel latency",
+        "graphicsPixelProof": false
+      }
+    }
+  ],
+  "limits": [
+    "Simulator only; no physical device, real voice, APNs, battery or thermal performance claims.",
+    "RSS is not PSS; CPU whole process, not JS thread.",
+    "Original full attempt failed harness phases; split runs do not form one clean full run.",
+    "Original unpatched warmup SIGSEGV preserved; patched app has no new IPS in these runs.",
+    "Fresh-PID diagnostic repeat sampled widget incorrectly; those timed metrics invalid and excluded."
+  ]
+}
