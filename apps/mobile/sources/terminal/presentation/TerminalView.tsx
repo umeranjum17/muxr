@@ -381,17 +381,17 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
     // Only this view holds the terminal handle, so closing its IME stays here
     // and the pane is handed a callback instead of the ref.
     const dismissKeyboard = React.useCallback(() => {
-        // showKeyboard/hideKeyboard are Android-only native calls. The native
-        // side hides the IME through this view's window token whichever view
-        // raised it, and clears focus only when the terminal holds it.
-        if (Platform.OS !== 'android' || termRef.current === null) return;
+        // Android hides the IME through this view's window token whichever view
+        // raised it, and clears focus only when the terminal holds it; iOS
+        // resigns first responder, which is what a tap on the grid already does.
+        if (termRef.current === null) return;
         void termRef.current.hideKeyboard().catch(() => {});
     }, []);
     const viewControls = React.useMemo<TerminalViewControls>(() => ({
         dismissKeyboard,
         commands: [
-            ...(Platform.OS === 'android' ? [{ label: 'Open terminal keyboard', icon: 'keyboard' as const, dismiss: true,
-                run: () => { void termRef.current?.showKeyboard().catch(() => latest.current.onStatus?.('Could not open keyboard')); } }] : []),
+            { label: 'Open terminal keyboard', icon: 'keyboard' as const, dismiss: true,
+                run: () => { void termRef.current?.showKeyboard().catch(() => latest.current.onStatus?.('Could not open keyboard')); } },
             { label: 'Zoom out', icon: 'minus' as const, run: () => latest.current.zoom(-1), disabled: atMinZoom },
             { label: 'Zoom in', icon: 'plus' as const, run: () => latest.current.zoom(1), disabled: atMaxZoom },
             { label: 'Reset zoom', icon: 'reset' as const, run: () => latest.current.resetZoom(), disabled: atDefaultZoom },
