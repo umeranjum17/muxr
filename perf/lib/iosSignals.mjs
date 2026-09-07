@@ -23,8 +23,8 @@ export function flatten(value) {
 export class IosControls {
     constructor(udid) { this.udid = udid; this.width = 402; this.height = 874; }
     async ui() { return flatten(JSON.parse(await command('axe', ['describe-ui', '--udid', this.udid]))); }
-    visible(node) { const f = node.frame; return f && f.width > 0 && f.height > 0 && f.y >= 0 && f.y + f.height / 2 < this.height; }
-    async tap(x, y) { await command('axe', ['tap', '-x', String(x), '-y', String(y), '--udid', this.udid]); }
+    visible(node) { const f = node.frame; return f && f.width > 0 && f.height > 0 && f.x + f.width / 2 > 0 && f.x + f.width / 2 < this.width && f.y >= 0 && f.y + f.height / 2 < this.height; }
+    async tap(x, y) { await command('axe', ['tap', '-x', String(x), '-y', String(y), '--tap-style', 'physical', '--udid', this.udid]); }
     async tapMatch(pattern, { optional = false } = {}) {
         const node = (await this.ui()).find((n) => this.visible(n) && pattern.test(n.AXLabel ?? ''));
         if (!node) { if (optional) return false; throw new Error(`UI target missing: ${pattern}`); }
@@ -42,7 +42,7 @@ export class IosControls {
         await command('axe', ['swipe', '--start-x', String(x1), '--start-y', String(y1), '--end-x', String(x2), '--end-y', String(y2), '--duration', String(seconds), '--udid', this.udid]);
     }
     async scrollPair(seconds = 0.12) { await this.swipe(this.width * .5, this.height * .22, this.width * .5, this.height * .72, seconds); await this.swipe(this.width * .5, this.height * .72, this.width * .5, this.height * .22, seconds); }
-    async stripPair() { await this.swipe(this.width * .85, this.height * .33, this.width * .15, this.height * .33, .3); await this.swipe(this.width * .15, this.height * .33, this.width * .85, this.height * .33, .3); }
+    async stripPair() { const card = (await this.ui()).find(n => this.visible(n) && /Working\.|Waiting\.|Idle\./.test(n.AXLabel ?? '') && n.frame.height > 80); if (!card) throw new Error('Visible live strip card absent'); const y = card.frame.y + card.frame.height / 2; await this.swipe(this.width * .85, y, this.width * .15, y, .3); await this.swipe(this.width * .15, y, this.width * .85, y, .3); }
     async screenshot(path) { await simctl('io', this.udid, 'screenshot', path); }
     async foreground() { await command('axe', ['tap', '--label', 'muxr', '--udid', this.udid]); await sleep(700); }
     async background() { await command('axe', ['button', 'home', '--udid', this.udid]); await sleep(700); }
@@ -54,8 +54,8 @@ export async function appPid(udid, bundle) {
     return line ? Number(line.trim().split(/\s+/)[0]) : null;
 }
 function cpuSeconds(text) {
-    const [minutes, seconds] = text.split(':').map(Number);
-    return Number.isFinite(minutes + seconds) ? minutes * 60 + seconds : null;
+    const parts = text?.split(':').map(Number);
+    return parts?.length >= 2 && parts.every(Number.isFinite) ? parts.reduce((total, value) => total * 60 + value, 0) : null;
 }
 export async function processSample(pid) {
     const at = new Date().toISOString();
@@ -74,8 +74,10 @@ export function reduceSamples(samples) {
         processCpuPeakPercent: cpu.length ? Math.max(...cpu) : null,
         pssKb: null, jsBusyPercent: null, fps: null, frameStats: null, unsupported: unavailable };
 }
-export function crashFiles(sinceMs) {
-    const dir = join(homedir(), 'Library/Logs/DiagnosticReports');
-    try { return readdirSync(dir).filter((name) => /^muxr.*\.(ips|crash)$/.test(name) && statSync(join(dir,name)).mtimeMs >= sinceMs).map((name) => join(dir,name)); } catch { return []; }
+export function crashFiles(sinceMs, udid) {
+    const roots = [join(homedir(), 'Library/Logs/DiagnosticReports'), join(homedir(), 'Library/Logs/CoreSimulator', udid)];
+    const files = [];
+    const scan = (dir, depth = 0) => { try { for (const name of readdirSync(dir)) { const path = join(dir, name), stat = statSync(path); if (stat.isDirectory() && depth < 3) scan(path, depth + 1); else if (/^muxr.*\.(ips|crash)$/i.test(name) && stat.mtimeMs >= sinceMs) files.push(path); } } catch {} };
+    roots.forEach(root => scan(root)); return files;
 }
 export const hostLoad = () => ({ at: new Date().toISOString(), loadAverage: loadavg() });
