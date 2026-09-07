@@ -70,11 +70,11 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const paneActions = React.useMemo(() => declaredActions.filter((action) => !action.quickAction), [declaredActions]);
     const [terminalKeyboardDisabled, setTerminalKeyboardDisabled] = useLocalSettingMutable('terminalKeyboardDisabled');
     const renderQuickActions = React.useCallback((close: () => void) => <>
-        <ActionShortcut
+        {Platform.OS !== 'web' && <ActionShortcut
             label={terminalKeyboardDisabled ? 'Enable keyboard on tap' : 'Disable keyboard on tap'}
             icon="keypad-outline"
             onPress={() => { setTerminalKeyboardDisabled(!terminalKeyboardDisabled); close(); }}
-        />
+        />}
         <DeclarativeSessionActions actions={quickActions} sessionId={props.id} onNavigate={close} presentation="shortcut" />
     </>, [props.id, quickActions, setTerminalKeyboardDisabled, terminalKeyboardDisabled]);
     const [pluginActionBusy, setExtensionActionBusy] = React.useState<string>();
@@ -716,7 +716,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                         overlayHeight={overlayHeight}
                         commands={viewControls.commands}
                         dismissKeyboard={viewControls.dismissKeyboard}
-                        renderQuickActions={canControl ? renderQuickActions : undefined}
+                        renderQuickActions={canControl && (Platform.OS !== 'web' || quickActions.length > 0) ? renderQuickActions : undefined}
                         hidden={actionsOpen || treeOpen} />
                 </View>;
             })()}
