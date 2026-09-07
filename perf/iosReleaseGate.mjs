@@ -73,7 +73,7 @@ async function pair(){
         if(!response.ok)throw new Error('Fresh pairing payload lookup failed');
         const payload=await response.json();
         const compact=openPairingCodePayload(payload.payload,shortCode);
-        await ui.open('pair?payload='+encodeURIComponent(compact));
+        await ui.open('pair?v=2&payload='+encodeURIComponent(compact));
         await ui.waitFor(/THIS PHONE WILL BE ABLE TO|^Pair$/);
         if(!await ui.tapMatch(/^Pair$/,{optional:true})){await ui.swipe(200,720,200,350,.4);await ui.tapMatch(/^Pair$/);}
         await ui.waitFor(/^(LIVE|SPACES|Machine)$/,90_000);
