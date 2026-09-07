@@ -21,18 +21,22 @@ The platform-agnostic bridge for that surface already exists. `updateVoiceNotifi
 `KernelNotifications.tsx` already drives them. iOS declares the `onNotificationActionRequested` event
 and never sends it. So this fills an existing seam rather than designing a new one.
 
-This spec tracks the whole workstream. Only Unit 1 is edited from this branch.
+This spec tracks the whole workstream. Mac's native commits are integrated, and this branch is the
+same product tree as Mac's `ec39fd8` with the corrected Release binary `c23a1c98`.
 
 ## Workstream and ownership
 
 | unit | owner | branch | status |
 |---|---|---|---|
 | 1. Settings live-updates capability gate | frontend | `feat/ios-feature-parity` | implemented, untested |
-| 2. Native Live Activity `HerdLiveActivity` | Mac | Mac native branch | in progress |
-| 3. Mute and stop intents | frontend + Mac | `feat/ios-feature-parity` (shared TS), Mac native branch | shared action path implemented, native pending |
-| 4. Terminal show, hide and `autoShowKeyboard` with shared gates | opus-verification | integrated at `c4425d07` | source implemented, native acceptance pending |
-| 5. Extension signing and export guards | opus-verification | integrated at `c4425d07` | source implemented, native acceptance pending |
-| 6. Kitty graphics runtime | Mac | — | unverified, under diagnosis |
+| 2. Native Live Activity `HerdLiveActivity` | Mac | integrated | implemented, simulator verified |
+| 3. Mute and stop intents | frontend + Mac | integrated | implemented, simulator verified |
+| 4. Terminal show, hide and `autoShowKeyboard` with shared gates | opus-verification | integrated | implemented, one case pending |
+| 5. Extension signing and export guards | opus-verification | integrated | implemented, native acceptance pending |
+| 6. Kitty graphics runtime | Mac | — | direct write verified, end to end unresolved |
+
+All simulator results below were taken on an iPhone 16 Pro simulator. No physical device has been
+used, so nothing here claims device audio, APNs, or remote Activity behaviour.
 
 ## Unit 1 — Settings capability gate · implemented, untested
 
@@ -52,7 +56,7 @@ check that previously sat behind the platform test, and the Android strings are 
 
 Evidence: `tsc --noEmit` clean for `apps/mobile`. Compile only. No runtime behaviour is claimed.
 
-## Unit 2 — Native Live Activity · in progress, Mac
+## Unit 2 — Native Live Activity · implemented, simulator verified
 
 Target `HerdLiveActivity`, bundle identifier `com.trymuxr.app.activity`, **no App Group**. Root
 verified the requirements against official ActivityKit documentation.
@@ -79,13 +83,11 @@ several agents at once, and it is an internal id the product never surfaces. Dee
 would need a route added to the payload first, so a wrong-session deep link is not a risk here and
 correct-session routing must not be claimed as a requirement this design meets.
 
-Evidence so far, all compile-level:
+Verified on an iPhone 16 Pro simulator: compact presentation, expanded presentation, the stale
+state, and tap-to-open all **pass**. Tap-to-open reaches the app overview, which is what this design
+routes to.
 
-- Widget target compiles — **pass**.
-- Controller standalone typecheck — **pass**.
-- Full app build — **pending**.
-
-## Unit 3 — Mute and stop intents · shared path implemented, native pending
+## Unit 3 — Mute and stop intents · implemented, simulator verified
 
 Part of requested parity, not deferred out of it. Android drives mute and stop through notification
 actions; iOS needs the App Intent equivalent, and iOS already declares
@@ -120,18 +122,26 @@ emit the existing `mute` action with an **optional** `desiredMuted` boolean:
 - The `start` branch is now an explicit `action === 'start'` test rather than a default `else`, so an
   action this build does not recognise cannot fall through and open a session.
 
-**Native side pending, Mac.** `actionsAvailable` gates the controls on a JS listener having been
+**Native side, integrated.** `actionsAvailable` gates the controls on a JS listener having been
 observed *and* voice being active, so stale or unavailable controls are hidden rather than shown
 dead. Per the Mac and root agreed contract it **excludes `connecting`**; the shared deferred-start
 mute fix does not broaden that gate and no broadening is requested. The intent awaits the reflected `updateNotification` state under a bounded timeout and reports
 no local success it has not seen confirmed.
 
-**Still pending reliable implementation and validation as a whole.** Compiling is not the bar; the
-intents must act correctly across the stale, disabled, idle and logged-out states below.
+Verified on the simulator, with synthetic background actions:
 
-## Units 4 and 5 — Terminal parity and signing guards · source implemented, native acceptance pending
+- Mute, unmute and stop from the background — **pass**, on the earlier build and again on the
+  corrected one.
+- Mute, stop and token teardown on the corrected build — **pass**.
+- Controls hidden while connecting and whenever no token is held — **pass**.
+- Listener off — **pass**.
+- An acknowledgement withheld produces no fake mute — **pass**.
+- Authorization off, and authorization explicitly corrected to on within the same call, both give
+  fresh state — **pass**.
 
-Integrated at `c4425d07`, so these are no longer a separate branch:
+## Units 4 and 5 — Terminal parity and signing guards · implemented, one case pending
+
+Integrated, so these are no longer a separate branch:
 
 - Terminal `show` and `hide`.
 - `autoShowKeyboard`.
@@ -139,20 +149,26 @@ Integrated at `c4425d07`, so these are no longer a separate branch:
 - Extension signing guards.
 - Export guards.
 
-Evidence available on Linux: typecheck, the eight-test voice flow suite, and syntax checks all pass.
-**No Swift build and no archive or export has been run**, so nothing here claims native acceptance.
-That remains pending a separate Mac commit.
+Simulator results:
 
-## Unit 6 — Kitty graphics · unverified, under diagnosis
+- Normal `autoShowKeyboard = false`, with hardware and synthetic input and a custom Enter — **pass**.
+- The explicit software keyboard — **pass**, after a Simulator UI fix.
+- `autoShowKeyboard = true` on tap, and the preview regression — **pending**.
+
+Signing and export guards still have no archive or export behind them, so native acceptance for
+unit 5 remains open.
+
+## Unit 6 — Kitty graphics · direct write verified, end to end unresolved
 
 The Kitty renderer **is compiled into the existing iOS GhosttyKit**. It is not a missing renderer and
 must not be recorded as one.
 
-The first actual baseline ran on the **iOS simulator**, with no physical phone tested, and produced
-**marker output and no image**. Mac is investigating the transport and raw RGB path. Until that
-diagnosis lands, the correct label is **unverified and under diagnosis**. No config patch is applied
-on the strength of a guess, and real image, replace, delete, scroll, resize and reconnect behaviour
-is verified before any config change is considered.
+A direct native raw image write draws a red rectangle — **pass**. So the renderer works when it is
+handed pixels.
+
+The host to iOS Kitty path is still **unresolved**. On Linux, one client and two clients both send
+inline APC, so client count alone is ruled out as the cause. Diagnosis continues, and no config
+patch is applied on the strength of a guess.
 
 ## Files
 
@@ -177,13 +193,16 @@ notification-delivery change should be made on the strength of the withdrawn cla
 
 ## Verification
 
-Compile-level checks have passed and are marked as such. Nothing below is a runtime pass.
+Each result is labelled with what actually ran. Simulator results are runtime passes on a simulator
+and nothing more; no result below comes from a physical device.
+
+CI at `c535c968`: the 32-check suite and CodeQL all pass, including the 95 mobile tests.
 
 Passed, compile only:
 
 - [x] `tsc --noEmit` clean for `apps/mobile`.
-- [x] Widget target compiles (Unit 2, Mac).
-- [x] Controller standalone typecheck (Unit 2, Mac).
+- [x] Widget target compiles.
+- [x] Controller standalone typecheck.
 
 Passed, behavioural:
 
@@ -192,45 +211,51 @@ Passed, behavioural:
       unrecognised action not starting a session, and a mute requested while VAD arming still gates
       the start reaching the transport that opens afterwards. Each assertion was confirmed to fail
       when its behaviour is reverted.
-- [x] Units 4 and 5 on Linux: typecheck, the eight-test flow suite, and syntax checks. Source-level
-      only; no Swift build, archive or export was run.
+
+Passed, iPhone 16 Pro simulator:
+
+- [x] Live Activity compact and expanded presentation, the stale state, and tap-to-open.
+- [x] Mute, unmute and stop from the background, on the earlier and the corrected build.
+- [x] Mute, stop and token teardown on the corrected build.
+- [x] Controls hidden while connecting and with no token held; listener off; a withheld
+      acknowledgement producing no fake mute.
+- [x] Authorization off, and authorization corrected to on within the same call, both fresh.
+- [x] Terminal with `autoShowKeyboard = false`: hardware and synthetic input, and a custom Enter.
+- [x] The explicit software keyboard, after a Simulator UI fix.
+- [x] A direct native raw image write drawing a red rectangle.
 
 Open:
 
-- [ ] Full app build with the widget target included.
+- [ ] `autoShowKeyboard = true` on tap, and the preview regression.
+- [ ] The host to iOS Kitty path end to end.
+- [ ] Signing and export guards through a real archive and export.
 - [ ] Android: the Live agent updates row and its copy are unchanged, on a build where the capability
       is present and again where it is absent.
-- [ ] iOS: the row appears once the native capability reports true, shows the Lock Screen and Dynamic
-      Island copy, and its action opens iOS settings.
+- [ ] iOS: the Settings row appears once the native capability reports true, shows the Lock Screen
+      and Dynamic Island copy, and its action opens iOS settings.
 - [ ] iOS: the enabled state refreshes when returning from Settings to the foreground.
-- [ ] iOS: a Live Activity starts, updates and ends against real agent lifecycle transitions.
-- [ ] iOS: tapping the activity opens the app overview from cold start and from background.
-- [ ] iOS: truthful states — stale, disabled, idle and logged out each show the honest surface rather
-      than a stuck activity.
+- [ ] iOS: a Live Activity starts, updates and ends against real agent lifecycle transitions on a
+      device.
 - [ ] iOS: mute and stop intents act reliably on a device across every state above.
-- [ ] iOS: `actionsAvailable` hides the controls when no listener is observed or voice is inactive.
-- [ ] iOS: the intent reports no success it has not seen reflected, and gives up on its timeout.
-- [ ] The bridge's `desiredMuted` normalisation, which every consumer test mocks away and which is
-      therefore exercised only through Mac's native path.
-- [ ] iOS: terminal show, hide and `autoShowKeyboard` behave through the shared gates on a device.
-- [ ] iOS: signing and export guards hold through a real archive and export.
-- [ ] iOS: Kitty image, replace, delete, scroll, resize and reconnect verified on device.
+- [ ] The bridge's `desiredMuted` and `generation` normalisation, which every consumer test mocks
+      away and which is therefore exercised only through the native path.
 - [ ] iOS realtime voice validated on physical hardware.
 
 ## Scope limits, explicitly unverified or unsupported
 
 None of these may be reported as a runtime pass.
 
-- **Physical-device voice is unverified.** Audio functions exist in source, but a simulator run
-  aborted in CoreAudio before voice could be exercised and no physical iPhone has been available.
-  Voice remains unverified until it runs on hardware.
+- **Physical-device voice is unverified.** No physical iPhone has been available, so audio has never
+  run on hardware.
 - **Remote APNs-driven Live Activity updates are unsupported and out of scope.** This workstream
   updates the activity from the app while it runs. Push-started and push-updated activities are not
   implemented and are not claimed.
 - **OS background limits apply.** Live Activities have system-controlled lifetimes and update
   budgets, and an app that is not running cannot update one locally. The surface is best-effort and
   cannot be the only signal that an agent needs attention.
-- **Kitty graphics behaviour is unverified and under diagnosis**, not a missing renderer and not a
-  pass. The only baseline so far is a simulator run; no physical phone has been tested.
+- **Every result above is from a simulator.** No physical device has been used, so device audio,
+  APNs delivery and remote Activity updates are not claimed at all.
+- **The host to iOS Kitty path is unresolved**, not a missing renderer and not a pass. The direct
+  native write passing shows the renderer itself works.
 - **Tap-to-open reaches the app overview, not a chosen session.** No session route exists in the
   notification payload, so per-session routing is neither implemented nor claimed.
