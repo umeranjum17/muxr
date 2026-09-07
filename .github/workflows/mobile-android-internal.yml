@@ -19,7 +19,7 @@ on:
   workflow_dispatch:
     inputs:
       candidate_run_id:
-        description: Successful release candidate run to upload unchanged (empty builds manually)
+        description: Successful release-candidate run, or a build-only run of this workflow, to upload unchanged (empty builds manually)
         required: false
         type: string
       version:
@@ -327,10 +327,23 @@ jobs:
         run: |
           [[ "$CANDIDATE_RUN_ID" =~ ^[1-9][0-9]*$ ]]
           gh api "repos/$GITHUB_REPOSITORY/actions/runs/$CANDIDATE_RUN_ID" > "$RUNNER_TEMP/candidate.json"
-          jq -e '.path == ".github/workflows/release-candidate.yml" and .head_branch == "main" and .status == "completed" and .conclusion == "success"' "$RUNNER_TEMP/candidate.json"
+          # A candidate, or a build-only run of this workflow: both produce the
+          # same signed artifact, and a build-only run is the only way to get one
+          # without publishing it. A run of this workflow called by the candidate
+          # reports the caller's path, so the two sources stay distinct.
+          jq -e '
+            .head_branch == "main" and .status == "completed" and .conclusion == "success" and (
+              .path == ".github/workflows/release-candidate.yml"
+              or (.path == ".github/workflows/mobile-android-internal.yml" and .event == "workflow_dispatch")
+            )' "$RUNNER_TEMP/candidate.json"
           gh run download "$CANDIDATE_RUN_ID" --repo "$GITHUB_REPOSITORY" --name android-internal --dir "$RUNNER_TEMP/android-internal"
           sha=$(jq -r .head_sha "$RUNNER_TEMP/candidate.json")
-          jq -e --arg sha "$sha" --arg version "$APP_VERSION" --arg code "$ANDROID_VERSION_CODE" '.gitCommitHash == $sha and .appVersion == $version and .appBuildVersion == $code and .bundleIdentifier == "com.trymuxr.app"' "$RUNNER_TEMP/android-internal/result.json"
+          # An artifact that already went to Internal is not a candidate for
+          # being sent again: this rejects a re-import of an earlier import's
+          # own output as well as any run that published what it built. The
+          # sealed result always carries the flag as a boolean, so an absent one
+          # is missing provenance rather than evidence of an unsubmitted build.
+          jq -e --arg sha "$sha" --arg version "$APP_VERSION" --arg code "$ANDROID_VERSION_CODE" '.gitCommitHash == $sha and .appVersion == $version and .appBuildVersion == $code and .bundleIdentifier == "com.trymuxr.app" and .submittedToInternal == false' "$RUNNER_TEMP/android-internal/result.json"
           mapfile -t bundles < <(find "$RUNNER_TEMP/android-internal" -type f -name '*.aab')
           test "${#bundles[@]}" -eq 1
           test "$(sha256sum "${bundles[0]}" | cut -d ' ' -f 1)" = "$(jq -r .artifactSha256 "$RUNNER_TEMP/android-internal/result.json")"
