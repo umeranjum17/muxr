@@ -12,9 +12,9 @@ public final class VoiceOverlayModule: Module {
     Events("onNotificationActionRequested")
     OnStartObserving {
       DispatchQueue.main.async { [weak self] in
-        HerdLiveActivityController.shared.observeActions { [weak self] action, desiredMuted in
+        HerdLiveActivityController.shared.observeActions { [weak self] action, desiredMuted, generation in
           guard let self else { return false }
-          var payload: [String: Any] = ["action": action]
+          var payload: [String: Any] = ["action": action, "generation": generation]
           if let desiredMuted { payload["desiredMuted"] = desiredMuted }
           self.sendEvent("onNotificationActionRequested", payload)
           return true
@@ -77,6 +77,9 @@ public final class VoiceOverlayModule: Module {
     Function("stopService") { true }
     Function("startHerdService") { false }
     Function("stopHerdService") { true }
+    Function("setVoiceGeneration") { (token: String) in
+      DispatchQueue.main.async { HerdLiveActivityController.shared.setVoiceGeneration(token) }
+    }
     Function("updateNotification") {
       (mode: String, count: Int, names: String, _: String, voiceState: String, voiceName: String, muted: Bool) -> Bool in
       DispatchQueue.main.async {
