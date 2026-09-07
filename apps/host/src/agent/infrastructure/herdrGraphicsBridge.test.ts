@@ -394,6 +394,7 @@ describe('Herdr graphics flow', () => {
             drainInline: () => Promise<void>;
             inlineQueue: unknown[];
             inlineDraining: boolean;
+            sourceQueueVersion: number;
         };
         internals.sourcePane = async () => 'pane';
         internals.visibleRect = async () => ({ x: 26, y: 1, width: 94, height: 39 });
@@ -812,6 +813,7 @@ describe('Herdr graphics flow', () => {
             drainInline: () => Promise<void>;
             inlineQueue: unknown[];
             inlineDraining: boolean;
+            sourceQueueVersion: number;
         };
         internals.sourcePane = async () => 'pane';
         internals.visibleRect = async () => ({ x: 0, y: 0, width: 20, height: 10 });
@@ -1209,6 +1211,7 @@ console.log(JSON.stringify({ result: replies[command] }));
             inlineImages: { prepared: (...args: never[]) => Promise<unknown> };
             inlineQueue: unknown[];
             inlineDraining: boolean;
+            sourceQueueVersion: number;
         };
         // Blocks are routed by the row they were written at: row 1 is A, row 2 is B.
         internals.sourcePane = vi.fn(async (leading: Buffer) => (leading.toString('utf8').startsWith('\u001b[1;') ? 'paneA' : 'paneB'));
@@ -1322,6 +1325,24 @@ console.log(JSON.stringify({ result: replies[command] }));
             await settle();
             expect(frameAnsi(framesA.at(-1)!)).toContain('a=T,f=32,s=600,v=400,i=6,');
             expect(framesA.length).toBeGreaterThan(beforeStale);
+
+            // A bump landing between A's refinement firing and its dequeue
+            // must not starve A either: that preflight rearm is fence exempt,
+            // so a neighbour bumping every round cannot hold A coarse forever.
+            paint(1, 7);
+            await settle();
+            const beforeStarve = framesA.length;
+            for (let i = 0; i < 3; i += 1) {
+                // Park the drain so the fired refinement waits in the queue,
+                // then let a neighbour move the shared fence underneath it.
+                internals.inlineDraining = true;
+                await vi.advanceTimersByTimeAsync(300);
+                internals.sourceQueueVersion += 1;
+                internals.inlineDraining = false;
+                await internals.drainInline();
+            }
+            expect(framesA.length).toBeGreaterThan(beforeStarve);
+            expect(frameAnsi(framesA.at(-1)!)).toContain('a=T,f=32,s=600,v=400,i=7,');
         } finally {
             bridge.close();
             vi.useRealTimers();

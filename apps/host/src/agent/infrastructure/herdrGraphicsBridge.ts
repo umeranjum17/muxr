@@ -121,9 +121,9 @@ type ServerMessage =
 /** A producer block waiting for the single inline drain. */
 type InlineBlockWork = { block: InlineKittyBlock; at: number; deleteStamp?: number; refinement?: Refinement };
 /** A queued full-density replay; it is drained in the same order as producer blocks. */
-type InlineRefineWork = { refinePane: string; at: number; reason: 'gesture' | 'source'; sourceRevision: number; sourceQueueVersion: number; fenceRetry?: boolean };
+type InlineRefineWork = { refinePane: string; at: number; reason: 'gesture' | 'source'; sourceRevision: number; sourceQueueVersion: number; fenceRetry: boolean };
 type InlineWork = InlineBlockWork | InlineRefineWork;
-type Refinement = { paneId: string; sourceRevision: number; sourceQueueVersion: number; fenceRetry?: boolean };
+type Refinement = { paneId: string; sourceRevision: number; sourceQueueVersion: number; fenceRetry: boolean };
 type DirectRawFrame = { rgba: Buffer; control: string; imageId: number; transferId: bigint; sourceImageId: number };
 type DirectRefineWork = InlineRefineWork;
 
@@ -526,7 +526,7 @@ export class HerdrGraphicsBridge {
     }
 
     /** Schedule one serialized refinement for a pane, never a timer per frame. */
-    private armRefine(paneId: string, reason: 'gesture' | 'source', delay?: number, fenceRetry?: boolean): void {
+    private armRefine(paneId: string, reason: 'gesture' | 'source', delay?: number, fenceRetry = false): void {
         this.cancelRefine(paneId);
         const armedAt = Date.now();
         delay ??= Math.max(0, this.quietDeadline(paneId) - armedAt);
@@ -587,15 +587,15 @@ export class HerdrGraphicsBridge {
             });
             return;
         }
-        if (work.fenceRetry !== true && work.sourceQueueVersion !== this.sourceQueueVersion) {
+        if (!work.fenceRetry && work.sourceQueueVersion !== this.sourceQueueVersion) {
+            // Another pane's traffic moved a shared counter. The rearm is fence
+            // exempt, or a streaming neighbour can starve this pane forever.
+            const rearmed = this.rearmAfterFenceLoss(paneId, work.sourceRevision);
             graphicsTrace?.add('refine.reject', {
-                pane: paneId, path: 'inline', why: 'fence', rearmed: true,
+                pane: paneId, path: 'inline', why: 'fence', rearmed,
                 expected: work.sourceQueueVersion, actual: this.sourceQueueVersion,
                 ...this.fenceProvenance(paneId),
             });
-            // Another pane's traffic moved a shared counter. Retry no faster
-            // than a settle window so a streaming neighbour cannot spin this.
-            this.armRefine(paneId, work.reason, SETTLE_REFINE_MS);
             return;
         }
         if (!this.sourceQuiet(paneId)) {
@@ -627,7 +627,7 @@ export class HerdrGraphicsBridge {
         return refinement.paneId === paneId
             && !this.gestureActive(paneId)
             && (this.sourceRevision.get(paneId) ?? 0) === refinement.sourceRevision
-            && (refinement.fenceRetry === true || this.sourceQueueVersion === refinement.sourceQueueVersion);
+            && (refinement.fenceRetry || this.sourceQueueVersion === refinement.sourceQueueVersion);
     }
 
     private wheelReport(paneId: string, direction: 'up' | 'down', point: ScrollPoint): Buffer | undefined {
@@ -1488,15 +1488,15 @@ export class HerdrGraphicsBridge {
             });
             return;
         }
-        if (work.fenceRetry !== true && work.sourceQueueVersion !== this.sourceQueueVersion) {
+        if (!work.fenceRetry && work.sourceQueueVersion !== this.sourceQueueVersion) {
+            // Another pane's traffic moved a shared counter. The rearm is fence
+            // exempt, or a streaming neighbour can starve this pane forever.
+            const rearmed = this.rearmAfterFenceLoss(paneId, work.sourceRevision);
             graphicsTrace?.add('refine.reject', {
-                pane: paneId, path: 'direct', why: 'fence', rearmed: true,
+                pane: paneId, path: 'direct', why: 'fence', rearmed,
                 expected: work.sourceQueueVersion, actual: this.sourceQueueVersion,
                 ...this.fenceProvenance(paneId),
             });
-            // Another pane's traffic moved a shared counter. Retry no faster
-            // than a settle window so a streaming neighbour cannot spin this.
-            this.armRefine(paneId, work.reason, SETTLE_REFINE_MS);
             return;
         }
         if (!this.sourceQuiet(paneId)) {
@@ -1541,7 +1541,7 @@ export class HerdrGraphicsBridge {
         const current = this.directRawByPane.get(paneId);
         return current === raw
             && (this.sourceRevision.get(paneId) ?? 0) === work.sourceRevision
-            && (work.fenceRetry === true || this.sourceQueueVersion === work.sourceQueueVersion)
+            && (work.fenceRetry || this.sourceQueueVersion === work.sourceQueueVersion)
             && !this.gestureActive(paneId);
     }
 
