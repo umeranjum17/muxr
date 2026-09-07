@@ -30,6 +30,7 @@ interface ClientBinding {
 
 interface UpstreamEntry {
     socket: WebSocket;
+    disposed: boolean;
     buffered: string[];
     bufferedBytes: number;
     prePairPause: symbol;
@@ -112,6 +113,7 @@ export class TerminalChannels {
         const dispose = (closeSocket: boolean): void => {
             if (disposed) return;
             disposed = true;
+            entry.disposed = true;
             if (entry.unpairedTimer !== undefined) clearTimeout(entry.unpairedTimer);
             entry.client?.release(false);
             socket.off('message', onMachineMessage);
@@ -122,7 +124,7 @@ export class TerminalChannels {
             if (closeSocket && (socket.readyState === socket.OPEN || socket.readyState === socket.CONNECTING)) socket.close();
         };
 
-        entry = { socket, buffered: [], bufferedBytes: 0, prePairPause, unpairedTimer: undefined, setUpstreamPaused, dispose };
+        entry = { socket, disposed: false, buffered: [], bufferedBytes: 0, prePairPause, unpairedTimer: undefined, setUpstreamPaused, dispose };
         this.upstreams.set(channel, entry);
         socket.on('message', onMachineMessage);
         socket.on('error', onMachineError);
@@ -135,10 +137,15 @@ export class TerminalChannels {
 
     /** Pair a client with the host side of `channel`, waiting briefly for the host. */
     async joinClient(channel: string, socket: WebSocket, accept: (frame: string) => boolean = () => true): Promise<void> {
-        const entry = await this.waitForUpstream(channel);
-        if (entry === undefined) {
-            socket.close(1008, 'terminal: no host on this channel');
-            return;
+        let entry: UpstreamEntry | undefined;
+        while (entry === undefined || entry.disposed || this.upstreams.get(channel) !== entry
+            || entry.socket.readyState !== entry.socket.OPEN) {
+            if (socket.readyState !== socket.OPEN && socket.readyState !== socket.CONNECTING) return;
+            entry = await this.waitForUpstream(channel);
+            if (entry === undefined) {
+                socket.close(1008, 'terminal: no host on this channel');
+                return;
+            }
         }
         const upstream = entry.socket;
 
@@ -229,7 +236,7 @@ export class TerminalChannels {
     private async waitForUpstream(channel: string): Promise<UpstreamEntry | undefined> {
         for (let attempt = 0; attempt < UPSTREAM_WAIT_ATTEMPTS; attempt += 1) {
             const entry = this.upstreams.get(channel);
-            if (entry !== undefined && entry.socket.readyState === entry.socket.OPEN) return entry;
+            if (entry !== undefined && !entry.disposed && entry.socket.readyState === entry.socket.OPEN) return entry;
             await new Promise((resolve) => setTimeout(resolve, UPSTREAM_POLL_MS));
         }
         return undefined;

@@ -127,8 +127,8 @@ export class InlineImageStore {
     private order: string[] = [];
     /** Continuation chunks carry no image id; they belong to this transfer. */
     private active: string | undefined;
-    /** Prepared frames keyed by image id; decoding a repaint twice is waste. */
-    private readonly preparedById = new Map<string, unknown>();
+    /** One prepared density per image; raw bytes remain the bounded source of truth. */
+    private readonly preparedById = new Map<string, { variant: string; value: unknown }>();
     /**
      * Transmissions are stamped with a global counter and tracked per id, so
      * a genuine retransmission of one id is distinguishable from a
@@ -179,25 +179,26 @@ export class InlineImageStore {
     async prepared<T>(
         placement: InlineKittyBlock,
         prepare: (rgba: Buffer, control: string) => Promise<T>,
+        variant = 'full',
     ): Promise<T | undefined> {
         const id = imageKey(placement.keys);
         if (id === undefined) return undefined;
-        const cached = this.preparedById.get(id) as T | undefined;
-        if (cached !== undefined) return cached;
+        const cached = this.preparedById.get(id);
+        if (cached?.variant === variant) return cached.value as T;
         const blocks = this.complete.get(id);
         if (blocks === undefined) return undefined;
         const keys = parseKeys(blocks);
         if ((keys.f ?? '32') !== '32') return undefined;
-        const payload = Buffer.from(payloadOf(blocks), 'base64');
-        const rgba = keys.o === 'z' ? await inflate(payload) : payload;
-        const control = `s=${keys.s ?? ''},v=${keys.v ?? ''},i=${id}`;
         try {
+            const payload = Buffer.from(payloadOf(blocks), 'base64');
+            const rgba = keys.o === 'z' ? await inflate(payload) : payload;
+            const control = `s=${keys.s ?? ''},v=${keys.v ?? ''},i=${id}`;
             const value = await prepare(rgba, control);
             // The pixels may have been deleted or retransmitted while the
             // preparation was in flight; only resident, unmoved bytes may
             // re-enter the cache.
             if (this.complete.get(id) !== blocks) return value;
-            this.preparedById.set(id, value);
+            this.preparedById.set(id, { variant, value });
             return value;
         } catch {
             return undefined;

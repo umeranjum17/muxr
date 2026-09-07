@@ -517,14 +517,18 @@ describe('Herdr graphics flow', () => {
         expect(deliveredDuringBurst).toBeGreaterThan(0);
     });
 
-    it('halves a large frame before compressing it and still reports the producer\'s pixels', async () => {
+    it('halves a large frame while moving, then refines it after the pane settles', async () => {
         const socket = Object.assign(new EventEmitter(), { writable: true, write: () => true, destroy: () => {} });
         const bridge = Reflect.construct(HerdrGraphicsBridge, [socket, 'herdr']) as HerdrGraphicsBridge;
         const internals = bridge as unknown as {
             sourcePane: (leading: Buffer) => Promise<string | undefined>;
             visibleRect: (paneId: string) => Promise<{ x: number; y: number; width: number; height: number } | undefined>;
+            ensurePaneProcess: (paneId: string) => Promise<boolean>;
             queueInline: (data: Buffer) => void;
+            enqueue: (file: { path: string; expectedLength: bigint; imageId: number; transferId: bigint; leading: Buffer; control: string }) => void;
+            drain: () => Promise<void>;
             drainInline: () => Promise<void>;
+            wheelReport: (paneId: string, direction: 'up' | 'down', point: { x: number; y: number }) => Buffer | undefined;
             inlineQueue: unknown[];
             inlineDraining: boolean;
         };
@@ -536,6 +540,7 @@ describe('Herdr graphics flow', () => {
             channel: 'phone', paneId: 'pane', cols: 20, rows: 10, cellWidthPx: 10, cellHeightPx: 20,
             write: (frame) => frames.push(frame),
         });
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
         const drain = vi.spyOn(internals, 'drainInline');
         const settle = async (): Promise<void> => {
             await drain.mock.results.at(-1)?.value;
@@ -577,6 +582,48 @@ describe('Herdr graphics flow', () => {
         // 0, 1, 600 and 601, whose red channels are 0, 1, 90 and 91: the mean
         // is 46, where nearest-neighbour would have kept 0.
         expect(halved[0]).toBe(46);
+
+        // Scroll coordinates stay in producer space even while the wire image
+        // is coarse.
+        expect(internals.wheelReport('pane', 'down', { x: 300, y: 229 })?.toString('utf8'))
+            .toBe('\u001b[<35;300;229M\u001b[<65;300;229M');
+
+        // Once the producer and input have both been quiet, the same resident
+        // source image is replayed at full density through the same serial
+        // lifecycle. There is no second raw-frame queue.
+        await vi.advanceTimersByTimeAsync(200);
+        await drain.mock.results.at(-1)?.value;
+        expect(frames).toHaveLength(2);
+        expect(frameAnsi(frames[1]!)).toContain('a=T,f=32,s=600,v=400,i=9,');
+
+        // Direct GraphicsFile frames use the same bounded raw-state/refinement
+        // path, with their Herdr lease acknowledged before preparation.
+        const directSocket = Object.assign(new EventEmitter(), { writable: true, write: () => true, destroy: () => {} });
+        const directBridge = Reflect.construct(HerdrGraphicsBridge, [directSocket, 'herdr']) as HerdrGraphicsBridge;
+        const directInternals = directBridge as unknown as typeof internals;
+        directInternals.sourcePane = async () => 'direct-pane';
+        directInternals.visibleRect = async () => ({ x: 0, y: 0, width: 20, height: 10 });
+        directInternals.ensurePaneProcess = async () => true;
+        const directFrames: string[] = [];
+        directBridge.register({
+            channel: 'direct-phone', paneId: 'direct-pane', cols: 20, rows: 10, cellWidthPx: 10, cellHeightPx: 20,
+            write: (frame) => directFrames.push(frame),
+        });
+        const directDir = mkdtempSync(join(tmpdir(), 'herdr-adaptive-direct-'));
+        const directPath = join(directDir, 'frame.rgba');
+        writeFileSync(directPath, rgba);
+        const directDrain = vi.spyOn(directInternals, 'drain');
+        directInternals.enqueue({
+            path: directPath, expectedLength: BigInt(rgba.length), imageId: 10, transferId: 10n,
+            leading: Buffer.from('\u001b[1;1H'), control: 'a=T,f=32,s=600,v=400,i=10',
+        });
+        await directDrain.mock.results.at(-1)?.value;
+        expect(frameAnsi(directFrames[0]!)).toContain('a=T,f=32,s=300,v=200,');
+        await vi.advanceTimersByTimeAsync(200);
+        await directDrain.mock.results.at(-1)?.value;
+        expect(frameAnsi(directFrames[1]!)).toContain('a=T,f=32,s=600,v=400,');
+        directBridge.close();
+        rmSync(directDir, { recursive: true, force: true });
 
         // A gesture is still reported in the producer's pixel space, never the
         // transmitted one, or every touch would land at half its position.

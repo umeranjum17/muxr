@@ -85,7 +85,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
     const { sessionId, onStatus, onChannel } = props;
     const focused = useIsFocused();
     const [viewport, setViewport] = React.useState({ width: 0, height: 0 });
-    const autoShowKeyboard = useLocalSetting('terminalAutoShowKeyboard');
+    const terminalKeyboardDisabled = useLocalSetting('terminalKeyboardDisabled');
     const termRef = React.useRef<TerminalViewRef>(null);
     const channelRef = React.useRef<TerminalChannel | undefined>(undefined);
     const openAbortRef = React.useRef<AbortController | undefined>(undefined);
@@ -419,7 +419,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                 ref={termRef}
                 style={{ flex: 1 }}
                 pointerMode={graphicsActive}
-                autoShowKeyboard={autoShowKeyboard}
+                autoShowKeyboard={!terminalKeyboardDisabled}
                 fontSize={FONT_STEPS[fontIndex]}
                 theme={{ background: '#0c0c0b' }}
                 onInput={({ nativeEvent }) => {

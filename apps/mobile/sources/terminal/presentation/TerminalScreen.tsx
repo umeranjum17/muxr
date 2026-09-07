@@ -16,7 +16,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
 import { Modal } from '@/modal';
 import * as Clipboard from 'expo-clipboard';
-import { storage, useHerdrTree, useSession, useSessionGitStatus, useSessions } from '@/catalog/store';
+import { storage, useHerdrTree, useLocalSettingMutable, useSession, useSessionGitStatus, useSessions } from '@/catalog/store';
 import { sessionStop } from '@/catalog/ops';
 import { sync } from '@/catalog/sync';
 import { resolveMessageModeMeta } from '@/catalog/infrastructure/messageMeta';
@@ -28,6 +28,7 @@ import type { HerdrTreeTab } from '@muxr/contract';
 import { TerminalView, type TerminalViewControls } from './TerminalView';
 import { usePaneGestures } from '../application/usePaneGestures';
 import { AgentGlyph } from '@/components/AgentGlyph';
+import { ActionShortcut } from '@/components/ActionShortcut';
 import { AnimatedPopup } from '@/components/AnimatedOverlay';
 import { agentAccessibilityLabel, agentLabels, agentNameLine, agentStatusColor, herdrPaneForSession, isShellLabels } from '@/herd';
 import { terminalPaneCanSend, terminalPaneStatus } from '../domain/promptAvailability';
@@ -67,8 +68,15 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const declaredActions = useDeclarativeSessionActions(session?.metadata?.path);
     const quickActions = React.useMemo(() => declaredActions.filter((action) => action.quickAction), [declaredActions]);
     const paneActions = React.useMemo(() => declaredActions.filter((action) => !action.quickAction), [declaredActions]);
-    const renderQuickActions = React.useCallback((close: () => void) => <DeclarativeSessionActions
-        actions={quickActions} sessionId={props.id} onNavigate={close} presentation="shortcut" />, [props.id, quickActions]);
+    const [terminalKeyboardDisabled, setTerminalKeyboardDisabled] = useLocalSettingMutable('terminalKeyboardDisabled');
+    const renderQuickActions = React.useCallback((close: () => void) => <>
+        <ActionShortcut
+            label={terminalKeyboardDisabled ? 'Enable keyboard on tap' : 'Disable keyboard on tap'}
+            icon="keypad-outline"
+            onPress={() => { setTerminalKeyboardDisabled(!terminalKeyboardDisabled); close(); }}
+        />
+        <DeclarativeSessionActions actions={quickActions} sessionId={props.id} onNavigate={close} presentation="shortcut" />
+    </>, [props.id, quickActions, setTerminalKeyboardDisabled, terminalKeyboardDisabled]);
     const [pluginActionBusy, setExtensionActionBusy] = React.useState<string>();
     const [swipeNow, setSwipeNow] = React.useState(Date.now);
     React.useEffect(() => {
@@ -708,7 +716,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                         overlayHeight={overlayHeight}
                         commands={viewControls.commands}
                         dismissKeyboard={viewControls.dismissKeyboard}
-                        renderQuickActions={canControl && quickActions.length > 0 ? renderQuickActions : undefined}
+                        renderQuickActions={canControl ? renderQuickActions : undefined}
                         hidden={actionsOpen || treeOpen} />
                 </View>;
             })()}
