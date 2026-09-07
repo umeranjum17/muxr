@@ -72,7 +72,11 @@ async function pair(){
         nodes=await ui.ui();const field=nodes.find(n=>ui.visible(n)&&/TextField|TextInput/.test(n.type??''));
         if(!field)throw new Error('Pairing input is unavailable');
         await ui.tap(field.frame.x+field.frame.width/2,field.frame.y+field.frame.height/2);
+        await command('axe',['key-combo','--modifiers','227','--key','4','--udid',udid]);
+        await command('axe',['key','42','--udid',udid]);
         await command('axe',['type','--file',privateCode,'--udid',udid]);
+        const entered=(await ui.ui()).find(n=>ui.visible(n)&&/TextField|TextInput/.test(n.type??''));
+        if(entered?.AXValue!==minted.code)throw new Error('Pairing field differs from minted input; contents withheld');
         await ui.tapMatch(/^Connect$/);await ui.waitFor(/THIS PHONE WILL BE ABLE TO|^Pair$/);
         if(!await ui.tapMatch(/^Pair$/,{optional:true})){await ui.swipe(200,720,200,350,.4);await ui.tapMatch(/^Pair$/);}
         await ui.waitFor(/^(LIVE|SPACES|Machine)$/,90_000);
@@ -198,11 +202,11 @@ try{
     await command('git',['-C',stack.world.cwd,'init','-q']);await command('git',['-C',stack.world.cwd,'add','README.md','notes.txt']);
     await command('git',['-C',stack.world.cwd,'-c','user.name=Perf fixture','-c','user.email=perf@example.invalid','commit','-qm','Seed deterministic load document']);
     report.documentFixture.gitTree=(await command('git',['-C',stack.world.cwd,'rev-parse','HEAD^{tree}'])).trim();
-    const pairingAt=Date.now();await pair();report.pairing={freshHost:true,herdVisibleMs:Date.now()-pairingAt};await shot('paired-herd');
+    log('pairing fresh isolated host');const pairingAt=Date.now();await pair();report.pairing={freshHost:true,herdVisibleMs:Date.now()-pairingAt};await shot('paired-herd');
     if(args.includes('--verify-controls')){
-        await ui.home();await ui.stripPair();
-        report.controlPreflight={strip:true,agent:await firstAgent()};report.controlPreflight.agentReopen=await firstAgent();
-        await ui.home();const ids=new Set(stack.world.agents.map(a=>a.pane_id));report.controlPreflight.shell=await shell(stack.world.panes.find(p=>!ids.has(p.pane_id)));
+        log('control preflight strip');await ui.home();await ui.stripPair();
+        log('control preflight agent twice');report.controlPreflight={strip:true,agent:await firstAgent()};report.controlPreflight.agentReopen=await firstAgent();
+        log('control preflight shell');await ui.home();const ids=new Set(stack.world.agents.map(a=>a.pane_id));report.controlPreflight.shell=await shell(stack.world.panes.find(p=>!ids.has(p.pane_id)));
         await ui.home();await shot('verified-controls');persist();
     }
     report.preflightReadyAt=new Date().toISOString();persist();log('paired; full workload ready');
