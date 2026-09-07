@@ -78,6 +78,13 @@ export type PreparedImage = {
     height: number;
     imageId: number;
     transferId: bigint;
+    /**
+     * The producer's own pixel dimensions, when the transmitted image was
+     * downscaled. Pointer reports are injected in the producer's pixel space,
+     * never the transmitted one, so they are mapped against these.
+     */
+    sourceWidth?: number;
+    sourceHeight?: number;
 };
 
 type ImageOwner = { paneId: string; imageId: number; sourceImageId: number };
@@ -1402,9 +1409,13 @@ export function mapGraphicsPointer(
     if (x < left || x > left + width || y < top || y > top + height) return undefined;
     // Injected reports bypass Herdr's desktop encoder and must match the
     // producer's SGR-pixel mode: 1-based source-image pixels.
+    // Against the producer's own pixels: a transmitted image that was halved
+    // would otherwise report every gesture at half the position it happened.
+    const sourceWidth = image.sourceWidth ?? image.width;
+    const sourceHeight = image.sourceHeight ?? image.height;
     return {
-        x: Math.max(1, Math.min(image.width, Math.round((x - left) / width * image.width))),
-        y: Math.max(1, Math.min(image.height, Math.round((y - top) / height * image.height))),
+        x: Math.max(1, Math.min(sourceWidth, Math.round((x - left) / width * sourceWidth))),
+        y: Math.max(1, Math.min(sourceHeight, Math.round((y - top) / height * sourceHeight))),
     };
 }
 
@@ -1574,10 +1585,56 @@ async function prepareKitty(rgba: Buffer, control: string, imageId: number, tran
         || width * height * 4 !== rgba.length) {
         throw new Error('invalid Herdr graphics control');
     }
+    // The producer renders at the desktop's device pixel ratio -- 411 CSS px
+    // arrive as 2055 -- which no phone panel resolves. Halving before the
+    // deflate is the whole saving: a quarter of the bytes to compress, to
+    // encrypt, and to hold. Kitty c/r are cell counts and graphicsPlacement
+    // refits by aspect ratio, so the placement is unchanged; only the density
+    // is. Small images are left exact: an icon beside a plot has no density to
+    // spare, and halving it would only blur it.
+    const scaled = rgba.length > COMPRESS_HARDER_BYTES ? halveRgba(rgba, width, height) : undefined;
+    const pixels = scaled?.rgba ?? rgba;
     // Every byte of this frame is decrypted in JavaScript on the phone, so a
     // large image is worth real compression; a small one is not worth the wait.
-    const level = rgba.length > COMPRESS_HARDER_BYTES ? 6 : 1;
-    return { compressed: await compress(rgba, { level }), width, height, imageId, transferId };
+    const level = pixels.length > COMPRESS_HARDER_BYTES ? 6 : 1;
+    return {
+        compressed: await compress(pixels, { level }),
+        width: scaled?.width ?? width,
+        height: scaled?.height ?? height,
+        imageId,
+        transferId,
+        ...(scaled === undefined ? {} : { sourceWidth: width, sourceHeight: height }),
+    };
+}
+
+/**
+ * Box-filtered halving: each output pixel is the average of the 2x2 block it
+ * covers. Nearest-neighbour would be cheaper, but this is a page of text and
+ * dropping every other row of a glyph stem is exactly the aliasing a reader
+ * sees. An odd final column or row has only one source pixel to average, so it
+ * is carried through as itself rather than read past the end of the buffer.
+ */
+function halveRgba(rgba: Buffer, width: number, height: number): { rgba: Buffer; width: number; height: number } {
+    const outWidth = Math.ceil(width / 2);
+    const outHeight = Math.ceil(height / 2);
+    const out = Buffer.allocUnsafe(outWidth * outHeight * 4);
+    for (let y = 0; y < outHeight; y += 1) {
+        const y0 = y * 2;
+        const y1 = y0 + 1 < height ? y0 + 1 : y0;
+        for (let x = 0; x < outWidth; x += 1) {
+            const x0 = x * 2;
+            const x1 = x0 + 1 < width ? x0 + 1 : x0;
+            const a = (y0 * width + x0) * 4;
+            const b = (y0 * width + x1) * 4;
+            const c = (y1 * width + x0) * 4;
+            const d = (y1 * width + x1) * 4;
+            const at = (y * outWidth + x) * 4;
+            for (let channel = 0; channel < 4; channel += 1) {
+                out[at + channel] = (rgba[a + channel]! + rgba[b + channel]! + rgba[c + channel]! + rgba[d + channel]! + 2) >> 2;
+            }
+        }
+    }
+    return { rgba: out, width: outWidth, height: outHeight };
 }
 
 /** Bounded sample window: an account of the recent past, never a history. */

@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, type Socket } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { deflateSync } from 'node:zlib';
+import { deflateSync, inflateSync } from 'node:zlib';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { HerdrGraphicsBridge, MAX_IMAGE_BYTES, decodeServerMessage, encodeKitty, mapGraphicsPointer, routeGraphicsPane } from './herdrGraphicsBridge.js';
 
@@ -515,6 +515,77 @@ describe('Herdr graphics flow', () => {
         // for as long as the producer keeps painting: a scrolling browser only
         // moves once the gesture stops.
         expect(deliveredDuringBurst).toBeGreaterThan(0);
+    });
+
+    it('halves a large frame before compressing it and still reports the producer\'s pixels', async () => {
+        const socket = Object.assign(new EventEmitter(), { writable: true, write: () => true, destroy: () => {} });
+        const bridge = Reflect.construct(HerdrGraphicsBridge, [socket, 'herdr']) as HerdrGraphicsBridge;
+        const internals = bridge as unknown as {
+            sourcePane: (leading: Buffer) => Promise<string | undefined>;
+            visibleRect: (paneId: string) => Promise<{ x: number; y: number; width: number; height: number } | undefined>;
+            queueInline: (data: Buffer) => void;
+            drainInline: () => Promise<void>;
+            inlineQueue: unknown[];
+            inlineDraining: boolean;
+        };
+        internals.sourcePane = async () => 'pane';
+        internals.visibleRect = async () => ({ x: 0, y: 0, width: 20, height: 10 });
+
+        const frames: string[] = [];
+        bridge.register({
+            channel: 'phone', paneId: 'pane', cols: 20, rows: 10, cellWidthPx: 10, cellHeightPx: 20,
+            write: (frame) => frames.push(frame),
+        });
+        const drain = vi.spyOn(internals, 'drainInline');
+        const settle = async (): Promise<void> => {
+            await drain.mock.results.at(-1)?.value;
+            expect(internals.inlineQueue).toHaveLength(0);
+            expect(internals.inlineDraining).toBe(false);
+        };
+
+        // A pane-filling frame at the producer's own density: 600x400 is past
+        // the size where compression is worth hardening, which is the same
+        // point past which the density is worth halving.
+        const width = 600;
+        const height = 400;
+        const rgba = Buffer.alloc(width * height * 4);
+        for (let i = 0; i < rgba.length; i += 4) {
+            const value = (i / 4) % 255;
+            rgba[i] = value; rgba[i + 1] = 255 - value; rgba[i + 2] = value; rgba[i + 3] = 255;
+        }
+        internals.queueInline(Buffer.from(
+            '\u001b[1;1H'
+            + `\u001b_Ga=t,f=32,s=${width},v=${height},i=9,o=z,m=0;${deflateSync(rgba).toString('base64')}\u001b\\`
+            + '\u001b_Ga=p,i=9,c=20,r=10;\u001b\\',
+        ));
+        await settle();
+        expect(frames).toHaveLength(1);
+        const ansi = frameAnsi(frames[0]!);
+
+        // Halved, and the control it writes matches the pixels it sends.
+        expect(ansi).toContain('a=T,f=32,s=300,v=200,i=9,');
+        // The payload is chunked; the image is every chunk's body joined.
+        const encoded = [...ansi.matchAll(/\u001b_G[^;]*;([^\u001b]*)\u001b\\/g)]
+            .map((match) => match[1] ?? '').join('');
+        const halved = inflateSync(Buffer.from(encoded, 'base64'));
+        expect(halved).toHaveLength(300 * 200 * 4);
+        // Cell counts are independent of pixel density, so the placement the
+        // phone is given is the one it would have had at full density.
+        expect(ansi).toContain('c=20,r=7');
+
+        // Averaged, not sampled. The first output pixel covers source pixels
+        // 0, 1, 600 and 601, whose red channels are 0, 1, 90 and 91: the mean
+        // is 46, where nearest-neighbour would have kept 0.
+        expect(halved[0]).toBe(46);
+
+        // A gesture is still reported in the producer's pixel space, never the
+        // transmitted one, or every touch would land at half its position.
+        const mapped = mapGraphicsPointer(
+            { compressed: Buffer.alloc(1), width: 300, height: 200, imageId: 9, transferId: 0n, sourceWidth: 600, sourceHeight: 400 },
+            { channel: 'phone', paneId: 'pane', cols: 20, rows: 10, cellWidthPx: 10, cellHeightPx: 20, write: () => {} },
+            { x: 100, y: 100, width: 200, height: 200, phase: 'move' },
+        );
+        expect(mapped).toEqual({ x: 300, y: 229 });
     });
 
     it('keeps one resident full image per pane while an inline neighbour survives', async () => {
