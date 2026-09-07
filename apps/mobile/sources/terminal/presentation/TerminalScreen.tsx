@@ -108,14 +108,32 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
 
     const { selectedImages, pickImages, clearImages } = useImagePicker();
 
+    const graphicsOwnsScroll = React.useRef(false);
+    const stopWatchingGraphics = React.useRef<(() => void) | undefined>(undefined);
+    React.useEffect(() => () => stopWatchingGraphics.current?.(), []);
+
     const onChannel = React.useCallback((channel: TerminalChannel | undefined) => {
+        stopWatchingGraphics.current?.();
+        stopWatchingGraphics.current = undefined;
+        graphicsOwnsScroll.current = false;
+        netScrollBack.current = 0;
+        setShowJump(false);
         if (channel !== undefined) {
+            stopWatchingGraphics.current = channel.onGraphics((active, _reason, surface) => {
+                const ownsScroll = active && surface !== 'inline';
+                if (ownsScroll === graphicsOwnsScroll.current) return;
+                graphicsOwnsScroll.current = ownsScroll;
+                netScrollBack.current = 0;
+                setShowJump(false);
+            });
             // Wrap scroll() to track how far back we've gone; the jump button
-            // appears once you're a few lines into scrollback.
+            // belongs to terminal history, not a browser's own scroll position.
             const rawScroll = channel.scroll.bind(channel);
             channel.scroll = (lines, at) => {
-                netScrollBack.current = Math.max(0, netScrollBack.current + lines);
-                setShowJump(netScrollBack.current > 3);
+                if (!graphicsOwnsScroll.current) {
+                    netScrollBack.current = Math.max(0, netScrollBack.current + lines);
+                    setShowJump(netScrollBack.current > 3);
+                }
                 rawScroll(lines, at);
             };
         }
@@ -127,7 +145,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const [showJump, setShowJump] = React.useState(false);
     const jumpToBottom = React.useCallback(() => {
         const channel = channelRef.current;
-        if (channel === undefined) return;
+        if (channel === undefined || graphicsOwnsScroll.current) return;
         // Overshoot on purpose: herdr clamps the scroll at the live edge.
         channel.scroll(-(netScrollBack.current + 5000));
         netScrollBack.current = 0;
