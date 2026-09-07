@@ -574,9 +574,31 @@ describe('Herdr graphics flow', () => {
         await settle();
         expect(frames).toHaveLength(2);
         expect(frames[0]).toMatchObject({ graphics: true, graphicsSurface: 'full' });
-        expect(frames[1]).toMatchObject({ graphics: true, graphicsSurface: 'inline' });
+        // The small image is drawn at its own size, but the pane still owns the
+        // full surface, so that is what the phone is told. Reporting this one
+        // frame's surface ended the phone's graphics scroll ownership while a
+        // pane-filling image was still resident -- the same question the delete
+        // path below already answers with survivingSurface.
+        expect(frames[1]).toMatchObject({ graphics: true, graphicsSurface: 'full' });
         // Neither frame may clear the whole pane, or the other image is erased.
         expect(frames.every((frame) => !Buffer.from(frame.bytes, 'base64').toString('utf8').includes('a=d,d=A'))).toBe(true);
+
+        // A phone joining while both are live is replayed both placements, and
+        // every replayed frame must report the pane's surface, not the size of
+        // whichever placement happens to be replayed last.
+        const rejoined: { graphicsSurface?: string }[] = [];
+        bridge.register({
+            channel: 'rejoined',
+            paneId: 'pane',
+            cols: 20,
+            rows: 10,
+            cellWidthPx: 10,
+            cellHeightPx: 20,
+            write: (frame) => rejoined.push(JSON.parse(frame) as { graphicsSurface?: string }),
+        });
+        expect(rejoined).toHaveLength(2);
+        expect(rejoined.every((frame) => frame.graphicsSurface === 'full')).toBe(true);
+        bridge.unregister('rejoined');
 
         // A repaint of the full surface arrives twice before either is prepared:
         // the older one is dropped, and the small image is untouched.
@@ -715,7 +737,9 @@ console.log(JSON.stringify({ result: replies[command] }));
             send(image(1));
             expect(JSON.parse(await nextFrame())).toMatchObject({ graphics: true, graphicsSurface: 'full' });
             send(image(2, 8, 3, 4, 2));
-            expect(JSON.parse(await nextFrame())).toMatchObject({ graphics: true, graphicsSurface: 'inline' });
+            // Placed beside a live pane-filling image: the pane's surface, not
+            // this block's.
+            expect(JSON.parse(await nextFrame())).toMatchObject({ graphics: true, graphicsSurface: 'full' });
 
             // Direct graphics replaces the full image without stealing the
             // neighboring image's id. A channel handoff must replay both.

@@ -257,13 +257,20 @@ export class HerdrGraphicsBridge {
         const live = this.livePlacements.get(registration.paneId);
         const latest = this.latestByPane.get(registration.paneId);
         if (live !== undefined && live.size > 0) {
+            // Geometry is per placement; takeover metadata is the pane's. Each
+            // replayed frame is drawn at its own placement's size, but every
+            // one of them reports what the pane as a whole owns -- otherwise a
+            // small placement replayed last tells the phone the surface is
+            // inline while a full one is still resident, and the phone hands
+            // back scroll ownership on arrival.
+            const paneSurface = this.survivingSurface(registration.paneId);
             for (const placement of live.values()) {
                 registration.write(terminalFrame(
                     encodeKitty(placement.image, registration, 'none', placement.block, placement.rect, placement.surface),
                     registration,
                     true,
                     undefined,
-                    placement.surface,
+                    paneSurface,
                 ));
             }
             // A direct successor owns the pane's presented surface without
@@ -701,10 +708,17 @@ export class HerdrGraphicsBridge {
         }
         this.inlinePlaced.set(`${paneId}:${key}`, identity);
         if (surface === 'full') this.latestByPane.set(paneId, image);
+        // The same split the delete path already makes: this block's own
+        // surface decides how it is drawn, the pane's surviving surface is
+        // what the phone is told. A placement key carries the covered extent,
+        // so a repaint at a different size is a new placement beside the old
+        // one rather than a replacement -- and reporting that one frame's
+        // surface ended the phone's takeover while a full image was still live.
+        const paneSurface = this.survivingSurface(paneId);
         for (const registration of this.registrations.values()) {
             if (registration.paneId !== paneId) continue;
             const bytes = encodeKitty(image, registration, replaced(previous, image), block, rect, surface);
-            const frame = terminalFrame(bytes, registration, true, undefined, surface);
+            const frame = terminalFrame(bytes, registration, true, undefined, paneSurface);
             registration.write(frame);
             this.recordFrame(at, frame.length, image.width * image.height);
         }
