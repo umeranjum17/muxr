@@ -27,7 +27,7 @@ final class HerdLiveActivityController {
     }
     authorizationTask = Task { [weak self] in
       for await enabled in ActivityAuthorizationInfo().activityEnablementUpdates {
-        if !enabled { self?.clear() }
+        if !enabled { self?.clearForAuthorization() }
         else { self?.enqueue() }
       }
     }
@@ -35,7 +35,7 @@ final class HerdLiveActivityController {
 
   func update(mode: String, count: Int, names: String, voiceState: String,
               voiceName: String, muted: Bool) {
-    guard ActivityAuthorizationInfo().areActivitiesEnabled else { clear(); return }
+    guard ActivityAuthorizationInfo().areActivitiesEnabled else { clearForAuthorization(); return }
     let safeMode = ["connecting", "offline", "idle", "working", "attention", "finished"].contains(mode) ? mode : "offline"
     let safeVoice = ["disconnected", "connecting", "connected", "thinking", "speaking"].contains(voiceState) ? voiceState : "disconnected"
     latest = .init(mode: safeMode, count: min(999, max(0, count)), names: boundedText(names, utf8Limit: 256),
@@ -67,6 +67,14 @@ final class HerdLiveActivityController {
     latest?.voiceGeneration = token
     latest?.voiceState = token.isEmpty ? "disconnected" : "connecting"
     latest?.actionsAvailable = false
+    enqueue()
+  }
+
+  private func clearForAuthorization() {
+    // Permission is not a call lifecycle boundary. Require a fresh authorized
+    // status snapshot, but retain the identity for a still-running call.
+    latest = nil
+    cancelActions()
     enqueue()
   }
 
