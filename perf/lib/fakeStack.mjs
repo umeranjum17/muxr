@@ -109,7 +109,8 @@ function childEnv(home, muxrHome, extra, base = process.env) {
 
 /**
  * @param {{ panes?: number, agents?: number, titleChurnHz?: number,
- *   terminalBytesPerSecond?: number, graphicsFrameHz?: number }} [options]
+ *   terminalBytesPerSecond?: number, graphicsFrameHz?: number,
+ *   transport?: 'adb' | 'loopback' }} [options]
  */
 export async function startFakeStack(options = {}) {
     return startStack(options);
@@ -170,6 +171,12 @@ async function startStack(options, live) {
     const relayPort = await freePort();
     const hostHttpPort = await freePort();
     const children = [];
+    // An emulator is its own network namespace and reaches a loopback relay
+    // only through adb. A simulator shares this machine's loopback, so asking
+    // for adb there would fail on a desk that has no Android tooling at all.
+    const transport = options.transport ?? 'adb';
+    if (transport !== 'adb' && transport !== 'loopback') throw new Error(`Unknown stack transport ${transport}`);
+    let reversed = false;
     // The fake runs in its own process on purpose. In-process it shares an
     // event loop with the harness, and one blocking call here - a Maestro run,
     // an adb dump - freezes every Herdr answer, which the phone sees as a
@@ -189,8 +196,9 @@ async function startStack(options, live) {
         }
         fake.close();
         // Only the reverse this run added: --remove-all would cut whatever else
-        // on this desk is tunnelling to the emulator.
-        spawnSync('adb', ['reverse', '--remove', `tcp:${relayPort}`], { stdio: 'ignore', timeout: 10_000 });
+        // on this desk is tunnelling to the emulator, and a run that never made
+        // one -- loopback, or a failure before it -- must not reach for adb.
+        if (reversed) spawnSync('adb', ['reverse', '--remove', `tcp:${relayPort}`], { stdio: 'ignore', timeout: 10_000 });
         rmSync(root, { recursive: true, force: true });
     };
     onCommandCleanup(stop);
@@ -252,11 +260,14 @@ async function startStack(options, live) {
         host.stdout.on('data', (chunk) => hostLog.push(String(chunk)));
         host.stderr.on('data', (chunk) => hostLog.push(String(chunk)));
 
-        // The emulator reaches a loopback relay only through adb.
-        await run('adb', ['reverse', `tcp:${relayPort}`, `tcp:${relayPort}`], { timeout: 60_000 });
+        if (transport === 'adb') {
+            await run('adb', ['reverse', `tcp:${relayPort}`, `tcp:${relayPort}`], { timeout: 60_000 });
+            reversed = true;
+        }
 
         return {
             root,
+            transport,
             relayPort,
             hostHttpPort,
             dataDir: hostDataDir,
@@ -293,7 +304,10 @@ async function startStack(options, live) {
                     const deadline = setTimeout(() => resolve(undefined), 120_000);
                     const scan = (chunk) => {
                         seen += String(chunk);
-                        const match = /(wss?:\/\/\S+\?pair=[A-Z0-9-]+)/.exec(seen);
+                        // The claim's alphabet is the CLI's business, not this
+                        // matcher's: a narrower class silently times out here
+                        // rather than failing, and reads as a two-minute stall.
+                        const match = /(wss?:\/\/\S+\?pair=\S+)/.exec(seen);
                         if (match === null) return;
                         clearTimeout(deadline);
                         resolve(match[1]);
