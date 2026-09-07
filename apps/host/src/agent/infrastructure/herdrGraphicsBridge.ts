@@ -40,6 +40,13 @@ const NOTCH_FALLBACK_MS = 100;
 const MAX_LIVE_PLACEMENTS = 16;
 /** Deflate harder once a frame is large: the phone decrypts every byte in JS. */
 const COMPRESS_HARDER_BYTES = 512 * 1024;
+/**
+ * A halved frame no longer lands one-for-one on the pane it was rendered for,
+ * so the phone scales it back up and text softens. Off costs four times the
+ * bytes and buys that sharpness back; which one reads better is a judgement
+ * about a particular screen, so it is a knob rather than a constant.
+ */
+const HALVE_LARGE_FRAMES = process.env.MUXR_GRAPHICS_HALVE !== '0';
 const compress = promisify(deflate);
 const run = promisify(execFile);
 
@@ -1592,7 +1599,8 @@ async function prepareKitty(rgba: Buffer, control: string, imageId: number, tran
     // refits by aspect ratio, so the placement is unchanged; only the density
     // is. Small images are left exact: an icon beside a plot has no density to
     // spare, and halving it would only blur it.
-    const scaled = rgba.length > COMPRESS_HARDER_BYTES ? halveRgba(rgba, width, height) : undefined;
+    const scaled = HALVE_LARGE_FRAMES && rgba.length > COMPRESS_HARDER_BYTES
+        ? halveRgba(rgba, width, height) : undefined;
     const pixels = scaled?.rgba ?? rgba;
     // Every byte of this frame is decrypted in JavaScript on the phone, so a
     // large image is worth real compression; a small one is not worth the wait.
