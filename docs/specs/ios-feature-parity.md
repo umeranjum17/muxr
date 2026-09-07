@@ -30,8 +30,8 @@ This spec tracks the whole workstream. Only Unit 1 is edited from this branch.
 | 1. Settings live-updates capability gate | frontend | `feat/ios-feature-parity` | implemented, untested |
 | 2. Native Live Activity `HerdLiveActivity` | Mac | Mac native branch | in progress |
 | 3. Mute and stop intents | frontend + Mac | `feat/ios-feature-parity` (shared TS), Mac native branch | shared action path implemented, native pending |
-| 4. Terminal show, hide and `autoShowKeyboard` with shared gates | opus-verification | `feat/ios-terminal-parity` | in progress |
-| 5. Extension signing and export guards | opus-verification | `feat/ios-terminal-parity` | in progress |
+| 4. Terminal show, hide and `autoShowKeyboard` with shared gates | opus-verification | integrated at `c4425d07` | source implemented, native acceptance pending |
+| 5. Extension signing and export guards | opus-verification | integrated at `c4425d07` | source implemented, native acceptance pending |
 | 6. Kitty graphics runtime | Mac | — | unverified, under diagnosis |
 
 ## Unit 1 — Settings capability gate · implemented, untested
@@ -102,6 +102,9 @@ emit the existing `mute` action with an **optional** `desiredMuted` boolean:
   the Android action and the in-app button still send.
 - With no live session the mute action is a no-op. A stale control must never open the microphone,
   and must never leave a mute flag armed for the next call.
+- A start deferred behind VAD arming has no transport yet. `startRealtimeAfterService` applies the
+  recorded state to the handle before it goes live, so a mute requested during that window cannot
+  leave the JS flag and the Live Activity claiming muted while the microphone opens unmuted.
 - `stop` keeps its existing idempotent teardown path.
 - The `start` branch is now an explicit `action === 'start'` test rather than a default `else`, so an
   action this build does not recognise cannot fall through and open a session.
@@ -114,16 +117,19 @@ no local success it has not seen confirmed.
 **Still pending reliable implementation and validation as a whole.** Compiling is not the bar; the
 intents must act correctly across the stale, disabled, idle and logged-out states below.
 
-## Units 4 and 5 — Terminal parity and signing guards · in progress, opus-verification
+## Units 4 and 5 — Terminal parity and signing guards · source implemented, native acceptance pending
 
-On `feat/ios-terminal-parity`, out of scope for this branch, recorded here so the board shows one
-workstream:
+Integrated at `c4425d07`, so these are no longer a separate branch:
 
 - Terminal `show` and `hide`.
 - `autoShowKeyboard`.
 - The shared gates covering both.
 - Extension signing guards.
 - Export guards.
+
+Evidence available on Linux: typecheck, the eight-test voice flow suite, and syntax checks all pass.
+**No Swift build and no archive or export has been run**, so nothing here claims native acceptance.
+That remains pending a separate Mac commit.
 
 ## Unit 6 — Kitty graphics · unverified, under diagnosis
 
@@ -170,9 +176,12 @@ Passed, compile only:
 Passed, behavioural:
 
 - [x] The voice flow test covers duplicate explicit mute settling on muted, explicit unmute, the
-      legacy Android toggle, a stale action after teardown changing nothing, repeated stop, and an
-      unrecognised action not starting a session. Each assertion was confirmed to fail when its
-      behaviour is reverted.
+      legacy Android toggle, a stale action after teardown changing nothing, repeated stop, an
+      unrecognised action not starting a session, and a mute requested while VAD arming still gates
+      the start reaching the transport that opens afterwards. Each assertion was confirmed to fail
+      when its behaviour is reverted.
+- [x] Units 4 and 5 on Linux: typecheck, the eight-test flow suite, and syntax checks. Source-level
+      only; no Swift build, archive or export was run.
 
 Open:
 
@@ -191,8 +200,8 @@ Open:
 - [ ] iOS: the intent reports no success it has not seen reflected, and gives up on its timeout.
 - [ ] The bridge's `desiredMuted` normalisation, which every consumer test mocks away and which is
       therefore exercised only through Mac's native path.
-- [ ] iOS: terminal show, hide and `autoShowKeyboard` behave through the shared gates.
-- [ ] iOS: signing and export guards hold for the extension.
+- [ ] iOS: terminal show, hide and `autoShowKeyboard` behave through the shared gates on a device.
+- [ ] iOS: signing and export guards hold through a real archive and export.
 - [ ] iOS: Kitty image, replace, delete, scroll, resize and reconnect verified on device.
 - [ ] iOS realtime voice validated on physical hardware.
 

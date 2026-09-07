@@ -304,6 +304,17 @@ describe('on-device dictation flow', () => {
         expect(mocks.vadStandbyEnabled).toBe(true);
         expect(mocks.setVoiceNetworkActive).toHaveBeenLastCalledWith(false);
 
+        // A mute requested while VAD arming still gates the start must reach the
+        // transport that opens afterwards, not stop at the JS flag.
+        const arming = retryVadStandby();
+        expect(startRealtimeSession('session-a')).toBe(true);
+        mocks.notificationAction?.('mute', true);
+        expect(live.setMuted).not.toHaveBeenCalled();
+        await arming;
+        await vi.advanceTimersByTimeAsync(0);
+        expect(live.setMuted).toHaveBeenCalledWith(true);
+        stopRealtimeSession();
+
         await expect(configureVadStandby(false)).resolves.toBe(true);
         expect(mocks.vadStandbyEnabled).toBe(false);
         mocks.startVoiceService.mockReturnValue(false);
