@@ -1269,14 +1269,59 @@ console.log(JSON.stringify({ result: replies[command] }));
             expect(framesA).toHaveLength(1);
             expect(framesB.length).toBeGreaterThan(0);
 
-            // A is still settled, so it must be re-armed and sharpen exactly once.
+            // B keeps painting through A's retry, moving the shared fence
+            // again while the retry is mid-preparation. A is still settled, so
+            // the retry must survive and sharpen exactly once.
+            let releaseRetry!: () => void;
+            const retryHeld = new Promise<void>((resolve) => { releaseRetry = resolve; });
+            let retryHeldOnce = false;
+            const afterRetry = store.prepared.bind(store);
+            store.prepared = (async (...args: never[]) => {
+                if ((args[2] as unknown) === 'full' && !retryHeldOnce) {
+                    retryHeldOnce = true;
+                    store.prepared = afterRetry;
+                    await retryHeld;
+                }
+                return afterRetry(...args);
+            }) as typeof store.prepared;
+
             await vi.advanceTimersByTimeAsync(200);
+            paint(2, 3);
+            await vi.advanceTimersByTimeAsync(0);
+            releaseRetry();
             await settle();
             expect(framesA).toHaveLength(2);
             expect(frameAnsi(framesA[1]!)).toContain('a=T,f=32,s=600,v=400,i=1,');
             await vi.advanceTimersByTimeAsync(5000);
             await settle();
             expect(framesA).toHaveLength(2);
+
+            // A routed same-pane source during held preparation still rejects
+            // the stale retry, and A's latest frame sharpens afterwards.
+            let releaseStale!: () => void;
+            const stale = new Promise<void>((resolve) => { releaseStale = resolve; });
+            let staleHeld = false;
+            const passthrough = store.prepared.bind(store);
+            store.prepared = (async (...args: never[]) => {
+                if ((args[2] as unknown) === 'full' && !staleHeld) {
+                    staleHeld = true;
+                    store.prepared = passthrough;
+                    await stale;
+                }
+                return passthrough(...args);
+            }) as typeof store.prepared;
+            paint(1, 5);
+            await settle();
+            const beforeStale = framesA.length;
+            await vi.advanceTimersByTimeAsync(200);
+            paint(1, 6);
+            await vi.advanceTimersByTimeAsync(0);
+            releaseStale();
+            await settle();
+            await vi.advanceTimersByTimeAsync(1000);
+            await settle();
+            expect(frameAnsi(framesA.at(-1)!)).toContain('a=T,f=32,s=600,v=400,i=6,');
+            expect(framesA.length).toBeGreaterThan(beforeStale);
         } finally {
             bridge.close();
             vi.useRealTimers();

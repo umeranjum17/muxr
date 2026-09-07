@@ -121,9 +121,9 @@ type ServerMessage =
 /** A producer block waiting for the single inline drain. */
 type InlineBlockWork = { block: InlineKittyBlock; at: number; deleteStamp?: number; refinement?: Refinement };
 /** A queued full-density replay; it is drained in the same order as producer blocks. */
-type InlineRefineWork = { refinePane: string; at: number; reason: 'gesture' | 'source'; sourceRevision: number; sourceQueueVersion: number };
+type InlineRefineWork = { refinePane: string; at: number; reason: 'gesture' | 'source'; sourceRevision: number; sourceQueueVersion: number; fenceRetry?: boolean };
 type InlineWork = InlineBlockWork | InlineRefineWork;
-type Refinement = { paneId: string; sourceRevision: number; sourceQueueVersion: number };
+type Refinement = { paneId: string; sourceRevision: number; sourceQueueVersion: number; fenceRetry?: boolean };
 type DirectRawFrame = { rgba: Buffer; control: string; imageId: number; transferId: bigint; sourceImageId: number };
 type DirectRefineWork = InlineRefineWork;
 
@@ -500,7 +500,7 @@ export class HerdrGraphicsBridge {
     private rearmAfterFenceLoss(paneId: string, sourceRevision: number): boolean {
         if (this.gestureActive(paneId)) return false;
         if ((this.sourceRevision.get(paneId) ?? 0) !== sourceRevision) return false;
-        this.armRefine(paneId, 'source', SETTLE_REFINE_MS);
+        this.armRefine(paneId, 'source', SETTLE_REFINE_MS, true);
         return true;
     }
 
@@ -526,7 +526,7 @@ export class HerdrGraphicsBridge {
     }
 
     /** Schedule one serialized refinement for a pane, never a timer per frame. */
-    private armRefine(paneId: string, reason: 'gesture' | 'source', delay?: number): void {
+    private armRefine(paneId: string, reason: 'gesture' | 'source', delay?: number, fenceRetry?: boolean): void {
         this.cancelRefine(paneId);
         const armedAt = Date.now();
         delay ??= Math.max(0, this.quietDeadline(paneId) - armedAt);
@@ -546,6 +546,7 @@ export class HerdrGraphicsBridge {
                 reason,
                 sourceRevision: this.sourceRevision.get(paneId) ?? 0,
                 sourceQueueVersion: this.sourceQueueVersion,
+                fenceRetry,
             } satisfies DirectRefineWork;
             const direct = this.directRawByPane.get(paneId);
             const latest = this.latestByPane.get(paneId);
@@ -586,7 +587,7 @@ export class HerdrGraphicsBridge {
             });
             return;
         }
-        if (work.sourceQueueVersion !== this.sourceQueueVersion) {
+        if (work.fenceRetry !== true && work.sourceQueueVersion !== this.sourceQueueVersion) {
             graphicsTrace?.add('refine.reject', {
                 pane: paneId, path: 'inline', why: 'fence', rearmed: true,
                 expected: work.sourceQueueVersion, actual: this.sourceQueueVersion,
@@ -614,15 +615,19 @@ export class HerdrGraphicsBridge {
         await this.forwardInlineBlock({
             block: placement.block,
             at: work.at,
-            refinement: { paneId, sourceRevision: work.sourceRevision, sourceQueueVersion: work.sourceQueueVersion },
+            refinement: {
+                paneId, sourceRevision: work.sourceRevision, sourceQueueVersion: work.sourceQueueVersion, fenceRetry: work.fenceRetry,
+            },
         }, false);
     }
 
+    // A rearmed retry ignores only the shared fence counter, which a busy
+    // sibling can move forever. Every same-pane guard still applies.
     private refinementCurrent(refinement: Refinement, paneId: string): boolean {
         return refinement.paneId === paneId
             && !this.gestureActive(paneId)
             && (this.sourceRevision.get(paneId) ?? 0) === refinement.sourceRevision
-            && this.sourceQueueVersion === refinement.sourceQueueVersion;
+            && (refinement.fenceRetry === true || this.sourceQueueVersion === refinement.sourceQueueVersion);
     }
 
     private wheelReport(paneId: string, direction: 'up' | 'down', point: ScrollPoint): Buffer | undefined {
@@ -1396,6 +1401,10 @@ export class HerdrGraphicsBridge {
                     if (file === undefined) continue;
                     this.pendingByOrigin.delete(origin);
                     await this.forward(file);
+                    // Give one queued refinement a turn so a continuously
+                    // streaming producer cannot starve the refine queue.
+                    const queued = this.directRefineQueue.shift();
+                    if (queued !== undefined) await this.refineDirect(queued);
                     continue;
                 }
                 const refinement = this.directRefineQueue.shift();
@@ -1479,7 +1488,7 @@ export class HerdrGraphicsBridge {
             });
             return;
         }
-        if (work.sourceQueueVersion !== this.sourceQueueVersion) {
+        if (work.fenceRetry !== true && work.sourceQueueVersion !== this.sourceQueueVersion) {
             graphicsTrace?.add('refine.reject', {
                 pane: paneId, path: 'direct', why: 'fence', rearmed: true,
                 expected: work.sourceQueueVersion, actual: this.sourceQueueVersion,
@@ -1532,7 +1541,7 @@ export class HerdrGraphicsBridge {
         const current = this.directRawByPane.get(paneId);
         return current === raw
             && (this.sourceRevision.get(paneId) ?? 0) === work.sourceRevision
-            && this.sourceQueueVersion === work.sourceQueueVersion
+            && (work.fenceRetry === true || this.sourceQueueVersion === work.sourceQueueVersion)
             && !this.gestureActive(paneId);
     }
 
