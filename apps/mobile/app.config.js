@@ -190,6 +190,7 @@ export default {
             require("./plugins/withEinkCompatibility.js"),
             require("./plugins/withZeroconf.js"),
             require("./plugins/withAppActions.js"),
+            require("./plugins/withLiveActivities.js"),
             [
                 "expo-router",
                 {

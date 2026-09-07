@@ -34,9 +34,30 @@ assert.equal(eas.build.production.env.ORG_GRADLE_PROJECT_reactNativeArchitecture
 const podProperties = JSON.parse(readFileSync(join(mobile, 'ios', 'Podfile.properties.json'), 'utf8'));
 assert.equal(podProperties['ios.deploymentTarget'], '16.4', 'iOS target must satisfy expo-libghostty');
 const xcodeProject = readFileSync(join(mobile, 'ios', 'muxr.xcodeproj', 'project.pbxproj'), 'utf8');
-const xcodeTargets = [...xcodeProject.matchAll(/IPHONEOS_DEPLOYMENT_TARGET = ([0-9.]+);/g)].map((match) => Number(match[1]));
-assert.equal(xcodeTargets.length, 4, 'expected four Xcode deployment-target settings');
-assert.ok(xcodeTargets.every((target) => target >= 16.4), 'Xcode target is below expo-libghostty minimum');
+// Check each build configuration by the target it belongs to. Counting
+// occurrences broke the moment the widget extension added its own pair, and a
+// count can never say which target lost the setting.
+const xcodeConfigSection = xcodeProject.slice(
+    xcodeProject.indexOf('/* Begin XCBuildConfiguration section */'),
+    xcodeProject.indexOf('/* End XCBuildConfiguration section */'),
+);
+const xcodeConfigs = [...xcodeConfigSection.matchAll(/\n\t\t[0-9A-F]{24} \/\* (\w+) \*\/ = \{([\s\S]*?)\n\t\t\};/g)]
+    .map(([, name, body]) => ({
+        name,
+        bundleId: body.match(/PRODUCT_BUNDLE_IDENTIFIER = "?([\w.$()-]+)"?;/)?.[1] ?? null,
+        deploymentTarget: body.match(/IPHONEOS_DEPLOYMENT_TARGET = ([0-9.]+);/)?.[1] ?? null,
+    }));
+assert.ok(xcodeConfigs.length > 0, 'Xcode project declares no build configurations');
+for (const { name, bundleId, deploymentTarget } of xcodeConfigs) {
+    const label = bundleId === null ? `project-level ${name}` : `${bundleId} ${name}`;
+    assert.ok(deploymentTarget !== null, `Xcode configuration ${label} declares no deployment target`);
+    assert.ok(Number(deploymentTarget) >= 16.4, `Xcode configuration ${label} is below the expo-libghostty minimum`);
+}
+// Named explicitly so a target that disappears is a failure, not a smaller count.
+for (const bundleId of ['com.trymuxr.app', 'com.trymuxr.app.activity']) {
+    const configured = xcodeConfigs.filter((entry) => entry.bundleId === bundleId).map((entry) => entry.name).sort();
+    assert.deepEqual(configured, ['Debug', 'Release'], `expected Debug and Release build configurations for ${bundleId}`);
+}
 assert.ok(
     xcodeProject.includes('export PROJECT_ROOT=\\\"$(cd \\\"$PROJECT_DIR/..\\\" && pwd -P)\\\"'),
     'Xcode bundle phase does not canonicalize the workspace path before resolving the entry file',

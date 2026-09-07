@@ -1,0 +1,36 @@
+diff --git a/node_modules/expo-notifications/ios/ExpoNotifications/Notifications/Handler/HandlerModule.swift b/node_modules/expo-notifications/ios/ExpoNotifications/Notifications/Handler/HandlerModule.swift
+index 88f3bd8..b37c60a 100644
+--- a/node_modules/expo-notifications/ios/ExpoNotifications/Notifications/Handler/HandlerModule.swift
++++ b/node_modules/expo-notifications/ios/ExpoNotifications/Notifications/Handler/HandlerModule.swift
+@@ -33,15 +33,27 @@ open class HandlerModule: Module, NotificationDelegate, SingleNotificationHandle
+       } else {
+         promise.reject("ERR_NOTIFICATION_RESPONSE_TIMEOUT", "Notification has already been handled. Most probably the request has timed out.")
+       }
+-    }
++    }.runOnQueue(.main)
+   }
+ 
+   // MARK: - NotificationDelegate
+ 
+   open func willPresent(_ notification: UNNotification, completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) -> Bool {
+-    let task = SingleNotificationHandlerTask(notification: notification, completionHandler: completionHandler, delegate: self)
+-    tasksMap[task.identifier] = task
+-    task.start()
++    // Every touch of tasksMap and of a task's own state belongs on main: the
++    // timer started below fires there, taskDidFinish deletes there, and the
++    // async function above now runs there. A Swift dictionary is not safe to
++    // read while another thread mutates it, and Timer.invalidate() has to run
++    // on the run loop that scheduled the timer.
++    let startTask = {
++      let task = SingleNotificationHandlerTask(notification: notification, completionHandler: completionHandler, delegate: self)
++      self.tasksMap[task.identifier] = task
++      task.start()
++    }
++    if Thread.isMainThread {
++      startTask()
++    } else {
++      DispatchQueue.main.async(execute: startTask)
++    }
+     return true
+   }
+ 

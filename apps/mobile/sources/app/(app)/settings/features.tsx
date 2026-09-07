@@ -31,7 +31,7 @@ export default function PreferencesSettingsScreen() {
                     showChevron={false}
                 />
             </ItemGroup>
-            {Platform.OS === 'android' && (
+            {Platform.OS !== 'web' && (
                 <ItemGroup title="Terminal keyboard" footer="The keyboard button in each terminal always lets you type. This preference stays on this device.">
                     <Item
                         title="Open keyboard on tap"

@@ -567,7 +567,7 @@ index 8cfe86e..b41f1bd 100644
    /**
     * Encode a key event ([action]: 0 release / 1 press / 2 repeat) into the
 diff --git a/node_modules/expo-libghostty/build/ExpoLibghostty.types.d.ts b/node_modules/expo-libghostty/build/ExpoLibghostty.types.d.ts
-index 0969f13..c1395c6 100644
+index 0969f13..e3bcfc1 100644
 --- a/node_modules/expo-libghostty/build/ExpoLibghostty.types.d.ts
 +++ b/node_modules/expo-libghostty/build/ExpoLibghostty.types.d.ts
 @@ -7,9 +7,18 @@ export type TerminalInputEvent = {
@@ -594,9 +594,9 @@ index 0969f13..c1395c6 100644
      writeText(text: string): Promise<void>;
      /** Mark the underlying PTY as exited. */
      finish(exitCode: number): Promise<void>;
-+    /** Android: explicitly open the terminal IME. */
++    /** Explicitly open the software keyboard. */
 +    showKeyboard(): Promise<void>;
-+    /** Android: explicitly hide the terminal IME and release focus. */
++    /** Explicitly hide the software keyboard and release focus. */
 +    hideKeyboard(): Promise<void>;
  };
  export type TerminalTheme = {
@@ -607,7 +607,7 @@ index 0969f13..c1395c6 100644
      theme?: TerminalTheme;
 +    /** Tap emits a pointer click; drag scrolls the pane. Never both. */
 +    pointerMode?: boolean;
-+  /** Android: allow taps to open the software keyboard. Defaults to true. */
++  /** Allow taps to open the software keyboard. Defaults to true. */
 +  autoShowKeyboard?: boolean;
      /** User keyboard/IME input to forward to the PTY. */
      onInput?: (event: {
@@ -641,7 +641,7 @@ index e3bf3b8..dc5b367 100644
              writeText: whenReady((text) => native.current.writeText(text)),
              finish: whenReady((exitCode) => native.current.finish(exitCode)),
 diff --git a/node_modules/expo-libghostty/ios/ExpoLibghosttyModule.swift b/node_modules/expo-libghostty/ios/ExpoLibghosttyModule.swift
-index 2f32970..69d9b2f 100644
+index 2f32970..c732298 100644
 --- a/node_modules/expo-libghostty/ios/ExpoLibghosttyModule.swift
 +++ b/node_modules/expo-libghostty/ios/ExpoLibghosttyModule.swift
 @@ -5,7 +5,7 @@ public class ExpoLibghosttyModule: Module {
@@ -653,7 +653,7 @@ index 2f32970..69d9b2f 100644
 
        // Base font size in points (default 14). Changing it after mount
        // rebuilds the surface and resets the grid.
-@@ -13,6 +13,10 @@ public class ExpoLibghosttyModule: Module {
+@@ -13,6 +13,14 @@ public class ExpoLibghosttyModule: Module {
          view.fontSize = size
        }
 
@@ -661,11 +661,30 @@ index 2f32970..69d9b2f 100644
 +        view.pointerMode = enabled
 +      }
 +
++      Prop("autoShowKeyboard") { (view: ExpoLibghosttyView, enabled: Bool) in
++        view.autoShowKeyboard = enabled
++      }
++
        // Theme colors (ghostty config syntax); nil clears to the defaults.
        // App-wide on iOS: applied through the shared controller's config.
        Prop("theme") { (view: ExpoLibghosttyView, theme: TerminalThemeRecord?) in
+@@ -32,6 +40,14 @@ public class ExpoLibghosttyModule: Module {
+         view.write(text)
+       }.runOnQueue(.main)
+
++      AsyncFunction("showKeyboard") { (view: ExpoLibghosttyView) in
++        view.showKeyboard()
++      }.runOnQueue(.main)
++
++      AsyncFunction("hideKeyboard") { (view: ExpoLibghosttyView) in
++        view.hideKeyboard()
++      }.runOnQueue(.main)
++
+       // PTY exited.
+       AsyncFunction("finish") { (view: ExpoLibghosttyView, exitCode: UInt32) in
+         view.finish(exitCode: exitCode)
 diff --git a/node_modules/expo-libghostty/ios/ExpoLibghosttyView.swift b/node_modules/expo-libghostty/ios/ExpoLibghosttyView.swift
-index 12925b5..dbb25c6 100644
+index 12925b5..dd7e256 100644
 --- a/node_modules/expo-libghostty/ios/ExpoLibghosttyView.swift
 +++ b/node_modules/expo-libghostty/ios/ExpoLibghosttyView.swift
 @@ -1,10 +1,11 @@
@@ -681,7 +700,7 @@ index 12925b5..dbb25c6 100644
    private let terminalView = TerminalView(frame: .zero)
    private var session: InMemoryTerminalSession?
 
-@@ -44,6 +45,16 @@ class ExpoLibghosttyView: ExpoView {
+@@ -44,6 +45,19 @@ class ExpoLibghosttyView: ExpoView {
 
    let onInput = EventDispatcher()
    let onResize = EventDispatcher()
@@ -693,12 +712,15 @@ index 12925b5..dbb25c6 100644
 +  var pointerMode = false {
 +    didSet { pointerTap.isEnabled = pointerMode; terminalView.pointerMode = pointerMode }
 +  }
++  var autoShowKeyboard = true {
++    didSet { terminalView.autoShowKeyboard = autoShowKeyboard }
++  }
 +  private var cellHeightPoints: CGFloat = 18
 +  private var scrollRemainder: CGFloat = 0
 
    required init(appContext: AppContext? = nil) {
      super.init(appContext: appContext)
-@@ -57,7 +68,16 @@ class ExpoLibghosttyView: ExpoView {
+@@ -57,7 +71,16 @@ class ExpoLibghosttyView: ExpoView {
          ])
        },
        resize: { [weak self] viewport in
@@ -716,7 +738,8 @@ index 12925b5..dbb25c6 100644
        }
      )
      self.session = session
-@@ -66,7 +86,42 @@ class ExpoLibghosttyView: ExpoView {
+@@ -65,8 +88,43 @@ class ExpoLibghosttyView: ExpoView {
+     // ("surface rebuild skipped: missing controller").
      terminalView.controller = TerminalController.shared
      terminalView.configuration = TerminalSurfaceOptions(backend: .inMemory(session))
 +    terminalView.inputAccessoryItems = []
@@ -759,11 +782,42 @@ index 12925b5..dbb25c6 100644
    }
 
    /// Feed PTY output (terminal.output on the wire) into the grid.
+@@ -79,6 +137,16 @@ class ExpoLibghosttyView: ExpoView {
+     session?.receive(text)
+   }
+
++  /// Raise the software keyboard. The accessory bar stays empty either way.
++  func showKeyboard() {
++    terminalView.showKeyboard()
++  }
++
++  /// Drop the software keyboard, as a tap on the grid already does.
++  func hideKeyboard() {
++    terminalView.hideKeyboard()
++  }
++
+   /// Mark the underlying PTY as exited (terminal.exit on the wire).
+   func finish(exitCode: UInt32) {
+     session?.finish(exitCode: exitCode, runtimeMilliseconds: 0)
 diff --git a/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView+Interaction.swift b/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView+Interaction.swift
-index 3f3eeb2..90dc7b4 100644
+index 3f3eeb2..1219214 100644
 --- a/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView+Interaction.swift
 +++ b/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView+Interaction.swift
-@@ -532,12 +532,16 @@
+@@ -25,7 +25,13 @@
+                 touchDidScrollDuringCurrentTouch = false
+                 if softwareKeyboardVisible {
+                     pendingKeyboardDismissOnTouchEnd = true
++                } else if autoShowKeyboard {
++                    // Already first responder is the common case, and becoming
++                    // one again is a no-op, so the keyboard has to be asked for
++                    // explicitly rather than implied by taking focus.
++                    showKeyboard()
+                 } else {
++                    softwareKeyboardSuppressed = true
+                     becomeFirstResponder()
+                 }
+             #endif
+@@ -532,12 +538,16 @@
                      "touch scroll changed translation=\(String(format: "%.2f", translation.x))x\(String(format: "%.2f", translation.y))"
                  )
 
@@ -786,7 +840,7 @@ index 3f3eeb2..90dc7b4 100644
 
              case .ended:
                  guard activePointerButton == nil else { return }
-@@ -566,8 +570,10 @@
+@@ -566,8 +576,10 @@
                  "momentum start velocity=\(String(format: "%.2f", velocity.x))x\(String(format: "%.2f", velocity.y))"
              )
 
@@ -799,7 +853,7 @@ index 3f3eeb2..90dc7b4 100644
 
              let link = CADisplayLink(
                  target: self,
-@@ -597,19 +603,23 @@
+@@ -597,19 +609,23 @@
                  "momentum frame velocity=\(String(format: "%.2f", momentumVelocity.x))x\(String(format: "%.2f", momentumVelocity.y)) delta=\(String(format: "%.2f", deltaX))x\(String(format: "%.2f", deltaY))"
              )
 
@@ -844,20 +898,73 @@ index 10834a3..462e396 100644
              case .began:
                  lastPinchScale = gesture.scale
 diff --git a/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView.swift b/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView.swift
-index 7bb1e98..bfd99ee 100644
+index 7bb1e98..b598f46 100644
 --- a/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView.swift
 +++ b/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView.swift
-@@ -36,6 +36,8 @@
+@@ -36,12 +36,29 @@
          lazy var inputHandler = TerminalTextInputHandler(view: self)
          weak var _inputDelegate: (any UITextInputDelegate)?
          var onFocusChange: ((Bool) -> Void)?
 +        open var hostScrollHandler: ((CGFloat) -> Void)?
 +        open var pointerMode = false
++        /// Whether a tap raises the software keyboard, matching Android. Focus is
++        /// taken either way, so hardware and accessory keys keep working while the
++        /// software keyboard stays down.
++        open var autoShowKeyboard = true
 
          #if !targetEnvironment(macCatalyst)
              lazy var terminalInputAccessory = TerminalInputAccessoryView(terminalView: self)
+             let stickyModifiers = TerminalStickyModifierState()
+             var softwareKeyboardVisible = false
+             var pendingKeyboardDismissOnTouchEnd = false
++            /// An empty input view is the only way to hold first responder without
++            /// the software keyboard: resigning it would take hardware keys with it.
++            /// Becoming first responder is a no-op when the view already is one, so
++            /// a change of mind is only honoured by reloading the input views.
++            var softwareKeyboardSuppressed = false {
++                didSet {
++                    guard softwareKeyboardSuppressed != oldValue, isFirstResponder else { return }
++                    reloadInputViews()
++                }
++            }
++            private lazy var suppressedInputView = UIView(frame: .zero)
+             var touchDidScrollDuringCurrentTouch = false
+         #endif
+
+@@ -86,6 +103,31 @@
+             true
+         }
+
++        #if !targetEnvironment(macCatalyst)
++            override open var inputView: UIView? {
++                softwareKeyboardSuppressed ? suppressedInputView : nil
++            }
++        #endif
++
++        /// Explicit control, mirroring Android's showKeyboard/hideKeyboard.
++        open func showKeyboard() {
++            #if !targetEnvironment(macCatalyst)
++                softwareKeyboardSuppressed = false
++            #endif
++            if isFirstResponder {
++                reloadInputViews()
++            } else {
++                becomeFirstResponder()
++            }
++        }
++
++        /// Releases focus with the keyboard, as Android's clearFocus does, so key
++        /// input stops until a tap takes it back. Suppression is the path that
++        /// keeps a terminal typeable with no keyboard on screen.
++        open func hideKeyboard() {
++            resignFirstResponder()
++        }
++
+         override public init(frame: CGRect) {
+             super.init(frame: frame)
+             commonInit()
 diff --git a/node_modules/expo-libghostty/src/ExpoLibghostty.types.ts b/node_modules/expo-libghostty/src/ExpoLibghostty.types.ts
-index cbd0ab4..8051937 100644
+index cbd0ab4..3a8e041 100644
 --- a/node_modules/expo-libghostty/src/ExpoLibghostty.types.ts
 +++ b/node_modules/expo-libghostty/src/ExpoLibghostty.types.ts
 @@ -9,9 +9,19 @@ export type TerminalInputEvent = {
@@ -885,9 +992,9 @@ index cbd0ab4..8051937 100644
    writeText(text: string): Promise<void>;
    /** Mark the underlying PTY as exited. */
    finish(exitCode: number): Promise<void>;
-+  /** Android: explicitly open the terminal IME. */
++  /** Explicitly open the software keyboard. */
 +  showKeyboard(): Promise<void>;
-+  /** Android: explicitly hide the terminal IME and release focus. */
++  /** Explicitly hide the software keyboard and release focus. */
 +  hideKeyboard(): Promise<void>;
  };
 
@@ -898,7 +1005,7 @@ index cbd0ab4..8051937 100644
    theme?: TerminalTheme;
 +  /** Tap emits a pointer click; drag scrolls the pane. Never both. */
 +  pointerMode?: boolean;
-+  /** Android: allow taps to open the software keyboard. Defaults to true. */
++  /** Allow taps to open the software keyboard. Defaults to true. */
 +  autoShowKeyboard?: boolean;
    /** User keyboard/IME input to forward to the PTY. */
    onInput?: (event: { nativeEvent: TerminalInputEvent }) => void;

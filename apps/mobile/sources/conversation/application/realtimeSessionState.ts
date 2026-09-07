@@ -4,10 +4,12 @@ import { sync } from '@/catalog/sync';
 import { getCachedConnectionSettings } from '@/connection';
 import {
     addVoiceNotificationActionListener,
+    setVoiceGeneration,
     setVoiceNetworkActive,
     startVoiceService,
     stopVoiceService,
 } from '@/../modules/voice-overlay';
+import { randomUUID } from 'expo-crypto';
 import { startRealtimeSession as openRealtimeTransport, type RealtimeHandle, type RealtimeStatus } from './realtimeSession';
 import { voiceDiagnostic } from '../infrastructure/voiceDiagnostics';
 import {
@@ -89,6 +91,8 @@ let realtimeTarget: RealtimeTarget | null = null;
 let realtimeConversationVisibleState = false;
 /** Dictation and Realtime never own the microphone together. */
 let dictating = false;
+/** Names the running call for live controls; empty means no active call. */
+let voiceGeneration = '';
 /** Supersedes in-flight handoffs, callbacks, turns and inactivity timers. */
 let realtimeEpoch = 0;
 const listeners = new Set<() => void>();
@@ -163,10 +167,14 @@ export function registerRealtimeNotificationStart(handler: () => void | Promise<
     return () => { if (notificationStart === handler) notificationStart = () => {}; };
 }
 
-addVoiceNotificationActionListener((action) => {
+addVoiceNotificationActionListener((action, desiredMuted, generation) => {
+    // A control shown for a call that has ended must never reach the one running
+    // now, however long the event was queued. Legacy Android events omit the
+    // field entirely and keep their behaviour.
+    if (generation !== undefined && (generation === '' || generation !== voiceGeneration)) return;
     if (action === 'stop') stopRealtimeSession();
-    else if (action === 'mute') toggleRealtimeMuted();
-    else void notificationStart();
+    else if (action === 'mute') applyRealtimeMuted(desiredMuted);
+    else if (action === 'start') void notificationStart();
 });
 
 export async function claimDictation(): Promise<'granted' | 'busy' | 'already'> {
@@ -298,6 +306,10 @@ function clearLiveState(): void {
     clearIdleTimer();
     rejectReportSpeech(new Error('Voice session disconnected.'));
     if (!vadStandbyOwnsMicrophone()) stopVoiceService();
+    // Empty means no active call, so native can tell a real teardown from a
+    // replacement and settle a pending stop before cancelling anything else.
+    voiceGeneration = '';
+    setVoiceGeneration('');
     session = null;
     starting = false;
     bound = null;
@@ -358,6 +370,10 @@ export function startRealtimeSession(input: RealtimeTarget | string): boolean {
     const pendingVad = vadArming;
     cancelVadStandbyStart();
     const epoch = ++realtimeEpoch;
+    // A fresh token per call, published synchronously so a stop and start that
+    // coalesce into one render still rotate it.
+    voiceGeneration = randomUUID();
+    setVoiceGeneration(voiceGeneration);
     realtimeTarget = target;
     activateWatching();
     clearIdleTimer();
@@ -414,6 +430,10 @@ function startRealtimeAfterService(target: RealtimeTarget, epoch: number): void 
         handle.stop();
         return;
     }
+    // A mute requested while VAD arming still gated this start was recorded
+    // before any transport existed. Apply it to the real handle before it goes
+    // live: the flag alone never means the microphone is closed.
+    if (muted) handle.setMuted(true);
     session = handle;
     starting = false;
 }
@@ -494,10 +514,30 @@ export function stopRealtimeSession(): void {
     });
 }
 
-export function toggleRealtimeMuted(): void {
-    muted = !muted;
+/**
+ * An explicit `desired` state is applied as requested rather than toggled: the
+ * Live Activity sends the state its control was showing, so a repeated mute
+ * request leaves the session muted. Omitting it keeps the legacy toggle used by
+ * the in-app button and the Android notification action.
+ *
+ * With no live session this is a no-op. A stale control must never open the
+ * microphone, and must never leave a mute flag set for the next call.
+ *
+ * A start deferred behind VAD arming has no transport yet, and nothing is being
+ * captured then; `startRealtimeAfterService` applies the recorded state to the
+ * handle before it goes live, so the flag is never the only thing that is muted.
+ */
+export function applyRealtimeMuted(desired?: boolean): void {
+    if (session === null && !starting) return;
+    const next = desired ?? !muted;
+    if (next === muted) return;
+    muted = next;
     session?.setMuted(muted);
     notify();
+}
+
+export function toggleRealtimeMuted(): void {
+    applyRealtimeMuted();
 }
 
 function subscribe(listener: () => void) {

@@ -106,7 +106,9 @@ type ServerMessage =
 type InlineWork = { block: InlineKittyBlock; at: number; deleteStamp?: number };
 
 /** What a pane is currently showing, keyed by Herdr's own placement key. */
-type LivePlacement = { image: PreparedImage; block: InlineKittyBlock; surface: GraphicsSurface };
+// The pane rect the block was placed against. An inline placement is encoded in
+// pane-local cells, so a replay without it lands at the block's global column.
+type LivePlacement = { image: PreparedImage; block: InlineKittyBlock; surface: GraphicsSurface; rect?: Rect };
 
 /** Whether an image is the pane's whole surface or sits inside its text. */
 export type GraphicsSurface = 'full' | 'inline';
@@ -257,7 +259,7 @@ export class HerdrGraphicsBridge {
         if (live !== undefined && live.size > 0) {
             for (const placement of live.values()) {
                 registration.write(terminalFrame(
-                    encodeKitty(placement.image, registration, 'none', placement.block, undefined, placement.surface),
+                    encodeKitty(placement.image, registration, 'none', placement.block, placement.rect, placement.surface),
                     registration,
                     true,
                     undefined,
@@ -685,7 +687,7 @@ export class HerdrGraphicsBridge {
         const surface = surfaceOf(block, rect);
         const live = this.placementsFor(paneId);
         const previous = live.get(key);
-        live.set(key, { image, block, surface });
+        live.set(key, { image, block, surface, ...(rect === undefined ? {} : { rect }) });
         if (live.size > MAX_LIVE_PLACEMENTS) {
             const oldest = live.keys().next().value;
             if (oldest !== undefined && oldest !== key) live.delete(oldest);
@@ -723,10 +725,16 @@ export class HerdrGraphicsBridge {
         const scope = block.keys.d ?? 'a';
         const target = Number(block.keys.i ?? block.keys.I);
         const all = scope === 'a' || scope === 'A';
+        // A delete naming a placement removes that one placement; without one it
+        // removes every placement of the image. Dropping them all either way
+        // would stop replaying a second placement the delete never named.
+        const placementTarget = kittyPlacementId(block);
         const direct: { paneId: string; imageId: number }[] = [];
         for (const [paneId, live] of this.livePlacements) {
             for (const [key, placement] of live) {
-                if (all || placement.image.imageId === target) {
+                const named = placementTarget === undefined
+                    || kittyPlacementId(placement.block) === placementTarget;
+                if (all || (placement.image.imageId === target && named)) {
                     live.delete(key);
                     this.inlinePlaced.delete(`${paneId}:${key}`);
                     if (this.latestByPane.get(paneId) === placement.image) this.latestByPane.delete(paneId);
@@ -1513,7 +1521,11 @@ export function encodeKitty(
         ? inlinePlacement(block, rect)
         : graphicsPlacement(image, target);
     const { row, col, cols, rows } = placement;
-    const placementId = image.imageId & 0x7fffffff;
+    // An inline image keeps Herdr's ids, and its deletes are forwarded
+    // verbatim, so its placement has to keep Herdr's placement id too: a
+    // renumbered one leaves the phone holding a placement no delete can name.
+    // A direct image carries no source block and is renumbered throughout.
+    const placementId = kittyPlacementId(block) ?? (image.imageId & 0x7fffffff);
     const output: Buffer[] = [Buffer.from('\u001b7')];
     if (clear === 'all') output.push(Buffer.from('\u001b_Ga=d,d=A,q=2;\u001b\\'));
     else if (clear !== 'none') output.push(Buffer.from(`\u001b_Ga=d,d=I,i=${clear.imageId},q=2;\u001b\\`));
@@ -1527,6 +1539,12 @@ export function encodeKitty(
     });
     output.push(Buffer.from('\u001b8'));
     return Buffer.concat(output);
+}
+
+/** A Kitty placement id, which the protocol defines as unsigned 32-bit. */
+function kittyPlacementId(block?: InlineKittyBlock): number | undefined {
+    const value = Number(block?.keys.p ?? Number.NaN);
+    return Number.isInteger(value) && value > 0 && value <= 0xffffffff ? value : undefined;
 }
 
 /** Herdr's own cell and cell span, mapped into the phone's view of the pane. */

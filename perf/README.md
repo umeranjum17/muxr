@@ -77,14 +77,13 @@ dead, so the gate reads only `/proc`, `dumpsys` and `logcat`.
 
 ## The load
 
-Fixed profile in `LOAD`, because a smaller herd proves nothing - thirty sessions
-is the breadth that starved the phone. The host caps title-only publishes at two
-per second per session, so the flood the app must absorb comes from many panes,
-not one fast one:
+Fixed profile in `LOAD`, because a smaller herd proves nothing. The host caps
+title-only publishes at two per second per session, so the flood the app must
+absorb comes from many panes, not one fast one:
 
-- 30 panes, each changing its terminal title twice a second, every change
+- 100 panes, each changing its terminal title twice a second, every change
   visible in the next snapshot
-- 6 of them agent sessions
+- 30 of them agent sessions
 - terminal streams at 4 kB/s with periodic full repaints, and a full repaint for
   every scroll and resize, which is Herdr's real cost model
 - inline Kitty frames at 4 Hz through the host's graphics bridge: a Kitty
@@ -93,6 +92,11 @@ not one fast one:
   Herdr app-client socket actually sustains
 - cap the producer's frame rate where it offers one, e.g. `TERMINAL_BROWSER_FPS=10`:
   fewer paints before anything hits the socket, and it costs no code
+
+The same 100/30 profile is in `perf/releaseGate.mjs` and `perf/iosReleaseGate.mjs`.
+The smaller 30 panes / 6 agents profile belongs to the PR smoke gate in
+`perf/prGate.mjs` and is documented in [PR_GATE.md](PR_GATE.md); this section
+used to quote it, which understated the release load.
 
 Everything runs in one scratch directory - relay data, machine identity, host
 state, Herdr sockets - on ports the kernel picks, and is deleted on exit,
@@ -182,6 +186,130 @@ New device signals in `androidSignals.mjs`: `resetGfx`, `frameStats` (PROFILEDAT
 by header name), `refreshHz`, `deviceMonotonicSeconds`, `screencapRaw` (16-byte
 header + RGBA8888), `viewBounds`. `jankReport` takes `hz` and compares histogram
 buckets to `round(1000 / hz)`, never a hard-coded 16.
+
+## iOS
+
+`perf/iosReleaseGate.mjs` runs the same load against a retained Release build on
+an iOS simulator. `--udid`, `--app` and `--record` are required; the rest are
+optional.
+
+```bash
+node perf/iosReleaseGate.mjs --udid <UDID> --app /path/muxr.app --record <report.json>
+node perf/iosReleaseGate.mjs ... --verify-controls    # control preflight before the clock starts
+node perf/iosReleaseGate.mjs ... --start-file PATH     # hold after pairing until PATH appears
+node perf/iosReleaseGate.mjs ... --phases soak,navigate,tree,strip,document,graphics,zoom --skip-tour
+```
+
+`--verify-controls` drives the strip, an agent, the same agent reopened and a
+shell pane after pairing, so a run producing numbers is known to have been driving
+real surfaces. `--start-file` holds the run until a named file appears, for
+preflight review before the timed window opens. `--phases` selects by drive name
+(`idle`, `soak`, `navigate`, `tree`, `strip`, `document`, `graphics`, `terminal`,
+`zoom`), refusing unknown or repeated names; with `--skip-tour` it is how a
+followup reruns only what a previous attempt could not complete.
+
+Requirements, each a named preflight failure: macOS; `simctl` with a booted
+simulator and `xcodebuild`; the `axe` accessibility driver, which with `simctl`
+replaces adb and Maestro; an AX root of exactly 402x874 named `muxr`; and the
+retained app already running, since the gate attaches rather than installs.
+
+### Deviations from the Android gate
+
+**The app container is preserved, and that is a deviation, not an equivalent.**
+Android clears app state with `pm clear`; this runner deliberately keeps the
+container so pairing survives, and pairs a fresh isolated host and relay instead.
+A fresh host does **not** clear mobile retained state, so anything the app kept
+from an earlier run is still there. The gate does verify the container it
+attaches to: the installed binary and `main.jsbundle` SHA-256 must match the
+`--app` input, or the run refuses to start.
+
+Pairing uses the normal QR v2 consent path: a host-minted short code resolved
+through the shared pairing crypto, then the deep-link consent screen and the app
+handshake. Manual code entry is not exercised, and `pairingTransport` says so.
+The shell target is proved from the control subprocess lifecycle via
+`FAKE_HERDR_LOG`, not a thumbnail `pane.read` — a pane that renders is not the
+same fact as a shell that ran.
+
+Load and fixtures: 100 panes, 30 agents, the real `plugins` root, a Git fixture
+whose tree hash is recorded, and a 2000-line document of which the app renders
+the first 240 lines or 24 KiB, larger than the cap on purpose.
+
+### Timing
+
+A full run samples 650 seconds before the tour: a 30 second warmup plus nine
+phases totalling 620 (idle 120, soak 120, navigate 120, tree 30, strip 20,
+document 30, terminal 30, graphics 90, zoom 60). That is sampled seconds, not
+wall time — per-phase setup and in-flight AX overruns are additional, and the
+40-pane tour follows and scales with the world.
+
+Setup navigates to the required screen and takes its screenshots **before** the
+sampled clock, recorded as `setupSeconds` with `measuredStartedAt` marking where
+sampling began. Driving is not bounded by the window: an action in flight when
+the window closes keeps running, and the runner waits for it. So `measuredSeconds`
+describes the sampler, not the driving. Attribute actions to a window by
+timestamps — `startedAt`, `setupSeconds`, `measuredStartedAt`, `finishedAt` — not
+by which phase they are listed under.
+
+### Metric limits
+
+Four Android signals have no value on iOS, and the report carries a reason for
+each instead of a number:
+
+| Signal | Why it is absent |
+| --- | --- |
+| `pssKb` | Android proportional-set-size accounting does not exist on iOS |
+| `jsBusyPercent` | no validated per-JS-thread CPU sampler for a retained Release binary |
+| `fps` | no gfxinfo or SurfaceFlinger equivalent is collected |
+| `frameStats` | no instrumented frame timestamps |
+
+RSS is not PSS, and CPU is whole-process — it can exceed 100% and is not JS-thread
+utilization. AX command elapsed time is not input-to-frame latency.
+
+Screenshots are captured, but this runner has **no validated automated
+content-movement comparison** — nothing in it establishes that a surface moved
+the way Android's `screencapRaw` check does. Treat a completed scroll or graphics
+phase as evidence the driver ran, not that pixels changed. Whether
+identifiable pixels reached the screen is settled by a separate probe, and a
+frame count at a write boundary is not the same fact as identifiable colours.
+
+There are no iOS thresholds here, and none should be invented. RSS and CPU from
+one run cannot set them: that needs a documented calibration across repeated
+healthy and unhealthy runs, the way the Android columns were derived. Nothing in
+an iOS report may be compared against an Android limit.
+
+### Evidence and reports
+
+Record a live run into the watched attachments directory, which inside a herdr
+pane is the only channel that puts a report or screenshot in front of whoever is
+watching. The runner writes its evidence directory beside the record.
+
+```bash
+mkdir -p "$HOME/.muxr/attachments/pane/$HERDR_PANE_ID"
+node perf/iosReleaseGate.mjs --udid <UDID> --app <path> \
+  --record "$HOME/.muxr/attachments/pane/$HERDR_PANE_ID/ios-<version>-<run>-<binary-sha12>.json"
+```
+
+Only a sanitized summary is committed, to `perf/results/`. Raw run artefacts stay
+out of git: screenshots and logs can capture whatever was on screen or typed, so
+they are reviewed before anything is published rather than committed by default.
+
+Name records for the build and the attempt, not the day: several attempts against
+one app version on one date are normal, so an explicit run suffix and the app
+binary hash are what separate them. A split followup gets its own file naming the
+phases it covers, cited alongside the run it supplements, never instead of it.
+
+The current record is [`ios-load-2026-09-07.md`](results/ios-load-2026-09-07.md),
+with [`ios-load-2026-09-07.summary.json`](results/ios-load-2026-09-07.summary.json)
+for machine-readable detail. Cite the report and quote its own `verdict` —
+`COMPLETED_WITH_METRIC_LIMITATIONS`, `FAILED_OBSERVATIONS` or `INCOMPLETE` — rather
+than paraphrasing it here, where it would age.
+
+**Coverage across split runs is not a run.** Phases verified in different attempts
+do not combine into a completed one. `observedRunComplete` is evaluated per report
+and requires `!splitAcceptance`, so a run produced with `--phases` can never claim
+the whole gate. Every control and the tour having succeeded somewhere says the
+harness can drive each surface; it does not say the app survived one clean run
+under load, and only the second would be a gate result.
 
 ## Thresholds
 
