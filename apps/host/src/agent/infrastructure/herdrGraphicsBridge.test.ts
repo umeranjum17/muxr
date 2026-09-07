@@ -462,6 +462,61 @@ describe('Herdr graphics flow', () => {
         expect(frames.some((frame) => frame.includes('p=700001'))).toBe(false);
     });
 
+    it('delivers a frame while a producer keeps repainting the same surface', async () => {
+        // Supersession is re-checked after the layout probe, after the decode
+        // and after the rect. While a producer repaints faster than one frame
+        // can be prepared, a newer block for the same surface is always queued
+        // by the time those checks run, so every prepared frame is discarded
+        // and the pane delivers nothing at all.
+        const socket = Object.assign(new EventEmitter(), { writable: true, write: () => true, destroy: () => {} });
+        const bridge = Reflect.construct(HerdrGraphicsBridge, [socket, 'herdr']) as HerdrGraphicsBridge;
+        const internals = bridge as unknown as {
+            sourcePane: (leading: Buffer) => Promise<string | undefined>;
+            visibleRect: (paneId: string) => Promise<{ x: number; y: number; width: number; height: number } | undefined>;
+            queueInline: (data: Buffer) => void;
+            drainInline: () => Promise<void>;
+            inlineQueue: unknown[];
+        };
+        internals.sourcePane = async () => 'pane';
+
+        const frames: string[] = [];
+        bridge.register({
+            channel: 'phone', paneId: 'pane', cols: 20, rows: 10, cellWidthPx: 10, cellHeightPx: 20,
+            write: (frame) => frames.push(frame),
+        });
+
+        const pixels = Buffer.alloc(2 * 2 * 4, 7).toString('base64');
+        const repaint = (id: number): Buffer => Buffer.from(
+            '\u001b[1;1H'
+            + `\u001b_Ga=t,f=32,s=2,v=2,i=${id},m=0;${pixels}\u001b\\`
+            + `\u001b_Ga=p,i=${id},c=20,r=10;\u001b\\`,
+        );
+        // The layout probe shells out to herdr, so it really is async. A
+        // repaint lands while it is open, which is what a scrolling browser
+        // does: the next frame is always already waiting.
+        let repaints = 1;
+        let deliveredDuringBurst = -1;
+        internals.visibleRect = async () => {
+            if (repaints < 6) { repaints += 1; internals.queueInline(repaint(repaints)); }
+            // What the phone has been shown while the producer is still going.
+            if (repaints === 5) deliveredDuringBurst = frames.length;
+            await new Promise((resolve) => setImmediate(resolve));
+            return { x: 0, y: 0, width: 20, height: 10 };
+        };
+
+        const drain = vi.spyOn(internals, 'drainInline');
+        internals.queueInline(repaint(1));
+        await drain.mock.results.at(-1)?.value;
+        expect(internals.inlineQueue).toHaveLength(0);
+        expect(repaints).toBe(6);
+
+        // The last repaint finds an empty queue and is delivered, so counting
+        // at the end hides this. What matters is the phone being shown nothing
+        // for as long as the producer keeps painting: a scrolling browser only
+        // moves once the gesture stops.
+        expect(deliveredDuringBurst).toBeGreaterThan(0);
+    });
+
     it('keeps two program images, coalesces repaints, and paces a gesture', async () => {
         const socket = Object.assign(new EventEmitter(), {
             writable: true,
