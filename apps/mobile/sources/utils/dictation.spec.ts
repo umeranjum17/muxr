@@ -20,8 +20,9 @@ const mocks = vi.hoisted(() => ({
     startVoiceService: vi.fn(),
     setVoiceNetworkActive: vi.fn(),
     stopVoiceService: vi.fn(),
-    notificationAction: null as ((action: 'start' | 'stop' | 'mute', desiredMuted?: boolean) => void) | null,
-    addVoiceNotificationActionListener: vi.fn((listener: (action: 'start' | 'stop' | 'mute', desiredMuted?: boolean) => void) => {
+    setVoiceGeneration: vi.fn(),
+    notificationAction: null as ((action: 'start' | 'stop' | 'mute', desiredMuted?: boolean, generation?: string) => void) | null,
+    addVoiceNotificationActionListener: vi.fn((listener: (action: 'start' | 'stop' | 'mute', desiredMuted?: boolean, generation?: string) => void) => {
         mocks.notificationAction = listener;
         return { remove: () => undefined };
     }),
@@ -100,9 +101,12 @@ vi.mock('@/../modules/voice-overlay', () => ({
     routeVoiceAudio: vi.fn(() => true),
     releaseVoiceAudio: vi.fn(),
     stopVoiceService: mocks.stopVoiceService,
+    setVoiceGeneration: mocks.setVoiceGeneration,
     addVoiceNotificationActionListener: mocks.addVoiceNotificationActionListener,
 }));
+vi.mock('expo-crypto', () => ({ randomUUID: () => `token-${++uuidSeed}` }));
 
+let uuidSeed = 0;
 const act = TestRenderer.act;
 let api: ReturnType<typeof useDictation> | null = null;
 let renderer: ReturnType<typeof TestRenderer.create> | null = null;
@@ -246,6 +250,19 @@ describe('on-device dictation flow', () => {
         expect(setMuted.mock.calls).toEqual([[true], [false], [true], [false]]);
         expect(mutedNow).toBe(false);
 
+        // A supplied generation names the call the control was shown for. The
+        // running call's token acts; an empty or foreign one is rejected before
+        // any action, and a legacy event without the field still acts.
+        const token = mocks.setVoiceGeneration.mock.calls.at(-1)?.[0] as string;
+        expect(token).not.toBe('');
+        act(() => { mocks.notificationAction?.('mute', true, token); });
+        expect(setMuted.mock.calls).toEqual([[true], [false], [true], [false], [true]]);
+        act(() => { mocks.notificationAction?.('mute', false, 'a-foreign-token'); });
+        act(() => { mocks.notificationAction?.('mute', false, ''); });
+        expect(setMuted.mock.calls).toEqual([[true], [false], [true], [false], [true]]);
+        act(() => { mocks.notificationAction?.('mute', false, token); });
+        expect(setMuted.mock.calls).toEqual([[true], [false], [true], [false], [true], [false]]);
+
         // After teardown the control is stale: neither form may reopen the
         // microphone or leave a mute flag armed for the next call.
         act(() => { mocks.notificationAction?.('stop'); });
@@ -255,7 +272,13 @@ describe('on-device dictation flow', () => {
         expect(mutedNow).toBe(false);
         act(() => { mocks.notificationAction?.('mute'); });
         expect(mutedNow).toBe(false);
-        expect(setMuted).toHaveBeenCalledTimes(4);
+        expect(setMuted).toHaveBeenCalledTimes(6);
+
+        // No call is running, so the current token is empty. A control still
+        // showing the ended call must not be able to start a new one.
+        act(() => { mocks.notificationAction?.('start', undefined, ''); });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(mocks.startRealtimeSession).toHaveBeenCalledOnce();
 
         // Only an explicit start talks; an action this build does not know must
         // not fall through and open a session.
@@ -265,6 +288,28 @@ describe('on-device dictation flow', () => {
         expect(mocks.startVoiceService).toHaveBeenCalledOnce();
         expect(mocks.startRealtimeSession).toHaveBeenCalledOnce();
         expect(micOwners()).toEqual([]);
+
+        // A stop and a start that React coalesces into one render still rotate
+        // the token, so an event queued against the ended call cannot act on the
+        // one now running.
+        mocks.setVoiceGeneration.mockClear();
+        expect(startRealtimeSession('session-a')).toBe(true);
+        const older = mocks.setVoiceGeneration.mock.calls.at(-1)?.[0] as string;
+        act(() => {
+            stopRealtimeSession();
+            expect(startRealtimeSession('session-b')).toBe(true);
+        });
+        const newer = mocks.setVoiceGeneration.mock.calls.at(-1)?.[0] as string;
+        expect(mocks.setVoiceGeneration.mock.calls.map((call) => call[0])).toEqual([older, '', newer]);
+        expect(newer).not.toBe(older);
+
+        const settled = setMuted.mock.calls.length;
+        act(() => { mocks.notificationAction?.('mute', true, older); });
+        act(() => { mocks.notificationAction?.('stop', undefined, older); });
+        expect(setMuted).toHaveBeenCalledTimes(settled);
+        expect(micOwners()).toEqual(['realtime']);
+        act(() => { mocks.notificationAction?.('mute', true, newer); });
+        expect(setMuted).toHaveBeenCalledTimes(settled + 1);
     });
 
     it('keeps a newer historical route out of notification voice targeting', async () => {
