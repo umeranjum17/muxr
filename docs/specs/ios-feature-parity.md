@@ -105,6 +105,17 @@ emit the existing `mute` action with an **optional** `desiredMuted` boolean:
 - A start deferred behind VAD arming has no transport yet. `startRealtimeAfterService` applies the
   recorded state to the handle before it goes live, so a mute requested during that window cannot
   leave the JS flag and the Live Activity claiming muted while the microphone opens unmuted.
+- Every call carries a generation token. `setVoiceGeneration` is an optional native method taking a
+  string and returning nothing: a fresh `randomUUID()` at the start of a call, and `""` at teardown
+  so native can tell a real teardown from a replacement and settle a pending stop before cancelling
+  anything else. A module without the method is a silent no-op, so Android is untouched.
+- The action event carries an optional `generation`, and the handler rejects any supplied generation
+  that is empty or does not match the running call before acting. A queued event from an ended call
+  can never reach the next one. Legacy Android events omit the field and keep their behaviour; a
+  field present but not a string is coerced to empty and rejected rather than read as legacy.
+- The token rotates synchronously at start and teardown, so a stop and start that React coalesces
+  into one render still rotate it. This is why rotation does not depend on a `disconnected` snapshot
+  reaching `updateNotification`, which the effect's own cancellation can drop.
 - `stop` keeps its existing idempotent teardown path.
 - The `start` branch is now an explicit `action === 'start'` test rather than a default `else`, so an
   action this build does not recognise cannot fall through and open a session.

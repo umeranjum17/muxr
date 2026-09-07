@@ -4,10 +4,12 @@ import { sync } from '@/catalog/sync';
 import { getCachedConnectionSettings } from '@/connection';
 import {
     addVoiceNotificationActionListener,
+    setVoiceGeneration,
     setVoiceNetworkActive,
     startVoiceService,
     stopVoiceService,
 } from '@/../modules/voice-overlay';
+import { randomUUID } from 'expo-crypto';
 import { startRealtimeSession as openRealtimeTransport, type RealtimeHandle, type RealtimeStatus } from './realtimeSession';
 import { voiceDiagnostic } from '../infrastructure/voiceDiagnostics';
 import {
@@ -89,6 +91,8 @@ let realtimeTarget: RealtimeTarget | null = null;
 let realtimeConversationVisibleState = false;
 /** Dictation and Realtime never own the microphone together. */
 let dictating = false;
+/** Names the running call for live controls; empty means no active call. */
+let voiceGeneration = '';
 /** Supersedes in-flight handoffs, callbacks, turns and inactivity timers. */
 let realtimeEpoch = 0;
 const listeners = new Set<() => void>();
@@ -163,7 +167,11 @@ export function registerRealtimeNotificationStart(handler: () => void | Promise<
     return () => { if (notificationStart === handler) notificationStart = () => {}; };
 }
 
-addVoiceNotificationActionListener((action, desiredMuted) => {
+addVoiceNotificationActionListener((action, desiredMuted, generation) => {
+    // A control shown for a call that has ended must never reach the one running
+    // now, however long the event was queued. Legacy Android events omit the
+    // field entirely and keep their behaviour.
+    if (generation !== undefined && (generation === '' || generation !== voiceGeneration)) return;
     if (action === 'stop') stopRealtimeSession();
     else if (action === 'mute') applyRealtimeMuted(desiredMuted);
     else if (action === 'start') void notificationStart();
@@ -298,6 +306,10 @@ function clearLiveState(): void {
     clearIdleTimer();
     rejectReportSpeech(new Error('Voice session disconnected.'));
     if (!vadStandbyOwnsMicrophone()) stopVoiceService();
+    // Empty means no active call, so native can tell a real teardown from a
+    // replacement and settle a pending stop before cancelling anything else.
+    voiceGeneration = '';
+    setVoiceGeneration('');
     session = null;
     starting = false;
     bound = null;
@@ -358,6 +370,10 @@ export function startRealtimeSession(input: RealtimeTarget | string): boolean {
     const pendingVad = vadArming;
     cancelVadStandbyStart();
     const epoch = ++realtimeEpoch;
+    // A fresh token per call, published synchronously so a stop and start that
+    // coalesce into one render still rotate it.
+    voiceGeneration = randomUUID();
+    setVoiceGeneration(voiceGeneration);
     realtimeTarget = target;
     activateWatching();
     clearIdleTimer();
