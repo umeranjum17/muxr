@@ -1,5 +1,9 @@
 {
-  "status": "Interim sanitized review: document and graphics visual probes pending; zoom partial failure retained",
+  "status": "Split phase-control acceptance complete; full-gate acceptance remains incomplete because no one clean full run and graphics pixels unproven",
+  "nativeSource": "9da784a73bea0fa6867a00959fdb10941a3275e0",
+  "hostProductSource": "09c1f4051e76313a78724217dd3511b4bc7a5b36",
+  "binaryUuid": "AD3EDBF2-4EE9-33D4-8CDD-9DCF60FF53BC",
+  "device": "iPhone 16 Pro simulator, iOS 26.3, 402x874 points; Release 0.1.28(1)",
   "runs": [
     {
       "source": "339f7a438cf21d98175b264661b842d27942e53c",
@@ -31,6 +35,7 @@
         "fps": "No Android gfxinfo/SurfaceFlinger equivalent collected in this run.",
         "frameStats": "No instrumented frame timestamps; AX command duration is not input-to-frame latency."
       },
+      "rawArtifact": "control-full-run.json",
       "app": {
         "binarySha256": "0395a5b017b80ab8d833dfedca8e79eefa5615074317582d9752ecde5ded8000",
         "jsSha256": "f2f89c2b3923c54b2f2f4c356adc9f3fc7fe205c6c75e2ba3bd6069e6b58132a"
@@ -54,9 +59,11 @@
           "wallSeconds": 120.39000010490417,
           "actionsCompleted": 1,
           "actionsInMeasuredWindow": 1,
+          "workloadActionsInMeasuredWindow": 0,
           "actionKinds": [
             "verify herd"
-          ]
+          ],
+          "measurementSemantics": "setup included; raw timestamps retained"
         },
         {
           "name": "herd strip and tree soak",
@@ -75,11 +82,13 @@
           "wallSeconds": 120.16799998283386,
           "actionsCompleted": 3,
           "actionsInMeasuredWindow": 3,
+          "workloadActionsInMeasuredWindow": 2,
           "actionKinds": [
             "strip pair",
             "tree scroll pair",
             "verify herd"
-          ]
+          ],
+          "measurementSemantics": "setup included; raw timestamps retained"
         },
         {
           "name": "agent terminal and plugin navigation",
@@ -98,7 +107,9 @@
           "wallSeconds": 120.34100008010864,
           "actionsCompleted": 0,
           "actionsInMeasuredWindow": 0,
-          "actionKinds": []
+          "workloadActionsInMeasuredWindow": 0,
+          "actionKinds": [],
+          "measurementSemantics": "setup included; raw timestamps retained"
         },
         {
           "name": "herd tree fling",
@@ -117,7 +128,9 @@
           "wallSeconds": 30.151000022888184,
           "actionsCompleted": 0,
           "actionsInMeasuredWindow": 0,
-          "actionKinds": []
+          "workloadActionsInMeasuredWindow": 0,
+          "actionKinds": [],
+          "measurementSemantics": "setup included; raw timestamps retained"
         },
         {
           "name": "herd strip paging",
@@ -136,7 +149,9 @@
           "wallSeconds": 21.194999933242798,
           "actionsCompleted": 0,
           "actionsInMeasuredWindow": 0,
-          "actionKinds": []
+          "workloadActionsInMeasuredWindow": 0,
+          "actionKinds": [],
+          "measurementSemantics": "setup included; raw timestamps retained"
         },
         {
           "name": "document scroll and swipe",
@@ -155,7 +170,9 @@
           "wallSeconds": 30.186000108718872,
           "actionsCompleted": 0,
           "actionsInMeasuredWindow": 0,
-          "actionKinds": []
+          "workloadActionsInMeasuredWindow": 0,
+          "actionKinds": [],
+          "measurementSemantics": "setup included; raw timestamps retained"
         },
         {
           "name": "terminal text fling",
@@ -174,10 +191,12 @@
           "wallSeconds": 30.157999992370605,
           "actionsCompleted": 25,
           "actionsInMeasuredWindow": 24,
+          "workloadActionsInMeasuredWindow": 23,
           "actionKinds": [
             "open text shell",
             "scroll pair"
-          ]
+          ],
+          "measurementSemantics": "setup included; raw timestamps retained"
         },
         {
           "name": "graphics pane scroll",
@@ -196,7 +215,9 @@
           "wallSeconds": 90.3989999294281,
           "actionsCompleted": 0,
           "actionsInMeasuredWindow": 0,
-          "actionKinds": []
+          "workloadActionsInMeasuredWindow": 0,
+          "actionKinds": [],
+          "measurementSemantics": "setup included; raw timestamps retained"
         },
         {
           "name": "zoom tap navigate",
@@ -215,9 +236,16 @@
           "wallSeconds": 60.35099983215332,
           "actionsCompleted": 0,
           "actionsInMeasuredWindow": 0,
-          "actionKinds": []
+          "workloadActionsInMeasuredWindow": 0,
+          "actionKinds": [],
+          "measurementSemantics": "setup included; raw timestamps retained"
         }
       ],
+      "sampledProcess": {
+        "sampleCount": 690,
+        "expectedPid": 90654,
+        "deadOrWrongPidSamples": 0
+      },
       "tour": {
         "totalShells": 70,
         "selected": 40,
@@ -236,7 +264,7 @@
         "graphicsEvents": 73,
         "deliveredFrames": 255,
         "pipelineP95MaxMs": 93,
-        "pipelineScope": "Retained host graphics.pipeline batches; not input-to-pixel latency",
+        "pipelineScope": "Host registration.write batches; not decoder/pixel acknowledgement or input-to-frame latency",
         "graphicsPixelProof": false
       }
     },
@@ -267,6 +295,7 @@
         "fps": "No Android gfxinfo/SurfaceFlinger equivalent collected in this run.",
         "frameStats": "No instrumented frame timestamps; AX command duration is not input-to-frame latency."
       },
+      "rawArtifact": "split-followup.json",
       "app": {
         "binarySha256": "0395a5b017b80ab8d833dfedca8e79eefa5615074317582d9752ecde5ded8000",
         "jsSha256": "f2f89c2b3923c54b2f2f4c356adc9f3fc7fe205c6c75e2ba3bd6069e6b58132a"
@@ -290,11 +319,13 @@
           "wallSeconds": 151.5680000782013,
           "actionsCompleted": 15,
           "actionsInMeasuredWindow": 13,
+          "workloadActionsInMeasuredWindow": 12,
           "actionKinds": [
             "strip pair",
             "tree scroll pair",
             "verify herd"
-          ]
+          ],
+          "measurementSemantics": "setup included; raw timestamps retained"
         },
         {
           "name": "agent terminal and plugin navigation",
@@ -313,6 +344,7 @@
           "wallSeconds": 120.39800000190735,
           "actionsCompleted": 13,
           "actionsInMeasuredWindow": 13,
+          "workloadActionsInMeasuredWindow": 12,
           "actionKinds": [
             "agent scroll pair",
             "open agent terminal",
@@ -320,7 +352,8 @@
             "plugin Usage",
             "return herd",
             "verify herd"
-          ]
+          ],
+          "measurementSemantics": "setup included; raw timestamps retained"
         },
         {
           "name": "herd tree fling",
@@ -339,10 +372,12 @@
           "wallSeconds": 35.95599985122681,
           "actionsCompleted": 8,
           "actionsInMeasuredWindow": 7,
+          "workloadActionsInMeasuredWindow": 6,
           "actionKinds": [
             "scroll pair",
             "verify herd"
-          ]
+          ],
+          "measurementSemantics": "setup included; raw timestamps retained"
         },
         {
           "name": "herd strip paging",
@@ -361,10 +396,12 @@
           "wallSeconds": 23.917999982833862,
           "actionsCompleted": 2,
           "actionsInMeasuredWindow": 1,
+          "workloadActionsInMeasuredWindow": 0,
           "actionKinds": [
             "strip paging",
             "verify herd"
-          ]
+          ],
+          "measurementSemantics": "setup included; raw timestamps retained"
         },
         {
           "name": "document scroll and swipe",
@@ -383,7 +420,9 @@
           "wallSeconds": 30.161999940872192,
           "actionsCompleted": 0,
           "actionsInMeasuredWindow": 0,
-          "actionKinds": []
+          "workloadActionsInMeasuredWindow": 0,
+          "actionKinds": [],
+          "measurementSemantics": "setup included; raw timestamps retained"
         },
         {
           "name": "graphics pane scroll",
@@ -402,10 +441,12 @@
           "wallSeconds": 90.9760000705719,
           "actionsCompleted": 58,
           "actionsInMeasuredWindow": 57,
+          "workloadActionsInMeasuredWindow": 56,
           "actionKinds": [
             "open graphics agent",
             "scroll pair"
-          ]
+          ],
+          "measurementSemantics": "setup included; raw timestamps retained"
         },
         {
           "name": "zoom tap navigate",
@@ -424,13 +465,20 @@
           "wallSeconds": 60.394999980926514,
           "actionsCompleted": 3,
           "actionsInMeasuredWindow": 3,
+          "workloadActionsInMeasuredWindow": 2,
           "actionKinds": [
             "graphics tap and navigate",
             "open graphics agent",
             "zoom controls"
-          ]
+          ],
+          "measurementSemantics": "setup included; raw timestamps retained"
         }
       ],
+      "sampledProcess": {
+        "sampleCount": 501,
+        "expectedPid": 90654,
+        "deadOrWrongPidSamples": 0
+      },
       "tour": {
         "totalShells": null,
         "selected": null,
@@ -449,7 +497,7 @@
         "graphicsEvents": 15,
         "deliveredFrames": 77,
         "pipelineP95MaxMs": 96,
-        "pipelineScope": "Retained host graphics.pipeline batches; not input-to-pixel latency",
+        "pipelineScope": "Host registration.write batches; not decoder/pixel acknowledgement or input-to-frame latency",
         "graphicsPixelProof": false
       }
     },
@@ -478,6 +526,7 @@
         "fps": "No Android gfxinfo/SurfaceFlinger equivalent collected in this run.",
         "frameStats": "No instrumented frame timestamps; AX command duration is not input-to-frame latency."
       },
+      "rawArtifact": "targeted-followup.json",
       "app": {
         "binarySha256": "0395a5b017b80ab8d833dfedca8e79eefa5615074317582d9752ecde5ded8000",
         "jsSha256": "f2f89c2b3923c54b2f2f4c356adc9f3fc7fe205c6c75e2ba3bd6069e6b58132a"
@@ -504,6 +553,7 @@
           "wallSeconds": 148.00600004196167,
           "actionsCompleted": 38,
           "actionsInMeasuredWindow": 36,
+          "workloadActionsInMeasuredWindow": 36,
           "actionKinds": [
             "agent scroll pair",
             "background foreground",
@@ -512,7 +562,8 @@
             "plugin Usage",
             "return herd",
             "verify herd"
-          ]
+          ],
+          "measurementSemantics": "setup excluded"
         },
         {
           "name": "herd strip paging",
@@ -531,10 +582,12 @@
           "wallSeconds": 25.259999990463257,
           "actionsCompleted": 5,
           "actionsInMeasuredWindow": 3,
+          "workloadActionsInMeasuredWindow": 3,
           "actionKinds": [
             "strip paging",
             "verify herd"
-          ]
+          ],
+          "measurementSemantics": "setup excluded"
         },
         {
           "name": "document scroll and swipe",
@@ -553,7 +606,9 @@
           "wallSeconds": null,
           "actionsCompleted": 0,
           "actionsInMeasuredWindow": 0,
-          "actionKinds": []
+          "workloadActionsInMeasuredWindow": 0,
+          "actionKinds": [],
+          "measurementSemantics": "setup included; raw timestamps retained"
         },
         {
           "name": "zoom tap navigate",
@@ -572,13 +627,20 @@
           "wallSeconds": 65.77600002288818,
           "actionsCompleted": 5,
           "actionsInMeasuredWindow": 4,
+          "workloadActionsInMeasuredWindow": 4,
           "actionKinds": [
             "graphics tap and navigate",
             "open graphics agent",
             "zoom controls"
-          ]
+          ],
+          "measurementSemantics": "setup excluded"
         }
       ],
+      "sampledProcess": {
+        "sampleCount": 230,
+        "expectedPid": 90654,
+        "deadOrWrongPidSamples": 0
+      },
       "tour": {
         "totalShells": null,
         "selected": null,
@@ -597,16 +659,402 @@
         "graphicsEvents": 11,
         "deliveredFrames": 49,
         "pipelineP95MaxMs": 101,
-        "pipelineScope": "Retained host graphics.pipeline batches; not input-to-pixel latency",
+        "pipelineScope": "Host registration.write batches; not decoder/pixel acknowledgement or input-to-frame latency",
+        "graphicsPixelProof": false
+      }
+    },
+    {
+      "source": "94aac65b2fdbf4e8ff51c5f3c2a70fdfb420b2aa",
+      "initialPid": 90654,
+      "startedAt": "2026-09-07T04:30:39.286Z",
+      "finishedAt": "2026-09-07T04:34:55.531Z",
+      "load": {
+        "panes": 100,
+        "agents": 30,
+        "titleChurnHz": 2,
+        "terminalBytesPerSecond": 4096,
+        "graphicsFrameHz": 4
+      },
+      "verdict": "INCOMPLETE",
+      "splitAcceptance": true,
+      "failures": [],
+      "androidGateEquivalent": false,
+      "unsupported": {
+        "pssKb": "Android proportional-set-size accounting is unavailable on iOS.",
+        "jsBusyPercent": "No validated per-JS-thread CPU sampler for this retained Release binary.",
+        "fps": "No Android gfxinfo/SurfaceFlinger equivalent collected in this run.",
+        "frameStats": "No instrumented frame timestamps; AX command duration is not input-to-frame latency."
+      },
+      "rawArtifact": "document-zoom-followup.json",
+      "app": {
+        "binarySha256": "0395a5b017b80ab8d833dfedca8e79eefa5615074317582d9752ecde5ded8000",
+        "jsSha256": "f2f89c2b3923c54b2f2f4c356adc9f3fc7fe205c6c75e2ba3bd6069e6b58132a"
+      },
+      "crashCount": 0,
+      "phases": [
+        {
+          "name": "document scroll and swipe",
+          "drive": "document",
+          "seconds": 30,
+          "setupSeconds": 30.954,
+          "measuredSeconds": 30.001,
+          "rssFirstKb": 859072,
+          "rssLastKb": 856336,
+          "rssPeakKb": 870416,
+          "processCpuMeanPercent": 99.78152855804295,
+          "processCpuPeakPercent": 181.90854870774623,
+          "requiredScreenVerified": true,
+          "error": null,
+          "resumeProof": null,
+          "wallSeconds": 86.24300003051758,
+          "actionsCompleted": 5,
+          "actionsInMeasuredWindow": 2,
+          "workloadActionsInMeasuredWindow": 2,
+          "actionKinds": [
+            "document horizontal navigation",
+            "document vertical scroll",
+            "open actual document"
+          ],
+          "measurementSemantics": "setup excluded"
+        },
+        {
+          "name": "zoom tap navigate",
+          "drive": "zoom",
+          "seconds": 60,
+          "setupSeconds": 6.155,
+          "measuredSeconds": 60.002,
+          "rssFirstKb": 849824,
+          "rssLastKb": 776592,
+          "rssPeakKb": 851344,
+          "processCpuMeanPercent": 105.7375168607313,
+          "processCpuPeakPercent": 184.7070506454943,
+          "requiredScreenVerified": true,
+          "error": null,
+          "resumeProof": null,
+          "wallSeconds": 73.43300008773804,
+          "actionsCompleted": 11,
+          "actionsInMeasuredWindow": 8,
+          "workloadActionsInMeasuredWindow": 8,
+          "actionKinds": [
+            "graphics tap and navigate",
+            "open graphics agent",
+            "zoom controls"
+          ],
+          "measurementSemantics": "setup excluded"
+        }
+      ],
+      "sampledProcess": {
+        "sampleCount": 120,
+        "expectedPid": 90654,
+        "deadOrWrongPidSamples": 0
+      },
+      "tour": {
+        "totalShells": null,
+        "selected": null,
+        "opened": null,
+        "settleMs": null,
+        "scrollPairsPerVisit": null,
+        "backSettleMs": null,
+        "visitErrors": 0,
+        "finishedVisits": 0,
+        "rssFirstKb": null,
+        "rssLastKb": null,
+        "rssPeakKb": null
+      },
+      "host": {
+        "requests": 16,
+        "graphicsEvents": 7,
+        "deliveredFrames": 24,
+        "pipelineP95MaxMs": 102,
+        "pipelineScope": "Host registration.write batches; not decoder/pixel acknowledgement or input-to-frame latency",
         "graphicsPixelProof": false
       }
     }
   ],
+  "acceptedControlCoverage": [
+    {
+      "artifact": "control-full-run.json",
+      "source": "339f7a438cf21d98175b264661b842d27942e53c",
+      "name": "idle on the herd",
+      "drive": "idle",
+      "seconds": 120,
+      "setupSeconds": null,
+      "measuredSeconds": 120,
+      "rssFirstKb": 688448,
+      "rssLastKb": 673344,
+      "rssPeakKb": 688448,
+      "processCpuMeanPercent": 48.21697347848176,
+      "processCpuPeakPercent": 142.0059582919542,
+      "requiredScreenVerified": true,
+      "error": null,
+      "resumeProof": null,
+      "wallSeconds": 120.39000010490417,
+      "actionsCompleted": 1,
+      "actionsInMeasuredWindow": 1,
+      "workloadActionsInMeasuredWindow": 0,
+      "actionKinds": [
+        "verify herd"
+      ],
+      "measurementSemantics": "setup included; raw timestamps retained"
+    },
+    {
+      "artifact": "split-followup.json",
+      "source": "12385df724f0b778750bf88acdba59b6a430806a",
+      "name": "herd strip and tree soak",
+      "drive": "soak",
+      "seconds": 120,
+      "setupSeconds": null,
+      "measuredSeconds": 120.002,
+      "rssFirstKb": 711568,
+      "rssLastKb": 709984,
+      "rssPeakKb": 711936,
+      "processCpuMeanPercent": 103.1972271539695,
+      "processCpuPeakPercent": 179.7418073485547,
+      "requiredScreenVerified": true,
+      "error": null,
+      "resumeProof": null,
+      "wallSeconds": 151.5680000782013,
+      "actionsCompleted": 15,
+      "actionsInMeasuredWindow": 13,
+      "workloadActionsInMeasuredWindow": 12,
+      "actionKinds": [
+        "strip pair",
+        "tree scroll pair",
+        "verify herd"
+      ],
+      "measurementSemantics": "setup included; raw timestamps retained"
+    },
+    {
+      "artifact": "targeted-followup.json",
+      "source": "39dd0167476d04a84ded05abbc5d6da0c96644a1",
+      "name": "agent terminal and plugin navigation",
+      "drive": "navigate",
+      "seconds": 120,
+      "setupSeconds": 4.708,
+      "measuredSeconds": 120.002,
+      "rssFirstKb": 771040,
+      "rssLastKb": 762848,
+      "rssPeakKb": 799232,
+      "processCpuMeanPercent": 95.27676834602468,
+      "processCpuPeakPercent": 182.7209533267049,
+      "requiredScreenVerified": true,
+      "error": null,
+      "resumeProof": {
+        "method": "simctl launch existing app",
+        "pid": 90654
+      },
+      "wallSeconds": 148.00600004196167,
+      "actionsCompleted": 38,
+      "actionsInMeasuredWindow": 36,
+      "workloadActionsInMeasuredWindow": 36,
+      "actionKinds": [
+        "agent scroll pair",
+        "background foreground",
+        "open agent terminal",
+        "plugin Files",
+        "plugin Usage",
+        "return herd",
+        "verify herd"
+      ],
+      "measurementSemantics": "setup excluded"
+    },
+    {
+      "artifact": "split-followup.json",
+      "source": "12385df724f0b778750bf88acdba59b6a430806a",
+      "name": "herd tree fling",
+      "drive": "tree",
+      "seconds": 30,
+      "setupSeconds": null,
+      "measuredSeconds": 30.002,
+      "rssFirstKb": 732160,
+      "rssLastKb": 749616,
+      "rssPeakKb": 753120,
+      "processCpuMeanPercent": 123.95747682393477,
+      "processCpuPeakPercent": 181.81818181817306,
+      "requiredScreenVerified": true,
+      "error": null,
+      "resumeProof": null,
+      "wallSeconds": 35.95599985122681,
+      "actionsCompleted": 8,
+      "actionsInMeasuredWindow": 7,
+      "workloadActionsInMeasuredWindow": 6,
+      "actionKinds": [
+        "scroll pair",
+        "verify herd"
+      ],
+      "measurementSemantics": "setup included; raw timestamps retained"
+    },
+    {
+      "artifact": "targeted-followup.json",
+      "source": "39dd0167476d04a84ded05abbc5d6da0c96644a1",
+      "name": "herd strip paging",
+      "drive": "strip",
+      "seconds": 20,
+      "setupSeconds": 3.664,
+      "measuredSeconds": 20.002,
+      "rssFirstKb": 760576,
+      "rssLastKb": 761280,
+      "rssPeakKb": 763632,
+      "processCpuMeanPercent": 70.25216469502084,
+      "processCpuPeakPercent": 140.2985074626721,
+      "requiredScreenVerified": true,
+      "error": null,
+      "resumeProof": null,
+      "wallSeconds": 25.259999990463257,
+      "actionsCompleted": 5,
+      "actionsInMeasuredWindow": 3,
+      "workloadActionsInMeasuredWindow": 3,
+      "actionKinds": [
+        "strip paging",
+        "verify herd"
+      ],
+      "measurementSemantics": "setup excluded"
+    },
+    {
+      "artifact": "document-zoom-followup.json",
+      "source": "94aac65b2fdbf4e8ff51c5f3c2a70fdfb420b2aa",
+      "name": "document scroll and swipe",
+      "drive": "document",
+      "seconds": 30,
+      "setupSeconds": 30.954,
+      "measuredSeconds": 30.001,
+      "rssFirstKb": 859072,
+      "rssLastKb": 856336,
+      "rssPeakKb": 870416,
+      "processCpuMeanPercent": 99.78152855804295,
+      "processCpuPeakPercent": 181.90854870774623,
+      "requiredScreenVerified": true,
+      "error": null,
+      "resumeProof": null,
+      "wallSeconds": 86.24300003051758,
+      "actionsCompleted": 5,
+      "actionsInMeasuredWindow": 2,
+      "workloadActionsInMeasuredWindow": 2,
+      "actionKinds": [
+        "document horizontal navigation",
+        "document vertical scroll",
+        "open actual document"
+      ],
+      "measurementSemantics": "setup excluded"
+    },
+    {
+      "artifact": "control-full-run.json",
+      "source": "339f7a438cf21d98175b264661b842d27942e53c",
+      "name": "terminal text fling",
+      "drive": "terminal",
+      "seconds": 30,
+      "setupSeconds": null,
+      "measuredSeconds": 30.002,
+      "rssFirstKb": 673984,
+      "rssLastKb": 689600,
+      "rssPeakKb": 692480,
+      "processCpuMeanPercent": 63.67285457570937,
+      "processCpuPeakPercent": 151.39442231076083,
+      "requiredScreenVerified": true,
+      "error": null,
+      "resumeProof": null,
+      "wallSeconds": 30.157999992370605,
+      "actionsCompleted": 25,
+      "actionsInMeasuredWindow": 24,
+      "workloadActionsInMeasuredWindow": 23,
+      "actionKinds": [
+        "open text shell",
+        "scroll pair"
+      ],
+      "measurementSemantics": "setup included; raw timestamps retained"
+    },
+    {
+      "artifact": "split-followup.json",
+      "source": "12385df724f0b778750bf88acdba59b6a430806a",
+      "name": "graphics pane scroll",
+      "drive": "graphics",
+      "seconds": 90,
+      "setupSeconds": null,
+      "measuredSeconds": 90.002,
+      "rssFirstKb": 752336,
+      "rssLastKb": 708976,
+      "rssPeakKb": 757280,
+      "processCpuMeanPercent": 100.41491811973849,
+      "processCpuPeakPercent": 177.1144278606938,
+      "requiredScreenVerified": true,
+      "error": null,
+      "resumeProof": null,
+      "wallSeconds": 90.9760000705719,
+      "actionsCompleted": 58,
+      "actionsInMeasuredWindow": 57,
+      "workloadActionsInMeasuredWindow": 56,
+      "actionKinds": [
+        "open graphics agent",
+        "scroll pair"
+      ],
+      "measurementSemantics": "setup included; raw timestamps retained"
+    },
+    {
+      "artifact": "document-zoom-followup.json",
+      "source": "94aac65b2fdbf4e8ff51c5f3c2a70fdfb420b2aa",
+      "name": "zoom tap navigate",
+      "drive": "zoom",
+      "seconds": 60,
+      "setupSeconds": 6.155,
+      "measuredSeconds": 60.002,
+      "rssFirstKb": 849824,
+      "rssLastKb": 776592,
+      "rssPeakKb": 851344,
+      "processCpuMeanPercent": 105.7375168607313,
+      "processCpuPeakPercent": 184.7070506454943,
+      "requiredScreenVerified": true,
+      "error": null,
+      "resumeProof": null,
+      "wallSeconds": 73.43300008773804,
+      "actionsCompleted": 11,
+      "actionsInMeasuredWindow": 8,
+      "workloadActionsInMeasuredWindow": 8,
+      "actionKinds": [
+        "graphics tap and navigate",
+        "open graphics agent",
+        "zoom controls"
+      ],
+      "measurementSemantics": "setup excluded"
+    }
+  ],
+  "defaultLoadGraphicsPixelProof": false,
+  "visualDiagnostic": {
+    "configuration": "Separate pinned opaque checkerboard; same configured 100 panes/30 agents/title2Hz/terminal4096Bps/graphics4Hz, not comparable to default-fill timings",
+    "producerTarget": "First fixture pane",
+    "displayedTarget": "First agent verified by persisted route, fresh exact terminal control subprocess and Current agent header",
+    "cellWidthPx": 29,
+    "cellHeightPx": 63,
+    "cols": 80,
+    "rows": 24,
+    "pipelineFrames": 28,
+    "pixelCounts": {
+      "graphics-before.png": {
+        "magenta": 0,
+        "teal": 0
+      },
+      "graphics-after.png": {
+        "magenta": 0,
+        "teal": 0
+      }
+    },
+    "pixelProof": false,
+    "nativeLogs": "Bounded 10-minute simulator log query found UIKit input-view messages, no useful decode/GPU failure explanation; absence is not proof"
+  },
+  "originalCrash": {
+    "binarySha256": "74891c84e408282458c08c871909288f371e91876a630c16dd05c3aeb8385563",
+    "uuid": "0452090B-CFA5-3F1E-9268-5BF5681DCA18",
+    "pid": 71911,
+    "at": "2026-09-07T03:16:35.1695Z",
+    "signature": "SIGSEGV HandlerModule.swift:27 Dictionary getter on expo.modules.AsyncFunctionQueue, concurrent main-thread notification insertion",
+    "fix": "Reviewed main-queue notification task lifecycle serialization; no new crashes in patched measured attempts",
+    "invalidDiagnosticRepeat": "Fresh repeat mistakenly sampled widget PID73142; timed metrics invalid, excluded. App PID80952 separately observed alive."
+  },
   "limits": [
     "Simulator only; no physical device, real voice, APNs, battery or thermal performance claims.",
-    "RSS is not PSS; CPU whole process, not JS thread.",
-    "Original full attempt failed harness phases; split runs do not form one clean full run.",
-    "Original unpatched warmup SIGSEGV preserved; patched app has no new IPS in these runs.",
-    "Fresh-PID diagnostic repeat sampled widget incorrectly; those timed metrics invalid and excluded."
+    "RSS is not PSS; CPU is whole-process and may exceed100% across cores, not JS-thread CPU. Unsupported Android metrics remain null; no invented thresholds.",
+    "The original complete attempt retains FAILED_OBSERVATIONS. Successful selected phases are separate runs, not one clean full pass.",
+    "Retained app container and prior pairings preserved; each run uses fresh isolated host handshake via normal QR consent.",
+    "Reviewed plugins registered; disposable Git fixture README has2000 generated lines but actual viewer preview caps240 lines/24KiB.",
+    "AX injection/lookup delays and in-flight overrun are measured separately where available; action duration is not user input latency."
   ]
 }
