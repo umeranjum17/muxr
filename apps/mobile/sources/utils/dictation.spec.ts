@@ -5,7 +5,7 @@ import { useDictation } from '@/utils/dictation';
 import { pcm16ChunksToArrayBuffer } from '@/utils/transcription';
 import { wakeAndReport } from '@/watch/application/wakeAndReport';
 import { usePluginEvents } from '@/plugins/events';
-import { cancelRealtimeReportWait, configureVadStandby, micOwners, realtimeGeneration, realtimeWatchTarget, registerRealtimeNotificationStart, releaseDictation, resolveRealtimeTarget, retryVadStandby, startRealtimeSession, stopRealtimeSession } from '@/conversation/session';
+import { cancelRealtimeReportWait, configureVadStandby, micOwners, realtimeGeneration, realtimeWatchTarget, registerRealtimeNotificationStart, releaseDictation, resolveRealtimeTarget, retryVadStandby, startRealtimeSession, stopRealtimeSession, useRealtimeMuted } from '@/conversation/session';
 
 const mocks = vi.hoisted(() => ({
     sessions: {} as Record<string, { id: string; activeAt: number; updatedAt: number }>,
@@ -20,8 +20,8 @@ const mocks = vi.hoisted(() => ({
     startVoiceService: vi.fn(),
     setVoiceNetworkActive: vi.fn(),
     stopVoiceService: vi.fn(),
-    notificationAction: null as ((action: 'start' | 'stop' | 'mute') => void) | null,
-    addVoiceNotificationActionListener: vi.fn((listener: (action: 'start' | 'stop' | 'mute') => void) => {
+    notificationAction: null as ((action: 'start' | 'stop' | 'mute', desiredMuted?: boolean) => void) | null,
+    addVoiceNotificationActionListener: vi.fn((listener: (action: 'start' | 'stop' | 'mute', desiredMuted?: boolean) => void) => {
         mocks.notificationAction = listener;
         return { remove: () => undefined };
     }),
@@ -120,6 +120,13 @@ function PluginHarness() {
     return null;
 }
 
+/** What the mic button and the Live Activity both read. */
+let mutedNow = false;
+function MutedHarness() {
+    mutedNow = useRealtimeMuted();
+    return null;
+}
+
 async function renderDictation() {
     await act(async () => {
         renderer = TestRenderer.create(React.createElement(Harness));
@@ -157,6 +164,7 @@ beforeEach(() => {
     mocks.lifecycleCatalogInitialized = true;
     mocks.lifecycleCatalogAvailable = true;
     mocks.pluginSnapshot = [];
+    mutedNow = false;
     mocks.capability.mockReset();
     vi.clearAllMocks();
 });
@@ -216,8 +224,47 @@ describe('on-device dictation flow', () => {
         expect(mocks.startVoiceService).toHaveBeenCalledOnce();
         expect(mocks.startRealtimeSession).toHaveBeenCalledOnce();
 
-        mocks.notificationAction?.('mute');
-        expect(setMuted).toHaveBeenCalledWith(true);
+        act(() => { renderer = TestRenderer.create(React.createElement(MutedHarness)); });
+
+        // Android's legacy action carries no state, so it stays a toggle.
+        act(() => { mocks.notificationAction?.('mute'); });
+        expect(setMuted).toHaveBeenLastCalledWith(true);
+        expect(mutedNow).toBe(true);
+        act(() => { mocks.notificationAction?.('mute'); });
+        expect(setMuted).toHaveBeenLastCalledWith(false);
+        expect(mutedNow).toBe(false);
+
+        // The Live Activity sends the state its control was showing. Pressing a
+        // stale mute twice must settle on muted, never flip back to an open mic.
+        act(() => { mocks.notificationAction?.('mute', true); });
+        act(() => { mocks.notificationAction?.('mute', true); });
+        expect(setMuted.mock.calls).toEqual([[true], [false], [true]]);
+        expect(mutedNow).toBe(true);
+
+        act(() => { mocks.notificationAction?.('mute', false); });
+        act(() => { mocks.notificationAction?.('mute', false); });
+        expect(setMuted.mock.calls).toEqual([[true], [false], [true], [false]]);
+        expect(mutedNow).toBe(false);
+
+        // After teardown the control is stale: neither form may reopen the
+        // microphone or leave a mute flag armed for the next call.
+        act(() => { mocks.notificationAction?.('stop'); });
+        act(() => { mocks.notificationAction?.('stop'); });
+        expect(micOwners()).toEqual([]);
+        act(() => { mocks.notificationAction?.('mute', true); });
+        expect(mutedNow).toBe(false);
+        act(() => { mocks.notificationAction?.('mute'); });
+        expect(mutedNow).toBe(false);
+        expect(setMuted).toHaveBeenCalledTimes(4);
+
+        // Only an explicit start talks; an action this build does not know must
+        // not fall through and open a session.
+        const raw = mocks.notificationAction as ((action: string) => void) | null;
+        act(() => { raw?.('snooze'); });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(mocks.startVoiceService).toHaveBeenCalledOnce();
+        expect(mocks.startRealtimeSession).toHaveBeenCalledOnce();
+        expect(micOwners()).toEqual([]);
     });
 
     it('keeps a newer historical route out of notification voice targeting', async () => {

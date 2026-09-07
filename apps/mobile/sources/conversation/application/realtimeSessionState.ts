@@ -163,10 +163,10 @@ export function registerRealtimeNotificationStart(handler: () => void | Promise<
     return () => { if (notificationStart === handler) notificationStart = () => {}; };
 }
 
-addVoiceNotificationActionListener((action) => {
+addVoiceNotificationActionListener((action, desiredMuted) => {
     if (action === 'stop') stopRealtimeSession();
-    else if (action === 'mute') toggleRealtimeMuted();
-    else void notificationStart();
+    else if (action === 'mute') applyRealtimeMuted(desiredMuted);
+    else if (action === 'start') void notificationStart();
 });
 
 export async function claimDictation(): Promise<'granted' | 'busy' | 'already'> {
@@ -494,10 +494,26 @@ export function stopRealtimeSession(): void {
     });
 }
 
-export function toggleRealtimeMuted(): void {
-    muted = !muted;
+/**
+ * An explicit `desired` state is applied as requested rather than toggled: the
+ * Live Activity sends the state its control was showing, so a repeated mute
+ * request leaves the session muted. Omitting it keeps the legacy toggle used by
+ * the in-app button and the Android notification action.
+ *
+ * With no live session this is a no-op. A stale control must never open the
+ * microphone, and must never leave a mute flag set for the next call.
+ */
+export function applyRealtimeMuted(desired?: boolean): void {
+    if (session === null && !starting) return;
+    const next = desired ?? !muted;
+    if (next === muted) return;
+    muted = next;
     session?.setMuted(muted);
     notify();
+}
+
+export function toggleRealtimeMuted(): void {
+    applyRealtimeMuted();
 }
 
 function subscribe(listener: () => void) {
