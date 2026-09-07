@@ -12,6 +12,8 @@ const ghosttyView = read('node_modules/expo-libghostty/android/src/main/java/exp
 const ghosttyTerminal = read('node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/GhosttyTerminalView.kt');
 const ghosttyIosModule = read('node_modules/expo-libghostty/ios/ExpoLibghosttyModule.swift');
 const ghosttyIosView = read('node_modules/expo-libghostty/ios/ExpoLibghosttyView.swift');
+const ghosttyIosTerminal = read('node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView.swift');
+const ghosttyIosInteraction = read('node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView+Interaction.swift');
 const liveAudioPatch = read('patches/react-native-live-audio-stream+1.1.1.patch');
 const liveAudioModule = read(
     'node_modules/react-native-live-audio-stream/android/src/main/java/com/imxiqi/rnliveaudiostream/RNLiveAudioStreamModule.java',
@@ -55,19 +57,28 @@ const workspaceBuild = androidBuild.indexOf('(cd "$ROOT" && yarn build)');
 const vitestGate = androidBuild.indexOf('npx vitest run');
 const gradleBuild = androidBuild.indexOf(':app:assembleRelease');
 const checks = [
-    ['Android terminal supports explicit keyboard without opening IME on every tap',
+    ['Terminal supports an explicit keyboard without raising one on every tap',
         ghosttyPatch.includes('autoShowKeyboard') &&
         ghosttyTerminal.includes('if (autoShowKeyboard) showKeyboard()') &&
         ghosttyView.includes('fun showKeyboard() = terminal.showKeyboard()') &&
         read('node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/ExpoLibghosttyModule.kt').includes('AsyncFunction("showKeyboard")') &&
-        read('node_modules/expo-libghostty/build/ExpoLibghosttyView.js').includes('native.current.showKeyboard()')],
+        read('node_modules/expo-libghostty/build/ExpoLibghosttyView.js').includes('native.current.showKeyboard()') &&
+        ghosttyIosTerminal.includes('open var autoShowKeyboard = true') &&
+        ghosttyIosModule.includes('AsyncFunction("showKeyboard")') &&
+        ghosttyIosView.includes('terminalView.showKeyboard()')],
+    // Android takes focus on every tap and only gates the IME, so hardware and
+    // accessory keys keep working with the keyboard down. iOS cannot resign to
+    // hide one without losing key input, so an empty input view stands in.
+    ['A suppressed iOS keyboard still leaves the terminal holding key input',
+        ghosttyIosTerminal.includes('softwareKeyboardSuppressed ? suppressedInputView : nil') &&
+        ghosttyIosInteraction.includes('softwareKeyboardSuppressed = !autoShowKeyboard\n                    becomeFirstResponder()')],
     ['Ghostty patch hides its accessory bar on Android and iOS',
         ghosttyPatch.includes('accessoryBar.visibility = GONE') &&
         ghosttyView.includes('accessoryBar.visibility = GONE') &&
         ghosttyPatch.includes('terminalView.inputAccessoryItems = []') &&
         ghosttyIosView.includes('terminalView.inputAccessoryItems = []')],
     [
-        'Ghostty patch supports symmetric Android hideKeyboard alongside showKeyboard',
+        'Ghostty patch supports symmetric hideKeyboard alongside showKeyboard',
         ghosttyPatch.includes('AsyncFunction("hideKeyboard")') &&
             ghosttyPatch.includes('fun hideKeyboard() = terminal.hideKeyboard()') &&
             ghosttyPatch.includes('hideSoftInputFromWindow') &&
@@ -77,7 +88,9 @@ const checks = [
             ghosttyView.includes('fun hideKeyboard() = terminal.hideKeyboard()') &&
             read('node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/ExpoLibghosttyModule.kt').includes('AsyncFunction("hideKeyboard")') &&
             read('node_modules/expo-libghostty/build/ExpoLibghosttyView.js').includes('native.current.hideKeyboard()') &&
-            read('node_modules/expo-libghostty/build/ExpoLibghostty.types.d.ts').includes('hideKeyboard(): Promise<void>'),
+            read('node_modules/expo-libghostty/build/ExpoLibghostty.types.d.ts').includes('hideKeyboard(): Promise<void>') &&
+            ghosttyIosModule.includes('AsyncFunction("hideKeyboard")') &&
+            ghosttyIosView.includes('terminalView.hideKeyboard()'),
     ],
     ['Ghostty patch forwards scroll rows', ghosttyPatch.includes('onScrollRows') && ghosttyTerminal.includes('onScrollRows') && ghosttyView.includes('onScroll')],
     [
