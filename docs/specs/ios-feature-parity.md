@@ -111,7 +111,8 @@ emit the existing `mute` action with an **optional** `desiredMuted` boolean:
 
 **Native side pending, Mac.** `actionsAvailable` gates the controls on a JS listener having been
 observed *and* voice being active, so stale or unavailable controls are hidden rather than shown
-dead. The intent awaits the reflected `updateNotification` state under a bounded timeout and reports
+dead. Per the Mac and root agreed contract it **excludes `connecting`**; the shared deferred-start
+mute fix does not broaden that gate and no broadening is requested. The intent awaits the reflected `updateNotification` state under a bounded timeout and reports
 no local success it has not seen confirmed.
 
 **Still pending reliable implementation and validation as a whole.** Compiling is not the bar; the
