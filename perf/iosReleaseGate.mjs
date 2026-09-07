@@ -32,6 +32,7 @@ const udid=flag('--udid'), app=flag('--app'), record=flag('--record');
 if(!udid||!app||!record)throw new Error('Required: --udid UDID --app retained.app --record report.json');
 const evidence=join(dirname(resolve(record)),`${record.split('/').at(-1).replace(/\.json$/,'')}-evidence`);
 mkdirSync(evidence,{recursive:true});
+const terminalTrace=join(evidence,'fake-terminal-lifecycle.log');process.env.FAKE_HERDR_LOG=terminalTrace;
 const scope=new CommandScope();useCommandScope(scope);
 const ui=new IosControls(udid), bundle='com.trymuxr.app';
 const started=Date.now(), failures=[], journal=new Map();
@@ -94,13 +95,14 @@ async function proveAttach(paneId,since){
     do {
         collectJournal();
         const attaches=jsonl(stack.attachJsonl).filter(row=>row.pane_id===paneId&&Date.parse(row.at)>=since);
+        const controls=existsSync(terminalTrace)?readFileSync(terminalTrace,'utf8').split('\n').filter(line=>Date.parse(line.split(' ')[0])>=since&&line.includes(` start terminal session control ${paneId} `)):[];
         const requests=[...journal.values()].filter(row=>row.event==='client.request'&&row.request==='terminal.attach'&&row.outcome==='ok'&&Date.parse(row.at)>=since);
         const nodes=await ui.ui();
         const current=nodes.find(n=>ui.visible(n)&&/^Current /.test(n.AXLabel??''));
         const headerMatches=agent ? current?.AXLabel.includes(`${agent.agent}/${agent.name}`) : nodes.some(n=>ui.visible(n)&&/^(Enter|Control)$/.test(n.AXLabel??''));
         const resizes=jsonl(stack.cellMetricsJsonl).filter(row=>row.pane_id===paneId&&Date.parse(row.at)>=since&&[row.cols,row.rows,row.cellWidthPx,row.cellHeightPx].every(v=>Number.isFinite(v)&&v>0));
         const hellos=jsonl(stack.graphicsInputJsonl).filter(row=>row.source==='graphics.ClientHello'&&[row.cols,row.rows,row.cellWidthPx,row.cellHeightPx].every(v=>Number.isFinite(v)&&v>0));
-        if(attaches.length&&requests.length&&headerMatches&&(!agent||resizes.length||hellos.length))return {paneId,since,attaches,requests,header:current?.AXLabel??'shell terminal controls',resizes,hellos:hellos.slice(-1),helloFresh:hellos.some(row=>Date.parse(row.at)>=since),geometryScope:'latest connection hello plus fresh selected-route attach and current header'};
+        if(controls.length&&requests.length&&headerMatches&&(!agent||resizes.length||hellos.length))return {paneId,since,controls,paneReads:attaches,requests,header:current?.AXLabel??'shell terminal controls',resizes,hellos:hellos.slice(-1),helloFresh:hellos.some(row=>Date.parse(row.at)>=since),geometryScope:'latest connection hello plus fresh selected-route attach and current header'};
         await sleep(300);
     }while(Date.now()<deadline); throw new Error('Fresh selected-pane attachment/header/native graphics evidence absent');
 }
