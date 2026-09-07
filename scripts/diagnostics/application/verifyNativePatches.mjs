@@ -12,6 +12,8 @@ const ghosttyView = read('node_modules/expo-libghostty/android/src/main/java/exp
 const ghosttyTerminal = read('node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/GhosttyTerminalView.kt');
 const ghosttyIosModule = read('node_modules/expo-libghostty/ios/ExpoLibghosttyModule.swift');
 const ghosttyIosView = read('node_modules/expo-libghostty/ios/ExpoLibghosttyView.swift');
+const notificationsPatch = read('patches/expo-notifications+55.0.13.patch');
+const notificationsHandler = read('node_modules/expo-notifications/ios/ExpoNotifications/Notifications/Handler/HandlerModule.swift');
 const ghosttyIosTerminal = read('node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView.swift');
 const ghosttyIosInteraction = read('node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView+Interaction.swift');
 const liveAudioPatch = read('patches/react-native-live-audio-stream+1.1.1.patch');
@@ -76,6 +78,16 @@ const checks = [
         /\} else if autoShowKeyboard \{[^}]*showKeyboard\(\)/.test(ghosttyIosInteraction) &&
         ghosttyIosInteraction.includes('softwareKeyboardSuppressed = true\n                    becomeFirstResponder()') &&
         ghosttyIosTerminal.includes('guard softwareKeyboardSuppressed != oldValue, isFirstResponder else { return }')],
+    // A notification's task map was read on the async function queue while the
+    // delegate inserted into it on main, which is a segfault in the getter, not
+    // a lost update. Every touch of the map and of a task's own timer is on main
+    // now; upstream PR 45096 documents the race as still open.
+    ['notification handler tasks live only on the main thread',
+        notificationsPatch.includes('.runOnQueue(.main)') &&
+        notificationsPatch.includes('DispatchQueue.main.async(execute: startTask)') &&
+        notificationsHandler.includes('}.runOnQueue(.main)') &&
+        notificationsHandler.includes('DispatchQueue.main.async(execute: startTask)') &&
+        !/tasksMap\[task\.identifier\] = task\n {4}task\.start\(\)/.test(notificationsHandler)],
     ['Ghostty patch hides its accessory bar on Android and iOS',
         ghosttyPatch.includes('accessoryBar.visibility = GONE') &&
         ghosttyView.includes('accessoryBar.visibility = GONE') &&
