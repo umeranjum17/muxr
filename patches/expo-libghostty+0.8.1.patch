@@ -800,18 +800,24 @@ index 12925b5..dd7e256 100644
    func finish(exitCode: UInt32) {
      session?.finish(exitCode: exitCode, runtimeMilliseconds: 0)
 diff --git a/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView+Interaction.swift b/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView+Interaction.swift
-index 3f3eeb2..eb96835 100644
+index 3f3eeb2..1219214 100644
 --- a/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView+Interaction.swift
 +++ b/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView+Interaction.swift
-@@ -26,6 +26,7 @@
+@@ -25,7 +25,13 @@
+                 touchDidScrollDuringCurrentTouch = false
                  if softwareKeyboardVisible {
                      pendingKeyboardDismissOnTouchEnd = true
++                } else if autoShowKeyboard {
++                    // Already first responder is the common case, and becoming
++                    // one again is a no-op, so the keyboard has to be asked for
++                    // explicitly rather than implied by taking focus.
++                    showKeyboard()
                  } else {
-+                    softwareKeyboardSuppressed = !autoShowKeyboard
++                    softwareKeyboardSuppressed = true
                      becomeFirstResponder()
                  }
              #endif
-@@ -532,12 +533,16 @@
+@@ -532,12 +538,16 @@
                      "touch scroll changed translation=\(String(format: "%.2f", translation.x))x\(String(format: "%.2f", translation.y))"
                  )
 
@@ -834,7 +840,7 @@ index 3f3eeb2..eb96835 100644
 
              case .ended:
                  guard activePointerButton == nil else { return }
-@@ -566,8 +571,10 @@
+@@ -566,8 +576,10 @@
                  "momentum start velocity=\(String(format: "%.2f", velocity.x))x\(String(format: "%.2f", velocity.y))"
              )
 
@@ -847,7 +853,7 @@ index 3f3eeb2..eb96835 100644
 
              let link = CADisplayLink(
                  target: self,
-@@ -597,19 +604,23 @@
+@@ -597,19 +609,23 @@
                  "momentum frame velocity=\(String(format: "%.2f", momentumVelocity.x))x\(String(format: "%.2f", momentumVelocity.y)) delta=\(String(format: "%.2f", deltaX))x\(String(format: "%.2f", deltaY))"
              )
 
