@@ -112,10 +112,11 @@ async function proveAttach(paneId,since){
 async function firstAgent(){await ui.home();const since=Date.now();await ui.open(`session/${encodeURIComponent(firstRoute())}`);await terminal();return proveAttach(stack.world.panes[0].pane_id,since);}
 async function shell(pane){const since=Date.now();await ui.open(`session/${encodeURIComponent('shell:'+pane.pane_id)}`);await terminal();return proveAttach(pane.pane_id,since);}
 async function document(){
-    await ui.home();await ui.tapMatch(/^Files$/);await ui.waitFor(/README.md|All Files|Changes|project|fake-herdr/);
-    if(!await ui.tapMatch(/^README.md$/,{optional:true})){await ui.tapMatch(/^(project|fake-herdr|muxr)$/);await ui.waitFor(/README.md/);await ui.tapMatch(/README.md/);}
+    await ui.home();await ui.tapMatch(/^Files$/);await ui.waitFor(/^Repositories$/);
+    await ui.tapMatch(/^project$/);await ui.waitFor(/^File README.md$/);await ui.tapMatch(/^File README.md$/);
     await ui.waitFor(/^# iOS load document$|^Line 1: deterministic document/);
 }
+
 async function drive(phase, end, entry, prepareOnly=false){
     const step=async(name,fn)=>{const at=Date.now();try{await fn();entry.actions.push({name,at:new Date(at).toISOString(),elapsedMs:Date.now()-at,ok:true,completedAt:new Date().toISOString()});}
         catch(error){entry.actions.push({name,at:new Date(at).toISOString(),elapsedMs:Date.now()-at,ok:false,error:error.message});throw error;}};
@@ -150,8 +151,8 @@ async function drive(phase, end, entry, prepareOnly=false){
             if(end-Date.now()<10_000)await step('document horizontal navigation',()=>ui.swipe(320,440,80,440,.3));
         }
         if(phase.drive==='zoom'){
-            await step('zoom controls',async()=>{await ui.tapMatch(/^Show terminal controls$/,{optional:true});await ui.waitFor(/^Zoom in$/);await ui.tapMatch(/^Zoom in$/);await sleep(450);await ui.tapMatch(/^Zoom out$/);await sleep(450);await ui.tapMatch(/^Reset zoom$/);});
-            await step('graphics tap and navigate',async()=>{await ui.tap(160,300);await ui.scrollPair(.12);await ui.swipe(300,440,100,440,.3);});
+            await step('zoom controls',async()=>{if((await ui.ui()).some(n=>ui.visible(n)&&n.AXLabel==='Show terminal controls'))await command('axe',['tap','--label','Show terminal controls','--tap-style','physical','--udid',udid]);await ui.waitFor(/^Zoom in$/);await ui.tapMatch(/^Zoom in$/);await sleep(450);await ui.tapMatch(/^Zoom out$/);await sleep(450);await ui.tapMatch(/^Reset zoom$/);});
+            await step('graphics tap and navigate',async()=>{await ui.tap(160,300);await ui.scrollPair(.12);await ui.swipe(300,440,100,440,.3);await sleep(700);});
         }
     }
     entry.requiredScreenVerified=entry.screenSetupVerified&&(phase.drive==='idle'||entry.actions.some(a=>a.ok&&Date.parse(a.completedAt)<=end&&!/^(verify|open actual|open text|open graphics)/.test(a.name)));
