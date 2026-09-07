@@ -114,11 +114,12 @@ async function shell(pane){const since=Date.now();await ui.open(`session/${encod
 async function document(){
     await ui.home();await ui.tapMatch(/^Files$/);await ui.waitFor(/README.md|All Files|Changes|project|fake-herdr/);
     if(!await ui.tapMatch(/^README.md$/,{optional:true})){await ui.tapMatch(/^(project|fake-herdr|muxr)$/);await ui.waitFor(/README.md/);await ui.tapMatch(/README.md/);}
-    await ui.waitFor(/README.md/);
+    await ui.waitFor(/^# iOS load document$|^Line 1: deterministic document/);
 }
-async function drive(phase, end, entry){
+async function drive(phase, end, entry, prepareOnly=false){
     const step=async(name,fn)=>{const at=Date.now();try{await fn();entry.actions.push({name,at:new Date(at).toISOString(),elapsedMs:Date.now()-at,ok:true,completedAt:new Date().toISOString()});}
         catch(error){entry.actions.push({name,at:new Date(at).toISOString(),elapsedMs:Date.now()-at,ok:false,error:error.message});throw error;}};
+    if(!entry.screenSetupVerified){
     const agentIds=new Set(stack.world.agents.map(a=>a.pane_id));
     const firstShell=stack.world.panes.find(p=>!agentIds.has(p.pane_id));
     if(['idle','soak','navigate','tree','strip'].includes(phase.drive))await step('verify herd',()=>ui.home());
@@ -130,6 +131,8 @@ async function drive(phase, end, entry){
         if(!entry.graphicsTargetSeen)throw new Error('Graphics fixture pane attach not proven');
     }
     entry.screenSetupVerified=true;entry.beforeScreenshot=await shot(`${phase.drive}-before`);
+    }
+    if(prepareOnly)return;
     while(Date.now()<end){
         if(phase.drive==='idle'){await sleep(Math.min(3000,end-Date.now()));continue;}
         if(phase.drive==='soak'){await step('strip pair',()=>ui.stripPair());await step('tree scroll pair',()=>ui.scrollPair(.3));}
@@ -138,7 +141,7 @@ async function drive(phase, end, entry){
             for(let i=0;i<8&&Date.now()<end;i++)await step('agent scroll pair',()=>ui.scrollPair(.09));
             await step('return herd',()=>ui.home());
             for(const label of ['Usage','Files']){if(Date.now()>=end)break;await step('plugin '+label,async()=>{await ui.tapMatch(new RegExp('^'+label+'$'));await ui.waitFor(label==='Files'?/Repositories|repositories|All files|No git repositories/:/Today|This week|Usage by|Total|tokens|No usage|Cost|Local activity|limits unavailable/i);await ui.home();});}
-            if(Date.now()<end)await step('background foreground',async()=>{await ui.background();await ui.foreground();await ui.waitFor(/^(LIVE|SPACES|Machine)$/);});
+            if(Date.now()<end)await step('background foreground',async()=>{await ui.background();entry.resumeProof=await ui.foreground();if(entry.resumeProof.pid!==initialPid)throw new Error('App PID changed on resume');await ui.restoreHomeTop();await ui.waitFor(/^(LIVE|SPACES|Machine)$/);});
         }
         if(['tree','terminal','graphics'].includes(phase.drive))await step('scroll pair',()=>ui.scrollPair(.12));
         if(phase.drive==='strip')await step('strip paging',()=>ui.stripPair());
@@ -218,6 +221,9 @@ try{
     report.warmup=await sampleWindow(30,[]);persist();
     for(const phase of selectedPhases){
         const entry={...phase,startedAt:new Date().toISOString(),actions:[],requiredScreenVerified:false};report.phases.push(entry);log('phase '+phase.name);
+        const setupAt=Date.now();
+        try{await drive(phase,Date.now(),entry,true);}catch(error){entry.error=error.message;entry.setupSeconds=(Date.now()-setupAt)/1000;fail(phase.name+': setup: '+error.message);continue;}
+        entry.setupSeconds=(Date.now()-setupAt)/1000;entry.measuredStartedAt=new Date().toISOString();
         const end=Date.now()+phase.seconds*1000;
         const driving=drive(phase,end,entry).catch(error=>{entry.error=error.message;fail(phase.name+': '+error.message);});
         Object.assign(entry,await sampleWindow(phase.seconds,[]));await driving;
