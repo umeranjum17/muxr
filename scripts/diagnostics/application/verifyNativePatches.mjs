@@ -71,7 +71,9 @@ const checks = [
     // hide one without losing key input, so an empty input view stands in.
     ['A suppressed iOS keyboard still leaves the terminal holding key input',
         ghosttyIosTerminal.includes('softwareKeyboardSuppressed ? suppressedInputView : nil') &&
-        ghosttyIosInteraction.includes('} else if autoShowKeyboard {\n                    // Already first responder is the common case') &&
+        // Bounded to the branch body: [^}] cannot cross the closing brace, so
+        // this fails if the call is removed, comment or no comment.
+        /\} else if autoShowKeyboard \{[^}]*showKeyboard\(\)/.test(ghosttyIosInteraction) &&
         ghosttyIosInteraction.includes('softwareKeyboardSuppressed = true\n                    becomeFirstResponder()') &&
         ghosttyIosTerminal.includes('guard softwareKeyboardSuppressed != oldValue, isFirstResponder else { return }')],
     ['Ghostty patch hides its accessory bar on Android and iOS',
