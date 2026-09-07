@@ -150,7 +150,7 @@ async function drive(phase, end, entry, prepareOnly=false){
             if(end-Date.now()<10_000)await step('document horizontal navigation',()=>ui.swipe(320,440,80,440,.3));
         }
         if(phase.drive==='zoom'){
-            await step('zoom controls',async()=>{await ui.tapMatch(/^Show terminal controls$/,{optional:true});await ui.tapMatch(/^Zoom in$/);await sleep(450);await ui.tapMatch(/^Zoom out$/);await sleep(450);await ui.tapMatch(/^Reset zoom$/);});
+            await step('zoom controls',async()=>{await ui.tapMatch(/^Show terminal controls$/,{optional:true});await ui.waitFor(/^Zoom in$/);await ui.tapMatch(/^Zoom in$/);await sleep(450);await ui.tapMatch(/^Zoom out$/);await sleep(450);await ui.tapMatch(/^Reset zoom$/);});
             await step('graphics tap and navigate',async()=>{await ui.tap(160,300);await ui.scrollPair(.12);await ui.swipe(300,440,100,440,.3);});
         }
     }
