@@ -379,6 +379,54 @@ describe('Herdr graphics flow', () => {
     // a repaint of one supersedes only itself, the program's delete removes
     // exactly what it named, and a gesture leaves the pane as few wheel notches
     // as the pane has answered frames.
+    it('replays a program image at the cell it was placed at, not the pane it sits in', async () => {
+        // A phone returning from the background re-registers and is replayed the
+        // pane's live placements. An inline placement is encoded in pane-local
+        // cells, so the replay has to carry the rect the placement was scanned
+        // against or the image lands shifted right by the pane's own offset.
+        const socket = Object.assign(new EventEmitter(), { writable: true, write: () => true, destroy: () => {} });
+        const bridge = Reflect.construct(HerdrGraphicsBridge, [socket, 'herdr']) as HerdrGraphicsBridge;
+        const internals = bridge as unknown as {
+            sourcePane: (leading: Buffer) => Promise<string | undefined>;
+            visibleRect: (paneId: string) => Promise<{ x: number; y: number; width: number; height: number } | undefined>;
+            queueInline: (data: Buffer) => void;
+            drainInline: () => Promise<void>;
+            inlineQueue: unknown[];
+            inlineDraining: boolean;
+        };
+        internals.sourcePane = async () => 'pane';
+        internals.visibleRect = async () => ({ x: 26, y: 1, width: 94, height: 39 });
+
+        const frames: string[] = [];
+        const phone = {
+            channel: 'phone', paneId: 'pane', cols: 94, rows: 39, cellWidthPx: 8, cellHeightPx: 16,
+            write: (frame: string) => { frames.push(Buffer.from(JSON.parse(frame).bytes as string, 'base64').toString('utf8')); },
+        };
+        bridge.register(phone);
+
+        const drain = vi.spyOn(internals, 'drainInline');
+        const pixels = Buffer.alloc(2 * 2 * 4, 7).toString('base64');
+        internals.queueInline(Buffer.from(
+            '\u001b[3;27H'
+            + `\u001b_Ga=t,f=32,s=2,v=2,i=43,m=0;${pixels}\u001b\\`
+            + '\u001b_Ga=p,i=43,c=6,r=3;\u001b\\',
+        ));
+        await drain.mock.results.at(-1)?.value;
+        expect(internals.inlineQueue).toHaveLength(0);
+        expect(internals.inlineDraining).toBe(false);
+        expect(frames).toHaveLength(1);
+        // Global cell 3;27 inside a pane at x 26, y 1 is pane-local cell 2;1.
+        expect(frames[0]).toContain('\u001b[2;1H');
+
+        // Backgrounding and returning replays what the pane is showing.
+        bridge.unregister('phone');
+        frames.length = 0;
+        bridge.register(phone);
+        expect(frames).toHaveLength(1);
+        expect(frames[0]).toContain('\u001b[2;1H');
+        expect(frames[0]).not.toContain('\u001b[3;27H');
+    });
+
     it('keeps two program images, coalesces repaints, and paces a gesture', async () => {
         const socket = Object.assign(new EventEmitter(), {
             writable: true,

@@ -106,7 +106,9 @@ type ServerMessage =
 type InlineWork = { block: InlineKittyBlock; at: number; deleteStamp?: number };
 
 /** What a pane is currently showing, keyed by Herdr's own placement key. */
-type LivePlacement = { image: PreparedImage; block: InlineKittyBlock; surface: GraphicsSurface };
+// The pane rect the block was placed against. An inline placement is encoded in
+// pane-local cells, so a replay without it lands at the block's global column.
+type LivePlacement = { image: PreparedImage; block: InlineKittyBlock; surface: GraphicsSurface; rect?: Rect };
 
 /** Whether an image is the pane's whole surface or sits inside its text. */
 export type GraphicsSurface = 'full' | 'inline';
@@ -257,7 +259,7 @@ export class HerdrGraphicsBridge {
         if (live !== undefined && live.size > 0) {
             for (const placement of live.values()) {
                 registration.write(terminalFrame(
-                    encodeKitty(placement.image, registration, 'none', placement.block, undefined, placement.surface),
+                    encodeKitty(placement.image, registration, 'none', placement.block, placement.rect, placement.surface),
                     registration,
                     true,
                     undefined,
@@ -685,7 +687,7 @@ export class HerdrGraphicsBridge {
         const surface = surfaceOf(block, rect);
         const live = this.placementsFor(paneId);
         const previous = live.get(key);
-        live.set(key, { image, block, surface });
+        live.set(key, { image, block, surface, ...(rect === undefined ? {} : { rect }) });
         if (live.size > MAX_LIVE_PLACEMENTS) {
             const oldest = live.keys().next().value;
             if (oldest !== undefined && oldest !== key) live.delete(oldest);
