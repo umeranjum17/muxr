@@ -1,11 +1,12 @@
 import { EventEmitter, once } from 'node:events';
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createServer, type Socket } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { deflateSync, inflateSync } from 'node:zlib';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { HerdrGraphicsBridge, MAX_IMAGE_BYTES, decodeServerMessage, encodeKitty, mapGraphicsPointer, routeGraphicsPane } from './herdrGraphicsBridge.js';
+import { GraphicsTrace, graphicsTrace } from './graphicsTrace.js';
 
 const uint = (value: number | bigint): Buffer => {
     const number = BigInt(value);
@@ -1107,6 +1108,34 @@ console.log(JSON.stringify({ result: replies[command] }));
             bridge?.close();
             producer?.destroy();
             await new Promise<void>((resolve) => { server.close(() => resolve()); });
+            rmSync(dir, { recursive: true, force: true });
+        }
+    });
+    it('keeps the diagnostic trace opt-in, bounded, and out of the frame path', async () => {
+        // Off unless explicitly enabled, so an ordinary host records nothing.
+        // The rest of this file passes identically with tracing on, which is
+        // what shows the trace does not change graphics output.
+        if (process.env.MUXR_GRAPHICS_TRACE === undefined) expect(graphicsTrace).toBeUndefined();
+
+        const dir = mkdtempSync(join(tmpdir(), 'muxr-graphics-trace-'));
+        const path = join(dir, 'trace.jsonl');
+        const trace = new GraphicsTrace(path);
+        try {
+            // Far past the cap: storage must stop growing, not keep the tail.
+            for (let i = 0; i < 5000; i += 1) trace.add('refine.arm', { pane: `pane-${i % 3}`, delayMs: i });
+            trace.frame('frame.handoff', 'x'.repeat(4096), { pane: 'pane-0' });
+            trace.close();
+
+            const lines = readFileSync(path, 'utf8').trim().split('\n');
+            const records = lines.map((line) => JSON.parse(line) as Record<string, unknown>);
+            expect(records.length).toBeLessThanOrEqual(4097);
+            expect(records.at(-1)).toMatchObject({ event: 'trace.capped' });
+            // Metadata only: pane identity is a per-run token, never the id.
+            const panes = new Set(records.map((record) => record.pane).filter((value) => value !== undefined));
+            expect([...panes].every((value) => /^pane[0-9]+$/.test(String(value)))).toBe(true);
+            expect(readFileSync(path, 'utf8')).not.toContain('pane-1');
+            expect(statSync(path).mode & 0o077).toBe(0);
+        } finally {
             rmSync(dir, { recursive: true, force: true });
         }
     });

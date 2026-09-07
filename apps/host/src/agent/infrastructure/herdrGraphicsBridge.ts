@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import { InlineImageStore, InlineKittyScanner, type InlineKittyBlock } from './inlineKitty.js';
+import { graphicsTrace } from './graphicsTrace.js';
 import { open } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -214,6 +215,8 @@ export class HerdrGraphicsBridge {
     private readonly refineTimers = new Map<string, ReturnType<typeof setTimeout>>();
     private readonly lastSourceAt = new Map<string, number>();
     private readonly sourceRevision = new Map<string, number>();
+    /** Diagnostic only: which pane last moved the shared fence. */
+    private fenceBumpPane: string | undefined;
     private readonly directRawByPane = new Map<string, DirectRawFrame>();
     private directRefinementBytes = 0;
     private readonly directRefineQueue: DirectRefineWork[] = [];
@@ -403,6 +406,9 @@ export class HerdrGraphicsBridge {
     private drainNotch(paneId: string): void {
         const inFlight = this.scrollInFlight.get(paneId) ?? 0;
         const backlog = this.scrollBacklog.get(paneId);
+        graphicsTrace?.add('input.release', {
+            pane: paneId, inFlight, backlog: backlog?.notches ?? 0,
+        });
         if (backlog === undefined || backlog.notches <= 0) {
             if (inFlight <= 1) this.clearScrollState(paneId);
             else this.scrollInFlight.set(paneId, inFlight - 1);
@@ -460,6 +466,19 @@ export class HerdrGraphicsBridge {
         this.lastSourceAt.set(paneId, Date.now());
         this.sourceRevision.set(paneId, (this.sourceRevision.get(paneId) ?? 0) + 1);
         this.cancelRefine(paneId);
+        graphicsTrace?.add('source.route', {
+            pane: paneId,
+            revision: this.sourceRevision.get(paneId) ?? 0,
+            fence: this.sourceQueueVersion,
+            gesture: this.gestureActive(paneId),
+        });
+    }
+
+    /** Which pane last moved the shared fence, so a reject can name the cause. */
+    private bumpSourceQueueVersion(paneId: string | undefined, path: 'inline' | 'direct' | 'clear'): void {
+        this.sourceQueueVersion += 1;
+        this.fenceBumpPane = paneId;
+        graphicsTrace?.add('fence.bump', { pane: paneId, path, fence: this.sourceQueueVersion });
     }
 
     private sourceQuiet(paneId: string): boolean {
@@ -470,6 +489,15 @@ export class HerdrGraphicsBridge {
     /** Schedule one serialized refinement for a pane, never a timer per frame. */
     private armRefine(paneId: string, reason: 'gesture' | 'source', delay = SETTLE_REFINE_MS): void {
         this.cancelRefine(paneId);
+        const armedAt = Date.now();
+        graphicsTrace?.add('refine.arm', {
+            pane: paneId,
+            reason,
+            delayMs: Math.max(0, delay),
+            // Absolute deadline: the quiet rule this arm is promising to meet.
+            deadline: armedAt + Math.max(0, delay),
+            lastSourceAt: this.lastSourceAt.get(paneId),
+        });
         const timer = setTimeout(() => {
             this.refineTimers.delete(paneId);
             const work = {
@@ -481,7 +509,17 @@ export class HerdrGraphicsBridge {
             } satisfies DirectRefineWork;
             const direct = this.directRawByPane.get(paneId);
             const latest = this.latestByPane.get(paneId);
-            if (direct !== undefined && latest?.imageId === direct.imageId && latest.transferId === direct.transferId) {
+            const path = direct !== undefined && latest?.imageId === direct.imageId && latest.transferId === direct.transferId
+                ? 'direct' as const
+                : 'inline' as const;
+            graphicsTrace?.add('refine.fire', {
+                pane: paneId,
+                reason,
+                path,
+                lateMs: Date.now() - (armedAt + Math.max(0, delay)),
+                fence: this.sourceQueueVersion,
+            });
+            if (path === 'direct') {
                 this.directRefineQueue.push(work);
                 if (!this.draining) void this.drain();
             } else {
@@ -501,20 +539,35 @@ export class HerdrGraphicsBridge {
 
     private async refinePane(work: InlineRefineWork): Promise<void> {
         const { refinePane: paneId } = work;
-        if (this.closed || !ADAPTIVE_DENSITY || this.gestureActive(paneId)) return;
+        graphicsTrace?.add('refine.dequeue', { pane: paneId, path: 'inline', reason: work.reason });
+        if (this.closed || !ADAPTIVE_DENSITY || this.gestureActive(paneId)) {
+            graphicsTrace?.add('refine.reject', {
+                pane: paneId, path: 'inline', why: this.closed ? 'closed' : this.gestureActive(paneId) ? 'gesture' : 'disabled', rearmed: false,
+            });
+            return;
+        }
         if (work.sourceQueueVersion !== this.sourceQueueVersion) {
+            graphicsTrace?.add('refine.reject', {
+                pane: paneId, path: 'inline', why: 'fence', rearmed: true,
+                expected: work.sourceQueueVersion, actual: this.sourceQueueVersion, fenceBy: this.fenceBumpPane,
+                fenceSamePane: this.fenceBumpPane === paneId,
+            });
             this.armRefine(paneId, work.reason);
             return;
         }
         if (!this.sourceQuiet(paneId)) {
             const last = this.lastSourceAt.get(paneId) ?? Date.now();
+            graphicsTrace?.add('refine.reject', { pane: paneId, path: 'inline', why: 'not-quiet', rearmed: true, quietForMs: Date.now() - last });
             this.armRefine(paneId, work.reason, Math.max(1, SETTLE_REFINE_MS - (Date.now() - last)));
             return;
         }
         const live = this.livePlacements.get(paneId);
         const settled = live === undefined ? undefined
             : [...live.entries()].find(([, item]) => item.surface === 'full' && item.image.sourceWidth !== undefined);
-        if (settled === undefined) return;
+        if (settled === undefined) {
+            graphicsTrace?.add('refine.reject', { pane: paneId, path: 'inline', why: 'no-candidate', rearmed: false });
+            return;
+        }
         const [, placement] = settled;
         await this.forwardInlineBlock({
             block: placement.block,
@@ -558,6 +611,7 @@ export class HerdrGraphicsBridge {
 
     private shutdown(reason?: TerminalGraphicsReason): void {
         if (this.closed) return;
+        graphicsTrace?.flush();
         try { if (this.socket.writable) this.socket.write(frame(clientDetach())); } catch { /* socket already closed */ }
         this.closed = true;
         for (const registration of this.registrations.values()) {
@@ -700,7 +754,7 @@ export class HerdrGraphicsBridge {
             const rawId = rawImageId(block);
             const deleteStamp = action === 'd' ? this.residentDeleteStamp(rawId) : undefined;
             this.queueInlineWork({ block, at, ...(deleteStamp === undefined ? {} : { deleteStamp }) });
-            this.sourceQueueVersion += 1;
+            this.bumpSourceQueueVersion(undefined, 'inline');
         }
         if (!this.inlineDraining) void this.drainInline();
     }
@@ -863,9 +917,14 @@ export class HerdrGraphicsBridge {
         if (refinement === undefined) this.noteSourceActivity(paneId);
         const imageId = Number(block.keys.i ?? block.keys.I);
         const halve = refinement === undefined && this.halveFor(paneId);
+        const prepareStartedAt = Date.now();
         const image = await this.inlineImages.prepared(block, (rgba, control) => prepareKitty(
             rgba, control, Number.isSafeInteger(imageId) && imageId > 0 ? imageId : this.allocateImageId(), 0n, halve,
         ), halve ? 'coarse' : 'full');
+        graphicsTrace?.add(refinement === undefined ? 'source.prepare' : 'refine.prepare', {
+            pane: paneId, path: 'inline', durationMs: Date.now() - prepareStartedAt,
+            halved: halve, width: image?.width, height: image?.height, prepared: image !== undefined,
+        });
         if (image === undefined) {
             // The candidate successor failed to prepare: its deferred front
             // half is a real delete and executes now.
@@ -873,10 +932,22 @@ export class HerdrGraphicsBridge {
             return;
         }
         if (this.closed) return;
-        if (refinement !== undefined && !this.refinementCurrent(refinement, paneId)) return;
+        if (refinement !== undefined && !this.refinementCurrent(refinement, paneId)) {
+            graphicsTrace?.add('refine.reject', {
+                pane: paneId, path: 'inline', why: 'stale-after-prepare', rearmed: false,
+                fenceBy: this.fenceBumpPane, fenceSamePane: this.fenceBumpPane === paneId,
+            });
+            return;
+        }
         const rect = await this.visibleRect(paneId);
         if (this.closed) return;
-        if (refinement !== undefined && !this.refinementCurrent(refinement, paneId)) return;
+        if (refinement !== undefined && !this.refinementCurrent(refinement, paneId)) {
+            graphicsTrace?.add('refine.reject', {
+                pane: paneId, path: 'inline', why: 'stale-after-rect', rearmed: false,
+                fenceBy: this.fenceBumpPane, fenceSamePane: this.fenceBumpPane === paneId,
+            });
+            return;
+        }
         const surface = surfaceOf(block, rect);
         const live = this.placementsFor(paneId);
         const previous = live.get(key);
@@ -918,6 +989,10 @@ export class HerdrGraphicsBridge {
             }
             const bytes = encodeKitty(image, registration, clear, block, rect, surface);
             const frame = terminalFrame(bytes, registration, true, undefined, paneSurface);
+            graphicsTrace?.frame('frame.handoff', frame, {
+                pane: paneId, path: 'inline', sharp: image.sourceWidth === undefined,
+                width: image.width, height: image.height, sinceRoutedMs: Date.now() - at,
+            });
             registration.write(frame);
             this.recordFrame(at, frame.length, image.width * image.height);
         }
@@ -1243,7 +1318,7 @@ export class HerdrGraphicsBridge {
             this.pendingOrigins.push(origin);
         }
         this.pendingByOrigin.set(origin, file);
-        this.sourceQueueVersion += 1;
+        this.bumpSourceQueueVersion(undefined, 'direct');
         this.admit(file);
         if (!this.draining) void this.drain();
     }
@@ -1334,28 +1409,55 @@ export class HerdrGraphicsBridge {
 
     private async refineDirect(work: DirectRefineWork): Promise<void> {
         const { refinePane: paneId } = work;
-        if (this.closed || !ADAPTIVE_DENSITY || this.gestureActive(paneId)) return;
+        graphicsTrace?.add('refine.dequeue', { pane: paneId, path: 'direct', reason: work.reason });
+        if (this.closed || !ADAPTIVE_DENSITY || this.gestureActive(paneId)) {
+            graphicsTrace?.add('refine.reject', {
+                pane: paneId, path: 'direct', why: this.closed ? 'closed' : this.gestureActive(paneId) ? 'gesture' : 'disabled', rearmed: false,
+            });
+            return;
+        }
         if (work.sourceQueueVersion !== this.sourceQueueVersion) {
+            graphicsTrace?.add('refine.reject', {
+                pane: paneId, path: 'direct', why: 'fence', rearmed: true,
+                expected: work.sourceQueueVersion, actual: this.sourceQueueVersion, fenceBy: this.fenceBumpPane,
+                fenceSamePane: this.fenceBumpPane === paneId,
+            });
             this.armRefine(paneId, work.reason);
             return;
         }
         if (!this.sourceQuiet(paneId)) {
             const last = this.lastSourceAt.get(paneId) ?? Date.now();
+            graphicsTrace?.add('refine.reject', { pane: paneId, path: 'direct', why: 'not-quiet', rearmed: true, quietForMs: Date.now() - last });
             this.armRefine(paneId, work.reason, Math.max(1, SETTLE_REFINE_MS - (Date.now() - last)));
             return;
         }
         const raw = this.directRawByPane.get(paneId);
         const current = this.latestByPane.get(paneId);
         if (raw === undefined || current?.imageId !== raw.imageId || current.transferId !== raw.transferId
-            || current.sourceWidth === undefined) return;
+            || current.sourceWidth === undefined) {
+            graphicsTrace?.add('refine.reject', { pane: paneId, path: 'direct', why: 'no-candidate', rearmed: false });
+            return;
+        }
+        const prepareStartedAt = Date.now();
         let prepared: PreparedImage;
         try {
             prepared = await prepareKitty(raw.rgba, raw.control, raw.imageId, raw.transferId, false);
         } catch (error) {
             this.logError(error);
+            graphicsTrace?.add('refine.reject', { pane: paneId, path: 'direct', why: 'prepare-failed', rearmed: false });
             return;
         }
-        if (this.closed || !this.directRefinementCurrent(raw, paneId, work)) return;
+        graphicsTrace?.add('refine.prepare', {
+            pane: paneId, path: 'direct', durationMs: Date.now() - prepareStartedAt,
+            width: prepared.width, height: prepared.height,
+        });
+        if (this.closed || !this.directRefinementCurrent(raw, paneId, work)) {
+            graphicsTrace?.add('refine.reject', {
+                pane: paneId, path: 'direct', why: this.closed ? 'closed' : 'stale-after-prepare', rearmed: false,
+                fenceBy: this.fenceBumpPane, fenceSamePane: this.fenceBumpPane === paneId,
+            });
+            return;
+        }
         this.dropDirectRefinement(paneId);
         this.presentDirect(paneId, prepared, raw.transferId, raw.sourceImageId, work.at);
     }
@@ -1399,6 +1501,10 @@ export class HerdrGraphicsBridge {
                 undefined,
                 'full',
             );
+            graphicsTrace?.frame('frame.handoff', frame, {
+                pane: paneId, path: 'direct', sharp: prepared.sourceWidth === undefined,
+                width: prepared.width, height: prepared.height, sinceRoutedMs: Date.now() - startedAt,
+            });
             registration.write(frame);
             this.recordFrame(startedAt, frame.length, prepared.width * prepared.height);
         }
@@ -1439,7 +1545,7 @@ export class HerdrGraphicsBridge {
             if (key.startsWith(`${paneId}:`)) this.inlinePlaced.delete(key);
         }
         this.cancelRefine(paneId);
-        this.sourceQueueVersion += 1;
+        this.bumpSourceQueueVersion(paneId, 'clear');
         this.lastSourceAt.delete(paneId);
         this.sourceRevision.delete(paneId);
         this.deferredDeletes.delete(paneId);

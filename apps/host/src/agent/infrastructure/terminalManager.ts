@@ -14,6 +14,7 @@ import { issueWsTicket, terminalSocketUrl, ticketSocketUrl, type Envelope } from
 import { v2EnvelopeSequence } from '@muxr/crypto';
 import { HostV2Crypto, type HostedMachineKeys, deviceTableIsObserve, ticketWsCredential } from '../../machine/index.js';
 import { HerdrGraphicsBridge, graphicsStoppedFrame, type GraphicsPipelineReport, type HerdrGraphicsPointer } from './herdrGraphicsBridge.js';
+import { graphicsTrace } from './graphicsTrace.js';
 
 export interface TerminalManagerOptions {
     relayUrl: string;
@@ -550,6 +551,14 @@ export class TerminalManager {
 
     private sendGraphicsToPhone(attachment: Attachment, frame: string): void {
         if (this.attachments.get(attachment.channel) !== attachment || attachment.socket.readyState !== WebSocket.OPEN) return;
+        // Same fingerprint the bridge recorded at handoff, so the transport's
+        // own queueing and encryption cost is measurable separately.
+        graphicsTrace?.frame('frame.send', frame, {
+            pane: attachment.paneId,
+            crypto: this.hosted !== undefined,
+            buffered: attachment.socket.bufferedAmount,
+            queued: attachment.pendingGraphics.length,
+        });
         if (attachment.pendingGraphics.length === 0 && attachment.socket.bufferedAmount <= GRAPHICS_BUFFER_HIGH_BYTES) {
             this.sendToPhone(attachment, frame);
             return;
