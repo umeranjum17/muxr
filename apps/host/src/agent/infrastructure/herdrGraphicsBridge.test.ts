@@ -517,6 +517,71 @@ describe('Herdr graphics flow', () => {
         expect(deliveredDuringBurst).toBeGreaterThan(0);
     });
 
+    it('deletes the image it displaces when a pane exceeds its placement limit', async () => {
+        const socket = Object.assign(new EventEmitter(), { writable: true, write: () => true, destroy: () => {} });
+        const bridge = Reflect.construct(HerdrGraphicsBridge, [socket, 'herdr']) as HerdrGraphicsBridge;
+        const internals = bridge as unknown as {
+            sourcePane: (leading: Buffer) => Promise<string | undefined>;
+            visibleRect: (paneId: string) => Promise<{ x: number; y: number; width: number; height: number } | undefined>;
+            queueInline: (data: Buffer) => void;
+            drainInline: () => Promise<void>;
+            inlineQueue: unknown[];
+            inlineDraining: boolean;
+        };
+        internals.sourcePane = async () => 'pane';
+        internals.visibleRect = async () => ({ x: 0, y: 0, width: 20, height: 10 });
+
+        const frames: string[] = [];
+        bridge.register({
+            channel: 'phone', paneId: 'pane', cols: 20, rows: 10, cellWidthPx: 10, cellHeightPx: 20,
+            write: (frame) => frames.push(frame),
+        });
+
+        const pixels = Buffer.alloc(2 * 2 * 4, 3).toString('base64');
+        // Distinct cells, so each is its own surface rather than a repaint.
+        const small = (id: number): Buffer => Buffer.from(
+            `\u001b[${id};1H`
+            + `\u001b_Ga=t,f=32,s=2,v=2,i=${id},m=0;${pixels}\u001b\\`
+            + `\u001b_Ga=p,i=${id},c=2,r=1;\u001b\\`,
+        );
+        const drain = vi.spyOn(internals, 'drainInline');
+        const settle = async (): Promise<void> => {
+            await drain.mock.results.at(-1)?.value;
+            expect(internals.inlineQueue).toHaveLength(0);
+            expect(internals.inlineDraining).toBe(false);
+        };
+
+        // Sixteen fit. The seventeenth displaces the first, and the phone is
+        // owed a delete for it: a placement dropped silently leaves resident
+        // pixels this host no longer tracks, and the terminal has to reclaim
+        // them itself on the next transmission.
+        for (let id = 1; id <= 16; id += 1) {
+            internals.queueInline(small(id));
+            await settle();
+        }
+        expect(frames).toHaveLength(16);
+        expect(frames.every((frame) => !frameAnsi(frame).includes('a=d,'))).toBe(true);
+
+        internals.queueInline(small(17));
+        await settle();
+        expect(frames).toHaveLength(18);
+        const evicted = frameAnsi(frames[16]!);
+        expect(evicted).toContain('a=d,d=I,i=1,');
+        expect(evicted).not.toContain('a=d,d=A');
+        // The delete lands before the frame that displaced it, and names only
+        // that image.
+        expect(frameAnsi(frames[17]!)).toContain('a=T,f=32,s=2,v=2,i=17');
+        expect(frameAnsi(frames[17]!)).not.toContain('a=d,d=I,i=1,');
+
+        // The displaced surface is forgotten, not merely dropped: an identical
+        // placement of it later is a real frame again, never suppressed as
+        // already placed.
+        internals.queueInline(small(1));
+        await settle();
+        expect(frames).toHaveLength(20);
+        expect(frameAnsi(frames.at(-1)!)).toContain('a=T,f=32,s=2,v=2,i=1');
+    });
+
     it('keeps two program images, coalesces repaints, and paces a gesture', async () => {
         const socket = Object.assign(new EventEmitter(), {
             writable: true,

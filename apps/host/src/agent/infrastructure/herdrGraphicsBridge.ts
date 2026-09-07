@@ -702,10 +702,7 @@ export class HerdrGraphicsBridge {
         const live = this.placementsFor(paneId);
         const previous = live.get(key);
         live.set(key, { image, block, surface, ...(rect === undefined ? {} : { rect }) });
-        if (live.size > MAX_LIVE_PLACEMENTS) {
-            const oldest = live.keys().next().value;
-            if (oldest !== undefined && oldest !== key) live.delete(oldest);
-        }
+        const displaced = this.displaceOldestPlacement(paneId, live, key);
         this.inlinePlaced.set(`${paneId}:${key}`, identity);
         if (surface === 'full') this.latestByPane.set(paneId, image);
         // The same split the delete path already makes: this block's own
@@ -715,8 +712,16 @@ export class HerdrGraphicsBridge {
         // one rather than a replacement -- and reporting that one frame's
         // surface ended the phone's takeover while a full image was still live.
         const paneSurface = this.survivingSurface(paneId);
+        const displacedDelete = displaced === undefined
+            ? undefined
+            : Buffer.from(`\u001b_Ga=d,d=I,i=${displaced.imageId},q=2;\u001b\\`);
         for (const registration of this.registrations.values()) {
             if (registration.paneId !== paneId) continue;
+            // The displaced image leaves before its successor arrives, so the
+            // phone never holds pixels this pane has stopped tracking.
+            if (displacedDelete !== undefined) {
+                registration.write(terminalFrame(wrapAtOrigin(displacedDelete), registration, true, undefined, paneSurface));
+            }
             const bytes = encodeKitty(image, registration, replaced(previous, image), block, rect, surface);
             const frame = terminalFrame(bytes, registration, true, undefined, paneSurface);
             registration.write(frame);
@@ -726,6 +731,37 @@ export class HerdrGraphicsBridge {
         // A frame is the honest acknowledgement that this pane kept up, so the
         // next notch of the gesture goes out now and no faster.
         this.drainNotch(paneId);
+    }
+
+    /**
+     * A pane may keep only so many images on the phone at once, and displacing
+     * the oldest is a real delete rather than a bookkeeping drop. Forgetting it
+     * silently left the phone showing pixels this host no longer tracked, and
+     * left the embedded terminal to reclaim them itself on the next
+     * transmission -- its image storage is 10MB there against a full-size frame
+     * of nearly that, so the eviction was neither rare nor free. Forget it the
+     * way an executed delete does: the placement, its placed identity, and the
+     * pane's presented image if this was it.
+     *
+     * Returns the image the caller owes the phone a delete for, or nothing when
+     * the pane is under its limit or the id is still carried by a surviving
+     * placement -- deleting that would erase the frame being sent.
+     */
+    private displaceOldestPlacement(
+        paneId: string,
+        live: Map<string, LivePlacement>,
+        keep: string,
+    ): PreparedImage | undefined {
+        if (live.size <= MAX_LIVE_PLACEMENTS) return undefined;
+        const oldest = live.keys().next().value;
+        if (oldest === undefined || oldest === keep) return undefined;
+        const placement = live.get(oldest);
+        live.delete(oldest);
+        this.inlinePlaced.delete(`${paneId}:${oldest}`);
+        if (placement === undefined) return undefined;
+        if (this.latestByPane.get(paneId) === placement.image) this.latestByPane.delete(paneId);
+        const stillPlaced = [...live.values()].some((item) => item.image.imageId === placement.image.imageId);
+        return stillPlaced ? undefined : placement.image;
     }
 
     private placementsFor(paneId: string): Map<string, LivePlacement> {
