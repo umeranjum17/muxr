@@ -9,6 +9,7 @@
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, rmSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
+import { pairingCodeHash, openPairingCodePayload } from '../packages/crypto/dist/index.js';
 import { CommandScope, useCommandScope } from './lib/commands.mjs';
 import { startFakeStack } from './lib/fakeStack.mjs';
 import { IosControls, appPid, command, crashFiles, hostLoad, processSample, reduceSamples, sha256, simctl, sleep, unavailable } from './lib/iosSignals.mjs';
@@ -64,24 +65,22 @@ async function sampleWindow(seconds, destination){
 async function pair(){
     const minted=await stack.mintPairing();
     if(!minted.code)throw new Error('Load host did not mint pairing code');
-    const privateCode=join(stack.root,'ios-pairing-private.txt');writeFileSync(privateCode,minted.code,{mode:0o600});
     try{
-        await ui.open('pair');
-        let nodes=await ui.ui();
-        if(!nodes.some(n=>/TextField|TextInput/.test(n.type??'')))await ui.tapMatch(/Enter pairing string|Enter another code/);
-        nodes=await ui.ui();const field=nodes.find(n=>ui.visible(n)&&/TextField|TextInput/.test(n.type??''));
-        if(!field)throw new Error('Pairing input is unavailable');
-        await ui.tap(field.frame.x+field.frame.width/2,field.frame.y+field.frame.height/2);
-        await command('axe',['key-combo','--modifiers','227','--key','4','--udid',udid]);
-        await command('axe',['key','42','--udid',udid]);
-        await command('axe',['type','--file',privateCode,'--udid',udid]);
-        const entered=(await ui.ui()).find(n=>ui.visible(n)&&/TextField|TextInput/.test(n.type??''));
-        if(entered?.AXValue!==minted.code)throw new Error('Pairing field differs from minted input; contents withheld');
-        await ui.tapMatch(/^Connect$/);await ui.waitFor(/THIS PHONE WILL BE ABLE TO|^Pair$/);
+        const locator=new URL(minted.code), shortCode=locator.searchParams.get('pair');
+        if(!shortCode)throw new Error('Minted pairing locator has no code');
+        locator.protocol=locator.protocol==='wss:'?'https:':'http:';locator.pathname='/v1/selfhost/pair-code';locator.search='';
+        const response=await fetch(locator,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({code_hash:pairingCodeHash(shortCode)})});
+        if(!response.ok)throw new Error('Fresh pairing payload lookup failed');
+        const payload=await response.json();
+        const compact=openPairingCodePayload(payload.payload,shortCode);
+        await ui.open('pair?payload='+encodeURIComponent(compact));
+        await ui.waitFor(/THIS PHONE WILL BE ABLE TO|^Pair$/);
         if(!await ui.tapMatch(/^Pair$/,{optional:true})){await ui.swipe(200,720,200,350,.4);await ui.tapMatch(/^Pair$/);}
         await ui.waitFor(/^(LIVE|SPACES|Machine)$/,90_000);
-    }finally{minted.release();rmSync(privateCode,{force:true});}
+        report.pairingTransport='Fresh short-code resolved with shared crypto, normal QR deep-link consent and app handshake; no manual-input coverage claimed';
+    }finally{minted.release();}
 }
+
 async function terminal(){await ui.waitFor(/^Control$|^Enter$|^Show terminal controls$/);}
 function firstRoute(){
     const agent=stack.world.agents.find(a=>a.pane_id===stack.world.panes[0].pane_id);
