@@ -570,9 +570,8 @@ export class HerdrGraphicsBridge {
         if (this.closed) return;
         try { if (this.socket.writable) this.socket.write(frame(clientDetach())); } catch { /* socket already closed */ }
         this.closed = true;
-        const clear = Buffer.from('\u001b7\u001b_Ga=d,d=A,q=2;\u001b\\\u001b8');
         for (const registration of this.registrations.values()) {
-            registration.write(terminalFrame(clear, registration, false, reason));
+            registration.write(graphicsStoppedFrame(registration.cols, registration.rows, reason));
         }
         this.registrations.clear();
         this.latestByPane.clear();
@@ -1836,9 +1835,18 @@ export function decodeServerMessage(payload: Buffer): ServerMessage {
     }
 }
 
+/**
+ * Clear the pane's images and tell the client direct graphics stopped. Used both
+ * when a live bridge shuts down and when one never opened at all.
+ */
+export function graphicsStoppedFrame(cols: number, rows: number, reason?: TerminalGraphicsReason): string {
+    const clear = Buffer.from('\u001b7\u001b_Ga=d,d=A,q=2;\u001b\\\u001b8');
+    return terminalFrame(clear, { cols, rows }, false, reason);
+}
+
 function terminalFrame(
     bytes: Buffer,
-    target: HerdrGraphicsRegistration,
+    target: Pick<HerdrGraphicsRegistration, 'cols' | 'rows'>,
     graphics?: boolean,
     graphicsReason?: TerminalGraphicsReason,
     graphicsSurface?: GraphicsSurface,

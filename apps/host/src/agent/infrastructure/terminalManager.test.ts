@@ -13,6 +13,7 @@ interface FakeChild extends EventEmitter {
     exitCode: number | null;
     stdin: FakeInput;
     stdout: EventEmitter;
+    stderr: EventEmitter;
     kill: ReturnType<typeof vi.fn>;
 }
 
@@ -52,6 +53,7 @@ vi.mock('node:child_process', async (importOriginal) => {
             child.exitCode = null;
             child.stdin = stdin;
             child.stdout = new Emitter();
+            child.stderr = new Emitter();
             child.kill = vi.fn(() => true);
             fakes.children.push(child);
             queueMicrotask(() => child.emit(fakes.failSpawn ? 'error' : 'spawn', new Error('spawn herdr ENOENT')));
@@ -255,6 +257,61 @@ describe('TerminalManager stream exit', () => {
             manager.closeAll();
             vi.useRealTimers();
         }
+    });
+
+    it('reattaches after a handshake transport failure without ending the terminal', async () => {
+        vi.spyOn(HerdrGraphicsBridge, 'open').mockResolvedValue({
+            register: vi.fn(() => true),
+            unregister: vi.fn(),
+            hasRegistrations: () => false,
+            close: vi.fn(),
+        } as unknown as HerdrGraphicsBridge);
+        const manager = new TerminalManager({
+            relayUrl: 'ws://relay.test',
+            machineId: 'machine',
+            resolvePane: async () => 'workspace:pane',
+            focusSession: async () => undefined,
+        });
+
+        await manager.attach({ sessionId: 'session', channel: 'channel', cols: 100, rows: 30, cellWidthPx: 8, cellHeightPx: 16 });
+        const failed = fakes.children[0]!;
+        const firstSocket = fakes.sockets[0]!;
+        // Herdr's client lost the server before it ever framed a screen; stderr
+        // arrives after 'exit', which is why classification may not run early.
+        failed.exitCode = 1;
+        failed.emit('exit', 1);
+        failed.stderr.emit('data', Buffer.from('herdr: lost connection to server: Resource temporarily unavailable (os error 11)\n'));
+        failed.stderr.emit('end');
+        await vi.waitFor(() => expect(firstSocket.close).toHaveBeenCalled());
+        // The pane is untouched, so the phone must keep its normal reattach path.
+        expect(firstSocket.send).not.toHaveBeenCalled();
+
+        await manager.attach({ sessionId: 'session', channel: 'channel', cols: 100, rows: 30, cellWidthPx: 8, cellHeightPx: 16 });
+        const child = fakes.children[1]!;
+        const socket = fakes.sockets[1]!;
+        // A closed record must never be mistaken for the initial screen.
+        child.stdout.emit('data', Buffer.from(`${JSON.stringify({ type: 'terminal.closed', reason: 'noise' })}\n`));
+        expect(HerdrGraphicsBridge.open).not.toHaveBeenCalled();
+        const screen = JSON.stringify({
+            type: 'terminal.frame', seq: 1, encoding: 'ansi', width: 100, height: 30,
+            full: true, bytes: Buffer.from('\x1b[2Jready').toString('base64'),
+        });
+        child.stdout.emit('data', Buffer.from(`${screen}\n`));
+        await vi.waitFor(() => expect(HerdrGraphicsBridge.open).toHaveBeenCalledOnce());
+        expect(socket.send.mock.calls.map(([frame]) => frame)).toEqual([
+            JSON.stringify({ type: 'terminal.closed', reason: 'noise' }),
+            screen,
+        ]);
+
+        socket.emit('message', Buffer.from(JSON.stringify({ type: 'terminal.input', text: 'hi' })));
+        expect(child.stdin.write).toHaveBeenCalledWith(`${JSON.stringify({ type: 'terminal.input', text: 'hi' })}\n`);
+
+        // A real termination still ends the terminal for good.
+        child.exitCode = 0;
+        child.emit('exit', 0);
+        child.stderr.emit('end');
+        await vi.waitFor(() => expect(JSON.parse(socket.send.mock.calls.at(-1)![0])).toMatchObject({ type: 'terminal.closed' }));
+        manager.closeAll();
     });
 
     it('does not write a late client frame into a cleanly exited stream', async () => {
