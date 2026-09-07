@@ -133,6 +133,12 @@ export async function startLiveStack({ sourceRoot, authHome, socketPath, clientS
 }
 
 async function startStack(options, live) {
+    // An emulator is its own network namespace and reaches a loopback relay
+    // only through adb. A simulator shares this machine's loopback, so asking
+    // for adb there would fail on a desk that has no Android tooling at all.
+    // Checked before anything is created, so a typo leaks no scratch root.
+    const transport = options.transport ?? 'adb';
+    if (transport !== 'adb' && transport !== 'loopback') throw new Error(`Unknown stack transport ${transport}`);
     const sourceRoot = resolve(options.sourceRoot ?? '.');
     for (const entry of [RELAY_ENTRY, HOST_ENTRY]) {
         if (!existsSync(join(sourceRoot, entry))) throw new Error(`${entry} is missing; run \`yarn build\` first`);
@@ -171,11 +177,6 @@ async function startStack(options, live) {
     const relayPort = await freePort();
     const hostHttpPort = await freePort();
     const children = [];
-    // An emulator is its own network namespace and reaches a loopback relay
-    // only through adb. A simulator shares this machine's loopback, so asking
-    // for adb there would fail on a desk that has no Android tooling at all.
-    const transport = options.transport ?? 'adb';
-    if (transport !== 'adb' && transport !== 'loopback') throw new Error(`Unknown stack transport ${transport}`);
     let reversed = false;
     // The fake runs in its own process on purpose. In-process it shares an
     // event loop with the harness, and one blocking call here - a Maestro run,
@@ -198,7 +199,10 @@ async function startStack(options, live) {
         // Only the reverse this run added: --remove-all would cut whatever else
         // on this desk is tunnelling to the emulator, and a run that never made
         // one -- loopback, or a failure before it -- must not reach for adb.
-        if (reversed) spawnSync('adb', ['reverse', '--remove', `tcp:${relayPort}`], { stdio: 'ignore', timeout: 10_000 });
+        if (reversed) {
+            reversed = false;
+            spawnSync('adb', ['reverse', '--remove', `tcp:${relayPort}`], { stdio: 'ignore', timeout: 10_000 });
+        }
         rmSync(root, { recursive: true, force: true });
     };
     onCommandCleanup(stop);
@@ -304,10 +308,7 @@ async function startStack(options, live) {
                     const deadline = setTimeout(() => resolve(undefined), 120_000);
                     const scan = (chunk) => {
                         seen += String(chunk);
-                        // The claim's alphabet is the CLI's business, not this
-                        // matcher's: a narrower class silently times out here
-                        // rather than failing, and reads as a two-minute stall.
-                        const match = /(wss?:\/\/\S+\?pair=\S+)/.exec(seen);
+                        const match = /(wss?:\/\/\S+\?pair=[A-Z0-9-]+)/.exec(seen);
                         if (match === null) return;
                         clearTimeout(deadline);
                         resolve(match[1]);
