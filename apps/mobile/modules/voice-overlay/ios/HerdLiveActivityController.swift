@@ -6,11 +6,11 @@ import UIKit
 final class HerdLiveActivityController {
   static let shared = HerdLiveActivityController()
   private var latest: HerdActivityAttributes.ContentState?
-  private var voiceGeneration = UUID().uuidString
+  private var voiceGeneration = ""
   private var operation: Task<Void, Never>?
   private var activationObserver: NSObjectProtocol?
   private var authorizationTask: Task<Void, Never>?
-  private var actionEmitter: ((String, Bool?) -> Bool)?
+  private var actionEmitter: ((String, Bool?, String) -> Bool)?
   private struct PendingAction {
     let action: String
     let desiredMuted: Bool?
@@ -26,23 +26,21 @@ final class HerdLiveActivityController {
       Task { @MainActor in self?.enqueue() }
     }
     authorizationTask = Task { [weak self] in
-      for await _ in ActivityAuthorizationInfo().activityEnablementUpdates {
-        self?.enqueue()
+      for await enabled in ActivityAuthorizationInfo().activityEnablementUpdates {
+        if !enabled { self?.clear() }
+        else { self?.enqueue() }
       }
     }
   }
 
   func update(mode: String, count: Int, names: String, voiceState: String,
               voiceName: String, muted: Bool) {
+    guard ActivityAuthorizationInfo().areActivitiesEnabled else { clear(); return }
     let safeMode = ["connecting", "offline", "idle", "working", "attention", "finished"].contains(mode) ? mode : "offline"
     let safeVoice = ["disconnected", "connecting", "connected", "thinking", "speaking"].contains(voiceState) ? voiceState : "disconnected"
-    // A retained widget action must never target a later voice conversation.
-    if safeVoice == "disconnected" || latest?.hasVoice != true {
-      voiceGeneration = UUID().uuidString
-    }
-    latest = .init(mode: safeMode, count: min(999, max(0, count)), names: String(names.prefix(160)),
-                   voiceState: safeVoice, voiceName: String(voiceName.prefix(80)),
-                   muted: muted, voiceGeneration: voiceGeneration, actionsAvailable: actionEmitter != nil, updatedAt: Date())
+    latest = .init(mode: safeMode, count: min(999, max(0, count)), names: boundedText(names, utf8Limit: 256),
+                   voiceState: safeVoice, voiceName: boundedText(voiceName, utf8Limit: 128),
+                   muted: muted, voiceGeneration: voiceGeneration, actionsAvailable: actionEmitter != nil && !voiceGeneration.isEmpty, updatedAt: Date())
     for (id, request) in pendingActions {
       if (request.action == "stop" && safeVoice == "disconnected")
           || (request.action == "mute" && latest?.canControlVoice == true && muted == request.desiredMuted) {
@@ -53,16 +51,35 @@ final class HerdLiveActivityController {
     enqueue()
   }
 
+  func setVoiceGeneration(_ token: String) {
+    // This identity comes from the actual JS call lifecycle, never a React
+    // status effect which may coalesce stop and the next start.
+    guard token.utf8.count <= 128 else { clear(); return }
+    guard token != voiceGeneration else { return }
+    if token.isEmpty {
+      for (id, request) in pendingActions where request.action == "stop" {
+        finishAction(id, error: nil)
+      }
+    }
+    cancelActions()
+    voiceGeneration = token
+    // Wait for the new call's status; never reuse the old connected snapshot.
+    latest?.voiceGeneration = token
+    latest?.voiceState = token.isEmpty ? "disconnected" : "connecting"
+    latest?.actionsAvailable = false
+    enqueue()
+  }
+
   func clear() {
-    voiceGeneration = UUID().uuidString
+    voiceGeneration = ""
     latest = nil
     cancelActions()
     enqueue()
   }
 
-  func observeActions(_ emitter: ((String, Bool?) -> Bool)?) {
+  func observeActions(_ emitter: ((String, Bool?, String) -> Bool)?) {
     actionEmitter = emitter
-    latest?.actionsAvailable = emitter != nil
+    latest?.actionsAvailable = emitter != nil && !voiceGeneration.isEmpty
     if emitter == nil { cancelActions() }
     enqueue()
   }
@@ -71,7 +88,7 @@ final class HerdLiveActivityController {
     guard action == "stop" || (action == "mute" && desiredMuted != nil) else {
       throw HerdActivityActionError.unavailable
     }
-    guard generation == voiceGeneration else { throw HerdActivityActionError.unavailable }
+    guard !generation.isEmpty, generation == voiceGeneration else { throw HerdActivityActionError.unavailable }
     if action == "stop" && latest?.hasVoice != true { return }
     guard let state = latest, state.canControlVoice,
           Date().timeIntervalSince(state.updatedAt) < 60,
@@ -87,8 +104,23 @@ final class HerdLiveActivityController {
       }
       pendingActions[id] = PendingAction(action: action, desiredMuted: desiredMuted,
                                          continuation: continuation, timeout: timeout)
-      if !emit(action, desiredMuted) { finishAction(id, error: HerdActivityActionError.unavailable) }
+      if !emit(action, desiredMuted, generation) { finishAction(id, error: HerdActivityActionError.unavailable) }
     }
+  }
+
+  // Scalar boundaries preserve valid Unicode. Even JSON escaping every byte as
+  // six characters leaves ample space below ActivityKit's 4 KB content limit.
+  private func boundedText(_ text: String, utf8Limit: Int) -> String {
+    var result = ""
+    var bytes = 0
+    for scalar in text.unicodeScalars {
+      let part = String(scalar)
+      let size = part.utf8.count
+      guard bytes + size <= utf8Limit else { break }
+      result += part
+      bytes += size
+    }
+    return result
   }
 
   private func finishAction(_ id: UUID, error: Error?) {
