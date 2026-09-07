@@ -340,8 +340,10 @@ jobs:
           sha=$(jq -r .head_sha "$RUNNER_TEMP/candidate.json")
           # An artifact that already went to Internal is not a candidate for
           # being sent again: this rejects a re-import of an earlier import's
-          # own output as well as any run that published what it built.
-          jq -e --arg sha "$sha" --arg version "$APP_VERSION" --arg code "$ANDROID_VERSION_CODE" '.gitCommitHash == $sha and .appVersion == $version and .appBuildVersion == $code and .bundleIdentifier == "com.trymuxr.app" and (.submittedToInternal | not)' "$RUNNER_TEMP/android-internal/result.json"
+          # own output as well as any run that published what it built. The
+          # sealed result always carries the flag as a boolean, so an absent one
+          # is missing provenance rather than evidence of an unsubmitted build.
+          jq -e --arg sha "$sha" --arg version "$APP_VERSION" --arg code "$ANDROID_VERSION_CODE" '.gitCommitHash == $sha and .appVersion == $version and .appBuildVersion == $code and .bundleIdentifier == "com.trymuxr.app" and .submittedToInternal == false' "$RUNNER_TEMP/android-internal/result.json"
           mapfile -t bundles < <(find "$RUNNER_TEMP/android-internal" -type f -name '*.aab')
           test "${#bundles[@]}" -eq 1
           test "$(sha256sum "${bundles[0]}" | cut -d ' ' -f 1)" = "$(jq -r .artifactSha256 "$RUNNER_TEMP/android-internal/result.json")"
