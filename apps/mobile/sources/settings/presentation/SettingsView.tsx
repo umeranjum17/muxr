@@ -37,6 +37,18 @@ import {
 import { realtimeMachineSwitchGuard, stopRealtimeSession } from '@/conversation/session';
 import { useRealtimeAppControl } from '@/conversation/application/realtimeAppControl';
 
+/** Each platform names its own surface; neither promises the other's. */
+function liveUpdatesCopy(enabled: boolean): string {
+    if (Platform.OS === 'ios') {
+        return enabled
+            ? 'Working agents can appear on the Lock Screen and in the Dynamic Island'
+            : 'Allow Live Activities to show working agents on the Lock Screen';
+    }
+    return enabled
+        ? 'Working agents can appear in Android’s status-bar island'
+        : 'Enable Android Live Updates to restore the status-bar island';
+}
+
 export const SettingsView = React.memo(function SettingsView({
     topContentInset = 0,
     bottomContentInset = 0,
@@ -103,7 +115,10 @@ export const SettingsView = React.memo(function SettingsView({
     }, [allMachinesWithOffline, pairedGrants, showOfflineMachines]);
     const [pushState, setPushState] = React.useState<PushState>('unsupported');
     const [pushBusy, setPushBusy] = React.useState(false);
-    const promotedNotificationsSupported = Platform.OS === 'android' && supportsPromotedNotifications();
+    // The native module reports whether this OS build can show a live status
+    // surface — Android Live Updates or an iOS Live Activity. Gating on the
+    // platform instead hid the row on iOS even once the capability existed.
+    const promotedNotificationsSupported = supportsPromotedNotifications();
     const [promotedNotificationsEnabled, setPromotedNotificationsEnabled] = React.useState(
         !promotedNotificationsSupported || canPostPromotedNotifications(),
     );
@@ -398,9 +413,7 @@ export const SettingsView = React.memo(function SettingsView({
                 {promotedNotificationsSupported && (
                     <Item
                         title="Live agent updates"
-                        subtitle={promotedNotificationsEnabled
-                            ? 'Working agents can appear in Android’s status-bar island'
-                            : 'Enable Android Live Updates to restore the status-bar island'}
+                        subtitle={liveUpdatesCopy(promotedNotificationsEnabled)}
                         detail={promotedNotificationsEnabled ? t('plugins.on') : t('plugins.off')}
                         icon={<Ionicons name="pulse-outline" size={29} color="#34C759" />}
                         onPress={openPromotedNotificationSettings}
