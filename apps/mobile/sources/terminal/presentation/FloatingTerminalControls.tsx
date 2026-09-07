@@ -11,9 +11,8 @@ export type TerminalCommand = {
     disabled?: boolean;
     dismiss?: boolean;
 };
-// Concept B geometry. The closed key is the design's 52dp fab; the panel's own
-// buttons and rows are 44dp.
-const KEY = 52;
+// Keep the closed key compact while retaining a 44dp touch target.
+const KEY = 44;
 const BUTTON = 44;
 const PANEL_WIDTH = 268;
 // Keep the entire drag target outside Android's system back-gesture edge. The
@@ -27,6 +26,7 @@ const PANEL_PADDING = 4;
 const DIVIDER = 1 + 4; // 1dp rule with 2dp margins on each side
 const SLOT_RADIUS = 10;
 const ICON = 24;
+const KEY_ICON = 20;
 
 type Palette = ReturnType<typeof panelPalette>;
 
@@ -37,7 +37,7 @@ const keyStyle = (panel: Palette, pressed: boolean) => ({
     alignItems: 'center' as const, justifyContent: 'center' as const,
     backgroundColor: pressed ? panel.pressed : panel.surface,
     borderWidth: StyleSheet.hairlineWidth, borderColor: panel.border,
-    elevation: 8,
+    elevation: 4,
     transform: [{ scale: pressed ? .96 : 1 }],
 });
 
@@ -208,7 +208,7 @@ export function FloatingTerminalControls({ width, height, overlayHeight, dismiss
                     accessibilityHint="Quick terminal controls. Drag to move; tap to open."
                     accessibilityState={{ expanded: open }} style={({ pressed }) => keyStyle(panel, pressed)}
                     onPress={openPanel}>
-                    <PanelGlyph name="command" size={ICON} color={panel.text} />
+                    <PanelGlyph name="command" size={KEY_ICON} color={panel.text} />
                 </Pressable>
             </View>}
         </Animated.View>
