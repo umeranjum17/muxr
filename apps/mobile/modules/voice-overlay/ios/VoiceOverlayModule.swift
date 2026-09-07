@@ -1,15 +1,37 @@
 import AVFoundation
+import ActivityKit
 import ExpoModulesCore
+import UIKit
 
-/** iOS audio bridge; lifecycle notifications remain owned by the OS push path. */
+/** Native audio and local Live Activities; remote notifications remain on APNs. */
 public final class VoiceOverlayModule: Module {
   private let realtimePcm = RealtimePcmPlayer()
 
   public func definition() -> ModuleDefinition {
     Name("VoiceOverlay")
     Events("onNotificationActionRequested")
+    OnStartObserving {
+      DispatchQueue.main.async { [weak self] in
+        HerdLiveActivityController.shared.observeActions { [weak self] action, desiredMuted in
+          guard let self else { return false }
+          var payload: [String: Any] = ["action": action]
+          if let desiredMuted { payload["desiredMuted"] = desiredMuted }
+          self.sendEvent("onNotificationActionRequested", payload)
+          return true
+        }
+      }
+    }
+    OnStopObserving {
+      DispatchQueue.main.async { HerdLiveActivityController.shared.observeActions(nil) }
+    }
 
-    OnDestroy { self.realtimePcm.stop() }
+    OnDestroy {
+      self.realtimePcm.stop()
+      DispatchQueue.main.async {
+        HerdLiveActivityController.shared.observeActions(nil)
+        HerdLiveActivityController.shared.clear()
+      }
+    }
 
     Function("startRealtimePcm") { (sampleRate: Int) -> Bool in
       self.realtimePcm.start(sampleRate: sampleRate)
@@ -56,12 +78,27 @@ public final class VoiceOverlayModule: Module {
     Function("startHerdService") { false }
     Function("stopHerdService") { true }
     Function("updateNotification") {
-      (_: String, _: Int, _: String, _: String, _: String, _: String, _: Bool) -> Bool in false
+      (mode: String, count: Int, names: String, _: String, voiceState: String, voiceName: String, muted: Bool) -> Bool in
+      DispatchQueue.main.async {
+        HerdLiveActivityController.shared.update(mode: mode, count: count, names: names,
+          voiceState: voiceState, voiceName: voiceName, muted: muted)
+      }
+      return ActivityAuthorizationInfo().areActivitiesEnabled
     }
-    Function("supportsPromotedNotifications") { false }
-    Function("canPostPromotedNotifications") { true }
-    Function("openPromotedNotificationSettings") { false }
+    Function("supportsPromotedNotifications") {
+      if #available(iOS 16.2, *) { return true }
+      return false
+    }
+    Function("canPostPromotedNotifications") { ActivityAuthorizationInfo().areActivitiesEnabled }
+    Function("openPromotedNotificationSettings") {
+      guard let url = URL(string: UIApplication.openSettingsURLString) else { return false }
+      Task { @MainActor in UIApplication.shared.open(url) }
+      return true
+    }
     Function("openBackgroundActivitySettings") { false }
-    Function("clearNotification") { true }
+    Function("clearNotification") {
+      DispatchQueue.main.async { HerdLiveActivityController.shared.clear() }
+      return true
+    }
   }
 }
