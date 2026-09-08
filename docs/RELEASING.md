@@ -15,6 +15,22 @@ flowchart LR
  CLOSED --> PROD[Manual production promotion: no rebuild]
 ```
 
+## Release notes
+
+`apps/mobile/sources/changelog/changelog.json` is the only place release notes are written. Each marketing app version has exactly one entry — title, summary, `features`, `fixes`, `verification` (`passed|partial|failed|not-run`, with optional evidence path, digest, tested commit, environment and reviewer) and `knownLimits`. Older unversioned notes stay under `legacyEntries` and are still shown as earlier updates. Text is plain, never HTML.
+
+Candidate preparation validates the entry right after the version is selected and before a build number is reserved: a missing entry, a duplicate version, malformed sections or no recorded changes fail the run, and no other version's entry is ever substituted. It then renders `what-changed.html` and `release-notes.md` into the candidate directory, so the existing seal and verification hash them like any other artifact. Publication attaches the retained `release-notes.md`; promotion consumes those retained bytes and never re-renders an older candidate from a newer checkout.
+
+Evidence is a record of what was reviewed, not proof that a claim is true: statuses stay `partial` or `not-run` until a real run says otherwise, and emulator or phone acceptance is recorded separately from any build.
+
+```
+node scripts/release/presentation/changelog.mjs validate --version 0.1.27-nightly.1 --commit $(git rev-parse HEAD)
+node scripts/release/presentation/changelog.mjs generate --version 0.1.27-nightly.1 --commit $(git rev-parse HEAD) --directory ./out
+node scripts/release/presentation/changelog.mjs check    --version 0.1.27-nightly.1 --commit $(git rev-parse HEAD) --directory ./out
+```
+
+`check` fails on missing or stale output instead of rewriting it. Generated reports are release artifacts: never committed, never edited after preparation.
+
 ## Build and try a candidate
 
 Run **release candidate** on `main` after its CI succeeds. Choose `nightly` for the current testing cycle; the daily nightly run skips a commit whose source is already published on the nightly channel, so a stable candidate cut from the same commit no longer suppresses that day's nightly. Leave version empty for an automatically unique next-patch prerelease, or give an exact version such as `0.1.27-nightly.1`. Final-version candidates require an explicit stable version such as `0.1.27`; they remain GitHub prereleases and are never automatically published to npm.

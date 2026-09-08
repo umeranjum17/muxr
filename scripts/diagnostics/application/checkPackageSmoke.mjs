@@ -17,7 +17,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { packageInfoFromPath, packagePathFromInput, sealRelease, verifyRelease } from '../../release/index.mjs';
+import { packageInfoFromPath, packagePathFromInput, prepareChangelog, reportFiles, sealRelease, verifyRelease } from '../../release/index.mjs';
 
 const root = process.cwd();
 const scratchBase = process.platform === 'darwin' ? '/tmp' : tmpdir();
@@ -452,9 +452,43 @@ try {
     assert.doesNotMatch(`${hostBundle}\n${cryptoBundle}`, /(?:apps|packages)\/(?:host|wire|contract|crypto)\/(?:src|dist)\//, 'bundle leaked proprietary source paths');
     const licenseInventory = JSON.parse(run('tar', ['-xOf', tarball, 'package/THIRD_PARTY_LICENSES.json']).stdout);
     const packageJson = JSON.parse(run('tar', ['-xOf', tarball, 'package/package.json']).stdout);
+    // Render this candidate's release report from its own frozen source, then
+    // carry it through sealing and tamper rejection with the artifact it describes.
+    const reportRequest = { version: packageJson.version, channel: packageJson.muxrRelease.channel,
+        commit: run('git', ['rev-parse', 'HEAD'], { cwd: snapshot }).stdout.trim(), directory: tarDir, sourceRoot: snapshot };
+    const { entry, files: rendered } = prepareChangelog({ mode: 'generate', ...reportRequest });
+    const html = rendered[reportFiles.html];
+    for (const heading of ['Added', 'Fixed', 'Verification', 'Known limits']) assert.match(html, new RegExp(`<h2>${heading}</h2>`), `${heading} missing from the release report`);
+    assert.match(html, new RegExp(entry.title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    assert.doesNotMatch(html, /<script|https?:\/\//, 'release report must stay offline and script-free');
+    prepareChangelog({ mode: 'check', ...reportRequest });
+
+    // Hostile authored text is escaped, never interpolated as markup.
+    const hostileRoot = join(scratch, 'hostile-source');
+    const hostilePath = join(hostileRoot, 'apps', 'mobile', 'sources', 'changelog', 'changelog.json');
+    mkdirSync(dirname(hostilePath), { recursive: true });
+    const authored = JSON.parse(readFileSync(join(snapshot, 'apps/mobile/sources/changelog/changelog.json'), 'utf8'));
+    const hostileEntry = authored.releases.find((release) => release.appVersion === entry.appVersion);
+    hostileEntry.title = `Quote " & apostrophe ' release`;
+    writeFileSync(hostilePath, JSON.stringify(authored));
+    const hostileOut = join(scratch, 'hostile-out');
+    mkdirSync(hostileOut, { recursive: true });
+    const hostile = prepareChangelog({ mode: 'generate', ...reportRequest, sourceRoot: hostileRoot, directory: hostileOut }).files[reportFiles.html];
+    assert.match(hostile, /Quote &quot; &amp; apostrophe &#39; release/, 'authored text was not escaped');
+
+    // A version nobody wrote notes for cannot be released, and stale bytes fail.
+    assert.throws(() => prepareChangelog({ mode: 'validate', ...reportRequest, version: '9.9.9', channel: 'stable' }), /no entry for app version 9\.9\.9/);
+    const reportPath = join(tarDir, reportFiles.html);
+    const originalReport = readFileSync(reportPath);
+    try {
+        writeFileSync(reportPath, `${originalReport}<!-- edited after preparation -->`);
+        assert.throws(() => prepareChangelog({ mode: 'check', ...reportRequest }), /stale/);
+    } finally { writeFileSync(reportPath, originalReport); }
+    prepareChangelog({ mode: 'check', ...reportRequest });
+
     // Follow the actual packaged artifact through sealing, verification and tamper rejection.
     const sealed = await sealRelease({ directory: tarDir, version: packageJson.version,
-        channel: packageJson.muxrRelease.channel, files: [packedInfo.filename], runId: '1', sourceRoot: snapshot });
+        channel: packageJson.muxrRelease.channel, files: [packedInfo.filename, reportFiles.html, reportFiles.markdown], runId: '1', sourceRoot: snapshot });
     const verifyRequest = { directory: tarDir, version: packageJson.version,
         channel: packageJson.muxrRelease.channel, commit: sealed.source.commit, runId: '1' };
     await verifyRelease(verifyRequest);
@@ -463,6 +497,11 @@ try {
         writeFileSync(tarball, Buffer.concat([originalTarball, Buffer.from('altered')]));
         await assert.rejects(verifyRelease(verifyRequest), /digest mismatch/);
     } finally { writeFileSync(tarball, originalTarball); }
+    const sealedReport = readFileSync(reportPath);
+    try {
+        writeFileSync(reportPath, `${sealedReport}<!-- edited after sealing -->`);
+        await assert.rejects(verifyRelease(verifyRequest), /digest mismatch/);
+    } finally { writeFileSync(reportPath, sealedReport); }
     await verifyRelease(verifyRequest);
     await assert.rejects(verifyRelease({ ...verifyRequest, commit: '0'.repeat(40) }), /identity/);
     assert.equal(packageJson.dependencies.zod, undefined, 'packed CLI must not depend on Zod');
