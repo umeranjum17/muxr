@@ -62,14 +62,13 @@
                 },
                 {
                     "title": "iOS load behaviour",
-                    "status": "partial",
-                    "detail": "The retained iOS simulator load report is prior-source simulator evidence only: 100 panes and 30 agents across separate runs, no single clean full pass, and graphics pixels unproven. It was measured on the source recorded in the report, not on this version.",
+                    "status": "not-run",
+                    "detail": "No iOS simulator or device acceptance is recorded for this version, and no iOS report is retained with this source. Load behaviour on iOS is unverified here.",
                     "evidence": {
-                        "path": "perf/results/ios-load-2026-09-07.md",
-                        "testedCommit": "9da784a73bea0fa6867a00959fdb10941a3275e0",
-                        "environment": "iOS simulator, Release 0.1.28(1) on iPhone 16 Pro / iOS 26.3, host product source 09c1f4051e76313a78724217dd3511b4bc7a5b36",
+                        "testedCommit": "76b57dd0",
+                        "environment": "not run",
                         "checkedBy": "umer",
-                        "checkedAt": "2026-09-07"
+                        "checkedAt": "2026-09-08"
                     }
                 }
             ],
