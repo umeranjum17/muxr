@@ -6,6 +6,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
+import * as metrics from './gestureMetrics.mjs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
@@ -839,6 +840,11 @@ test('a live stream reconciles, and lost or reset evidence still fails', async (
     const lost = await drive((read) => ring(read, { omit: 2 }));
     assert.ok(lost.measured.frameCoverage.retained < lost.measured.frameCoverage.rendered);
     assert.equal(lost.measured.frameCoverage.unresolved, 1);
+    // Every resolution read carries brand new frames that finish at once. None
+    // of them existed at the endpoint, so none may settle its debt: the account
+    // stays exactly one short however many reads it is offered.
+    assert.equal(lost.measured.frameCoverage.resolveReads, 6);
+    assert.equal(lost.measured.frameCoverage.rendered - lost.measured.frameCoverage.retained, 1);
     assert.ok(verdict('herd tree fling', phaseMetrics({
         ...lost.measured, movement: { proven: true }, missedVsyncPerFling: 0,
     }), EMULATOR_LIMITS).failures.includes('the framestats ring left frames unfinished'));
@@ -941,6 +947,67 @@ test('a failed dump is no observation, and the terminal names itself', () => {
     assert.equal(scrollableBounds('document', '', { width: 1080, height: 1920 }), undefined);
     assert.equal(documentPosition(''), undefined);
     assert.equal(stripPosition(''), undefined);
+});
+
+// The zoom window's own accounting block, executed as the gate executes it. It
+// used to reference a name that no longer existed and threw before producing any
+// coverage at all, so nothing downstream was ever reached.
+test('the zoom window produces coverage from the rows it owns', () => {
+    const source = readFileSync(new URL('../releaseGate.mjs', import.meta.url), 'utf8');
+    const start = source.indexOf('        const zoomWindowNs = { startNs: zoomStartNs, endNs: t1Ns };');
+    const end = source.indexOf('        // Only now may anything else be driven.');
+    assert.ok(start >= 0 && end > start, 'the zoom accounting block moved');
+    const block = source.slice(start, end);
+    const run = (rows, counters) => {
+        const context = vm.createContext({
+            ...metrics,
+            zoomStartNs: 1.005e9,
+            t1Ns: 1.055e9,
+            t0Ns: 1.01e9,
+            hz: 60,
+            zoomRows: rows,
+            vsyncBefore: { jank: { frames: counters.before, missedVsync: 0 } },
+            vsyncAfter: { jank: { frames: counters.after, missedVsync: 0 } },
+            unavailable: (why) => ({ why }),
+            out: {},
+        });
+        vm.runInContext(`(() => {\n${block}\nout.zoomCoverage = zoomCoverage; out.zoomFrames = zoomFrames;\n})()`, context);
+        return context.out;
+    };
+    const row = (scheduled, completed) => ({
+        Flags: 0, IntendedVsync: scheduled, FrameCompleted: completed, InputEventId: 1,
+    });
+
+    // Two frames drawn inside the window, and one the baseline had in flight
+    // that finished inside it. The counter counted all three; the inherited one
+    // adjusts the delta instead of becoming a row of this window's.
+    const inherited = run(
+        [row(0.99e9, 1.01e9), row(1.02e9, 1.03e9), row(1.03e9, 1.04e9)],
+        { before: 10, after: 13 },
+    );
+    assert.equal(inherited.zoomCoverage.baselineCompletions, 1);
+    assert.equal(inherited.zoomCoverage.rendered, 2);
+    assert.equal(inherited.zoomCoverage.retained, 2);
+    assert.equal(inherited.zoomCoverage.unresolved, 0);
+    assert.equal(inherited.zoomFrames.frames, 2);
+
+    // A record that lands past the endpoint is not this window's to spend: the
+    // frame it would have covered is still missing.
+    const late = run(
+        [row(1.02e9, 1.03e9), row(1.04e9, 1.09e9)],
+        { before: 10, after: 12 },
+    );
+    assert.equal(late.zoomCoverage.retained, 1);
+    assert.equal(late.zoomCoverage.unresolved, 1);
+    assert.ok(verdict('graphics zoom tap', {
+        jank: { frames: 10, jankyPercent: 1, p95Ms: 10, p99Ms: 12, overFourFramesPercent: 0, missedVsync: 0 },
+        frameStats: { frames: 1, droppedPercent: 0, inputToFrameMs: { p95: 10 } },
+        frameCoverage: late.zoomCoverage,
+        missedVsyncPerFling: 0,
+        zoomTapped: true, zoomSurface: 'graphics', surfaceKind: 'graphics', attachRecords: 1,
+        zoomAtRestDefault: true, zoomWindow: true, zoomTransitions: 0,
+        zoomMagnified: { proven: true }, zoomedOut: true, zoomReset: true,
+    }, EMULATOR_LIMITS).failures.includes('the framestats ring lost frames'));
 });
 
 // The zoom window keeps the same account a bout does: one clock interval, two

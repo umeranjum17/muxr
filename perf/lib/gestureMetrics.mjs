@@ -283,8 +283,11 @@ export function boutBaseline(snapshot) {
  *   the frame is not the window's work and never becomes one of its rows.
  * - `owned`: scheduled and finished inside the window. The window's own frame.
  *
- * Both decisions are the row's own timestamps. Which read first carried a
- * record, or happened to have it in flight, decides nothing.
+ * The interval is read around the dumps it bounds -- the clock before the
+ * baseline read and after the endpoint read -- so every frame those counters
+ * counted finished inside it. What a boundary dump happened to hold in flight
+ * decides nothing here; it only decides, at the caller, which records may still
+ * be waited for.
  */
 export function classifyFrameRow(row, { startNs, endNs } = {}) {
     if (!frameRowComplete(row)) return 'incomplete';
@@ -293,6 +296,8 @@ export function classifyFrameRow(row, { startNs, endNs } = {}) {
     if (completed === undefined || scheduled === undefined) return 'incomplete';
     if (startNs !== undefined && completed <= startNs) return 'before';
     if (endNs !== undefined && completed > endNs) return 'after';
+    // Scheduled before the window: the delta is charged for its completion, but
+    // the frame is not this window's work.
     return startNs !== undefined && scheduled < startNs ? 'baseline' : 'owned';
 }
 

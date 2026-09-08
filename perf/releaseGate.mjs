@@ -420,19 +420,18 @@ async function captureSurface(surface, screen) {
 async function prepareBout(surface, screen, hz) {
     const beforeSurface = surface === undefined ? undefined : await captureSurface(surface, screen);
     await resetGfxWindow(PKG, { hz });
-    // One read is the baseline: its counters and the rows the ring still holds.
-    // The reset does not empty the ring, and a frame drawn between the reset and
-    // this read is inside both halves of this snapshot -- counted in its totals
-    // and excluded by its identities -- so it belongs to the screen before this
-    // phase either way, and never reads as a measured frame that went missing.
-    const baseline = boutBaseline(await gfxSnapshot(PKG, { hz }));
-    if (baseline.why !== undefined) return { why: baseline.why };
-    // The device's own clock at the baseline, on the same scale as a row's
-    // `IntendedVsync` and the injector's t0. Membership is decided on it, so a
-    // frame is inside this phase because of when it was scheduled -- not
-    // because of which side of a counter read its record happened to land on.
+    // The clock first, then the read it opens. Taken the other way round, a
+    // frame finishing between them is behind the counter and inside the
+    // interval at once, which is a row nobody can place. This way the clock
+    // interval contains the counter interval, and the records the baseline dump
+    // held decide the rest.
     const startSeconds = await deviceMonotonicSeconds().catch(() => undefined);
     if (!Number.isFinite(startSeconds)) return { why: 'the device monotonic clock did not read at the baseline' };
+    // The reset does not empty the ring: whatever it still holds finished before
+    // this phase, and whatever it holds in flight completes inside it -- charged
+    // to this phase's delta, so its row has to be placed here too.
+    const baseline = boutBaseline(await gfxSnapshot(PKG, { hz }));
+    if (baseline.why !== undefined) return { why: baseline.why };
     return {
         startNs: startSeconds * 1e9,
         beforeSurface,
@@ -530,6 +529,9 @@ async function measureBout(run, hz, { surface, screen, phase, prepared } = {}) {
     // the fixed interval at the end, so nothing has to guess mid-bout which side
     // of a boundary a record will land on.
     const observed = [];
+    // What the newest read held: its in-flight records, and every identity in
+    // it. Frozen at the endpoint below.
+    let closingIds = new Set();
     // The window that is open right now. Reads during it accumulate here, so a
     // drain taken while a screenshot is being pulled adds to the window it
     // happened in rather than opening one of its own.
@@ -559,6 +561,7 @@ async function measureBout(run, hz, { surface, screen, phase, prepared } = {}) {
             resolvedReads.push({ startedAt, endedAt });
             return;
         }
+        closingIds = frameRowIdentities(snapshot.rows);
         open.rows.push(...fresh);
         for (const key of pending) stillPending.add(key);
         for (const row of fresh) stillPending.delete(Number(row.IntendedVsync));
@@ -652,9 +655,12 @@ async function measureBout(run, hz, { surface, screen, phase, prepared } = {}) {
     if (!Number.isFinite(endSeconds)) coverageBroken = true;
     endNs = Number.isFinite(endSeconds) ? endSeconds * 1e9 : undefined;
     frozen = true;
-    // The endpoint's own counters. Reads after this one move them; the window
-    // they close does not.
+    // The endpoint's own counters, and the records that dump held. Reads after
+    // this one move the counters; the window they close does not. A record the
+    // endpoint never held cannot be one its counter counted, so a frame that
+    // starts after it can never settle a debt it recorded.
     const endpointCounters = counters;
+    const endpointIds = new Set(closingIds);
     // The measurement ends here: the frame endpoint and the sampler's closing
     // CPU and PSS samples are the same instant. Stopping the collector, waiting
     // for its last sleep and reading the ring again all happen after it, so
@@ -686,7 +692,15 @@ async function measureBout(run, hz, { surface, screen, phase, prepared } = {}) {
     const resolveReads = 6;
     for (let attempt = 0; attempt < resolveReads && account.rendered > account.owned.length; attempt += 1) {
         const had = account.owned.length;
+        const before = observed.length;
         await absorb();
+        // Only records the endpoint dump already held may settle its debt. One
+        // that first appears now began after the endpoint, whatever timestamp
+        // it carries and however conveniently it would balance the account.
+        const arrived = observed.splice(before);
+        for (const row of arrived) {
+            if (endpointIds.has(Number(row.IntendedVsync))) observed.push(row);
+        }
         account = settle();
         // Nothing new landed and nothing is still in flight: no later read can
         // change this, so stop asking rather than spend the whole budget.
@@ -1240,10 +1254,15 @@ async function drivePhase(phase, screen, hz, ready) {
         // The counters immediately before the tap. The phase's own jank spans
         // preparation, the second step, zoom out and reset; only this pair
         // brackets the window the frames below are cut to.
-        const vsyncBefore = await gfxSnapshot(PKG, { hz });
+        // The clock opens the interval before the read it bounds, the same way a
+        // bout's baseline does, so every frame these counters count finishes
+        // inside it.
         const zoomStartSeconds = await deviceMonotonicSeconds().catch(() => undefined);
         if (!Number.isFinite(zoomStartSeconds)) return unavailable('the device monotonic clock did not read at the zoom baseline');
         const zoomStartNs = zoomStartSeconds * 1e9;
+        const vsyncBefore = await gfxSnapshot(PKG, { hz });
+        const zoomBaseline = boutBaseline(vsyncBefore);
+        if (zoomBaseline.why !== undefined) return unavailable(`${zoomBaseline.why} (zoom)`);
         // The confirmation dumps and the settle take seconds and draw frames of
         // their own, so this window is drained on the same cadence a bout uses.
         // Rows the ring would otherwise have dropped are kept here.
@@ -1257,7 +1276,11 @@ async function drivePhase(phase, screen, hz, ready) {
             zoomBroke ??= counterContinuity(zoomCounters, snapshot.jank);
             zoomCounters = snapshot.jank;
             zoomRows.push(...fresh);
-        }, frameRowIdentities(vsyncBefore.rows));
+        // Seeded with the records the baseline had already finished, and only
+        // those: one it held in flight completes inside this window, and
+        // retiring its identity here would throw that completion away before it
+        // could adjust anything.
+        }, new Set(zoomBaseline.identities));
         const injected = await tapTimed(
             (zoomInBounds.l + zoomInBounds.r) / 2,
             (zoomInBounds.t + zoomInBounds.b) / 2,
@@ -1323,7 +1346,15 @@ async function drivePhase(phase, screen, hz, ready) {
         if (!Number.isFinite(drewInWindow) || drewInWindow < 0) {
             return unavailable('the frame counter did not read across the zoom window');
         }
-        const zoomCoverage = { rendered: drewInWindow, retained: zoomRows.length, unresolved: zoomUnresolved };
+        // Retained is what this window owns, never every row the ring handed
+        // back: rows it inherited or that landed past the endpoint are not this
+        // window's, and counting them would cover a frame it really lost.
+        const zoomCoverage = {
+            rendered: drewInWindow,
+            retained: ownedZoomRows.length,
+            unresolved: Math.max(0, drewInWindow - ownedZoomRows.length),
+            baselineCompletions: zoomBaselineCompletions,
+        };
 
         // Only now may anything else be driven. The pixels below are this
         // phase's own pane after its own step: on a graphics surface they are
