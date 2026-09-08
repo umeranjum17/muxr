@@ -216,14 +216,24 @@ function ScreenNode(props: {
         }
         case 'code': {
             const source = resolvePath(data, node.path);
-            if (typeof source !== 'string' || source === '') return null;
-            const fileName = node.fileNamePath === undefined ? undefined : resolvePath(data, node.fileNamePath);
             const fill = node.viewport === 'fill';
+            const named = node.fileNamePath === undefined ? undefined : resolvePath(data, node.fileNamePath);
+            const titled = typeof named === 'string' ? { fileName: capUtf8Bytes(sanitizeDisplayText(named), 160) } : {};
+            // An empty excerpt is nothing to show. An empty file still owns the
+            // screen's only scroller, and rendering nothing would take the pull
+            // that reloads it away with it.
+            if (typeof source !== 'string' || source === '') {
+                if (!fill) return null;
+                return <CodeCore code="" language={node.language} header fill
+                    maxLines={PLUGIN_CODE_MAX_LINES} maxChars={PLUGIN_CODE_MAX_CHARS}
+                    {...titled}
+                    {...(props.refreshControl === undefined ? {} : { refreshControl: props.refreshControl })} />;
+            }
             return <CodeCore code={sanitizeDisplayText(source).replace(/\r\n/g, '\n')} language={node.language} header
                 maxLines={PLUGIN_CODE_MAX_LINES} maxChars={PLUGIN_CODE_MAX_CHARS}
                 {...(fill ? { fill: true } : {})}
                 {...(fill && props.refreshControl !== undefined ? { refreshControl: props.refreshControl } : {})}
-                {...(typeof fileName === 'string' ? { fileName: capUtf8Bytes(sanitizeDisplayText(fileName), 160) } : {})} />;
+                {...titled} />;
         }
         case 'metric':
             return (

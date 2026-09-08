@@ -283,7 +283,7 @@ export async function screenshot(path) {
  * without a second sampler.
  */
 export async function samplePhase(options) {
-    const { pkg, seconds, intervalMs = 5000, onTick } = options;
+    const { pkg, seconds, intervalMs = 5000, onTick, onOpen, active } = options;
     const started = Date.now();
     const deadline = started + seconds * 1000;
 
@@ -309,8 +309,15 @@ export async function samplePhase(options) {
     if (framesStart === undefined) missingFrames += 1;
     let previousFrames = framesStart;
     let previousFramesAt = performance.now();
+    // The opening samples are in: nothing may be injected before this point, or
+    // the window would start after the work it claims to describe.
+    onOpen?.();
 
-    while (Date.now() < deadline) {
+    // The commanded duration is the floor, not the ceiling. While the caller
+    // says its attempt is still open -- a gesture in flight, its settle, its
+    // closing observation -- this keeps reading, so the frames those produce are
+    // inside the same window as the CPU they cost.
+    while (Date.now() < deadline || active?.() === true) {
         const tickStarted = Date.now();
         const currentPid = await appPid(pkg);
         if (currentPid === undefined) {

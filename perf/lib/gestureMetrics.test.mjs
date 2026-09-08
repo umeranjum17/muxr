@@ -12,6 +12,7 @@ import {
     firstDocumentMarker,
     documentPosition,
     documentViewport,
+    phaseMetrics,
     scrollableBounds,
     stripPosition,
     stripScroller,
@@ -68,27 +69,42 @@ test('baseline bout fixtures reduce to the documented failures', () => {
         parseJankDump(read('gfxinfo-after.txt'), { hz }),
         { hz },
     );
-    const judged = verdict('herd tree fling', { jank, frameStats: frames, missedVsyncPerFling: 0 }, EMULATOR_LIMITS);
+    const judged = verdict('herd tree fling', { jank, frameStats: frames, missedVsyncPerFling: 0, frameCoverage: { rendered: frames.frames, retained: frames.frames } }, EMULATOR_LIMITS);
 
     assert.equal(jank.jankyPercent, 26.3);
     assert.equal(jank.p95Ms, 150);
     assert.deepEqual(judged.failures, ['gestureJankPercent', 'gestureP95Ms']);
     assert.equal(judged.pass, false);
 
-    // The per-fling limit is answered by one fling's own window. The bout's
-    // accumulated count cannot name the gesture that missed, so a phase without
-    // that window is unavailable rather than passing on the total.
-    assert.deepEqual(verdict('herd tree fling', {
+    // The per-fling limit is answered by one fling's own window, and it has to
+    // survive the trip from the bout to the gate: the gate grades exactly what
+    // `phaseMetrics` carries, so a dropped field reads like a phase that never
+    // measured. The bout's accumulated count cannot name the gesture that
+    // missed, so a phase without that window is unavailable, not a pass.
+    const drivenFling = {
         jank: { frames: 10, jankyPercent: 1, p95Ms: 10, p99Ms: 12, overFourFramesPercent: 0, missedVsync: 40 },
         frameStats: { frames: 8, droppedPercent: 0, inputToFrameMs: { p95: 10 } },
+        frameCoverage: { rendered: 8, retained: 8 },
         missedVsyncPerFling: 2,
         movement: { proven: true },
-    }, EMULATOR_LIMITS).failures, []);
-    assert.deepEqual(verdict('herd tree fling', {
-        jank: { frames: 10, jankyPercent: 1, p95Ms: 10, p99Ms: 12, overFourFramesPercent: 0, missedVsync: 0 },
+    };
+    assert.deepEqual(verdict('herd tree fling', phaseMetrics(drivenFling), EMULATOR_LIMITS).failures, []);
+    assert.deepEqual(verdict('herd tree fling', phaseMetrics({ ...drivenFling, missedVsyncPerFling: 4 }), EMULATOR_LIMITS).failures, ['missedVsyncPerFling']);
+    assert.deepEqual(verdict('herd tree fling', phaseMetrics({ ...drivenFling, missedVsyncPerFling: undefined }), EMULATOR_LIMITS).failures, ['no per-fling vsync window']);
+    // The ring is 120 frames deep; more drawn than read back is a hole in the
+    // account, not a clean bout.
+    assert.deepEqual(verdict('herd tree fling', phaseMetrics({ ...drivenFling, frameCoverage: { rendered: 40, retained: 8 } }), EMULATOR_LIMITS).failures, ['the framestats ring lost frames']);
+    assert.deepEqual(verdict('herd tree fling', phaseMetrics({ ...drivenFling, frameCoverage: undefined }), EMULATOR_LIMITS).failures, ['no frame coverage account']);
+    // A zoom tap is its own window, so the counter stays enforced there.
+    const drivenZoom = {
+        jank: { frames: 10, jankyPercent: 1, p95Ms: 10, p99Ms: 12, overFourFramesPercent: 0, missedVsync: 9 },
         frameStats: { frames: 8, droppedPercent: 0, inputToFrameMs: { p95: 10 } },
-        movement: { proven: true },
-    }, EMULATOR_LIMITS).failures, ['no per-fling vsync window']);
+        zoomTapped: true, zoomSurface: 'graphics', surfaceKind: 'graphics', attachRecords: 1,
+        zoomAtRestDefault: true, zoomWindow: true, zoomTransitions: 0,
+        zoomMagnified: { proven: true }, zoomedOut: true, zoomReset: true,
+    };
+    assert.deepEqual(verdict('graphics zoom tap', phaseMetrics(drivenZoom), EMULATOR_LIMITS).failures, ['missedVsyncPerFling']);
+    assert.deepEqual(verdict('graphics zoom tap', phaseMetrics({ ...drivenZoom, jank: { ...drivenZoom.jank, missedVsync: 1 } }), EMULATOR_LIMITS).failures, []);
 
     const late = rows.map((row, index) => {
         if (index >= 3) return row;
@@ -192,6 +208,7 @@ test('baseline bout fixtures reduce to the documented failures', () => {
         jank: { frames: 10, jankyPercent: 1, p95Ms: 10, p99Ms: 12, overFourFramesPercent: 0, missedVsync: 0 },
         frameStats: { frames: 8, droppedPercent: 0, inputToFrameMs: { p95: 10 } },
         missedVsyncPerFling: 0,
+        frameCoverage: { rendered: 8, retained: 8 },
         movement: stuck,
     }, EMULATOR_LIMITS).failures, ['content did not move']);
 
@@ -250,6 +267,7 @@ test('baseline bout fixtures reduce to the documented failures', () => {
         jank: { frames: 10, jankyPercent: 1, p95Ms: 10, p99Ms: 12, overFourFramesPercent: 0, missedVsync: 0 },
         frameStats: { frames: 8, droppedPercent: 0, inputToFrameMs: { p95: 10 } },
         missedVsyncPerFling: 0,
+        frameCoverage: { rendered: 8, retained: 8 },
     };
     const flingTerminal = { scrollRequests: 4, rowsRequested: 80, rowsPerSecond: 80, clamped: 0, timedOut: 0 };
     assert.deepEqual(verdict('terminal text fling', {
@@ -292,11 +310,11 @@ test('baseline bout fixtures reduce to the documented failures', () => {
     assert.equal(mergeFrameStats([]).inputToFrameMs.p95, undefined);
     const goodJank = { frames: 10, jankyPercent: 1, p95Ms: 10, p99Ms: 12, overFourFramesPercent: 0, missedVsync: 0 };
     assert.deepEqual(
-        verdict('herd tree fling', { jank: goodJank, frameStats: noRing, missedVsyncPerFling: 0 }, EMULATOR_LIMITS).failures,
+        verdict('herd tree fling', { jank: goodJank, frameStats: noRing, missedVsyncPerFling: 0, frameCoverage: { rendered: 0, retained: 0 } }, EMULATOR_LIMITS).failures,
         ['no framestats frames'],
     );
     assert.deepEqual(
-        verdict('herd tree fling', { jank: goodJank, frameStats: { frames: 4, droppedPercent: 0, inputToFrameMs: {} }, missedVsyncPerFling: 0 }, EMULATOR_LIMITS).failures,
+        verdict('herd tree fling', { jank: goodJank, frameStats: { frames: 4, droppedPercent: 0, inputToFrameMs: {} }, missedVsyncPerFling: 0, frameCoverage: { rendered: 4, retained: 4 } }, EMULATOR_LIMITS).failures,
         ['no input-driven frame'],
     );
 

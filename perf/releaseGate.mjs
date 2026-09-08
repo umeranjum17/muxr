@@ -66,6 +66,8 @@ import {
     freshFrameRows,
     mergeFrameStats,
     parseJsonlStrict,
+    parseUiNodes,
+    phaseMetrics,
     parseRedactedTrail,
     pixelsMoved,
     reduceFrameStats,
@@ -393,35 +395,76 @@ async function pullPhoneTrail() {
     const fail = async (why) => ({ ok: false, why, returned: await returnToHerd() });
 
     let dump = await dumpUi();
-    if (!/text="Connection &amp; updates"|text="Connection & updates"/.test(dump)) {
+    if (!/text="Connection &amp;(?:amp;)? updates"|text="Connection & updates"/.test(dump)) {
         return await fail('the Connection & updates route never opened');
     }
-    // Troubleshooting sits below the hosted status, the version rows and the
-    // update rows, so the control is off screen on this display. Scroll its own
-    // page for it, a bounded number of times, and stop when the page stops
-    // moving rather than dragging forever.
-    for (let attempt = 0; attempt < 10 && await viewBounds('text="Show diagnostics"') === undefined; attempt += 1) {
-        const page = verticalScrollers(dump)[0];
-        if (page === undefined) return await fail('the Connection & updates page has no vertical scroller');
+    // A node the page is not showing cannot be tapped: uiautomator keeps rows
+    // that scrolled off, and a zero-area or offscreen box would send the tap
+    // wherever those coordinates happen to land.
+    const onScreen = (current, label) => {
+        const page = verticalScrollers(current)[0];
+        if (page === undefined) return undefined;
+        return parseUiNodes(current).find((node) => node.text === label
+            && node.r > node.l && node.b > node.t
+            && node.t >= page.t && node.b <= page.b && node.l >= page.l && node.r <= page.r);
+    };
+    // One page scroll, reporting whether the page still had anywhere to go.
+    const scrollPage = async (current) => {
+        const page = verticalScrollers(current)[0];
+        if (page === undefined) return { why: 'the page has no vertical scroller' };
         const x = Math.round((page.l + page.r) / 2);
-        const from = Math.round(page.t + (page.b - page.t) * 0.75);
-        const to = Math.round(page.t + (page.b - page.t) * 0.25);
-        await drag({ from: { x, y: from }, to: { x, y: to } });
+        await drag({
+            from: { x, y: Math.round(page.t + (page.b - page.t) * 0.75) },
+            to: { x, y: Math.round(page.t + (page.b - page.t) * 0.25) },
+        });
         await sleep(500);
         const next = await dumpUi();
-        const settled = next === dump;
-        dump = next;
-        if (settled) break;
+        return { dump: next, moved: next !== current };
+    };
+    // Troubleshooting sits below the hosted status, the version rows and the
+    // update rows, so the control starts off screen on this display.
+    let control = onScreen(dump, 'Show diagnostics');
+    for (let attempt = 0; attempt < 10 && control === undefined; attempt += 1) {
+        const scrolled = await scrollPage(dump);
+        if (scrolled.dump === undefined) return await fail(scrolled.why);
+        dump = scrolled.dump;
+        control = onScreen(dump, 'Show diagnostics');
+        if (!scrolled.moved) break;
     }
-    if (!await tapBounds('text="Show diagnostics"')) {
-        return await fail('Show diagnostics was never reached on /settings/connection');
-    }
+    if (control === undefined) return await fail('Show diagnostics was never visible on /settings/connection');
+    await tap((control.l + control.r) / 2, (control.t + control.b) / 2);
     await sleep(1000);
-    const report = await dumpUi();
-    const text = [...report.matchAll(/text="([^"]*)"/g)].map((match) => decodeUiAttribute(match[1])).join('\n');
+    dump = await dumpUi();
+
+    // The report is a single block between the control and Copy diagnostics, and
+    // it is taller than the page. Read down it until that closing control is on
+    // screen: only then is the whole report accounted for, and only then can a
+    // missing summary line mean the phone really recorded nothing.
+    const lines = [];
+    const seen = new Set();
+    const readVisible = (current) => {
+        for (const match of current.matchAll(/text="([^"]*)"/g)) {
+            const line = decodeUiAttribute(match[1]);
+            if (line === '' || seen.has(line)) continue;
+            seen.add(line);
+            lines.push(line);
+        }
+    };
+    readVisible(dump);
+    let complete = onScreen(dump, 'Copy diagnostics') !== undefined || onScreen(dump, 'Diagnostics copied') !== undefined;
+    for (let attempt = 0; attempt < 10 && !complete; attempt += 1) {
+        const scrolled = await scrollPage(dump);
+        if (scrolled.dump === undefined) return await fail(scrolled.why);
+        dump = scrolled.dump;
+        readVisible(dump);
+        complete = onScreen(dump, 'Copy diagnostics') !== undefined || onScreen(dump, 'Diagnostics copied') !== undefined;
+        if (!scrolled.moved) break;
+    }
+    const text = lines.join('\n');
     if (!/Redacted:|No phone transport events yet/.test(text)) {
         return await fail('the diagnostics report never rendered');
     }
+    if (!complete) return await fail('the diagnostics report never reached its end');
     if (!await returnToHerd()) return { ok: false, why: 'the herd never came back after the diagnostics report', returned: false };
     return { ok: true, text, trail: parseRedactedTrail(text) };
 }
@@ -451,7 +494,10 @@ async function captureSurface(surface, screen) {
  */
 async function prepareBout(surface, screen, hz) {
     const beforeSurface = surface === undefined ? undefined : await captureSurface(surface, screen);
-    return { beforeSurface, before: await resetGfxWindow(PKG, { hz }) };
+    // `attempt` is this measurement's lifetime. The sampler keeps reading while
+    // it is open, so a bout that runs past its commanded seconds is still
+    // sampled to its last settle, and the diagnostics pull afterwards is not.
+    return { beforeSurface, attempt: { open: true }, before: await resetGfxWindow(PKG, { hz }) };
 }
 
 async function measureBout(run, hz, { surface, screen, phase, prepared } = {}) {
@@ -472,24 +518,42 @@ async function measureBout(run, hz, { surface, screen, phase, prepared } = {}) {
     // gesture is that gesture's window; the accumulated total is the bout's and
     // says nothing about any single fling.
     let counters = before;
-    // Every gesture is collected, drags included. A drag's frames are real work
-    // and used to land in the next fling's read, where the rolling ring had
-    // often already dropped the fling's own first frames.
+    // Every gesture is collected once it has settled, drags included: a drag's
+    // frames are real work, and a fling's settling frames belong to the fling
+    // that caused them rather than to whatever ran next.
+    //
+    // `rendered` counts the frames gfxinfo says were drawn inside those windows
+    // and `retained` the rows kept from the ring. A gap means the 120-frame ring
+    // wrapped while a window was open, so that window's account is incomplete.
+    let rendered = 0;
+    let retained = 0;
     const collect = async (gesture) => {
         const snapshot = await gfxSnapshot(PKG, { hz });
         const fresh = freshFrameRows(snapshot.rows, counted);
         const reduced = reduceFrameStats(fresh, {
             frameNs: 1e9 / hz,
-            t0Ns: (gesture?.t0Seconds ?? 0) * 1e9,
+            t0Ns: gesture.t0Seconds * 1e9,
         });
         parts.push(reduced);
-        const missedVsync = (snapshot.jank.missedVsync ?? 0) - (counters?.missedVsync ?? 0);
+        // A counter that could not be read, or one that went backwards because
+        // something reset the window, is not a delta. It is a hole, and a hole
+        // that reduces to zero passes the per-fling limit on nothing.
+        const was = counters?.missedVsync;
+        const now = snapshot.jank.missedVsync;
+        const missedVsync = was === undefined || now === undefined || now < was ? undefined : now - was;
+        const grew = (snapshot.jank.frames ?? NaN) - (counters?.frames ?? NaN);
+        if (Number.isFinite(grew) && grew >= 0) {
+            rendered += grew;
+            retained += fresh.length;
+        } else {
+            rendered = Number.NaN;
+        }
         counters = snapshot.jank;
         gestureFrames.push({
-            profile: gesture?.profile ?? 'settle',
-            t0Seconds: gesture?.t0Seconds,
-            durationMs: gesture?.durationMs,
-            elapsedMs: gesture?.elapsedMs,
+            profile: gesture.profile,
+            t0Seconds: gesture.t0Seconds,
+            durationMs: gesture.durationMs,
+            elapsedMs: gesture.elapsedMs,
             frames: reduced.frames,
             dropped: reduced.dropped,
             worstMs: reduced.worstMs,
@@ -517,10 +581,11 @@ async function measureBout(run, hz, { surface, screen, phase, prepared } = {}) {
         if (!(error instanceof Error && error.message === 'device could not inject')) throw error;
         bout = { ...bout, injectFailed: true };
     }
-    // The frames the last gesture was still drawing when it returned.
-    await collect(undefined);
     const after = await jankReport(PKG, { hz });
     const afterSurface = surface === undefined ? undefined : await captureSurface(surface, screen);
+    // The attempt ends on its own last observation. Anything after this -- a
+    // diagnostics pull, the next phase's navigation -- is not what was measured.
+    if (prepared?.attempt !== undefined) prepared.attempt.open = false;
     const injectFailed = bout.injectFailed === true;
     const observed = beforeSurface === undefined
         ? undefined
@@ -536,6 +601,7 @@ async function measureBout(run, hz, { surface, screen, phase, prepared } = {}) {
         jank: reduceJank(before, after, { hz }),
         frameStats: mergeFrameStats(parts),
         gestureFrames,
+        frameCoverage: Number.isFinite(rendered) ? { rendered, retained } : undefined,
         missedVsyncPerFling: worstMissedVsyncPerFling(gestureFrames),
         movement,
         beforeSurface,
@@ -549,8 +615,10 @@ async function measureBout(run, hz, { surface, screen, phase, prepared } = {}) {
  * limit is written per fling, so only a fling's own window can breach it.
  */
 function worstMissedVsyncPerFling(gestureFrames) {
-    const flings = gestureFrames.filter((row) => row.profile === 'fling' && Number.isFinite(row.missedVsync));
-    if (flings.length === 0) return undefined;
+    const flings = gestureFrames.filter((row) => row.profile === 'fling');
+    // One unreadable window is one fling nobody can answer for, so the phase
+    // has no per-fling result at all rather than the best of what survived.
+    if (flings.length === 0 || flings.some((row) => !Number.isFinite(row.missedVsync))) return undefined;
     return Math.max(...flings.map((row) => row.missedVsync));
 }
 
@@ -648,6 +716,7 @@ async function preparePhase(phase, screen, hz) {
     const wantsTrail = phase.drive === 'terminalTextFling' || phase.drive === 'zoomTapNavigate';
     let flowExit;
     let trailBefore;
+    let documentBounds;
 
     if (wantsTrail) {
         // Pulled from the herd, before entering the surface: the pull leaves the
@@ -681,6 +750,7 @@ async function preparePhase(phase, screen, hz) {
         if (firstDocumentMarker(dump) === undefined) return { ok: false, flowExit, why: 'the document fixture is not on the reading surface' };
         const viewport = documentViewport(dump);
         if (viewport.bounds === undefined) return { ok: false, flowExit, why: `the document viewport is unavailable (${viewport.why})` };
+        documentBounds = viewport.bounds;
     } else {
         // Every terminal phase names its pane. Nothing else is a measurable
         // surface: a card position is whatever the churning herd left there.
@@ -718,6 +788,7 @@ async function preparePhase(phase, screen, hz) {
         enteredAt,
         surfaceKind,
         stripBounds,
+        documentBounds,
         paneId: phase.fixture === undefined ? undefined : stack.fixturePanes?.[phase.fixture],
         prepared: await prepareBout(surface, screen, hz),
     };
@@ -819,6 +890,9 @@ async function drivePhase(phase, screen, hz, ready) {
     const seconds = phase.seconds;
     const prepared = ready.prepared;
     const sinceEntry = async () => {
+        // Leaving for Settings ends the measurement, whatever the sampler was
+        // still willing to read.
+        if (prepared?.attempt !== undefined) prepared.attempt.open = false;
         const mark = await pullPhoneTrail();
         if (!mark.ok) return { ok: false, why: mark.why };
         return trailSince(mark.trail, ready.trailBefore);
@@ -834,7 +908,7 @@ async function drivePhase(phase, screen, hz, ready) {
         // file navigator, so it has no `File n of m` to move and a horizontal
         // swipe there proves nothing. What the long fixture can prove is that
         // its own numbered lines travelled under the finger.
-        return measureBout((opts) => scrollBout({ width, height, seconds, ...opts }), hz, { surface: 'document', screen, phase, prepared });
+        return measureBout((opts) => scrollBout({ width, height, bounds: ready.documentBounds, seconds, ...opts }), hz, { surface: 'document', screen, phase, prepared });
     }
     if (phase.drive === 'terminalTextFling') {
         const measured = await measureBout((opts) => scrollBout({ width, height, seconds, ...opts }), hz, { surface: 'terminal', screen, phase, prepared });
@@ -1203,6 +1277,10 @@ function gestureEvidence(driven, idleJs) {
         profiles: driven.bout?.profiles ?? [],
         medianVelocityPxPerSecond: driven.bout?.medianVelocityPxPerSecond ?? 0,
         intendedMedianVelocityPxPerSecond: driven.bout?.intendedMedianVelocityPxPerSecond ?? 0,
+        byProfile: driven.bout?.byProfile,
+        slowProfiles: driven.bout?.slowProfiles,
+        samples: driven.bout?.samples,
+        frameCoverage: driven.frameCoverage,
         jank: {
             frames: driven.jank?.frames ?? 0,
             jankyPercent: driven.jank?.jankyPercent,
@@ -1378,7 +1456,14 @@ for (const phase of PHASES) {
     // the wrong screen still produces a full set of plausible numbers.
     const ready = await preparePhase(phase, screen, hz);
     if (!ready.ok) abortPhase(phase, ready.why, { flowExit: ready.flowExit, flowOutput: ready.flowOutput });
+    // The sampler opens before anything is injected and stays open while the
+    // attempt is: a bout that overruns its commanded seconds is still sampled to
+    // its last settle, instead of being described by a window that closed first.
+    let samplerOpen;
+    const opened = new Promise((resolve) => { samplerOpen = resolve; });
+    let drivingSettled = false;
     const driving = (async () => {
+        await opened;
         if (phase.flow !== undefined) {
             flowRun = await maestro(phase.flow);
             // The flow is the phase's workload: once it has failed every later
@@ -1394,8 +1479,13 @@ for (const phase of PHASES) {
         if (phase.drive !== undefined) {
             driven = await drivePhase(phase, screen, hz, ready);
         }
-    })();
-    const measured = await samplePhase({ pkg: PKG, seconds: phase.seconds });
+    })().finally(() => { drivingSettled = true; });
+    const measured = await samplePhase({
+        pkg: PKG,
+        seconds: phase.seconds,
+        onOpen: samplerOpen,
+        active: () => !drivingSettled && ready.prepared?.attempt?.open === true,
+    });
     await driving;
     if (driven?.zoomEvidenceUnavailable !== undefined) abortPhase(phase, `the zoom evidence is unavailable (${driven.zoomEvidenceUnavailable})`);
     if (driven?.trailUnavailable !== undefined) abortPhase(phase, `the phone trail is unavailable after the bout (${driven.trailUnavailable})`);
@@ -1404,27 +1494,11 @@ for (const phase of PHASES) {
     const gesture = gestureEvidence(driven, idleJs);
     const judged = driven === undefined
         ? { pass: true, failures: [] }
-        : verdict(phase, {
-            jank: driven.jank,
-            frameStats: driven.frameStats,
+        : verdict(phase, phaseMetrics(driven, {
             jsBusyDeltaPoints: gesture?.jsBusyDeltaPoints,
             accidentalOwners: gesture?.accidentalOwners,
-            zoomTapped: driven.zoomTapped,
-            zoomSurface: driven.zoomSurface,
-            zoomMagnified: driven.zoomMagnified,
-            zoomedOut: driven.zoomedOut,
-            zoomReset: driven.zoomReset,
-            zoomShrankOnce: driven.zoomShrankOnce,
-            zoomAtRestDefault: driven.zoomAtRestDefault,
-            zoomWindow: driven.zoomWindow,
-            attachRecords: driven.attachRecords,
-            surfaceKind: driven.surfaceKind ?? ready.surfaceKind,
-            terminal: driven.terminal,
-            graphicsRowsPerSecond: driven.graphicsRowsPerSecond,
-            zoomTransitions: driven.zoomTransitions,
-            injectFailed: driven.injectFailed,
-            movement: driven.movement,
-        }, LIMITS);
+            surfaceKind: ready.surfaceKind,
+        }), LIMITS);
     const entry = {
         ...phase,
         ...measured,

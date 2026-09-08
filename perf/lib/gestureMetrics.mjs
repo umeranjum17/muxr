@@ -784,6 +784,37 @@ function failWhen(failures, key, cond) {
 }
 
 /**
+ * What a driven phase hands the verdict. It lives here, next to `verdict`, so
+ * the metric a bout measured and the metric the gate grades cannot drift apart:
+ * a field dropped on the way in reads exactly like a phase that never measured.
+ */
+export function phaseMetrics(driven, context = {}) {
+    return {
+        jank: driven.jank,
+        frameStats: driven.frameStats,
+        missedVsyncPerFling: driven.missedVsyncPerFling,
+        frameCoverage: driven.frameCoverage,
+        jsBusyDeltaPoints: context.jsBusyDeltaPoints,
+        accidentalOwners: context.accidentalOwners,
+        zoomTapped: driven.zoomTapped,
+        zoomSurface: driven.zoomSurface,
+        zoomMagnified: driven.zoomMagnified,
+        zoomedOut: driven.zoomedOut,
+        zoomReset: driven.zoomReset,
+        zoomShrankOnce: driven.zoomShrankOnce,
+        zoomAtRestDefault: driven.zoomAtRestDefault,
+        zoomWindow: driven.zoomWindow,
+        attachRecords: driven.attachRecords,
+        surfaceKind: driven.surfaceKind ?? context.surfaceKind,
+        terminal: driven.terminal,
+        graphicsRowsPerSecond: driven.graphicsRowsPerSecond,
+        zoomTransitions: driven.zoomTransitions,
+        injectFailed: driven.injectFailed,
+        movement: driven.movement,
+    };
+}
+
+/**
  * Compare one phase's metrics to a LIMITS object. `failures` are LIMITS keys
  * (or the named document/inject predicates) so a test can assert the list.
  */
@@ -810,10 +841,24 @@ export function verdict(phase, metrics, limits) {
     failWhen(failures, 'gestureDroppedPercent', over(frames.droppedPercent, limits.gestureDroppedPercent));
     // Per fling means per fling: the bout's accumulated count cannot say which
     // gesture missed, and no window at all is unavailable evidence, not a pass.
-    if (SCROLL_PHASES.has(name) && metrics.missedVsyncPerFling === undefined && (jank.frames ?? 0) > 0) {
-        failures.push('no per-fling vsync window');
+    // A zoom phase is one tap in its own window, so its window is the whole of
+    // it and the same allowance applies to the counter directly.
+    if (ZOOM_PHASES.has(name)) {
+        failWhen(failures, 'missedVsyncPerFling', over(jank.missedVsync, limits.missedVsyncPerFling));
+    } else {
+        if (SCROLL_PHASES.has(name) && metrics.missedVsyncPerFling === undefined && (jank.frames ?? 0) > 0) {
+            failures.push('no per-fling vsync window');
+        }
+        failWhen(failures, 'missedVsyncPerFling', over(metrics.missedVsyncPerFling, limits.missedVsyncPerFling));
     }
-    failWhen(failures, 'missedVsyncPerFling', over(metrics.missedVsyncPerFling, limits.missedVsyncPerFling));
+    // The framestats ring is 120 frames deep. If more frames were drawn inside
+    // the gesture windows than were read back out of it, the ring wrapped and
+    // the dropped-frame and latency account of this bout is missing work.
+    if (SCROLL_PHASES.has(name) && (jank.frames ?? 0) > 0) {
+        const coverage = metrics.frameCoverage;
+        if (coverage === undefined) failures.push('no frame coverage account');
+        else if (coverage.retained < coverage.rendered) failures.push('the framestats ring lost frames');
+    }
     failWhen(failures, 'inputToFrameP95Ms', over(frames.inputToFrameMs?.p95, limits.inputToFrameP95Ms));
 
     if (NATIVE_PHASES.has(name)) {

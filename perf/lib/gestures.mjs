@@ -227,33 +227,33 @@ async function oneAttempt(runOnce) {
  * comparable.
  */
 export async function scrollBout(options) {
-    const { width = 1080, height = 1920, seconds = 30, settleMs = 350, onGesture } = options ?? {};
-    const midX = Math.round(width / 2);
-    const top = Math.round(height * 0.28);
-    const bottom = Math.round(height * 0.72);
+    const { width = 1080, height = 1920, bounds, seconds = 30, settleMs = 350, onGesture } = options ?? {};
+    // The surface the phase resolved, or the screen when it has none. Travel
+    // stays the same fraction of it, so the commanded speeds do not change.
+    const box = bounds ?? { l: 0, t: 0, r: width, b: height };
+    const span = box.b - box.t;
+    const midX = Math.round((box.l + box.r) / 2);
+    const top = Math.round(box.t + span * 0.28);
+    const bottom = Math.round(box.t + span * 0.72);
+    // The window a phase measures a gesture over ends after the gesture has
+    // settled, so the frames the fling was still drawing belong to the fling
+    // and not to whatever came next.
+    const settled = async (gesture, gestures) => {
+        gestures.push(gesture);
+        await sleep(settleMs);
+        if (onGesture !== undefined) await onGesture(gesture);
+    };
     const once = async () => {
         const deadline = Date.now() + seconds * 1000;
         const gestures = [];
         while (Date.now() < deadline) {
-            const up = await fling({ x: midX, y: bottom }, { x: midX, y: top });
-            gestures.push(up);
-            if (onGesture !== undefined) await onGesture(up);
-            await sleep(settleMs);
+            await settled(await fling({ x: midX, y: bottom }, { x: midX, y: top }), gestures);
             if (Date.now() >= deadline) break;
-            const down = await fling({ x: midX, y: top }, { x: midX, y: bottom });
-            gestures.push(down);
-            if (onGesture !== undefined) await onGesture(down);
-            await sleep(settleMs);
+            await settled(await fling({ x: midX, y: top }, { x: midX, y: bottom }), gestures);
             if (Date.now() >= deadline) break;
-            const dragUp = await drag({ from: { x: midX, y: bottom }, to: { x: midX, y: top } });
-            gestures.push(dragUp);
-            if (onGesture !== undefined) await onGesture(dragUp);
-            await sleep(settleMs);
+            await settled(await drag({ from: { x: midX, y: bottom }, to: { x: midX, y: top } }), gestures);
             if (Date.now() >= deadline) break;
-            const dragDown = await drag({ from: { x: midX, y: top }, to: { x: midX, y: bottom } });
-            gestures.push(dragDown);
-            if (onGesture !== undefined) await onGesture(dragDown);
-            await sleep(settleMs);
+            await settled(await drag({ from: { x: midX, y: top }, to: { x: midX, y: bottom } }), gestures);
         }
         return gestures;
     };
@@ -274,19 +274,18 @@ export async function stripBout(options) {
     const midX = (bounds.l + bounds.r) / 2;
     const left = Math.round(midX - travel / 2);
     const right = Math.round(midX + travel / 2);
+    const settled = async (gesture, gestures) => {
+        gestures.push(gesture);
+        await sleep(settleMs);
+        if (onGesture !== undefined) await onGesture(gesture);
+    };
     const once = async () => {
         const deadline = Date.now() + seconds * 1000;
         const gestures = [];
         while (Date.now() < deadline) {
-            const inward = await fling({ x: right, y }, { x: left, y });
-            gestures.push(inward);
-            if (onGesture !== undefined) await onGesture(inward);
-            await sleep(settleMs);
+            await settled(await fling({ x: right, y }, { x: left, y }), gestures);
             if (Date.now() >= deadline) break;
-            const back = await fling({ x: left, y }, { x: right, y });
-            gestures.push(back);
-            if (onGesture !== undefined) await onGesture(back);
-            await sleep(settleMs);
+            await settled(await fling({ x: left, y }, { x: right, y }), gestures);
         }
         return gestures;
     };
