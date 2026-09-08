@@ -17,6 +17,7 @@ import {
     stripPosition,
     stripScroller,
     freshFrameRows,
+    pendingFrameRows,
     mergeFrameStats,
     parseJsonlStrict,
     continuesFrom,
@@ -36,6 +37,7 @@ import {
     verdict,
 } from './gestureMetrics.mjs';
 import { summarize } from './gestures.mjs';
+import { readPhoneTrail } from './phoneTrail.mjs';
 import { newAttempt, samplePhase } from './androidSignals.mjs';
 import { useCommandScope } from './commands.mjs';
 import { herdChromeConnected, herdProof, worldLabels } from './pairPhone.mjs';
@@ -592,6 +594,91 @@ test('the phase window opens before injection and closes on acknowledgement', as
     } finally {
         useCommandScope(undefined);
     }
+});
+
+// A row the pipeline is still writing completes "before" its own vsync. Taking
+// its identity would retire the frame, so the finished record that arrives in a
+// later read of the ring would be dropped as already counted.
+test('an unfinished frame row is not counted and not retired', () => {
+    const row = (intended, completed) => ({
+        Flags: '0', IntendedVsync: String(intended), FrameCompleted: String(completed), InputEventId: '0',
+    });
+    const provisional = row(1000, 500);
+    const finished = row(1000, 1000 + 8e6);
+    const seen = new Set();
+
+    const firstRead = freshFrameRows([row(900, 900 + 8e6), provisional], seen);
+    assert.equal(firstRead.length, 1, 'an unfinished row was retained');
+    assert.equal(pendingFrameRows([row(900, 900 + 8e6), provisional], seen), 1);
+    // Same frame, now finished: the later read carries it exactly once.
+    const secondRead = freshFrameRows([provisional, finished], seen);
+    assert.deepEqual(secondRead.map((entry) => entry.FrameCompleted), [finished.FrameCompleted]);
+    assert.equal(freshFrameRows([finished], seen).length, 0, 'a finished row was counted twice');
+
+    // An impossible duration must never improve a drop rate: it is not a frame
+    // that rendered in negative time, it is a record nobody can read yet.
+    const frameNs = 1e9 / 60;
+    assert.equal(reduceFrameStats([provisional], { frameNs }).frames, 0);
+    const dropped = reduceFrameStats([row(0, 0), row(1000, 1000 + 5 * frameNs)], { frameNs });
+    assert.equal(dropped.frames, 1);
+    assert.equal(dropped.droppedPercent, 100);
+
+    // Pending rows are accounted for, never borrowed from: what the ring never
+    // gave back and is not still pending is lost.
+    const graded = (coverage) => verdict('herd tree fling', {
+        jank: { frames: 10, jankyPercent: 1, p95Ms: 10, p99Ms: 12, overFourFramesPercent: 0, missedVsync: 0 },
+        frameStats: { frames: 8, droppedPercent: 0, inputToFrameMs: { p95: 10 } },
+        missedVsyncPerFling: 1,
+        movement: { proven: true },
+        frameCoverage: coverage,
+    }, EMULATOR_LIMITS).failures;
+    assert.deepEqual(graded({ rendered: 10, retained: 8, pending: 2 }), []);
+    assert.deepEqual(graded({ rendered: 10, retained: 8, pending: 0 }), ['the framestats ring lost frames']);
+});
+
+// The frozen report is one Text node: UIAutomator publishes the whole string at
+// every scroll position, so identical XML is the normal case while the pixels
+// underneath keep travelling. Ending the search there stopped one swipe short.
+test('the diagnostics read keeps swiping through identical pages', async () => {
+    const page = (rows) => `<node class="android.widget.ScrollView" bounds="[0,0][1080,1920]" />`
+        + '<node text="Connection &amp; updates" class="android.widget.TextView" bounds="[40,60][600,120]" />'
+        + rows;
+    const report = '<node text="Redacted: 2026-09-08T00:00:00Z #7 rpc session.start ok 5ms" class="android.widget.TextView" bounds="[85,249][995,1900]" />';
+    const control = (label) => `<node text="${label}" class="android.widget.TextView" bounds="[40,300][600,360]" />`;
+    const deps = (pages) => {
+        let index = 0;
+        const swipes = [];
+        return {
+            swipes,
+            openSettings: async () => {},
+            sleep: async () => {},
+            drag: async () => { swipes.push(index); index = Math.min(index + 1, pages.length - 1); },
+            tap: async () => { index = Math.min(index + 1, pages.length - 1); },
+            dumpUi: async () => pages[index],
+            returnToHerd: async () => true,
+        };
+    };
+
+    // Show diagnostics, then five byte-identical report pages, then the end.
+    const identical = page(report);
+    const found = deps([
+        page(control('Show diagnostics')),
+        identical, identical, identical, identical, identical,
+        page(report + control('Copy diagnostics')),
+    ]);
+    const read = await readPhoneTrail(found);
+    assert.equal(read.ok, true, read.why);
+    assert.match(read.text, /Redacted:/);
+    assert.ok(found.swipes.length > 1, 'the search stopped on the first identical page');
+
+    // A report that never reaches its end is unavailable, never a successful
+    // zero: the bound is what stops it, not two pages that happened to match.
+    const endless = deps([page(control('Show diagnostics')), identical, identical]);
+    const never = await readPhoneTrail(endless);
+    assert.equal(never.ok, false);
+    assert.equal(never.why, 'the diagnostics report never reached its end');
+    assert.equal(never.returned, true);
+    assert.equal(endless.swipes.length, 10, 'the ten-swipe bound changed');
 });
 
 test('the herd is only proven by connected chrome and this run\'s own labels', () => {

@@ -259,9 +259,14 @@ export function CodeCore(props: {
                 offset: offsets[index] ?? 0,
                 index,
             })}
-            initialNumToRender={40}
-            maxToRenderPerBatch={24}
-            windowSize={7}
+            // A whole file owns the screen, so its list keeps a narrow but
+            // ordinary overscan: about a screenful mounted at first and three
+            // viewports retained. Seven viewports of a 222-line file is most of
+            // the file mounted at once. Every line stays reachable either way --
+            // this is the render window, not a content cap.
+            initialNumToRender={props.fill === true ? 20 : 40}
+            maxToRenderPerBatch={props.fill === true ? 8 : 24}
+            windowSize={props.fill === true ? 3 : 7}
             // Inside the pan mode's horizontal scroller Android clips against
             // the wrong window and blanks every row, so only the wrapped list
             // takes the optimisation.

@@ -33,6 +33,7 @@ import { promisify } from 'node:util';
 import { startFakeStack } from './lib/fakeStack.mjs';
 import { tourEverySession } from './lib/deviceTour.mjs';
 import { herdChromeConnected, pairPhone } from './lib/pairPhone.mjs';
+import { readPhoneTrail } from './lib/phoneTrail.mjs';
 import { usagePlugins } from './fixtures/usageHome.mjs';
 import {
     appPid,
@@ -61,14 +62,12 @@ import { fling, scrollBout, stripBout, tap, tapTimed, drag } from './lib/gesture
 import {
     continuesFrom,
     cropRaw,
-    decodeUiAttribute,
     firstDocumentMarker,
     freshFrameRows,
+    pendingFrameRows,
     mergeFrameStats,
     parseJsonlStrict,
-    parseUiNodes,
     phaseMetrics,
-    parseRedactedTrail,
     pixelsMoved,
     reduceFrameStats,
     reduceGridTransitions,
@@ -81,7 +80,6 @@ import {
     scrollableBounds,
     stripPosition,
     stripScroller,
-    verticalScrollers,
     trailSince,
     verdict,
 } from './lib/gestureMetrics.mjs';
@@ -380,94 +378,14 @@ async function tapBounds(pattern) {
     return true;
 }
 
-/**
- * The phone's own account of the run, read off the accessibility tree of
- * Settings -> Connection -> Show diagnostics.
- *
- * Never returns a trail it did not read. A missing diagnostics screen parses
- * as zero rows and zero latency, which is indistinguishable from a terminal
- * that scrolled nothing, so an unreadable trail is reported as unavailable and
- * the phase that needed it fails rather than passing on invented numbers.
- */
-async function pullPhoneTrail() {
-    await run('adb', ['shell', 'am', 'start', '-a', 'android.intent.action.VIEW', '-d', 'muxr:///settings/connection', PKG], { timeout: 20_000 }).catch(() => undefined);
-    await sleep(1500);
-    const fail = async (why) => ({ ok: false, why, returned: await returnToHerd() });
-
-    let dump = await dumpUi();
-    if (!/text="Connection &amp;(?:amp;)? updates"|text="Connection & updates"/.test(dump)) {
-        return await fail('the Connection & updates route never opened');
-    }
-    // A node the page is not showing cannot be tapped: uiautomator keeps rows
-    // that scrolled off, and a zero-area or offscreen box would send the tap
-    // wherever those coordinates happen to land.
-    const onScreen = (current, label) => {
-        const page = verticalScrollers(current)[0];
-        if (page === undefined) return undefined;
-        return parseUiNodes(current).find((node) => node.text === label
-            && node.r > node.l && node.b > node.t
-            && node.t >= page.t && node.b <= page.b && node.l >= page.l && node.r <= page.r);
-    };
-    // One page scroll, reporting whether the page still had anywhere to go.
-    const scrollPage = async (current) => {
-        const page = verticalScrollers(current)[0];
-        if (page === undefined) return { why: 'the page has no vertical scroller' };
-        const x = Math.round((page.l + page.r) / 2);
-        await drag({
-            from: { x, y: Math.round(page.t + (page.b - page.t) * 0.75) },
-            to: { x, y: Math.round(page.t + (page.b - page.t) * 0.25) },
-        });
-        await sleep(500);
-        const next = await dumpUi();
-        return { dump: next, moved: next !== current };
-    };
-    // Troubleshooting sits below the hosted status, the version rows and the
-    // update rows, so the control starts off screen on this display.
-    let control = onScreen(dump, 'Show diagnostics');
-    for (let attempt = 0; attempt < 10 && control === undefined; attempt += 1) {
-        const scrolled = await scrollPage(dump);
-        if (scrolled.dump === undefined) return await fail(scrolled.why);
-        dump = scrolled.dump;
-        control = onScreen(dump, 'Show diagnostics');
-        if (!scrolled.moved) break;
-    }
-    if (control === undefined) return await fail('Show diagnostics was never visible on /settings/connection');
-    await tap((control.l + control.r) / 2, (control.t + control.b) / 2);
-    await sleep(1000);
-    dump = await dumpUi();
-
-    // The report is a single block between the control and Copy diagnostics, and
-    // it is taller than the page. Read down it until that closing control is on
-    // screen: only then is the whole report accounted for, and only then can a
-    // missing summary line mean the phone really recorded nothing.
-    const lines = [];
-    const seen = new Set();
-    const readVisible = (current) => {
-        for (const match of current.matchAll(/text="([^"]*)"/g)) {
-            const line = decodeUiAttribute(match[1]);
-            if (line === '' || seen.has(line)) continue;
-            seen.add(line);
-            lines.push(line);
-        }
-    };
-    readVisible(dump);
-    let complete = onScreen(dump, 'Copy diagnostics') !== undefined || onScreen(dump, 'Diagnostics copied') !== undefined;
-    for (let attempt = 0; attempt < 10 && !complete; attempt += 1) {
-        const scrolled = await scrollPage(dump);
-        if (scrolled.dump === undefined) return await fail(scrolled.why);
-        dump = scrolled.dump;
-        readVisible(dump);
-        complete = onScreen(dump, 'Copy diagnostics') !== undefined || onScreen(dump, 'Diagnostics copied') !== undefined;
-        if (!scrolled.moved) break;
-    }
-    const text = lines.join('\n');
-    if (!/Redacted:|No phone transport events yet/.test(text)) {
-        return await fail('the diagnostics report never rendered');
-    }
-    if (!complete) return await fail('the diagnostics report never reached its end');
-    if (!await returnToHerd()) return { ok: false, why: 'the herd never came back after the diagnostics report', returned: false };
-    return { ok: true, text, trail: parseRedactedTrail(text) };
-}
+const pullPhoneTrail = () => readPhoneTrail({
+    openSettings: () => run('adb', ['shell', 'am', 'start', '-a', 'android.intent.action.VIEW', '-d', 'muxr:///settings/connection', PKG], { timeout: 20_000 }).catch(() => undefined),
+    dumpUi,
+    drag,
+    tap,
+    sleep,
+    returnToHerd,
+});
 
 async function captureSurface(surface, screen) {
     const dump = await dumpUi();
@@ -524,32 +442,84 @@ async function measureBout(run, hz, { surface, screen, phase, prepared } = {}) {
     // wrapped while a window was open, so that window's account is incomplete.
     let rendered = 0;
     let retained = 0;
+    let pending = 0;
     let coverageBroken = false;
-    // One window: every frame gfxinfo drew since the last snapshot, closed by
-    // this snapshot. `gesture` names what the window was opened for -- a real
-    // gesture, or the hierarchy dump and screenshot an observation costs, which
-    // is work of its own and must not be charged to the fling that follows it.
-    const collect = async (window) => {
-        const openedAt = Date.now();
+    // The window that is open right now. Reads during it accumulate here, so a
+    // drain taken while a screenshot is being pulled adds to the window it
+    // happened in rather than opening one of its own.
+    let open = { openedAtMs: Date.now(), rows: [], rendered: 0, retained: 0, missedVsync: 0, readAtMs: [] };
+
+    // One owner of the ring. Two mutating reads in flight would race the seen
+    // set and the counters; every read below goes through this queue.
+    let pendingNow = 0;
+    let queue = Promise.resolve();
+    const serialize = (work) => {
+        const next = queue.then(work, work);
+        queue = next.then(() => undefined, () => undefined);
+        return next;
+    };
+
+    // One read, folded into the open window. The ring holds 120 rows, so a
+    // 2.4 s screenshot at 60 Hz can overrun it: this is called on a cadence
+    // during those, not only at the end of them.
+    const absorb = () => serialize(async () => {
+        const startedAt = Date.now();
         const snapshot = await gfxSnapshot(PKG, { hz });
         const fresh = freshFrameRows(snapshot.rows, counted);
-        // No clock, no latency. Substituting the frame's own duration answers
-        // "how late was the touch" with a number that never saw a touch.
-        const t0Ns = Number.isFinite(window.t0Seconds) ? window.t0Seconds * 1e9 : undefined;
-        const reduced = reduceFrameStats(fresh, { frameNs: 1e9 / hz, t0Ns });
-        parts.push(reduced);
+        open.rows.push(...fresh);
+        open.retained += fresh.length;
+        // Rows the pipeline had not finished writing are not lost frames and
+        // not counted frames; a later read carries their finished record.
+        pendingNow = pendingFrameRows(snapshot.rows, counted);
+        const was = counters?.missedVsync;
+        const now = snapshot.jank.missedVsync;
         // A counter that could not be read, or one that went backwards because
         // something reset the window, is not a delta. It is a hole, and a hole
         // that reduces to zero passes the per-fling limit on nothing.
-        const was = counters?.missedVsync;
-        const now = snapshot.jank.missedVsync;
-        const missedVsync = was === undefined || now === undefined || now < was ? undefined : now - was;
+        if (was === undefined || now === undefined || now < was) open.missedVsync = undefined;
+        else if (open.missedVsync !== undefined) open.missedVsync += now - was;
         const grew = (snapshot.jank.frames ?? NaN) - (counters?.frames ?? NaN);
-        if (Number.isFinite(grew) && grew >= 0) {
-            rendered += grew;
-            retained += fresh.length;
-        } else coverageBroken = true;
+        if (Number.isFinite(grew) && grew >= 0) open.rendered += grew;
+        else coverageBroken = true;
         counters = snapshot.jank;
+        open.readAtMs.push({ startedAt, endedAt: Date.now() });
+        return snapshot;
+    });
+
+    // A slow observation drains the ring while it runs. `absorb` is serialized,
+    // so a drain that outlives its slot simply queues behind the previous one.
+    const RING_DRAIN_MS = 250;
+    const draining = async (work) => {
+        let running = true;
+        const loop = (async () => {
+            while (running) {
+                await sleep(RING_DRAIN_MS);
+                if (!running) break;
+                await absorb();
+            }
+        })();
+        try {
+            return await work();
+        } finally {
+            running = false;
+            await loop;
+        }
+    };
+
+    // Closes the open window on `window`'s own boundary and opens the next.
+    // Intermediate drains never close a window, so a fling's missed-vsync
+    // budget stays the fling's and the injector clock stays its only origin.
+    const collect = async (window) => {
+        const openedAt = open.openedAtMs;
+        const snapshot = await absorb();
+        // No clock, no latency. Substituting the frame's own duration answers
+        // "how late was the touch" with a number that never saw a touch.
+        const t0Ns = Number.isFinite(window.t0Seconds) ? window.t0Seconds * 1e9 : undefined;
+        const reduced = reduceFrameStats(open.rows, { frameNs: 1e9 / hz, t0Ns });
+        parts.push(reduced);
+        rendered += open.rendered;
+        retained += open.retained;
+        pending = pendingNow;
         gestureFrames.push({
             profile: window.profile,
             // A window opened by a touch is graded on that touch's origin; the
@@ -557,6 +527,7 @@ async function measureBout(run, hz, { surface, screen, phase, prepared } = {}) {
             input: window.input === true,
             openedAtMs: openedAt,
             closedAtMs: Date.now(),
+            reads: open.readAtMs,
             t0Seconds: window.t0Seconds,
             durationMs: window.durationMs,
             elapsedMs: window.elapsedMs,
@@ -565,10 +536,13 @@ async function measureBout(run, hz, { surface, screen, phase, prepared } = {}) {
             worstMs: reduced.worstMs,
             inputToFrameMs: reduced.inputToFrameMs,
             ...(window.input === true && t0Ns === undefined ? { clockUnavailable: true } : {}),
-            missedVsync,
-            rows: fresh.slice(0, RAW_FRAME_ROW_CAP),
-            ...(fresh.length > RAW_FRAME_ROW_CAP ? { rowsOmitted: fresh.length - RAW_FRAME_ROW_CAP } : {}),
+            missedVsync: open.missedVsync,
+            renderedInWindow: open.rendered,
+            retainedInWindow: open.retained,
+            rows: open.rows.slice(0, RAW_FRAME_ROW_CAP),
+            ...(open.rows.length > RAW_FRAME_ROW_CAP ? { rowsOmitted: open.rows.length - RAW_FRAME_ROW_CAP } : {}),
         });
+        open = { openedAtMs: Date.now(), rows: [], rendered: 0, retained: 0, missedVsync: 0, readAtMs: [] };
         return snapshot;
     };
     let bout = { gestures: 0, flings: 0, medianVelocityPxPerSecond: 0 };
@@ -581,9 +555,10 @@ async function measureBout(run, hz, { surface, screen, phase, prepared } = {}) {
                 await collect({ ...gesture, input: true });
                 if (gesture.profile !== 'fling') return;
                 if (phase?.oneWayMovement === true && oneWaySurface === undefined && surface !== undefined) {
-                    oneWaySurface = await captureSurface(surface, screen);
-                    // The dump and the screenshot drew frames of their own. They
+                    // The dump and the screenshot take seconds and draw frames
+                    // of their own. The ring is drained while they run, and they
                     // close in their own window, not in the next fling's.
+                    oneWaySurface = await draining(() => captureSurface(surface, screen));
                     await collect({ profile: 'observation' });
                 }
             },
@@ -597,7 +572,7 @@ async function measureBout(run, hz, { surface, screen, phase, prepared } = {}) {
     // frames drawn after the final gesture are inside the account rather than
     // arriving in a jank report nothing was compared against.
     await collect({ profile: 'bout close' });
-    const afterSurface = surface === undefined ? undefined : await captureSurface(surface, screen);
+    const afterSurface = surface === undefined ? undefined : await draining(() => captureSurface(surface, screen));
     const closing = await collect({ profile: 'observation' });
     const after = closing.jank;
     // The attempt ends on its own last observation, and the sampler's closing
@@ -619,7 +594,7 @@ async function measureBout(run, hz, { surface, screen, phase, prepared } = {}) {
         jank: reduceJank(before, after, { hz }),
         frameStats: mergeFrameStats(parts),
         gestureFrames,
-        frameCoverage: coverageBroken ? undefined : { rendered, retained },
+        frameCoverage: coverageBroken ? undefined : { rendered, retained, pending },
         missedVsyncPerFling: worstMissedVsyncPerFling(gestureFrames),
         movement,
         beforeSurface,

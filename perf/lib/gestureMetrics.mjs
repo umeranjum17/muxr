@@ -130,10 +130,12 @@ export function reduceFrameStats(rows, { frameNs, t0Ns } = {}) {
     const good = [];
     for (const row of rows ?? []) {
         if (asNumber(row.Flags) !== 0) continue;
-        const completed = asNumber(row.FrameCompleted);
-        const intended = asNumber(row.IntendedVsync);
-        if (completed === undefined || intended === undefined) continue;
-        good.push({ ...row, FrameCompleted: completed, IntendedVsync: intended });
+        if (!frameRowComplete(row)) continue;
+        good.push({
+            ...row,
+            FrameCompleted: asNumber(row.FrameCompleted),
+            IntendedVsync: asNumber(row.IntendedVsync),
+        });
     }
     let dropped = 0;
     let worstNs = 0;
@@ -171,20 +173,45 @@ export function reduceFrameStats(rows, { frameNs, t0Ns } = {}) {
 }
 
 /**
- * Rows of a rolling framestats ring that have not been counted yet. The ring
- * is re-read after every fling and mostly repeats what the last read already
- * held; summing those reads counts the same frame several times. `IntendedVsync`
- * is the frame's identity, so a read after a counter reset still adds once.
+ * A finished frame. A row the pipeline is still writing carries a completion
+ * before its own intended vsync -- one tree row landed 1.987 s "before" it --
+ * and counting that as a fast frame flatters the drop rate it lands in.
+ */
+export function frameRowComplete(row) {
+    const completed = asNumber(row?.FrameCompleted);
+    const intended = asNumber(row?.IntendedVsync);
+    if (completed === undefined || intended === undefined) return false;
+    return completed > 0 && intended > 0 && completed >= intended;
+}
+
+/**
+ * Rows of a rolling framestats ring that have not been counted yet. The ring is
+ * re-read while a bout runs and mostly repeats what the last read already held;
+ * summing those reads counts the same frame several times. `IntendedVsync` is
+ * the frame's identity, so a read after a counter reset still adds once.
+ *
+ * Only a finished row is taken and remembered. Retiring an identity from a row
+ * that had not landed yet would throw away the finished record of that same
+ * frame when the next read finally carries it.
  */
 export function freshFrameRows(rows, seen) {
     const fresh = [];
     for (const row of rows ?? []) {
         const key = asNumber(row.IntendedVsync);
         if (key === undefined || seen.has(key)) continue;
+        if (!frameRowComplete(row)) continue;
         seen.add(key);
         fresh.push(row);
     }
     return fresh;
+}
+
+/** Rows of this read the pipeline had not finished writing. */
+export function pendingFrameRows(rows, seen) {
+    return (rows ?? []).filter((row) => {
+        const key = asNumber(row.IntendedVsync);
+        return key !== undefined && !seen.has(key) && !frameRowComplete(row);
+    }).length;
 }
 
 /** Merge per-fling frameStats into one phase account. */
@@ -860,7 +887,9 @@ export function verdict(phase, metrics, limits) {
         // and this account is missing work.
         const coverage = metrics.frameCoverage;
         if (coverage === undefined) failures.push('no frame coverage account');
-        else if (coverage.retained < coverage.rendered) failures.push('the framestats ring lost frames');
+        // Rows the pipeline had not finished writing are accounted for, not
+        // borrowed from: what is neither read back nor still pending is lost.
+        else if (coverage.retained + (coverage.pending ?? 0) < coverage.rendered) failures.push('the framestats ring lost frames');
     }
     failWhen(failures, 'missedVsyncPerFling', over(metrics.missedVsyncPerFling, limits.missedVsyncPerFling));
     failWhen(failures, 'inputToFrameP95Ms', over(frames.inputToFrameMs?.p95, limits.inputToFrameP95Ms));
