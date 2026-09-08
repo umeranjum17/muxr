@@ -73,6 +73,22 @@ export async function dismissPrompts(labels = ['CANCEL', 'Not now', 'Deny', 'Lat
     return dismissed;
 }
 
+/**
+ * Put the IME away. A terminal tap opens the keyboard by design, and an open
+ * keyboard both covers the surface a phase is about to measure and eats the
+ * first BACK, so a gesture bout must start from a known keyboard state.
+ * Returns whether the IME is down.
+ */
+export async function dismissKeyboard() {
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+        const shown = await quiet(['shell', 'dumpsys', 'input_method'], 20_000);
+        if (!/mInputShown=true/.test(shown)) return true;
+        await quiet(['shell', 'input', 'keyevent', 'BACK']);
+        await new Promise((resolve) => setTimeout(resolve, 600));
+    }
+    return !/mInputShown=true/.test(await quiet(['shell', 'dumpsys', 'input_method'], 20_000));
+}
+
 export async function deviceReady() {
     const state = (await quiet(['get-state'])).trim();
     return state === 'device';

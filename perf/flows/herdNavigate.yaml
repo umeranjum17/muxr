@@ -20,19 +20,17 @@ tags:
       - tapOn:
           text: 'CANCEL|Not now|Deny|Later'
           optional: true
-      # A previous pass may have left a terminal open.
+      # A previous pass may have left a terminal open, with its keyboard up: an
+      # open IME eats the back that was meant to leave the route.
+      - hideKeyboard
+      # `Back` is the label the shared HeaderBackButton exposes.
       - runFlow:
           when:
             visible:
-              text: 'Type a prompt.*'
+              text: 'Back'
           commands:
-            - back
-      - runFlow:
-          when:
-            visible:
-              text: 'Go back'
-          commands:
-            - back
+            - tapOn:
+                text: 'Back'
       # A relaunch reconnects and refetches the herd before anything is live.
       - extendedWaitUntil:
           visible:
@@ -42,19 +40,25 @@ tags:
           visible:
             text: 'LIVE'
           timeout: 40000
-      # The first live card is an agent, not a shell.
+      # A live card by the label the app publishes for it
+      # (`agentAccessibilityLabel`: title, state, identity). The herd reorders
+      # as titles churn, so a fixed point opens whatever drifted under it.
       - tapOn:
-          point: 30%, 33%
+          text: '.*\. (Idle|Working|Starting|Needs you|Done|Failed|Offline).*\. .*'
       - tapOn:
           text: 'CANCEL|Not now|Deny|Later'
           optional: true
       # The terminal screen's own furniture. The terminal itself is a native
-      # surface with no accessibility text, so the gate proves the attach from
-      # the host's journal instead of from a label here.
+      # surface with no accessibility text, so this label is the assertion that
+      # the pass really reached a terminal; the attach itself is proven from
+      # the host's journal.
       - extendedWaitUntil:
           visible:
-            text: 'Terminal|Type a prompt.*'
+            text: 'Show terminal controls'
           timeout: 20000
+      # A terminal tap opens the IME by design, which changes the bounds every
+      # swipe below lands in.
+      - hideKeyboard
       - repeat:
           times: 8
           commands:
@@ -66,13 +70,24 @@ tags:
                 start: 50%, 72%
                 end: 50%, 22%
                 duration: 90
-      - back
+      - hideKeyboard
+      - tapOn:
+          text: 'Back'
+      - extendedWaitUntil:
+          visible:
+            text: 'LIVE'
+          timeout: 20000
       - tapOn:
           text: 'Usage'
           optional: true
+      # The `code` plugin is loaded from the gate's fixture plugin root, so
+      # Files is a real tab now and its absence is a failure, not a no-op.
       - tapOn:
           text: 'Files'
-          optional: true
+      - extendedWaitUntil:
+          visible:
+            text: 'perf-document.md|All Files|Changes|project'
+          timeout: 20000
       - tapOn:
           text: 'Panes'
           optional: true
@@ -80,9 +95,10 @@ tags:
       - runFlow:
           when:
             visible:
-              text: 'Go back'
+              text: 'Back'
           commands:
-            - back
+            - tapOn:
+                text: 'Back'
       - tapOn:
           text: 'Machine'
           optional: true

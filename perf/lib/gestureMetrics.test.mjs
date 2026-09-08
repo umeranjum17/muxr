@@ -9,8 +9,11 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import {
-    firstGutterLine,
+    documentPosition,
+    firstDocumentMarker,
     firstStripLabel,
+    freshFrameRows,
+    mergeFrameStats,
     parseFrameStatsDump,
     parseJankDump,
     parseRedactedTrail,
@@ -72,6 +75,13 @@ test('baseline bout fixtures reduce to the documented failures', () => {
     const doctored = reduceFrameStats(late, { frameNs, t0Ns });
     assert.equal(doctored.dropped, 3);
 
+    // The ring is re-read after every fling and mostly repeats itself; two
+    // overlapping reads must still be one account of the same frames.
+    const counted = new Set();
+    const firstRead = reduceFrameStats(freshFrameRows(rows.slice(0, 4), counted), { frameNs, t0Ns });
+    const secondRead = reduceFrameStats(freshFrameRows(rows, counted), { frameNs, t0Ns });
+    assert.equal(mergeFrameStats([firstRead, secondRead]).frames, frames.frames);
+
     const still = { width: 4, height: 4, bytes: Buffer.alloc(4 * 4 * 4, 10) };
     const shifted = { width: 4, height: 4, bytes: Buffer.alloc(4 * 4 * 4, 40) };
     assert.equal(pixelsMoved(still, still).moved, false);
@@ -79,18 +89,20 @@ test('baseline bout fixtures reduce to the documented failures', () => {
     assert.equal(moved.moved, true);
     assert.ok(moved.meanAbs >= PIXEL_MOVE_THRESHOLD);
 
-    const dumpA = '<node text="12" class="android.widget.TextView" bounds="[8,200][40,220]" />'
+    const dumpA = '<node text="PERF_LINE_0012 deterministic" class="android.widget.TextView" bounds="[8,200][900,220]" />'
+        + '<node text="File 1 of 3" class="android.widget.TextView" bounds="[8,1800][200,1830]" />'
         + '<node content-desc="Pi 1. Idle. Terminal" class="android.view.View" bounds="[16,120][300,320]" />';
-    const dumpB = '<node text="48" class="android.widget.TextView" bounds="[8,200][40,220]" />'
+    const dumpB = '<node text="PERF_LINE_0048 deterministic" class="android.widget.TextView" bounds="[8,200][900,220]" />'
         + '<node content-desc="Claude 1. Idle. Terminal" class="android.view.View" bounds="[16,120][300,320]" />';
-    assert.equal(firstGutterLine(dumpA), 12);
-    assert.equal(firstGutterLine(dumpB), 48);
+    assert.equal(firstDocumentMarker(dumpA), 12);
+    assert.equal(firstDocumentMarker(dumpB), 48);
+    assert.deepEqual(documentPosition(dumpA), { current: 1, total: 3 });
     assert.equal(firstStripLabel(dumpA), 'Pi 1. Idle. Terminal');
     assert.notEqual(firstStripLabel(dumpA), firstStripLabel(dumpB));
 
     const documentMoved = reduceMovement('document scroll and swipe', {
-        before: { crop: still, gutterLine: 12, stripLabel: firstStripLabel(dumpA) },
-        after: { crop: shifted, gutterLine: 48, stripLabel: firstStripLabel(dumpB) },
+        before: { crop: still, documentMarker: firstDocumentMarker(dumpA), stripLabel: firstStripLabel(dumpA) },
+        after: { crop: shifted, documentMarker: firstDocumentMarker(dumpB), stripLabel: firstStripLabel(dumpB) },
     });
     assert.equal(documentMoved.proven, true);
     const stuck = reduceMovement('herd tree fling', {
@@ -136,10 +148,13 @@ test('baseline bout fixtures reduce to the documented failures', () => {
     assert.equal(graphicsZoom.zoomResizeCount, 2);
     const oneStep = reduceZoom(parseResizeTrail('terminal.resize 80x24 cell=8x16\nterminal.resize 80x24 cell=12x24'));
     assert.equal(oneStep.cellOnly, 1);
-    assert.deepEqual(
-        verdict('zoom tap navigate', { jank: { frames: 10, jankyPercent: 1, p95Ms: 10, p99Ms: 12, overFourFramesPercent: 0, missedVsync: 0 }, frameStats: { droppedPercent: 0, inputToFrameMs: { p95: 10 } }, zoomResizeCount: oneStep.cellOnly }, EMULATOR_LIMITS).failures,
-        [],
-    );
+    const zoomJank = { jank: { frames: 10, jankyPercent: 1, p95Ms: 10, p99Ms: 12, overFourFramesPercent: 0, missedVsync: 0 }, frameStats: { droppedPercent: 0, inputToFrameMs: { p95: 10 } } };
+    // A graphics pane magnifies locally and holds the remote grid: nothing to
+    // count, and a zoom that never got tapped is the only failure here.
+    assert.deepEqual(verdict('zoom tap navigate', { ...zoomJank, zoomTapped: true, zoomGridChanged: 0 }, EMULATOR_LIMITS).failures, []);
+    assert.deepEqual(verdict('zoom tap navigate', { ...zoomJank, zoomTapped: false, zoomGridChanged: 0 }, EMULATOR_LIMITS).failures, ['zoomTapped']);
+    assert.deepEqual(verdict('zoom tap navigate', { ...zoomJank, zoomTapped: true, zoomGridChanged: 2 }, EMULATOR_LIMITS).failures, ['zoomResizeCount']);
+    assert.equal(oneStep.cellOnly, 1);
     const textZoom = reduceZoom(parseResizeTrail('terminal.resize 80x24 cell=8x16\nterminal.resize 66x20 cell=10x20'));
     assert.equal(textZoom.gridChanged, 1);
     assert.equal(textZoom.cellOnly, 0);

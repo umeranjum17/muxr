@@ -33,12 +33,14 @@ import { promisify } from 'node:util';
 import { startFakeStack } from './lib/fakeStack.mjs';
 import { tourEverySession } from './lib/deviceTour.mjs';
 import { pairPhone } from './lib/pairPhone.mjs';
+import { usagePlugins } from './fixtures/usageHome.mjs';
 import {
     appPid,
     avdName,
     clearLogcat,
     deviceIdentity,
     deviceReady,
+    dismissKeyboard,
     dismissPrompts,
     frameStats,
     framesRendered,
@@ -57,8 +59,11 @@ import { fling, scrollBout, stripBout, tap, drag } from './lib/gestures.mjs';
 import {
     cropRaw,
     decodeUiAttribute,
-    firstGutterLine,
+    documentPosition,
+    firstDocumentMarker,
+    firstStripCard,
     firstStripLabel,
+    freshFrameRows,
     mergeFrameStats,
     parseRedactedTrail,
     pixelsMoved,
@@ -68,6 +73,7 @@ import {
     reducePipelineNotches,
     reduceZoom,
     scrollableBounds,
+    subtractTrail,
     verdict,
 } from './lib/gestureMetrics.mjs';
 
@@ -148,17 +154,29 @@ const LOAD = {
     graphicsFrameHz: 4,
 };
 
+/**
+ * `flow` is the load itself and runs while the phase is sampled. `nav` is a
+ * prerequisite: it runs to completion, and its screen is asserted, before any
+ * counter is reset or any number is read.
+ */
 const PHASES = [
     { name: 'idle on the herd', seconds: 120, flow: undefined },
     { name: 'herd strip and tree soak', seconds: 120, flow: 'herdSoak.yaml' },
     { name: 'agent terminal and plugin navigation', seconds: 120, flow: 'herdNavigate.yaml' },
     { name: 'herd tree fling', seconds: 30, drive: 'treeFling' },
     { name: 'herd strip paging', seconds: 20, drive: 'stripPaging' },
-    { name: 'document scroll and swipe', seconds: 30, flow: 'openDocument.yaml', drive: 'documentScrollSwipe' },
+    { name: 'document scroll and swipe', seconds: 30, nav: 'openDocument.yaml', drive: 'documentScrollSwipe' },
     { name: 'terminal text fling', seconds: 30, drive: 'terminalTextFling' },
-    { name: 'graphics pane scroll', seconds: 90, flow: 'graphicsScroll.yaml', drive: 'graphicsScroll' },
+    { name: 'graphics pane scroll', seconds: 90, drive: 'graphicsScroll' },
     { name: 'zoom tap navigate', seconds: 60, drive: 'zoomTapNavigate' },
 ];
+
+/** 240 numbered lines: the file plugin's preview cap, and enough to scroll. */
+const DOCUMENT_FIXTURE = 'perf-document.md';
+const documentFixture = () => Array.from(
+    { length: 240 },
+    (_, index) => `PERF_LINE_${String(index + 1).padStart(4, '0')} deterministic release-gate reading content with a long tail so the surface has somewhere to go.`,
+).join('\n');
 
 const args = process.argv.slice(2);
 const flag = (name) => {
@@ -253,8 +271,10 @@ async function dumpUi() {
 async function returnToHerd() {
     for (let attempt = 0; attempt < 8; attempt += 1) {
         await dismissPrompts();
+        // An open IME eats the BACK that was meant to leave the route.
+        await dismissKeyboard();
         const dump = await dumpUi();
-        if (/text="LIVE"/.test(dump) && !/Type a prompt/.test(dump)) return true;
+        if (/text="LIVE"/.test(dump) && !/GhosttyTerminalView/.test(dump) && !/Type a prompt/.test(dump)) return true;
         await run('adb', ['shell', 'input', 'keyevent', 'BACK'], { timeout: 10_000 }).catch(() => undefined);
         await sleep(700);
     }
@@ -268,17 +288,37 @@ async function tapBounds(pattern) {
     return true;
 }
 
+/**
+ * The phone's own account of the run, read off the accessibility tree of
+ * Settings -> Connection -> Show diagnostics.
+ *
+ * Never returns a trail it did not read. A missing diagnostics screen parses
+ * as zero rows and zero latency, which is indistinguishable from a terminal
+ * that scrolled nothing, so an unreadable trail is reported as unavailable and
+ * the phase that needed it fails rather than passing on invented numbers.
+ */
 async function pullPhoneTrail() {
-    await run('adb', ['shell', 'am', 'start', '-a', 'android.intent.action.VIEW', '-d', 'muxr:///settings', PKG], { timeout: 20_000 }).catch(() => undefined);
-    await sleep(1200);
-    await tapBounds('text="Redacted diagnostics"');
-    await sleep(800);
+    await run('adb', ['shell', 'am', 'start', '-a', 'android.intent.action.VIEW', '-d', 'muxr:///settings/connection', PKG], { timeout: 20_000 }).catch(() => undefined);
+    await sleep(1500);
+    const leave = async () => {
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+            await run('adb', ['shell', 'input', 'keyevent', 'BACK'], { timeout: 10_000 }).catch(() => undefined);
+            await sleep(600);
+            if (/text="LIVE"/.test(await dumpUi())) return;
+        }
+    };
+    if (!await tapBounds('text="Show diagnostics"')) {
+        await leave();
+        return { ok: false, why: 'Show diagnostics is not on /settings/connection' };
+    }
+    await sleep(1000);
     const dump = await dumpUi();
-    const texts = [...dump.matchAll(/text="([^"]*)"/g)].map((match) => decodeUiAttribute(match[1]));
-    await run('adb', ['shell', 'input', 'keyevent', 'BACK'], { timeout: 10_000 }).catch(() => undefined);
-    await run('adb', ['shell', 'input', 'keyevent', 'BACK'], { timeout: 10_000 }).catch(() => undefined);
-    await sleep(500);
-    return texts.join('\n');
+    const text = [...dump.matchAll(/text="([^"]*)"/g)].map((match) => decodeUiAttribute(match[1])).join('\n');
+    await leave();
+    if (!/Redacted:|No phone transport events yet/.test(text)) {
+        return { ok: false, why: 'the diagnostics report never rendered' };
+    }
+    return { ok: true, text, trail: parseRedactedTrail(text) };
 }
 
 async function captureSurface(surface, screen) {
@@ -290,22 +330,36 @@ async function captureSurface(surface, screen) {
         dump,
         bounds,
         crop,
-        gutterLine: firstGutterLine(dump),
+        documentMarker: firstDocumentMarker(dump),
+        documentPosition: documentPosition(dump),
         stripLabel: firstStripLabel(dump),
     };
 }
 
-async function measureBout(run, hz, { surface, screen, phase } = {}) {
+/**
+ * The screen a phase is about to measure, and its counters zeroed on it. Split
+ * out of `measureBout` so the reset lands after navigation has succeeded and
+ * before the sampler starts: a reset taken while `samplePhase` is reading the
+ * same gfxinfo counters shows up as a frame stall that never happened.
+ */
+async function prepareBout(surface, screen, hz) {
     const beforeSurface = surface === undefined ? undefined : await captureSurface(surface, screen);
-    const before = await resetGfxWindow(PKG, { hz });
+    return { beforeSurface, before: await resetGfxWindow(PKG, { hz }) };
+}
+
+async function measureBout(run, hz, { surface, screen, phase, prepared } = {}) {
+    const { beforeSurface, before } = prepared ?? await prepareBout(surface, screen, hz);
     const parts = [];
+    // framestats is a rolling ring re-read after every fling; without this the
+    // same frame is counted once per remaining read of the bout.
+    const counted = new Set();
     let bout = { gestures: 0, flings: 0, medianVelocityPxPerSecond: 0 };
     try {
         bout = await run({
             onGesture: async (gesture) => {
                 if (gesture.profile !== 'fling') return;
                 const rows = await frameStats(PKG);
-                parts.push(reduceFrameStats(rows, {
+                parts.push(reduceFrameStats(freshFrameRows(rows, counted), {
                     frameNs: 1e9 / hz,
                     t0Ns: (gesture.t0Seconds ?? 0) * 1e9,
                 }));
@@ -350,41 +404,114 @@ function withTrailMovement(measured, phase, terminal) {
     };
 }
 
-async function drivePhase(phase, screen, hz) {
+/**
+ * Put the phone on the screen the phase measures, and say so out loud.
+ *
+ * Cards are chosen by the label the app publishes, never by a coordinate: the
+ * herd reorders as titles churn, and a fixed point opens whatever happens to
+ * be under it. The native terminal surface itself is the mount proof.
+ */
+async function openFirstTerminal() {
+    if (!await returnToHerd()) return 'the herd never came back on screen';
+    const card = firstStripCard(await dumpUi());
+    if (card === undefined) return 'no live terminal card is on the herd';
+    await tap((card.l + card.r) / 2, (card.t + card.b) / 2);
+    await sleep(2500);
+    await dismissPrompts();
+    await dismissKeyboard();
+    if (await viewBounds('GhosttyTerminalView') === undefined) return 'the terminal surface never mounted';
+    return undefined;
+}
+
+/**
+ * Navigation, surface assertion, trail baseline, counter reset — in that order,
+ * and all of it before a single number is read. A phase whose prerequisite
+ * failed is reported as a failed prerequisite; its gesture metrics would
+ * describe some other screen.
+ */
+async function preparePhase(phase, screen, hz) {
+    if (phase.drive === undefined) return { ok: true };
+    const surface = { treeFling: 'tree', stripPaging: 'strip', documentScrollSwipe: 'document', terminalTextFling: 'terminal', graphicsScroll: 'graphics', zoomTapNavigate: 'terminal' }[phase.drive];
+    // Only the phases graded on the phone's own counters pay for a baseline
+    // pull; it costs a round trip through Settings and back.
+    const wantsTrail = phase.drive === 'terminalTextFling' || phase.drive === 'zoomTapNavigate';
+    let flowExit;
+    let trailBefore;
+
+    if (wantsTrail) {
+        // Pulled from the herd, before entering the surface: the pull leaves the
+        // route, so it cannot be taken once the phase is standing on its screen.
+        await returnToHerd();
+        const mark = await pullPhoneTrail();
+        if (!mark.ok) return { ok: false, why: `the phone trail is unavailable (${mark.why})` };
+        trailBefore = mark.trail;
+    }
+
+    if (phase.nav !== undefined) {
+        const flow = await maestro(phase.nav);
+        flowExit = flow.code;
+        if (flow.code !== 0) {
+            return { ok: false, flowExit, why: `${phase.nav} did not complete`, flowOutput: flow.output.split('\n').slice(-25).join('\n') };
+        }
+    }
+
+    if (phase.drive === 'treeFling' || phase.drive === 'stripPaging') {
+        if (!await returnToHerd()) return { ok: false, why: 'the herd never came back on screen' };
+    } else if (phase.drive === 'documentScrollSwipe') {
+        await dismissKeyboard();
+        const dump = await dumpUi();
+        if (firstDocumentMarker(dump) === undefined) return { ok: false, flowExit, why: 'the document fixture is not on the reading surface' };
+    } else {
+        const why = await openFirstTerminal();
+        if (why !== undefined) return { ok: false, why };
+    }
+
+    return { ok: true, flowExit, trailBefore, prepared: await prepareBout(surface, screen, hz) };
+}
+
+async function drivePhase(phase, screen, hz, ready) {
     const { width, height } = screen;
     const seconds = phase.seconds;
+    const prepared = ready.prepared;
+    const sinceEntry = async () => {
+        const mark = await pullPhoneTrail();
+        return mark.ok ? subtractTrail(mark.trail, ready.trailBefore) : undefined;
+    };
     if (phase.drive === 'treeFling') {
-        await returnToHerd();
-        return measureBout((opts) => scrollBout({ width, height, seconds, ...opts }), hz, { surface: 'tree', screen, phase });
+        return measureBout((opts) => scrollBout({ width, height, seconds, ...opts }), hz, { surface: 'tree', screen, phase, prepared });
     }
     if (phase.drive === 'stripPaging') {
-        await returnToHerd();
-        return measureBout((opts) => stripBout({ width, height, seconds, ...opts }), hz, { surface: 'strip', screen, phase });
+        return measureBout((opts) => stripBout({ width, height, seconds, ...opts }), hz, { surface: 'strip', screen, phase, prepared });
     }
     if (phase.drive === 'documentScrollSwipe') {
-        const vertical = await measureBout((opts) => scrollBout({ width, height, seconds: 20, ...opts }), hz, { surface: 'document', screen, phase });
+        const vertical = await measureBout((opts) => scrollBout({ width, height, seconds: 20, ...opts }), hz, { surface: 'document', screen, phase, prepared });
+        // Horizontal swipes move between files. `File n of m` on the navigator
+        // is the surface's own account of which file is open, and the only
+        // observable one: the viewer publishes no navigation diagnostic.
+        const positions = [documentPosition(await dumpUi())];
         for (let index = 0; index < 6; index += 1) {
             const left = index % 2 === 0;
             await drag({
                 from: { x: width * (left ? 0.8 : 0.2), y: height * 0.5 },
                 to: { x: width * (left ? 0.2 : 0.8), y: height * 0.5 },
             });
-            await sleep(400);
+            await sleep(600);
+            positions.push(documentPosition(await dumpUi()));
         }
-        const trail = parseRedactedTrail(await pullPhoneTrail().catch(() => ''));
+        const transitions = positions.reduce((count, position, index) => index > 0
+            && position?.current !== undefined
+            && position.current !== positions[index - 1]?.current ? count + 1 : count, 0);
         return {
             ...vertical,
-            documentNavigate: trail.documentNavigate,
+            documentPositions: positions,
+            documentNavigate: transitions,
             documentNavigateDuringVertical: 0,
         };
     }
     if (phase.drive === 'terminalTextFling') {
-        await returnToHerd();
-        await tap(width * 0.3, height * 0.33);
-        await sleep(2500);
-        await dismissPrompts();
-        const measured = await measureBout((opts) => scrollBout({ width, height, seconds, ...opts }), hz, { surface: 'terminal', screen, phase });
-        const trail = parseRedactedTrail(await pullPhoneTrail().catch(() => ''));
+        const measured = await measureBout((opts) => scrollBout({ width, height, seconds, ...opts }), hz, { surface: 'terminal', screen, phase, prepared });
+        const trail = await sinceEntry();
+        if (trail === undefined) return { ...measured, trailUnavailable: true };
         const terminal = {
             scrollRequests: trail.scrollRequests || trail.scrollLatencies.length,
             scrollLatencyP50Ms: trail.scrollLatencyP50Ms,
@@ -400,7 +527,7 @@ async function drivePhase(phase, screen, hz) {
     if (phase.drive === 'graphicsScroll') {
         ingestHostJournal(journalAcc, stack.journalPath ?? join(stack.dataDir, 'diagnostics.json'));
         const startedAt = new Date().toISOString();
-        const measured = await measureBout((opts) => scrollBout({ width, height, seconds, ...opts }), hz, { surface: 'graphics', screen, phase });
+        const measured = await measureBout((opts) => scrollBout({ width, height, seconds, ...opts }), hz, { surface: 'graphics', screen, phase, prepared });
         // The host flushes graphics.pipeline every 15 s. Give the last window
         // a chance to land so notchesDropped is this bout, not a later phase.
         const deadline = Date.now() + 16_000;
@@ -425,10 +552,15 @@ async function drivePhase(phase, screen, hz) {
         };
     }
     if (phase.drive === 'zoomTapNavigate') {
-        const before = await resetGfxWindow(PKG, { hz });
+        const before = prepared.before;
         const attachBefore = stack === undefined ? [] : readJsonl(stack.attachJsonl);
         const baseline = attachBefore.at(-1);
-        const zoomedIn = await tapBounds('content-desc="Zoom in"');
+        // The zoom buttons live behind the controls key; they do not exist until
+        // the panel is open, so a tap that misses is a harness miss, not a
+        // missing feature.
+        const opened = await tapBounds('content-desc="Show terminal controls"');
+        await sleep(600);
+        const zoomedIn = opened && await tapBounds('content-desc="Zoom in"');
         await sleep(450);
         const attachAfterIn = stack === undefined ? [] : readJsonl(stack.attachJsonl);
         const afterIn = attachAfterIn.at(-1);
@@ -438,6 +570,8 @@ async function drivePhase(phase, screen, hz) {
         await sleep(450);
         await tapBounds('content-desc="Reset zoom"');
         await sleep(450);
+        await tapBounds('content-desc="Close terminal controls"');
+        await sleep(300);
         const ghostty = await viewBounds('GhosttyTerminalView');
         if (ghostty !== undefined) {
             const cx = (ghostty.l + ghostty.r) / 2;
@@ -453,22 +587,29 @@ async function drivePhase(phase, screen, hz) {
                 to: { x: cx - 200, y: cy },
             });
             await screencapRaw('/tmp/muxr-zoom-pane.raw').catch(() => undefined);
+            // Tapping the grid raises the IME by design; the trail pull below
+            // must not be typed into a keyboard covering the screen.
+            await dismissKeyboard();
         }
         const after = await jankReport(PKG, { hz });
-        const trail = parseRedactedTrail(await pullPhoneTrail().catch(() => ''));
+        const trail = await sinceEntry();
+        if (trail === undefined) return { trailUnavailable: true, jank: reduceJank(before, after, { hz }), frameStats: mergeFrameStats([]), bout: { gestures: 1, flings: 1, medianVelocityPxPerSecond: 0 }, injectFailed: false };
         const attaches = stack === undefined ? [] : readJsonl(stack.attachJsonl);
         const trailZoom = reduceZoom(trail.resizeEvents);
-        // Image pane: cell changed, grid held. Text pane: grid changed.
-        // Either shape is one countable zoom step; this phase sits on the
-        // graphics pane the previous flow opened, so cell-only is the hit.
-        const zoomResizeCount = zoomIn.cellOnly || zoomIn.gridChanged
-            || (trailZoom.cellOnly > 0 ? 1 : 0)
-            || (trailZoom.gridChanged > 0 ? 1 : 0);
+        // A text pane zooms by re-gridding, which both the attach record and the
+        // phone's trail report. A graphics pane magnifies with a local transform
+        // and deliberately leaves the remote geometry alone, so a resize count
+        // is the wrong question there; see `zoomLocal` below.
+        const gridChanged = zoomIn.gridChanged || trailZoom.gridChanged;
+        const zoomResizeCount = gridChanged || zoomIn.cellOnly
+            || (trailZoom.cellOnly > 0 ? 1 : 0);
         return {
             bout: { gestures: 1, flings: 1, medianVelocityPxPerSecond: 0 },
             injectFailed: false,
             jank: reduceJank(before, after, { hz }),
             frameStats: mergeFrameStats([]),
+            zoomGridChanged: gridChanged,
+            zoomControlsOpened: opened,
             zoomResizeCount,
             zoomTapped: zoomedIn,
             zoom: {
@@ -600,6 +741,9 @@ function gestureEvidence(driven, idleJs) {
         injectFailed: driven.injectFailed === true,
         zoomResizeCount: driven.zoomResizeCount,
         zoomTapped: driven.zoomTapped,
+        zoomGridChanged: driven.zoomGridChanged,
+        zoomControlsOpened: driven.zoomControlsOpened,
+        documentPositions: driven.documentPositions,
         zoom: driven.zoom,
         notchesSent: driven.terminal?.notchesSent,
         notchesDropped: driven.terminal?.notchesDropped,
@@ -674,9 +818,25 @@ ok(`installed ${apk} vc ${apkInfo.versionCode ?? '?'} ${apkInfo.signerDigest ?? 
 // scratch directory, with a faked Herdr underneath them. Nothing on this
 // machine is touched and the load is the same every time.
 try {
-    stack = await startFakeStack(LOAD);
+    // The plugin fixtures the PR gate already owns: without them the fake herd
+    // advertises no plugins at all, `Files` never renders, and the document
+    // phase measures a herd screen it never left.
+    stack = await startFakeStack({ ...LOAD, setupPlugins: usagePlugins(process.cwd()) });
 } catch (cause) {
     fail(`could not start the stack: ${cause instanceof Error ? cause.message : String(cause)}`);
+    finish(1);
+}
+// The file plugin lists a repository, and the reading surface needs a document
+// with somewhere to scroll: the fake herd's own README is three lines long.
+try {
+    writeFileSync(join(stack.world.cwd, DOCUMENT_FIXTURE), `${documentFixture()}\n`);
+    const git = (args) => run('git', ['-C', stack.world.cwd, ...args], { timeout: 20_000 });
+    await run('git', ['init', '-q', '-b', 'main', stack.world.cwd], { timeout: 20_000 });
+    await git(['add', '.']);
+    await git(['-c', 'user.name=Perf Fixture', '-c', 'user.email=fixture@example.invalid', '-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', 'commit', '-qm', 'Release gate document fixture']);
+    report.fixtures = { document: DOCUMENT_FIXTURE, plugins: ['code', 'status', 'terminal-keys', 'attachments'] };
+} catch (cause) {
+    fail(`could not seed the document fixture: ${cause instanceof Error ? cause.message : String(cause)}`);
     finish(1);
 }
 ok(`herd up on relay :${stack.relayPort}: ${stack.world.panes.length} panes`
@@ -706,16 +866,24 @@ let idleJs;
 for (const phase of PHASES) {
     let flowRun;
     let driven;
+    // Prerequisite first, and nothing is measured if it fails: a gesture bout on
+    // the wrong screen still produces a full set of plausible numbers.
+    const ready = await preparePhase(phase, screen, hz);
     const driving = (async () => {
         if (phase.flow !== undefined) {
             flowRun = await maestro(phase.flow);
         }
-        if (phase.drive !== undefined) {
-            driven = await drivePhase(phase, screen, hz);
+        if (phase.drive !== undefined && ready.ok) {
+            driven = await drivePhase(phase, screen, hz, ready);
         }
     })();
     const measured = await samplePhase({ pkg: PKG, seconds: phase.seconds });
     await driving;
+    if (driven?.trailUnavailable === true) {
+        driven = undefined;
+        ready.ok = false;
+        ready.why = 'the phone trail is unavailable after the bout';
+    }
     if (phase.name === 'idle on the herd') idleJs = measured.jsBusyPercent;
     if (driven !== undefined) driven.jsBusyPercent = measured.jsBusyPercent;
     const gesture = gestureEvidence(driven, idleJs);
@@ -726,6 +894,8 @@ for (const phase of PHASES) {
             frameStats: driven.frameStats,
             jsBusyDeltaPoints: gesture?.jsBusyDeltaPoints,
             accidentalOwners: gesture?.accidentalOwners,
+            zoomTapped: driven.zoomTapped,
+            zoomGridChanged: driven.zoomGridChanged,
             documentNavigate: driven.documentNavigate,
             documentNavigateDuringVertical: driven.documentNavigateDuringVertical,
             terminal: driven.terminal,
@@ -737,7 +907,8 @@ for (const phase of PHASES) {
     const entry = {
         ...phase,
         ...measured,
-        flowExit: flowRun?.code,
+        navigation: { ok: ready.ok, ...(ready.ok ? {} : { why: ready.why, flowOutput: ready.flowOutput }) },
+        flowExit: flowRun?.code ?? ready.flowExit,
         ...(gesture === undefined ? {} : { gesture }),
         ...(driven?.terminal === undefined ? {} : { terminal: driven.terminal }),
         ...(driven?.documentNavigate === undefined ? {} : { documentNavigate: driven.documentNavigate }),
@@ -776,6 +947,9 @@ for (const phase of PHASES) {
     if (phase.flow !== undefined && flowRun?.code !== 0) {
         fail(`${phase.name}: ${phase.flow} did not complete`);
     }
+    // Named prerequisite, never a pile of downstream metric failures describing
+    // a screen the phone was never on.
+    if (!ready.ok) fail(`${phase.name}: ${ready.why}; gesture metrics not measured`);
     if (driven?.injectFailed === true) fail(`${phase.name}: device could not inject`);
     for (const key of judged.failures) {
         if (key === 'device could not inject') continue;
@@ -789,6 +963,11 @@ for (const phase of PHASES) {
 const agentPanes = new Set(stack.world.agents.map((agent) => agent.pane_id));
 const tour = await tourEverySession({
     pkg: PKG,
+    // Which pane actually arrived. The fake herd records every `pane.read`, so
+    // an opened visit is one the host saw attach for the pane we asked for,
+    // not one whose chrome happened to contain the word "Terminal".
+    attached: async (paneId, since) => readJsonl(stack.attachJsonl)
+        .some((record) => String(record.pane_id) === paneId && String(record.at) >= since),
     // Shell panes only: an agent's session id is minted by the host and is not
     // something a deep link can guess. Agent terminals are the navigate flow's
     // job, which reaches them the way a person does.
@@ -799,8 +978,13 @@ const tour = await tourEverySession({
 report.tour = tour;
 process.stdout.write(`\ntour: ${tour.panes} panes, ${tour.opened} opened`
     + `  pss ${tour.pssFirstKb ?? '-'} -> ${tour.pssLastKb ?? '-'} kB (max ${tour.pssMaxKb ?? '-'})\n`);
-if (tour.opened === 0) fail('the tour could not open a single terminal');
+if (tour.missed > 0) fail(`the tour never attached ${tour.missed}/${tour.panes} pane(s): ${tour.missedPanes.slice(0, 6).join(', ')}`);
 else ok(`toured ${tour.opened}/${tour.panes} panes`);
+if (tour.staleSurfaces.length > 0) {
+    // A memory sample taken on a terminal and the next taken on the herd are
+    // not comparable, so say so rather than reporting the difference as growth.
+    fail(`the tour could not leave ${tour.staleSurfaces.length} pane(s), so its memory samples are not comparable`);
+}
 if (tour.pssGrowthKb > LIMITS.tourGrowthKb) {
     fail(`memory grew ${Math.round(tour.pssGrowthKb / 1024)} MB across the tour`);
 } else {

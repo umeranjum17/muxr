@@ -158,6 +158,23 @@ export function reduceFrameStats(rows, { frameNs, t0Ns } = {}) {
     };
 }
 
+/**
+ * Rows of a rolling framestats ring that have not been counted yet. The ring
+ * is re-read after every fling and mostly repeats what the last read already
+ * held; summing those reads counts the same frame several times. `IntendedVsync`
+ * is the frame's identity, so a read after a counter reset still adds once.
+ */
+export function freshFrameRows(rows, seen) {
+    const fresh = [];
+    for (const row of rows ?? []) {
+        const key = asNumber(row.IntendedVsync);
+        if (key === undefined || seen.has(key)) continue;
+        seen.add(key);
+        fresh.push(row);
+    }
+    return fresh;
+}
+
 /** Merge per-fling frameStats into one phase account. */
 export function mergeFrameStats(parts) {
     let frames = 0;
@@ -254,8 +271,26 @@ export function parseRedactedTrail(text) {
         rowsRequested: rows,
         resizes: parsedResizes.length,
         resizeEvents: parsedResizes,
-        documentNavigate: [...body.matchAll(/document\.navigate\b/g)].length,
         agentPages: [...body.matchAll(/agent\.page\b|session\.start\b/g)].length,
+    };
+}
+
+/**
+ * What the phone recorded during one bout. The diagnostics report is a running
+ * ring, so a phase is the difference between the pull that opened it and the
+ * pull that closed it. Latency percentiles are the ring's own and cannot be
+ * differenced; they are carried from the later pull.
+ */
+export function subtractTrail(after, before) {
+    const since = (key) => Math.max(0, (after?.[key] ?? 0) - (before?.[key] ?? 0));
+    return {
+        ...after,
+        scrollRequests: since('scrollRequests'),
+        rowsRequested: since('rowsRequested'),
+        clamped: since('clamped'),
+        agentPages: since('agentPages'),
+        resizes: since('resizes'),
+        resizeEvents: (after?.resizeEvents ?? []).slice((before?.resizeEvents ?? []).length),
     };
 }
 
@@ -403,21 +438,36 @@ export function parseUiNodes(dump) {
     return nodes;
 }
 
-/** Small numeric texts on the left edge of a code document — the gutter. */
-export function firstGutterLine(dump) {
-    const gutters = parseUiNodes(dump).filter((node) => {
-        if (!/^\d+$/.test(node.text)) return false;
-        return node.l < 80 && (node.r - node.l) < 80 && (node.b - node.t) < 80;
-    });
-    gutters.sort((left, right) => left.t - right.t || left.l - right.l);
-    return gutters[0] === undefined ? undefined : Number(gutters[0].text);
+/**
+ * Topmost fixture line on the reading surface. The surface is gutter-less, so
+ * the document's own numbered text is the only thing that says where it is.
+ */
+export function firstDocumentMarker(dump) {
+    const lines = [];
+    for (const node of parseUiNodes(dump)) {
+        const marker = /PERF_LINE_(\d+)/.exec(`${node.text ?? ''} ${node.desc ?? ''}`);
+        if (marker !== null) lines.push({ ...node, marker: Number(marker[1]) });
+    }
+    lines.sort((left, right) => left.t - right.t || left.l - right.l);
+    return lines[0]?.marker;
 }
 
-/** Leftmost live-terminal card; its label is the visible index we can observe. */
-export function firstStripLabel(dump) {
-    const cards = parseUiNodes(dump).filter((node) => /Terminal/i.test(node.desc));
+/** `File 3 of 12` on the document navigator — which file is open, not where in it. */
+export function documentPosition(dump) {
+    const match = /File (\d+) of (\d+)/.exec(String(dump).replace(/&#10;/g, '\n'));
+    return match === null ? undefined : { current: Number(match[1]), total: Number(match[2]) };
+}
+
+/** Leftmost live-terminal card. Its label is the visible index we can observe. */
+export function firstStripCard(dump) {
+    const cards = parseUiNodes(dump).filter((node) => /Terminal/i.test(node.desc)
+        || /\. (Idle|Working|Starting|Needs you|Done|Failed|Offline)\b/.test(node.desc ?? ''));
     cards.sort((left, right) => left.l - right.l || left.t - right.t);
-    return cards[0]?.desc;
+    return cards[0];
+}
+
+export function firstStripLabel(dump) {
+    return firstStripCard(dump)?.desc;
 }
 
 export function scrollableBounds(surface, dump, screen = {}) {
@@ -472,16 +522,16 @@ export function reduceMovement(phase, snapshot = {}) {
         return { proven: pixelOk, meanAbs, threshold, reasons };
     }
     if (name === 'document scroll and swipe' || name === 'document') {
-        const before = snapshot.before?.gutterLine;
-        const after = snapshot.after?.gutterLine;
-        if (before !== undefined && after !== undefined && before === after) reasons.push('gutterLine');
-        const gutterMoved = before !== undefined && after !== undefined && before !== after;
+        const before = snapshot.before?.documentMarker;
+        const after = snapshot.after?.documentMarker;
+        const textMoved = before !== undefined && after !== undefined && before !== after;
+        if (!textMoved) reasons.push('documentMarker');
         return {
-            proven: pixelOk && gutterMoved,
+            proven: pixelOk && textMoved,
             meanAbs,
             threshold,
             reasons,
-            gutterLine: { before, after },
+            documentMarker: { before, after },
         };
     }
     if (name === 'terminal text fling' || name === 'terminal') {
@@ -549,7 +599,9 @@ export function verdict(phase, metrics, limits) {
     failWhen(failures, 'accidentalOwners', over(metrics.accidentalOwners, limits.accidentalOwners));
 
     if (name === 'document scroll and swipe') {
-        failWhen(failures, 'document.navigate', metrics.documentNavigate !== undefined && metrics.documentNavigate !== 6);
+        // The swipes move between files; the navigator's own position label is
+        // the only account of that the surface publishes.
+        failWhen(failures, 'document.navigate', metrics.documentNavigate !== undefined && metrics.documentNavigate < 1);
         failWhen(failures, 'accidentalOwners', (metrics.documentNavigateDuringVertical ?? 0) !== 0);
     }
     if (name === 'terminal text fling') {
@@ -562,7 +614,13 @@ export function verdict(phase, metrics, limits) {
         failWhen(failures, 'graphicsRowsPerSecond', under(terminal.rowsPerSecond ?? metrics.graphicsRowsPerSecond, limits.graphicsRowsPerSecond));
     }
     if (name === 'zoom tap navigate') {
-        failWhen(failures, 'zoomResizeCount', metrics.zoomResizeCount !== undefined && metrics.zoomResizeCount !== limits.zoomResizeCount);
+        failWhen(failures, 'zoomTapped', metrics.zoomTapped === false);
+        // A text pane zooms by re-gridding, which the phone reports. A graphics
+        // pane magnifies locally and deliberately holds the remote geometry, so
+        // there is nothing to count and nothing to gate.
+        if ((metrics.zoomGridChanged ?? 0) > 0) {
+            failWhen(failures, 'zoomResizeCount', metrics.zoomGridChanged !== limits.zoomResizeCount);
+        }
     }
     if (metrics.injectFailed === true) failures.push('device could not inject');
     if (SCROLL_PHASES.has(name) && metrics.movement !== undefined

@@ -131,8 +131,9 @@ for taps and for a press-hold-then-drag where the hold matters.
 The four that were already here: idle on the herd (120 s),
 `flows/herdSoak.yaml` (strip and tree scrolling), `flows/herdNavigate.yaml`
 (attach an agent's terminal, drag its scrollback, detach, walk the plugin
-tabs, leave the app and return), and `flows/graphicsScroll.yaml` (opens a
-graphics pane; the gate then scripts `scrollBout` for 90 s). Graphics limits
+tabs, leave the app and return). The graphics pane is established by the gate
+itself, by the same label-selected card the terminal phases use, and never
+inherited from a previous phase. Graphics limits
 are `graphicsPipelineP95Ms` 250, `graphicsBytesP95` 800 kB and
 `scrollToFrameP95Ms` 400. Superseded frames are reported, not gated.
 
@@ -144,8 +145,8 @@ The six that measure feel:
 | `herd strip paging` | 20 | `stripBout` (horizontal, y = 33%, 60% of width) |
 | `document scroll and swipe` | 30 | `flows/openDocument.yaml`, then 20 s of `scrollBout` and 6 horizontal swipes |
 | `terminal text fling` | 30 | tap the first live card, `scrollBout` |
-| `graphics pane scroll` | 90 | scripted `scrollBout` after the open-only graphics flow |
-| `zoom tap navigate` | 60 | `viewBounds` + `input tap` on `Zoom in` / `Zoom out` / `Reset zoom`, then pane tap / fling / pan |
+| `graphics pane scroll` | 90 | open a live card by label, assert the native surface, `scrollBout` |
+| `zoom tap navigate` | 60 | own terminal entry, open `Show terminal controls`, tap `Zoom in` / `Zoom out` / `Reset zoom`, then pane tap / fling / pan |
 
 Every scroll phase also proves the content moved. The gate captures `screencapRaw` of the
 scrollable rect before and after the bout and compares mean absolute RGB difference to 8/255
