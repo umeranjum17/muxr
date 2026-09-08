@@ -2,11 +2,18 @@
 // Read only usage records. Run in a bounded child so a large session tree or a
 // locked database cannot hold the plugin RPC open. Never read prompts, paths or
 // credentials into the output.
-import { createReadStream, existsSync, readdirSync, statSync } from 'node:fs';
+import { createReadStream, readdirSync, statSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { homedir } from 'node:os';
 import { pathToFileURL } from 'node:url';
 import { isAbsolute, join } from 'node:path';
+
+// `existsSync` answers false for a path that is there but unreadable, which
+// would read as "this agent has no records". Absence is ENOENT and nothing else.
+function exists(path) {
+  try { statSync(path); return true; }
+  catch (error) { if (error?.code === 'ENOENT') return false; throw error; }
+}
 
 const periods = JSON.parse(process.argv[2]);
 const now = Number(process.argv[3]);
@@ -23,7 +30,7 @@ if (profile) ompRoot = join(ompRoot, 'profiles', profile);
 if (process.env.XDG_DATA_HOME && (profile || !process.env.PI_CODING_AGENT_DIR)) {
   let candidate = join(process.env.XDG_DATA_HOME, 'omp');
   if (profile) candidate = join(candidate, 'profiles', profile);
-  if (existsSync(candidate)) ompRoot = candidate;
+  if (exists(candidate)) ompRoot = candidate;
 }
 // Without a profile, a configured agent directory is the OMP agent root
 // itself; a profile still selects its own root and outranks it.
@@ -48,7 +55,9 @@ function count(value) {
 const MAX_LINE = 4 * 1024 * 1024;
 
 function* sessionFiles(directory, depth = 0) {
-  if (depth > 4) return;
+  // Deeper than the bound is not "no records down there": it is records this
+  // scan refused to read, and a total without them is not the measured one.
+  if (depth > 4) throw new Error('bounded scan exceeded');
   if (Date.now() > deadline) throw new Error('bounded scan exceeded');
   let entries;
   // A directory that is not there holds no records; anything else (permissions,
@@ -122,31 +131,19 @@ async function collectTranscripts(root) {
   for (const file of sessionFiles(root)) {
     const stream = createReadStream(file, { encoding: 'utf8' });
     let carry = '';
-    // A line longer than the bound is dropped before it is held in memory; a
-    // dropped line that carried usage cannot be counted, so the scan stops.
-    let overflowed = false;
     try {
       for await (const chunk of stream) {
         if (Date.now() > deadline) throw new Error('bounded scan exceeded');
-        let text = chunk;
-        if (overflowed) {
-          const newline = text.indexOf('\n');
-          if (newline < 0) continue;
-          overflowed = false;
-          text = text.slice(newline + 1);
-        }
-        carry += text;
+        carry += chunk;
         let start = 0;
         for (let newline = carry.indexOf('\n'); newline >= 0; newline = carry.indexOf('\n', start)) {
           consume(carry.slice(start, newline));
           start = newline + 1;
         }
         carry = carry.slice(start);
-        if (carry.length > MAX_LINE) {
-          if (carry.includes('"usage"')) throw new Error('oversized usage record');
-          carry = '';
-          overflowed = true;
-        }
+        // The retained prefix is only the head of the line; usage may sit past
+        // it, so a prefix without `"usage"` proves nothing about the whole line.
+        if (carry.length > MAX_LINE) throw new Error('oversized usage record');
       }
       if (carry !== '') consume(carry);
     } finally { stream.destroy(); }
@@ -180,9 +177,8 @@ function query(db, path, sql, params = []) {
 const result = {};
 for (const [agent, root] of [['omp', join(ompAgentDir, 'sessions')], ['pi', join(piAgentDir, 'sessions')]]) {
   if (agent === 'omp' && invalidProfile) { result.omp = { unavailable: true, reason: 'Invalid OMP profile configuration' }; continue; }
-  // No session directory is a measured empty: the same root is the only place
-  // this agent's transcripts live, so there is nothing left uncounted.
-  if (!existsSync(root)) { result[agent] = { rows: [] }; continue; }
+  // A missing root is a measured empty -- `sessionFiles` returns on ENOENT and
+  // only on ENOENT, so a root that exists but cannot be read fails instead.
   try { result[agent] = await collectTranscripts(root); }
   catch { result[agent] = { unavailable: true, reason: 'Local activity could not be measured · reopen Usage in a minute' }; }
 }
@@ -190,9 +186,9 @@ for (const [agent, root] of [['omp', join(ompAgentDir, 'sessions')], ['pi', join
 // OpenCode contributes recency only: ccusage already reads the same store for
 // its tokens, so a second count would be the same activity twice.
 const opencodePath = isAbsolute(opencodeDb) ? opencodeDb : join(opencodeRoot, opencodeDb);
-if (existsSync(opencodePath)) {
-  let db;
-  try {
+let db;
+try {
+  if (exists(opencodePath)) {
     if (DatabaseSync) {
       db = new DatabaseSync(opencodePath, { readOnly: true });
       db.exec('PRAGMA busy_timeout = 500');
@@ -204,8 +200,8 @@ if (existsSync(opencodePath)) {
       FROM message WHERE json_extract(data, '$.role') = 'assistant' AND json_type(data, '$.tokens') = 'object')
       WHERE total > 0 AND at <= ?`, [now]);
     result.opencode = { latest: rows[0].at };
-  } catch {
-    result.opencode = { unavailable: true, reason: DatabaseSync ? 'Local usage database unavailable' : 'Local usage unavailable · requires Node 22.13+ or Python 3' };
-  } finally { db?.close(); }
-}
+  }
+} catch {
+  result.opencode = { unavailable: true, reason: DatabaseSync ? 'Local usage database unavailable' : 'Local usage unavailable · requires Node 22.13+ or Python 3' };
+} finally { db?.close(); }
 process.stdout.write(JSON.stringify(result));

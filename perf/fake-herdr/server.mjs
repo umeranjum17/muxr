@@ -235,6 +235,12 @@ export async function startFakeHerdr(options) {
     }
 
     const methods = {
+        // The HERDR_BIN shim runs in its own process, so a pane's wheel reaches
+        // the graphics producer through here or not at all.
+        'graphics.request': (params) => {
+            graphics?.requestFrames(Number(params.count), params.pane_id, Number(params.offset));
+            return {};
+        },
         'session.snapshot': () => ({ snapshot: snapshotOf(live) }),
         'plugin.list': () => ({ plugins }),
         'plugin.action.invoke': (params) => {

@@ -470,11 +470,22 @@ try {
     const authored = JSON.parse(readFileSync(join(snapshot, 'apps/mobile/sources/changelog/changelog.json'), 'utf8'));
     const hostileEntry = authored.releases.find((release) => release.appVersion === entry.appVersion);
     hostileEntry.title = `Quote " & apostrophe ' release`;
+    // Authored fields are data in both renderings: HTML must not interpolate
+    // markup, and Markdown must not activate a heading, link, image or code.
+    hostileEntry.summary = 'break\n# Injected heading\n[link](https://evil.example) ![img](https://evil.example/x.png) `code` **bold**';
+    hostileEntry.knownLimits = ['- nested\n## limit heading [x](https://evil.example)'];
     writeFileSync(hostilePath, JSON.stringify(authored));
     const hostileOut = join(scratch, 'hostile-out');
     mkdirSync(hostileOut, { recursive: true });
-    const hostile = prepareChangelog({ mode: 'generate', ...reportRequest, sourceRoot: hostileRoot, directory: hostileOut }).files[reportFiles.html];
+    const hostileFiles = prepareChangelog({ mode: 'generate', ...reportRequest, sourceRoot: hostileRoot, directory: hostileOut }).files;
+    const hostile = hostileFiles[reportFiles.html];
     assert.match(hostile, /Quote &quot; &amp; apostrophe &#39; release/, 'authored text was not escaped');
+    const hostileMarkdown = hostileFiles[reportFiles.markdown];
+    const authoredLines = hostileMarkdown.split('\n').filter((line) => !/^(#{1,6} muxr |## (Added|Fixed|Verification|Known limits)$)/.test(line));
+    assert.ok(!authoredLines.some((line) => /^\s{0,3}#/.test(line)), 'authored text activated a Markdown heading');
+    assert.doesNotMatch(hostileMarkdown, /(^|[^\\])!?\[[^\]]*\]\(/, 'authored text activated a Markdown link or image');
+    assert.doesNotMatch(hostileMarkdown, /(^|[^\\])`/, 'authored text activated Markdown code');
+    assert.doesNotMatch(hostileMarkdown, /<[a-zA-Z/]/, 'authored text activated inline HTML');
 
     // A version nobody wrote notes for cannot be released, and stale bytes fail.
     assert.throws(() => prepareChangelog({ mode: 'validate', ...reportRequest, version: '9.9.9', channel: 'stable' }), /no entry for app version 9\.9\.9/);

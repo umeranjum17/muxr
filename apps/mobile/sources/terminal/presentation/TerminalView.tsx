@@ -287,13 +287,17 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                             await view.write(bytes);
                             recoveryRequested = false;
                             channel.recordFrameWritten();
-                            if (graphics !== true) return;
-                            recordTerminalGraphicsFrame(bytes.length);
+                            // A text pane's repaint is the answer to its scroll
+                            // exactly as a graphics frame is. Recording only the
+                            // graphics case left a text fling with no latency at
+                            // all, which reads as a perfect one.
                             const sentAt = scrollSentAtRef.current;
                             if (sentAt !== undefined) {
                                 scrollSentAtRef.current = undefined;
                                 recordTerminalScrollLatency(Date.now() - sentAt);
                             }
+                            if (graphics !== true) return;
+                            recordTerminalGraphicsFrame(bytes.length);
                         },
                         combineText: combineTextFrames,
                         schedule: (run) => requestAnimationFrame(() => run()),

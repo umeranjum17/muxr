@@ -7,7 +7,7 @@ import { chmodSync, mkdirSync, writeFileSync, appendFileSync } from 'node:fs';
 import { createConnection } from 'node:net';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { DEFAULT_WORLD, requestFrames, tileRects } from './graphics.mjs';
+import { DEFAULT_WORLD, tileRects } from './graphics.mjs';
 
 const SELF = fileURLToPath(import.meta.url);
 
@@ -194,11 +194,19 @@ function inputBytes(message) {
 
 const WHEEL_REPORT = /\x1b\[<(64|65);(\d+);(\d+)M/g;
 
+/** SGR 64 is a notch up the scrollback, 65 a notch down. */
 function wheelReports(text) {
-    WHEEL_REPORT.lastIndex = 0;
-    const matches = String(text).match(WHEEL_REPORT);
-    return matches === null ? 0 : matches.length;
+    let count = 0;
+    let notches = 0;
+    for (const match of String(text).matchAll(WHEEL_REPORT)) {
+        count += 1;
+        notches += match[1] === '64' ? -1 : 1;
+    }
+    return { count, notches };
 }
+
+/** One wheel notch travels three rows; the proof board's block is 32 px tall. */
+const WHEEL_OFFSET_PX = 3 * 32;
 
 function runTerminal(args) {
     const paneId = args[1] ?? 'p1';
@@ -214,6 +222,7 @@ function runTerminal(args) {
     };
     let cols = Number(flag(args, '--cols') ?? 80) || 80;
     let rows = Number(flag(args, '--rows') ?? 24) || 24;
+    let scrollOffset = 0;
     const bps = Math.max(0, Number(process.env.FAKE_HERDR_TERMINAL_BPS ?? 4096) || 0);
     let seq = 0;
     const writeFrame = (record) => {
@@ -260,6 +269,7 @@ function runTerminal(args) {
         const lines = buffer.split('\n');
         buffer = lines.pop() ?? '';
         let burst = 0;
+        let notches = 0;
         for (const line of lines) {
             if (line.trim() === '') continue;
             try {
@@ -276,7 +286,9 @@ function runTerminal(args) {
                 }
                 else if (message.type === 'terminal.scroll') emit(true);
                 else if (message.type === 'terminal.input') {
-                    burst += wheelReports(inputBytes(message));
+                    const wheel = wheelReports(inputBytes(message));
+                    burst += wheel.count;
+                    notches += wheel.notches;
                 }
             } catch {
                 /* phone JSON is forwarded as-is; ignore non-JSON */
@@ -284,7 +296,15 @@ function runTerminal(args) {
         }
         // The pane the phone is actually watching is the one whose repaints
         // matter; a round robin across a hundred panes measures nothing.
-        if (burst > 0) requestFrames(burst, paneId);
+        //
+        // The graphics server lives in the control-plane process, not in this
+        // shim: the host execs this binary, so an in-process call reaches a
+        // module nobody bound and the wheel is silently dropped. It goes over the
+        // control socket, carrying the pane and where it has been scrolled to.
+        if (burst > 0) {
+            scrollOffset += notches * WHEEL_OFFSET_PX;
+            void rpc('graphics.request', { count: burst, pane_id: paneId, offset: scrollOffset });
+        }
     });
     process.stdin.on('end', finish);
     process.stdin.on('close', finish);

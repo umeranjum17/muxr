@@ -83,7 +83,7 @@ Splitting the commands lets an initial migration seed the catalog before the web
 
 Publication runs the tooling from the commit the workflow file itself is running from, while the release identity — source commit, manifest, tarball and registry checks — stays bound to the candidate being published, so an older retained candidate is promoted by the current pipeline without rebuilding it.
 
-Publications serialize through the `npm-publication` concurrency group with `cancel-in-progress: false` and `queue: max`, so a release that arrives while another is publishing waits its turn instead of replacing an already waiting one. The catalog is safe independently of that: its writes serialize through fast-forward-only ref updates and refuse backwards moves.
+Publications serialize through the `npm-publication` concurrency group with `cancel-in-progress: false`, so a release that arrives while another is publishing waits instead of interrupting it. GitHub keeps only one pending run per group, so a third release displaces the one still waiting: re-run it after the queue drains. The catalog is safe independently of that: its writes serialize through fast-forward-only ref updates and refuse backwards moves.
 
 Durable website paths, served from that catalog: `/downloads/<channel>` for the human page, `/downloads/<channel>/android` redirecting to the canonical APK, `/downloads/<channel>/release` for the release page and `/downloads/<channel>/checksums` for digests, with `/api/releases/<channel>` returning the entry itself. Verification tolerates their short cache by retrying, never by weakening the comparison: it fails unless the served version and APK digest match the catalog and the redirect target is exactly the canonical artifact URL.
 

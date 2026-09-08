@@ -70,6 +70,8 @@ vi.mock('react-native-mmkv', () => ({
     },
 }));
 vi.mock('react-native', () => ({ Platform: { OS: 'web' } }));
+const installedVersion = vi.hoisted(() => ({ value: '0.1.27' }));
+vi.mock('@/utils/appVersion', () => ({ getAppVersion: () => installedVersion.value }));
 vi.mock('@/utils/sessionUtils', () => ({
     getSessionName: (session: Session, pane?: HerdrTreePane) =>
         pane?.taskTitle ?? pane?.agentName ?? session.metadata?.summary?.text ?? session.id,
@@ -834,5 +836,32 @@ describe('session sync flow', () => {
         expect(next[1]).toBe(cards[1]);
 
         vi.useRealTimers();
+    });
+
+    it('carries changelog unread state across the release-keyed storage change', async () => {
+        const { getLastViewedRelease, olderReleases, currentRelease } = await import('@/changelog');
+        installedVersion.value = '0.1.27';
+        expect(currentRelease()?.appVersion).toBe('0.1.27');
+
+        // An install that read notes under the old title key is not fresh. It
+        // migrates to the last title-keyed release, so 0.1.27 stays unread.
+        mmkvValues.clear();
+        mmkvValues.set('changelog-last-viewed-title', 'Pairing that stays paired');
+        expect(getLastViewedRelease()).toBe('0.1.26');
+        expect(mmkvValues.get('changelog-last-viewed-release')).toBe('0.1.26');
+
+        // A truly fresh install keeps its first-install behaviour: nothing stored,
+        // nothing migrated, and the current entry is marked read on first open.
+        mmkvValues.clear();
+        expect(getLastViewedRelease()).toBe('');
+        expect(mmkvValues.get('changelog-last-viewed-release')).toBeUndefined();
+
+        // History is what shipped before this binary; a newer entry is never
+        // rendered, and never stands in for the installed one.
+        expect(olderReleases('0.1.27').map((entry) => entry.appVersion)).toEqual(['0.1.26']);
+        expect(olderReleases('0.1.26')).toEqual([]);
+        // The installed binary is 0.1.26: 0.1.27 is neither history nor current.
+        installedVersion.value = '0.1.26';
+        expect(currentRelease()?.appVersion).toBe('0.1.26');
     });
 });

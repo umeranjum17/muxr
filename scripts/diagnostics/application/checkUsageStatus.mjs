@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 let DatabaseSync;
 try { ({ DatabaseSync } = await import('node:sqlite')); } catch {};
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, resolve, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -140,6 +140,7 @@ try {
     const emptyPi = JSON.parse(run({ provider: 'pi' }).stdout);
     assert.equal(emptyPi.todayTokens, '0');
     assert.equal(emptyPi.weekTokens, '0');
+    assert.match(emptyPi.items.find((item) => item.id === 'available-pi')?.subtitle ?? '', /No measured activity today/);
     assert.ok(output.items.some((item) => item.id === 'limit-codex-0' && item.metadata[0]?.value === '75% left' && item.group === 'Rate limits'));
     assert.ok(output.items.some((item) => item.id === 'limit-codex-1' && item.metadata[0]?.value === '10% left'));
     assert.equal(output.codexRemaining, 10);
@@ -204,6 +205,12 @@ try {
     assert.equal(JSON.parse(cached.stdout).todayTokens, '1.3M');
     assert.equal(readFileSync(ccusageMarker, 'utf8'), 'xxxx', 'per-tab cache did not prevent a duplicate ccusage scan');
     assert.equal(readFileSync(codexMarker, 'utf8'), 'xxxx', 'per-tab cache did not prevent a duplicate Codex app-server');
+
+    // Pi is accounted locally, so its idle row has to report a collection that
+    // failed rather than reading silence as a quiet day.
+    writeTranscript(join(scratch, 'broken-pi/sessions/proj/broken.jsonl'), ['{"message":{"role":"assistant","usage":{"input":5']);
+    const brokenPi = JSON.parse(run({ provider: 'claude' }, { PI_AGENT_DIR: join(scratch, 'broken-pi'), MUXR_PLUGIN_STATE_DIR: '' }).stdout);
+    assert.match(brokenPi.items.find((item) => item.id === 'available-pi')?.subtitle ?? '', /could not be measured/);
 
     const recent = JSON.parse(run({}).stdout);
     assert.equal(recent.provider, 'omp');
@@ -464,6 +471,40 @@ try {
         const broken = flowRun('pi', { PI_AGENT_DIR: malformed });
         assert.equal(broken.todayTokens, '—');
         assert.match(broken.activityLabel, /could not be measured/);
+        // A transcript nested past the scan's depth bound is unread, not empty.
+        const deep = join(flow, 'deep-agent');
+        writeTranscript(join(deep, 'sessions/a/b/c/d/e/session.jsonl'), [
+            record('deep-1', '2026-09-07T20:03:00.000Z', 'fixture-pi', { input: 10 }, 0.01),
+        ]);
+        assert.equal(flowRun('pi', { PI_AGENT_DIR: deep }).todayTokens, '—');
+
+        // A line past the 4 MB bound whose usage sits after the retained prefix:
+        // the head alone cannot say the line was worthless, so the total is not
+        // reported as if the line had been read.
+        const oversized = join(flow, 'oversized-agent');
+        writeTranscript(join(oversized, 'sessions/proj/wide.jsonl'), [
+            record('good-2', '2026-09-07T20:03:00.000Z', 'fixture-pi', { input: 10 }, 0.01),
+            `{"id":"huge","pad":"${'p'.repeat(5 * 1024 * 1024)}","message":{"role":"assistant","model":"fixture-pi","timestamp":"2026-09-07T20:03:30.000Z","usage":{"input":999999}}}`,
+        ]);
+        const huge = flowRun('pi', { PI_AGENT_DIR: oversized });
+        assert.equal(huge.todayTokens, '—');
+        assert.match(huge.activityLabel, /could not be measured/);
+
+        // A root that is there but cannot be read is not an empty root. Only
+        // portable where the process is not root, which ignores the mode.
+        if (process.getuid?.() !== 0) {
+            const locked = join(flow, 'locked-agent');
+            mkdirSync(join(locked, 'sessions/proj'), { recursive: true });
+            writeTranscript(join(locked, 'sessions/proj/session.jsonl'), [
+                record('locked-1', '2026-09-07T20:03:00.000Z', 'fixture-pi', { input: 10 }, 0.01),
+            ]);
+            chmodSync(join(locked, 'sessions/proj'), 0o000);
+            try {
+                const denied = flowRun('pi', { PI_AGENT_DIR: locked });
+                assert.equal(denied.todayTokens, '—');
+                assert.match(denied.activityLabel, /could not be measured/);
+            } finally { chmodSync(join(locked, 'sessions/proj'), 0o755); }
+        }
 
         // Back to Pi: the same journey twice reports the same figures.
         const again = flowRun('pi');

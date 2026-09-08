@@ -169,8 +169,11 @@ const PHASES = [
     { name: 'herd tree fling', seconds: 30, drive: 'treeFling' },
     { name: 'herd strip paging', seconds: 20, drive: 'stripPaging' },
     { name: 'document scroll', seconds: 30, nav: 'openDocument.yaml', drive: 'documentScroll' },
-    { name: 'terminal text fling', seconds: 30, drive: 'terminalTextFling' },
-    { name: 'graphics pane scroll', seconds: 90, drive: 'graphicsScroll' },
+    // `surfaceKind` is the pane this phase claims to measure. It is read off the
+    // app's own controls before the bout, so a graphics pane cannot be judged
+    // against the text terminal's latency contract or the other way round.
+    { name: 'terminal text fling', seconds: 30, drive: 'terminalTextFling', surfaceKind: 'text' },
+    { name: 'graphics pane scroll', seconds: 90, drive: 'graphicsScroll', surfaceKind: 'graphics' },
     { name: 'zoom tap navigate', seconds: 60, drive: 'zoomTapNavigate' },
 ];
 
@@ -212,20 +215,33 @@ const fail = (message) => {
     process.stdout.write(`FAIL: ${message}\n`);
 };
 
-function finish(code, forceStopLoad = false) {
+function finish(code, forceStopLoad = false, interruptedBy = undefined) {
     if (stack !== undefined && (!keepLoad || forceStopLoad)) stack.stop();
     report.finishedAt = new Date().toISOString();
+    // A run that stopped early measured nothing about the phases it never
+    // reached, so it can never report a pass: the phases it did not run are
+    // named, and the exit code has to be a success as well.
+    const ran = new Set(report.phases.map((phase) => phase.name));
+    const notRun = PHASES.filter((phase) => !ran.has(phase.name)).map((phase) => phase.name);
+    if (interruptedBy !== undefined) {
+        report.interruptedBy = interruptedBy;
+        failures.push(`the run was interrupted by ${interruptedBy}`);
+    }
+    if (notRun.length > 0) {
+        report.phasesNotRun = notRun;
+        failures.push(`${notRun.length} phase(s) not run: ${notRun.join(', ')}`);
+    }
     report.failures = failures;
-    report.passed = failures.length === 0;
+    report.passed = failures.length === 0 && code === 0 && notRun.length === 0 && interruptedBy === undefined;
     if (recordPath !== undefined) {
         mkdirSync(dirname(recordPath), { recursive: true });
         writeFileSync(recordPath, `${JSON.stringify(report, null, 2)}\n`);
         process.stdout.write(`\nevidence: ${recordPath}\n`);
     }
-    process.stdout.write(failures.length === 0
+    process.stdout.write(report.passed
         ? '\nPASS: release performance gate\n'
         : `\nFAILED: ${failures.length} gate(s): ${failures.join('; ')}\n`);
-    process.exit(code);
+    process.exit(report.passed ? code : (code === 0 ? 1 : code));
 }
 
 /**
@@ -236,14 +252,12 @@ function finish(code, forceStopLoad = false) {
 function abortPhase(phase, why, details = {}) {
     report.phases.push({ ...phase, ...details, valid: false, navigation: { ok: false, why } });
     report.abortedAtPhase = phase.name;
-    const remaining = PHASES.slice(PHASES.indexOf(phase) + 1).map((later) => later.name);
-    report.phasesNotRun = remaining;
-    fail(`${phase.name}: ${why}; ${remaining.length} remaining phase(s) not run`);
+    fail(`${phase.name}: ${why}`);
     finish(1, true);
 }
 
-process.once('SIGINT', () => finish(130));
-process.once('SIGTERM', () => finish(143));
+process.once('SIGINT', () => finish(130, false, 'SIGINT'));
+process.once('SIGTERM', () => finish(143, false, 'SIGTERM'));
 
 /**
  * A flow run must never block this process: the sampler and the fake Herdr are
@@ -491,7 +505,20 @@ async function preparePhase(phase, screen, hz) {
         if (why !== undefined) return { ok: false, why };
     }
 
-    return { ok: true, flowExit, trailBefore, enteredAt, prepared: await prepareBout(surface, screen, hz) };
+    // A phase that names its surface has to be standing on that surface. A
+    // graphics pane judged against the text terminal's latency contract passes
+    // it on numbers that describe something else entirely.
+    let surfaceKind;
+    if (phase.surfaceKind !== undefined) {
+        const probed = await probeSurfaceKind();
+        if (probed.kind === undefined) return { ok: false, flowExit, why: `the surface could not be identified (${probed.why})` };
+        if (probed.kind !== phase.surfaceKind) {
+            return { ok: false, flowExit, why: `this phase measures a ${phase.surfaceKind} pane but the surface is ${probed.kind}` };
+        }
+        surfaceKind = probed.kind;
+    }
+
+    return { ok: true, flowExit, trailBefore, enteredAt, surfaceKind, prepared: await prepareBout(surface, screen, hz) };
 }
 
 /** `enabled` on the panel control the app published, or `undefined` if absent. */
@@ -512,6 +539,38 @@ function paneAttaches(paneId, since) {
     return readJsonl(stack.attachJsonl).filter((record) => (paneId === undefined || String(record.pane_id) === paneId)
         && String(record.at) >= since
         && [record.cols, record.rows, record.cellWidthPx, record.cellHeightPx].every((value) => Number(value) > 0));
+}
+
+/**
+ * The geometry the phone actually declared on the wire, from the terminal.resize
+ * records the fake herd writes beside its socket. This is the source a zoom step
+ * changes: a text pane re-grids, a graphics pane holds the grid and moves its
+ * cell pixels. Reads are phase-local and pinned to one pane, so an earlier
+ * phase's pane can never supply this phase's before-and-after.
+ */
+function paneGeometry(paneId, since) {
+    if (stack?.cellMetricsJsonl === undefined) return [];
+    return readJsonl(stack.cellMetricsJsonl).filter((record) => (paneId === undefined || String(record.pane_id) === paneId)
+        && String(record.at) >= since
+        && [record.cols, record.rows, record.cellWidthPx, record.cellHeightPx].every((value) => Number(value) > 0));
+}
+
+/**
+ * Text or graphics, from the state the app publishes on the controls panel
+ * before anything is tapped: a text pane opens in the middle of its font ladder,
+ * so `Zoom out` is live; a graphics pane opens at scale 1, its smallest, so it
+ * is not.
+ */
+async function probeSurfaceKind() {
+    if (!await tapBounds('content-desc="Show terminal controls"')) return { why: 'the terminal controls never opened' };
+    await sleep(600);
+    const panel = await dumpUi();
+    const zoomOutAtRest = controlEnabled(panel, 'Zoom out');
+    const zoomInPresent = controlEnabled(panel, 'Zoom in');
+    await tapBounds('content-desc="Close terminal controls"');
+    await sleep(400);
+    if (zoomInPresent === undefined || zoomOutAtRest === undefined) return { why: 'the panel published no zoom controls' };
+    return { kind: zoomOutAtRest ? 'text' : 'graphics', zoomOutAtRest };
 }
 
 async function drivePhase(phase, screen, hz, ready) {
@@ -585,7 +644,11 @@ async function drivePhase(phase, screen, hz, ready) {
         // taken since this phase entered the surface. Without it a zoom step is
         // read off whatever pane some earlier phase happened to leave behind.
         const entered = ready.enteredAt;
-        const paneId = paneAttaches(undefined, entered).at(-1)?.pane_id;
+        // Geometry comes from the phone's declared cell metrics for this phase,
+        // not from an attach that may have no cell pixels at all. Without it
+        // there is nothing to read a zoom step off, so the phase fails.
+        const paneId = paneGeometry(undefined, entered).at(-1)?.pane_id;
+        if (paneId === undefined) return { zoomGeometryUnavailable: 'the phone declared no cell metrics for this phase' };
         // The zoom buttons live behind the controls key; they do not exist until
         // the panel is open, so a tap that misses is a harness miss, not a
         // missing feature.
@@ -600,13 +663,13 @@ async function drivePhase(phase, screen, hz, ready) {
         const zoomSurface = controlEnabled(panel, 'Zoom in') === undefined || zoomOutAtRest === undefined
             ? undefined
             : zoomOutAtRest ? 'text' : 'graphics';
-        const gridBefore = paneAttaches(paneId, entered).at(-1);
+        const gridBefore = paneGeometry(paneId, entered).at(-1);
         const zoomInAt = new Date().toISOString();
         const zoomedIn = opened && zoomSurface !== undefined && await tapBounds('content-desc="Zoom in"');
         await sleep(800);
         // One tap, one step: a text pane re-grids on the wire exactly once, and
         // a graphics pane must not re-grid at all.
-        const gridAfterIn = paneAttaches(paneId, zoomInAt);
+        const gridAfterIn = paneGeometry(paneId, zoomInAt);
         const zoomIn = reduceZoom([gridBefore, ...gridAfterIn].filter((record) => record !== undefined));
         // `Reset zoom` is disabled at the default and live once a step landed,
         // so the panel's own state says whether the tap did anything at all.
@@ -629,9 +692,12 @@ async function drivePhase(phase, screen, hz, ready) {
         await tapBounds('content-desc="Show terminal controls"');
         await sleep(500);
         const zoomedOut = steppedIn && await atDefaultAfter('Zoom out');
+        // `Reset zoom` returning to disabled only proves anything if a step
+        // landed first, so the second `Zoom in` has to be seen to do something.
         await tapBounds('content-desc="Zoom in"');
         await sleep(500);
-        const zoomReset = await atDefaultAfter('Reset zoom');
+        const steppedInAgain = controlEnabled(await dumpUi(), 'Reset zoom') === true;
+        const zoomReset = steppedInAgain && await atDefaultAfter('Reset zoom');
         await tapBounds('content-desc="Close terminal controls"');
         await sleep(300);
         const ghostty = await viewBounds('GhosttyTerminalView');
@@ -668,7 +734,12 @@ async function drivePhase(phase, screen, hz, ready) {
             zoomSurface,
             zoomControlsOpened: opened,
             zoomResizeCount: zoomIn.gridChanged,
+            // The phone's own resize trail for the same tap. It has to agree with
+            // the host; one source alone cannot tell a real step from a repaint.
+            zoomPhoneResizeCount: trailZoom.gridChanged,
+            zoomPhoneCellOnly: trailZoom.cellOnly,
             zoomTapped: zoomedIn && steppedIn,
+            steppedInAgain,
             zoomMagnified: magnified,
             zoomedOut,
             zoomReset,
@@ -684,6 +755,7 @@ async function drivePhase(phase, screen, hz, ready) {
                 magnified,
             },
             attachRecords: paneAttaches(paneId, entered).length,
+            geometryRecords: paneGeometry(paneId, entered).length,
             terminal: {
                 scrollRequests: trail.scrollRequests,
                 scrollLatencyP50Ms: trail.scrollLatencyP50Ms,
@@ -806,6 +878,9 @@ function gestureEvidence(driven, idleJs) {
         injectFailed: driven.injectFailed === true,
         zoomSurface: driven.zoomSurface,
         zoomResizeCount: driven.zoomResizeCount,
+        zoomPhoneResizeCount: driven.zoomPhoneResizeCount,
+        zoomPhoneCellOnly: driven.zoomPhoneCellOnly,
+        geometryRecords: driven.geometryRecords,
         zoomTapped: driven.zoomTapped,
         zoomMagnified: driven.zoomMagnified,
         zoomedOut: driven.zoomedOut,
@@ -965,6 +1040,7 @@ for (const phase of PHASES) {
     })();
     const measured = await samplePhase({ pkg: PKG, seconds: phase.seconds });
     await driving;
+    if (driven?.zoomGeometryUnavailable !== undefined) abortPhase(phase, `the pane geometry is unavailable (${driven.zoomGeometryUnavailable})`);
     if (driven?.trailUnavailable !== undefined) abortPhase(phase, `the phone trail is unavailable after the bout (${driven.trailUnavailable})`);
     if (phase.name === 'idle on the herd') idleJs = measured.jsBusyPercent;
     if (driven !== undefined) driven.jsBusyPercent = measured.jsBusyPercent;
@@ -981,6 +1057,8 @@ for (const phase of PHASES) {
             zoomMagnified: driven.zoomMagnified,
             zoomedOut: driven.zoomedOut,
             zoomReset: driven.zoomReset,
+            zoomPhoneResizeCount: driven.zoomPhoneResizeCount,
+            zoomPhoneCellOnly: driven.zoomPhoneCellOnly,
             terminal: driven.terminal,
             graphicsRowsPerSecond: driven.graphicsRowsPerSecond,
             zoomResizeCount: driven.zoomResizeCount,
@@ -990,7 +1068,7 @@ for (const phase of PHASES) {
     const entry = {
         ...phase,
         ...measured,
-        navigation: { ok: ready.ok, ...(ready.ok ? {} : { why: ready.why, flowOutput: ready.flowOutput }) },
+        navigation: { ok: ready.ok, ...(ready.surfaceKind === undefined ? {} : { surfaceKind: ready.surfaceKind }), ...(ready.ok ? {} : { why: ready.why, flowOutput: ready.flowOutput }) },
         flowExit: flowRun?.code ?? ready.flowExit,
         ...(gesture === undefined ? {} : { gesture }),
         ...(driven?.terminal === undefined ? {} : { terminal: driven.terminal }),
@@ -1023,7 +1101,17 @@ for (const phase of PHASES) {
     if (measured.frameStallSeconds >= LIMITS.frameStallSeconds) {
         fail(`${phase.name}: no frames drawn for ${measured.frameStallSeconds}s`);
     }
-    if ((measured.pssDriftKb ?? 0) > LIMITS.pssDriftKb) {
+    // A process that came back is a different process: nothing across the break
+    // is comparable, and a sample the phase never took is not a healthy one.
+    if (measured.restarts > 0) fail(`${phase.name}: the app restarted ${measured.restarts} time(s) during the phase`);
+    if (measured.gaps > 0) fail(`${phase.name}: the JS thread was unreadable in ${measured.gaps} sample(s)`);
+    if (measured.missingFrames > 0) fail(`${phase.name}: the frame counter did not read in ${measured.missingFrames} sample(s)`);
+    // Memory is judged only where there are two comparable samples to difference.
+    if (measured.pssDriftKb === undefined || measured.pssSamples.length < 2) {
+        fail(`${phase.name}: memory drift is unmeasured (${measured.pssSamples.length} comparable sample(s), ${measured.missingPss} missed)`);
+    } else if (measured.missingPss > 0) {
+        fail(`${phase.name}: memory did not read in ${measured.missingPss} sample(s), so the drift is not the phase's`);
+    } else if (measured.pssDriftKb > LIMITS.pssDriftKb) {
         fail(`${phase.name}: memory grew ${Math.round(measured.pssDriftKb / 1024)} MB`);
     }
     if (driven?.injectFailed === true) fail(`${phase.name}: device could not inject`);

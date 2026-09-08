@@ -448,7 +448,11 @@ function codexItems(result) {
 }
 
 function idleLabel(agent, local, failure) {
-  if (agent === 'omp') return local?.omp?.rows ? 'No measured activity today' : local?.omp?.reason ?? 'Local activity unavailable';
+  // OMP and Pi are both accounted from their own transcripts, so a collection
+  // that failed is what the row has to report -- ccusage's Pi row is the
+  // duplicated one this plugin replaces, and silence is not "nothing today".
+  const report = local?.[agent];
+  if (agent === 'omp' || agent === 'pi') return report?.rows ? 'No measured activity today' : report?.reason ?? 'Local activity unavailable';
   if (!CCUSAGE_AGENTS.has(agent)) return 'Local activity unsupported by ccusage';
   return failure ?? 'No measured activity today';
 }

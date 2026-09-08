@@ -3,7 +3,8 @@ import { Platform, ScrollView, View, Text } from 'react-native';
 import { StyleSheet } from 'react-native-unistyles';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MarkdownView } from '@/components/markdown/MarkdownView';
-import { ChangelogChange, ChangelogVerification, currentRelease, getLegacyEntries, setLastViewedRelease } from '@/changelog';
+import { ChangelogChange, ChangelogRelease, ChangelogVerification, currentRelease, getLegacyEntries, olderReleases, setLastViewedRelease } from '@/changelog';
+import { getAppVersion } from '@/utils/appVersion';
 import { Typography } from '@/constants/Typography';
 import { layout } from '@/components/layout';
 import { t } from '@/text';
@@ -41,16 +42,57 @@ function Section({ title, changes }: { title: string; changes: ChangelogChange[]
     );
 }
 
+function Release({ release }: { release: ChangelogRelease }) {
+    return (
+        <View style={styles.entryContainer}>
+            <Text style={styles.versionText}>{`App version ${release.appVersion}`}</Text>
+            <Text style={styles.titleText}>{release.title}</Text>
+            <Text style={styles.summaryText}>{release.summary}</Text>
+            <Section title="Added" changes={release.features} />
+            <Section title="Fixed" changes={release.fixes} />
+            <View style={styles.section}>
+                <Text style={styles.sectionTitle}>Verification</Text>
+                <Card>
+                    {release.verification.length === 0 ? (
+                        <Text style={styles.changeDetail}>No verification recorded.</Text>
+                    ) : release.verification.map((item) => (
+                        <View key={item.title} style={styles.changeContainer}>
+                            <Text style={styles.changeTitle}>{`${statusLabels[item.status]} · ${item.title}`}</Text>
+                            <Text style={styles.changeDetail}>{item.detail}</Text>
+                            {item.evidence ? (
+                                <Text style={styles.evidenceText}>
+                                    {`${item.evidence.environment} · ${item.evidence.testedCommit} · ${item.evidence.checkedBy} · ${item.evidence.checkedAt}${item.evidence.path ? ` · ${item.evidence.path}` : ''}`}
+                                </Text>
+                            ) : null}
+                        </View>
+                    ))}
+                </Card>
+            </View>
+            <View style={styles.section}>
+                <Text style={styles.sectionTitle}>Known limits</Text>
+                <Card>
+                    {release.knownLimits.length === 0 ? (
+                        <Text style={styles.changeDetail}>No additional limits recorded.</Text>
+                    ) : release.knownLimits.map((limit) => (
+                        <Text key={limit} style={styles.limitText}>{`• ${limit}`}</Text>
+                    ))}
+                </Card>
+            </View>
+        </View>
+    );
+}
+
 export default function ChangelogScreen() {
     const insets = useSafeAreaInsets();
     const release = currentRelease();
+    const previous = olderReleases(getAppVersion());
     const legacy = getLegacyEntries();
 
     useEffect(() => {
         if (release) setLastViewedRelease(release.appVersion);
     }, [release]);
 
-    if (!release && legacy.length === 0) {
+    if (!release && previous.length === 0 && legacy.length === 0) {
         return (
             <View style={styles.container}>
                 <View style={styles.emptyState}>
@@ -75,43 +117,10 @@ export default function ChangelogScreen() {
                 ]}
                 showsVerticalScrollIndicator={false}
             >
-                {release ? (
-                    <View style={styles.entryContainer}>
-                        <Text style={styles.versionText}>{`App version ${release.appVersion}`}</Text>
-                        <Text style={styles.titleText}>{release.title}</Text>
-                        <Text style={styles.summaryText}>{release.summary}</Text>
-                        <Section title="Added" changes={release.features} />
-                        <Section title="Fixed" changes={release.fixes} />
-                        <View style={styles.section}>
-                            <Text style={styles.sectionTitle}>Verification</Text>
-                            <Card>
-                                {release.verification.length === 0 ? (
-                                    <Text style={styles.changeDetail}>No verification recorded.</Text>
-                                ) : release.verification.map((item) => (
-                                    <View key={item.title} style={styles.changeContainer}>
-                                        <Text style={styles.changeTitle}>{`${statusLabels[item.status]} · ${item.title}`}</Text>
-                                        <Text style={styles.changeDetail}>{item.detail}</Text>
-                                        {item.evidence ? (
-                                            <Text style={styles.evidenceText}>
-                                                {`${item.evidence.environment} · ${item.evidence.testedCommit} · ${item.evidence.checkedBy} · ${item.evidence.checkedAt}${item.evidence.path ? ` · ${item.evidence.path}` : ''}`}
-                                            </Text>
-                                        ) : null}
-                                    </View>
-                                ))}
-                            </Card>
-                        </View>
-                        <View style={styles.section}>
-                            <Text style={styles.sectionTitle}>Known limits</Text>
-                            <Card>
-                                {release.knownLimits.length === 0 ? (
-                                    <Text style={styles.changeDetail}>No additional limits recorded.</Text>
-                                ) : release.knownLimits.map((limit) => (
-                                    <Text key={limit} style={styles.limitText}>{`• ${limit}`}</Text>
-                                ))}
-                            </Card>
-                        </View>
-                    </View>
-                ) : null}
+                {release ? <Release release={release} /> : null}
+
+                {previous.length > 0 ? <Text style={styles.sectionTitle}>Earlier releases</Text> : null}
+                {previous.map((entry) => <Release key={entry.appVersion} release={entry} />)}
 
                 {legacy.length > 0 ? <Text style={styles.sectionTitle}>Earlier updates</Text> : null}
                 {legacy.map((entry) => (

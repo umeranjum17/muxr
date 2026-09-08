@@ -213,7 +213,7 @@ test('baseline bout fixtures reduce to the documented failures', () => {
     assert.equal(reduceMagnification(flat, flat, { expected: 1.25 }).proven, false);
 
     const zoomJank = { jank: { frames: 10, jankyPercent: 1, p95Ms: 10, p99Ms: 12, overFourFramesPercent: 0, missedVsync: 0 }, frameStats: { droppedPercent: 0, inputToFrameMs: { p95: 10 } } };
-    const stepped = { zoomTapped: true, zoomedOut: true, zoomReset: true };
+    const stepped = { zoomTapped: true, zoomedOut: true, zoomReset: true, zoomPhoneResizeCount: 1 };
     // A text pane re-grids exactly once per step; a graphics pane holds the
     // remote grid and has to show the magnification in its own pixels. A tap
     // the app never acted on passes neither.
@@ -225,12 +225,21 @@ test('baseline bout fixtures reduce to the documented failures', () => {
     }, EMULATOR_LIMITS).failures, ['zoomResizeCount']);
     assert.deepEqual(verdict('zoom tap navigate', {
         ...zoomJank, ...stepped, zoomSurface: 'graphics', zoomResizeCount: 0,
-        zoomMagnified: { proven: true },
+        zoomPhoneResizeCount: 0, zoomMagnified: { proven: true },
     }, EMULATOR_LIMITS).failures, []);
     assert.deepEqual(verdict('zoom tap navigate', {
         ...zoomJank, ...stepped, zoomSurface: 'graphics', zoomResizeCount: 0,
-        zoomMagnified: { proven: false },
+        zoomPhoneResizeCount: 0, zoomMagnified: { proven: false },
     }, EMULATOR_LIMITS).failures, ['zoom did not magnify the surface']);
+    // The host and the phone have to describe the same step. One source alone
+    // cannot tell a real zoom from a repaint that happened to re-grid.
+    assert.deepEqual(verdict('zoom tap navigate', {
+        ...zoomJank, ...stepped, zoomSurface: 'text', zoomResizeCount: 1, zoomPhoneResizeCount: 0,
+    }, EMULATOR_LIMITS).failures, ['the phone trail does not match the host zoom re-grid']);
+    assert.deepEqual(verdict('zoom tap navigate', {
+        ...zoomJank, ...stepped, zoomSurface: 'graphics', zoomResizeCount: 0,
+        zoomPhoneResizeCount: 1, zoomMagnified: { proven: true },
+    }, EMULATOR_LIMITS).failures, ['the phone trail re-gridded a graphics zoom']);
     assert.deepEqual(verdict('zoom tap navigate', {
         ...zoomJank, ...stepped, zoomTapped: false, zoomSurface: 'text', zoomResizeCount: 1,
     }, EMULATOR_LIMITS).failures, ['zoomTapped']);

@@ -23,7 +23,14 @@ export async function publishCandidate() {
     const signer = readFileSync(join(androidDirectory, 'signer.txt'), 'utf8').match(/certificate SHA-256 digest: ([a-f0-9]{64})/i)?.[1].toLowerCase();
     if (!signer) throw new Error('Missing verified Android signer');
     renameSync(join(directory, 'release-manifest.json'), join(directory, 'npm-manifest.json'));
-    for (const file of readdirSync(androidDirectory)) copyFileSync(join(androidDirectory, file), join(directory, file));
+    // The Android artifact carries its own report, rendered from the same source
+    // with the build code in it. The candidate's report is already verified
+    // against the manifest it was sealed under, so it is never replaced here.
+    const reports = new Set(Object.values(reportFiles));
+    for (const file of readdirSync(androidDirectory)) {
+        if (reports.has(file)) continue;
+        copyFileSync(join(androidDirectory, file), join(directory, file));
+    }
     await sealRelease({ directory, version: VERSION, channel: CHANNEL, files: readdirSync(directory), runId: GITHUB_RUN_ID, runAttempt: GITHUB_RUN_ATTEMPT,
         android: { applicationId: expectedId, versionCode: Number(BUILD_CODE), signerSha256: signer } });
     // Notes were rendered and sealed from the candidate's own source. This

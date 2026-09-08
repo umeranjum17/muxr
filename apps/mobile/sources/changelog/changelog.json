@@ -35,14 +35,8 @@
             "verification": [
                 {
                     "title": "Automated checks on this source",
-                    "status": "partial",
-                    "detail": "Changelog, release packaging and unit checks were run locally on this branch. No full suite run, emulator run or signed build is claimed for this entry.",
-                    "evidence": {
-                        "testedCommit": "76b57dd0",
-                        "environment": "local Linux checkout, Node 22",
-                        "checkedBy": "umer",
-                        "checkedAt": "2026-09-08"
-                    }
+                    "status": "not-run",
+                    "detail": "No automated run is recorded for the source that carries these changes. The earlier local run was on a commit before this work landed, so it says nothing about what shipped here."
                 },
                 {
                     "title": "Android emulator acceptance",
@@ -69,11 +63,11 @@
                 {
                     "title": "iOS load behaviour",
                     "status": "partial",
-                    "detail": "The retained iOS simulator load report is prior-source simulator evidence only: 100 panes and 30 agents across separate runs, no single clean full pass, and graphics pixels unproven.",
+                    "detail": "The retained iOS simulator load report is prior-source simulator evidence only: 100 panes and 30 agents across separate runs, no single clean full pass, and graphics pixels unproven. It was measured on the source recorded in the report, not on this version.",
                     "evidence": {
                         "path": "perf/results/ios-load-2026-09-07.md",
-                        "testedCommit": "76b57dd0",
-                        "environment": "iOS simulator, prior source build",
+                        "testedCommit": "9da784a73bea0fa6867a00959fdb10941a3275e0",
+                        "environment": "iOS simulator, Release 0.1.28(1) on iPhone 16 Pro / iOS 26.3, host product source 09c1f4051e76313a78724217dd3511b4bc7a5b36",
                         "checkedBy": "umer",
                         "checkedAt": "2026-09-07"
                     }
@@ -81,6 +75,7 @@
             ],
             "knownLimits": [
                 "Final QA has not passed for this version: emulator and physical-device acceptance are not run.",
+                "The release-report and changelog repairs in this entry have not been run through the full suite, an emulator or a signed build; nothing here is claimed as passing QA.",
                 "Terminal graphics sharpness after settling is verified only by local reasoning and unit checks, not by measured frames on a device.",
                 "Historical perf records under docs/perf/ for 0.1.26 recorded failed runs and are not acceptance for this version.",
                 "A successful build is not device acceptance."
@@ -98,6 +93,10 @@
                 {
                     "title": "Saved computers in Settings",
                     "detail": "Select paired computers in Settings and see saved computers immediately while live collaboration checks finish."
+                },
+                {
+                    "title": "Compact public agent guide",
+                    "detail": "Load the compact public agent guide with muxr --skill, pull focused topics on demand, and read bounded host history with muxr diagnostics; setup and updates never rewrite agent instructions."
                 }
             ],
             "fixes": [

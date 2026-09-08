@@ -10,6 +10,10 @@ export const reportFiles = { html: 'what-changed.html', markdown: 'release-notes
 
 const plain = (value, max) => typeof value === 'string' && value.length > 0 && value.length <= max && !/[<>]/.test(value);
 const escape = (value) => String(value).replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]));
+// Authored text is data, not markup. Collapsing whitespace removes every line
+// start, so a heading, list or quote marker cannot begin one; escaping the
+// inline-active punctuation removes links, images, emphasis, code and HTML.
+const inline = (value) => String(value).replace(/\s+/g, ' ').trim().replace(/[\\`*_[\]<>#!|~]/g, '\\$&');
 
 function requireChange(change, where) {
     if (!change || !plain(change.title, 120) || !plain(change.detail, 600)) throw new Error(`${where} has a malformed change`);
@@ -60,12 +64,12 @@ function metadata({ version, channel, commit, buildCode }) {
 }
 
 function markdownReport(entry, meta) {
-    const lines = [`# muxr ${meta.version}`, '', `Changes for app version ${entry.appVersion} — ${entry.title}`, '', entry.summary, '',
+    const lines = [`# muxr ${meta.version}`, '', `Changes for app version ${entry.appVersion} — ${inline(entry.title)}`, '', inline(entry.summary), '',
         `Channel: ${meta.channel}. Source: ${meta.commit}.${meta.buildCode ? ` Android build: ${meta.buildCode}.` : ''}`, ''];
     const section = (title, changes) => {
         if (changes.length === 0) return;
         lines.push(`## ${title}`, '');
-        for (const change of changes) lines.push(`- **${change.title}** — ${change.detail}`);
+        for (const change of changes) lines.push(`- **${inline(change.title)}** — ${inline(change.detail)}`);
         lines.push('');
     };
     section('Added', entry.features);
@@ -75,15 +79,15 @@ function markdownReport(entry, meta) {
     else {
         for (const item of entry.verification) {
             const evidence = item.evidence;
-            const trail = evidence ? ` _(${[evidence.environment, evidence.testedCommit, evidence.checkedBy, evidence.checkedAt, evidence.path].filter(Boolean).join(' · ')})_` : '';
-            lines.push(`- **${STATUS_WORDS[item.status]} · ${item.title}** — ${item.detail}${trail}`);
+            const trail = evidence ? ` _(${inline([evidence.environment, evidence.testedCommit, evidence.checkedBy, evidence.checkedAt, evidence.path].filter(Boolean).join(' · '))})_` : '';
+            lines.push(`- **${STATUS_WORDS[item.status]} · ${inline(item.title)}** — ${inline(item.detail)}${trail}`);
         }
         lines.push('');
     }
     lines.push('## Known limits', '');
     if (entry.knownLimits.length === 0) lines.push('No additional limits recorded.', '');
     else {
-        for (const limit of entry.knownLimits) lines.push(`- ${limit}`);
+        for (const limit of entry.knownLimits) lines.push(`- ${inline(limit)}`);
         lines.push('');
     }
     lines.push('Release candidate; **not production**. A successful build is not device acceptance.', '',

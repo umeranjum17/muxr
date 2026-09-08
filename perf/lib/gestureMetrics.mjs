@@ -702,9 +702,14 @@ export function verdict(phase, metrics, limits) {
         // its pixels can show.
         if (metrics.zoomSurface === 'text') {
             failWhen(failures, 'zoomResizeCount', metrics.zoomResizeCount !== limits.zoomResizeCount);
+            // The phone's own trail has to show the same one re-grid the host
+            // recorded; a step only one of them saw is not a step.
+            failWhen(failures, 'the phone trail does not match the host zoom re-grid',
+                metrics.zoomPhoneResizeCount !== limits.zoomResizeCount);
         } else if (metrics.zoomSurface === 'graphics') {
             failWhen(failures, 'zoom did not magnify the surface', metrics.zoomMagnified?.proven !== true);
             failWhen(failures, 'zoomResizeCount', (metrics.zoomResizeCount ?? 0) !== 0);
+            failWhen(failures, 'the phone trail re-gridded a graphics zoom', (metrics.zoomPhoneResizeCount ?? 0) !== 0);
         } else {
             failures.push('the zoom surface could not be identified');
         }

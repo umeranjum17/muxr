@@ -45,6 +45,22 @@ export function selectRelease(appVersion: string): ChangelogRelease | undefined 
     return matches.length === 1 ? validateRelease(matches[0]) : undefined;
 }
 
+const order = (version: string) => version.split('.').reduce((rank, part) => rank * 10_000 + Number(part), 0);
+
+/**
+ * Releases published before the installed one, newest first. A release newer
+ * than the installed app describes software this phone is not running, so it is
+ * never rendered -- neither as history nor in place of the current entry.
+ */
+export function olderReleases(appVersion: string): ChangelogRelease[] {
+    if (!/^\d+\.\d+\.\d+$/.test(appVersion)) return [];
+    const installed = order(appVersion);
+    return getChangelogData().releases
+        .filter((release) => /^\d+\.\d+\.\d+$/.test(release.appVersion) && order(release.appVersion) < installed)
+        .sort((left, right) => order(right.appVersion) - order(left.appVersion))
+        .map((release) => validateRelease(release));
+}
+
 export function getLegacyEntries(): LegacyChangelogEntry[] {
     return getChangelogData().legacyEntries;
 }

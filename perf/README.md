@@ -64,8 +64,11 @@ Prerequisites, all checked in preflight with a named failure:
 | Content moved | `screencapRaw` of the scrollable rect, mean |Δ| ≥ 8/255; strip card label, document gutter line, terminal trail | injected at intended velocity and the surface did not move |
 | Terminal fling | phone trail `terminal.scroll-latency`, `terminal.scroll-rows`, `terminal.scroll-clamped` | p95 250 / 200 ms, < 40 / 60 rows/s, any clamp |
 | Graphics fling | host `graphics.pipeline` bout-scoped `notchesSent` × 3 | < 9 rows/s |
-| Zoom | the panel's own `Zoom out` state names the surface, then the host's attach record for the pane, and the phone's `terminal.resize` line | Text pane: exactly 1 grid resize for one `Zoom in`. Graphics pane: no resize at all, and the fixture's checkerboard measurably 1.25x larger on screen. Either way `Zoom out` and `Reset zoom` must return the surface to its default, and a surface the run could not identify fails |
-| Memory | TOTAL PSS from meminfo | over 100 MB drift in a phase. Across the tour, a pane whose memory never sampled fails: the remaining samples are not the whole tour |
+| Named surface | the panel's own `Zoom out` state, read before the bout | `terminal text fling` must be on a text pane and `graphics pane scroll` on a graphics pane; a mismatch, or a surface the probe could not identify, fails the phase before a number is read |
+| Zoom | the panel's own `Zoom out` state names the surface, then the phone's declared cell metrics for this phase and pane, and the phone's `terminal.resize` line | Text pane: exactly 1 grid resize for one `Zoom in`, on both the host and the phone. Graphics pane: no resize on either, and the fixture's checkerboard measurably 1.25x larger on screen. Either way the second `Zoom in` must be seen to step, `Zoom out` and `Reset zoom` must return the surface to its default, and a phase with no declared cell metrics fails rather than reading a zoom off another pane |
+| Runtime continuity | sampler `restarts` and `gaps` | any restart, or any sample where the JS thread could not be read |
+| Memory | TOTAL PSS from meminfo | over 100 MB drift in a phase. Fewer than two comparable samples, or any missed sample, fails as unmeasured rather than as flat. Across the tour, a pane whose memory never sampled fails: the remaining samples are not the whole tour |
+| Completion | phases recorded against `PHASES`, and the exit code | a run that was interrupted, or that did not record every phase, names the phases it did not run and can never print `PASS` |
 | Flows | Maestro exit code | pairing, soak, navigation, document open or graphics open did not complete |
 | Graphics pipeline | host journal `graphics.pipeline` | no event, p95 over 250 ms, or frame bytes p95 over 800 kB |
 
