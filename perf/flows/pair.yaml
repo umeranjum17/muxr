@@ -37,7 +37,8 @@ tags:
 - tapOn: 'Pairing string'
 - eraseText: 120
 - inputText: '${PAIR_CODE}'
-- tapOn: 'Connect'
+# The focused keyboard covers Connect; the input submits on the IME action.
+- pressKey: Enter
 - extendedWaitUntil:
     visible:
       text: 'THIS PHONE WILL BE ABLE TO'
