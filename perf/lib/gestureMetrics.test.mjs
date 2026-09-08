@@ -91,6 +91,24 @@ test('baseline bout fixtures reduce to the documented failures', () => {
         movement: { proven: true },
     };
     assert.deepEqual(verdict('herd tree fling', phaseMetrics(drivenFling), EMULATOR_LIMITS).failures, []);
+    // The windows `measureBout` records, as it records them. One fling that
+    // came back without an injector clock makes the phase unavailable: the
+    // other fling's 10 ms is not the bout's latency, it is what survived.
+    const window = (over) => ({ profile: 'fling', input: true, t0Seconds: 12.5, missedVsync: 1, inputToFrameMs: { p50: 10, p95: 10 }, ...over });
+    assert.deepEqual(verdict('herd tree fling', phaseMetrics({
+        ...drivenFling,
+        gestureFrames: [window({}), window({}), { profile: 'observation', input: false }],
+    }), EMULATOR_LIMITS).failures, []);
+    assert.deepEqual(verdict('herd tree fling', phaseMetrics({
+        ...drivenFling,
+        gestureFrames: [
+            window({}),
+            window({ t0Seconds: undefined, clockUnavailable: true, inputToFrameMs: {} }),
+            // A dump between gestures never had an origin to lose, so it is not
+            // what makes a phase unavailable.
+            { profile: 'observation', input: false, inputToFrameMs: {} },
+        ],
+    }), EMULATOR_LIMITS).failures, ['a gesture reported no injector clock']);
     assert.deepEqual(verdict('herd tree fling', phaseMetrics({ ...drivenFling, missedVsyncPerFling: 4 }), EMULATOR_LIMITS).failures, ['missedVsyncPerFling']);
     assert.deepEqual(verdict('herd tree fling', phaseMetrics({ ...drivenFling, missedVsyncPerFling: undefined }), EMULATOR_LIMITS).failures, ['no per-gesture vsync window']);
     // The ring is 120 frames deep; more drawn than read back is a hole in the

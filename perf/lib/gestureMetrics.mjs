@@ -798,6 +798,11 @@ export function phaseMetrics(driven, context = {}) {
         frameStats: driven.frameStats,
         missedVsyncPerFling: driven.missedVsyncPerFling,
         frameCoverage: driven.frameCoverage,
+        // One touch with no origin is one gesture nobody can time. Grading the
+        // latency of the gestures that did report leaves the phase passing on a
+        // population it chose after the fact.
+        inputClockMissing: driven.gestureFrames?.some((window) => window.input === true
+            && (window.clockUnavailable === true || !Number.isFinite(window.t0Seconds))),
         jsBusyDeltaPoints: context.jsBusyDeltaPoints,
         accidentalOwners: context.accidentalOwners,
         zoomTapped: driven.zoomTapped,
@@ -848,6 +853,7 @@ export function verdict(phase, metrics, limits) {
     // and settle its frames are cut to, and its broader jank stays a diagnostic.
     // No window at all is unavailable evidence, not a pass.
     if ((SCROLL_PHASES.has(name) || ZOOM_PHASES.has(name)) && (jank.frames ?? 0) > 0) {
+        if (metrics.inputClockMissing === true) failures.push('a gesture reported no injector clock');
         if (metrics.missedVsyncPerFling === undefined) failures.push('no per-gesture vsync window');
         // The framestats ring is 120 frames deep. More frames drawn inside the
         // measured windows than were read back out of it means the ring wrapped

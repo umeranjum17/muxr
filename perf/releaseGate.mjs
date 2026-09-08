@@ -552,6 +552,9 @@ async function measureBout(run, hz, { surface, screen, phase, prepared } = {}) {
         counters = snapshot.jank;
         gestureFrames.push({
             profile: window.profile,
+            // A window opened by a touch is graded on that touch's origin; the
+            // dumps and screenshots between gestures never had one to lose.
+            input: window.input === true,
             openedAtMs: openedAt,
             closedAtMs: Date.now(),
             t0Seconds: window.t0Seconds,
@@ -561,7 +564,7 @@ async function measureBout(run, hz, { surface, screen, phase, prepared } = {}) {
             dropped: reduced.dropped,
             worstMs: reduced.worstMs,
             inputToFrameMs: reduced.inputToFrameMs,
-            ...(t0Ns === undefined && window.profile !== 'observation' ? { clockUnavailable: true } : {}),
+            ...(window.input === true && t0Ns === undefined ? { clockUnavailable: true } : {}),
             missedVsync,
             rows: fresh.slice(0, RAW_FRAME_ROW_CAP),
             ...(fresh.length > RAW_FRAME_ROW_CAP ? { rowsOmitted: fresh.length - RAW_FRAME_ROW_CAP } : {}),
@@ -575,7 +578,7 @@ async function measureBout(run, hz, { surface, screen, phase, prepared } = {}) {
                 // Frames first: the hierarchy dump and screenshot below cost
                 // seconds, and the 120-frame ring evicts this gesture's own
                 // input frames while they are being taken.
-                await collect(gesture);
+                await collect({ ...gesture, input: true });
                 if (gesture.profile !== 'fling') return;
                 if (phase?.oneWayMovement === true && oneWaySurface === undefined && surface !== undefined) {
                     oneWaySurface = await captureSurface(surface, screen);
@@ -1099,6 +1102,12 @@ async function drivePhase(phase, screen, hz, ready) {
         // The ring bounded to this tap and its settle, so the frames, the drops
         // and the input-to-frame all describe the same window the grid did.
         const vsyncAfter = await gfxSnapshot(PKG, { hz });
+        // Coverage is the snapshot pair, exactly what the counters below span:
+        // frames drawn before the tap and while it settled are part of that
+        // window, so cutting the rows to the injector's interval would report
+        // them as lost. The injector's interval still bounds what the tap is
+        // graded on, which is latency and the frames the touch itself drove.
+        const sinceBaseline = freshFrameRows(vsyncAfter.rows, new Set(vsyncBefore.rows.map((row) => Number(row.IntendedVsync))));
         const windowRows = vsyncAfter.rows.filter((row) => {
             const completed = Number(row.FrameCompleted);
             return completed >= t0Ns && completed <= t1Ns;
@@ -1116,7 +1125,7 @@ async function drivePhase(phase, screen, hz, ready) {
         if (!Number.isFinite(drewInWindow) || drewInWindow < 0) {
             return unavailable('the frame counter did not read across the zoom window');
         }
-        const zoomCoverage = { rendered: drewInWindow, retained: windowRows.length };
+        const zoomCoverage = { rendered: drewInWindow, retained: sinceBaseline.length };
 
         // Only now may anything else be driven. The pixels below are this
         // phase's own pane after its own step: on a graphics surface they are
