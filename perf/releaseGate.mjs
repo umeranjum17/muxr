@@ -90,6 +90,8 @@ const PKG = 'com.trymuxr.app';
 // Raw framestats rows kept per gesture. The ring holds ~120; the cap bounds a
 // pathological read and reports what it left out rather than trimming silently.
 const RAW_FRAME_ROW_CAP = 200;
+// Ring reads while slow observations run: well inside the 120-row horizon.
+const RING_DRAIN_MS = 250;
 const AVD = 'muxr_sandbox';
 const FLOWS = 'perf/flows';
 const MAESTRO = ['mise', ['x', 'maestro@cli-2.7.0', '--', 'maestro']];
@@ -415,6 +417,51 @@ async function prepareBout(surface, screen, hz) {
     return { beforeSurface, attempt: newAttempt(), before: await resetGfxWindow(PKG, { hz }) };
 }
 
+/**
+ * One owner of the framestats ring, and the cadence that keeps it from wrapping.
+ *
+ * The ring holds 120 rows. A hierarchy dump and screenshot take seconds, and a
+ * window closed only after one of those cannot account for what was drawn
+ * during it. Every read goes through one queue -- two mutating reads would race
+ * the seen set -- and `draining` keeps reading while slow work runs.
+ */
+function ringDrainer(hz, onSnapshot, seen = new Set()) {
+    let queue = Promise.resolve();
+    const serialize = (work) => {
+        const next = queue.then(work, work);
+        queue = next.then(() => undefined, () => undefined);
+        return next;
+    };
+    let pending = 0;
+    const absorb = () => serialize(async () => {
+        const startedAt = Date.now();
+        const snapshot = await gfxSnapshot(PKG, { hz });
+        const fresh = freshFrameRows(snapshot.rows, seen);
+        // Rows the pipeline had not finished writing are not lost frames and not
+        // counted frames; a later read carries their finished record.
+        pending = pendingFrameRows(snapshot.rows, seen);
+        onSnapshot({ snapshot, fresh, startedAt, endedAt: Date.now() });
+        return snapshot;
+    });
+    const draining = async (work) => {
+        let running = true;
+        const loop = (async () => {
+            while (running) {
+                await sleep(RING_DRAIN_MS);
+                if (!running) break;
+                await absorb();
+            }
+        })();
+        try {
+            return await work();
+        } finally {
+            running = false;
+            await loop;
+        }
+    };
+    return { absorb, draining, pendingCount: () => pending };
+}
+
 async function measureBout(run, hz, { surface, screen, phase, prepared } = {}) {
     const { beforeSurface, before } = prepared ?? await prepareBout(surface, screen, hz);
     const parts = [];
@@ -443,6 +490,9 @@ async function measureBout(run, hz, { surface, screen, phase, prepared } = {}) {
     let rendered = 0;
     let retained = 0;
     let pending = 0;
+    // Measured frames no read ever gave back, counted per window so a window
+    // holding older rows cannot pay for one that lost its own.
+    let missing = 0;
     let coverageBroken = false;
     // The window that is open right now. Reads during it accumulate here, so a
     // drain taken while a screenshot is being pulled adds to the window it
@@ -451,26 +501,9 @@ async function measureBout(run, hz, { surface, screen, phase, prepared } = {}) {
 
     // One owner of the ring. Two mutating reads in flight would race the seen
     // set and the counters; every read below goes through this queue.
-    let pendingNow = 0;
-    let queue = Promise.resolve();
-    const serialize = (work) => {
-        const next = queue.then(work, work);
-        queue = next.then(() => undefined, () => undefined);
-        return next;
-    };
-
-    // One read, folded into the open window. The ring holds 120 rows, so a
-    // 2.4 s screenshot at 60 Hz can overrun it: this is called on a cadence
-    // during those, not only at the end of them.
-    const absorb = () => serialize(async () => {
-        const startedAt = Date.now();
-        const snapshot = await gfxSnapshot(PKG, { hz });
-        const fresh = freshFrameRows(snapshot.rows, counted);
+    const ring = ringDrainer(hz, ({ snapshot, fresh, startedAt, endedAt }) => {
         open.rows.push(...fresh);
         open.retained += fresh.length;
-        // Rows the pipeline had not finished writing are not lost frames and
-        // not counted frames; a later read carries their finished record.
-        pendingNow = pendingFrameRows(snapshot.rows, counted);
         const was = counters?.missedVsync;
         const now = snapshot.jank.missedVsync;
         // A counter that could not be read, or one that went backwards because
@@ -482,36 +515,24 @@ async function measureBout(run, hz, { surface, screen, phase, prepared } = {}) {
         if (Number.isFinite(grew) && grew >= 0) open.rendered += grew;
         else coverageBroken = true;
         counters = snapshot.jank;
-        open.readAtMs.push({ startedAt, endedAt: Date.now() });
-        return snapshot;
-    });
-
-    // A slow observation drains the ring while it runs. `absorb` is serialized,
-    // so a drain that outlives its slot simply queues behind the previous one.
-    const RING_DRAIN_MS = 250;
-    const draining = async (work) => {
-        let running = true;
-        const loop = (async () => {
-            while (running) {
-                await sleep(RING_DRAIN_MS);
-                if (!running) break;
-                await absorb();
-            }
-        })();
-        try {
-            return await work();
-        } finally {
-            running = false;
-            await loop;
-        }
-    };
+        open.readAtMs.push({ startedAt, endedAt });
+    }, counted);
+    const absorb = ring.absorb;
+    const draining = ring.draining;
 
     // Closes the open window on `window`'s own boundary and opens the next.
     // Intermediate drains never close a window, so a fling's missed-vsync
     // budget stays the fling's and the injector clock stays its only origin.
     const collect = async (window) => {
         const openedAt = open.openedAtMs;
-        const snapshot = await absorb();
+        let snapshot = await absorb();
+        // A row the pipeline is mid-way through writing finalizes within a frame
+        // or two. Give it that, bounded, and reject whatever never lands: a
+        // window closed over an unfinished record cannot account for it.
+        for (let attempt = 0; attempt < 3 && ring.pendingCount() > 0; attempt += 1) {
+            await sleep(120);
+            snapshot = await absorb();
+        }
         // No clock, no latency. Substituting the frame's own duration answers
         // "how late was the touch" with a number that never saw a touch.
         const t0Ns = Number.isFinite(window.t0Seconds) ? window.t0Seconds * 1e9 : undefined;
@@ -519,7 +540,8 @@ async function measureBout(run, hz, { surface, screen, phase, prepared } = {}) {
         parts.push(reduced);
         rendered += open.rendered;
         retained += open.retained;
-        pending = pendingNow;
+        missing += Math.max(0, open.rendered - open.retained);
+        pending = ring.pendingCount();
         gestureFrames.push({
             profile: window.profile,
             // A window opened by a touch is graded on that touch's origin; the
@@ -594,7 +616,7 @@ async function measureBout(run, hz, { surface, screen, phase, prepared } = {}) {
         jank: reduceJank(before, after, { hz }),
         frameStats: mergeFrameStats(parts),
         gestureFrames,
-        frameCoverage: coverageBroken ? undefined : { rendered, retained, pending },
+        frameCoverage: coverageBroken ? undefined : { rendered, retained, pending, missing },
         missedVsyncPerFling: worstMissedVsyncPerFling(gestureFrames),
         movement,
         beforeSurface,
@@ -1036,6 +1058,12 @@ async function drivePhase(phase, screen, hz, ready) {
         // preparation, the second step, zoom out and reset; only this pair
         // brackets the window the frames below are cut to.
         const vsyncBefore = await gfxSnapshot(PKG, { hz });
+        // The confirmation dumps and the settle take seconds and draw frames of
+        // their own, so this window is drained on the same cadence a bout uses.
+        // Rows the ring would otherwise have dropped are kept here.
+        const zoomRows = [];
+        const zoomRing = ringDrainer(hz, ({ fresh }) => zoomRows.push(...fresh),
+            new Set(vsyncBefore.rows.map((row) => Number(row.IntendedVsync))));
         const injected = await tapTimed(
             (zoomInBounds.l + zoomInBounds.r) / 2,
             (zoomInBounds.t + zoomInBounds.b) / 2,
@@ -1049,12 +1077,14 @@ async function drivePhase(phase, screen, hz, ready) {
         // arrive while these dumps are being read are still inside the window:
         // it closes on the read below, not on the confirmation.
         let steppedIn = false;
-        const confirmBy = Date.now() + ZOOM_SETTLE_MS;
-        do {
-            await sleep(300);
-            steppedIn = controlEnabled(await dumpUi(), 'Reset zoom') === true;
-        } while (!steppedIn && Date.now() < confirmBy);
-        await sleep(ZOOM_SETTLE_MS);
+        await zoomRing.draining(async () => {
+            const confirmBy = Date.now() + ZOOM_SETTLE_MS;
+            do {
+                await sleep(300);
+                steppedIn = controlEnabled(await dumpUi(), 'Reset zoom') === true;
+            } while (!steppedIn && Date.now() < confirmBy);
+            await sleep(ZOOM_SETTLE_MS);
+        });
 
         // Close the frame window on the device's own clock too, so the ring is
         // bounded at both ends by the tap and its settle rather than by
@@ -1076,14 +1106,13 @@ async function drivePhase(phase, screen, hz, ready) {
         const transitions = reduceGridTransitions(observed);
         // The ring bounded to this tap and its settle, so the frames, the drops
         // and the input-to-frame all describe the same window the grid did.
-        const vsyncAfter = await gfxSnapshot(PKG, { hz });
+        const vsyncAfter = await zoomRing.absorb();
         // Coverage is the snapshot pair, exactly what the counters below span:
         // frames drawn before the tap and while it settled are part of that
         // window, so cutting the rows to the injector's interval would report
         // them as lost. The injector's interval still bounds what the tap is
         // graded on, which is latency and the frames the touch itself drove.
-        const sinceBaseline = freshFrameRows(vsyncAfter.rows, new Set(vsyncBefore.rows.map((row) => Number(row.IntendedVsync))));
-        const windowRows = vsyncAfter.rows.filter((row) => {
+        const windowRows = zoomRows.filter((row) => {
             const completed = Number(row.FrameCompleted);
             return completed >= t0Ns && completed <= t1Ns;
         });
@@ -1100,7 +1129,14 @@ async function drivePhase(phase, screen, hz, ready) {
         if (!Number.isFinite(drewInWindow) || drewInWindow < 0) {
             return unavailable('the frame counter did not read across the zoom window');
         }
-        const zoomCoverage = { rendered: drewInWindow, retained: sinceBaseline.length };
+        // Same rejection as a bout: a measured frame the ring never gave back is
+        // missing, and a record it never finished writing is not one either.
+        const zoomCoverage = {
+            rendered: drewInWindow,
+            retained: zoomRows.length,
+            pending: zoomRing.pendingCount(),
+            missing: Math.max(0, drewInWindow - zoomRows.length),
+        };
 
         // Only now may anything else be driven. The pixels below are this
         // phase's own pane after its own step: on a graphics surface they are

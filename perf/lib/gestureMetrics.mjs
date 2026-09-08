@@ -887,9 +887,16 @@ export function verdict(phase, metrics, limits) {
         // and this account is missing work.
         const coverage = metrics.frameCoverage;
         if (coverage === undefined) failures.push('no frame coverage account');
-        // Rows the pipeline had not finished writing are accounted for, not
-        // borrowed from: what is neither read back nor still pending is lost.
-        else if (coverage.retained + (coverage.pending ?? 0) < coverage.rendered) failures.push('the framestats ring lost frames');
+        else {
+            // Per window, never in total: a window that read back more rows than
+            // its counters grew by -- rows the ring still held from before it --
+            // would otherwise pay for a window that lost some.
+            if ((coverage.missing ?? 0) > 0) failures.push('the framestats ring lost frames');
+            // A row the pipeline never finished writing is not a frame anyone
+            // read. Crediting it as retained answers the coverage question with
+            // the record that was missing.
+            if ((coverage.pending ?? 0) > 0) failures.push('the framestats ring left frames unfinished');
+        }
     }
     failWhen(failures, 'missedVsyncPerFling', over(metrics.missedVsyncPerFling, limits.missedVsyncPerFling));
     failWhen(failures, 'inputToFrameP95Ms', over(frames.inputToFrameMs?.p95, limits.inputToFrameP95Ms));

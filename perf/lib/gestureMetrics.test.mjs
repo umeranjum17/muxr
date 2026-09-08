@@ -115,7 +115,7 @@ test('baseline bout fixtures reduce to the documented failures', () => {
     assert.deepEqual(verdict('herd tree fling', phaseMetrics({ ...drivenFling, missedVsyncPerFling: undefined }), EMULATOR_LIMITS).failures, ['no per-gesture vsync window']);
     // The ring is 120 frames deep; more drawn than read back is a hole in the
     // account, not a clean bout.
-    assert.deepEqual(verdict('herd tree fling', phaseMetrics({ ...drivenFling, frameCoverage: { rendered: 40, retained: 8 } }), EMULATOR_LIMITS).failures, ['the framestats ring lost frames']);
+    assert.deepEqual(verdict('herd tree fling', phaseMetrics({ ...drivenFling, frameCoverage: { rendered: 40, retained: 8, missing: 32 } }), EMULATOR_LIMITS).failures, ['the framestats ring lost frames']);
     assert.deepEqual(verdict('herd tree fling', phaseMetrics({ ...drivenFling, frameCoverage: undefined }), EMULATOR_LIMITS).failures, ['no frame coverage account']);
     // A zoom tap is graded on the window its frames were cut to, not on the
     // phase counter that also spans preparation, the second step and the reset.
@@ -133,7 +133,7 @@ test('baseline bout fixtures reduce to the documented failures', () => {
     assert.deepEqual(verdict('graphics zoom tap', phaseMetrics({ ...drivenZoom, missedVsyncPerFling: 9 }), EMULATOR_LIMITS).failures, ['missedVsyncPerFling']);
     // Missing evidence is not a pass, on either surface.
     assert.deepEqual(verdict('graphics zoom tap', phaseMetrics({ ...drivenZoom, missedVsyncPerFling: undefined }), EMULATOR_LIMITS).failures, ['no per-gesture vsync window']);
-    assert.deepEqual(verdict('graphics zoom tap', phaseMetrics({ ...drivenZoom, frameCoverage: { rendered: 40, retained: 8 } }), EMULATOR_LIMITS).failures, ['the framestats ring lost frames']);
+    assert.deepEqual(verdict('graphics zoom tap', phaseMetrics({ ...drivenZoom, frameCoverage: { rendered: 40, retained: 8, missing: 32 } }), EMULATOR_LIMITS).failures, ['the framestats ring lost frames']);
 
     const late = rows.map((row, index) => {
         if (index >= 3) return row;
@@ -632,8 +632,14 @@ test('an unfinished frame row is not counted and not retired', () => {
         movement: { proven: true },
         frameCoverage: coverage,
     }, EMULATOR_LIMITS).failures;
-    assert.deepEqual(graded({ rendered: 10, retained: 8, pending: 2 }), []);
-    assert.deepEqual(graded({ rendered: 10, retained: 8, pending: 0 }), ['the framestats ring lost frames']);
+    // An unfinished row is not a read-back frame: it cannot pay for one.
+    assert.deepEqual(graded({ rendered: 10, retained: 8, pending: 2, missing: 2 }),
+        ['the framestats ring lost frames', 'the framestats ring left frames unfinished']);
+    assert.deepEqual(graded({ rendered: 10, retained: 8, pending: 0, missing: 2 }), ['the framestats ring lost frames']);
+    // Rows the ring still held from before a window cannot pay for the frames
+    // another window lost: the deficit is counted per window, never in total.
+    assert.deepEqual(graded({ rendered: 10, retained: 12, pending: 0, missing: 2 }), ['the framestats ring lost frames']);
+    assert.deepEqual(graded({ rendered: 10, retained: 10, pending: 0, missing: 0 }), []);
 });
 
 // The frozen report is one Text node: UIAutomator publishes the whole string at
@@ -643,7 +649,10 @@ test('the diagnostics read keeps swiping through identical pages', async () => {
     const page = (rows) => `<node class="android.widget.ScrollView" bounds="[0,0][1080,1920]" />`
         + '<node text="Connection &amp; updates" class="android.widget.TextView" bounds="[40,60][600,120]" />'
         + rows;
-    const report = '<node text="Redacted: 2026-09-08T00:00:00Z #7 rpc session.start ok 5ms" class="android.widget.TextView" bounds="[85,249][995,1900]" />';
+    // The app freezes one string: its header, its body, then the totals line.
+    const HEADER = 'Redacted: durations, counts, and enums only. No ids, URLs, IPs, bytes, content, tickets, or keys.';
+    const body = (tail) => `<node text="${HEADER}&#10;2026-09-08T00:00:00Z #7 rpc session.start ok 5ms${tail}" class="android.widget.TextView" bounds="[85,249][995,1900]" />`;
+    const report = body('&#10;terminal.scroll seq=30 requests=5 rows=100 clamped=0 timedOut=0');
     const control = (label) => `<node text="${label}" class="android.widget.TextView" bounds="[40,300][600,360]" />`;
     const deps = (pages) => {
         let index = 0;
@@ -679,6 +688,28 @@ test('the diagnostics read keeps swiping through identical pages', async () => {
     assert.equal(never.why, 'the diagnostics report never reached its end');
     assert.equal(never.returned, true);
     assert.equal(endless.swipes.length, 10, 'the ten-swipe bound changed');
+
+    // The reader reached the end control, but the totals line was cut off. That
+    // is a report nobody read, not a phone that scrolled nothing.
+    const cut = body('&#10;terminal.scroll seq=30 requests=5');
+    const truncated = await readPhoneTrail(deps([
+        page(control('Show diagnostics')),
+        page(cut),
+        page(cut + control('Copy diagnostics')),
+    ]));
+    assert.equal(truncated.ok, false);
+    assert.match(truncated.why, /truncated terminal\.scroll/);
+    assert.equal(truncated.returned, true);
+
+    // A phone that never scrolled writes no totals line at all, and that report
+    // is complete: its zeros are real zeros.
+    const quiet = await readPhoneTrail(deps([
+        page(control('Show diagnostics')),
+        page(body('') + control('Copy diagnostics')),
+    ]));
+    assert.equal(quiet.ok, true, quiet.why);
+    assert.equal(quiet.trail.scrollRequests, 0);
+    assert.equal(quiet.trail.rowsRequested, 0);
 });
 
 test('the herd is only proven by connected chrome and this run\'s own labels', () => {

@@ -29,6 +29,29 @@ export function visibleControl(dump, label) {
 
 const atReportEnd = (dump) => visibleControl(dump, 'Copy diagnostics') ?? visibleControl(dump, 'Diagnostics copied');
 
+/** The header the app writes first, and the two shapes its body can take. */
+const REPORT_HEADER = /^Redacted: durations, counts, and enums only\./m;
+const REPORT_BODY = /Redacted:|No phone transport events yet/;
+// `gestureLine()` omits this line entirely until the phone has asked for a
+// scroll, so its absence is a real zero -- but a line that is present has all
+// five fields. A partial one is a report that was cut off, and reading it as an
+// absent line would report the phone's totals as zero.
+const SCROLL_TOTALS = /terminal\.scroll seq=\d+ requests=\d+ rows=\d+ clamped=\d+ timedOut=\d+/;
+
+/**
+ * Is this the whole report? The end control proves the reader reached the
+ * bottom; these prove what arrived in between is the report itself and not a
+ * page of it. A truncated payload is unavailable evidence, never zero totals.
+ */
+export function reportComplete(text) {
+    if (!REPORT_HEADER.test(text)) return 'the diagnostics report has no header';
+    if (!REPORT_BODY.test(text)) return 'the diagnostics report never rendered';
+    if (/terminal\.scroll/.test(text) && !SCROLL_TOTALS.test(text)) {
+        return 'the diagnostics report carries a truncated terminal.scroll summary';
+    }
+    return undefined;
+}
+
 export async function readPhoneTrail({ openSettings, dumpUi, drag, tap, sleep, returnToHerd }) {
     await openSettings();
     await sleep(1500);
@@ -93,10 +116,9 @@ export async function readPhoneTrail({ openSettings, dumpUi, drag, tap, sleep, r
         complete = atReportEnd(dump) !== undefined;
     }
     const text = lines.join('\n');
-    if (!/Redacted:|No phone transport events yet/.test(text)) {
-        return await fail('the diagnostics report never rendered');
-    }
     if (!complete) return await fail('the diagnostics report never reached its end');
+    const malformed = reportComplete(text);
+    if (malformed !== undefined) return await fail(malformed);
     if (!await returnToHerd()) return { ok: false, why: 'the herd never came back after the diagnostics report', returned: false };
     return { ok: true, text, trail: parseRedactedTrail(text) };
 }
