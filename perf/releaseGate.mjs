@@ -68,6 +68,7 @@ import {
     boutBaseline,
     frameRowIdentities,
     freshFrameRows,
+    ownsFrame,
     pendingFrameIdentities,
     mergeFrameStats,
     parseJsonlStrict,
@@ -392,18 +393,21 @@ const pullPhoneTrail = () => readPhoneTrail({
 
 async function captureSurface(surface, screen) {
     const dump = await dumpUi();
-    const bounds = scrollableBounds(surface, dump, screen);
-    const raw = await screencapRaw().catch(() => undefined);
-    // No bounds is no crop. Falling back to the whole screen would compare a
-    // surface this phase never measured and call the difference movement.
-    const crop = raw === undefined || bounds === undefined ? undefined : cropRaw(raw, bounds);
+    // A dump that did not read is not a screen. Without one there is no surface
+    // to resolve, so there is nothing to crop and nothing to compare: pixels
+    // alone would call two screenshots of an unknown surface movement.
+    const dumped = dump !== '' && dump.includes('<hierarchy');
+    const bounds = dumped ? scrollableBounds(surface, dump, screen) : undefined;
+    const raw = bounds === undefined ? undefined : await screencapRaw().catch(() => undefined);
+    const crop = raw === undefined ? undefined : cropRaw(raw, bounds);
     return {
         dump,
+        dumped,
         bounds,
         crop,
-        documentMarker: firstDocumentMarker(dump),
-        documentPosition: documentPosition(dump),
-        stripPosition: stripPosition(dump),
+        documentMarker: dumped ? firstDocumentMarker(dump) : undefined,
+        documentPosition: dumped ? documentPosition(dump) : undefined,
+        stripPosition: dumped ? stripPosition(dump) : undefined,
     };
 }
 
@@ -423,7 +427,14 @@ async function prepareBout(surface, screen, hz) {
     // phase either way, and never reads as a measured frame that went missing.
     const baseline = boutBaseline(await gfxSnapshot(PKG, { hz }));
     if (baseline.why !== undefined) return { why: baseline.why };
+    // The device's own clock at the baseline, on the same scale as a row's
+    // `IntendedVsync` and the injector's t0. Membership is decided on it, so a
+    // frame is inside this phase because of when it was scheduled -- not
+    // because of which side of a counter read its record happened to land on.
+    const startSeconds = await deviceMonotonicSeconds().catch(() => undefined);
+    if (!Number.isFinite(startSeconds)) return { why: 'the device monotonic clock did not read at the baseline' };
     return {
+        startNs: startSeconds * 1e9,
         beforeSurface,
         attempt: newAttempt(),
         before: baseline.counters,
@@ -515,72 +526,70 @@ async function measureBout(run, hz, { surface, screen, phase, prepared } = {}) {
     let rendered = 0;
     let retained = 0;
     let coverageBroken = false;
-    // Frames the endpoint counted whose row was still being written. They are
-    // resolved after the boundary is fixed -- never by moving the boundary --
-    // and whatever never resolves is a frame this phase cannot account for.
-    let ownedPending = new Set(baselineInFlight ?? []);
+    // Identities this phase owns whose records the pipeline had not finished.
+    // Ownership is the device-time window, never the order of two reads.
+    const ownedPending = new Set(baselineInFlight ?? []);
     let frozen = false;
-    // Frames the fixed endpoint counted whose rows had not landed when it was
-    // taken. Exactly this many completions may still be credited to it.
+    let endNs;
     let owed = 0;
-    let owedAtFreeze = 0;
-    let paidBack = 0;
-    let endpointFrames = 0;
-    const resolvedRows = [];
     // The window that is open right now. Reads during it accumulate here, so a
     // drain taken while a screenshot is being pulled adds to the window it
     // happened in rather than opening one of its own.
-    let open = { openedAtMs: Date.now(), rows: [], rendered: 0, retained: 0, missedVsync: 0, readAtMs: [] };
+    const newWindow = () => ({ openedAtMs: Date.now(), rows: [], rendered: 0, retained: 0, missedVsync: 0, readAtMs: [] });
+    let open = newWindow();
+    // The window the resolution reads still belong to: their rows are graded
+    // with it, so a credited frame is in the same evidence as every other.
+    let lastClosed;
 
     // One owner of the ring. Two mutating reads in flight would race the seen
     // set and the counters; every read below goes through this queue.
     const ring = ringDrainer(hz, ({ snapshot, fresh, pending, startedAt, endedAt }) => {
-        // Past the boundary nothing new joins the window: these reads exist only
-        // to finish the records the window already owns. Their frames belong to
-        // whatever runs next, and their counters move an endpoint that is fixed.
         if (frozen) {
-            // Past the boundary the counter keeps moving. A completion seen now
-            // belongs to this window only if the counter did not move to pay for
-            // it: every frame the counter has added since the endpoint claims
-            // one of these completions for itself. What is left over is what the
-            // endpoint was already counted for and had no row for yet.
-            const advanced = Math.max(0, (snapshot.jank.frames ?? endpointFrames) - endpointFrames);
+            // Only what this window already owned. A frame scheduled after the
+            // endpoint is the next window's, whatever it finishes in time to do.
             for (const row of fresh) {
                 const key = Number(row.IntendedVsync);
                 if (!ownedPending.delete(key)) continue;
-                resolvedRows.push(row);
-            }
-            const credited = Math.min(owedAtFreeze, Math.max(0, resolvedRows.length - advanced));
-            if (credited > paidBack) {
-                open.rows.push(...resolvedRows.slice(paidBack, credited));
-                retained += credited - paidBack;
-                paidBack = credited;
-                owed = owedAtFreeze - paidBack;
+                if (!ownsFrame(row, { startNs: ready.startNs, endNs })) continue;
+                resolved.push(row);
+                retained += 1;
+                owed -= 1;
             }
             return;
         }
         open.rows.push(...fresh);
         open.retained += fresh.length;
-        for (const key of fresh.map((row) => Number(row.IntendedVsync))) ownedPending.delete(key);
-        ownedPending = new Set([...ownedPending, ...pending]);
-        const was = counters?.missedVsync;
-        const now = snapshot.jank.missedVsync;
-        // A counter that could not be read, or one that went backwards because
-        // something reset the window, is not a delta. It is a hole, and a hole
-        // that reduces to zero passes the per-fling limit on nothing.
-        if (was === undefined || now === undefined || now < was) open.missedVsync = undefined;
-        else if (open.missedVsync !== undefined) open.missedVsync += now - was;
-        const grew = (snapshot.jank.frames ?? NaN) - (counters?.frames ?? NaN);
-        if (Number.isFinite(grew) && grew >= 0) open.rendered += grew;
-        else coverageBroken = true;
+        for (const row of fresh) ownedPending.delete(Number(row.IntendedVsync));
+        for (const key of pending) ownedPending.add(key);
+        // Every counter of every read: present, finite and forward. A hole is
+        // not a zero, and a window measured across one cannot be reconciled.
+        const broken = counterContinuity(counters, snapshot.jank);
+        if (broken !== undefined) {
+            coverageBroken = true;
+            open.missedVsync = undefined;
+        } else {
+            if (open.missedVsync !== undefined) open.missedVsync += snapshot.jank.missedVsync - counters.missedVsync;
+            open.rendered += snapshot.jank.frames - counters.frames;
+        }
         counters = snapshot.jank;
         open.readAtMs.push({ startedAt, endedAt });
     }, counted);
     const absorb = ring.absorb;
+    const resolved = [];
 
     // Closes the open window on `window`'s own boundary and opens the next.
     // Intermediate drains never close a window, so a fling's missed-vsync
     // budget stays the fling's and the injector clock stays its only origin.
+    const gradeWindow = (entry, rows) => {
+        const reduced = reduceFrameStats(rows, { frameNs: 1e9 / hz, t0Ns: entry.t0Ns });
+        entry.record.frames = reduced.frames;
+        entry.record.dropped = reduced.dropped;
+        entry.record.worstMs = reduced.worstMs;
+        entry.record.inputToFrameMs = reduced.inputToFrameMs;
+        entry.record.rows = rows.slice(0, RAW_FRAME_ROW_CAP);
+        if (rows.length > RAW_FRAME_ROW_CAP) entry.record.rowsOmitted = rows.length - RAW_FRAME_ROW_CAP;
+        parts[entry.index] = reduced;
+    };
     const collect = async (window) => {
         const openedAt = open.openedAtMs;
         // One read closes the window, and nothing sleeps: a gesture that waits
@@ -589,11 +598,9 @@ async function measureBout(run, hz, { surface, screen, phase, prepared } = {}) {
         // No clock, no latency. Substituting the frame's own duration answers
         // "how late was the touch" with a number that never saw a touch.
         const t0Ns = Number.isFinite(window.t0Seconds) ? window.t0Seconds * 1e9 : undefined;
-        const reduced = reduceFrameStats(open.rows, { frameNs: 1e9 / hz, t0Ns });
-        parts.push(reduced);
         rendered += open.rendered;
         retained += open.retained;
-        gestureFrames.push({
+        const record = {
             profile: window.profile,
             // A window opened by a touch is graded on that touch's origin; the
             // dumps and screenshots between gestures never had one to lose.
@@ -604,18 +611,16 @@ async function measureBout(run, hz, { surface, screen, phase, prepared } = {}) {
             t0Seconds: window.t0Seconds,
             durationMs: window.durationMs,
             elapsedMs: window.elapsedMs,
-            frames: reduced.frames,
-            dropped: reduced.dropped,
-            worstMs: reduced.worstMs,
-            inputToFrameMs: reduced.inputToFrameMs,
             ...(window.input === true && t0Ns === undefined ? { clockUnavailable: true } : {}),
             missedVsync: open.missedVsync,
             renderedInWindow: open.rendered,
             retainedInWindow: open.retained,
-            rows: open.rows.slice(0, RAW_FRAME_ROW_CAP),
-            ...(open.rows.length > RAW_FRAME_ROW_CAP ? { rowsOmitted: open.rows.length - RAW_FRAME_ROW_CAP } : {}),
-        });
-        open = { openedAtMs: Date.now(), rows: [], rendered: 0, retained: 0, missedVsync: 0, readAtMs: [] };
+        };
+        parts.push(undefined);
+        gestureFrames.push(record);
+        lastClosed = { record, index: parts.length - 1, t0Ns, rows: open.rows };
+        gradeWindow(lastClosed, open.rows);
+        open = newWindow();
         return snapshot;
     };
     let bout = { gestures: 0, flings: 0, medianVelocityPxPerSecond: 0 };
@@ -649,26 +654,34 @@ async function measureBout(run, hz, { surface, screen, phase, prepared } = {}) {
     const afterSurface = surface === undefined ? undefined : await captureSurface(surface, screen);
     const closing = await collect({ profile: 'observation' });
     const after = closing.jank;
-    // The boundary is fixed here. What is still owed to it are the rows whose
-    // frames the endpoint already counted and whose records the pipeline was
-    // still writing; the reads that finish them are bounded and change nothing
-    // else, and a record none of them carries is a frame this phase lost.
-    // Reads allowed to finish the records this closed window is still owed. They
-    // move no boundary and command no gesture, so they change nothing measured.
-    const resolveReads = 6;
+    // One boundary for everything this phase measured: the device clock stamps
+    // it, the frame window ends on it, and the sampler's closing CPU, PSS and
+    // frame samples are taken against it. The reconciliation reads below are
+    // outside all of that -- they command no gesture, move no endpoint, and
+    // their own cost is not this phase's CPU.
+    const endSeconds = await deviceMonotonicSeconds().catch(() => undefined);
+    if (!Number.isFinite(endSeconds)) coverageBroken = true;
+    endNs = Number.isFinite(endSeconds) ? endSeconds * 1e9 : undefined;
     frozen = true;
-    endpointFrames = counters?.frames ?? 0;
-    owedAtFreeze = Math.max(0, rendered - retained);
-    owed = owedAtFreeze;
-    for (let attempt = 0; attempt < resolveReads && owed > 0; attempt += 1) {
+    await ring.stop();
+    await ready.attempt?.close();
+
+    // What the endpoint's counters were already charged for and had no finished
+    // record of yet. Only identities this window owns can settle that debt, and
+    // a debt no bounded read settles is a frame this phase cannot account for.
+    owed = rendered - retained;
+    const resolveReads = 6;
+    for (let attempt = 0; attempt < resolveReads && owed > 0 && ownedPending.size > 0; attempt += 1) {
         await absorb();
     }
-    await ring.stop();
-    const unresolved = owed;
-    // The attempt ends on its own last observation, and the sampler's closing
-    // CPU, PSS and frame samples are taken before this returns. Anything after
-    // it -- a diagnostics pull, the next phase's navigation -- is not measured.
-    await ready.attempt?.close();
+    if (resolved.length > 0 && lastClosed !== undefined) {
+        // Credited rows are graded with the window that owns them, before
+        // anything reads `frameStats` or `gestureFrames`.
+        gradeWindow(lastClosed, [...lastClosed.rows, ...resolved]);
+        lastClosed.record.retainedInWindow += resolved.length;
+        lastClosed.record.resolvedRows = resolved.length;
+    }
+    const unresolved = Math.max(0, owed);
     const injectFailed = bout.injectFailed === true;
     const judged = beforeSurface === undefined ? undefined : judgeMovement(phase ?? surface, beforeSurface, [
         { name: 'one-way', surface: oneWaySurface },
@@ -683,11 +696,18 @@ async function measureBout(run, hz, { surface, screen, phase, prepared } = {}) {
         movementCandidates: judged?.candidates,
         beforeObservation: beforeSurface === undefined ? undefined : {
             bounds: beforeSurface.bounds,
-            coherent: beforeSurface.crop !== undefined && beforeSurface.bounds !== undefined,
+            coherent: beforeSurface.dumped === true && beforeSurface.bounds !== undefined && beforeSurface.crop !== undefined,
             ...(beforeSurface.documentPosition === undefined ? {} : { documentPosition: beforeSurface.documentPosition }),
             ...(beforeSurface.stripPosition === undefined ? {} : { stripPosition: beforeSurface.stripPosition }),
         },
-        frameCoverage: coverageBroken ? undefined : { rendered, retained, unresolved, reads: gestureFrames.reduce((total, row) => total + (row.reads?.length ?? 0), 0), cadenceMs: RING_DRAIN_MS },
+        frameCoverage: coverageBroken ? undefined : {
+            rendered,
+            retained,
+            unresolved,
+            resolved: resolved.length,
+            reads: gestureFrames.reduce((total, row) => total + (row.reads?.length ?? 0), 0),
+            cadenceMs: RING_DRAIN_MS,
+        },
         missedVsyncPerFling: worstMissedVsyncPerFling(gestureFrames),
         movement: judged?.movement,
         beforeSurface,
@@ -723,7 +743,9 @@ function judgeMovement(phase, beforeSurface, samples, extra = {}) {
     const candidates = samples
         .filter((sample) => sample.surface !== undefined)
         .map(({ name, surface }) => {
-            const coherent = surface.crop !== undefined && surface.bounds !== undefined;
+            // Fresh dump, resolved surface, real crop. Anything less is a
+            // candidate nobody photographed, not a surface that did not move.
+            const coherent = surface.dumped === true && surface.bounds !== undefined && surface.crop !== undefined;
             const pixels = pixelsMoved(beforeSurface.crop, surface.crop);
             return {
                 name,
@@ -1256,7 +1278,11 @@ async function drivePhase(phase, screen, hz, ready) {
         }
         // Same rejection as a bout: a measured frame the ring never gave back is
         // missing, and a record it never finished writing is not one either.
-        const zoomCoverage = { rendered: drewInWindow, retained: zoomRows.length, unresolved: zoomRing.pendingIdentities().size };
+        // Only the identities this window owns: a frame scheduled after its
+        // close is the next thing's, and a live surface always has one.
+        const zoomUnresolved = [...zoomRing.pendingIdentities()]
+            .filter((key) => key > t0Ns && key <= t1Ns).length;
+        const zoomCoverage = { rendered: drewInWindow, retained: zoomRows.length, unresolved: zoomUnresolved };
 
         // Only now may anything else be driven. The pixels below are this
         // phase's own pane after its own step: on a graphics surface they are

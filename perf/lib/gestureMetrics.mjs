@@ -266,6 +266,21 @@ export function boutBaseline(snapshot) {
 }
 
 /**
+ * Frames this window owns: the ones the renderer started before its endpoint.
+ *
+ * `IntendedVsync` is the frame's identity and the device time it was scheduled
+ * for, on the same clock the injector stamps. A row whose vsync is past the
+ * endpoint was never inside the window, so it can never pay a deficit the
+ * window's own counters recorded -- however conveniently it happens to finish.
+ */
+export function ownsFrame(row, { startNs, endNs }) {
+    const key = asNumber(row?.IntendedVsync);
+    if (key === undefined) return false;
+    if (startNs !== undefined && key < startNs) return false;
+    return endNs === undefined || key <= endNs;
+}
+
+/**
  * Do these counters continue the previous read? A value that vanished or went
  * backwards is a reset or a failed read, and an endpoint that recovers later
  * cannot vouch for the window that ran across it.
@@ -642,12 +657,14 @@ export function pixelsMoved(before, after, { minMean = PIXEL_MOVE_THRESHOLD } = 
 // Include the encoded newline emitted by Android's diagnostics Text view.
 /**
  * The terminal surface's name in the accessibility tree, published by the app
- * (`TERMINAL_SURFACE_LABEL`). The native view renders as a plain
- * `android.view.View` and does not override its accessibility class name, so
- * the Kotlin class spelling never appears in a hierarchy and cannot be selected
- * on; a bare `android.view.View` of the right size is not an identity either.
+ * (`TERMINAL_SURFACE_LABEL`).
+ *
+ * The native view renders as a plain `android.view.View`: the Kotlin class name
+ * never appears in a hierarchy, and this app's React Native views publish no
+ * resource ids either, so a description is the only identity the surface can
+ * carry. A bare `android.view.View` of about the right size is not one.
  */
-export const TERMINAL_SURFACE = 'muxr terminal surface';
+export const TERMINAL_SURFACE = 'Terminal surface';
 
 export function decodeUiAttribute(value) {
     const entities = { '&quot;': '"', '&amp;': '&', '&lt;': '<', '&gt;': '>', '&apos;': "'", '&#10;': '\n' };
@@ -809,9 +826,11 @@ export function scrollableBounds(surface, dump, screen = {}) {
     const height = Number(screen.height) || 1920;
     const name = phaseName(surface);
     const nodes = parseUiNodes(dump);
+    // The terminal is the node that says it is the terminal. A view of about
+    // the right size is a guess, and a guess crops whatever is under it.
     const ghostty = nodes.find((node) => node.desc === TERMINAL_SURFACE);
-    if ((name === 'terminal' || name === 'terminal text fling'
-        || name === 'graphics' || name === 'graphics pane scroll') && ghostty !== undefined) {
+    if (name === 'terminal' || name === 'terminal text fling'
+        || name === 'graphics' || name === 'graphics pane scroll') {
         return ghostty;
     }
     // The strip is cropped to the scroller it was measured on, or to nothing:
@@ -819,14 +838,16 @@ export function scrollableBounds(surface, dump, screen = {}) {
     if (name === 'strip' || name === 'herd strip paging') {
         return stripScroller(dump).bounds;
     }
+    // The tree has no scroller of its own to resolve, so its crop is the region
+    // it is flung in -- but only when a dump was actually read. An empty dump
+    // resolves nothing at all.
     if (name === 'tree' || name === 'herd tree fling') {
-        return { l: Math.round(width * 0.08), t: Math.round(height * 0.42), r: width, b: height };
+        return nodes.length === 0 ? undefined : { l: Math.round(width * 0.08), t: Math.round(height * 0.42), r: width, b: height };
     }
     if (name === 'document' || name === 'document scroll') {
         return documentViewport(dump).bounds;
     }
-    if (ghostty !== undefined) return ghostty;
-    return { l: 0, t: Math.round(height * 0.2), r: width, b: Math.round(height * 0.9) };
+    return ghostty;
 }
 
 /**

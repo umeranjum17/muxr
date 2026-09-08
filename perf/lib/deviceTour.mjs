@@ -10,7 +10,7 @@
  */
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { appPid, dismissKeyboard, dismissPrompts, framesRendered, totalPssKb } from './androidSignals.mjs';
+import { appPid, dismissKeyboard, dismissPrompts, dumpUiXml, framesRendered, totalPssKb } from './androidSignals.mjs';
 import { herdChromeConnected } from './pairPhone.mjs';
 import { TERMINAL_SURFACE } from './gestureMetrics.mjs';
 
@@ -21,10 +21,8 @@ async function adb(args, timeout = 20_000) {
     return stdout;
 }
 
-async function currentScreen() {
-    await adb(['shell', 'uiautomator', 'dump', '/sdcard/perf-tour.xml']).catch(() => undefined);
-    return adb(['shell', 'cat', '/sdcard/perf-tour.xml']).catch(() => '');
-}
+// One file per dump: a read that failed is an empty screen, never the last one.
+const currentScreen = () => dumpUiXml();
 
 async function openSession(sessionId) {
     // The deep link is the only stable way in. Card positions move as the herd

@@ -22,8 +22,13 @@ import { useFocusEffect } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
 import { TerminalView as GhosttyView, type TerminalViewRef } from 'expo-libghostty';
 
-/** The terminal surface's name in the accessibility tree. */
-export const TERMINAL_SURFACE_LABEL = 'muxr terminal surface';
+/**
+ * The terminal surface's name in the accessibility tree, and the only handle
+ * anything outside the app has on it: this app's views publish no resource ids,
+ * and the native surface does not publish its own class name. It names the
+ * region, never an internal identifier.
+ */
+export const TERMINAL_SURFACE_LABEL = 'Terminal surface';
 import { useLocalSetting } from '@/catalog/store';
 import { decodeBase64, encodeBase64 } from '@/encryption/base64';
 import {

@@ -28,15 +28,15 @@ import { parseFrameStatsDump, parseJankDump, parseUptime } from './gestureMetric
 const HZ = 100;
 const JS_THREAD = 'mqt_v_js';
 
-async function adb(args, timeout = 10_000) {
-    const { stdout } = await run('adb', args, { timeout, maxBuffer: 64 * 1024 * 1024 });
+async function adb(args, timeout = 10_000, maxBuffer = 64 * 1024 * 1024) {
+    const { stdout } = await run('adb', args, { timeout, maxBuffer });
     return stdout;
 }
 
-async function quiet(args, timeout = 10_000) {
+async function quiet(args, timeout = 10_000, maxBuffer) {
     assertCommandActive();
     try {
-        return await adb(args, timeout);
+        return await adb(args, timeout, maxBuffer);
     } catch {
         assertCommandActive();
         return '';
@@ -265,7 +265,7 @@ let dumpSequence = 0;
  * that is no longer there. A path that did not exist a moment ago cannot do
  * that -- either this dump wrote it or the read fails.
  */
-export async function dumpUiXml(timeout = 20_000) {
+export async function dumpUiXml(timeout = 20_000, maxBuffer) {
     dumpSequence += 1;
     const path = `/sdcard/perf-ui-${process.pid}-${Date.now()}-${dumpSequence}.xml`;
     const written = await quiet(['shell', 'uiautomator', 'dump', path], timeout);
@@ -273,7 +273,7 @@ export async function dumpUiXml(timeout = 20_000) {
         await quiet(['shell', 'rm', '-f', path], 10_000);
         return '';
     }
-    const xml = await quiet(['shell', 'cat', path], timeout);
+    const xml = await quiet(['shell', 'cat', path], timeout, maxBuffer);
     await quiet(['shell', 'rm', '-f', path], 10_000);
     return xml.includes('<hierarchy') ? xml : '';
 }

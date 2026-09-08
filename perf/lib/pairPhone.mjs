@@ -39,7 +39,7 @@ export function herdProof(dump, labels) {
 }
 
 // One file per dump: a failed read is an empty screen, never the last one.
-const dumpUi = () => dumpUiXml(40_000);
+const dumpUi = () => dumpUiXml(40_000, 32 * 1024 * 1024);
 
 /** Poll until the herd is proven on screen, or report why it never was. */
 export async function waitForHerd(labels, seconds) {

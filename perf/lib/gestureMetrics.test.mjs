@@ -11,11 +11,13 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import {
     firstDocumentMarker,
+    firstStripCard,
     documentPosition,
     documentViewport,
     phaseMetrics,
     scrollableBounds,
     stripPosition,
+    TERMINAL_SURFACE,
     stripScroller,
     freshFrameRows,
     boutBaseline,
@@ -765,8 +767,11 @@ test('a live stream reconciles, and lost or reset evidence still fails', async (
         const intended = 1e9 + id * 1e7;
         return { Flags: 0, IntendedVsync: intended, FrameCompleted: finished ? intended + 1e6 : 1, InputEventId: 1 };
     };
-    const ring = (count, { omit, resetAt } = {}) => {
-        const rows = Array.from({ length: count }, (_, index) => frame(index + 1, true))
+    // `racing` is the case the device really does: the counter has finished the
+    // frame while its row is still being written, so one dump disagrees with
+    // itself. `omit` is a record the ring never carried at all.
+    const ring = (count, { omit, resetAt, racing = false } = {}) => {
+        const rows = Array.from({ length: count }, (_, index) => frame(index + 1, !(racing && index + 1 === count)))
             .filter((row) => row.IntendedVsync !== 1e9 + omit * 1e7);
         // Always one more frame in flight: this is a surface that keeps drawing.
         rows.push(frame(count + 1, false));
@@ -782,6 +787,9 @@ test('a live stream reconciles, and lost or reset evidence still fails', async (
             sleep: async (ms) => { waits.push(ms); },
             resetGfxWindow: async () => {},
             newAttempt: () => ({ close: async () => {} }),
+            // The device clock sits just after the newest frame each read
+            // carried, so the window owns what was scheduled inside it.
+            deviceMonotonicSeconds: async () => (1e9 + Math.max(0, read) * 1e7 + 5e6) / 1e9,
             gfxSnapshot: async () => { read += 1; return snapshots(read); },
         });
         vm.runInContext([
@@ -806,6 +814,24 @@ test('a live stream reconciles, and lost or reset evidence still fails', async (
         ...live.measured, movement: { proven: true }, missedVsyncPerFling: 0,
     }), EMULATOR_LIMITS).failures.filter((failure) => failure.includes('ring')), []);
 
+    // The counter finished a frame while its row was still being written, which
+    // one dump cannot show consistently. That is a record to finish reading, not
+    // a lost frame, and the frame is owned because of when it was scheduled.
+    const racing = await drive((read) => ring(read, { racing: true }));
+    assert.equal(racing.measured.frameCoverage.unresolved, 0);
+    assert.equal(racing.measured.frameCoverage.retained, racing.measured.frameCoverage.rendered);
+    assert.ok(racing.measured.frameCoverage.resolved > 0, 'nothing was reconciled');
+    // The credited row is graded with the window that owns it, not dropped
+    // between the coverage account and the metrics the gate reads.
+    assert.equal(
+        racing.measured.gestureFrames.reduce((total, window) => total + window.frames, 0),
+        racing.measured.frameStats.frames,
+    );
+    assert.equal(racing.measured.frameStats.frames, racing.measured.frameCoverage.retained);
+    assert.deepEqual(verdict('herd tree fling', phaseMetrics({
+        ...racing.measured, movement: { proven: true }, missedVsyncPerFling: 0,
+    }), EMULATOR_LIMITS).failures.filter((failure) => failure.includes('ring')), []);
+
     // A frame the counter counted whose record the ring never carried: evicted
     // before any read saw it. No later read can finish what was never there.
     const lost = await drive((read) => ring(read, { omit: 2 }));
@@ -825,6 +851,31 @@ test('a live stream reconciles, and lost or reset evidence still fails', async (
     assert.ok(verdict('herd tree fling', phaseMetrics({
         ...reset.measured, movement: { proven: true }, missedVsyncPerFling: 0,
     }), EMULATOR_LIMITS).failures.includes('no frame coverage account'));
+});
+
+// A dump that did not read is not a screen, and the surface has to be named by
+// something React Native can actually publish.
+test('a failed dump is no observation, and the terminal names itself', () => {
+    // This app's views carry no resource ids -- the retained failure-time
+    // hierarchy had two, both Android's own -- and the native terminal renders
+    // as a plain android.view.View. A description is the only handle there is.
+    const surface = `<node content-desc="${TERMINAL_SURFACE}" class="android.view.View" bounds="[0,312][1080,1468]" />`;
+    const shell = '<node text="zsh" class="android.widget.TextView" bounds="[40,60][300,120]" />'
+        + '<node content-desc="Show terminal controls" class="android.view.View" bounds="[900,60][1000,120]" />';
+    assert.deepEqual(scrollableBounds('terminal', `<hierarchy>${shell}${surface}</hierarchy>`, { width: 1080, height: 1920 }),
+        { text: '', desc: TERMINAL_SURFACE, className: 'android.view.View', l: 0, t: 312, r: 1080, b: 1468 });
+    // A terminal-sized view with no name is not the surface: that predicate is
+    // what reported a probe failure as a missing host attach.
+    assert.equal(scrollableBounds('terminal', `<hierarchy>${shell}<node class="android.view.View" bounds="[0,312][1080,1468]" /></hierarchy>`,
+        { width: 1080, height: 1920 }), undefined);
+    // The strip's own card matcher must not adopt it.
+    assert.equal(firstStripCard(`<hierarchy>${surface}</hierarchy>`), undefined);
+
+    // An empty dump resolves no surface at all, so there is nothing to crop and
+    // no pixels to call movement.
+    assert.equal(scrollableBounds('document', '', { width: 1080, height: 1920 }), undefined);
+    assert.equal(documentPosition(''), undefined);
+    assert.equal(stripPosition(''), undefined);
 });
 
 // A zoom window is drained while its confirmation dumps and settle run. A
