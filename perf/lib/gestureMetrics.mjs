@@ -563,16 +563,57 @@ export function firstDocumentMarker(dump) {
     return lines[0]?.marker;
 }
 
-/** Leftmost live-terminal card. Its label is the visible index we can observe. */
-export function firstStripCard(dump) {
+function stripCards(dump) {
     const cards = parseUiNodes(dump).filter((node) => /Terminal/i.test(node.desc)
         || /\. (Idle|Working|Starting|Needs you|Done|Failed|Offline)\b/.test(node.desc ?? ''));
     cards.sort((left, right) => left.l - right.l || left.t - right.t);
-    return cards[0];
+    return cards;
 }
 
-export function firstStripLabel(dump) {
-    return firstStripCard(dump)?.desc;
+/** Leftmost live-terminal card. */
+export function firstStripCard(dump) {
+    return stripCards(dump)[0];
+}
+
+/**
+ * The card's identity line (`agentIdentityLine`), which the app joins last into
+ * `agentAccessibilityLabel`. The task title and the state that precede it are
+ * rewritten on a timer, so neither says which card is under the finger.
+ */
+export function stripCardIdentity(card) {
+    const desc = card?.desc;
+    if (desc === undefined || desc === '') return undefined;
+    return desc.split('. ').pop();
+}
+
+/** Identity and position of the leftmost card: what paging has to change. */
+export function stripPosition(dump) {
+    const card = firstStripCard(dump);
+    const identity = stripCardIdentity(card);
+    if (identity === undefined) return undefined;
+    return { identity, left: card.l };
+}
+
+/**
+ * The horizontal scroller the live strip actually lives in. The herd screen
+ * also carries a horizontal plugin-navigation scroller, so the strip is the one
+ * whose box holds a live card -- never simply the first one in the dump.
+ * Missing or ambiguous is reported, never guessed.
+ */
+export function stripScroller(dump) {
+    const cards = stripCards(dump);
+    if (cards.length === 0) return { why: 'no live terminal card is on screen' };
+    const seen = new Map();
+    for (const node of parseUiNodes(dump)) {
+        if (!/HorizontalScrollView|ViewPager|RecyclerView/i.test(node.className)) continue;
+        if (node.r <= node.l || node.b <= node.t) continue;
+        if (!cards.some((card) => card.l >= node.l && card.r <= node.r && card.t >= node.t && card.b <= node.b)) continue;
+        seen.set(`${node.l},${node.t},${node.r},${node.b}`, node);
+    }
+    const found = [...seen.values()];
+    if (found.length === 0) return { why: 'no horizontal scroller holds a live terminal card' };
+    if (found.length > 1) return { why: `${found.length} horizontal scrollers hold a live terminal card` };
+    return { bounds: found[0] };
 }
 
 export function scrollableBounds(surface, dump, screen = {}) {
@@ -585,8 +626,10 @@ export function scrollableBounds(surface, dump, screen = {}) {
         || name === 'graphics' || name === 'graphics pane scroll') && ghostty !== undefined) {
         return ghostty;
     }
+    // The strip is cropped to the scroller it was measured on, or to nothing:
+    // a fixed rectangle crops the plugin navigation above it just as happily.
     if (name === 'strip' || name === 'herd strip paging') {
-        return { l: 0, t: Math.round(height * 0.18), r: width, b: Math.round(height * 0.48) };
+        return stripScroller(dump).bounds;
     }
     if (name === 'tree' || name === 'herd tree fling') {
         return { l: Math.round(width * 0.08), t: Math.round(height * 0.42), r: width, b: height };
@@ -612,19 +655,15 @@ export function reduceMovement(phase, snapshot = {}) {
     if (!pixelOk) reasons.push('pixels');
 
     if (name === 'herd strip paging' || name === 'strip') {
-        const before = snapshot.before?.stripLabel;
-        const after = snapshot.after?.stripLabel;
-        if (before !== undefined && after !== undefined) {
-            if (before === after) reasons.push('stripLabel');
-            return {
-                proven: pixelOk && before !== after,
-                meanAbs,
-                threshold,
-                reasons,
-                stripLabel: { before, after },
-            };
+        const before = snapshot.before?.stripPosition;
+        const after = snapshot.after?.stripPosition;
+        if (before === undefined || after === undefined) {
+            reasons.push('stripPosition');
+            return { proven: false, meanAbs, threshold, reasons };
         }
-        return { proven: pixelOk, meanAbs, threshold, reasons };
+        const paged = before.identity !== after.identity || before.left !== after.left;
+        if (!paged) reasons.push('stripPosition');
+        return { proven: pixelOk && paged, meanAbs, threshold, reasons, stripPosition: { before, after } };
     }
     if (name === 'document scroll' || name === 'document') {
         const before = snapshot.before?.documentMarker;

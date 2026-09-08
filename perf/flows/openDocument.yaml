@@ -34,15 +34,14 @@ tags:
 # with the real `code` plugin.
 - tapOn:
     text: 'Files'
+# `Files` always opens the repository list (`files.browse`), even when the host
+# has exactly one repository, so the repository row comes before any filename.
 - extendedWaitUntil:
     visible:
-      text: 'perf-document.md|All Files|Changes'
+      text: 'project'
     timeout: 20000
-# A repo list comes first on a machine with more than one worktree; the file
-# list is one tap in either way.
 - tapOn:
-    text: 'project|perf-document.md'
-    optional: true
+    text: 'project'
 - extendedWaitUntil:
     visible:
       text: 'perf-document.md'

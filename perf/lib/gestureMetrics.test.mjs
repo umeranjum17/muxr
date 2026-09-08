@@ -10,7 +10,9 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import {
     firstDocumentMarker,
-    firstStripLabel,
+    scrollableBounds,
+    stripPosition,
+    stripScroller,
     freshFrameRows,
     mergeFrameStats,
     parseJsonlStrict,
@@ -97,14 +99,44 @@ test('baseline bout fixtures reduce to the documented failures', () => {
         + '<node content-desc="Claude 1. Idle. Terminal" class="android.view.View" bounds="[16,120][300,320]" />';
     assert.equal(firstDocumentMarker(dumpA), 12);
     assert.equal(firstDocumentMarker(dumpB), 48);
-    assert.equal(firstStripLabel(dumpA), 'Pi 1. Idle. Terminal');
-    assert.notEqual(firstStripLabel(dumpA), firstStripLabel(dumpB));
-
     const documentMoved = reduceMovement('document scroll', {
-        before: { crop: still, documentMarker: firstDocumentMarker(dumpA), stripLabel: firstStripLabel(dumpA) },
-        after: { crop: shifted, documentMarker: firstDocumentMarker(dumpB), stripLabel: firstStripLabel(dumpB) },
+        before: { crop: still, documentMarker: firstDocumentMarker(dumpA) },
+        after: { crop: shifted, documentMarker: firstDocumentMarker(dumpB) },
     });
     assert.equal(documentMoved.proven, true);
+
+    // The herd carries a horizontal plugin-navigation scroller above the live
+    // strip. Paging has to be driven on the one holding a card, and proved by
+    // that card's identity or position -- never by its task title, which the
+    // host rewrites on a timer while the strip stands still.
+    const nav = '<node class="android.widget.HorizontalScrollView" bounds="[0,500][1080,641]" />'
+        + '<node content-desc="Usage" class="android.view.View" bounds="[16,510][300,630]" />';
+    const strip = '<node class="android.widget.HorizontalScrollView" bounds="[0,762][1080,1287]" />';
+    const card = (task, left) => `<node content-desc="${task}. Idle. pi/Pi 1" class="android.view.View" bounds="[${left},800][${left + 500},1200]" />`;
+    const stripA = nav + strip + card('pi task 59628428', 40);
+    const renamed = nav + strip + card('pi task 59628429', 40);
+    const paged = nav + strip + card('pi task 59628429', 540);
+
+    assert.equal(stripScroller(stripA).bounds?.t, 762);
+    assert.equal(stripScroller(nav).bounds, undefined);
+    assert.equal(scrollableBounds('herd strip paging', nav, { width: 1080, height: 1920 }), undefined);
+
+    const retitled = reduceMovement('herd strip paging', {
+        before: { crop: still, stripPosition: stripPosition(stripA) },
+        after: { crop: shifted, stripPosition: stripPosition(renamed) },
+    });
+    assert.equal(retitled.proven, false);
+    assert.deepEqual(retitled.reasons, ['stripPosition']);
+
+    assert.equal(reduceMovement('herd strip paging', {
+        before: { crop: still, stripPosition: stripPosition(stripA) },
+        after: { crop: shifted, stripPosition: stripPosition(paged) },
+    }).proven, true);
+    // Pixels stay required: a moved card over a still surface is not paging.
+    assert.equal(reduceMovement('herd strip paging', {
+        before: { crop: still, stripPosition: stripPosition(stripA) },
+        after: { crop: still, stripPosition: stripPosition(paged) },
+    }).proven, false);
     const stuck = reduceMovement('herd tree fling', {
         before: { crop: still },
         after: { crop: still },

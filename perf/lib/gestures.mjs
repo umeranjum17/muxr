@@ -228,14 +228,17 @@ export async function scrollBout(options) {
 }
 
 /**
- * Horizontal paging on the live-terminal strip: y = 33% of height, travel 60%
- * of width, flings only. Same inject-retry rule as `scrollBout`.
+ * Horizontal paging on the live-terminal strip: down the middle of the strip's
+ * own scroller, travel 60% of its width, flings only. The caller resolves those
+ * bounds from the hierarchy, because a screen percentage lands in the plugin
+ * navigation instead. Same inject-retry rule as `scrollBout`.
  */
 export async function stripBout(options) {
-    const { width = 1080, height = 1920, seconds = 20, settleMs = 350, onGesture } = options ?? {};
-    const y = Math.round(height * 0.33);
-    const travel = width * 0.6;
-    const midX = width / 2;
+    const { bounds, seconds = 20, settleMs = 350, onGesture } = options ?? {};
+    if (bounds === undefined) throw new Error('stripBout needs the strip scroller bounds');
+    const y = Math.round((bounds.t + bounds.b) / 2);
+    const travel = (bounds.r - bounds.l) * 0.6;
+    const midX = (bounds.l + bounds.r) / 2;
     const left = Math.round(midX - travel / 2);
     const right = Math.round(midX + travel / 2);
     const once = async () => {

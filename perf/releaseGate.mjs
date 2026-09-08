@@ -62,7 +62,6 @@ import {
     cropRaw,
     decodeUiAttribute,
     firstDocumentMarker,
-    firstStripLabel,
     freshFrameRows,
     mergeFrameStats,
     parseJsonlStrict,
@@ -75,6 +74,8 @@ import {
     reduceMovement,
     reducePipelineNotches,
     scrollableBounds,
+    stripPosition,
+    stripScroller,
     trailSince,
     verdict,
 } from './lib/gestureMetrics.mjs';
@@ -82,6 +83,9 @@ import {
 const run = promisify(execFile);
 
 const PKG = 'com.trymuxr.app';
+// Raw framestats rows kept per gesture. The ring holds ~120; the cap bounds a
+// pathological read and reports what it left out rather than trimming silently.
+const RAW_FRAME_ROW_CAP = 200;
 const AVD = 'muxr_sandbox';
 const FLOWS = 'perf/flows';
 const MAESTRO = ['mise', ['x', 'maestro@cli-2.7.0', '--', 'maestro']];
@@ -165,7 +169,7 @@ const PHASES = [
     { name: 'herd strip and tree soak', seconds: 120, flow: 'herdSoak.yaml' },
     { name: 'agent terminal and plugin navigation', seconds: 120, flow: 'herdNavigate.yaml' },
     { name: 'herd tree fling', seconds: 30, drive: 'treeFling' },
-    { name: 'herd strip paging', seconds: 20, drive: 'stripPaging' },
+    { name: 'herd strip paging', seconds: 20, drive: 'stripPaging', oneWayMovement: true },
     { name: 'document scroll', seconds: 30, nav: 'openDocument.yaml', drive: 'documentScroll' },
     // `surfaceKind` is the pane this phase claims to measure. It is read off the
     // app's own controls before the bout, so a graphics pane cannot be judged
@@ -408,13 +412,15 @@ async function captureSurface(surface, screen) {
     const dump = await dumpUi();
     const bounds = scrollableBounds(surface, dump, screen);
     const raw = await screencapRaw().catch(() => undefined);
-    const crop = raw === undefined ? undefined : cropRaw(raw, bounds);
+    // No bounds is no crop. Falling back to the whole screen would compare a
+    // surface this phase never measured and call the difference movement.
+    const crop = raw === undefined || bounds === undefined ? undefined : cropRaw(raw, bounds);
     return {
         dump,
         bounds,
         crop,
         documentMarker: firstDocumentMarker(dump),
-        stripLabel: firstStripLabel(dump),
+        stripPosition: stripPosition(dump),
     };
 }
 
@@ -440,6 +446,9 @@ async function measureBout(run, hz, { surface, screen, phase, prepared } = {}) {
     // framestats is a rolling ring re-read after every fling; without this the
     // same frame is counted once per remaining read of the bout.
     const counted = new Set();
+    // Per-gesture timing beside the rows it was reduced from: without them the
+    // phase p95 is a number nobody can take apart again.
+    const gestureFrames = [];
     let bout = { gestures: 0, flings: 0, medianVelocityPxPerSecond: 0 };
     try {
         bout = await run({
@@ -449,10 +458,24 @@ async function measureBout(run, hz, { surface, screen, phase, prepared } = {}) {
                     oneWaySurface = await captureSurface(surface, screen);
                 }
                 const rows = await frameStats(PKG);
-                parts.push(reduceFrameStats(freshFrameRows(rows, counted), {
+                const fresh = freshFrameRows(rows, counted);
+                const reduced = reduceFrameStats(fresh, {
                     frameNs: 1e9 / hz,
                     t0Ns: (gesture.t0Seconds ?? 0) * 1e9,
-                }));
+                });
+                parts.push(reduced);
+                gestureFrames.push({
+                    profile: gesture.profile,
+                    t0Seconds: gesture.t0Seconds,
+                    durationMs: gesture.durationMs,
+                    elapsedMs: gesture.elapsedMs,
+                    frames: reduced.frames,
+                    dropped: reduced.dropped,
+                    worstMs: reduced.worstMs,
+                    inputToFrameMs: reduced.inputToFrameMs,
+                    rows: fresh.slice(0, RAW_FRAME_ROW_CAP),
+                    ...(fresh.length > RAW_FRAME_ROW_CAP ? { rowsOmitted: fresh.length - RAW_FRAME_ROW_CAP } : {}),
+                });
             },
         });
     } catch (error) {
@@ -462,19 +485,20 @@ async function measureBout(run, hz, { surface, screen, phase, prepared } = {}) {
     const after = await jankReport(PKG, { hz });
     const afterSurface = surface === undefined ? undefined : await captureSurface(surface, screen);
     const injectFailed = bout.injectFailed === true;
-    const pixels = beforeSurface === undefined
+    const observed = beforeSurface === undefined
         ? undefined
-        : bestPixels(beforeSurface, afterSurface, oneWaySurface);
+        : bestObservation(beforeSurface, afterSurface, oneWaySurface);
     const movement = beforeSurface === undefined ? undefined : reduceMovement(phase ?? surface, {
         before: beforeSurface,
-        after: afterSurface,
-        pixels,
+        after: observed.sample,
+        pixels: observed.pixels,
     });
     return {
         bout,
         injectFailed,
         jank: reduceJank(before, after, { hz }),
         frameStats: mergeFrameStats(parts),
+        gestureFrames,
         movement,
         beforeSurface,
         afterSurface,
@@ -482,27 +506,32 @@ async function measureBout(run, hz, { surface, screen, phase, prepared } = {}) {
     };
 }
 
-/** The most movement any sample of this bout saw against its start. */
-function bestPixels(beforeSurface, afterSurface, oneWaySurface) {
-    const samples = [afterSurface, oneWaySurface]
-        .filter((sample) => sample !== undefined)
-        .map((sample) => pixelsMoved(beforeSurface.crop, sample.crop));
-    if (samples.length === 0) return pixelsMoved(beforeSurface.crop, undefined);
-    return samples.reduce((best, next) => (next.meanAbs > best.meanAbs ? next : best));
+/**
+ * The observation of this bout that saw the most movement against its start --
+ * pixels and the surface they were measured on together, so the labels a phase
+ * grades come from the same capture as its pixels and not from a later screen.
+ */
+function bestObservation(beforeSurface, afterSurface, oneWaySurface) {
+    const samples = [afterSurface, oneWaySurface].filter((sample) => sample !== undefined);
+    if (samples.length === 0) return { sample: afterSurface, pixels: pixelsMoved(beforeSurface.crop, undefined) };
+    return samples
+        .map((sample) => ({ sample, pixels: pixelsMoved(beforeSurface.crop, sample.crop) }))
+        .reduce((best, next) => (next.pixels.meanAbs > best.pixels.meanAbs ? next : best));
 }
 
 function withTrailMovement(measured, phase, terminal) {
     if (measured.beforeSurface === undefined) {
         return { ...measured, terminal, movement: measured.movement };
     }
+    const observed = bestObservation(measured.beforeSurface, measured.afterSurface, measured.oneWaySurface);
     return {
         ...measured,
         terminal,
         movement: reduceMovement(phase, {
             before: measured.beforeSurface,
-            after: measured.afterSurface,
+            after: observed.sample,
             terminal,
-            pixels: bestPixels(measured.beforeSurface, measured.afterSurface, measured.oneWaySurface),
+            pixels: observed.pixels,
         }),
     };
 }
@@ -619,12 +648,23 @@ async function preparePhase(phase, screen, hz) {
         surfaceKind = probed.kind;
     }
 
+    // The strip is driven on the scroller the hierarchy publishes, so the
+    // bounds are resolved -- and refused when missing or ambiguous -- before the
+    // counters are zeroed and before a single gesture is injected.
+    let stripBounds;
+    if (phase.drive === 'stripPaging') {
+        const resolved = stripScroller(await dumpUi());
+        if (resolved.bounds === undefined) return { ok: false, flowExit, why: `the live strip is unavailable (${resolved.why})` };
+        stripBounds = resolved.bounds;
+    }
+
     return {
         ok: true,
         flowExit,
         trailBefore,
         enteredAt,
         surfaceKind,
+        stripBounds,
         paneId: phase.fixture === undefined ? undefined : stack.fixturePanes?.[phase.fixture],
         prepared: await prepareBout(surface, screen, hz),
     };
@@ -734,7 +774,7 @@ async function drivePhase(phase, screen, hz, ready) {
         return measureBout((opts) => scrollBout({ width, height, seconds, ...opts }), hz, { surface: 'tree', screen, phase, prepared });
     }
     if (phase.drive === 'stripPaging') {
-        return measureBout((opts) => stripBout({ width, height, seconds, ...opts }), hz, { surface: 'strip', screen, phase, prepared });
+        return measureBout((opts) => stripBout({ bounds: ready.stripBounds, seconds, ...opts }), hz, { surface: 'strip', screen, phase, prepared });
     }
     if (phase.drive === 'documentScroll') {
         // Reading, and only reading: the viewer reached from the herd carries no
@@ -1125,6 +1165,7 @@ function gestureEvidence(driven, idleJs) {
             histogram: driven.jank?.histogram ?? '',
         },
         frameStats: driven.frameStats ?? { frames: 0, dropped: 0, worstMs: 0, inputToFrameMs: {} },
+        gestureFrames: driven.gestureFrames,
         movement: driven.movement,
         injectFailed: driven.injectFailed === true,
         zoomSurface: driven.zoomSurface,
