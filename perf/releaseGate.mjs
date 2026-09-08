@@ -206,8 +206,8 @@ const fail = (message) => {
     process.stdout.write(`FAIL: ${message}\n`);
 };
 
-function finish(code) {
-    if (stack !== undefined && !keepLoad) stack.stop();
+function finish(code, forceStopLoad = false) {
+    if (stack !== undefined && (!keepLoad || forceStopLoad)) stack.stop();
     report.finishedAt = new Date().toISOString();
     report.failures = failures;
     report.passed = failures.length === 0;
@@ -220,6 +220,20 @@ function finish(code) {
         ? '\nPASS: release performance gate\n'
         : `\nFAILED: ${failures.length} gate(s): ${failures.join('; ')}\n`);
     process.exit(code);
+}
+
+/**
+ * A phase whose screen or workload is invalid ends the run where the invalidity
+ * is detected, with the load stopped even under `--keep-load`: continuing would
+ * only collect plausible numbers from whatever screen the phone drifted onto.
+ */
+function abortPhase(phase, why, details = {}) {
+    report.phases.push({ ...phase, ...details, valid: false, navigation: { ok: false, why } });
+    report.abortedAtPhase = phase.name;
+    const remaining = PHASES.slice(PHASES.indexOf(phase) + 1).map((later) => later.name);
+    report.phasesNotRun = remaining;
+    fail(`${phase.name}: ${why}; ${remaining.length} remaining phase(s) not run`);
+    finish(1, true);
 }
 
 process.once('SIGINT', () => finish(130));
@@ -430,7 +444,9 @@ async function openFirstTerminal() {
  * describe some other screen.
  */
 async function preparePhase(phase, screen, hz) {
-    if (phase.drive === undefined) return { ok: true };
+    if (phase.drive === undefined) {
+        return await returnToHerd() ? { ok: true } : { ok: false, why: 'the herd never came back on screen' };
+    }
     const surface = { treeFling: 'tree', stripPaging: 'strip', documentScrollSwipe: 'document', terminalTextFling: 'terminal', graphicsScroll: 'graphics', zoomTapNavigate: 'terminal' }[phase.drive];
     // Only the phases graded on the phone's own counters pay for a baseline
     // pull; it costs a round trip through Settings and back.
@@ -869,21 +885,27 @@ for (const phase of PHASES) {
     // Prerequisite first, and nothing is measured if it fails: a gesture bout on
     // the wrong screen still produces a full set of plausible numbers.
     const ready = await preparePhase(phase, screen, hz);
+    if (!ready.ok) abortPhase(phase, ready.why, { flowExit: ready.flowExit, flowOutput: ready.flowOutput });
     const driving = (async () => {
         if (phase.flow !== undefined) {
             flowRun = await maestro(phase.flow);
+            // The flow is the phase's workload: once it has failed every later
+            // number describes a screen the phone was pushed off, so the churn
+            // stops here rather than at the end of the run.
+            if (flowRun.code !== 0) {
+                abortPhase(phase, `${phase.flow} did not complete`, {
+                    flowExit: flowRun.code,
+                    flowOutput: flowRun.output.split('\n').slice(-25).join('\n'),
+                });
+            }
         }
-        if (phase.drive !== undefined && ready.ok) {
+        if (phase.drive !== undefined) {
             driven = await drivePhase(phase, screen, hz, ready);
         }
     })();
     const measured = await samplePhase({ pkg: PKG, seconds: phase.seconds });
     await driving;
-    if (driven?.trailUnavailable === true) {
-        driven = undefined;
-        ready.ok = false;
-        ready.why = 'the phone trail is unavailable after the bout';
-    }
+    if (driven?.trailUnavailable === true) abortPhase(phase, 'the phone trail is unavailable after the bout');
     if (phase.name === 'idle on the herd') idleJs = measured.jsBusyPercent;
     if (driven !== undefined) driven.jsBusyPercent = measured.jsBusyPercent;
     const gesture = gestureEvidence(driven, idleJs);
@@ -944,12 +966,6 @@ for (const phase of PHASES) {
     if ((measured.pssDriftKb ?? 0) > LIMITS.pssDriftKb) {
         fail(`${phase.name}: memory grew ${Math.round(measured.pssDriftKb / 1024)} MB`);
     }
-    if (phase.flow !== undefined && flowRun?.code !== 0) {
-        fail(`${phase.name}: ${phase.flow} did not complete`);
-    }
-    // Named prerequisite, never a pile of downstream metric failures describing
-    // a screen the phone was never on.
-    if (!ready.ok) fail(`${phase.name}: ${ready.why}; gesture metrics not measured`);
     if (driven?.injectFailed === true) fail(`${phase.name}: device could not inject`);
     for (const key of judged.failures) {
         if (key === 'device could not inject') continue;

@@ -4,10 +4,10 @@ tags:
 ---
 # Mount and unmount churn, which is where a starved JS thread shows up as a
 # screen that never comes back: attach an agent's terminal, drag its scrollback
-# top to bottom, detach, walk the plugin tabs, leave the app and return.
+# top to bottom, detach, walk the plugin routes, come back to the herd.
 #
-# Each pass starts by putting the app back on the herd, because a relaunch
-# restores whatever screen it was last on.
+# Each pass starts and ends on the herd, so the next pass begins where this one
+# claims to have left the phone.
 - repeat:
     times: 4
     commands:
@@ -20,9 +20,6 @@ tags:
       - tapOn:
           text: 'CANCEL|Not now|Deny|Later'
           optional: true
-      # A previous pass may have left a terminal open, with its keyboard up: an
-      # open IME eats the back that was meant to leave the route.
-      - hideKeyboard
       # `Back` is the label the shared HeaderBackButton exposes.
       - runFlow:
           when:
@@ -56,9 +53,12 @@ tags:
           visible:
             text: 'Show terminal controls'
           timeout: 20000
-      # A terminal tap opens the IME by design, which changes the bounds every
-      # swipe below lands in.
-      - hideKeyboard
+      # Maestro's `hideKeyboard` is an unconditional BACK, so it leaves the
+      # route instead of dismissing an IME. The swipes are asserted onto the
+      # terminal screen instead: both labels before the repeat and after every
+      # pair, so a stray navigation cannot be scrolled as if it were terminal.
+      - assertVisible: 'Back'
+      - assertVisible: 'Show terminal controls'
       - repeat:
           times: 8
           commands:
@@ -70,16 +70,26 @@ tags:
                 start: 50%, 72%
                 end: 50%, 22%
                 duration: 90
-      - hideKeyboard
+            - assertVisible: 'Back'
+            - assertVisible: 'Show terminal controls'
       - tapOn:
           text: 'Back'
       - extendedWaitUntil:
           visible:
             text: 'LIVE'
           timeout: 20000
-      - tapOn:
-          text: 'Usage'
-          optional: true
+      # Plugin items push a route rather than staying on a tab bar, so each
+      # visit has to come back before the next one is reachable.
+      - runFlow:
+          when:
+            visible:
+              text: 'Usage'
+          commands:
+            - tapOn:
+                text: 'Usage'
+            - tapOn:
+                text: 'Back'
+            - assertVisible: 'LIVE'
       # The `code` plugin is loaded from the gate's fixture plugin root, so
       # Files is a real tab now and its absence is a failure, not a no-op.
       - tapOn:
@@ -88,6 +98,9 @@ tags:
           visible:
             text: 'perf-document.md|All Files|Changes|project'
           timeout: 20000
+      - tapOn:
+          text: 'Back'
+      - assertVisible: 'LIVE'
       - tapOn:
           text: 'Panes'
           optional: true
@@ -102,6 +115,12 @@ tags:
       - tapOn:
           text: 'Machine'
           optional: true
-      - pressKey: Home
-      - launchApp:
-          appId: com.trymuxr.app
+      - runFlow:
+          when:
+            visible:
+              text: 'Back'
+          commands:
+            - tapOn:
+                text: 'Back'
+      - assertVisible: 'connected'
+      - assertVisible: 'LIVE'
