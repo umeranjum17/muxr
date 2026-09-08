@@ -215,8 +215,7 @@ export async function screencapRaw(path) {
  * Reuses the same uiautomator dump dismissPrompts already writes.
  */
 export async function viewBounds(pattern) {
-    await quiet(['shell', 'uiautomator', 'dump', '/sdcard/perf-prompt.xml'], 20_000);
-    const screen = await quiet(['shell', 'cat', '/sdcard/perf-prompt.xml'], 20_000);
+    const screen = await dumpUiXml();
     const nodes = screen.match(/<node\b[^>]*>/g) ?? [];
     const hit = nodes.find((node) => node.includes(pattern));
     const bounds = hit === undefined ? undefined : /bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/.exec(hit);
@@ -254,6 +253,30 @@ export async function deviceIdentity() {
     };
 }
 
+
+let dumpSequence = 0;
+
+/**
+ * The hierarchy as it is right now, or nothing.
+ *
+ * Every dump writes its own file. Reusing one path let a failed dump be read
+ * back as the previous screen: the reader sees a plausible hierarchy, decides a
+ * control is visible or a surface never moved, and is answering about a screen
+ * that is no longer there. A path that did not exist a moment ago cannot do
+ * that -- either this dump wrote it or the read fails.
+ */
+export async function dumpUiXml(timeout = 20_000) {
+    dumpSequence += 1;
+    const path = `/sdcard/perf-ui-${process.pid}-${Date.now()}-${dumpSequence}.xml`;
+    const written = await quiet(['shell', 'uiautomator', 'dump', path], timeout);
+    if (!written.includes(path)) {
+        await quiet(['shell', 'rm', '-f', path], 10_000);
+        return '';
+    }
+    const xml = await quiet(['shell', 'cat', path], timeout);
+    await quiet(['shell', 'rm', '-f', path], 10_000);
+    return xml.includes('<hierarchy') ? xml : '';
+}
 
 export async function totalPssKb(pid) {
     const dump = await quiet(['shell', 'dumpsys', 'meminfo', pid], 20_000);

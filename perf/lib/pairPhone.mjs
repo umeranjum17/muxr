@@ -10,7 +10,7 @@
  * label this run's world actually published.
  */
 import { runCommand as run, assertCommandActive } from './commands.mjs';
-import { dismissPrompts } from './androidSignals.mjs';
+import { dismissPrompts, dumpUiXml } from './androidSignals.mjs';
 
 /** Connected chrome only: reconnecting or disconnected is not a ready herd. */
 export function herdChromeConnected(dump) {
@@ -38,12 +38,8 @@ export function herdProof(dump, labels) {
     return undefined;
 }
 
-async function dumpUi() {
-    await run('adb', ['shell', 'uiautomator', 'dump', '/sdcard/pair-check.xml'], { timeout: 40_000 }).catch(() => undefined);
-    return run('adb', ['shell', 'cat', '/sdcard/pair-check.xml'], { timeout: 40_000, maxBuffer: 32 * 1024 * 1024 })
-        .then((result) => result.stdout)
-        .catch(() => '');
-}
+// One file per dump: a failed read is an empty screen, never the last one.
+const dumpUi = () => dumpUiXml(40_000);
 
 /** Poll until the herd is proven on screen, or report why it never was. */
 export async function waitForHerd(labels, seconds) {

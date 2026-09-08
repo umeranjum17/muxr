@@ -12,6 +12,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { appPid, dismissKeyboard, dismissPrompts, framesRendered, totalPssKb } from './androidSignals.mjs';
 import { herdChromeConnected } from './pairPhone.mjs';
+import { TERMINAL_SURFACE } from './gestureMetrics.mjs';
 
 const run = promisify(execFile);
 
@@ -40,7 +41,7 @@ async function drag(fromY, toY) {
 async function returnToHerd() {
     for (let attempt = 0; attempt < 6; attempt += 1) {
         const screen = await currentScreen();
-        if (/text="LIVE"/.test(screen) && herdChromeConnected(screen) && !/GhosttyTerminalView/.test(screen)) return true;
+        if (/text="LIVE"/.test(screen) && herdChromeConnected(screen) && !screen.includes(`content-desc="${TERMINAL_SURFACE}"`)) return true;
         await adb(['shell', 'input', 'keyevent', 'KEYCODE_BACK']).catch(() => undefined);
         await new Promise((resolve) => setTimeout(resolve, 700));
     }
@@ -75,7 +76,7 @@ export async function tourEverySession(options) {
         const deadline = Date.now() + settleMs * 2;
         do {
             screen = await currentScreen();
-            mounted = /GhosttyTerminalView/.test(screen)
+            mounted = screen.includes(`content-desc="${TERMINAL_SURFACE}"`)
                 && (attached === undefined || await attached(pane.paneId, startedAt));
             if (mounted) break;
             await new Promise((resolve) => setTimeout(resolve, 500));

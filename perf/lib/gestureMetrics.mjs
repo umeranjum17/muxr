@@ -251,7 +251,18 @@ export function boutBaseline(snapshot) {
     if (!frameStatsRead(snapshot.rows)) return { why: 'the framestats ring published no PROFILEDATA at the baseline' };
     if (counters?.frames === undefined) return { why: 'the frame counter did not read at the baseline' };
     if (counters?.missedVsync === undefined) return { why: 'the missed-vsync counter did not read at the baseline' };
-    return { counters, identities: frameRowIdentities(snapshot.rows) };
+    // Only the finished rows are the screen before this phase. A row still in
+    // flight at the baseline is counted by nobody yet: its completion lands in
+    // this phase's counter delta, so its row has to land in this phase's rows
+    // too. Excluding it as "old" is how a deficit gets manufactured.
+    const complete = new Set();
+    const inFlight = new Set();
+    for (const row of snapshot.rows) {
+        const key = asNumber(row.IntendedVsync);
+        if (key === undefined) continue;
+        (frameRowComplete(row) ? complete : inFlight).add(key);
+    }
+    return { counters, identities: complete, inFlight };
 }
 
 /**
@@ -270,12 +281,20 @@ export function counterContinuity(previous, next) {
     return undefined;
 }
 
+/** Identities of this read the pipeline had not finished writing. */
+export function pendingFrameIdentities(rows, seen) {
+    const pending = new Set();
+    for (const row of rows ?? []) {
+        const key = asNumber(row.IntendedVsync);
+        if (key === undefined || seen.has(key) || frameRowComplete(row)) continue;
+        pending.add(key);
+    }
+    return pending;
+}
+
 /** Rows of this read the pipeline had not finished writing. */
 export function pendingFrameRows(rows, seen) {
-    return (rows ?? []).filter((row) => {
-        const key = asNumber(row.IntendedVsync);
-        return key !== undefined && !seen.has(key) && !frameRowComplete(row);
-    }).length;
+    return pendingFrameIdentities(rows, seen).size;
 }
 
 /** Merge per-fling frameStats into one phase account. */
@@ -621,6 +640,15 @@ export function pixelsMoved(before, after, { minMean = PIXEL_MOVE_THRESHOLD } = 
 
 // Decode UI-dump entities once: a literal "&amp;lt;" must stay "&lt;".
 // Include the encoded newline emitted by Android's diagnostics Text view.
+/**
+ * The terminal surface's name in the accessibility tree, published by the app
+ * (`TERMINAL_SURFACE_LABEL`). The native view renders as a plain
+ * `android.view.View` and does not override its accessibility class name, so
+ * the Kotlin class spelling never appears in a hierarchy and cannot be selected
+ * on; a bare `android.view.View` of the right size is not an identity either.
+ */
+export const TERMINAL_SURFACE = 'muxr terminal surface';
+
 export function decodeUiAttribute(value) {
     const entities = { '&quot;': '"', '&amp;': '&', '&lt;': '<', '&gt;': '>', '&apos;': "'", '&#10;': '\n' };
     return String(value ?? '').replace(/&(?:quot|amp|lt|gt|apos|#10);/g, (entity) => entities[entity]);
@@ -723,8 +751,9 @@ export function documentPosition(dump) {
 }
 
 function stripCards(dump) {
-    const cards = parseUiNodes(dump).filter((node) => /Terminal/i.test(node.desc)
-        || /\. (Idle|Working|Starting|Needs you|Done|Failed|Offline)\b/.test(node.desc ?? ''));
+    const cards = parseUiNodes(dump).filter((node) => node.desc !== TERMINAL_SURFACE
+        && (/Terminal/i.test(node.desc)
+        || /\. (Idle|Working|Starting|Needs you|Done|Failed|Offline)\b/.test(node.desc ?? '')));
     cards.sort((left, right) => left.l - right.l || left.t - right.t);
     return cards;
 }
@@ -780,7 +809,7 @@ export function scrollableBounds(surface, dump, screen = {}) {
     const height = Number(screen.height) || 1920;
     const name = phaseName(surface);
     const nodes = parseUiNodes(dump);
-    const ghostty = nodes.find((node) => /GhosttyTerminalView/i.test(node.className) || /GhosttyTerminalView/i.test(node.desc));
+    const ghostty = nodes.find((node) => node.desc === TERMINAL_SURFACE);
     if ((name === 'terminal' || name === 'terminal text fling'
         || name === 'graphics' || name === 'graphics pane scroll') && ghostty !== undefined) {
         return ghostty;
@@ -952,10 +981,10 @@ export function verdict(phase, metrics, limits) {
         const coverage = metrics.frameCoverage;
         if (coverage === undefined) failures.push('no frame coverage account');
         else {
-            // A row the pipeline never finished writing is not a frame anyone
-            // read. Crediting it as retained answers the coverage question with
-            // the record that was missing.
-            if ((coverage.pending ?? 0) > 0) failures.push('the framestats ring left frames unfinished');
+            // A row this window owned and no later read ever finished. Not a
+            // frame still in flight beyond the boundary -- one this window was
+            // counted for and can show no record of.
+            if ((coverage.unresolved ?? 0) > 0) failures.push('the framestats ring left frames unfinished');
             // Identities observed after the baseline against the frames the
             // counters say were drawn, and they have to be the same number. Rows
             // the ring held from before the phase are excluded, so a surplus is

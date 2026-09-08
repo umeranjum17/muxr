@@ -5,6 +5,7 @@
  */
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import vm from 'node:vm';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
@@ -635,15 +636,16 @@ test('an unfinished frame row is not counted and not retired', () => {
         movement: { proven: true },
         frameCoverage: coverage,
     }, EMULATOR_LIMITS).failures;
-    // An unfinished row is not a read-back frame: it cannot pay for one.
-    assert.deepEqual(graded({ rendered: 10, retained: 8, pending: 2 }),
+    // A record the window owned and no later read ever finished cannot pay for
+    // the frame its endpoint was already counted for.
+    assert.deepEqual(graded({ rendered: 10, retained: 8, unresolved: 2 }),
         ['the framestats ring left frames unfinished', 'the framestats ring lost frames']);
-    assert.deepEqual(graded({ rendered: 10, retained: 8, pending: 0 }), ['the framestats ring lost frames']);
+    assert.deepEqual(graded({ rendered: 10, retained: 8, unresolved: 0 }), ['the framestats ring lost frames']);
     // Identities observed after the baseline have to equal the frames the
     // counters drew. A surplus is not slack: it is an account that does not add
     // up, and it must never quietly cover a measured frame that went missing.
-    assert.deepEqual(graded({ rendered: 10, retained: 12, pending: 0 }), ['the framestats ring returned unaccounted frames']);
-    assert.deepEqual(graded({ rendered: 10, retained: 10, pending: 0 }), []);
+    assert.deepEqual(graded({ rendered: 10, retained: 12, unresolved: 0 }), ['the framestats ring returned unaccounted frames']);
+    assert.deepEqual(graded({ rendered: 10, retained: 10, unresolved: 0 }), []);
 });
 
 // The ring still holds rows from the screen before the phase. Counting those as
@@ -671,7 +673,7 @@ test('baseline rows never pay for measured frames that went missing', () => {
         frameStats: { frames: retained, droppedPercent: 0, inputToFrameMs: { p95: 10 } },
         missedVsyncPerFling: 1,
         movement: { proven: true },
-        frameCoverage: { rendered, retained, pending: 0 },
+        frameCoverage: { rendered, retained, unresolved: 0 },
     }), EMULATOR_LIMITS).failures;
     assert.deepEqual(failures, ['the framestats ring lost frames']);
     // Ten drawn, ten observed after the baseline: that reconciles.
@@ -680,7 +682,7 @@ test('baseline rows never pay for measured frames that went missing', () => {
         frameStats: { frames: 10, droppedPercent: 0, inputToFrameMs: { p95: 10 } },
         missedVsyncPerFling: 1,
         movement: { proven: true },
-        frameCoverage: { rendered: 10, retained: 10, pending: 0 },
+        frameCoverage: { rendered: 10, retained: 10, unresolved: 0 },
     }), EMULATOR_LIMITS).failures, []);
 });
 
@@ -729,10 +731,10 @@ test('the bout baseline takes its counters and its rows from one read', () => {
     }), EMULATOR_LIMITS).failures;
 
     assert.equal(retained, 8);
-    assert.deepEqual(graded({ rendered: closing.frames - baseline.counters.frames, retained, pending: 0 }, retained), []);
+    assert.deepEqual(graded({ rendered: closing.frames - baseline.counters.frames, retained, unresolved: 0 }, retained), []);
     // The split read: counters from the reset, identities from later. The two
     // arrivals are charged as drawn and excluded as old at the same time.
-    assert.deepEqual(graded({ rendered: closing.frames - 0, retained, pending: 0 }, retained),
+    assert.deepEqual(graded({ rendered: closing.frames - 0, retained, unresolved: 0 }, retained),
         ['the framestats ring lost frames']);
 
     // A baseline nobody could take is not a zero baseline. Reading on without
@@ -745,6 +747,84 @@ test('the bout baseline takes its counters and its rows from one read', () => {
     // measureBout's own account collapses without it: no counters, no coverage,
     // and no coverage is a failure rather than a pass on nothing.
     assert.deepEqual(graded(undefined, retained), ['no frame coverage account']);
+});
+
+// The real collector, driven the way Astra's offline replay drives it: the
+// actual prepareBout/ringDrainer/measureBout source in a sandbox, no adb. A live
+// surface always has a frame in flight, so a window that waits for the whole
+// ring to go idle can never close, and the frame the endpoint counted whose row
+// is still being written is not a lost frame -- it is one to finish reading.
+test('a live stream reconciles, and lost or reset evidence still fails', async () => {
+    const source = readFileSync(new URL('../releaseGate.mjs', import.meta.url), 'utf8');
+    const actual = (name) => {
+        const start = source.indexOf(name);
+        assert.ok(start >= 0, `missing actual caller: ${name}`);
+        return source.slice(start, source.indexOf('\n/**', start));
+    };
+    const frame = (id, finished) => {
+        const intended = 1e9 + id * 1e7;
+        return { Flags: 0, IntendedVsync: intended, FrameCompleted: finished ? intended + 1e6 : 1, InputEventId: 1 };
+    };
+    const ring = (count, { omit, resetAt } = {}) => {
+        const rows = Array.from({ length: count }, (_, index) => frame(index + 1, true))
+            .filter((row) => row.IntendedVsync !== 1e9 + omit * 1e7);
+        // Always one more frame in flight: this is a surface that keeps drawing.
+        rows.push(frame(count + 1, false));
+        Object.defineProperty(rows, 'sectionRead', { value: true });
+        return { rows, jank: { frames: resetAt ?? count, janky: 0, missedVsync: 0, p95Ms: 10, p99Ms: 10 } };
+    };
+    const drive = async (snapshots) => {
+        const waits = [];
+        let read = -1;
+        const context = vm.createContext({
+            ...await import('./gestureMetrics.mjs'),
+            PKG: 'offline', RAW_FRAME_ROW_CAP: 200, RING_DRAIN_MS: 250,
+            sleep: async (ms) => { waits.push(ms); },
+            resetGfxWindow: async () => {},
+            newAttempt: () => ({ close: async () => {} }),
+            gfxSnapshot: async () => { read += 1; return snapshots(read); },
+        });
+        vm.runInContext([
+            'async function prepareBout(', 'function ringDrainer(',
+            'async function measureBout(', 'function worstMissedVsyncPerFling(',
+        ].map(actual).join('\n'), context);
+        const prepared = await context.prepareBout(undefined, undefined, 60);
+        const measured = await context.measureBout(async ({ onGesture }) => {
+            await onGesture({ profile: 'fling', t0Seconds: 1 });
+            return { gestures: 1, flings: 1 };
+        }, 60, { prepared });
+        return { measured, waits };
+    };
+
+    // Every owned record finishes on the next read; newer frames keep arriving.
+    const live = await drive((read) => ring(read));
+    // Only the collector's own cadence: nothing the injector had to wait on.
+    assert.ok(live.waits.every((ms) => ms === 250), `finalization waits in the gesture schedule: ${live.waits}`);
+    assert.equal(live.measured.frameCoverage.unresolved, 0);
+    assert.equal(live.measured.frameCoverage.retained, live.measured.frameCoverage.rendered);
+    assert.deepEqual(verdict('herd tree fling', phaseMetrics({
+        ...live.measured, movement: { proven: true }, missedVsyncPerFling: 0,
+    }), EMULATOR_LIMITS).failures.filter((failure) => failure.includes('ring')), []);
+
+    // A frame the counter counted whose record the ring never carried: evicted
+    // before any read saw it. No later read can finish what was never there.
+    const lost = await drive((read) => ring(read, { omit: 2 }));
+    assert.ok(lost.measured.frameCoverage.retained < lost.measured.frameCoverage.rendered);
+    assert.equal(lost.measured.frameCoverage.unresolved, 1);
+    assert.ok(verdict('herd tree fling', phaseMetrics({
+        ...lost.measured, movement: { proven: true }, missedVsyncPerFling: 0,
+    }), EMULATOR_LIMITS).failures.includes('the framestats ring left frames unfinished'));
+    assert.ok(verdict('herd tree fling', phaseMetrics({
+        ...lost.measured, movement: { proven: true }, missedVsyncPerFling: 0,
+    }), EMULATOR_LIMITS).failures.includes('the framestats ring lost frames'));
+
+    // A counter that resets mid-bout is a window nobody can account for, even
+    // though it climbs again afterwards.
+    const reset = await drive((read) => ring(read, { resetAt: read > 2 ? read - 3 : read }));
+    assert.equal(reset.measured.frameCoverage, undefined);
+    assert.ok(verdict('herd tree fling', phaseMetrics({
+        ...reset.measured, movement: { proven: true }, missedVsyncPerFling: 0,
+    }), EMULATOR_LIMITS).failures.includes('no frame coverage account'));
 });
 
 // A zoom window is drained while its confirmation dumps and settle run. A

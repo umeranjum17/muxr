@@ -21,6 +21,9 @@ import Animated, { useAnimatedStyle, useSharedValue } from 'react-native-reanima
 import { useFocusEffect } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
 import { TerminalView as GhosttyView, type TerminalViewRef } from 'expo-libghostty';
+
+/** The terminal surface's name in the accessibility tree. */
+export const TERMINAL_SURFACE_LABEL = 'muxr terminal surface';
 import { useLocalSetting } from '@/catalog/store';
 import { decodeBase64, encodeBase64 } from '@/encryption/base64';
 import {
@@ -423,7 +426,10 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             }}
             style={{ flex: 1, backgroundColor: '#0c0c0b', overflow: 'hidden' }}>
             <GestureDetector gesture={pan}>
-            <Animated.View style={[{ flex: 1 }, surfaceStyle]}>
+            {/* The native surface renders as a plain android.view.View and does
+                not publish its own class name, so this wrapper -- which is
+                exactly the terminal's box -- carries the surface's name. */}
+            <Animated.View accessibilityLabel={TERMINAL_SURFACE_LABEL} style={[{ flex: 1 }, surfaceStyle]}>
             <GhosttyView
                 ref={termRef}
                 style={{ flex: 1 }}
