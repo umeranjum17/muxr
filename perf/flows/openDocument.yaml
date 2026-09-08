@@ -11,14 +11,15 @@ tags:
 - tapOn:
     text: 'CANCEL|Not now|Deny|Later'
     optional: true
-# `Back` is the label the shared HeaderBackButton exposes on every pushed page.
+# The shared HeaderBackButton exposes `Back`; a plugin route labels its own
+# header control `Go back` (`plugins.goBack`). The run can start on either.
 - runFlow:
     when:
       visible:
-        text: 'Back'
+        text: 'Back|Go back'
     commands:
       - tapOn:
-          text: 'Back'
+          text: 'Back|Go back'
 - extendedWaitUntil:
     visible:
       text: 'connected'

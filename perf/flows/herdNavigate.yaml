@@ -20,14 +20,16 @@ tags:
       - tapOn:
           text: 'CANCEL|Not now|Deny|Later'
           optional: true
-      # `Back` is the label the shared HeaderBackButton exposes.
+      # The shared HeaderBackButton exposes `Back`; a plugin route labels its
+      # own header control `Go back` (`plugins.goBack`). A pass can start on
+      # either, so the cleanup accepts both.
       - runFlow:
           when:
             visible:
-              text: 'Back'
+              text: 'Back|Go back'
           commands:
             - tapOn:
-                text: 'Back'
+                text: 'Back|Go back'
       # A relaunch reconnects and refetches the herd before anything is live.
       - extendedWaitUntil:
           visible:
@@ -88,7 +90,7 @@ tags:
             - tapOn:
                 text: 'Usage'
             - tapOn:
-                text: 'Back'
+                text: 'Go back'
             - assertVisible: 'LIVE'
       # The `code` plugin is loaded from the gate's fixture plugin root, so
       # Files is a real tab now and its absence is a failure, not a no-op.
@@ -99,7 +101,7 @@ tags:
             text: 'perf-document.md|All Files|Changes|project'
           timeout: 20000
       - tapOn:
-          text: 'Back'
+          text: 'Go back'
       - assertVisible: 'LIVE'
       - tapOn:
           text: 'Panes'
@@ -108,19 +110,19 @@ tags:
       - runFlow:
           when:
             visible:
-              text: 'Back'
+              text: 'Back|Go back'
           commands:
             - tapOn:
-                text: 'Back'
+                text: 'Back|Go back'
       - tapOn:
           text: 'Machine'
           optional: true
       - runFlow:
           when:
             visible:
-              text: 'Back'
+              text: 'Back|Go back'
           commands:
             - tapOn:
-                text: 'Back'
+                text: 'Back|Go back'
       - assertVisible: 'connected'
       - assertVisible: 'LIVE'
