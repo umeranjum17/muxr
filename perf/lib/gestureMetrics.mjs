@@ -266,39 +266,47 @@ export function boutBaseline(snapshot) {
 }
 
 /**
- * Which side of a fixed window a finished frame falls on.
+ * The rows a counter value owns.
  *
- * The completed-frame counter advances when a frame *finishes*, so the counter
- * delta across a window counts exactly the frames whose `FrameCompleted` lands
- * inside it -- not the ones scheduled inside it. Both timestamps are on the
- * device clock the injector stamps, so one interval classifies every row:
+ * After the phase's reset the completed-frame counter is a cardinality: at the
+ * instant it reads N, exactly N frames have finished since the reset. Those are
+ * the earliest N finished records by completion, whichever read happened to
+ * carry them. Nothing here asks when a dump was taken or when a clock was read:
+ * one dump's counter and rows describe the same instant only if the counter
+ * decides how many of the accumulated records that instant reaches.
  *
- * - `incomplete`: the pipeline is still writing this record.
- * - `before`: finished before the window opened; the baseline counted it.
- * - `after`: finished after the endpoint. The endpoint's counter never counted
- *   it, so it cannot pay a deficit that endpoint recorded, however early it was
- *   scheduled or however conveniently it lands.
- * - `baseline`: scheduled before the window opened and finished inside it. The
- *   counter delta charges the window for it, so the delta is adjusted -- but
- *   the frame is not the window's work and never becomes one of its rows.
- * - `owned`: scheduled and finished inside the window. The window's own frame.
- *
- * The interval is read around the dumps it bounds -- the clock before the
- * baseline read and after the endpoint read -- so every frame those counters
- * counted finished inside it. What a boundary dump happened to hold in flight
- * decides nothing here; it only decides, at the caller, which records may still
- * be waited for.
+ * A record visible in a dump beyond its counter's prefix is not a member of it.
+ * It has been drawn, and the next counter value will own it.
  */
-export function classifyFrameRow(row, { startNs, endNs } = {}) {
-    if (!frameRowComplete(row)) return 'incomplete';
-    const completed = asNumber(row.FrameCompleted);
-    const scheduled = asNumber(row.IntendedVsync);
-    if (completed === undefined || scheduled === undefined) return 'incomplete';
-    if (startNs !== undefined && completed <= startNs) return 'before';
-    if (endNs !== undefined && completed > endNs) return 'after';
-    // Scheduled before the window: the delta is charged for its completion, but
-    // the frame is not this window's work.
-    return startNs !== undefined && scheduled < startNs ? 'baseline' : 'owned';
+export function counterRankedMembers(rows, count) {
+    if (!Number.isFinite(count) || count < 0) return undefined;
+    const ordered = [...(rows ?? [])].sort((left, right) => {
+        const byCompletion = asNumber(left.FrameCompleted) - asNumber(right.FrameCompleted);
+        return byCompletion !== 0 ? byCompletion : asNumber(left.IntendedVsync) - asNumber(right.IntendedVsync);
+    });
+    // Fewer finished records than the counter says finished: the history cannot
+    // be reconstructed, so there is nothing to grade rather than a short answer.
+    if (ordered.length < count) return undefined;
+    return ordered.slice(0, count);
+}
+
+/**
+ * The window between two counter values: what the endpoint owns and the
+ * baseline did not. The cardinality is the counters' own difference, so a
+ * record the ring never gave back leaves the window short rather than silently
+ * shrinking it.
+ */
+export function counterRankedWindow(rows, { baselineCount, endpointCount }) {
+    const endpoint = counterRankedMembers(rows, endpointCount);
+    const baseline = counterRankedMembers(rows, baselineCount);
+    if (endpoint === undefined || baseline === undefined) {
+        return { rendered: endpointCount - baselineCount, owned: undefined };
+    }
+    const inherited = new Set(baseline.map((row) => asNumber(row.IntendedVsync)));
+    return {
+        rendered: endpointCount - baselineCount,
+        owned: endpoint.filter((row) => !inherited.has(asNumber(row.IntendedVsync))),
+    };
 }
 
 /**

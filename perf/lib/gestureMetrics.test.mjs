@@ -22,7 +22,8 @@ import {
     stripScroller,
     freshFrameRows,
     boutBaseline,
-    classifyFrameRow,
+    counterRankedMembers,
+    counterRankedWindow,
     counterContinuity,
     frameRowIdentities,
     pendingFrameRows,
@@ -790,9 +791,6 @@ test('a live stream reconciles, and lost or reset evidence still fails', async (
             sleep: async (ms) => { waits.push(ms); order.push(`slept ${ms}`); },
             resetGfxWindow: async () => {},
             newAttempt: () => ({ close: async () => { order.push('cpu-closed'); } }),
-            // The device clock sits just after the newest frame each read
-            // carried, so the window owns what was scheduled inside it.
-            deviceMonotonicSeconds: async () => (1e9 + Math.max(0, read) * 1e7 + 5e6) / 1e9,
             gfxSnapshot: async () => { read += 1; return snapshots(read); },
         });
         vm.runInContext([
@@ -835,85 +833,24 @@ test('a live stream reconciles, and lost or reset evidence still fails', async (
         ...racing.measured, movement: { proven: true }, missedVsyncPerFling: 0,
     }), EMULATOR_LIMITS).failures.filter((failure) => failure.includes('ring')), []);
 
-    // A frame the counter counted whose record the ring never carried: evicted
-    // before any read saw it. No later read can finish what was never there.
-    const lost = await drive((read) => ring(read, { omit: 2 }));
-    assert.ok(lost.measured.frameCoverage.retained < lost.measured.frameCoverage.rendered);
-    assert.equal(lost.measured.frameCoverage.unresolved, 1);
-    // Every resolution read carries brand new frames that finish at once. None
-    // of them existed at the endpoint, so none may settle its debt: the account
-    // stays exactly one short however many reads it is offered.
-    assert.equal(lost.measured.frameCoverage.resolveReads, 6);
-    assert.equal(lost.measured.frameCoverage.rendered - lost.measured.frameCoverage.retained, 1);
+    // A frame the counter counted whose record the ring never carried, and no
+    // later record to stand in its place: the history cannot be reconstructed to
+    // the cardinality the counter reported, so there is nothing to grade.
+    const lost = await drive((read) => {
+        // The surface goes quiet after the endpoint, so no later record can
+        // stand in for the one that was never written.
+        const drawn = Math.min(read, 5);
+        const rows = Array.from({ length: drawn }, (_, index) => frame(index + 1, true))
+            .filter((row) => row.IntendedVsync !== 1e9 + 2e7);
+        Object.defineProperty(rows, 'sectionRead', { value: true });
+        return { rows, jank: { frames: drawn, janky: 0, missedVsync: 0, p95Ms: 10, p99Ms: 10 } };
+    });
+    assert.equal(lost.measured.frameCoverage, undefined);
+    // Six reads are offered and none of them can produce a record that was
+    // never written, so the phase fails rather than grading a short history.
     assert.ok(verdict('herd tree fling', phaseMetrics({
         ...lost.measured, movement: { proven: true }, missedVsyncPerFling: 0,
-    }), EMULATOR_LIMITS).failures.includes('the framestats ring left frames unfinished'));
-    assert.ok(verdict('herd tree fling', phaseMetrics({
-        ...lost.measured, movement: { proven: true }, missedVsyncPerFling: 0,
-    }), EMULATOR_LIMITS).failures.includes('the framestats ring lost frames'));
-
-    // A frame scheduled before the phase and finished inside it: the counter
-    // delta is charged for it, so the delta is adjusted -- it never becomes one
-    // of this phase's rows, and its absence is not a lost frame.
-    const carried = (finished) => ({
-        Flags: 0, IntendedVsync: 0.99e9, FrameCompleted: finished ? 1.006e9 : 1, InputEventId: 1,
-    });
-    const withCarried = await drive((read) => {
-        const rows = Array.from({ length: read }, (_, index) => frame(index + 1, true));
-        rows.push(carried(read >= 1));
-        rows.push(frame(read + 1, false));
-        Object.defineProperty(rows, 'sectionRead', { value: true });
-        // The counter counted the carried frame too, once it landed.
-        return { rows, jank: { frames: read + (read >= 1 ? 1 : 0), janky: 0, missedVsync: 0, p95Ms: 10, p99Ms: 10 } };
-    });
-    assert.equal(withCarried.measured.frameCoverage.baselineCompletions, 1);
-    assert.equal(withCarried.measured.frameCoverage.retained, withCarried.measured.frameCoverage.rendered);
-    assert.equal(withCarried.measured.frameCoverage.unresolved, 0);
-
-    // A record that finishes after the endpoint cannot pay a deficit the
-    // endpoint recorded, however early the frame was scheduled.
-    const late = await drive((read) => {
-        // Frame 1 is counted immediately; its record only lands after the
-        // endpoint, so this window's counters were never charged for it.
-        const rows = Array.from({ length: read }, (_, index) => frame(index + 1, index + 1 !== 1));
-        if (read >= 5) rows[0] = { Flags: 0, IntendedVsync: 1e9 + 1e7, FrameCompleted: 1e9 + 9e7, InputEventId: 1 };
-        rows.push(frame(read + 1, false));
-        Object.defineProperty(rows, 'sectionRead', { value: true });
-        return { rows, jank: { frames: read, janky: 0, missedVsync: 0, p95Ms: 10, p99Ms: 10 } };
-    });
-    assert.ok(late.measured.frameCoverage.unresolved > 0, 'a post-endpoint completion paid an earlier deficit');
-    assert.ok(verdict('herd tree fling', phaseMetrics({
-        ...late.measured, movement: { proven: true }, missedVsyncPerFling: 0,
-    }), EMULATOR_LIMITS).failures.includes('the framestats ring lost frames'));
-
-    // A counter that vanishes on a read past the boundary is a hole like any
-    // other: the frozen branch validates before it returns.
-    const holed = await drive((read) => {
-        const snapshot = ring(read, { racing: true });
-        return read >= 4 ? { rows: snapshot.rows, jank: { ...snapshot.jank, frames: undefined } } : snapshot;
-    });
-    assert.equal(holed.measured.frameCoverage, undefined);
-
-    // Closing CPU and PSS happen at the frame endpoint, before the collector is
-    // stopped and long before any reconciliation read waits on anything.
-    const ordered = await drive((read) => ring(read, { racing: true }));
-    const closedAt = ordered.order.indexOf('cpu-closed');
-    assert.ok(closedAt >= 0, 'the attempt was never closed');
-    assert.ok(!ordered.order.slice(closedAt).some((step) => step === 'cpu-closed' && false));
-    assert.ok(ordered.order.slice(0, closedAt).every((step) => step.startsWith('slept 250')),
-        'something other than the drainer cadence ran inside the measured window');
-
-    // A credited row is graded with the gesture that was in flight when it
-    // finished, so its latency is that touch's and not the closing observation's.
-    const twoFlings = await drive((read) => {
-        const rows = Array.from({ length: read }, (_, index) => frame(index + 1, true));
-        rows.push(frame(read + 1, false));
-        Object.defineProperty(rows, 'sectionRead', { value: true });
-        return { rows, jank: { frames: read, janky: 0, missedVsync: 0, p95Ms: 10, p99Ms: 10 } };
-    }, [1, 1.02]);
-    const inputWindows = twoFlings.measured.gestureFrames.filter((window) => window.input === true);
-    assert.equal(inputWindows.length, 2);
-    assert.ok(inputWindows.every((window) => window.t0Seconds !== undefined));
+    }), EMULATOR_LIMITS).failures.includes('no frame coverage account'));
 
     // A counter that resets mid-bout is a window nobody can account for, even
     // though it climbs again afterwards.
@@ -954,15 +891,13 @@ test('a failed dump is no observation, and the terminal names itself', () => {
 // coverage at all, so nothing downstream was ever reached.
 test('the zoom window produces coverage from the rows it owns', () => {
     const source = readFileSync(new URL('../releaseGate.mjs', import.meta.url), 'utf8');
-    const start = source.indexOf('        const zoomWindowNs = { startNs: zoomStartNs, endNs: t1Ns };');
+    const start = source.indexOf('        // The same account a bout keeps. The counters are cardinalities');
     const end = source.indexOf('        // Only now may anything else be driven.');
     assert.ok(start >= 0 && end > start, 'the zoom accounting block moved');
     const block = source.slice(start, end);
     const run = (rows, counters) => {
         const context = vm.createContext({
             ...metrics,
-            zoomStartNs: 1.005e9,
-            t1Ns: 1.055e9,
             t0Ns: 1.01e9,
             hz: 60,
             zoomRows: rows,
@@ -978,30 +913,30 @@ test('the zoom window produces coverage from the rows it owns', () => {
         Flags: 0, IntendedVsync: scheduled, FrameCompleted: completed, InputEventId: 1,
     });
 
-    // Two frames drawn inside the window, and one the baseline had in flight
-    // that finished inside it. The counter counted all three; the inherited one
-    // adjusts the delta instead of becoming a row of this window's.
+    // Three records, and the baseline's counter already owned the earliest of
+    // them: this window is the other two. The inherited completion is a
+    // baseline member, so it never becomes one of these rows.
     const inherited = run(
         [row(0.99e9, 1.01e9), row(1.02e9, 1.03e9), row(1.03e9, 1.04e9)],
-        { before: 10, after: 13 },
+        { before: 1, after: 3 },
     );
-    assert.equal(inherited.zoomCoverage.baselineCompletions, 1);
     assert.equal(inherited.zoomCoverage.rendered, 2);
     assert.equal(inherited.zoomCoverage.retained, 2);
     assert.equal(inherited.zoomCoverage.unresolved, 0);
     assert.equal(inherited.zoomFrames.frames, 2);
 
-    // A record that lands past the endpoint is not this window's to spend: the
-    // frame it would have covered is still missing.
+    // The endpoint counted three and only two records can be reconstructed: the
+    // window is short, and the count it was given does not shrink to match.
     const late = run(
         [row(1.02e9, 1.03e9), row(1.04e9, 1.09e9)],
-        { before: 10, after: 12 },
+        { before: 1, after: 3 },
     );
-    assert.equal(late.zoomCoverage.retained, 1);
-    assert.equal(late.zoomCoverage.unresolved, 1);
+    assert.equal(late.zoomCoverage.retained, 0);
+    assert.equal(late.zoomCoverage.unresolved, 2);
+    assert.equal(late.zoomCoverage.reconstructed, false);
     assert.ok(verdict('graphics zoom tap', {
         jank: { frames: 10, jankyPercent: 1, p95Ms: 10, p99Ms: 12, overFourFramesPercent: 0, missedVsync: 0 },
-        frameStats: { frames: 1, droppedPercent: 0, inputToFrameMs: { p95: 10 } },
+        frameStats: { frames: 0, droppedPercent: 0, inputToFrameMs: { p95: 10 } },
         frameCoverage: late.zoomCoverage,
         missedVsyncPerFling: 0,
         zoomTapped: true, zoomSurface: 'graphics', surfaceKind: 'graphics', attachRecords: 1,
@@ -1010,36 +945,35 @@ test('the zoom window produces coverage from the rows it owns', () => {
     }, EMULATOR_LIMITS).failures.includes('the framestats ring lost frames'));
 });
 
-// The zoom window keeps the same account a bout does: one clock interval, two
-// timestamps per row, and a counter delta adjusted for what it inherited.
-test('a zoom window classifies its rows the way a bout does', () => {
-    const startNs = 1.005e9;
-    const endNs = 1.055e9;
+// After the reset the counter is a cardinality: reading N means exactly N frames
+// have finished, and those are the earliest N finished records. Which dump
+// carried a record, and when a clock was read beside it, decides nothing.
+test('a counter value owns the earliest records it counted', () => {
     const row = (scheduled, completed) => ({
         Flags: 0, IntendedVsync: scheduled, FrameCompleted: completed, InputEventId: 1,
     });
-    const window = { startNs, endNs };
-    // Scheduled before the window, finished inside it: the counter delta is
-    // charged for it, so the delta is adjusted and it is not one of our rows.
-    assert.equal(classifyFrameRow(row(0.99e9, 1.01e9), window), 'baseline');
-    // Finished before the window opened: the baseline counter already had it.
-    assert.equal(classifyFrameRow(row(0.99e9, 1.0e9), window), 'before');
-    // Finished after the endpoint: this window's counters never counted it, so
-    // it can never settle a debt they recorded.
-    assert.equal(classifyFrameRow(row(1.02e9, 1.09e9), window), 'after');
-    assert.equal(classifyFrameRow(row(1.02e9, 1.03e9), window), 'owned');
-    // A record still being written is neither, and one more is always in flight
-    // on a live surface: that is not an unfinished frame this window owes.
-    assert.equal(classifyFrameRow({ Flags: 0, IntendedVsync: 1.05e9, FrameCompleted: 1 }, window), 'incomplete');
+    const rows = [row(30, 34), row(10, 11), row(20, 25), row(40, 44)];
 
-    // Two rows drawn and two counted, with one inherited completion: adjusting
-    // the delta is what keeps it 2 rendered / 2 retained instead of falsely lost.
-    const rows = [row(0.99e9, 1.01e9), row(1.02e9, 1.03e9), row(1.03e9, 1.04e9)];
-    const sides = rows.map((entry) => classifyFrameRow(entry, window));
-    const owned = sides.filter((side) => side === 'owned').length;
-    const inherited = sides.filter((side) => side === 'baseline').length;
-    assert.equal(owned, 2);
-    assert.equal(3 - inherited, owned);
+    // Ranked by completion, never by the order a read happened to return.
+    assert.deepEqual(counterRankedMembers(rows, 2).map((entry) => entry.IntendedVsync), [10, 20]);
+    // A record the ring showed beyond the prefix has been drawn and not counted.
+    assert.deepEqual(counterRankedMembers(rows, 3).map((entry) => entry.IntendedVsync), [10, 20, 30]);
+    // Fewer reconstructed records than the counter says finished is a history
+    // nobody can grade, not a smaller window.
+    assert.equal(counterRankedMembers(rows, 5), undefined);
+    assert.equal(counterRankedMembers(rows, undefined), undefined);
+
+    // The window is the difference of two cardinalities: the endpoint's members
+    // minus the baseline's. An inherited completion is a baseline member, so it
+    // never becomes one of the window's rows and never pays for one.
+    const window = counterRankedWindow(rows, { baselineCount: 1, endpointCount: 3 });
+    assert.equal(window.rendered, 2);
+    assert.deepEqual(window.owned.map((entry) => entry.IntendedVsync), [20, 30]);
+    // A record beyond the endpoint's prefix cannot settle its debt, however
+    // early it was scheduled or however conveniently it completes.
+    const short = counterRankedWindow([row(10, 11), row(40, 12)], { baselineCount: 1, endpointCount: 3 });
+    assert.equal(short.rendered, 2);
+    assert.equal(short.owned, undefined);
 });
 
 // A zoom window is drained while its confirmation dumps and settle run. A
