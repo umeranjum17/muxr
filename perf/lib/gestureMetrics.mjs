@@ -206,6 +206,37 @@ export function freshFrameRows(rows, seen) {
     return fresh;
 }
 
+/**
+ * Every identity the ring holds right now, finished or not. A window measures
+ * the frames that appear after its baseline, so the rows already sitting in the
+ * ring when it opened are not its own: counting them would let leftovers from
+ * before the phase pay for frames the phase itself never saw.
+ */
+export function frameRowIdentities(rows) {
+    const identities = new Set();
+    for (const row of rows ?? []) {
+        const key = asNumber(row.IntendedVsync);
+        if (key !== undefined) identities.add(key);
+    }
+    return identities;
+}
+
+/**
+ * Do these counters continue the previous read? A value that vanished or went
+ * backwards is a reset or a failed read, and an endpoint that recovers later
+ * cannot vouch for the window that ran across it.
+ */
+export function counterContinuity(previous, next) {
+    if (previous === undefined) return undefined;
+    for (const field of ['frames', 'missedVsync']) {
+        if (next?.[field] === undefined) return `the ${field === 'frames' ? 'frame' : 'missed-vsync'} counter did not read during the window`;
+        if (previous[field] !== undefined && next[field] < previous[field]) {
+            return `the ${field === 'frames' ? 'frame' : 'missed-vsync'} counter went backwards during the window`;
+        }
+    }
+    return undefined;
+}
+
 /** Rows of this read the pipeline had not finished writing. */
 export function pendingFrameRows(rows, seen) {
     return (rows ?? []).filter((row) => {
@@ -888,14 +919,16 @@ export function verdict(phase, metrics, limits) {
         const coverage = metrics.frameCoverage;
         if (coverage === undefined) failures.push('no frame coverage account');
         else {
-            // Per window, never in total: a window that read back more rows than
-            // its counters grew by -- rows the ring still held from before it --
-            // would otherwise pay for a window that lost some.
-            if ((coverage.missing ?? 0) > 0) failures.push('the framestats ring lost frames');
             // A row the pipeline never finished writing is not a frame anyone
             // read. Crediting it as retained answers the coverage question with
             // the record that was missing.
             if ((coverage.pending ?? 0) > 0) failures.push('the framestats ring left frames unfinished');
+            // Identities observed after the baseline against the frames the
+            // counters say were drawn, and they have to be the same number. Rows
+            // the ring held from before the phase are excluded, so a surplus is
+            // not slack to spend: it is an account that does not add up.
+            if (coverage.retained < coverage.rendered) failures.push('the framestats ring lost frames');
+            else if (coverage.retained > coverage.rendered) failures.push('the framestats ring returned unaccounted frames');
         }
     }
     failWhen(failures, 'missedVsyncPerFling', over(metrics.missedVsyncPerFling, limits.missedVsyncPerFling));

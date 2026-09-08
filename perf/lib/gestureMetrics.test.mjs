@@ -17,6 +17,8 @@ import {
     stripPosition,
     stripScroller,
     freshFrameRows,
+    counterContinuity,
+    frameRowIdentities,
     pendingFrameRows,
     mergeFrameStats,
     parseJsonlStrict,
@@ -115,7 +117,7 @@ test('baseline bout fixtures reduce to the documented failures', () => {
     assert.deepEqual(verdict('herd tree fling', phaseMetrics({ ...drivenFling, missedVsyncPerFling: undefined }), EMULATOR_LIMITS).failures, ['no per-gesture vsync window']);
     // The ring is 120 frames deep; more drawn than read back is a hole in the
     // account, not a clean bout.
-    assert.deepEqual(verdict('herd tree fling', phaseMetrics({ ...drivenFling, frameCoverage: { rendered: 40, retained: 8, missing: 32 } }), EMULATOR_LIMITS).failures, ['the framestats ring lost frames']);
+    assert.deepEqual(verdict('herd tree fling', phaseMetrics({ ...drivenFling, frameCoverage: { rendered: 40, retained: 8 } }), EMULATOR_LIMITS).failures, ['the framestats ring lost frames']);
     assert.deepEqual(verdict('herd tree fling', phaseMetrics({ ...drivenFling, frameCoverage: undefined }), EMULATOR_LIMITS).failures, ['no frame coverage account']);
     // A zoom tap is graded on the window its frames were cut to, not on the
     // phase counter that also spans preparation, the second step and the reset.
@@ -133,7 +135,7 @@ test('baseline bout fixtures reduce to the documented failures', () => {
     assert.deepEqual(verdict('graphics zoom tap', phaseMetrics({ ...drivenZoom, missedVsyncPerFling: 9 }), EMULATOR_LIMITS).failures, ['missedVsyncPerFling']);
     // Missing evidence is not a pass, on either surface.
     assert.deepEqual(verdict('graphics zoom tap', phaseMetrics({ ...drivenZoom, missedVsyncPerFling: undefined }), EMULATOR_LIMITS).failures, ['no per-gesture vsync window']);
-    assert.deepEqual(verdict('graphics zoom tap', phaseMetrics({ ...drivenZoom, frameCoverage: { rendered: 40, retained: 8, missing: 32 } }), EMULATOR_LIMITS).failures, ['the framestats ring lost frames']);
+    assert.deepEqual(verdict('graphics zoom tap', phaseMetrics({ ...drivenZoom, frameCoverage: { rendered: 40, retained: 8 } }), EMULATOR_LIMITS).failures, ['the framestats ring lost frames']);
 
     const late = rows.map((row, index) => {
         if (index >= 3) return row;
@@ -633,13 +635,77 @@ test('an unfinished frame row is not counted and not retired', () => {
         frameCoverage: coverage,
     }, EMULATOR_LIMITS).failures;
     // An unfinished row is not a read-back frame: it cannot pay for one.
-    assert.deepEqual(graded({ rendered: 10, retained: 8, pending: 2, missing: 2 }),
-        ['the framestats ring lost frames', 'the framestats ring left frames unfinished']);
-    assert.deepEqual(graded({ rendered: 10, retained: 8, pending: 0, missing: 2 }), ['the framestats ring lost frames']);
-    // Rows the ring still held from before a window cannot pay for the frames
-    // another window lost: the deficit is counted per window, never in total.
-    assert.deepEqual(graded({ rendered: 10, retained: 12, pending: 0, missing: 2 }), ['the framestats ring lost frames']);
-    assert.deepEqual(graded({ rendered: 10, retained: 10, pending: 0, missing: 0 }), []);
+    assert.deepEqual(graded({ rendered: 10, retained: 8, pending: 2 }),
+        ['the framestats ring left frames unfinished', 'the framestats ring lost frames']);
+    assert.deepEqual(graded({ rendered: 10, retained: 8, pending: 0 }), ['the framestats ring lost frames']);
+    // Identities observed after the baseline have to equal the frames the
+    // counters drew. A surplus is not slack: it is an account that does not add
+    // up, and it must never quietly cover a measured frame that went missing.
+    assert.deepEqual(graded({ rendered: 10, retained: 12, pending: 0 }), ['the framestats ring returned unaccounted frames']);
+    assert.deepEqual(graded({ rendered: 10, retained: 10, pending: 0 }), []);
+});
+
+// The ring still holds rows from the screen before the phase. Counting those as
+// this phase's own lets leftovers pay for frames it never saw: counters 2 -> 12
+// is ten measured frames, and eight is eight however full the ring looks.
+test('baseline rows never pay for measured frames that went missing', () => {
+    const row = (intended) => ({
+        Flags: '0', IntendedVsync: String(intended), FrameCompleted: String(intended + 8e6), InputEventId: '0',
+    });
+    const baselineRows = [row(100), row(200)];
+    const measuredRows = Array.from({ length: 8 }, (_, index) => row(1000 + index));
+
+    // What `prepareBout` does: the identities already in the ring are excluded
+    // from everything the phase measures.
+    const counted = frameRowIdentities(baselineRows);
+    assert.equal(counted.size, 2);
+    // What the drainer does: the closing read still carries the baseline rows.
+    const retained = freshFrameRows([...baselineRows, ...measuredRows], counted).length;
+    assert.equal(retained, 8, 'baseline rows were counted as measured frames');
+    assert.equal(pendingFrameRows([...baselineRows, ...measuredRows], counted), 0);
+
+    const rendered = 12 - 2;
+    const failures = verdict('herd tree fling', phaseMetrics({
+        jank: { frames: 10, jankyPercent: 1, p95Ms: 10, p99Ms: 12, overFourFramesPercent: 0, missedVsync: 0 },
+        frameStats: { frames: retained, droppedPercent: 0, inputToFrameMs: { p95: 10 } },
+        missedVsyncPerFling: 1,
+        movement: { proven: true },
+        frameCoverage: { rendered, retained, pending: 0 },
+    }), EMULATOR_LIMITS).failures;
+    assert.deepEqual(failures, ['the framestats ring lost frames']);
+    // Ten drawn, ten observed after the baseline: that reconciles.
+    assert.deepEqual(verdict('herd tree fling', phaseMetrics({
+        jank: { frames: 10, jankyPercent: 1, p95Ms: 10, p99Ms: 12, overFourFramesPercent: 0, missedVsync: 0 },
+        frameStats: { frames: 10, droppedPercent: 0, inputToFrameMs: { p95: 10 } },
+        missedVsyncPerFling: 1,
+        movement: { proven: true },
+        frameCoverage: { rendered: 10, retained: 10, pending: 0 },
+    }), EMULATOR_LIMITS).failures, []);
+});
+
+// A zoom window is drained while its confirmation dumps and settle run. A
+// counter that vanished or reset during one of those reads cannot be vouched
+// for by endpoints that line up again afterwards.
+test('a counter that breaks mid-window is not saved by its endpoints', () => {
+    const at = (frames, missedVsync) => ({ frames, missedVsync });
+    assert.equal(counterContinuity(at(10, 1), at(14, 2)), undefined);
+    assert.equal(counterContinuity(undefined, at(14, 2)), undefined);
+    assert.match(counterContinuity(at(10, 1), at(4, 2)), /frame counter went backwards/);
+    assert.match(counterContinuity(at(10, 1), at(14, 0)), /missed-vsync counter went backwards/);
+    assert.match(counterContinuity(at(10, 1), at(undefined, 2)), /frame counter did not read/);
+    assert.match(counterContinuity(at(10, 1), at(14, undefined)), /missed-vsync counter did not read/);
+
+    // The drained sequence the zoom window folds: reset in the middle, endpoints
+    // that reconcile. The first break is what the phase reports.
+    const drained = [at(10, 1), at(14, 2), at(2, 0), at(20, 3)];
+    let broke;
+    let previous;
+    for (const snapshot of drained) {
+        broke ??= counterContinuity(previous, snapshot);
+        previous = snapshot;
+    }
+    assert.match(broke, /went backwards/);
+    assert.ok(drained.at(-1).frames > drained[0].frames, 'the endpoints alone would have reconciled');
 });
 
 // The frozen report is one Text node: UIAutomator publishes the whole string at

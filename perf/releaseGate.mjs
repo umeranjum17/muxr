@@ -63,6 +63,8 @@ import {
     continuesFrom,
     cropRaw,
     firstDocumentMarker,
+    counterContinuity,
+    frameRowIdentities,
     freshFrameRows,
     pendingFrameRows,
     mergeFrameStats,
@@ -414,7 +416,12 @@ async function captureSurface(surface, screen) {
  */
 async function prepareBout(surface, screen, hz) {
     const beforeSurface = surface === undefined ? undefined : await captureSurface(surface, screen);
-    return { beforeSurface, attempt: newAttempt(), before: await resetGfxWindow(PKG, { hz }) };
+    const before = await resetGfxWindow(PKG, { hz });
+    // The ring is not emptied by the reset. Whatever it still holds at this
+    // moment belongs to the screen before this phase, so those identities are
+    // excluded from everything the phase measures.
+    const baseline = await gfxSnapshot(PKG, { hz });
+    return { beforeSurface, attempt: newAttempt(), before, baselineIdentities: frameRowIdentities(baseline.rows) };
 }
 
 /**
@@ -463,16 +470,19 @@ function ringDrainer(hz, onSnapshot, seen = new Set()) {
 }
 
 async function measureBout(run, hz, { surface, screen, phase, prepared } = {}) {
-    const { beforeSurface, before } = prepared ?? await prepareBout(surface, screen, hz);
+    const ready = prepared ?? await prepareBout(surface, screen, hz);
+    const { beforeSurface, before, baselineIdentities } = ready;
     const parts = [];
     // A bout flings up and then back down. On a surface whose content repeats,
     // the end of the bout can land on the same picture the start had, so the
     // travel is sampled once while it is still one-way and the movement is
     // judged on whichever comparison saw the most.
     let oneWaySurface;
-    // framestats is a rolling ring re-read after every fling; without this the
-    // same frame is counted once per remaining read of the bout.
-    const counted = new Set();
+    // framestats is a rolling ring re-read while the bout runs; without this the
+    // same frame is counted once per remaining read. It is seeded with what the
+    // ring already held at the baseline, so only frames this phase drew are its
+    // own and leftovers cannot pay for measured frames that never came back.
+    const counted = new Set(baselineIdentities ?? []);
     // Per-gesture timing beside the rows it was reduced from: without them the
     // phase p95 is a number nobody can take apart again.
     const gestureFrames = [];
@@ -490,9 +500,6 @@ async function measureBout(run, hz, { surface, screen, phase, prepared } = {}) {
     let rendered = 0;
     let retained = 0;
     let pending = 0;
-    // Measured frames no read ever gave back, counted per window so a window
-    // holding older rows cannot pay for one that lost its own.
-    let missing = 0;
     let coverageBroken = false;
     // The window that is open right now. Reads during it accumulate here, so a
     // drain taken while a screenshot is being pulled adds to the window it
@@ -540,7 +547,6 @@ async function measureBout(run, hz, { surface, screen, phase, prepared } = {}) {
         parts.push(reduced);
         rendered += open.rendered;
         retained += open.retained;
-        missing += Math.max(0, open.rendered - open.retained);
         pending = ring.pendingCount();
         gestureFrames.push({
             profile: window.profile,
@@ -600,7 +606,7 @@ async function measureBout(run, hz, { surface, screen, phase, prepared } = {}) {
     // The attempt ends on its own last observation, and the sampler's closing
     // CPU, PSS and frame samples are taken before this returns. Anything after
     // it -- a diagnostics pull, the next phase's navigation -- is not measured.
-    await prepared?.attempt?.close();
+    await ready.attempt?.close();
     const injectFailed = bout.injectFailed === true;
     const observed = beforeSurface === undefined
         ? undefined
@@ -616,7 +622,7 @@ async function measureBout(run, hz, { surface, screen, phase, prepared } = {}) {
         jank: reduceJank(before, after, { hz }),
         frameStats: mergeFrameStats(parts),
         gestureFrames,
-        frameCoverage: coverageBroken ? undefined : { rendered, retained, pending, missing },
+        frameCoverage: coverageBroken ? undefined : { rendered, retained, pending },
         missedVsyncPerFling: worstMissedVsyncPerFling(gestureFrames),
         movement,
         beforeSurface,
@@ -1062,8 +1068,16 @@ async function drivePhase(phase, screen, hz, ready) {
         // their own, so this window is drained on the same cadence a bout uses.
         // Rows the ring would otherwise have dropped are kept here.
         const zoomRows = [];
-        const zoomRing = ringDrainer(hz, ({ fresh }) => zoomRows.push(...fresh),
-            new Set(vsyncBefore.rows.map((row) => Number(row.IntendedVsync))));
+        // Continuity is checked at every read, not only at the endpoints: a
+        // counter that vanished or reset mid-window cannot be vouched for by a
+        // closing pair that happens to line up again afterwards.
+        let zoomCounters = vsyncBefore.jank;
+        let zoomBroke;
+        const zoomRing = ringDrainer(hz, ({ snapshot, fresh }) => {
+            zoomBroke ??= counterContinuity(zoomCounters, snapshot.jank);
+            zoomCounters = snapshot.jank;
+            zoomRows.push(...fresh);
+        }, frameRowIdentities(vsyncBefore.rows));
         const injected = await tapTimed(
             (zoomInBounds.l + zoomInBounds.r) / 2,
             (zoomInBounds.t + zoomInBounds.b) / 2,
@@ -1107,6 +1121,7 @@ async function drivePhase(phase, screen, hz, ready) {
         // The ring bounded to this tap and its settle, so the frames, the drops
         // and the input-to-frame all describe the same window the grid did.
         const vsyncAfter = await zoomRing.absorb();
+        if (zoomBroke !== undefined) return unavailable(`${zoomBroke} (zoom)`);
         // Coverage is the snapshot pair, exactly what the counters below span:
         // frames drawn before the tap and while it settled are part of that
         // window, so cutting the rows to the injector's interval would report
@@ -1131,12 +1146,7 @@ async function drivePhase(phase, screen, hz, ready) {
         }
         // Same rejection as a bout: a measured frame the ring never gave back is
         // missing, and a record it never finished writing is not one either.
-        const zoomCoverage = {
-            rendered: drewInWindow,
-            retained: zoomRows.length,
-            pending: zoomRing.pendingCount(),
-            missing: Math.max(0, drewInWindow - zoomRows.length),
-        };
+        const zoomCoverage = { rendered: drewInWindow, retained: zoomRows.length, pending: zoomRing.pendingCount() };
 
         // Only now may anything else be driven. The pixels below are this
         // phase's own pane after its own step: on a graphics surface they are
