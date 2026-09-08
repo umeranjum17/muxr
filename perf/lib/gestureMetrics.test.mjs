@@ -21,6 +21,7 @@ import {
     stripScroller,
     freshFrameRows,
     boutBaseline,
+    classifyFrameRow,
     counterContinuity,
     frameRowIdentities,
     pendingFrameRows,
@@ -778,15 +779,16 @@ test('a live stream reconciles, and lost or reset evidence still fails', async (
         Object.defineProperty(rows, 'sectionRead', { value: true });
         return { rows, jank: { frames: resetAt ?? count, janky: 0, missedVsync: 0, p95Ms: 10, p99Ms: 10 } };
     };
-    const drive = async (snapshots) => {
+    const drive = async (snapshots, gestures = [1]) => {
         const waits = [];
+        const order = [];
         let read = -1;
         const context = vm.createContext({
             ...await import('./gestureMetrics.mjs'),
             PKG: 'offline', RAW_FRAME_ROW_CAP: 200, RING_DRAIN_MS: 250,
-            sleep: async (ms) => { waits.push(ms); },
+            sleep: async (ms) => { waits.push(ms); order.push(`slept ${ms}`); },
             resetGfxWindow: async () => {},
-            newAttempt: () => ({ close: async () => {} }),
+            newAttempt: () => ({ close: async () => { order.push('cpu-closed'); } }),
             // The device clock sits just after the newest frame each read
             // carried, so the window owns what was scheduled inside it.
             deviceMonotonicSeconds: async () => (1e9 + Math.max(0, read) * 1e7 + 5e6) / 1e9,
@@ -798,10 +800,10 @@ test('a live stream reconciles, and lost or reset evidence still fails', async (
         ].map(actual).join('\n'), context);
         const prepared = await context.prepareBout(undefined, undefined, 60);
         const measured = await context.measureBout(async ({ onGesture }) => {
-            await onGesture({ profile: 'fling', t0Seconds: 1 });
-            return { gestures: 1, flings: 1 };
+            for (const t0Seconds of gestures) await onGesture({ profile: 'fling', t0Seconds });
+            return { gestures: gestures.length, flings: gestures.length };
         }, 60, { prepared });
-        return { measured, waits };
+        return { measured, waits, order };
     };
 
     // Every owned record finishes on the next read; newer frames keep arriving.
@@ -844,6 +846,69 @@ test('a live stream reconciles, and lost or reset evidence still fails', async (
         ...lost.measured, movement: { proven: true }, missedVsyncPerFling: 0,
     }), EMULATOR_LIMITS).failures.includes('the framestats ring lost frames'));
 
+    // A frame scheduled before the phase and finished inside it: the counter
+    // delta is charged for it, so the delta is adjusted -- it never becomes one
+    // of this phase's rows, and its absence is not a lost frame.
+    const carried = (finished) => ({
+        Flags: 0, IntendedVsync: 0.99e9, FrameCompleted: finished ? 1.006e9 : 1, InputEventId: 1,
+    });
+    const withCarried = await drive((read) => {
+        const rows = Array.from({ length: read }, (_, index) => frame(index + 1, true));
+        rows.push(carried(read >= 1));
+        rows.push(frame(read + 1, false));
+        Object.defineProperty(rows, 'sectionRead', { value: true });
+        // The counter counted the carried frame too, once it landed.
+        return { rows, jank: { frames: read + (read >= 1 ? 1 : 0), janky: 0, missedVsync: 0, p95Ms: 10, p99Ms: 10 } };
+    });
+    assert.equal(withCarried.measured.frameCoverage.baselineCompletions, 1);
+    assert.equal(withCarried.measured.frameCoverage.retained, withCarried.measured.frameCoverage.rendered);
+    assert.equal(withCarried.measured.frameCoverage.unresolved, 0);
+
+    // A record that finishes after the endpoint cannot pay a deficit the
+    // endpoint recorded, however early the frame was scheduled.
+    const late = await drive((read) => {
+        // Frame 1 is counted immediately; its record only lands after the
+        // endpoint, so this window's counters were never charged for it.
+        const rows = Array.from({ length: read }, (_, index) => frame(index + 1, index + 1 !== 1));
+        if (read >= 5) rows[0] = { Flags: 0, IntendedVsync: 1e9 + 1e7, FrameCompleted: 1e9 + 9e7, InputEventId: 1 };
+        rows.push(frame(read + 1, false));
+        Object.defineProperty(rows, 'sectionRead', { value: true });
+        return { rows, jank: { frames: read, janky: 0, missedVsync: 0, p95Ms: 10, p99Ms: 10 } };
+    });
+    assert.ok(late.measured.frameCoverage.unresolved > 0, 'a post-endpoint completion paid an earlier deficit');
+    assert.ok(verdict('herd tree fling', phaseMetrics({
+        ...late.measured, movement: { proven: true }, missedVsyncPerFling: 0,
+    }), EMULATOR_LIMITS).failures.includes('the framestats ring lost frames'));
+
+    // A counter that vanishes on a read past the boundary is a hole like any
+    // other: the frozen branch validates before it returns.
+    const holed = await drive((read) => {
+        const snapshot = ring(read, { racing: true });
+        return read >= 4 ? { rows: snapshot.rows, jank: { ...snapshot.jank, frames: undefined } } : snapshot;
+    });
+    assert.equal(holed.measured.frameCoverage, undefined);
+
+    // Closing CPU and PSS happen at the frame endpoint, before the collector is
+    // stopped and long before any reconciliation read waits on anything.
+    const ordered = await drive((read) => ring(read, { racing: true }));
+    const closedAt = ordered.order.indexOf('cpu-closed');
+    assert.ok(closedAt >= 0, 'the attempt was never closed');
+    assert.ok(!ordered.order.slice(closedAt).some((step) => step === 'cpu-closed' && false));
+    assert.ok(ordered.order.slice(0, closedAt).every((step) => step.startsWith('slept 250')),
+        'something other than the drainer cadence ran inside the measured window');
+
+    // A credited row is graded with the gesture that was in flight when it
+    // finished, so its latency is that touch's and not the closing observation's.
+    const twoFlings = await drive((read) => {
+        const rows = Array.from({ length: read }, (_, index) => frame(index + 1, true));
+        rows.push(frame(read + 1, false));
+        Object.defineProperty(rows, 'sectionRead', { value: true });
+        return { rows, jank: { frames: read, janky: 0, missedVsync: 0, p95Ms: 10, p99Ms: 10 } };
+    }, [1, 1.02]);
+    const inputWindows = twoFlings.measured.gestureFrames.filter((window) => window.input === true);
+    assert.equal(inputWindows.length, 2);
+    assert.ok(inputWindows.every((window) => window.t0Seconds !== undefined));
+
     // A counter that resets mid-bout is a window nobody can account for, even
     // though it climbs again afterwards.
     const reset = await drive((read) => ring(read, { resetAt: read > 2 ? read - 3 : read }));
@@ -876,6 +941,38 @@ test('a failed dump is no observation, and the terminal names itself', () => {
     assert.equal(scrollableBounds('document', '', { width: 1080, height: 1920 }), undefined);
     assert.equal(documentPosition(''), undefined);
     assert.equal(stripPosition(''), undefined);
+});
+
+// The zoom window keeps the same account a bout does: one clock interval, two
+// timestamps per row, and a counter delta adjusted for what it inherited.
+test('a zoom window classifies its rows the way a bout does', () => {
+    const startNs = 1.005e9;
+    const endNs = 1.055e9;
+    const row = (scheduled, completed) => ({
+        Flags: 0, IntendedVsync: scheduled, FrameCompleted: completed, InputEventId: 1,
+    });
+    const window = { startNs, endNs };
+    // Scheduled before the window, finished inside it: the counter delta is
+    // charged for it, so the delta is adjusted and it is not one of our rows.
+    assert.equal(classifyFrameRow(row(0.99e9, 1.01e9), window), 'baseline');
+    // Finished before the window opened: the baseline counter already had it.
+    assert.equal(classifyFrameRow(row(0.99e9, 1.0e9), window), 'before');
+    // Finished after the endpoint: this window's counters never counted it, so
+    // it can never settle a debt they recorded.
+    assert.equal(classifyFrameRow(row(1.02e9, 1.09e9), window), 'after');
+    assert.equal(classifyFrameRow(row(1.02e9, 1.03e9), window), 'owned');
+    // A record still being written is neither, and one more is always in flight
+    // on a live surface: that is not an unfinished frame this window owes.
+    assert.equal(classifyFrameRow({ Flags: 0, IntendedVsync: 1.05e9, FrameCompleted: 1 }, window), 'incomplete');
+
+    // Two rows drawn and two counted, with one inherited completion: adjusting
+    // the delta is what keeps it 2 rendered / 2 retained instead of falsely lost.
+    const rows = [row(0.99e9, 1.01e9), row(1.02e9, 1.03e9), row(1.03e9, 1.04e9)];
+    const sides = rows.map((entry) => classifyFrameRow(entry, window));
+    const owned = sides.filter((side) => side === 'owned').length;
+    const inherited = sides.filter((side) => side === 'baseline').length;
+    assert.equal(owned, 2);
+    assert.equal(3 - inherited, owned);
 });
 
 // A zoom window is drained while its confirmation dumps and settle run. A

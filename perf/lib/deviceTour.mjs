@@ -22,7 +22,7 @@ async function adb(args, timeout = 20_000) {
 }
 
 // One file per dump: a read that failed is an empty screen, never the last one.
-const currentScreen = () => dumpUiXml();
+const currentScreen = () => dumpUiXml(20_000, 16 * 1024 * 1024);
 
 async function openSession(sessionId) {
     // The deep link is the only stable way in. Card positions move as the herd
