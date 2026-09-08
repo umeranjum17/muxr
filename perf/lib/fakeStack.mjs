@@ -17,6 +17,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync, chmodSync, s
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { runCommand as run, spawnCommand as spawn, onCommandCleanup, commandSignal, assertCommandActive } from './commands.mjs';
+import { androidArgs } from './deviceTarget.mjs';
 
 const RELAY_ENTRY = 'apps/relay/dist/main.js';
 const HOST_ENTRY = 'apps/host/dist/main.js';
@@ -230,7 +231,7 @@ async function startStack(options, live) {
         // one -- loopback, or a failure before it -- must not reach for adb.
         if (reversed) {
             reversed = false;
-            spawnSync('adb', ['reverse', '--remove', `tcp:${relayPort}`], { stdio: 'ignore', timeout: 10_000 });
+            spawnSync('adb', androidArgs(['reverse', '--remove', `tcp:${relayPort}`]), { stdio: 'ignore', timeout: 10_000 });
         }
         rmSync(root, { recursive: true, force: true });
     };
@@ -294,7 +295,7 @@ async function startStack(options, live) {
         host.stderr.on('data', (chunk) => hostLog.push(String(chunk)));
 
         if (transport === 'adb') {
-            await run('adb', ['reverse', `tcp:${relayPort}`, `tcp:${relayPort}`], { timeout: 60_000 });
+            await run('adb', androidArgs(['reverse', `tcp:${relayPort}`, `tcp:${relayPort}`]), { timeout: 60_000 });
             reversed = true;
         }
 
@@ -312,6 +313,7 @@ async function startStack(options, live) {
             attachJsonl: fake.attachJsonl,
             graphicsInputJsonl: fake.graphicsInputJsonl,
             inputJsonl: fake.inputJsonl,
+            worldIdentityPath: fake.worldIdentityPath,
             // The service's own processes, for a memory budget. Terminal shims
             // are children of the host, so a tree walk from these covers them.
             // The stand-in for Herdr is reported apart from our own code.

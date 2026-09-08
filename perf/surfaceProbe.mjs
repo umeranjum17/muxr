@@ -1,210 +1,326 @@
 #!/usr/bin/env node
-/**
- * One surface, about a minute, against a session somebody already prepared.
- *
- * This is a development probe, not acceptance. It does not build, install,
- * pair, run the prescribed idle baseline, soak or tour: it validates the
- * session it was handed, drives one surface with the same helpers the release
- * gate uses, and reports what it actually measured. Every result it prints is
- * marked `partial`, because a warm probe cannot be release evidence and must
- * never be mistaken for it.
- *
- * Frame accounting is deliberately absent. The gfxinfo ledger is frozen for
- * acceptance, so this probe reports CPU and memory as diagnostics and proves
- * behaviour with fresh captures, movement candidates and host records instead.
- */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+/** Warm, surface-selective development probe. It never builds, installs or pairs. */
+import { PNG } from 'pngjs';
+import { createHash } from 'node:crypto';
+import { existsSync, readFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { CommandScope, useCommandScope } from './lib/commands.mjs';
-import {
-    deviceIdentity,
-    dismissPrompts,
-    dumpUiXml,
-    refreshHz,
-    samplePhase,
-    screenshot,
-} from './lib/androidSignals.mjs';
-import { drag, fling } from './lib/gestures.mjs';
-import { documentPosition, documentViewport, scrollableBounds, stripPosition, TERMINAL_SURFACE, verticalScrollers } from './lib/gestureMetrics.mjs';
-import { harnessIdentity, sha256, sourceIdentity } from './lib/provenance.mjs';
-import { SCENARIO_VERSION } from './lib/scenario.mjs';
+import { CommandScope, fetchCommand, useCommandScope } from './lib/commands.mjs';
+import { setAndroidSerial, androidArgs } from './lib/deviceTarget.mjs';
+import { deviceIdentity, dumpUiXml, samplePhase, screenshot } from './lib/androidSignals.mjs';
+import { fling, drag } from './lib/gestures.mjs';
+import { documentPosition, parseUiNodes, scrollableBounds, treePosition, TERMINAL_SURFACE } from './lib/gestureMetrics.mjs';
+import { apkIdentity, harnessIdentity, iosAppIdentity, patchedDependencies, runtimeIdentity, sha256, sourceIdentity } from './lib/provenance.mjs';
+import { IosControls, appPid as iosAppPid, command as iosCommand, processSample } from './lib/iosSignals.mjs';
+import { iosConnectionProof } from './lib/iosWarm.mjs';
+import { PROBE_KIND, acquireOwnerLock, artifactMismatch, judgeProbeMovement, metric, processStartIdentity, provenanceMismatch, sampleValidity, screenshotsComplete, validateDeadline, validateFixtureProof, validateOwnerLock, validateSession, worldIdentity } from './lib/surfaceProbe.mjs';
+import { documentPayload, scenarioDescriptor } from './lib/scenario.mjs';
 
 const args = process.argv.slice(2);
-const flag = (name, fallback) => {
-    const index = args.indexOf(name);
-    return index < 0 ? fallback : args[index + 1];
-};
+const flag = (name, fallback) => { const index = args.indexOf(name); return index < 0 ? fallback : args[index + 1]; };
 const sessionPath = resolve(flag('--session', '/tmp/muxr-probe-session.json'));
 const platform = flag('--platform', 'android');
 const surface = flag('--surface', 'document');
-const deadlineSeconds = Number(flag('--seconds', '110'));
-const attachmentsDir = flag('--attachments-dir')
-    ?? (process.env.HERDR_PANE_ID ? join(process.env.HOME, '.muxr/attachments/pane', process.env.HERDR_PANE_ID) : undefined);
-
-if (!['android', 'ios'].includes(platform) || !['document', 'tree', 'terminal'].includes(surface)) {
-    process.stderr.write('usage: surfaceProbe.mjs --session <path> --platform android|ios --surface document|tree|terminal\n');
-    process.exit(2);
-}
-
+const attachmentsDir = flag('--attachments-dir') ?? (process.env.HERDR_PANE_ID ? join(process.env.HOME, '.muxr/attachments/pane', process.env.HERDR_PANE_ID) : resolve('/tmp/muxr-surface-probe-attachments'));
+const serial = flag('--serial');
+const udid = flag('--udid');
 const scope = new CommandScope();
 useCommandScope(scope);
 const startedAt = Date.now();
-
-/** Missing is never zero: a metric nobody could take says so and why. */
-const metric = (name, value, unit, scope_, definition, collector) => (value === undefined
-    ? { name, unit, scope: scope_, definition, collector, validity: 'unavailable', reason: `${name} did not read` }
-    : { name, value, unit, scope: scope_, definition, collector, validity: 'measured' });
-
-const finish = (outcome, extra = {}) => {
-    const envelope = {
-        // A warm probe is never release acceptance, and says so in its own body.
-        kind: 'muxr.surface-probe',
-        partial: true,
-        acceptance: false,
-        note: 'development probe against a warm session; not release acceptance',
-        scenario: { version: SCENARIO_VERSION, ...(session?.scenario ?? {}) },
-        candidate: session?.candidate,
-        host: session?.host === undefined ? undefined : { relayPort: session.host.relayPort, fixturePanes: session.host.fixturePanes },
-        plugins: session?.plugins,
-        platform,
-        surface,
-        startedAt: new Date(startedAt).toISOString(),
-        elapsedSeconds: Number(((Date.now() - startedAt) / 1000).toFixed(1)),
-        outcome,
-        ...extra,
-    };
-    process.stdout.write(`${JSON.stringify(envelope, null, 2)}\n`);
-    scope.cleanup();
-    process.exit(outcome === 'pass' ? 0 : 1);
-};
-
 let session;
-try {
-    session = JSON.parse(readFileSync(sessionPath, 'utf8'));
-} catch (error) {
-    finish('inconclusive', { validity: 'unavailable', reason: `no session descriptor at ${sessionPath} (${error.code ?? error.message})` });
+let shots = {};
+let probeRelease;
+let attempt;
+let selectedHostProof = false;
+let iosUi;
+
+function checkDeadline() { scope.signal.throwIfAborted(); scope.remaining(1); }
+function readJsonl(path, cap = 256) {
+    if (!existsSync(path)) throw new Error('required evidence log is missing');
+    const lines = readFileSync(path, 'utf8').split('\n').filter(Boolean);
+    if (lines.length > cap) throw new Error('required evidence log exceeds its bound');
+    try { return lines.map(JSON.parse); } catch { throw new Error('required evidence log is malformed'); }
 }
-
-// The session has to be the one this probe was told to measure, and it has to
-// still be alive. A dead owner means the world and the pairing are gone.
-const stale = (() => {
-    if (session.version !== 1) return `session descriptor version ${session.version} is not this probe's`;
-    if (session.platform !== platform) return `session is ${session.platform}, probe asked for ${platform}`;
-    if (session.scenario?.version !== SCENARIO_VERSION) return `session scenario ${session.scenario?.version} is not ${SCENARIO_VERSION}`;
-    try { process.kill(session.pid, 0); } catch { return `the session owner (pid ${session.pid}) is gone`; }
-    const source = sourceIdentity('.');
-    if (session.candidate?.source?.sha256 !== source.sha256) return 'the working tree is not the source this session prepared';
-    if (session.candidate?.artifact !== undefined) {
-        if (!existsSync(session.candidate.artifact)) return 'the candidate artifact is gone';
-        if (sha256(session.candidate.artifact) !== session.candidate.sha256) return 'the candidate artifact changed since preparation';
-    }
-    const document = session.scenario?.document;
-    const onDisk = join(session.host?.cwd ?? '', document?.name ?? '');
-    if (document !== undefined && (!existsSync(onDisk) || sha256(onDisk) !== document.sha256)) {
-        return 'the document fixture on the host is not the one this session prepared';
-    }
-    return undefined;
-})();
-if (stale !== undefined) finish('inconclusive', { validity: 'invalid', reason: stale });
-
-if (platform === 'ios') {
-    // Two tiny branches, one CLI. The iOS probe drives simctl through the
-    // existing controls; it is not wired here yet, and saying so is the honest
-    // answer rather than reporting an Android measurement under an iOS label.
-    finish('inconclusive', {
-        validity: 'unavailable',
-        reason: 'the iOS surface probe is not wired to this session yet; use perf/iosReleaseGate.mjs --phases',
+function hostJournal() {
+    const path = join(session.host.dataDir, 'diagnostics.json');
+    if (!existsSync(path)) throw new Error('required host journal is missing');
+    const value = JSON.parse(readFileSync(path, 'utf8'));
+    if (!Array.isArray(value.events) || value.events.length > 256) throw new Error('required host journal is malformed or over cap');
+    return value.events;
+}
+function pathFor(name, suffix = '') { return join(attachmentsDir, `probe-${surface}-${name}-${startedAt}${suffix}.png`); }
+function pngCrop(image, bounds, scale = 1) {
+    const left = Math.round((bounds?.l ?? 0) * scale), top = Math.round((bounds?.t ?? 0) * scale), right = Math.round((bounds?.r ?? 0) * scale), bottom = Math.round((bounds?.b ?? 0) * scale);
+    if (left < 0 || top < 0 || right <= left || bottom <= top || right > image.width || bottom > image.height) throw new Error('surface crop is outside screenshot bounds');
+    const width = right - left, height = bottom - top, bytes = Buffer.alloc(width * height * 4);
+    for (let y = 0; y < height; y += 1) image.data.copy(bytes, y * width * 4, ((top + y) * image.width + left) * 4, ((top + y) * image.width + right) * 4);
+    return { width, height, bytes };
+}
+function routeFor(paneId) {
+    const agent = (session.host.world?.agents ?? []).find((row) => row.pane_id === paneId);
+    if (!agent) return `shell:${paneId}`;
+    const routes = JSON.parse(readFileSync(join(session.host.dataDir, 'herdr-routes.json'), 'utf8')).bindings;
+    return routes.find((row) => ['source', 'agent', 'kind', 'value'].every((key) => row.agentSession?.[key] === agent.agent_session[key]))?.route;
+}
+async function adb(argv, options = {}) { checkDeadline(); return (await scope.run('adb', androidArgs(argv), { timeout: scope.remaining(options.timeout ?? 20_000), ...options })).stdout; }
+async function maestro(flow) {
+    checkDeadline();
+    return new Promise((done, reject) => {
+        const child = scope.spawn('mise', ['x', 'maestro@cli-2.7.0', '--', 'maestro', '--device', serial, 'test', join('perf/flows', flow)], { stdio: ['ignore', 'pipe', 'pipe'] });
+        const output = []; child.stdout.on('data', (chunk) => output.push(String(chunk))); child.stderr.on('data', (chunk) => output.push(String(chunk)));
+        child.once('error', reject); child.once('close', (code) => code === 0 ? done({ code, output: output.join('') }) : reject(new Error(`Maestro exited ${code}: ${output.join('').slice(-400)}`)));
     });
 }
-
-const device = await deviceIdentity().catch(() => undefined);
-const hz = await refreshHz().catch(() => undefined);
-const shots = {};
-const capture = async (name) => {
-    if (attachmentsDir === undefined) return undefined;
-    mkdirSync(attachmentsDir, { recursive: true });
-    const path = join(attachmentsDir, `probe-${surface}-${name}-${startedAt}.png`);
-    const taken = await screenshot(path).then(() => existsSync(path)).catch(() => false);
-    if (!taken) return undefined;
-    shots[name] = path;
-    return path;
-};
-
-/** Where the surface is standing, read from a fresh hierarchy every time. */
-const readSurface = async () => {
-    const dump = await dumpUiXml();
-    if (dump === '' || !dump.includes('<hierarchy')) return { dumped: false };
-    const bounds = scrollableBounds(surface === 'tree' ? 'tree' : surface, dump, device ?? {});
-    return {
-        dumped: true,
-        bounds,
-        ...(surface === 'document' ? { position: documentPosition(dump), viewport: documentViewport(dump).bounds } : {}),
-        ...(surface === 'tree' ? { position: stripPosition(dump) } : {}),
-        ...(surface === 'terminal' ? { surfaceSeen: dump.includes(`content-desc="${TERMINAL_SURFACE}"`) } : {}),
-        scrollers: verticalScrollers(dump).length,
-    };
-};
-
-await dismissPrompts();
-const before = await readSurface();
-if (!before.dumped) finish('inconclusive', { validity: 'unavailable', reason: 'the hierarchy did not read before the probe' });
-if (before.bounds === undefined) {
-    finish('inconclusive', { validity: 'unavailable', reason: `the ${surface} surface is not on screen` });
+function androidConnected(dump) {
+    const values = parseUiNodes(dump).flatMap((node) => [node.text, node.desc]).map((value) => String(value ?? '').trim());
+    return values.some((value) => /^connected$/i.test(value)) && !values.some((value) => /^(disconnected|reconnecting|connecting)$/i.test(value));
 }
-await capture('before');
-
-// One-way travel first, then back: the same gestures the gate drives, at the
-// same commanded speeds, with the surface's own bounds.
-const box = before.bounds;
-const midX = Math.round((box.l + box.r) / 2);
-const top = Math.round(box.t + (box.b - box.t) * 0.28);
-const bottom = Math.round(box.t + (box.b - box.t) * 0.72);
-const actions = [];
-let moving;
-const sampled = samplePhase({ pkg: 'com.trymuxr.app', seconds: Math.min(20, deadlineSeconds), intervalMs: 2000 });
-for (let pass = 0; pass < 3 && (Date.now() - startedAt) / 1000 < deadlineSeconds - 20; pass += 1) {
-    actions.push(await fling({ x: midX, y: bottom }, { x: midX, y: top }));
-    if (moving === undefined) {
-        moving = await readSurface();
-        await capture('moving');
+function iosScrollers(nodes) {
+    return nodes.filter((node) => node.frame && /scroll|list|collection|table/i.test(`${node.type ?? ''} ${node.AXRole ?? ''} ${node.role ?? ''}`) && node.frame.width > 0 && node.frame.height > 0).sort((a, b) => a.frame.width * a.frame.height - b.frame.width * b.frame.height);
+}
+function iosDocumentPosition(nodes) {
+    const rows = nodes.filter((node) => /^PERF_LINE_\d+/.test(node.AXLabel ?? '') && iosUi.visible(node) && node.frame.height <= 80).sort((a, b) => a.frame.y - b.frame.y);
+    const line = /PERF_LINE_(\d+)/.exec(rows[0]?.AXLabel ?? '');
+    const scroller = iosScrollers(nodes).find((node) => rows.some((row) => row.frame.y >= node.frame.y && row.frame.y + row.frame.height <= node.frame.y + node.frame.height));
+    return line && scroller ? { line: Number(line[1]), top: rows[0].frame.y, viewport: frameBounds(scroller.frame) } : undefined;
+}
+function frameBounds(frame) { return { l: frame.x, t: frame.y, r: frame.x + frame.width, b: frame.y + frame.height }; }
+function knownTreeIdentity(identity) {
+    return [...(session.host.world.workspaces ?? []), ...(session.host.world.agents ?? []), ...(session.host.world.panes ?? [])].some((row) => (row.label && identity.includes(row.label)) || (row.name && identity.includes(row.name)));
+}
+function iosTreePosition(nodes) {
+    const known = new Set([...(session.host.world.workspaces ?? []).map((row) => row.label), ...(session.host.world.agents ?? []).map((row) => row.name), ...(session.host.world.panes ?? []).map((row) => row.label)].filter(Boolean));
+    const candidates = nodes.filter((node) => node.frame && iosUi.visible(node) && node.frame.height > 20 && node.frame.height <= 100 && [...known].some((label) => String(node.AXLabel ?? '').includes(label)));
+    const row = candidates.sort((a, b) => a.frame.y - b.frame.y)[0];
+    const scroller = iosScrollers(nodes).find((node) => row && row.frame.y >= node.frame.y && row.frame.y + row.frame.height <= node.frame.y + node.frame.height);
+    return row && scroller ? { identity: String(row.AXLabel).slice(0, 160), top: row.frame.y, viewport: frameBounds(scroller.frame) } : undefined;
+}
+function terminalProof(paneId, since) {
+    const geometry = (existsSync(session.host.cellMetricsJsonl) ? readJsonl(session.host.cellMetricsJsonl) : []).filter((row) => row.pane_id === paneId && row.mode === 'control' && row.source === 'terminal.attach' && Date.parse(row.at) >= since && row.cols > 0 && row.rows > 0);
+    const inputs = (existsSync(session.host.inputJsonl) ? readJsonl(session.host.inputJsonl) : []).filter((row) => row.pane_id === paneId && Date.parse(row.at) >= since && ((row.source === 'terminal.scroll' && ['up', 'down'].includes(row.direction) && Number(row.lines) > 0) || (row.source === 'terminal.input' && Number(row.notches) > 0)));
+    const requests = hostJournal().filter((row) => row.event === 'client.request' && row.request === 'terminal.attach' && row.outcome === 'ok' && Date.parse(row.at) >= since);
+    return { attached: geometry.length > 0 && requests.length > 0, input: inputs.length > 0, distance: inputs.reduce((total, row) => total + (Number(row.lines) > 0 ? Number(row.lines) : Number(row.notches)), 0), records: { geometry, requests, inputs } };
+}
+async function capture(name, bounds) {
+    checkDeadline(); mkdirSync(attachmentsDir, { recursive: true });
+    const original = pathFor(name, '-full');
+    if (platform === 'android') await screenshot(original); else await iosUi.screenshot(original);
+    const image = PNG.sync.read(readFileSync(original));
+    let scale = 1;
+    if (platform === 'ios') {
+        if (!iosUi.width || !iosUi.height || !iosUi.pixelWidth || !iosUi.pixelHeight) throw new Error('iOS screenshot geometry is unavailable');
+        const scaleX = image.width / iosUi.pixelWidth, scaleY = image.height / iosUi.pixelHeight;
+        if (!Number.isFinite(scaleX) || Math.abs(scaleX - scaleY) > .02) throw new Error('iOS screenshot orientation/scale is incoherent');
+        scale = scaleX;
     }
-    actions.push(await drag({ from: { x: midX, y: top }, to: { x: midX, y: bottom } }));
+    const crop = pngCrop(image, bounds, scale);
+    const path = pathFor(name);
+    const output = new PNG({ width: crop.width, height: crop.height }); output.data = crop.bytes; writeFileSync(path, PNG.sync.write(output));
+    const shot = { path, width: crop.width, height: crop.height, bounds, scale, sha256: sha256(path) };
+    shots[name] = shot;
+    return { ...crop, shot };
 }
-const measured = await sampled;
-const settled = await readSurface();
-await capture('settled');
+function observationFilename(nodes) {
+    const name = session.scenario.document.name;
+    return nodes.some((node) => [`File ${name}`, name].includes(String(node.AXLabel ?? '').trim())) ? name : undefined;
+}
+function surfaceNode(nodes, predicate) { return nodes.find((node) => node.frame && iosUi.visible(node) && predicate(node)); }
+async function observe(since = 0, captureName = 'observation') {
+    checkDeadline();
+    if (platform === 'android') {
+        const dump = await dumpUiXml(scope.remaining(20_000));
+        if (!dump.includes('<hierarchy')) throw new Error('fresh Android hierarchy is unavailable');
+        const device = await deviceIdentity();
+        const position = surface === 'document' ? documentPosition(dump) : surface === 'tree' ? treePosition(dump) : undefined;
+        const bounds = surface === 'tree' ? position?.viewport : scrollableBounds(surface, dump, device);
+        if (bounds === undefined) throw new Error(`${surface} viewport is unavailable`);
+        const filename = surface === 'document' && dump.includes(session.scenario.document.name) ? session.scenario.document.name : undefined;
+        const proof = surface === 'terminal' ? terminalProof(session.host.fixturePanes.text, since) : undefined;
+        const surfacePosition = surface === 'terminal' ? { scrolls: proof.distance } : position;
+        const selectedPosition = surface === 'tree' && position && !knownTreeIdentity(position.identity) ? undefined : surfacePosition;
+        const surfaceSeen = surface === 'terminal' ? dump.includes(`content-desc="${TERMINAL_SURFACE}"`) : surface === 'document' ? filename !== undefined && position !== undefined : selectedPosition !== undefined;
+        const crop = captureName === false ? undefined : await capture(captureName, bounds);
+        return { bounds, crop, position: selectedPosition, filename, surfaceSeen, connected: androidConnected(dump), hostProof: surface === 'terminal' ? proof.attached : selectedHostProof, inputProof: surface === 'terminal' ? proof.input : true, hostRecords: proof?.records, raw: dump };
+    }
+    const nodes = await iosUi.ui();
+    const terminal = surfaceNode(nodes, (node) => String(node.AXLabel ?? '').trim() === TERMINAL_SURFACE);
+    const application = surfaceNode(nodes, (node) => node.type === 'Application' && String(node.AXLabel ?? '') === 'muxr');
+    const position = surface === 'document' ? iosDocumentPosition(nodes) : surface === 'tree' ? iosTreePosition(nodes) : undefined;
+    const bounds = surface === 'terminal' ? terminal?.frame && frameBounds(terminal.frame) : position?.viewport;
+    const filename = surface === 'document' ? observationFilename(nodes) : undefined;
+    const proof = surface === 'terminal' ? terminalProof(session.host.fixturePanes.text, since) : undefined;
+    const surfacePosition = surface === 'terminal' ? { scrolls: proof.distance } : position;
+    if (!bounds || (surface === 'document' && (!filename || !position)) || (surface === 'tree' && !position) || (surface === 'terminal' && !terminal)) throw new Error(`${surface} surface identity or viewport is unavailable`);
+    const connection = iosConnectionProof(iosUi, []).then((value) => value.connected);
+    const crop = captureName === false ? undefined : await capture(captureName, bounds);
+    return { bounds, crop, position: surfacePosition, filename, surfaceSeen: surface !== 'terminal' || terminal !== undefined, connected: await connection, hostProof: surface === 'terminal' ? proof.attached : selectedHostProof, inputProof: surface === 'terminal' ? proof.input : true, hostRecords: proof?.records, raw: nodes, application: application ? frameBounds(application.frame) : undefined };
+}
+async function exactHostChallenge(since) {
+    const route = routeFor(session.host.fixturePanes.text);
+    if (!route) throw new Error('no exact terminal fixture route');
+    if (platform === 'android') {
+        await adb(['shell', 'am', 'start', '-a', 'android.intent.action.VIEW', '-d', `muxr://session/${encodeURIComponent(route)}`, session.device.package]);
+        const end = Date.now() + scope.remaining(20_000);
+        while (Date.now() < end) {
+            const dump = await dumpUiXml(scope.remaining(5_000));
+            const proof = terminalProof(session.host.fixturePanes.text, since);
+            if (androidConnected(dump) && dump.includes(`content-desc="${TERMINAL_SURFACE}"`) && proof.attached) { selectedHostProof = true; return; }
+        }
+    } else {
+        await iosUi.open(`session/${encodeURIComponent(route)}`);
+        const end = Date.now() + scope.remaining(20_000);
+        while (Date.now() < end) {
+            const nodes = await iosUi.ui();
+            const proof = terminalProof(session.host.fixturePanes.text, since);
+            const connected = (await iosConnectionProof(iosUi, [])).connected;
+            if (connected && surfaceNode(nodes, (node) => String(node.AXLabel ?? '').trim() === TERMINAL_SURFACE) && proof.attached) { selectedHostProof = true; return; }
+        }
+    }
+    throw new Error('selected prepared host did not attach exact terminal fixture');
+}
+async function navigate() {
+    const since = Date.now();
+    await exactHostChallenge(since);
+    if (surface === 'document') {
+        if (platform === 'android') { const result = await maestro('openDocument.yaml'); if (result.code !== 0) throw new Error(`document navigation failed: ${result.output.slice(-400)}`); }
+        else { await iosUi.home(); await iosUi.tapMatch(/^Files$/); await iosUi.waitFor(/^Repositories$/); await iosUi.tapMatch(/^project$/); await iosUi.waitFor(new RegExp(`^File ${session.scenario.document.name}$`)); await iosUi.tapMatch(new RegExp(`^File ${session.scenario.document.name}$`)); await iosUi.waitFor(/^PERF_LINE_/); }
+    } else if (surface === 'tree') {
+        if (platform === 'android') await adb(['shell', 'am', 'start', '-a', 'android.intent.action.VIEW', '-d', 'muxr:///', session.device.package]);
+        else await iosUi.home();
+    }
+    const end = Date.now() + scope.remaining(20_000);
+    while (Date.now() < end) {
+        const observation = await observe(since, false).catch(() => undefined);
+        if (observation?.connected && observation.surfaceSeen && (surface !== 'document' || observation.filename === session.scenario.document.name)) return { since };
+    }
+    throw new Error(`${surface} did not become the requested surface`);
+}
+async function sampleIos(seconds, onOpen) {
+    const started = Date.now(), end = started + Math.min(seconds * 1000, scope.remaining(seconds * 1000));
+    let previous, pid, restarts = 0, gaps = 0, missingCpu = 0, cpuWeighted = 0, cpuDuration = 0, rss = [];
+    const samples = [];
+    const take = async () => {
+        checkDeadline(); const current = await iosAppPid(udid, session.device.bundle);
+        if (!current) { gaps += 1; previous = undefined; pid = undefined; return; }
+        if (pid && current !== pid) { restarts += 1; previous = undefined; }
+        pid = current; const sample = await processSample(current); samples.push(sample);
+        if (!sample.alive || sample.pid !== current || !Number.isFinite(sample.cpuSeconds) || !Number.isFinite(sample.rssKb)) { gaps += 1; missingCpu += 1; previous = undefined; return; }
+        rss.push(sample.rssKb);
+        if (previous) { const dt = (Date.parse(sample.at) - Date.parse(previous.at)) / 1000; const delta = sample.cpuSeconds - previous.cpuSeconds; if (!(dt > 0) || delta < 0) { gaps += 1; previous = undefined; } else { cpuWeighted += delta * 100 / dt; cpuDuration += dt; } }
+        previous = sample;
+    };
+    await take();
+    onOpen?.();
+    while (attempt?.open !== false && Date.now() < end) { await new Promise((done) => setTimeout(done, Math.min(1000, Math.max(1, end - Date.now())))); await take(); }
+    await take();
+    return { sampledSeconds: cpuDuration, processCpuPercent: cpuDuration ? cpuWeighted / cpuDuration : undefined, rssFirstKb: rss[0], rssLastKb: rss.at(-1), rssPeakKb: rss.length ? Math.max(...rss) : undefined, samples, gaps, restarts, missingCpu, missingPss: 0 };
+}
+function supportedMetricReason(name, sample, validity) {
+    const supported = platform === 'android' ? ['jsBusyPercent', 'pssMaxKb', 'sampledSeconds'] : ['processCpuPercent', 'rssPeakKb', 'sampledSeconds'];
+    return supported.includes(name) && !validity.valid ? validity.reasons.join(', ') : undefined;
+}
+async function verifyFixture() {
+    const fixturePath = join(session.host.cwd, session.scenario.document.name);
+    if (!existsSync(fixturePath) || sha256(fixturePath) !== session.scenario.document.sha256) throw new Error('document fixture changed since preparation');
+    const head = (await scope.run('git', ['-C', session.host.cwd, 'rev-parse', 'HEAD'], { timeout: 10_000 })).stdout.trim();
+    const tree = (await scope.run('git', ['-C', session.host.cwd, 'rev-parse', 'HEAD^{tree}'], { timeout: 10_000 })).stdout.trim();
+    if (head !== session.host.fixture.gitRevision || tree !== session.host.fixture.gitTree) throw new Error('fixture Git identity changed since preparation');
+    const context = JSON.stringify({ sessions: [{ cwd: session.host.cwd }] });
+    const read = JSON.parse((await scope.run(process.execPath, [join(process.cwd(), 'plugins/code/files.mjs'), 'read'], { cwd: process.cwd(), env: { ...process.env, MUXR_PLUGIN_CONTEXT_JSON: context }, input: JSON.stringify({ cwd: session.host.cwd, root: session.host.cwd, path: session.scenario.document.name }), timeout: 10_000 })).stdout);
+    const body = Buffer.from(read.body ?? '');
+    if (read.name !== session.scenario.document.name || body.compare(Buffer.from(documentPayload()).subarray(0, session.scenario.document.servedBytes)) !== 0 || body.length !== session.scenario.document.servedBytes || createHash('sha256').update(body).digest('hex') !== session.scenario.document.servedSha256 || body.toString('utf8').split('\n').filter(Boolean).length !== session.scenario.document.servedLines) throw new Error('real Files plugin fixture identity changed');
+}
+async function main() {
+    const seconds = validateDeadline(flag('--seconds', '110'));
+    if (!['android', 'ios'].includes(platform) || !['document', 'tree', 'terminal'].includes(surface)) throw new Error('invalid platform or surface');
+    if (platform === 'android') { if (!serial) throw new Error('--serial is required for Android'); if (flag('--package', 'com.trymuxr.app') !== 'com.trymuxr.app') throw new Error('unsupported Android package override'); setAndroidSerial(serial); }
+    else { if (!udid) throw new Error('--udid is required for iOS'); if (flag('--bundle', 'com.trymuxr.app') !== 'com.trymuxr.app') throw new Error('unsupported iOS bundle override'); iosUi = new IosControls(udid); }
+    scope.setDeadline(startedAt + seconds * 1000);
+    session = JSON.parse(readFileSync(sessionPath, 'utf8'));
+    const source = sourceIdentity('.'), harness = harnessIdentity('.'), runtime = runtimeIdentity('.');
+    const witness = JSON.parse(readFileSync(session.worldWitness, 'utf8'));
+    const liveWorldIdentity = worldIdentity(witness);
+    const device = platform === 'android' ? { serial } : { udid };
+    const stale = validateSession(session, { platform, device: { ...device, package: session.device?.package, bundle: session.device?.bundle }, source, harness, worldIdentity: liveWorldIdentity, childHealth: undefined, isAlive: (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } } });
+    if (stale) throw new Error(stale);
+    if (session.pidStartIdentity && processStartIdentity(session.pid) !== session.pidStartIdentity) throw new Error('session owner process identity changed');
+    if (validateOwnerLock(session.lock, session.lockOwner)) throw new Error('prepared session lock is not owned by this descriptor');
+    if (JSON.stringify(session.scenario) !== JSON.stringify(scenarioDescriptor())) throw new Error('scenario changed since preparation');
+    if (session.hostBuild?.version !== 1 || session.hostBuild.kind !== 'muxr.host-build' || session.hostBuild.buildCommand !== 'yarn build' || session.hostBuild.source?.dirty !== false || JSON.stringify(session.hostBuild.source) !== JSON.stringify(source) || JSON.stringify(session.hostBuild.harness) !== JSON.stringify(harness) || JSON.stringify(session.hostBuild.runtime) !== JSON.stringify(runtime)) throw new Error('built host provenance is missing or changed');
+    const provenance = provenanceMismatch(session.candidate, { source, harness });
+    if (provenance) throw new Error(provenance);
+    if (liveWorldIdentity !== session.host.worldIdentity) throw new Error('live fake-world identity changed');
+    const fixtureProblem = validateFixtureProof(session.host.fixture, session.scenario.document); if (fixtureProblem) throw new Error(fixtureProblem);
+    await verifyFixture();
+    const artifact = session.candidate.artifact;
+    if (!artifact?.path || !existsSync(artifact.path) || sha256(artifact.path) !== artifact.sha256) throw new Error('candidate artifact is missing or changed');
+    const manifest = JSON.parse(readFileSync(session.candidate.manifestPath, 'utf8'));
+    const manifestDigest = manifest.apkSha256 ?? manifest.appSha256 ?? manifest.binarySha256 ?? manifest.artifact?.sha256;
+    if (manifest.sourceSha256 !== session.candidate.source.sourceSha256 || manifest.mobileSha256 !== session.candidate.source.mobileSha256 || manifest.dirty !== false || manifestDigest !== artifact.sha256 || manifest.nativeDependencies === undefined || JSON.stringify(manifest.nativeDependencies) !== JSON.stringify(patchedDependencies('.')) || (typeof manifest.signer !== 'string' && typeof manifest.buildMode !== 'string')) throw new Error('candidate build sidecar changed or is unbound');
+    const installed = platform === 'android' ? await (async () => { const remote = (await adb(['shell', 'pm', 'path', session.device.package])).trim().replace(/^package:/, ''); if (!remote || remote !== session.candidate.installed.remotePath) throw new Error('installed Android package path does not match prepared identity'); const scratch = mkdtempSync('/tmp/muxr-probe-verify-'); try { const pulled = join(scratch, 'installed.apk'); await adb(['pull', remote, pulled], { timeout: 30_000 }); return await apkIdentity(pulled); } finally { rmSync(scratch, { recursive: true, force: true }); } })() : await (async () => { const root = (await iosCommand('xcrun', ['simctl', 'get_app_container', udid, session.device.bundle, 'app'])).trim(); if (!root) throw new Error('installed iOS app container is unavailable'); return iosAppIdentity(root); })();
+    const artifactProblem = artifactMismatch(artifact, installed); if (artifactProblem) throw new Error(artifactProblem);
+    const relay = await fetchCommand(`http://127.0.0.1:${session.host.relayPort}/health`).then((response) => response.ok).catch(() => false);
+    if (!relay) throw new Error('prepared relay is not healthy');
+    if (platform === 'ios') { const geometryRoot = mkdtempSync('/tmp/muxr-ios-geometry-'), geometryPath = join(geometryRoot, 'screen.png'); try { await iosUi.screenshot(geometryPath); const image = PNG.sync.read(readFileSync(geometryPath)); const nodes = await iosUi.ui(); const root = nodes.find((node) => node.type === 'Application' && node.frame?.width > 0 && node.frame?.height > 0) ?? nodes.find((node) => node.frame?.x === 0 && node.frame?.y === 0 && node.frame?.width > 0 && node.frame?.height > 0); if (!root) throw new Error('iOS AX root geometry is unavailable'); iosUi.setGeometry(root.frame.width, root.frame.height, image.width, image.height); } finally { rmSync(geometryRoot, { recursive: true, force: true }); } }
+    probeRelease = acquireOwnerLock(session.probeLock, { pid: process.pid, descriptor: sessionPath, device: serial ?? udid });
+    const ready = await navigate();
+    const before = await observe(ready.since, 'before');
+    if (before.position === undefined && surface !== 'terminal') throw new Error(`${surface} has no valid position before movement`);
+    attempt = (await import('./lib/androidSignals.mjs')).newAttempt();
+    let resolveSampleOpen;
+    const sampleOpened = new Promise((resolve) => { resolveSampleOpen = resolve; });
+    const sampleOpenedAt = { value: undefined };
+    const onSampleOpen = () => { sampleOpenedAt.value = new Date().toISOString(); resolveSampleOpen(); };
+    const samplePromise = (platform === 'android'
+        ? samplePhase({ pkg: session.device.package, seconds: Math.min(20, seconds), intervalMs: 2000, attempt, signal: scope.signal, active: () => !scope.signal.aborted, onOpen: onSampleOpen })
+        : sampleIos(Math.min(20, seconds), onSampleOpen)).catch((error) => { attempt.cancel(); resolveSampleOpen(); return { commandFailed: true, reason: error.message }; });
+    await sampleOpened;
+    const actions = [];
+    const act = async (kind, from, to, fn) => { const action = { kind, startedAt: new Date().toISOString(), from, to, requestedDurationMs: kind === 'fling' ? 120 : 700 }; try { const actual = await fn(); Object.assign(action, actual, { finishedAt: new Date().toISOString() }); actions.push(action); return actual; } catch (error) { action.error = error.message; action.finishedAt = new Date().toISOString(); actions.push(action); throw error; } };
+    const from = { x: (before.bounds.l + before.bounds.r) / 2, y: before.bounds.t + (before.bounds.b - before.bounds.t) * .72 }, to = { x: (before.bounds.l + before.bounds.r) / 2, y: before.bounds.t + (before.bounds.b - before.bounds.t) * .28 };
+    let moving, settled, sample;
+    try {
+        if (platform === 'android') await act('fling', from, to, () => fling(from, to)); else await act('swipe', from, to, () => iosUi.swipe(from.x, from.y, to.x, to.y));
+        moving = await observe(ready.since, 'moving');
+        const reverseFrom = to, reverseTo = from;
+        if (platform === 'android') await act('drag', reverseFrom, reverseTo, () => drag({ from: reverseFrom, to: reverseTo })); else await act('swipe', reverseFrom, reverseTo, () => iosUi.swipe(reverseFrom.x, reverseFrom.y, reverseTo.x, reverseTo.y));
+        settled = await observe(ready.since, 'settled');
+    } finally {
+        await attempt.close().catch(() => attempt.cancel());
+        sample = await samplePromise.catch((error) => ({ commandFailed: true, reason: error.message }));
+    }
+    checkDeadline();
+    const closingSource = sourceIdentity('.'), closingHarness = harnessIdentity('.'), closingRuntime = runtimeIdentity('.');
+    const closingProvenance = provenanceMismatch(session.candidate, { source: closingSource, harness: closingHarness });
+    if (closingProvenance || JSON.stringify(closingRuntime) !== JSON.stringify(session.hostBuild.runtime) || !existsSync(artifact.path) || sha256(artifact.path) !== artifact.sha256) throw new Error(closingProvenance ?? 'closing build/runtime identity changed');
+    if (worldIdentity(JSON.parse(readFileSync(session.worldWitness, 'utf8'))) !== session.host.worldIdentity) throw new Error('closing live world identity changed');
+    await verifyFixture();
+    const movement = judgeProbeMovement(surface, { before, moving, settled });
+    if (!screenshotsComplete(shots)) throw new Error('before, moving and settled cropped PNGs are mandatory');
+    const validity = sampleValidity(sample, { requiredSeconds: Math.min(1, seconds), requirePss: platform === 'android' });
+    const sampleReason = validity.reasons.join(', ') || undefined;
+    const metricReason = (name) => supportedMetricReason(name, sample, validity);
+    const metrics = [
+        metric('jsBusyPercent', sample.jsBusyPercent, 'percent', 'app JS thread', 'JS-thread /proc tick delta', 'androidSignals.samplePhase', platform === 'android' ? metricReason('jsBusyPercent') : 'iOS JS CPU collector unavailable', platform === 'android' ? 'invalid' : 'unavailable'),
+        metric('processCpuPercent', sample.processCpuPercent, 'percent', 'app process', 'whole-process CPU interval mean', 'iosSignals.processSample', platform === 'ios' ? metricReason('processCpuPercent') : 'Android process CPU collector unavailable', platform === 'ios' ? 'invalid' : 'unavailable'),
+        metric('pssMaxKb', sample.pssMaxKb, 'KiB', 'app process', 'peak Total PSS', 'androidSignals.samplePhase', platform === 'android' ? metricReason('pssMaxKb') : 'iOS PSS unavailable', platform === 'android' ? 'invalid' : 'unavailable'),
+        metric('rssPeakKb', sample.rssPeakKb, 'KiB', 'app process', 'peak resident set size', 'iosSignals.processSample', platform === 'ios' ? metricReason('rssPeakKb') : 'Android RSS collector unavailable', platform === 'ios' ? 'invalid' : 'unavailable'),
+        metric('sampledSeconds', sample.sampledSeconds, 'seconds', 'probe window', 'comparable sampled duration', 'samplePhase', sampleReason),
+    ];
+    const reasons = [...validity.reasons, ...movement.reasons];
+    const outcome = movement.failure && validity.valid ? 'fail' : reasons.length === 0 ? 'pass' : 'inconclusive';
+    return { validity: movement.failure && validity.valid ? 'measured' : reasons.length === 0 ? 'measured' : 'invalid', outcome, ...(reasons.length === 0 ? {} : { reason: reasons.join(', ') }), device: session.device, boundaries: { deadlineSeconds: seconds, deadlineAt: new Date(startedAt + seconds * 1000).toISOString(), sampleOpenedAt: sampleOpenedAt.value, sampleClosedAt: new Date().toISOString(), actions }, metrics, sample, movement, screenshots: shots, hostWitness: { selected: selectedHostProof } };
+}
 
-const candidates = [
-    { name: 'moving', observation: moving },
-    { name: 'settled', observation: settled },
-].filter((entry) => entry.observation !== undefined);
-const travelled = candidates.some((entry) => entry.observation.dumped === true
-    && JSON.stringify(entry.observation.position) !== JSON.stringify(before.position));
-
-const missingShots = ['before', 'moving', 'settled'].filter((name) => shots[name] === undefined);
-finish(missingShots.length > 0 || !travelled ? 'inconclusive' : 'pass', {
-    boundaries: { clock: 'device uptime for gestures, host wall clock for reads', actions: actions.length },
-    device: { ...(device ?? {}), refreshHz: hz, buildMode: session.candidate?.artifact === undefined ? 'unknown' : 'installed artifact' },
-    cadence: actions.map((action) => ({
-        profile: action.profile, durationMs: action.durationMs, elapsedMs: action.elapsedMs,
-        velocityPxPerSecond: action.velocityPxPerSecond, intendedVelocityPxPerSecond: action.intendedVelocityPxPerSecond,
-    })),
-    metrics: [
-        metric('jsBusyPercent', measured.jsBusyPercent, 'percent', 'app JS thread',
-            'JS-thread /proc tick delta over sampled seconds', 'androidSignals.samplePhase'),
-        metric('pssMaxKb', measured.pssMaxKb, 'KiB', 'app process',
-            'peak Total PSS across samples', 'androidSignals.samplePhase'),
-        metric('pssDriftKb', measured.pssDriftKb, 'KiB', 'app process',
-            'last Total PSS minus first', 'androidSignals.samplePhase'),
-        metric('sampledSeconds', measured.sampledSeconds, 'seconds', 'probe window',
-            'seconds of comparable CPU samples', 'androidSignals.samplePhase'),
-    ],
-    movement: {
-        before: { position: before.position, bounds: before.bounds, dumped: before.dumped },
-        candidates: candidates.map((entry) => ({ name: entry.name, ...entry.observation })),
-        travelled,
-        ...(travelled ? {} : { reason: 'no fresh observation showed the surface in a different position' }),
-    },
-    screenshots: shots,
-    ...(missingShots.length > 0 ? { validity: 'unavailable', reason: `no screenshot captured: ${missingShots.join(', ')}` } : {}),
-});
+let result;
+let cleanupError;
+try { result = await main(); } catch (error) { result = { validity: 'invalid', outcome: 'inconclusive', reason: scope.signal.aborted ? 'probe deadline exceeded' : error.message }; }
+try {
+    if (attempt?.open) attempt.cancel();
+    const remaining = scope.deadlineAt === undefined ? 10_000 : Math.max(1, scope.deadlineAt - Date.now());
+    await scope.close(remaining);
+    scope.cleanup();
+    probeRelease?.();
+} catch (error) { cleanupError = error.message; result = { ...result, validity: 'invalid', outcome: 'inconclusive', reason: `${result.reason ? `${result.reason}; ` : ''}cleanup incomplete: ${cleanupError}` }; }
+const envelope = { kind: PROBE_KIND, partial: true, acceptance: false, note: 'development probe against a warm session; not release acceptance', scenario: session?.scenario, candidate: session?.candidate, hostBuild: session?.hostBuild, host: session?.host && { relayPort: session.host.relayPort, worldIdentity: session.host.worldIdentity }, plugins: session?.plugins, platform, surface, startedAt: new Date(startedAt).toISOString(), elapsedSeconds: Number(((Date.now() - startedAt) / 1000).toFixed(1)), ...result, screenshots: result?.screenshots ?? shots, cleanup: { complete: cleanupError === undefined } };
+process.stdout.write(`${JSON.stringify(envelope, null, 2)}\n`);
+process.exitCode = envelope.outcome === 'pass' ? 0 : 1;

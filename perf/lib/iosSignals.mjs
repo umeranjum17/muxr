@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { homedir, loadavg } from 'node:os';
 import { join } from 'node:path';
-import { runCommand } from './commands.mjs';
+import { commandRemaining, commandSignal, runCommand } from './commands.mjs';
 
 export const unavailable = {
     pssKb: 'Android proportional-set-size accounting is unavailable on iOS.',
@@ -11,7 +11,14 @@ export const unavailable = {
     fps: 'No Android gfxinfo/SurfaceFlinger equivalent collected in this run.',
     frameStats: 'No instrumented frame timestamps; AX command duration is not input-to-frame latency.',
 };
-export const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+export const sleep = (ms) => new Promise((resolve, reject) => {
+    const signal = commandSignal();
+    if (signal?.aborted) return reject(signal.reason);
+    const timer = setTimeout(done, Math.max(0, ms));
+    const done = () => { signal?.removeEventListener('abort', cancel); resolve(); };
+    const cancel = () => { clearTimeout(timer); reject(signal.reason); };
+    signal?.addEventListener('abort', cancel, { once: true });
+});
 export const sha256 = (path) => createHash('sha256').update(readFileSync(path)).digest('hex');
 export const command = async (bin, args, options = {}) => (await runCommand(bin, args, { timeout: 20_000, maxBuffer: 16 * 1024 * 1024, ...options })).stdout;
 export const simctl = (...args) => command('xcrun', ['simctl', ...args]);
@@ -21,9 +28,13 @@ export function flatten(value) {
     return [value, ...Object.values(value).filter((v) => typeof v === 'object').flatMap(flatten)];
 }
 export class IosControls {
-    constructor(udid) { this.udid = udid; this.width = 402; this.height = 874; }
+    constructor(udid) { this.udid = udid; this.width = 402; this.height = 874; this.pixelWidth = 402; this.pixelHeight = 874; }
+    setGeometry(width, height, pixelWidth = width, pixelHeight = height) {
+        if (!(width > 0 && height > 0 && pixelWidth > 0 && pixelHeight > 0)) throw new Error('unsupported iOS screenshot geometry');
+        this.width = width; this.height = height; this.pixelWidth = pixelWidth; this.pixelHeight = pixelHeight;
+    }
     async ui() { return flatten(JSON.parse(await command('axe', ['describe-ui', '--udid', this.udid]))); }
-    visible(node) { const f = node.frame; return f && f.width > 0 && f.height > 0 && f.x + f.width / 2 > 0 && f.x + f.width / 2 < this.width && f.y >= 0 && f.y + f.height / 2 < this.height; }
+    visible(node) { const f = node.frame; return this.width !== undefined && this.height !== undefined && f && f.width > 0 && f.height > 0 && f.x + f.width / 2 > 0 && f.x + f.width / 2 < this.width && f.y >= 0 && f.y + f.height / 2 < this.height; }
     async tap(x, y) { await command('axe', ['tap', '-x', String(x), '-y', String(y), '--tap-style', 'physical', '--udid', this.udid]); }
     async tapMatch(pattern, { optional = false } = {}) {
         const node = (await this.ui()).find((n) => this.visible(n) && pattern.test(n.AXLabel ?? ''));
@@ -31,8 +42,8 @@ export class IosControls {
         await this.tap(node.frame.x + node.frame.width / 2, node.frame.y + node.frame.height / 2); return true;
     }
     async waitFor(pattern, timeout = 20_000) {
-        const end = Date.now() + timeout;
-        do { const nodes = await this.ui(); if (nodes.some((n) => this.visible(n) && pattern.test(n.AXLabel ?? ''))) return nodes; await sleep(500); } while (Date.now() < end);
+        const end = Date.now() + Math.min(timeout, commandSignal()?.aborted ? 0 : (commandSignal() ? Math.max(1, commandRemaining(timeout)) : timeout));
+        do { const nodes = await this.ui(); if (nodes.some((n) => this.visible(n) && pattern.test(n.AXLabel ?? ''))) return nodes; await sleep(Math.min(500, Math.max(1, end - Date.now()))); } while (Date.now() < end);
         throw new Error(`Required screen absent: ${pattern}`);
     }
     async open(route) { await simctl('openurl', this.udid, `muxr://${route}`); await sleep(500); }

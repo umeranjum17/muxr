@@ -48,24 +48,59 @@ Prerequisites, all checked in preflight with a named failure:
 ## The development probe (not acceptance)
 
 The release gate is not the inner loop. To look at one surface, prepare a
-session once in a pane you own and probe it as many times as you like:
+session once in a pane you own and probe it as many times as you like. The
+preparation shell must supply an explicit device and build evidence:
 
 ```bash
+export OUT=/tmp/muxr-probe-evidence
+export SERIAL=emulator-5554   # owned Android target
+export APK=/tmp/muxr-0.1.27-vc127-x86_64.apk
+export UDID=<owned-booted-ios-udid>
+export APP=/tmp/muxr.app
+export IOSOUT="$OUT/ios"
+mkdir -p "$OUT/android" "$IOSOUT"
+BEFORE=$(node --input-type=module -e "import {sourceIdentity} from './perf/lib/provenance.mjs'; console.log(JSON.stringify(sourceIdentity('.')))" )
+yarn build > "$OUT/host-build.log" 2>&1
+node --input-type=module - "$BEFORE" "$OUT/host-build.json" <<'NODE'
+import { writeFileSync } from 'node:fs';
+import { sourceIdentity, harnessIdentity, runtimeIdentity } from './perf/lib/provenance.mjs';
+const before = JSON.parse(process.argv[2]);
+const source = sourceIdentity('.');
+if (source.sourceSha256 !== before.sourceSha256 || source.dirty) throw new Error('source changed or became dirty during build');
+writeFileSync(process.argv[3], JSON.stringify({ version: 1, kind: 'muxr.host-build', buildCommand: 'yarn build', builtAt: new Date().toISOString(), source, harness: harnessIdentity('.'), runtime: runtimeIdentity('.') }, null, 2) + '\n');
+NODE
+# after the owner has run yarn build and written OUT/host-build.json
 # pane you leave running: starts the world, pairs once, holds both
-node perf/probeSession.mjs --platform android --apk /tmp/muxr-0.1.27-vc127-x86_64.apk
+node perf/probeSession.mjs --platform android --serial "$SERIAL" \
+  --apk "$APK" --candidate-manifest "$APK.json" --host-build "$OUT/host-build.json" \
+  --descriptor /tmp/muxr-probe-android-session.json
 
-# any other pane: about a minute, one surface, against that session
-node perf/surfaceProbe.mjs --session /tmp/muxr-probe-session.json --platform android --surface document
-node perf/surfaceProbe.mjs --session /tmp/muxr-probe-session.json --platform android --surface tree
-node perf/surfaceProbe.mjs --session /tmp/muxr-probe-session.json --platform android --surface terminal
-node perf/surfaceProbe.mjs --session /tmp/muxr-probe-session.json --platform android --surface document \
-  --attachments-dir /tmp/probe-shots --seconds 60
+# any other pane: one bounded surface check; repeat for tree or terminal
+node perf/surfaceProbe.mjs --session /tmp/muxr-probe-android-session.json \
+  --platform android --serial "$SERIAL" --surface document --seconds 110 \
+  --attachments-dir "$OUT/android/document-run"
+
+# iOS uses the same warm world and supported QR/deep-link pairing path
+node perf/probeSession.mjs --platform ios --udid "$UDID" --app "$APP" \
+  --bundle com.trymuxr.app --candidate-manifest "$APP.json" \
+  --host-build "$IOSOUT/host-build.json" --descriptor /tmp/muxr-probe-ios-session.json
+node perf/surfaceProbe.mjs --session /tmp/muxr-probe-ios-session.json \
+  --platform ios --udid "$UDID" --surface document --seconds 110 \
+  --attachments-dir "$IOSOUT/document-run"
 ```
 
-The probe never builds, installs, pairs, runs the 120-second baselines, soaks or
-tours. It validates the descriptor first -- owner alive, same scenario, same
-source, same artifact digest, same document fixture on the host -- and reports
-`inconclusive` with a reason instead of repairing anything.
+The probe never builds, installs, pairs, runs baselines, soaks or tours. Preparation
+requires genuine candidate sidecar evidence (`$APK.json`/`$APP.json`) and a
+`muxr.host-build` JSON written immediately after a clean `yarn build`; it starts
+one explicit platform/device lease and writes a private 0600 descriptor. Each
+probe validates that descriptor, the live world witness, selected host, fixture,
+source/runtime/plugin identity and installed bytes, then takes three cropped
+`before`/`moving`/`settled` PNGs under the requested attachment directory. A
+second probe sharing the lease is refused by the nested active-probe lock. The
+entire probe, including cleanup, is bounded by `0 < --seconds <= 110` and reports
+`inconclusive` with a reason instead of repairing anything. It is diagnostic
+surface evidence only; Android and iOS metrics are not cross-platform release
+acceptance equivalents.
 
 Its output is a small evidence envelope: provenance and scenario version,
 device and refresh, the actions and their cadence, CPU and memory as named

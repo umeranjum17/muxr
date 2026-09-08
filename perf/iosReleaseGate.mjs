@@ -9,11 +9,11 @@
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, rmSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { pairingCodeHash, openPairingCodePayload } from '../packages/crypto/dist/index.js';
 import { CommandScope, useCommandScope } from './lib/commands.mjs';
 import { startFakeStack } from './lib/fakeStack.mjs';
 import { documentContract, documentPayload, DOCUMENT_FIXTURE, LOAD, SCENARIO_VERSION } from './lib/scenario.mjs';
 import { IosControls, appPid, command, crashFiles, hostLoad, processSample, reduceSamples, sha256, simctl, sleep, unavailable } from './lib/iosSignals.mjs';
+import { pairIosPhone } from './lib/iosWarm.mjs';
 
 
 export const PHASES = [
@@ -68,22 +68,8 @@ async function sampleWindow(seconds, destination){
     return {measuredSeconds:(Date.now()-start)/1000,...reduceSamples(destination)};
 }
 async function pair(){
-    const minted=await stack.mintPairing();
-    if(!minted.code)throw new Error('Load host did not mint pairing code');
-    try{
-        const locator=new URL(minted.code), shortCode=locator.searchParams.get('pair');
-        if(!shortCode)throw new Error('Minted pairing locator has no code');
-        locator.protocol=locator.protocol==='wss:'?'https:':'http:';locator.pathname='/v1/selfhost/pair-code';locator.search='';
-        const response=await fetch(locator,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({code_hash:pairingCodeHash(shortCode)})});
-        if(!response.ok)throw new Error('Fresh pairing payload lookup failed');
-        const payload=await response.json();
-        const compact=openPairingCodePayload(payload.payload,shortCode);
-        await ui.open('pair?v=2&payload='+encodeURIComponent(compact));
-        await ui.waitFor(/THIS PHONE WILL BE ABLE TO|^Pair$/);
-        if(!await ui.tapMatch(/^Pair$/,{optional:true})){await ui.swipe(200,720,200,350,.4);await ui.tapMatch(/^Pair$/);}
-        await ui.waitFor(/^(LIVE|SPACES|Machine)$/,90_000);
-        report.pairingTransport='Fresh short-code resolved with shared crypto, normal QR deep-link consent and app handshake; no manual-input coverage claimed';
-    }finally{minted.release();}
+    const result = await pairIosPhone({ stack, udid, bundle, ui });
+    report.pairingTransport = result.transport;
 }
 
 async function terminal(){await ui.waitFor(/^Control$|^Enter$|^Show terminal controls$/);}

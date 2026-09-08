@@ -20,6 +20,7 @@
  * interval and a restart is counted instead of ending the run.
  */
 import { assertCommandActive, runCommand as run } from './commands.mjs';
+import { androidArgs } from './deviceTarget.mjs';
 
 import { writeFileSync } from 'node:fs';
 import { parseFrameStatsDump, parseJankDump, parseUptime } from './gestureMetrics.mjs';
@@ -29,7 +30,7 @@ const HZ = 100;
 const JS_THREAD = 'mqt_v_js';
 
 async function adb(args, timeout = 10_000, maxBuffer = 64 * 1024 * 1024) {
-    const { stdout } = await run('adb', args, { timeout, maxBuffer });
+    const { stdout } = await run('adb', androidArgs(args), { timeout, maxBuffer });
     return stdout;
 }
 
@@ -198,7 +199,7 @@ export async function deviceMonotonicSeconds() {
  * little-endian u32) then RGBA8888. No PNG, no decoder.
  */
 export async function screencapRaw(path) {
-    const { stdout: bytes } = await run('adb', ['exec-out', 'screencap'], { encoding: null, maxBuffer: 64 * 1024 * 1024, timeout: 20_000 });
+    const { stdout: bytes } = await run('adb', androidArgs(['exec-out', 'screencap']), { encoding: null, maxBuffer: 64 * 1024 * 1024, timeout: 20_000 });
     if (path !== undefined) writeFileSync(path, bytes);
     if (bytes.length < 16) return { width: 0, height: 0, format: 0, colorspace: 0, bytes };
     return {
@@ -294,7 +295,7 @@ export async function updateDepthErrors() {
 }
 
 export async function screenshot(path) {
-    const { stdout } = await run('adb', ['exec-out', 'screencap', '-p'], { encoding: null, maxBuffer: 64 * 1024 * 1024, timeout: 20_000 });
+    const { stdout } = await run('adb', androidArgs(['exec-out', 'screencap', '-p']), { encoding: null, maxBuffer: 64 * 1024 * 1024, timeout: 20_000 });
     writeFileSync(path, stdout);
 }
 
@@ -320,6 +321,7 @@ export function newAttempt() {
         open: true,
         signal: signalled,
         acknowledge,
+        cancel() { this.open = false; signal(); acknowledge(); },
         async close() {
             if (!this.open) return;
             this.open = false;
@@ -330,7 +332,7 @@ export function newAttempt() {
 }
 
 export async function samplePhase(options) {
-    const { pkg, seconds, intervalMs = 5000, onTick, onOpen, attempt, active } = options;
+    const { pkg, seconds, intervalMs = 5000, onTick, onOpen, attempt, active, signal } = options;
     const started = Date.now();
     const deadline = started + seconds * 1000;
 
@@ -440,6 +442,7 @@ export async function samplePhase(options) {
             await Promise.race([
                 new Promise((resolve) => setTimeout(resolve, intervalMs - elapsed)),
                 attempt?.signal ?? new Promise(() => {}),
+                signal ?? new Promise(() => {}),
             ]);
         }
     }

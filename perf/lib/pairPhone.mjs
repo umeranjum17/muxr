@@ -10,6 +10,7 @@
  * label this run's world actually published.
  */
 import { runCommand as run, assertCommandActive } from './commands.mjs';
+import { androidArgs } from './deviceTarget.mjs';
 import { dismissPrompts, dumpUiXml } from './androidSignals.mjs';
 
 /** Connected chrome only: reconnecting or disconnected is not a ready herd. */
@@ -76,7 +77,7 @@ export async function pairPhone({ stack, maestro, flow = 'pair.yaml', attempts =
             ['shell', 'svc', 'power', 'stayon', 'true'],
             ['shell', 'input', 'keyevent', 'KEYCODE_WAKEUP'],
             ['shell', 'wm', 'dismiss-keyguard'],
-        ]) await run('adb', args, { timeout: 30_000 }).catch(() => undefined);
+        ]) await run('adb', androidArgs(args), { timeout: 30_000 }).catch(() => undefined);
         const pairing = await stack.mintPairing();
         if (pairing.code === undefined) {
             pairing.release();

@@ -708,6 +708,38 @@ export function pixelsMoved(before, after, { minMean = PIXEL_MOVE_THRESHOLD } = 
     return { moved: meanAbs >= minMean, meanAbs, threshold: minMean };
 }
 
+/** Reject an empty, all-black, or zero-area crop before movement is judged. */
+export function validPixelCrop(crop) {
+    const width = Number(crop?.width) || 0;
+    const height = Number(crop?.height) || 0;
+    const bytes = rawPixels(crop);
+    if (width <= 0 || height <= 0 || bytes.length < width * height * 4) return { valid: false, why: 'crop has zero area or incomplete pixels' };
+    let nonBlack = 0;
+    let min = 255;
+    let max = 0;
+    let lumaMin = 255;
+    let lumaMax = 0;
+    let lumaTotal = 0;
+    for (let index = 0; index < width * height * 4; index += 4) {
+        const value = Math.max(bytes[index] ?? 0, bytes[index + 1] ?? 0, bytes[index + 2] ?? 0);
+        if (value > 8) nonBlack += 1;
+        for (let channel = 0; channel < 3; channel += 1) {
+            min = Math.min(min, bytes[index + channel] ?? 0); max = Math.max(max, bytes[index + channel] ?? 0);
+        }
+        const luma = .2126 * (bytes[index] ?? 0) + .7152 * (bytes[index + 1] ?? 0) + .0722 * (bytes[index + 2] ?? 0);
+        lumaMin = Math.min(lumaMin, luma); lumaMax = Math.max(lumaMax, luma); lumaTotal += luma;
+    }
+    const mean = lumaTotal / (width * height);
+    let variance = 0;
+    for (let index = 0; index < width * height * 4; index += 4) {
+        const luma = .2126 * (bytes[index] ?? 0) + .7152 * (bytes[index + 1] ?? 0) + .0722 * (bytes[index + 2] ?? 0);
+        variance += (luma - mean) ** 2;
+    }
+    variance /= width * height;
+    if (nonBlack === 0 || lumaMax - lumaMin <= 4 || variance <= 2) return { valid: false, why: 'crop is blank or spatially flat' };
+    return { valid: true, nonBlack, range: [min, max], lumaRange: [lumaMin, lumaMax], variance };
+}
+
 // Decode UI-dump entities once: a literal "&amp;lt;" must stay "&lt;".
 // Include the encoded newline emitted by Android's diagnostics Text view.
 /**
@@ -808,6 +840,22 @@ export function verticalScrollers(dump) {
             && !/HorizontalScrollView/i.test(node.className)
             && node.b - node.t > 0 && node.r - node.l > 0)
         .sort((left, right) => (right.b - right.t) - (left.b - left.t));
+}
+
+/** Identity and vertical position of the first visible tree row. */
+export function treePosition(dump) {
+    const nodes = parseUiNodes(dump);
+    const scroller = verticalScrollers(dump)[0];
+    if (scroller === undefined) return undefined;
+    const rows = nodes.filter((node) => node !== scroller
+        && node.t >= scroller.t && node.b <= scroller.b
+        && node.r > node.l && node.b > node.t
+        && `${node.text ?? ''} ${node.desc ?? ''}`.trim() !== '')
+        .sort((left, right) => left.t - right.t || left.l - right.l);
+    const row = rows[0];
+    if (row === undefined) return undefined;
+    const label = `${row.text ?? ''} ${row.desc ?? ''}`.trim();
+    return { identity: label.slice(0, 160), top: row.t, viewport: { l: scroller.l, t: scroller.t, r: scroller.r, b: scroller.b } };
 }
 
 /**

@@ -25,10 +25,8 @@
  * delivers events slower than asked and a phase must report the gesture it
  * got rather than the one it wanted.
  */
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
-
-const run = promisify(execFile);
+import { androidArgs } from './deviceTarget.mjs';
+import { runCommand as run } from './commands.mjs';
 
 /** Target on-device speeds. Duration scales with travel so a short pane still flings. */
 const FLING_PX_PER_SECOND = 800 / 0.120;
@@ -39,7 +37,7 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 async function motion(action, x, y) {
     await run(
         'adb',
-        ['shell', 'input', 'motionevent', action, String(Math.round(x)), String(Math.round(y))],
+        androidArgs(['shell', 'input', 'motionevent', action, String(Math.round(x)), String(Math.round(y))]),
         { timeout: 10_000 },
     );
 }
@@ -68,7 +66,7 @@ async function swipeOnce(from, to, durationMs, profile) {
     const started = Date.now();
     const { stdout } = await run(
         'adb',
-        ['shell', `t0=$(cut -d' ' -f1 /proc/uptime); input swipe ${x1} ${y1} ${x2} ${y2} ${duration}; t1=$(cut -d' ' -f1 /proc/uptime); echo $t0 $t1`],
+        androidArgs(['shell', `t0=$(cut -d' ' -f1 /proc/uptime); input swipe ${x1} ${y1} ${x2} ${y2} ${duration}; t1=$(cut -d' ' -f1 /proc/uptime); echo $t0 $t1`]),
         { timeout: 20_000 },
     );
     const wallMs = Date.now() - started;
@@ -106,7 +104,7 @@ export async function drag(options) {
     const started = Date.now();
     const { stdout } = await run(
         'adb',
-        ['shell', `t0=$(cut -d' ' -f1 /proc/uptime); echo $t0; input motionevent DOWN ${Math.round(from.x)} ${Math.round(from.y)}`],
+        androidArgs(['shell', `t0=$(cut -d' ' -f1 /proc/uptime); echo $t0; input motionevent DOWN ${Math.round(from.x)} ${Math.round(from.y)}`]),
         { timeout: 10_000 },
     );
     const t0 = Number(String(stdout).trim().split(/\s+/)[0]);
@@ -132,7 +130,7 @@ export async function drag(options) {
 
 /** A tap, for opening what a gesture phase is about to scroll. */
 export async function tap(x, y) {
-    await run('adb', ['shell', 'input', 'tap', String(Math.round(x)), String(Math.round(y))], { timeout: 10_000 });
+    await run('adb', androidArgs(['shell', 'input', 'tap', String(Math.round(x)), String(Math.round(y))]), { timeout: 10_000 });
 }
 
 /**
@@ -147,7 +145,7 @@ export async function tap(x, y) {
 export async function tapTimed(x, y) {
     const { stdout } = await run(
         'adb',
-        ['shell', `t0=$(cut -d' ' -f1 /proc/uptime); input tap ${Math.round(x)} ${Math.round(y)}; echo $t0`],
+        androidArgs(['shell', `t0=$(cut -d' ' -f1 /proc/uptime); input tap ${Math.round(x)} ${Math.round(y)}; echo $t0`]),
         { timeout: 20_000 },
     );
     const t0 = Number(String(stdout).trim().split(/\s+/).pop());

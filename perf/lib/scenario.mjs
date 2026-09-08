@@ -57,11 +57,20 @@ export function documentContract() {
         generatedLines: DOCUMENT_LINES,
         bytes: bytes.length,
         sha256: createHash('sha256').update(bytes).digest('hex'),
+        servedSha256: createHash('sha256').update(bytes.subarray(0, Math.min(bytes.length, SERVED_BYTE_LIMIT))).digest('hex'),
         servedBytes: Math.min(bytes.length, SERVED_BYTE_LIMIT),
         servedLines,
         // The marker every reading-position proof looks for.
         marker: 'PERF_LINE_',
     };
+}
+
+export function scenarioDescriptor() {
+    return { version: SCENARIO_VERSION, load: { ...LOAD }, document: documentContract() };
+}
+
+export function scenarioMismatch(value) {
+    return JSON.stringify(value) === JSON.stringify(scenarioDescriptor()) ? undefined : 'scenario differs from current canonical exports';
 }
 
 /** One line for a report or a log: the world this run measured. */

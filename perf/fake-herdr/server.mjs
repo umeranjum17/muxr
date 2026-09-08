@@ -30,8 +30,8 @@ export async function startFakeHerdr(options) {
     const graphicsInputJsonl = join(dir, 'graphics-input.jsonl');
     const inputJsonl = join(dir, 'input.jsonl');
 
-
     mkdirSync(dir, { recursive: true });
+    for (const path of [attachJsonl, graphicsInputJsonl, inputJsonl]) writeFileSync(path, '', { encoding: 'utf8', mode: 0o600, flag: 'a' });
     mkdirSync(cwd, { recursive: true });
     try { writeFileSync(join(cwd, 'README.md'), '# fake-herdr\n\nA deterministic herd.\n', { flag: 'wx' }); } catch { /* already seeded */ }
     try { writeFileSync(join(cwd, 'notes.txt'), 'line 1\nline 2\nline 3\n', { flag: 'wx' }); } catch { /* already seeded */ }
@@ -67,6 +67,8 @@ export async function startFakeHerdr(options) {
             && !world.agents.some((agent) => agent.pane_id === pane.pane_id))?.pane_id,
     };
     const pinPaneId = options.pinGraphicsPane === true ? fixturePanes.graphics : undefined;
+    const worldIdentityPath = join(dir, 'world-identity.json');
+    writeFileSync(worldIdentityPath, `${JSON.stringify({ world, fixturePanes })}\n`, { encoding: 'utf8', mode: 0o600 });
 
     const socketPath = join(dir, 'herdr.sock');
     const clientSocketPath = join(dir, 'herdr-client.sock');
@@ -111,7 +113,7 @@ export async function startFakeHerdr(options) {
             inputLogPath: graphicsInputJsonl,
             pinPaneId,
         });
-        binPath = writeBinShim({ dir, socketPath, terminalBytesPerSecond });
+        binPath = writeBinShim({ dir, socketPath, terminalBytesPerSecond, inputLogPath: inputJsonl });
     } catch (error) {
         await shutdown();
         throw error;
@@ -528,7 +530,7 @@ export async function startFakeHerdr(options) {
         await shutdown();
     }
 
-    return { socketPath, clientSocketPath, binPath, world, fixturePanes, close, attachJsonl, graphicsInputJsonl, inputJsonl };
+    return { socketPath, clientSocketPath, binPath, world, fixturePanes, worldIdentityPath, close, attachJsonl, graphicsInputJsonl, inputJsonl };
 }
 
 function snapshotOf(live) {
@@ -778,6 +780,7 @@ if (isMain) {
         attachJsonl: handle.attachJsonl,
         graphicsInputJsonl: handle.graphicsInputJsonl,
         inputJsonl: handle.inputJsonl,
+        worldIdentityPath: handle.worldIdentityPath,
     })}\n`);
     const stop = async () => {
         await handle.close();

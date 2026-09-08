@@ -311,9 +311,15 @@ function runTerminal(args) {
                     noteGeometry('terminal.resize', message);
                     emit(true);
                 }
-                else if (message.type === 'terminal.scroll') emit(true);
+                else if (message.type === 'terminal.scroll') {
+                    const direction = message.direction === 'up' || message.direction === 'down' ? message.direction : undefined;
+                    const lines = Number(message.lines);
+                    appendFileSync(process.env.FAKE_HERDR_INPUT_LOG ?? `${process.env.FAKE_HERDR_SOCKET}.input.jsonl`, `${JSON.stringify({ at: new Date().toISOString(), source: 'terminal.scroll', pane_id: paneId, direction, lines })}\n`);
+                    emit(true);
+                }
                 else if (message.type === 'terminal.input') {
                     const wheel = wheelReports(inputBytes(message));
+                    if (wheel.count > 0) appendFileSync(process.env.FAKE_HERDR_INPUT_LOG ?? `${process.env.FAKE_HERDR_SOCKET}.input.jsonl`, `${JSON.stringify({ at: new Date().toISOString(), source: 'terminal.input', pane_id: paneId, count: wheel.count, notches: wheel.notches })}\n`);
                     burst += wheel.count;
                     notches += wheel.notches;
                 }
@@ -338,14 +344,14 @@ function runTerminal(args) {
     process.stdin.resume();
 }
 
-export function writeBinShim({ dir, socketPath, terminalBytesPerSecond }) {
+export function writeBinShim({ dir, socketPath, terminalBytesPerSecond, inputLogPath }) {
     mkdirSync(dir, { recursive: true });
     const binPath = join(dir, 'herdr');
     const bps = Number(terminalBytesPerSecond);
     const rate = Number.isFinite(bps) ? Math.max(0, bps) : 4096;
     writeFileSync(
         binPath,
-        `#!/bin/sh\nexport FAKE_HERDR_SOCKET=${shellQuote(socketPath)}\nexport FAKE_HERDR_TERMINAL_BPS=${shellQuote(String(rate))}\nexec ${shellQuote(process.execPath)} ${shellQuote(SELF)} "$@"\n`,
+        `#!/bin/sh\nexport FAKE_HERDR_SOCKET=${shellQuote(socketPath)}\nexport FAKE_HERDR_TERMINAL_BPS=${shellQuote(String(rate))}\n${inputLogPath === undefined ? '' : `export FAKE_HERDR_INPUT_LOG=${shellQuote(inputLogPath)}\n`}exec ${shellQuote(process.execPath)} ${shellQuote(SELF)} "$@"\n`,
         { encoding: 'utf8' },
     );
     chmodSync(binPath, 0o755);
