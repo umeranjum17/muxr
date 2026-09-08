@@ -550,8 +550,9 @@ export function parseUiNodes(dump) {
 }
 
 /**
- * Topmost fixture line on the reading surface. The surface is gutter-less, so
- * the document's own numbered text is the only thing that says where it is.
+ * Is the fixture on the reading surface at all? Presence only: one node can
+ * carry the whole document, so the first marker inside it is the first line of
+ * the file wherever the viewport happens to be standing.
  */
 export function firstDocumentMarker(dump) {
     const lines = [];
@@ -561,6 +562,69 @@ export function firstDocumentMarker(dump) {
     }
     lines.sort((left, right) => left.t - right.t || left.l - right.l);
     return lines[0]?.marker;
+}
+
+const MIN_GUTTER_ROWS = 4;
+
+/** Individual gutter rows: one node, one line number, its own box. */
+function gutterRows(nodes) {
+    const rows = nodes
+        .filter((node) => /^\d+$/.test((node.text ?? '').trim()) && node.b > node.t)
+        .map((node) => ({ ...node, line: Number(node.text.trim()) }));
+    const columns = new Map();
+    for (const row of rows) columns.set(row.l, [...columns.get(row.l) ?? [], row]);
+    const ranked = [...columns.values()].sort((left, right) => right.length - left.length);
+    const column = ranked[0];
+    if (column === undefined || column.length < MIN_GUTTER_ROWS) return [];
+    // A tie between two columns of line numbers is not a gutter anyone can name.
+    if (ranked[1] !== undefined && ranked[1].length === column.length) return [];
+    return column.sort((left, right) => left.t - right.t);
+}
+
+/**
+ * The scroller the document is actually read in, and the gutter rows visible
+ * inside it. The reading surface nests scrollers, so the viewport is the
+ * innermost vertical one holding the gutter -- never a screen percentage, which
+ * crops chrome the phase never scrolled.
+ */
+export function documentViewport(dump) {
+    const nodes = parseUiNodes(dump);
+    const rows = gutterRows(nodes);
+    if (rows.length === 0) return { why: 'the reading surface published no gutter rows' };
+    const holding = nodes.filter((node) => /ScrollView|RecyclerView|ListView/i.test(node.className)
+        && !/HorizontalScrollView/i.test(node.className)
+        && node.b > node.t && node.r > node.l
+        && rows.filter((row) => row.t >= node.t && row.b <= node.b && row.l >= node.l && row.r <= node.r).length >= 2);
+    if (holding.length === 0) return { why: 'no vertical scroller holds the gutter' };
+    const bounds = holding.reduce((best, next) => (area(next) < area(best) ? next : best));
+    const visible = rows.filter((row) => (row.t + row.b) / 2 >= bounds.t && (row.t + row.b) / 2 <= bounds.b);
+    if (visible.length === 0) return { why: 'no gutter row is inside the viewport' };
+    return { bounds, visible };
+}
+
+function area(node) {
+    return (node.r - node.l) * (node.b - node.t);
+}
+
+/** Vertical scrollers on screen, tallest first. */
+export function verticalScrollers(dump) {
+    return parseUiNodes(dump)
+        .filter((node) => /ScrollView|RecyclerView|ListView/i.test(node.className)
+            && !/HorizontalScrollView/i.test(node.className)
+            && node.b - node.t > 0 && node.r - node.l > 0)
+        .sort((left, right) => (right.b - right.t) - (left.b - left.t));
+}
+
+/**
+ * Where the reading surface is standing: the topmost gutter row inside the
+ * viewport and the offset it sits at. Offscreen rows are not a position, and
+ * neither is a body node holding every line at once.
+ */
+export function documentPosition(dump) {
+    const viewport = documentViewport(dump);
+    if (viewport.visible === undefined) return undefined;
+    const top = viewport.visible.reduce((best, next) => (next.t < best.t ? next : best));
+    return { line: top.line, top: top.t };
 }
 
 function stripCards(dump) {
@@ -635,7 +699,7 @@ export function scrollableBounds(surface, dump, screen = {}) {
         return { l: Math.round(width * 0.08), t: Math.round(height * 0.42), r: width, b: height };
     }
     if (name === 'document' || name === 'document scroll') {
-        return { l: 0, t: Math.round(height * 0.18), r: width, b: height };
+        return documentViewport(dump).bounds;
     }
     if (ghostty !== undefined) return ghostty;
     return { l: 0, t: Math.round(height * 0.2), r: width, b: Math.round(height * 0.9) };
@@ -666,16 +730,20 @@ export function reduceMovement(phase, snapshot = {}) {
         return { proven: pixelOk && paged, meanAbs, threshold, reasons, stripPosition: { before, after } };
     }
     if (name === 'document scroll' || name === 'document') {
-        const before = snapshot.before?.documentMarker;
-        const after = snapshot.after?.documentMarker;
-        const textMoved = before !== undefined && after !== undefined && before !== after;
-        if (!textMoved) reasons.push('documentMarker');
+        const before = snapshot.before?.documentPosition;
+        const after = snapshot.after?.documentPosition;
+        if (before === undefined || after === undefined) {
+            reasons.push('documentPosition');
+            return { proven: false, meanAbs, threshold, reasons };
+        }
+        const travelled = before.line !== after.line || before.top !== after.top;
+        if (!travelled) reasons.push('documentPosition');
         return {
-            proven: pixelOk && textMoved,
+            proven: pixelOk && travelled,
             meanAbs,
             threshold,
             reasons,
-            documentMarker: { before, after },
+            documentPosition: { before, after },
         };
     }
     if (name === 'terminal text fling' || name === 'terminal') {
@@ -740,7 +808,12 @@ export function verdict(phase, metrics, limits) {
     failWhen(failures, 'gestureP99Ms', over(jank.p99Ms, limits.gestureP99Ms));
     failWhen(failures, 'gestureOverFourFramesPercent', over(jank.overFourFramesPercent, limits.gestureOverFourFramesPercent));
     failWhen(failures, 'gestureDroppedPercent', over(frames.droppedPercent, limits.gestureDroppedPercent));
-    failWhen(failures, 'missedVsyncPerFling', over(jank.missedVsync, limits.missedVsyncPerFling));
+    // Per fling means per fling: the bout's accumulated count cannot say which
+    // gesture missed, and no window at all is unavailable evidence, not a pass.
+    if (SCROLL_PHASES.has(name) && metrics.missedVsyncPerFling === undefined && (jank.frames ?? 0) > 0) {
+        failures.push('no per-fling vsync window');
+    }
+    failWhen(failures, 'missedVsyncPerFling', over(metrics.missedVsyncPerFling, limits.missedVsyncPerFling));
     failWhen(failures, 'inputToFrameP95Ms', over(frames.inputToFrameMs?.p95, limits.inputToFrameP95Ms));
 
     if (NATIVE_PHASES.has(name)) {

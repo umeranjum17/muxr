@@ -170,6 +170,16 @@ export async function frameStats(pkg) {
     return parseFrameStatsDump(dump);
 }
 
+/**
+ * The summary counters and the frame ring from one dump, so a gesture's missed
+ * vsyncs and its frames are read off the same instant. Two calls would count a
+ * gesture's frames against a window the counters had already moved past.
+ */
+export async function gfxSnapshot(pkg, { hz } = {}) {
+    const dump = await quiet(['shell', 'dumpsys', 'gfxinfo', pkg, 'framestats'], 20_000);
+    return { jank: parseJankDump(dump, { hz: hz ?? await refreshHz() }), rows: parseFrameStatsDump(dump) };
+}
+
 /** Display refresh from SurfaceFlinger, falling back to 60. */
 export async function refreshHz() {
     const dump = await quiet(['shell', 'dumpsys', 'display'], 20_000);

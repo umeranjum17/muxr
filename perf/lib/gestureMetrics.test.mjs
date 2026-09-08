@@ -10,6 +10,8 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import {
     firstDocumentMarker,
+    documentPosition,
+    documentViewport,
     scrollableBounds,
     stripPosition,
     stripScroller,
@@ -32,6 +34,7 @@ import {
     trailSince,
     verdict,
 } from './gestureMetrics.mjs';
+import { summarize } from './gestures.mjs';
 import { herdChromeConnected, herdProof, worldLabels } from './pairPhone.mjs';
 
 const fixtures = join(dirname(fileURLToPath(import.meta.url)), '../fixtures');
@@ -65,12 +68,27 @@ test('baseline bout fixtures reduce to the documented failures', () => {
         parseJankDump(read('gfxinfo-after.txt'), { hz }),
         { hz },
     );
-    const judged = verdict('herd tree fling', { jank, frameStats: frames }, EMULATOR_LIMITS);
+    const judged = verdict('herd tree fling', { jank, frameStats: frames, missedVsyncPerFling: 0 }, EMULATOR_LIMITS);
 
     assert.equal(jank.jankyPercent, 26.3);
     assert.equal(jank.p95Ms, 150);
     assert.deepEqual(judged.failures, ['gestureJankPercent', 'gestureP95Ms']);
     assert.equal(judged.pass, false);
+
+    // The per-fling limit is answered by one fling's own window. The bout's
+    // accumulated count cannot name the gesture that missed, so a phase without
+    // that window is unavailable rather than passing on the total.
+    assert.deepEqual(verdict('herd tree fling', {
+        jank: { frames: 10, jankyPercent: 1, p95Ms: 10, p99Ms: 12, overFourFramesPercent: 0, missedVsync: 40 },
+        frameStats: { frames: 8, droppedPercent: 0, inputToFrameMs: { p95: 10 } },
+        missedVsyncPerFling: 2,
+        movement: { proven: true },
+    }, EMULATOR_LIMITS).failures, []);
+    assert.deepEqual(verdict('herd tree fling', {
+        jank: { frames: 10, jankyPercent: 1, p95Ms: 10, p99Ms: 12, overFourFramesPercent: 0, missedVsync: 0 },
+        frameStats: { frames: 8, droppedPercent: 0, inputToFrameMs: { p95: 10 } },
+        movement: { proven: true },
+    }, EMULATOR_LIMITS).failures, ['no per-fling vsync window']);
 
     const late = rows.map((row, index) => {
         if (index >= 3) return row;
@@ -99,11 +117,39 @@ test('baseline bout fixtures reduce to the documented failures', () => {
         + '<node content-desc="Claude 1. Idle. Terminal" class="android.view.View" bounds="[16,120][300,320]" />';
     assert.equal(firstDocumentMarker(dumpA), 12);
     assert.equal(firstDocumentMarker(dumpB), 48);
+    // Fixture presence is not reading position: one accessibility body can hold
+    // the whole document, so its first marker stays 1 wherever the viewport is.
+    const body = '<node class="android.widget.ScrollView" bounds="[0,300][1080,1800]" />'
+        + '<node text="PERF_LINE_0001 deterministic PERF_LINE_0002 deterministic" class="android.widget.TextView" bounds="[143,300][1000,9000]" />';
+    assert.equal(firstDocumentMarker(body), 1);
+    assert.equal(documentPosition(body), undefined);
+    assert.equal(documentViewport(body).bounds, undefined);
+
+    const reading = (first, offset) => '<node class="android.widget.ScrollView" bounds="[0,300][1080,1800]" />'
+        + [0, 1, 2, 3, 4].map((step) => {
+            const top = offset + step * 54;
+            return `<node text="${first + step}" class="android.widget.TextView" bounds="[60,${top}][130,${top + 54}]" />`
+                + `<node text="PERF_LINE_${String(first + step).padStart(4, '0')} deterministic" class="android.widget.TextView" bounds="[143,${top}][1000,${top + 54}]" />`;
+        }).join('');
+
+    assert.deepEqual(documentPosition(reading(1, 320)), { line: 1, top: 320 });
+    assert.deepEqual(documentPosition(reading(48, 320)), { line: 48, top: 320 });
+    // Rows the list keeps mounted below the viewport are not on screen.
+    assert.deepEqual(documentPosition(reading(1, 1900)), undefined);
+
     const documentMoved = reduceMovement('document scroll', {
-        before: { crop: still, documentMarker: firstDocumentMarker(dumpA) },
-        after: { crop: shifted, documentMarker: firstDocumentMarker(dumpB) },
+        before: { crop: still, documentPosition: documentPosition(reading(1, 320)) },
+        after: { crop: shifted, documentPosition: documentPosition(reading(48, 320)) },
     });
     assert.equal(documentMoved.proven, true);
+    assert.equal(reduceMovement('document scroll', {
+        before: { crop: still, documentPosition: documentPosition(reading(1, 320)) },
+        after: { crop: shifted, documentPosition: documentPosition(reading(1, 320)) },
+    }).proven, false);
+    assert.equal(reduceMovement('document scroll', {
+        before: { crop: still, documentPosition: documentPosition(body) },
+        after: { crop: shifted, documentPosition: documentPosition(reading(48, 320)) },
+    }).proven, false);
 
     // The herd carries a horizontal plugin-navigation scroller above the live
     // strip. Paging has to be driven on the one holding a card, and proved by
@@ -145,6 +191,7 @@ test('baseline bout fixtures reduce to the documented failures', () => {
     assert.deepEqual(verdict('herd tree fling', {
         jank: { frames: 10, jankyPercent: 1, p95Ms: 10, p99Ms: 12, overFourFramesPercent: 0, missedVsync: 0 },
         frameStats: { frames: 8, droppedPercent: 0, inputToFrameMs: { p95: 10 } },
+        missedVsyncPerFling: 0,
         movement: stuck,
     }, EMULATOR_LIMITS).failures, ['content did not move']);
 
@@ -202,6 +249,7 @@ test('baseline bout fixtures reduce to the documented failures', () => {
     const flingJank = {
         jank: { frames: 10, jankyPercent: 1, p95Ms: 10, p99Ms: 12, overFourFramesPercent: 0, missedVsync: 0 },
         frameStats: { frames: 8, droppedPercent: 0, inputToFrameMs: { p95: 10 } },
+        missedVsyncPerFling: 0,
     };
     const flingTerminal = { scrollRequests: 4, rowsRequested: 80, rowsPerSecond: 80, clamped: 0, timedOut: 0 };
     assert.deepEqual(verdict('terminal text fling', {
@@ -244,11 +292,11 @@ test('baseline bout fixtures reduce to the documented failures', () => {
     assert.equal(mergeFrameStats([]).inputToFrameMs.p95, undefined);
     const goodJank = { frames: 10, jankyPercent: 1, p95Ms: 10, p99Ms: 12, overFourFramesPercent: 0, missedVsync: 0 };
     assert.deepEqual(
-        verdict('herd tree fling', { jank: goodJank, frameStats: noRing }, EMULATOR_LIMITS).failures,
+        verdict('herd tree fling', { jank: goodJank, frameStats: noRing, missedVsyncPerFling: 0 }, EMULATOR_LIMITS).failures,
         ['no framestats frames'],
     );
     assert.deepEqual(
-        verdict('herd tree fling', { jank: goodJank, frameStats: { frames: 4, droppedPercent: 0, inputToFrameMs: {} } }, EMULATOR_LIMITS).failures,
+        verdict('herd tree fling', { jank: goodJank, frameStats: { frames: 4, droppedPercent: 0, inputToFrameMs: {} }, missedVsyncPerFling: 0 }, EMULATOR_LIMITS).failures,
         ['no input-driven frame'],
     );
 
@@ -420,6 +468,28 @@ test('baseline bout fixtures reduce to the documented failures', () => {
 // The pairing proof, which is the one place chrome can pass for a herd: an app
 // that never reached a host still paints LIVE, and a dropped connection still
 // paints the herd it last fetched.
+// A bout mixes 6600 px/s flings with 1100 px/s drags. Sorted together, the
+// upper median of 36 gestures is the slowest fling, and a real one at 4442 px/s
+// failed the 70% guard as if the whole bout had been uninjectable.
+test('the inject guard judges each gesture profile on its own median', () => {
+    const gesture = (profile, velocity, intended) => ({
+        profile, velocityPxPerSecond: velocity, intendedVelocityPxPerSecond: intended,
+    });
+    const flings = [5275, 5400, 5100, 5300, 4442].map((v) => gesture('fling', v, 6646));
+    const drags = [1100, 1080, 1120, 1090, 1110].map((v) => gesture('linear', v, 1143));
+    const bout = summarize([...flings, ...drags]);
+
+    assert.equal(bout.gestures, 10);
+    assert.equal(bout.flings, 5);
+    assert.equal(bout.medianVelocityPxPerSecond, 5275);
+    assert.equal(bout.byProfile.linear.medianVelocityPxPerSecond, 1100);
+    assert.deepEqual(bout.slowProfiles, []);
+
+    // A genuinely slow profile still fails, and says which one.
+    const slow = summarize([...flings.map((f) => ({ ...f, velocityPxPerSecond: 4000 })), ...drags]);
+    assert.deepEqual(slow.slowProfiles, ['fling']);
+});
+
 test('the herd is only proven by connected chrome and this run\'s own labels', () => {
     const world = { agents: [{ name: 'Pi 1' }], panes: [{ label: 'Pi 1' }, { label: 'zsh' }, { label: '' }] };
     assert.deepEqual(worldLabels(world), ['Pi 1', 'zsh']);

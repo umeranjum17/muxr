@@ -45,6 +45,7 @@ import {
     dismissPrompts,
     frameStats,
     framesRendered,
+    gfxSnapshot,
     jankReport,
     jsThreadId,
     refreshHz,
@@ -73,9 +74,12 @@ import {
     reduceMagnification,
     reduceMovement,
     reducePipelineNotches,
+    documentPosition,
+    documentViewport,
     scrollableBounds,
     stripPosition,
     stripScroller,
+    verticalScrollers,
     trailSince,
     verdict,
 } from './lib/gestureMetrics.mjs';
@@ -170,7 +174,7 @@ const PHASES = [
     { name: 'agent terminal and plugin navigation', seconds: 120, flow: 'herdNavigate.yaml' },
     { name: 'herd tree fling', seconds: 30, drive: 'treeFling' },
     { name: 'herd strip paging', seconds: 20, drive: 'stripPaging', oneWayMovement: true },
-    { name: 'document scroll', seconds: 30, nav: 'openDocument.yaml', drive: 'documentScroll' },
+    { name: 'document scroll', seconds: 30, nav: 'openDocument.yaml', drive: 'documentScroll', oneWayMovement: true },
     // `surfaceKind` is the pane this phase claims to measure. It is read off the
     // app's own controls before the bout, so a graphics pane cannot be judged
     // against the text terminal's latency contract or the other way round.
@@ -386,25 +390,39 @@ async function tapBounds(pattern) {
 async function pullPhoneTrail() {
     await run('adb', ['shell', 'am', 'start', '-a', 'android.intent.action.VIEW', '-d', 'muxr:///settings/connection', PKG], { timeout: 20_000 }).catch(() => undefined);
     await sleep(1500);
-    const leave = async () => {
-        for (let attempt = 0; attempt < 3; attempt += 1) {
-            await run('adb', ['shell', 'input', 'keyevent', 'BACK'], { timeout: 10_000 }).catch(() => undefined);
-            await sleep(600);
-            const dump = await dumpUi();
-            if (/text="LIVE"/.test(dump) && herdChromeConnected(dump)) return;
-        }
-    };
+    const fail = async (why) => ({ ok: false, why, returned: await returnToHerd() });
+
+    let dump = await dumpUi();
+    if (!/text="Connection &amp; updates"|text="Connection & updates"/.test(dump)) {
+        return await fail('the Connection & updates route never opened');
+    }
+    // Troubleshooting sits below the hosted status, the version rows and the
+    // update rows, so the control is off screen on this display. Scroll its own
+    // page for it, a bounded number of times, and stop when the page stops
+    // moving rather than dragging forever.
+    for (let attempt = 0; attempt < 10 && await viewBounds('text="Show diagnostics"') === undefined; attempt += 1) {
+        const page = verticalScrollers(dump)[0];
+        if (page === undefined) return await fail('the Connection & updates page has no vertical scroller');
+        const x = Math.round((page.l + page.r) / 2);
+        const from = Math.round(page.t + (page.b - page.t) * 0.75);
+        const to = Math.round(page.t + (page.b - page.t) * 0.25);
+        await drag({ from: { x, y: from }, to: { x, y: to } });
+        await sleep(500);
+        const next = await dumpUi();
+        const settled = next === dump;
+        dump = next;
+        if (settled) break;
+    }
     if (!await tapBounds('text="Show diagnostics"')) {
-        await leave();
-        return { ok: false, why: 'Show diagnostics is not on /settings/connection' };
+        return await fail('Show diagnostics was never reached on /settings/connection');
     }
     await sleep(1000);
-    const dump = await dumpUi();
-    const text = [...dump.matchAll(/text="([^"]*)"/g)].map((match) => decodeUiAttribute(match[1])).join('\n');
-    await leave();
+    const report = await dumpUi();
+    const text = [...report.matchAll(/text="([^"]*)"/g)].map((match) => decodeUiAttribute(match[1])).join('\n');
     if (!/Redacted:|No phone transport events yet/.test(text)) {
-        return { ok: false, why: 'the diagnostics report never rendered' };
+        return await fail('the diagnostics report never rendered');
     }
+    if (!await returnToHerd()) return { ok: false, why: 'the herd never came back after the diagnostics report', returned: false };
     return { ok: true, text, trail: parseRedactedTrail(text) };
 }
 
@@ -420,6 +438,7 @@ async function captureSurface(surface, screen) {
         bounds,
         crop,
         documentMarker: firstDocumentMarker(dump),
+        documentPosition: documentPosition(dump),
         stripPosition: stripPosition(dump),
     };
 }
@@ -449,39 +468,57 @@ async function measureBout(run, hz, { surface, screen, phase, prepared } = {}) {
     // Per-gesture timing beside the rows it was reduced from: without them the
     // phase p95 is a number nobody can take apart again.
     const gestureFrames = [];
+    // gfxinfo's own counters at the last collection. Their growth over one
+    // gesture is that gesture's window; the accumulated total is the bout's and
+    // says nothing about any single fling.
+    let counters = before;
+    // Every gesture is collected, drags included. A drag's frames are real work
+    // and used to land in the next fling's read, where the rolling ring had
+    // often already dropped the fling's own first frames.
+    const collect = async (gesture) => {
+        const snapshot = await gfxSnapshot(PKG, { hz });
+        const fresh = freshFrameRows(snapshot.rows, counted);
+        const reduced = reduceFrameStats(fresh, {
+            frameNs: 1e9 / hz,
+            t0Ns: (gesture?.t0Seconds ?? 0) * 1e9,
+        });
+        parts.push(reduced);
+        const missedVsync = (snapshot.jank.missedVsync ?? 0) - (counters?.missedVsync ?? 0);
+        counters = snapshot.jank;
+        gestureFrames.push({
+            profile: gesture?.profile ?? 'settle',
+            t0Seconds: gesture?.t0Seconds,
+            durationMs: gesture?.durationMs,
+            elapsedMs: gesture?.elapsedMs,
+            frames: reduced.frames,
+            dropped: reduced.dropped,
+            worstMs: reduced.worstMs,
+            inputToFrameMs: reduced.inputToFrameMs,
+            missedVsync,
+            rows: fresh.slice(0, RAW_FRAME_ROW_CAP),
+            ...(fresh.length > RAW_FRAME_ROW_CAP ? { rowsOmitted: fresh.length - RAW_FRAME_ROW_CAP } : {}),
+        });
+    };
     let bout = { gestures: 0, flings: 0, medianVelocityPxPerSecond: 0 };
     try {
         bout = await run({
             onGesture: async (gesture) => {
+                // Frames first: the hierarchy dump and screenshot below cost
+                // seconds, and the 120-frame ring evicts this gesture's own
+                // input frames while they are being taken.
+                await collect(gesture);
                 if (gesture.profile !== 'fling') return;
                 if (phase?.oneWayMovement === true && oneWaySurface === undefined && surface !== undefined) {
                     oneWaySurface = await captureSurface(surface, screen);
                 }
-                const rows = await frameStats(PKG);
-                const fresh = freshFrameRows(rows, counted);
-                const reduced = reduceFrameStats(fresh, {
-                    frameNs: 1e9 / hz,
-                    t0Ns: (gesture.t0Seconds ?? 0) * 1e9,
-                });
-                parts.push(reduced);
-                gestureFrames.push({
-                    profile: gesture.profile,
-                    t0Seconds: gesture.t0Seconds,
-                    durationMs: gesture.durationMs,
-                    elapsedMs: gesture.elapsedMs,
-                    frames: reduced.frames,
-                    dropped: reduced.dropped,
-                    worstMs: reduced.worstMs,
-                    inputToFrameMs: reduced.inputToFrameMs,
-                    rows: fresh.slice(0, RAW_FRAME_ROW_CAP),
-                    ...(fresh.length > RAW_FRAME_ROW_CAP ? { rowsOmitted: fresh.length - RAW_FRAME_ROW_CAP } : {}),
-                });
             },
         });
     } catch (error) {
         if (!(error instanceof Error && error.message === 'device could not inject')) throw error;
         bout = { ...bout, injectFailed: true };
     }
+    // The frames the last gesture was still drawing when it returned.
+    await collect(undefined);
     const after = await jankReport(PKG, { hz });
     const afterSurface = surface === undefined ? undefined : await captureSurface(surface, screen);
     const injectFailed = bout.injectFailed === true;
@@ -499,11 +536,22 @@ async function measureBout(run, hz, { surface, screen, phase, prepared } = {}) {
         jank: reduceJank(before, after, { hz }),
         frameStats: mergeFrameStats(parts),
         gestureFrames,
+        missedVsyncPerFling: worstMissedVsyncPerFling(gestureFrames),
         movement,
         beforeSurface,
         afterSurface,
         oneWaySurface,
     };
+}
+
+/**
+ * The worst single fling window, never a total divided by a fling count: the
+ * limit is written per fling, so only a fling's own window can breach it.
+ */
+function worstMissedVsyncPerFling(gestureFrames) {
+    const flings = gestureFrames.filter((row) => row.profile === 'fling' && Number.isFinite(row.missedVsync));
+    if (flings.length === 0) return undefined;
+    return Math.max(...flings.map((row) => row.missedVsync));
 }
 
 /**
@@ -604,7 +652,7 @@ async function preparePhase(phase, screen, hz) {
     if (wantsTrail) {
         // Pulled from the herd, before entering the surface: the pull leaves the
         // route, so it cannot be taken once the phase is standing on its screen.
-        await returnToHerd();
+        if (!await returnToHerd()) return { ok: false, why: 'the herd never came back on screen' };
         const mark = await pullPhoneTrail();
         if (!mark.ok) return { ok: false, why: `the phone trail is unavailable (${mark.why})` };
         trailBefore = mark.trail;
@@ -627,7 +675,12 @@ async function preparePhase(phase, screen, hz) {
     } else if (phase.drive === 'documentScroll') {
         await dismissKeyboard();
         const dump = await dumpUi();
+        // Two separate questions: is the fixture the one on screen, and can this
+        // phase see where the surface is standing. Either missing is unavailable
+        // evidence, so neither is inferred from the other.
         if (firstDocumentMarker(dump) === undefined) return { ok: false, flowExit, why: 'the document fixture is not on the reading surface' };
+        const viewport = documentViewport(dump);
+        if (viewport.bounds === undefined) return { ok: false, flowExit, why: `the document viewport is unavailable (${viewport.why})` };
     } else {
         // Every terminal phase names its pane. Nothing else is a measurable
         // surface: a card position is whatever the churning herd left there.
@@ -1166,6 +1219,7 @@ function gestureEvidence(driven, idleJs) {
         },
         frameStats: driven.frameStats ?? { frames: 0, dropped: 0, worstMs: 0, inputToFrameMs: {} },
         gestureFrames: driven.gestureFrames,
+        missedVsyncPerFling: driven.missedVsyncPerFling,
         movement: driven.movement,
         injectFailed: driven.injectFailed === true,
         zoomSurface: driven.zoomSurface,

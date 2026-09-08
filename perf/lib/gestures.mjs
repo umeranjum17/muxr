@@ -160,28 +160,60 @@ export async function fling(from, to) {
     return swipeOnce(from, to, durationFor(distance, FLING_PX_PER_SECOND), 'fling');
 }
 
-function summarize(gestures) {
-    const velocities = gestures.map((gesture) => gesture.velocityPxPerSecond).sort((left, right) => left - right);
-    const intended = gestures.map((gesture) => gesture.intendedVelocityPxPerSecond).sort((left, right) => left - right);
-    const profiles = [...new Set(gestures.map((gesture) => gesture.profile))];
+const median = (values) => values.slice().sort((left, right) => left - right)[Math.floor(values.length / 2)] ?? 0;
+
+/**
+ * One profile's own account. A bout mixes ~6600 px/s flings with ~1100 px/s
+ * drags, so a median over both lands between the two populations and describes
+ * neither: it selects the slowest fling and calls it typical.
+ */
+function summarizeProfile(gestures) {
     return {
         gestures: gestures.length,
-        flings: gestures.filter((gesture) => gesture.profile === 'fling').length,
-        medianVelocityPxPerSecond: velocities[Math.floor(velocities.length / 2)] ?? 0,
-        intendedMedianVelocityPxPerSecond: intended[Math.floor(intended.length / 2)] ?? 0,
+        medianVelocityPxPerSecond: median(gestures.map((gesture) => gesture.velocityPxPerSecond)),
+        intendedMedianVelocityPxPerSecond: median(gestures.map((gesture) => gesture.intendedVelocityPxPerSecond)),
+    };
+}
+
+function profileInjectOk(profile) {
+    const intended = profile.intendedMedianVelocityPxPerSecond;
+    return intended === 0 || profile.medianVelocityPxPerSecond >= 0.7 * intended;
+}
+
+export function summarize(gestures) {
+    const profiles = [...new Set(gestures.map((gesture) => gesture.profile))];
+    const byProfile = Object.fromEntries(profiles
+        .map((name) => [name, summarizeProfile(gestures.filter((gesture) => gesture.profile === name))]));
+    const flings = byProfile.fling ?? summarizeProfile([]);
+    return {
+        gestures: gestures.length,
+        flings: flings.gestures,
+        // The headline pair is the fling's, which is what the gate's limits were
+        // written against; every profile is kept beside it.
+        medianVelocityPxPerSecond: flings.medianVelocityPxPerSecond,
+        intendedMedianVelocityPxPerSecond: flings.intendedMedianVelocityPxPerSecond,
+        byProfile,
+        slowProfiles: profiles.filter((name) => !profileInjectOk(byProfile[name])),
         profiles,
         samples: gestures,
     };
 }
 
+/** Every profile of this bout met its own 70% guard. */
 function injectOk(summary) {
-    const intended = summary.intendedMedianVelocityPxPerSecond;
-    return intended === 0 || summary.medianVelocityPxPerSecond >= 0.7 * intended;
+    return summary.slowProfiles.length === 0;
 }
 
-async function withInjectRetry(runOnce) {
-    let summary = summarize(await runOnce());
-    if (!injectOk(summary)) summary = summarize(await runOnce());
+/**
+ * One complete attempt, reported as it happened.
+ *
+ * There is no silent retry. A second bout has its own counter baseline, its own
+ * sampler window and its own surface, while the caller accumulates all three
+ * against the first: combining them produced CPU, frame and movement numbers
+ * that described no single attempt.
+ */
+async function oneAttempt(runOnce) {
+    const summary = summarize(await runOnce());
     return { ...summary, injectFailed: !injectOk(summary) };
 }
 
@@ -190,8 +222,9 @@ async function withInjectRetry(runOnce) {
  * middle of the screen, which is where every scrollable surface in this app
  * lives. Returns the bout so a phase can report the input it actually applied.
  *
- * A bout whose median velocity is under 70% of intended is retried once, then
- * fails as "device could not inject" — the numbers would not be comparable.
+ * A bout is one attempt. If any profile's own median velocity is under 70% of
+ * intended it fails as "device could not inject" — the numbers would not be
+ * comparable.
  */
 export async function scrollBout(options) {
     const { width = 1080, height = 1920, seconds = 30, settleMs = 350, onGesture } = options ?? {};
@@ -224,14 +257,14 @@ export async function scrollBout(options) {
         }
         return gestures;
     };
-    return withInjectRetry(once);
+    return oneAttempt(once);
 }
 
 /**
  * Horizontal paging on the live-terminal strip: down the middle of the strip's
  * own scroller, travel 60% of its width, flings only. The caller resolves those
  * bounds from the hierarchy, because a screen percentage lands in the plugin
- * navigation instead. Same inject-retry rule as `scrollBout`.
+ * navigation instead. Same per-profile inject guard as `scrollBout`.
  */
 export async function stripBout(options) {
     const { bounds, seconds = 20, settleMs = 350, onGesture } = options ?? {};
@@ -257,5 +290,5 @@ export async function stripBout(options) {
         }
         return gestures;
     };
-    return withInjectRetry(once);
+    return oneAttempt(once);
 }
