@@ -322,9 +322,13 @@ function serveClient(socket, options) {
             const wanted = targetPaneId === undefined
                 ? undefined
                 : cursors.find((cursor) => cursor.paneId === targetPaneId);
-            // The PR flow opens the first live pane. Pin its proof producer;
-            // round-robin across offscreen panes makes framebuffer proof flaky.
-            const cursor = options.enableFile !== undefined ? cursors[0] : wanted ?? cursors[imageId % cursors.length] ?? cursors[0];
+            // Paint the pane the phone asked for. With no request to go on,
+            // proof runs pin the first live pane -- the one the PR flow opens --
+            // because round-robin across offscreen panes makes framebuffer
+            // proof flaky.
+            const cursor = wanted
+                ?? (options.enableFile !== undefined ? cursors[0] : cursors[imageId % cursors.length])
+                ?? cursors[0];
             const bytes = kittyChunk({
                 ...cursor,
                 imageId,

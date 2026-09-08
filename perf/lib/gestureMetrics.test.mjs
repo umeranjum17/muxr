@@ -9,7 +9,6 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import {
-    documentPosition,
     firstDocumentMarker,
     firstStripLabel,
     freshFrameRows,
@@ -23,9 +22,11 @@ import {
     PIXEL_MOVE_THRESHOLD,
     reduceFrameStats,
     reduceJank,
+    reduceMagnification,
     reduceMovement,
     reducePipelineNotches,
     reduceZoom,
+    trailSince,
     verdict,
 } from './gestureMetrics.mjs';
 
@@ -90,17 +91,15 @@ test('baseline bout fixtures reduce to the documented failures', () => {
     assert.ok(moved.meanAbs >= PIXEL_MOVE_THRESHOLD);
 
     const dumpA = '<node text="PERF_LINE_0012 deterministic" class="android.widget.TextView" bounds="[8,200][900,220]" />'
-        + '<node text="File 1 of 3" class="android.widget.TextView" bounds="[8,1800][200,1830]" />'
         + '<node content-desc="Pi 1. Idle. Terminal" class="android.view.View" bounds="[16,120][300,320]" />';
     const dumpB = '<node text="PERF_LINE_0048 deterministic" class="android.widget.TextView" bounds="[8,200][900,220]" />'
         + '<node content-desc="Claude 1. Idle. Terminal" class="android.view.View" bounds="[16,120][300,320]" />';
     assert.equal(firstDocumentMarker(dumpA), 12);
     assert.equal(firstDocumentMarker(dumpB), 48);
-    assert.deepEqual(documentPosition(dumpA), { current: 1, total: 3 });
     assert.equal(firstStripLabel(dumpA), 'Pi 1. Idle. Terminal');
     assert.notEqual(firstStripLabel(dumpA), firstStripLabel(dumpB));
 
-    const documentMoved = reduceMovement('document scroll and swipe', {
+    const documentMoved = reduceMovement('document scroll', {
         before: { crop: still, documentMarker: firstDocumentMarker(dumpA), stripLabel: firstStripLabel(dumpA) },
         after: { crop: shifted, documentMarker: firstDocumentMarker(dumpB), stripLabel: firstStripLabel(dumpB) },
     });
@@ -111,15 +110,46 @@ test('baseline bout fixtures reduce to the documented failures', () => {
     });
     assert.equal(stuck.proven, false);
     assert.deepEqual(verdict('herd tree fling', {
-        jank: { jankyPercent: 1, p95Ms: 10, p99Ms: 12, overFourFramesPercent: 0, missedVsync: 0 },
-        frameStats: { droppedPercent: 0, inputToFrameMs: { p95: 10 } },
+        jank: { frames: 10, jankyPercent: 1, p95Ms: 10, p99Ms: 12, overFourFramesPercent: 0, missedVsync: 0 },
+        frameStats: { frames: 8, droppedPercent: 0, inputToFrameMs: { p95: 10 } },
         movement: stuck,
     }, EMULATOR_LIMITS).failures, ['content did not move']);
 
-    const trail = parseRedactedTrail('terminal.scroll requests=4 rows=80 clamped=0 latency p50=20ms p95=40ms');
+    // The phone's trail is a bounded ring, so a phase counts what the totals
+    // grew by and the samples recorded after its own mark -- never the
+    // difference of what happens to still be in the ring.
+    const mark = parseRedactedTrail('terminal.scroll seq=10 requests=1 rows=20 clamped=0 latency p50=20ms p95=20ms'
+        + '\nterminal.scroll-latency 9:20');
+    const closing = parseRedactedTrail('2026-09-08T00:00:01Z #21 rpc session.start ok 5ms'
+        + '\nterminal.scroll seq=30 requests=5 rows=100 clamped=0 latency p50=20ms p95=90ms'
+        + '\nterminal.scroll-latency 9:20 22:30 26:40'
+        + '\nterminal.resize count=2 8:80x24:cell=8x16 24:66x20:cell=10x20');
+    const trail = trailSince(closing, mark);
+    assert.equal(trail.ok, true);
+    // A mark taken before the phone has scrolled at all still carries a cursor,
+    // so the first measured phase is not reported as unavailable.
+    const cold = parseRedactedTrail('2026-09-08T00:00:00Z #7 socket.state open live=true');
+    assert.equal(cold.seq, 7);
+    assert.equal(trailSince(closing, cold).ok, true);
+    assert.equal(trailSince(closing, cold).scrollRequests, 5);
     assert.equal(trail.rowsRequested, 80);
-    assert.equal(trail.clamped, 0);
     assert.equal(trail.scrollRequests, 4);
+    assert.equal(trail.clamped, 0);
+    // The sample the mark already saw is not this phase's, and the resize that
+    // predates it is not this phase's zoom.
+    assert.deepEqual(trail.scrollLatencies, [30, 40]);
+    assert.equal(trail.scrollLatencyP95Ms, 40);
+    assert.equal(trail.agentPages, 1);
+    assert.equal(reduceZoom(trail.resizeEvents).gridChanged, 0);
+    assert.equal(trail.resizeEvents.length, 1);
+    // A phase that scrolled but kept no sample of its own is unavailable, not
+    // a phone that answered in zero milliseconds.
+    assert.equal(trailSince(parseRedactedTrail(
+        'terminal.scroll seq=30 requests=5 rows=100 clamped=0 latency p50=20ms p95=90ms\nterminal.scroll-latency 9:20',
+    ), mark).ok, false);
+    assert.equal(trailSince(parseRedactedTrail(
+        'terminal.scroll seq=2 requests=1 rows=4 clamped=0 latency p50=1ms p95=1ms\nterminal.scroll-latency 1:1',
+    ), mark).ok, false);
     const terminalMoved = reduceMovement('terminal text fling', {
         before: { crop: still },
         after: { crop: shifted },
@@ -134,30 +164,82 @@ test('baseline bout fixtures reduce to the documented failures', () => {
     assert.equal(empty.frames, 0);
     assert.equal(empty.p95Ms, undefined);
     assert.deepEqual(
-        verdict('herd tree fling', { jank: empty, frameStats: { droppedPercent: 0, inputToFrameMs: { p95: 0 } } }, EMULATOR_LIMITS).failures,
+        verdict('herd tree fling', { jank: empty, frameStats: { frames: 1, droppedPercent: 0, inputToFrameMs: { p95: 0 } } }, EMULATOR_LIMITS).failures,
         ['no frames in window'],
+    );
+    // A bout with no framestats ring, or none the touch drove, measured
+    // nothing; it used to reduce to a perfect zero and pass every limit.
+    const noRing = reduceFrameStats([], { frameNs, t0Ns });
+    assert.equal(noRing.droppedPercent, undefined);
+    assert.equal(noRing.inputToFrameMs.p95, undefined);
+    assert.equal(mergeFrameStats([]).inputToFrameMs.p95, undefined);
+    const goodJank = { frames: 10, jankyPercent: 1, p95Ms: 10, p99Ms: 12, overFourFramesPercent: 0, missedVsync: 0 };
+    assert.deepEqual(
+        verdict('herd tree fling', { jank: goodJank, frameStats: noRing }, EMULATOR_LIMITS).failures,
+        ['no framestats frames'],
+    );
+    assert.deepEqual(
+        verdict('herd tree fling', { jank: goodJank, frameStats: { frames: 4, droppedPercent: 0, inputToFrameMs: {} } }, EMULATOR_LIMITS).failures,
+        ['no input-driven frame'],
     );
 
     const graphicsTrail = parseRedactedTrail(
-        'terminal.resize 80x24 cell=8x16\nterminal.resize 80x24 cell=12x24\nterminal.resize 80x24 cell=16x32',
+        'terminal.resize count=3 1:80x24:cell=8x16 2:80x24:cell=12x24 3:80x24:cell=16x32',
     );
-    assert.equal(graphicsTrail.resizes, 3);
+    assert.equal(graphicsTrail.resizeEvents.length, 3);
     const graphicsZoom = reduceZoom(graphicsTrail.resizeEvents);
     assert.equal(graphicsZoom.cellOnly, 2);
     assert.equal(graphicsZoom.gridChanged, 0);
     assert.equal(graphicsZoom.zoomResizeCount, 2);
-    const oneStep = reduceZoom(parseResizeTrail('terminal.resize 80x24 cell=8x16\nterminal.resize 80x24 cell=12x24'));
-    assert.equal(oneStep.cellOnly, 1);
-    const zoomJank = { jank: { frames: 10, jankyPercent: 1, p95Ms: 10, p99Ms: 12, overFourFramesPercent: 0, missedVsync: 0 }, frameStats: { droppedPercent: 0, inputToFrameMs: { p95: 10 } } };
-    // A graphics pane magnifies locally and holds the remote grid: nothing to
-    // count, and a zoom that never got tapped is the only failure here.
-    assert.deepEqual(verdict('zoom tap navigate', { ...zoomJank, zoomTapped: true, zoomGridChanged: 0 }, EMULATOR_LIMITS).failures, []);
-    assert.deepEqual(verdict('zoom tap navigate', { ...zoomJank, zoomTapped: false, zoomGridChanged: 0 }, EMULATOR_LIMITS).failures, ['zoomTapped']);
-    assert.deepEqual(verdict('zoom tap navigate', { ...zoomJank, zoomTapped: true, zoomGridChanged: 2 }, EMULATOR_LIMITS).failures, ['zoomResizeCount']);
-    assert.equal(oneStep.cellOnly, 1);
-    const textZoom = reduceZoom(parseResizeTrail('terminal.resize 80x24 cell=8x16\nterminal.resize 66x20 cell=10x20'));
+    const textZoom = reduceZoom(parseResizeTrail('terminal.resize count=2 1:80x24:cell=8x16 2:66x20:cell=10x20'));
     assert.equal(textZoom.gridChanged, 1);
     assert.equal(textZoom.cellOnly, 0);
+
+    // A checkerboard magnified by one graphics step: the same board, its blocks
+    // 1.25x wider. A tap that magnified nothing leaves them exactly as they were.
+    const board = (blockPx) => {
+        const width = 120;
+        const height = 16;
+        const bytes = Buffer.alloc(width * height * 4);
+        for (let y = 0; y < height; y += 1) for (let x = 0; x < width; x += 1) {
+            const dark = Math.floor(x / blockPx) % 2 === 0;
+            bytes.set(dark ? [235, 35, 170, 255] : [20, 215, 185, 255], (y * width + x) * 4);
+        }
+        return { width, height, bytes };
+    };
+    assert.equal(reduceMagnification(board(8), board(10), { expected: 1.25 }).proven, true);
+    assert.equal(reduceMagnification(board(8), board(8), { expected: 1.25 }).proven, false);
+    const flat = { width: 120, height: 16, bytes: Buffer.alloc(120 * 16 * 4, 30) };
+    assert.equal(reduceMagnification(flat, flat, { expected: 1.25 }).proven, false);
+
+    const zoomJank = { jank: { frames: 10, jankyPercent: 1, p95Ms: 10, p99Ms: 12, overFourFramesPercent: 0, missedVsync: 0 }, frameStats: { droppedPercent: 0, inputToFrameMs: { p95: 10 } } };
+    const stepped = { zoomTapped: true, zoomedOut: true, zoomReset: true };
+    // A text pane re-grids exactly once per step; a graphics pane holds the
+    // remote grid and has to show the magnification in its own pixels. A tap
+    // the app never acted on passes neither.
+    assert.deepEqual(verdict('zoom tap navigate', {
+        ...zoomJank, ...stepped, zoomSurface: 'text', zoomResizeCount: 1,
+    }, EMULATOR_LIMITS).failures, []);
+    assert.deepEqual(verdict('zoom tap navigate', {
+        ...zoomJank, ...stepped, zoomSurface: 'text', zoomResizeCount: 2,
+    }, EMULATOR_LIMITS).failures, ['zoomResizeCount']);
+    assert.deepEqual(verdict('zoom tap navigate', {
+        ...zoomJank, ...stepped, zoomSurface: 'graphics', zoomResizeCount: 0,
+        zoomMagnified: { proven: true },
+    }, EMULATOR_LIMITS).failures, []);
+    assert.deepEqual(verdict('zoom tap navigate', {
+        ...zoomJank, ...stepped, zoomSurface: 'graphics', zoomResizeCount: 0,
+        zoomMagnified: { proven: false },
+    }, EMULATOR_LIMITS).failures, ['zoom did not magnify the surface']);
+    assert.deepEqual(verdict('zoom tap navigate', {
+        ...zoomJank, ...stepped, zoomTapped: false, zoomSurface: 'text', zoomResizeCount: 1,
+    }, EMULATOR_LIMITS).failures, ['zoomTapped']);
+    assert.deepEqual(verdict('zoom tap navigate', {
+        ...zoomJank, ...stepped, zoomResizeCount: 1,
+    }, EMULATOR_LIMITS).failures, ['the zoom surface could not be identified']);
+    assert.deepEqual(verdict('zoom tap navigate', {
+        ...zoomJank, ...stepped, zoomedOut: false, zoomSurface: 'text', zoomResizeCount: 1,
+    }, EMULATOR_LIMITS).failures, ['zoom out did not return the surface']);
 
     const notches = reducePipelineNotches([
         { event: 'graphics.pipeline', frames: 5, notchesSent: 5, notchesDropped: 8 },

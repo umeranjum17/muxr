@@ -2,12 +2,12 @@
  * Pure reductions for a measured gesture bout. No adb: the gate captures the
  * dumps and this module turns them into the numbers the limits judge.
  */
-const NATIVE_PHASES = new Set(['herd tree fling', 'herd strip paging', 'document scroll and swipe']);
+const NATIVE_PHASES = new Set(['herd tree fling', 'herd strip paging', 'document scroll']);
 const TERMINAL_PHASES = new Set(['terminal text fling', 'graphics pane scroll', 'zoom tap navigate']);
 const SCROLL_PHASES = new Set([
     'herd tree fling',
     'herd strip paging',
-    'document scroll and swipe',
+    'document scroll',
     'terminal text fling',
     'graphics pane scroll',
 ]);
@@ -149,9 +149,12 @@ export function reduceFrameStats(rows, { frameNs, t0Ns } = {}) {
     return {
         frames,
         dropped,
-        droppedPercent: frames === 0 ? 0 : Math.round(dropped / frames * 1000) / 10,
+        // No frames is no account of the bout, and no input-driven frame is no
+        // account of the touch. Reporting either as a perfect zero passes a
+        // limit on evidence that was never collected.
+        droppedPercent: frames === 0 ? undefined : Math.round(dropped / frames * 1000) / 10,
         worstMs: Math.round(worstNs / 1e6),
-        inputToFrameMs: {
+        inputToFrameMs: firstMovements.length === 0 ? {} : {
             p50: percentile(firstMovements, 50),
             p95: percentile(firstMovements, 95),
         },
@@ -191,9 +194,9 @@ export function mergeFrameStats(parts) {
     return {
         frames,
         dropped,
-        droppedPercent: frames === 0 ? 0 : Math.round(dropped / frames * 1000) / 10,
+        droppedPercent: frames === 0 ? undefined : Math.round(dropped / frames * 1000) / 10,
         worstMs,
-        inputToFrameMs: {
+        inputToFrameMs: firsts.length === 0 ? {} : {
             p50: percentile(firsts, 50),
             p95: percentile(firsts, 95),
         },
@@ -239,74 +242,100 @@ export function reduceJank(before, after, { hz } = {}) {
     };
 }
 
-/** Codes, counts, and durations only — the redacted diagnostics report. */
+/**
+ * Codes, counts, and durations only — the redacted diagnostics report.
+ *
+ * The phone's trail is a ring, so the counts a phase needs come from the
+ * totals the report keeps apart from it, and every event carries the number it
+ * was recorded at. `seq` is the phone's cursor at the moment of the pull.
+ */
 export function parseRedactedTrail(text) {
     const body = String(text);
-    const numbers = (pattern) => [...body.matchAll(pattern)].map((match) => Number(match[1])).filter(Number.isFinite);
-    const latencies = numbers(/terminal\.scroll-latency\s+(\d+)/g);
-    const firstFrames = numbers(/terminal\.first-frame\s+(\d+)/g);
-    let clamped = numbers(/terminal\.scroll-clamped\s+(\d+)/g).reduce((sum, n) => sum + n, 0);
-    let rows = numbers(/terminal\.scroll-rows\s+(\d+)/g).reduce((sum, n) => sum + n, 0);
-    let scrollRequests = latencies.length;
-    const summary = /terminal\.scroll requests=(\d+) rows=(\d+) clamped=(\d+)/.exec(body);
-    if (summary !== null) {
-        scrollRequests = Math.max(scrollRequests, Number(summary[1]) || 0);
-        rows = Math.max(rows, Number(summary[2]) || 0);
-        clamped = Math.max(clamped, Number(summary[3]) || 0);
+    const firstFrames = [...body.matchAll(/terminal\.first-frame\s+(\d+)/g)].map((match) => Number(match[1]));
+    const summary = /terminal\.scroll seq=(\d+) requests=(\d+) rows=(\d+) clamped=(\d+) latency p50=(\d+)ms p95=(\d+)ms/.exec(body);
+    const samples = [];
+    for (const match of body.matchAll(/terminal\.scroll-latency ((?:\d+:\d+ ?)+)/g)) {
+        for (const pair of match[1].trim().split(/\s+/)) {
+            const [seq, ms] = pair.split(':').map(Number);
+            if (Number.isFinite(seq) && Number.isFinite(ms)) samples.push({ seq, ms });
+        }
     }
-    const summaryLatency = /latency p50=(\d+)ms p95=(\d+)ms/.exec(body);
-    const scrollLatencyP50Ms = summaryLatency === null ? percentile(latencies, 50) : Number(summaryLatency[1]);
-    const scrollLatencyP95Ms = summaryLatency === null ? percentile(latencies, 95) : Number(summaryLatency[2]);
-    if (latencies.length === 0 && summaryLatency !== null && (scrollLatencyP50Ms > 0 || scrollLatencyP95Ms > 0)) {
-        scrollRequests = Math.max(scrollRequests, 1);
-    }
-    const parsedResizes = parseResizeTrail(body);
+    // Every line in the body is `<iso> #<seq> <summary>`, so an event a phase
+    // did not cause can be told apart from one it did.
+    const agentPages = [...body.matchAll(/#(\d+) (?:agent\.page\b|rpc session\.start\b)/g)].map((match) => Number(match[1]));
+    // The cursor is the highest number the phone has handed out. A phone that
+    // has recorded events but no gesture yet still has one, so a mark taken
+    // before the first scroll is a usable mark rather than a missing one.
+    const numbered = [...body.matchAll(/ #(\d+) /g)].map((match) => Number(match[1]));
+    const seq = Math.max(summary === null ? 0 : Number(summary[1]), ...numbered, 0);
     return {
-        scrollLatencies: latencies,
-        scrollRequests,
-        scrollLatencyP50Ms,
-        scrollLatencyP95Ms,
+        seq: summary === null && numbered.length === 0 ? undefined : seq,
+        scrollRequests: summary === null ? 0 : Number(summary[2]),
+        rowsRequested: summary === null ? 0 : Number(summary[3]),
+        clamped: summary === null ? 0 : Number(summary[4]),
+        scrollLatencyP50Ms: summary === null ? 0 : Number(summary[5]),
+        scrollLatencyP95Ms: summary === null ? 0 : Number(summary[6]),
+        scrollLatencies: samples,
         firstFrameMs: firstFrames.at(-1),
-        clamped,
-        rowsRequested: rows,
-        resizes: parsedResizes.length,
-        resizeEvents: parsedResizes,
-        agentPages: [...body.matchAll(/agent\.page\b|session\.start\b/g)].length,
+        resizeEvents: parseResizeTrail(body),
+        agentPages,
     };
 }
 
 /**
- * What the phone recorded during one bout. The diagnostics report is a running
- * ring, so a phase is the difference between the pull that opened it and the
- * pull that closed it. Latency percentiles are the ring's own and cannot be
- * differenced; they are carried from the later pull.
+ * What the phone recorded after a mark, and nothing else.
+ *
+ * The trail is a bounded ring: differencing what is still visible in it counts
+ * a phase's own evictions as a quiet phone. Counts come from the totals, which
+ * never evict, and percentiles come from the samples recorded after the mark —
+ * so a phase that asked for scrolls the phone has no samples for is reported
+ * unavailable instead of as a perfect zero.
  */
-export function subtractTrail(after, before) {
-    const since = (key) => Math.max(0, (after?.[key] ?? 0) - (before?.[key] ?? 0));
+export function trailSince(after, before) {
+    if (after?.seq === undefined || before?.seq === undefined) return { ok: false, why: 'the phone reported no gesture totals' };
+    // Totals only ever grow. Going backwards means the app restarted or the
+    // trail was cleared under us, and nothing across that break is comparable.
+    if (after.seq < before.seq
+        || ['scrollRequests', 'rowsRequested', 'clamped'].some((key) => (after[key] ?? 0) < (before[key] ?? 0))) {
+        return { ok: false, why: 'the phone trail restarted during the phase' };
+    }
+    const since = (key) => (after[key] ?? 0) - (before[key] ?? 0);
+    const scrollRequests = since('scrollRequests');
+    const latencies = (after.scrollLatencies ?? []).filter((sample) => sample.seq > before.seq).map((sample) => sample.ms);
+    if (scrollRequests > 0 && latencies.length === 0) {
+        return { ok: false, why: 'the phone kept no scroll latency sample from this phase' };
+    }
     return {
-        ...after,
-        scrollRequests: since('scrollRequests'),
+        ok: true,
+        seq: after.seq,
+        scrollRequests,
         rowsRequested: since('rowsRequested'),
         clamped: since('clamped'),
-        agentPages: since('agentPages'),
-        resizes: since('resizes'),
-        resizeEvents: (after?.resizeEvents ?? []).slice((before?.resizeEvents ?? []).length),
+        scrollLatencies: latencies,
+        scrollLatencyP50Ms: percentile(latencies, 50),
+        scrollLatencyP95Ms: percentile(latencies, 95),
+        resizeEvents: (after.resizeEvents ?? []).filter((resize) => resize.seq > before.seq),
+        agentPages: (after.agentPages ?? []).filter((seq) => seq > before.seq).length,
     };
 }
 
 /**
- * `terminal.resize 80x24 cell=8x16` — grid always, cell when the phone sent it.
- * An image-pane zoom is a cell change with the grid held still; a text-pane
- * zoom is the reverse.
+ * `terminal.resize count=3 12:80x24:cell=8x16 …` — the phone's own resize line,
+ * kept out of the ring so a zoom step cannot be evicted by a frame. Grid
+ * always, cell when the phone sent it. An image-pane zoom is a cell change
+ * with the grid held still; a text-pane zoom is the reverse.
  */
 export function parseResizeTrail(text) {
     const resizes = [];
-    for (const match of String(text).matchAll(/terminal\.resize\s+(\d+)x(\d+)(?: cell=(\d+)x(\d+))?/g)) {
+    const line = /terminal\.resize count=\d+ (.*)/.exec(String(text));
+    if (line === null) return resizes;
+    for (const match of line[1].matchAll(/(\d+):(\d+)x(\d+)(?::cell=(\d+)x(\d+))?/g)) {
         resizes.push({
-            cols: Number(match[1]),
-            rows: Number(match[2]),
-            ...(match[3] === undefined ? {} : { cellWidthPx: Number(match[3]) }),
-            ...(match[4] === undefined ? {} : { cellHeightPx: Number(match[4]) }),
+            seq: Number(match[1]),
+            cols: Number(match[2]),
+            rows: Number(match[3]),
+            ...(match[4] === undefined ? {} : { cellWidthPx: Number(match[4]) }),
+            ...(match[5] === undefined ? {} : { cellHeightPx: Number(match[5]) }),
         });
     }
     return resizes;
@@ -408,6 +437,62 @@ export function meanAbsDiff(before, after) {
     return count === 0 ? 0 : sum / count / 255;
 }
 
+/**
+ * The width of one block of the fixture's checkerboard, in screen pixels.
+ *
+ * Scanned across the middle rows of a crop: a colour step is a block edge, and
+ * the median gap between edges is the block's size on screen. It survives the
+ * load churning the pane, because the producer repaints the same board every
+ * frame, and it is the only thing that changes when a local transform
+ * magnifies a surface without touching the remote grid.
+ */
+export function checkerPeriod(crop, { minStep = 60, rows = 5 } = {}) {
+    const width = Number(crop?.width) || 0;
+    const height = Number(crop?.height) || 0;
+    if (width < 8 || height < 8) return undefined;
+    const pixels = rawPixels(crop);
+    const gaps = [];
+    for (let sample = 1; sample <= rows; sample += 1) {
+        const y = Math.floor(height * sample / (rows + 1));
+        let previousEdge;
+        for (let x = 1; x < width; x += 1) {
+            const left = (y * width + x - 1) * 4;
+            const right = (y * width + x) * 4;
+            const step = Math.abs((pixels[left] ?? 0) - (pixels[right] ?? 0))
+                + Math.abs((pixels[left + 1] ?? 0) - (pixels[right + 1] ?? 0))
+                + Math.abs((pixels[left + 2] ?? 0) - (pixels[right + 2] ?? 0));
+            if (step < minStep) continue;
+            if (previousEdge !== undefined && x - previousEdge > 1) gaps.push(x - previousEdge);
+            previousEdge = x;
+        }
+    }
+    if (gaps.length < 3) return undefined;
+    gaps.sort((left, right) => left - right);
+    return gaps[Math.floor(gaps.length / 2)];
+}
+
+/**
+ * Did the surface really magnify in place? One zoom step scales the pane by a
+ * known factor, so its blocks must grow by that factor. A tap that changed
+ * nothing, or a pane that reflowed instead of magnifying, does not.
+ */
+export function reduceMagnification(before, after, { expected, tolerance = 0.15 } = {}) {
+    const beforePeriod = checkerPeriod(before);
+    const afterPeriod = checkerPeriod(after);
+    if (beforePeriod === undefined || afterPeriod === undefined) {
+        return { proven: false, why: 'the surface has no measurable pattern to magnify', beforePeriod, afterPeriod };
+    }
+    const ratio = afterPeriod / beforePeriod;
+    const want = Number(expected) > 0 ? Number(expected) : 1;
+    return {
+        proven: Math.abs(ratio - want) <= want * tolerance,
+        beforePeriod,
+        afterPeriod,
+        ratio: Number(ratio.toFixed(3)),
+        expected: want,
+    };
+}
+
 export function pixelsMoved(before, after, { minMean = PIXEL_MOVE_THRESHOLD } = {}) {
     const meanAbs = meanAbsDiff(before, after);
     return { moved: meanAbs >= minMean, meanAbs, threshold: minMean };
@@ -452,12 +537,6 @@ export function firstDocumentMarker(dump) {
     return lines[0]?.marker;
 }
 
-/** `File 3 of 12` on the document navigator — which file is open, not where in it. */
-export function documentPosition(dump) {
-    const match = /File (\d+) of (\d+)/.exec(String(dump).replace(/&#10;/g, '\n'));
-    return match === null ? undefined : { current: Number(match[1]), total: Number(match[2]) };
-}
-
 /** Leftmost live-terminal card. Its label is the visible index we can observe. */
 export function firstStripCard(dump) {
     const cards = parseUiNodes(dump).filter((node) => /Terminal/i.test(node.desc)
@@ -486,7 +565,7 @@ export function scrollableBounds(surface, dump, screen = {}) {
     if (name === 'tree' || name === 'herd tree fling') {
         return { l: Math.round(width * 0.08), t: Math.round(height * 0.42), r: width, b: height };
     }
-    if (name === 'document' || name === 'document scroll and swipe') {
+    if (name === 'document' || name === 'document scroll') {
         return { l: 0, t: Math.round(height * 0.18), r: width, b: height };
     }
     if (ghostty !== undefined) return ghostty;
@@ -521,7 +600,7 @@ export function reduceMovement(phase, snapshot = {}) {
         }
         return { proven: pixelOk, meanAbs, threshold, reasons };
     }
-    if (name === 'document scroll and swipe' || name === 'document') {
+    if (name === 'document scroll' || name === 'document') {
         const before = snapshot.before?.documentMarker;
         const after = snapshot.after?.documentMarker;
         const textMoved = before !== undefined && after !== undefined && before !== after;
@@ -582,6 +661,13 @@ export function verdict(phase, metrics, limits) {
     const terminal = metrics?.terminal ?? {};
 
     if (jank.frames === 0) failures.push('no frames in window');
+    if (SCROLL_PHASES.has(name)) {
+        // A bout with no framestats ring, or one whose frames were never driven
+        // by an input event, measured nothing. Both used to reduce to a perfect
+        // zero and pass every limit below.
+        if ((frames.frames ?? 0) === 0) failures.push('no framestats frames');
+        else if (frames.inputToFrameMs?.p95 === undefined) failures.push('no input-driven frame');
+    }
     failWhen(failures, 'gestureJankPercent', over(jank.jankyPercent, limits.gestureJankPercent));
     failWhen(failures, 'gestureP95Ms', over(jank.p95Ms, limits.gestureP95Ms));
     failWhen(failures, 'gestureP99Ms', over(jank.p99Ms, limits.gestureP99Ms));
@@ -598,12 +684,6 @@ export function verdict(phase, metrics, limits) {
     }
     failWhen(failures, 'accidentalOwners', over(metrics.accidentalOwners, limits.accidentalOwners));
 
-    if (name === 'document scroll and swipe') {
-        // The swipes move between files; the navigator's own position label is
-        // the only account of that the surface publishes.
-        failWhen(failures, 'document.navigate', metrics.documentNavigate !== undefined && metrics.documentNavigate < 1);
-        failWhen(failures, 'accidentalOwners', (metrics.documentNavigateDuringVertical ?? 0) !== 0);
-    }
     if (name === 'terminal text fling') {
         failWhen(failures, 'terminalScrollP95Ms', over(terminal.scrollLatencyP95Ms, limits.terminalScrollP95Ms));
         failWhen(failures, 'terminalRowsPerSecond', under(terminal.rowsPerSecond, limits.terminalRowsPerSecond));
@@ -614,13 +694,22 @@ export function verdict(phase, metrics, limits) {
         failWhen(failures, 'graphicsRowsPerSecond', under(terminal.rowsPerSecond ?? metrics.graphicsRowsPerSecond, limits.graphicsRowsPerSecond));
     }
     if (name === 'zoom tap navigate') {
-        failWhen(failures, 'zoomTapped', metrics.zoomTapped === false);
-        // A text pane zooms by re-gridding, which the phone reports. A graphics
-        // pane magnifies locally and deliberately holds the remote geometry, so
-        // there is nothing to count and nothing to gate.
-        if ((metrics.zoomGridChanged ?? 0) > 0) {
-            failWhen(failures, 'zoomResizeCount', metrics.zoomGridChanged !== limits.zoomResizeCount);
+        failWhen(failures, 'zoomTapped', metrics.zoomTapped !== true);
+        // Which surface answered the tap decides what the proof is, so a run
+        // that could not tell reports that rather than picking the easier one.
+        // A text pane zooms by re-gridding, which the phone reports; a graphics
+        // pane holds the remote grid and magnifies its own surface, which only
+        // its pixels can show.
+        if (metrics.zoomSurface === 'text') {
+            failWhen(failures, 'zoomResizeCount', metrics.zoomResizeCount !== limits.zoomResizeCount);
+        } else if (metrics.zoomSurface === 'graphics') {
+            failWhen(failures, 'zoom did not magnify the surface', metrics.zoomMagnified?.proven !== true);
+            failWhen(failures, 'zoomResizeCount', (metrics.zoomResizeCount ?? 0) !== 0);
+        } else {
+            failures.push('the zoom surface could not be identified');
         }
+        failWhen(failures, 'zoom out did not return the surface', metrics.zoomedOut !== true);
+        failWhen(failures, 'reset zoom did not return the surface', metrics.zoomReset !== true);
     }
     if (metrics.injectFailed === true) failures.push('device could not inject');
     if (SCROLL_PHASES.has(name) && metrics.movement !== undefined

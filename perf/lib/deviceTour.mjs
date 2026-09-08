@@ -107,8 +107,14 @@ export async function tourEverySession(options) {
     }
 
     const samples = visits.map((visit) => visit.pssKb).filter((value) => value !== undefined);
+    // A visit whose memory could not be read is a hole in the tour's account,
+    // not a visit that used no memory. Growth is only comparable when both ends
+    // of the tour were sampled and nothing between them was missed.
+    const missingSamples = visits.filter((visit) => visit.pssKb === undefined).map((visit) => visit.paneId);
     return {
         panes: panes.length,
+        pssSamples: samples.length,
+        pssMissingSamples: missingSamples,
         opened,
         missed: panes.length - opened,
         missedPanes: visits.filter((visit) => !visit.opened).map((visit) => visit.paneId),
@@ -118,8 +124,9 @@ export async function tourEverySession(options) {
         pssLastKb: samples[samples.length - 1],
         pssMaxKb: samples.length === 0 ? undefined : Math.max(...samples),
         // Growth across the whole tour is the leak signal. One visit's spike is
-        // just that pane's scrollback and images.
-        pssGrowthKb: samples.length < 2 ? 0 : samples[samples.length - 1] - samples[0],
+        // just that pane's scrollback and images. Without both ends there is no
+        // growth to report, and reporting zero would read as a build that held.
+        pssGrowthKb: samples.length < 2 ? undefined : samples[samples.length - 1] - samples[0],
         framesRendered: await framesRendered(pkg),
     };
 }

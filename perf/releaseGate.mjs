@@ -59,7 +59,6 @@ import { fling, scrollBout, stripBout, tap, drag } from './lib/gestures.mjs';
 import {
     cropRaw,
     decodeUiAttribute,
-    documentPosition,
     firstDocumentMarker,
     firstStripCard,
     firstStripLabel,
@@ -69,11 +68,12 @@ import {
     pixelsMoved,
     reduceFrameStats,
     reduceJank,
+    reduceMagnification,
     reduceMovement,
     reducePipelineNotches,
     reduceZoom,
     scrollableBounds,
-    subtractTrail,
+    trailSince,
     verdict,
 } from './lib/gestureMetrics.mjs';
 
@@ -111,7 +111,10 @@ const SHARED_LIMITS = {
     accidentalOwners: 0,
     terminalScrollClamped: 0,
     graphicsRowsPerSecond: 9,
+    /** One tap on `Zoom in` is one font step, and one re-grid on the wire. */
     zoomResizeCount: 1,
+    /** `GRAPHICS_ZOOM_STEPS[1]`: the first step a graphics pane magnifies by. */
+    graphicsZoomStep: 1.25,
 };
 
 const EMULATOR_LIMITS = {
@@ -165,11 +168,14 @@ const PHASES = [
     { name: 'agent terminal and plugin navigation', seconds: 120, flow: 'herdNavigate.yaml' },
     { name: 'herd tree fling', seconds: 30, drive: 'treeFling' },
     { name: 'herd strip paging', seconds: 20, drive: 'stripPaging' },
-    { name: 'document scroll and swipe', seconds: 30, nav: 'openDocument.yaml', drive: 'documentScrollSwipe' },
+    { name: 'document scroll', seconds: 30, nav: 'openDocument.yaml', drive: 'documentScroll' },
     { name: 'terminal text fling', seconds: 30, drive: 'terminalTextFling' },
     { name: 'graphics pane scroll', seconds: 90, drive: 'graphicsScroll' },
     { name: 'zoom tap navigate', seconds: 60, drive: 'zoomTapNavigate' },
 ];
+
+/** Paints the fixture's identifiable checkerboard instead of a flat fill. */
+const GRAPHICS_PROOF_FILE = '/tmp/muxr-perf-graphics-proof';
 
 /** 240 numbered lines: the file plugin's preview cap, and enough to scroll. */
 const DOCUMENT_FIXTURE = 'perf-document.md';
@@ -345,7 +351,6 @@ async function captureSurface(surface, screen) {
         bounds,
         crop,
         documentMarker: firstDocumentMarker(dump),
-        documentPosition: documentPosition(dump),
         stripLabel: firstStripLabel(dump),
     };
 }
@@ -447,7 +452,7 @@ async function preparePhase(phase, screen, hz) {
     if (phase.drive === undefined) {
         return await returnToHerd() ? { ok: true } : { ok: false, why: 'the herd never came back on screen' };
     }
-    const surface = { treeFling: 'tree', stripPaging: 'strip', documentScrollSwipe: 'document', terminalTextFling: 'terminal', graphicsScroll: 'graphics', zoomTapNavigate: 'terminal' }[phase.drive];
+    const surface = { treeFling: 'tree', stripPaging: 'strip', documentScroll: 'document', terminalTextFling: 'terminal', graphicsScroll: 'graphics', zoomTapNavigate: 'terminal' }[phase.drive];
     // Only the phases graded on the phone's own counters pay for a baseline
     // pull; it costs a round trip through Settings and back.
     const wantsTrail = phase.drive === 'terminalTextFling' || phase.drive === 'zoomTapNavigate';
@@ -471,9 +476,13 @@ async function preparePhase(phase, screen, hz) {
         }
     }
 
+    // Everything the host records for this phase is stamped after this mark, so
+    // a pane another phase opened cannot be read as this one's evidence.
+    const enteredAt = new Date().toISOString();
+
     if (phase.drive === 'treeFling' || phase.drive === 'stripPaging') {
         if (!await returnToHerd()) return { ok: false, why: 'the herd never came back on screen' };
-    } else if (phase.drive === 'documentScrollSwipe') {
+    } else if (phase.drive === 'documentScroll') {
         await dismissKeyboard();
         const dump = await dumpUi();
         if (firstDocumentMarker(dump) === undefined) return { ok: false, flowExit, why: 'the document fixture is not on the reading surface' };
@@ -482,7 +491,27 @@ async function preparePhase(phase, screen, hz) {
         if (why !== undefined) return { ok: false, why };
     }
 
-    return { ok: true, flowExit, trailBefore, prepared: await prepareBout(surface, screen, hz) };
+    return { ok: true, flowExit, trailBefore, enteredAt, prepared: await prepareBout(surface, screen, hz) };
+}
+
+/** `enabled` on the panel control the app published, or `undefined` if absent. */
+function controlEnabled(dump, label) {
+    const node = (String(dump).match(/<node\b[^>]*>/g) ?? []).find((row) => row.includes(`content-desc="${label}"`));
+    return node === undefined ? undefined : /enabled="true"/.test(node);
+}
+
+/**
+ * The pane the host saw this phase attach, and the grid it asked for.
+ *
+ * A thumbnail read carries no cell pixels; only a native terminal attach does,
+ * so requiring them keeps another pane's observer read out of this phase's
+ * evidence, and the timestamp keeps an earlier phase's attach out of it.
+ */
+function paneAttaches(paneId, since) {
+    if (stack === undefined) return [];
+    return readJsonl(stack.attachJsonl).filter((record) => (paneId === undefined || String(record.pane_id) === paneId)
+        && String(record.at) >= since
+        && [record.cols, record.rows, record.cellWidthPx, record.cellHeightPx].every((value) => Number(value) > 0));
 }
 
 async function drivePhase(phase, screen, hz, ready) {
@@ -491,7 +520,8 @@ async function drivePhase(phase, screen, hz, ready) {
     const prepared = ready.prepared;
     const sinceEntry = async () => {
         const mark = await pullPhoneTrail();
-        return mark.ok ? subtractTrail(mark.trail, ready.trailBefore) : undefined;
+        if (!mark.ok) return { ok: false, why: mark.why };
+        return trailSince(mark.trail, ready.trailBefore);
     };
     if (phase.drive === 'treeFling') {
         return measureBout((opts) => scrollBout({ width, height, seconds, ...opts }), hz, { surface: 'tree', screen, phase, prepared });
@@ -499,37 +529,19 @@ async function drivePhase(phase, screen, hz, ready) {
     if (phase.drive === 'stripPaging') {
         return measureBout((opts) => stripBout({ width, height, seconds, ...opts }), hz, { surface: 'strip', screen, phase, prepared });
     }
-    if (phase.drive === 'documentScrollSwipe') {
-        const vertical = await measureBout((opts) => scrollBout({ width, height, seconds: 20, ...opts }), hz, { surface: 'document', screen, phase, prepared });
-        // Horizontal swipes move between files. `File n of m` on the navigator
-        // is the surface's own account of which file is open, and the only
-        // observable one: the viewer publishes no navigation diagnostic.
-        const positions = [documentPosition(await dumpUi())];
-        for (let index = 0; index < 6; index += 1) {
-            const left = index % 2 === 0;
-            await drag({
-                from: { x: width * (left ? 0.8 : 0.2), y: height * 0.5 },
-                to: { x: width * (left ? 0.2 : 0.8), y: height * 0.5 },
-            });
-            await sleep(600);
-            positions.push(documentPosition(await dumpUi()));
-        }
-        const transitions = positions.reduce((count, position, index) => index > 0
-            && position?.current !== undefined
-            && position.current !== positions[index - 1]?.current ? count + 1 : count, 0);
-        return {
-            ...vertical,
-            documentPositions: positions,
-            documentNavigate: transitions,
-            documentNavigateDuringVertical: 0,
-        };
+    if (phase.drive === 'documentScroll') {
+        // Reading, and only reading: the viewer reached from the herd carries no
+        // file navigator, so it has no `File n of m` to move and a horizontal
+        // swipe there proves nothing. What the long fixture can prove is that
+        // its own numbered lines travelled under the finger.
+        return measureBout((opts) => scrollBout({ width, height, seconds, ...opts }), hz, { surface: 'document', screen, phase, prepared });
     }
     if (phase.drive === 'terminalTextFling') {
         const measured = await measureBout((opts) => scrollBout({ width, height, seconds, ...opts }), hz, { surface: 'terminal', screen, phase, prepared });
         const trail = await sinceEntry();
-        if (trail === undefined) return { ...measured, trailUnavailable: true };
+        if (!trail.ok) return { ...measured, trailUnavailable: trail.why };
         const terminal = {
-            scrollRequests: trail.scrollRequests || trail.scrollLatencies.length,
+            scrollRequests: trail.scrollRequests,
             scrollLatencyP50Ms: trail.scrollLatencyP50Ms,
             scrollLatencyP95Ms: trail.scrollLatencyP95Ms,
             rowsRequested: trail.rowsRequested,
@@ -569,23 +581,57 @@ async function drivePhase(phase, screen, hz, ready) {
     }
     if (phase.drive === 'zoomTapNavigate') {
         const before = prepared.before;
-        const attachBefore = stack === undefined ? [] : readJsonl(stack.attachJsonl);
-        const baseline = attachBefore.at(-1);
+        // Which pane answered this phase, from the host's own attach record,
+        // taken since this phase entered the surface. Without it a zoom step is
+        // read off whatever pane some earlier phase happened to leave behind.
+        const entered = ready.enteredAt;
+        const paneId = paneAttaches(undefined, entered).at(-1)?.pane_id;
         // The zoom buttons live behind the controls key; they do not exist until
         // the panel is open, so a tap that misses is a harness miss, not a
         // missing feature.
         const opened = await tapBounds('content-desc="Show terminal controls"');
         await sleep(600);
-        const zoomedIn = opened && await tapBounds('content-desc="Zoom in"');
-        await sleep(450);
-        const attachAfterIn = stack === undefined ? [] : readJsonl(stack.attachJsonl);
-        const afterIn = attachAfterIn.at(-1);
-        const zoomIn = reduceZoom([baseline, afterIn].filter((record) => record !== undefined
-            && Number(record.cols) > 0 && Number(record.rows) > 0));
-        await tapBounds('content-desc="Zoom out"');
-        await sleep(450);
-        await tapBounds('content-desc="Reset zoom"');
-        await sleep(450);
+        // The two surfaces are told apart by the state the app itself publishes
+        // on the panel, before anything is tapped: a text pane opens at the
+        // middle of its font ladder, so `Zoom out` is live; a graphics pane
+        // opens at scale 1, its smallest, so it is not.
+        const panel = await dumpUi();
+        const zoomOutAtRest = controlEnabled(panel, 'Zoom out');
+        const zoomSurface = controlEnabled(panel, 'Zoom in') === undefined || zoomOutAtRest === undefined
+            ? undefined
+            : zoomOutAtRest ? 'text' : 'graphics';
+        const gridBefore = paneAttaches(paneId, entered).at(-1);
+        const zoomInAt = new Date().toISOString();
+        const zoomedIn = opened && zoomSurface !== undefined && await tapBounds('content-desc="Zoom in"');
+        await sleep(800);
+        // One tap, one step: a text pane re-grids on the wire exactly once, and
+        // a graphics pane must not re-grid at all.
+        const gridAfterIn = paneAttaches(paneId, zoomInAt);
+        const zoomIn = reduceZoom([gridBefore, ...gridAfterIn].filter((record) => record !== undefined));
+        // `Reset zoom` is disabled at the default and live once a step landed,
+        // so the panel's own state says whether the tap did anything at all.
+        const steppedIn = controlEnabled(await dumpUi(), 'Reset zoom') === true;
+        await tapBounds('content-desc="Close terminal controls"');
+        await sleep(400);
+        const magnified = zoomSurface !== 'graphics' ? undefined : reduceMagnification(
+            prepared.beforeSurface?.crop,
+            cropRaw(await screencapRaw().catch(() => undefined) ?? {}, prepared.beforeSurface?.bounds),
+            { expected: LIMITS.graphicsZoomStep },
+        );
+        // Back down the same ladder. `Reset zoom` is the surface's own report of
+        // where it stands, so a step that returned it to the default disables
+        // that control again; a tap the app ignored leaves it live.
+        const atDefaultAfter = async (label) => {
+            if (!await tapBounds(`content-desc="${label}"`)) return false;
+            await sleep(600);
+            return controlEnabled(await dumpUi(), 'Reset zoom') === false;
+        };
+        await tapBounds('content-desc="Show terminal controls"');
+        await sleep(500);
+        const zoomedOut = steppedIn && await atDefaultAfter('Zoom out');
+        await tapBounds('content-desc="Zoom in"');
+        await sleep(500);
+        const zoomReset = await atDefaultAfter('Reset zoom');
         await tapBounds('content-desc="Close terminal controls"');
         await sleep(300);
         const ghostty = await viewBounds('GhosttyTerminalView');
@@ -609,34 +655,37 @@ async function drivePhase(phase, screen, hz, ready) {
         }
         const after = await jankReport(PKG, { hz });
         const trail = await sinceEntry();
-        if (trail === undefined) return { trailUnavailable: true, jank: reduceJank(before, after, { hz }), frameStats: mergeFrameStats([]), bout: { gestures: 1, flings: 1, medianVelocityPxPerSecond: 0 }, injectFailed: false };
-        const attaches = stack === undefined ? [] : readJsonl(stack.attachJsonl);
+        if (!trail.ok) return { trailUnavailable: trail.why, jank: reduceJank(before, after, { hz }), frameStats: mergeFrameStats([]), bout: { gestures: 1, flings: 1, medianVelocityPxPerSecond: 0 }, injectFailed: false };
+        // The phone's own account of the same steps, over the events it recorded
+        // after this phase's mark. It corroborates the host's attach record; the
+        // gate is judged on the two together.
         const trailZoom = reduceZoom(trail.resizeEvents);
-        // A text pane zooms by re-gridding, which both the attach record and the
-        // phone's trail report. A graphics pane magnifies with a local transform
-        // and deliberately leaves the remote geometry alone, so a resize count
-        // is the wrong question there; see `zoomLocal` below.
-        const gridChanged = zoomIn.gridChanged || trailZoom.gridChanged;
-        const zoomResizeCount = gridChanged || zoomIn.cellOnly
-            || (trailZoom.cellOnly > 0 ? 1 : 0);
         return {
             bout: { gestures: 1, flings: 1, medianVelocityPxPerSecond: 0 },
             injectFailed: false,
             jank: reduceJank(before, after, { hz }),
             frameStats: mergeFrameStats([]),
-            zoomGridChanged: gridChanged,
+            zoomSurface,
             zoomControlsOpened: opened,
-            zoomResizeCount,
-            zoomTapped: zoomedIn,
+            zoomResizeCount: zoomIn.gridChanged,
+            zoomTapped: zoomedIn && steppedIn,
+            zoomMagnified: magnified,
+            zoomedOut,
+            zoomReset,
             zoom: {
-                ...trailZoom,
-                zoomIn,
-                attachBefore: baseline,
-                attachAfterIn: afterIn,
+                paneId,
+                surface: zoomSurface,
+                zoomOutAtRest,
+                steppedIn,
+                host: zoomIn,
+                phone: trailZoom,
+                gridBefore,
+                gridAfterIn,
+                magnified,
             },
-            attachRecords: attaches.length,
+            attachRecords: paneAttaches(paneId, entered).length,
             terminal: {
-                scrollRequests: trail.scrollRequests || trail.scrollLatencies.length,
+                scrollRequests: trail.scrollRequests,
                 scrollLatencyP50Ms: trail.scrollLatencyP50Ms,
                 scrollLatencyP95Ms: trail.scrollLatencyP95Ms,
                 rowsRequested: trail.rowsRequested,
@@ -752,20 +801,22 @@ function gestureEvidence(driven, idleJs) {
             overFourFramesPercent: driven.jank?.overFourFramesPercent ?? 0,
             histogram: driven.jank?.histogram ?? '',
         },
-        frameStats: driven.frameStats ?? { frames: 0, dropped: 0, droppedPercent: 0, worstMs: 0, inputToFrameMs: { p50: 0, p95: 0 } },
+        frameStats: driven.frameStats ?? { frames: 0, dropped: 0, worstMs: 0, inputToFrameMs: {} },
         movement: driven.movement,
         injectFailed: driven.injectFailed === true,
+        zoomSurface: driven.zoomSurface,
         zoomResizeCount: driven.zoomResizeCount,
         zoomTapped: driven.zoomTapped,
-        zoomGridChanged: driven.zoomGridChanged,
+        zoomMagnified: driven.zoomMagnified,
+        zoomedOut: driven.zoomedOut,
+        zoomReset: driven.zoomReset,
         zoomControlsOpened: driven.zoomControlsOpened,
-        documentPositions: driven.documentPositions,
         zoom: driven.zoom,
         notchesSent: driven.terminal?.notchesSent,
         notchesDropped: driven.terminal?.notchesDropped,
         jsBusyIdlePercent: idleJs,
         jsBusyDeltaPoints,
-        accidentalOwners: driven.terminal?.agentPages ?? driven.documentNavigateDuringVertical ?? 0,
+        accidentalOwners: driven.terminal?.agentPages ?? 0,
     };
 }
 
@@ -837,7 +888,16 @@ try {
     // The plugin fixtures the PR gate already owns: without them the fake herd
     // advertises no plugins at all, `Files` never renders, and the document
     // phase measures a herd screen it never left.
-    stack = await startFakeStack({ ...LOAD, setupPlugins: usagePlugins(process.cwd()) });
+    // The proof board is the fixture's identifiable frame: a flat fill looks
+    // the same at every magnification, so the zoom phase could never show a
+    // graphics pane really magnified. The file is written first, because it
+    // also gates painting and the load must start at full rate.
+    writeFileSync(GRAPHICS_PROOF_FILE, 'enabled');
+    stack = await startFakeStack({
+        ...LOAD,
+        graphicsEnableFile: GRAPHICS_PROOF_FILE,
+        setupPlugins: usagePlugins(process.cwd()),
+    });
 } catch (cause) {
     fail(`could not start the stack: ${cause instanceof Error ? cause.message : String(cause)}`);
     finish(1);
@@ -905,7 +965,7 @@ for (const phase of PHASES) {
     })();
     const measured = await samplePhase({ pkg: PKG, seconds: phase.seconds });
     await driving;
-    if (driven?.trailUnavailable === true) abortPhase(phase, 'the phone trail is unavailable after the bout');
+    if (driven?.trailUnavailable !== undefined) abortPhase(phase, `the phone trail is unavailable after the bout (${driven.trailUnavailable})`);
     if (phase.name === 'idle on the herd') idleJs = measured.jsBusyPercent;
     if (driven !== undefined) driven.jsBusyPercent = measured.jsBusyPercent;
     const gesture = gestureEvidence(driven, idleJs);
@@ -917,9 +977,10 @@ for (const phase of PHASES) {
             jsBusyDeltaPoints: gesture?.jsBusyDeltaPoints,
             accidentalOwners: gesture?.accidentalOwners,
             zoomTapped: driven.zoomTapped,
-            zoomGridChanged: driven.zoomGridChanged,
-            documentNavigate: driven.documentNavigate,
-            documentNavigateDuringVertical: driven.documentNavigateDuringVertical,
+            zoomSurface: driven.zoomSurface,
+            zoomMagnified: driven.zoomMagnified,
+            zoomedOut: driven.zoomedOut,
+            zoomReset: driven.zoomReset,
             terminal: driven.terminal,
             graphicsRowsPerSecond: driven.graphicsRowsPerSecond,
             zoomResizeCount: driven.zoomResizeCount,
@@ -933,7 +994,6 @@ for (const phase of PHASES) {
         flowExit: flowRun?.code ?? ready.flowExit,
         ...(gesture === undefined ? {} : { gesture }),
         ...(driven?.terminal === undefined ? {} : { terminal: driven.terminal }),
-        ...(driven?.documentNavigate === undefined ? {} : { documentNavigate: driven.documentNavigate }),
     };
     report.phases.push(entry);
     ingestHostJournal(journalAcc, stack.journalPath ?? join(stack.dataDir, 'diagnostics.json'));
@@ -946,7 +1006,7 @@ for (const phase of PHASES) {
         const moved = gesture.movement?.proven;
         const notches = gesture.notchesDropped;
         process.stdout.write(`  jank ${gesture.jank.jankyPercent}% p95 ${gesture.jank.p95Ms}ms`
-            + `  dropped ${gesture.frameStats.droppedPercent}%`
+            + `  dropped ${gesture.frameStats.droppedPercent ?? 'unmeasured'}%`
             + (notches === undefined ? '' : ` notchesDropped ${notches}`)
             + `  v ${gesture.medianVelocityPxPerSecond}px/s`
             + (moved === undefined ? '' : `  moved ${moved ? 'yes' : 'no'}`)
@@ -1001,7 +1061,15 @@ if (tour.staleSurfaces.length > 0) {
     // not comparable, so say so rather than reporting the difference as growth.
     fail(`the tour could not leave ${tour.staleSurfaces.length} pane(s), so its memory samples are not comparable`);
 }
-if (tour.pssGrowthKb > LIMITS.tourGrowthKb) {
+if (tour.pssMissingSamples.length > 0) {
+    // A pane whose memory never read is a gap in the account. Differencing the
+    // samples that did land would report the tour as flat on evidence the run
+    // never collected.
+    fail(`the tour could not sample memory on ${tour.pssMissingSamples.length}/${tour.panes} pane(s):`
+        + ` ${tour.pssMissingSamples.slice(0, 6).join(', ')}`);
+} else if (tour.pssGrowthKb === undefined) {
+    fail(`the tour has ${tour.pssSamples} comparable memory sample(s); growth across it is unmeasured`);
+} else if (tour.pssGrowthKb > LIMITS.tourGrowthKb) {
     fail(`memory grew ${Math.round(tour.pssGrowthKb / 1024)} MB across the tour`);
 } else {
     ok(`memory held across the tour (${Math.round(tour.pssGrowthKb / 1024)} MB)`);

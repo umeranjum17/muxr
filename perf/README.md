@@ -58,14 +58,14 @@ Prerequisites, all checked in preflight with a named failure:
 
 | Frames dropped | `framestats` Flags=0 and completed − intended > 2 frames | 12% / 3% of a fling |
 | Gesture notches dropped | host `graphics.pipeline` `notchesDropped` for the bout | reported beside `gestureDroppedPercent`, never gated. The governor caps intent at 8; a fling that under-travels with `notchesDropped > 0` was bounded by frames in flight, not a slow one |
-| Input-to-first-movement | `/proc/uptime` in the same `adb shell` as the swipe, then first input `framestats` row | p95 120 / 60 ms |
+| Input-to-first-movement | `/proc/uptime` in the same `adb shell` as the swipe, then first input `framestats` row | p95 120 / 60 ms. A bout with no framestats ring fails as `no framestats frames`, and one whose frames were never input-driven as `no input-driven frame`; neither reduces to a passing zero |
 | Missed vsync | gfxinfo delta per fling | 3 / 1 |
-| Accidental owners | phone trail `document.navigate` / agent-page during a vertical bout | any |
+| Accidental owners | phone trail agent-page during a vertical bout | any |
 | Content moved | `screencapRaw` of the scrollable rect, mean |Δ| ≥ 8/255; strip card label, document gutter line, terminal trail | injected at intended velocity and the surface did not move |
 | Terminal fling | phone trail `terminal.scroll-latency`, `terminal.scroll-rows`, `terminal.scroll-clamped` | p95 250 / 200 ms, < 40 / 60 rows/s, any clamp |
 | Graphics fling | host `graphics.pipeline` bout-scoped `notchesSent` × 3 | < 9 rows/s |
-| Zoom | phone trail `terminal.resize COLSxROWS cell=WxH` | exactly 1 countable step. Image pane: cell changed, grid held. Text pane: grid changed |
-| Memory | TOTAL PSS from meminfo | over 100 MB drift in a phase |
+| Zoom | the panel's own `Zoom out` state names the surface, then the host's attach record for the pane, and the phone's `terminal.resize` line | Text pane: exactly 1 grid resize for one `Zoom in`. Graphics pane: no resize at all, and the fixture's checkerboard measurably 1.25x larger on screen. Either way `Zoom out` and `Reset zoom` must return the surface to its default, and a surface the run could not identify fails |
+| Memory | TOTAL PSS from meminfo | over 100 MB drift in a phase. Across the tour, a pane whose memory never sampled fails: the remaining samples are not the whole tour |
 | Flows | Maestro exit code | pairing, soak, navigation, document open or graphics open did not complete |
 | Graphics pipeline | host journal `graphics.pipeline` | no event, p95 over 250 ms, or frame bytes p95 over 800 kB |
 
@@ -143,7 +143,7 @@ The six that measure feel:
 | --- | --- | --- |
 | `herd tree fling` | 30 | `scrollBout` on the herd |
 | `herd strip paging` | 20 | `stripBout` (horizontal, y = 33%, 60% of width) |
-| `document scroll and swipe` | 30 | `flows/openDocument.yaml`, then 20 s of `scrollBout` and 6 horizontal swipes |
+| `document scroll` | 30 | `flows/openDocument.yaml`, then 30 s of `scrollBout`. The viewer reached from the herd carries no file navigator, so there is no `File n of m` to move and nothing horizontal to measure |
 | `terminal text fling` | 30 | tap the first live card, `scrollBout` |
 | `graphics pane scroll` | 90 | open a live card by label, assert the native surface, `scrollBout` |
 | `zoom tap navigate` | 60 | own terminal entry, open `Show terminal controls`, tap `Zoom in` / `Zoom out` / `Reset zoom`, then pane tap / fling / pan |
@@ -153,7 +153,10 @@ scrollable rect before and after the bout and compares mean absolute RGB differe
 (the same helper the graphics pane uses). The strip additionally requires the first visible
 card label to change (or the pixel diff if no label is exposed), the document requires the
 first gutter line number to change, and a terminal fling requires `terminal.scroll-rows` > 0,
-at least one `terminal.scroll-latency`, and `terminal.scroll-clamped` = 0. A bout that injected
+at least one `terminal.scroll-latency`, and `terminal.scroll-clamped` = 0. The phone trail is a
+bounded ring, so those counts come from totals it keeps apart from it and the latency samples
+it recorded after the phase's own mark; a phase whose samples the phone no longer has fails as
+unavailable rather than as a phone that answered instantly. A bout that injected
 at the intended velocity and moved nothing fails as `content did not move`. Evidence records
 both the input (`gestures`, `medianVelocityPxPerSecond`) and the movement it produced.
 

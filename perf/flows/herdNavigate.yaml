@@ -81,17 +81,21 @@ tags:
             text: 'LIVE'
           timeout: 20000
       # Plugin items push a route rather than staying on a tab bar, so each
-      # visit has to come back before the next one is reachable.
-      - runFlow:
-          when:
-            visible:
-              text: 'Usage'
-          commands:
-            - tapOn:
-                text: 'Usage'
-            - tapOn:
-                text: 'Go back'
-            - assertVisible: 'LIVE'
+      # visit has to come back before the next one is reachable. The gate starts
+      # the fake herd with the real `status` plugin, so `Usage` is always there
+      # and its absence is a failure rather than a skipped pass.
+      - tapOn:
+          text: 'Usage'
+      # The screen's own furniture, so the `Go back` below is the plugin
+      # header's control and not whatever the herd had under that label.
+      - extendedWaitUntil:
+          visible:
+            text: 'Today|Models today|Last 7 days'
+          timeout: 20000
+      - assertVisible: 'Go back'
+      - tapOn:
+          text: 'Go back'
+      - assertVisible: 'LIVE'
       # The `code` plugin is loaded from the gate's fixture plugin root, so
       # Files is a real tab now and its absence is a failure, not a no-op.
       - tapOn:

@@ -229,4 +229,36 @@ describe('connection diagnostic codes', () => {
         expect(report).not.toMatch(/pp_|pwt-|devtok_|machine-|session-|w1EW:pH/);
     });
 
+    it('keeps the gesture and zoom events it validates, and drops malformed ones', async () => {
+        const {
+            resetConnectionDiagnostics,
+            recordTerminalScrollRows,
+            recordTerminalScrollClamped,
+            recordTerminalResize,
+            recordConnectionDiagnostic,
+            readConnectionDiagnostics,
+            formatConnectionDiagnosticsForReport,
+        } = await import('../../catalog/infrastructure/connectionDiagnostics');
+        resetConnectionDiagnostics();
+        recordTerminalScrollRows(12);
+        recordTerminalScrollRows(8);
+        recordTerminalScrollClamped(3);
+        recordTerminalResize(80, 24, 8, 16);
+        recordTerminalResize(66, 20, 10, 20);
+        // Same shapes, out of bounds: the recorder must not let them through.
+        recordConnectionDiagnostic({ event: 'terminal.scroll-rows', rows: Number.NaN } as never);
+        recordConnectionDiagnostic({ event: 'terminal.scroll-clamped', rows: -1 } as never);
+        recordConnectionDiagnostic({ event: 'terminal.resize', cols: 80 } as never);
+        recordConnectionDiagnostic({ event: 'terminal.resize', cols: 80, rows: 24, cellWidthPx: 'wide' } as never);
+        expect(readConnectionDiagnostics().filter((event) => event.event === 'terminal.scroll-rows')).toHaveLength(2);
+        expect(readConnectionDiagnostics().filter((event) => event.event === 'terminal.scroll-clamped')).toHaveLength(1);
+        expect(readConnectionDiagnostics().filter((event) => event.event === 'terminal.resize')).toHaveLength(2);
+        const report = formatConnectionDiagnosticsForReport();
+        // Totals and per-event numbers, so a reader can count only what came
+        // after its own mark instead of differencing a ring that evicts.
+        expect(report).toMatch(/terminal\.scroll seq=\d+ requests=2 rows=20 clamped=3/);
+        expect(report).toMatch(/terminal\.resize count=2 \d+:80x24:cell=8x16 \d+:66x20:cell=10x20/);
+        expect(report).not.toMatch(/NaN|undefined|wide/);
+    });
+
 });
