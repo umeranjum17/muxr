@@ -180,7 +180,7 @@ let sequence = 0;
 const eventSequence = new WeakMap<ConnectionDiagnosticEvent, number>();
 const scrollTotals = { requests: 0, rows: 0, clamped: 0, resizes: 0 };
 let scrollLatencies: { seq: number; ms: number }[] = [];
-let resizes: { seq: number; cols: number; rows: number; cellWidthPx?: number; cellHeightPx?: number }[] = [];
+let resizes: { seq: number; at: number; cols: number; rows: number; cellWidthPx?: number; cellHeightPx?: number }[] = [];
 
 let events: ConnectionDiagnosticEvent[] = loadPersisted();
 const frameCounts = new WeakMap<TerminalFrameCountToken, { received: number; written: number; open: boolean }>();
@@ -439,7 +439,9 @@ export function recordTerminalResize(cols: number, rows: number, cellWidthPx?: n
     scrollTotals.resizes = boundedCount(scrollTotals.resizes + 1);
     // A graphics pane streams frames far faster than it resizes, so the ring
     // loses a zoom step within seconds. The resize line is kept apart from it.
-    resizes = [...resizes, { seq, ...entry }].slice(-MAX_LATENCY_SAMPLES);
+    // A reader that wants one zoom step needs the interval it happened in, not
+    // every step of the phase, so each resize carries when it was asked for.
+    resizes = [...resizes, { seq, at: Date.now(), ...entry }].slice(-MAX_LATENCY_SAMPLES);
 }
 
 export function recordTerminalChannel(
@@ -513,11 +515,12 @@ function gestureLine(): string | undefined {
         + `\nterminal.scroll-latency ${samples}`;
 }
 
-/** Every grid the phone asked for, with the number it was asked at. */
+/** Every grid the phone asked for, with the number and time it was asked at. */
 function resizeLine(): string | undefined {
     if (scrollTotals.resizes === 0) return undefined;
     const trail = resizes.map((resize) => `${resize.seq}:${resize.cols}x${resize.rows}`
-        + (resize.cellWidthPx === undefined ? '' : `:cell=${resize.cellWidthPx}x${resize.cellHeightPx ?? 0}`)).join(' ');
+        + (resize.cellWidthPx === undefined ? '' : `:cell=${resize.cellWidthPx}x${resize.cellHeightPx ?? 0}`)
+        + `@${resize.at}`).join(' ');
     return `terminal.resize count=${scrollTotals.resizes} ${trail}`;
 }
 

@@ -257,7 +257,9 @@ describe('connection diagnostic codes', () => {
         // Totals and per-event numbers, so a reader can count only what came
         // after its own mark instead of differencing a ring that evicts.
         expect(report).toMatch(/terminal\.scroll seq=\d+ requests=2 rows=20 clamped=3/);
-        expect(report).toMatch(/terminal\.resize count=2 \d+:80x24:cell=8x16 \d+:66x20:cell=10x20/);
+        // Each resize carries when it was asked at, so a reader can take one
+        // zoom step's interval out of a phase that has several.
+        expect(report).toMatch(/terminal\.resize count=2 \d+:80x24:cell=8x16@\d+ \d+:66x20:cell=10x20@\d+/);
         expect(report).not.toMatch(/NaN|undefined|wide/);
     });
 

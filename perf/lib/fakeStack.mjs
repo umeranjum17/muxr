@@ -49,6 +49,7 @@ async function spawnFakeHerdr(dir, options) {
     ]) {
         if (value !== undefined) args.push(flag, String(value));
     }
+    if (options.pinGraphicsPane === true) args.push('--pin-graphics-pane');
     const child = spawn(process.execPath, args, { stdio: ['ignore', 'pipe', 'pipe'] });
     const log = [];
     child.stderr.on('data', (chunk) => log.push(String(chunk)));
@@ -277,6 +278,9 @@ async function startStack(options, live) {
             dataDir: hostDataDir,
             journalPath,
             world: fake.world,
+            // The panes a phase may name. Nothing else is a measurable surface:
+            // a card position is whatever the churning herd left under it.
+            fixturePanes: fake.fixturePanes,
             attachJsonl: fake.attachJsonl,
             graphicsInputJsonl: fake.graphicsInputJsonl,
             inputJsonl: fake.inputJsonl,

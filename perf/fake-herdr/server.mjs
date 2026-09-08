@@ -53,6 +53,21 @@ export async function startFakeHerdr(options) {
         agents: live.agents,
     });
 
+    /**
+     * The two panes a measuring harness is allowed to name. `graphics` is where
+     * the checkerboard producer paints when the run pins it; `text` is the
+     * first pane with no agent bound to it, reachable by a plain shell deep
+     * link, and -- because a pinned run serves no other pane -- one the
+     * graphics bridge never touches.
+     */
+    const graphicsPane = world.panes[0]?.pane_id;
+    const fixturePanes = {
+        graphics: graphicsPane,
+        text: world.panes.find((pane) => pane.pane_id !== graphicsPane
+            && !world.agents.some((agent) => agent.pane_id === pane.pane_id))?.pane_id,
+    };
+    const pinPaneId = options.pinGraphicsPane === true ? fixturePanes.graphics : undefined;
+
     const socketPath = join(dir, 'herdr.sock');
     const clientSocketPath = join(dir, 'herdr-client.sock');
     unlinkQuiet(socketPath);
@@ -94,6 +109,7 @@ export async function startFakeHerdr(options) {
             frameHz: graphicsFrameHz,
             enableFile: options.graphicsEnableFile,
             inputLogPath: graphicsInputJsonl,
+            pinPaneId,
         });
         binPath = writeBinShim({ dir, socketPath, terminalBytesPerSecond });
     } catch (error) {
@@ -512,7 +528,7 @@ export async function startFakeHerdr(options) {
         await shutdown();
     }
 
-    return { socketPath, clientSocketPath, binPath, world, close, attachJsonl, graphicsInputJsonl, inputJsonl };
+    return { socketPath, clientSocketPath, binPath, world, fixturePanes, close, attachJsonl, graphicsInputJsonl, inputJsonl };
 }
 
 function snapshotOf(live) {
@@ -742,6 +758,7 @@ function parseArgs(argv) {
         else if (flag === '--graphics-frame-hz') { out.graphicsFrameHz = Number(value); index += 1; }
         else if (flag === '--graphics-enable-file') { out.graphicsEnableFile = value; index += 1; }
         else if (flag === '--plugins-root') { out.pluginsRoot = value; index += 1; }
+        else if (flag === '--pin-graphics-pane') { out.pinGraphicsPane = true; }
     }
     if (out.dir === undefined) throw new Error('fake-herdr: --dir is required');
     return out;
@@ -757,6 +774,7 @@ if (isMain) {
         clientSocketPath: handle.clientSocketPath,
         binPath: handle.binPath,
         world: handle.world,
+        fixturePanes: handle.fixturePanes,
         attachJsonl: handle.attachJsonl,
         graphicsInputJsonl: handle.graphicsInputJsonl,
         inputJsonl: handle.inputJsonl,

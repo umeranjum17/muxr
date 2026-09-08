@@ -320,25 +320,42 @@ export function trailSince(after, before) {
 }
 
 /**
- * `terminal.resize count=3 12:80x24:cell=8x16 …` — the phone's own resize line,
- * kept out of the ring so a zoom step cannot be evicted by a frame. Grid
- * always, cell when the phone sent it. An image-pane zoom is a cell change
- * with the grid held still; a text-pane zoom is the reverse.
+ * `terminal.resize count=3 12:80x24:cell=8x16@1757… ` — the phone's own resize
+ * line, kept out of the ring so a zoom step cannot be evicted by a frame. Grid
+ * always, cell when the phone sent it, and the time it was asked at so one
+ * step can be read apart from the rest of the phase. An image-pane zoom is a
+ * cell change with the grid held still; a text-pane zoom is the reverse.
  */
 export function parseResizeTrail(text) {
     const resizes = [];
     const line = /terminal\.resize count=\d+ (.*)/.exec(String(text));
     if (line === null) return resizes;
-    for (const match of line[1].matchAll(/(\d+):(\d+)x(\d+)(?::cell=(\d+)x(\d+))?/g)) {
+    for (const match of line[1].matchAll(/(\d+):(\d+)x(\d+)(?::cell=(\d+)x(\d+))?(?:@(\d+))?/g)) {
         resizes.push({
             seq: Number(match[1]),
             cols: Number(match[2]),
             rows: Number(match[3]),
             ...(match[4] === undefined ? {} : { cellWidthPx: Number(match[4]) }),
             ...(match[5] === undefined ? {} : { cellHeightPx: Number(match[5]) }),
+            ...(match[6] === undefined ? {} : { at: Number(match[6]) }),
         });
     }
     return resizes;
+}
+
+/**
+ * The phone's resize evidence for one interval, on the same baseline the host
+ * read its own geometry from: the last resize at or before `from`, then every
+ * resize inside `(from, to]`. Anything the phone timestamped outside that
+ * window -- a zoom out, a second zoom in, a reset, a keyboard re-grid -- is a
+ * different step and cannot stand in for this one.
+ */
+export function resizesInInterval(resizes = [], { from, to } = {}) {
+    const timed = resizes.filter((resize) => Number.isFinite(resize?.at));
+    if (timed.length === 0 || !Number.isFinite(from) || !Number.isFinite(to)) return undefined;
+    const baseline = timed.filter((resize) => resize.at <= from).at(-1);
+    if (baseline === undefined) return undefined;
+    return [baseline, ...timed.filter((resize) => resize.at > from && resize.at <= to)];
 }
 
 /**
@@ -700,6 +717,12 @@ export function verdict(phase, metrics, limits) {
         // A text pane zooms by re-gridding, which the phone reports; a graphics
         // pane holds the remote grid and magnifies its own surface, which only
         // its pixels can show.
+        // Both sources have to describe the same interval before they can be
+        // compared. A phone that timestamped no resize in this phase has no
+        // evidence of its own, and comparing zero against the host's step would
+        // read a missing account as a disagreement -- or as agreement.
+        failWhen(failures, 'the phone kept no resize evidence for this zoom step',
+            metrics.zoomPhoneEvidence !== true);
         if (metrics.zoomSurface === 'text') {
             failWhen(failures, 'zoomResizeCount', metrics.zoomResizeCount !== limits.zoomResizeCount);
             // The phone's own trail has to show the same one re-grid the host

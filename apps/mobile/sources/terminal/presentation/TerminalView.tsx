@@ -103,7 +103,9 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
     const scrollRafRef = React.useRef<number | undefined>(undefined);
     const scrollInFlightRef = React.useRef(false);
     const scrollAckTimerRef = React.useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-    const scrollSentAtRef = React.useRef<number | undefined>(undefined);
+    /** The scroll waiting for its own repaint, and nothing else's. */
+    const scrollRequestRef = React.useRef<{ id: number; sentAt: number; bound: boolean } | undefined>(undefined);
+    const scrollIdRef = React.useRef(0);
     const graphicsActiveRef = React.useRef(false);
     const [fontIndex, setFontIndex] = React.useState(DEFAULT_FONT_INDEX);
     const [scaleIndex, setScaleIndex] = React.useState(0);
@@ -167,7 +169,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
         scrollAckTimerRef.current = undefined;
         scrollInFlightRef.current = false;
         pendingScrollRef.current = 0;
-        scrollSentAtRef.current = undefined;
+        scrollRequestRef.current = undefined;
     };
 
     /**
@@ -188,8 +190,9 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
         if (clamped !== lines) recordTerminalScrollClamped(Math.abs(lines - clamped));
         recordTerminalScrollRows(Math.abs(clamped));
         scrollInFlightRef.current = true;
-        scrollSentAtRef.current = Date.now();
-        scrollAckTimerRef.current = setTimeout(settleScroll, SCROLL_ACK_TIMEOUT_MS);
+        scrollIdRef.current += 1;
+        scrollRequestRef.current = { id: scrollIdRef.current, sentAt: Date.now(), bound: false };
+        scrollAckTimerRef.current = setTimeout(dropScroll, SCROLL_ACK_TIMEOUT_MS);
         const size = lastSizeRef.current;
         const origin = scrollOriginRef.current;
         channelRef.current?.scroll(clamped, size === null ? undefined : {
@@ -199,15 +202,44 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
         });
     };
 
-    /** The repaint (or the timeout) releases the gate and drains what piled up. */
-    const settleScroll = (): void => {
-        if (!scrollInFlightRef.current) return;
+    /** Release the gate and drain what piled up behind it. */
+    const releaseScroll = (): void => {
         if (scrollAckTimerRef.current !== undefined) clearTimeout(scrollAckTimerRef.current);
         scrollAckTimerRef.current = undefined;
+        scrollRequestRef.current = undefined;
         scrollInFlightRef.current = false;
         if (Math.trunc(pendingScrollRef.current) !== 0 && scrollRafRef.current === undefined) {
             scrollRafRef.current = requestAnimationFrame(flushScroll);
         }
+    };
+
+    /**
+     * The repaint this scroll asked for has been written to the surface. Only
+     * then is there a latency to record, and only then may the next scroll go.
+     */
+    const settleScroll = (mark: number): void => {
+        const request = scrollRequestRef.current;
+        if (request === undefined || request.id !== mark) return;
+        recordTerminalScrollLatency(Date.now() - request.sentAt);
+        releaseScroll();
+    };
+
+    /**
+     * No repaint came back inside the budget. The scroll is dropped explicitly:
+     * it contributes no latency sample, so the trail shows fewer answers than
+     * requests instead of a scroll that appeared to be answered instantly.
+     */
+    const dropScroll = (): void => {
+        if (scrollRequestRef.current === undefined) return;
+        releaseScroll();
+    };
+
+    /** Bind the first frame that arrives after a scroll to that scroll. */
+    const markFor = (): number | undefined => {
+        const request = scrollRequestRef.current;
+        if (request === undefined || request.bound) return undefined;
+        request.bound = true;
+        return request.id;
     };
 
 
@@ -281,21 +313,17 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                     void writePumpRef.current?.cancel();
                     let recoveryRequested = false;
                     writePumpRef.current = createTerminalWritePump({
-                        write: async (bytes, graphics) => {
+                        write: async (bytes, graphics, mark) => {
                             const view = termRef.current;
                             if (view === null) return;
                             await view.write(bytes);
                             recoveryRequested = false;
                             channel.recordFrameWritten();
                             // A text pane's repaint is the answer to its scroll
-                            // exactly as a graphics frame is. Recording only the
-                            // graphics case left a text fling with no latency at
-                            // all, which reads as a perfect one.
-                            const sentAt = scrollSentAtRef.current;
-                            if (sentAt !== undefined) {
-                                scrollSentAtRef.current = undefined;
-                                recordTerminalScrollLatency(Date.now() - sentAt);
-                            }
+                            // exactly as a graphics frame is, but only the frame
+                            // this scroll was bound to is that answer, and only
+                            // once it has really reached the surface.
+                            if (mark !== undefined) settleScroll(mark);
                             if (graphics !== true) return;
                             recordTerminalGraphicsFrame(bytes.length);
                         },
@@ -328,10 +356,12 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                     // they cannot be coalesced merely because graphics is true.
                     channel.onData((base64, graphics) => {
                         if (graphics !== true) recordTerminalOutput(sessionId, base64);
-                        settleScroll();
-                        writePumpRef.current?.push(
-                            typeof graphics === 'boolean' ? { bytes: base64, graphics } : { bytes: base64 },
-                        );
+                        const mark = markFor();
+                        writePumpRef.current?.push({
+                            bytes: base64,
+                            ...(typeof graphics === 'boolean' ? { graphics } : {}),
+                            ...(mark === undefined ? {} : { mark }),
+                        });
                     });
                     channel.onState((state) => onStatus?.(state));
                     channel.onClose((reason) => onStatus?.(reason ?? 'closed'));

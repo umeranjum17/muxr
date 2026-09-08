@@ -26,6 +26,7 @@ import {
     reduceMovement,
     reducePipelineNotches,
     reduceZoom,
+    resizesInInterval,
     trailSince,
     verdict,
 } from './gestureMetrics.mjs';
@@ -195,6 +196,24 @@ test('baseline bout fixtures reduce to the documented failures', () => {
     assert.equal(textZoom.gridChanged, 1);
     assert.equal(textZoom.cellOnly, 0);
 
+    // One zoom-in interval, read off the phone the way the host reads its own:
+    // the last resize at or before the tap is the baseline, and only what the
+    // phone timestamped inside the interval belongs to the step. The zoom out,
+    // the second zoom in and the reset that follow are other steps entirely.
+    const zoomTrail = parseResizeTrail('terminal.resize count=5'
+        + ' 1:80x24:cell=8x16@1000 2:66x20:cell=10x20@2000'
+        + ' 3:80x24:cell=8x16@3000 4:66x20:cell=10x20@4000 5:80x24:cell=8x16@5000');
+    assert.equal(zoomTrail[1].at, 2000);
+    // Reducing the whole phase counts every one of those steps.
+    assert.equal(reduceZoom(zoomTrail).gridChanged, 4);
+    const stepInterval = resizesInInterval(zoomTrail, { from: 1500, to: 2500 });
+    assert.deepEqual(stepInterval.map((resize) => resize.seq), [1, 2]);
+    assert.equal(reduceZoom(stepInterval).gridChanged, 1);
+    // A phone that timestamped nothing has no account of the interval at all,
+    // and neither has one whose first record is already past the baseline.
+    assert.equal(resizesInInterval(parseResizeTrail('terminal.resize count=1 1:80x24:cell=8x16'), { from: 1500, to: 2500 }), undefined);
+    assert.equal(resizesInInterval(zoomTrail, { from: 500, to: 1500 }), undefined);
+
     // A checkerboard magnified by one graphics step: the same board, its blocks
     // 1.25x wider. A tap that magnified nothing leaves them exactly as they were.
     const board = (blockPx) => {
@@ -213,7 +232,7 @@ test('baseline bout fixtures reduce to the documented failures', () => {
     assert.equal(reduceMagnification(flat, flat, { expected: 1.25 }).proven, false);
 
     const zoomJank = { jank: { frames: 10, jankyPercent: 1, p95Ms: 10, p99Ms: 12, overFourFramesPercent: 0, missedVsync: 0 }, frameStats: { droppedPercent: 0, inputToFrameMs: { p95: 10 } } };
-    const stepped = { zoomTapped: true, zoomedOut: true, zoomReset: true, zoomPhoneResizeCount: 1 };
+    const stepped = { zoomTapped: true, zoomedOut: true, zoomReset: true, zoomPhoneResizeCount: 1, zoomPhoneEvidence: true };
     // A text pane re-grids exactly once per step; a graphics pane holds the
     // remote grid and has to show the magnification in its own pixels. A tap
     // the app never acted on passes neither.
@@ -249,6 +268,12 @@ test('baseline bout fixtures reduce to the documented failures', () => {
     assert.deepEqual(verdict('zoom tap navigate', {
         ...zoomJank, ...stepped, zoomedOut: false, zoomSurface: 'text', zoomResizeCount: 1,
     }, EMULATOR_LIMITS).failures, ['zoom out did not return the surface']);
+    // Without the phone's own account of the interval there is nothing to
+    // corroborate the host with, and a silent zero must not read as agreement.
+    assert.deepEqual(verdict('zoom tap navigate', {
+        ...zoomJank, ...stepped, zoomPhoneEvidence: false, zoomSurface: 'graphics',
+        zoomResizeCount: 0, zoomPhoneResizeCount: 0, zoomMagnified: { proven: true },
+    }, EMULATOR_LIMITS).failures, ['the phone kept no resize evidence for this zoom step']);
 
     const notches = reducePipelineNotches([
         { event: 'graphics.pipeline', frames: 5, notchesSent: 5, notchesDropped: 8 },

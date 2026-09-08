@@ -473,7 +473,11 @@ try {
     // Authored fields are data in both renderings: HTML must not interpolate
     // markup, and Markdown must not activate a heading, link, image or code.
     hostileEntry.summary = 'break\n# Injected heading\n[link](https://evil.example) ![img](https://evil.example/x.png) `code` **bold**';
-    hostileEntry.knownLimits = ['- nested\n## limit heading [x](https://evil.example)'];
+    // Block syntax that needs no leading whitespace to fire: the summary is
+    // rendered on a line of its own, so a bullet, a plus, a rule or an ordered
+    // marker there would open a list or a thematic break in the release notes.
+    hostileEntry.fixes = [{ title: '- bullet title', detail: '1. ordered detail' }];
+    hostileEntry.knownLimits = ['- nested\n## limit heading [x](https://evil.example)', '+ plus item', '--- rule', '1) ordered item'];
     writeFileSync(hostilePath, JSON.stringify(authored));
     const hostileOut = join(scratch, 'hostile-out');
     mkdirSync(hostileOut, { recursive: true });
@@ -481,8 +485,15 @@ try {
     const hostile = hostileFiles[reportFiles.html];
     assert.match(hostile, /Quote &quot; &amp; apostrophe &#39; release/, 'authored text was not escaped');
     const hostileMarkdown = hostileFiles[reportFiles.markdown];
-    const authoredLines = hostileMarkdown.split('\n').filter((line) => !/^(#{1,6} muxr |## (Added|Fixed|Verification|Known limits)$)/.test(line));
+    // Strip the template's own bullet so what remains is authored text only.
+    const authoredLines = hostileMarkdown.split('\n')
+        .filter((line) => !/^(#{1,6} muxr |## (Added|Fixed|Verification|Known limits)$)/.test(line))
+        .map((line) => line.replace(/^- (\*\*)?/, ''));
     assert.ok(!authoredLines.some((line) => /^\s{0,3}#/.test(line)), 'authored text activated a Markdown heading');
+    assert.ok(
+        !authoredLines.some((line) => /^\s{0,3}(?:[-+*][ \t]|\d+[.)][ \t]|-{3,}|_{3,})/.test(line)),
+        'authored text activated a Markdown list or thematic break',
+    );
     assert.doesNotMatch(hostileMarkdown, /(^|[^\\])!?\[[^\]]*\]\(/, 'authored text activated a Markdown link or image');
     assert.doesNotMatch(hostileMarkdown, /(^|[^\\])`/, 'authored text activated Markdown code');
     assert.doesNotMatch(hostileMarkdown, /<[a-zA-Z/]/, 'authored text activated inline HTML');

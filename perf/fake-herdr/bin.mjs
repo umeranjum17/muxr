@@ -205,19 +205,27 @@ function wheelReports(text) {
     return { count, notches };
 }
 
-/** One wheel notch travels three rows; the proof board's block is 32 px tall. */
+/** One wheel notch travels three rows, and a cell is 32 px tall. */
 const WHEEL_OFFSET_PX = 3 * 32;
 
 function runTerminal(args) {
     const paneId = args[1] ?? 'p1';
     // A one-line marker beside the socket: the gate needs to tell "the phone
     // never asked for graphics" apart from "graphics were asked for and lost".
-    const noteCellMetrics = (message) => {
+    const noteGeometry = (source, message = {}) => {
         const socketPath = process.env.FAKE_HERDR_SOCKET;
         if (socketPath === undefined) return;
         try {
-            writeFileSync(`${socketPath}.cell-metrics`, 'seen\n', { encoding: 'utf8' });
-            appendFileSync(`${socketPath}.cell-metrics.jsonl`, `${JSON.stringify({ at: new Date().toISOString(), pane_id: paneId, source: 'terminal.resize', cols, rows, cellWidthPx: message.cellWidthPx, cellHeightPx: message.cellHeightPx })}\n`);
+            if (source === 'terminal.resize') writeFileSync(`${socketPath}.cell-metrics`, 'seen\n', { encoding: 'utf8' });
+            appendFileSync(`${socketPath}.cell-metrics.jsonl`, `${JSON.stringify({
+                at: new Date().toISOString(),
+                pane_id: paneId,
+                source,
+                cols,
+                rows,
+                ...(message.cellWidthPx === undefined ? {} : { cellWidthPx: message.cellWidthPx }),
+                ...(message.cellHeightPx === undefined ? {} : { cellHeightPx: message.cellHeightPx }),
+            })}\n`);
         } catch { /* best effort */ }
     };
     let cols = Number(flag(args, '--cols') ?? 80) || 80;
@@ -247,6 +255,10 @@ function runTerminal(args) {
             bytes: Buffer.from(shellChunk(seq, size)).toString('base64'),
         });
     };
+    // The grid this attach opened on, before any resize. Without it a pane the
+    // phone never re-gridded has no baseline at all, and a zoom step would be
+    // read against whatever an earlier phase happened to leave behind.
+    noteGeometry('terminal.attach');
     writeFrame({ type: 'terminal.ready', pane_id: paneId, cols, rows });
     const repaintEveryTicks = 50;
     let ticks = 0;
@@ -281,7 +293,7 @@ function runTerminal(args) {
                     // A phone that declares cell pixels is a phone the graphics
                     // bridge can serve; without them the host never opens one,
                     // and a run with no graphics account has to say which it was.
-                    if (Number(message.cellWidthPx) > 0 && Number(message.cellHeightPx) > 0) noteCellMetrics(message);
+                    if (Number(message.cellWidthPx) > 0 && Number(message.cellHeightPx) > 0) noteGeometry('terminal.resize', message);
                     emit(true);
                 }
                 else if (message.type === 'terminal.scroll') emit(true);

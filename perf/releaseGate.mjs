@@ -60,7 +60,6 @@ import {
     cropRaw,
     decodeUiAttribute,
     firstDocumentMarker,
-    firstStripCard,
     firstStripLabel,
     freshFrameRows,
     mergeFrameStats,
@@ -72,6 +71,7 @@ import {
     reduceMovement,
     reducePipelineNotches,
     reduceZoom,
+    resizesInInterval,
     scrollableBounds,
     trailSince,
     verdict,
@@ -172,9 +172,13 @@ const PHASES = [
     // `surfaceKind` is the pane this phase claims to measure. It is read off the
     // app's own controls before the bout, so a graphics pane cannot be judged
     // against the text terminal's latency contract or the other way round.
-    { name: 'terminal text fling', seconds: 30, drive: 'terminalTextFling', surfaceKind: 'text' },
-    { name: 'graphics pane scroll', seconds: 90, drive: 'graphicsScroll', surfaceKind: 'graphics' },
-    { name: 'zoom tap navigate', seconds: 60, drive: 'zoomTapNavigate' },
+    // `fixture` is the pane the phase is routed to by identity. `text` is a pane
+    // no graphics producer serves; `graphics` is the pane the checkerboard is
+    // pinned to. Opening "the first live card" left which pane answered up to
+    // whatever the churning herd had under the tap.
+    { name: 'terminal text fling', seconds: 30, drive: 'terminalTextFling', surfaceKind: 'text', fixture: 'text' },
+    { name: 'graphics pane scroll', seconds: 90, drive: 'graphicsScroll', surfaceKind: 'graphics', fixture: 'graphics', oneWayMovement: true },
+    { name: 'zoom tap navigate', seconds: 60, drive: 'zoomTapNavigate', fixture: 'text' },
 ];
 
 /** Paints the fixture's identifiable checkerboard instead of a flat fill. */
@@ -383,6 +387,11 @@ async function prepareBout(surface, screen, hz) {
 async function measureBout(run, hz, { surface, screen, phase, prepared } = {}) {
     const { beforeSurface, before } = prepared ?? await prepareBout(surface, screen, hz);
     const parts = [];
+    // A bout flings up and then back down. On a surface whose content repeats,
+    // the end of the bout can land on the same picture the start had, so the
+    // travel is sampled once while it is still one-way and the movement is
+    // judged on whichever comparison saw the most.
+    let oneWaySurface;
     // framestats is a rolling ring re-read after every fling; without this the
     // same frame is counted once per remaining read of the bout.
     const counted = new Set();
@@ -391,6 +400,9 @@ async function measureBout(run, hz, { surface, screen, phase, prepared } = {}) {
         bout = await run({
             onGesture: async (gesture) => {
                 if (gesture.profile !== 'fling') return;
+                if (phase?.oneWayMovement === true && oneWaySurface === undefined && surface !== undefined) {
+                    oneWaySurface = await captureSurface(surface, screen);
+                }
                 const rows = await frameStats(PKG);
                 parts.push(reduceFrameStats(freshFrameRows(rows, counted), {
                     frameNs: 1e9 / hz,
@@ -405,10 +417,13 @@ async function measureBout(run, hz, { surface, screen, phase, prepared } = {}) {
     const after = await jankReport(PKG, { hz });
     const afterSurface = surface === undefined ? undefined : await captureSurface(surface, screen);
     const injectFailed = bout.injectFailed === true;
+    const pixels = beforeSurface === undefined
+        ? undefined
+        : bestPixels(beforeSurface, afterSurface, oneWaySurface);
     const movement = beforeSurface === undefined ? undefined : reduceMovement(phase ?? surface, {
         before: beforeSurface,
         after: afterSurface,
-        pixels: pixelsMoved(beforeSurface.crop, afterSurface?.crop),
+        pixels,
     });
     return {
         bout,
@@ -418,7 +433,17 @@ async function measureBout(run, hz, { surface, screen, phase, prepared } = {}) {
         movement,
         beforeSurface,
         afterSurface,
+        oneWaySurface,
     };
+}
+
+/** The most movement any sample of this bout saw against its start. */
+function bestPixels(beforeSurface, afterSurface, oneWaySurface) {
+    const samples = [afterSurface, oneWaySurface]
+        .filter((sample) => sample !== undefined)
+        .map((sample) => pixelsMoved(beforeSurface.crop, sample.crop));
+    if (samples.length === 0) return pixelsMoved(beforeSurface.crop, undefined);
+    return samples.reduce((best, next) => (next.meanAbs > best.meanAbs ? next : best));
 }
 
 function withTrailMovement(measured, phase, terminal) {
@@ -432,28 +457,57 @@ function withTrailMovement(measured, phase, terminal) {
             before: measured.beforeSurface,
             after: measured.afterSurface,
             terminal,
-            pixels: pixelsMoved(measured.beforeSurface.crop, measured.afterSurface?.crop),
+            pixels: bestPixels(measured.beforeSurface, measured.afterSurface, measured.oneWaySurface),
         }),
     };
 }
 
 /**
- * Put the phone on the screen the phase measures, and say so out loud.
+ * The route that reaches one named pane, and nothing else.
  *
- * Cards are chosen by the label the app publishes, never by a coordinate: the
- * herd reorders as titles churn, and a fixed point opens whatever happens to
- * be under it. The native terminal surface itself is the mount proof.
+ * An agent pane is reached through the host's own persisted session binding --
+ * the identity the app resolves for itself -- and a shell pane through its
+ * plain deep link. Neither depends on where the pane's card currently sits.
  */
-async function openFirstTerminal() {
+function fixtureRoute(paneId) {
+    const agent = stack.world.agents.find((row) => row.pane_id === paneId);
+    if (agent === undefined) return `muxr:///session/${encodeURIComponent(`shell:${paneId}`)}`;
+    const routes = JSON.parse(readFileSync(join(stack.dataDir, 'herdr-routes.json'), 'utf8')).bindings;
+    const binding = routes.find((row) => ['source', 'agent', 'kind', 'value']
+        .every((key) => row.agentSession?.[key] === agent.agent_session[key]));
+    if (binding?.route === undefined) return undefined;
+    return `muxr://session/${encodeURIComponent(binding.route)}`;
+}
+
+/**
+ * Open the pane this phase names and prove that pane arrived: the surface has
+ * to be mounted and the host has to have recorded an attach for that exact id
+ * since the route was opened. A mounted terminal alone says only that some
+ * pane is on screen.
+ */
+async function openFixturePane(paneId) {
+    if (paneId === undefined) return 'the herd published no fixture pane for this phase';
     if (!await returnToHerd()) return 'the herd never came back on screen';
-    const card = firstStripCard(await dumpUi());
-    if (card === undefined) return 'no live terminal card is on the herd';
-    await tap((card.l + card.r) / 2, (card.t + card.b) / 2);
-    await sleep(2500);
+    const url = fixtureRoute(paneId);
+    if (url === undefined) return `no host session route resolves pane ${paneId}`;
+    const openedAt = new Date().toISOString();
+    await run('adb', ['shell', 'am', 'start', '-a', 'android.intent.action.VIEW', '-d', url, PKG], { timeout: 20_000 })
+        .catch(() => undefined);
     await dismissPrompts();
-    await dismissKeyboard();
-    if (await viewBounds('GhosttyTerminalView') === undefined) return 'the terminal surface never mounted';
-    return undefined;
+    const deadline = Date.now() + 15_000;
+    do {
+        await sleep(700);
+        // Any attach for this exact pane since the route opened. Cell pixels are
+        // not required here: a software-rendered emulator never declares them,
+        // and the question this answers is which pane arrived, not how it draws.
+        if (await viewBounds('GhosttyTerminalView') !== undefined
+            && readJsonl(stack.attachJsonl).some((record) => String(record.pane_id) === paneId
+                && String(record.at) >= openedAt)) {
+            await dismissKeyboard();
+            return undefined;
+        }
+    } while (Date.now() < deadline);
+    return `pane ${paneId} never attached on the surface this phase measures`;
 }
 
 /**
@@ -501,8 +555,10 @@ async function preparePhase(phase, screen, hz) {
         const dump = await dumpUi();
         if (firstDocumentMarker(dump) === undefined) return { ok: false, flowExit, why: 'the document fixture is not on the reading surface' };
     } else {
-        const why = await openFirstTerminal();
-        if (why !== undefined) return { ok: false, why };
+        // Every terminal phase names its pane. Nothing else is a measurable
+        // surface: a card position is whatever the churning herd left there.
+        const why = await openFixturePane(stack.fixturePanes?.[phase.fixture]);
+        if (why !== undefined) return { ok: false, flowExit, why };
     }
 
     // A phase that names its surface has to be standing on that surface. A
@@ -518,7 +574,15 @@ async function preparePhase(phase, screen, hz) {
         surfaceKind = probed.kind;
     }
 
-    return { ok: true, flowExit, trailBefore, enteredAt, surfaceKind, prepared: await prepareBout(surface, screen, hz) };
+    return {
+        ok: true,
+        flowExit,
+        trailBefore,
+        enteredAt,
+        surfaceKind,
+        paneId: phase.fixture === undefined ? undefined : stack.fixturePanes?.[phase.fixture],
+        prepared: await prepareBout(surface, screen, hz),
+    };
 }
 
 /** `enabled` on the panel control the app published, or `undefined` if absent. */
@@ -542,17 +606,22 @@ function paneAttaches(paneId, since) {
 }
 
 /**
- * The geometry the phone actually declared on the wire, from the terminal.resize
- * records the fake herd writes beside its socket. This is the source a zoom step
- * changes: a text pane re-grids, a graphics pane holds the grid and moves its
- * cell pixels. Reads are phase-local and pinned to one pane, so an earlier
- * phase's pane can never supply this phase's before-and-after.
+ * The geometry the phone actually declared on the wire, from the attach and
+ * terminal.resize records the fake herd writes beside its socket. This is the
+ * source a zoom step changes: a text pane re-grids, a graphics pane holds the
+ * grid and moves its cell pixels. Reads are phase-local and pinned to one pane,
+ * so an earlier phase's pane can never supply this phase's before-and-after.
+ *
+ * The attach record carries the grid but no cell pixels, and it is the only
+ * geometry a pane the phone never re-gridded has. Requiring cell pixels here
+ * discarded exactly that baseline, so the grid is what makes a record usable
+ * and the cell is carried when the phone sent it.
  */
 function paneGeometry(paneId, since) {
     if (stack?.cellMetricsJsonl === undefined) return [];
     return readJsonl(stack.cellMetricsJsonl).filter((record) => (paneId === undefined || String(record.pane_id) === paneId)
         && String(record.at) >= since
-        && [record.cols, record.rows, record.cellWidthPx, record.cellHeightPx].every((value) => Number(value) > 0));
+        && [record.cols, record.rows].every((value) => Number(value) > 0));
 }
 
 /**
@@ -644,11 +713,14 @@ async function drivePhase(phase, screen, hz, ready) {
         // taken since this phase entered the surface. Without it a zoom step is
         // read off whatever pane some earlier phase happened to leave behind.
         const entered = ready.enteredAt;
-        // Geometry comes from the phone's declared cell metrics for this phase,
-        // not from an attach that may have no cell pixels at all. Without it
-        // there is nothing to read a zoom step off, so the phase fails.
-        const paneId = paneGeometry(undefined, entered).at(-1)?.pane_id;
-        if (paneId === undefined) return { zoomGeometryUnavailable: 'the phone declared no cell metrics for this phase' };
+        // The pane this phase was routed to, and the geometry it declared after
+        // entering it. Without geometry there is nothing to read a zoom step
+        // off, so the phase fails rather than reading an earlier pane's.
+        const paneId = ready.paneId ?? paneGeometry(undefined, entered).at(-1)?.pane_id;
+        if (paneId === undefined) return { zoomGeometryUnavailable: 'this phase named no pane and the phone declared no geometry' };
+        if (paneGeometry(paneId, entered).length === 0) {
+            return { zoomGeometryUnavailable: `the phone declared no geometry for pane ${paneId} in this phase` };
+        }
         // The zoom buttons live behind the controls key; they do not exist until
         // the panel is open, so a tap that misses is a harness miss, not a
         // missing feature.
@@ -664,7 +736,12 @@ async function drivePhase(phase, screen, hz, ready) {
             ? undefined
             : zoomOutAtRest ? 'text' : 'graphics';
         const gridBefore = paneGeometry(paneId, entered).at(-1);
+        // One interval, read by both sources. The host bounds its geometry by
+        // these two marks and the phone's own resize timestamps are bounded by
+        // the same pair, so the zoom out, the second zoom in, the reset and any
+        // keyboard re-grid that follow can never stand in for this step.
         const zoomInAt = new Date().toISOString();
+        const zoomInFromMs = Date.now();
         const zoomedIn = opened && zoomSurface !== undefined && await tapBounds('content-desc="Zoom in"');
         await sleep(800);
         // One tap, one step: a text pane re-grids on the wire exactly once, and
@@ -674,6 +751,7 @@ async function drivePhase(phase, screen, hz, ready) {
         // `Reset zoom` is disabled at the default and live once a step landed,
         // so the panel's own state says whether the tap did anything at all.
         const steppedIn = controlEnabled(await dumpUi(), 'Reset zoom') === true;
+        const zoomInToMs = Date.now();
         await tapBounds('content-desc="Close terminal controls"');
         await sleep(400);
         const magnified = zoomSurface !== 'graphics' ? undefined : reduceMagnification(
@@ -722,10 +800,11 @@ async function drivePhase(phase, screen, hz, ready) {
         const after = await jankReport(PKG, { hz });
         const trail = await sinceEntry();
         if (!trail.ok) return { trailUnavailable: trail.why, jank: reduceJank(before, after, { hz }), frameStats: mergeFrameStats([]), bout: { gestures: 1, flings: 1, medianVelocityPxPerSecond: 0 }, injectFailed: false };
-        // The phone's own account of the same steps, over the events it recorded
-        // after this phase's mark. It corroborates the host's attach record; the
-        // gate is judged on the two together.
-        const trailZoom = reduceZoom(trail.resizeEvents);
+        // The phone's own account of the same step, over the same interval and
+        // from the same baseline the host used. Reducing the whole phase counted
+        // the zoom out, the second zoom in and the reset as further steps.
+        const phoneInterval = resizesInInterval(trail.resizeEvents, { from: zoomInFromMs, to: zoomInToMs });
+        const trailZoom = reduceZoom(phoneInterval ?? []);
         return {
             bout: { gestures: 1, flings: 1, medianVelocityPxPerSecond: 0 },
             injectFailed: false,
@@ -738,6 +817,10 @@ async function drivePhase(phase, screen, hz, ready) {
             // the host; one source alone cannot tell a real step from a repaint.
             zoomPhoneResizeCount: trailZoom.gridChanged,
             zoomPhoneCellOnly: trailZoom.cellOnly,
+            // Whether the phone has an account of this interval at all. Without
+            // one there is nothing to corroborate the host with, and a silent
+            // zero would read as agreement on a graphics pane.
+            zoomPhoneEvidence: phoneInterval !== undefined,
             zoomTapped: zoomedIn && steppedIn,
             steppedInAgain,
             zoomMagnified: magnified,
@@ -750,6 +833,8 @@ async function drivePhase(phase, screen, hz, ready) {
                 steppedIn,
                 host: zoomIn,
                 phone: trailZoom,
+                interval: { fromMs: zoomInFromMs, toMs: zoomInToMs },
+                phoneInterval,
                 gridBefore,
                 gridAfterIn,
                 magnified,
@@ -880,6 +965,7 @@ function gestureEvidence(driven, idleJs) {
         zoomResizeCount: driven.zoomResizeCount,
         zoomPhoneResizeCount: driven.zoomPhoneResizeCount,
         zoomPhoneCellOnly: driven.zoomPhoneCellOnly,
+        zoomPhoneEvidence: driven.zoomPhoneEvidence,
         geometryRecords: driven.geometryRecords,
         zoomTapped: driven.zoomTapped,
         zoomMagnified: driven.zoomMagnified,
@@ -971,6 +1057,10 @@ try {
     stack = await startFakeStack({
         ...LOAD,
         graphicsEnableFile: GRAPHICS_PROOF_FILE,
+        // The board paints one named pane for the whole run. Without the pin,
+        // the first wheel notch on any pane pulled the producer onto it, so the
+        // phase that measures a text terminal made one out of it mid-bout.
+        pinGraphicsPane: true,
         setupPlugins: usagePlugins(process.cwd()),
     });
 } catch (cause) {
@@ -990,6 +1080,12 @@ try {
     fail(`could not seed the document fixture: ${cause instanceof Error ? cause.message : String(cause)}`);
     finish(1);
 }
+report.fixturePanes = stack.fixturePanes;
+if (stack.fixturePanes?.text === undefined || stack.fixturePanes?.graphics === undefined) {
+    fail('the herd published no text/graphics fixture panes to route the phases to');
+    finish(1);
+}
+ok(`fixture panes: text ${stack.fixturePanes.text}, graphics ${stack.fixturePanes.graphics}`);
 ok(`herd up on relay :${stack.relayPort}: ${stack.world.panes.length} panes`
     + `, ${stack.world.agents.length} agents, titles at ${LOAD.titleChurnHz} Hz, graphics ${LOAD.graphicsFrameHz} Hz`);
 
@@ -1059,6 +1155,7 @@ for (const phase of PHASES) {
             zoomReset: driven.zoomReset,
             zoomPhoneResizeCount: driven.zoomPhoneResizeCount,
             zoomPhoneCellOnly: driven.zoomPhoneCellOnly,
+            zoomPhoneEvidence: driven.zoomPhoneEvidence,
             terminal: driven.terminal,
             graphicsRowsPerSecond: driven.graphicsRowsPerSecond,
             zoomResizeCount: driven.zoomResizeCount,

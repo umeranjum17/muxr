@@ -195,6 +195,7 @@ describe('openTerminal reconnect ownership', () => {
         socket.open();
 
         const writes: string[] = [];
+        const settled: Array<number | undefined> = [];
         let concurrent = 0;
         let maxConcurrent = 0;
         const gates: Array<{ resolve: () => void; reject: (error: unknown) => void }> = [];
@@ -202,13 +203,15 @@ describe('openTerminal reconnect ownership', () => {
         let scheduledId = 0;
         const scheduled = new Set<number>();
         const pump = createTerminalWritePump({
-            write: (bytes) => {
+            write: (bytes, _graphics, mark) => {
                 concurrent += 1;
                 maxConcurrent = Math.max(maxConcurrent, concurrent);
                 writes.push(bytes);
                 return new Promise<void>((resolve, reject) => {
                     gates.push({
-                        resolve: () => { concurrent -= 1; resolve(); },
+                        // A scroll is answered when the write carrying its mark
+                        // settles, never when it was merely admitted.
+                        resolve: () => { concurrent -= 1; settled.push(mark); resolve(); },
                         reject: (error) => { concurrent -= 1; reject(error); },
                     });
                 });
@@ -227,8 +230,17 @@ describe('openTerminal reconnect ownership', () => {
             cancelSchedule: (handle) => { scheduled.delete(handle as number); },
             onRejected: (error) => { recoveries.push(error); },
         });
+        // A scroll binds to the first frame that arrives after it and to no
+        // other. Everything already on the wire stays unmarked.
+        let pendingMark: number | undefined;
         channel.onData((bytes, graphics) => {
-            pump.push(typeof graphics === 'boolean' ? { bytes, graphics } : { bytes });
+            const mark = pendingMark;
+            pendingMark = undefined;
+            pump.push({
+                bytes,
+                ...(typeof graphics === 'boolean' ? { graphics } : {}),
+                ...(mark === undefined ? {} : { mark }),
+            });
         });
 
         const frame = (bytes: string, graphics?: boolean) => {
@@ -239,6 +251,9 @@ describe('openTerminal reconnect ownership', () => {
 
         frame('draw-1', true);
         await vi.waitFor(() => expect(writes).toEqual(['draw-1']));
+        // Scroll 7 goes out here: text-A answers it, and the frames queued
+        // behind it -- including its own combining neighbours -- do not.
+        pendingMark = 7;
         frame('text-A');
         frame('draw-2', true);
         frame('text-B');
@@ -256,6 +271,9 @@ describe('openTerminal reconnect ownership', () => {
         }
         await vi.waitFor(() => expect(concurrent).toBe(0));
         expect(maxConcurrent).toBe(1);
+        // draw-1 was already in flight when the scroll went out, so it never
+        // answered it; exactly one write carried the mark, and it is text-A's.
+        expect(settled).toEqual([undefined, 7, undefined, undefined, undefined, undefined]);
 
         frame('draw-4', true);
         await vi.waitFor(() => expect(writes.at(-1)).toBe('draw-4'));
