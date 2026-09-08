@@ -39,6 +39,7 @@ import {
     avdName,
     clearLogcat,
     deviceIdentity,
+    deviceMonotonicSeconds,
     deviceReady,
     dismissKeyboard,
     dismissPrompts,
@@ -55,14 +56,16 @@ import {
     updateDepthErrors,
     viewBounds,
 } from './lib/androidSignals.mjs';
-import { fling, scrollBout, stripBout, tap, drag } from './lib/gestures.mjs';
+import { fling, scrollBout, stripBout, tap, tapTimed, drag } from './lib/gestures.mjs';
 import {
+    continuesFrom,
     cropRaw,
     decodeUiAttribute,
     firstDocumentMarker,
     firstStripLabel,
     freshFrameRows,
     mergeFrameStats,
+    parseJsonlStrict,
     parseRedactedTrail,
     pixelsMoved,
     reduceFrameStats,
@@ -313,17 +316,7 @@ function readJsonlStrict(path) {
     } catch (error) {
         return { ok: false, why: `unreadable (${error.code ?? error.message})` };
     }
-    if (text.length > 0 && !text.endsWith('\n')) return { ok: false, why: 'truncated: the last record has no terminator' };
-    const rows = [];
-    for (const line of text.split('\n')) {
-        if (line.trim().length === 0) continue;
-        try {
-            rows.push(JSON.parse(line));
-        } catch {
-            return { ok: false, why: 'a record could not be parsed' };
-        }
-    }
-    return { ok: true, rows };
+    return parseJsonlStrict(text);
 }
 
 async function dumpUi() {
@@ -835,16 +828,33 @@ async function drivePhase(phase, screen, hz, ready) {
         if (baseline.rows.length === 0) return unavailable('the pane declared no geometry at all');
         const cursor = baseline.rows.length;
 
-        // Framestats need the device's own clock to tell a frame this tap drove
-        // from one that was already in flight. Without it there is no window.
-        // The counters are never reset here: the phase's jank is differenced
-        // against a baseline taken before it started, and zeroing them midway
-        // would make that delta describe nothing.
-        const t0Seconds = await deviceMonotonicSeconds().catch(() => undefined);
-        if (!Number.isFinite(t0Seconds)) return unavailable('the device monotonic clock did not read');
-        const t0Ns = t0Seconds * 1e9;
+        // Resolve and validate the control before anything is timed. Finding it
+        // costs a UIAutomator dump of seconds, and a timing origin taken before
+        // that dump would put the whole dump inside the frame window -- the
+        // first frame the tap drove would then look seconds late against a
+        // limit meant for the tap alone.
+        const zoomInBounds = opened && zoomSurface !== undefined
+            ? await viewBounds('content-desc="Zoom in"')
+            : undefined;
+        if (zoomInBounds === undefined) return unavailable('the Zoom in control is not on the panel');
+        if (!(zoomInBounds.r > zoomInBounds.l && zoomInBounds.b > zoomInBounds.t)) {
+            return unavailable('the Zoom in control has no tappable bounds');
+        }
 
-        const zoomedIn = opened && zoomSurface !== undefined && await tapBounds('content-desc="Zoom in"');
+        // Origin and injection in one spawn, the way a fling is timed: the
+        // device samples `/proc/uptime` in the same shell that injects the tap,
+        // so t0 is the moment the injector started rather than a round trip
+        // earlier. The counters are never reset here -- the phase's jank is
+        // differenced against a baseline taken before it started, and zeroing
+        // them midway would make that delta describe nothing.
+        const injected = await tapTimed(
+            (zoomInBounds.l + zoomInBounds.r) / 2,
+            (zoomInBounds.t + zoomInBounds.b) / 2,
+        ).catch(() => ({ tapped: false }));
+        if (injected.tapped !== true) return unavailable('the Zoom in tap could not be injected');
+        if (!Number.isFinite(injected.t0Seconds)) return unavailable('the device monotonic clock did not read with the tap');
+        const t0Ns = injected.t0Seconds * 1e9;
+
         // Confirm the app itself moved -- `Reset zoom` goes live once a step
         // landed -- then keep observing through the bounded settle. Records that
         // arrive while these dumps are being read are still inside the window:
@@ -857,16 +867,31 @@ async function drivePhase(phase, screen, hz, ready) {
         } while (!steppedIn && Date.now() < confirmBy);
         await sleep(ZOOM_SETTLE_MS);
 
-        // The closing read, before any other action is driven. Everything the
-        // pane declared from the baseline record onwards is this tap's window.
+        // Close the frame window on the device's own clock too, so the ring is
+        // bounded at both ends by the tap and its settle rather than by
+        // everything that happened to be drawn afterwards.
+        const t1Seconds = await deviceMonotonicSeconds().catch(() => undefined);
+        if (!Number.isFinite(t1Seconds)) return unavailable('the device monotonic clock did not read at the close');
+        const t1Ns = t1Seconds * 1e9;
+
+        // The closing read, before any other action is driven, and it has to be
+        // the same append-only series the baseline came from. A read that lost
+        // records, or that changed one the baseline already held, is a different
+        // file -- a rotation, a re-entered pane, two panes on one path -- and a
+        // window sliced out of it would read this pane's step off other records.
         const closing = geometry();
         if (!closing.ok) return unavailable(`the closing geometry read is unavailable (${closing.why})`);
+        const continuity = continuesFrom(baseline.rows, closing.rows);
+        if (!continuity.ok) return unavailable(`the closing geometry is not continuous (${continuity.why})`);
         const observed = closing.rows.slice(cursor - 1);
         const transitions = reduceGridTransitions(observed);
         // The ring bounded to this tap and its settle, so the frames, the drops
         // and the input-to-frame all describe the same window the grid did.
         const zoomFrames = reduceFrameStats(
-            (await frameStats(PKG)).filter((row) => Number(row.FrameCompleted) >= t0Ns),
+            (await frameStats(PKG)).filter((row) => {
+                const completed = Number(row.FrameCompleted);
+                return completed >= t0Ns && completed <= t1Ns;
+            }),
             { frameNs: 1e9 / hz, t0Ns },
         );
 
@@ -939,7 +964,7 @@ async function drivePhase(phase, screen, hz, ready) {
             // Every read of the window succeeded, so the series below is the
             // pane's own account rather than one nobody could collect.
             zoomWindow: true,
-            zoomTapped: zoomedIn && steppedIn,
+            zoomTapped: steppedIn,
             steppedInAgain,
             zoomMagnified: magnified,
             zoomedOut,

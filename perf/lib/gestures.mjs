@@ -135,6 +135,25 @@ export async function tap(x, y) {
     await run('adb', ['shell', 'input', 'tap', String(Math.round(x)), String(Math.round(y))], { timeout: 10_000 });
 }
 
+/**
+ * One tap, one spawn, with `/proc/uptime` sampled in the same shell -- the same
+ * way `swipeOnce` times a fling.
+ *
+ * The coordinates have to be resolved already. Finding a control costs a
+ * UIAutomator dump, which takes seconds, and a t0 taken before one puts the
+ * whole dump inside the frame window: the first frame the touch drove then
+ * looks seconds late against a limit meant for the touch alone.
+ */
+export async function tapTimed(x, y) {
+    const { stdout } = await run(
+        'adb',
+        ['shell', `t0=$(cut -d' ' -f1 /proc/uptime); input tap ${Math.round(x)} ${Math.round(y)}; echo $t0`],
+        { timeout: 20_000 },
+    );
+    const t0 = Number(String(stdout).trim().split(/\s+/).pop());
+    return { tapped: true, t0Seconds: Number.isFinite(t0) ? t0 : undefined };
+}
+
 /** Short linear swipe: ~800 px in 120 ms, about 6600 px/s. */
 export async function fling(from, to) {
     const distance = Math.hypot(to.x - from.x, to.y - from.y);

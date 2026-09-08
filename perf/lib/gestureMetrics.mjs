@@ -306,6 +306,52 @@ export function trailSince(after, before) {
 }
 
 /**
+ * One JSONL body, parsed strictly, so a reader can tell an empty series apart
+ * from one it failed to collect.
+ *
+ * A JSONL record is only complete on its newline, so anything after the last
+ * one is a writer caught mid-append -- a partial record, not an absent one.
+ * Folding that into "no records" is what lets a gate pass on evidence nobody
+ * managed to read.
+ */
+export function parseJsonlStrict(text) {
+    const body = String(text ?? '');
+    if (body.length > 0 && !body.endsWith('\n')) {
+        return { ok: false, why: 'truncated: the last record has no terminator' };
+    }
+    const rows = [];
+    for (const line of body.split('\n')) {
+        if (line.trim().length === 0) continue;
+        try {
+            rows.push(JSON.parse(line));
+        } catch {
+            return { ok: false, why: 'a record could not be parsed' };
+        }
+    }
+    return { ok: true, rows };
+}
+
+/**
+ * Is `closing` the same append-only series `baseline` was, grown?
+ *
+ * An observation window is only one window if the file underneath it was
+ * appended to and never rewritten. A closing read that lost records, or that
+ * changed one the baseline already held, is a different file: the log rotated,
+ * the harness re-entered the pane, or two panes wrote the same path. Slicing a
+ * window out of that reads one pane's step off another's records, so it is
+ * reported as unavailable rather than reduced.
+ */
+export function continuesFrom(baseline = [], closing = []) {
+    if (closing.length < baseline.length) return { ok: false, why: 'the record series shrank between reads' };
+    for (let index = 0; index < baseline.length; index += 1) {
+        if (JSON.stringify(closing[index]) !== JSON.stringify(baseline[index])) {
+            return { ok: false, why: `the record series was rewritten at ${index}` };
+        }
+    }
+    return { ok: true, appended: closing.length - baseline.length };
+}
+
+/**
  * Grid transitions across one complete observation window.
  *
  * The window is every geometry record the pane declared, so it opens on the

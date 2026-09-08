@@ -13,6 +13,8 @@ import {
     firstStripLabel,
     freshFrameRows,
     mergeFrameStats,
+    parseJsonlStrict,
+    continuesFrom,
     parseFrameStatsDump,
     parseJankDump,
     parseRedactedTrail,
@@ -216,6 +218,33 @@ test('baseline bout fixtures reduce to the documented failures', () => {
         verdict('herd tree fling', { jank: goodJank, frameStats: { frames: 4, droppedPercent: 0, inputToFrameMs: {} } }, EMULATOR_LIMITS).failures,
         ['no input-driven frame'],
     );
+
+    // The zoom window is only evidence if it was really collected. A JSONL
+    // record is complete on its newline, so a body whose last line has no
+    // terminator is a writer caught mid-append -- a partial record, not an
+    // absent one, and folding it into "no records" is what lets a gate pass on
+    // evidence nobody managed to read.
+    const line = (cols) => `{"pane_id":"w1:p1","source":"terminal.resize","cols":${cols},"rows":24}\n`;
+    assert.equal(parseJsonlStrict(line(80) + line(66)).rows.length, 2);
+    assert.equal(parseJsonlStrict('').rows.length, 0);
+    const truncated = parseJsonlStrict(line(80) + '{"pane_id":"w1:p1","cols":66');
+    assert.equal(truncated.ok, false);
+    assert.match(truncated.why, /truncated/);
+    // A whole record that will not parse is unavailable too, never a short series.
+    assert.equal(parseJsonlStrict(line(80) + 'not json\n').ok, false);
+
+    // A window is one window only if the file underneath it was appended to and
+    // never rewritten: a closing read that lost records, or changed one the
+    // baseline already held, is a different file and cannot be sliced.
+    const baseRows = [{ cols: 80, rows: 24 }, { cols: 80, rows: 24 }];
+    assert.equal(continuesFrom(baseRows, [...baseRows, { cols: 66, rows: 20 }]).ok, true);
+    assert.equal(continuesFrom(baseRows, [...baseRows, { cols: 66, rows: 20 }]).appended, 1);
+    assert.equal(continuesFrom(baseRows, baseRows).ok, true);
+    assert.equal(continuesFrom(baseRows, [baseRows[0]]).ok, false);
+    assert.match(continuesFrom(baseRows, [baseRows[0]]).why, /shrank/);
+    const rewritten = continuesFrom(baseRows, [{ cols: 66, rows: 20 }, baseRows[1], { cols: 40, rows: 12 }]);
+    assert.equal(rewritten.ok, false);
+    assert.match(rewritten.why, /rewritten at 0/);
 
     // A zoom step is read off one complete window of the pane's own geometry.
     // The window may open on the grid the pane attached with -- a pane that
