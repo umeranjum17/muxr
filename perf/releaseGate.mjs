@@ -31,6 +31,7 @@ import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import { startFakeStack } from './lib/fakeStack.mjs';
+import { documentContract, documentPayload, DOCUMENT_FIXTURE, LOAD, SCENARIO_VERSION, scenarioSummary } from './lib/scenario.mjs';
 import { tourEverySession } from './lib/deviceTour.mjs';
 import { herdChromeConnected, pairPhone } from './lib/pairPhone.mjs';
 import { readPhoneTrail } from './lib/phoneTrail.mjs';
@@ -161,13 +162,6 @@ const DEVICE_LIMITS = {
     terminalRowsPerSecond: 60,
 };
 
-const LOAD = {
-    panes: 100,
-    agents: 30,
-    titleChurnHz: 2,
-    terminalBytesPerSecond: 4096,
-    graphicsFrameHz: 4,
-};
 
 /**
  * `flow` is the load itself and runs while the phase is sampled. `nav` is a
@@ -200,12 +194,6 @@ const PHASES = [
 /** Paints the fixture's identifiable checkerboard instead of a flat fill. */
 const GRAPHICS_PROOF_FILE = '/tmp/muxr-perf-graphics-proof';
 
-/** 240 numbered lines: the file plugin's preview cap, and enough to scroll. */
-const DOCUMENT_FIXTURE = 'perf-document.md';
-const documentFixture = () => Array.from(
-    { length: 240 },
-    (_, index) => `PERF_LINE_${String(index + 1).padStart(4, '0')} deterministic release-gate reading content with a long tail so the surface has somewhere to go.`,
-).join('\n');
 
 const args = process.argv.slice(2);
 const flag = (name) => {
@@ -1581,12 +1569,12 @@ try {
 // The file plugin lists a repository, and the reading surface needs a document
 // with somewhere to scroll: the fake herd's own README is three lines long.
 try {
-    writeFileSync(join(stack.world.cwd, DOCUMENT_FIXTURE), `${documentFixture()}\n`);
+    writeFileSync(join(stack.world.cwd, DOCUMENT_FIXTURE), documentPayload());
     const git = (args) => run('git', ['-C', stack.world.cwd, ...args], { timeout: 20_000 });
     await run('git', ['init', '-q', '-b', 'main', stack.world.cwd], { timeout: 20_000 });
     await git(['add', '.']);
     await git(['-c', 'user.name=Perf Fixture', '-c', 'user.email=fixture@example.invalid', '-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', 'commit', '-qm', 'Release gate document fixture']);
-    report.fixtures = { document: DOCUMENT_FIXTURE, plugins: ['code', 'status', 'terminal-keys', 'attachments'] };
+    report.fixtures = { document: documentContract(), scenario: SCENARIO_VERSION, plugins: ['code', 'status', 'terminal-keys', 'attachments'] };
 } catch (cause) {
     fail(`could not seed the document fixture: ${cause instanceof Error ? cause.message : String(cause)}`);
     finish(1);
@@ -1597,8 +1585,8 @@ if (stack.fixturePanes?.text === undefined || stack.fixturePanes?.graphics === u
     finish(1);
 }
 ok(`fixture panes: text ${stack.fixturePanes.text}, graphics ${stack.fixturePanes.graphics}`);
-ok(`herd up on relay :${stack.relayPort}: ${stack.world.panes.length} panes`
-    + `, ${stack.world.agents.length} agents, titles at ${LOAD.titleChurnHz} Hz, graphics ${LOAD.graphicsFrameHz} Hz`);
+ok(`herd up on relay :${stack.relayPort}: ${stack.world.panes.length} panes, ${stack.world.agents.length} agents`);
+ok(scenarioSummary());
 
 // 4. Pair with a code minted for this run, then wait for the herd to actually
 // be on screen. First-run prompts and a cold catalog make one attempt flaky in

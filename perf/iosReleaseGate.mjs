@@ -12,9 +12,10 @@ import { dirname, join, resolve } from 'node:path';
 import { pairingCodeHash, openPairingCodePayload } from '../packages/crypto/dist/index.js';
 import { CommandScope, useCommandScope } from './lib/commands.mjs';
 import { startFakeStack } from './lib/fakeStack.mjs';
+import { documentContract, documentPayload, DOCUMENT_FIXTURE, LOAD, SCENARIO_VERSION } from './lib/scenario.mjs';
 import { IosControls, appPid, command, crashFiles, hostLoad, processSample, reduceSamples, sha256, simctl, sleep, unavailable } from './lib/iosSignals.mjs';
 
-export const LOAD = { panes:100, agents:30, titleChurnHz:2, terminalBytesPerSecond:4096, graphicsFrameHz:4 };
+
 export const PHASES = [
     { name:'idle on the herd', seconds:120, drive:'idle' },
     { name:'herd strip and tree soak', seconds:120, drive:'soak' },
@@ -113,8 +114,8 @@ async function firstAgent(){await ui.home();const since=Date.now();await ui.open
 async function shell(pane){const since=Date.now();await ui.open(`session/${encodeURIComponent('shell:'+pane.pane_id)}`);await terminal();return proveAttach(pane.pane_id,since);}
 async function document(){
     await ui.home();await ui.tapMatch(/^Files$/);await ui.waitFor(/^Repositories$/);
-    await ui.tapMatch(/^project$/);await ui.waitFor(/^File README.md$/);await ui.tapMatch(/^File README.md$/);
-    await ui.waitFor(/^# iOS load document$|^Line 1: deterministic document/);
+    await ui.tapMatch(/^project$/);await ui.waitFor(new RegExp(`^File ${DOCUMENT_FIXTURE}$`));await ui.tapMatch(new RegExp(`^File ${DOCUMENT_FIXTURE}$`));
+    await ui.waitFor(/^PERF_LINE_/);
 }
 
 async function drive(phase, end, entry, prepareOnly=false){
@@ -205,9 +206,11 @@ try{
     initialPid=await appPid(udid,bundle);if(!initialPid)throw new Error('Retained normal app must already be running');report.initialPid=initialPid;
     stack=await startFakeStack({...LOAD,sourceRoot:process.cwd(),transport:'loopback',pluginsRoot:join(process.cwd(),'plugins')});
     if(stack.world.panes.length!==100||stack.world.agents.length!==30)throw new Error('Load world differs from100 panes/30 agents');
-    const documentText='# iOS load document\n\n'+Array.from({length:2000},(_,i)=>`Line ${i+1}: deterministic document scrolling under full herd load.\n`).join('');
-    const doc=join(stack.world.cwd,'README.md');writeFileSync(doc,documentText);report.documentFixture={lines:documentText.split('\n').length,sha256:sha256(doc)};
-    await command('git',['-C',stack.world.cwd,'init','-q']);await command('git',['-C',stack.world.cwd,'add','README.md','notes.txt']);
+    // The same file the Android gate reads: one payload, one digest, one
+    // served-line count, so a document number means the same thing here.
+    const doc=join(stack.world.cwd,DOCUMENT_FIXTURE);writeFileSync(doc,documentPayload());
+    report.documentFixture={...documentContract(),onDisk:sha256(doc),scenario:SCENARIO_VERSION};
+    await command('git',['-C',stack.world.cwd,'init','-q']);await command('git',['-C',stack.world.cwd,'add',DOCUMENT_FIXTURE,'notes.txt']);
     await command('git',['-C',stack.world.cwd,'-c','user.name=Perf fixture','-c','user.email=perf@example.invalid','commit','-qm','Seed deterministic load document']);
     report.documentFixture.gitTree=(await command('git',['-C',stack.world.cwd,'rev-parse','HEAD^{tree}'])).trim();
     log('pairing fresh isolated host');const pairingAt=Date.now();await pair();report.pairing={freshHost:true,herdVisibleMs:Date.now()-pairingAt};await shot('paired-herd');

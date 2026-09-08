@@ -45,6 +45,51 @@ Prerequisites, all checked in preflight with a named failure:
 - Maestro (`mise x maestro@cli-2.7.0`)
 - `yarn build`, since the gate spawns `apps/relay/dist` and `apps/host/dist`
 
+## The development probe (not acceptance)
+
+The release gate is not the inner loop. To look at one surface, prepare a
+session once in a pane you own and probe it as many times as you like:
+
+```bash
+# pane you leave running: starts the world, pairs once, holds both
+node perf/probeSession.mjs --platform android --apk /tmp/muxr-0.1.27-vc127-x86_64.apk
+
+# any other pane: about a minute, one surface, against that session
+node perf/surfaceProbe.mjs --session /tmp/muxr-probe-session.json --platform android --surface document
+node perf/surfaceProbe.mjs --session /tmp/muxr-probe-session.json --platform android --surface tree
+node perf/surfaceProbe.mjs --session /tmp/muxr-probe-session.json --platform android --surface terminal
+node perf/surfaceProbe.mjs --session /tmp/muxr-probe-session.json --platform android --surface document \
+  --attachments-dir /tmp/probe-shots --seconds 60
+```
+
+The probe never builds, installs, pairs, runs the 120-second baselines, soaks or
+tours. It validates the descriptor first -- owner alive, same scenario, same
+source, same artifact digest, same document fixture on the host -- and reports
+`inconclusive` with a reason instead of repairing anything.
+
+Its output is a small evidence envelope: provenance and scenario version,
+device and refresh, the actions and their cadence, CPU and memory as named
+metrics with units and collectors, fresh movement candidates, and the
+before/moving/settled screenshots it wrote under
+`~/.muxr/attachments/pane/$HERDR_PANE_ID`. A metric nobody could take is
+`unavailable` with a reason, never zero.
+
+**Every probe result carries `"partial": true` and `"acceptance": false`.** It
+is a development signal. Release acceptance is one uninterrupted `yarn perf`
+run on frozen bytes, and nothing here substitutes for it. Frame accounting is
+deliberately absent: the gfxinfo ledger is frozen for acceptance, so the probe
+reports CPU and memory as diagnostics and proves behaviour from captures,
+movement candidates and host records.
+
+## The scenario contract
+
+`perf/lib/scenario.mjs` is the one definition of the world both platforms
+measure: 100 panes, 30 agents, titles at 2 Hz, terminal at 4096 B/s, graphics at
+4 Hz, and one document fixture with a fixed payload, digest and served-line
+count (222 of 240 generated lines survive the file plugin's 24 KiB read). The
+Android gate, the iOS gate and the probe all consume it, so a document number
+from one platform means the same thing on the other.
+
 ## What it measures, and why only these signals
 
 | Signal | Source | Hard fail |
