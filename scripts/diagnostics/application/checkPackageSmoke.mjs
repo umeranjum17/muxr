@@ -476,7 +476,9 @@ try {
     // Block syntax that needs no leading whitespace to fire: the summary is
     // rendered on a line of its own, so a bullet, a plus, a rule or an ordered
     // marker there would open a list or a thematic break in the release notes.
-    hostileEntry.fixes = [{ title: '- bullet title', detail: '1. ordered detail' }];
+    // An entity reference is markup too: Markdown resolves it, so authored
+    // "&amp;" has to survive into the notes as those five characters.
+    hostileEntry.fixes = [{ title: '- bullet title', detail: '1. ordered detail &amp; &#38; &copy;' }];
     hostileEntry.knownLimits = ['- nested\n## limit heading [x](https://evil.example)', '+ plus item', '--- rule', '1) ordered item'];
     writeFileSync(hostilePath, JSON.stringify(authored));
     const hostileOut = join(scratch, 'hostile-out');
@@ -497,6 +499,8 @@ try {
     assert.doesNotMatch(hostileMarkdown, /(^|[^\\])!?\[[^\]]*\]\(/, 'authored text activated a Markdown link or image');
     assert.doesNotMatch(hostileMarkdown, /(^|[^\\])`/, 'authored text activated Markdown code');
     assert.doesNotMatch(hostileMarkdown, /<[a-zA-Z/]/, 'authored text activated inline HTML');
+    assert.doesNotMatch(hostileMarkdown, /(^|[^\\])&[a-zA-Z#]/, 'authored text activated a Markdown entity reference');
+    assert.match(hostileMarkdown, /ordered detail \\&amp;/, 'authored entity text was not preserved literally');
 
     // A version nobody wrote notes for cannot be released, and stale bytes fail.
     assert.throws(() => prepareChangelog({ mode: 'validate', ...reportRequest, version: '9.9.9', channel: 'stable' }), /no entry for app version 9\.9\.9/);

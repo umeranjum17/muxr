@@ -313,6 +313,12 @@ const proofHeader = () => `· 1/${stack.world.panes.filter((row) => row.tab_id =
 const proofResizes = (sinceMs) => readJsonl(stack.cellMetricsJsonl).filter((row) => row.source === 'terminal.resize'
     && row.pane_id === proofPane().pane_id && Date.parse(row.at) >= sinceMs
     && [row.cols, row.rows, row.cellWidthPx, row.cellHeightPx].every((value) => Number.isFinite(value) && value > 0));
+// A `pane.read` is a read-only thumbnail of whatever pane the herd screen is
+// showing. Only a control terminal session is the pane the phone took over, so
+// that is what proves this gate is standing on the pane it names.
+const proofAttaches = (sinceMs) => readJsonl(stack.cellMetricsJsonl).filter((row) => row.source === 'terminal.attach'
+    && row.mode === 'control' && row.pane_id === proofPane().pane_id && Date.parse(row.at) >= sinceMs
+    && [row.cols, row.rows].every((value) => Number.isFinite(value) && value > 0));
 async function viewerLineTarget() {
     // A relative path makes session identity resolution part of the real route.
     const url = `muxr://session/${encodeURIComponent(firstPaneRoute())}/file?path=${encodeURIComponent('line-target.ts')}`;
@@ -699,7 +705,7 @@ async function main() {
         await openUri(`muxr://session/${encodeURIComponent(firstPaneRoute())}`);
         if (flow === 'controls') await requireScreen('controls-text-mounted', /Type a prompt|text="Terminal"/);
         else await phase('terminal-text', /text="(Terminal|ctrl)"|Type a prompt/, true);
-        check(existsSync(stack.attachJsonl) && readFileSync(stack.attachJsonl, 'utf8').trim(), 'No real host terminal attach was observed');
+        check(proofAttaches(openedAt).length > 0, `No control terminal attach was observed for pane ${proofPane().pane_id}`);
         check(!existsSync(graphicsEnableFile), 'Text phase accidentally enabled graphics');
         await terminalKeyboard('text-keyboard');
         // Identity of the pane we are about to sample, not just "a terminal":

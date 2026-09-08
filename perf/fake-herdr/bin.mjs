@@ -209,6 +209,10 @@ function wheelReports(text) {
 const WHEEL_OFFSET_PX = 3 * 32;
 
 function runTerminal(args) {
+    // `herdr terminal session <control|observe> <pane>`. The mode is the whole
+    // difference between a live pane a phone drives and a read-only preview, so
+    // it is recorded with the attach rather than inferred later.
+    const mode = args[0] === 'observe' ? 'observe' : 'control';
     const paneId = args[1] ?? 'p1';
     // A one-line marker beside the socket: the gate needs to tell "the phone
     // never asked for graphics" apart from "graphics were asked for and lost".
@@ -221,6 +225,7 @@ function runTerminal(args) {
                 at: new Date().toISOString(),
                 pane_id: paneId,
                 source,
+                mode,
                 cols,
                 rows,
                 ...(message.cellWidthPx === undefined ? {} : { cellWidthPx: message.cellWidthPx }),

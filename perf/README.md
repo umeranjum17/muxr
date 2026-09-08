@@ -62,10 +62,10 @@ Prerequisites, all checked in preflight with a named failure:
 | Missed vsync | gfxinfo delta per fling | 3 / 1 |
 | Accidental owners | phone trail agent-page during a vertical bout | any |
 | Content moved | `screencapRaw` of the scrollable rect, mean |Δ| ≥ 8/255; strip card label, document gutter line, terminal trail | injected at intended velocity and the surface did not move |
-| Terminal fling | phone trail `terminal.scroll-latency`, `terminal.scroll-rows`, `terminal.scroll-clamped` | p95 250 / 200 ms, < 40 / 60 rows/s, any clamp |
+| Terminal fling | the panel's own surface identity, phone trail `terminal.scroll-rows` / `terminal.scroll-clamped` / `timedOut`, and the bout's gesture-scoped Android framestats | judged as **rendering performance, not input latency**. Terminal history has no host response a repaint can be attributed to, so no scroll-to-write latency is measured or gated. The phase must have stood on a text pane, the phone must have asked for rows, the clamp must have eaten none, no scroll may have timed out, and the viewport must have visibly changed -- or be unchanged because the clamp held it, which is reported as the clamp rather than as content that never moved. Travel is < 40 / 60 rows/s |
 | Graphics fling | host `graphics.pipeline` bout-scoped `notchesSent` × 3 | < 9 rows/s |
 | Named surface | the panel's own `Zoom out` state, read before the bout | `terminal text fling` must be on a text pane and `graphics pane scroll` on a graphics pane; a mismatch, or a surface the probe could not identify, fails the phase before a number is read |
-| Zoom | the panel's own `Zoom out` state names the surface, then the phone's declared cell metrics for this phase and pane, and the phone's `terminal.resize` line | Text pane: exactly 1 grid resize for one `Zoom in`, on both the host and the phone. Graphics pane: no resize on either, and the fixture's checkerboard measurably 1.25x larger on screen. Both sources read the **same first `Zoom in` interval** from the same baseline -- the host bounds its geometry by the two marks around the tap, the phone's `terminal.resize` line carries the time each grid was asked at and is bounded by the same pair -- so the zoom out, the second zoom in, the reset and any keyboard re-grid that follow cannot stand in for the step. Either way the second `Zoom in` must be seen to step, `Zoom out` and `Reset zoom` must return the surface to its default, a phase whose phone kept no resize record inside that interval fails as uncorroborated, and a phase with no declared geometry for its own pane fails rather than reading a zoom off another pane |
+| Zoom | the panel's own `Zoom out` / `Reset zoom` state, and the host's own `cell-metrics.jsonl` geometry for this phase's pane | Guards first: the pane must be under a **control** attach of its own, its surface identified, and settled at its default before anything is tapped. The host then drains its geometry records until they go quiet and marks a cursor; the first `Zoom in` is tapped alone, and every record inside the bounded settle window after that cursor is that tap's own work. Text pane: exactly 1 grid resize, onto fewer columns *and* fewer rows, which is the grid the bigger font fits. Graphics pane: no resize at all, the fixture's checkerboard measurably 1.25x larger on screen, and a `graphics.pipeline` frame delivered inside this phase, so a still picture cannot pass by being scaled. There is no independent phone-side resize counter: the phone and the host would be reporting the same event, and bounding it needed two machines' clocks compared. Either way the second `Zoom in` must be seen to step, and `Zoom out` and `Reset zoom` must return the surface to its default. Missing or interrupted evidence -- no control attach, a surface not at rest, a drain that never settled, no geometry for this phase's pane -- fails as inconclusive rather than passing on a silent zero |
 | Runtime continuity | sampler `restarts` and `gaps` | any restart, or any sample where the JS thread could not be read |
 | Memory | TOTAL PSS from meminfo | over 100 MB drift in a phase. Fewer than two comparable samples, or any missed sample, fails as unmeasured rather than as flat. Across the tour, a pane whose memory never sampled fails: the remaining samples are not the whole tour |
 | Completion | phases recorded against `PHASES`, and the exit code | a run that was interrupted, or that did not record every phase, names the phases it did not run and can never print `PASS` |
@@ -137,8 +137,8 @@ The four that were already here: idle on the herd (120 s),
 tabs, leave the app and return). The graphics pane is established by the gate
 itself, by the same label-selected card the terminal phases use, and never
 inherited from a previous phase. Graphics limits
-are `graphicsPipelineP95Ms` 250, `graphicsBytesP95` 800 kB and
-`scrollToFrameP95Ms` 400. Superseded frames are reported, not gated.
+are `graphicsPipelineP95Ms` 250 and `graphicsBytesP95` 800 kB. Superseded
+frames are reported, not gated.
 
 The six that measure feel:
 
@@ -165,11 +165,18 @@ travel is still one-way, since a bout that flings up and back can end on the pic
 from -- and compares the largest mean absolute RGB difference to 8/255
 (the same helper the graphics pane uses). The strip additionally requires the first visible
 card label to change (or the pixel diff if no label is exposed), the document requires the
-first gutter line number to change, and a terminal fling requires `terminal.scroll-rows` > 0,
-at least one `terminal.scroll-latency`, and `terminal.scroll-clamped` = 0. A scroll request is bound to the one frame that answers it: the phone marks the first frame arriving after the request, and the latency is recorded only once that exact `view.write` resolves. Unrelated or older output cannot satisfy it, a second scroll cannot overwrite a pending one, and a request whose repaint never came back inside the budget is dropped explicitly -- it contributes no sample, so the trail shows fewer answers than requests instead of a scroll that appeared to be answered instantly. The phone trail is a
-bounded ring, so those counts come from totals it keeps apart from it and the latency samples
-it recorded after the phase's own mark; a phase whose samples the phone no longer has fails as
-unavailable rather than as a phone that answered instantly. A bout that injected
+first gutter line number to change, and a terminal fling requires
+`terminal.scroll-rows` > 0 with at least one scroll request, and
+`terminal.scroll-clamped` = 0. There is no scroll-to-write latency: a terminal
+stream repaints itself whether or not anything was scrolled, so no arriving
+frame can be attributed to a particular scroll, and a duration measured against
+one that cannot be attributed is not a latency. The phone keeps the in-flight
+gate purely as flow control and counts the scrolls that went unanswered inside
+the budget (`timedOut`); any of those fails the phase. The phone trail is a
+bounded ring, so those counts come from totals it keeps apart from it. A
+viewport that did not change is still honest evidence when the clamp is why it
+did not: that is reported as the clamp, which is gated at zero on its own,
+rather than as content that never moved. A bout that injected
 at the intended velocity and moved nothing fails as `content did not move`. Evidence records
 both the input (`gestures`, `medianVelocityPxPerSecond`) and the movement it produced.
 
@@ -189,16 +196,19 @@ The host journal is a 512-event, 256 kB ring. A long run can rotate
 `terminal.attach` out of the file by the time the gate would have read it
 once at the end. The gate snapshots `diagnostics.json` after pairing and after
 every phase and unions events by timestamp, and it cross-checks fake-herdr's
-`attach.jsonl`. Evidence records `hostJournal.eventCounts` and
-`hostJournal.attachJsonl`.
+control terminal sessions. Evidence records `hostJournal.eventCounts` and
+`hostJournal.controlAttaches`.
 
 New fake-Herdr records, paths exposed on `startFakeStack`:
 
-- `attach.jsonl` — every `pane.read` (`pane_id`, `cols`, `rows`, `cellWidthPx`, `cellHeightPx`, `at`)
+- `attach.jsonl` — every `pane.read` (`pane_id`, `cols`, `rows`, `cellWidthPx`, `cellHeightPx`, `at`).
+  Kept as an artifact only: a `pane.read` is a read-only thumbnail of whatever pane the herd screen
+  is showing, so it is never attachment proof
 - `cell-metrics.jsonl` — the phone's declared geometry per pane and time: `source: terminal.attach`
-  is the grid the pane opened on (the baseline a pane that never re-gridded would otherwise lack)
-  and `source: terminal.resize` adds the cell pixels. A zoom phase with no record for its own pane
-  fails as unmeasured rather than reading an earlier phase's pane
+  carries the `mode` (`control` or `observe`) and the grid the pane opened on, and is the **only**
+  proof that a phase's own pane was really taken over; `source: terminal.resize` adds the cell
+  pixels. A phase with no control attach, or no geometry for its own pane, fails as unmeasured
+  rather than reading an earlier phase's pane
 - `graphics-input.jsonl` — every non-welcome graphics-socket message, with the decoded SGR report
 - `input.jsonl` — every `pane.send_keys` / `agent.send_keys`
 - `--terminal-bytes-per-second 0` — hold a pane static for a screenshot comparison

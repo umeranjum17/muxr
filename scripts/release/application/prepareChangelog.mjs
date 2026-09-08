@@ -15,8 +15,10 @@ const escape = (value) => String(value).replace(/[&<>"']/g, (character) => ({ '&
 // inline-active punctuation removes links, images, emphasis, code and HTML.
 // `-`, `+`, `.` and `)` go with them: a summary is rendered on a line of its
 // own, so an authored "- item", "+ item", "---" or "1. item" would open a list
-// or a thematic break there whatever the whitespace collapse did.
-const inline = (value) => String(value).replace(/\s+/g, ' ').trim().replace(/[\\`*_[\]<>#!|~+\-.)]/g, '\\$&');
+// or a thematic break there whatever the whitespace collapse did. `&` goes with
+// them too: Markdown resolves entity references, so an authored "AT&amp;T"
+// would be read back as "AT&T" instead of the text the author wrote.
+const inline = (value) => String(value).replace(/\s+/g, ' ').trim().replace(/[\\`*_[\]<>#!|~+\-.)&]/g, '\\$&');
 
 function requireChange(change, where) {
     if (!change || !plain(change.title, 120) || !plain(change.detail, 600)) throw new Error(`${where} has a malformed change`);

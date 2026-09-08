@@ -185,7 +185,7 @@ describe('connection diagnostic codes', () => {
             recordTrackedRpc,
             recordTerminalChannel,
             recordAgentGate,
-            recordTerminalScrollLatency,
+            recordTerminalScrollTimeout,
             recordTerminalGraphicsFrame,
             readConnectionDiagnostics,
             formatConnectionDiagnosticsForReport,
@@ -218,14 +218,14 @@ describe('connection diagnostic codes', () => {
             expect.objectContaining({ event: 'agent.gate', lifecycle: 'idle', promptable: false, gate: 'missing' }),
         ]));
         expect(readConnectionDiagnostics().some((event) => event.event === 'agent.gate' && 'kind' in event && event.kind === 'w1ew:ph')).toBe(false);
-        recordTerminalScrollLatency(42);
+        recordTerminalScrollTimeout();
         recordTerminalGraphicsFrame(2048);
         const report = formatConnectionDiagnosticsForReport();
         expect(report).toMatch(/socket\.reconnect dead-socket/);
         expect(report).toMatch(/rpc session\.prompt rejected agent-not-ready/);
         expect(report).toMatch(/rpc session\.start rejected start-launch-failed/);
         expect(report).toMatch(/agent\.gate omp idle promptable=false not-interactive/);
-        expect(report).toMatch(/graphics frames=1 p95=2048B scroll->frame p95=42ms/);
+        expect(report).toMatch(/graphics frames=1 p95=2048B/);
         expect(report).not.toMatch(/pp_|pwt-|devtok_|machine-|session-|w1EW:pH/);
     });
 
@@ -256,10 +256,11 @@ describe('connection diagnostic codes', () => {
         const report = formatConnectionDiagnosticsForReport();
         // Totals and per-event numbers, so a reader can count only what came
         // after its own mark instead of differencing a ring that evicts.
-        expect(report).toMatch(/terminal\.scroll seq=\d+ requests=2 rows=20 clamped=3/);
-        // Each resize carries when it was asked at, so a reader can take one
-        // zoom step's interval out of a phase that has several.
-        expect(report).toMatch(/terminal\.resize count=2 \d+:80x24:cell=8x16@\d+ \d+:66x20:cell=10x20@\d+/);
+        // `timedOut` is a scroll the pane never answered. There is no
+        // scroll-to-write latency here: terminal history has no host response a
+        // repaint can be attributed to, so none is reported.
+        expect(report).toMatch(/terminal\.scroll seq=\d+ requests=2 rows=20 clamped=3 timedOut=0/);
+        expect(report).not.toMatch(/latency|scroll->frame|terminal\.resize count=/);
         expect(report).not.toMatch(/NaN|undefined|wide/);
     });
 

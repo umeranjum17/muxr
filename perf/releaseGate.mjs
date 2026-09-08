@@ -71,7 +71,6 @@ import {
     reduceMovement,
     reducePipelineNotches,
     reduceZoom,
-    resizesInInterval,
     scrollableBounds,
     trailSince,
     verdict,
@@ -106,8 +105,6 @@ const SHARED_LIMITS = {
     graphicsPipelineP95Ms: 250,
     /** Bytes of the terminal.frame payload written to the phone. */
     graphicsBytesP95: 800 * 1024,
-    /** Scroll sent -> next graphics frame written, from the phone's trail. */
-    scrollToFrameP95Ms: 400,
     accidentalOwners: 0,
     terminalScrollClamped: 0,
     graphicsRowsPerSecond: 9,
@@ -129,7 +126,6 @@ const EMULATOR_LIMITS = {
     inputToFrameP95Ms: 120,
     jsBusyDeltaNative: 15,
     jsBusyDeltaTerminal: 25,
-    terminalScrollP95Ms: 250,
     terminalRowsPerSecond: 40,
 };
 
@@ -145,7 +141,6 @@ const DEVICE_LIMITS = {
     inputToFrameP95Ms: 60,
     jsBusyDeltaNative: 10,
     jsBusyDeltaTerminal: 20,
-    terminalScrollP95Ms: 200,
     terminalRowsPerSecond: 60,
 };
 
@@ -497,12 +492,12 @@ async function openFixturePane(paneId) {
     const deadline = Date.now() + 15_000;
     do {
         await sleep(700);
-        // Any attach for this exact pane since the route opened. Cell pixels are
-        // not required here: a software-rendered emulator never declares them,
-        // and the question this answers is which pane arrived, not how it draws.
+        // A control attach for this exact pane since the route opened. Cell
+        // pixels are not required here: a software-rendered emulator never
+        // declares them, and the question this answers is which pane the phone
+        // took over, not how it draws.
         if (await viewBounds('GhosttyTerminalView') !== undefined
-            && readJsonl(stack.attachJsonl).some((record) => String(record.pane_id) === paneId
-                && String(record.at) >= openedAt)) {
+            && paneAttaches(paneId, openedAt).length > 0) {
             await dismissKeyboard();
             return undefined;
         }
@@ -592,17 +587,21 @@ function controlEnabled(dump, label) {
 }
 
 /**
- * The pane the host saw this phase attach, and the grid it asked for.
+ * The control attaches this phase opened on one exact pane.
  *
- * A thumbnail read carries no cell pixels; only a native terminal attach does,
- * so requiring them keeps another pane's observer read out of this phase's
- * evidence, and the timestamp keeps an earlier phase's attach out of it.
+ * `pane.read` is a read-only thumbnail of whatever pane the herd screen happens
+ * to be showing; it says nothing about which pane the phone took over. A
+ * control attach is the terminal session the phone drives, so that is the only
+ * record that proves this phase is standing on the pane it names. The timestamp
+ * keeps an earlier phase's attach out of it.
  */
 function paneAttaches(paneId, since) {
-    if (stack === undefined) return [];
-    return readJsonl(stack.attachJsonl).filter((record) => (paneId === undefined || String(record.pane_id) === paneId)
+    if (stack?.cellMetricsJsonl === undefined) return [];
+    return readJsonl(stack.cellMetricsJsonl).filter((record) => record.source === 'terminal.attach'
+        && record.mode === 'control'
+        && (paneId === undefined || String(record.pane_id) === paneId)
         && String(record.at) >= since
-        && [record.cols, record.rows, record.cellWidthPx, record.cellHeightPx].every((value) => Number(value) > 0));
+        && [record.cols, record.rows].every((value) => Number(value) > 0));
 }
 
 /**
@@ -622,6 +621,32 @@ function paneGeometry(paneId, since) {
     return readJsonl(stack.cellMetricsJsonl).filter((record) => (paneId === undefined || String(record.pane_id) === paneId)
         && String(record.at) >= since
         && [record.cols, record.rows].every((value) => Number(value) > 0));
+}
+
+/** One tap's work has to have reached the host inside this window. */
+const ZOOM_SETTLE_MS = 1500;
+
+/**
+ * Wait until the host stops recording new geometry for the pane, so a cursor
+ * taken next marks a settled surface. Returns false when it never went quiet:
+ * a pane still re-gridding has no baseline, and a step read against one would
+ * be counting somebody else's change.
+ */
+async function settleGeometry(records, { quietMs = 900, timeoutMs = 8000 } = {}) {
+    const deadline = Date.now() + timeoutMs;
+    let last = records().length;
+    let quietSince = Date.now();
+    while (Date.now() < deadline) {
+        await sleep(300);
+        const now = records().length;
+        if (now !== last) {
+            last = now;
+            quietSince = Date.now();
+            continue;
+        }
+        if (Date.now() - quietSince >= quietMs) return true;
+    }
+    return false;
 }
 
 /**
@@ -670,15 +695,14 @@ async function drivePhase(phase, screen, hz, ready) {
         if (!trail.ok) return { ...measured, trailUnavailable: trail.why };
         const terminal = {
             scrollRequests: trail.scrollRequests,
-            scrollLatencyP50Ms: trail.scrollLatencyP50Ms,
-            scrollLatencyP95Ms: trail.scrollLatencyP95Ms,
             rowsRequested: trail.rowsRequested,
             rowsSent: trail.rowsRequested,
             rowsPerSecond: seconds > 0 ? Number((trail.rowsRequested / seconds).toFixed(1)) : 0,
             clamped: trail.clamped,
+            timedOut: trail.timedOut,
             agentPages: trail.agentPages,
         };
-        return withTrailMovement(measured, phase, terminal);
+        return { ...withTrailMovement(measured, phase, terminal), surfaceKind: ready.surfaceKind };
     }
     if (phase.drive === 'graphicsScroll') {
         ingestHostJournal(journalAcc, stack.journalPath ?? join(stack.dataDir, 'diagnostics.json'));
@@ -735,23 +759,37 @@ async function drivePhase(phase, screen, hz, ready) {
         const zoomSurface = controlEnabled(panel, 'Zoom in') === undefined || zoomOutAtRest === undefined
             ? undefined
             : zoomOutAtRest ? 'text' : 'graphics';
-        const gridBefore = paneGeometry(paneId, entered).at(-1);
-        // One interval, read by both sources. The host bounds its geometry by
-        // these two marks and the phone's own resize timestamps are bounded by
-        // the same pair, so the zoom out, the second zoom in, the reset and any
-        // keyboard re-grid that follow can never stand in for this step.
-        const zoomInAt = new Date().toISOString();
-        const zoomInFromMs = Date.now();
+        // The pane has to start settled and at its own default zoom, or the step
+        // below is read against a surface still moving from something else.
+        // `Reset zoom` is the app's own report of that: disabled means default.
+        const atRestDefault = controlEnabled(panel, 'Reset zoom') === false;
+        const hostResizes = () => paneGeometry(paneId, entered).filter((record) => record.source === 'terminal.resize');
+        // Drain first, then mark. Opening the pane and the controls panel both
+        // re-grid, and a cursor taken while those are still arriving would count
+        // them as the tap's own work. The drain has to reach quiet: a pane still
+        // re-gridding when the window closes has not settled, and the step read
+        // after it would be some other change.
+        const drained = await settleGeometry(hostResizes);
+        const cursor = hostResizes().length;
         const zoomedIn = opened && zoomSurface !== undefined && await tapBounds('content-desc="Zoom in"');
-        await sleep(800);
-        // One tap, one step: a text pane re-grids on the wire exactly once, and
-        // a graphics pane must not re-grid at all.
-        const gridAfterIn = paneGeometry(paneId, zoomInAt);
-        const zoomIn = reduceZoom([gridBefore, ...gridAfterIn].filter((record) => record !== undefined));
+        // One tap, one bounded settle window, and nothing else driven inside it:
+        // every record past the cursor is this tap's own work. A text pane
+        // re-grids exactly once here and a graphics pane must not re-grid at all.
+        await sleep(ZOOM_SETTLE_MS);
+        const hostAfterIn = hostResizes();
+        const hostStep = hostAfterIn.slice(Math.max(0, cursor - 1));
+        const zoomIn = reduceZoom(hostStep);
+        // A text step is one transition to a grid the bigger font really fits:
+        // fewer columns and fewer rows in the same viewport. A re-grid that grew
+        // the grid, or held one dimension still, is not a zoom in.
+        const gridBefore = hostAfterIn[cursor - 1];
+        const gridAfterIn = hostAfterIn.at(-1);
+        const zoomExpectedGrid = zoomSurface !== 'text' ? undefined
+            : gridBefore !== undefined && gridAfterIn !== undefined
+                && gridAfterIn.cols < gridBefore.cols && gridAfterIn.rows < gridBefore.rows;
         // `Reset zoom` is disabled at the default and live once a step landed,
         // so the panel's own state says whether the tap did anything at all.
         const steppedIn = controlEnabled(await dumpUi(), 'Reset zoom') === true;
-        const zoomInToMs = Date.now();
         await tapBounds('content-desc="Close terminal controls"');
         await sleep(400);
         const magnified = zoomSurface !== 'graphics' ? undefined : reduceMagnification(
@@ -759,6 +797,13 @@ async function drivePhase(phase, screen, hz, ready) {
             cropRaw(await screencapRaw().catch(() => undefined) ?? {}, prepared.beforeSurface?.bounds),
             { expected: LIMITS.graphicsZoomStep },
         );
+        // A graphics pane that magnified without the bridge still running proves
+        // nothing about this phase: the picture could be the last frame of an
+        // earlier one, held still and scaled. Require a frame this phase caused.
+        ingestHostJournal(journalAcc, stack.journalPath ?? join(stack.dataDir, 'diagnostics.json'));
+        const zoomGraphicsFrames = reducePipelineNotches(
+            journalAcc.events.filter((event) => event.event === 'graphics.pipeline' && event.at >= entered),
+        ).frames;
         // Back down the same ladder. `Reset zoom` is the surface's own report of
         // where it stands, so a step that returned it to the default disables
         // that control again; a tap the app ignored leaves it live.
@@ -800,11 +845,6 @@ async function drivePhase(phase, screen, hz, ready) {
         const after = await jankReport(PKG, { hz });
         const trail = await sinceEntry();
         if (!trail.ok) return { trailUnavailable: trail.why, jank: reduceJank(before, after, { hz }), frameStats: mergeFrameStats([]), bout: { gestures: 1, flings: 1, medianVelocityPxPerSecond: 0 }, injectFailed: false };
-        // The phone's own account of the same step, over the same interval and
-        // from the same baseline the host used. Reducing the whole phase counted
-        // the zoom out, the second zoom in and the reset as further steps.
-        const phoneInterval = resizesInInterval(trail.resizeEvents, { from: zoomInFromMs, to: zoomInToMs });
-        const trailZoom = reduceZoom(phoneInterval ?? []);
         return {
             bout: { gestures: 1, flings: 1, medianVelocityPxPerSecond: 0 },
             injectFailed: false,
@@ -812,15 +852,15 @@ async function drivePhase(phase, screen, hz, ready) {
             frameStats: mergeFrameStats([]),
             zoomSurface,
             zoomControlsOpened: opened,
+            zoomAtRestDefault: atRestDefault,
             zoomResizeCount: zoomIn.gridChanged,
-            // The phone's own resize trail for the same tap. It has to agree with
-            // the host; one source alone cannot tell a real step from a repaint.
-            zoomPhoneResizeCount: trailZoom.gridChanged,
-            zoomPhoneCellOnly: trailZoom.cellOnly,
-            // Whether the phone has an account of this interval at all. Without
-            // one there is nothing to corroborate the host with, and a silent
-            // zero would read as agreement on a graphics pane.
-            zoomPhoneEvidence: phoneInterval !== undefined,
+            zoomExpectedGrid,
+            zoomGraphicsFrames,
+            // Whether this step was read off a settled pane against a baseline
+            // the harness really marked. A drain that never went quiet, or a
+            // cursor with no record behind it, leaves nothing to read a step
+            // from, and a silent zero would pass a graphics pane on no evidence.
+            zoomHostEvidence: drained && cursor > 0,
             zoomTapped: zoomedIn && steppedIn,
             steppedInAgain,
             zoomMagnified: magnified,
@@ -830,25 +870,26 @@ async function drivePhase(phase, screen, hz, ready) {
                 paneId,
                 surface: zoomSurface,
                 zoomOutAtRest,
+                atRestDefault,
                 steppedIn,
+                drained,
+                cursor,
                 host: zoomIn,
-                phone: trailZoom,
-                interval: { fromMs: zoomInFromMs, toMs: zoomInToMs },
-                phoneInterval,
+                hostStep,
                 gridBefore,
                 gridAfterIn,
+                graphicsFrames: zoomGraphicsFrames,
                 magnified,
             },
             attachRecords: paneAttaches(paneId, entered).length,
             geometryRecords: paneGeometry(paneId, entered).length,
             terminal: {
                 scrollRequests: trail.scrollRequests,
-                scrollLatencyP50Ms: trail.scrollLatencyP50Ms,
-                scrollLatencyP95Ms: trail.scrollLatencyP95Ms,
                 rowsRequested: trail.rowsRequested,
                 rowsSent: trail.rowsRequested,
                 rowsPerSecond: 0,
                 clamped: trail.clamped,
+                timedOut: trail.timedOut,
             },
         };
     }
@@ -963,9 +1004,11 @@ function gestureEvidence(driven, idleJs) {
         injectFailed: driven.injectFailed === true,
         zoomSurface: driven.zoomSurface,
         zoomResizeCount: driven.zoomResizeCount,
-        zoomPhoneResizeCount: driven.zoomPhoneResizeCount,
-        zoomPhoneCellOnly: driven.zoomPhoneCellOnly,
-        zoomPhoneEvidence: driven.zoomPhoneEvidence,
+        zoomExpectedGrid: driven.zoomExpectedGrid,
+        zoomAtRestDefault: driven.zoomAtRestDefault,
+        zoomHostEvidence: driven.zoomHostEvidence,
+        zoomGraphicsFrames: driven.zoomGraphicsFrames,
+        attachRecords: driven.attachRecords,
         geometryRecords: driven.geometryRecords,
         zoomTapped: driven.zoomTapped,
         zoomMagnified: driven.zoomMagnified,
@@ -1153,9 +1196,12 @@ for (const phase of PHASES) {
             zoomMagnified: driven.zoomMagnified,
             zoomedOut: driven.zoomedOut,
             zoomReset: driven.zoomReset,
-            zoomPhoneResizeCount: driven.zoomPhoneResizeCount,
-            zoomPhoneCellOnly: driven.zoomPhoneCellOnly,
-            zoomPhoneEvidence: driven.zoomPhoneEvidence,
+            zoomExpectedGrid: driven.zoomExpectedGrid,
+            zoomAtRestDefault: driven.zoomAtRestDefault,
+            zoomHostEvidence: driven.zoomHostEvidence,
+            zoomGraphicsFrames: driven.zoomGraphicsFrames,
+            attachRecords: driven.attachRecords,
+            surfaceKind: driven.surfaceKind ?? ready.surfaceKind,
             terminal: driven.terminal,
             graphicsRowsPerSecond: driven.graphicsRowsPerSecond,
             zoomResizeCount: driven.zoomResizeCount,
@@ -1224,11 +1270,10 @@ for (const phase of PHASES) {
 const agentPanes = new Set(stack.world.agents.map((agent) => agent.pane_id));
 const tour = await tourEverySession({
     pkg: PKG,
-    // Which pane actually arrived. The fake herd records every `pane.read`, so
-    // an opened visit is one the host saw attach for the pane we asked for,
-    // not one whose chrome happened to contain the word "Terminal".
-    attached: async (paneId, since) => readJsonl(stack.attachJsonl)
-        .some((record) => String(record.pane_id) === paneId && String(record.at) >= since),
+    // Which pane actually arrived. A visit is opened when the herd started a
+    // control terminal session for the pane we asked for, not when some pane's
+    // chrome happened to contain the word "Terminal".
+    attached: async (paneId, since) => paneAttaches(paneId, since).length > 0,
     // Shell panes only: an agent's session id is minted by the host and is not
     // something a deep link can guess. Agent terminals are the navigate flow's
     // job, which reaches them the way a person does.
@@ -1276,16 +1321,16 @@ if (journalAcc.events.length === 0 && journalAcc.lastError !== undefined) {
 const events = journalAcc.events;
 const requests = events.filter((event) => event.event === 'client.request');
 const graphicsEvents = events.filter((event) => event.event === 'graphics.pipeline');
-const attachRecords = stack?.attachJsonl === undefined ? [] : readJsonl(stack.attachJsonl);
+const controlAttaches = paneAttaches(undefined, '');
 report.hostJournal = {
     path: journalAcc.path,
     reads: journalAcc.reads,
     events: events.length,
     eventCounts: journalEventCounts(events),
-    attachJsonl: attachRecords.length,
+    controlAttaches: controlAttaches.length,
 };
-if (attachRecords.length > 0 && requests.filter((event) => event.request === 'terminal.attach').length === 0) {
-    fail(`fake-herdr recorded ${attachRecords.length} pane.read attach(es) but the host journal has no terminal.attach`);
+if (controlAttaches.length > 0 && requests.filter((event) => event.request === 'terminal.attach').length === 0) {
+    fail(`fake-herdr started ${controlAttaches.length} control terminal session(s) but the host journal has no terminal.attach`);
 }
 const attaches = requests.filter((event) => event.request === 'terminal.attach');
 const rejected = requests.filter((event) => event.outcome !== 'ok');

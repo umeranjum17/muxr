@@ -252,14 +252,7 @@ export function reduceJank(before, after, { hz } = {}) {
 export function parseRedactedTrail(text) {
     const body = String(text);
     const firstFrames = [...body.matchAll(/terminal\.first-frame\s+(\d+)/g)].map((match) => Number(match[1]));
-    const summary = /terminal\.scroll seq=(\d+) requests=(\d+) rows=(\d+) clamped=(\d+) latency p50=(\d+)ms p95=(\d+)ms/.exec(body);
-    const samples = [];
-    for (const match of body.matchAll(/terminal\.scroll-latency ((?:\d+:\d+ ?)+)/g)) {
-        for (const pair of match[1].trim().split(/\s+/)) {
-            const [seq, ms] = pair.split(':').map(Number);
-            if (Number.isFinite(seq) && Number.isFinite(ms)) samples.push({ seq, ms });
-        }
-    }
+    const summary = /terminal\.scroll seq=(\d+) requests=(\d+) rows=(\d+) clamped=(\d+) timedOut=(\d+)/.exec(body);
     // Every line in the body is `<iso> #<seq> <summary>`, so an event a phase
     // did not cause can be told apart from one it did.
     const agentPages = [...body.matchAll(/#(\d+) (?:agent\.page\b|rpc session\.start\b)/g)].map((match) => Number(match[1]));
@@ -273,11 +266,8 @@ export function parseRedactedTrail(text) {
         scrollRequests: summary === null ? 0 : Number(summary[2]),
         rowsRequested: summary === null ? 0 : Number(summary[3]),
         clamped: summary === null ? 0 : Number(summary[4]),
-        scrollLatencyP50Ms: summary === null ? 0 : Number(summary[5]),
-        scrollLatencyP95Ms: summary === null ? 0 : Number(summary[6]),
-        scrollLatencies: samples,
+        timedOut: summary === null ? 0 : Number(summary[5]),
         firstFrameMs: firstFrames.at(-1),
-        resizeEvents: parseResizeTrail(body),
         agentPages,
     };
 }
@@ -287,75 +277,27 @@ export function parseRedactedTrail(text) {
  *
  * The trail is a bounded ring: differencing what is still visible in it counts
  * a phase's own evictions as a quiet phone. Counts come from the totals, which
- * never evict, and percentiles come from the samples recorded after the mark —
- * so a phase that asked for scrolls the phone has no samples for is reported
- * unavailable instead of as a perfect zero.
+ * never evict, so a phase is judged on what the phone actually tallied rather
+ * than on whatever the ring still happens to hold.
  */
 export function trailSince(after, before) {
     if (after?.seq === undefined || before?.seq === undefined) return { ok: false, why: 'the phone reported no gesture totals' };
     // Totals only ever grow. Going backwards means the app restarted or the
     // trail was cleared under us, and nothing across that break is comparable.
     if (after.seq < before.seq
-        || ['scrollRequests', 'rowsRequested', 'clamped'].some((key) => (after[key] ?? 0) < (before[key] ?? 0))) {
+        || ['scrollRequests', 'rowsRequested', 'clamped', 'timedOut'].some((key) => (after[key] ?? 0) < (before[key] ?? 0))) {
         return { ok: false, why: 'the phone trail restarted during the phase' };
     }
     const since = (key) => (after[key] ?? 0) - (before[key] ?? 0);
-    const scrollRequests = since('scrollRequests');
-    const latencies = (after.scrollLatencies ?? []).filter((sample) => sample.seq > before.seq).map((sample) => sample.ms);
-    if (scrollRequests > 0 && latencies.length === 0) {
-        return { ok: false, why: 'the phone kept no scroll latency sample from this phase' };
-    }
     return {
         ok: true,
         seq: after.seq,
-        scrollRequests,
+        scrollRequests: since('scrollRequests'),
         rowsRequested: since('rowsRequested'),
         clamped: since('clamped'),
-        scrollLatencies: latencies,
-        scrollLatencyP50Ms: percentile(latencies, 50),
-        scrollLatencyP95Ms: percentile(latencies, 95),
-        resizeEvents: (after.resizeEvents ?? []).filter((resize) => resize.seq > before.seq),
+        timedOut: since('timedOut'),
         agentPages: (after.agentPages ?? []).filter((seq) => seq > before.seq).length,
     };
-}
-
-/**
- * `terminal.resize count=3 12:80x24:cell=8x16@1757… ` — the phone's own resize
- * line, kept out of the ring so a zoom step cannot be evicted by a frame. Grid
- * always, cell when the phone sent it, and the time it was asked at so one
- * step can be read apart from the rest of the phase. An image-pane zoom is a
- * cell change with the grid held still; a text-pane zoom is the reverse.
- */
-export function parseResizeTrail(text) {
-    const resizes = [];
-    const line = /terminal\.resize count=\d+ (.*)/.exec(String(text));
-    if (line === null) return resizes;
-    for (const match of line[1].matchAll(/(\d+):(\d+)x(\d+)(?::cell=(\d+)x(\d+))?(?:@(\d+))?/g)) {
-        resizes.push({
-            seq: Number(match[1]),
-            cols: Number(match[2]),
-            rows: Number(match[3]),
-            ...(match[4] === undefined ? {} : { cellWidthPx: Number(match[4]) }),
-            ...(match[5] === undefined ? {} : { cellHeightPx: Number(match[5]) }),
-            ...(match[6] === undefined ? {} : { at: Number(match[6]) }),
-        });
-    }
-    return resizes;
-}
-
-/**
- * The phone's resize evidence for one interval, on the same baseline the host
- * read its own geometry from: the last resize at or before `from`, then every
- * resize inside `(from, to]`. Anything the phone timestamped outside that
- * window -- a zoom out, a second zoom in, a reset, a keyboard re-grid -- is a
- * different step and cannot stand in for this one.
- */
-export function resizesInInterval(resizes = [], { from, to } = {}) {
-    const timed = resizes.filter((resize) => Number.isFinite(resize?.at));
-    if (timed.length === 0 || !Number.isFinite(from) || !Number.isFinite(to)) return undefined;
-    const baseline = timed.filter((resize) => resize.at <= from).at(-1);
-    if (baseline === undefined) return undefined;
-    return [baseline, ...timed.filter((resize) => resize.at > from && resize.at <= to)];
 }
 
 /**
@@ -632,22 +574,23 @@ export function reduceMovement(phase, snapshot = {}) {
     }
     if (name === 'terminal text fling' || name === 'terminal') {
         const terminal = snapshot.terminal ?? {};
-        const scrollRows = terminal.rowsRequested
-            ?? terminal.scrollRows
-            ?? 0;
-        const scrollLatencyEvents = terminal.scrollRequests
-            || (Array.isArray(terminal.scrollLatencies) ? terminal.scrollLatencies.length : 0)
-            || 0;
+        const scrollRows = terminal.rowsRequested ?? terminal.scrollRows ?? 0;
+        const scrollRequests = terminal.scrollRequests ?? 0;
         const clamped = terminal.clamped ?? 0;
-        if (!(scrollRows > 0) || !(scrollLatencyEvents > 0)) reasons.push('terminalTrail');
+        // A still viewport is only honest evidence when the clamp is why it is
+        // still. Reporting that as "content did not move" names the symptom and
+        // hides the cause; the clamp is gated on its own, where it belongs.
+        const atClampedEdge = clamped > 0;
+        const asked = scrollRows > 0 && scrollRequests > 0;
+        if (!asked) reasons.push('terminalTrail');
         if (clamped > 0) reasons.push('clamped');
         return {
-            proven: pixelOk && scrollRows > 0 && scrollLatencyEvents > 0 && clamped === 0,
+            proven: (pixelOk || atClampedEdge) && asked,
             meanAbs,
             threshold,
             reasons,
             scrollRows,
-            scrollLatencyEvents,
+            scrollRequests,
             clamped,
         };
     }
@@ -702,9 +645,17 @@ export function verdict(phase, metrics, limits) {
     failWhen(failures, 'accidentalOwners', over(metrics.accidentalOwners, limits.accidentalOwners));
 
     if (name === 'terminal text fling') {
-        failWhen(failures, 'terminalScrollP95Ms', over(terminal.scrollLatencyP95Ms, limits.terminalScrollP95Ms));
+        // Terminal history has no answer frame that can be told apart from the
+        // stream's own repaints, so there is no scroll-to-write latency to
+        // judge. What is knowable is judged instead: that this was the text
+        // surface, that the phone asked for rows and the clamp ate none, that
+        // no scroll went unanswered, and that Android's own framestats show a
+        // frame driven by the touch -- gated above for every scroll phase.
+        failWhen(failures, 'the phase did not stand on a text terminal surface', metrics.surfaceKind !== 'text');
+        failWhen(failures, 'the phone reported no scroll totals for this phase', terminal.scrollRequests === undefined);
         failWhen(failures, 'terminalRowsPerSecond', under(terminal.rowsPerSecond, limits.terminalRowsPerSecond));
         failWhen(failures, 'terminalScrollClamped', over(terminal.clamped, limits.terminalScrollClamped));
+        failWhen(failures, 'a scroll timed out with no repaint', (terminal.timedOut ?? 0) > 0);
         failWhen(failures, 'accidentalOwners', over(terminal.agentPages, limits.accidentalOwners));
     }
     if (name === 'graphics pane scroll') {
@@ -712,27 +663,37 @@ export function verdict(phase, metrics, limits) {
     }
     if (name === 'zoom tap navigate') {
         failWhen(failures, 'zoomTapped', metrics.zoomTapped !== true);
+        // The pane has to have been the phase's own, live, and standing still at
+        // its default before the tap. A step read off a surface that was still
+        // settling, or that started part-way up its ladder, describes whatever
+        // it was already doing.
+        failWhen(failures, 'the zoom pane was not under control attach', !(metrics.attachRecords > 0));
+        failWhen(failures, 'the zoom pane was not settled at its default before the tap',
+            metrics.zoomAtRestDefault !== true);
+        // Evidence, or an inconclusive run: a drain that never went quiet and a
+        // baseline with nothing behind it both leave the step unreadable, and a
+        // silent zero would pass a graphics pane on no evidence at all.
+        failWhen(failures, 'the host kept no settled geometry baseline for this zoom step',
+            metrics.zoomHostEvidence !== true);
         // Which surface answered the tap decides what the proof is, so a run
         // that could not tell reports that rather than picking the easier one.
-        // A text pane zooms by re-gridding, which the phone reports; a graphics
+        // A text pane zooms by re-gridding, which the host records; a graphics
         // pane holds the remote grid and magnifies its own surface, which only
         // its pixels can show.
-        // Both sources have to describe the same interval before they can be
-        // compared. A phone that timestamped no resize in this phase has no
-        // evidence of its own, and comparing zero against the host's step would
-        // read a missing account as a disagreement -- or as agreement.
-        failWhen(failures, 'the phone kept no resize evidence for this zoom step',
-            metrics.zoomPhoneEvidence !== true);
         if (metrics.zoomSurface === 'text') {
             failWhen(failures, 'zoomResizeCount', metrics.zoomResizeCount !== limits.zoomResizeCount);
-            // The phone's own trail has to show the same one re-grid the host
-            // recorded; a step only one of them saw is not a step.
-            failWhen(failures, 'the phone trail does not match the host zoom re-grid',
-                metrics.zoomPhoneResizeCount !== limits.zoomResizeCount);
+            // One re-grid is not enough on its own: a bigger font has to land on
+            // a grid that really fits it, which is fewer cells both ways.
+            failWhen(failures, 'the text zoom did not re-grid to the expected dimensions',
+                metrics.zoomExpectedGrid !== true);
         } else if (metrics.zoomSurface === 'graphics') {
             failWhen(failures, 'zoom did not magnify the surface', metrics.zoomMagnified?.proven !== true);
             failWhen(failures, 'zoomResizeCount', (metrics.zoomResizeCount ?? 0) !== 0);
-            failWhen(failures, 'the phone trail re-gridded a graphics zoom', (metrics.zoomPhoneResizeCount ?? 0) !== 0);
+            // A still picture magnifies just as well as a live one. The bridge
+            // has to have delivered a frame in this phase for the pixels above
+            // to describe a pane that is actually running.
+            failWhen(failures, 'the graphics bridge delivered no frame in this phase',
+                (metrics.zoomGraphicsFrames ?? 0) <= 0);
         } else {
             failures.push('the zoom surface could not be identified');
         }
