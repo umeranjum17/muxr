@@ -222,6 +222,11 @@ function parseScreenNodes(value: unknown, depth: number, budget: { nodes: number
 }
 
 /** Returns undefined for unknown node types; known types with bad fields throw. */
+function codeViewport(value: unknown): 'fill' {
+    if (value !== 'fill') throw new Error('invalid plugin screen code viewport');
+    return 'fill';
+}
+
 function parseScreenNode(item: Record<string, unknown>, depth: number, budget: { nodes: number }): PluginScreenNode | undefined {
     switch (item.type) {
         case 'text':
@@ -235,6 +240,7 @@ function parseScreenNode(item: Record<string, unknown>, depth: number, budget: {
                 type: 'code', path: bindingPath(item.path),
                 ...(item.language === undefined ? {} : { language: text(item.language, 32) }),
                 ...(item.fileNamePath === undefined ? {} : { fileNamePath: bindingPath(item.fileNamePath) }),
+                ...(item.viewport === undefined ? {} : { viewport: codeViewport(item.viewport) }),
             };
         case 'metric':
             return { type: 'metric', label: pluginText(item.label, 80), value: pluginText(item.value, MAX_TEXT) };

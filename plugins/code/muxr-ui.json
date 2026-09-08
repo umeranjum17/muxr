@@ -138,7 +138,8 @@
         {
           "type": "code",
           "path": "data.body",
-          "fileNamePath": "data.path"
+          "fileNamePath": "data.path",
+          "viewport": "fill"
         },
         {
           "type": "text",

@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View, type LayoutChangeEvent, type NativeScrollEvent, type NativeSyntheticEvent, type StyleProp, type ViewStyle } from 'react-native';
+import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View, type LayoutChangeEvent, type RefreshControlProps, type NativeScrollEvent, type NativeSyntheticEvent, type StyleProp, type ViewStyle } from 'react-native';
 import { randomUUID } from 'expo-crypto';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -192,6 +192,11 @@ function ScreenNode(props: {
     tabOverrides?: Record<string, string>;
     /** Inside a section, which already owns the card around this node. */
     nested?: boolean;
+    /**
+     * Handed to a `viewport: 'fill'` code node, which is the screen's only
+     * scroller once the screen has stopped being one.
+     */
+    refreshControl?: React.ReactElement<RefreshControlProps>;
 }) {
     const { theme } = useUnistyles();
     const width = useScreenContentWidth();
@@ -213,8 +218,11 @@ function ScreenNode(props: {
             const source = resolvePath(data, node.path);
             if (typeof source !== 'string' || source === '') return null;
             const fileName = node.fileNamePath === undefined ? undefined : resolvePath(data, node.fileNamePath);
+            const fill = node.viewport === 'fill';
             return <CodeCore code={sanitizeDisplayText(source).replace(/\r\n/g, '\n')} language={node.language} header
                 maxLines={PLUGIN_CODE_MAX_LINES} maxChars={PLUGIN_CODE_MAX_CHARS}
+                {...(fill ? { fill: true } : {})}
+                {...(fill && props.refreshControl !== undefined ? { refreshControl: props.refreshControl } : {})}
                 {...(typeof fileName === 'string' ? { fileName: capUtf8Bytes(sanitizeDisplayText(fileName), 160) } : {})} />;
         }
         case 'metric':
@@ -532,23 +540,34 @@ function ScreenBody(props: {
     // A reload keeps the last payload on screen: blanking to a spinner costs the
     // reader their place and re-runs the entrance on every tab tap.
     const hasContent = dataContributionId === undefined || data !== undefined || dataError !== undefined;
+    const refreshControl = dataContributionId === undefined ? undefined : (
+        <RefreshControl refreshing={refreshing} tintColor={theme.colors.textSecondary}
+            onRefresh={() => { setRefreshing(true); setRefreshNonce((value) => value + 1); }} />
+    );
+    // A node that fills the screen brings its own scroller, and two scrollers on
+    // one axis mount every row of the inner one. The screen keeps its chrome and
+    // stops scrolling; the node takes the height that is left.
+    const filled = screen.children.some((node) => node.type === 'code' && node.viewport === 'fill');
+    const Page = filled ? View : ScrollView;
     return (
-        <ScrollView
+        <Page
             style={{ flex: 1, backgroundColor: theme.colors.surface }}
-            contentContainerStyle={{
-                paddingTop: props.topContentInset ?? 0,
-                paddingBottom: safeArea.bottom + (props.bottomContentInset ?? 0),
-            }}
-            onScroll={props.onScroll}
-            scrollEventThrottle={16}
-            refreshControl={dataContributionId === undefined ? undefined : (
-                <RefreshControl refreshing={refreshing} tintColor={theme.colors.textSecondary}
-                    onRefresh={() => { setRefreshing(true); setRefreshNonce((value) => value + 1); }} />
-            )}
+            {...(filled ? {} : {
+                contentContainerStyle: {
+                    paddingTop: props.topContentInset ?? 0,
+                    paddingBottom: safeArea.bottom + (props.bottomContentInset ?? 0),
+                },
+                onScroll: props.onScroll,
+                scrollEventThrottle: 16,
+                refreshControl,
+            })}
         >
             <View
                 onLayout={handleContentLayout}
-                style={{ width: '100%', maxWidth: layout.maxWidth, alignSelf: 'center', padding: 14, paddingTop: 10, paddingBottom: 40 }}
+                style={[
+                    { width: '100%', maxWidth: layout.maxWidth, alignSelf: 'center', padding: 14, paddingTop: 10, paddingBottom: 40 },
+                    filled ? { flex: 1, paddingTop: (props.topContentInset ?? 0) + 10, paddingBottom: safeArea.bottom + (props.bottomContentInset ?? 0) + 14 } : {},
+                ]}
             >
                 <ScreenWidthProvider width={contentWidth}>
                     <LoadingHairline active={loading} />
@@ -558,9 +577,10 @@ function ScreenBody(props: {
                         <Text style={{ color: theme.colors.textLink, fontSize: 13, marginTop: 4 }}>{t('plugins.retry')}</Text>
                     </Pressable>}
                     {hasContent
-                        ? <View style={{ opacity: loading ? 0.55 : 1 }}>
+                        ? <View style={[{ opacity: loading ? 0.55 : 1 }, filled ? { flex: 1 } : {}]}>
                             {screen.children.map((node, index) => (
                                 <ScreenNode key={index} node={node} data={data} fields={fields} setField={setField} running={running} onButton={onButton} onRowAction={onRowAction} onTreeLoad={onTreeLoad}
+                                    {...(refreshControl === undefined ? {} : { refreshControl })}
                                     tabOverrides={tabParams}
                                     onSelectTab={(param, value) => setTabParams((current) => ({ ...current, [param]: value }))}
                                     onTreeError={(error) => setStatus({ ok: false, text: error instanceof Error ? error.message : String(error) })} />
@@ -580,7 +600,7 @@ function ScreenBody(props: {
                     )}
                 </ScreenWidthProvider>
             </View>
-        </ScrollView>
+        </Page>
     );
 }
 
