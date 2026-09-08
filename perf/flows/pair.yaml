@@ -8,49 +8,26 @@ tags:
 - launchApp:
     appId: com.trymuxr.app
     clearState: false
-# A cold launch settles on one of three screens: the first-install welcome, which
-# has no local account yet, the pairing entry of a run that already made one, or
-# -- on a retry -- the herd screen of a connection that dropped.
+# The hosted build opens on its welcome screen, whose entry point is the exact
+# button "Enter pairing string". A rerun can instead land on the form itself or
+# on the error state of a failed attempt. Anything else is the wrong build.
 - extendedWaitUntil:
     visible:
-      text: 'Create account|Enter pairing string|Pairing string|Enter another code|LIVE|disconnected'
+      text: 'Enter pairing string|Pairing string|Enter another code'
     timeout: 40000
-# The account is device-local, so creating it is the one tap a fresh install owes
-# before pairing. A rerun that already has one never sees this and never resets.
-- runFlow:
-    when:
-      visible:
-        text: 'Create account'
-    commands:
-      - tapOn:
-          text: 'Create account'
-      # Account creation navigates on its own; typing before it settles types
-      # into whatever screen the transition left under the cursor.
-      - extendedWaitUntil:
-          visible:
-            text: 'Enter pairing string|Pairing string|Enter another code|LIVE|disconnected'
-          timeout: 60000
 # A failed attempt leaves the error state, which shows no input at all.
 - tapOn:
     text: 'Enter another code'
     optional: true
-# Neither the welcome screen nor a disconnected herd shows the form, and both a
-# fresh account and a retry land on the same "Set up connection" button. Tap it
-# and require the manual-entry affordance before anything is typed.
+# Off the error state the welcome button is the only way to the form.
 - runFlow:
     when:
       notVisible:
         text: 'Pairing string'
     commands:
-      - assertVisible: 'Set up connection'
+      - assertVisible: '^Enter pairing string$'
       - tapOn:
-          text: 'Set up connection'
-      - extendedWaitUntil:
-          visible:
-            text: 'Enter pairing string manually|Enter another code'
-          timeout: 40000
-      - tapOn:
-          text: 'Enter pairing string manually|Enter another code'
+          text: '^Enter pairing string$'
 - extendedWaitUntil:
     visible:
       text: 'Pairing string'
@@ -82,9 +59,5 @@ tags:
 # The first connect fetches the whole herd before anything is on screen.
 - extendedWaitUntil:
     visible:
-      text: 'LIVE|SPACES|Machine'
-    timeout: 60000
-- extendedWaitUntil:
-    visible:
       text: 'connected'
-    timeout: 40000
+    timeout: 60000
