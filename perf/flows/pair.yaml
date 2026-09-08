@@ -8,7 +8,21 @@ tags:
 - launchApp:
     appId: com.trymuxr.app
     clearState: false
-# A cold launch shows its welcome screen before the pairing entry exists.
+# A cold launch settles on one of two screens: the first-install welcome, which
+# has no local account yet, or the pairing entry of a run that already made one.
+- extendedWaitUntil:
+    visible:
+      text: 'Create account|Enter pairing string|Enter pairing string manually|Enter another code'
+    timeout: 40000
+# The account is device-local, so creating it is the one tap a fresh install owes
+# before pairing. A rerun that already has one never sees this and never resets.
+- runFlow:
+    when:
+      visible:
+        text: 'Create account'
+    commands:
+      - tapOn:
+          text: 'Create account'
 - extendedWaitUntil:
     visible:
       text: 'Enter pairing string|Enter pairing string manually|Enter another code'
