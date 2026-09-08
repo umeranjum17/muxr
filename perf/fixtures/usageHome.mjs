@@ -30,6 +30,9 @@ p=h/'.omp/stats.db'; p.parent.mkdir(parents=True,exist_ok=True)
 with sqlite3.connect(p) as db:
  db.execute('CREATE TABLE messages(timestamp INTEGER, model TEXT, input_tokens INTEGER, output_tokens INTEGER, cache_read_tokens INTEGER, cache_write_tokens INTEGER, total_tokens INTEGER, cost_total REAL)')
  db.execute('INSERT INTO messages VALUES(?,?,?,?,?,?,?,?)',(stamp(11),'fixture-omp',100,20,30,0,150,.01))
+p=h/'.omp/agent/sessions/proj/session.jsonl'; p.parent.mkdir(parents=True,exist_ok=True)
+at=datetime.datetime(2026,9,5,11,tzinfo=datetime.timezone.utc).isoformat().replace('+00:00','Z')
+p.write_text(json.dumps({'id':'fixture-1','type':'message','timestamp':at,'message':{'role':'assistant','model':'fixture-omp','timestamp':at,'usage':{'input':100,'output':20,'cacheRead':30,'cacheWrite':0,'totalTokens':150,'cost':{'total':.01}}}})+chr(10))
 p=h/'.local/share/opencode/opencode.db'; p.parent.mkdir(parents=True,exist_ok=True)
 with sqlite3.connect(p) as db:
  db.execute('CREATE TABLE message(time_created INTEGER,data TEXT)')

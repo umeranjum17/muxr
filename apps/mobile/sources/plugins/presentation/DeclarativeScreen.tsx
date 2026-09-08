@@ -444,8 +444,9 @@ function ScreenBody(props: {
         if (dataContributionId === undefined || cacheKey === undefined) return;
         let cancelled = false;
         // Stale first, fresh behind it: a reopened screen never starts blank.
-        const cached = screenCache.get(cacheKey);
-        if (cached !== undefined) setData(cached);
+        // Another tab's payload is not stale data for this one, though: keeping
+        // it on screen would label one provider's totals with another's name.
+        setData(screenCache.get(cacheKey));
         setLoading(true);
         setDataError(undefined);
         void loadScreenData(dataContributionId, props.manifest, props.pluginId, props.manifestHash, request, callParams)
