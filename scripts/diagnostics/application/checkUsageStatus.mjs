@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
 let DatabaseSync;
 try { ({ DatabaseSync } = await import('node:sqlite')); } catch {};
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -31,6 +32,25 @@ function seedDatabase(path, schema, insert, params) {
         input: JSON.stringify([path, schema, insert, params]), encoding: 'utf8', timeout: 2_000,
     });
     assert.equal(seeded.status, 0, 'SQLite fixtures require Node 22.13+ or Python 3');
+}
+
+// The same platform map the plugin ships with: pinning one target would test
+// a binary the release never runs anywhere else.
+const ccusageTarget = {
+    'darwin-arm64': '@ccusage/ccusage-darwin-arm64', 'darwin-x64': '@ccusage/ccusage-darwin-x64',
+    'linux-arm64': '@ccusage/ccusage-linux-arm64', 'linux-x64': '@ccusage/ccusage-linux-x64',
+}[`${process.platform}-${process.arch}`];
+assert.ok(ccusageTarget, `Usage has no ccusage backend for ${process.platform}-${process.arch}`);
+const ccusageBinary = createRequire(import.meta.url).resolve(`${ccusageTarget}/bin/ccusage`);
+
+/** One Codex rollout, in the log format ccusage reads from CODEX_HOME. */
+function codexRollout(path, at, model, counts) {
+    const usage = { input_tokens: counts.input, cached_input_tokens: counts.cached, output_tokens: counts.output, reasoning_output_tokens: counts.reasoning, total_tokens: counts.input + counts.output };
+    writeTranscript(path, [
+        JSON.stringify({ timestamp: at, type: 'session_meta', payload: { id: 'fixture', timestamp: at, cwd: '/tmp', originator: 'muxr-check', cli_version: '1.0.0', instructions: null } }),
+        JSON.stringify({ timestamp: at, type: 'turn_context', payload: { model, cwd: '/tmp' } }),
+        JSON.stringify({ timestamp: at, type: 'event_msg', payload: { type: 'token_count', info: { total_token_usage: usage, last_token_usage: usage, model_context_window: 272_000 } } }),
+    ]);
 }
 
 const scratch = mkdtempSync(join(tmpdir(), 'muxr-usage-'));
@@ -114,7 +134,12 @@ try {
     assert.equal(result.status, 0, result.stderr);
     const output = JSON.parse(result.stdout);
     const activity = Object.fromEntries(output.items.filter((item) => item.id.startsWith('activity-')).map((item) => [item.title, item.metadata[0]?.value]));
-    assert.deepEqual(activity, { 'Anthropic Claude': '1.3M tokens', 'Kimi Code': '2.5K tokens', Pi: '800 tokens', OpenCode: '300 tokens', OMP: '150 tokens' });
+    // Pi is accounted from its own transcripts: with none on disk the measured
+    // answer is nothing, and ccusage's own Pi row never stands in for it.
+    assert.deepEqual(activity, { 'Anthropic Claude': '1.3M tokens', 'Kimi Code': '2.5K tokens', OpenCode: '300 tokens', OMP: '150 tokens' });
+    const emptyPi = JSON.parse(run({ provider: 'pi' }).stdout);
+    assert.equal(emptyPi.todayTokens, '0');
+    assert.equal(emptyPi.weekTokens, '0');
     assert.ok(output.items.some((item) => item.id === 'limit-codex-0' && item.metadata[0]?.value === '75% left' && item.group === 'Rate limits'));
     assert.ok(output.items.some((item) => item.id === 'limit-codex-1' && item.metadata[0]?.value === '10% left'));
     assert.equal(output.codexRemaining, 10);
@@ -177,8 +202,8 @@ try {
     const cached = run({ provider: 'claude' });
     assert.equal(cached.status, 0, cached.stderr);
     assert.equal(JSON.parse(cached.stdout).todayTokens, '1.3M');
-    assert.equal(readFileSync(ccusageMarker, 'utf8'), 'xxx', 'per-tab cache did not prevent a duplicate ccusage scan');
-    assert.equal(readFileSync(codexMarker, 'utf8'), 'xxx', 'per-tab cache did not prevent a duplicate Codex app-server');
+    assert.equal(readFileSync(ccusageMarker, 'utf8'), 'xxxx', 'per-tab cache did not prevent a duplicate ccusage scan');
+    assert.equal(readFileSync(codexMarker, 'utf8'), 'xxxx', 'per-tab cache did not prevent a duplicate Codex app-server');
 
     const recent = JSON.parse(run({}).stdout);
     assert.equal(recent.provider, 'omp');
@@ -347,6 +372,11 @@ try {
             record('omp-y', '2026-09-07T05:00:00.000Z', 'fixture-omp', { input: 1000, cacheRead: 3000 }, 0),
         ]);
         writeFileSync(join(flow, 'codex'), readFileSync(join(scratch, 'codex'), 'utf8'), { mode: 0o755 });
+        // ccusage refuses every agent when CLAUDE_CONFIG_DIR is not a config
+        // directory, which would hide the pinned Codex totals below.
+        mkdirSync(join(flow, '.claude/projects'), { recursive: true });
+        codexRollout(join(flow, '.codex/sessions/2026/09/07/rollout-2026-09-07T20-02-00-a.jsonl'), '2026-09-07T20:02:00.000Z', 'gpt-5-codex', { input: 1000, cached: 200, output: 300, reasoning: 100 });
+        codexRollout(join(flow, '.codex/sessions/2026/09/06/rollout-2026-09-06T10-00-00-b.jsonl'), '2026-09-06T10:00:00.000Z', 'gpt-5-codex', { input: 500, cached: 0, output: 200, reasoning: 0 });
         const flowRun = (provider, environment = {}) => {
             const result = spawnSync(process.execPath, ['plugins/status/usage.mjs'], {
                 cwd: process.cwd(), encoding: 'utf8', input: JSON.stringify({ provider }),
@@ -367,7 +397,7 @@ try {
 
         // Upstream ccusage counts the fork's copies again; that is the defect
         // this collector exists to correct, so assert the raw report first.
-        const upstream = JSON.parse(spawnSync(resolve('node_modules/@ccusage/ccusage-linux-x64/bin/ccusage'),
+        const upstream = JSON.parse(spawnSync(ccusageBinary,
             ['daily', '--by-agent', '--sections', 'daily', '--json', '--offline'],
             { encoding: 'utf8', env: { ...process.env, HOME: flow, PI_AGENT_DIR: piRoot, TZ: 'Asia/Dubai' }, timeout: 30_000 }).stdout);
         const upstreamToday = upstream.daily.find((day) => day.period === '2026-09-08')?.agents.find((row) => row.agent === 'pi');
@@ -402,9 +432,39 @@ try {
         assert.equal(omp.weekSeries.at(-2)?.value, 4000);
         assert.doesNotMatch(JSON.stringify(omp), /stale-omp|999999999|4242/, 'stale stats database outranked the transcripts');
 
+        // Real Codex logs through the real ccusage: pinned daily and week totals,
+        // not a shape check.
         const codex = flowRun('codex');
         assert.equal(codex.provider, 'codex');
         assert.ok(codex.limitSeries.length > 0);
+        assert.equal(codex.todayTokens, '1.3K');
+        assert.equal(codex.weekSeries.at(-1)?.value, 1300);
+        assert.equal(codex.weekSeries[4]?.value, 700);
+        assert.equal(codex.weekTokens, '2.0K');
+        assert.equal(codex.todayCost, '$0.00');
+        assert.equal(codex.weekCost, '$0.01');
+        assert.equal(codex.modelSeries[0]?.label, 'gpt-5-codex');
+
+        // A configured agent directory is the OMP root when no profile is set.
+        const custom = join(flow, 'custom-omp');
+        writeTranscript(join(custom, 'sessions/proj/session.jsonl'), [
+            record('custom-1', '2026-09-07T20:03:00.000Z', 'custom-omp', { input: 55 }, 0.02),
+        ]);
+        const customRoot = flowRun('omp', { PI_CODING_AGENT_DIR: custom });
+        assert.equal(customRoot.todayTokens, '55');
+        assert.equal(customRoot.modelSeries[0]?.label, 'custom-omp');
+
+        // A usage record that cannot be parsed makes the total unavailable
+        // rather than quietly dropping what it was worth.
+        const malformed = join(flow, 'malformed-agent');
+        writeTranscript(join(malformed, 'sessions/proj/broken.jsonl'), [
+            record('good-1', '2026-09-07T20:03:00.000Z', 'fixture-pi', { input: 10 }, 0.01),
+            '{"message":{"role":"assistant","usage":{"input":5',
+        ]);
+        const broken = flowRun('pi', { PI_AGENT_DIR: malformed });
+        assert.equal(broken.todayTokens, '—');
+        assert.match(broken.activityLabel, /could not be measured/);
+
         // Back to Pi: the same journey twice reports the same figures.
         const again = flowRun('pi');
         assert.equal(again.provider, 'pi');
@@ -416,6 +476,7 @@ try {
         const exhausted = join(flow, 'exhausted-agent');
         writeTranscript(join(exhausted, 'sessions/proj/wide.jsonl'),
             Array.from({ length: 1100 }, (_, index) => record(`wide-${index}`, '2026-09-07T20:03:00.000Z', `model-${index}`, { input: 10 }, 0.01)));
+        rmSync(join(flow, 'state', 'usage-v2-pi.json'), { force: true });
         const unavailable = flowRun('pi', { PI_AGENT_DIR: exhausted });
         assert.equal(unavailable.todayTokens, '—');
         assert.equal(unavailable.todayCost, '—');

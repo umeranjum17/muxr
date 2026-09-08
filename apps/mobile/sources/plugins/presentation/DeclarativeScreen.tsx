@@ -418,7 +418,11 @@ function ScreenBody(props: {
         ? undefined
         : `${props.pluginId}:${props.manifestHash}:${dataContributionId}:${paramsKey(callParams)}`,
     [callParams, dataContributionId, props.manifestHash, props.pluginId]);
-    const [data, setData] = React.useState<unknown>(() => cacheKey === undefined ? undefined : screenCache.get(cacheKey));
+    // The payload carries the key it was fetched for. A tab tap changes the key
+    // during render, so pairing them is what keeps the previous provider's
+    // totals from being committed for a frame under the new provider's name.
+    const [fetched, setFetched] = React.useState<{ key: string | undefined; value: unknown }>(() => ({ key: cacheKey, value: cacheKey === undefined ? undefined : screenCache.get(cacheKey) }));
+    const data = fetched.key === cacheKey ? fetched.value : cacheKey === undefined ? undefined : screenCache.get(cacheKey);
     const [dataError, setDataError] = React.useState<string>();
     const [fields, setFields] = React.useState<ScreenFieldValues>(() => initialFieldValues(screen));
     const [running, setRunning] = React.useState(false);
@@ -446,14 +450,13 @@ function ScreenBody(props: {
         // Stale first, fresh behind it: a reopened screen never starts blank.
         // Another tab's payload is not stale data for this one, though: keeping
         // it on screen would label one provider's totals with another's name.
-        setData(screenCache.get(cacheKey));
         setLoading(true);
         setDataError(undefined);
         void loadScreenData(dataContributionId, props.manifest, props.pluginId, props.manifestHash, request, callParams)
             .then((value) => {
                 if (cancelled) return;
                 screenCache.set(cacheKey, value);
-                setData(value);
+                setFetched({ key: cacheKey, value });
                 const defaults = initialFieldValues(screen, value);
                 setFields((current) => Object.fromEntries(Object.entries(defaults).map(([id, initial]) =>
                     [id, dirtyFields.current.has(id) ? current[id] ?? initial : initial])));

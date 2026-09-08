@@ -3,7 +3,6 @@
 // locked database cannot hold the plugin RPC open. Never read prompts, paths or
 // credentials into the output.
 import { createReadStream, existsSync, readdirSync, statSync } from 'node:fs';
-import { createInterface } from 'node:readline';
 import { spawnSync } from 'node:child_process';
 import { homedir } from 'node:os';
 import { pathToFileURL } from 'node:url';
@@ -26,6 +25,11 @@ if (process.env.XDG_DATA_HOME && (profile || !process.env.PI_CODING_AGENT_DIR)) 
   if (profile) candidate = join(candidate, 'profiles', profile);
   if (existsSync(candidate)) ompRoot = candidate;
 }
+// Without a profile, a configured agent directory is the OMP agent root
+// itself; a profile still selects its own root and outranks it.
+const ompAgentDir = !profile && process.env.PI_CODING_AGENT_DIR?.trim()
+  ? process.env.PI_CODING_AGENT_DIR.trim()
+  : join(ompRoot, 'agent');
 // ccusage's Pi reader resolves PI_AGENT_DIR, not PI_CODING_AGENT_DIR; this
 // collector replaces its Pi rows, so it has to agree on the same root.
 const piAgentDir = process.env.PI_AGENT_DIR?.trim() || join(home, '.pi', 'agent');
@@ -41,17 +45,24 @@ function count(value) {
   return Number.isFinite(value) && value > 0 ? Math.round(value) : 0;
 }
 
+const MAX_LINE = 4 * 1024 * 1024;
+
 function* sessionFiles(directory, depth = 0) {
   if (depth > 4) return;
+  if (Date.now() > deadline) throw new Error('bounded scan exceeded');
   let entries;
-  try { entries = readdirSync(directory, { withFileTypes: true }); } catch { return; }
+  // A directory that is not there holds no records; anything else (permissions,
+  // an I/O error) hides records we cannot claim to have counted.
+  try { entries = readdirSync(directory, { withFileTypes: true }); }
+  catch (error) { if (error?.code === 'ENOENT') return; throw error; }
   for (const entry of entries) {
     const path = join(directory, entry.name);
     if (entry.isDirectory()) { yield* sessionFiles(path, depth + 1); continue; }
     if (!entry.isFile() || !entry.name.endsWith('.jsonl')) continue;
     // An appended transcript touched before the window cannot hold a record
     // inside it, so skipping it keeps the scan bounded on a long history.
-    try { if (statSync(path).mtimeMs >= windowStart) yield path; } catch {}
+    try { if (statSync(path).mtimeMs >= windowStart) yield path; }
+    catch (error) { if (error?.code !== 'ENOENT') throw error; }
   }
 }
 
@@ -64,53 +75,81 @@ async function collectTranscripts(root) {
   const groups = new Map();
   const seen = new Set();
   let latest;
+  const consume = (line) => {
+    if (Date.now() > deadline || seen.size > 400_000 || groups.size > 1024) throw new Error('bounded scan exceeded');
+    if (!line.includes('"usage"')) return;
+    let entry;
+    // A usage record we cannot read is not an absent record: counting the
+    // rest would report a partial total as the measured one.
+    try { entry = JSON.parse(line); } catch { throw new Error('malformed usage record'); }
+    const message = entry?.message;
+    const usage = message?.usage;
+    // Assistant usage records are not always typed; a missing type is not
+    // a reason to drop recorded consumption. Only a user turn is excluded.
+    if (typeof usage !== 'object' || usage === null || typeof message !== 'object' || message.role === 'user') return;
+    const stamp = typeof message.timestamp === 'string' ? message.timestamp : entry.timestamp;
+    const at = Date.parse(stamp);
+    if (!Number.isFinite(at) || at < windowStart || at > now) return;
+    const inputTokens = count(usage.input);
+    const outputTokens = count(usage.output);
+    const cacheReadTokens = count(usage.cacheRead);
+    const cacheCreationTokens = count(usage.cacheWrite);
+    const totalTokens = Number.isSafeInteger(usage.totalTokens) && usage.totalTokens >= 0
+      ? usage.totalTokens
+      : inputTokens + outputTokens + cacheReadTokens + cacheCreationTokens;
+    const identity = `${entry.id ?? ''}|${stamp ?? ''}|${totalTokens}`;
+    if (seen.has(identity)) return;
+    seen.add(identity);
+    if (totalTokens > 0) latest = Math.max(latest ?? 0, at);
+    // A recorded zero cost is a measurement; a missing one is unknown and
+    // must not read as free.
+    const cost = Number.isFinite(usage.cost?.total) ? usage.cost.total : undefined;
+    const modelName = String(message.model ?? 'unknown').replace(/[^\x20-\x7e]+/g, ' ').trim().slice(0, 40) || 'unknown';
+    const period = localPeriod(at);
+    const key = `${period}\u0000${modelName}`;
+    const group = groups.get(key) ?? {
+      period, modelName, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0,
+      cacheCreationTokens: 0, totalTokens: 0, totalCost: 0,
+    };
+    group.inputTokens += inputTokens;
+    group.outputTokens += outputTokens;
+    group.cacheReadTokens += cacheReadTokens;
+    group.cacheCreationTokens += cacheCreationTokens;
+    group.totalTokens += totalTokens;
+    group.totalCost = cost === undefined || group.totalCost === undefined ? undefined : group.totalCost + cost;
+    groups.set(key, group);
+  };
   for (const file of sessionFiles(root)) {
     const stream = createReadStream(file, { encoding: 'utf8' });
-    const lines = createInterface({ input: stream, crlfDelay: Infinity });
+    let carry = '';
+    // A line longer than the bound is dropped before it is held in memory; a
+    // dropped line that carried usage cannot be counted, so the scan stops.
+    let overflowed = false;
     try {
-      for await (const line of lines) {
-        if (Date.now() > deadline || seen.size > 400_000 || groups.size > 1024) throw new Error('bounded scan exceeded');
-        if (line.length > 4 * 1024 * 1024 || !line.includes('"usage"')) continue;
-        let entry;
-        try { entry = JSON.parse(line); } catch { continue; }
-        const message = entry?.message;
-        const usage = message?.usage;
-        // Assistant usage records are not always typed; a missing type is not
-        // a reason to drop recorded consumption. Only a user turn is excluded.
-        if (typeof usage !== 'object' || usage === null || typeof message !== 'object' || message.role === 'user') continue;
-        const stamp = typeof message.timestamp === 'string' ? message.timestamp : entry.timestamp;
-        const at = Date.parse(stamp);
-        if (!Number.isFinite(at) || at < windowStart || at > now) continue;
-        const inputTokens = count(usage.input);
-        const outputTokens = count(usage.output);
-        const cacheReadTokens = count(usage.cacheRead);
-        const cacheCreationTokens = count(usage.cacheWrite);
-        const totalTokens = Number.isSafeInteger(usage.totalTokens) && usage.totalTokens >= 0
-          ? usage.totalTokens
-          : inputTokens + outputTokens + cacheReadTokens + cacheCreationTokens;
-        const identity = `${entry.id ?? ''}|${stamp ?? ''}|${totalTokens}`;
-        if (seen.has(identity)) continue;
-        seen.add(identity);
-        if (totalTokens > 0) latest = Math.max(latest ?? 0, at);
-        // A recorded zero cost is a measurement; a missing one is unknown and
-        // must not read as free.
-        const cost = Number.isFinite(usage.cost?.total) ? usage.cost.total : undefined;
-        const modelName = String(message.model ?? 'unknown').replace(/[^\x20-\x7e]+/g, ' ').trim().slice(0, 40) || 'unknown';
-        const period = localPeriod(at);
-        const key = `${period}\u0000${modelName}`;
-        const group = groups.get(key) ?? {
-          period, modelName, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0,
-          cacheCreationTokens: 0, totalTokens: 0, totalCost: 0,
-        };
-        group.inputTokens += inputTokens;
-        group.outputTokens += outputTokens;
-        group.cacheReadTokens += cacheReadTokens;
-        group.cacheCreationTokens += cacheCreationTokens;
-        group.totalTokens += totalTokens;
-        group.totalCost = cost === undefined || group.totalCost === undefined ? undefined : group.totalCost + cost;
-        groups.set(key, group);
+      for await (const chunk of stream) {
+        if (Date.now() > deadline) throw new Error('bounded scan exceeded');
+        let text = chunk;
+        if (overflowed) {
+          const newline = text.indexOf('\n');
+          if (newline < 0) continue;
+          overflowed = false;
+          text = text.slice(newline + 1);
+        }
+        carry += text;
+        let start = 0;
+        for (let newline = carry.indexOf('\n'); newline >= 0; newline = carry.indexOf('\n', start)) {
+          consume(carry.slice(start, newline));
+          start = newline + 1;
+        }
+        carry = carry.slice(start);
+        if (carry.length > MAX_LINE) {
+          if (carry.includes('"usage"')) throw new Error('oversized usage record');
+          carry = '';
+          overflowed = true;
+        }
       }
-    } finally { lines.close(); stream.destroy(); }
+      if (carry !== '') consume(carry);
+    } finally { stream.destroy(); }
   }
   return { rows: [...groups.values()].filter((row) => periods.includes(row.period)), latest };
 }
@@ -139,9 +178,11 @@ function query(db, path, sql, params = []) {
 }
 
 const result = {};
-for (const [agent, root] of [['omp', join(ompRoot, 'agent', 'sessions')], ['pi', join(piAgentDir, 'sessions')]]) {
+for (const [agent, root] of [['omp', join(ompAgentDir, 'sessions')], ['pi', join(piAgentDir, 'sessions')]]) {
   if (agent === 'omp' && invalidProfile) { result.omp = { unavailable: true, reason: 'Invalid OMP profile configuration' }; continue; }
-  if (!existsSync(root)) continue;
+  // No session directory is a measured empty: the same root is the only place
+  // this agent's transcripts live, so there is nothing left uncounted.
+  if (!existsSync(root)) { result[agent] = { rows: [] }; continue; }
   try { result[agent] = await collectTranscripts(root); }
   catch { result[agent] = { unavailable: true, reason: 'Local activity could not be measured · reopen Usage in a minute' }; }
 }

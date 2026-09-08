@@ -448,7 +448,7 @@ function codexItems(result) {
 }
 
 function idleLabel(agent, local, failure) {
-  if (agent === 'omp') return local?.omp?.rows ? 'No measured activity today' : local?.omp?.reason ?? 'Local activity unavailable · OMP session history not found';
+  if (agent === 'omp') return local?.omp?.rows ? 'No measured activity today' : local?.omp?.reason ?? 'Local activity unavailable';
   if (!CCUSAGE_AGENTS.has(agent)) return 'Local activity unsupported by ccusage';
   return failure ?? 'No measured activity today';
 }
@@ -487,8 +487,19 @@ if (cached !== undefined) {
     const at = Date.parse(row.metadata?.lastActivity);
     if (Number.isFinite(at) && at <= NOW.getTime()) latest.set(row.agent, Math.max(latest.get(row.agent) ?? 0, at));
   }
-  for (const [agent, report] of Object.entries(local ?? {})) {
+  // OMP and Pi are accounted from their own transcripts, so ccusage's rows for
+  // them are the duplicated ones this collector replaces. A child that timed
+  // out, crashed or answered with nothing leaves no total to fall back to.
+  const reports = local !== null && typeof local === 'object' ? { ...local } : {};
+  for (const agent of ['omp', 'pi']) {
+    const report = reports[agent];
+    if (report === null || typeof report !== 'object' || !Array.isArray(report.rows) && report.unavailable !== true) {
+      reports[agent] = { unavailable: true, reason: 'Local activity could not be measured · reopen Usage in a minute' };
+    }
+  }
+  for (const [agent, report] of Object.entries(reports)) {
     if (Number.isFinite(report.latest) && report.latest <= NOW.getTime()) latest.set(agent, report.latest);
+    if (report.unavailable) { agents.delete(agent); continue; }
     if (!report.rows) continue;
     const days = PERIODS.map((period) => ({ period, row: undefined }));
     for (const aggregate of report.rows) {
@@ -510,13 +521,10 @@ if (cached !== undefined) {
     .sort((a, b) => (latest.get(b) ?? 0) - (latest.get(a) ?? 0) || AGENTS[a].localeCompare(AGENTS[b]));
   const provider = providerIds.includes(selected) ? selected : providerIds[0] ?? '';
   const activitySupported = CCUSAGE_AGENTS.has(provider) || provider === 'omp';
-  const localReport = local?.[provider];
+  const localReport = reports[provider];
   let activityFailure = ccusageFailure;
   if (localReport?.rows) activityFailure = undefined;
-  // OMP and Pi are accounted from their own transcripts. If that collection
-  // could not finish, the honest answer is unavailable, not a stale total.
   if (localReport?.unavailable) activityFailure = localReport.reason ?? 'Local activity unavailable';
-  if (provider === 'omp' && !localReport?.rows) activityFailure = localReport?.reason ?? 'Local activity unavailable · OMP session history not found';
   const activityAvailable = activitySupported && activityFailure === undefined;
   let activityLabel = 'Local activity from ccusage; costs are estimates, not plan usage';
   if (!agents.get(provider)?.some(({ row }) => row?.totalTokens > 0)) activityLabel = 'No local activity found in the last 7 days';
@@ -545,7 +553,7 @@ if (cached !== undefined) {
     items.push({
       id: `available-${agent}`, title: AGENTS[agent], icon: 'terminal-outline', metadata: [],
       group: 'Local activity',
-      subtitle: idleLabel(agent, local, ccusageFailure),
+      subtitle: idleLabel(agent, reports, ccusageFailure),
       action: { type: 'screen', contributionId: 'usage.details', params: { provider: agent } },
     });
   }
@@ -601,7 +609,7 @@ if (cached !== undefined) {
   const claudeUnavailable = provider === 'claude' && claudeLimits.length === 0;
   const codexUnavailable = installed.some(([agent]) => agent === 'codex') && codex.series.length === 0;
   const limitsUnavailable = goUnavailable || claudeUnavailable || codexUnavailable;
-  const localUnavailable = local === undefined || Object.values(local).some((report) => report.unavailable);
+  const localUnavailable = Object.values(reports).some((report) => report.unavailable);
   if (ccusageFailure === undefined && activityFailure === undefined && !localUnavailable && !limitsUnavailable && (selected === '' || selected === output.provider)) saveOutput(output);
   process.stdout.write(JSON.stringify(output));
 }
