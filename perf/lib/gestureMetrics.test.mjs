@@ -689,14 +689,31 @@ test('baseline rows never pay for measured frames that went missing', () => {
 // as old while their frames are still inside the counter delta, which reads as
 // measured frames that went missing and never did.
 test('the bout baseline takes its counters and its rows from one read', () => {
+    // Real dumps, parsed the way the device's are: the ring is read from the
+    // section the dump carries, not handed in as an array.
+    const HEADERS = 'Flags,IntendedVsync,FrameCompleted,InputEventId';
+    const dump = (...intended) => `Total frames rendered: ${intended.length}\n---PROFILEDATA---\n${HEADERS}\n`
+        + intended.map((value) => `0,${value},${value + 8e6},0`).join('\n')
+        + '\n---PROFILEDATA---\n';
     const row = (intended) => ({
-        Flags: '0', IntendedVsync: String(intended), FrameCompleted: String(intended + 8e6), InputEventId: '0',
+        Flags: 0, IntendedVsync: intended, FrameCompleted: intended + 8e6, InputEventId: 0,
     });
     // Two frames arrived between the reset and the baseline read.
-    const arrivals = [row(10), row(20)];
+    const arrivals = parseFrameStatsDump(dump(10, 20));
     const baseline = boutBaseline({ jank: { frames: 2, missedVsync: 0 }, rows: arrivals });
     assert.equal(baseline.why, undefined);
     assert.equal(baseline.identities.size, 2);
+
+    // An empty ring is evidence: the section was there and held no frames. A
+    // dump with no section is a read that failed, and a baseline that proves no
+    // identities would let the stale rows of a later read pass as this phase's
+    // own and cover the frames it lost.
+    const emptySection = parseFrameStatsDump(`Total frames rendered: 0\n---PROFILEDATA---\n${HEADERS}\n---PROFILEDATA---\n`);
+    assert.deepEqual(emptySection, []);
+    assert.equal(boutBaseline({ jank: { frames: 0, missedVsync: 0 }, rows: emptySection }).why, undefined);
+    const noSection = parseFrameStatsDump('Total frames rendered: 12\nJanky frames: 1 (8.33%)');
+    assert.deepEqual(noSection, []);
+    assert.match(boutBaseline({ jank: { frames: 12, missedVsync: 0 }, rows: noSection }).why, /published no PROFILEDATA/);
 
     // The bout draws eight, and the closing read still carries the two arrivals.
     const measured = Array.from({ length: 8 }, (_, index) => row(1000 + index));
@@ -721,8 +738,8 @@ test('the bout baseline takes its counters and its rows from one read', () => {
     // A baseline nobody could take is not a zero baseline. Reading on without
     // it would let the stale rows in the ring cover missing measured frames.
     for (const broken of [
-        { jank: { missedVsync: 0 }, rows: [] },
-        { jank: { frames: 2 }, rows: [] },
+        { jank: { missedVsync: 0 }, rows: emptySection },
+        { jank: { frames: 2 }, rows: emptySection },
         { jank: { frames: 2, missedVsync: 0 } },
     ]) assert.match(boutBaseline(broken).why, /did not read at the baseline/);
     // measureBout's own account collapses without it: no counters, no coverage,

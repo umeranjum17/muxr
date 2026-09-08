@@ -49,6 +49,7 @@ export function parseUptime(text) {
  */
 export function parseFrameStatsDump(text) {
     const rows = [];
+    let parsed = false;
     const blocks = String(text).split('---PROFILEDATA---');
     for (const block of blocks.slice(1)) {
         const lines = block.split('\n').map((line) => line.trim()).filter((line) => line.length > 0);
@@ -56,6 +57,7 @@ export function parseFrameStatsDump(text) {
         if (lines[0].startsWith('---')) continue;
         const headers = lines[0].split(',').map((header) => header.trim());
         if (!headers.includes('Flags') || !headers.includes('FrameCompleted')) continue;
+        parsed = true;
         for (const line of lines.slice(1)) {
             if (line.startsWith('---')) break;
             const cells = line.split(',');
@@ -69,7 +71,16 @@ export function parseFrameStatsDump(text) {
             rows.push(row);
         }
     }
-    return rows;
+    // A dump that carried a readable section and no frames is an empty ring. A
+    // dump with no section at all, or one nobody could read, is a ring nobody
+    // read: both reduce to the same empty array, so the difference is reported
+    // beside it rather than lost.
+    return Object.defineProperty(rows, 'sectionRead', { value: parsed, enumerable: false });
+}
+
+/** Did this dump actually carry a readable PROFILEDATA section? */
+export function frameStatsRead(rows) {
+    return rows?.sectionRead === true;
 }
 
 /**
@@ -234,6 +245,10 @@ export function frameRowIdentities(rows) {
 export function boutBaseline(snapshot) {
     const counters = snapshot?.jank;
     if (!Array.isArray(snapshot?.rows)) return { why: 'the framestats ring did not read at the baseline' };
+    // An empty ring is evidence; an unread one is not. Without a section, the
+    // baseline proves no identities at all, and the stale rows a later read
+    // returns would count as this phase's own and cover frames it really lost.
+    if (!frameStatsRead(snapshot.rows)) return { why: 'the framestats ring published no PROFILEDATA at the baseline' };
     if (counters?.frames === undefined) return { why: 'the frame counter did not read at the baseline' };
     if (counters?.missedVsync === undefined) return { why: 'the missed-vsync counter did not read at the baseline' };
     return { counters, identities: frameRowIdentities(snapshot.rows) };
