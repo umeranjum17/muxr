@@ -8,11 +8,12 @@ tags:
 - launchApp:
     appId: com.trymuxr.app
     clearState: false
-# A cold launch settles on one of two screens: the first-install welcome, which
-# has no local account yet, or the pairing entry of a run that already made one.
+# A cold launch settles on one of three screens: the first-install welcome, which
+# has no local account yet, the pairing entry of a run that already made one, or
+# -- on a retry -- the herd screen of a connection that dropped.
 - extendedWaitUntil:
     visible:
-      text: 'Create account|Enter pairing string|Enter pairing string manually|Enter another code'
+      text: 'Create account|Enter pairing string|Pairing string|Enter another code|LIVE|disconnected'
     timeout: 40000
 # The account is device-local, so creating it is the one tap a fresh install owes
 # before pairing. A rerun that already has one never sees this and never resets.
@@ -23,12 +24,32 @@ tags:
     commands:
       - tapOn:
           text: 'Create account'
+      # Account creation navigates on its own; typing before it settles types
+      # into whatever screen the transition left under the cursor.
+      - extendedWaitUntil:
+          visible:
+            text: 'Enter pairing string|Pairing string|Enter another code|LIVE|disconnected'
+          timeout: 60000
+# A failed attempt leaves the error state, which shows no input at all.
+- tapOn:
+    text: 'Enter another code'
+    optional: true
+# Neither the welcome screen's button nor a disconnected herd is the form, and a
+# retry starts on one of them. The route is the only thing that always reaches
+# the manual entry, so open it whenever the form is not already up.
+- runFlow:
+    when:
+      notVisible:
+        text: 'Pairing string'
+    commands:
+      - openLink: muxr:///pair
 - extendedWaitUntil:
     visible:
-      text: 'Enter pairing string|Enter pairing string manually|Enter another code'
+      text: 'Pairing string'
     timeout: 40000
-- tapOn:
-    text: 'Enter pairing string|Enter pairing string manually|Enter another code'
+# The code goes into the input itself, never a label that happens to match.
+- assertVisible: 'Pairing string'
+- tapOn: 'Pairing string'
 - eraseText: 120
 - inputText: '${PAIR_CODE}'
 - tapOn: 'Connect'
@@ -55,3 +76,7 @@ tags:
     visible:
       text: 'LIVE|SPACES|Machine'
     timeout: 60000
+- extendedWaitUntil:
+    visible:
+      text: 'connected'
+    timeout: 40000

@@ -30,6 +30,7 @@ import {
     trailSince,
     verdict,
 } from './gestureMetrics.mjs';
+import { herdChromeConnected, herdProof, worldLabels } from './pairPhone.mjs';
 
 const fixtures = join(dirname(fileURLToPath(import.meta.url)), '../fixtures');
 const read = (name) => readFileSync(join(fixtures, name), 'utf8');
@@ -382,4 +383,26 @@ test('baseline bout fixtures reduce to the documented failures', () => {
     assert.equal(notches.notchesSent, 9);
     assert.equal(notches.notchesDropped, 8);
     assert.equal(notches.frames, 9);
+});
+
+// The pairing proof, which is the one place chrome can pass for a herd: an app
+// that never reached a host still paints LIVE, and a dropped connection still
+// paints the herd it last fetched.
+test('the herd is only proven by connected chrome and this run\'s own labels', () => {
+    const world = { agents: [{ name: 'Pi 1' }], panes: [{ label: 'Pi 1' }, { label: 'zsh' }, { label: '' }] };
+    assert.deepEqual(worldLabels(world), ['Pi 1', 'zsh']);
+    const labels = worldLabels(world);
+    const dump = (...nodes) => nodes.map((text) => `<node text="${text}" content-desc="" />`).join('');
+
+    const paired = dump('LIVE', 'connected', 'pi · Pi 1 · 41');
+    assert.equal(herdProof(paired, labels), undefined);
+    assert.equal(herdChromeConnected(paired), true);
+
+    // Generic chrome with no herd behind it.
+    assert.match(herdProof(dump('LIVE', 'SPACES', 'Machine', 'connected'), labels), /no pane or agent/);
+    // The herd is still painted, but the socket is gone.
+    assert.match(herdProof(dump('LIVE', 'disconnected', 'pi · Pi 1 · 41'), labels), /not connected/);
+    assert.match(herdProof(dump('LIVE', 'connecting', 'pi · Pi 1 · 41'), labels), /not connected/);
+    assert.equal(herdChromeConnected(dump('LIVE', 'connected', 'Reconnecting…')), false);
+    assert.equal(herdChromeConnected(dump('LIVE')), false);
 });

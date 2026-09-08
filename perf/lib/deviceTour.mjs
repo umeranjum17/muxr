@@ -11,6 +11,7 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { appPid, dismissKeyboard, dismissPrompts, framesRendered, totalPssKb } from './androidSignals.mjs';
+import { herdChromeConnected } from './pairPhone.mjs';
 
 const run = promisify(execFile);
 
@@ -39,7 +40,7 @@ async function drag(fromY, toY) {
 async function returnToHerd() {
     for (let attempt = 0; attempt < 6; attempt += 1) {
         const screen = await currentScreen();
-        if (/text="LIVE"/.test(screen) && !/GhosttyTerminalView/.test(screen)) return true;
+        if (/text="LIVE"/.test(screen) && herdChromeConnected(screen) && !/GhosttyTerminalView/.test(screen)) return true;
         await adb(['shell', 'input', 'keyevent', 'KEYCODE_BACK']).catch(() => undefined);
         await new Promise((resolve) => setTimeout(resolve, 700));
     }

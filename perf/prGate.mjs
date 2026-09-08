@@ -3,7 +3,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSyn
 import { homedir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import { startFakeStack } from './lib/fakeStack.mjs';
-import { pairPhone } from './lib/pairPhone.mjs';
+import { herdChromeConnected, pairPhone } from './lib/pairPhone.mjs';
 import { deviceIdentity, samplePhase, resetGfx, jankReport, screenshot, screencapRaw, dismissPrompts } from './lib/androidSignals.mjs';
 import { CommandScope, useCommandScope } from './lib/commands.mjs';
 import { cropRaw, pixelsMoved, parseUiNodes } from './lib/gestureMetrics.mjs';
@@ -92,7 +92,8 @@ async function herd() {
     await dismissPrompts();
     await adb('shell', 'am', 'start', '-a', 'android.intent.action.VIEW', '-d', 'muxr:///', pkg);
     for (let n = 0; n < 5; n++) {
-        if (/text="LIVE"/.test(await dump())) return;
+        const xml = await dump();
+        if (/text="LIVE"/.test(xml) && herdChromeConnected(xml)) return;
         const { width, height } = report.device;
         await adb('shell', 'input', 'swipe', String(width / 2), String(Math.round(height * .3)), String(width / 2), String(Math.round(height * .8)), '500');
         await sleep(600);

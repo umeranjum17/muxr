@@ -32,7 +32,7 @@ import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import { startFakeStack } from './lib/fakeStack.mjs';
 import { tourEverySession } from './lib/deviceTour.mjs';
-import { pairPhone } from './lib/pairPhone.mjs';
+import { herdChromeConnected, pairPhone } from './lib/pairPhone.mjs';
 import { usagePlugins } from './fixtures/usageHome.mjs';
 import {
     appPid,
@@ -214,6 +214,7 @@ const report = {
 };
 
 let stack;
+let journalAcc = emptyJournalAcc();
 
 const ok = (message) => process.stdout.write(`ok: ${message}\n`);
 const fail = (message) => {
@@ -221,7 +222,29 @@ const fail = (message) => {
     process.stdout.write(`FAIL: ${message}\n`);
 };
 
+/**
+ * What the run leaves behind, taken before cleanup removes it. The host's
+ * journal lives in the scratch root `stop()` deletes, and a child's exit code
+ * is gone the moment the process table forgets it; an interrupted or aborted
+ * run is exactly when both are worth having. Names, pids and numbers only --
+ * logs, prompts and pairing strings are not evidence, they are leaks.
+ */
+function snapshotEvidence() {
+    if (stack === undefined) return;
+    if (typeof stack.childHealth === 'function') report.childHealth = stack.childHealth();
+    const path = stack.journalPath ?? (stack.dataDir === undefined ? undefined : join(stack.dataDir, 'diagnostics.json'));
+    if (path === undefined) return;
+    ingestHostJournal(journalAcc, path);
+    report.journalAtFinish = {
+        reads: journalAcc.reads,
+        events: journalAcc.events.length,
+        eventCounts: journalEventCounts(journalAcc.events),
+        unreadable: journalAcc.lastError !== undefined,
+    };
+}
+
 function finish(code, forceStopLoad = false, interruptedBy = undefined) {
+    snapshotEvidence();
     if (stack !== undefined && (!keepLoad || forceStopLoad)) stack.stop();
     report.finishedAt = new Date().toISOString();
     // A run that stopped early measured nothing about the phases it never
@@ -332,7 +355,8 @@ async function returnToHerd() {
         // An open IME eats the BACK that was meant to leave the route.
         await dismissKeyboard();
         const dump = await dumpUi();
-        if (/text="LIVE"/.test(dump) && !/GhosttyTerminalView/.test(dump) && !/Type a prompt/.test(dump)) return true;
+        if (/text="LIVE"/.test(dump) && herdChromeConnected(dump)
+            && !/GhosttyTerminalView/.test(dump) && !/Type a prompt/.test(dump)) return true;
         await run('adb', ['shell', 'input', 'keyevent', 'BACK'], { timeout: 10_000 }).catch(() => undefined);
         await sleep(700);
     }
@@ -362,7 +386,8 @@ async function pullPhoneTrail() {
         for (let attempt = 0; attempt < 3; attempt += 1) {
             await run('adb', ['shell', 'input', 'keyevent', 'BACK'], { timeout: 10_000 }).catch(() => undefined);
             await sleep(600);
-            if (/text="LIVE"/.test(await dumpUi())) return;
+            const dump = await dumpUi();
+            if (/text="LIVE"/.test(dump) && herdChromeConnected(dump)) return;
         }
     };
     if (!await tapBounds('text="Show diagnostics"')) {
@@ -1144,7 +1169,6 @@ report.device = {
     density: device.density,
     renderer: device.renderer,
 };
-let journalAcc = emptyJournalAcc();
 const screen = {
     width: device.width ?? 1080,
     height: device.height ?? 1920,
