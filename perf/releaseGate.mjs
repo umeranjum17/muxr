@@ -66,7 +66,7 @@ import {
     counterContinuity,
     boutBaseline,
     freshFrameRows,
-    counterRankedWindow,
+    creditLedger,
     pendingFrameIdentities,
     mergeFrameStats,
     parseJsonlStrict,
@@ -428,7 +428,9 @@ async function prepareBout(surface, screen, hz) {
         attempt: newAttempt(),
         before: baseline.counters,
         baselineIdentities: baseline.identities,
-        baselineInFlight: baseline.inFlight,
+        // The records the baseline read already held: the ledger settles the
+        // baseline's own total out of these before this window spends anything.
+        baselineRows: baseline.rows,
     };
 }
 
@@ -483,7 +485,7 @@ function ringDrainer(hz, onSnapshot, seen = new Set()) {
 
 async function measureBout(run, hz, { surface, screen, phase, prepared } = {}) {
     const ready = prepared ?? await prepareBout(surface, screen, hz);
-    const { beforeSurface, before, baselineIdentities, baselineInFlight } = ready;
+    const { beforeSurface, before, baselineIdentities } = ready;
     const parts = [];
     // A bout flings up and then back down. On a surface whose content repeats,
     // the end of the bout can land on the same picture the start had, so the
@@ -514,14 +516,14 @@ async function measureBout(run, hz, { surface, screen, phase, prepared } = {}) {
     // wrapped while a window was open, so that window's account is incomplete.
     let coverageBroken = false;
     let frozen = false;
-    // Every finished row this phase ever read, once each. Coverage is settled on
-    // the fixed interval at the end, so nothing has to guess mid-bout which side
-    // of a boundary a record will land on.
-    const observed = [];
+    // The counter, paid off read by read as the collector takes them. The
+    // baseline's own total is settled first, out of the records the baseline
+    // read already held, so those can never be spent on this window.
+    const ledger = creditLedger({ rows: ready.baselineRows, counter: before?.frames });
     // The window that is open right now. Reads during it accumulate here, so a
     // drain taken while a screenshot is being pulled adds to the window it
     // happened in rather than opening one of its own.
-    const newWindow = () => ({ openedAtMs: Date.now(), rows: [], missedVsync: 0, readAtMs: [] });
+    const newWindow = () => ({ openedAtMs: Date.now(), missedVsync: 0, readAtMs: [] });
     let open = newWindow();
     // Closed windows, each with the device time of the gesture that opened it:
     // a record finalized later is graded with the gesture it answered, so its
@@ -530,31 +532,24 @@ async function measureBout(run, hz, { surface, screen, phase, prepared } = {}) {
 
     // One owner of the ring. Two mutating reads in flight would race the seen
     // set and the counters; every read below goes through this queue.
-    const ring = ringDrainer(hz, ({ snapshot, fresh, pending, startedAt, endedAt }) => {
-        // Before anything else, and on every read including the ones past the
-        // boundary: a counter that could not be read, or that went backwards
-        // because something reset the window, is a hole. A hole is unavailable
-        // evidence, never a zero, whichever branch this read belongs to.
+    const ring = ringDrainer(hz, ({ snapshot, startedAt, endedAt }) => {
+        // Before anything else: a counter that could not be read, or that went
+        // backwards because something reset the window, is a hole. A hole is
+        // unavailable evidence, never a zero.
         const broken = counterContinuity(counters, snapshot.jank);
         if (broken !== undefined) coverageBroken = true;
-        else if (!frozen && open.missedVsync !== undefined) {
+        else if (open.missedVsync !== undefined) {
             open.missedVsync += snapshot.jank.missedVsync - counters.missedVsync;
         }
         if (broken !== undefined) open.missedVsync = undefined;
         counters = snapshot.jank;
-        for (const row of fresh) observed.push(row);
-        if (frozen) {
-            resolvedReads.push({ startedAt, endedAt });
-            return;
-        }
-        open.rows.push(...fresh);
-        for (const key of pending) stillPending.add(key);
-        for (const row of fresh) stillPending.delete(Number(row.IntendedVsync));
+        // Past the endpoint the ledger is closed: a read taken now cannot pay a
+        // bill the endpoint's counter had already recorded.
+        if (frozen) return;
+        ledger.snapshot(snapshot);
         open.readAtMs.push({ startedAt, endedAt });
     }, counted);
     const absorb = ring.absorb;
-    const stillPending = new Set(baselineInFlight ?? []);
-    const resolvedReads = [];
 
     // Closes the open window on `window`'s own boundary and opens the next.
     // Intermediate drains never close a window, so a fling's missed-vsync
@@ -594,7 +589,7 @@ async function measureBout(run, hz, { surface, screen, phase, prepared } = {}) {
         };
         parts.push(undefined);
         gestureFrames.push(record);
-        const entry = { record, index: parts.length - 1, t0Ns, rows: open.rows };
+        const entry = { record, index: parts.length - 1, t0Ns, rows: [] };
         closedWindows.push(entry);
         gradeWindow(entry);
         open = newWindow();
@@ -649,49 +644,15 @@ async function measureBout(run, hz, { surface, screen, phase, prepared } = {}) {
     await ready.attempt?.close();
     await ring.stop();
 
-    // Settle the whole interval at once. The completed-frame counter counts a
-    // frame when it finishes, so the delta over [start, end] counts exactly the
-    // rows that finished inside it -- a frame scheduled before the phase and
-    // finished inside it is charged to the delta but is not this phase's work,
-    // and a frame that finished after the endpoint was never in the delta at all.
-    const settle = () => counterRankedWindow(observed, {
-        baselineCount: before?.frames,
-        endpointCount: endpointCounters?.frames,
-    });
-    let account = settle();
-    // A record the endpoint counted whose row the pipeline had not written yet.
-    // Bounded reads reveal it; the cardinality never moves while they do, so a
-    // read cannot enlarge the window and a record that never lands leaves the
-    // history short of what the counter says finished.
-    const resolveReads = 6;
-    for (let attempt = 0; attempt < resolveReads && account.owned === undefined; attempt += 1) {
-        const had = observed.length;
-        await absorb();
-        account = settle();
-        // Nothing new landed and nothing is still in flight: no later read can
-        // change this, so stop asking rather than spend the whole budget.
-        if (observed.length === had && stillPending.size === 0) break;
-    }
-    // The counter says how many finished; fewer reconstructed records than that
-    // is a history nobody can grade, not a smaller window.
-    if (account.owned === undefined) coverageBroken = true;
-    const ownedRows = account.owned ?? [];
-    // Grade every window on the rows the interval owns. A record that finished
-    // after the endpoint is outside what this phase measured, so it leaves the
-    // metrics with the coverage account rather than only one of the two.
-    const ownedIds = new Set(ownedRows.map((row) => Number(row.IntendedVsync)));
-    const placed = new Set();
-    for (const entry of closedWindows) {
-        entry.rows = entry.rows.filter((row) => ownedIds.has(Number(row.IntendedVsync)));
-        for (const row of entry.rows) placed.add(Number(row.IntendedVsync));
-    }
-    let credited = 0;
+    // The ledger closed on the endpoint's own read. What it credited to this
+    // window's increments is what this phase drew; a bill it could not pay is a
+    // history nobody can grade.
+    if (ledger.why !== undefined) coverageBroken = true;
+    const ownedRows = ledger.owned;
+    // Device time decides only which gesture answered a frame, never which
+    // counter owns it: a credited row is graded with the touch that was in
+    // flight when it finished, so it carries that touch's latency.
     for (const row of ownedRows) {
-        const key = Number(row.IntendedVsync);
-        if (placed.has(key)) continue;
-        // Graded with the gesture that was in flight when the frame finished, so
-        // a credited row carries that touch's latency and not the last
-        // observation's -- which had no touch at all.
         const completed = Number(row.FrameCompleted);
         const owner = closedWindows.reduce(
             (best, entry) => (entry.t0Ns !== undefined && entry.t0Ns <= completed
@@ -700,15 +661,11 @@ async function measureBout(run, hz, { surface, screen, phase, prepared } = {}) {
         ) ?? closedWindows.at(-1);
         if (owner === undefined) continue;
         owner.rows.push(row);
-        owner.record.resolvedRows = (owner.record.resolvedRows ?? 0) + 1;
-        placed.add(key);
-        credited += 1;
     }
     for (const entry of closedWindows) gradeWindow(entry);
-    const rendered = account.rendered;
+    const rendered = (endpointCounters?.frames ?? NaN) - (before?.frames ?? NaN);
     const retained = ownedRows.length;
     if (!Number.isFinite(rendered)) coverageBroken = true;
-    const unresolved = Math.max(0, rendered - retained);
     const injectFailed = bout.injectFailed === true;
     const judged = beforeSurface === undefined ? undefined : judgeMovement(phase ?? surface, beforeSurface, [
         { name: 'one-way', surface: oneWaySurface },
@@ -730,10 +687,9 @@ async function measureBout(run, hz, { surface, screen, phase, prepared } = {}) {
         frameCoverage: coverageBroken ? undefined : {
             rendered,
             retained,
-            unresolved,
-            resolved: credited,
-            baselineCompletions: account.baselineCompletions,
-            resolveReads: resolvedReads.length,
+            // Finished records the counter has not claimed yet: the next
+            // increment's to spend, not this window's to count.
+            uncredited: ledger.uncredited,
             reads: gestureFrames.reduce((total, row) => total + (row.reads?.length ?? 0), 0),
             cadenceMs: RING_DRAIN_MS,
         },
@@ -1230,21 +1186,19 @@ async function drivePhase(phase, screen, hz, ready) {
         // The confirmation dumps and the settle take seconds and draw frames of
         // their own, so this window is drained on the same cadence a bout uses.
         // Rows the ring would otherwise have dropped are kept here.
-        const zoomRows = [];
+        const zoomLedger = creditLedger({ rows: vsyncBefore.rows, counter: vsyncBefore.jank?.frames });
         // Continuity is checked at every read, not only at the endpoints: a
         // counter that vanished or reset mid-window cannot be vouched for by a
         // closing pair that happens to line up again afterwards.
         let zoomCounters = vsyncBefore.jank;
         let zoomBroke;
-        const zoomRing = ringDrainer(hz, ({ snapshot, fresh }) => {
+        const zoomRing = ringDrainer(hz, ({ snapshot }) => {
             zoomBroke ??= counterContinuity(zoomCounters, snapshot.jank);
             zoomCounters = snapshot.jank;
-            zoomRows.push(...fresh);
-        // Seeded with the records the baseline had already finished, and only
-        // those: one it held in flight completes inside this window, and
-        // retiring its identity here would throw that completion away before it
-        // could adjust anything.
-        }, new Set(zoomBaseline.identities));
+            zoomLedger.snapshot(snapshot);
+        // The drainer's own dedup keeps each row once; the ledger decides which
+        // counter increment spends it.
+        }, new Set());
         const injected = await tapTimed(
             (zoomInBounds.l + zoomInBounds.r) / 2,
             (zoomInBounds.t + zoomInBounds.b) / 2,
@@ -1282,36 +1236,21 @@ async function drivePhase(phase, screen, hz, ready) {
         // and the input-to-frame all describe the same window the grid did.
         const vsyncAfter = await zoomRing.absorb();
         if (zoomBroke !== undefined) return unavailable(`${zoomBroke} (zoom)`);
-        // The same account a bout keeps. The counters are cardinalities: the
-        // baseline owns the earliest rows that had finished by then, the
-        // endpoint owns the earliest rows that had finished by its own read, and
-        // this window is the difference. A row the ring showed beyond the
-        // endpoint's prefix had been drawn but not counted, so it is not one of
-        // this window's frames.
+        // The same ledger a bout keeps, on this window's own reads: the baseline's
+        // total is settled out of the records its read already held, and every
+        // increment after it is paid from the earliest records not yet spent.
         const wasMissed = vsyncBefore.jank.missedVsync;
         const nowMissed = vsyncAfter.jank.missedVsync;
         if (wasMissed === undefined || nowMissed === undefined || nowMissed < wasMissed) {
             return unavailable('the missed-vsync counter did not read across the zoom window');
         }
-        const zoomAccount = counterRankedWindow(zoomRows, {
-            baselineCount: vsyncBefore.jank.frames,
-            endpointCount: vsyncAfter.jank.frames,
-        });
-        if (!Number.isFinite(zoomAccount.rendered) || zoomAccount.rendered < 0) {
-            return unavailable('the frame counter did not read across the zoom window');
-        }
-        const ownedZoomRows = zoomAccount.owned ?? [];
+        if (zoomLedger.why !== undefined) return unavailable(`${zoomLedger.why} (zoom)`);
+        const ownedZoomRows = zoomLedger.owned;
         const zoomFrames = reduceFrameStats(ownedZoomRows, { frameNs: 1e9 / hz, t0Ns });
-        // Retained is what this window owns, never every row the ring handed
-        // back: rows it inherited or that it had not been counted for are not
-        // this window's, and counting them would cover a frame it really lost.
         const zoomCoverage = {
-            rendered: zoomAccount.rendered,
+            rendered: (vsyncAfter.jank.frames ?? NaN) - (vsyncBefore.jank.frames ?? NaN),
             retained: ownedZoomRows.length,
-            unresolved: Math.max(0, zoomAccount.rendered - ownedZoomRows.length),
-            // Fewer reconstructed records than the endpoint counted is a history
-            // nobody can grade.
-            ...(zoomAccount.owned === undefined ? { reconstructed: false } : {}),
+            uncredited: zoomLedger.uncredited,
         };
 
         // Only now may anything else be driven. The pixels below are this

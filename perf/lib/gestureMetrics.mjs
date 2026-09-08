@@ -262,50 +262,76 @@ export function boutBaseline(snapshot) {
         if (key === undefined) continue;
         (frameRowComplete(row) ? complete : inFlight).add(key);
     }
-    return { counters, identities: complete, inFlight };
+    return { counters, identities: complete, inFlight, rows: snapshot.rows };
 }
 
 /**
- * The rows a counter value owns.
+ * The counter, paid off one read at a time.
  *
- * After the phase's reset the completed-frame counter is a cardinality: at the
- * instant it reads N, exactly N frames have finished since the reset. Those are
- * the earliest N finished records by completion, whichever read happened to
- * carry them. Nothing here asks when a dump was taken or when a clock was read:
- * one dump's counter and rows describe the same instant only if the counter
- * decides how many of the accumulated records that instant reaches.
+ * After the phase's reset the completed-frame counter is a running total, and
+ * each read's increment is a bill: that many frames finished since the last
+ * read. The ledger pays each bill with the earliest finished records it has not
+ * spent yet. A record whose row lands later leaves a bill that an earlier
+ * surplus covers, and its own row pays a later one -- the order and the
+ * cardinality both hold, and nothing has to guess which record a counter meant.
  *
- * A record visible in a dump beyond its counter's prefix is not a member of it.
- * It has been drawn, and the next counter value will own it.
+ * A bill that cannot be paid from the records available at that read is a
+ * history nobody can reconstruct, and it is unavailable from that moment: no
+ * later read may pay it, because the counter that recorded it had already
+ * closed. Records left over are not spent; they wait for the next bill.
+ *
+ * The baseline's own total is paid first and separately: those records finished
+ * before this window opened and are not its work.
  */
-export function counterRankedMembers(rows, count) {
-    if (!Number.isFinite(count) || count < 0) return undefined;
-    const ordered = [...(rows ?? [])].sort((left, right) => {
-        const byCompletion = asNumber(left.FrameCompleted) - asNumber(right.FrameCompleted);
-        return byCompletion !== 0 ? byCompletion : asNumber(left.IntendedVsync) - asNumber(right.IntendedVsync);
-    });
-    // Fewer finished records than the counter says finished: the history cannot
-    // be reconstructed, so there is nothing to grade rather than a short answer.
-    if (ordered.length < count) return undefined;
-    return ordered.slice(0, count);
-}
+export function creditLedger({ rows, counter } = {}) {
+    const available = [];
+    const seen = new Set();
+    const owned = [];
+    let total = counter;
+    let why;
 
-/**
- * The window between two counter values: what the endpoint owns and the
- * baseline did not. The cardinality is the counters' own difference, so a
- * record the ring never gave back leaves the window short rather than silently
- * shrinking it.
- */
-export function counterRankedWindow(rows, { baselineCount, endpointCount }) {
-    const endpoint = counterRankedMembers(rows, endpointCount);
-    const baseline = counterRankedMembers(rows, baselineCount);
-    if (endpoint === undefined || baseline === undefined) {
-        return { rendered: endpointCount - baselineCount, owned: undefined };
-    }
-    const inherited = new Set(baseline.map((row) => asNumber(row.IntendedVsync)));
+    const offer = (batch) => {
+        for (const row of batch ?? []) {
+            const key = asNumber(row.IntendedVsync);
+            if (key === undefined || seen.has(key) || !frameRowComplete(row)) continue;
+            seen.add(key);
+            available.push(row);
+        }
+        available.sort((left, right) => {
+            const byCompletion = asNumber(left.FrameCompleted) - asNumber(right.FrameCompleted);
+            return byCompletion !== 0 ? byCompletion : asNumber(left.IntendedVsync) - asNumber(right.IntendedVsync);
+        });
+    };
+    const pay = (count, into, where) => {
+        if (!Number.isFinite(count) || count < 0) {
+            why = `the frame counter did not read ${where}`;
+            return;
+        }
+        if (available.length < count) {
+            why = `${count - available.length} frame(s) the counter reported ${where} have no record`;
+            return;
+        }
+        for (let paid = 0; paid < count; paid += 1) into.push(available.shift());
+    };
+
+    offer(rows);
+    // The baseline's records are spent on the baseline's own total, so they can
+    // never be spent again on this window's.
+    pay(counter, [], 'at the baseline');
+
     return {
-        rendered: endpointCount - baselineCount,
-        owned: endpoint.filter((row) => !inherited.has(asNumber(row.IntendedVsync))),
+        /** One read, in the order the collector took them. */
+        snapshot(next) {
+            if (why !== undefined) return;
+            offer(next?.rows);
+            pay((next?.jank?.frames ?? NaN) - total, owned, 'in this window');
+            total = next?.jank?.frames;
+        },
+        /** Records credited to this window's own increments, in counter order. */
+        get owned() { return owned; },
+        /** Records finished but not yet spent: the next increment's to claim. */
+        get uncredited() { return available.length; },
+        get why() { return why; },
     };
 }
 

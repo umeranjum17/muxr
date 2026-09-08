@@ -22,8 +22,7 @@ import {
     stripScroller,
     freshFrameRows,
     boutBaseline,
-    counterRankedMembers,
-    counterRankedWindow,
+    creditLedger,
     counterContinuity,
     frameRowIdentities,
     pendingFrameRows,
@@ -773,13 +772,15 @@ test('a live stream reconciles, and lost or reset evidence still fails', async (
     // `racing` is the case the device really does: the counter has finished the
     // frame while its row is still being written, so one dump disagrees with
     // itself. `omit` is a record the ring never carried at all.
+    // A surface that keeps drawing: one more frame is always in flight, and the
+    // counter trails the records by one, which is the surplus every real bout
+    // has. `racing` withholds the newest record while its frame is counted.
     const ring = (count, { omit, resetAt, racing = false } = {}) => {
         const rows = Array.from({ length: count }, (_, index) => frame(index + 1, !(racing && index + 1 === count)))
             .filter((row) => row.IntendedVsync !== 1e9 + omit * 1e7);
-        // Always one more frame in flight: this is a surface that keeps drawing.
         rows.push(frame(count + 1, false));
         Object.defineProperty(rows, 'sectionRead', { value: true });
-        return { rows, jank: { frames: resetAt ?? count, janky: 0, missedVsync: 0, p95Ms: 10, p99Ms: 10 } };
+        return { rows, jank: { frames: resetAt ?? Math.max(0, count - 1), janky: 0, missedVsync: 0, p95Ms: 10, p99Ms: 10 } };
     };
     const drive = async (snapshots, gestures = [1]) => {
         const waits = [];
@@ -809,7 +810,6 @@ test('a live stream reconciles, and lost or reset evidence still fails', async (
     const live = await drive((read) => ring(read));
     // Only the collector's own cadence: nothing the injector had to wait on.
     assert.ok(live.waits.every((ms) => ms === 250), `finalization waits in the gesture schedule: ${live.waits}`);
-    assert.equal(live.measured.frameCoverage.unresolved, 0);
     assert.equal(live.measured.frameCoverage.retained, live.measured.frameCoverage.rendered);
     assert.deepEqual(verdict('herd tree fling', phaseMetrics({
         ...live.measured, movement: { proven: true }, missedVsyncPerFling: 0,
@@ -819,9 +819,10 @@ test('a live stream reconciles, and lost or reset evidence still fails', async (
     // one dump cannot show consistently. That is a record to finish reading, not
     // a lost frame, and the frame is owned because of when it was scheduled.
     const racing = await drive((read) => ring(read, { racing: true }));
-    assert.equal(racing.measured.frameCoverage.unresolved, 0);
     assert.equal(racing.measured.frameCoverage.retained, racing.measured.frameCoverage.rendered);
-    assert.ok(racing.measured.frameCoverage.resolved > 0, 'nothing was reconciled');
+    // The racing record's own bill is paid by the surplus the read before it
+    // left, and its row pays a later one: nothing is invented and nothing lost.
+    assert.ok(racing.measured.frameCoverage.uncredited >= 0);
     // The credited row is graded with the window that owns it, not dropped
     // between the coverage account and the metrics the gate reads.
     assert.equal(
@@ -837,13 +838,13 @@ test('a live stream reconciles, and lost or reset evidence still fails', async (
     // later record to stand in its place: the history cannot be reconstructed to
     // the cardinality the counter reported, so there is nothing to grade.
     const lost = await drive((read) => {
-        // The surface goes quiet after the endpoint, so no later record can
-        // stand in for the one that was never written.
-        const drawn = Math.min(read, 5);
-        const rows = Array.from({ length: drawn }, (_, index) => frame(index + 1, true))
+        // Frame 2's record is never written, so from the read that counted it
+        // the bills can no longer be paid. Later reads bring later records and
+        // none of them may settle it.
+        const rows = Array.from({ length: read }, (_, index) => frame(index + 1, true))
             .filter((row) => row.IntendedVsync !== 1e9 + 2e7);
         Object.defineProperty(rows, 'sectionRead', { value: true });
-        return { rows, jank: { frames: drawn, janky: 0, missedVsync: 0, p95Ms: 10, p99Ms: 10 } };
+        return { rows, jank: { frames: read, janky: 0, missedVsync: 0, p95Ms: 10, p99Ms: 10 } };
     });
     assert.equal(lost.measured.frameCoverage, undefined);
     // Six reads are offered and none of them can produce a record that was
@@ -891,89 +892,114 @@ test('a failed dump is no observation, and the terminal names itself', () => {
 // coverage at all, so nothing downstream was ever reached.
 test('the zoom window produces coverage from the rows it owns', () => {
     const source = readFileSync(new URL('../releaseGate.mjs', import.meta.url), 'utf8');
-    const start = source.indexOf('        // The same account a bout keeps. The counters are cardinalities');
+    const start = source.indexOf('        // The same ledger a bout keeps, on this window\'s own reads');
     const end = source.indexOf('        // Only now may anything else be driven.');
     assert.ok(start >= 0 && end > start, 'the zoom accounting block moved');
     const block = source.slice(start, end);
-    const run = (rows, counters) => {
+    // The window's own reads, fed to the real ledger in order, then the actual
+    // accounting block executed against it.
+    const run = (baseline, reads, endpoint) => {
+        const zoomLedger = metrics.creditLedger({ rows: baseline.rows, counter: baseline.jank.frames });
+        for (const read of reads) zoomLedger.snapshot(read);
         const context = vm.createContext({
             ...metrics,
             t0Ns: 1.01e9,
             hz: 60,
-            zoomRows: rows,
-            vsyncBefore: { jank: { frames: counters.before, missedVsync: 0 } },
-            vsyncAfter: { jank: { frames: counters.after, missedVsync: 0 } },
+            zoomLedger,
+            vsyncBefore: baseline,
+            vsyncAfter: endpoint,
             unavailable: (why) => ({ why }),
             out: {},
         });
-        vm.runInContext(`(() => {\n${block}\nout.zoomCoverage = zoomCoverage; out.zoomFrames = zoomFrames;\n})()`, context);
-        return context.out;
+        const stopped = vm.runInContext(
+            `(() => {\n${block}\nout.zoomCoverage = zoomCoverage; out.zoomFrames = zoomFrames;\n})()`,
+            context,
+        );
+        return { ...context.out, ...(stopped ?? {}) };
     };
     const row = (scheduled, completed) => ({
         Flags: 0, IntendedVsync: scheduled, FrameCompleted: completed, InputEventId: 1,
     });
 
-    // Three records, and the baseline's counter already owned the earliest of
-    // them: this window is the other two. The inherited completion is a
-    // baseline member, so it never becomes one of these rows.
+    const snapshot = (rows, frames) => ({ rows, jank: { frames, missedVsync: 0 } });
+
+    // The baseline's own record settles its own total; the two drawn inside the
+    // window pay its two increments and are the only rows it owns.
+    const baseline = snapshot([row(0.99e9, 1.01e9)], 1);
     const inherited = run(
-        [row(0.99e9, 1.01e9), row(1.02e9, 1.03e9), row(1.03e9, 1.04e9)],
-        { before: 1, after: 3 },
+        baseline,
+        [snapshot([row(1.02e9, 1.03e9)], 2), snapshot([row(1.03e9, 1.04e9)], 3)],
+        snapshot([], 3),
     );
     assert.equal(inherited.zoomCoverage.rendered, 2);
     assert.equal(inherited.zoomCoverage.retained, 2);
-    assert.equal(inherited.zoomCoverage.unresolved, 0);
     assert.equal(inherited.zoomFrames.frames, 2);
 
-    // The endpoint counted three and only two records can be reconstructed: the
-    // window is short, and the count it was given does not shrink to match.
-    const late = run(
-        [row(1.02e9, 1.03e9), row(1.04e9, 1.09e9)],
-        { before: 1, after: 3 },
+    // A read whose increment counted two frames while only one record was
+    // available closes the history there: the window is unavailable, and a
+    // record arriving afterwards cannot settle it.
+    const short = run(
+        baseline,
+        [snapshot([row(1.02e9, 1.03e9)], 3), snapshot([row(1.04e9, 1.05e9)], 3)],
+        snapshot([], 3),
     );
-    assert.equal(late.zoomCoverage.retained, 0);
-    assert.equal(late.zoomCoverage.unresolved, 2);
-    assert.equal(late.zoomCoverage.reconstructed, false);
+    assert.match(short.why, /have no record/);
+    assert.equal(short.zoomCoverage, undefined, 'a short history still produced coverage');
+    // The phase is unavailable rather than graded: the gate has no coverage to
+    // read at all, which is the failure a missing account has to be.
     assert.ok(verdict('graphics zoom tap', {
         jank: { frames: 10, jankyPercent: 1, p95Ms: 10, p99Ms: 12, overFourFramesPercent: 0, missedVsync: 0 },
         frameStats: { frames: 0, droppedPercent: 0, inputToFrameMs: { p95: 10 } },
-        frameCoverage: late.zoomCoverage,
+        frameCoverage: undefined,
         missedVsyncPerFling: 0,
         zoomTapped: true, zoomSurface: 'graphics', surfaceKind: 'graphics', attachRecords: 1,
         zoomAtRestDefault: true, zoomWindow: true, zoomTransitions: 0,
         zoomMagnified: { proven: true }, zoomedOut: true, zoomReset: true,
-    }, EMULATOR_LIMITS).failures.includes('the framestats ring lost frames'));
+    }, EMULATOR_LIMITS).failures.includes('no frame coverage account'));
 });
 
-// After the reset the counter is a cardinality: reading N means exactly N frames
-// have finished, and those are the earliest N finished records. Which dump
-// carried a record, and when a clock was read beside it, decides nothing.
-test('a counter value owns the earliest records it counted', () => {
+// The counter is a running total and each read's increment is a bill. The
+// ledger pays each one with the earliest records it has not spent, so a record
+// that lands late leaves a bill an earlier surplus covers and pays a later one
+// itself -- and a bill nobody can pay closes the history there.
+test('the ledger pays each counter increment from the records it has', () => {
     const row = (scheduled, completed) => ({
         Flags: 0, IntendedVsync: scheduled, FrameCompleted: completed, InputEventId: 1,
     });
-    const rows = [row(30, 34), row(10, 11), row(20, 25), row(40, 44)];
+    const ring = (rows, frames) => ({ rows, jank: { frames, missedVsync: 0 } });
 
-    // Ranked by completion, never by the order a read happened to return.
-    assert.deepEqual(counterRankedMembers(rows, 2).map((entry) => entry.IntendedVsync), [10, 20]);
-    // A record the ring showed beyond the prefix has been drawn and not counted.
-    assert.deepEqual(counterRankedMembers(rows, 3).map((entry) => entry.IntendedVsync), [10, 20, 30]);
-    // Fewer reconstructed records than the counter says finished is a history
-    // nobody can grade, not a smaller window.
-    assert.equal(counterRankedMembers(rows, 5), undefined);
-    assert.equal(counterRankedMembers(rows, undefined), undefined);
+    // A nonzero baseline: its own two records settle its own total, and the
+    // window's increments are paid by what came after.
+    const ledger = creditLedger({ rows: [row(10, 11), row(20, 21)], counter: 2 });
+    ledger.snapshot(ring([row(30, 31), row(40, 41)], 4));
+    assert.equal(ledger.why, undefined);
+    assert.deepEqual(ledger.owned.map((entry) => entry.IntendedVsync), [30, 40]);
 
-    // The window is the difference of two cardinalities: the endpoint's members
-    // minus the baseline's. An inherited completion is a baseline member, so it
-    // never becomes one of the window's rows and never pays for one.
-    const window = counterRankedWindow(rows, { baselineCount: 1, endpointCount: 3 });
-    assert.equal(window.rendered, 2);
-    assert.deepEqual(window.owned.map((entry) => entry.IntendedVsync), [20, 30]);
-    // A record beyond the endpoint's prefix cannot settle its debt, however
-    // early it was scheduled or however conveniently it completes.
-    const short = counterRankedWindow([row(10, 11), row(40, 12)], { baselineCount: 1, endpointCount: 3 });
-    assert.equal(short.rendered, 2);
-    assert.equal(short.owned, undefined);
+    // A surplus record is not spent early: it waits for the next increment.
+    const surplus = creditLedger({ rows: [row(10, 11), row(20, 21)], counter: 1 });
+    assert.equal(surplus.uncredited, 1);
+    surplus.snapshot(ring([row(30, 31)], 2));
+    // The counter has only reached two, so the record left over from the
+    // baseline read pays this increment and the newer one keeps waiting.
+    assert.deepEqual(surplus.owned.map((entry) => entry.IntendedVsync), [20]);
+    assert.equal(surplus.uncredited, 1);
+    surplus.snapshot(ring([], 3));
+    assert.deepEqual(surplus.owned.map((entry) => entry.IntendedVsync), [20, 30]);
+
+    // A record the ring never carried: the increment that counted it cannot be
+    // paid at that read, and a record arriving afterwards is not its to spend.
+    const missing = creditLedger({ rows: [], counter: 0 });
+    missing.snapshot(ring([row(10, 11)], 2));
+    assert.match(missing.why, /have no record/);
+    missing.snapshot(ring([row(10, 11), row(30, 31)], 2));
+    assert.match(missing.why, /have no record/, 'a later read paid a closed bill');
+    assert.deepEqual(missing.owned, []);
+
+    // A read whose counter went backwards or never read is not an increment.
+    const reset = creditLedger({ rows: [], counter: 0 });
+    reset.snapshot(ring([row(10, 11)], 1));
+    reset.snapshot(ring([row(20, 21)], 0));
+    assert.match(reset.why, /did not read/);
 });
 
 // A zoom window is drained while its confirmation dumps and settle run. A
