@@ -34,15 +34,23 @@ tags:
 - tapOn:
     text: 'Enter another code'
     optional: true
-# Neither the welcome screen's button nor a disconnected herd is the form, and a
-# retry starts on one of them. The route is the only thing that always reaches
-# the manual entry, so open it whenever the form is not already up.
+# Neither the welcome screen nor a disconnected herd shows the form, and both a
+# fresh account and a retry land on the same "Set up connection" button. Tap it
+# and require the manual-entry affordance before anything is typed.
 - runFlow:
     when:
       notVisible:
         text: 'Pairing string'
     commands:
-      - openLink: muxr:///pair
+      - assertVisible: 'Set up connection'
+      - tapOn:
+          text: 'Set up connection'
+      - extendedWaitUntil:
+          visible:
+            text: 'Enter pairing string manually|Enter another code'
+          timeout: 40000
+      - tapOn:
+          text: 'Enter pairing string manually|Enter another code'
 - extendedWaitUntil:
     visible:
       text: 'Pairing string'
