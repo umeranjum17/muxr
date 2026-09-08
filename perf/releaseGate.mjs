@@ -64,6 +64,7 @@ import {
     cropRaw,
     firstDocumentMarker,
     counterContinuity,
+    boutBaseline,
     frameRowIdentities,
     freshFrameRows,
     pendingFrameRows,
@@ -416,12 +417,20 @@ async function captureSurface(surface, screen) {
  */
 async function prepareBout(surface, screen, hz) {
     const beforeSurface = surface === undefined ? undefined : await captureSurface(surface, screen);
-    const before = await resetGfxWindow(PKG, { hz });
-    // The ring is not emptied by the reset. Whatever it still holds at this
-    // moment belongs to the screen before this phase, so those identities are
-    // excluded from everything the phase measures.
-    const baseline = await gfxSnapshot(PKG, { hz });
-    return { beforeSurface, attempt: newAttempt(), before, baselineIdentities: frameRowIdentities(baseline.rows) };
+    await resetGfxWindow(PKG, { hz });
+    // One read is the baseline: its counters and the rows the ring still holds.
+    // The reset does not empty the ring, and a frame drawn between the reset and
+    // this read is inside both halves of this snapshot -- counted in its totals
+    // and excluded by its identities -- so it belongs to the screen before this
+    // phase either way, and never reads as a measured frame that went missing.
+    const baseline = boutBaseline(await gfxSnapshot(PKG, { hz }));
+    if (baseline.why !== undefined) return { why: baseline.why };
+    return {
+        beforeSurface,
+        attempt: newAttempt(),
+        before: baseline.counters,
+        baselineIdentities: baseline.identities,
+    };
 }
 
 /**
@@ -802,6 +811,11 @@ async function preparePhase(phase, screen, hz) {
         stripBounds = resolved.bounds;
     }
 
+    // Counters and ring identities in one validated read, before the sampler
+    // opens. A baseline nobody could take is not a window anything can measure.
+    const prepared = await prepareBout(surface, screen, hz);
+    if (prepared.why !== undefined) return { ok: false, flowExit, why: `the bout baseline is unavailable (${prepared.why})` };
+
     return {
         ok: true,
         flowExit,
@@ -811,7 +825,7 @@ async function preparePhase(phase, screen, hz) {
         stripBounds,
         documentBounds,
         paneId: phase.fixture === undefined ? undefined : stack.fixturePanes?.[phase.fixture],
-        prepared: await prepareBout(surface, screen, hz),
+        prepared,
     };
 }
 

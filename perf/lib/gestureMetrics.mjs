@@ -222,6 +222,24 @@ export function frameRowIdentities(rows) {
 }
 
 /**
+ * The one read a bout measures from: its counters and the identities the ring
+ * already held, taken together.
+ *
+ * Counters read before the reset and identities read after it are two different
+ * moments. Frames drawn in between land in the counter delta while their rows
+ * are excluded as baseline, which is missing evidence nobody lost; read the
+ * other way round, stale rows would cover measured frames that really went
+ * missing. One snapshot cannot disagree with itself.
+ */
+export function boutBaseline(snapshot) {
+    const counters = snapshot?.jank;
+    if (!Array.isArray(snapshot?.rows)) return { why: 'the framestats ring did not read at the baseline' };
+    if (counters?.frames === undefined) return { why: 'the frame counter did not read at the baseline' };
+    if (counters?.missedVsync === undefined) return { why: 'the missed-vsync counter did not read at the baseline' };
+    return { counters, identities: frameRowIdentities(snapshot.rows) };
+}
+
+/**
  * Do these counters continue the previous read? A value that vanished or went
  * backwards is a reset or a failed read, and an endpoint that recovers later
  * cannot vouch for the window that ran across it.

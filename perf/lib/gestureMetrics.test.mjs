@@ -17,6 +17,7 @@ import {
     stripPosition,
     stripScroller,
     freshFrameRows,
+    boutBaseline,
     counterContinuity,
     frameRowIdentities,
     pendingFrameRows,
@@ -681,6 +682,52 @@ test('baseline rows never pay for measured frames that went missing', () => {
         movement: { proven: true },
         frameCoverage: { rendered: 10, retained: 10, pending: 0 },
     }), EMULATOR_LIMITS).failures, []);
+});
+
+// The baseline is one read. Counters from before the reset with identities from
+// after it disagree about the frames drawn in between: those rows are excluded
+// as old while their frames are still inside the counter delta, which reads as
+// measured frames that went missing and never did.
+test('the bout baseline takes its counters and its rows from one read', () => {
+    const row = (intended) => ({
+        Flags: '0', IntendedVsync: String(intended), FrameCompleted: String(intended + 8e6), InputEventId: '0',
+    });
+    // Two frames arrived between the reset and the baseline read.
+    const arrivals = [row(10), row(20)];
+    const baseline = boutBaseline({ jank: { frames: 2, missedVsync: 0 }, rows: arrivals });
+    assert.equal(baseline.why, undefined);
+    assert.equal(baseline.identities.size, 2);
+
+    // The bout draws eight, and the closing read still carries the two arrivals.
+    const measured = Array.from({ length: 8 }, (_, index) => row(1000 + index));
+    const counted = new Set(baseline.identities);
+    const retained = freshFrameRows([...arrivals, ...measured], counted).length;
+    const closing = { frames: 10, missedVsync: 0 };
+    const graded = (coverage, frames) => verdict('herd tree fling', phaseMetrics({
+        jank: { frames: 10, jankyPercent: 1, p95Ms: 10, p99Ms: 12, overFourFramesPercent: 0, missedVsync: 0 },
+        frameStats: { frames, droppedPercent: 0, inputToFrameMs: { p95: 10 } },
+        missedVsyncPerFling: 1,
+        movement: { proven: true },
+        frameCoverage: coverage,
+    }), EMULATOR_LIMITS).failures;
+
+    assert.equal(retained, 8);
+    assert.deepEqual(graded({ rendered: closing.frames - baseline.counters.frames, retained, pending: 0 }, retained), []);
+    // The split read: counters from the reset, identities from later. The two
+    // arrivals are charged as drawn and excluded as old at the same time.
+    assert.deepEqual(graded({ rendered: closing.frames - 0, retained, pending: 0 }, retained),
+        ['the framestats ring lost frames']);
+
+    // A baseline nobody could take is not a zero baseline. Reading on without
+    // it would let the stale rows in the ring cover missing measured frames.
+    for (const broken of [
+        { jank: { missedVsync: 0 }, rows: [] },
+        { jank: { frames: 2 }, rows: [] },
+        { jank: { frames: 2, missedVsync: 0 } },
+    ]) assert.match(boutBaseline(broken).why, /did not read at the baseline/);
+    // measureBout's own account collapses without it: no counters, no coverage,
+    // and no coverage is a failure rather than a pass on nothing.
+    assert.deepEqual(graded(undefined, retained), ['no frame coverage account']);
 });
 
 // A zoom window is drained while its confirmation dumps and settle run. A
