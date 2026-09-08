@@ -220,7 +220,13 @@ function runTerminal(args) {
         const socketPath = process.env.FAKE_HERDR_SOCKET;
         if (socketPath === undefined) return;
         try {
-            if (source === 'terminal.resize') writeFileSync(`${socketPath}.cell-metrics`, 'seen\n', { encoding: 'utf8' });
+            // The marker means "a phone declared cell pixels", which is what
+            // decides whether a graphics bridge opens at all. Every re-grid is
+            // recorded below, but a cell-less one must not set this.
+            if (source === 'terminal.resize'
+                && Number(message.cellWidthPx) > 0 && Number(message.cellHeightPx) > 0) {
+                writeFileSync(`${socketPath}.cell-metrics`, 'seen\n', { encoding: 'utf8' });
+            }
             appendFileSync(`${socketPath}.cell-metrics.jsonl`, `${JSON.stringify({
                 at: new Date().toISOString(),
                 pane_id: paneId,
@@ -295,10 +301,14 @@ function runTerminal(args) {
                 else if (message.type === 'terminal.resize') {
                     cols = Number(message.cols) || cols;
                     rows = Number(message.rows) || rows;
-                    // A phone that declares cell pixels is a phone the graphics
-                    // bridge can serve; without them the host never opens one,
-                    // and a run with no graphics account has to say which it was.
-                    if (Number(message.cellWidthPx) > 0 && Number(message.cellHeightPx) > 0) noteGeometry('terminal.resize', message);
+                    // Every re-grid is recorded, cell pixels or not. A text
+                    // zoom is a grid change and nothing else, so dropping the
+                    // cell-less resizes left the font ladder with no record at
+                    // all on a phone that never declares a cell. The marker
+                    // beside the socket still only fires for a declared cell:
+                    // that is what decides whether a graphics bridge opens, and
+                    // a run with no graphics account has to say which it was.
+                    noteGeometry('terminal.resize', message);
                     emit(true);
                 }
                 else if (message.type === 'terminal.scroll') emit(true);

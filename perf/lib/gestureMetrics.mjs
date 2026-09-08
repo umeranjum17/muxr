@@ -3,7 +3,12 @@
  * dumps and this module turns them into the numbers the limits judge.
  */
 const NATIVE_PHASES = new Set(['herd tree fling', 'herd strip paging', 'document scroll']);
-const TERMINAL_PHASES = new Set(['terminal text fling', 'graphics pane scroll', 'zoom tap navigate']);
+// One zoom phase per surface. A single phase had to discover which pane it had
+// landed on and then judge itself by that, so whichever surface answered was
+// the one it graded -- and a text pane standing in for the graphics fixture
+// looked like a pass rather than the missing coverage it was.
+export const ZOOM_PHASES = new Set(['text zoom tap', 'graphics zoom tap']);
+const TERMINAL_PHASES = new Set(['terminal text fling', 'graphics pane scroll', ...ZOOM_PHASES]);
 const SCROLL_PHASES = new Set([
     'herd tree fling',
     'herd strip paging',
@@ -301,25 +306,41 @@ export function trailSince(after, before) {
 }
 
 /**
- * Consecutive resize events. `cellOnly` is a graphics k-step; `gridChanged`
- * is a text font-ladder step. Either one is a countable zoom.
+ * Grid transitions across one complete observation window.
+ *
+ * The window is every geometry record the pane declared, so it opens on the
+ * grid the pane attached with -- a pane the phone never re-gridded still has a
+ * baseline, and demanding a prior resize threw exactly that one away. A record
+ * that repeats the grid before it is not a transition: a repaint, a re-attach
+ * and a keyboard that came and went all re-declare the same grid, and counting
+ * those made a still pane look like it had stepped. `shrank` is a transition to
+ * strictly fewer columns *and* rows, the only shape a zoom in can take; a step
+ * that grew the grid, held one dimension, or came back to where it started is
+ * a further transition and fails on the count.
  */
-export function reduceZoom(resizes = []) {
-    let cellOnly = 0;
-    let gridChanged = 0;
-    for (let index = 1; index < resizes.length; index += 1) {
-        const previous = resizes[index - 1];
-        const next = resizes[index];
-        const grid = previous.cols !== next.cols || previous.rows !== next.rows;
-        const cell = previous.cellWidthPx !== undefined && next.cellWidthPx !== undefined
-            && (previous.cellWidthPx !== next.cellWidthPx || previous.cellHeightPx !== next.cellHeightPx);
-        if (grid) gridChanged += 1;
-        else if (cell) cellOnly += 1;
+export function reduceGridTransitions(records = []) {
+    const transitions = [];
+    let previous;
+    for (const record of records) {
+        const cols = Number(record?.cols);
+        const rows = Number(record?.rows);
+        if (!(cols > 0) || !(rows > 0)) continue;
+        if (previous === undefined) {
+            previous = { cols, rows };
+            continue;
+        }
+        if (cols === previous.cols && rows === previous.rows) continue;
+        transitions.push({
+            from: previous,
+            to: { cols, rows },
+            shrank: cols < previous.cols && rows < previous.rows,
+        });
+        previous = { cols, rows };
     }
     return {
-        cellOnly,
-        gridChanged,
-        zoomResizeCount: cellOnly + gridChanged,
+        transitions,
+        count: transitions.length,
+        shrankOnce: transitions.length === 1 && transitions[0].shrank === true,
     };
 }
 
@@ -621,10 +642,11 @@ export function verdict(phase, metrics, limits) {
     const terminal = metrics?.terminal ?? {};
 
     if (jank.frames === 0) failures.push('no frames in window');
-    if (SCROLL_PHASES.has(name)) {
-        // A bout with no framestats ring, or one whose frames were never driven
-        // by an input event, measured nothing. Both used to reduce to a perfect
-        // zero and pass every limit below.
+    // A bout with no framestats ring, or one whose frames were never driven by
+    // an input event, measured nothing. Both used to reduce to a perfect zero
+    // and pass every limit below. A zoom tap is a touch like any other, so its
+    // own tap-and-settle window is held to the same account.
+    if (SCROLL_PHASES.has(name) || ZOOM_PHASES.has(name)) {
         if ((frames.frames ?? 0) === 0) failures.push('no framestats frames');
         else if (frames.inputToFrameMs?.p95 === undefined) failures.push('no input-driven frame');
     }
@@ -661,39 +683,35 @@ export function verdict(phase, metrics, limits) {
     if (name === 'graphics pane scroll') {
         failWhen(failures, 'graphicsRowsPerSecond', under(terminal.rowsPerSecond ?? metrics.graphicsRowsPerSecond, limits.graphicsRowsPerSecond));
     }
-    if (name === 'zoom tap navigate') {
-        failWhen(failures, 'zoomTapped', metrics.zoomTapped !== true);
-        // The pane has to have been the phase's own, live, and standing still at
-        // its default before the tap. A step read off a surface that was still
-        // settling, or that started part-way up its ladder, describes whatever
-        // it was already doing.
+    if (ZOOM_PHASES.has(name)) {
+        // The pane has to have been this phase's own, taken over rather than
+        // merely rendered, standing on the surface the phase claims to measure,
+        // and untouched at its default before anything was tapped. A step read
+        // off a pane that was already part-way up its ladder describes whatever
+        // it was doing before the harness arrived.
         failWhen(failures, 'the zoom pane was not under control attach', !(metrics.attachRecords > 0));
+        failWhen(failures, 'this phase measured the wrong zoom surface',
+            metrics.zoomSurface !== metrics.surfaceKind);
         failWhen(failures, 'the zoom pane was not settled at its default before the tap',
             metrics.zoomAtRestDefault !== true);
-        // Evidence, or an inconclusive run: a drain that never went quiet and a
-        // baseline with nothing behind it both leave the step unreadable, and a
-        // silent zero would pass a graphics pane on no evidence at all.
-        failWhen(failures, 'the host kept no settled geometry baseline for this zoom step',
-            metrics.zoomHostEvidence !== true);
-        // Which surface answered the tap decides what the proof is, so a run
-        // that could not tell reports that rather than picking the easier one.
-        // A text pane zooms by re-gridding, which the host records; a graphics
-        // pane holds the remote grid and magnifies its own surface, which only
-        // its pixels can show.
+        // Fail closed on the window itself. A geometry file that went missing,
+        // could not be read, could not be parsed or was caught half-written is
+        // an unavailable window, and the empty series it used to reduce to
+        // passed a graphics pane by describing evidence nobody collected.
+        failWhen(failures, 'the zoom observation window is unavailable', metrics.zoomWindow !== true);
+        failWhen(failures, 'zoomTapped', metrics.zoomTapped !== true);
+        // Which surface answered decides what the proof is. A text pane zooms by
+        // re-gridding, which the host records; a graphics pane holds the remote
+        // grid and magnifies its own surface, which only its pixels can show --
+        // and those pixels, taken from this phase's own pane after the step, are
+        // themselves the proof that a frame was delivered.
         if (metrics.zoomSurface === 'text') {
-            failWhen(failures, 'zoomResizeCount', metrics.zoomResizeCount !== limits.zoomResizeCount);
-            // One re-grid is not enough on its own: a bigger font has to land on
-            // a grid that really fits it, which is fewer cells both ways.
-            failWhen(failures, 'the text zoom did not re-grid to the expected dimensions',
-                metrics.zoomExpectedGrid !== true);
+            failWhen(failures, 'zoomResizeCount', metrics.zoomTransitions !== limits.zoomResizeCount);
+            failWhen(failures, 'the text zoom did not re-grid to fewer columns and rows',
+                metrics.zoomShrankOnce !== true);
         } else if (metrics.zoomSurface === 'graphics') {
+            failWhen(failures, 'zoomResizeCount', (metrics.zoomTransitions ?? 0) !== 0);
             failWhen(failures, 'zoom did not magnify the surface', metrics.zoomMagnified?.proven !== true);
-            failWhen(failures, 'zoomResizeCount', (metrics.zoomResizeCount ?? 0) !== 0);
-            // A still picture magnifies just as well as a live one. The bridge
-            // has to have delivered a frame in this phase for the pixels above
-            // to describe a pane that is actually running.
-            failWhen(failures, 'the graphics bridge delivered no frame in this phase',
-                (metrics.zoomGraphicsFrames ?? 0) <= 0);
         } else {
             failures.push('the zoom surface could not be identified');
         }

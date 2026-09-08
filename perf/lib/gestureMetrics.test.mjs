@@ -24,7 +24,7 @@ import {
     reduceMagnification,
     reduceMovement,
     reducePipelineNotches,
-    reduceZoom,
+    reduceGridTransitions,
     trailSince,
     verdict,
 } from './gestureMetrics.mjs';
@@ -217,23 +217,38 @@ test('baseline bout fixtures reduce to the documented failures', () => {
         ['no input-driven frame'],
     );
 
-    // A zoom step is read off the host's own geometry records for the pane. A
-    // graphics k-step moves the cell and holds the grid; a text font step is
-    // the reverse.
-    const graphicsZoom = reduceZoom([
+    // A zoom step is read off one complete window of the pane's own geometry.
+    // The window may open on the grid the pane attached with -- a pane that
+    // never re-gridded still declared one -- and a record that repeats the grid
+    // before it is a repaint, a re-attach or a keyboard, not a step.
+    const attachOnly = reduceGridTransitions([{ source: 'terminal.attach', cols: 80, rows: 24 }]);
+    assert.equal(attachOnly.count, 0);
+    const textStep = reduceGridTransitions([
+        { source: 'terminal.attach', cols: 80, rows: 24 },
+        { source: 'terminal.resize', cols: 80, rows: 24 },
+        { source: 'terminal.resize', cols: 66, rows: 20 },
+        { source: 'terminal.resize', cols: 66, rows: 20 },
+    ]);
+    assert.equal(textStep.count, 1);
+    assert.equal(textStep.shrankOnce, true);
+    // A grid change with no cell pixels is still a grid change; an emulator
+    // that never declares a cell would otherwise report no step at all.
+    assert.equal(reduceGridTransitions([{ cols: 80, rows: 24 }, { cols: 66, rows: 20 }]).shrankOnce, true);
+    // A step that grew the grid, or held one dimension still, is not a zoom in.
+    assert.equal(reduceGridTransitions([{ cols: 66, rows: 20 }, { cols: 80, rows: 24 }]).shrankOnce, false);
+    assert.equal(reduceGridTransitions([{ cols: 80, rows: 24 }, { cols: 66, rows: 24 }]).shrankOnce, false);
+    // A reversal inside the window is a second transition, so it never passes
+    // as the one step the phase asked for.
+    const reversal = reduceGridTransitions([
+        { cols: 80, rows: 24 }, { cols: 66, rows: 20 }, { cols: 80, rows: 24 },
+    ]);
+    assert.equal(reversal.count, 2);
+    assert.equal(reversal.shrankOnce, false);
+    // A graphics pane holds its grid however many frames it draws.
+    assert.equal(reduceGridTransitions([
         { cols: 80, rows: 24, cellWidthPx: 8, cellHeightPx: 16 },
         { cols: 80, rows: 24, cellWidthPx: 12, cellHeightPx: 24 },
-        { cols: 80, rows: 24, cellWidthPx: 16, cellHeightPx: 32 },
-    ]);
-    assert.equal(graphicsZoom.cellOnly, 2);
-    assert.equal(graphicsZoom.gridChanged, 0);
-    assert.equal(graphicsZoom.zoomResizeCount, 2);
-    const textZoom = reduceZoom([
-        { cols: 80, rows: 24, cellWidthPx: 8, cellHeightPx: 16 },
-        { cols: 66, rows: 20, cellWidthPx: 10, cellHeightPx: 20 },
-    ]);
-    assert.equal(textZoom.gridChanged, 1);
-    assert.equal(textZoom.cellOnly, 0);
+    ]).count, 0);
 
     // A checkerboard magnified by one graphics step: the same board, its blocks
     // 1.25x wider. A tap that magnified nothing leaves them exactly as they were.
@@ -252,58 +267,83 @@ test('baseline bout fixtures reduce to the documented failures', () => {
     const flat = { width: 120, height: 16, bytes: Buffer.alloc(120 * 16 * 4, 30) };
     assert.equal(reduceMagnification(flat, flat, { expected: 1.25 }).proven, false);
 
-    const zoomJank = { jank: { frames: 10, jankyPercent: 1, p95Ms: 10, p99Ms: 12, overFourFramesPercent: 0, missedVsync: 0 }, frameStats: { droppedPercent: 0, inputToFrameMs: { p95: 10 } } };
-    // The pane was this phase's own, live, and standing still at its default
-    // before the tap; the step is then read off a settled host baseline.
+    const zoomJank = {
+        jank: { frames: 10, jankyPercent: 1, p95Ms: 10, p99Ms: 12, overFourFramesPercent: 0, missedVsync: 0 },
+        // A zoom tap is a touch, so its own tap-and-settle window is held to
+        // the same framestats account as any other gesture phase.
+        frameStats: { frames: 6, droppedPercent: 0, inputToFrameMs: { p95: 10 } },
+    };
+    // The pane was this phase's own, taken over rather than merely rendered,
+    // on the surface the phase claims, and untouched at its default before the
+    // tap; the window it is then read from was collected without a gap.
     const stepped = {
         zoomTapped: true, zoomedOut: true, zoomReset: true,
-        attachRecords: 1, zoomAtRestDefault: true, zoomHostEvidence: true,
+        attachRecords: 1, zoomAtRestDefault: true, zoomWindow: true,
     };
-    const text = { ...zoomJank, ...stepped, zoomSurface: 'text', zoomResizeCount: 1, zoomExpectedGrid: true };
+    const text = {
+        ...zoomJank, ...stepped, surfaceKind: 'text', zoomSurface: 'text',
+        zoomTransitions: 1, zoomShrankOnce: true,
+    };
     const graphics = {
-        ...zoomJank, ...stepped, zoomSurface: 'graphics', zoomResizeCount: 0,
-        zoomMagnified: { proven: true }, zoomGraphicsFrames: 12,
+        ...zoomJank, ...stepped, surfaceKind: 'graphics', zoomSurface: 'graphics',
+        zoomTransitions: 0, zoomMagnified: { proven: true },
     };
-    // A text pane re-grids exactly once per step, onto a grid the bigger font
-    // fits; a graphics pane holds the remote grid and has to show the
-    // magnification in its own pixels, on a bridge that is still delivering.
-    assert.deepEqual(verdict('zoom tap navigate', text, EMULATOR_LIMITS).failures, []);
-    assert.deepEqual(verdict('zoom tap navigate', graphics, EMULATOR_LIMITS).failures, []);
-    assert.deepEqual(verdict('zoom tap navigate',
-        { ...text, zoomResizeCount: 2 }, EMULATOR_LIMITS).failures, ['zoomResizeCount']);
-    // One re-grid is not enough on its own: a bigger font has to land on fewer
-    // cells, so a step that re-gridded the wrong way is not a zoom in.
-    assert.deepEqual(verdict('zoom tap navigate',
-        { ...text, zoomExpectedGrid: false }, EMULATOR_LIMITS).failures,
-        ['the text zoom did not re-grid to the expected dimensions']);
-    assert.deepEqual(verdict('zoom tap navigate',
+    // Each surface has its own phase. A text pane re-grids exactly once, onto
+    // fewer columns and rows; a graphics pane holds the remote grid and shows
+    // the magnification in its own pixels -- which are themselves the proof a
+    // frame was delivered, so no aggregate host count stands in for it.
+    assert.deepEqual(verdict('text zoom tap', text, EMULATOR_LIMITS).failures, []);
+    assert.deepEqual(verdict('graphics zoom tap', graphics, EMULATOR_LIMITS).failures, []);
+    assert.deepEqual(verdict('text zoom tap',
+        { ...text, zoomTransitions: 2 }, EMULATOR_LIMITS).failures, ['zoomResizeCount']);
+    assert.deepEqual(verdict('text zoom tap',
+        { ...text, zoomShrankOnce: false }, EMULATOR_LIMITS).failures,
+        ['the text zoom did not re-grid to fewer columns and rows']);
+    assert.deepEqual(verdict('graphics zoom tap',
+        { ...graphics, zoomTransitions: 1 }, EMULATOR_LIMITS).failures, ['zoomResizeCount']);
+    assert.deepEqual(verdict('graphics zoom tap',
         { ...graphics, zoomMagnified: { proven: false } }, EMULATOR_LIMITS).failures,
         ['zoom did not magnify the surface']);
-    // A still picture magnifies as well as a live one, so the bridge has to
-    // have delivered a frame in this phase.
-    assert.deepEqual(verdict('zoom tap navigate',
-        { ...graphics, zoomGraphicsFrames: 0 }, EMULATOR_LIMITS).failures,
-        ['the graphics bridge delivered no frame in this phase']);
-    // Missing or interrupted evidence is a failure, never a silent zero: a pane
-    // that was never under control attach, one that was not at its default, and
-    // a baseline that never settled all leave the step unreadable.
-    assert.deepEqual(verdict('zoom tap navigate',
+    // A phase has to have stood on the surface it grades itself as. The
+    // graphics fixture answering as a text pane is the miss a single
+    // discover-then-grade phase used to report as a pass.
+    assert.deepEqual(verdict('graphics zoom tap',
+        { ...graphics, zoomSurface: 'text' }, EMULATOR_LIMITS).failures,
+        ['this phase measured the wrong zoom surface', 'zoomResizeCount',
+            'the text zoom did not re-grid to fewer columns and rows']);
+    // Missing or interrupted evidence fails, never a silent zero: a pane never
+    // under control attach, one not at its default, and a window whose JSONL
+    // went missing, unreadable, unparsable or truncated all leave it unreadable.
+    assert.deepEqual(verdict('text zoom tap',
         { ...text, attachRecords: 0 }, EMULATOR_LIMITS).failures,
         ['the zoom pane was not under control attach']);
-    assert.deepEqual(verdict('zoom tap navigate',
+    assert.deepEqual(verdict('text zoom tap',
         { ...text, zoomAtRestDefault: false }, EMULATOR_LIMITS).failures,
         ['the zoom pane was not settled at its default before the tap']);
-    assert.deepEqual(verdict('zoom tap navigate',
-        { ...graphics, zoomHostEvidence: false }, EMULATOR_LIMITS).failures,
-        ['the host kept no settled geometry baseline for this zoom step']);
-    assert.deepEqual(verdict('zoom tap navigate',
+    assert.deepEqual(verdict('graphics zoom tap',
+        { ...graphics, zoomWindow: undefined }, EMULATOR_LIMITS).failures,
+        ['the zoom observation window is unavailable']);
+    // The tap's own framestats are gated exactly as a fling's are.
+    assert.deepEqual(verdict('text zoom tap',
+        { ...text, frameStats: { frames: 0, inputToFrameMs: {} } }, EMULATOR_LIMITS).failures,
+        ['no framestats frames']);
+    assert.deepEqual(verdict('text zoom tap',
+        { ...text, frameStats: { frames: 6, droppedPercent: 0, inputToFrameMs: {} } }, EMULATOR_LIMITS).failures,
+        ['no input-driven frame']);
+    // Declared jank thresholds still apply to the zoom window.
+    assert.deepEqual(verdict('text zoom tap',
+        { ...text, jank: { ...zoomJank.jank, p95Ms: 400 } }, EMULATOR_LIMITS).failures, ['gestureP95Ms']);
+    assert.deepEqual(verdict('text zoom tap',
         { ...text, zoomTapped: false }, EMULATOR_LIMITS).failures, ['zoomTapped']);
-    assert.deepEqual(verdict('zoom tap navigate',
+    assert.deepEqual(verdict('text zoom tap',
         { ...text, zoomSurface: undefined }, EMULATOR_LIMITS).failures,
-        ['the zoom surface could not be identified']);
-    assert.deepEqual(verdict('zoom tap navigate',
+        ['this phase measured the wrong zoom surface', 'the zoom surface could not be identified']);
+    assert.deepEqual(verdict('text zoom tap',
         { ...text, zoomedOut: false }, EMULATOR_LIMITS).failures,
         ['zoom out did not return the surface']);
+    assert.deepEqual(verdict('text zoom tap',
+        { ...text, zoomReset: false }, EMULATOR_LIMITS).failures,
+        ['reset zoom did not return the surface']);
 
     const notches = reducePipelineNotches([
         { event: 'graphics.pipeline', frames: 5, notchesSent: 5, notchesDropped: 8 },
