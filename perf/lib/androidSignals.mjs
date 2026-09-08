@@ -282,8 +282,32 @@ export async function screenshot(path) {
  * `onTick` runs after every sample so a caller can drive the device in parallel
  * without a second sampler.
  */
+/**
+ * This measurement's lifetime, and the handshake that ends it. The sampler
+ * reads while it is open and takes its closing CPU, PSS and frame samples when
+ * it is closed; `close()` does not return until those are in, so the caller is
+ * still holding the measured surface while they are taken.
+ */
+export function newAttempt() {
+    let acknowledge;
+    let signal;
+    const acknowledged = new Promise((resolve) => { acknowledge = resolve; });
+    const signalled = new Promise((resolve) => { signal = resolve; });
+    return {
+        open: true,
+        signal: signalled,
+        acknowledge,
+        async close() {
+            if (!this.open) return;
+            this.open = false;
+            signal();
+            await acknowledged;
+        },
+    };
+}
+
 export async function samplePhase(options) {
-    const { pkg, seconds, intervalMs = 5000, onTick, onOpen, active } = options;
+    const { pkg, seconds, intervalMs = 5000, onTick, onOpen, attempt, active } = options;
     const started = Date.now();
     const deadline = started + seconds * 1000;
 
@@ -305,20 +329,11 @@ export async function samplePhase(options) {
     let firstPss;
     let lastPss;
     let maxPss = 0;
-    const framesStart = await framesRendered(pkg);
-    if (framesStart === undefined) missingFrames += 1;
-    let previousFrames = framesStart;
+    let framesStart;
+    let previousFrames;
     let previousFramesAt = performance.now();
-    // The opening samples are in: nothing may be injected before this point, or
-    // the window would start after the work it claims to describe.
-    onOpen?.();
 
-    // The commanded duration is the floor, not the ceiling. While the caller
-    // says its attempt is still open -- a gesture in flight, its settle, its
-    // closing observation -- this keeps reading, so the frames those produce are
-    // inside the same window as the CPU they cost.
-    while (Date.now() < deadline || active?.() === true) {
-        const tickStarted = Date.now();
+    const takeSample = async () => {
         const currentPid = await appPid(pkg);
         if (currentPid === undefined) {
             gaps += 1;
@@ -374,15 +389,44 @@ export async function samplePhase(options) {
             if (frameStall > worstFrameStall) worstFrameStall = frameStall;
         }
         if (frames !== undefined) previousFrames = frames;
+        if (framesStart === undefined) framesStart = frames;
         previousFramesAt = framesAt;
-
         if (onTick !== undefined) await onTick();
+    };
+
+    // CPU, PSS and the frame counter, all read before anything is injected.
+    // A window that opens on the frame counter alone starts its CPU account
+    // after the work it claims to describe.
+    await takeSample();
+    onOpen?.();
+
+    // The commanded duration is the floor, not the ceiling. While the caller
+    // says its attempt is still open -- a gesture in flight, its settle, its
+    // closing observation -- this keeps reading, so the frames those produce are
+    // inside the same window as the CPU they cost. Closure ends it immediately,
+    // deadline or not: what happens after closure is navigation, not the phase.
+    const openNow = () => attempt === undefined
+        ? Date.now() < deadline
+        : attempt.open === true && active?.() !== false;
+    while (openNow()) {
+        const tickStarted = Date.now();
+        await takeSample();
+        if (!openNow()) break;
         const elapsed = Date.now() - tickStarted;
-        if (elapsed < intervalMs) await new Promise((resolve) => setTimeout(resolve, intervalMs - elapsed));
+        if (elapsed < intervalMs) {
+            await Promise.race([
+                new Promise((resolve) => setTimeout(resolve, intervalMs - elapsed)),
+                attempt?.signal ?? new Promise(() => {}),
+            ]);
+        }
     }
 
-    const framesEnd = await framesRendered(pkg);
-    if (framesEnd === undefined) missingFrames += 1;
+    // The closing samples, taken while the caller still holds the measured
+    // surface: it is waiting on this acknowledgement before it navigates.
+    await takeSample();
+
+    const framesEnd = previousFrames;
+    attempt?.acknowledge?.();
     const wall = (Date.now() - started) / 1000;
     return {
         seconds: Number(wall.toFixed(1)),

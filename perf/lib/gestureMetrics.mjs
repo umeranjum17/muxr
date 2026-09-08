@@ -145,10 +145,14 @@ export function reduceFrameStats(rows, { frameNs, t0Ns } = {}) {
         if (duration > 2 * budget) dropped += 1;
         const inputId = asNumber(row.InputEventId) ?? 0;
         if (inputId === 0) continue;
-        if (hasOrigin && row.FrameCompleted < origin) continue;
+        // Input-to-frame is measured from the moment the injector started. With
+        // no such origin there is no latency to report: the frame's own
+        // duration answers a different question and would pass this limit on it.
+        if (!hasOrigin) continue;
+        if (row.FrameCompleted < origin) continue;
         if (sawFirst) continue;
         sawFirst = true;
-        firstMovements.push(hasOrigin ? (row.FrameCompleted - origin) / 1e6 : duration / 1e6);
+        firstMovements.push((row.FrameCompleted - origin) / 1e6);
     }
     const frames = good.length;
     return {
@@ -839,26 +843,20 @@ export function verdict(phase, metrics, limits) {
     failWhen(failures, 'gestureP99Ms', over(jank.p99Ms, limits.gestureP99Ms));
     failWhen(failures, 'gestureOverFourFramesPercent', over(jank.overFourFramesPercent, limits.gestureOverFourFramesPercent));
     failWhen(failures, 'gestureDroppedPercent', over(frames.droppedPercent, limits.gestureDroppedPercent));
-    // Per fling means per fling: the bout's accumulated count cannot say which
-    // gesture missed, and no window at all is unavailable evidence, not a pass.
-    // A zoom phase is one tap in its own window, so its window is the whole of
-    // it and the same allowance applies to the counter directly.
-    if (ZOOM_PHASES.has(name)) {
-        failWhen(failures, 'missedVsyncPerFling', over(jank.missedVsync, limits.missedVsyncPerFling));
-    } else {
-        if (SCROLL_PHASES.has(name) && metrics.missedVsyncPerFling === undefined && (jank.frames ?? 0) > 0) {
-            failures.push('no per-fling vsync window');
-        }
-        failWhen(failures, 'missedVsyncPerFling', over(metrics.missedVsyncPerFling, limits.missedVsyncPerFling));
-    }
-    // The framestats ring is 120 frames deep. If more frames were drawn inside
-    // the gesture windows than were read back out of it, the ring wrapped and
-    // the dropped-frame and latency account of this bout is missing work.
-    if (SCROLL_PHASES.has(name) && (jank.frames ?? 0) > 0) {
+    // Per gesture means per gesture: the phase's accumulated count cannot say
+    // which one missed. A zoom phase brackets its counters around the same tap
+    // and settle its frames are cut to, and its broader jank stays a diagnostic.
+    // No window at all is unavailable evidence, not a pass.
+    if ((SCROLL_PHASES.has(name) || ZOOM_PHASES.has(name)) && (jank.frames ?? 0) > 0) {
+        if (metrics.missedVsyncPerFling === undefined) failures.push('no per-gesture vsync window');
+        // The framestats ring is 120 frames deep. More frames drawn inside the
+        // measured windows than were read back out of it means the ring wrapped
+        // and this account is missing work.
         const coverage = metrics.frameCoverage;
         if (coverage === undefined) failures.push('no frame coverage account');
         else if (coverage.retained < coverage.rendered) failures.push('the framestats ring lost frames');
     }
+    failWhen(failures, 'missedVsyncPerFling', over(metrics.missedVsyncPerFling, limits.missedVsyncPerFling));
     failWhen(failures, 'inputToFrameP95Ms', over(frames.inputToFrameMs?.p95, limits.inputToFrameP95Ms));
 
     if (NATIVE_PHASES.has(name)) {

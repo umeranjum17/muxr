@@ -43,10 +43,10 @@ import {
     deviceReady,
     dismissKeyboard,
     dismissPrompts,
-    frameStats,
     framesRendered,
     gfxSnapshot,
     jankReport,
+    newAttempt,
     jsThreadId,
     refreshHz,
     resetFrames,
@@ -494,10 +494,7 @@ async function captureSurface(surface, screen) {
  */
 async function prepareBout(surface, screen, hz) {
     const beforeSurface = surface === undefined ? undefined : await captureSurface(surface, screen);
-    // `attempt` is this measurement's lifetime. The sampler keeps reading while
-    // it is open, so a bout that runs past its commanded seconds is still
-    // sampled to its last settle, and the diagnostics pull afterwards is not.
-    return { beforeSurface, attempt: { open: true }, before: await resetGfxWindow(PKG, { hz }) };
+    return { beforeSurface, attempt: newAttempt(), before: await resetGfxWindow(PKG, { hz }) };
 }
 
 async function measureBout(run, hz, { surface, screen, phase, prepared } = {}) {
@@ -527,13 +524,19 @@ async function measureBout(run, hz, { surface, screen, phase, prepared } = {}) {
     // wrapped while a window was open, so that window's account is incomplete.
     let rendered = 0;
     let retained = 0;
-    const collect = async (gesture) => {
+    let coverageBroken = false;
+    // One window: every frame gfxinfo drew since the last snapshot, closed by
+    // this snapshot. `gesture` names what the window was opened for -- a real
+    // gesture, or the hierarchy dump and screenshot an observation costs, which
+    // is work of its own and must not be charged to the fling that follows it.
+    const collect = async (window) => {
+        const openedAt = Date.now();
         const snapshot = await gfxSnapshot(PKG, { hz });
         const fresh = freshFrameRows(snapshot.rows, counted);
-        const reduced = reduceFrameStats(fresh, {
-            frameNs: 1e9 / hz,
-            t0Ns: gesture.t0Seconds * 1e9,
-        });
+        // No clock, no latency. Substituting the frame's own duration answers
+        // "how late was the touch" with a number that never saw a touch.
+        const t0Ns = Number.isFinite(window.t0Seconds) ? window.t0Seconds * 1e9 : undefined;
+        const reduced = reduceFrameStats(fresh, { frameNs: 1e9 / hz, t0Ns });
         parts.push(reduced);
         // A counter that could not be read, or one that went backwards because
         // something reset the window, is not a delta. It is a hole, and a hole
@@ -545,23 +548,25 @@ async function measureBout(run, hz, { surface, screen, phase, prepared } = {}) {
         if (Number.isFinite(grew) && grew >= 0) {
             rendered += grew;
             retained += fresh.length;
-        } else {
-            rendered = Number.NaN;
-        }
+        } else coverageBroken = true;
         counters = snapshot.jank;
         gestureFrames.push({
-            profile: gesture.profile,
-            t0Seconds: gesture.t0Seconds,
-            durationMs: gesture.durationMs,
-            elapsedMs: gesture.elapsedMs,
+            profile: window.profile,
+            openedAtMs: openedAt,
+            closedAtMs: Date.now(),
+            t0Seconds: window.t0Seconds,
+            durationMs: window.durationMs,
+            elapsedMs: window.elapsedMs,
             frames: reduced.frames,
             dropped: reduced.dropped,
             worstMs: reduced.worstMs,
             inputToFrameMs: reduced.inputToFrameMs,
+            ...(t0Ns === undefined && window.profile !== 'observation' ? { clockUnavailable: true } : {}),
             missedVsync,
             rows: fresh.slice(0, RAW_FRAME_ROW_CAP),
             ...(fresh.length > RAW_FRAME_ROW_CAP ? { rowsOmitted: fresh.length - RAW_FRAME_ROW_CAP } : {}),
         });
+        return snapshot;
     };
     let bout = { gestures: 0, flings: 0, medianVelocityPxPerSecond: 0 };
     try {
@@ -574,6 +579,9 @@ async function measureBout(run, hz, { surface, screen, phase, prepared } = {}) {
                 if (gesture.profile !== 'fling') return;
                 if (phase?.oneWayMovement === true && oneWaySurface === undefined && surface !== undefined) {
                     oneWaySurface = await captureSurface(surface, screen);
+                    // The dump and the screenshot drew frames of their own. They
+                    // close in their own window, not in the next fling's.
+                    await collect({ profile: 'observation' });
                 }
             },
         });
@@ -581,11 +589,18 @@ async function measureBout(run, hz, { surface, screen, phase, prepared } = {}) {
         if (!(error instanceof Error && error.message === 'device could not inject')) throw error;
         bout = { ...bout, injectFailed: true };
     }
-    const after = await jankReport(PKG, { hz });
+    // The bout's own tail, then the closing observation, then the snapshot that
+    // closes both. Coverage is reconciled through this last snapshot, so the
+    // frames drawn after the final gesture are inside the account rather than
+    // arriving in a jank report nothing was compared against.
+    await collect({ profile: 'bout close' });
     const afterSurface = surface === undefined ? undefined : await captureSurface(surface, screen);
-    // The attempt ends on its own last observation. Anything after this -- a
-    // diagnostics pull, the next phase's navigation -- is not what was measured.
-    if (prepared?.attempt !== undefined) prepared.attempt.open = false;
+    const closing = await collect({ profile: 'observation' });
+    const after = closing.jank;
+    // The attempt ends on its own last observation, and the sampler's closing
+    // CPU, PSS and frame samples are taken before this returns. Anything after
+    // it -- a diagnostics pull, the next phase's navigation -- is not measured.
+    await prepared?.attempt?.close();
     const injectFailed = bout.injectFailed === true;
     const observed = beforeSurface === undefined
         ? undefined
@@ -601,7 +616,7 @@ async function measureBout(run, hz, { surface, screen, phase, prepared } = {}) {
         jank: reduceJank(before, after, { hz }),
         frameStats: mergeFrameStats(parts),
         gestureFrames,
-        frameCoverage: Number.isFinite(rendered) ? { rendered, retained } : undefined,
+        frameCoverage: coverageBroken ? undefined : { rendered, retained },
         missedVsyncPerFling: worstMissedVsyncPerFling(gestureFrames),
         movement,
         beforeSurface,
@@ -890,9 +905,9 @@ async function drivePhase(phase, screen, hz, ready) {
     const seconds = phase.seconds;
     const prepared = ready.prepared;
     const sinceEntry = async () => {
-        // Leaving for Settings ends the measurement, whatever the sampler was
-        // still willing to read.
-        if (prepared?.attempt !== undefined) prepared.attempt.open = false;
+        // Leaving for Settings ends the measurement. The closing samples are
+        // taken and acknowledged before this route moves anywhere.
+        await prepared?.attempt?.close();
         const mark = await pullPhoneTrail();
         if (!mark.ok) return { ok: false, why: mark.why };
         return trailSince(mark.trail, ready.trailBefore);
@@ -1039,6 +1054,10 @@ async function drivePhase(phase, screen, hz, ready) {
         // earlier. The counters are never reset here -- the phase's jank is
         // differenced against a baseline taken before it started, and zeroing
         // them midway would make that delta describe nothing.
+        // The counters immediately before the tap. The phase's own jank spans
+        // preparation, the second step, zoom out and reset; only this pair
+        // brackets the window the frames below are cut to.
+        const vsyncBefore = await gfxSnapshot(PKG, { hz });
         const injected = await tapTimed(
             (zoomInBounds.l + zoomInBounds.r) / 2,
             (zoomInBounds.t + zoomInBounds.b) / 2,
@@ -1079,13 +1098,25 @@ async function drivePhase(phase, screen, hz, ready) {
         const transitions = reduceGridTransitions(observed);
         // The ring bounded to this tap and its settle, so the frames, the drops
         // and the input-to-frame all describe the same window the grid did.
-        const zoomFrames = reduceFrameStats(
-            (await frameStats(PKG)).filter((row) => {
-                const completed = Number(row.FrameCompleted);
-                return completed >= t0Ns && completed <= t1Ns;
-            }),
-            { frameNs: 1e9 / hz, t0Ns },
-        );
+        const vsyncAfter = await gfxSnapshot(PKG, { hz });
+        const windowRows = vsyncAfter.rows.filter((row) => {
+            const completed = Number(row.FrameCompleted);
+            return completed >= t0Ns && completed <= t1Ns;
+        });
+        const zoomFrames = reduceFrameStats(windowRows, { frameNs: 1e9 / hz, t0Ns });
+        // The same window, graded on the same allowance as any other gesture: a
+        // counter that could not be read or that went backwards is a hole, and
+        // more frames drawn than the ring gave back is an incomplete account.
+        const wasMissed = vsyncBefore.jank.missedVsync;
+        const nowMissed = vsyncAfter.jank.missedVsync;
+        if (wasMissed === undefined || nowMissed === undefined || nowMissed < wasMissed) {
+            return unavailable('the missed-vsync counter did not read across the zoom window');
+        }
+        const drewInWindow = (vsyncAfter.jank.frames ?? NaN) - (vsyncBefore.jank.frames ?? NaN);
+        if (!Number.isFinite(drewInWindow) || drewInWindow < 0) {
+            return unavailable('the frame counter did not read across the zoom window');
+        }
+        const zoomCoverage = { rendered: drewInWindow, retained: windowRows.length };
 
         // Only now may anything else be driven. The pixels below are this
         // phase's own pane after its own step: on a graphics surface they are
@@ -1142,7 +1173,11 @@ async function drivePhase(phase, screen, hz, ready) {
         return {
             bout: { gestures: 1, flings: 1, medianVelocityPxPerSecond: 0 },
             injectFailed: false,
+            // The whole phase, kept as the diagnostic it is. What the tap is
+            // graded on is the bracketed window below, never this.
             jank: reduceJank(before, after, { hz }),
+            missedVsyncPerFling: nowMissed - wasMissed,
+            frameCoverage: zoomCoverage,
             // The tap and its settle, held to the same framestats account as any
             // other gesture: a window with no ring, or none the touch drove,
             // measured nothing rather than measuring a perfect zero.
@@ -1484,7 +1519,8 @@ for (const phase of PHASES) {
         pkg: PKG,
         seconds: phase.seconds,
         onOpen: samplerOpen,
-        active: () => !drivingSettled && ready.prepared?.attempt?.open === true,
+        attempt: ready.prepared?.attempt,
+        active: () => !drivingSettled,
     });
     await driving;
     if (driven?.zoomEvidenceUnavailable !== undefined) abortPhase(phase, `the zoom evidence is unavailable (${driven.zoomEvidenceUnavailable})`);

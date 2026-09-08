@@ -36,6 +36,8 @@ import {
     verdict,
 } from './gestureMetrics.mjs';
 import { summarize } from './gestures.mjs';
+import { newAttempt, samplePhase } from './androidSignals.mjs';
+import { useCommandScope } from './commands.mjs';
 import { herdChromeConnected, herdProof, worldLabels } from './pairPhone.mjs';
 
 const fixtures = join(dirname(fileURLToPath(import.meta.url)), '../fixtures');
@@ -90,21 +92,28 @@ test('baseline bout fixtures reduce to the documented failures', () => {
     };
     assert.deepEqual(verdict('herd tree fling', phaseMetrics(drivenFling), EMULATOR_LIMITS).failures, []);
     assert.deepEqual(verdict('herd tree fling', phaseMetrics({ ...drivenFling, missedVsyncPerFling: 4 }), EMULATOR_LIMITS).failures, ['missedVsyncPerFling']);
-    assert.deepEqual(verdict('herd tree fling', phaseMetrics({ ...drivenFling, missedVsyncPerFling: undefined }), EMULATOR_LIMITS).failures, ['no per-fling vsync window']);
+    assert.deepEqual(verdict('herd tree fling', phaseMetrics({ ...drivenFling, missedVsyncPerFling: undefined }), EMULATOR_LIMITS).failures, ['no per-gesture vsync window']);
     // The ring is 120 frames deep; more drawn than read back is a hole in the
     // account, not a clean bout.
     assert.deepEqual(verdict('herd tree fling', phaseMetrics({ ...drivenFling, frameCoverage: { rendered: 40, retained: 8 } }), EMULATOR_LIMITS).failures, ['the framestats ring lost frames']);
     assert.deepEqual(verdict('herd tree fling', phaseMetrics({ ...drivenFling, frameCoverage: undefined }), EMULATOR_LIMITS).failures, ['no frame coverage account']);
-    // A zoom tap is its own window, so the counter stays enforced there.
+    // A zoom tap is graded on the window its frames were cut to, not on the
+    // phase counter that also spans preparation, the second step and the reset.
     const drivenZoom = {
+        // Broader phase jank stays a diagnostic: it must not decide the tap.
         jank: { frames: 10, jankyPercent: 1, p95Ms: 10, p99Ms: 12, overFourFramesPercent: 0, missedVsync: 9 },
         frameStats: { frames: 8, droppedPercent: 0, inputToFrameMs: { p95: 10 } },
+        missedVsyncPerFling: 1,
+        frameCoverage: { rendered: 8, retained: 8 },
         zoomTapped: true, zoomSurface: 'graphics', surfaceKind: 'graphics', attachRecords: 1,
         zoomAtRestDefault: true, zoomWindow: true, zoomTransitions: 0,
         zoomMagnified: { proven: true }, zoomedOut: true, zoomReset: true,
     };
-    assert.deepEqual(verdict('graphics zoom tap', phaseMetrics(drivenZoom), EMULATOR_LIMITS).failures, ['missedVsyncPerFling']);
-    assert.deepEqual(verdict('graphics zoom tap', phaseMetrics({ ...drivenZoom, jank: { ...drivenZoom.jank, missedVsync: 1 } }), EMULATOR_LIMITS).failures, []);
+    assert.deepEqual(verdict('graphics zoom tap', phaseMetrics(drivenZoom), EMULATOR_LIMITS).failures, []);
+    assert.deepEqual(verdict('graphics zoom tap', phaseMetrics({ ...drivenZoom, missedVsyncPerFling: 9 }), EMULATOR_LIMITS).failures, ['missedVsyncPerFling']);
+    // Missing evidence is not a pass, on either surface.
+    assert.deepEqual(verdict('graphics zoom tap', phaseMetrics({ ...drivenZoom, missedVsyncPerFling: undefined }), EMULATOR_LIMITS).failures, ['no per-gesture vsync window']);
+    assert.deepEqual(verdict('graphics zoom tap', phaseMetrics({ ...drivenZoom, frameCoverage: { rendered: 40, retained: 8 } }), EMULATOR_LIMITS).failures, ['the framestats ring lost frames']);
 
     const late = rows.map((row, index) => {
         if (index >= 3) return row;
@@ -400,6 +409,8 @@ test('baseline bout fixtures reduce to the documented failures', () => {
         // A zoom tap is a touch, so its own tap-and-settle window is held to
         // the same framestats account as any other gesture phase.
         frameStats: { frames: 6, droppedPercent: 0, inputToFrameMs: { p95: 10 } },
+        missedVsyncPerFling: 0,
+        frameCoverage: { rendered: 6, retained: 6 },
     };
     // The pane was this phase's own, taken over rather than merely rendered,
     // on the surface the phase claims, and untouched at its default before the
@@ -506,6 +517,63 @@ test('the inject guard judges each gesture profile on its own median', () => {
     // A genuinely slow profile still fails, and says which one.
     const slow = summarize([...flings.map((f) => ({ ...f, velocityPxPerSecond: 4000 })), ...drags]);
     assert.deepEqual(slow.slowProfiles, ['fling']);
+});
+
+// The sampler is the phase's window. It has to open on CPU, PSS and frames
+// before anything is injected, and close on the same three while the caller is
+// still holding the measured surface -- not five seconds later on a settings
+// screen, and not when a fixed deadline says so.
+test('the phase window opens before injection and closes on acknowledgement', async () => {
+    const calls = [];
+    useCommandScope({
+        signal: { throwIfAborted() {} },
+        cleanups: [],
+        spawn() { throw new Error('the sampler spawns nothing'); },
+        async run(_bin, args) {
+            calls.push(args.join(' '));
+            if (args[1] === 'pidof') return { stdout: '4242\n' };
+            if (String(args[1]).startsWith('cat /proc/4242/task/77/stat')) {
+                return { stdout: `77 (mqt_v_js) S ${Array.from({ length: 20 }, (_, i) => i).join(' ')}\n` };
+            }
+            if (String(args[1]).includes('/proc/4242/task')) return { stdout: '77\n' };
+            if (args[2] === 'meminfo') return { stdout: 'TOTAL PSS:   131072\n' };
+            if (args[2] === 'gfxinfo') return { stdout: 'Total frames rendered: 10\n' };
+            return { stdout: '' };
+        },
+    });
+    try {
+        const attempt = newAttempt();
+        let openedAfter;
+        // A commanded duration far longer than this test: closure ends it, and
+        // the deadline never gets to.
+        const sampling = samplePhase({
+            pkg: 'com.example', seconds: 600, intervalMs: 5, attempt,
+            onOpen: () => { openedAfter = [...calls]; },
+        });
+        while (openedAfter === undefined) await new Promise((resolve) => setTimeout(resolve, 5));
+        assert.ok(openedAfter.some((call) => call.includes('pidof')), 'no opening CPU sample');
+        assert.ok(openedAfter.some((call) => call.includes('meminfo')), 'no opening PSS sample');
+        assert.ok(openedAfter.some((call) => call.includes('gfxinfo')), 'no opening frame sample');
+
+        const before = calls.length;
+        const startedClosing = Date.now();
+        await attempt.close();
+        // close() returns only once the closing samples are in, and the caller
+        // has not navigated away yet.
+        assert.ok(calls.length > before, 'no closing samples were taken');
+        assert.ok(calls.slice(before).some((call) => call.includes('meminfo')), 'no closing PSS sample');
+        const measured = await sampling;
+        assert.ok(Date.now() - startedClosing < 60_000, 'the sampler outlived its acknowledgement');
+        assert.ok(measured.pssSamples.length >= 2);
+        assert.ok(measured.samples.length >= 2, 'no CPU samples bracketed the window');
+        // Nothing is read after the acknowledgement: the trailing calls are the
+        // closing sample, never a later phase's screen.
+        const afterAcknowledgement = calls.length;
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        assert.equal(calls.length, afterAcknowledgement);
+    } finally {
+        useCommandScope(undefined);
+    }
 });
 
 test('the herd is only proven by connected chrome and this run\'s own labels', () => {
