@@ -86,7 +86,7 @@
     "mermaid": "^11.12.1",
     "papaparse": "5.7.0",
     "pdfjs-dist": "^6.2.108",
-    "preact": "^10.29.1",
+    "preact": "^10.29.8",
     "prismjs": "^1.30.0",
     "qrcode": "^1.5.4",
     "react": "19.2.0",
