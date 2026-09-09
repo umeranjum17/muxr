@@ -32,23 +32,24 @@ tags:
 # (`DeclarativeNavigationItems` in herd/presentation/MainView.tsx) -- not
 # inside a session. It exists only because the gate now starts the fake herd
 # with the real `code` plugin.
-- tapOn:
-    text: 'Files'
-# Under the loaded herd Android can acknowledge the semantic text tap without
-# delivering it to the segmented control. Fall back to the same control's
-# relative position, then require the repository screen so the workspace card
-# cannot masquerade as the repository row.
-- runFlow:
-    when:
-      notVisible:
-        text: 'Repositories'
+#
+# The bare text match resolves to the item's label, which is not the clickable
+# control, and the fixed title churn keeps the hierarchy changing so Maestro
+# reads a tap that went nowhere as delivered. Tap the navigation control that
+# contains that label, stop trusting the post-tap hierarchy change, and make
+# the repository screen the only proof of delivery: an undelivered tap fails
+# the wait and the bounded retry taps once more.
+- retry:
+    maxRetries: 1
     commands:
       - tapOn:
-          point: 59%, 13%
-- extendedWaitUntil:
-    visible:
-      text: 'Repositories'
-    timeout: 20000
+          containsChild:
+            text: 'Files'
+          retryTapIfNoChange: false
+      - extendedWaitUntil:
+          visible:
+            text: 'Repositories'
+          timeout: 20000
 # `Files` always opens the repository list (`files.browse`), even when the host
 # has exactly one repository, so the repository row comes before any filename.
 - extendedWaitUntil:

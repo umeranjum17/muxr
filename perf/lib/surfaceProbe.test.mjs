@@ -6,6 +6,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
+import { parseAllDocuments } from 'yaml';
 import { CommandScope } from './commands.mjs';
 import { CommandScope as Scope, useCommandScope } from './commands.mjs';
 import { samplePhase } from './androidSignals.mjs';
@@ -42,6 +43,19 @@ test('warm probe fails closed across identity, ownership, fixture, movement, sam
     assert.deepEqual(scenarioDescriptor().document, { name: 'perf-document.md', generatedLines: 240, bytes: 26640, sha256: '6041d293b6ec060a8e4b388ca4f9c4b16d4a7a4b0d681f99fa81553b16c2190f', servedSha256: '0403252d0bace2dd34b7a83184cd33e3e8b0e0e8e5e159758b83fdf1393b8a0d', servedBytes: 24576, servedLines: 222, marker: 'PERF_LINE_' });
     assert.equal(block(readFileSync(join(root, 'perf/releaseGate.mjs'), 'utf8'), 'const PHASES = [', '\n];'), block(baseline('perf/releaseGate.mjs'), 'const PHASES = [', '\n];'));
     assert.equal(block(readFileSync(join(root, 'perf/iosReleaseGate.mjs'), 'utf8'), 'export const PHASES = [', '\n];'), block(baseline('perf/iosReleaseGate.mjs'), 'export const PHASES = [', '\n];'));
+    // The document caller's own navigation step. Fixed title churn changes the
+    // hierarchy continuously, so a generic post-tap change is not delivery: the
+    // tap has to target the navigation control that contains the `Files` label,
+    // and the repository screen -- reached through the `project` repository, not
+    // the Machine workspace card -- is the only proof, retried a bounded number
+    // of times inside the deadline.
+    const openDocument = parseAllDocuments(readFileSync(join(root, 'perf/flows/openDocument.yaml'), 'utf8')).map((document) => document.toJS()).at(-1);
+    const filesRetry = openDocument.find((step) => step.retry !== undefined).retry;
+    assert.ok(Number(filesRetry.maxRetries) >= 1 && Number(filesRetry.maxRetries) <= 3, `the Files retry is not bounded: ${filesRetry.maxRetries}`);
+    assert.deepEqual(filesRetry.commands[0].tapOn, { containsChild: { text: 'Files' }, retryTapIfNoChange: false });
+    assert.deepEqual(filesRetry.commands.at(-1).extendedWaitUntil.visible, { text: 'Repositories' });
+    assert.ok(openDocument.every((step) => step.tapOn?.text !== 'Files' && step.tapOn?.point === undefined), 'the non-clickable Files label or a fixed point is still tapped');
+    assert.ok(openDocument.some((step) => step.extendedWaitUntil?.visible?.text === 'project'), 'the repository assertion is gone');
     assert.equal(block(readFileSync(join(root, 'perf/lib/gestureMetrics.mjs'), 'utf8'), 'export function creditLedger', '\n}\n\n/**'), block(baseline('perf/lib/gestureMetrics.mjs'), 'export function creditLedger', '\n}\n\n/**'));
     assert.equal(readFileSync(join(root, 'perf/lib/gestureMetrics.mjs'), 'utf8').slice(readFileSync(join(root, 'perf/lib/gestureMetrics.mjs'), 'utf8').indexOf('export function verdict')).trim(), baseline('perf/lib/gestureMetrics.mjs').slice(baseline('perf/lib/gestureMetrics.mjs').indexOf('export function verdict')).trim());
     const current = { platform: 'android', device: { serial: 'serial-a', package: 'com.trymuxr.app' }, source: { sourceSha256: digest('source'), mobileSha256: digest('mobile'), dirty: false }, harness: { revision: 'head', sha256: digest('harness') }, worldIdentity: base.host.worldIdentity, connection: true, childHealth: () => true };
@@ -74,6 +88,11 @@ test('warm probe fails closed across identity, ownership, fixture, movement, sam
     const moving = { bounds, filename: 'perf-document.md', position: { line: 20, top: 100 }, crop: crop(220), surfaceSeen: true, connected: true };
     const settled = { bounds, filename: 'perf-document.md', position: { line: 1, top: 100 }, crop: crop(40), surfaceSeen: true, connected: true };
     assert.equal(judgeProbeMovement('document', { before, moving, settled }).proven, true);
+    // The document viewer hides the root's connected chrome: the exact-terminal
+    // attach proof carries it, and nothing carries it when that proof is absent.
+    const offRoot = (entry, hostProof) => ({ ...entry, connected: false, hostProof });
+    assert.equal(judgeProbeMovement('document', { before: offRoot(before, true), moving: offRoot(moving, true), settled: offRoot(settled, true) }).proven, true);
+    assert.deepEqual(judgeProbeMovement('document', { before: offRoot(before, false), moving: offRoot(moving, true), settled: offRoot(settled, true) }).reasons, ['connection proof missing']);
     const pngs = { before: join(fixtureRoot, 'before.png'), moving: join(fixtureRoot, 'moving.png'), settled: join(fixtureRoot, 'settled.png') };
     assert.equal(screenshotsComplete(pngs), false);
     for (const [index, path] of Object.values(pngs).entries()) { const image = new PNG({ width: 4, height: 4 }); image.data = crop(20 + index * 40).bytes; writeFileSync(path, PNG.sync.write(image)); }
@@ -177,7 +196,11 @@ test('the prepared descriptor survives serialization and the probe callers judge
     });
     assert.equal(judgeProbeMovement('terminal', terminal()).proven, true);
     assert.equal(judgeProbeMovement('terminal', terminal({ settled: { ...terminal().settled, hostProof: false } })).proven, false);
-    assert.equal(judgeProbeMovement('terminal', terminal({ settled: { ...terminal().settled, connected: false } })).proven, false);
+    // The terminal viewer is off root too: the fresh exact-attach host proof,
+    // terminal identity and input proof stand in for chrome it never draws.
+    const offRootTerminal = terminal();
+    for (const entry of Object.values(offRootTerminal)) entry.connected = false;
+    assert.equal(judgeProbeMovement('terminal', offRootTerminal).proven, true);
 
     // The gesture the probe records is the helper's own, and the existing 70%
     // per-profile guard is what decides whether it was delivered.
