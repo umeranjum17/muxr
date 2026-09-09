@@ -1,6 +1,173 @@
 {
     "releases": [
         {
+            "appVersion": "0.1.29",
+            "title": "Sharp frames, themed previews",
+            "summary": "A pane can trade bytes back for a pixel-exact frame, Markdown and Mermaid previews open in the theme you are already in, the Command action shrinks without losing its target, and focused Android probes trust surfaces they have already proven.",
+            "features": [
+                {
+                    "title": "Trade bytes back for a sharp pane",
+                    "detail": "Setting MUXR_GRAPHICS_HALVE=0 keeps the producer's own pixels, so a pane that renders at the phone's device size lands 1:1 again instead of being halved and scaled back up. The default is unchanged, so the saving stays until you opt out, and pointer mapping stays correct in both arms."
+                },
+                {
+                    "title": "Previews follow the app theme",
+                    "detail": "Markdown and Mermaid preview surfaces take the active light or dark palette before their first paint, so opening a document no longer flashes the opposite theme."
+                },
+                {
+                    "title": "A smaller Command action",
+                    "detail": "The oversized Command puck is now a compact ellipsis that keeps a 44dp draggable target, so it stops covering terminal output without becoming harder to hit."
+                },
+                {
+                    "title": "Terminal scrolling settles sharp",
+                    "detail": "Scrolling stays coarse while output moves and a sharp frame is restored once it goes quiet. Tapping the terminal opens the keyboard by default, with a persistent quick action to turn that off."
+                }
+            ],
+            "fixes": [
+                {
+                    "title": "A host outage no longer ends the terminal",
+                    "detail": "Terminal and reconnect ownership is hardened, so losing the connection recovers the channel instead of closing the session behind it. Graphics memory and retries are bounded rather than left to grow."
+                },
+                {
+                    "title": "Mermaid keeps its styles safely",
+                    "detail": "A strict diagram-only sanitizer preserves safe Mermaid styles and labels without weakening the sanitization applied to user HTML and SVG."
+                },
+                {
+                    "title": "Packaged previews cannot lag their source",
+                    "detail": "The offline attachment renderer is rebuilt during the Android preBuild step, so the packaged assets match the source they were built from byte for byte."
+                },
+                {
+                    "title": "Focused probes trust proven surfaces",
+                    "detail": "A probe targets the clickable Files navigation control with bounded confirmation while the title churns, and accepts prior exact-host proof for document and terminal viewers once the root connection is proven. Tree connection, terminal identity, fresh attach, input, provenance, workload, capture and deadline checks stay fail-closed."
+                },
+                {
+                    "title": "Usage counts what the transcripts hold",
+                    "detail": "Local transcript accounting is authoritative, deduplicated across sources and bounded; gaps are shown as gaps rather than dressed up as data."
+                }
+            ],
+            "verification": [
+                {
+                    "title": "Focused Android document, tree and terminal probes",
+                    "status": "passed",
+                    "detail": "The focused document, tree and terminal probes pass with complete before, moving and settled crops, and a short Android Perfetto profile was captured alongside them.",
+                    "evidence": {
+                        "testedCommit": "59d4e04a",
+                        "environment": "Android emulator, dedicated instance",
+                        "checkedBy": "umer",
+                        "checkedAt": "2026-09-09"
+                    }
+                },
+                {
+                    "title": "Markdown, Mermaid and Actions device QA",
+                    "status": "passed",
+                    "detail": "On the exact rebased release APK, Markdown and Mermaid pass in light and dark, OCR finds both expected labels in both themes, and no opposite-theme transition frame appears in either. A hostile fixture of broken, nested and encoded Mermaid labels renders as visible escaped text and stays inert. The Actions target, drag, open behaviour and labels pass through a focused native flow, and the packaged renderer matches its source byte for byte. The dark pass is a clean retry after the first attempt lost its recording process.",
+                    "evidence": {
+                        "testedCommit": "c9342fb1",
+                        "artifactSha256": "2f5ccc2934facd4eb3c7bfff9055bc8a9969b1ee44318ffb7af0f22db69112ca",
+                        "environment": "Android release APK, fresh dedicated emulator",
+                        "checkedBy": "umer",
+                        "checkedAt": "2026-09-09"
+                    }
+                },
+                {
+                    "title": "Automated checks on main and pull requests",
+                    "status": "passed",
+                    "detail": "Repository CI passed on each merged pull request and on main, and the full local suite reported 34 of 34 checks passing on the sources these notes describe.",
+                    "evidence": {
+                        "testedCommit": "52805928",
+                        "environment": "GitHub Actions ci.yml and local yarn run check",
+                        "checkedBy": "umer",
+                        "checkedAt": "2026-09-09"
+                    }
+                },
+                {
+                    "title": "Frozen-candidate release campaign",
+                    "status": "not-run",
+                    "detail": "No uninterrupted acceptance campaign against one frozen candidate has been run for this version. The passing checks above were run on their own commits and artifacts, not on a single frozen release build.",
+                    "evidence": {
+                        "testedCommit": "52805928",
+                        "environment": "not run",
+                        "checkedBy": "umer",
+                        "checkedAt": "2026-09-09"
+                    }
+                },
+                {
+                    "title": "Physical device acceptance",
+                    "status": "not-run",
+                    "detail": "No install or acceptance pass on a physical phone is recorded for this version. Emulator probes and exact-APK checks are not a phone pass.",
+                    "evidence": {
+                        "testedCommit": "52805928",
+                        "environment": "not run",
+                        "checkedBy": "umer",
+                        "checkedAt": "2026-09-09"
+                    }
+                },
+                {
+                    "title": "iOS acceptance",
+                    "status": "not-run",
+                    "detail": "No iOS simulator or device run is recorded for this version, and no iOS report is retained with this source.",
+                    "evidence": {
+                        "testedCommit": "52805928",
+                        "environment": "not run",
+                        "checkedBy": "umer",
+                        "checkedAt": "2026-09-09"
+                    }
+                }
+            ],
+            "knownLimits": [
+                "No uninterrupted frozen-candidate release campaign has been run for this version.",
+                "No physical-phone acceptance is recorded; the passing Android checks ran on an emulator against a test-key release APK, not a store-signed build on a phone.",
+                "No iOS run of any kind is recorded for this version.",
+                "Transient blank frames around an explicit IME resize remain a known limitation.",
+                "A successful build is not device acceptance."
+            ]
+        },
+        {
+            "appVersion": "0.1.28",
+            "title": "iOS keyboard fixes and clearer peer messages",
+            "summary": "Notes for the already published 0.1.28 nightly: one iOS keyboard accessory instead of two, peer messages that say who sent them, readable New Chat controls, and release completion that waits for the public surfaces to agree.",
+            "features": [
+                {
+                    "title": "See who sent a peer message",
+                    "detail": "A message from a paired computer now identifies its sender and shows how to reply, instead of arriving as unattributed text."
+                }
+            ],
+            "fixes": [
+                {
+                    "title": "One iOS keyboard accessory",
+                    "detail": "The duplicate Ghostty keyboard accessory is removed, and the callback fix behind it is pinned with a check that verifies the installed libraries."
+                },
+                {
+                    "title": "New Chat controls readable in both themes",
+                    "detail": "The New Chat controls take readable colours in light and dark instead of inheriting a palette that hid them in one of the two."
+                },
+                {
+                    "title": "iOS bundle release version comes from build settings",
+                    "detail": "The iOS bundle release version is taken from the build settings, so the built app carries the version the build actually selected."
+                },
+                {
+                    "title": "Releases wait for the public surfaces to agree",
+                    "detail": "Completing a release waits for the channel catalog to propagate, and verification reports what a public surface actually served rather than how the wait ended."
+                }
+            ],
+            "verification": [
+                {
+                    "title": "Automated and device checks for this version",
+                    "status": "not-run",
+                    "detail": "These notes were written after 0.1.28 was already published on the nightly channel, and no run is recorded against them here. Nothing in this entry is claimed as verified.",
+                    "evidence": {
+                        "testedCommit": "9fa34265",
+                        "environment": "not run",
+                        "checkedBy": "umer",
+                        "checkedAt": "2026-09-09"
+                    }
+                }
+            ],
+            "knownLimits": [
+                "This entry documents an already published nightly after the fact; no acceptance run is recorded against it.",
+                "A successful build is not device acceptance."
+            ]
+        },
+        {
             "appVersion": "0.1.27",
             "title": "Steadier terminals, honest usage",
             "summary": "Terminal graphics settle sharp instead of flickering, a dropped host reconnects instead of ending your session, and Usage reports only what the transcripts actually show.",
