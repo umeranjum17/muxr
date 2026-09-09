@@ -69,6 +69,8 @@ export function connectToRelay(options: RelayLinkOptions): RelayLink {
     let closed = false;
     let reconnectAttempt = 0;
     let permanentAuthReported = false;
+    let opening = false;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
     const retryDelay = (): number => Math.min(reconnectDelayMs * 2 ** reconnectAttempt++, 30_000);
     /** Frames that arrived while the socket was down. Hello still goes first. */
     const outbound: Array<{ frame: HostFrame; sessionId?: string; channel: 'session' | 'attachment'; recipientId?: string }> = [];
@@ -114,7 +116,16 @@ export function connectToRelay(options: RelayLinkOptions): RelayLink {
     }
 
     async function open(): Promise<void> {
-        if (closed) return;
+        if (closed || opening) return;
+        if (socket !== undefined) {
+            if (socket.readyState === WebSocket.CONNECTING || socket.readyState === WebSocket.OPEN) return;
+            socket = undefined;
+        }
+        if (retryTimer !== undefined) {
+            clearTimeout(retryTimer);
+            retryTimer = undefined;
+        }
+        opening = true;
         options.onStateChange?.('connecting');
         let url: string;
         try {
@@ -134,6 +145,7 @@ export function connectToRelay(options: RelayLinkOptions): RelayLink {
             }
         } catch (error) {
             const code = ticketStateCode(error);
+            opening = false;
             options.onStateChange?.('closed', code);
             if (error instanceof WsTicketError && (error.status === 401 || error.status === 403)) {
                 closed = true;
@@ -143,20 +155,44 @@ export function connectToRelay(options: RelayLinkOptions): RelayLink {
                 }
                 return;
             }
-            if (!closed) setTimeout(() => void open(), retryDelay());
+            if (!closed) retryTimer = setTimeout(() => {
+                retryTimer = undefined;
+                void open();
+            }, retryDelay());
+            return;
+        }
+        if (closed) {
+            opening = false;
             return;
         }
         // Local development retains the larger ceiling; hosted relay config enforces 4 MiB.
-        const next = new WebSocket(url, { maxPayload: 512 * 1024 * 1024 });
+        let next: WebSocket;
+        try {
+            next = new WebSocket(url, { maxPayload: 512 * 1024 * 1024 });
+        } catch {
+            opening = false;
+            options.onStateChange?.('closed', 'socket-error');
+            retryTimer = setTimeout(() => {
+                retryTimer = undefined;
+                void open();
+            }, retryDelay());
+            return;
+        }
+        opening = false;
         socket = next;
 
         next.on('open', () => {
+            if (closed || socket !== next) {
+                next.close();
+                return;
+            }
             reconnectAttempt = 0;
             options.onStateChange?.('open');
             flush();
         });
 
         next.on('message', (raw) => {
+            if (closed || socket !== next) return;
             let envelope: Envelope;
             try {
                 const parsed = JSON.parse(String(raw)) as unknown;
@@ -211,6 +247,10 @@ export function connectToRelay(options: RelayLinkOptions): RelayLink {
         });
 
         const retry = (code: number): void => {
+            // A superseded socket is no longer the owner. Its late close event
+            // must not schedule a reconnect over the newer host connection.
+            if (socket !== next) return;
+            socket = undefined;
             // The relay retires this host when a newer one takes the machineId.
             // Reconnecting would just evict the newer host back.
             const stateCode = closeStateCode(code);
@@ -220,8 +260,11 @@ export function connectToRelay(options: RelayLinkOptions): RelayLink {
                 return;
             }
             options.onStateChange?.('closed', stateCode);
-            if (closed) return;
-            setTimeout(() => void open(), retryDelay());
+            if (closed || retryTimer !== undefined) return;
+            retryTimer = setTimeout(() => {
+                retryTimer = undefined;
+                void open();
+            }, retryDelay());
         };
         next.on('close', retry);
         next.on('error', () => next.close());
@@ -246,6 +289,10 @@ export function connectToRelay(options: RelayLinkOptions): RelayLink {
         close() {
             closed = true;
             outbound.length = 0;
+            if (retryTimer !== undefined) {
+                clearTimeout(retryTimer);
+                retryTimer = undefined;
+            }
             socket?.close();
         },
     };

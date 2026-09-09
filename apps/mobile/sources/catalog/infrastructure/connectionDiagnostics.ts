@@ -86,7 +86,7 @@ export type ConnectionDiagnosticEvent =
     | { at: string; event: 'agent.gate'; kind?: string; lifecycle: ConnectionDiagnosticLifecycle; promptable: boolean; gate: ConnectionDiagnosticGate }
     | { at: string; event: 'terminal.first-frame'; ms: number }
     | { at: string; event: 'terminal.frames'; received: number; written: number }
-    | { at: string; event: 'terminal.scroll-latency'; ms: number }
+    | { at: string; event: 'terminal.scroll-timeout' }
     | { at: string; event: 'terminal.graphics-frame'; bytes: number }
     | { at: string; event: 'terminal.scroll-rows'; rows: number }
     | { at: string; event: 'terminal.scroll-clamped'; rows: number }
@@ -167,12 +167,27 @@ const CODES: Record<string, true> = {
     'start-launch-failed': true,
 };
 
+/**
+ * The trail is a ring of the last {@link MAX_EVENTS}, so a reader cannot tell
+ * a quiet phase from an evicted one by differencing what it can still see.
+ * Every recorded event gets a number that only ever goes up, and the folded
+ * gesture events also add to totals that are never evicted; a reader marks the
+ * number it saw and counts only what came after it.
+ */
+let sequence = 0;
+const eventSequence = new WeakMap<ConnectionDiagnosticEvent, number>();
+const scrollTotals = { requests: 0, rows: 0, clamped: 0, timedOut: 0 };
+
 let events: ConnectionDiagnosticEvent[] = loadPersisted();
 const frameCounts = new WeakMap<TerminalFrameCountToken, { received: number; written: number; open: boolean }>();
 const liveFrameCounts = new Set<TerminalFrameCountToken>();
 
 export function resetConnectionDiagnostics(): void {
     events = [];
+    scrollTotals.requests = 0;
+    scrollTotals.rows = 0;
+    scrollTotals.clamped = 0;
+    scrollTotals.timedOut = 0;
     for (const token of liveFrameCounts) {
         const state = frameCounts.get(token);
         if (state !== undefined) state.open = false;
@@ -224,14 +239,18 @@ type ConnectionDiagnosticDraft = ConnectionDiagnosticEvent extends infer Event
     ? Event extends { at: string } ? Omit<Event, 'at'> & { at?: string } : never
     : never;
 
-export function recordConnectionDiagnostic(event: ConnectionDiagnosticDraft): void {
+/** The event's sequence number, or `undefined` when it was not recorded. */
+export function recordConnectionDiagnostic(event: ConnectionDiagnosticDraft): number | undefined {
     const entry = { at: event.at ?? new Date().toISOString(), ...event } as ConnectionDiagnosticEvent;
-    if (!isValidEvent(entry)) return;
+    if (!isValidEvent(entry)) return undefined;
+    sequence += 1;
+    eventSequence.set(entry, sequence);
     events = [...events, entry].slice(-MAX_EVENTS);
     persist(events);
     if (typeof __DEV__ !== 'undefined' && __DEV__) {
         console.debug('[muxr.diag]', entry.event, summarize(entry));
     }
+    return sequence;
 }
 
 export function recordSocketState(state: string, live: boolean): void {
@@ -373,8 +392,15 @@ export function recordTerminalFirstFrame(ms: number): void {
     recordConnectionDiagnostic({ event: 'terminal.first-frame', ms: boundedDuration(ms) });
 }
 
-export function recordTerminalScrollLatency(ms: number): void {
-    recordConnectionDiagnostic({ event: 'terminal.scroll-latency', ms: boundedDuration(ms) });
+/**
+ * A scroll whose repaint never came back inside the budget. Terminal history
+ * has no answer that can be told apart from the stream's own repaints, so the
+ * phone reports whether the pane kept up rather than inventing a latency for a
+ * frame it cannot attribute.
+ */
+export function recordTerminalScrollTimeout(): void {
+    if (recordConnectionDiagnostic({ event: 'terminal.scroll-timeout' }) === undefined) return;
+    scrollTotals.timedOut = boundedCount(scrollTotals.timedOut + 1);
 }
 
 export function recordTerminalGraphicsFrame(bytes: number): void {
@@ -383,26 +409,31 @@ export function recordTerminalGraphicsFrame(bytes: number): void {
 
 /** Rows a gesture asked the pane for, so a fling's travel can be judged. */
 export function recordTerminalScrollRows(rows: number): void {
-    recordConnectionDiagnostic({ event: 'terminal.scroll-rows', rows: boundedCount(rows) });
+    const bounded = boundedCount(rows);
+    if (recordConnectionDiagnostic({ event: 'terminal.scroll-rows', rows: bounded }) === undefined) return;
+    scrollTotals.requests = boundedCount(scrollTotals.requests + 1);
+    scrollTotals.rows = boundedCount(scrollTotals.rows + bounded);
 }
 
 /** Rows the runaway clamp ate. A guard that discards a gesture in silence is
  *  indistinguishable from a bug, so it is counted and gated at zero. */
 export function recordTerminalScrollClamped(rows: number): void {
-    recordConnectionDiagnostic({ event: 'terminal.scroll-clamped', rows: boundedCount(rows) });
+    const bounded = boundedCount(rows);
+    if (recordConnectionDiagnostic({ event: 'terminal.scroll-clamped', rows: bounded }) === undefined) return;
+    scrollTotals.clamped = boundedCount(scrollTotals.clamped + bounded);
 }
 
 /** A grid change, which is what a zoom really is. Numbers only. */
 export function recordTerminalResize(cols: number, rows: number, cellWidthPx?: number, cellHeightPx?: number): void {
     // An image pane zooms by cell pixels while the grid stays put, so a resize
     // that only changes the cell is still a resize and has to be countable.
-    recordConnectionDiagnostic({
-        event: 'terminal.resize',
+    const entry = {
         cols: boundedCount(cols),
         rows: boundedCount(rows),
         ...(cellWidthPx === undefined ? {} : { cellWidthPx: boundedCount(cellWidthPx) }),
         ...(cellHeightPx === undefined ? {} : { cellHeightPx: boundedCount(cellHeightPx) }),
-    });
+    };
+    recordConnectionDiagnostic({ event: 'terminal.resize', ...entry });
 }
 
 export function recordTerminalChannel(
@@ -423,11 +454,11 @@ export function recordTerminalChannel(
 }
 
 export function formatConnectionDiagnosticsForReport(): string {
-    const folded = new Set(['terminal.scroll-latency', 'terminal.graphics-frame', 'terminal.scroll-rows', 'terminal.scroll-clamped']);
+    const folded = new Set(['terminal.scroll-timeout', 'terminal.graphics-frame', 'terminal.scroll-rows', 'terminal.scroll-clamped', 'terminal.resize']);
     const trail = events.filter((event) => !folded.has(event.event));
     const body = trail.length === 0
         ? 'No phone transport events yet.'
-        : trail.map((event) => `${event.at} ${summarize(event)}`).join('\n');
+        : trail.map((event) => `${event.at} #${eventSequence.get(event) ?? 0} ${summarize(event)}`).join('\n');
     const live = liveFrameLine();
     const graphics = graphicsLine();
     let report = `${PRIVACY_HEADER}\n${body}`;
@@ -455,20 +486,18 @@ export function formatLatestConnectionFailure(): string | undefined {
 function graphicsLine(): string | undefined {
     const frames = events.flatMap((event) => event.event === 'terminal.graphics-frame' ? [event.bytes] : []);
     if (frames.length === 0) return undefined;
-    const latencies = events.flatMap((event) => event.event === 'terminal.scroll-latency' ? [event.ms] : []);
-    return `graphics frames=${frames.length} p95=${percentile(frames, 95)}B scroll->frame p95=${percentile(latencies, 95)}ms`;
+    return `graphics frames=${frames.length} p95=${percentile(frames, 95)}B`;
 }
 
-/** What the finger asked for against what the clamp allowed. */
+/**
+ * What the finger asked for, what the clamp allowed, and what never came back.
+ * The counts are totals for the life of the trail, never the ring's leftovers,
+ * so a reader marks the number it saw and counts only what came after it.
+ */
 function gestureLine(): string | undefined {
-    const rows = events.flatMap((event) => event.event === 'terminal.scroll-rows' ? [event.rows] : []);
-    if (rows.length === 0) return undefined;
-    const clamped = events.flatMap((event) => event.event === 'terminal.scroll-clamped' ? [event.rows] : []);
-    const latencies = events.flatMap((event) => event.event === 'terminal.scroll-latency' ? [event.ms] : []);
-    const total = rows.reduce((sum, value) => sum + value, 0);
-    const lost = clamped.reduce((sum, value) => sum + value, 0);
-    return `terminal.scroll requests=${rows.length} rows=${total} clamped=${lost}`
-        + ` latency p50=${percentile(latencies, 50)}ms p95=${percentile(latencies, 95)}ms`;
+    if (scrollTotals.requests === 0) return undefined;
+    return `terminal.scroll seq=${sequence} requests=${scrollTotals.requests} rows=${scrollTotals.rows}`
+        + ` clamped=${scrollTotals.clamped} timedOut=${scrollTotals.timedOut}`;
 }
 
 function liveFrameLine(): string | undefined {
@@ -501,7 +530,7 @@ function summarize(event: ConnectionDiagnosticEvent): string {
     }
     if (event.event === 'terminal.first-frame') return `terminal.first-frame ${event.ms}ms`;
     if (event.event === 'terminal.frames') return `terminal.frames received=${event.received} written=${event.written}`;
-    if (event.event === 'terminal.scroll-latency') return `terminal.scroll-latency ${event.ms}ms`;
+    if (event.event === 'terminal.scroll-timeout') return 'terminal.scroll-timeout';
     if (event.event === 'terminal.graphics-frame') return `terminal.graphics-frame ${event.bytes}B`;
     if (event.event === 'terminal.scroll-rows') return `terminal.scroll-rows ${event.rows}`;
     if (event.event === 'terminal.scroll-clamped') return `terminal.scroll-clamped ${event.rows}`;
@@ -589,9 +618,18 @@ function isValidEvent(value: unknown): value is ConnectionDiagnosticEvent {
     }
     if (event.event === 'terminal.first-frame') return isFiniteCount(event.ms);
     if (event.event === 'terminal.frames') return isFiniteCount(event.received) && isFiniteCount(event.written);
-    if (event.event === 'terminal.scroll-latency') return isFiniteCount(event.ms);
+    if (event.event === 'terminal.scroll-timeout') return true;
     if (event.event === 'terminal.graphics-frame') {
         return typeof event.bytes === 'number' && Number.isFinite(event.bytes) && event.bytes >= 0 && event.bytes <= 64 * 1024 * 1024;
+    }
+    // The gesture and zoom events the release gate reads. Without these three
+    // the recorder dropped every one of them and the trail described a phone
+    // that never scrolled, resized or clamped.
+    if (event.event === 'terminal.scroll-rows' || event.event === 'terminal.scroll-clamped') return isFiniteCount(event.rows);
+    if (event.event === 'terminal.resize') {
+        return isFiniteCount(event.cols) && isFiniteCount(event.rows)
+            && (event.cellWidthPx === undefined || isFiniteCount(event.cellWidthPx))
+            && (event.cellHeightPx === undefined || isFiniteCount(event.cellHeightPx));
     }
     return false;
 }
@@ -602,7 +640,12 @@ function loadPersisted(): ConnectionDiagnosticEvent[] {
     try {
         const parsed = JSON.parse(raw) as unknown;
         if (!Array.isArray(parsed)) return [];
-        return parsed.filter(isValidEvent).slice(-MAX_EVENTS);
+        const restored = parsed.filter(isValidEvent).slice(-MAX_EVENTS);
+        for (const event of restored) {
+            sequence += 1;
+            eventSequence.set(event, sequence);
+        }
+        return restored;
     } catch {
         return [];
     }

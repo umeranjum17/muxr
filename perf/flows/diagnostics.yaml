@@ -8,13 +8,13 @@ tags:
 - tapOn:
     text: 'CANCEL|Not now|Deny|Later'
     optional: true
-- openLink: muxr:///settings
+- openLink: muxr:///settings/connection
 - extendedWaitUntil:
     visible:
-      text: 'Redacted diagnostics'
+      text: 'Show diagnostics'
     timeout: 20000
 - tapOn:
-    text: 'Redacted diagnostics'
+    text: 'Show diagnostics'
 - extendedWaitUntil:
     visible:
       text: '.*socket.*|.*rpc.*|.*no misses.*'

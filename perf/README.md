@@ -45,6 +45,86 @@ Prerequisites, all checked in preflight with a named failure:
 - Maestro (`mise x maestro@cli-2.7.0`)
 - `yarn build`, since the gate spawns `apps/relay/dist` and `apps/host/dist`
 
+## The development probe (not acceptance)
+
+The release gate is not the inner loop. To look at one surface, prepare a
+session once in a pane you own and probe it as many times as you like. The
+preparation shell must supply an explicit device and build evidence:
+
+```bash
+export OUT=/tmp/muxr-probe-evidence
+export SERIAL=emulator-5554   # owned Android target
+export APK=/tmp/muxr-0.1.27-vc127-x86_64.apk
+export UDID=<owned-booted-ios-udid>
+export APP=/tmp/muxr.app
+export IOSOUT="$OUT/ios"
+mkdir -p "$OUT/android" "$IOSOUT"
+BEFORE=$(node --input-type=module -e "import {sourceIdentity} from './perf/lib/provenance.mjs'; console.log(JSON.stringify(sourceIdentity('.')))" )
+yarn build > "$OUT/host-build.log" 2>&1
+node --input-type=module - "$BEFORE" "$OUT/host-build.json" <<'NODE'
+import { writeFileSync } from 'node:fs';
+import { sourceIdentity, harnessIdentity, runtimeIdentity } from './perf/lib/provenance.mjs';
+const before = JSON.parse(process.argv[2]);
+const source = sourceIdentity('.');
+if (source.sourceSha256 !== before.sourceSha256 || source.dirty) throw new Error('source changed or became dirty during build');
+writeFileSync(process.argv[3], JSON.stringify({ version: 1, kind: 'muxr.host-build', buildCommand: 'yarn build', builtAt: new Date().toISOString(), source, harness: harnessIdentity('.'), runtime: runtimeIdentity('.') }, null, 2) + '\n');
+NODE
+# after the owner has run yarn build and written OUT/host-build.json
+# pane you leave running: starts the world, pairs once, holds both
+node perf/probeSession.mjs --platform android --serial "$SERIAL" \
+  --apk "$APK" --candidate-manifest "$APK.json" --host-build "$OUT/host-build.json" \
+  --descriptor /tmp/muxr-probe-android-session.json
+
+# any other pane: one bounded surface check; repeat for tree or terminal
+node perf/surfaceProbe.mjs --session /tmp/muxr-probe-android-session.json \
+  --platform android --serial "$SERIAL" --surface document --seconds 110 \
+  --attachments-dir "$OUT/android/document-run"
+
+# iOS uses the same warm world and supported QR/deep-link pairing path
+node perf/probeSession.mjs --platform ios --udid "$UDID" --app "$APP" \
+  --bundle com.trymuxr.app --candidate-manifest "$APP.json" \
+  --host-build "$IOSOUT/host-build.json" --descriptor /tmp/muxr-probe-ios-session.json
+node perf/surfaceProbe.mjs --session /tmp/muxr-probe-ios-session.json \
+  --platform ios --udid "$UDID" --surface document --seconds 110 \
+  --attachments-dir "$IOSOUT/document-run"
+```
+
+The probe never builds, installs, pairs, runs baselines, soaks or tours. Preparation
+requires genuine candidate sidecar evidence (`$APK.json`/`$APP.json`) and a
+`muxr.host-build` JSON written immediately after a clean `yarn build`; it starts
+one explicit platform/device lease and writes a private 0600 descriptor. Each
+probe validates that descriptor, the live world witness, selected host, fixture,
+source/runtime/plugin identity and installed bytes, then takes three cropped
+`before`/`moving`/`settled` PNGs under the requested attachment directory. A
+second probe sharing the lease is refused by the nested active-probe lock. The
+entire probe, including cleanup, is bounded by `0 < --seconds <= 110` and reports
+`inconclusive` with a reason instead of repairing anything. It is diagnostic
+surface evidence only; Android and iOS metrics are not cross-platform release
+acceptance equivalents.
+
+Its output is a small evidence envelope: provenance and scenario version,
+device and refresh, the actions and their cadence, CPU and memory as named
+metrics with units and collectors, fresh movement candidates, and the
+before/moving/settled screenshots it wrote under
+`~/.muxr/attachments/pane/$HERDR_PANE_ID`. A metric nobody could take is
+`unavailable` with a reason, never zero.
+
+**Every probe result carries `"partial": true` and `"acceptance": false`.** It
+is a development signal. Release acceptance is one uninterrupted `yarn perf`
+run on frozen bytes, and nothing here substitutes for it. Frame accounting is
+deliberately absent: the gfxinfo ledger is frozen for acceptance, so the probe
+reports CPU and memory as diagnostics and proves behaviour from captures,
+movement candidates and host records.
+
+## The scenario contract
+
+`perf/lib/scenario.mjs` is the one definition of the world both platforms
+measure: 100 panes, 30 agents, titles at 2 Hz, terminal at 4096 B/s, graphics at
+4 Hz, and one document fixture with a fixed payload, digest and served-line
+count (222 of 240 generated lines survive the file plugin's 24 KiB read). The
+Android gate, the iOS gate and the probe all consume it, so a document number
+from one platform means the same thing on the other.
+
 ## What it measures, and why only these signals
 
 | Signal | Source | Hard fail |
@@ -58,14 +138,17 @@ Prerequisites, all checked in preflight with a named failure:
 
 | Frames dropped | `framestats` Flags=0 and completed − intended > 2 frames | 12% / 3% of a fling |
 | Gesture notches dropped | host `graphics.pipeline` `notchesDropped` for the bout | reported beside `gestureDroppedPercent`, never gated. The governor caps intent at 8; a fling that under-travels with `notchesDropped > 0` was bounded by frames in flight, not a slow one |
-| Input-to-first-movement | `/proc/uptime` in the same `adb shell` as the swipe, then first input `framestats` row | p95 120 / 60 ms |
+| Input-to-first-movement | `/proc/uptime` in the same `adb shell` as the swipe, then first input `framestats` row | p95 120 / 60 ms. A bout with no framestats ring fails as `no framestats frames`, and one whose frames were never input-driven as `no input-driven frame`; neither reduces to a passing zero. A zoom tap is a touch like any other: its own tap-and-settle window is captured the same way and held to the same account, with the declared jank thresholds unchanged |
 | Missed vsync | gfxinfo delta per fling | 3 / 1 |
-| Accidental owners | phone trail `document.navigate` / agent-page during a vertical bout | any |
+| Accidental owners | phone trail agent-page during a vertical bout | any |
 | Content moved | `screencapRaw` of the scrollable rect, mean |Δ| ≥ 8/255; strip card label, document gutter line, terminal trail | injected at intended velocity and the surface did not move |
-| Terminal fling | phone trail `terminal.scroll-latency`, `terminal.scroll-rows`, `terminal.scroll-clamped` | p95 250 / 200 ms, < 40 / 60 rows/s, any clamp |
+| Terminal fling | the panel's own surface identity, phone trail `terminal.scroll-rows` / `terminal.scroll-clamped` / `timedOut`, and the bout's gesture-scoped Android framestats | judged as **rendering performance, not input latency**. Terminal history has no host response a repaint can be attributed to, so no scroll-to-write latency is measured or gated. The phase must have stood on a text pane, the phone must have asked for rows, the clamp must have eaten none, no scroll may have timed out, and the viewport must have visibly changed -- or be unchanged because the clamp held it, which is reported as the clamp rather than as content that never moved. Travel is < 40 / 60 rows/s |
 | Graphics fling | host `graphics.pipeline` bout-scoped `notchesSent` × 3 | < 9 rows/s |
-| Zoom | phone trail `terminal.resize COLSxROWS cell=WxH` | exactly 1 countable step. Image pane: cell changed, grid held. Text pane: grid changed |
-| Memory | TOTAL PSS from meminfo | over 100 MB drift in a phase |
+| Named surface | the panel's own `Zoom out` state, read before the bout | `terminal text fling` and `text zoom tap` must be on a text pane, `graphics pane scroll` and `graphics zoom tap` on a graphics pane; a mismatch, or a surface the probe could not identify, fails the phase before a number is read |
+| Zoom | the panel's own `Zoom out` / `Reset zoom` state, and one complete observation window of `cell-metrics.jsonl` geometry for this phase's pane | **Two phases, one per surface**: `text zoom tap` on the text fixture and `graphics zoom tap` on the pinned checkerboard. A single phase had to discover which pane it had landed on and grade itself by that, so whichever surface answered was the only one covered. Guards first, on both: a **control** attach of this phase's own pane, the probed surface matching the one the phase declares, and `Reset zoom` disabled -- the app's own report that the pane is untouched at its default. The window is then fail-closed: geometry is drained and validated to quiet, the cursor is taken **immediately before** the first `Zoom in`, the app's control transition is confirmed, observation continues through a bounded settle, and a valid closing read is taken **before any other action** -- so a re-grid that arrives while a UI state dump is being read is still inside the window. Its baseline may be the grid the pane **attached** with; no prior resize is required, and every `terminal.resize` grid change is recorded whether or not the phone declared cell pixels. Text pane: exactly **one** grid transition in that complete window, onto fewer columns *and* fewer rows; a record repeating the grid before it is a repaint and ignored, and a reversal is a second transition and fails. Graphics pane: **no** grid transition, and the fixture's checkerboard measurably 1.25x larger in the phone's own pixels -- that crop, taken from this phase's pane after its own step, *is* the phase-local graphics frame. No aggregate host `graphics.pipeline` count stands in for delivery; it dated publication rather than this pane's step, and was removed rather than replaced with more telemetry. Either way the second `Zoom in` must be seen to step, and `Zoom out` and `Reset zoom` must return the surface to its default, all of it after the closing read. A JSONL that is missing, unreadable, unparsable or caught half-written is **unavailable**, never an empty series: the phase aborts as inconclusive instead of passing on a silent zero |
+| Runtime continuity | sampler `restarts` and `gaps` | any restart, or any sample where the JS thread could not be read |
+| Memory | TOTAL PSS from meminfo | over 100 MB drift in a phase. Fewer than two comparable samples, or any missed sample, fails as unmeasured rather than as flat. Across the tour, a pane whose memory never sampled fails: the remaining samples are not the whole tour |
+| Completion | phases recorded against `PHASES`, and the exit code | a run that was interrupted, or that did not record every phase, names the phases it did not run and can never print `PASS` |
 | Flows | Maestro exit code | pairing, soak, navigation, document open or graphics open did not complete |
 | Graphics pipeline | host journal `graphics.pipeline` | no event, p95 over 250 ms, or frame bytes p95 over 800 kB |
 
@@ -131,28 +214,50 @@ for taps and for a press-hold-then-drag where the hold matters.
 The four that were already here: idle on the herd (120 s),
 `flows/herdSoak.yaml` (strip and tree scrolling), `flows/herdNavigate.yaml`
 (attach an agent's terminal, drag its scrollback, detach, walk the plugin
-tabs, leave the app and return), and `flows/graphicsScroll.yaml` (opens a
-graphics pane; the gate then scripts `scrollBout` for 90 s). Graphics limits
-are `graphicsPipelineP95Ms` 250, `graphicsBytesP95` 800 kB and
-`scrollToFrameP95Ms` 400. Superseded frames are reported, not gated.
+tabs, leave the app and return). The graphics pane is established by the gate
+itself, by the same label-selected card the terminal phases use, and never
+inherited from a previous phase. Graphics limits
+are `graphicsPipelineP95Ms` 250 and `graphicsBytesP95` 800 kB. Superseded
+frames are reported, not gated.
 
-The six that measure feel:
+The seven that measure feel:
 
 | Phase | Seconds | Drive |
 | --- | --- | --- |
 | `herd tree fling` | 30 | `scrollBout` on the herd |
 | `herd strip paging` | 20 | `stripBout` (horizontal, y = 33%, 60% of width) |
-| `document scroll and swipe` | 30 | `flows/openDocument.yaml`, then 20 s of `scrollBout` and 6 horizontal swipes |
-| `terminal text fling` | 30 | tap the first live card, `scrollBout` |
-| `graphics pane scroll` | 90 | scripted `scrollBout` after the open-only graphics flow |
-| `zoom tap navigate` | 60 | `viewBounds` + `input tap` on `Zoom in` / `Zoom out` / `Reset zoom`, then pane tap / fling / pan |
+| `document scroll` | 30 | `flows/openDocument.yaml`, then 30 s of `scrollBout`. The viewer reached from the herd carries no file navigator, so there is no `File n of m` to move and nothing horizontal to measure |
+| `terminal text fling` | 30 | open the **text fixture pane** by identity, assert the surface is a text pane, `scrollBout` |
+| `graphics pane scroll` | 90 | open the **pinned checkerboard pane** by identity, assert the surface is a graphics pane, `scrollBout` |
+| `text zoom tap` | 60 | open the **text fixture pane** by identity, assert the surface is a text pane, `Show terminal controls`, tap `Zoom in` / `Zoom out` / `Reset zoom`, then pane tap / fling / pan |
+| `graphics zoom tap` | 60 | open the **pinned checkerboard pane** by identity, assert the surface is a graphics pane, same tap sequence, and prove the magnification in the pane's own pixels |
+
+The terminal phases are routed by pane identity, never by card order: the fake herd publishes
+`fixturePanes.graphics` (its first pane, where the checkerboard producer is pinned for the run)
+and `fixturePanes.text` (the first pane with no agent and not the pinned one). An agent pane is
+opened through the host's own persisted session binding, a shell pane through its deep link, and
+the phase only starts once the host has recorded an attach for that exact pane id since the route
+was opened. Because the producer is pinned, a wheel notch on the text pane cannot pull the board
+onto it and turn the surface it measures into a graphics one mid-bout.
 
 Every scroll phase also proves the content moved. The gate captures `screencapRaw` of the
-scrollable rect before and after the bout and compares mean absolute RGB difference to 8/255
+scrollable rect before and after the bout -- and, on the graphics pane, once more while the
+travel is still one-way, since a bout that flings up and back can end on the picture it started
+from -- and compares the largest mean absolute RGB difference to 8/255
 (the same helper the graphics pane uses). The strip additionally requires the first visible
 card label to change (or the pixel diff if no label is exposed), the document requires the
-first gutter line number to change, and a terminal fling requires `terminal.scroll-rows` > 0,
-at least one `terminal.scroll-latency`, and `terminal.scroll-clamped` = 0. A bout that injected
+first gutter line number to change, and a terminal fling requires
+`terminal.scroll-rows` > 0 with at least one scroll request, and
+`terminal.scroll-clamped` = 0. There is no scroll-to-write latency: a terminal
+stream repaints itself whether or not anything was scrolled, so no arriving
+frame can be attributed to a particular scroll, and a duration measured against
+one that cannot be attributed is not a latency. The phone keeps the in-flight
+gate purely as flow control and counts the scrolls that went unanswered inside
+the budget (`timedOut`); any of those fails the phase. The phone trail is a
+bounded ring, so those counts come from totals it keeps apart from it. A
+viewport that did not change is still honest evidence when the clamp is why it
+did not: that is reported as the clamp, which is gated at zero on its own,
+rather than as content that never moved. A bout that injected
 at the intended velocity and moved nothing fails as `content did not move`. Evidence records
 both the input (`gestures`, `medianVelocityPxPerSecond`) and the movement it produced.
 
@@ -172,12 +277,20 @@ The host journal is a 512-event, 256 kB ring. A long run can rotate
 `terminal.attach` out of the file by the time the gate would have read it
 once at the end. The gate snapshots `diagnostics.json` after pairing and after
 every phase and unions events by timestamp, and it cross-checks fake-herdr's
-`attach.jsonl`. Evidence records `hostJournal.eventCounts` and
-`hostJournal.attachJsonl`.
+control terminal sessions. Evidence records `hostJournal.eventCounts` and
+`hostJournal.controlAttaches`.
 
 New fake-Herdr records, paths exposed on `startFakeStack`:
 
-- `attach.jsonl` — every `pane.read` (`pane_id`, `cols`, `rows`, `cellWidthPx`, `cellHeightPx`, `at`)
+- `attach.jsonl` — every `pane.read` (`pane_id`, `cols`, `rows`, `cellWidthPx`, `cellHeightPx`, `at`).
+  Kept as an artifact only: a `pane.read` is a read-only thumbnail of whatever pane the herd screen
+  is showing, so it is never attachment proof
+- `cell-metrics.jsonl` — the phone's declared geometry per pane and time: `source: terminal.attach`
+  carries the `mode` (`control` or `observe`) and the grid the pane opened on -- a usable zoom
+  baseline on its own, since a pane the phone never re-gridded still declared a grid -- and is the **only**
+  proof that a phase's own pane was really taken over; `source: terminal.resize` adds the cell
+  pixels. A phase with no control attach, or no geometry for its own pane, fails as unmeasured
+  rather than reading an earlier phase's pane
 - `graphics-input.jsonl` — every non-welcome graphics-socket message, with the decoded SGR report
 - `input.jsonl` — every `pane.send_keys` / `agent.send_keys`
 - `--terminal-bytes-per-second 0` — hold a pane static for a screenshot comparison

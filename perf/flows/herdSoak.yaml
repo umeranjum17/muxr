@@ -11,6 +11,10 @@ tags:
     optional: true
 - extendedWaitUntil:
     visible:
+      text: 'connected'
+    timeout: 40000
+- extendedWaitUntil:
+    visible:
       text: 'LIVE'
     timeout: 20000
 - repeat:
@@ -26,3 +30,7 @@ tags:
           direction: UP
       - swipe:
           direction: DOWN
+# A soak that ends on a dropped connection scrolled a stale herd, so the numbers
+# it produced are not the surface this measures.
+- assertVisible: 'connected'
+- assertVisible: 'LIVE'

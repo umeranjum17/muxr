@@ -8,7 +8,7 @@ import { Switch } from '@/components/Switch';
 import { t } from '@/text';
 
 export default function PreferencesSettingsScreen() {
-    const [terminalAutoShowKeyboard, setTerminalAutoShowKeyboard] = useLocalSettingMutable('terminalAutoShowKeyboard');
+    const [terminalKeyboardDisabled, setTerminalKeyboardDisabled] = useLocalSettingMutable('terminalKeyboardDisabled');
     const [commandPaletteEnabled, setCommandPaletteEnabled] = useLocalSettingMutable('commandPaletteEnabled');
     const [hideInactiveSessions, setHideInactiveSessions] = useSettingMutable('hideInactiveSessions');
     const [sortSessionsByActivity, setSortSessionsByActivity] = useSettingMutable('sortSessionsByActivity');
@@ -37,7 +37,7 @@ export default function PreferencesSettingsScreen() {
                         title="Open keyboard on tap"
                         subtitle="Show the keyboard when tapping shells, Terminal Browser or Terminal Code"
                         icon={<Ionicons name="keypad-outline" size={29} color="#007AFF" />}
-                        rightElement={<Switch value={terminalAutoShowKeyboard} onValueChange={setTerminalAutoShowKeyboard} />}
+                        rightElement={<Switch value={!terminalKeyboardDisabled} onValueChange={(enabled) => setTerminalKeyboardDisabled(!enabled)} />}
                         showChevron={false}
                     />
                 </ItemGroup>

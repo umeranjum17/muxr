@@ -463,6 +463,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             document.removeEventListener('visibilitychange', onVisibility);
             canvas.remove();
             onChannel?.(undefined);
+            channel?.close();
             controller.abort();
             term.dispose();
         };

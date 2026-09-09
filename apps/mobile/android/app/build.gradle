@@ -64,6 +64,18 @@ react {
 }
 
 /**
+ * `sources/components/attachment/preview.bundle.bin` is generated, gitignored, and
+ * packaged verbatim by Metro. Gradle sees no source for it, so a build that did not
+ * run `yarn build` first shipped a preview renderer older than the revision its
+ * provenance names -- which is how a committed Mermaid label fix never reached the
+ * packaged app. Rebuild it with every Android build instead.
+ */
+def buildAttachmentPreview = tasks.register("buildAttachmentPreview", Exec) {
+    commandLine "node", "${projectRoot}/scripts/buildAttachmentPreview.mjs"
+}
+tasks.named("preBuild").configure { dependsOn(buildAttachmentPreview) }
+
+/**
  * Set this to true in release builds to optimize the app using [R8](https://developer.android.com/topic/performance/app-optimization/enable-app-optimization).
  */
 def enableMinifyInReleaseBuilds = (findProperty('android.enableMinifyInReleaseBuilds') ?: false).toBoolean()

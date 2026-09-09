@@ -17,7 +17,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { packageInfoFromPath, packagePathFromInput, sealRelease, verifyRelease } from '../../release/index.mjs';
+import { packageInfoFromPath, packagePathFromInput, prepareChangelog, reportFiles, sealRelease, verifyRelease } from '../../release/index.mjs';
 
 const root = process.cwd();
 const scratchBase = process.platform === 'darwin' ? '/tmp' : tmpdir();
@@ -452,9 +452,69 @@ try {
     assert.doesNotMatch(`${hostBundle}\n${cryptoBundle}`, /(?:apps|packages)\/(?:host|wire|contract|crypto)\/(?:src|dist)\//, 'bundle leaked proprietary source paths');
     const licenseInventory = JSON.parse(run('tar', ['-xOf', tarball, 'package/THIRD_PARTY_LICENSES.json']).stdout);
     const packageJson = JSON.parse(run('tar', ['-xOf', tarball, 'package/package.json']).stdout);
+    // Render this candidate's release report from its own frozen source, then
+    // carry it through sealing and tamper rejection with the artifact it describes.
+    const reportRequest = { version: packageJson.version, channel: packageJson.muxrRelease.channel,
+        commit: run('git', ['rev-parse', 'HEAD'], { cwd: snapshot }).stdout.trim(), directory: tarDir, sourceRoot: snapshot };
+    const { entry, files: rendered } = prepareChangelog({ mode: 'generate', ...reportRequest });
+    const html = rendered[reportFiles.html];
+    for (const heading of ['Added', 'Fixed', 'Verification', 'Known limits']) assert.match(html, new RegExp(`<h2>${heading}</h2>`), `${heading} missing from the release report`);
+    assert.match(html, new RegExp(entry.title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    assert.doesNotMatch(html, /<script|https?:\/\//, 'release report must stay offline and script-free');
+    prepareChangelog({ mode: 'check', ...reportRequest });
+
+    // Hostile authored text is escaped, never interpolated as markup.
+    const hostileRoot = join(scratch, 'hostile-source');
+    const hostilePath = join(hostileRoot, 'apps', 'mobile', 'sources', 'changelog', 'changelog.json');
+    mkdirSync(dirname(hostilePath), { recursive: true });
+    const authored = JSON.parse(readFileSync(join(snapshot, 'apps/mobile/sources/changelog/changelog.json'), 'utf8'));
+    const hostileEntry = authored.releases.find((release) => release.appVersion === entry.appVersion);
+    hostileEntry.title = `Quote " & apostrophe ' release`;
+    // Authored fields are data in both renderings: HTML must not interpolate
+    // markup, and Markdown must not activate a heading, link, image or code.
+    hostileEntry.summary = 'break\n# Injected heading\n[link](https://evil.example) ![img](https://evil.example/x.png) `code` **bold**';
+    // Block syntax that needs no leading whitespace to fire: the summary is
+    // rendered on a line of its own, so a bullet, a plus, a rule or an ordered
+    // marker there would open a list or a thematic break in the release notes.
+    // An entity reference is markup too: Markdown resolves it, so authored
+    // "&amp;" has to survive into the notes as those five characters.
+    hostileEntry.fixes = [{ title: '- bullet title', detail: '1. ordered detail &amp; &#38; &copy;' }];
+    hostileEntry.knownLimits = ['- nested\n## limit heading [x](https://evil.example)', '+ plus item', '--- rule', '1) ordered item'];
+    writeFileSync(hostilePath, JSON.stringify(authored));
+    const hostileOut = join(scratch, 'hostile-out');
+    mkdirSync(hostileOut, { recursive: true });
+    const hostileFiles = prepareChangelog({ mode: 'generate', ...reportRequest, sourceRoot: hostileRoot, directory: hostileOut }).files;
+    const hostile = hostileFiles[reportFiles.html];
+    assert.match(hostile, /Quote &quot; &amp; apostrophe &#39; release/, 'authored text was not escaped');
+    const hostileMarkdown = hostileFiles[reportFiles.markdown];
+    // Strip the template's own bullet so what remains is authored text only.
+    const authoredLines = hostileMarkdown.split('\n')
+        .filter((line) => !/^(#{1,6} muxr |## (Added|Fixed|Verification|Known limits)$)/.test(line))
+        .map((line) => line.replace(/^- (\*\*)?/, ''));
+    assert.ok(!authoredLines.some((line) => /^\s{0,3}#/.test(line)), 'authored text activated a Markdown heading');
+    assert.ok(
+        !authoredLines.some((line) => /^\s{0,3}(?:[-+*][ \t]|\d+[.)][ \t]|-{3,}|_{3,})/.test(line)),
+        'authored text activated a Markdown list or thematic break',
+    );
+    assert.doesNotMatch(hostileMarkdown, /(^|[^\\])!?\[[^\]]*\]\(/, 'authored text activated a Markdown link or image');
+    assert.doesNotMatch(hostileMarkdown, /(^|[^\\])`/, 'authored text activated Markdown code');
+    assert.doesNotMatch(hostileMarkdown, /<[a-zA-Z/]/, 'authored text activated inline HTML');
+    assert.doesNotMatch(hostileMarkdown, /(^|[^\\])&[a-zA-Z#]/, 'authored text activated a Markdown entity reference');
+    assert.match(hostileMarkdown, /ordered detail \\&amp;/, 'authored entity text was not preserved literally');
+
+    // A version nobody wrote notes for cannot be released, and stale bytes fail.
+    assert.throws(() => prepareChangelog({ mode: 'validate', ...reportRequest, version: '9.9.9', channel: 'stable' }), /no entry for app version 9\.9\.9/);
+    const reportPath = join(tarDir, reportFiles.html);
+    const originalReport = readFileSync(reportPath);
+    try {
+        writeFileSync(reportPath, `${originalReport}<!-- edited after preparation -->`);
+        assert.throws(() => prepareChangelog({ mode: 'check', ...reportRequest }), /stale/);
+    } finally { writeFileSync(reportPath, originalReport); }
+    prepareChangelog({ mode: 'check', ...reportRequest });
+
     // Follow the actual packaged artifact through sealing, verification and tamper rejection.
     const sealed = await sealRelease({ directory: tarDir, version: packageJson.version,
-        channel: packageJson.muxrRelease.channel, files: [packedInfo.filename], runId: '1', sourceRoot: snapshot });
+        channel: packageJson.muxrRelease.channel, files: [packedInfo.filename, reportFiles.html, reportFiles.markdown], runId: '1', sourceRoot: snapshot });
     const verifyRequest = { directory: tarDir, version: packageJson.version,
         channel: packageJson.muxrRelease.channel, commit: sealed.source.commit, runId: '1' };
     await verifyRelease(verifyRequest);
@@ -463,6 +523,11 @@ try {
         writeFileSync(tarball, Buffer.concat([originalTarball, Buffer.from('altered')]));
         await assert.rejects(verifyRelease(verifyRequest), /digest mismatch/);
     } finally { writeFileSync(tarball, originalTarball); }
+    const sealedReport = readFileSync(reportPath);
+    try {
+        writeFileSync(reportPath, `${sealedReport}<!-- edited after sealing -->`);
+        await assert.rejects(verifyRelease(verifyRequest), /digest mismatch/);
+    } finally { writeFileSync(reportPath, sealedReport); }
     await verifyRelease(verifyRequest);
     await assert.rejects(verifyRelease({ ...verifyRequest, commit: '0'.repeat(40) }), /identity/);
     assert.equal(packageJson.dependencies.zod, undefined, 'packed CLI must not depend on Zod');

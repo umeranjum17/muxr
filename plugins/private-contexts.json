@@ -8,6 +8,7 @@
       "XDG_DATA_HOME",
       "PI_CONFIG_DIR",
       "PI_CODING_AGENT_DIR",
+      "PI_AGENT_DIR",
       "OMP_PROFILE",
       "PI_PROFILE",
       "OPENCODE_DB",

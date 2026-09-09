@@ -3,13 +3,14 @@
  * the host actually spawns. No test framework.
  */
 import { spawn } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createConnection } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { startGraphics, frame, uint, DEFAULT_WORLD } from './graphics.mjs';
 import { writeBinShim } from './bin.mjs';
+import { startFakeHerdr } from './server.mjs';
 
 const PROTOCOL_VERSION = 20;
 const BIN = fileURLToPath(new URL('./bin.mjs', import.meta.url));
@@ -214,6 +215,167 @@ try {
 } finally {
     graphics.close();
     rmSync(dir, { recursive: true, force: true });
+}
+
+/** The RGBA of the first kitty transmit in a chunk of terminal output. */
+function kittyPixels(text) {
+    const match = /\u001b_Ga=t,[^;]*;([A-Za-z0-9+/=]+)\u001b\\/.exec(text);
+    return match === null ? undefined : Buffer.from(match[1], 'base64');
+}
+
+// The shim runs in its own process, so a wheel notch reaches the producer only
+// if it travels the control socket. It must carry the pane it happened on and
+// where that pane has scrolled to, and the board the phone sees must move.
+const wheelDir = mkdtempSync(join(tmpdir(), 'fake-herdr-wheel-'));
+const enableFile = join(wheelDir, 'graphics-enabled');
+writeFileSync(enableFile, 'enabled');
+const herd = await startFakeHerdr({ dir: wheelDir, panes: 2, agents: 0, titleChurnHz: 0, graphicsFrameHz: 0, graphicsEnableFile: enableFile });
+try {
+    const client = createConnection(herd.clientSocketPath);
+    await new Promise((resolve, reject) => {
+        client.once('connect', resolve);
+        client.once('error', reject);
+    });
+    const output = [];
+    readFrames(client, (message) => {
+        if (message.type === 'output') output.push(message.bytes.toString('latin1'));
+    });
+    client.write(frame(clientHello({ cols: 80, rows: 24, cellWidthPx: 8, cellHeightPx: 16 })));
+
+    const paneId = herd.world.panes[0].pane_id;
+    const shim = spawn(herd.binPath, ['terminal', 'session', 'control', paneId, '--takeover', '--cols', '80', '--rows', '24'], {
+        stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    const wheel = (button) => shim.stdin.write(`${JSON.stringify({
+        type: 'terminal.input',
+        bytes: Buffer.from(`\u001b[<${button};10;10M`, 'latin1').toString('base64'),
+    })}\n`);
+
+    const settle = async (want) => {
+        const deadline = Date.now() + 4000;
+        while (Date.now() < deadline) {
+            if (output.filter((chunk) => kittyPixels(chunk) !== undefined).length >= want) return;
+            await new Promise((resolve) => setTimeout(resolve, 20));
+        }
+        fail(`the wheel produced ${output.length} frame(s), wanted ${want} with pixels`);
+    };
+
+    wheel(65);
+    await settle(1);
+    const first = kittyPixels(output.find((chunk) => kittyPixels(chunk) !== undefined));
+    // Another notch down is 96 px, three checker blocks: the band under any
+    // given row has to have flipped colour.
+    wheel(65);
+    await settle(2);
+    const last = kittyPixels(output.filter((chunk) => kittyPixels(chunk) !== undefined).at(-1));
+    if (first === undefined || last === undefined) fail('the wheel produced no decodable frame');
+    // Row 0 of the board, past the identity stamp the producer writes into the
+    // first eight bytes.
+    if (first.subarray(64, 128).equals(last.subarray(64, 128))) fail('the checkerboard did not move under the wheel');
+
+    // An even number of notches is 192 px. A board whose vertical repeat
+    // divided that landed on exactly the phase it started from, so a pane that
+    // really travelled was indistinguishable from one that never moved.
+    wheel(65);
+    wheel(65);
+    await settle(4);
+    const evenBurst = kittyPixels(output.filter((chunk) => kittyPixels(chunk) !== undefined).at(-1));
+    if (evenBurst === undefined) fail('the even-notch burst produced no decodable frame');
+    // The whole board, not one row: a single row of a periodic pattern is one
+    // bit and aliases on its own, which is the reason the position marker is
+    // painted at all.
+    if (first.subarray(64).equals(evenBurst.subarray(64))) {
+        fail('the checkerboard aliased across an even-notch burst');
+    }
+
+    // Pane identity travelled too: a wheel on a different pane repaints that
+    // pane, at its own place on the grid, not the one the last request named.
+    const placement = (chunk) => /\u001b\[(\d+);(\d+)H/.exec(chunk)?.[0];
+    const firstPlacement = placement(output.find((chunk) => kittyPixels(chunk) !== undefined));
+    const otherPane = herd.world.panes[1].pane_id;
+    const otherShim = spawn(herd.binPath, ['terminal', 'session', 'control', otherPane, '--takeover', '--cols', '80', '--rows', '24'], {
+        stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    const seen = output.length;
+    otherShim.stdin.write(`${JSON.stringify({
+        type: 'terminal.input',
+        bytes: Buffer.from('[<65;10;10M', 'latin1').toString('base64'),
+    })}\n`);
+    await settle(seen + 1);
+    const otherPlacement = placement(output.at(-1));
+    if (firstPlacement === undefined || otherPlacement === undefined || firstPlacement === otherPlacement) {
+        fail(`the wheel repainted the same place for both panes (${firstPlacement} / ${otherPlacement})`);
+    }
+
+    otherShim.stdin.end();
+    await new Promise((resolve) => otherShim.once('close', resolve));
+    shim.stdin.end();
+    await new Promise((resolve) => shim.once('close', resolve));
+    client.destroy();
+} finally {
+    await herd.close();
+    rmSync(wheelDir, { recursive: true, force: true });
+}
+
+// A pinned run serves one named pane and no other. Without the pin, the first
+// wheel notch on any pane pulls the producer onto it, and a phase measuring a
+// text terminal makes a graphics surface out of it mid-bout.
+const pinDir = mkdtempSync(join(tmpdir(), 'fake-herdr-pin-'));
+const pinEnable = join(pinDir, 'graphics-enabled');
+writeFileSync(pinEnable, 'enabled');
+const pinned = await startFakeHerdr({
+    dir: pinDir, panes: 2, agents: 0, titleChurnHz: 0, graphicsFrameHz: 0,
+    graphicsEnableFile: pinEnable, pinGraphicsPane: true,
+});
+try {
+    const client = createConnection(pinned.clientSocketPath);
+    await new Promise((resolve, reject) => {
+        client.once('connect', resolve);
+        client.once('error', reject);
+    });
+    const output = [];
+    readFrames(client, (message) => {
+        if (message.type === 'output') output.push(message.bytes.toString('latin1'));
+    });
+    client.write(frame(clientHello({ cols: 80, rows: 24, cellWidthPx: 8, cellHeightPx: 16 })));
+
+    if (pinned.fixturePanes.graphics !== pinned.world.panes[0].pane_id) {
+        fail('the herd did not publish its first pane as the graphics fixture');
+    }
+    if (pinned.fixturePanes.text === pinned.fixturePanes.graphics) {
+        fail('the text fixture pane is the pinned graphics pane');
+    }
+
+    const painted = () => output.some((chunk) => kittyPixels(chunk) !== undefined);
+    const wheelOn = (paneId) => {
+        const shim = spawn(pinned.binPath, ['terminal', 'session', 'control', paneId, '--takeover', '--cols', '80', '--rows', '24'], {
+            stdio: ['pipe', 'pipe', 'pipe'],
+        });
+        shim.stdin.write(`${JSON.stringify({
+            type: 'terminal.input',
+            bytes: Buffer.from('\u001b[<65;10;10M', 'latin1').toString('base64'),
+        })}\n`);
+        return shim;
+    };
+
+    const unpinned = wheelOn(pinned.fixturePanes.text);
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    if (painted()) fail('a wheel on the text fixture pane painted the pinned checkerboard');
+    const target = wheelOn(pinned.fixturePanes.graphics);
+    const deadline = Date.now() + 4000;
+    while (Date.now() < deadline && !painted()) {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    if (!painted()) fail('a wheel on the pinned pane produced no frame');
+
+    for (const shim of [unpinned, target]) {
+        shim.stdin.end();
+        await new Promise((resolve) => shim.once('close', resolve));
+    }
+    client.destroy();
+} finally {
+    await pinned.close();
+    rmSync(pinDir, { recursive: true, force: true });
 }
 
 console.log('fake-herdr graphics smoke ok');

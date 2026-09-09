@@ -8,14 +8,37 @@ export const runCommand = (...args) => active ? active.run(...args) : defaultRun
 export const spawnCommand = (...args) => active ? active.spawn(...args) : nodeSpawn(...args);
 export const onCommandCleanup = (cleanup) => active?.cleanups.push(cleanup);
 export const commandSignal = () => active?.signal;
+export const commandRemaining = (defaultMs = 30_000) => active?.remaining(defaultMs) ?? defaultMs;
 export const assertCommandActive = () => active?.signal.throwIfAborted();
+export const fetchCommand = (input, init = {}) => fetch(input, { ...init, signal: active?.signal ?? init.signal });
 
 /** All gate subprocesses share cancellation, including helpers during setup. */
 export class CommandScope {
     controller = new AbortController();
     children = new Map();
     cleanups = [];
+    deadlineAt;
+    deadlineTimer;
     get signal() { return this.controller.signal; }
+    setDeadline(deadlineAt) {
+        this.deadlineAt = deadlineAt;
+        clearTimeout(this.deadlineTimer);
+        this.deadlineTimer = setTimeout(() => this.abort(new Error('probe deadline exceeded')), Math.max(0, deadlineAt - Date.now()));
+        if (deadlineAt <= Date.now()) this.abort(new Error('probe deadline exceeded'));
+    }
+    remaining(defaultMs = 30_000) {
+        if (this.deadlineAt !== undefined && this.deadlineAt <= Date.now()) {
+            this.abort(new Error('probe deadline exceeded'));
+            this.signal.throwIfAborted();
+        }
+        return this.deadlineAt === undefined ? defaultMs : Math.max(1, Math.min(defaultMs, this.deadlineAt - Date.now()));
+    }
+    abort(reason = new Error('commands cancelled')) {
+        clearTimeout(this.deadlineTimer);
+        this.deadlineTimer = undefined;
+        if (!this.signal.aborted) this.controller.abort(reason);
+        for (const child of this.children.keys()) this.kill(child);
+    }
     spawn(bin, args, options = {}) {
         this.signal.throwIfAborted();
         const child = nodeSpawn(bin, args, { ...options, detached: true });
@@ -31,12 +54,14 @@ export class CommandScope {
     }
     async run(bin, args, options = {}) {
         this.signal.throwIfAborted();
-        const { timeout = 30_000, maxBuffer = 64 * 1024 * 1024, encoding = 'utf8', ...rest } = options;
-        const child = this.spawn(bin, args, { ...rest, stdio: ['ignore', 'pipe', 'pipe'] });
+        const { timeout = 30_000, maxBuffer = 64 * 1024 * 1024, encoding = 'utf8', input, ...rest } = options;
+        const boundedTimeout = this.remaining(timeout);
+        const child = this.spawn(bin, args, { ...rest, stdio: ['pipe', 'pipe', 'pipe'] });
+        if (input !== undefined) child.stdin.end(input); else child.stdin.end();
         return new Promise((resolve, reject) => {
             const stdout = [], stderr = [];
             let bytes = 0, error;
-            const timer = setTimeout(() => { error = new Error(`${bin}: exceeded ${timeout}ms`); this.kill(child); }, timeout);
+            const timer = setTimeout(() => { error = new Error(`${bin}: exceeded ${boundedTimeout}ms`); this.kill(child); }, boundedTimeout);
             const collect = (target) => (chunk) => {
                 bytes += chunk.length;
                 if (bytes > maxBuffer) { error = new Error(`${bin}: output exceeds ${maxBuffer} bytes`); this.kill(child); }
@@ -53,15 +78,15 @@ export class CommandScope {
             });
         });
     }
-    async close() {
-        this.controller.abort();
+    async close(timeoutMs = 10_000) {
+        this.abort();
         const pending = [...this.children.entries()];
         for (const [child] of pending) this.kill(child);
         let timer;
         try {
             await Promise.race([
                 Promise.all(pending.map(([, closed]) => closed)),
-                new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('Owned commands did not terminate within 10s; retaining emulator lock')), 10_000); }),
+                new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('owned commands did not terminate within the cleanup budget')), Math.max(1, timeoutMs)); }),
             ]);
         } finally { clearTimeout(timer); }
     }

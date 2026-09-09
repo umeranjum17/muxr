@@ -275,7 +275,10 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
             transport: 'terminal',
             channel,
         }), 'terminal');
-        if (closedByUser || socket !== undefined) return;
+        // A repaint/retry may have claimed the attach owner while the ticket
+        // request was in flight. Do not let that old ticket open a second
+        // channel after the replacement has begun.
+        if (closedByUser || socket !== undefined || attachRequested) return;
         const next = new WebSocket(url);
         socket = next;
         let firstFrame = false;
@@ -331,6 +334,10 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
                     if (frameCounts !== undefined) recordTerminalFrameReceived(frameCounts);
                     if (!firstFrame) {
                         firstFrame = true;
+                        if (retryTimer !== undefined) {
+                            clearTimeout(retryTimer);
+                            retryTimer = undefined;
+                        }
                         clearTimeout(openTimer);
                         attempts = 0;
                         emitState('live');
@@ -468,6 +475,10 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
             // stale ones sit there forever. Re-attaching is the only way to ask
             // for the whole screen back.
             if (closedByUser) return;
+            if (retryTimer !== undefined) {
+                clearTimeout(retryTimer);
+                retryTimer = undefined;
+            }
             const stale = socket;
             socket = undefined;
             emitState('reconnecting');

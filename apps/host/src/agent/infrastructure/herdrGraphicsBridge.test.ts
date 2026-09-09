@@ -1,11 +1,12 @@
 import { EventEmitter, once } from 'node:events';
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createServer, type Socket } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { deflateSync } from 'node:zlib';
+import { deflateSync, inflateSync } from 'node:zlib';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { HerdrGraphicsBridge, MAX_IMAGE_BYTES, decodeServerMessage, encodeKitty, mapGraphicsPointer, routeGraphicsPane } from './herdrGraphicsBridge.js';
+import { GraphicsTrace, graphicsTrace } from './graphicsTrace.js';
 
 const uint = (value: number | bigint): Buffer => {
     const number = BigInt(value);
@@ -393,6 +394,7 @@ describe('Herdr graphics flow', () => {
             drainInline: () => Promise<void>;
             inlineQueue: unknown[];
             inlineDraining: boolean;
+            sourceQueueVersion: number;
         };
         internals.sourcePane = async () => 'pane';
         internals.visibleRect = async () => ({ x: 26, y: 1, width: 94, height: 39 });
@@ -517,6 +519,230 @@ describe('Herdr graphics flow', () => {
         expect(deliveredDuringBurst).toBeGreaterThan(0);
     });
 
+    it('halves a large frame while moving, then refines it after the pane settles', async () => {
+        const socket = Object.assign(new EventEmitter(), { writable: true, write: () => true, destroy: () => {} });
+        const bridge = Reflect.construct(HerdrGraphicsBridge, [socket, 'herdr']) as HerdrGraphicsBridge;
+        const internals = bridge as unknown as {
+            sourcePane: (leading: Buffer) => Promise<string | undefined>;
+            visibleRect: (paneId: string) => Promise<{ x: number; y: number; width: number; height: number } | undefined>;
+            ensurePaneProcess: (paneId: string) => Promise<boolean>;
+            queueInline: (data: Buffer) => void;
+            enqueue: (file: { path: string; expectedLength: bigint; imageId: number; transferId: bigint; leading: Buffer; control: string }) => void;
+            drain: () => Promise<void>;
+            drainInline: () => Promise<void>;
+            wheelReport: (paneId: string, direction: 'up' | 'down', point: { x: number; y: number }) => Buffer | undefined;
+            forwardInlineBlock: (work: unknown, allowDeleteDeferral?: boolean) => Promise<void>;
+            inlineImages: { prepared: (...args: never[]) => Promise<unknown> };
+            livePlacements: Map<string, Map<string, { block: unknown; rect?: unknown }>>;
+            sourceRevision: Map<string, number>;
+            sourceQueueVersion: number;
+            inlineQueue: unknown[];
+            inlineDraining: boolean;
+        };
+        internals.sourcePane = vi.fn(async () => 'pane');
+        internals.visibleRect = vi.fn(async () => ({ x: 0, y: 0, width: 20, height: 10 }));
+
+        const frames: string[] = [];
+        bridge.register({
+            channel: 'phone', paneId: 'pane', cols: 20, rows: 10, cellWidthPx: 10, cellHeightPx: 20,
+            write: (frame) => frames.push(frame),
+        });
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+        const drain = vi.spyOn(internals, 'drainInline');
+        const settle = async (): Promise<void> => {
+            await drain.mock.results.at(-1)?.value;
+            expect(internals.inlineQueue).toHaveLength(0);
+            expect(internals.inlineDraining).toBe(false);
+        };
+
+        // A pane-filling frame at the producer's own density: 600x400 is past
+        // the size where compression is worth hardening, which is the same
+        // point past which the density is worth halving.
+        const width = 600;
+        const height = 400;
+        const rgba = Buffer.alloc(width * height * 4);
+        for (let i = 0; i < rgba.length; i += 4) {
+            const value = (i / 4) % 255;
+            rgba[i] = value; rgba[i + 1] = 255 - value; rgba[i + 2] = value; rgba[i + 3] = 255;
+        }
+        internals.queueInline(Buffer.from(
+            '\u001b[1;1H'
+            + `\u001b_Ga=t,f=32,s=${width},v=${height},i=9,o=z,m=0;${deflateSync(rgba).toString('base64')}\u001b\\`
+            + '\u001b_Ga=p,i=9,c=20,r=10;\u001b\\',
+        ));
+        await settle();
+        expect(frames).toHaveLength(1);
+        const ansi = frameAnsi(frames[0]!);
+
+        // Halved, and the control it writes matches the pixels it sends.
+        expect(ansi).toContain('a=T,f=32,s=300,v=200,i=9,');
+        // The payload is chunked; the image is every chunk's body joined.
+        const encoded = [...ansi.matchAll(/\u001b_G[^;]*;([^\u001b]*)\u001b\\/g)]
+            .map((match) => match[1] ?? '').join('');
+        const halved = inflateSync(Buffer.from(encoded, 'base64'));
+        expect(halved).toHaveLength(300 * 200 * 4);
+        // Cell counts are independent of pixel density, so the placement the
+        // phone is given is the one it would have had at full density.
+        expect(ansi).toContain('c=20,r=7');
+
+        // Averaged, not sampled. The first output pixel covers source pixels
+        // 0, 1, 600 and 601, whose red channels are 0, 1, 90 and 91: the mean
+        // is 46, where nearest-neighbour would have kept 0.
+        expect(halved[0]).toBe(46);
+
+        // Scroll coordinates stay in producer space even while the wire image
+        // is coarse.
+        expect(internals.wheelReport('pane', 'down', { x: 300, y: 229 })?.toString('utf8'))
+            .toBe('\u001b[<35;300;229M\u001b[<65;300;229M');
+
+        // Once the producer and input have both been quiet, the same resident
+        // source image is replayed at full density through the same serial
+        // lifecycle. There is no second raw-frame queue.
+        const routedBefore = (internals.sourcePane as ReturnType<typeof vi.fn>).mock.calls.length;
+        const probedBefore = (internals.visibleRect as ReturnType<typeof vi.fn>).mock.calls.length;
+        await vi.advanceTimersByTimeAsync(200);
+        await drain.mock.results.at(-1)?.value;
+        expect(frames).toHaveLength(2);
+        // The refinement already knows its pane and the rect its placement was
+        // measured with: re-routing would re-probe every pane's layout, which
+        // costs far more than the encode it is waiting on.
+        expect((internals.sourcePane as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(routedBefore);
+        expect((internals.visibleRect as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(probedBefore);
+        expect(frameAnsi(frames[1]!)).toContain('a=T,f=32,s=600,v=400,i=9,');
+
+        // A source that changes again shortly after a full frame is refined on
+        // the same 200ms quiet rule. Nothing may hold it coarse for longer
+        // because a full frame happened to go out recently.
+        const repaint = (id: number): void => {
+            const next = Buffer.alloc(width * height * 4);
+            for (let i = 0; i < next.length; i += 4) {
+                const value = ((i / 4) + id) % 255;
+                next[i] = value; next[i + 1] = 255 - value; next[i + 2] = value; next[i + 3] = 255;
+            }
+            internals.queueInline(Buffer.from(
+                '\u001b[1;1H'
+                + `\u001b_Ga=t,f=32,s=${width},v=${height},i=${id},o=z,m=0;${deflateSync(next).toString('base64')}\u001b\\`
+                + `\u001b_Ga=p,i=${id},c=20,r=10;\u001b\\`,
+            ));
+        };
+        await vi.advanceTimersByTimeAsync(100);
+        repaint(11);
+        await settle();
+        // Producer activity keeps the wire image coarse.
+        expect(frames).toHaveLength(3);
+        expect(frameAnsi(frames[2]!)).toContain('a=T,f=32,s=300,v=200,i=11,');
+        await vi.advanceTimersByTimeAsync(199);
+        await drain.mock.results.at(-1)?.value;
+        expect(frames).toHaveLength(3);
+        await vi.advanceTimersByTimeAsync(1);
+        await drain.mock.results.at(-1)?.value;
+        expect(frames).toHaveLength(4);
+        expect(frameAnsi(frames[3]!)).toContain('a=T,f=32,s=600,v=400,i=11,');
+
+        // A producer that keeps repainting inside the quiet window stays coarse
+        // throughout, then settles to exactly one refinement of the latest
+        // source and never repeats it while idle.
+        for (const id of [12, 13, 14]) {
+            await vi.advanceTimersByTimeAsync(100);
+            repaint(id);
+            await settle();
+        }
+        expect(frames).toHaveLength(7);
+        for (const frame of frames.slice(4)) expect(frameAnsi(frame)).toContain('a=T,f=32,s=300,v=200,');
+        await vi.advanceTimersByTimeAsync(200);
+        await drain.mock.results.at(-1)?.value;
+        expect(frames).toHaveLength(8);
+        expect(frameAnsi(frames[7]!)).toContain('a=T,f=32,s=600,v=400,i=14,');
+        await vi.advanceTimersByTimeAsync(5000);
+        await drain.mock.results.at(-1)?.value;
+        expect(frames).toHaveLength(8);
+
+        // A coarse preparation slower than the settle window has already spent
+        // that window. Arming a fresh 200ms afterwards would charge the encode
+        // to the viewer twice, so the refinement is due as soon as it lands --
+        // but never earlier than 200ms after the final source activity.
+        const store = internals.inlineImages;
+        const realPrepared = store.prepared.bind(store);
+        store.prepared = (async (...args: never[]) => {
+            if ((args[2] as unknown) === 'coarse') vi.setSystemTime(Date.now() + 300);
+            return realPrepared(...args);
+        }) as typeof store.prepared;
+        const slowStartedAt = Date.now();
+        repaint(15);
+        await settle();
+        const coarseCount = frames.length;
+        expect(coarseCount).toBe(9);
+        expect(frameAnsi(frames[8]!)).toContain('a=T,f=32,s=300,v=200,i=15,');
+        // Elapsed since the source route already exceeds the quiet window.
+        expect(Date.now() - slowStartedAt).toBeGreaterThanOrEqual(200);
+        await vi.advanceTimersByTimeAsync(0);
+        await drain.mock.results.at(-1)?.value;
+        expect(frames).toHaveLength(10);
+        expect(frameAnsi(frames[9]!)).toContain('a=T,f=32,s=600,v=400,i=15,');
+        store.prepared = realPrepared;
+        await vi.advanceTimersByTimeAsync(5000);
+        await drain.mock.results.at(-1)?.value;
+        expect(frames).toHaveLength(10);
+
+        // A refinement whose placement disappeared has nothing left to sharpen.
+        // It must fail closed rather than route or probe for a replacement.
+        const placed = internals.livePlacements.get('pane')!;
+        const [, retained] = [...placed.entries()][0]!;
+        const routedAtGone = (internals.sourcePane as ReturnType<typeof vi.fn>).mock.calls.length;
+        const probedAtGone = (internals.visibleRect as ReturnType<typeof vi.fn>).mock.calls.length;
+        internals.livePlacements.delete('pane');
+        await internals.forwardInlineBlock({
+            block: retained.block,
+            at: Date.now(),
+            refinement: {
+                paneId: 'pane',
+                sourceRevision: internals.sourceRevision.get('pane') ?? 0,
+                sourceQueueVersion: internals.sourceQueueVersion,
+            },
+        }, false);
+        expect(frames).toHaveLength(10);
+        expect((internals.sourcePane as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(routedAtGone);
+        expect((internals.visibleRect as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(probedAtGone);
+
+        // Direct GraphicsFile frames use the same bounded raw-state/refinement
+        // path, with their Herdr lease acknowledged before preparation.
+        const directSocket = Object.assign(new EventEmitter(), { writable: true, write: () => true, destroy: () => {} });
+        const directBridge = Reflect.construct(HerdrGraphicsBridge, [directSocket, 'herdr']) as HerdrGraphicsBridge;
+        const directInternals = directBridge as unknown as typeof internals;
+        directInternals.sourcePane = async () => 'direct-pane';
+        directInternals.visibleRect = async () => ({ x: 0, y: 0, width: 20, height: 10 });
+        directInternals.ensurePaneProcess = async () => true;
+        const directFrames: string[] = [];
+        directBridge.register({
+            channel: 'direct-phone', paneId: 'direct-pane', cols: 20, rows: 10, cellWidthPx: 10, cellHeightPx: 20,
+            write: (frame) => directFrames.push(frame),
+        });
+        const directDir = mkdtempSync(join(tmpdir(), 'herdr-adaptive-direct-'));
+        const directPath = join(directDir, 'frame.rgba');
+        writeFileSync(directPath, rgba);
+        const directDrain = vi.spyOn(directInternals, 'drain');
+        directInternals.enqueue({
+            path: directPath, expectedLength: BigInt(rgba.length), imageId: 10, transferId: 10n,
+            leading: Buffer.from('\u001b[1;1H'), control: 'a=T,f=32,s=600,v=400,i=10',
+        });
+        await directDrain.mock.results.at(-1)?.value;
+        expect(frameAnsi(directFrames[0]!)).toContain('a=T,f=32,s=300,v=200,');
+        await vi.advanceTimersByTimeAsync(200);
+        await directDrain.mock.results.at(-1)?.value;
+        expect(frameAnsi(directFrames[1]!)).toContain('a=T,f=32,s=600,v=400,');
+        directBridge.close();
+        rmSync(directDir, { recursive: true, force: true });
+
+        // A gesture is still reported in the producer's pixel space, never the
+        // transmitted one, or every touch would land at half its position.
+        const mapped = mapGraphicsPointer(
+            { compressed: Buffer.alloc(1), width: 300, height: 200, imageId: 9, transferId: 0n, sourceWidth: 600, sourceHeight: 400 },
+            { channel: 'phone', paneId: 'pane', cols: 20, rows: 10, cellWidthPx: 10, cellHeightPx: 20, write: () => {} },
+            { x: 100, y: 100, width: 200, height: 200, phase: 'move' },
+        );
+        expect(mapped).toEqual({ x: 300, y: 229 });
+    });
+
     it('keeps one resident full image per pane while an inline neighbour survives', async () => {
         const socket = Object.assign(new EventEmitter(), { writable: true, write: () => true, destroy: () => {} });
         const bridge = Reflect.construct(HerdrGraphicsBridge, [socket, 'herdr']) as HerdrGraphicsBridge;
@@ -587,6 +813,7 @@ describe('Herdr graphics flow', () => {
             drainInline: () => Promise<void>;
             inlineQueue: unknown[];
             inlineDraining: boolean;
+            sourceQueueVersion: number;
         };
         internals.sourcePane = async () => 'pane';
         internals.visibleRect = async () => ({ x: 0, y: 0, width: 20, height: 10 });
@@ -951,6 +1178,182 @@ console.log(JSON.stringify({ result: replies[command] }));
             producer?.destroy();
             await new Promise<void>((resolve) => { server.close(() => resolve()); });
             rmSync(dir, { recursive: true, force: true });
+        }
+    });
+    it('keeps the diagnostic trace opt-in, bounded, and out of the frame path', async () => {
+        // Off unless explicitly enabled, so an ordinary host records nothing.
+        // The rest of this file passes identically with tracing on, which is
+        // what shows the trace does not change graphics output.
+        if (process.env.MUXR_GRAPHICS_TRACE === undefined) expect(graphicsTrace).toBeUndefined();
+
+        const dir = mkdtempSync(join(tmpdir(), 'muxr-graphics-trace-'));
+        const path = join(dir, 'trace.jsonl');
+        const trace = new GraphicsTrace(path);
+        try {
+            // Far past the cap: storage must stop growing, not keep the tail.
+            for (let i = 0; i < 5000; i += 1) trace.add('refine.arm', { pane: `pane-${i % 3}`, delayMs: i });
+            trace.frame('frame.handoff', 'x'.repeat(4096), { pane: 'pane-0' });
+            trace.close();
+
+            const lines = readFileSync(path, 'utf8').trim().split('\n');
+            const records = lines.map((line) => JSON.parse(line) as Record<string, unknown>);
+            expect(records.length).toBeLessThanOrEqual(4097);
+            expect(records.at(-1)).toMatchObject({ event: 'trace.capped' });
+            // Metadata only: pane identity is a per-run token, never the id.
+            const panes = new Set(records.map((record) => record.pane).filter((value) => value !== undefined));
+            expect([...panes].every((value) => /^pane[0-9]+$/.test(String(value)))).toBe(true);
+            expect(readFileSync(path, 'utf8')).not.toContain('pane-1');
+            expect(statSync(path).mode & 0o077).toBe(0);
+        } finally {
+            rmSync(dir, { recursive: true, force: true });
+        }
+    });
+    it('re-arms a settled pane whose refinement lost a fence to another pane', async () => {
+        const socket = Object.assign(new EventEmitter(), { writable: true, write: () => true, destroy: () => {} });
+        const bridge = Reflect.construct(HerdrGraphicsBridge, [socket, 'herdr']) as HerdrGraphicsBridge;
+        const internals = bridge as unknown as {
+            sourcePane: (leading: Buffer) => Promise<string | undefined>;
+            visibleRect: (paneId: string) => Promise<{ x: number; y: number; width: number; height: number } | undefined>;
+            queueInline: (data: Buffer) => void;
+            drainInline: () => Promise<void>;
+            inlineImages: { prepared: (...args: never[]) => Promise<unknown> };
+            inlineQueue: unknown[];
+            inlineDraining: boolean;
+            sourceQueueVersion: number;
+        };
+        // Blocks are routed by the row they were written at: row 1 is A, row 2 is B.
+        internals.sourcePane = vi.fn(async (leading: Buffer) => (leading.toString('utf8').startsWith('\u001b[1;') ? 'paneA' : 'paneB'));
+        internals.visibleRect = vi.fn(async () => ({ x: 0, y: 0, width: 20, height: 10 }));
+
+        const framesA: string[] = [];
+        const framesB: string[] = [];
+        bridge.register({ channel: 'a', paneId: 'paneA', cols: 20, rows: 10, cellWidthPx: 10, cellHeightPx: 20, write: (frame) => framesA.push(frame) });
+        bridge.register({ channel: 'b', paneId: 'paneB', cols: 20, rows: 10, cellWidthPx: 10, cellHeightPx: 20, write: (frame) => framesB.push(frame) });
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+        const drain = vi.spyOn(internals, 'drainInline');
+        const settle = async (): Promise<void> => {
+            await drain.mock.results.at(-1)?.value;
+            expect(internals.inlineQueue).toHaveLength(0);
+            expect(internals.inlineDraining).toBe(false);
+        };
+
+        const width = 600;
+        const height = 400;
+        const rgba = Buffer.alloc(width * height * 4, 9);
+        const paint = (row: number, id: number): void => {
+            internals.queueInline(Buffer.from(
+                `\u001b[${row};1H`
+                + `\u001b_Ga=t,f=32,s=${width},v=${height},i=${id},o=z,m=0;${deflateSync(rgba).toString('base64')}\u001b\\`
+                + `\u001b_Ga=p,i=${id},c=20,r=10;\u001b\\`,
+            ));
+        };
+
+        try {
+            paint(1, 1);
+            await settle();
+            expect(framesA).toHaveLength(1);
+            expect(frameAnsi(framesA[0]!)).toContain('a=T,f=32,s=300,v=200,i=1,');
+
+            // Hold A's refinement inside preparation, then let pane B paint. B
+            // moves the shared fence while A's sharp frame is in flight.
+            const store = internals.inlineImages;
+            const realPrepared = store.prepared.bind(store);
+            let release!: () => void;
+            const held = new Promise<void>((resolve) => { release = resolve; });
+            let heldOnce = false;
+            store.prepared = (async (...args: never[]) => {
+                if ((args[2] as unknown) === 'full' && !heldOnce) {
+                    heldOnce = true;
+                    store.prepared = realPrepared;
+                    await held;
+                }
+                return realPrepared(...args);
+            }) as typeof store.prepared;
+
+            await vi.advanceTimersByTimeAsync(200);
+            paint(2, 2);
+            await vi.advanceTimersByTimeAsync(0);
+            release();
+            await settle();
+
+            // A's refinement was discarded rather than sent: no stale pixels.
+            expect(framesA).toHaveLength(1);
+            expect(framesB.length).toBeGreaterThan(0);
+
+            // B keeps painting through A's retry, moving the shared fence
+            // again while the retry is mid-preparation. A is still settled, so
+            // the retry must survive and sharpen exactly once.
+            let releaseRetry!: () => void;
+            const retryHeld = new Promise<void>((resolve) => { releaseRetry = resolve; });
+            let retryHeldOnce = false;
+            const afterRetry = store.prepared.bind(store);
+            store.prepared = (async (...args: never[]) => {
+                if ((args[2] as unknown) === 'full' && !retryHeldOnce) {
+                    retryHeldOnce = true;
+                    store.prepared = afterRetry;
+                    await retryHeld;
+                }
+                return afterRetry(...args);
+            }) as typeof store.prepared;
+
+            await vi.advanceTimersByTimeAsync(200);
+            paint(2, 3);
+            await vi.advanceTimersByTimeAsync(0);
+            releaseRetry();
+            await settle();
+            expect(framesA).toHaveLength(2);
+            expect(frameAnsi(framesA[1]!)).toContain('a=T,f=32,s=600,v=400,i=1,');
+            await vi.advanceTimersByTimeAsync(5000);
+            await settle();
+            expect(framesA).toHaveLength(2);
+
+            // A routed same-pane source during held preparation still rejects
+            // the stale retry, and A's latest frame sharpens afterwards.
+            let releaseStale!: () => void;
+            const stale = new Promise<void>((resolve) => { releaseStale = resolve; });
+            let staleHeld = false;
+            const passthrough = store.prepared.bind(store);
+            store.prepared = (async (...args: never[]) => {
+                if ((args[2] as unknown) === 'full' && !staleHeld) {
+                    staleHeld = true;
+                    store.prepared = passthrough;
+                    await stale;
+                }
+                return passthrough(...args);
+            }) as typeof store.prepared;
+            paint(1, 5);
+            await settle();
+            const beforeStale = framesA.length;
+            await vi.advanceTimersByTimeAsync(200);
+            paint(1, 6);
+            await vi.advanceTimersByTimeAsync(0);
+            releaseStale();
+            await settle();
+            await vi.advanceTimersByTimeAsync(1000);
+            await settle();
+            expect(frameAnsi(framesA.at(-1)!)).toContain('a=T,f=32,s=600,v=400,i=6,');
+            expect(framesA.length).toBeGreaterThan(beforeStale);
+
+            // A bump landing between A's refinement firing and its dequeue
+            // must not starve A either: that preflight rearm is fence exempt,
+            // so a neighbour bumping every round cannot hold A coarse forever.
+            paint(1, 7);
+            await settle();
+            const beforeStarve = framesA.length;
+            for (let i = 0; i < 3; i += 1) {
+                // Park the drain so the fired refinement waits in the queue,
+                // then let a neighbour move the shared fence underneath it.
+                internals.inlineDraining = true;
+                await vi.advanceTimersByTimeAsync(300);
+                internals.sourceQueueVersion += 1;
+                internals.inlineDraining = false;
+                await internals.drainInline();
+            }
+            expect(framesA.length).toBeGreaterThan(beforeStarve);
+            expect(frameAnsi(framesA.at(-1)!)).toContain('a=T,f=32,s=600,v=400,i=7,');
+        } finally {
+            bridge.close();
+            vi.useRealTimers();
         }
     });
 });

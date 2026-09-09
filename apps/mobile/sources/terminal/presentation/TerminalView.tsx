@@ -21,14 +21,22 @@ import Animated, { useAnimatedStyle, useSharedValue } from 'react-native-reanima
 import { useFocusEffect } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
 import { TerminalView as GhosttyView, type TerminalViewRef } from 'expo-libghostty';
+
+/**
+ * The terminal surface's name in the accessibility tree, and the only handle
+ * anything outside the app has on it: this app's views publish no resource ids,
+ * and the native surface does not publish its own class name. It names the
+ * region, never an internal identifier.
+ */
+export const TERMINAL_SURFACE_LABEL = 'Terminal surface';
 import { useLocalSetting } from '@/catalog/store';
 import { decodeBase64, encodeBase64 } from '@/encryption/base64';
 import {
     recordTerminalGraphicsFrame,
     recordTerminalResize,
     recordTerminalScrollClamped,
-    recordTerminalScrollLatency,
     recordTerminalScrollRows,
+    recordTerminalScrollTimeout,
 } from '@/catalog/infrastructure/connectionDiagnostics';
 import { openTerminal, type TerminalChannel } from '../application/OpenTerminal';
 import { recordTerminalOutput, setTerminalColumns } from '../application/recentOutput';
@@ -85,7 +93,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
     const { sessionId, onStatus, onChannel } = props;
     const focused = useIsFocused();
     const [viewport, setViewport] = React.useState({ width: 0, height: 0 });
-    const autoShowKeyboard = useLocalSetting('terminalAutoShowKeyboard');
+    const terminalKeyboardDisabled = useLocalSetting('terminalKeyboardDisabled');
     const termRef = React.useRef<TerminalViewRef>(null);
     const channelRef = React.useRef<TerminalChannel | undefined>(undefined);
     const openAbortRef = React.useRef<AbortController | undefined>(undefined);
@@ -103,7 +111,6 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
     const scrollRafRef = React.useRef<number | undefined>(undefined);
     const scrollInFlightRef = React.useRef(false);
     const scrollAckTimerRef = React.useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-    const scrollSentAtRef = React.useRef<number | undefined>(undefined);
     const graphicsActiveRef = React.useRef(false);
     const [fontIndex, setFontIndex] = React.useState(DEFAULT_FONT_INDEX);
     const [scaleIndex, setScaleIndex] = React.useState(0);
@@ -167,7 +174,6 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
         scrollAckTimerRef.current = undefined;
         scrollInFlightRef.current = false;
         pendingScrollRef.current = 0;
-        scrollSentAtRef.current = undefined;
     };
 
     /**
@@ -188,8 +194,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
         if (clamped !== lines) recordTerminalScrollClamped(Math.abs(lines - clamped));
         recordTerminalScrollRows(Math.abs(clamped));
         scrollInFlightRef.current = true;
-        scrollSentAtRef.current = Date.now();
-        scrollAckTimerRef.current = setTimeout(settleScroll, SCROLL_ACK_TIMEOUT_MS);
+        scrollAckTimerRef.current = setTimeout(dropScroll, SCROLL_ACK_TIMEOUT_MS);
         const size = lastSizeRef.current;
         const origin = scrollOriginRef.current;
         channelRef.current?.scroll(clamped, size === null ? undefined : {
@@ -199,8 +204,13 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
         });
     };
 
-    /** The repaint (or the timeout) releases the gate and drains what piled up. */
-    const settleScroll = (): void => {
+    /**
+     * Output came back, so the next scroll may go. A terminal stream repaints
+     * itself whether or not anything was scrolled, so this is flow control and
+     * nothing more: which frame answered which scroll is not knowable here, and
+     * a duration measured against a frame we cannot attribute is not a latency.
+     */
+    const releaseScroll = (): void => {
         if (!scrollInFlightRef.current) return;
         if (scrollAckTimerRef.current !== undefined) clearTimeout(scrollAckTimerRef.current);
         scrollAckTimerRef.current = undefined;
@@ -210,6 +220,16 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
         }
     };
 
+    /**
+     * Nothing came back inside the budget. The gate opens anyway so a lost
+     * repaint cannot wedge scrolling, and the phone records that it happened:
+     * a pane that keeps timing out is not keeping up with the finger.
+     */
+    const dropScroll = (): void => {
+        if (!scrollInFlightRef.current) return;
+        recordTerminalScrollTimeout();
+        releaseScroll();
+    };
 
     React.useEffect(() => {
         if (!focused) return;
@@ -289,11 +309,6 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                             channel.recordFrameWritten();
                             if (graphics !== true) return;
                             recordTerminalGraphicsFrame(bytes.length);
-                            const sentAt = scrollSentAtRef.current;
-                            if (sentAt !== undefined) {
-                                scrollSentAtRef.current = undefined;
-                                recordTerminalScrollLatency(Date.now() - sentAt);
-                            }
                         },
                         combineText: combineTextFrames,
                         schedule: (run) => requestAnimationFrame(() => run()),
@@ -324,7 +339,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                     // they cannot be coalesced merely because graphics is true.
                     channel.onData((base64, graphics) => {
                         if (graphics !== true) recordTerminalOutput(sessionId, base64);
-                        settleScroll();
+                        releaseScroll();
                         writePumpRef.current?.push(
                             typeof graphics === 'boolean' ? { bytes: base64, graphics } : { bytes: base64 },
                         );
@@ -364,7 +379,9 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
         return () => {
             cancelCoalesce();
             clearTimeout(resizeTimerRef.current);
+            const channel = channelRef.current;
             onChannel?.(undefined);
+            channel?.close();
             openAbortRef.current?.abort();
             openAbortRef.current = undefined;
             channelRef.current = undefined;
@@ -414,12 +431,15 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             }}
             style={{ flex: 1, backgroundColor: '#0c0c0b', overflow: 'hidden' }}>
             <GestureDetector gesture={pan}>
-            <Animated.View style={[{ flex: 1 }, surfaceStyle]}>
+            {/* The native surface renders as a plain android.view.View and does
+                not publish its own class name, so this wrapper -- which is
+                exactly the terminal's box -- carries the surface's name. */}
+            <Animated.View accessible accessibilityLabel={TERMINAL_SURFACE_LABEL} style={[{ flex: 1 }, surfaceStyle]}>
             <GhosttyView
                 ref={termRef}
                 style={{ flex: 1 }}
                 pointerMode={graphicsActive}
-                autoShowKeyboard={autoShowKeyboard}
+                autoShowKeyboard={!terminalKeyboardDisabled}
                 fontSize={FONT_STEPS[fontIndex]}
                 theme={{ background: '#0c0c0b' }}
                 onInput={({ nativeEvent }) => {
