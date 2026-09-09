@@ -74,6 +74,11 @@ test('warm probe fails closed across identity, ownership, fixture, movement, sam
     const moving = { bounds, filename: 'perf-document.md', position: { line: 20, top: 100 }, crop: crop(220), surfaceSeen: true, connected: true };
     const settled = { bounds, filename: 'perf-document.md', position: { line: 1, top: 100 }, crop: crop(40), surfaceSeen: true, connected: true };
     assert.equal(judgeProbeMovement('document', { before, moving, settled }).proven, true);
+    // The document viewer hides the root's connected chrome: the exact-terminal
+    // attach proof carries it, and nothing carries it when that proof is absent.
+    const offRoot = (entry, hostProof) => ({ ...entry, connected: false, hostProof });
+    assert.equal(judgeProbeMovement('document', { before: offRoot(before, true), moving: offRoot(moving, true), settled: offRoot(settled, true) }).proven, true);
+    assert.deepEqual(judgeProbeMovement('document', { before: offRoot(before, false), moving: offRoot(moving, true), settled: offRoot(settled, true) }).reasons, ['connection proof missing']);
     const pngs = { before: join(fixtureRoot, 'before.png'), moving: join(fixtureRoot, 'moving.png'), settled: join(fixtureRoot, 'settled.png') };
     assert.equal(screenshotsComplete(pngs), false);
     for (const [index, path] of Object.values(pngs).entries()) { const image = new PNG({ width: 4, height: 4 }); image.data = crop(20 + index * 40).bytes; writeFileSync(path, PNG.sync.write(image)); }
