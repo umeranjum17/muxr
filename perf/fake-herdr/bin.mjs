@@ -7,7 +7,7 @@ import { chmodSync, mkdirSync, writeFileSync, appendFileSync } from 'node:fs';
 import { createConnection } from 'node:net';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { DEFAULT_WORLD, requestFrames, tileRects } from './graphics.mjs';
+import { DEFAULT_WORLD, tileRects } from './graphics.mjs';
 
 const SELF = fileURLToPath(import.meta.url);
 
@@ -194,26 +194,54 @@ function inputBytes(message) {
 
 const WHEEL_REPORT = /\x1b\[<(64|65);(\d+);(\d+)M/g;
 
+/** SGR 64 is a notch up the scrollback, 65 a notch down. */
 function wheelReports(text) {
-    WHEEL_REPORT.lastIndex = 0;
-    const matches = String(text).match(WHEEL_REPORT);
-    return matches === null ? 0 : matches.length;
+    let count = 0;
+    let notches = 0;
+    for (const match of String(text).matchAll(WHEEL_REPORT)) {
+        count += 1;
+        notches += match[1] === '64' ? -1 : 1;
+    }
+    return { count, notches };
 }
 
+/** One wheel notch travels three rows, and a cell is 32 px tall. */
+const WHEEL_OFFSET_PX = 3 * 32;
+
 function runTerminal(args) {
+    // `herdr terminal session <control|observe> <pane>`. The mode is the whole
+    // difference between a live pane a phone drives and a read-only preview, so
+    // it is recorded with the attach rather than inferred later.
+    const mode = args[0] === 'observe' ? 'observe' : 'control';
     const paneId = args[1] ?? 'p1';
     // A one-line marker beside the socket: the gate needs to tell "the phone
     // never asked for graphics" apart from "graphics were asked for and lost".
-    const noteCellMetrics = (message) => {
+    const noteGeometry = (source, message = {}) => {
         const socketPath = process.env.FAKE_HERDR_SOCKET;
         if (socketPath === undefined) return;
         try {
-            writeFileSync(`${socketPath}.cell-metrics`, 'seen\n', { encoding: 'utf8' });
-            appendFileSync(`${socketPath}.cell-metrics.jsonl`, `${JSON.stringify({ at: new Date().toISOString(), pane_id: paneId, source: 'terminal.resize', cols, rows, cellWidthPx: message.cellWidthPx, cellHeightPx: message.cellHeightPx })}\n`);
+            // The marker means "a phone declared cell pixels", which is what
+            // decides whether a graphics bridge opens at all. Every re-grid is
+            // recorded below, but a cell-less one must not set this.
+            if (source === 'terminal.resize'
+                && Number(message.cellWidthPx) > 0 && Number(message.cellHeightPx) > 0) {
+                writeFileSync(`${socketPath}.cell-metrics`, 'seen\n', { encoding: 'utf8' });
+            }
+            appendFileSync(`${socketPath}.cell-metrics.jsonl`, `${JSON.stringify({
+                at: new Date().toISOString(),
+                pane_id: paneId,
+                source,
+                mode,
+                cols,
+                rows,
+                ...(message.cellWidthPx === undefined ? {} : { cellWidthPx: message.cellWidthPx }),
+                ...(message.cellHeightPx === undefined ? {} : { cellHeightPx: message.cellHeightPx }),
+            })}\n`);
         } catch { /* best effort */ }
     };
     let cols = Number(flag(args, '--cols') ?? 80) || 80;
     let rows = Number(flag(args, '--rows') ?? 24) || 24;
+    let scrollOffset = 0;
     const bps = Math.max(0, Number(process.env.FAKE_HERDR_TERMINAL_BPS ?? 4096) || 0);
     let seq = 0;
     const writeFrame = (record) => {
@@ -238,6 +266,10 @@ function runTerminal(args) {
             bytes: Buffer.from(shellChunk(seq, size)).toString('base64'),
         });
     };
+    // The grid this attach opened on, before any resize. Without it a pane the
+    // phone never re-gridded has no baseline at all, and a zoom step would be
+    // read against whatever an earlier phase happened to leave behind.
+    noteGeometry('terminal.attach');
     writeFrame({ type: 'terminal.ready', pane_id: paneId, cols, rows });
     const repaintEveryTicks = 50;
     let ticks = 0;
@@ -260,6 +292,7 @@ function runTerminal(args) {
         const lines = buffer.split('\n');
         buffer = lines.pop() ?? '';
         let burst = 0;
+        let notches = 0;
         for (const line of lines) {
             if (line.trim() === '') continue;
             try {
@@ -268,15 +301,27 @@ function runTerminal(args) {
                 else if (message.type === 'terminal.resize') {
                     cols = Number(message.cols) || cols;
                     rows = Number(message.rows) || rows;
-                    // A phone that declares cell pixels is a phone the graphics
-                    // bridge can serve; without them the host never opens one,
-                    // and a run with no graphics account has to say which it was.
-                    if (Number(message.cellWidthPx) > 0 && Number(message.cellHeightPx) > 0) noteCellMetrics(message);
+                    // Every re-grid is recorded, cell pixels or not. A text
+                    // zoom is a grid change and nothing else, so dropping the
+                    // cell-less resizes left the font ladder with no record at
+                    // all on a phone that never declares a cell. The marker
+                    // beside the socket still only fires for a declared cell:
+                    // that is what decides whether a graphics bridge opens, and
+                    // a run with no graphics account has to say which it was.
+                    noteGeometry('terminal.resize', message);
                     emit(true);
                 }
-                else if (message.type === 'terminal.scroll') emit(true);
+                else if (message.type === 'terminal.scroll') {
+                    const direction = message.direction === 'up' || message.direction === 'down' ? message.direction : undefined;
+                    const lines = Number(message.lines);
+                    appendFileSync(process.env.FAKE_HERDR_INPUT_LOG ?? `${process.env.FAKE_HERDR_SOCKET}.input.jsonl`, `${JSON.stringify({ at: new Date().toISOString(), source: 'terminal.scroll', pane_id: paneId, direction, lines })}\n`);
+                    emit(true);
+                }
                 else if (message.type === 'terminal.input') {
-                    burst += wheelReports(inputBytes(message));
+                    const wheel = wheelReports(inputBytes(message));
+                    if (wheel.count > 0) appendFileSync(process.env.FAKE_HERDR_INPUT_LOG ?? `${process.env.FAKE_HERDR_SOCKET}.input.jsonl`, `${JSON.stringify({ at: new Date().toISOString(), source: 'terminal.input', pane_id: paneId, count: wheel.count, notches: wheel.notches })}\n`);
+                    burst += wheel.count;
+                    notches += wheel.notches;
                 }
             } catch {
                 /* phone JSON is forwarded as-is; ignore non-JSON */
@@ -284,21 +329,29 @@ function runTerminal(args) {
         }
         // The pane the phone is actually watching is the one whose repaints
         // matter; a round robin across a hundred panes measures nothing.
-        if (burst > 0) requestFrames(burst, paneId);
+        //
+        // The graphics server lives in the control-plane process, not in this
+        // shim: the host execs this binary, so an in-process call reaches a
+        // module nobody bound and the wheel is silently dropped. It goes over the
+        // control socket, carrying the pane and where it has been scrolled to.
+        if (burst > 0) {
+            scrollOffset += notches * WHEEL_OFFSET_PX;
+            void rpc('graphics.request', { count: burst, pane_id: paneId, offset: scrollOffset });
+        }
     });
     process.stdin.on('end', finish);
     process.stdin.on('close', finish);
     process.stdin.resume();
 }
 
-export function writeBinShim({ dir, socketPath, terminalBytesPerSecond }) {
+export function writeBinShim({ dir, socketPath, terminalBytesPerSecond, inputLogPath }) {
     mkdirSync(dir, { recursive: true });
     const binPath = join(dir, 'herdr');
     const bps = Number(terminalBytesPerSecond);
     const rate = Number.isFinite(bps) ? Math.max(0, bps) : 4096;
     writeFileSync(
         binPath,
-        `#!/bin/sh\nexport FAKE_HERDR_SOCKET=${shellQuote(socketPath)}\nexport FAKE_HERDR_TERMINAL_BPS=${shellQuote(String(rate))}\nexec ${shellQuote(process.execPath)} ${shellQuote(SELF)} "$@"\n`,
+        `#!/bin/sh\nexport FAKE_HERDR_SOCKET=${shellQuote(socketPath)}\nexport FAKE_HERDR_TERMINAL_BPS=${shellQuote(String(rate))}\n${inputLogPath === undefined ? '' : `export FAKE_HERDR_INPUT_LOG=${shellQuote(inputLogPath)}\n`}exec ${shellQuote(process.execPath)} ${shellQuote(SELF)} "$@"\n`,
         { encoding: 'utf8' },
     );
     chmodSync(binPath, 0o755);

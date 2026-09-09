@@ -4,10 +4,10 @@ tags:
 ---
 # Mount and unmount churn, which is where a starved JS thread shows up as a
 # screen that never comes back: attach an agent's terminal, drag its scrollback
-# top to bottom, detach, walk the plugin tabs, leave the app and return.
+# top to bottom, detach, walk the plugin routes, come back to the herd.
 #
-# Each pass starts by putting the app back on the herd, because a relaunch
-# restores whatever screen it was last on.
+# Each pass starts and ends on the herd, so the next pass begins where this one
+# claims to have left the phone.
 - repeat:
     times: 4
     commands:
@@ -20,19 +20,16 @@ tags:
       - tapOn:
           text: 'CANCEL|Not now|Deny|Later'
           optional: true
-      # A previous pass may have left a terminal open.
+      # The shared HeaderBackButton exposes `Back`; a plugin route labels its
+      # own header control `Go back` (`plugins.goBack`). A pass can start on
+      # either, so the cleanup accepts both.
       - runFlow:
           when:
             visible:
-              text: 'Type a prompt.*'
+              text: 'Back|Go back'
           commands:
-            - back
-      - runFlow:
-          when:
-            visible:
-              text: 'Go back'
-          commands:
-            - back
+            - tapOn:
+                text: 'Back|Go back'
       # A relaunch reconnects and refetches the herd before anything is live.
       - extendedWaitUntil:
           visible:
@@ -42,19 +39,28 @@ tags:
           visible:
             text: 'LIVE'
           timeout: 40000
-      # The first live card is an agent, not a shell.
+      # A live card by the label the app publishes for it
+      # (`agentAccessibilityLabel`: title, state, identity). The herd reorders
+      # as titles churn, so a fixed point opens whatever drifted under it.
       - tapOn:
-          point: 30%, 33%
+          text: '.*\. (Idle|Working|Starting|Needs you|Done|Failed|Offline).*\. .*'
       - tapOn:
           text: 'CANCEL|Not now|Deny|Later'
           optional: true
       # The terminal screen's own furniture. The terminal itself is a native
-      # surface with no accessibility text, so the gate proves the attach from
-      # the host's journal instead of from a label here.
+      # surface with no accessibility text, so this label is the assertion that
+      # the pass really reached a terminal; the attach itself is proven from
+      # the host's journal.
       - extendedWaitUntil:
           visible:
-            text: 'Terminal|Type a prompt.*'
+            text: 'Show terminal controls'
           timeout: 20000
+      # Maestro's `hideKeyboard` is an unconditional BACK, so it leaves the
+      # route instead of dismissing an IME. The swipes are asserted onto the
+      # terminal screen instead: both labels before the repeat and after every
+      # pair, so a stray navigation cannot be scrolled as if it were terminal.
+      - assertVisible: 'Back'
+      - assertVisible: 'Show terminal controls'
       - repeat:
           times: 8
           commands:
@@ -66,26 +72,40 @@ tags:
                 start: 50%, 72%
                 end: 50%, 22%
                 duration: 90
-      - back
+            - assertVisible: 'Back'
+            - assertVisible: 'Show terminal controls'
+      - tapOn:
+          text: 'Back'
+      - extendedWaitUntil:
+          visible:
+            text: 'LIVE'
+          timeout: 20000
+      # Plugin items push a route rather than staying on a tab bar, so each
+      # visit has to come back before the next one is reachable. The gate starts
+      # the fake herd with the real `status` plugin, so `Usage` is always there
+      # and its absence is a failure rather than a skipped pass.
       - tapOn:
           text: 'Usage'
-          optional: true
+      # The screen's own furniture, so the `Go back` below is the plugin
+      # header's control and not whatever the herd had under that label.
+      - extendedWaitUntil:
+          visible:
+            text: 'Today|Models today|Last 7 days'
+          timeout: 20000
+      - assertVisible: 'Go back'
+      - tapOn:
+          text: 'Go back'
+      - assertVisible: 'LIVE'
+      # The `code` plugin is loaded from the gate's fixture plugin root, so
+      # Files is a real tab now and its absence is a failure, not a no-op.
       - tapOn:
           text: 'Files'
-          optional: true
+      - extendedWaitUntil:
+          visible:
+            text: 'perf-document.md|All Files|Changes|project'
+          timeout: 20000
       - tapOn:
-          text: 'Panes'
-          optional: true
-      # Panes pushes a screen of its own; the tabs are behind it.
-      - runFlow:
-          when:
-            visible:
-              text: 'Go back'
-          commands:
-            - back
-      - tapOn:
-          text: 'Machine'
-          optional: true
-      - pressKey: Home
-      - launchApp:
-          appId: com.trymuxr.app
+          text: 'Go back'
+      - assertVisible: 'LIVE'
+      - assertVisible: 'connected'
+      - assertVisible: 'LIVE'

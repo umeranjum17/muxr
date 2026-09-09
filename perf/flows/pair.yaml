@@ -8,16 +8,37 @@ tags:
 - launchApp:
     appId: com.trymuxr.app
     clearState: false
-# A cold launch shows its welcome screen before the pairing entry exists.
+# The hosted build opens on its welcome screen, whose entry point is the exact
+# button "Enter pairing string". A rerun can instead land on the form itself or
+# on the error state of a failed attempt. Anything else is the wrong build.
 - extendedWaitUntil:
     visible:
-      text: 'Enter pairing string|Enter pairing string manually|Enter another code'
+      text: 'Enter pairing string|Pairing string|Enter another code'
     timeout: 40000
+# A failed attempt leaves the error state, which shows no input at all.
 - tapOn:
-    text: 'Enter pairing string|Enter pairing string manually|Enter another code'
+    text: 'Enter another code'
+    optional: true
+# Off the error state the welcome button is the only way to the form.
+- runFlow:
+    when:
+      notVisible:
+        text: 'Pairing string'
+    commands:
+      - assertVisible: '^Enter pairing string$'
+      - tapOn:
+          text: '^Enter pairing string$'
+- extendedWaitUntil:
+    visible:
+      text: 'Pairing string'
+    timeout: 40000
+# The code goes into the input itself, never a label that happens to match.
+- assertVisible: 'Pairing string'
+- tapOn: 'Pairing string'
 - eraseText: 120
 - inputText: '${PAIR_CODE}'
-- tapOn: 'Connect'
+# The focused keyboard covers Connect; the input submits on the IME action.
+- pressKey: Enter
 - extendedWaitUntil:
     visible:
       text: 'THIS PHONE WILL BE ABLE TO'
@@ -39,5 +60,5 @@ tags:
 # The first connect fetches the whole herd before anything is on screen.
 - extendedWaitUntil:
     visible:
-      text: 'LIVE|SPACES|Machine'
+      text: 'connected'
     timeout: 60000

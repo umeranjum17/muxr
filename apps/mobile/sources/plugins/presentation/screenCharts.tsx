@@ -15,6 +15,9 @@ import { Typography } from '@/constants/Typography';
 import { cardStyle, Meter, SectionLabel, withAlpha } from '@/components/ui';
 import { useScreenContentWidth } from './pluginScreenLayout';
 
+/** Reserved above every column so one labelled bar cannot shrink its own plot. */
+const LABEL_ROW = 15;
+
 /** Chart fills: untoned series get the accent, never a per-index rainbow. */
 function chartFill(theme: Theme, tone: PluginScreenTone | undefined): string {
     return tone === undefined ? theme.colors.accent : toneColor(theme, tone);
@@ -78,21 +81,19 @@ function GaugeArc({ ratio, size, color, track }: { ratio: number; size: number; 
     );
 }
 
-function AnimatedColumn({ ratio, color, delay }: { ratio: number; color: string; delay: number }) {
+function AnimatedColumn({ ratio, max, color, delay }: { ratio: number; max: number; color: string; delay: number }) {
     const reduceMotion = useReducedMotion();
-    const height = useSharedValue(reduceMotion ? ratio : 0);
+    // A measured zero is zero tall. Only a positive value is floored, so a small
+    // day stays visible without inventing activity on an idle one.
+    const target = ratio <= 0 ? 0 : Math.max(2, Math.min(1, ratio) * max);
+    const height = useSharedValue(reduceMotion ? target : 0);
     React.useEffect(() => {
-        height.value = reduceMotion ? ratio : withDelay(delay, withTiming(ratio, { duration: 480, easing: Easing.bezier(0.23, 1, 0.32, 1) }));
-    }, [delay, ratio, reduceMotion, height]);
-    // Floored so an idle day stays a visible baseline instead of disappearing.
-    const animated = useAnimatedStyle(() => ({ height: `${Math.max(2, Math.min(1, height.value) * 100)}%` }));
+        height.value = reduceMotion ? target : withDelay(delay, withTiming(target, { duration: 480, easing: Easing.bezier(0.23, 1, 0.32, 1) }));
+    }, [delay, target, reduceMotion, height]);
+    const animated = useAnimatedStyle(() => ({ height: height.value }));
     // No track behind the column: seven filled boxes with lighter boxes inside
     // read as blocks, not as a shape you can compare across days.
-    return (
-        <View style={{ width: '100%', flex: 1, justifyContent: 'flex-end' }}>
-            <Animated.View style={[{ width: '100%', borderTopLeftRadius: 3, borderTopRightRadius: 3, backgroundColor: color }, animated]} />
-        </View>
-    );
+    return <Animated.View style={[{ width: '100%', borderTopLeftRadius: 3, borderTopRightRadius: 3, backgroundColor: color }, animated]} />;
 }
 
 function MeterRow({ item, ratio, emphasis, delay, hero }: { item: PluginChartItem; ratio: number; emphasis: number; delay: number; hero?: boolean }) {
@@ -185,14 +186,20 @@ export function ScreenChart({ node, data, nested }: { node: PluginScreenChartNod
         const peak = Math.max(...series.map((item) => item.value));
         const last = series.length - 1;
         const peakIndex = series.findIndex((item) => item.value === peak);
+        // Every column reserves the same label row, so the bars are drawn
+        // against one plotting height and stay comparable across days.
+        const plot = wide ? 104 : 64;
+        const bar = plot - LABEL_ROW;
         return (
             <View accessible accessibilityRole="image" accessibilityLabel={summary} style={card}>
                 {heading}
-                <View style={{ flexDirection: 'row', alignItems: 'flex-end', height: wide ? 104 : 64, gap: 6 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'flex-end', height: plot, gap: 6 }}>
                     {series.map((item, index) => (
                         <View key={`${item.label}-${index}`} style={{ flex: 1, alignItems: 'center', justifyContent: 'flex-end', height: '100%' }}>
-                            {(index === last || index === peakIndex) && <Text numberOfLines={1} style={{ color: index === last ? theme.colors.text : theme.colors.textSecondary, fontSize: 11, marginBottom: 4, ...Typography.mono('semiBold') }}>{chartValue(item)}</Text>}
-                            <AnimatedColumn ratio={peak === 0 ? 0 : item.value / peak} delay={index * 45}
+                            {/* The value rides on top of its own bar, so a zero day
+                                labels the baseline instead of the chart's ceiling. */}
+                            {(index === last || index === peakIndex) && <Text numberOfLines={1} style={{ color: index === last ? theme.colors.text : theme.colors.textSecondary, fontSize: 11, height: LABEL_ROW, ...Typography.mono('semiBold') }}>{chartValue(item)}</Text>}
+                            <AnimatedColumn ratio={peak === 0 ? 0 : item.value / peak} max={bar} delay={index * 45}
                                 color={index === last ? theme.colors.accent : withAlpha(theme.colors.accent, 0.28)} />
                         </View>
                     ))}

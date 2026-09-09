@@ -112,6 +112,11 @@ jobs:
           distribution: temurin
           java-version: "21"
           cache: gradle
+      - name: Render this build's release report from its own source
+        run: |
+          mkdir -p "$RUNNER_TEMP/release-report"
+          node scripts/release/presentation/changelog.mjs generate --version "$MUXR_RELEASE_VERSION" --commit "$GITHUB_SHA" --build "$ANDROID_VERSION_CODE" --directory "$RUNNER_TEMP/release-report"
+          node scripts/release/presentation/changelog.mjs check --version "$MUXR_RELEASE_VERSION" --commit "$GITHUB_SHA" --build "$ANDROID_VERSION_CODE" --directory "$RUNNER_TEMP/release-report"
       - uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
       - uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0
         with:
@@ -283,6 +288,11 @@ jobs:
           aab_sha="$(sha256sum "$output/muxr-$APP_VERSION-$ANDROID_VERSION_CODE.aab" | cut -d ' ' -f 1)"
           install -m 644 "$RUNNER_TEMP/compiled-manifest.xml" "$output/compiled-manifest.xml"
           install -m 644 "$RUNNER_TEMP/signer.txt" "$output/signer.txt"
+          # The report was rendered from the same frozen source this build used,
+          # and is re-checked here so the retained bytes are the rendered ones.
+          node scripts/release/presentation/changelog.mjs check --version "$MUXR_RELEASE_VERSION" --commit "$GITHUB_SHA" --build "$ANDROID_VERSION_CODE" --directory "$RUNNER_TEMP/release-report"
+          install -m 644 "$RUNNER_TEMP/release-report/what-changed.html" "$output/what-changed.html"
+          install -m 644 "$RUNNER_TEMP/release-report/release-notes.md" "$output/release-notes.md"
           application_id=com.trymuxr.app
           if [ "$ORG_GRADLE_PROJECT_muxrDevelopmentApp" = true ]; then application_id=app.muxr.local.dev; fi
           jq -n \
@@ -347,6 +357,11 @@ jobs:
           mapfile -t bundles < <(find "$RUNNER_TEMP/android-internal" -type f -name '*.aab')
           test "${#bundles[@]}" -eq 1
           test "$(sha256sum "${bundles[0]}" | cut -d ' ' -f 1)" = "$(jq -r .artifactSha256 "$RUNNER_TEMP/android-internal/result.json")"
+          # The candidate's release report travels with the artifact it describes.
+          # This import never re-renders it: it carries the retained bytes through.
+          cd "$RUNNER_TEMP/android-internal"
+          sha256sum what-changed.html release-notes.md > "$RUNNER_TEMP/report-digests.txt"
+          cd - > /dev/null
           echo "AAB_PATH=${bundles[0]}" >> "$GITHUB_ENV"
       - name: Upload this exact AAB to Internal
         env:
@@ -356,6 +371,8 @@ jobs:
           bundle exec fastlane android verify_internal
           jq '.submittedToInternal = true' "$RUNNER_TEMP/android-internal/result.json" > "$RUNNER_TEMP/result.json"
           mv "$RUNNER_TEMP/result.json" "$RUNNER_TEMP/android-internal/result.json"
+          cd "$RUNNER_TEMP/android-internal"
+          sha256sum --check "$RUNNER_TEMP/report-digests.txt"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: android-internal

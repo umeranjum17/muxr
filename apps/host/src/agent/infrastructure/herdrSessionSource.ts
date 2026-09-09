@@ -322,9 +322,10 @@ export async function promptHerdrAgent(
     }
 }
 
-function agentRouteError(code: 'agent-unavailable' | 'agent-not-ready' | 'agent-route-ambiguous'): Error {
+function agentRouteError(code: 'agent-unavailable' | 'agent-not-ready' | 'agent-route-ambiguous' | 'herdr-unavailable'): Error {
     let message = 'That agent is no longer available. Refresh and try again.';
     if (code === 'agent-not-ready') message = 'Agent is not ready yet.';
+    if (code === 'herdr-unavailable') message = 'Herdr is temporarily unavailable. Try again when it responds.';
     if (code === 'agent-route-ambiguous') {
         message = 'That Agent Route is ambiguous. Refresh and select the agent again.';
     }
@@ -1541,7 +1542,15 @@ export async function createHerdrSessionSource(
     }
 
     async function resolvePane(sessionId: string): Promise<CurrentSession> {
-        try { await refreshSnapshot(); } catch { throw agentUnavailable(); }
+        // An unreadable snapshot says nothing about the route. Fail closed as a
+        // temporary outage: only a snapshot that actually came back may claim
+        // the agent is gone, and cached panes never authorize anything.
+        try {
+            await refreshSnapshot();
+        } catch (cause) {
+            process.stderr.write(`herdr snapshot failed while resolving ${sessionId}: ${cause instanceof Error ? cause.message : String(cause)}\n`);
+            throw Object.assign(agentRouteError('herdr-unavailable'), { cause });
+        }
         const session = currentSession(sessionId);
         if (session === undefined) throw agentUnavailable();
         return session;

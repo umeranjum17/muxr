@@ -102,8 +102,12 @@ export function loadLocalSettings(): LocalSettings {
     const localSettings = mmkv.getString('local-settings');
     if (localSettings) {
         try {
-            const parsed = JSON.parse(localSettings);
-            return localSettingsParse(parsed);
+            const raw = JSON.parse(localSettings);
+            const parsed = localSettingsParse(raw);
+            if (raw !== null && typeof raw === 'object' && 'terminalAutoShowKeyboard' in raw) {
+                mmkv.set('local-settings', JSON.stringify(parsed));
+            }
+            return parsed;
         } catch (e) {
             console.error('Failed to parse local settings', e);
             return { ...localSettingsDefaults };

@@ -13,7 +13,7 @@ const input = JSON.parse(readFileSync(0, 'utf8') || 'null') ?? {};
 // The host injects this private stdin field only after checking this bundled
 // script's canonical path. Keep Go auth content out of descendant environments.
 const config = process.env.MUXR_PLUGIN_ID === 'muxr.status' ? input._usageConfig ?? {} : {};
-for (const key of ['XDG_DATA_HOME', 'PI_CONFIG_DIR', 'PI_CODING_AGENT_DIR', 'OMP_PROFILE', 'PI_PROFILE', 'OPENCODE_DB', 'OPENCODE_DATA_DIR', 'CLAUDE_CONFIG_DIR', 'CODEX_HOME', 'TZ']) {
+for (const key of ['XDG_DATA_HOME', 'PI_CONFIG_DIR', 'PI_CODING_AGENT_DIR', 'PI_AGENT_DIR', 'OMP_PROFILE', 'PI_PROFILE', 'OPENCODE_DB', 'OPENCODE_DATA_DIR', 'CLAUDE_CONFIG_DIR', 'CODEX_HOME', 'TZ']) {
   if (typeof config[key] === 'string') process.env[key] = config[key];
 }
 
@@ -111,8 +111,7 @@ function localDate(at) {
 }
 
 /** The window we report, oldest first, always ending on today. */
-function windowPeriods() {
-  const origin = nowDate();
+function windowPeriods(origin) {
   // Local midnight, then setDate — fixed 86_400_000 ms skips a DST spring-forward day.
   return Array.from({ length: RANGE_DAYS }, (_, index) => {
     const at = new Date(origin.getFullYear(), origin.getMonth(), origin.getDate());
@@ -120,6 +119,12 @@ function windowPeriods() {
     return localDate(at);
   });
 }
+
+// One captured instant for the whole response: two reads either side of local
+// midnight would label one provider's day with another day's window.
+const NOW = nowDate();
+const TODAY = localDate(NOW);
+const PERIODS = windowPeriods(NOW);
 
 
 /**
@@ -232,7 +237,7 @@ async function goPlanLimits() {
 
 function money(value) {
   if (!Number.isFinite(value) || value < 0) return undefined;
-  return value >= 100 ? `$${Math.round(value)}` : `$${value.toFixed(2)}`;
+  return `$${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 function dayLabel(period) {
@@ -249,7 +254,7 @@ function dayLabel(period) {
  * and report stale totals as current.
  */
 function byAgent(result) {
-  const periods = windowPeriods();
+  const periods = PERIODS;
   const slots = new Map(periods.map((period, index) => [period, index]));
   const agents = new Map();
   for (const day of Array.isArray(result?.daily) ? result.daily : []) {
@@ -319,9 +324,10 @@ function cachedOutput() {
   if (!state) return undefined;
   try {
     const saved = JSON.parse(readFileSync(join(state, cacheName()), 'utf8'));
-    const age = Date.now() - saved.at;
+    const age = NOW.getTime() - saved.at;
     const maxAge = saved.output?.provider === 'claude' ? 15_000 : 60_000;
-    if (saved.identity === cacheIdentity && age >= 0 && age < maxAge && Array.isArray(saved.output?.items) && Buffer.byteLength(JSON.stringify(saved.output)) <= 65_536) return saved.output;
+    // A payload captured yesterday would keep labelling its last day "Today".
+    if (saved.identity === cacheIdentity && saved.date === TODAY && age >= 0 && age < maxAge && Array.isArray(saved.output?.items) && Buffer.byteLength(JSON.stringify(saved.output)) <= 65_536) return saved.output;
   } catch {}
   return undefined;
 }
@@ -333,7 +339,7 @@ function saveOutput(output) {
   const cache = join(state, cacheName());
   const temporary = `${cache}.${process.pid}.tmp`;
   try {
-    writeFileSync(temporary, JSON.stringify({ at: Date.now(), identity: cacheIdentity, output }), { mode: 0o600 });
+    writeFileSync(temporary, JSON.stringify({ at: NOW.getTime(), date: TODAY, identity: cacheIdentity, output }), { mode: 0o600 });
     renameSync(temporary, cache);
   } catch {}
 }
@@ -442,7 +448,11 @@ function codexItems(result) {
 }
 
 function idleLabel(agent, local, failure) {
-  if (agent === 'omp') return local?.omp?.rows ? 'No measured activity today' : local?.omp?.reason ?? 'Local usage database unavailable';
+  // OMP and Pi are both accounted from their own transcripts, so a collection
+  // that failed is what the row has to report -- ccusage's Pi row is the
+  // duplicated one this plugin replaces, and silence is not "nothing today".
+  const report = local?.[agent];
+  if (agent === 'omp' || agent === 'pi') return report?.rows ? 'No measured activity today' : report?.reason ?? 'Local activity unavailable';
   if (!CCUSAGE_AGENTS.has(agent)) return 'Local activity unsupported by ccusage';
   return failure ?? 'No measured activity today';
 }
@@ -454,13 +464,14 @@ function providerLimits(provider, codex) {
 function limitLabel(provider, claudeLimits, codex) {
   if (provider === 'claude') return claudeLimits.length ? 'Claude plan usage' : 'Claude plan limits unavailable';
   if (provider === 'codex') return codex.series.length ? codex.remainingLabel : 'Codex plan limits unavailable';
-  return 'Plan limits unsupported for this provider';
+  // The plan may well exist; muxr just has no integration that can read it.
+  return 'Plan limits aren\u2019t connected in muxr';
 }
 
 // The identity includes the selected Go credential. Use a bounded KDF rather
 // than a fast hash; the stable domain salt keeps cache comparisons deterministic.
 const cacheIdentity = scryptSync(JSON.stringify({
-  config: Object.fromEntries(['HOME', 'PATH', 'XDG_DATA_HOME', 'PI_CONFIG_DIR', 'PI_CODING_AGENT_DIR', 'OMP_PROFILE', 'PI_PROFILE', 'OPENCODE_DB', 'OPENCODE_DATA_DIR', 'CLAUDE_CONFIG_DIR', 'CODEX_HOME', 'TZ'].map((key) => [key, process.env[key] ?? null])),
+  config: Object.fromEntries(['HOME', 'PATH', 'XDG_DATA_HOME', 'PI_CONFIG_DIR', 'PI_CODING_AGENT_DIR', 'PI_AGENT_DIR', 'OMP_PROFILE', 'PI_PROFILE', 'OPENCODE_DB', 'OPENCODE_DATA_DIR', 'CLAUDE_CONFIG_DIR', 'CODEX_HOME', 'TZ'].map((key) => [key, process.env[key] ?? null])),
   go: goAuthSelection(),
 }), 'muxr.status/usage/cache-identity/v3', 32, { N: 16_384, r: 8, p: 1, maxmem: 32 * 1024 * 1024 }).toString('hex');
 const cached = cachedOutput();
@@ -471,19 +482,30 @@ if (cached !== undefined) {
   // details screen last showed.
   const [range, codex, local] = await Promise.all([
     ccusageRange(), codexUsage().then(codexItems),
-    runJson(process.execPath, [fileURLToPath(new URL('./localUsage.mjs', import.meta.url)), JSON.stringify(windowPeriods()), String(nowDate().getTime())], 5_000),
+    runJson(process.execPath, [fileURLToPath(new URL('./localUsage.mjs', import.meta.url)), JSON.stringify(PERIODS), String(NOW.getTime())], 5_000),
   ]);
   const agents = byAgent(range);
   const latest = new Map();
   for (const row of range?.session ?? []) {
     if (!CCUSAGE_AGENTS.has(row?.agent) || !(row.totalTokens > 0)) continue;
     const at = Date.parse(row.metadata?.lastActivity);
-    if (Number.isFinite(at) && at <= nowDate().getTime()) latest.set(row.agent, Math.max(latest.get(row.agent) ?? 0, at));
+    if (Number.isFinite(at) && at <= NOW.getTime()) latest.set(row.agent, Math.max(latest.get(row.agent) ?? 0, at));
   }
-  for (const [agent, report] of Object.entries(local ?? {})) {
-    if (Number.isFinite(report.latest) && report.latest <= nowDate().getTime()) latest.set(agent, report.latest);
+  // OMP and Pi are accounted from their own transcripts, so ccusage's rows for
+  // them are the duplicated ones this collector replaces. A child that timed
+  // out, crashed or answered with nothing leaves no total to fall back to.
+  const reports = local !== null && typeof local === 'object' ? { ...local } : {};
+  for (const agent of ['omp', 'pi']) {
+    const report = reports[agent];
+    if (report === null || typeof report !== 'object' || !Array.isArray(report.rows) && report.unavailable !== true) {
+      reports[agent] = { unavailable: true, reason: 'Local activity could not be measured · reopen Usage in a minute' };
+    }
+  }
+  for (const [agent, report] of Object.entries(reports)) {
+    if (Number.isFinite(report.latest) && report.latest <= NOW.getTime()) latest.set(agent, report.latest);
+    if (report.unavailable) { agents.delete(agent); continue; }
     if (!report.rows) continue;
-    const days = windowPeriods().map((period) => ({ period, row: undefined }));
+    const days = PERIODS.map((period) => ({ period, row: undefined }));
     for (const aggregate of report.rows) {
       if (!Number.isSafeInteger(aggregate.totalTokens) || aggregate.totalTokens < 0) continue;
       const day = days.find((day) => day.period === aggregate.period);
@@ -503,10 +525,10 @@ if (cached !== undefined) {
     .sort((a, b) => (latest.get(b) ?? 0) - (latest.get(a) ?? 0) || AGENTS[a].localeCompare(AGENTS[b]));
   const provider = providerIds.includes(selected) ? selected : providerIds[0] ?? '';
   const activitySupported = CCUSAGE_AGENTS.has(provider) || provider === 'omp';
-  const localReport = local?.[provider];
+  const localReport = reports[provider];
   let activityFailure = ccusageFailure;
   if (localReport?.rows) activityFailure = undefined;
-  if (provider === 'omp' && !localReport?.rows) activityFailure = localReport?.reason ?? 'Local usage database unavailable';
+  if (localReport?.unavailable) activityFailure = localReport.reason ?? 'Local activity unavailable';
   const activityAvailable = activitySupported && activityFailure === undefined;
   let activityLabel = 'Local activity from ccusage; costs are estimates, not plan usage';
   if (!agents.get(provider)?.some(({ row }) => row?.totalTokens > 0)) activityLabel = 'No local activity found in the last 7 days';
@@ -514,7 +536,7 @@ if (cached !== undefined) {
   if (activityFailure) activityLabel = activityFailure;
   if (!activitySupported) activityLabel = 'Local activity unsupported by ccusage for this provider';
   if (!provider) activityLabel = ccusageFailure ?? 'No supported providers detected';
-  const days = agents.get(provider) ?? windowPeriods().map((period) => ({ period, row: undefined }));
+  const days = agents.get(provider) ?? PERIODS.map((period) => ({ period, row: undefined }));
   const today = days[days.length - 1]?.row;
   const weekTokens = days.reduce((sum, day) => sum + (day.row?.totalTokens ?? 0), 0);
   const weekCost = days.reduce((sum, day) => sum + (day.row?.totalCost ?? 0), 0);
@@ -535,7 +557,7 @@ if (cached !== undefined) {
     items.push({
       id: `available-${agent}`, title: AGENTS[agent], icon: 'terminal-outline', metadata: [],
       group: 'Local activity',
-      subtitle: idleLabel(agent, local, ccusageFailure),
+      subtitle: idleLabel(agent, reports, ccusageFailure),
       action: { type: 'screen', contributionId: 'usage.details', params: { provider: agent } },
     });
   }
@@ -559,13 +581,17 @@ if (cached !== undefined) {
     providerName: AGENTS[provider] ?? 'Usage',
     activityLabel,
     todayTokens: activityAvailable ? tokens(today?.totalTokens ?? 0) ?? '—' : '—',
-    todayCost: activityAvailable ? money(today?.totalCost) ?? '—' : '—',
+    // A measured day with no activity cost nothing; a measured row whose cost
+    // was never recorded is unknown, and a dash is the only honest figure.
+    todayCost: activityAvailable ? (today === undefined ? '$0.00' : money(today.totalCost) ?? '—') : '—',
     modelSeries: modelSeries(today),
     weekTokens: activityAvailable ? tokens(weekTokens) ?? '—' : '—',
     weekCost: activityAvailable && days.every(({ row }) => row === undefined || Number.isFinite(row.totalCost)) ? money(weekCost) ?? '—' : '—',
     weekSeries: (activityAvailable ? days : []).map(({ period, row }) => ({
-      label: dayLabel(period), value: row?.totalTokens ?? 0, valueLabel: tokens(row?.totalTokens ?? 0) ?? '0',
+      label: dayLabel(period), value: row?.totalTokens ?? 0, valueLabel: tokens(row?.totalTokens ?? 0) ?? '0', detail: period,
     })),
+    capturedAt: NOW.toISOString(),
+    windowPeriods: PERIODS,
     limitSeries: provider === 'opencode' ? go.series : providerLimits(provider, codex),
     limitRing: provider === 'codex' ? codex.ring : [],
     ...(fiveHour === undefined ? {} : {
@@ -587,7 +613,7 @@ if (cached !== undefined) {
   const claudeUnavailable = provider === 'claude' && claudeLimits.length === 0;
   const codexUnavailable = installed.some(([agent]) => agent === 'codex') && codex.series.length === 0;
   const limitsUnavailable = goUnavailable || claudeUnavailable || codexUnavailable;
-  const localUnavailable = local === undefined || Object.values(local).some((report) => report.unavailable);
+  const localUnavailable = Object.values(reports).some((report) => report.unavailable);
   if (ccusageFailure === undefined && activityFailure === undefined && !localUnavailable && !limitsUnavailable && (selected === '' || selected === output.provider)) saveOutput(output);
   process.stdout.write(JSON.stringify(output));
 }

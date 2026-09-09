@@ -20,6 +20,7 @@
  * interval and a restart is counted instead of ending the run.
  */
 import { assertCommandActive, runCommand as run } from './commands.mjs';
+import { androidArgs } from './deviceTarget.mjs';
 
 import { writeFileSync } from 'node:fs';
 import { parseFrameStatsDump, parseJankDump, parseUptime } from './gestureMetrics.mjs';
@@ -28,15 +29,15 @@ import { parseFrameStatsDump, parseJankDump, parseUptime } from './gestureMetric
 const HZ = 100;
 const JS_THREAD = 'mqt_v_js';
 
-async function adb(args, timeout = 10_000) {
-    const { stdout } = await run('adb', args, { timeout, maxBuffer: 64 * 1024 * 1024 });
+async function adb(args, timeout = 10_000, maxBuffer = 64 * 1024 * 1024) {
+    const { stdout } = await run('adb', androidArgs(args), { timeout, maxBuffer });
     return stdout;
 }
 
-async function quiet(args, timeout = 10_000) {
+async function quiet(args, timeout = 10_000, maxBuffer) {
     assertCommandActive();
     try {
-        return await adb(args, timeout);
+        return await adb(args, timeout, maxBuffer);
     } catch {
         assertCommandActive();
         return '';
@@ -71,6 +72,22 @@ export async function dismissPrompts(labels = ['CANCEL', 'Not now', 'Deny', 'Lat
         await new Promise((resolve) => setTimeout(resolve, 1200));
     }
     return dismissed;
+}
+
+/**
+ * Put the IME away. A terminal tap opens the keyboard by design, and an open
+ * keyboard both covers the surface a phase is about to measure and eats the
+ * first BACK, so a gesture bout must start from a known keyboard state.
+ * Returns whether the IME is down.
+ */
+export async function dismissKeyboard() {
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+        const shown = await quiet(['shell', 'dumpsys', 'input_method'], 20_000);
+        if (!/mInputShown=true/.test(shown)) return true;
+        await quiet(['shell', 'input', 'keyevent', 'BACK']);
+        await new Promise((resolve) => setTimeout(resolve, 600));
+    }
+    return !/mInputShown=true/.test(await quiet(['shell', 'dumpsys', 'input_method'], 20_000));
 }
 
 export async function deviceReady() {
@@ -154,6 +171,16 @@ export async function frameStats(pkg) {
     return parseFrameStatsDump(dump);
 }
 
+/**
+ * The summary counters and the frame ring from one dump, so a gesture's missed
+ * vsyncs and its frames are read off the same instant. Two calls would count a
+ * gesture's frames against a window the counters had already moved past.
+ */
+export async function gfxSnapshot(pkg, { hz } = {}) {
+    const dump = await quiet(['shell', 'dumpsys', 'gfxinfo', pkg, 'framestats'], 20_000);
+    return { jank: parseJankDump(dump, { hz: hz ?? await refreshHz() }), rows: parseFrameStatsDump(dump) };
+}
+
 /** Display refresh from SurfaceFlinger, falling back to 60. */
 export async function refreshHz() {
     const dump = await quiet(['shell', 'dumpsys', 'display'], 20_000);
@@ -172,7 +199,7 @@ export async function deviceMonotonicSeconds() {
  * little-endian u32) then RGBA8888. No PNG, no decoder.
  */
 export async function screencapRaw(path) {
-    const { stdout: bytes } = await run('adb', ['exec-out', 'screencap'], { encoding: null, maxBuffer: 64 * 1024 * 1024, timeout: 20_000 });
+    const { stdout: bytes } = await run('adb', androidArgs(['exec-out', 'screencap']), { encoding: null, maxBuffer: 64 * 1024 * 1024, timeout: 20_000 });
     if (path !== undefined) writeFileSync(path, bytes);
     if (bytes.length < 16) return { width: 0, height: 0, format: 0, colorspace: 0, bytes };
     return {
@@ -189,8 +216,7 @@ export async function screencapRaw(path) {
  * Reuses the same uiautomator dump dismissPrompts already writes.
  */
 export async function viewBounds(pattern) {
-    await quiet(['shell', 'uiautomator', 'dump', '/sdcard/perf-prompt.xml'], 20_000);
-    const screen = await quiet(['shell', 'cat', '/sdcard/perf-prompt.xml'], 20_000);
+    const screen = await dumpUiXml();
     const nodes = screen.match(/<node\b[^>]*>/g) ?? [];
     const hit = nodes.find((node) => node.includes(pattern));
     const bounds = hit === undefined ? undefined : /bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/.exec(hit);
@@ -229,6 +255,30 @@ export async function deviceIdentity() {
 }
 
 
+let dumpSequence = 0;
+
+/**
+ * The hierarchy as it is right now, or nothing.
+ *
+ * Every dump writes its own file. Reusing one path let a failed dump be read
+ * back as the previous screen: the reader sees a plausible hierarchy, decides a
+ * control is visible or a surface never moved, and is answering about a screen
+ * that is no longer there. A path that did not exist a moment ago cannot do
+ * that -- either this dump wrote it or the read fails.
+ */
+export async function dumpUiXml(timeout = 20_000, maxBuffer) {
+    dumpSequence += 1;
+    const path = `/sdcard/perf-ui-${process.pid}-${Date.now()}-${dumpSequence}.xml`;
+    const written = await quiet(['shell', 'uiautomator', 'dump', path], timeout);
+    if (!written.includes(path)) {
+        await quiet(['shell', 'rm', '-f', path], 10_000);
+        return '';
+    }
+    const xml = await quiet(['shell', 'cat', path], timeout, maxBuffer);
+    await quiet(['shell', 'rm', '-f', path], 10_000);
+    return xml.includes('<hierarchy') ? xml : '';
+}
+
 export async function totalPssKb(pid) {
     const dump = await quiet(['shell', 'dumpsys', 'meminfo', pid], 20_000);
     const match = /TOTAL PSS:\s*(\d+)/.exec(dump);
@@ -245,7 +295,7 @@ export async function updateDepthErrors() {
 }
 
 export async function screenshot(path) {
-    const { stdout } = await run('adb', ['exec-out', 'screencap', '-p'], { encoding: null, maxBuffer: 64 * 1024 * 1024, timeout: 20_000 });
+    const { stdout } = await run('adb', androidArgs(['exec-out', 'screencap', '-p']), { encoding: null, maxBuffer: 64 * 1024 * 1024, timeout: 20_000 });
     writeFileSync(path, stdout);
 }
 
@@ -256,8 +306,33 @@ export async function screenshot(path) {
  * `onTick` runs after every sample so a caller can drive the device in parallel
  * without a second sampler.
  */
+/**
+ * This measurement's lifetime, and the handshake that ends it. The sampler
+ * reads while it is open and takes its closing CPU, PSS and frame samples when
+ * it is closed; `close()` does not return until those are in, so the caller is
+ * still holding the measured surface while they are taken.
+ */
+export function newAttempt() {
+    let acknowledge;
+    let signal;
+    const acknowledged = new Promise((resolve) => { acknowledge = resolve; });
+    const signalled = new Promise((resolve) => { signal = resolve; });
+    return {
+        open: true,
+        signal: signalled,
+        acknowledge,
+        cancel() { this.open = false; signal(); acknowledge(); },
+        async close() {
+            if (!this.open) return;
+            this.open = false;
+            signal();
+            await acknowledged;
+        },
+    };
+}
+
 export async function samplePhase(options) {
-    const { pkg, seconds, intervalMs = 5000, onTick } = options;
+    const { pkg, seconds, intervalMs = 5000, onTick, onOpen, attempt, active, signal } = options;
     const started = Date.now();
     const deadline = started + seconds * 1000;
 
@@ -279,13 +354,11 @@ export async function samplePhase(options) {
     let firstPss;
     let lastPss;
     let maxPss = 0;
-    const framesStart = await framesRendered(pkg);
-    if (framesStart === undefined) missingFrames += 1;
-    let previousFrames = framesStart;
+    let framesStart;
+    let previousFrames;
     let previousFramesAt = performance.now();
 
-    while (Date.now() < deadline) {
-        const tickStarted = Date.now();
+    const takeSample = async () => {
         const currentPid = await appPid(pkg);
         if (currentPid === undefined) {
             gaps += 1;
@@ -341,15 +414,55 @@ export async function samplePhase(options) {
             if (frameStall > worstFrameStall) worstFrameStall = frameStall;
         }
         if (frames !== undefined) previousFrames = frames;
+        if (framesStart === undefined) framesStart = frames;
         previousFramesAt = framesAt;
-
         if (onTick !== undefined) await onTick();
-        const elapsed = Date.now() - tickStarted;
-        if (elapsed < intervalMs) await new Promise((resolve) => setTimeout(resolve, intervalMs - elapsed));
-    }
+    };
 
-    const framesEnd = await framesRendered(pkg);
-    if (framesEnd === undefined) missingFrames += 1;
+    // CPU, PSS and the frame counter, all read before anything is injected.
+    // A window that opens on the frame counter alone starts its CPU account
+    // after the work it claims to describe.
+    await takeSample();
+    onOpen?.();
+
+    // The commanded duration is the floor, not the ceiling. While the caller
+    // says its attempt is still open -- a gesture in flight, its settle, its
+    // closing observation -- this keeps reading, so the frames those produce are
+    // inside the same window as the CPU they cost. Closure ends it immediately,
+    // deadline or not: what happens after closure is navigation, not the phase.
+    // A raw AbortSignal is not a promise: racing the object resolves at once and
+    // deletes the cadence entirely. Race the abort event, and release it after.
+    let abortListener;
+    const aborted = signal === undefined ? undefined : new Promise((resolve) => {
+        if (signal.aborted) resolve();
+        else { abortListener = resolve; signal.addEventListener('abort', resolve, { once: true }); }
+    });
+    const openNow = () => attempt === undefined
+        ? Date.now() < deadline
+        : attempt.open === true && active?.() !== false;
+    while (openNow()) {
+        const tickStarted = Date.now();
+        await takeSample();
+        if (!openNow()) break;
+        const elapsed = Date.now() - tickStarted;
+        if (elapsed < intervalMs) {
+            let timer;
+            await Promise.race([
+                new Promise((resolve) => { timer = setTimeout(resolve, intervalMs - elapsed); }),
+                attempt?.signal ?? new Promise(() => {}),
+                aborted ?? new Promise(() => {}),
+            ]);
+            clearTimeout(timer);
+        }
+    }
+    if (abortListener !== undefined) signal.removeEventListener('abort', abortListener);
+
+    // The closing samples, taken while the caller still holds the measured
+    // surface: it is waiting on this acknowledgement before it navigates.
+    await takeSample();
+
+    const framesEnd = previousFrames;
+    attempt?.acknowledge?.();
     const wall = (Date.now() - started) / 1000;
     return {
         seconds: Number(wall.toFixed(1)),

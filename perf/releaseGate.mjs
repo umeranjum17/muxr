@@ -31,18 +31,24 @@ import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import { startFakeStack } from './lib/fakeStack.mjs';
+import { documentContract, documentPayload, DOCUMENT_FIXTURE, LOAD, SCENARIO_VERSION, scenarioSummary } from './lib/scenario.mjs';
 import { tourEverySession } from './lib/deviceTour.mjs';
-import { pairPhone } from './lib/pairPhone.mjs';
+import { herdChromeConnected, pairPhone } from './lib/pairPhone.mjs';
+import { readPhoneTrail } from './lib/phoneTrail.mjs';
+import { usagePlugins } from './fixtures/usageHome.mjs';
 import {
     appPid,
     avdName,
     clearLogcat,
     deviceIdentity,
     deviceReady,
+    dismissKeyboard,
     dismissPrompts,
-    frameStats,
+    dumpUiXml,
     framesRendered,
+    gfxSnapshot,
     jankReport,
+    newAttempt,
     jsThreadId,
     refreshHz,
     resetFrames,
@@ -53,27 +59,44 @@ import {
     updateDepthErrors,
     viewBounds,
 } from './lib/androidSignals.mjs';
-import { fling, scrollBout, stripBout, tap, drag } from './lib/gestures.mjs';
+import { fling, scrollBout, stripBout, tap, tapTimed, drag } from './lib/gestures.mjs';
 import {
+    continuesFrom,
     cropRaw,
-    decodeUiAttribute,
-    firstGutterLine,
-    firstStripLabel,
+    firstDocumentMarker,
+    counterContinuity,
+    boutBaseline,
+    freshFrameRows,
+    creditLedger,
+    pendingFrameIdentities,
     mergeFrameStats,
-    parseRedactedTrail,
+    parseJsonlStrict,
+    phaseMetrics,
     pixelsMoved,
     reduceFrameStats,
+    reduceGridTransitions,
     reduceJank,
+    reduceMagnification,
     reduceMovement,
     reducePipelineNotches,
-    reduceZoom,
+    documentPosition,
+    documentViewport,
     scrollableBounds,
+    stripPosition,
+    stripScroller,
+    TERMINAL_SURFACE,
+    trailSince,
     verdict,
 } from './lib/gestureMetrics.mjs';
 
 const run = promisify(execFile);
 
 const PKG = 'com.trymuxr.app';
+// Raw framestats rows kept per gesture. The ring holds ~120; the cap bounds a
+// pathological read and reports what it left out rather than trimming silently.
+const RAW_FRAME_ROW_CAP = 200;
+// Ring reads while the bout runs: well inside the 120-row horizon.
+const RING_DRAIN_MS = 250;
 const AVD = 'muxr_sandbox';
 const FLOWS = 'perf/flows';
 const MAESTRO = ['mise', ['x', 'maestro@cli-2.7.0', '--', 'maestro']];
@@ -100,12 +123,13 @@ const SHARED_LIMITS = {
     graphicsPipelineP95Ms: 250,
     /** Bytes of the terminal.frame payload written to the phone. */
     graphicsBytesP95: 800 * 1024,
-    /** Scroll sent -> next graphics frame written, from the phone's trail. */
-    scrollToFrameP95Ms: 400,
     accidentalOwners: 0,
     terminalScrollClamped: 0,
     graphicsRowsPerSecond: 9,
+    /** One tap on `Zoom in` is one font step, and one re-grid on the wire. */
     zoomResizeCount: 1,
+    /** `GRAPHICS_ZOOM_STEPS[1]`: the first step a graphics pane magnifies by. */
+    graphicsZoomStep: 1.25,
 };
 
 const EMULATOR_LIMITS = {
@@ -120,7 +144,6 @@ const EMULATOR_LIMITS = {
     inputToFrameP95Ms: 120,
     jsBusyDeltaNative: 15,
     jsBusyDeltaTerminal: 25,
-    terminalScrollP95Ms: 250,
     terminalRowsPerSecond: 40,
 };
 
@@ -136,29 +159,41 @@ const DEVICE_LIMITS = {
     inputToFrameP95Ms: 60,
     jsBusyDeltaNative: 10,
     jsBusyDeltaTerminal: 20,
-    terminalScrollP95Ms: 200,
     terminalRowsPerSecond: 60,
 };
 
-const LOAD = {
-    panes: 100,
-    agents: 30,
-    titleChurnHz: 2,
-    terminalBytesPerSecond: 4096,
-    graphicsFrameHz: 4,
-};
 
+/**
+ * `flow` is the load itself and runs while the phase is sampled. `nav` is a
+ * prerequisite: it runs to completion, and its screen is asserted, before any
+ * counter is reset or any number is read.
+ */
 const PHASES = [
     { name: 'idle on the herd', seconds: 120, flow: undefined },
     { name: 'herd strip and tree soak', seconds: 120, flow: 'herdSoak.yaml' },
     { name: 'agent terminal and plugin navigation', seconds: 120, flow: 'herdNavigate.yaml' },
     { name: 'herd tree fling', seconds: 30, drive: 'treeFling' },
-    { name: 'herd strip paging', seconds: 20, drive: 'stripPaging' },
-    { name: 'document scroll and swipe', seconds: 30, flow: 'openDocument.yaml', drive: 'documentScrollSwipe' },
-    { name: 'terminal text fling', seconds: 30, drive: 'terminalTextFling' },
-    { name: 'graphics pane scroll', seconds: 90, flow: 'graphicsScroll.yaml', drive: 'graphicsScroll' },
-    { name: 'zoom tap navigate', seconds: 60, drive: 'zoomTapNavigate' },
+    { name: 'herd strip paging', seconds: 20, drive: 'stripPaging', oneWayMovement: true },
+    { name: 'document scroll', seconds: 30, nav: 'openDocument.yaml', drive: 'documentScroll', oneWayMovement: true },
+    // `surfaceKind` is the pane this phase claims to measure. It is read off the
+    // app's own controls before the bout, so a graphics pane cannot be judged
+    // against the text terminal's latency contract or the other way round.
+    // `fixture` is the pane the phase is routed to by identity. `text` is a pane
+    // no graphics producer serves; `graphics` is the pane the checkerboard is
+    // pinned to. Opening "the first live card" left which pane answered up to
+    // whatever the churning herd had under the tap.
+    { name: 'terminal text fling', seconds: 30, drive: 'terminalTextFling', surfaceKind: 'text', fixture: 'text' },
+    { name: 'graphics pane scroll', seconds: 90, drive: 'graphicsScroll', surfaceKind: 'graphics', fixture: 'graphics', oneWayMovement: true },
+    // One zoom phase per surface, each routed to its own fixture. A single
+    // phase had to discover which pane it had landed on and then grade itself
+    // by that, so the surface it happened to get was the only one covered.
+    { name: 'text zoom tap', seconds: 60, drive: 'zoomTapNavigate', surfaceKind: 'text', fixture: 'text' },
+    { name: 'graphics zoom tap', seconds: 60, drive: 'zoomTapNavigate', surfaceKind: 'graphics', fixture: 'graphics' },
 ];
+
+/** Paints the fixture's identifiable checkerboard instead of a flat fill. */
+const GRAPHICS_PROOF_FILE = '/tmp/muxr-perf-graphics-proof';
+
 
 const args = process.argv.slice(2);
 const flag = (name) => {
@@ -181,6 +216,7 @@ const report = {
 };
 
 let stack;
+let journalAcc = emptyJournalAcc();
 
 const ok = (message) => process.stdout.write(`ok: ${message}\n`);
 const fail = (message) => {
@@ -188,24 +224,71 @@ const fail = (message) => {
     process.stdout.write(`FAIL: ${message}\n`);
 };
 
-function finish(code) {
-    if (stack !== undefined && !keepLoad) stack.stop();
+/**
+ * What the run leaves behind, taken before cleanup removes it. The host's
+ * journal lives in the scratch root `stop()` deletes, and a child's exit code
+ * is gone the moment the process table forgets it; an interrupted or aborted
+ * run is exactly when both are worth having. Names, pids and numbers only --
+ * logs, prompts and pairing strings are not evidence, they are leaks.
+ */
+function snapshotEvidence() {
+    if (stack === undefined) return;
+    if (typeof stack.childHealth === 'function') report.childHealth = stack.childHealth();
+    const path = stack.journalPath ?? (stack.dataDir === undefined ? undefined : join(stack.dataDir, 'diagnostics.json'));
+    if (path === undefined) return;
+    ingestHostJournal(journalAcc, path);
+    report.journalAtFinish = {
+        reads: journalAcc.reads,
+        events: journalAcc.events.length,
+        eventCounts: journalEventCounts(journalAcc.events),
+        unreadable: journalAcc.lastError !== undefined,
+    };
+}
+
+function finish(code, forceStopLoad = false, interruptedBy = undefined) {
+    snapshotEvidence();
+    if (stack !== undefined && (!keepLoad || forceStopLoad)) stack.stop();
     report.finishedAt = new Date().toISOString();
+    // A run that stopped early measured nothing about the phases it never
+    // reached, so it can never report a pass: the phases it did not run are
+    // named, and the exit code has to be a success as well.
+    const ran = new Set(report.phases.map((phase) => phase.name));
+    const notRun = PHASES.filter((phase) => !ran.has(phase.name)).map((phase) => phase.name);
+    if (interruptedBy !== undefined) {
+        report.interruptedBy = interruptedBy;
+        failures.push(`the run was interrupted by ${interruptedBy}`);
+    }
+    if (notRun.length > 0) {
+        report.phasesNotRun = notRun;
+        failures.push(`${notRun.length} phase(s) not run: ${notRun.join(', ')}`);
+    }
     report.failures = failures;
-    report.passed = failures.length === 0;
+    report.passed = failures.length === 0 && code === 0 && notRun.length === 0 && interruptedBy === undefined;
     if (recordPath !== undefined) {
         mkdirSync(dirname(recordPath), { recursive: true });
         writeFileSync(recordPath, `${JSON.stringify(report, null, 2)}\n`);
         process.stdout.write(`\nevidence: ${recordPath}\n`);
     }
-    process.stdout.write(failures.length === 0
+    process.stdout.write(report.passed
         ? '\nPASS: release performance gate\n'
         : `\nFAILED: ${failures.length} gate(s): ${failures.join('; ')}\n`);
-    process.exit(code);
+    process.exit(report.passed ? code : (code === 0 ? 1 : code));
 }
 
-process.once('SIGINT', () => finish(130));
-process.once('SIGTERM', () => finish(143));
+/**
+ * A phase whose screen or workload is invalid ends the run where the invalidity
+ * is detected, with the load stopped even under `--keep-load`: continuing would
+ * only collect plausible numbers from whatever screen the phone drifted onto.
+ */
+function abortPhase(phase, why, details = {}) {
+    report.phases.push({ ...phase, ...details, valid: false, navigation: { ok: false, why } });
+    report.abortedAtPhase = phase.name;
+    fail(`${phase.name}: ${why}`);
+    finish(1, true);
+}
+
+process.once('SIGINT', () => finish(130, false, 'SIGINT'));
+process.once('SIGTERM', () => finish(143, false, 'SIGTERM'));
 
 /**
  * A flow run must never block this process: the sampler and the fake Herdr are
@@ -236,25 +319,42 @@ function maestro(flow, variables = {}) {
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function readJsonl(path) {
-    try {
-        return readFileSync(path, 'utf8').split('\n').filter((line) => line.trim().length > 0).map((line) => JSON.parse(line));
-    } catch {
-        return [];
-    }
+    const read = readJsonlStrict(path);
+    return read.ok ? read.rows : [];
 }
 
-async function dumpUi() {
-    await run('adb', ['shell', 'uiautomator', 'dump', '/sdcard/perf-prompt.xml'], { timeout: 20_000 }).catch(() => undefined);
-    return run('adb', ['shell', 'cat', '/sdcard/perf-prompt.xml'], { timeout: 20_000 })
-        .then((result) => result.stdout)
-        .catch(() => '');
+/**
+ * One JSONL read that is allowed to say it failed.
+ *
+ * `readJsonl` folds a missing file, an unreadable one, a malformed record and a
+ * half-written last line into an empty array, and downstream that reads as "the
+ * pane declared nothing" -- the one answer a gate must never infer from
+ * evidence it could not collect. A JSONL record is only complete on its
+ * newline, so anything after the last one is a writer caught mid-append, not an
+ * absent record.
+ */
+function readJsonlStrict(path) {
+    if (path === undefined) return { ok: false, why: 'no path' };
+    let text;
+    try {
+        text = readFileSync(path, 'utf8');
+    } catch (error) {
+        return { ok: false, why: `unreadable (${error.code ?? error.message})` };
+    }
+    return parseJsonlStrict(text);
 }
+
+// A dump nobody could take reads as an empty screen, never as the last one.
+const dumpUi = () => dumpUiXml();
 
 async function returnToHerd() {
     for (let attempt = 0; attempt < 8; attempt += 1) {
         await dismissPrompts();
+        // An open IME eats the BACK that was meant to leave the route.
+        await dismissKeyboard();
         const dump = await dumpUi();
-        if (/text="LIVE"/.test(dump) && !/Type a prompt/.test(dump)) return true;
+        if (/text="LIVE"/.test(dump) && herdChromeConnected(dump)
+            && !dump.includes(`content-desc="${TERMINAL_SURFACE}"`) && !/Type a prompt/.test(dump)) return true;
         await run('adb', ['shell', 'input', 'keyevent', 'BACK'], { timeout: 10_000 }).catch(() => undefined);
         await sleep(700);
     }
@@ -268,69 +368,390 @@ async function tapBounds(pattern) {
     return true;
 }
 
-async function pullPhoneTrail() {
-    await run('adb', ['shell', 'am', 'start', '-a', 'android.intent.action.VIEW', '-d', 'muxr:///settings', PKG], { timeout: 20_000 }).catch(() => undefined);
-    await sleep(1200);
-    await tapBounds('text="Redacted diagnostics"');
-    await sleep(800);
-    const dump = await dumpUi();
-    const texts = [...dump.matchAll(/text="([^"]*)"/g)].map((match) => decodeUiAttribute(match[1]));
-    await run('adb', ['shell', 'input', 'keyevent', 'BACK'], { timeout: 10_000 }).catch(() => undefined);
-    await run('adb', ['shell', 'input', 'keyevent', 'BACK'], { timeout: 10_000 }).catch(() => undefined);
-    await sleep(500);
-    return texts.join('\n');
-}
+const pullPhoneTrail = () => readPhoneTrail({
+    openSettings: () => run('adb', ['shell', 'am', 'start', '-a', 'android.intent.action.VIEW', '-d', 'muxr:///settings/connection', PKG], { timeout: 20_000 }).catch(() => undefined),
+    dumpUi,
+    drag,
+    tap,
+    sleep,
+    returnToHerd,
+});
 
 async function captureSurface(surface, screen) {
     const dump = await dumpUi();
-    const bounds = scrollableBounds(surface, dump, screen);
-    const raw = await screencapRaw().catch(() => undefined);
+    // A dump that did not read is not a screen. Without one there is no surface
+    // to resolve, so there is nothing to crop and nothing to compare: pixels
+    // alone would call two screenshots of an unknown surface movement.
+    const dumped = dump !== '' && dump.includes('<hierarchy');
+    const bounds = dumped ? scrollableBounds(surface, dump, screen) : undefined;
+    const raw = bounds === undefined ? undefined : await screencapRaw().catch(() => undefined);
     const crop = raw === undefined ? undefined : cropRaw(raw, bounds);
     return {
         dump,
+        dumped,
         bounds,
         crop,
-        gutterLine: firstGutterLine(dump),
-        stripLabel: firstStripLabel(dump),
+        documentMarker: dumped ? firstDocumentMarker(dump) : undefined,
+        documentPosition: dumped ? documentPosition(dump) : undefined,
+        stripPosition: dumped ? stripPosition(dump) : undefined,
     };
 }
 
-async function measureBout(run, hz, { surface, screen, phase } = {}) {
+/**
+ * The screen a phase is about to measure, and its counters zeroed on it. Split
+ * out of `measureBout` so the reset lands after navigation has succeeded and
+ * before the sampler starts: a reset taken while `samplePhase` is reading the
+ * same gfxinfo counters shows up as a frame stall that never happened.
+ */
+async function prepareBout(surface, screen, hz) {
     const beforeSurface = surface === undefined ? undefined : await captureSurface(surface, screen);
-    const before = await resetGfxWindow(PKG, { hz });
+    await resetGfxWindow(PKG, { hz });
+    // The reset does not empty the ring: whatever it still holds finished before
+    // this phase, and whatever it holds in flight completes inside it -- charged
+    // to this phase's delta, so its row has to be placed here too.
+    const baseline = boutBaseline(await gfxSnapshot(PKG, { hz }));
+    if (baseline.why !== undefined) return { why: baseline.why };
+    return {
+        beforeSurface,
+        attempt: newAttempt(),
+        before: baseline.counters,
+        baselineIdentities: baseline.identities,
+        // The records the baseline read already held: the ledger settles the
+        // baseline's own total out of these before this window spends anything.
+        baselineRows: baseline.rows,
+    };
+}
+
+/**
+ * One owner of the framestats ring, and the cadence that keeps it from wrapping.
+ *
+ * The ring holds 120 rows. A hierarchy dump and screenshot take seconds, and a
+ * window closed only after one of those cannot account for what was drawn
+ * during it. Every read goes through one queue -- two mutating reads would race
+ * the seen set -- and the collector keeps reading for as long as it is started.
+ */
+function ringDrainer(hz, onSnapshot, seen = new Set()) {
+    let queue = Promise.resolve();
+    const serialize = (work) => {
+        const next = queue.then(work, work);
+        queue = next.then(() => undefined, () => undefined);
+        return next;
+    };
+    let pending = new Set();
+    const absorb = () => serialize(async () => {
+        const startedAt = Date.now();
+        const snapshot = await gfxSnapshot(PKG, { hz });
+        const fresh = freshFrameRows(snapshot.rows, seen);
+        // Rows the pipeline had not finished writing are not lost frames and not
+        // counted frames; a later read carries their finished record.
+        pending = pendingFrameIdentities(snapshot.rows, seen);
+        onSnapshot({ snapshot, fresh, pending, startedAt, endedAt: Date.now() });
+        return snapshot;
+    });
+    // Reads for the whole bout, on their own schedule. The injector never waits
+    // on one: a gesture that has to wait for a read is a gesture the phase did
+    // not command, and 120 ms of that per read is a workload nobody asked for.
+    let live = false;
+    let loop = Promise.resolve();
+    const start = () => {
+        if (live) return;
+        live = true;
+        loop = (async () => {
+            while (live) {
+                await sleep(RING_DRAIN_MS);
+                if (!live) break;
+                await absorb();
+            }
+        })();
+    };
+    const stop = async () => {
+        live = false;
+        await loop;
+    };
+    return { absorb, start, stop, pendingIdentities: () => pending };
+}
+
+async function measureBout(run, hz, { surface, screen, phase, prepared } = {}) {
+    const ready = prepared ?? await prepareBout(surface, screen, hz);
+    const { beforeSurface, before, baselineIdentities } = ready;
     const parts = [];
+    // A bout flings up and then back down. On a surface whose content repeats,
+    // the end of the bout can land on the same picture the start had, so the
+    // travel is sampled once while it is still one-way and the movement is
+    // judged on whichever comparison saw the most.
+    let oneWaySurface;
+    // framestats is a rolling ring re-read while the bout runs; without this the
+    // same frame is counted once per remaining read. It is seeded with what the
+    // ring already held at the baseline, so only frames this phase drew are its
+    // own and leftovers cannot pay for measured frames that never came back.
+    // Only the rows the ring had already finished at the baseline. One still in
+    // flight there completes inside this phase, so the completed counter charges
+    // it here and its row has to be counted here too.
+    const counted = new Set(baselineIdentities ?? []);
+    // Per-gesture timing beside the rows it was reduced from: without them the
+    // phase p95 is a number nobody can take apart again.
+    const gestureFrames = [];
+    // gfxinfo's own counters at the last collection. Their growth over one
+    // gesture is that gesture's window; the accumulated total is the bout's and
+    // says nothing about any single fling.
+    let counters = before;
+    // Every gesture is collected once it has settled, drags included: a drag's
+    // frames are real work, and a fling's settling frames belong to the fling
+    // that caused them rather than to whatever ran next.
+    //
+    // `rendered` counts the frames gfxinfo says were drawn inside those windows
+    // and `retained` the rows kept from the ring. A gap means the 120-frame ring
+    // wrapped while a window was open, so that window's account is incomplete.
+    let coverageBroken = false;
+    let frozen = false;
+    // The counter, paid off read by read as the collector takes them. The
+    // baseline's own total is settled first, out of the records the baseline
+    // read already held, so those can never be spent on this window.
+    const ledger = creditLedger({ rows: ready.baselineRows, counter: before?.frames });
+    // The window that is open right now. Reads during it accumulate here, so a
+    // drain taken while a screenshot is being pulled adds to the window it
+    // happened in rather than opening one of its own.
+    const newWindow = () => ({ openedAtMs: Date.now(), missedVsync: 0, readAtMs: [] });
+    let open = newWindow();
+    // Closed windows, each with the device time of the gesture that opened it:
+    // a record finalized later is graded with the gesture it answered, so its
+    // latency is measured from that touch and not from the last observation.
+    const closedWindows = [];
+
+    // One owner of the ring. Two mutating reads in flight would race the seen
+    // set and the counters; every read below goes through this queue.
+    const ring = ringDrainer(hz, ({ snapshot, startedAt, endedAt }) => {
+        // Before anything else: a counter that could not be read, or that went
+        // backwards because something reset the window, is a hole. A hole is
+        // unavailable evidence, never a zero.
+        const broken = counterContinuity(counters, snapshot.jank);
+        if (broken !== undefined) coverageBroken = true;
+        else if (open.missedVsync !== undefined) {
+            open.missedVsync += snapshot.jank.missedVsync - counters.missedVsync;
+        }
+        if (broken !== undefined) open.missedVsync = undefined;
+        counters = snapshot.jank;
+        // Past the endpoint the ledger is closed: a read taken now cannot pay a
+        // bill the endpoint's counter had already recorded.
+        if (frozen) return;
+        ledger.snapshot(snapshot);
+        open.readAtMs.push({ startedAt, endedAt });
+    }, counted);
+    const absorb = ring.absorb;
+
+    // Closes the open window on `window`'s own boundary and opens the next.
+    // Intermediate drains never close a window, so a fling's missed-vsync
+    // budget stays the fling's and the injector clock stays its only origin.
+    const gradeWindow = (entry) => {
+        const reduced = reduceFrameStats(entry.rows, { frameNs: 1e9 / hz, t0Ns: entry.t0Ns });
+        entry.record.frames = reduced.frames;
+        entry.record.dropped = reduced.dropped;
+        entry.record.worstMs = reduced.worstMs;
+        entry.record.inputToFrameMs = reduced.inputToFrameMs;
+        entry.record.retainedInWindow = entry.rows.length;
+        entry.record.rows = entry.rows.slice(0, RAW_FRAME_ROW_CAP);
+        if (entry.rows.length > RAW_FRAME_ROW_CAP) entry.record.rowsOmitted = entry.rows.length - RAW_FRAME_ROW_CAP;
+        parts[entry.index] = reduced;
+    };
+    const collect = async (window) => {
+        const openedAt = open.openedAtMs;
+        // One read closes the window, and nothing sleeps: a gesture that waits
+        // on the observer is a gesture the phase never commanded.
+        const snapshot = await absorb();
+        // No clock, no latency. Substituting the frame's own duration answers
+        // "how late was the touch" with a number that never saw a touch.
+        const t0Ns = Number.isFinite(window.t0Seconds) ? window.t0Seconds * 1e9 : undefined;
+        const record = {
+            profile: window.profile,
+            // A window opened by a touch is graded on that touch's origin; the
+            // dumps and screenshots between gestures never had one to lose.
+            input: window.input === true,
+            openedAtMs: openedAt,
+            closedAtMs: Date.now(),
+            reads: open.readAtMs,
+            t0Seconds: window.t0Seconds,
+            durationMs: window.durationMs,
+            elapsedMs: window.elapsedMs,
+            ...(window.input === true && t0Ns === undefined ? { clockUnavailable: true } : {}),
+            missedVsync: open.missedVsync,
+        };
+        parts.push(undefined);
+        gestureFrames.push(record);
+        const entry = { record, index: parts.length - 1, t0Ns, rows: [] };
+        closedWindows.push(entry);
+        gradeWindow(entry);
+        open = newWindow();
+        return snapshot;
+    };
     let bout = { gestures: 0, flings: 0, medianVelocityPxPerSecond: 0 };
+    // The collector runs for the whole bout, gestures and observations alike,
+    // so the 120-row ring is read down on its own schedule rather than in the
+    // gaps a gesture is made to wait for.
+    ring.start();
     try {
         bout = await run({
             onGesture: async (gesture) => {
+                await collect({ ...gesture, input: true });
                 if (gesture.profile !== 'fling') return;
-                const rows = await frameStats(PKG);
-                parts.push(reduceFrameStats(rows, {
-                    frameNs: 1e9 / hz,
-                    t0Ns: (gesture.t0Seconds ?? 0) * 1e9,
-                }));
+                if (phase?.oneWayMovement === true && oneWaySurface === undefined && surface !== undefined) {
+                    // The dump and the screenshot take seconds and draw frames
+                    // of their own, so they close in their own window and not in
+                    // the next fling's.
+                    oneWaySurface = await captureSurface(surface, screen);
+                    await collect({ profile: 'observation' });
+                }
             },
         });
     } catch (error) {
         if (!(error instanceof Error && error.message === 'device could not inject')) throw error;
         bout = { ...bout, injectFailed: true };
     }
-    const after = await jankReport(PKG, { hz });
+    // The bout's own tail, then the closing observation, then the snapshot that
+    // closes both. Coverage is reconciled through this last snapshot, so the
+    // frames drawn after the final gesture are inside the account rather than
+    // arriving in a jank report nothing was compared against.
+    await collect({ profile: 'bout close' });
     const afterSurface = surface === undefined ? undefined : await captureSurface(surface, screen);
+    const closing = await collect({ profile: 'observation' });
+    const after = closing.jank;
+    // One boundary for everything this phase measured: the device clock stamps
+    // it, the frame window ends on it, and the sampler's closing CPU, PSS and
+    // frame samples are taken against it. The reconciliation reads below are
+    // outside all of that -- they command no gesture, move no endpoint, and
+    // their own cost is not this phase's CPU.
+    frozen = true;
+    // The endpoint's own counters, and the records that dump held. Reads after
+    // this one move the counters; the window they close does not. A record the
+    // endpoint never held cannot be one its counter counted, so a frame that
+    // starts after it can never settle a debt it recorded.
+    const endpointCounters = counters;
+    // The measurement ends here: the frame endpoint and the sampler's closing
+    // CPU and PSS samples are the same instant. Stopping the collector, waiting
+    // for its last sleep and reading the ring again all happen after it, so
+    // none of that is this phase's CPU.
+    await ready.attempt?.close();
+    await ring.stop();
+
+    // The ledger closed on the endpoint's own read. What it credited to this
+    // window's increments is what this phase drew; a bill it could not pay is a
+    // history nobody can grade.
+    if (ledger.why !== undefined) coverageBroken = true;
+    const ownedRows = ledger.owned;
+    // Device time decides only which gesture answered a frame, never which
+    // counter owns it: a credited row is graded with the touch that was in
+    // flight when it finished, so it carries that touch's latency.
+    for (const row of ownedRows) {
+        const completed = Number(row.FrameCompleted);
+        const owner = closedWindows.reduce(
+            (best, entry) => (entry.t0Ns !== undefined && entry.t0Ns <= completed
+                && (best === undefined || entry.t0Ns > best.t0Ns) ? entry : best),
+            undefined,
+        ) ?? closedWindows.at(-1);
+        if (owner === undefined) continue;
+        owner.rows.push(row);
+    }
+    for (const entry of closedWindows) gradeWindow(entry);
+    const rendered = (endpointCounters?.frames ?? NaN) - (before?.frames ?? NaN);
+    const retained = ownedRows.length;
+    if (!Number.isFinite(rendered)) coverageBroken = true;
     const injectFailed = bout.injectFailed === true;
-    const movement = beforeSurface === undefined ? undefined : reduceMovement(phase ?? surface, {
-        before: beforeSurface,
-        after: afterSurface,
-        pixels: pixelsMoved(beforeSurface.crop, afterSurface?.crop),
-    });
+    const judged = beforeSurface === undefined ? undefined : judgeMovement(phase ?? surface, beforeSurface, [
+        { name: 'one-way', surface: oneWaySurface },
+        { name: 'after', surface: afterSurface },
+    ]);
     return {
         bout,
         injectFailed,
         jank: reduceJank(before, after, { hz }),
         frameStats: mergeFrameStats(parts),
-        movement,
+        gestureFrames,
+        movementCandidates: judged?.candidates,
+        beforeObservation: beforeSurface === undefined ? undefined : {
+            bounds: beforeSurface.bounds,
+            coherent: beforeSurface.dumped === true && beforeSurface.bounds !== undefined && beforeSurface.crop !== undefined,
+            ...(beforeSurface.documentPosition === undefined ? {} : { documentPosition: beforeSurface.documentPosition }),
+            ...(beforeSurface.stripPosition === undefined ? {} : { stripPosition: beforeSurface.stripPosition }),
+        },
+        frameCoverage: coverageBroken ? undefined : {
+            rendered,
+            retained,
+            // Finished records the counter has not claimed yet: the next
+            // increment's to spend, not this window's to count.
+            uncredited: ledger.uncredited,
+            reads: gestureFrames.reduce((total, row) => total + (row.reads?.length ?? 0), 0),
+            cadenceMs: RING_DRAIN_MS,
+        },
+        missedVsyncPerFling: worstMissedVsyncPerFling(gestureFrames),
+        movement: judged?.movement,
         beforeSurface,
         afterSurface,
+        oneWaySurface,
+    };
+}
+
+/**
+ * The worst single fling window, never a total divided by a fling count: the
+ * limit is written per fling, so only a fling's own window can breach it.
+ */
+function worstMissedVsyncPerFling(gestureFrames) {
+    const flings = gestureFrames.filter((row) => row.profile === 'fling');
+    // One unreadable window is one fling nobody can answer for, so the phase
+    // has no per-fling result at all rather than the best of what survived.
+    if (flings.length === 0 || flings.some((row) => !Number.isFinite(row.missedVsync))) return undefined;
+    return Math.max(...flings.map((row) => row.missedVsync));
+}
+
+/**
+ * Every candidate this bout captured, judged on its own.
+ *
+ * A candidate is one capture: its own crop, its own position, its own pixels.
+ * The predicate runs on each of them whole, so a pixel difference from one
+ * capture can never be paired with a position read from another, and a capture
+ * with no crop -- no viewport resolved, no screenshot -- is incoherent and
+ * cannot be selected at all. All of them are retained: which capture failed and
+ * why is the difference between a surface that never moved, one that came back,
+ * and one nobody managed to photograph.
+ */
+function judgeMovement(phase, beforeSurface, samples, extra = {}) {
+    const candidates = samples
+        .filter((sample) => sample.surface !== undefined)
+        .map(({ name, surface }) => {
+            // Fresh dump, resolved surface, real crop. Anything less is a
+            // candidate nobody photographed, not a surface that did not move.
+            const coherent = surface.dumped === true && surface.bounds !== undefined && surface.crop !== undefined;
+            const pixels = pixelsMoved(beforeSurface.crop, surface.crop);
+            return {
+                name,
+                coherent,
+                bounds: surface.bounds,
+                documentPosition: surface.documentPosition,
+                stripPosition: surface.stripPosition,
+                pixels,
+                movement: reduceMovement(phase, { before: beforeSurface, after: surface, pixels, ...extra }),
+            };
+        });
+    const usable = candidates.filter((candidate) => candidate.coherent);
+    const proven = usable.find((candidate) => candidate.movement.proven === true);
+    const best = usable.reduce(
+        (winner, next) => (winner === undefined || next.pixels.meanAbs > winner.pixels.meanAbs ? next : winner),
+        undefined,
+    );
+    const chosen = proven ?? best;
+    return {
+        candidates: candidates.map(({ name, coherent, bounds, documentPosition, stripPosition, pixels, movement }) => ({
+            name,
+            coherent,
+            bounds,
+            ...(documentPosition === undefined ? {} : { documentPosition }),
+            ...(stripPosition === undefined ? {} : { stripPosition }),
+            meanAbs: pixels.meanAbs,
+            proven: movement.proven === true,
+            reasons: movement.reasons,
+        })),
+        movement: chosen === undefined
+            // Nothing coherent to judge. Not a still surface: no observation.
+            ? { proven: false, reasons: ['no coherent observation'], meanAbs: 0 }
+            : chosen.movement,
     };
 }
 
@@ -338,69 +759,302 @@ function withTrailMovement(measured, phase, terminal) {
     if (measured.beforeSurface === undefined) {
         return { ...measured, terminal, movement: measured.movement };
     }
+    const judged = judgeMovement(phase, measured.beforeSurface, [
+        { name: 'one-way', surface: measured.oneWaySurface },
+        { name: 'after', surface: measured.afterSurface },
+    ], { terminal });
+    return { ...measured, terminal, movement: judged.movement, movementCandidates: judged.candidates };
+}
+
+/**
+ * The route that reaches one named pane, and nothing else.
+ *
+ * An agent pane is reached through the host's own persisted session binding --
+ * the identity the app resolves for itself -- and a shell pane through its
+ * plain deep link. Neither depends on where the pane's card currently sits.
+ */
+function fixtureRoute(paneId) {
+    const agent = stack.world.agents.find((row) => row.pane_id === paneId);
+    if (agent === undefined) return `muxr:///session/${encodeURIComponent(`shell:${paneId}`)}`;
+    const routes = JSON.parse(readFileSync(join(stack.dataDir, 'herdr-routes.json'), 'utf8')).bindings;
+    const binding = routes.find((row) => ['source', 'agent', 'kind', 'value']
+        .every((key) => row.agentSession?.[key] === agent.agent_session[key]));
+    if (binding?.route === undefined) return undefined;
+    return `muxr://session/${encodeURIComponent(binding.route)}`;
+}
+
+/**
+ * Open the pane this phase names and prove that pane arrived: the surface has
+ * to be mounted and the host has to have recorded an attach for that exact id
+ * since the route was opened. A mounted terminal alone says only that some
+ * pane is on screen.
+ */
+async function openFixturePane(paneId) {
+    if (paneId === undefined) return 'the herd published no fixture pane for this phase';
+    if (!await returnToHerd()) return 'the herd never came back on screen';
+    const url = fixtureRoute(paneId);
+    if (url === undefined) return `no host session route resolves pane ${paneId}`;
+    const openedAt = new Date().toISOString();
+    await run('adb', ['shell', 'am', 'start', '-a', 'android.intent.action.VIEW', '-d', url, PKG], { timeout: 20_000 })
+        .catch(() => undefined);
+    await dismissPrompts();
+    const deadline = Date.now() + 15_000;
+    // Two questions, answered separately. Is this phase's surface on screen, and
+    // did the host record a control attach for this exact pane since the route
+    // opened? Cell pixels are not required: a software-rendered emulator never
+    // declares them, and the question is which pane the phone took over, not how
+    // it draws. Reporting both as "never attached" hid a surface probe that
+    // could not have succeeded.
+    let surfaceSeen = false;
+    let attachSeen = false;
+    do {
+        await sleep(700);
+        surfaceSeen = await viewBounds(`content-desc="${TERMINAL_SURFACE}"`) !== undefined;
+        attachSeen = paneAttaches(paneId, openedAt).length > 0;
+        if (surfaceSeen && attachSeen) {
+            await dismissKeyboard();
+            return undefined;
+        }
+    } while (Date.now() < deadline);
+    if (!surfaceSeen && !attachSeen) return `pane ${paneId} published no terminal surface and recorded no attach`;
+    if (!surfaceSeen) return `pane ${paneId} attached but published no terminal surface`;
+    return `the terminal surface is on screen but pane ${paneId} never attached`;
+}
+
+/**
+ * Navigation, surface assertion, trail baseline, counter reset — in that order,
+ * and all of it before a single number is read. A phase whose prerequisite
+ * failed is reported as a failed prerequisite; its gesture metrics would
+ * describe some other screen.
+ */
+async function preparePhase(phase, screen, hz) {
+    if (phase.drive === undefined) {
+        return await returnToHerd() ? { ok: true } : { ok: false, why: 'the herd never came back on screen' };
+    }
+    const surface = { treeFling: 'tree', stripPaging: 'strip', documentScroll: 'document', terminalTextFling: 'terminal', graphicsScroll: 'graphics', zoomTapNavigate: 'terminal' }[phase.drive];
+    // Only the phases graded on the phone's own counters pay for a baseline
+    // pull; it costs a round trip through Settings and back.
+    const wantsTrail = phase.drive === 'terminalTextFling' || phase.drive === 'zoomTapNavigate';
+    let flowExit;
+    let trailBefore;
+    let documentBounds;
+
+    if (wantsTrail) {
+        // Pulled from the herd, before entering the surface: the pull leaves the
+        // route, so it cannot be taken once the phase is standing on its screen.
+        if (!await returnToHerd()) return { ok: false, why: 'the herd never came back on screen' };
+        const mark = await pullPhoneTrail();
+        if (!mark.ok) return { ok: false, why: `the phone trail is unavailable (${mark.why})` };
+        trailBefore = mark.trail;
+    }
+
+    if (phase.nav !== undefined) {
+        const flow = await maestro(phase.nav);
+        flowExit = flow.code;
+        if (flow.code !== 0) {
+            return { ok: false, flowExit, why: `${phase.nav} did not complete`, flowOutput: flow.output.split('\n').slice(-25).join('\n') };
+        }
+    }
+
+    // Everything the host records for this phase is stamped after this mark, so
+    // a pane another phase opened cannot be read as this one's evidence.
+    const enteredAt = new Date().toISOString();
+
+    if (phase.drive === 'treeFling' || phase.drive === 'stripPaging') {
+        if (!await returnToHerd()) return { ok: false, why: 'the herd never came back on screen' };
+    } else if (phase.drive === 'documentScroll') {
+        await dismissKeyboard();
+        const dump = await dumpUi();
+        // Two separate questions: is the fixture the one on screen, and can this
+        // phase see where the surface is standing. Either missing is unavailable
+        // evidence, so neither is inferred from the other.
+        if (firstDocumentMarker(dump) === undefined) return { ok: false, flowExit, why: 'the document fixture is not on the reading surface' };
+        const viewport = documentViewport(dump);
+        if (viewport.bounds === undefined) return { ok: false, flowExit, why: `the document viewport is unavailable (${viewport.why})` };
+        documentBounds = viewport.bounds;
+    } else {
+        // Every terminal phase names its pane. Nothing else is a measurable
+        // surface: a card position is whatever the churning herd left there.
+        const why = await openFixturePane(stack.fixturePanes?.[phase.fixture]);
+        if (why !== undefined) return { ok: false, flowExit, why };
+    }
+
+    // A phase that names its surface has to be standing on that surface. A
+    // graphics pane judged against the text terminal's latency contract passes
+    // it on numbers that describe something else entirely.
+    let surfaceKind;
+    if (phase.surfaceKind !== undefined) {
+        const probed = await probeSurfaceKind();
+        if (probed.kind === undefined) return { ok: false, flowExit, why: `the surface could not be identified (${probed.why})` };
+        if (probed.kind !== phase.surfaceKind) {
+            return { ok: false, flowExit, why: `this phase measures a ${phase.surfaceKind} pane but the surface is ${probed.kind}` };
+        }
+        surfaceKind = probed.kind;
+    }
+
+    // The strip is driven on the scroller the hierarchy publishes, so the
+    // bounds are resolved -- and refused when missing or ambiguous -- before the
+    // counters are zeroed and before a single gesture is injected.
+    let stripBounds;
+    if (phase.drive === 'stripPaging') {
+        const resolved = stripScroller(await dumpUi());
+        if (resolved.bounds === undefined) return { ok: false, flowExit, why: `the live strip is unavailable (${resolved.why})` };
+        stripBounds = resolved.bounds;
+    }
+
+    // Counters and ring identities in one validated read, before the sampler
+    // opens. A baseline nobody could take is not a window anything can measure.
+    const prepared = await prepareBout(surface, screen, hz);
+    if (prepared.why !== undefined) return { ok: false, flowExit, why: `the bout baseline is unavailable (${prepared.why})` };
+
     return {
-        ...measured,
-        terminal,
-        movement: reduceMovement(phase, {
-            before: measured.beforeSurface,
-            after: measured.afterSurface,
-            terminal,
-            pixels: pixelsMoved(measured.beforeSurface.crop, measured.afterSurface?.crop),
-        }),
+        ok: true,
+        flowExit,
+        trailBefore,
+        enteredAt,
+        surfaceKind,
+        stripBounds,
+        documentBounds,
+        paneId: phase.fixture === undefined ? undefined : stack.fixturePanes?.[phase.fixture],
+        prepared,
     };
 }
 
-async function drivePhase(phase, screen, hz) {
+/** `enabled` on the panel control the app published, or `undefined` if absent. */
+function controlEnabled(dump, label) {
+    const node = (String(dump).match(/<node\b[^>]*>/g) ?? []).find((row) => row.includes(`content-desc="${label}"`));
+    return node === undefined ? undefined : /enabled="true"/.test(node);
+}
+
+/**
+ * The control attaches this phase opened on one exact pane.
+ *
+ * `pane.read` is a read-only thumbnail of whatever pane the herd screen happens
+ * to be showing; it says nothing about which pane the phone took over. A
+ * control attach is the terminal session the phone drives, so that is the only
+ * record that proves this phase is standing on the pane it names. The timestamp
+ * keeps an earlier phase's attach out of it.
+ */
+function paneAttaches(paneId, since) {
+    if (stack?.cellMetricsJsonl === undefined) return [];
+    return readJsonl(stack.cellMetricsJsonl).filter((record) => record.source === 'terminal.attach'
+        && record.mode === 'control'
+        && (paneId === undefined || String(record.pane_id) === paneId)
+        && String(record.at) >= since
+        && [record.cols, record.rows].every((value) => Number(value) > 0));
+}
+
+/**
+ * The geometry the phone actually declared on the wire, from the attach and
+ * terminal.resize records the fake herd writes beside its socket. This is the
+ * source a zoom step changes: a text pane re-grids, a graphics pane holds the
+ * grid and moves its cell pixels. Reads are phase-local and pinned to one pane,
+ * so an earlier phase's pane can never supply this phase's before-and-after.
+ *
+ * The attach record carries the grid but no cell pixels, and it is the only
+ * geometry a pane the phone never re-gridded has. Requiring cell pixels here
+ * discarded exactly that baseline, so the grid is what makes a record usable
+ * and the cell is carried when the phone sent it.
+ */
+function paneGeometry(paneId, since) {
+    if (stack?.cellMetricsJsonl === undefined) return [];
+    return readJsonl(stack.cellMetricsJsonl).filter((record) => (paneId === undefined || String(record.pane_id) === paneId)
+        && String(record.at) >= since
+        && [record.cols, record.rows].every((value) => Number(value) > 0));
+}
+
+/** One tap's work has to have reached the host inside this window. */
+const ZOOM_SETTLE_MS = 1500;
+
+/**
+ * Drain the pane's geometry to quiet and hand back the series it settled on.
+ *
+ * Every read has to succeed: a file that went missing, could not be parsed or
+ * was caught half-written mid-drain is an unavailable baseline, never a quiet
+ * one. A pane still re-gridding when the window closes has not settled either,
+ * and a step read against it would be counting somebody else's change.
+ */
+async function settleGeometry(read, { quietMs = 900, timeoutMs = 8000 } = {}) {
+    const deadline = Date.now() + timeoutMs;
+    let last = read();
+    if (!last.ok) return last;
+    let quietSince = Date.now();
+    while (Date.now() < deadline) {
+        await sleep(300);
+        const now = read();
+        if (!now.ok) return now;
+        if (now.rows.length !== last.rows.length) {
+            last = now;
+            quietSince = Date.now();
+            continue;
+        }
+        if (Date.now() - quietSince >= quietMs) return { ok: true, rows: now.rows };
+    }
+    return { ok: false, why: 'the pane never stopped re-gridding' };
+}
+
+/**
+ * Text or graphics, from the state the app publishes on the controls panel
+ * before anything is tapped: a text pane opens in the middle of its font ladder,
+ * so `Zoom out` is live; a graphics pane opens at scale 1, its smallest, so it
+ * is not.
+ */
+async function probeSurfaceKind() {
+    if (!await tapBounds('content-desc="Show terminal controls"')) return { why: 'the terminal controls never opened' };
+    await sleep(600);
+    const panel = await dumpUi();
+    const zoomOutAtRest = controlEnabled(panel, 'Zoom out');
+    const zoomInPresent = controlEnabled(panel, 'Zoom in');
+    await tapBounds('content-desc="Close terminal controls"');
+    await sleep(400);
+    if (zoomInPresent === undefined || zoomOutAtRest === undefined) return { why: 'the panel published no zoom controls' };
+    return { kind: zoomOutAtRest ? 'text' : 'graphics', zoomOutAtRest };
+}
+
+async function drivePhase(phase, screen, hz, ready) {
     const { width, height } = screen;
     const seconds = phase.seconds;
+    const prepared = ready.prepared;
+    const sinceEntry = async () => {
+        // Leaving for Settings ends the measurement. The closing samples are
+        // taken and acknowledged before this route moves anywhere.
+        await prepared?.attempt?.close();
+        const mark = await pullPhoneTrail();
+        if (!mark.ok) return { ok: false, why: mark.why };
+        return trailSince(mark.trail, ready.trailBefore);
+    };
     if (phase.drive === 'treeFling') {
-        await returnToHerd();
-        return measureBout((opts) => scrollBout({ width, height, seconds, ...opts }), hz, { surface: 'tree', screen, phase });
+        return measureBout((opts) => scrollBout({ width, height, seconds, ...opts }), hz, { surface: 'tree', screen, phase, prepared });
     }
     if (phase.drive === 'stripPaging') {
-        await returnToHerd();
-        return measureBout((opts) => stripBout({ width, height, seconds, ...opts }), hz, { surface: 'strip', screen, phase });
+        return measureBout((opts) => stripBout({ bounds: ready.stripBounds, seconds, ...opts }), hz, { surface: 'strip', screen, phase, prepared });
     }
-    if (phase.drive === 'documentScrollSwipe') {
-        const vertical = await measureBout((opts) => scrollBout({ width, height, seconds: 20, ...opts }), hz, { surface: 'document', screen, phase });
-        for (let index = 0; index < 6; index += 1) {
-            const left = index % 2 === 0;
-            await drag({
-                from: { x: width * (left ? 0.8 : 0.2), y: height * 0.5 },
-                to: { x: width * (left ? 0.2 : 0.8), y: height * 0.5 },
-            });
-            await sleep(400);
-        }
-        const trail = parseRedactedTrail(await pullPhoneTrail().catch(() => ''));
-        return {
-            ...vertical,
-            documentNavigate: trail.documentNavigate,
-            documentNavigateDuringVertical: 0,
-        };
+    if (phase.drive === 'documentScroll') {
+        // Reading, and only reading: the viewer reached from the herd carries no
+        // file navigator, so it has no `File n of m` to move and a horizontal
+        // swipe there proves nothing. What the long fixture can prove is that
+        // its own numbered lines travelled under the finger.
+        return measureBout((opts) => scrollBout({ width, height, bounds: ready.documentBounds, seconds, ...opts }), hz, { surface: 'document', screen, phase, prepared });
     }
     if (phase.drive === 'terminalTextFling') {
-        await returnToHerd();
-        await tap(width * 0.3, height * 0.33);
-        await sleep(2500);
-        await dismissPrompts();
-        const measured = await measureBout((opts) => scrollBout({ width, height, seconds, ...opts }), hz, { surface: 'terminal', screen, phase });
-        const trail = parseRedactedTrail(await pullPhoneTrail().catch(() => ''));
+        const measured = await measureBout((opts) => scrollBout({ width, height, seconds, ...opts }), hz, { surface: 'terminal', screen, phase, prepared });
+        const trail = await sinceEntry();
+        if (!trail.ok) return { ...measured, trailUnavailable: trail.why };
         const terminal = {
-            scrollRequests: trail.scrollRequests || trail.scrollLatencies.length,
-            scrollLatencyP50Ms: trail.scrollLatencyP50Ms,
-            scrollLatencyP95Ms: trail.scrollLatencyP95Ms,
+            scrollRequests: trail.scrollRequests,
             rowsRequested: trail.rowsRequested,
             rowsSent: trail.rowsRequested,
             rowsPerSecond: seconds > 0 ? Number((trail.rowsRequested / seconds).toFixed(1)) : 0,
             clamped: trail.clamped,
+            timedOut: trail.timedOut,
             agentPages: trail.agentPages,
         };
-        return withTrailMovement(measured, phase, terminal);
+        return { ...withTrailMovement(measured, phase, terminal), surfaceKind: ready.surfaceKind };
     }
     if (phase.drive === 'graphicsScroll') {
         ingestHostJournal(journalAcc, stack.journalPath ?? join(stack.dataDir, 'diagnostics.json'));
         const startedAt = new Date().toISOString();
-        const measured = await measureBout((opts) => scrollBout({ width, height, seconds, ...opts }), hz, { surface: 'graphics', screen, phase });
+        const measured = await measureBout((opts) => scrollBout({ width, height, seconds, ...opts }), hz, { surface: 'graphics', screen, phase, prepared });
         // The host flushes graphics.pipeline every 15 s. Give the last window
         // a chance to land so notchesDropped is this bout, not a later phase.
         const deadline = Date.now() + 16_000;
@@ -425,20 +1079,199 @@ async function drivePhase(phase, screen, hz) {
         };
     }
     if (phase.drive === 'zoomTapNavigate') {
-        const before = await resetGfxWindow(PKG, { hz });
-        const attachBefore = stack === undefined ? [] : readJsonl(stack.attachJsonl);
-        const baseline = attachBefore.at(-1);
-        const zoomedIn = await tapBounds('content-desc="Zoom in"');
-        await sleep(450);
-        const attachAfterIn = stack === undefined ? [] : readJsonl(stack.attachJsonl);
-        const afterIn = attachAfterIn.at(-1);
-        const zoomIn = reduceZoom([baseline, afterIn].filter((record) => record !== undefined
-            && Number(record.cols) > 0 && Number(record.rows) > 0));
-        await tapBounds('content-desc="Zoom out"');
-        await sleep(450);
-        await tapBounds('content-desc="Reset zoom"');
-        await sleep(450);
-        const ghostty = await viewBounds('GhosttyTerminalView');
+        const before = prepared.before;
+        // Everything this phase reads is stamped after it entered its surface,
+        // so a pane an earlier phase opened can never supply this one's step.
+        const entered = ready.enteredAt;
+        const paneId = ready.paneId;
+        if (paneId === undefined) return { zoomEvidenceUnavailable: 'this phase named no fixture pane' };
+        const unavailable = (why) => ({
+            zoomEvidenceUnavailable: why,
+            jank: reduceJank(before, before, { hz }),
+            frameStats: mergeFrameStats([]),
+            bout: { gestures: 1, flings: 1, medianVelocityPxPerSecond: 0 },
+            injectFailed: false,
+        });
+        // One fail-closed reading of the pane's own geometry series. The
+        // baseline may be the grid the pane attached with: a pane the phone
+        // never re-gridded still declared a grid, and requiring a prior resize
+        // discarded exactly that baseline.
+        const geometry = () => {
+            const read = readJsonlStrict(stack?.cellMetricsJsonl);
+            if (!read.ok) return read;
+            return {
+                ok: true,
+                rows: read.rows.filter((record) => String(record.pane_id) === paneId
+                    && String(record.at) >= entered
+                    && [record.cols, record.rows].every((value) => Number(value) > 0)),
+            };
+        };
+        const attachRead = () => {
+            const read = readJsonlStrict(stack?.cellMetricsJsonl);
+            if (!read.ok) return read;
+            return {
+                ok: true,
+                rows: read.rows.filter((record) => record.source === 'terminal.attach'
+                    && record.mode === 'control'
+                    && String(record.pane_id) === paneId
+                    && String(record.at) >= entered),
+            };
+        };
+        const attaches = attachRead();
+        if (!attaches.ok) return unavailable(`the pane's attach evidence is unavailable (${attaches.why})`);
+
+        // The zoom buttons live behind the controls key; they do not exist until
+        // the panel is open, so a tap that misses is a harness miss, not a
+        // missing feature.
+        const opened = await tapBounds('content-desc="Show terminal controls"');
+        await sleep(600);
+        // The surface is told apart by the state the app itself publishes before
+        // anything is tapped: a text pane opens in the middle of its font
+        // ladder, so `Zoom out` is live; a graphics pane opens at scale 1, its
+        // smallest, so it is not. `Reset zoom` disabled is the app's own report
+        // that the pane is still at its untouched default.
+        const panel = await dumpUi();
+        const zoomOutAtRest = controlEnabled(panel, 'Zoom out');
+        const zoomSurface = controlEnabled(panel, 'Zoom in') === undefined || zoomOutAtRest === undefined
+            ? undefined
+            : zoomOutAtRest ? 'text' : 'graphics';
+        const atRestDefault = controlEnabled(panel, 'Reset zoom') === false;
+
+        // Drain and validate the baseline, then take the cursor immediately
+        // before the tap. Opening the pane and the panel both re-grid, and a
+        // cursor taken while those were still arriving would count them as the
+        // tap's own work.
+        const baseline = await settleGeometry(geometry);
+        if (!baseline.ok) return unavailable(`the baseline geometry is unavailable (${baseline.why})`);
+        if (baseline.rows.length === 0) return unavailable('the pane declared no geometry at all');
+        const cursor = baseline.rows.length;
+
+        // Resolve and validate the control before anything is timed. Finding it
+        // costs a UIAutomator dump of seconds, and a timing origin taken before
+        // that dump would put the whole dump inside the frame window -- the
+        // first frame the tap drove would then look seconds late against a
+        // limit meant for the tap alone.
+        const zoomInBounds = opened && zoomSurface !== undefined
+            ? await viewBounds('content-desc="Zoom in"')
+            : undefined;
+        if (zoomInBounds === undefined) return unavailable('the Zoom in control is not on the panel');
+        if (!(zoomInBounds.r > zoomInBounds.l && zoomInBounds.b > zoomInBounds.t)) {
+            return unavailable('the Zoom in control has no tappable bounds');
+        }
+
+        // Origin and injection in one spawn, the way a fling is timed: the
+        // device samples `/proc/uptime` in the same shell that injects the tap,
+        // so t0 is the moment the injector started rather than a round trip
+        // earlier. The counters are never reset here -- the phase's jank is
+        // differenced against a baseline taken before it started, and zeroing
+        // them midway would make that delta describe nothing.
+        // The counters immediately before the tap. The phase's own jank spans
+        // preparation, the second step, zoom out and reset; only this pair
+        // brackets the window the frames below are cut to.
+        const vsyncBefore = await gfxSnapshot(PKG, { hz });
+        const zoomBaseline = boutBaseline(vsyncBefore);
+        if (zoomBaseline.why !== undefined) return unavailable(`${zoomBaseline.why} (zoom)`);
+        // The confirmation dumps and the settle take seconds and draw frames of
+        // their own, so this window is drained on the same cadence a bout uses.
+        // Rows the ring would otherwise have dropped are kept here.
+        const zoomLedger = creditLedger({ rows: vsyncBefore.rows, counter: vsyncBefore.jank?.frames });
+        // Continuity is checked at every read, not only at the endpoints: a
+        // counter that vanished or reset mid-window cannot be vouched for by a
+        // closing pair that happens to line up again afterwards.
+        let zoomCounters = vsyncBefore.jank;
+        let zoomBroke;
+        const zoomRing = ringDrainer(hz, ({ snapshot }) => {
+            zoomBroke ??= counterContinuity(zoomCounters, snapshot.jank);
+            zoomCounters = snapshot.jank;
+            zoomLedger.snapshot(snapshot);
+        // The drainer's own dedup keeps each row once; the ledger decides which
+        // counter increment spends it.
+        }, new Set());
+        const injected = await tapTimed(
+            (zoomInBounds.l + zoomInBounds.r) / 2,
+            (zoomInBounds.t + zoomInBounds.b) / 2,
+        ).catch(() => ({ tapped: false }));
+        if (injected.tapped !== true) return unavailable('the Zoom in tap could not be injected');
+        if (!Number.isFinite(injected.t0Seconds)) return unavailable('the device monotonic clock did not read with the tap');
+        const t0Ns = injected.t0Seconds * 1e9;
+
+        // Confirm the app itself moved -- `Reset zoom` goes live once a step
+        // landed -- then keep observing through the bounded settle. Records that
+        // arrive while these dumps are being read are still inside the window:
+        // it closes on the read below, not on the confirmation.
+        let steppedIn = false;
+        zoomRing.start();
+        const confirmBy = Date.now() + ZOOM_SETTLE_MS;
+        do {
+            await sleep(300);
+            steppedIn = controlEnabled(await dumpUi(), 'Reset zoom') === true;
+        } while (!steppedIn && Date.now() < confirmBy);
+        await sleep(ZOOM_SETTLE_MS);
+        await zoomRing.stop();
+
+        // The closing read, before any other action is driven, and it has to be
+        // the same append-only series the baseline came from. A read that lost
+        // records, or that changed one the baseline already held, is a different
+        // file -- a rotation, a re-entered pane, two panes on one path -- and a
+        // window sliced out of it would read this pane's step off other records.
+        const closing = geometry();
+        if (!closing.ok) return unavailable(`the closing geometry read is unavailable (${closing.why})`);
+        const continuity = continuesFrom(baseline.rows, closing.rows);
+        if (!continuity.ok) return unavailable(`the closing geometry is not continuous (${continuity.why})`);
+        const observed = closing.rows.slice(cursor - 1);
+        const transitions = reduceGridTransitions(observed);
+        // The ring bounded to this tap and its settle, so the frames, the drops
+        // and the input-to-frame all describe the same window the grid did.
+        const vsyncAfter = await zoomRing.absorb();
+        if (zoomBroke !== undefined) return unavailable(`${zoomBroke} (zoom)`);
+        // The same ledger a bout keeps, on this window's own reads: the baseline's
+        // total is settled out of the records its read already held, and every
+        // increment after it is paid from the earliest records not yet spent.
+        const wasMissed = vsyncBefore.jank.missedVsync;
+        const nowMissed = vsyncAfter.jank.missedVsync;
+        if (wasMissed === undefined || nowMissed === undefined || nowMissed < wasMissed) {
+            return unavailable('the missed-vsync counter did not read across the zoom window');
+        }
+        if (zoomLedger.why !== undefined) return unavailable(`${zoomLedger.why} (zoom)`);
+        const ownedZoomRows = zoomLedger.owned;
+        const zoomFrames = reduceFrameStats(ownedZoomRows, { frameNs: 1e9 / hz, t0Ns });
+        const zoomCoverage = {
+            rendered: (vsyncAfter.jank.frames ?? NaN) - (vsyncBefore.jank.frames ?? NaN),
+            retained: ownedZoomRows.length,
+            uncredited: zoomLedger.uncredited,
+        };
+
+        // Only now may anything else be driven. The pixels below are this
+        // phase's own pane after its own step: on a graphics surface they are
+        // both the magnification and the proof that a frame was delivered, so
+        // no aggregate host publication count stands in for either.
+        await tapBounds('content-desc="Close terminal controls"');
+        await sleep(400);
+        const magnified = zoomSurface !== 'graphics' ? undefined : reduceMagnification(
+            prepared.beforeSurface?.crop,
+            cropRaw(await screencapRaw().catch(() => undefined) ?? {}, prepared.beforeSurface?.bounds),
+            { expected: LIMITS.graphicsZoomStep },
+        );
+        // Back down the same ladder. `Reset zoom` is the surface's own report of
+        // where it stands, so a step that returned it to the default disables
+        // that control again; a tap the app ignored leaves it live.
+        const atDefaultAfter = async (label) => {
+            if (!await tapBounds(`content-desc="${label}"`)) return false;
+            await sleep(600);
+            return controlEnabled(await dumpUi(), 'Reset zoom') === false;
+        };
+        await tapBounds('content-desc="Show terminal controls"');
+        await sleep(500);
+        const zoomedOut = steppedIn && await atDefaultAfter('Zoom out');
+        // `Reset zoom` returning to disabled only proves anything if a step
+        // landed first, so the second `Zoom in` has to be seen to do something.
+        await tapBounds('content-desc="Zoom in"');
+        await sleep(500);
+        const steppedInAgain = controlEnabled(await dumpUi(), 'Reset zoom') === true;
+        const zoomReset = steppedInAgain && await atDefaultAfter('Reset zoom');
+        await tapBounds('content-desc="Close terminal controls"');
+        await sleep(300);
+        const ghostty = await viewBounds(`content-desc="${TERMINAL_SURFACE}"`);
         if (ghostty !== undefined) {
             const cx = (ghostty.l + ghostty.r) / 2;
             const cy = (ghostty.t + ghostty.b) / 2;
@@ -453,39 +1286,60 @@ async function drivePhase(phase, screen, hz) {
                 to: { x: cx - 200, y: cy },
             });
             await screencapRaw('/tmp/muxr-zoom-pane.raw').catch(() => undefined);
+            // Tapping the grid raises the IME by design; the trail pull below
+            // must not be typed into a keyboard covering the screen.
+            await dismissKeyboard();
         }
         const after = await jankReport(PKG, { hz });
-        const trail = parseRedactedTrail(await pullPhoneTrail().catch(() => ''));
-        const attaches = stack === undefined ? [] : readJsonl(stack.attachJsonl);
-        const trailZoom = reduceZoom(trail.resizeEvents);
-        // Image pane: cell changed, grid held. Text pane: grid changed.
-        // Either shape is one countable zoom step; this phase sits on the
-        // graphics pane the previous flow opened, so cell-only is the hit.
-        const zoomResizeCount = zoomIn.cellOnly || zoomIn.gridChanged
-            || (trailZoom.cellOnly > 0 ? 1 : 0)
-            || (trailZoom.gridChanged > 0 ? 1 : 0);
+        const trail = await sinceEntry();
+        if (!trail.ok) return { trailUnavailable: trail.why, jank: reduceJank(before, after, { hz }), frameStats: zoomFrames, bout: { gestures: 1, flings: 1, medianVelocityPxPerSecond: 0 }, injectFailed: false };
         return {
             bout: { gestures: 1, flings: 1, medianVelocityPxPerSecond: 0 },
             injectFailed: false,
+            // The whole phase, kept as the diagnostic it is. What the tap is
+            // graded on is the bracketed window below, never this.
             jank: reduceJank(before, after, { hz }),
-            frameStats: mergeFrameStats([]),
-            zoomResizeCount,
-            zoomTapped: zoomedIn,
+            missedVsyncPerFling: nowMissed - wasMissed,
+            frameCoverage: zoomCoverage,
+            // The tap and its settle, held to the same framestats account as any
+            // other gesture: a window with no ring, or none the touch drove,
+            // measured nothing rather than measuring a perfect zero.
+            frameStats: zoomFrames,
+            surfaceKind: ready.surfaceKind,
+            zoomSurface,
+            zoomControlsOpened: opened,
+            zoomAtRestDefault: atRestDefault,
+            zoomTransitions: transitions.count,
+            zoomShrankOnce: transitions.shrankOnce,
+            // Every read of the window succeeded, so the series below is the
+            // pane's own account rather than one nobody could collect.
+            zoomWindow: true,
+            zoomTapped: steppedIn,
+            steppedInAgain,
+            zoomMagnified: magnified,
+            zoomedOut,
+            zoomReset,
             zoom: {
-                ...trailZoom,
-                zoomIn,
-                attachBefore: baseline,
-                attachAfterIn: afterIn,
+                paneId,
+                surface: zoomSurface,
+                zoomOutAtRest,
+                atRestDefault,
+                steppedIn,
+                cursor,
+                baselineRecords: baseline.rows.length,
+                observed,
+                transitions: transitions.transitions,
+                magnified,
             },
-            attachRecords: attaches.length,
+            attachRecords: attaches.rows.length,
+            geometryRecords: closing.rows.length,
             terminal: {
-                scrollRequests: trail.scrollRequests || trail.scrollLatencies.length,
-                scrollLatencyP50Ms: trail.scrollLatencyP50Ms,
-                scrollLatencyP95Ms: trail.scrollLatencyP95Ms,
+                scrollRequests: trail.scrollRequests,
                 rowsRequested: trail.rowsRequested,
                 rowsSent: trail.rowsRequested,
                 rowsPerSecond: 0,
                 clamped: trail.clamped,
+                timedOut: trail.timedOut,
             },
         };
     }
@@ -581,6 +1435,10 @@ function gestureEvidence(driven, idleJs) {
         profiles: driven.bout?.profiles ?? [],
         medianVelocityPxPerSecond: driven.bout?.medianVelocityPxPerSecond ?? 0,
         intendedMedianVelocityPxPerSecond: driven.bout?.intendedMedianVelocityPxPerSecond ?? 0,
+        byProfile: driven.bout?.byProfile,
+        slowProfiles: driven.bout?.slowProfiles,
+        samples: driven.bout?.samples,
+        frameCoverage: driven.frameCoverage,
         jank: {
             frames: driven.jank?.frames ?? 0,
             jankyPercent: driven.jank?.jankyPercent,
@@ -595,17 +1453,31 @@ function gestureEvidence(driven, idleJs) {
             overFourFramesPercent: driven.jank?.overFourFramesPercent ?? 0,
             histogram: driven.jank?.histogram ?? '',
         },
-        frameStats: driven.frameStats ?? { frames: 0, dropped: 0, droppedPercent: 0, worstMs: 0, inputToFrameMs: { p50: 0, p95: 0 } },
+        frameStats: driven.frameStats ?? { frames: 0, dropped: 0, worstMs: 0, inputToFrameMs: {} },
+        gestureFrames: driven.gestureFrames,
+        missedVsyncPerFling: driven.missedVsyncPerFling,
         movement: driven.movement,
+        movementCandidates: driven.movementCandidates,
+        beforeObservation: driven.beforeObservation,
         injectFailed: driven.injectFailed === true,
-        zoomResizeCount: driven.zoomResizeCount,
+        zoomSurface: driven.zoomSurface,
+        zoomTransitions: driven.zoomTransitions,
+        zoomShrankOnce: driven.zoomShrankOnce,
+        zoomAtRestDefault: driven.zoomAtRestDefault,
+        zoomWindow: driven.zoomWindow,
+        attachRecords: driven.attachRecords,
+        geometryRecords: driven.geometryRecords,
         zoomTapped: driven.zoomTapped,
+        zoomMagnified: driven.zoomMagnified,
+        zoomedOut: driven.zoomedOut,
+        zoomReset: driven.zoomReset,
+        zoomControlsOpened: driven.zoomControlsOpened,
         zoom: driven.zoom,
         notchesSent: driven.terminal?.notchesSent,
         notchesDropped: driven.terminal?.notchesDropped,
         jsBusyIdlePercent: idleJs,
         jsBusyDeltaPoints,
-        accidentalOwners: driven.terminal?.agentPages ?? driven.documentNavigateDuringVertical ?? 0,
+        accidentalOwners: driven.terminal?.agentPages ?? 0,
     };
 }
 
@@ -630,7 +1502,6 @@ report.device = {
     density: device.density,
     renderer: device.renderer,
 };
-let journalAcc = emptyJournalAcc();
 const screen = {
     width: device.width ?? 1080,
     height: device.height ?? 1920,
@@ -674,13 +1545,48 @@ ok(`installed ${apk} vc ${apkInfo.versionCode ?? '?'} ${apkInfo.signerDigest ?? 
 // scratch directory, with a faked Herdr underneath them. Nothing on this
 // machine is touched and the load is the same every time.
 try {
-    stack = await startFakeStack(LOAD);
+    // The plugin fixtures the PR gate already owns: without them the fake herd
+    // advertises no plugins at all, `Files` never renders, and the document
+    // phase measures a herd screen it never left.
+    // The proof board is the fixture's identifiable frame: a flat fill looks
+    // the same at every magnification, so the zoom phase could never show a
+    // graphics pane really magnified. The file is written first, because it
+    // also gates painting and the load must start at full rate.
+    writeFileSync(GRAPHICS_PROOF_FILE, 'enabled');
+    stack = await startFakeStack({
+        ...LOAD,
+        graphicsEnableFile: GRAPHICS_PROOF_FILE,
+        // The board paints one named pane for the whole run. Without the pin,
+        // the first wheel notch on any pane pulled the producer onto it, so the
+        // phase that measures a text terminal made one out of it mid-bout.
+        pinGraphicsPane: true,
+        setupPlugins: usagePlugins(process.cwd()),
+    });
 } catch (cause) {
     fail(`could not start the stack: ${cause instanceof Error ? cause.message : String(cause)}`);
     finish(1);
 }
-ok(`herd up on relay :${stack.relayPort}: ${stack.world.panes.length} panes`
-    + `, ${stack.world.agents.length} agents, titles at ${LOAD.titleChurnHz} Hz, graphics ${LOAD.graphicsFrameHz} Hz`);
+// The file plugin lists a repository, and the reading surface needs a document
+// with somewhere to scroll: the fake herd's own README is three lines long.
+try {
+    writeFileSync(join(stack.world.cwd, DOCUMENT_FIXTURE), documentPayload());
+    const git = (args) => run('git', ['-C', stack.world.cwd, ...args], { timeout: 20_000 });
+    await run('git', ['init', '-q', '-b', 'main', stack.world.cwd], { timeout: 20_000 });
+    await git(['add', '.']);
+    await git(['-c', 'user.name=Perf Fixture', '-c', 'user.email=fixture@example.invalid', '-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', 'commit', '-qm', 'Release gate document fixture']);
+    report.fixtures = { document: documentContract(), scenario: SCENARIO_VERSION, plugins: ['code', 'status', 'terminal-keys', 'attachments'] };
+} catch (cause) {
+    fail(`could not seed the document fixture: ${cause instanceof Error ? cause.message : String(cause)}`);
+    finish(1);
+}
+report.fixturePanes = stack.fixturePanes;
+if (stack.fixturePanes?.text === undefined || stack.fixturePanes?.graphics === undefined) {
+    fail('the herd published no text/graphics fixture panes to route the phases to');
+    finish(1);
+}
+ok(`fixture panes: text ${stack.fixturePanes.text}, graphics ${stack.fixturePanes.graphics}`);
+ok(`herd up on relay :${stack.relayPort}: ${stack.world.panes.length} panes, ${stack.world.agents.length} agents`);
+ok(scenarioSummary());
 
 // 4. Pair with a code minted for this run, then wait for the herd to actually
 // be on screen. First-run prompts and a cold catalog make one attempt flaky in
@@ -706,41 +1612,61 @@ let idleJs;
 for (const phase of PHASES) {
     let flowRun;
     let driven;
+    // Prerequisite first, and nothing is measured if it fails: a gesture bout on
+    // the wrong screen still produces a full set of plausible numbers.
+    const ready = await preparePhase(phase, screen, hz);
+    if (!ready.ok) abortPhase(phase, ready.why, { flowExit: ready.flowExit, flowOutput: ready.flowOutput });
+    // The sampler opens before anything is injected and stays open while the
+    // attempt is: a bout that overruns its commanded seconds is still sampled to
+    // its last settle, instead of being described by a window that closed first.
+    let samplerOpen;
+    const opened = new Promise((resolve) => { samplerOpen = resolve; });
+    let drivingSettled = false;
     const driving = (async () => {
+        await opened;
         if (phase.flow !== undefined) {
             flowRun = await maestro(phase.flow);
+            // The flow is the phase's workload: once it has failed every later
+            // number describes a screen the phone was pushed off, so the churn
+            // stops here rather than at the end of the run.
+            if (flowRun.code !== 0) {
+                abortPhase(phase, `${phase.flow} did not complete`, {
+                    flowExit: flowRun.code,
+                    flowOutput: flowRun.output.split('\n').slice(-25).join('\n'),
+                });
+            }
         }
         if (phase.drive !== undefined) {
-            driven = await drivePhase(phase, screen, hz);
+            driven = await drivePhase(phase, screen, hz, ready);
         }
-    })();
-    const measured = await samplePhase({ pkg: PKG, seconds: phase.seconds });
+    })().finally(() => { drivingSettled = true; });
+    const measured = await samplePhase({
+        pkg: PKG,
+        seconds: phase.seconds,
+        onOpen: samplerOpen,
+        attempt: ready.prepared?.attempt,
+        active: () => !drivingSettled,
+    });
     await driving;
+    if (driven?.zoomEvidenceUnavailable !== undefined) abortPhase(phase, `the zoom evidence is unavailable (${driven.zoomEvidenceUnavailable})`);
+    if (driven?.trailUnavailable !== undefined) abortPhase(phase, `the phone trail is unavailable after the bout (${driven.trailUnavailable})`);
     if (phase.name === 'idle on the herd') idleJs = measured.jsBusyPercent;
     if (driven !== undefined) driven.jsBusyPercent = measured.jsBusyPercent;
     const gesture = gestureEvidence(driven, idleJs);
     const judged = driven === undefined
         ? { pass: true, failures: [] }
-        : verdict(phase, {
-            jank: driven.jank,
-            frameStats: driven.frameStats,
+        : verdict(phase, phaseMetrics(driven, {
             jsBusyDeltaPoints: gesture?.jsBusyDeltaPoints,
             accidentalOwners: gesture?.accidentalOwners,
-            documentNavigate: driven.documentNavigate,
-            documentNavigateDuringVertical: driven.documentNavigateDuringVertical,
-            terminal: driven.terminal,
-            graphicsRowsPerSecond: driven.graphicsRowsPerSecond,
-            zoomResizeCount: driven.zoomResizeCount,
-            injectFailed: driven.injectFailed,
-            movement: driven.movement,
-        }, LIMITS);
+            surfaceKind: ready.surfaceKind,
+        }), LIMITS);
     const entry = {
         ...phase,
         ...measured,
-        flowExit: flowRun?.code,
+        navigation: { ok: ready.ok, ...(ready.surfaceKind === undefined ? {} : { surfaceKind: ready.surfaceKind }), ...(ready.ok ? {} : { why: ready.why, flowOutput: ready.flowOutput }) },
+        flowExit: flowRun?.code ?? ready.flowExit,
         ...(gesture === undefined ? {} : { gesture }),
         ...(driven?.terminal === undefined ? {} : { terminal: driven.terminal }),
-        ...(driven?.documentNavigate === undefined ? {} : { documentNavigate: driven.documentNavigate }),
     };
     report.phases.push(entry);
     ingestHostJournal(journalAcc, stack.journalPath ?? join(stack.dataDir, 'diagnostics.json'));
@@ -753,11 +1679,11 @@ for (const phase of PHASES) {
         const moved = gesture.movement?.proven;
         const notches = gesture.notchesDropped;
         process.stdout.write(`  jank ${gesture.jank.jankyPercent}% p95 ${gesture.jank.p95Ms}ms`
-            + `  dropped ${gesture.frameStats.droppedPercent}%`
+            + `  dropped ${gesture.frameStats.droppedPercent ?? 'unmeasured'}%`
             + (notches === undefined ? '' : ` notchesDropped ${notches}`)
             + `  v ${gesture.medianVelocityPxPerSecond}px/s`
             + (moved === undefined ? '' : `  moved ${moved ? 'yes' : 'no'}`)
-            + (gesture.zoomResizeCount === undefined ? '' : ` zoom ${gesture.zoomResizeCount}`)
+            + (gesture.zoomTransitions === undefined ? '' : ` zoom ${gesture.zoomTransitions}`)
             + '\n');
     } else {
         process.stdout.write('\n');
@@ -770,11 +1696,18 @@ for (const phase of PHASES) {
     if (measured.frameStallSeconds >= LIMITS.frameStallSeconds) {
         fail(`${phase.name}: no frames drawn for ${measured.frameStallSeconds}s`);
     }
-    if ((measured.pssDriftKb ?? 0) > LIMITS.pssDriftKb) {
+    // A process that came back is a different process: nothing across the break
+    // is comparable, and a sample the phase never took is not a healthy one.
+    if (measured.restarts > 0) fail(`${phase.name}: the app restarted ${measured.restarts} time(s) during the phase`);
+    if (measured.gaps > 0) fail(`${phase.name}: the JS thread was unreadable in ${measured.gaps} sample(s)`);
+    if (measured.missingFrames > 0) fail(`${phase.name}: the frame counter did not read in ${measured.missingFrames} sample(s)`);
+    // Memory is judged only where there are two comparable samples to difference.
+    if (measured.pssDriftKb === undefined || measured.pssSamples.length < 2) {
+        fail(`${phase.name}: memory drift is unmeasured (${measured.pssSamples.length} comparable sample(s), ${measured.missingPss} missed)`);
+    } else if (measured.missingPss > 0) {
+        fail(`${phase.name}: memory did not read in ${measured.missingPss} sample(s), so the drift is not the phase's`);
+    } else if (measured.pssDriftKb > LIMITS.pssDriftKb) {
         fail(`${phase.name}: memory grew ${Math.round(measured.pssDriftKb / 1024)} MB`);
-    }
-    if (phase.flow !== undefined && flowRun?.code !== 0) {
-        fail(`${phase.name}: ${phase.flow} did not complete`);
     }
     if (driven?.injectFailed === true) fail(`${phase.name}: device could not inject`);
     for (const key of judged.failures) {
@@ -789,6 +1722,10 @@ for (const phase of PHASES) {
 const agentPanes = new Set(stack.world.agents.map((agent) => agent.pane_id));
 const tour = await tourEverySession({
     pkg: PKG,
+    // Which pane actually arrived. A visit is opened when the herd started a
+    // control terminal session for the pane we asked for, not when some pane's
+    // chrome happened to contain the word "Terminal".
+    attached: async (paneId, since) => paneAttaches(paneId, since).length > 0,
     // Shell panes only: an agent's session id is minted by the host and is not
     // something a deep link can guess. Agent terminals are the navigate flow's
     // job, which reaches them the way a person does.
@@ -799,9 +1736,22 @@ const tour = await tourEverySession({
 report.tour = tour;
 process.stdout.write(`\ntour: ${tour.panes} panes, ${tour.opened} opened`
     + `  pss ${tour.pssFirstKb ?? '-'} -> ${tour.pssLastKb ?? '-'} kB (max ${tour.pssMaxKb ?? '-'})\n`);
-if (tour.opened === 0) fail('the tour could not open a single terminal');
+if (tour.missed > 0) fail(`the tour never attached ${tour.missed}/${tour.panes} pane(s): ${tour.missedPanes.slice(0, 6).join(', ')}`);
 else ok(`toured ${tour.opened}/${tour.panes} panes`);
-if (tour.pssGrowthKb > LIMITS.tourGrowthKb) {
+if (tour.staleSurfaces.length > 0) {
+    // A memory sample taken on a terminal and the next taken on the herd are
+    // not comparable, so say so rather than reporting the difference as growth.
+    fail(`the tour could not leave ${tour.staleSurfaces.length} pane(s), so its memory samples are not comparable`);
+}
+if (tour.pssMissingSamples.length > 0) {
+    // A pane whose memory never read is a gap in the account. Differencing the
+    // samples that did land would report the tour as flat on evidence the run
+    // never collected.
+    fail(`the tour could not sample memory on ${tour.pssMissingSamples.length}/${tour.panes} pane(s):`
+        + ` ${tour.pssMissingSamples.slice(0, 6).join(', ')}`);
+} else if (tour.pssGrowthKb === undefined) {
+    fail(`the tour has ${tour.pssSamples} comparable memory sample(s); growth across it is unmeasured`);
+} else if (tour.pssGrowthKb > LIMITS.tourGrowthKb) {
     fail(`memory grew ${Math.round(tour.pssGrowthKb / 1024)} MB across the tour`);
 } else {
     ok(`memory held across the tour (${Math.round(tour.pssGrowthKb / 1024)} MB)`);
@@ -823,16 +1773,16 @@ if (journalAcc.events.length === 0 && journalAcc.lastError !== undefined) {
 const events = journalAcc.events;
 const requests = events.filter((event) => event.event === 'client.request');
 const graphicsEvents = events.filter((event) => event.event === 'graphics.pipeline');
-const attachRecords = stack?.attachJsonl === undefined ? [] : readJsonl(stack.attachJsonl);
+const controlAttaches = paneAttaches(undefined, '');
 report.hostJournal = {
     path: journalAcc.path,
     reads: journalAcc.reads,
     events: events.length,
     eventCounts: journalEventCounts(events),
-    attachJsonl: attachRecords.length,
+    controlAttaches: controlAttaches.length,
 };
-if (attachRecords.length > 0 && requests.filter((event) => event.request === 'terminal.attach').length === 0) {
-    fail(`fake-herdr recorded ${attachRecords.length} pane.read attach(es) but the host journal has no terminal.attach`);
+if (controlAttaches.length > 0 && requests.filter((event) => event.request === 'terminal.attach').length === 0) {
+    fail(`fake-herdr started ${controlAttaches.length} control terminal session(s) but the host journal has no terminal.attach`);
 }
 const attaches = requests.filter((event) => event.request === 'terminal.attach');
 const rejected = requests.filter((event) => event.outcome !== 'ok');

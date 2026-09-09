@@ -96,6 +96,10 @@ const upEnv = {
     // untouched.
     MUXR_ALLOWED_ORIGINS: `http://localhost:${metroPort},http://127.0.0.1:${metroPort},http://127.0.0.1:${relayPort}`,
     MUXR_MACHINE_ID: 'devbox',
+    // The one inherited MUXR_* variable that survives the strip above: an
+    // opt-in diagnostic output path, carrying no authority, endpoint or data
+    // dir, so it cannot point the harness at a real service.
+    ...(process.env.MUXR_GRAPHICS_TRACE?.trim() ? { MUXR_GRAPHICS_TRACE: process.env.MUXR_GRAPHICS_TRACE.trim() } : {}),
 };
 
 const metroEnv = {

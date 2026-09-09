@@ -25,10 +25,8 @@
  * delivers events slower than asked and a phase must report the gesture it
  * got rather than the one it wanted.
  */
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
-
-const run = promisify(execFile);
+import { androidArgs } from './deviceTarget.mjs';
+import { runCommand as run } from './commands.mjs';
 
 /** Target on-device speeds. Duration scales with travel so a short pane still flings. */
 const FLING_PX_PER_SECOND = 800 / 0.120;
@@ -39,7 +37,7 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 async function motion(action, x, y) {
     await run(
         'adb',
-        ['shell', 'input', 'motionevent', action, String(Math.round(x)), String(Math.round(y))],
+        androidArgs(['shell', 'input', 'motionevent', action, String(Math.round(x)), String(Math.round(y))]),
         { timeout: 10_000 },
     );
 }
@@ -68,7 +66,7 @@ async function swipeOnce(from, to, durationMs, profile) {
     const started = Date.now();
     const { stdout } = await run(
         'adb',
-        ['shell', `t0=$(cut -d' ' -f1 /proc/uptime); input swipe ${x1} ${y1} ${x2} ${y2} ${duration}; t1=$(cut -d' ' -f1 /proc/uptime); echo $t0 $t1`],
+        androidArgs(['shell', `t0=$(cut -d' ' -f1 /proc/uptime); input swipe ${x1} ${y1} ${x2} ${y2} ${duration}; t1=$(cut -d' ' -f1 /proc/uptime); echo $t0 $t1`]),
         { timeout: 20_000 },
     );
     const wallMs = Date.now() - started;
@@ -106,7 +104,7 @@ export async function drag(options) {
     const started = Date.now();
     const { stdout } = await run(
         'adb',
-        ['shell', `t0=$(cut -d' ' -f1 /proc/uptime); echo $t0; input motionevent DOWN ${Math.round(from.x)} ${Math.round(from.y)}`],
+        androidArgs(['shell', `t0=$(cut -d' ' -f1 /proc/uptime); echo $t0; input motionevent DOWN ${Math.round(from.x)} ${Math.round(from.y)}`]),
         { timeout: 10_000 },
     );
     const t0 = Number(String(stdout).trim().split(/\s+/)[0]);
@@ -132,7 +130,26 @@ export async function drag(options) {
 
 /** A tap, for opening what a gesture phase is about to scroll. */
 export async function tap(x, y) {
-    await run('adb', ['shell', 'input', 'tap', String(Math.round(x)), String(Math.round(y))], { timeout: 10_000 });
+    await run('adb', androidArgs(['shell', 'input', 'tap', String(Math.round(x)), String(Math.round(y))]), { timeout: 10_000 });
+}
+
+/**
+ * One tap, one spawn, with `/proc/uptime` sampled in the same shell -- the same
+ * way `swipeOnce` times a fling.
+ *
+ * The coordinates have to be resolved already. Finding a control costs a
+ * UIAutomator dump, which takes seconds, and a t0 taken before one puts the
+ * whole dump inside the frame window: the first frame the touch drove then
+ * looks seconds late against a limit meant for the touch alone.
+ */
+export async function tapTimed(x, y) {
+    const { stdout } = await run(
+        'adb',
+        androidArgs(['shell', `t0=$(cut -d' ' -f1 /proc/uptime); input tap ${Math.round(x)} ${Math.round(y)}; echo $t0`]),
+        { timeout: 20_000 },
+    );
+    const t0 = Number(String(stdout).trim().split(/\s+/).pop());
+    return { tapped: true, t0Seconds: Number.isFinite(t0) ? t0 : undefined };
 }
 
 /** Short linear swipe: ~800 px in 120 ms, about 6600 px/s. */
@@ -141,28 +158,60 @@ export async function fling(from, to) {
     return swipeOnce(from, to, durationFor(distance, FLING_PX_PER_SECOND), 'fling');
 }
 
-function summarize(gestures) {
-    const velocities = gestures.map((gesture) => gesture.velocityPxPerSecond).sort((left, right) => left - right);
-    const intended = gestures.map((gesture) => gesture.intendedVelocityPxPerSecond).sort((left, right) => left - right);
-    const profiles = [...new Set(gestures.map((gesture) => gesture.profile))];
+const median = (values) => values.slice().sort((left, right) => left - right)[Math.floor(values.length / 2)] ?? 0;
+
+/**
+ * One profile's own account. A bout mixes ~6600 px/s flings with ~1100 px/s
+ * drags, so a median over both lands between the two populations and describes
+ * neither: it selects the slowest fling and calls it typical.
+ */
+function summarizeProfile(gestures) {
     return {
         gestures: gestures.length,
-        flings: gestures.filter((gesture) => gesture.profile === 'fling').length,
-        medianVelocityPxPerSecond: velocities[Math.floor(velocities.length / 2)] ?? 0,
-        intendedMedianVelocityPxPerSecond: intended[Math.floor(intended.length / 2)] ?? 0,
+        medianVelocityPxPerSecond: median(gestures.map((gesture) => gesture.velocityPxPerSecond)),
+        intendedMedianVelocityPxPerSecond: median(gestures.map((gesture) => gesture.intendedVelocityPxPerSecond)),
+    };
+}
+
+function profileInjectOk(profile) {
+    const intended = profile.intendedMedianVelocityPxPerSecond;
+    return intended === 0 || profile.medianVelocityPxPerSecond >= 0.7 * intended;
+}
+
+export function summarize(gestures) {
+    const profiles = [...new Set(gestures.map((gesture) => gesture.profile))];
+    const byProfile = Object.fromEntries(profiles
+        .map((name) => [name, summarizeProfile(gestures.filter((gesture) => gesture.profile === name))]));
+    const flings = byProfile.fling ?? summarizeProfile([]);
+    return {
+        gestures: gestures.length,
+        flings: flings.gestures,
+        // The headline pair is the fling's, which is what the gate's limits were
+        // written against; every profile is kept beside it.
+        medianVelocityPxPerSecond: flings.medianVelocityPxPerSecond,
+        intendedMedianVelocityPxPerSecond: flings.intendedMedianVelocityPxPerSecond,
+        byProfile,
+        slowProfiles: profiles.filter((name) => !profileInjectOk(byProfile[name])),
         profiles,
         samples: gestures,
     };
 }
 
+/** Every profile of this bout met its own 70% guard. */
 function injectOk(summary) {
-    const intended = summary.intendedMedianVelocityPxPerSecond;
-    return intended === 0 || summary.medianVelocityPxPerSecond >= 0.7 * intended;
+    return summary.slowProfiles.length === 0;
 }
 
-async function withInjectRetry(runOnce) {
-    let summary = summarize(await runOnce());
-    if (!injectOk(summary)) summary = summarize(await runOnce());
+/**
+ * One complete attempt, reported as it happened.
+ *
+ * There is no silent retry. A second bout has its own counter baseline, its own
+ * sampler window and its own surface, while the caller accumulates all three
+ * against the first: combining them produced CPU, frame and movement numbers
+ * that described no single attempt.
+ */
+async function oneAttempt(runOnce) {
+    const summary = summarize(await runOnce());
     return { ...summary, injectFailed: !injectOk(summary) };
 }
 
@@ -171,69 +220,72 @@ async function withInjectRetry(runOnce) {
  * middle of the screen, which is where every scrollable surface in this app
  * lives. Returns the bout so a phase can report the input it actually applied.
  *
- * A bout whose median velocity is under 70% of intended is retried once, then
- * fails as "device could not inject" — the numbers would not be comparable.
+ * A bout is one attempt. If any profile's own median velocity is under 70% of
+ * intended it fails as "device could not inject" — the numbers would not be
+ * comparable.
  */
 export async function scrollBout(options) {
-    const { width = 1080, height = 1920, seconds = 30, settleMs = 350, onGesture } = options ?? {};
-    const midX = Math.round(width / 2);
-    const top = Math.round(height * 0.28);
-    const bottom = Math.round(height * 0.72);
+    const { width = 1080, height = 1920, bounds, seconds = 30, settleMs = 350, onGesture } = options ?? {};
+    // The surface the phase resolved, or the screen when it has none. Travel
+    // stays the same fraction of it, so the commanded speeds do not change.
+    const box = bounds ?? { l: 0, t: 0, r: width, b: height };
+    const span = box.b - box.t;
+    const midX = Math.round((box.l + box.r) / 2);
+    const top = Math.round(box.t + span * 0.28);
+    const bottom = Math.round(box.t + span * 0.72);
+    // The window a phase measures a gesture over ends after the gesture has
+    // settled, so the frames the fling was still drawing belong to the fling
+    // and not to whatever came next.
+    const settled = async (gesture, gestures) => {
+        gestures.push(gesture);
+        await sleep(settleMs);
+        if (onGesture !== undefined) await onGesture(gesture);
+    };
     const once = async () => {
         const deadline = Date.now() + seconds * 1000;
         const gestures = [];
         while (Date.now() < deadline) {
-            const up = await fling({ x: midX, y: bottom }, { x: midX, y: top });
-            gestures.push(up);
-            if (onGesture !== undefined) await onGesture(up);
-            await sleep(settleMs);
+            await settled(await fling({ x: midX, y: bottom }, { x: midX, y: top }), gestures);
             if (Date.now() >= deadline) break;
-            const down = await fling({ x: midX, y: top }, { x: midX, y: bottom });
-            gestures.push(down);
-            if (onGesture !== undefined) await onGesture(down);
-            await sleep(settleMs);
+            await settled(await fling({ x: midX, y: top }, { x: midX, y: bottom }), gestures);
             if (Date.now() >= deadline) break;
-            const dragUp = await drag({ from: { x: midX, y: bottom }, to: { x: midX, y: top } });
-            gestures.push(dragUp);
-            if (onGesture !== undefined) await onGesture(dragUp);
-            await sleep(settleMs);
+            await settled(await drag({ from: { x: midX, y: bottom }, to: { x: midX, y: top } }), gestures);
             if (Date.now() >= deadline) break;
-            const dragDown = await drag({ from: { x: midX, y: top }, to: { x: midX, y: bottom } });
-            gestures.push(dragDown);
-            if (onGesture !== undefined) await onGesture(dragDown);
-            await sleep(settleMs);
+            await settled(await drag({ from: { x: midX, y: top }, to: { x: midX, y: bottom } }), gestures);
         }
         return gestures;
     };
-    return withInjectRetry(once);
+    return oneAttempt(once);
 }
 
 /**
- * Horizontal paging on the live-terminal strip: y = 33% of height, travel 60%
- * of width, flings only. Same inject-retry rule as `scrollBout`.
+ * Horizontal paging on the live-terminal strip: down the middle of the strip's
+ * own scroller, travel 60% of its width, flings only. The caller resolves those
+ * bounds from the hierarchy, because a screen percentage lands in the plugin
+ * navigation instead. Same per-profile inject guard as `scrollBout`.
  */
 export async function stripBout(options) {
-    const { width = 1080, height = 1920, seconds = 20, settleMs = 350, onGesture } = options ?? {};
-    const y = Math.round(height * 0.33);
-    const travel = width * 0.6;
-    const midX = width / 2;
+    const { bounds, seconds = 20, settleMs = 350, onGesture } = options ?? {};
+    if (bounds === undefined) throw new Error('stripBout needs the strip scroller bounds');
+    const y = Math.round((bounds.t + bounds.b) / 2);
+    const travel = (bounds.r - bounds.l) * 0.6;
+    const midX = (bounds.l + bounds.r) / 2;
     const left = Math.round(midX - travel / 2);
     const right = Math.round(midX + travel / 2);
+    const settled = async (gesture, gestures) => {
+        gestures.push(gesture);
+        await sleep(settleMs);
+        if (onGesture !== undefined) await onGesture(gesture);
+    };
     const once = async () => {
         const deadline = Date.now() + seconds * 1000;
         const gestures = [];
         while (Date.now() < deadline) {
-            const inward = await fling({ x: right, y }, { x: left, y });
-            gestures.push(inward);
-            if (onGesture !== undefined) await onGesture(inward);
-            await sleep(settleMs);
+            await settled(await fling({ x: right, y }, { x: left, y }), gestures);
             if (Date.now() >= deadline) break;
-            const back = await fling({ x: left, y }, { x: right, y });
-            gestures.push(back);
-            if (onGesture !== undefined) await onGesture(back);
-            await sleep(settleMs);
+            await settled(await fling({ x: left, y }, { x: right, y }), gestures);
         }
         return gestures;
     };
-    return withInjectRetry(once);
+    return oneAttempt(once);
 }

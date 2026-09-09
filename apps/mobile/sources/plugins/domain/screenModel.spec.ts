@@ -174,6 +174,28 @@ describe('declarative screen flow', () => {
             { type: 'code', path: 'data.body', fileNamePath: 'data.name' },
             { type: 'diff', path: 'data.patch' },
         ]);
+        // A file screen can ask to own the scroll; anything else is not a
+        // viewport this app knows how to lay out.
+        const file = parseManifest({
+            schemaVersion: 1,
+            pluginId: 'you.file',
+            minMuxrVersion: 11,
+            contributions: [{
+                slot: 'navigation.content', id: 'file', type: 'screen',
+                children: [{ type: 'code', path: 'data.body', fileNamePath: 'data.path', viewport: 'fill' }],
+            }],
+        }).contributions[0];
+        if (!('type' in file) || file.type !== 'screen') throw new Error('file screen missing');
+        expect(file.children[0]).toEqual({ type: 'code', path: 'data.body', fileNamePath: 'data.path', viewport: 'fill' });
+        expect(() => parseManifest({
+            schemaVersion: 1,
+            pluginId: 'you.file',
+            minMuxrVersion: 11,
+            contributions: [{
+                slot: 'navigation.content', id: 'file', type: 'screen',
+                children: [{ type: 'code', path: 'data.body', viewport: 'tall' }],
+            }],
+        })).toThrow();
         expect(syntaxLanguage(undefined, 'src/index.tsx')).toBe('tsx');
         expect(syntaxLanguage('unknown', 'src/index.tsx')).toBe('tsx');
         expect(highlightCodeLines('const answer = 42;', 'typescript').flat()).toEqual(expect.arrayContaining([expect.objectContaining({ text: 'const', type: 'keyword' }), expect.objectContaining({ text: '42', type: 'number' })]));

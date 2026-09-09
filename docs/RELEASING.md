@@ -15,6 +15,22 @@ flowchart LR
  CLOSED --> PROD[Manual production promotion: no rebuild]
 ```
 
+## Release notes
+
+`apps/mobile/sources/changelog/changelog.json` is the only place release notes are written. Each marketing app version has exactly one entry — title, summary, `features`, `fixes`, `verification` (`passed|partial|failed|not-run`, with optional evidence path, digest, tested commit, environment and reviewer) and `knownLimits`. Older unversioned notes stay under `legacyEntries` and are still shown as earlier updates. Text is plain, never HTML.
+
+Candidate preparation validates the entry right after the version is selected and before a build number is reserved: a missing entry, a duplicate version, malformed sections or no recorded changes fail the run, and no other version's entry is ever substituted. It then renders `what-changed.html` and `release-notes.md` into the candidate directory, so the existing seal and verification hash them like any other artifact. Publication attaches the retained `release-notes.md`; promotion consumes those retained bytes and never re-renders an older candidate from a newer checkout.
+
+Evidence is a record of what was reviewed, not proof that a claim is true: statuses stay `partial` or `not-run` until a real run says otherwise, and emulator or phone acceptance is recorded separately from any build.
+
+```
+node scripts/release/presentation/changelog.mjs validate --version 0.1.27-nightly.1 --commit $(git rev-parse HEAD)
+node scripts/release/presentation/changelog.mjs generate --version 0.1.27-nightly.1 --commit $(git rev-parse HEAD) --directory ./out
+node scripts/release/presentation/changelog.mjs check    --version 0.1.27-nightly.1 --commit $(git rev-parse HEAD) --directory ./out
+```
+
+`check` fails on missing or stale output instead of rewriting it. Generated reports are release artifacts: never committed, never edited after preparation.
+
 ## Build and try a candidate
 
 Run **release candidate** on `main` after its CI succeeds. Choose `nightly` for the current testing cycle; the daily nightly run skips a commit whose source is already published on the nightly channel, so a stable candidate cut from the same commit no longer suppresses that day's nightly. Leave version empty for an automatically unique next-patch prerelease, or give an exact version such as `0.1.27-nightly.1`. Final-version candidates require an explicit stable version such as `0.1.27`; they remain GitHub prereleases and are never automatically published to npm.
@@ -67,7 +83,7 @@ Splitting the commands lets an initial migration seed the catalog before the web
 
 Publication runs the tooling from the commit the workflow file itself is running from, while the release identity — source commit, manifest, tarball and registry checks — stays bound to the candidate being published, so an older retained candidate is promoted by the current pipeline without rebuilding it.
 
-Publications serialize through the `npm-publication` concurrency group with `cancel-in-progress: false` and `queue: max`, so a release that arrives while another is publishing waits its turn instead of replacing an already waiting one. The catalog is safe independently of that: its writes serialize through fast-forward-only ref updates and refuse backwards moves.
+Publications serialize through the `npm-publication` concurrency group with `cancel-in-progress: false`, so a release that arrives while another is publishing waits instead of interrupting it. GitHub keeps only one pending run per group, so a third release displaces the one still waiting: re-run it after the queue drains. The catalog is safe independently of that: its writes serialize through fast-forward-only ref updates and refuse backwards moves.
 
 Durable website paths, served from that catalog: `/downloads/<channel>` for the human page, `/downloads/<channel>/android` redirecting to the canonical APK, `/downloads/<channel>/release` for the release page and `/downloads/<channel>/checksums` for digests, with `/api/releases/<channel>` returning the entry itself. Verification tolerates their short cache by retrying, never by weakening the comparison: it fails unless the served version and APK digest match the catalog and the redirect target is exactly the canonical artifact URL.
 

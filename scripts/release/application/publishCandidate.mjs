@@ -1,8 +1,9 @@
 import { execFileSync } from 'node:child_process';
-import { copyFileSync, readFileSync, readdirSync, renameSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, readFileSync, readdirSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
 import { verifyRelease } from './verifyRelease.mjs';
 import { sealRelease } from './sealRelease.mjs';
+import { reportFiles } from './prepareChangelog.mjs';
 import { digestFile } from '../infrastructure/artifacts.mjs';
 
 export async function publishCandidate() {
@@ -22,11 +23,20 @@ export async function publishCandidate() {
     const signer = readFileSync(join(androidDirectory, 'signer.txt'), 'utf8').match(/certificate SHA-256 digest: ([a-f0-9]{64})/i)?.[1].toLowerCase();
     if (!signer) throw new Error('Missing verified Android signer');
     renameSync(join(directory, 'release-manifest.json'), join(directory, 'npm-manifest.json'));
-    for (const file of readdirSync(androidDirectory)) copyFileSync(join(androidDirectory, file), join(directory, file));
+    // The Android artifact carries its own report, rendered from the same source
+    // with the build code in it. The candidate's report is already verified
+    // against the manifest it was sealed under, so it is never replaced here.
+    const reports = new Set(Object.values(reportFiles));
+    for (const file of readdirSync(androidDirectory)) {
+        if (reports.has(file)) continue;
+        copyFileSync(join(androidDirectory, file), join(directory, file));
+    }
     await sealRelease({ directory, version: VERSION, channel: CHANNEL, files: readdirSync(directory), runId: GITHUB_RUN_ID, runAttempt: GITHUB_RUN_ATTEMPT,
         android: { applicationId: expectedId, versionCode: Number(BUILD_CODE), signerSha256: signer } });
-    const notes = join(RUNNER_TEMP, 'candidate-notes.md');
-    writeFileSync(notes, `Release candidate; **not production**.\n\nChannel: ${CHANNEL}. Source: ${GITHUB_SHA}. Android build: ${BUILD_CODE}.\n\nDownload the APK below. ${CHANNEL === 'nightly' ? 'The nightly app installs separately, keeps its own data and uses manual self-host pairing.' : 'This updates the existing direct-install muxr app; it shares its data.'}\n\nThe npm tarball can be installed directly with npm. Registry publication uses the separate verified publisher. Production promotion is manual.\n\n[Build and checks](https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}). Local emulator and phone acceptance are recorded separately; a build is not device acceptance.\n`);
+    // Notes were rendered and sealed from the candidate's own source. This
+    // checkout is newer, so it publishes those retained bytes unchanged.
+    const notes = join(directory, reportFiles.markdown);
+    if (!existsSync(notes)) throw new Error('Candidate carries no release notes');
     execFileSync('gh', ['release', 'create', `v${VERSION}`, ...readdirSync(directory).map((name) => join(directory, name)), '--repo', GITHUB_REPOSITORY,
         '--target', GITHUB_SHA, '--title', `muxr ${VERSION}`, '--prerelease', '--latest=false', '--notes-file', notes], { stdio: 'inherit' });
 }

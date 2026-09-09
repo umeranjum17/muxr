@@ -18,10 +18,9 @@ on:
 
 concurrency:
   group: npm-publication
+  # Publications serialize. GitHub keeps only one pending run per group, so a
+  # third release replaces the one still waiting rather than queueing behind it.
   cancel-in-progress: false
-  # Publications serialize. Without a queue, GitHub keeps only one pending run
-  # per group, so a third release would replace a publication still waiting.
-  queue: max
 permissions:
   contents: read
   actions: read

@@ -30,8 +30,8 @@ export async function startFakeHerdr(options) {
     const graphicsInputJsonl = join(dir, 'graphics-input.jsonl');
     const inputJsonl = join(dir, 'input.jsonl');
 
-
     mkdirSync(dir, { recursive: true });
+    for (const path of [attachJsonl, graphicsInputJsonl, inputJsonl]) writeFileSync(path, '', { encoding: 'utf8', mode: 0o600, flag: 'a' });
     mkdirSync(cwd, { recursive: true });
     try { writeFileSync(join(cwd, 'README.md'), '# fake-herdr\n\nA deterministic herd.\n', { flag: 'wx' }); } catch { /* already seeded */ }
     try { writeFileSync(join(cwd, 'notes.txt'), 'line 1\nline 2\nline 3\n', { flag: 'wx' }); } catch { /* already seeded */ }
@@ -52,6 +52,23 @@ export async function startFakeHerdr(options) {
         panes: live.panes,
         agents: live.agents,
     });
+
+    /**
+     * The two panes a measuring harness is allowed to name. `graphics` is where
+     * the checkerboard producer paints when the run pins it; `text` is the
+     * first pane with no agent bound to it, reachable by a plain shell deep
+     * link, and -- because a pinned run serves no other pane -- one the
+     * graphics bridge never touches.
+     */
+    const graphicsPane = world.panes[0]?.pane_id;
+    const fixturePanes = {
+        graphics: graphicsPane,
+        text: world.panes.find((pane) => pane.pane_id !== graphicsPane
+            && !world.agents.some((agent) => agent.pane_id === pane.pane_id))?.pane_id,
+    };
+    const pinPaneId = options.pinGraphicsPane === true ? fixturePanes.graphics : undefined;
+    const worldIdentityPath = join(dir, 'world-identity.json');
+    writeFileSync(worldIdentityPath, `${JSON.stringify({ world, fixturePanes })}\n`, { encoding: 'utf8', mode: 0o600 });
 
     const socketPath = join(dir, 'herdr.sock');
     const clientSocketPath = join(dir, 'herdr-client.sock');
@@ -94,8 +111,9 @@ export async function startFakeHerdr(options) {
             frameHz: graphicsFrameHz,
             enableFile: options.graphicsEnableFile,
             inputLogPath: graphicsInputJsonl,
+            pinPaneId,
         });
-        binPath = writeBinShim({ dir, socketPath, terminalBytesPerSecond });
+        binPath = writeBinShim({ dir, socketPath, terminalBytesPerSecond, inputLogPath: inputJsonl });
     } catch (error) {
         await shutdown();
         throw error;
@@ -235,6 +253,12 @@ export async function startFakeHerdr(options) {
     }
 
     const methods = {
+        // The HERDR_BIN shim runs in its own process, so a pane's wheel reaches
+        // the graphics producer through here or not at all.
+        'graphics.request': (params) => {
+            graphics?.requestFrames(Number(params.count), params.pane_id, Number(params.offset));
+            return {};
+        },
         'session.snapshot': () => ({ snapshot: snapshotOf(live) }),
         'plugin.list': () => ({ plugins }),
         'plugin.action.invoke': (params) => {
@@ -506,7 +530,7 @@ export async function startFakeHerdr(options) {
         await shutdown();
     }
 
-    return { socketPath, clientSocketPath, binPath, world, close, attachJsonl, graphicsInputJsonl, inputJsonl };
+    return { socketPath, clientSocketPath, binPath, world, fixturePanes, worldIdentityPath, close, attachJsonl, graphicsInputJsonl, inputJsonl };
 }
 
 function snapshotOf(live) {
@@ -736,6 +760,7 @@ function parseArgs(argv) {
         else if (flag === '--graphics-frame-hz') { out.graphicsFrameHz = Number(value); index += 1; }
         else if (flag === '--graphics-enable-file') { out.graphicsEnableFile = value; index += 1; }
         else if (flag === '--plugins-root') { out.pluginsRoot = value; index += 1; }
+        else if (flag === '--pin-graphics-pane') { out.pinGraphicsPane = true; }
     }
     if (out.dir === undefined) throw new Error('fake-herdr: --dir is required');
     return out;
@@ -751,9 +776,11 @@ if (isMain) {
         clientSocketPath: handle.clientSocketPath,
         binPath: handle.binPath,
         world: handle.world,
+        fixturePanes: handle.fixturePanes,
         attachJsonl: handle.attachJsonl,
         graphicsInputJsonl: handle.graphicsInputJsonl,
         inputJsonl: handle.inputJsonl,
+        worldIdentityPath: handle.worldIdentityPath,
     })}\n`);
     const stop = async () => {
         await handle.close();
