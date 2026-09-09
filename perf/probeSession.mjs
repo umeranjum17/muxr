@@ -118,8 +118,9 @@ async function prepareFixture() {
     const contract = documentContract();
     const served = Buffer.from(read.body ?? '');
     const expected = Buffer.from(documentPayload()).subarray(0, contract.servedBytes);
-    if (read.name !== DOCUMENT_FIXTURE || served.compare(expected) !== 0 || served.length !== contract.servedBytes || served.toString('utf8').split('\n').filter(Boolean).length !== contract.servedLines) throw new Error('real Files plugin served bytes or lines differ from scenario');
-    return { cwd: resolve(cwd), gitRevision: await git(['rev-parse', 'HEAD'], cwd), gitTree: await git(['rev-parse', 'HEAD^{tree}'], cwd), name: DOCUMENT_FIXTURE, payloadSha256: contract.sha256, servedSha256: hashObject(served.toString('utf8')), servedBytes: served.length, servedLines: contract.servedLines };
+    const servedSha256 = createHash('sha256').update(served).digest('hex');
+    if (read.name !== DOCUMENT_FIXTURE || served.compare(expected) !== 0 || served.length !== contract.servedBytes || served.toString('utf8').split('\n').filter(Boolean).length !== contract.servedLines || servedSha256 !== contract.servedSha256) throw new Error('real Files plugin served bytes or lines differ from scenario');
+    return { cwd: resolve(cwd), gitRevision: await git(['rev-parse', 'HEAD'], cwd), gitTree: await git(['rev-parse', 'HEAD^{tree}'], cwd), name: DOCUMENT_FIXTURE, payloadSha256: contract.sha256, servedSha256, servedBytes: served.length, servedLines: contract.servedLines };
 }
 
 function writeDescriptor(value) {
@@ -168,11 +169,17 @@ async function main() {
         if (!proof.connected || proof.fixture === undefined) throw new Error('iOS app did not show the connected herd and fixture identity');
     }
     const world = { world: stack.world, fixturePanes: stack.fixturePanes };
+    const pids = { relay: stack.pids.relay, host: stack.pids.host, herdr: stack.herdrPid };
+    const pidStartIdentity = processStartIdentity(process.pid);
+    const pidIdentities = Object.fromEntries(Object.entries(pids).map(([name, pid]) => [name, processStartIdentity(pid)]));
+    // Undefined identities disappear through JSON, and the probe then validates a
+    // descriptor that never carried them. Refuse here instead.
+    if ([pidStartIdentity, ...Object.values(pidIdentities)].some((value) => typeof value !== 'string' || value === '')) throw new Error('fake-stack process start identity unavailable on this platform');
     const descriptor = {
-        version: 1, startedAt: new Date().toISOString(), pid: process.pid, pidStartIdentity: processStartIdentity(process.pid), platform, device,
+        version: 1, startedAt: new Date().toISOString(), pid: process.pid, pidStartIdentity, platform, device,
         scenario: scenarioDescriptor(), candidate: { source: currentSource, harness: currentHarness, artifact: device.artifact, installed: device.installed, manifest: device.manifest, manifestPath: resolve(candidateManifestPath ?? `${device.artifact.path}.json`) },
         hostBuild: readJson(hostBuildPath, 'host build evidence'),
-        host: { relayPort: stack.relayPort, dataDir: stack.dataDir, cwd: fixture.cwd, fixturePanes: stack.fixturePanes, world: stack.world, pids: { relay: stack.pids.relay, host: stack.pids.host, herdr: stack.herdrPid }, pidIdentities: { relay: processStartIdentity(stack.pids.relay), host: processStartIdentity(stack.pids.host), herdr: processStartIdentity(stack.herdrPid) }, childHealth: stack.childHealth().filter((entry) => entry.name !== 'pair'), attachJsonl: stack.attachJsonl, graphicsInputJsonl: stack.graphicsInputJsonl, inputJsonl: stack.inputJsonl, cellMetricsJsonl: stack.cellMetricsJsonl, worldIdentityPath: stack.worldIdentityPath, worldIdentity: hashObject(world), identity: stack.identity, fixture },
+        host: { relayPort: stack.relayPort, dataDir: stack.dataDir, cwd: fixture.cwd, fixturePanes: stack.fixturePanes, world: stack.world, pids, pidIdentities, childHealth: stack.childHealth().filter((entry) => entry.name !== 'pair'), attachJsonl: stack.attachJsonl, graphicsInputJsonl: stack.graphicsInputJsonl, inputJsonl: stack.inputJsonl, cellMetricsJsonl: stack.cellMetricsJsonl, worldIdentityPath: stack.worldIdentityPath, worldIdentity: hashObject(world), identity: stack.identity, fixture },
         plugins: runtimeIdentity('.'), paired, lock: lockPath, lockOwner: lockOwner, probeLock: join(lockPath, 'active-probe'), worldWitness: stack.worldIdentityPath,
     };
     writeDescriptor(descriptor);

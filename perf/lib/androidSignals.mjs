@@ -430,6 +430,13 @@ export async function samplePhase(options) {
     // closing observation -- this keeps reading, so the frames those produce are
     // inside the same window as the CPU they cost. Closure ends it immediately,
     // deadline or not: what happens after closure is navigation, not the phase.
+    // A raw AbortSignal is not a promise: racing the object resolves at once and
+    // deletes the cadence entirely. Race the abort event, and release it after.
+    let abortListener;
+    const aborted = signal === undefined ? undefined : new Promise((resolve) => {
+        if (signal.aborted) resolve();
+        else { abortListener = resolve; signal.addEventListener('abort', resolve, { once: true }); }
+    });
     const openNow = () => attempt === undefined
         ? Date.now() < deadline
         : attempt.open === true && active?.() !== false;
@@ -439,13 +446,16 @@ export async function samplePhase(options) {
         if (!openNow()) break;
         const elapsed = Date.now() - tickStarted;
         if (elapsed < intervalMs) {
+            let timer;
             await Promise.race([
-                new Promise((resolve) => setTimeout(resolve, intervalMs - elapsed)),
+                new Promise((resolve) => { timer = setTimeout(resolve, intervalMs - elapsed); }),
                 attempt?.signal ?? new Promise(() => {}),
-                signal ?? new Promise(() => {}),
+                aborted ?? new Promise(() => {}),
             ]);
+            clearTimeout(timer);
         }
     }
+    if (abortListener !== undefined) signal.removeEventListener('abort', abortListener);
 
     // The closing samples, taken while the caller still holds the measured
     // surface: it is waiting on this acknowledgement before it navigates.

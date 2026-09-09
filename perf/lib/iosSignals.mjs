@@ -14,9 +14,10 @@ export const unavailable = {
 export const sleep = (ms) => new Promise((resolve, reject) => {
     const signal = commandSignal();
     if (signal?.aborted) return reject(signal.reason);
-    const timer = setTimeout(done, Math.max(0, ms));
+    let timer;
     const done = () => { signal?.removeEventListener('abort', cancel); resolve(); };
     const cancel = () => { clearTimeout(timer); reject(signal.reason); };
+    timer = setTimeout(done, Math.max(0, ms));
     signal?.addEventListener('abort', cancel, { once: true });
 });
 export const sha256 = (path) => createHash('sha256').update(readFileSync(path)).digest('hex');

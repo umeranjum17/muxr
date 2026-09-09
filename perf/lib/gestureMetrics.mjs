@@ -842,8 +842,22 @@ export function verticalScrollers(dump) {
         .sort((left, right) => (right.b - right.t) - (left.b - left.t));
 }
 
-/** Identity and vertical position of the first visible tree row. */
-export function treePosition(dump) {
+/**
+ * The prepared row a label names, or nothing. The longest key wins, so `Pi 1`
+ * cannot claim a row that says `Pi 10`.
+ */
+export function knownRowKey(label, keys) {
+    const text = String(label ?? '');
+    return [...(keys ?? [])].filter(Boolean).sort((left, right) => right.length - left.length).find((key) => text.includes(key));
+}
+
+/**
+ * Identity and vertical position of the first visible tree row.
+ *
+ * With prepared row keys the identity is the key itself: a row label carries a
+ * churning task title, and a renamed row at the same offset is not travel.
+ */
+export function treePosition(dump, known = []) {
     const nodes = parseUiNodes(dump);
     const scroller = verticalScrollers(dump)[0];
     if (scroller === undefined) return undefined;
@@ -852,10 +866,18 @@ export function treePosition(dump) {
         && node.r > node.l && node.b > node.t
         && `${node.text ?? ''} ${node.desc ?? ''}`.trim() !== '')
         .sort((left, right) => left.t - right.t || left.l - right.l);
-    const row = rows[0];
-    if (row === undefined) return undefined;
-    const label = `${row.text ?? ''} ${row.desc ?? ''}`.trim();
-    return { identity: label.slice(0, 160), top: row.t, viewport: { l: scroller.l, t: scroller.t, r: scroller.r, b: scroller.b } };
+    const viewport = { l: scroller.l, t: scroller.t, r: scroller.r, b: scroller.b };
+    if (known.length === 0) {
+        const row = rows[0];
+        if (row === undefined) return undefined;
+        const label = `${row.text ?? ''} ${row.desc ?? ''}`.trim();
+        return { identity: label.slice(0, 160), top: row.t, viewport };
+    }
+    for (const row of rows) {
+        const key = knownRowKey(`${row.text ?? ''} ${row.desc ?? ''}`.trim(), known);
+        if (key !== undefined) return { identity: key, top: row.t, viewport };
+    }
+    return undefined;
 }
 
 /**

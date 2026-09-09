@@ -7,12 +7,12 @@ import { join, resolve } from 'node:path';
 import { CommandScope, fetchCommand, useCommandScope } from './lib/commands.mjs';
 import { setAndroidSerial, androidArgs } from './lib/deviceTarget.mjs';
 import { deviceIdentity, dumpUiXml, samplePhase, screenshot } from './lib/androidSignals.mjs';
-import { fling, drag } from './lib/gestures.mjs';
-import { documentPosition, parseUiNodes, scrollableBounds, treePosition, TERMINAL_SURFACE } from './lib/gestureMetrics.mjs';
+import { fling, drag, summarize } from './lib/gestures.mjs';
+import { documentPosition, knownRowKey, parseUiNodes, scrollableBounds, treePosition, TERMINAL_SURFACE } from './lib/gestureMetrics.mjs';
 import { apkIdentity, harnessIdentity, iosAppIdentity, patchedDependencies, runtimeIdentity, sha256, sourceIdentity } from './lib/provenance.mjs';
 import { IosControls, appPid as iosAppPid, command as iosCommand, processSample } from './lib/iosSignals.mjs';
 import { iosConnectionProof } from './lib/iosWarm.mjs';
-import { PROBE_KIND, acquireOwnerLock, artifactMismatch, judgeProbeMovement, metric, processStartIdentity, provenanceMismatch, sampleValidity, screenshotsComplete, validateDeadline, validateFixtureProof, validateOwnerLock, validateSession, worldIdentity } from './lib/surfaceProbe.mjs';
+import { PROBE_KIND, acquireOwnerLock, artifactMismatch, cropScreenshot, judgeProbeMovement, metric, processCpuPercent, processStartIdentity, provenanceMismatch, sampleValidity, screenshotsComplete, validateDeadline, validateFixtureProof, validateOwnerLock, validateSession, worldIdentity } from './lib/surfaceProbe.mjs';
 import { documentPayload, scenarioDescriptor } from './lib/scenario.mjs';
 
 const args = process.argv.slice(2);
@@ -32,6 +32,7 @@ let probeRelease;
 let attempt;
 let selectedHostProof = false;
 let iosUi;
+let knownKeys = [];
 
 function checkDeadline() { scope.signal.throwIfAborted(); scope.remaining(1); }
 function readJsonl(path, cap = 256) {
@@ -44,17 +45,10 @@ function hostJournal() {
     const path = join(session.host.dataDir, 'diagnostics.json');
     if (!existsSync(path)) throw new Error('required host journal is missing');
     const value = JSON.parse(readFileSync(path, 'utf8'));
-    if (!Array.isArray(value.events) || value.events.length > 256) throw new Error('required host journal is malformed or over cap');
+    if (!Array.isArray(value.events) || value.events.length > 512) throw new Error('required host journal is malformed or over cap');
     return value.events;
 }
 function pathFor(name, suffix = '') { return join(attachmentsDir, `probe-${surface}-${name}-${startedAt}${suffix}.png`); }
-function pngCrop(image, bounds, scale = 1) {
-    const left = Math.round((bounds?.l ?? 0) * scale), top = Math.round((bounds?.t ?? 0) * scale), right = Math.round((bounds?.r ?? 0) * scale), bottom = Math.round((bounds?.b ?? 0) * scale);
-    if (left < 0 || top < 0 || right <= left || bottom <= top || right > image.width || bottom > image.height) throw new Error('surface crop is outside screenshot bounds');
-    const width = right - left, height = bottom - top, bytes = Buffer.alloc(width * height * 4);
-    for (let y = 0; y < height; y += 1) image.data.copy(bytes, y * width * 4, ((top + y) * image.width + left) * 4, ((top + y) * image.width + right) * 4);
-    return { width, height, bytes };
-}
 function routeFor(paneId) {
     const agent = (session.host.world?.agents ?? []).find((row) => row.pane_id === paneId);
     if (!agent) return `shell:${paneId}`;
@@ -84,15 +78,10 @@ function iosDocumentPosition(nodes) {
     return line && scroller ? { line: Number(line[1]), top: rows[0].frame.y, viewport: frameBounds(scroller.frame) } : undefined;
 }
 function frameBounds(frame) { return { l: frame.x, t: frame.y, r: frame.x + frame.width, b: frame.y + frame.height }; }
-function knownTreeIdentity(identity) {
-    return [...(session.host.world.workspaces ?? []), ...(session.host.world.agents ?? []), ...(session.host.world.panes ?? [])].some((row) => (row.label && identity.includes(row.label)) || (row.name && identity.includes(row.name)));
-}
 function iosTreePosition(nodes) {
-    const known = new Set([...(session.host.world.workspaces ?? []).map((row) => row.label), ...(session.host.world.agents ?? []).map((row) => row.name), ...(session.host.world.panes ?? []).map((row) => row.label)].filter(Boolean));
-    const candidates = nodes.filter((node) => node.frame && iosUi.visible(node) && node.frame.height > 20 && node.frame.height <= 100 && [...known].some((label) => String(node.AXLabel ?? '').includes(label)));
-    const row = candidates.sort((a, b) => a.frame.y - b.frame.y)[0];
+    const row = nodes.filter((node) => node.frame && iosUi.visible(node) && node.frame.height > 20 && node.frame.height <= 100 && knownRowKey(node.AXLabel, knownKeys) !== undefined).sort((a, b) => a.frame.y - b.frame.y)[0];
     const scroller = iosScrollers(nodes).find((node) => row && row.frame.y >= node.frame.y && row.frame.y + row.frame.height <= node.frame.y + node.frame.height);
-    return row && scroller ? { identity: String(row.AXLabel).slice(0, 160), top: row.frame.y, viewport: frameBounds(scroller.frame) } : undefined;
+    return row && scroller ? { identity: knownRowKey(row.AXLabel, knownKeys), top: row.frame.y, viewport: frameBounds(scroller.frame) } : undefined;
 }
 function terminalProof(paneId, since) {
     const geometry = (existsSync(session.host.cellMetricsJsonl) ? readJsonl(session.host.cellMetricsJsonl) : []).filter((row) => row.pane_id === paneId && row.mode === 'control' && row.source === 'terminal.attach' && Date.parse(row.at) >= since && row.cols > 0 && row.rows > 0);
@@ -105,17 +94,13 @@ async function capture(name, bounds) {
     const original = pathFor(name, '-full');
     if (platform === 'android') await screenshot(original); else await iosUi.screenshot(original);
     const image = PNG.sync.read(readFileSync(original));
-    let scale = 1;
-    if (platform === 'ios') {
-        if (!iosUi.width || !iosUi.height || !iosUi.pixelWidth || !iosUi.pixelHeight) throw new Error('iOS screenshot geometry is unavailable');
-        const scaleX = image.width / iosUi.pixelWidth, scaleY = image.height / iosUi.pixelHeight;
-        if (!Number.isFinite(scaleX) || Math.abs(scaleX - scaleY) > .02) throw new Error('iOS screenshot orientation/scale is incoherent');
-        scale = scaleX;
-    }
-    const crop = pngCrop(image, bounds, scale);
+    const geometry = platform === 'ios'
+        ? { points: { width: iosUi.width, height: iosUi.height }, pixels: { width: iosUi.pixelWidth, height: iosUi.pixelHeight } }
+        : { points: { width: image.width, height: image.height }, pixels: { width: image.width, height: image.height } };
+    const crop = cropScreenshot(image, bounds, geometry);
     const path = pathFor(name);
     const output = new PNG({ width: crop.width, height: crop.height }); output.data = crop.bytes; writeFileSync(path, PNG.sync.write(output));
-    const shot = { path, width: crop.width, height: crop.height, bounds, scale, sha256: sha256(path) };
+    const shot = { path, width: crop.width, height: crop.height, bounds, scale: crop.scale, sha256: sha256(path) };
     shots[name] = shot;
     return { ...crop, shot };
 }
@@ -130,16 +115,15 @@ async function observe(since = 0, captureName = 'observation') {
         const dump = await dumpUiXml(scope.remaining(20_000));
         if (!dump.includes('<hierarchy')) throw new Error('fresh Android hierarchy is unavailable');
         const device = await deviceIdentity();
-        const position = surface === 'document' ? documentPosition(dump) : surface === 'tree' ? treePosition(dump) : undefined;
+        const position = surface === 'document' ? documentPosition(dump) : surface === 'tree' ? treePosition(dump, knownKeys) : undefined;
         const bounds = surface === 'tree' ? position?.viewport : scrollableBounds(surface, dump, device);
         if (bounds === undefined) throw new Error(`${surface} viewport is unavailable`);
         const filename = surface === 'document' && dump.includes(session.scenario.document.name) ? session.scenario.document.name : undefined;
         const proof = surface === 'terminal' ? terminalProof(session.host.fixturePanes.text, since) : undefined;
         const surfacePosition = surface === 'terminal' ? { scrolls: proof.distance } : position;
-        const selectedPosition = surface === 'tree' && position && !knownTreeIdentity(position.identity) ? undefined : surfacePosition;
-        const surfaceSeen = surface === 'terminal' ? dump.includes(`content-desc="${TERMINAL_SURFACE}"`) : surface === 'document' ? filename !== undefined && position !== undefined : selectedPosition !== undefined;
+        const surfaceSeen = surface === 'terminal' ? dump.includes(`content-desc="${TERMINAL_SURFACE}"`) : surface === 'document' ? filename !== undefined && position !== undefined : surfacePosition !== undefined;
         const crop = captureName === false ? undefined : await capture(captureName, bounds);
-        return { bounds, crop, position: selectedPosition, filename, surfaceSeen, connected: androidConnected(dump), hostProof: surface === 'terminal' ? proof.attached : selectedHostProof, inputProof: surface === 'terminal' ? proof.input : true, hostRecords: proof?.records, raw: dump };
+        return { bounds, crop, position: surfacePosition, filename, surfaceSeen, connected: androidConnected(dump), hostProof: surface === 'terminal' ? proof.attached : selectedHostProof, inputProof: surface === 'terminal' ? proof.input : true, hostRecords: proof?.records, raw: dump };
     }
     const nodes = await iosUi.ui();
     const terminal = surfaceNode(nodes, (node) => String(node.AXLabel ?? '').trim() === TERMINAL_SURFACE);
@@ -196,7 +180,7 @@ async function navigate() {
 }
 async function sampleIos(seconds, onOpen) {
     const started = Date.now(), end = started + Math.min(seconds * 1000, scope.remaining(seconds * 1000));
-    let previous, pid, restarts = 0, gaps = 0, missingCpu = 0, cpuWeighted = 0, cpuDuration = 0, rss = [];
+    let previous, pid, restarts = 0, gaps = 0, missingCpu = 0, rss = [];
     const samples = [];
     const take = async () => {
         checkDeadline(); const current = await iosAppPid(udid, session.device.bundle);
@@ -205,19 +189,73 @@ async function sampleIos(seconds, onOpen) {
         pid = current; const sample = await processSample(current); samples.push(sample);
         if (!sample.alive || sample.pid !== current || !Number.isFinite(sample.cpuSeconds) || !Number.isFinite(sample.rssKb)) { gaps += 1; missingCpu += 1; previous = undefined; return; }
         rss.push(sample.rssKb);
-        if (previous) { const dt = (Date.parse(sample.at) - Date.parse(previous.at)) / 1000; const delta = sample.cpuSeconds - previous.cpuSeconds; if (!(dt > 0) || delta < 0) { gaps += 1; previous = undefined; } else { cpuWeighted += delta * 100 / dt; cpuDuration += dt; } }
+        if (previous && !((Date.parse(sample.at) - Date.parse(previous.at)) > 0 && sample.cpuSeconds >= previous.cpuSeconds)) gaps += 1;
         previous = sample;
     };
-    await take();
-    onOpen?.();
-    while (attempt?.open !== false && Date.now() < end) { await new Promise((done) => setTimeout(done, Math.min(1000, Math.max(1, end - Date.now())))); await take(); }
-    await take();
-    return { sampledSeconds: cpuDuration, processCpuPercent: cpuDuration ? cpuWeighted / cpuDuration : undefined, rssFirstKb: rss[0], rssLastKb: rss.at(-1), rssPeakKb: rss.length ? Math.max(...rss) : undefined, samples, gaps, restarts, missingCpu, missingPss: 0 };
+    // main() waits on attempt.close() before it consumes this. Whatever happens
+    // here -- closure, deadline, a dead simulator -- the attempt gets its answer.
+    try {
+        await take();
+        onOpen?.();
+        while (attempt?.open !== false && Date.now() < end) {
+            let timer;
+            await Promise.race([new Promise((done) => { timer = setTimeout(done, Math.min(1000, Math.max(1, end - Date.now()))); }), attempt?.signal ?? new Promise(() => {})]);
+            clearTimeout(timer);
+            await take();
+        }
+        await take();
+    } finally { attempt?.acknowledge?.(); }
+    const cpu = processCpuPercent(samples);
+    return { sampledSeconds: cpu.seconds, processCpuPercent: cpu.percent, rssFirstKb: rss[0], rssLastKb: rss.at(-1), rssPeakKb: rss.length ? Math.max(...rss) : undefined, samples, gaps, restarts, missingCpu, missingPss: 0 };
 }
 function supportedMetricReason(name, sample, validity) {
     const supported = platform === 'android' ? ['jsBusyPercent', 'pssMaxKb', 'sampledSeconds'] : ['processCpuPercent', 'rssPeakKb', 'sampledSeconds'];
     return supported.includes(name) && !validity.valid ? validity.reasons.join(', ') : undefined;
 }
+/** The candidate on disk, still byte-for-byte what preparation recorded. */
+async function candidateUnchanged() {
+    const artifact = session.candidate.artifact;
+    if (!artifact?.path || !existsSync(artifact.path)) return false;
+    if (platform === 'android') return sha256(artifact.path) === artifact.sha256;
+    // A .app is a directory: hashing its path throws. The bundle identity is the
+    // executable, the JS bundle, the plist fields and the bundled resources.
+    return artifactMismatch(artifact, await iosAppIdentity(artifact.path)) === undefined;
+}
+
+/**
+ * What the device is actually running, reread from the device. `deep` reparses
+ * the whole installed package once at the opening boundary; the closing recheck
+ * is the installed bytes' own checksum, which fits inside the same deadline.
+ */
+async function verifyInstalled(deep = false) {
+    const artifact = session.candidate.artifact;
+    if (platform === 'android') {
+        const remote = (await adb(['shell', 'pm', 'path', session.device.package])).trim().replace(/^package:/, '');
+        if (!remote || remote !== session.candidate.installed.remotePath) throw new Error('installed Android package path does not match prepared identity');
+        if (!deep) {
+            const digest = /\b[0-9a-f]{64}\b/.exec(await adb(['shell', 'sha256sum', remote], { timeout: 30_000 }))?.[0];
+            if (digest === undefined) throw new Error('installed Android bytes unavailable');
+            if (digest !== artifact.sha256) throw new Error('installed artifact sha256 differs from candidate');
+            return { remotePath: remote, sha256: digest };
+        }
+        const scratch = mkdtempSync('/tmp/muxr-probe-verify-');
+        try {
+            const pulled = join(scratch, 'installed.apk');
+            await adb(['pull', remote, pulled], { timeout: 30_000 });
+            const identity = { ...await apkIdentity(pulled), remotePath: remote };
+            const problem = artifactMismatch(artifact, identity);
+            if (problem) throw new Error(problem);
+            return identity;
+        } finally { rmSync(scratch, { recursive: true, force: true }); }
+    }
+    const root = (await iosCommand('xcrun', ['simctl', 'get_app_container', udid, session.device.bundle, 'app'])).trim();
+    if (!root) throw new Error('installed iOS app container is unavailable');
+    const identity = await iosAppIdentity(root);
+    const problem = artifactMismatch(artifact, identity);
+    if (problem) throw new Error(problem);
+    return identity;
+}
+
 async function verifyFixture() {
     const fixturePath = join(session.host.cwd, session.scenario.document.name);
     if (!existsSync(fixturePath) || sha256(fixturePath) !== session.scenario.document.sha256) throw new Error('document fixture changed since preparation');
@@ -236,13 +274,14 @@ async function main() {
     else { if (!udid) throw new Error('--udid is required for iOS'); if (flag('--bundle', 'com.trymuxr.app') !== 'com.trymuxr.app') throw new Error('unsupported iOS bundle override'); iosUi = new IosControls(udid); }
     scope.setDeadline(startedAt + seconds * 1000);
     session = JSON.parse(readFileSync(sessionPath, 'utf8'));
+    knownKeys = [...new Set([...(session.host?.world?.workspaces ?? []).map((row) => row.label), ...(session.host?.world?.agents ?? []).map((row) => row.name), ...(session.host?.world?.panes ?? []).map((row) => row.label)].filter(Boolean))];
     const source = sourceIdentity('.'), harness = harnessIdentity('.'), runtime = runtimeIdentity('.');
     const witness = JSON.parse(readFileSync(session.worldWitness, 'utf8'));
     const liveWorldIdentity = worldIdentity(witness);
     const device = platform === 'android' ? { serial } : { udid };
     const stale = validateSession(session, { platform, device: { ...device, package: session.device?.package, bundle: session.device?.bundle }, source, harness, worldIdentity: liveWorldIdentity, childHealth: undefined, isAlive: (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } } });
     if (stale) throw new Error(stale);
-    if (session.pidStartIdentity && processStartIdentity(session.pid) !== session.pidStartIdentity) throw new Error('session owner process identity changed');
+    if (typeof session.pidStartIdentity !== 'string' || processStartIdentity(session.pid) !== session.pidStartIdentity) throw new Error('session owner process identity changed');
     if (validateOwnerLock(session.lock, session.lockOwner)) throw new Error('prepared session lock is not owned by this descriptor');
     if (JSON.stringify(session.scenario) !== JSON.stringify(scenarioDescriptor())) throw new Error('scenario changed since preparation');
     if (session.hostBuild?.version !== 1 || session.hostBuild.kind !== 'muxr.host-build' || session.hostBuild.buildCommand !== 'yarn build' || session.hostBuild.source?.dirty !== false || JSON.stringify(session.hostBuild.source) !== JSON.stringify(source) || JSON.stringify(session.hostBuild.harness) !== JSON.stringify(harness) || JSON.stringify(session.hostBuild.runtime) !== JSON.stringify(runtime)) throw new Error('built host provenance is missing or changed');
@@ -252,12 +291,11 @@ async function main() {
     const fixtureProblem = validateFixtureProof(session.host.fixture, session.scenario.document); if (fixtureProblem) throw new Error(fixtureProblem);
     await verifyFixture();
     const artifact = session.candidate.artifact;
-    if (!artifact?.path || !existsSync(artifact.path) || sha256(artifact.path) !== artifact.sha256) throw new Error('candidate artifact is missing or changed');
+    if (!await candidateUnchanged()) throw new Error('candidate artifact is missing or changed');
     const manifest = JSON.parse(readFileSync(session.candidate.manifestPath, 'utf8'));
     const manifestDigest = manifest.apkSha256 ?? manifest.appSha256 ?? manifest.binarySha256 ?? manifest.artifact?.sha256;
     if (manifest.sourceSha256 !== session.candidate.source.sourceSha256 || manifest.mobileSha256 !== session.candidate.source.mobileSha256 || manifest.dirty !== false || manifestDigest !== artifact.sha256 || manifest.nativeDependencies === undefined || JSON.stringify(manifest.nativeDependencies) !== JSON.stringify(patchedDependencies('.')) || (typeof manifest.signer !== 'string' && typeof manifest.buildMode !== 'string')) throw new Error('candidate build sidecar changed or is unbound');
-    const installed = platform === 'android' ? await (async () => { const remote = (await adb(['shell', 'pm', 'path', session.device.package])).trim().replace(/^package:/, ''); if (!remote || remote !== session.candidate.installed.remotePath) throw new Error('installed Android package path does not match prepared identity'); const scratch = mkdtempSync('/tmp/muxr-probe-verify-'); try { const pulled = join(scratch, 'installed.apk'); await adb(['pull', remote, pulled], { timeout: 30_000 }); return await apkIdentity(pulled); } finally { rmSync(scratch, { recursive: true, force: true }); } })() : await (async () => { const root = (await iosCommand('xcrun', ['simctl', 'get_app_container', udid, session.device.bundle, 'app'])).trim(); if (!root) throw new Error('installed iOS app container is unavailable'); return iosAppIdentity(root); })();
-    const artifactProblem = artifactMismatch(artifact, installed); if (artifactProblem) throw new Error(artifactProblem);
+    await verifyInstalled(true);
     const relay = await fetchCommand(`http://127.0.0.1:${session.host.relayPort}/health`).then((response) => response.ok).catch(() => false);
     if (!relay) throw new Error('prepared relay is not healthy');
     if (platform === 'ios') { const geometryRoot = mkdtempSync('/tmp/muxr-ios-geometry-'), geometryPath = join(geometryRoot, 'screen.png'); try { await iosUi.screenshot(geometryPath); const image = PNG.sync.read(readFileSync(geometryPath)); const nodes = await iosUi.ui(); const root = nodes.find((node) => node.type === 'Application' && node.frame?.width > 0 && node.frame?.height > 0) ?? nodes.find((node) => node.frame?.x === 0 && node.frame?.y === 0 && node.frame?.width > 0 && node.frame?.height > 0); if (!root) throw new Error('iOS AX root geometry is unavailable'); iosUi.setGeometry(root.frame.width, root.frame.height, image.width, image.height); } finally { rmSync(geometryRoot, { recursive: true, force: true }); } }
@@ -275,7 +313,7 @@ async function main() {
         : sampleIos(Math.min(20, seconds), onSampleOpen)).catch((error) => { attempt.cancel(); resolveSampleOpen(); return { commandFailed: true, reason: error.message }; });
     await sampleOpened;
     const actions = [];
-    const act = async (kind, from, to, fn) => { const action = { kind, startedAt: new Date().toISOString(), from, to, requestedDurationMs: kind === 'fling' ? 120 : 700 }; try { const actual = await fn(); Object.assign(action, actual, { finishedAt: new Date().toISOString() }); actions.push(action); return actual; } catch (error) { action.error = error.message; action.finishedAt = new Date().toISOString(); actions.push(action); throw error; } };
+    const act = async (kind, from, to, fn) => { const action = { kind, startedAt: new Date().toISOString(), from, to, ...(platform === 'ios' ? { requestedDurationMs: 120, timing: 'AX command elapsed; not delivery velocity' } : {}) }; try { const actual = await fn(); Object.assign(action, actual, { finishedAt: new Date().toISOString() }); actions.push(action); return actual; } catch (error) { action.error = error.message; action.finishedAt = new Date().toISOString(); actions.push(action); throw error; } };
     const from = { x: (before.bounds.l + before.bounds.r) / 2, y: before.bounds.t + (before.bounds.b - before.bounds.t) * .72 }, to = { x: (before.bounds.l + before.bounds.r) / 2, y: before.bounds.t + (before.bounds.b - before.bounds.t) * .28 };
     let moving, settled, sample;
     try {
@@ -291,9 +329,11 @@ async function main() {
     checkDeadline();
     const closingSource = sourceIdentity('.'), closingHarness = harnessIdentity('.'), closingRuntime = runtimeIdentity('.');
     const closingProvenance = provenanceMismatch(session.candidate, { source: closingSource, harness: closingHarness });
-    if (closingProvenance || JSON.stringify(closingRuntime) !== JSON.stringify(session.hostBuild.runtime) || !existsSync(artifact.path) || sha256(artifact.path) !== artifact.sha256) throw new Error(closingProvenance ?? 'closing build/runtime identity changed');
+    if (closingProvenance || JSON.stringify(closingRuntime) !== JSON.stringify(session.hostBuild.runtime)) throw new Error(closingProvenance ?? 'closing build/runtime identity changed');
+    if (!await candidateUnchanged()) throw new Error('candidate artifact is missing or changed');
     if (worldIdentity(JSON.parse(readFileSync(session.worldWitness, 'utf8'))) !== session.host.worldIdentity) throw new Error('closing live world identity changed');
     await verifyFixture();
+    await verifyInstalled();
     const movement = judgeProbeMovement(surface, { before, moving, settled });
     if (!screenshotsComplete(shots)) throw new Error('before, moving and settled cropped PNGs are mandatory');
     const validity = sampleValidity(sample, { requiredSeconds: Math.min(1, seconds), requirePss: platform === 'android' });
@@ -306,9 +346,14 @@ async function main() {
         metric('rssPeakKb', sample.rssPeakKb, 'KiB', 'app process', 'peak resident set size', 'iosSignals.processSample', platform === 'ios' ? metricReason('rssPeakKb') : 'Android RSS collector unavailable', platform === 'ios' ? 'invalid' : 'unavailable'),
         metric('sampledSeconds', sample.sampledSeconds, 'seconds', 'probe window', 'comparable sampled duration', 'samplePhase', sampleReason),
     ];
-    const reasons = [...validity.reasons, ...movement.reasons];
-    const outcome = movement.failure && validity.valid ? 'fail' : reasons.length === 0 ? 'pass' : 'inconclusive';
-    return { validity: movement.failure && validity.valid ? 'measured' : reasons.length === 0 ? 'measured' : 'invalid', outcome, ...(reasons.length === 0 ? {} : { reason: reasons.join(', ') }), device: session.device, boundaries: { deadlineSeconds: seconds, deadlineAt: new Date(startedAt + seconds * 1000).toISOString(), sampleOpenedAt: sampleOpenedAt.value, sampleClosedAt: new Date().toISOString(), actions }, metrics, sample, movement, screenshots: shots, hostWitness: { selected: selectedHostProof } };
+    // iOS AX swipes have no delivery velocity to guard; Android's helpers report
+    // theirs, and an under-delivered fling that still moved is not a failing app.
+    const delivery = platform === 'android' ? summarize(actions.filter((action) => action.profile !== undefined)) : undefined;
+    const underDelivered = delivery?.slowProfiles.length ? [`gesture injection under-delivered: ${delivery.slowProfiles.join(',')}`] : [];
+    const reasons = [...validity.reasons, ...movement.reasons, ...underDelivered];
+    const failure = movement.failure && validity.valid && underDelivered.length === 0;
+    const outcome = failure ? 'fail' : reasons.length === 0 ? 'pass' : 'inconclusive';
+    return { validity: failure || reasons.length === 0 ? 'measured' : 'invalid', outcome, ...(reasons.length === 0 ? {} : { reason: reasons.join(', ') }), device: session.device, boundaries: { deadlineSeconds: seconds, deadlineAt: new Date(startedAt + seconds * 1000).toISOString(), sampleOpenedAt: sampleOpenedAt.value, sampleClosedAt: new Date().toISOString(), actions, delivery }, metrics, sample, movement, screenshots: shots, hostWitness: { selected: selectedHostProof } };
 }
 
 let result;

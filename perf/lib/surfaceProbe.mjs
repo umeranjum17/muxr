@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 import { dirname } from 'node:path';
@@ -40,9 +41,14 @@ export function provenanceMismatch(stored, current) {
 }
 
 export function processStartIdentity(pid) {
+    const id = Number(pid);
+    if (!Number.isInteger(id) || id <= 0) return undefined;
     try {
-        const stat = readFileSync(`/proc/${Number(pid)}/stat`, 'utf8').trim();
-        return stat.slice(stat.lastIndexOf(')') + 2).split(/\s+/)[19] ?? undefined;
+        // Linux carries starttime in /proc; Darwin has no /proc, and a descriptor
+        // whose identities are undefined loses those keys to JSON entirely.
+        if (process.platform === 'darwin') return execFileSync('ps', ['-p', String(id), '-o', 'lstart='], { encoding: 'utf8', timeout: 5_000 }).trim() || undefined;
+        const stat = readFileSync(`/proc/${id}/stat`, 'utf8').trim();
+        return stat.slice(stat.lastIndexOf(')') + 2).split(/\s+/)[19] || undefined;
     } catch { return undefined; }
 }
 
@@ -122,7 +128,7 @@ export function validateSession(session, { platform, device, source, harness, wo
     if (!session.host.fixture?.gitRevision || !session.host.fixture?.gitTree) return 'fixture is not a committed Git repository';
     if (typeof session.host.identity !== 'string' || session.host.identity.length === 0) return 'connected host identity is absent';
     if (!Number.isInteger(Number(session.host.relayPort)) || Number(session.host.relayPort) <= 0) return 'relay identity is absent';
-    if (!session.host?.pidIdentities || Object.keys(session.host.pidIdentities).length < Object.keys(session.host.pids ?? {}).length) return 'fake-stack process identities are absent';
+    if (!session.host?.pidIdentities || Object.keys(session.host.pids ?? {}).some((name) => typeof session.host.pidIdentities[name] !== 'string' || session.host.pidIdentities[name] === '')) return 'fake-stack process identities are absent';
     const children = childProcessesHealthy(session.host?.pids, childHealth, session.host?.pidIdentities);
     if (children) return children;
     if ((session.host?.childHealth ?? []).some((entry) => entry.exitCode !== null || entry.signal !== null)) return 'fake-stack child health recorded a dead child';
@@ -153,6 +159,7 @@ export function judgeProbeMovement(surface, observations) {
     if (crops.some((crop) => !crop.valid)) reasons.push('invalid crop');
     const pixels = pixelsMoved(before?.crop, moving?.crop);
     if (!pixels.moved) reasons.push('before-to-moving pixels below noise floor');
+    if ([before, moving, settled].some((entry) => entry?.connected !== true)) reasons.push('connection proof missing');
     if (surface === 'document') {
         const names = [before?.filename, moving?.filename, settled?.filename];
         if (names.some((name) => name !== 'perf-document.md') || new Set(names).size !== 1) reasons.push('document filename changed or disappeared');
@@ -163,7 +170,7 @@ export function judgeProbeMovement(surface, observations) {
         if (!positionChanged(before?.position, moving?.position)) reasons.push('vertical tree position did not move');
     } else if (surface === 'terminal') {
         if (before?.surfaceSeen !== true || moving?.surfaceSeen !== true || settled?.surfaceSeen !== true) reasons.push('terminal surface identity missing');
-        if (before?.hostProof !== true || moving?.hostProof !== true || moving?.inputProof !== true) reasons.push('terminal host scroll/input or exact attach proof missing');
+        if (before?.hostProof !== true || moving?.hostProof !== true || settled?.hostProof !== true || moving?.inputProof !== true) reasons.push('terminal host scroll/input or exact attach proof missing');
         if (!Number.isFinite(before?.position?.scrolls) || !Number.isFinite(moving?.position?.scrolls) || moving.position.scrolls <= before.position.scrolls) reasons.push('terminal scroll position did not advance');
     } else reasons.push('unknown surface');
     const behaviorReasons = surface === 'document' ? ['before-to-moving pixels below noise floor', 'document did not travel one way'] : surface === 'tree' ? ['before-to-moving pixels below noise floor', 'vertical tree position did not move'] : ['before-to-moving pixels below noise floor', 'terminal scroll position did not advance'];
@@ -177,6 +184,41 @@ export function judgeProbeMovement(surface, observations) {
         moving: moving?.position,
         settled: settled?.position,
     };
+}
+
+/**
+ * One crop, in the screenshot's own pixels. AX bounds are points; the scale is
+ * the physical image over the observed point viewport, never over itself.
+ */
+export function cropScreenshot(image, bounds, { points, pixels } = {}) {
+    if (!(points?.width > 0 && points?.height > 0 && pixels?.width > 0 && pixels?.height > 0)) throw new Error('screenshot geometry is unavailable');
+    if (image.width !== pixels.width || image.height !== pixels.height) throw new Error('screenshot orientation/scale is incoherent');
+    const scale = image.width / points.width;
+    if (!Number.isFinite(scale) || scale <= 0 || Math.abs(scale - image.height / points.height) > .02) throw new Error('screenshot orientation/scale is incoherent');
+    const left = Math.round((bounds?.l ?? 0) * scale), top = Math.round((bounds?.t ?? 0) * scale), right = Math.round((bounds?.r ?? 0) * scale), bottom = Math.round((bounds?.b ?? 0) * scale);
+    if (left < 0 || top < 0 || right <= left || bottom <= top || right > image.width || bottom > image.height) throw new Error('surface crop is outside screenshot bounds');
+    const width = right - left, height = bottom - top, bytes = Buffer.alloc(width * height * 4);
+    for (let y = 0; y < height; y += 1) image.data.copy(bytes, y * width * 4, ((top + y) * image.width + left) * 4, ((top + y) * image.width + right) * 4);
+    return { width, height, bytes, scale };
+}
+
+/**
+ * Whole-process CPU over the window it was actually observed across: CPU
+ * seconds against elapsed seconds. Summing interval percentages and dividing by
+ * total seconds reports a quarter of the truth for a two-sample window.
+ */
+export function processCpuPercent(samples) {
+    let previous, cpuSeconds = 0, duration = 0;
+    for (const sample of samples ?? []) {
+        if (sample?.alive !== true || !Number.isFinite(sample.cpuSeconds)) { previous = undefined; continue; }
+        if (previous !== undefined && previous.pid === sample.pid) {
+            const dt = (Date.parse(sample.at) - Date.parse(previous.at)) / 1000;
+            const delta = sample.cpuSeconds - previous.cpuSeconds;
+            if (dt > 0 && delta >= 0) { cpuSeconds += delta; duration += dt; }
+        }
+        previous = sample;
+    }
+    return { percent: duration > 0 ? cpuSeconds * 100 / duration : undefined, seconds: duration };
 }
 
 export function sampleValidity(sample, { requiredSeconds = 1, requirePss = true } = {}) {
