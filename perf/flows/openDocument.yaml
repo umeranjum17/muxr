@@ -34,6 +34,21 @@ tags:
 # with the real `code` plugin.
 - tapOn:
     text: 'Files'
+# Under the loaded herd Android can acknowledge the semantic text tap without
+# delivering it to the segmented control. Fall back to the same control's
+# relative position, then require the repository screen so the workspace card
+# cannot masquerade as the repository row.
+- runFlow:
+    when:
+      notVisible:
+        text: 'Repositories'
+    commands:
+      - tapOn:
+          point: 59%, 13%
+- extendedWaitUntil:
+    visible:
+      text: 'Repositories'
+    timeout: 20000
 # `Files` always opens the repository list (`files.browse`), even when the host
 # has exactly one repository, so the repository row comes before any filename.
 - extendedWaitUntil:
