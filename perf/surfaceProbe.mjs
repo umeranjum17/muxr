@@ -142,21 +142,28 @@ async function exactHostChallenge(since) {
     const route = routeFor(session.host.fixturePanes.text);
     if (!route) throw new Error('no exact terminal fixture route');
     if (platform === 'android') {
+        let root = await dumpUiXml(scope.remaining(5_000));
+        for (let backs = 0; backs < 4 && !androidConnected(root); backs += 1) {
+            await adb(['shell', 'input', 'keyevent', 'KEYCODE_BACK']);
+            root = await dumpUiXml(scope.remaining(5_000));
+        }
+        if (!androidConnected(root)) throw new Error('prepared host is not visibly connected before terminal challenge');
         await adb(['shell', 'am', 'start', '-a', 'android.intent.action.VIEW', '-d', `muxr://session/${encodeURIComponent(route)}`, session.device.package]);
         const end = Date.now() + scope.remaining(20_000);
         while (Date.now() < end) {
             const dump = await dumpUiXml(scope.remaining(5_000));
             const proof = terminalProof(session.host.fixturePanes.text, since);
-            if (androidConnected(dump) && dump.includes(`content-desc="${TERMINAL_SURFACE}"`) && proof.attached) { selectedHostProof = true; return; }
+            if (dump.includes(`content-desc="${TERMINAL_SURFACE}"`) && proof.attached) { selectedHostProof = true; return; }
         }
     } else {
+        await iosUi.home();
+        if (!(await iosConnectionProof(iosUi, [])).connected) throw new Error('prepared host is not visibly connected before terminal challenge');
         await iosUi.open(`session/${encodeURIComponent(route)}`);
         const end = Date.now() + scope.remaining(20_000);
         while (Date.now() < end) {
             const nodes = await iosUi.ui();
             const proof = terminalProof(session.host.fixturePanes.text, since);
-            const connected = (await iosConnectionProof(iosUi, [])).connected;
-            if (connected && surfaceNode(nodes, (node) => String(node.AXLabel ?? '').trim() === TERMINAL_SURFACE) && proof.attached) { selectedHostProof = true; return; }
+            if (surfaceNode(nodes, (node) => String(node.AXLabel ?? '').trim() === TERMINAL_SURFACE) && proof.attached) { selectedHostProof = true; return; }
         }
     }
     throw new Error('selected prepared host did not attach exact terminal fixture');
