@@ -167,6 +167,16 @@ export type GraphicsPipelineReport = {
     /** Wheel notches released to the pane, and gesture intent the cap dropped. */
     notchesSent: number;
     notchesDropped: number;
+    /**
+     * How the rest of a gesture actually got out. A notch drained by a
+     * delivered frame is the pane keeping up; one drained by the 100ms
+     * fallback is the pane not answering, and a gesture spent entirely in
+     * that mode travels at ten notches a second however fast the finger
+     * moved. Both are subsets of notchesSent, whose remainder is the
+     * immediate release at the start of each gesture.
+     */
+    notchesByFrame: number;
+    notchesByTimer: number;
 };
 
 /**
@@ -237,6 +247,8 @@ export class HerdrGraphicsBridge {
     private supersededFrames = 0;
     private notchesSent = 0;
     private notchesDropped = 0;
+    private notchesByFrame = 0;
+    private notchesByTimer = 0;
     private reportTimer: ReturnType<typeof setInterval> | undefined;
     private input = Buffer.alloc(0);
     private draining = false;
@@ -405,8 +417,8 @@ export class HerdrGraphicsBridge {
         return Array.from({ length: now }, () => report);
     }
 
-    /** One notch of the remaining gesture, released by a delivered frame. */
-    private drainNotch(paneId: string): void {
+    /** One notch of the remaining gesture, released by a frame or the clock. */
+    private drainNotch(paneId: string, source: 'frame' | 'timer'): void {
         const inFlight = this.scrollInFlight.get(paneId) ?? 0;
         const backlog = this.scrollBacklog.get(paneId);
         graphicsTrace?.add('input.release', {
@@ -428,6 +440,8 @@ export class HerdrGraphicsBridge {
         // ordinary frame delivery calls this too and must not move the clock.
         this.lastInputAt.set(paneId, Date.now());
         this.notchesSent += 1;
+        if (source === 'frame') this.notchesByFrame += 1;
+        else this.notchesByTimer += 1;
         this.armNotchFallback(paneId);
     }
 
@@ -438,7 +452,7 @@ export class HerdrGraphicsBridge {
         const timer = setTimeout(() => {
             this.scrollTimers.delete(paneId);
             if (this.closed) return;
-            this.drainNotch(paneId);
+            this.drainNotch(paneId, 'timer');
         }, NOTCH_FALLBACK_MS);
         timer.unref();
         this.scrollTimers.set(paneId, timer);
@@ -1068,7 +1082,7 @@ export class HerdrGraphicsBridge {
         if (image.sourceWidth !== undefined && !this.gestureActive(paneId)) this.armRefine(paneId, 'source');
         // A frame is the honest acknowledgement that this pane kept up, so the
         // next notch of the gesture goes out now and no faster.
-        this.drainNotch(paneId);
+        this.drainNotch(paneId, 'frame');
     }
 
     /**
@@ -1361,6 +1375,8 @@ export class HerdrGraphicsBridge {
             pixelsP95: percentile(this.framePixels, 0.95),
             notchesSent: this.notchesSent,
             notchesDropped: this.notchesDropped,
+            notchesByFrame: this.notchesByFrame,
+            notchesByTimer: this.notchesByTimer,
         });
         this.latencies.length = 0;
         this.frameBytes.length = 0;
@@ -1368,6 +1384,8 @@ export class HerdrGraphicsBridge {
         this.supersededFrames = 0;
         this.notchesSent = 0;
         this.notchesDropped = 0;
+        this.notchesByFrame = 0;
+        this.notchesByTimer = 0;
     }
 
     private enqueue(file: GraphicsFile): void {
@@ -1583,7 +1601,7 @@ export class HerdrGraphicsBridge {
             registration.write(frame);
             this.recordFrame(startedAt, frame.length, prepared.width * prepared.height);
         }
-        this.drainNotch(paneId);
+        this.drainNotch(paneId, 'frame');
     }
 
     private admit(file: GraphicsFile): AdmittedTransfer {

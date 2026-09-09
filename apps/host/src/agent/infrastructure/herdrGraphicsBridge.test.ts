@@ -884,6 +884,8 @@ describe('Herdr graphics flow', () => {
             supersededFrames: number;
             notchesSent: number;
             notchesDropped: number;
+            notchesByFrame: number;
+            notchesByTimer: number;
             inlineQueue: unknown[];
             inlineDraining: boolean;
             imageOwners: Map<bigint, { paneId: string; imageId: number; sourceImageId: number }>;
@@ -982,6 +984,12 @@ describe('Herdr graphics flow', () => {
         expect(notches).toHaveLength(1);
         expect(notches[0]).toBe(burst[0]!.toString('utf8'));
         expect(internals.notchesSent).toBe(5);
+        // A notch the pane answered for, told apart from one the fallback
+        // clock had to release: a gesture spent in timer-paced mode travels at
+        // ten notches a second however fast the finger moved, and that is only
+        // visible if the two are counted separately.
+        expect(internals.notchesByFrame).toBe(1);
+        expect(internals.notchesByTimer).toBe(0);
 
         // The program's own delete names Herdr's id, which is the id the phone
         // holds, so it removes that image and nothing else. The pane still
