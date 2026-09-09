@@ -675,6 +675,8 @@ describe('host peer collaboration flow', () => {
             pixelsP95: 309_925.8,
             notchesSent: 9.7,
             notchesDropped: 2.2,
+            notchesByFrame: 6.4,
+            notchesByTimer: 1.4,
         });
         for (let index = 0; index < 600; index += 1) diagnostics.request('herdr.tree', 'native', 'ok', 1);
         await broker.close();
@@ -701,7 +703,7 @@ describe('host peer collaboration flow', () => {
         ]));
         expect(diagnosticEvents).toContainEqual(expect.objectContaining({ event: 'client.request', request: 'terminal.attach', outcome: 'rejected', code: 'socket-timeout' }));
         expect(diagnosticEvents).toContainEqual(expect.objectContaining({
-            event: 'graphics.pipeline', frames: 12, superseded: 3, p50Ms: 40, p95Ms: 91, bytesP95: 1600000, pixelsP95: 309926, notchesSent: 10, notchesDropped: 2,
+            event: 'graphics.pipeline', frames: 12, superseded: 3, p50Ms: 40, p95Ms: 91, bytesP95: 1600000, pixelsP95: 309926, notchesSent: 10, notchesDropped: 2, notchesByFrame: 6, notchesByTimer: 1,
         }));
         expect(diagnosticEvents).not.toContainEqual(expect.objectContaining({ kind: 'w1EW:pH' }));
         expect(diagnosticEvents).not.toContainEqual(expect.objectContaining({ kind: 'w1ew:ph' }));
