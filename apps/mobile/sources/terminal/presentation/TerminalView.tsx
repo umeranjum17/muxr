@@ -434,7 +434,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             {/* The native surface renders as a plain android.view.View and does
                 not publish its own class name, so this wrapper -- which is
                 exactly the terminal's box -- carries the surface's name. */}
-            <Animated.View accessibilityLabel={TERMINAL_SURFACE_LABEL} style={[{ flex: 1 }, surfaceStyle]}>
+            <Animated.View accessible accessibilityLabel={TERMINAL_SURFACE_LABEL} style={[{ flex: 1 }, surfaceStyle]}>
             <GhosttyView
                 ref={termRef}
                 style={{ flex: 1 }}
