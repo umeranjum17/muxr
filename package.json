@@ -142,7 +142,7 @@
         "react-textarea-autosize": "8.5.9",
         "rn-encryption": "2.5.0",
         "thumbhash": "0.1.1",
-        "uuid": "11.1.1",
+        "uuid": "14.0.2",
         "vitest": "3.2.6",
         "zod": "4.4.3",
         "zustand": "5.0.10"
