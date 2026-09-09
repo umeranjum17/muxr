@@ -1032,6 +1032,69 @@ describe('Herdr graphics flow', () => {
         bridge.close();
     });
 
+    it.skipIf(process.platform === 'win32')('tells a phone its pane is not on the desktop\'s active surface', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'herdr-offsurface-'));
+        const herdrBin = join(dir, 'herdr');
+        const onSurface = join(dir, 'on-surface');
+        const layout = {
+            workspace_id: 'workspace',
+            tab_id: 'tab',
+            area: { x: 0, y: 0, width: 20, height: 10 },
+            panes: [{ pane_id: 'pane', rect: { x: 0, y: 0, width: 20, height: 10 } }],
+        };
+        // The pane is real and its layout is intact; the desktop is simply
+        // looking at another workspace, which is what Herdr renders graphics
+        // for. Only the external Herdr answers are fixtured.
+        writeFileSync(herdrBin, `#!${process.execPath}
+const fs = require('node:fs');
+const command = process.argv.slice(2, 4).join(' ');
+const focused = fs.existsSync(${JSON.stringify(onSurface)}) ? 'workspace' : 'elsewhere';
+const replies = {
+    'pane list': { panes: [{ pane_id: 'pane', focused: true }] },
+    'pane layout': { layout: ${JSON.stringify(layout)} },
+    'workspace list': { workspaces: [{ workspace_id: focused, active_tab_id: 'tab', focused: true }] },
+};
+if (!(command in replies)) process.exit(1);
+console.log(JSON.stringify({ result: replies[command] }));
+`, { mode: 0o700 });
+
+        const socket = Object.assign(new EventEmitter(), { writable: true, write: () => true, destroy: () => {} });
+        const bridge = Reflect.construct(HerdrGraphicsBridge, [socket, herdrBin]) as HerdrGraphicsBridge;
+        const internals = bridge as unknown as {
+            announceOffSurfacePanes: () => Promise<void>;
+            offSurfacePanes: Set<string>;
+            layoutCache: Map<string, unknown>;
+            workspaceCache: unknown;
+        };
+        try {
+            const frames: { graphics?: boolean; graphicsReason?: string; bytes: string }[] = [];
+            bridge.register({
+                channel: 'phone', paneId: 'pane', cols: 20, rows: 10, cellWidthPx: 10, cellHeightPx: 20,
+                write: (frame) => frames.push(JSON.parse(frame) as { bytes: string }),
+            });
+            await vi.waitFor(() => { expect(frames).toHaveLength(1); }, { timeout: 4000, interval: 10 });
+            // Named, not merely "stopped": the cause is on the desktop and the
+            // phone cannot discover it any other way.
+            expect(frames[0]).toMatchObject({ graphics: false, graphicsReason: 'pane-off-surface', bytes: '' });
+
+            // Said once, not on every tick.
+            await internals.announceOffSurfacePanes();
+            expect(frames).toHaveLength(1);
+
+            // Back on the active surface: nothing further is said, and the pane
+            // is forgotten, so a later departure is announced again.
+            writeFileSync(onSurface, '');
+            internals.layoutCache.clear();
+            internals.workspaceCache = undefined;
+            await internals.announceOffSurfacePanes();
+            expect(frames).toHaveLength(1);
+            expect(internals.offSurfacePanes.size).toBe(0);
+        } finally {
+            bridge.close();
+            rmSync(dir, { recursive: true, force: true });
+        }
+    });
+
     it.skipIf(process.platform === 'win32')('delivers a queued repaint atomically and honors the final image delete', async () => {
         const dir = mkdtempSync(join(tmpdir(), 'herdr-repaint-'));
         const socketPath = join(dir, 'client.sock');
