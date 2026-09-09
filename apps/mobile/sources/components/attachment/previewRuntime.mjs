@@ -125,7 +125,12 @@ window.renderMuxrAttachment = async ({ kind, base64, dark }) => {
         };
         main().innerHTML = clean(md.render(text));
         // Mermaid draws its own ink, so it needs the app's mode: 'default' is its light palette, 'dark' its dark one.
-        mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: dark ? 'dark' : 'default', maxTextSize: 50000, flowchart: { htmlLabels: false } });
+        // `htmlLabels` is the top-level knob, and the only one the node label path
+        // reads: `flowchart.htmlLabels` is deprecated in Mermaid 11 and never reaches
+        // it, so labels came out as <foreignObject> HTML that `cleanDiagram` strips,
+        // leaving painted but empty boxes. False here keeps every diagram's labels as
+        // <text>/<tspan> the SVG profile already allows, with no sanitizer relaxation.
+        mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: dark ? 'dark' : 'default', maxTextSize: 50000, htmlLabels: false });
         for (const { id, code } of diagrams) {
             const element = document.getElementById(id); if (!element) continue;
             try { const { svg } = await mermaid.render(`svg-${id}`, code); element.innerHTML = cleanDiagram(svg); }

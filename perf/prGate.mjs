@@ -584,7 +584,31 @@ async function mermaidInk() {
     }
     await capture('rich-preview.md-mermaid.png');
     check(ink > 2000, `Mermaid diagram mounted but painted no visible pixels (${ink} of ${frame.width * frame.height} differ from the background)`);
-    return { ink, pixels: frame.width * frame.height, background: background.toString(16).padStart(6, '0') };
+    // Ink alone passed while every node label was missing: Mermaid emitted labels as
+    // <foreignObject> HTML that cleanDiagram drops, leaving painted but empty boxes.
+    // Only pixels can prove the labels -- a WebView never exposes SVG text to the
+    // native hierarchy -- so read them back, inverting a dark theme's light-on-dark
+    // ink, which tesseract cannot read as it stands.
+    const lightTheme = ((background >> 16 & 255) + (background >> 8 & 255) + (background & 255)) / 3 > 127;
+    const labelPng = new PNG({ width: frame.width, height: frame.height });
+    for (let i = 0; i < frame.bytes.length; i += 4) {
+        for (let channel = 0; channel < 3; channel++) labelPng.data[i + channel] = lightTheme ? frame.bytes[i + channel] : 255 - frame.bytes[i + channel];
+        labelPng.data[i + 3] = 255;
+    }
+    const labelPath = join(out, 'rich-preview.md-mermaid-labels.png');
+    writeFileSync(labelPath, PNG.sync.write(labelPng)); publish(labelPath);
+    const read = (await run('tesseract', [labelPath, 'stdout', '--psm', '3'], { timeout: 15_000 })).stdout;
+    save('rich-mermaid-ocr.txt', read);
+    const flattened = read.replace(/\s+/g, ' ');
+    // Every node label, not just the roomy one: `Beta` is the four-glyph label this
+    // fixture exists to protect, so the gate reads it back rather than inferring it
+    // from its neighbour. It is also the one near tesseract's floor at the density
+    // the diagram occupies on screen, so a failure naming only `Beta` on a preview
+    // that looks right is OCR reach, not a lost label -- the reported OCR text says
+    // which. Both labels come off one renderer pass, so a real regression drops both.
+    const missing = ['Beta', 'Phone testing'].filter((label) => !flattened.includes(label));
+    check(!missing.length, `Mermaid node labels did not paint in the ${lightTheme ? 'light' : 'dark'} preview (missing ${missing.join(', ')}; OCR read ${JSON.stringify(flattened.trim())})`);
+    return { ink, pixels: frame.width * frame.height, background: background.toString(16).padStart(6, '0'), labelsRead: flattened.trim(), labelEvidence: 'screenshot OCR' };
 }
 
 async function richPreviews() {
